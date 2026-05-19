@@ -17,19 +17,4 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Original Wizardry VI DOS files (currently in repo root; moved to /original/ during Stage 1).
-# Rooted globs so they don't accidentally match files we'd want to commit elsewhere later.
-/*.bat
-/*.com
-/*.drv
-/*.exe
-/*.hdr
-/*.dbs
-/*.ovr
-/*.pic
-/*.cga
-/*.ega
-/*.t16
-/*.snd
-/*.pif
-/mo_info.txt
+# Original Wizardry VI DOS files now live in /original/ (ignored above).
