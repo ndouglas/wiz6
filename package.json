@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "test": "pnpm -r --filter './packages/*' test",
     "build": "pnpm -r --filter './packages/*' build",
-    "typecheck": "pnpm -r --filter './packages/*' typecheck"
+    "typecheck": "pnpm -r --filter './packages/*' typecheck",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
