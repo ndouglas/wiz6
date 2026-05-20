@@ -12,16 +12,16 @@ interface Props {
   url: string;
 }
 
-// Wizardry's wfont*.ega plane order is B, R, G, I — *not* the standard EGA
-// hardware order of B, G, R, I. Confirmed empirically: with the standard order
-// in-game magenta renders as cyan, red renders as green, etc. Swapping the
-// contribution of file planes 1 and 2 in the output color index restores the
-// in-game appearance.
+// Standard EGA plane order: B (plane 0), G (plane 1), R (plane 2), I (plane 3).
+// The COLORS rendered will not match the in-game appearance exactly — Wizardry VI
+// reprograms the EGA palette registers at runtime, so the same pixel value can
+// look like different colors in different game screens. Discovering the actual
+// runtime palettes is Stage 1d work (see docs/re/wfont-4bpp.md "Palette" note).
 function pixelColor(glyph: number[], row: number, col: number): number {
-  const blue = (glyph[row] ?? 0) >> (7 - col) & 1;       // file plane 0 = blue
-  const red = (glyph[8 + row] ?? 0) >> (7 - col) & 1;    // file plane 1 = red
-  const green = (glyph[16 + row] ?? 0) >> (7 - col) & 1; // file plane 2 = green
-  const intensity = (glyph[24 + row] ?? 0) >> (7 - col) & 1; // file plane 3 = intensity
+  const blue = (glyph[row] ?? 0) >> (7 - col) & 1;
+  const green = (glyph[8 + row] ?? 0) >> (7 - col) & 1;
+  const red = (glyph[16 + row] ?? 0) >> (7 - col) & 1;
+  const intensity = (glyph[24 + row] ?? 0) >> (7 - col) & 1;
   return (intensity << 3) | (red << 2) | (green << 1) | blue;
 }
 
