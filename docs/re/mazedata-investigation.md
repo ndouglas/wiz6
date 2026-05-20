@@ -56,17 +56,43 @@ struct SpriteDescriptor {
 
 ### What this overlay does with it (from `wmaze.ovr` decompilation)
 
-`wmaze.ovr` (the dungeon-rendering overlay) accesses the loaded mazedata buffer via a pointer at DGROUP:0x4faa with several known field offsets:
+`wmaze.ovr` (the dungeon-rendering overlay) accesses TWO loaded buffers via pointers at DGROUP:0x4faa and DGROUP:0x4fa8. These are probably the mazedata buffer and a companion buffer (possibly the per-dungeon NPC/encounter data — not yet identified). Known field offsets:
+
+**From buffer at `*0x4faa` (mazedata):**
 
 | Buffer offset | Purpose (inferred from code) |
 |---|---|
-| `+0x4fa` (= 1274) | Bit-packed coordinate table (5-bit-stride entries × 3-bit reads). Probably X-coordinates of objects per dungeon room. |
-| `+0x512` (= 1298) | Sister table to `+0x4fa`. Probably Y-coordinates. |
-| `+0x4e08` (= 19976) | Per-maze 8×8 grid (64 bytes per maze). Tile / wall / floor state per cell. |
+| `+0x1e0` (= 480) | Byte array — `X coord` lookup for "things" (FUN_35b7) |
+| `+0x1ec` (= 492) | Byte array — `Y coord` lookup for "things" |
+| `+0x4fa` (= 1274) | Bit-packed coordinate table (5-bit-stride entries × 3-bit reads). Probably room/object X. |
+| `+0x512` (= 1298) | Sister table to `+0x4fa` — Y. |
+| `+0x4e08` (= 19976) | Per-maze 8×8 grid (64 bytes per maze). Walked by FUN_01d1 (set-tile-state). |
 
-These offsets are deep inside the file, well past table 1 — confirming that the file has MULTIPLE TABLES beyond the first 153-entry descriptor table.
+**From buffer at `*0x4fa8` (companion data):**
 
-All bit-level access goes through wroot.exe helper thunks: `func_0xe3c1` (read 3-bit field at bit offset), `func_0xe34b` (read another bit field, signature unclear), `func_0xe376` (write bit field), `func_0xe31d` (write companion).
+| Buffer offset | Purpose |
+|---|---|
+| `+0x360` (= 864) | Byte array, 144 entries (X coords?) |
+| `+0x3f0` (= 1008) | Byte array, 144 entries (Y coords?) |
+| `+0x480` (= 1152) | Byte array, 144 entries (unknown) |
+| `+0x510` (= 1296) | Byte array, 144 entries (`type_id` — used for filtering in FUN_366e) |
+| `+0x5a0` (= 1440) | Byte array, 144 entries (status byte?) |
+
+This **parallel-array layout** (each "record" is one byte at the same index across multiple arrays) is a common DOS-era idiom. The 144-entry × 5-byte structure likely tracks game-world objects (NPCs, encounters, treasures, etc.).
+
+### Key engine functions found (in wmaze.ovr, decompiled at /tmp/wmaze-decompiled.c)
+
+- **FUN_01d1**: `set_thing(maze_id, x, y, value)` — toggles a bit in the per-maze 8×8 grid and updates the coordinate tables at 0x4fa/0x512.
+- **FUN_357a / FUN_35b7**: query "what thing is at (x, y)?" — returns a thing-index 0..0xb (12 thing types max per cell).
+- **FUN_366e**: lookup an NPC/encounter by (x, y, type) in the parallel arrays of `*0x4fa8`. Bounded to 144 entries.
+- **FUN_36dd, FUN_3742**: directional movement helpers that call FUN_35b7 with offsets.
+
+All bit-level access goes through wroot.exe helper thunks: `func_0xe3c1` (read 3-bit field), `func_0xe376` (write 3-bit field), `func_0xe34b` (read 4-bit?), `func_0xe31d` (write companion).
+
+### What we have NOT yet found
+
+- **The actual sprite-drawing routine.** Despite finding many wmaze functions that READ the mazedata, none of them obviously DRAW pixels. Drawing is probably in another overlay or in wroot.exe via thunks not yet identified.
+- **Where the sprite-graphics region starts.** Probably after the second descriptor table (366 entries — count from the file header). The graphic_offset values in table 1 are byte offsets into that region.
 
 ### What the file ALMOST CERTAINLY contains
 
