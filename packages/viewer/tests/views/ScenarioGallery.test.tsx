@@ -1,0 +1,78 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { ScenarioGallery } from '../../src/views/ScenarioGallery.js';
+
+const validDb = {
+  id: 'scenario',
+  sourceFile: 'scenario.dbs',
+  xpTables: Array.from({ length: 14 }, (_, i) => ({
+    classIndex: i,
+    levels: Array.from({ length: 16 }, (_, j) => 1000 * (j + 1) * (i + 1)),
+  })),
+  itemCount: 3,
+  items: [
+    { index: 0, name1: 'BROKEN ITEM', name2: '', bytes: Array(74).fill(0), empty: false },
+    { index: 1, name1: 'DAGGER', name2: 'DAGGERS', bytes: Array(74).fill(0).map((_, i) => i === 0 ? 0x44 : 0), empty: false },
+    { index: 2, name1: '', name2: '', bytes: Array(74).fill(0), empty: true },
+  ],
+  unknownTail: [0xab, 0xcd],
+};
+
+describe('ScenarioGallery', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('renders heading with table counts', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(validDb), { status: 200 })));
+    render(<ScenarioGallery url="/scenario/scenario.json" />);
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: /scenario.*14 XP tables.*3 item slots.*2 filled/i }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('renders all 14 XP tables', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(validDb), { status: 200 })));
+    const { container } = render(<ScenarioGallery url="/scenario/scenario.json" />);
+    await waitFor(() => {
+      expect(screen.getByText(/XP-per-level by character class/i)).toBeInTheDocument();
+    });
+    const xpRows = container.querySelectorAll('table:first-of-type tbody tr');
+    expect(xpRows.length).toBe(14);
+  });
+
+  it('hides empty item slots by default', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(validDb), { status: 200 })));
+    const { container } = render(<ScenarioGallery url="/scenario/scenario.json" />);
+    await waitFor(() => {
+      expect(screen.getByText('DAGGER')).toBeInTheDocument();
+    });
+    const itemTable = container.querySelectorAll('table')[1];
+    const rows = itemTable!.querySelectorAll('tbody tr');
+    expect(rows.length).toBe(2);
+  });
+
+  it('filters items by search query', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(validDb), { status: 200 })));
+    const { container } = render(<ScenarioGallery url="/scenario/scenario.json" />);
+    await waitFor(() => {
+      expect(screen.getByText('DAGGER')).toBeInTheDocument();
+    });
+    fireEvent.change(screen.getByPlaceholderText(/DAGGER \/ 42/i), { target: { value: 'dagger' } });
+    await waitFor(() => {
+      const itemTable = container.querySelectorAll('table')[1];
+      const rows = itemTable!.querySelectorAll('tbody tr');
+      expect(rows.length).toBe(1);
+    });
+  });
+
+  it('shows error on fetch failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 404 })));
+    render(<ScenarioGallery url="/scenario/missing.json" />);
+    await waitFor(() => {
+      expect(screen.getByText(/failed to load/i)).toBeInTheDocument();
+    });
+  });
+});

@@ -36,7 +36,7 @@ export function MessageGallery({ url }: Props) {
   }, [url]);
 
   const filteredIndexed = useMemo(() => {
-    if (!db) return db?.indexedMessages ?? [];
+    if (!db) return [];
     if (!filter) return db.indexedMessages;
     const needle = filter.toLowerCase();
     return db.indexedMessages.filter(
@@ -48,7 +48,7 @@ export function MessageGallery({ url }: Props) {
   }, [db, filter]);
 
   const filteredRecords = useMemo(() => {
-    if (!db) return db?.records ?? [];
+    if (!db) return [];
     if (!filter) return db.records;
     const needle = filter.toLowerCase();
     return db.records.filter(

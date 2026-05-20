@@ -43,3 +43,11 @@ export {
   type NewgameRecord,
   type NewgameDb,
 } from './schemas/newgame-db.js';
+export {
+  XpTableSchema,
+  ScenarioItemSchema,
+  ScenarioDbSchema,
+  type XpTable,
+  type ScenarioItem,
+  type ScenarioDb,
+} from './schemas/scenario-db.js';

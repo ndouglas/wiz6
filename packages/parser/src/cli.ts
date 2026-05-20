@@ -7,6 +7,7 @@ import { extractWport } from './extractors/extract-wport.js';
 import { extractEgaScreen } from './extractors/extract-ega-screen.js';
 import { extractMessageDb } from './extractors/extract-message-db.js';
 import { extractNewgameDb } from './extractors/extract-newgame-db.js';
+import { extractScenarioDb } from './extractors/extract-scenario-db.js';
 
 const subcommand = process.argv[2];
 
@@ -74,12 +75,24 @@ if (subcommand === 'extract-fonts') {
   });
   const nonempty = db.records.filter((r) => !r.empty).length;
   console.log(`wrote ${extractedDir}/newgame/newgame.json (${db.recordCount} records, ${nonempty} non-empty)`);
+} else if (subcommand === 'extract-scenario') {
+  const originalDir = process.argv[3] ?? './original';
+  const extractedDir = process.argv[4] ?? './extracted';
+  const db = extractScenarioDb({
+    originalPath: join(originalDir, 'scenario.dbs'),
+    outputPath: join(extractedDir, 'scenario', 'scenario.json'),
+    id: 'scenario',
+  });
+  const nonemptyItems = db.items.filter((it) => !it.empty).length;
+  console.log(
+    `wrote ${extractedDir}/scenario/scenario.json (${db.xpTables.length} XP tables, ${db.itemCount} item slots [${nonemptyItems} non-empty], ${db.unknownTail.length}-byte tail)`,
+  );
 } else if (subcommand === 'plan' || subcommand === undefined) {
   const originalDir = process.argv[3] ?? './original';
   const plan = describePlan({ originalDir });
   console.log(JSON.stringify(plan, null, 2));
 } else {
   console.error(`Unknown subcommand: ${subcommand}`);
-  console.error(`Usage: wiz6-parse [plan|extract-fonts|extract-portraits|extract-screens|extract-messages|extract-newgame] [<originalDir> [<extractedDir>]]`);
+  console.error(`Usage: wiz6-parse [plan|extract-fonts|extract-portraits|extract-screens|extract-messages|extract-newgame|extract-scenario] [<originalDir> [<extractedDir>]]`);
   process.exit(2);
 }
