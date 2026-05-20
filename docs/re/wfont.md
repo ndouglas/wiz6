@@ -53,12 +53,12 @@ Establishing the precise codepoint table requires correlating with text-renderin
 These bytes are extracted from the real file at known offsets and used as test fixtures in `packages/parser/tests/formats/wfont.test.ts`:
 
 - **Glyph 0** (offset 0x000): `00 00 00 00 00 00 00 00` — empty.
-- **Glyph 1** (offset 0x008): `00 00 00 0f 10 20 20 20` — partial drawn glyph (used as a non-trivial decoding probe).
+- **Glyph 1** (offset 0x008): `00 00 0f 10 20 20 20 20` — partial drawn glyph (used as a non-trivial decoding probe).
 
 Real-file pixel readings (verified against the rendered glyph grid) used to lock in decode correctness:
 
-- Glyph 1, row 3, column 4 → `(0x0f >> (7 - 4)) & 1` = `(0x0f >> 3) & 1` = `1` (foreground).
-- Glyph 1, row 3, column 0 → `(0x0f >> 7) & 1` = `0` (background).
+- Glyph 1, row 2, column 4 → `(0x0f >> (7 - 4)) & 1` = `(0x0f >> 3) & 1` = `1` (foreground).
+- Glyph 1, row 2, column 0 → `(0x0f >> 7) & 1` = `0` (background).
 - Glyph 1, row 6, column 2 → `(0x20 >> 5) & 1` = `1` (foreground).
 
 ## Validation
