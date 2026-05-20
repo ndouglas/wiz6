@@ -37,10 +37,19 @@ const validScreen = {
   trailer: Array(768).fill(0),
 };
 
+const validMessageDb = {
+  id: 'msg',
+  sourceFile: 'msg.dbs',
+  treeSourceFile: 'misc.hdr',
+  recordCount: 1,
+  records: [{ index: 0, compressedBytes: 4, decodedText: 'HELLO' }],
+};
+
 describe('App', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('messages/')) return new Response(JSON.stringify(validMessageDb), { status: 200 });
       if (url.includes('screens/')) return new Response(JSON.stringify(validScreen), { status: 200 });
       if (url.includes('portraits/')) return new Response(JSON.stringify(validPortraitSet), { status: 200 });
       if (url.includes('wfont0')) return new Response(JSON.stringify(valid1bpp), { status: 200 });

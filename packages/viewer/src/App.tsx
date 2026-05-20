@@ -5,6 +5,7 @@ import { Font4bppGallery } from './views/Font4bppGallery.js';
 import { PortraitGallery } from './views/PortraitGallery.js';
 import { ScreenGallery } from './views/ScreenGallery.js';
 import { ScreenAlignmentTool } from './views/ScreenAlignmentTool.js';
+import { MessageGallery } from './views/MessageGallery.js';
 import {
   EGA_PALETTE,
   WIZ6_PALETTE_1,
@@ -63,6 +64,10 @@ export function App() {
       <ScreenGallery url="/screens/titlepag.json" palette={screenPalette} />
       <ScreenGallery url="/screens/graveyrd.json" palette={screenPalette} />
       <ScreenGallery url="/screens/dragonsc.json" palette={screenPalette} />
+      <h2 style={{ marginTop: '2em', borderTop: '2px solid #888', paddingTop: '1em' }}>
+        Game text — Huffman-decompressed from msg.dbs
+      </h2>
+      <MessageGallery url="/messages/msg.json" />
       <h2 style={{ marginTop: '2em', borderTop: '2px solid #888', paddingTop: '1em' }}>
         Screen alignment tool — drag sliders to align planes manually
       </h2>

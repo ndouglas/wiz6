@@ -7,6 +7,7 @@ import {
   type PortraitSet,
 } from '@wiz6/data';
 import { EgaScreenSchema, type EgaScreen } from '@wiz6/data';
+import { MessageDbSchema, type MessageDb } from '@wiz6/data';
 
 export async function loadFont(url: string): Promise<Font> {
   const response = await fetch(url);
@@ -42,4 +43,13 @@ export async function loadEgaScreen(url: string): Promise<EgaScreen> {
   }
   const data: unknown = await res.json();
   return EgaScreenSchema.parse(data);
+}
+
+export async function loadMessageDb(url: string): Promise<MessageDb> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to load message db from ${url}: ${res.status}`);
+  }
+  const data: unknown = await res.json();
+  return MessageDbSchema.parse(data);
 }

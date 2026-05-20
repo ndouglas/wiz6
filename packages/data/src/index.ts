@@ -29,3 +29,9 @@ export {
   type PortraitSet,
 } from './schemas/portrait.js';
 export { EgaScreenSchema, type EgaScreen } from './schemas/ega-screen.js';
+export {
+  MessageRecordSchema,
+  MessageDbSchema,
+  type MessageRecord,
+  type MessageDb,
+} from './schemas/message-db.js';

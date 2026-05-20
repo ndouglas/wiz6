@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { loadFont, loadFont4bpp, loadPortraitSet, loadEgaScreen } from '../src/data-loader.js';
+import { loadFont, loadFont4bpp, loadPortraitSet, loadEgaScreen, loadMessageDb } from '../src/data-loader.js';
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -115,5 +115,33 @@ describe('loadEgaScreen', () => {
   it('throws if the payload does not validate against EgaScreenSchema', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'x' }), { status: 200 })));
     await expect(loadEgaScreen('/bad.json')).rejects.toThrow();
+  });
+});
+
+const validMessageDb = {
+  id: 'msg',
+  sourceFile: 'msg.dbs',
+  treeSourceFile: 'misc.hdr',
+  recordCount: 1,
+  records: [{ index: 0, compressedBytes: 4, decodedText: 'HELLO' }],
+};
+
+describe('loadMessageDb', () => {
+  it('fetches and validates a message db', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(validMessageDb), { status: 200 })));
+    const db = await loadMessageDb('/messages/msg.json');
+    expect(db.id).toBe('msg');
+    expect(db.recordCount).toBe(1);
+    expect(db.records[0]?.decodedText).toBe('HELLO');
+  });
+
+  it('throws if the fetch response is not ok', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('not found', { status: 404 })));
+    await expect(loadMessageDb('/missing.json')).rejects.toThrow(/404/);
+  });
+
+  it('throws on a payload that does not validate', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'x' }), { status: 200 })));
+    await expect(loadMessageDb('/bad.json')).rejects.toThrow();
   });
 });
