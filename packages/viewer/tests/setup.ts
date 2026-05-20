@@ -1,5 +1,12 @@
 import '@testing-library/jest-dom/vitest';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
+import { cleanup } from '@testing-library/react';
+
+// Ensure React Testing Library DOM is cleaned up after every test.
+// (Auto-cleanup may not fire in all ESM + jsdom configurations.)
+afterEach(() => {
+  cleanup();
+});
 
 // jsdom does not implement HTMLCanvasElement.getContext. Stub it with a minimal
 // no-op 2D context covering only the methods/properties the viewer uses, so

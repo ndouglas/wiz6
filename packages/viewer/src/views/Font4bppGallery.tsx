@@ -1,22 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Font4bpp } from '@wiz6/data';
+import type { Font4bpp, Palette } from '@wiz6/data';
 import { loadFont4bpp } from '../data-loader.js';
-import { EGA_PALETTE } from '../palettes/ega-default.js';
+import { WIZ6_PALETTE_1 } from '../palettes/wiz6-palette-1.js';
 
 const GLYPH_PX = 8;
 const CELL_PX = 8;
 const ZOOM = 4;
 const COLS = 16;
 
-interface Props {
-  url: string;
-}
-
 // Standard EGA plane order: B (plane 0), G (plane 1), R (plane 2), I (plane 3).
-// The COLORS rendered will not match the in-game appearance exactly — Wizardry VI
-// reprograms the EGA palette registers at runtime, so the same pixel value can
-// look like different colors in different game screens. Discovering the actual
-// runtime palettes is Stage 1d work (see docs/re/wfont-4bpp.md "Palette" note).
+// The COLORS rendered depend on the palette prop. Default is the Wizardry main
+// palette discovered in wroot.exe (see docs/re/palette-discovery.md).
 function pixelColor(glyph: number[], row: number, col: number): number {
   const blue = (glyph[row] ?? 0) >> (7 - col) & 1;
   const green = (glyph[8 + row] ?? 0) >> (7 - col) & 1;
@@ -25,7 +19,12 @@ function pixelColor(glyph: number[], row: number, col: number): number {
   return (intensity << 3) | (red << 2) | (green << 1) | blue;
 }
 
-export function Font4bppGallery({ url }: Props) {
+interface Props {
+  url: string;
+  palette?: Palette;
+}
+
+export function Font4bppGallery({ url, palette = WIZ6_PALETTE_1 }: Props) {
   const [font, setFont] = useState<Font4bpp | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -64,14 +63,14 @@ export function Font4bppGallery({ url }: Props) {
       for (let r = 0; r < GLYPH_PX; r++) {
         for (let c = 0; c < GLYPH_PX; c++) {
           const colorIndex = pixelColor(glyph, r, c);
-          const rgb = EGA_PALETTE.colors[colorIndex];
+          const rgb = palette.colors[colorIndex];
           if (!rgb) continue;
           ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
           ctx.fillRect((gx + c) * ZOOM, (gy + r) * ZOOM, ZOOM, ZOOM);
         }
       }
     }
-  }, [font]);
+  }, [font, palette]);
 
   if (error) {
     return <div role="alert">Error: {error}</div>;
@@ -83,7 +82,7 @@ export function Font4bppGallery({ url }: Props) {
     <section>
       <h2>{font.id}</h2>
       <p>
-        Source: <code>{font.sourceFile}</code> · {font.glyphCount} glyphs · 4bpp
+        Source: <code>{font.sourceFile}</code> · {font.glyphCount} glyphs · 4bpp · palette: <code>{palette.name}</code>
       </p>
       <canvas ref={canvasRef} role="img" aria-label="4bpp font glyph grid" />
     </section>
