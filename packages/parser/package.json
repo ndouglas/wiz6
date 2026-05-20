@@ -8,9 +8,6 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "bin": {
-    "wiz6-parse": "./src/cli.ts"
-  },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
