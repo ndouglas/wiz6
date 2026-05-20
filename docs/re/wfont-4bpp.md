@@ -44,17 +44,16 @@ color = (intensity << 3) | (red << 2) | (green << 1) | blue
 
 The color is a 4-bit palette index (0–15).
 
-## Palette — known to be approximate, not yet correct
+## Palette
 
-The file does **not** carry its own palette, and Wizardry VI **reprograms the EGA palette registers at runtime** (a very common technique in EGA games). The same pixel value can therefore appear as different colors in different game screens — for example, the same file color index might be displayed as red in one menu and yellow in another, depending on which palette the game has loaded.
+Wizardry VI reprograms the EGA palette registers at runtime — the file format does not carry its own palette. The two runtime palettes baked into `wroot.exe` were discovered in Stage 1d; see `palette-discovery.md` for the methodology, raw bytes, and decoded RGB tables.
 
-Stage 1c's viewer uses the **default 16-color EGA palette** as a placeholder. The plane decoding is correct (text and icon *shapes* render perfectly), but specific *colors* will not match the in-game appearance in many cases. Concrete examples observed during Stage 1c:
+- `WIZ6_PALETTE_1` ("wiz6-main") — applied at the `INT 10h AX=1002h` call site at file offset 0x209B. Indices 9–15 are the standard EGA primaries (red, green, blue, magenta, cyan, yellow, light gray); indices 1–8 are green-leaning UI accents. This is the default palette used by the Stage 1d viewer.
+- `WIZ6_PALETTE_2` ("wiz6-dungeon") — applied at 0x2105. Indices 9–15 are identical to palette 1; indices 1–8 are blue/purple variants for dungeon scenes.
 
-- `wfont1` class abbreviations ("FIG", "MAG", "PRI", …) appear in dark magenta in our viewer; in-game they are bright magenta.
-- `wfont1` health/stamina bars appear in green tones in our viewer; in-game they are red and yellow.
-- `wfont2` movement-button labels ("TURN", "MOVE") appear cyan-ish in our viewer; in-game they are yellow.
+The Stage 1d viewer's palette picker switches between these two and the default EGA palette for side-by-side comparison.
 
-Reading the actual runtime palettes from the executable (likely set in `winit.ovr` and/or per-screen by `wpops.ovr` / `wmaze.ovr`) is **Stage 1d work**. Until then, all 4bpp viewer renderings should be treated as structurally correct but colorimetrically approximate.
+**Per-screen palette switching** is documented but not yet handled beyond the two known palettes — if the game programs additional palettes from other call sites (besides 0x209B and 0x2105), they have not yet been catalogued.
 
 ## Standard EGA palette (used for rendering)
 
