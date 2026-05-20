@@ -5,13 +5,32 @@ import { WIZ6_PALETTE_1 } from '../palettes/wiz6-palette-1.js';
 
 const ZOOM = 2;
 
-// Standard EGA plane order: B (plane 0), G (plane 1), R (plane 2), I (plane 3).
-function pixelColor(planes: number[][], rowByteIndex: number, bitIndex: number): number {
-  const b = ((planes[0]?.[rowByteIndex] ?? 0) >> bitIndex) & 1;
-  const g = ((planes[1]?.[rowByteIndex] ?? 0) >> bitIndex) & 1;
-  const r = ((planes[2]?.[rowByteIndex] ?? 0) >> bitIndex) & 1;
-  const i = ((planes[3]?.[rowByteIndex] ?? 0) >> bitIndex) & 1;
-  return (i << 3) | (r << 2) | (g << 1) | b;
+// Per-plane (dx, dy) offsets discovered empirically (Stage 1f.1, branch
+// stage-1f-ega-screens). Each .ega file stores its 4 planes pre-shifted
+// horizontally by 0/+64/+128/+192 pixels (with cyclic wrap on the row), plus
+// small Y shifts. To produce a correct composite, we shift each plane back
+// to position (0, 0) before sampling. The same offsets apply to all 3
+// known screens (titlepag, graveyrd, dragonsc); see docs/re/ega-screen.md.
+const PLANE_OFFSETS: { dx: number; dy: number }[] = [
+  { dx: 0, dy: 0 },
+  { dx: 64, dy: -5 },
+  { dx: 128, dy: -10 },
+  { dx: -128, dy: -14 },
+];
+
+// Read 1 bit from a plane after applying the plane's stored (dx, dy) shift.
+// The screen coordinate (x, y) maps back to the plane's stored byte via
+// cyclic-X-wrap and bounded-Y. Returns 0 outside the bounded Y range.
+function bitAt(plane: number[], width: number, height: number, x: number, y: number, dx: number, dy: number): number {
+  // The source pixel for screen coord (x, y) lives at plane coord (x - dx, y - dy).
+  // X uses cyclic wrap; Y is bounded.
+  const srcY = y - dy;
+  if (srcY < 0 || srcY >= height) return 0;
+  let srcX = (x - dx) % width;
+  if (srcX < 0) srcX += width;
+  const byteIdx = srcY * (width / 8) + (srcX >> 3);
+  const bitIdx = 7 - (srcX & 7);
+  return ((plane[byteIdx] ?? 0) >> bitIdx) & 1;
 }
 
 interface Props {
@@ -50,19 +69,17 @@ export function ScreenGallery({ url, palette = WIZ6_PALETTE_1 }: Props) {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     for (let y = 0; y < screen.height; y++) {
-      for (let xByte = 0; xByte < screen.width / 8; xByte++) {
-        const rowByteIndex = y * (screen.width / 8) + xByte;
-        for (let bit = 0; bit < 8; bit++) {
-          const bitIndex = 7 - bit;
-          const colorIndex = pixelColor(screen.planes, rowByteIndex, bitIndex);
-          const rgb = palette.colors[colorIndex];
-          if (!rgb) continue;
-          if (rgb[0] === 0 && rgb[1] === 0 && rgb[2] === 0) continue;
-          const screenX = (xByte * 8 + bit) * ZOOM;
-          const screenY = y * ZOOM;
-          ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-          ctx.fillRect(screenX, screenY, ZOOM, ZOOM);
-        }
+      for (let x = 0; x < screen.width; x++) {
+        const b0 = bitAt(screen.planes[0] ?? [], screen.width, screen.height, x, y, PLANE_OFFSETS[0]!.dx, PLANE_OFFSETS[0]!.dy);
+        const b1 = bitAt(screen.planes[1] ?? [], screen.width, screen.height, x, y, PLANE_OFFSETS[1]!.dx, PLANE_OFFSETS[1]!.dy);
+        const b2 = bitAt(screen.planes[2] ?? [], screen.width, screen.height, x, y, PLANE_OFFSETS[2]!.dx, PLANE_OFFSETS[2]!.dy);
+        const b3 = bitAt(screen.planes[3] ?? [], screen.width, screen.height, x, y, PLANE_OFFSETS[3]!.dx, PLANE_OFFSETS[3]!.dy);
+        const colorIndex = (b3 << 3) | (b2 << 2) | (b1 << 1) | b0;
+        if (colorIndex === 0) continue;
+        const rgb = palette.colors[colorIndex];
+        if (!rgb) continue;
+        ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+        ctx.fillRect(x * ZOOM, y * ZOOM, ZOOM, ZOOM);
       }
     }
   }, [screen, palette]);

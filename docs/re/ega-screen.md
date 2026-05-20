@@ -1,6 +1,6 @@
 # `titlepag.ega`, `graveyrd.ega`, `dragonsc.ega` — 32 KB EGA Screens
 
-**Status:** Format decoded — standard EGA 4bpp planar 320×200 image + 768-byte trailer (palette/script TBD).
+**Status:** Format decoded — standard EGA 4bpp planar 320×200 image with **per-plane cyclic X shifts** + 768-byte trailer (palette/script TBD).
 
 The investigation that led to cracking this format is recorded in `docs/re/ega-screen-investigation.md`. This file is the implementation-grade format spec.
 
@@ -24,21 +24,42 @@ Image: **320 × 200 pixels**, 16-color (4bpp), standard EGA color indices.
 
 ## Pixel decoding
 
-For pixel at `(x, y)` where `0 ≤ x < 320` and `0 ≤ y < 200`:
+Each plane stores its pixel data pre-shifted horizontally by a per-plane offset. To produce the displayed pixel at screen coordinate `(x, y)`, sample each plane at `(x - dx_N, y - dy_N)` with **cyclic X wrap** (so coordinates outside 0..319 wrap modulo 320) and **bounded Y** (out-of-range = 0):
 
 ```
-row_byte_index = y * 40 + (x >> 3)        // 0..7999
-bit_index      = 7 - (x & 7)              // MSB is leftmost pixel
+PLANE_OFFSETS = [
+    { dx:    0, dy:   0 },   // plane 0 (B)
+    { dx:  +64, dy:  -5 },   // plane 1 (G)
+    { dx: +128, dy: -10 },   // plane 2 (R)
+    { dx: -128, dy: -14 },   // plane 3 (I)  ≡  dx=+192 mod 320
+]
 
-b = (plane0[row_byte_index] >> bit_index) & 1
-g = (plane1[row_byte_index] >> bit_index) & 1
-r = (plane2[row_byte_index] >> bit_index) & 1
-i = (plane3[row_byte_index] >> bit_index) & 1
-
-color_index = (i << 3) | (r << 2) | (g << 1) | b   // 0..15
+for each (x, y) in 0..319, 0..199:
+    bits = [0, 0, 0, 0]
+    for plane_idx in 0..3:
+        (dx, dy) = PLANE_OFFSETS[plane_idx]
+        src_y = y - dy                              // bounded
+        if src_y < 0 or src_y >= 200: continue      // contributes 0
+        src_x = (x - dx) mod 320                    // cyclic
+        byte_idx = src_y * 40 + (src_x >> 3)        // 0..7999
+        bit_idx  = 7 - (src_x & 7)                  // MSB = leftmost
+        bits[plane_idx] = (plane[plane_idx][byte_idx] >> bit_idx) & 1
+    color_index = (bits[3] << 3) | (bits[2] << 2) | (bits[1] << 1) | bits[0]
 ```
 
-This is identical to the pixel encoding used by `wfont1-4.ega` and `wport1-3.ega`, just at image scale instead of tile scale.
+The shifts are **constant across all three known screens** (titlepag, graveyrd, dragonsc). The Y values (-5, -10, -14) are not a clean linear progression and may be approximations from manual visual alignment; expect refinement of ±1-2 pixels once the actual draw routine is traced in DOSBox-X.
+
+For the simpler font and portrait formats (`wfont1-4.ega`, `wport1-3.ega`) the planes are **not shifted** — the per-plane offset trick is specific to the 32 KB screen files.
+
+### Why the planes are pre-shifted
+
+We don't yet know. Hypotheses:
+
+- **Slide-in animation precompute**: the title screen slides in from the side; storing the image at 4 different cyclic shifts lets the engine display intermediate animation frames cheaply by selecting different plane-mask combinations.
+- **Authoring artifact**: the original graphics tool may have stored multi-image data in a way that produced this layout.
+- **EGA write-mode optimization**: pre-shifted data plus the EGA latch register can speed up certain compositing operations.
+
+Resolving this requires reading the draw routine in `wroot.exe` (the function reached via the overlay thunks from `winit.ovr`'s `FUN_08f7`). See `docs/re/ega-screen-investigation.md` for entry points.
 
 ## Trailer
 
@@ -52,8 +73,17 @@ Resolving this is a follow-up task; see "Open questions" in `docs/re/ega-screen-
 
 ## File summary
 
-| File          | Visible content (structural)                                                |
-|---------------|-----------------------------------------------------------------------------|
-| `titlepag.ega` | "BANE OF THE COSMIC FORGE" title screen — text on the left, wizards on the right, dungeon-wall background |
-| `graveyrd.ega` | Graveyard cinematic — skull, tombstones, cross, fiery sky |
-| `dragonsc.ega` | Top-strip HUD with character/class icons (top ~25% of image; rest is intentionally blank) |
+| File          | Visible content                                                |
+|---------------|----------------------------------------------------------------|
+| `titlepag.ega` | "BANE OF THE COSMIC FORGE" title screen — text on the left, dungeon-wall background, dwarf and three wizards on the right |
+| `graveyrd.ega` | Graveyard cinematic — central ghost figure, tombstones and crosses, dead tree, magical glow |
+| `dragonsc.ega` | Top-strip HUD: "Wizardry" title in red between two golden dragon wings, character-class portrait icons in framed boxes on each side |
+
+## Known residual differences from the original game
+
+The current renderer produces structurally correct images that closely match the in-game appearance but with a faint greenish tinge and slightly muted color variation versus the original. Likely causes:
+
+- The **per-plane Y offsets** (-5, -10, -14) were found by manual visual alignment and may be a pixel or two off.
+- The **palette** is whichever the picker is set to (defaults to `wiz6-main`). The true per-screen palette may live in the 768-byte trailer or be set by a routine inside `wroot.exe` that we haven't traced yet.
+
+Both can be resolved by a DOSBox-X trace of the actual draw routine.
