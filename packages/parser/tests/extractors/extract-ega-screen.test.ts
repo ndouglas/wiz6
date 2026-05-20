@@ -32,6 +32,6 @@ describe('extractEgaScreen', () => {
     const written = JSON.parse(readFileSync(outputPath, 'utf-8'));
     expect(written.id).toBe('titlepag');
     expect(written.planes).toHaveLength(4);
-    expect(written.trailer).toHaveLength(256);
+    expect(written.trailer).toHaveLength(768);
   });
 });

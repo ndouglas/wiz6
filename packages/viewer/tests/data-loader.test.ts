@@ -94,7 +94,7 @@ const validScreen = {
   width: 320,
   height: 200,
   planes: [Array(8000).fill(0), Array(8000).fill(0), Array(8000).fill(0), Array(8000).fill(0)],
-  trailer: Array(256).fill(0),
+  trailer: Array(768).fill(0),
 };
 
 describe('loadEgaScreen', () => {

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 const PLANE_BYTES = 8000; // 40 × 200
-const TRAILER_BYTES = 256;
+const TRAILER_BYTES = 768;
 const WIDTH = 320;
 const HEIGHT = 200;
 

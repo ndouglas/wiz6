@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EgaScreenSchema } from '../src/schemas/ega-screen.js';
 
 const validPlane = Array(8000).fill(0);
-const validTrailer = Array(256).fill(0);
+const validTrailer = Array(768).fill(0);
 
 const validScreen = {
   id: 'titlepag',
@@ -27,8 +27,8 @@ describe('EgaScreenSchema', () => {
     expect(() => EgaScreenSchema.parse({ ...validScreen, planes: [shortPlane, validPlane, validPlane, validPlane] })).toThrow();
   });
 
-  it('rejects when trailer is not 256 bytes', () => {
-    expect(() => EgaScreenSchema.parse({ ...validScreen, trailer: Array(255).fill(0) })).toThrow();
+  it('rejects when trailer is not 768 bytes', () => {
+    expect(() => EgaScreenSchema.parse({ ...validScreen, trailer: Array(767).fill(0) })).toThrow();
   });
 
   it('rejects when width is not 320', () => {

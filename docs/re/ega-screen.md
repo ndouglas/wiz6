@@ -1,6 +1,6 @@
 # `titlepag.ega`, `graveyrd.ega`, `dragonsc.ega` — 32 KB EGA Screens
 
-**Status:** Format decoded — standard EGA 4bpp planar 320×200 image + 256-byte trailer (palette TBD) + 512-byte zero pad.
+**Status:** Format decoded — standard EGA 4bpp planar 320×200 image + 768-byte trailer (palette/script TBD).
 
 The investigation that led to cracking this format is recorded in `docs/re/ega-screen-investigation.md`. This file is the implementation-grade format spec.
 
@@ -17,8 +17,7 @@ offset 0x0000..0x1F3F  (8000 B)  plane 0 (blue),       40 bytes/row × 200 rows
 offset 0x1F40..0x3E7F  (8000 B)  plane 1 (green),      40 bytes/row × 200 rows
 offset 0x3E80..0x5DBF  (8000 B)  plane 2 (red),        40 bytes/row × 200 rows
 offset 0x5DC0..0x7CFF  (8000 B)  plane 3 (intensity),  40 bytes/row × 200 rows
-offset 0x7D00..0x7DFF  (256 B)   trailer (per-screen palette, encoding TBD)
-offset 0x7E00..0x7FFF  (512 B)   zero padding
+offset 0x7D00..0x7FFF  (768 B)   trailer (per-screen palette / animation script, encoding TBD; titlepag has ~256 B of content + ~512 B of trailing zeros, graveyrd has structured content extending past byte 256)
 ```
 
 Image: **320 × 200 pixels**, 16-color (4bpp), standard EGA color indices.
@@ -43,7 +42,7 @@ This is identical to the pixel encoding used by `wfont1-4.ega` and `wport1-3.ega
 
 ## Trailer
 
-The 256 bytes at offset 0x7D00..0x7DFF are preserved verbatim in the extracted JSON (`trailer` field). The encoding is not yet decoded — it might be:
+The 768 bytes at offset 0x7D00..0x7FFF are preserved verbatim in the extracted JSON (`trailer` field). Files differ in how much of the trailer they use — titlepag.ega has roughly 256 active bytes followed by ~512 zero bytes, while graveyrd.ega has structured content extending past byte 256 (79 non-zero bytes scattered between offset 256 and 304 of the trailer). The encoding is not yet decoded — it might be:
 
 - A packed per-screen palette (each .ega file likely needs its own palette since the in-game color scheme — yellow title text, brown stone walls — doesn't match any palette found in `wroot.exe`).
 - A slide-in animation script (the title page is known to slide in from the left in the actual game).
