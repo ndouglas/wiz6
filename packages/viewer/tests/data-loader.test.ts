@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { loadFont, loadFont4bpp, loadPortraitSet } from '../src/data-loader.js';
+import { loadFont, loadFont4bpp, loadPortraitSet, loadEgaScreen } from '../src/data-loader.js';
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -85,5 +85,35 @@ describe('loadPortraitSet', () => {
   it('throws if the payload does not validate against PortraitSetSchema', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'x' }), { status: 200 })));
     await expect(loadPortraitSet('/bad.json')).rejects.toThrow();
+  });
+});
+
+const validScreen = {
+  id: 'titlepag',
+  sourceFile: 'titlepag.ega',
+  width: 320,
+  height: 200,
+  planes: [Array(8000).fill(0), Array(8000).fill(0), Array(8000).fill(0), Array(8000).fill(0)],
+  trailer: Array(256).fill(0),
+};
+
+describe('loadEgaScreen', () => {
+  it('fetches and validates an EGA screen JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(validScreen), { status: 200 })));
+    const screen = await loadEgaScreen('/screens/titlepag.json');
+    expect(screen.id).toBe('titlepag');
+    expect(screen.width).toBe(320);
+    expect(screen.height).toBe(200);
+    expect(screen.planes).toHaveLength(4);
+  });
+
+  it('throws if the fetch response is not ok', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('not found', { status: 404 })));
+    await expect(loadEgaScreen('/missing.json')).rejects.toThrow(/404/);
+  });
+
+  it('throws if the payload does not validate against EgaScreenSchema', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'x' }), { status: 200 })));
+    await expect(loadEgaScreen('/bad.json')).rejects.toThrow();
   });
 });
