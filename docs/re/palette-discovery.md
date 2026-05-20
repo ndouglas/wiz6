@@ -39,11 +39,11 @@ CD 10        INT  10h
 
 Each byte is a 6-bit EGA color code. The bit layout is:
 
-| bit | meaning                |
-| --- | ---------------------- |
-| 5   | R at 1/3 intensity (+85) |
-| 4   | G at 1/3 intensity (+85) |
-| 3   | B at 1/3 intensity (+85) |
+| bit | meaning                   |
+| --- | ------------------------- |
+| 5   | R at 1/3 intensity (+85)  |
+| 4   | G at 1/3 intensity (+85)  |
+| 3   | B at 1/3 intensity (+85)  |
 | 2   | R at 2/3 intensity (+170) |
 | 1   | G at 2/3 intensity (+170) |
 | 0   | B at 2/3 intensity (+170) |
@@ -54,39 +54,39 @@ For each channel, the displayed value is the sum of contributions from the two b
 
 **Palette 1** (the "main" palette — applied at site 0x209B, used for character creation and most in-game UI):
 
-| idx | reg  | RGB              | rough name        |
-| --- | ---- | ---------------- | ----------------- |
-| 0   | 0x00 | (0, 0, 0)        | black             |
-| 1   | 0x17 | (170, 255, 170)  | pale green        |
-| 2   | 0x11 | (0, 85, 170)     | dark teal         |
-| 3   | 0x15 | (170, 85, 170)   | muted magenta     |
-| 4   | 0x14 | (170, 85, 0)     | brown             |
-| 5   | 0x16 | (170, 255, 0)    | yellow-green      |
-| 6   | 0x12 | (0, 255, 0)      | pure bright green |
-| 7   | 0x13 | (0, 255, 170)    | mint              |
-| 8   | 0x10 | (0, 85, 0)       | dark green        |
-| 9   | 0x07 | (170, 170, 170)  | light gray        |
-| 10  | 0x01 | (0, 0, 170)      | blue              |
-| 11  | 0x05 | (170, 0, 170)    | magenta           |
-| 12  | 0x04 | (170, 0, 0)      | red               |
-| 13  | 0x06 | (170, 170, 0)    | olive / yellow    |
-| 14  | 0x02 | (0, 170, 0)      | green             |
-| 15  | 0x03 | (0, 170, 170)    | cyan              |
+| idx | reg  | RGB             | rough name        |
+| --- | ---- | --------------- | ----------------- |
+| 0   | 0x00 | (0, 0, 0)       | black             |
+| 1   | 0x17 | (170, 255, 170) | pale green        |
+| 2   | 0x11 | (0, 85, 170)    | dark teal         |
+| 3   | 0x15 | (170, 85, 170)  | muted magenta     |
+| 4   | 0x14 | (170, 85, 0)    | brown             |
+| 5   | 0x16 | (170, 255, 0)   | yellow-green      |
+| 6   | 0x12 | (0, 255, 0)     | pure bright green |
+| 7   | 0x13 | (0, 255, 170)   | mint              |
+| 8   | 0x10 | (0, 85, 0)      | dark green        |
+| 9   | 0x07 | (170, 170, 170) | light gray        |
+| 10  | 0x01 | (0, 0, 170)     | blue              |
+| 11  | 0x05 | (170, 0, 170)   | magenta           |
+| 12  | 0x04 | (170, 0, 0)     | red               |
+| 13  | 0x06 | (170, 170, 0)   | olive / yellow    |
+| 14  | 0x02 | (0, 170, 0)     | green             |
+| 15  | 0x03 | (0, 170, 170)   | cyan              |
 
 **Palette 2** (the "dungeon" palette — applied at site 0x2105, blue-leaning for dungeon scenes):
 
-| idx | reg  | RGB              | rough name           |
-| --- | ---- | ---------------- | -------------------- |
-| 0   | 0x00 | (0, 0, 0)        | black                |
-| 1   | 0x0F | (170, 170, 255)  | lavender             |
-| 2   | 0x09 | (0, 0, 255)      | pure bright blue     |
-| 3   | 0x0D | (170, 0, 255)    | purple               |
-| 4   | 0x0C | (170, 0, 85)     | dark crimson         |
-| 5   | 0x0E | (170, 170, 85)   | dim yellow           |
-| 6   | 0x0A | (0, 170, 85)     | blue-green           |
-| 7   | 0x0B | (0, 170, 255)    | bright cyan          |
-| 8   | 0x08 | (0, 0, 85)       | dim blue             |
-| 9–15 | (same as Palette 1)                       |                      |
+| idx  | reg                 | RGB             | rough name       |
+| ---- | ------------------- | --------------- | ---------------- |
+| 0    | 0x00                | (0, 0, 0)       | black            |
+| 1    | 0x0F                | (170, 170, 255) | lavender         |
+| 2    | 0x09                | (0, 0, 255)     | pure bright blue |
+| 3    | 0x0D                | (170, 0, 255)   | purple           |
+| 4    | 0x0C                | (170, 0, 85)    | dark crimson     |
+| 5    | 0x0E                | (170, 170, 85)  | dim yellow       |
+| 6    | 0x0A                | (0, 170, 85)    | blue-green       |
+| 7    | 0x0B                | (0, 170, 255)   | bright cyan      |
+| 8    | 0x08                | (0, 0, 85)      | dim blue         |
+| 9–15 | (same as Palette 1) |                 |
 
 Indices 9–15 are identical between the two palettes; only 1–8 differ. Wizardry preserves the "primary" colors (red, green, blue, magenta, cyan, yellow, light gray) across both palettes and re-uses indices 1–8 for scene-specific accents.
 
