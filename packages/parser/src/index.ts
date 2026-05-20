@@ -1,5 +1,7 @@
 import type { Manifest } from '@wiz6/data';
 
+export { decodeWfont, type DecodeWfontOpts } from './formats/wfont.js';
+
 export interface Plan {
   originalDir: string;
   schemaVersion: Manifest['schemaVersion'];
