@@ -32,17 +32,26 @@ Each 32-byte glyph is **plane-sequential**:
 - Bytes 16–23 hold **plane 2**.
 - Bytes 24–31 hold **plane 3**.
 
-Within each plane byte, **bit 7 (MSB) is the leftmost pixel**, same as `wfont0`. A pixel's 4-bit color index is the concatenation of its bit in each plane (plane 3 = MSB of color, plane 0 = LSB):
+Within each plane byte, **bit 7 (MSB) is the leftmost pixel**, same as `wfont0`. A pixel's 4-bit color index is the concatenation of its bit in each plane.
+
+**Plane → color-bit mapping is non-standard.** Wizardry stores its planes in **B, R, G, I** order, not the EGA hardware default of B, G, R, I. Specifically:
+
+- File plane 0 contributes the **blue** bit (color bit 0).
+- File plane 1 contributes the **red** bit (color bit 2). *(non-standard — would be green in default EGA)*
+- File plane 2 contributes the **green** bit (color bit 1). *(non-standard — would be red in default EGA)*
+- File plane 3 contributes the **intensity** bit (color bit 3).
 
 ```text
-b0 = (plane_0_byte >> (7 - c)) & 1
-b1 = (plane_1_byte >> (7 - c)) & 1
-b2 = (plane_2_byte >> (7 - c)) & 1
-b3 = (plane_3_byte >> (7 - c)) & 1
-color = (b3 << 3) | (b2 << 2) | (b1 << 1) | b0
+blue      = (plane_0_byte >> (7 - c)) & 1
+red       = (plane_1_byte >> (7 - c)) & 1
+green     = (plane_2_byte >> (7 - c)) & 1
+intensity = (plane_3_byte >> (7 - c)) & 1
+color = (intensity << 3) | (red << 2) | (green << 1) | blue
 ```
 
-The color is a 4-bit palette index (0–15). The file does **not** carry its own palette; renderers should use the standard 16-color EGA palette.
+This was confirmed empirically by comparing rendered output to in-game appearance: under the standard EGA plane order, in-game magenta text rendered as cyan, in-game red as green, etc. Swapping the contribution of file planes 1 and 2 restores the correct in-game colors.
+
+The color is a 4-bit palette index (0–15). The file does **not** carry its own palette; renderers use the standard 16-color EGA palette (whose bit-to-color mapping is the standard B, G, R, I — only the file's *plane storage order* is non-standard, not the palette itself).
 
 ## Standard EGA palette (used for rendering)
 
@@ -84,11 +93,11 @@ fe 00 ea ac ea 00 fe 00   plane 2 (rows 0..7)
 ff 01 01 01 01 01 ff ff   plane 3 (rows 0..7)
 ```
 
-Pixel readings for glyph 37:
-- Row 0, column 0 → b0=0, b1=1, b2=1, b3=1 → color **14** (yellow). Plane bits: (0x00>>7=0, 0xfe>>7=1, 0xfe>>7=1, 0xff>>7=1).
-- Row 0, column 7 → b0=0, b1=0, b2=0, b3=1 → color **8** (dark gray). Plane bits: (0x00>>0=0, 0xfe>>0=0, 0xfe>>0=0, 0xff>>0=1).
-- Row 1, column 7 → b0=0, b1=0, b2=0, b3=1 → color **8** (dark gray). The first/last rows of the glyph are framed by plane 3.
-- Row 2, column 0 → b0=1, b1=0, b2=1, b3=0 → color **5** (magenta). Plane bits: (0xea>>7=1, 0x00>>7=0, 0xea>>7=1, 0x01>>7=0). Combined: `(0<<3) | (1<<2) | (0<<1) | 1` = `0b0101` = 5.
+Pixel readings for glyph 37 (using the **B, R, G, I** plane order documented above):
+- Row 0, column 0 → B=0, R=1, G=1, I=1 → color **14** (yellow). Plane bits: (0x00>>7=0, 0xfe>>7=1, 0xfe>>7=1, 0xff>>7=1).
+- Row 0, column 7 → B=0, R=0, G=0, I=1 → color **8** (dark gray). Plane bits: (0x00>>0=0, 0xfe>>0=0, 0xfe>>0=0, 0xff>>0=1).
+- Row 1, column 7 → B=0, R=0, G=0, I=1 → color **8** (dark gray). The first/last rows of the glyph are framed by plane 3 (intensity).
+- Row 2, column 0 → B=1, R=0, G=1, I=0 → color **3** (cyan). Plane bits: (0xea>>7=1, 0x00>>7=0, 0xea>>7=1, 0x01>>7=0). Combined: `(0<<3) | (0<<2) | (1<<1) | 1` = `0b0011` = 3.
 
 Pixel arithmetic (synthetic, for the all-set case):
 - Plane bits at any (row, col) where each plane byte's relevant bit is 1: combined color = `(1<<3) | (1<<2) | (1<<1) | 1` = `0b1111` = `15` (white).
