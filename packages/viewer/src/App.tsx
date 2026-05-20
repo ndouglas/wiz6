@@ -4,6 +4,7 @@ import { FontGallery } from './views/FontGallery.js';
 import { Font4bppGallery } from './views/Font4bppGallery.js';
 import { PortraitGallery } from './views/PortraitGallery.js';
 import { ScreenGallery } from './views/ScreenGallery.js';
+import { ScreenAlignmentTool } from './views/ScreenAlignmentTool.js';
 import { EGA_PALETTE, WIZ6_PALETTE_1, WIZ6_PALETTE_2, type PaletteName } from './palettes/index.js';
 
 const PALETTE_BY_NAME: Record<PaletteName, Palette> = {
@@ -51,6 +52,12 @@ export function App() {
       <ScreenGallery url="/screens/titlepag.json" palette={palette} />
       <ScreenGallery url="/screens/graveyrd.json" palette={palette} />
       <ScreenGallery url="/screens/dragonsc.json" palette={palette} />
+      <h2 style={{ marginTop: '2em', borderTop: '2px solid #888', paddingTop: '1em' }}>
+        Screen alignment tool — drag sliders to align planes manually
+      </h2>
+      <ScreenAlignmentTool url="/screens/titlepag.json" />
+      <ScreenAlignmentTool url="/screens/graveyrd.json" />
+      <ScreenAlignmentTool url="/screens/dragonsc.json" />
     </main>
   );
 }
