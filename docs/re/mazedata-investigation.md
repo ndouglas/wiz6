@@ -94,6 +94,20 @@ All bit-level access goes through wroot.exe helper thunks: `func_0xe3c1` (read 3
 - **The actual sprite-drawing routine.** Despite finding many wmaze functions that READ the mazedata, none of them obviously DRAW pixels. Drawing is probably in another overlay or in wroot.exe via thunks not yet identified.
 - **Where the sprite-graphics region starts.** Probably after the second descriptor table (366 entries — count from the file header). The graphic_offset values in table 1 are byte offsets into that region.
 
+### Overlay-thunk resolution: runtime-only
+
+Attempted to resolve the `func_0x0000XXXX` helper-thunk addresses by disassembling wroot.exe at those CS offsets — they contain **all zeros** (BSS / uninitialized memory). This confirms that the thunks are **installed at runtime** by the MS-C overlay manager when wmaze.ovr loads. The actual helper functions live elsewhere in wroot.exe at addresses we can't determine statically.
+
+To get the helper addresses requires one of:
+- DOSBox-X integrated debugger session: set a breakpoint on a `call near 0xe3c1` in wmaze.ovr code, step into it, observe where it jumps. The destination IS the real helper function in wroot.exe.
+- Find the overlay manager's INSTALLATION CODE in wroot.exe — it walks a table of `(thunk_offset, helper_address)` pairs at overlay-load time and patches the overlay's code segment.
+
+Either path is a substantial additional investigation. Until one of them is done, we can identify what mazedata's structure IS but cannot decode the bit-packed and graphic-encoded portions without re-implementing the bit-stream helpers blind.
+
+### Recommended next pickup
+
+When picking this up: open mazedata.ega in `wmaze` running in DOSBox-X with the debugger, set bp on the first sprite-draw call site, step through to capture the wall-slice format directly. That'll be ~30 minutes of guided debugging and produces a verified format spec. With the format known, the renderer is straightforward.
+
 ### What the file ALMOST CERTAINLY contains
 
 1. **Per-dungeon grids** (8×8 cells × N dungeons). Each cell encodes wall directions / floor type / contents.
