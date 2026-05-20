@@ -10,10 +10,10 @@ const tinyPortraitSet = {
   sourceFile: 'wport1.ega',
   portraitCount: 2,
   portraits: [
-    { index: 0, tiles: Array.from({ length: 16 }, () => [...blankTile]) },
+    { index: 0, tiles: Array.from({ length: 9 }, () => [...blankTile]) },
     {
       index: 1,
-      tiles: Array.from({ length: 16 }, (_, t) =>
+      tiles: Array.from({ length: 9 }, (_, t) =>
         // Sparse: only first byte of tile is non-zero, varying per tile
         Array(32).fill(0).map((_, b) => (b === 0 ? (t + 1) & 0xff : 0)),
       ),

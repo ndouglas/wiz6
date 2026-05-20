@@ -1,6 +1,6 @@
-# `wport1-3.ega` — 8 × 32 × 32 4bpp Portrait Sets
+# `wport1-3.ega` — 14 × 24 × 24 4bpp Portrait Sets
 
-**Status:** Format decoded. The 8x8 4bpp tile primitive is shared with `wfont1-4`; portraits add a 4×4 row-major composition layer.
+**Status:** Format decoded and visually verified against the running game. The 8×8 4bpp tile primitive is shared with `wfont1-4`; portraits add a 3×3 row-major composition layer.
 
 ## Files
 
@@ -10,39 +10,46 @@ The corresponding `.cga` files (2048 bytes each, 2bpp) and `.t16` files (4096 by
 
 ## Active region
 
-Each file's first **4032 bytes** carry data; the last **64 bytes** (offsets 0xFC0..0xFFF) are zero padding to the 4KB boundary.
+Each file's first **4032 bytes** carry portrait data; the last **64 bytes** (offsets 0xFC0..0xFFF) are zero padding (two unused tile slots, 32 bytes each).
 
 ## Layout
 
 ```
 offset  size   contents
-------  -----  -------------------------------------------------------
-0x000   512    Portrait 0 — 16 tiles arranged 4 × 4 row-major
-0x200   512    Portrait 1
-0x400   512    Portrait 2
-0x600   512    Portrait 3
-0x800   512    Portrait 4
-0xA00   512    Portrait 5
-0xC00   512    Portrait 6
-0xE00   512    Portrait 7
-0xFC0   64     Zero padding (unused)
+------  -----  ------------------------------------------------------------
+0x000   288    Portrait 0  — 9 tiles arranged 3 × 3 row-major (24 × 24 px)
+0x120   288    Portrait 1
+0x240   288    Portrait 2
+0x360   288    Portrait 3
+0x480   288    Portrait 4
+0x5A0   288    Portrait 5
+0x6C0   288    Portrait 6
+0x7E0   288    Portrait 7
+0x900   288    Portrait 8
+0xA20   288    Portrait 9
+0xB40   288    Portrait 10
+0xC60   288    Portrait 11
+0xD80   288    Portrait 12
+0xEA0   288    Portrait 13
+0xFC0   64     Zero padding (two unused 32-byte tile slots)
 ```
 
-Total: 8 portraits × 16 tiles × 32 bytes = 4096 bytes.
+Total: 14 portraits × 9 tiles × 32 bytes = 4032 bytes + 64 padding = 4096 bytes.
+
+The 14 portraits per file × 3 files = **42 portraits** total. `wport1.ega` and `wport2.ega` hold playable character portraits (the count matches Wizardry VI's 14 classes — Fighter, Mage, Priest, Thief, Ranger, Alchemist, Bard, Psionic, Valkyrie, Bishop, Lord, Samurai, Monk, Ninja). `wport3.ega` holds NPC / monster / other portraits in the same format.
 
 ## Tile composition
 
-Each portrait is **32 × 32 pixels** built from **16 contiguous 32-byte 8×8 tiles** arranged in a **4 × 4 grid, row-major**:
+Each portrait is **24 × 24 pixels** built from **9 contiguous 32-byte 8×8 tiles** arranged in a **3 × 3 grid, row-major**:
 
 ```text
 Tile index → portrait position
- 0 = (col 0, row 0)   1 = (col 1, row 0)   2 = (col 2, row 0)   3 = (col 3, row 0)
- 4 = (col 0, row 1)   5 = (col 1, row 1)   6 = (col 2, row 1)   7 = (col 3, row 1)
- 8 = (col 0, row 2)   9 = (col 1, row 2)  10 = (col 2, row 2)  11 = (col 3, row 2)
-12 = (col 0, row 3)  13 = (col 1, row 3)  14 = (col 2, row 3)  15 = (col 3, row 3)
+ 0 = (col 0, row 0)   1 = (col 1, row 0)   2 = (col 2, row 0)
+ 3 = (col 0, row 1)   4 = (col 1, row 1)   5 = (col 2, row 1)
+ 6 = (col 0, row 2)   7 = (col 1, row 2)   8 = (col 2, row 2)
 ```
 
-Each tile is 8 × 8 pixels. Pixel (px, py) inside a portrait → tile index = (py / 8) × 4 + (px / 8); within-tile column = px % 8, within-tile row = py % 8.
+Pixel (px, py) inside a portrait → tile index = (py / 8) × 3 + (px / 8); within-tile column = px % 8, within-tile row = py % 8.
 
 ## Tile encoding
 
@@ -55,13 +62,8 @@ Identical to `wfont1-4` (see `wfont-4bpp.md`):
 
 ## Palette
 
-Use `WIZ6_PALETTE_1` (the "wiz6-main" palette discovered in Stage 1d — see `palette-discovery.md`). Portraits are most likely shown during character creation, which uses this main palette.
-
-## Content (empirical observations)
-
-- `wport1.ega` and `wport2.ega` render as character-head-style 32×32 sprites. Exact race / gender / class assignments are not catalogued here.
-- `wport3.ega` renders with the same byte layout but its 8 sprites appear more abstract (possibly NPC heads, monster portraits, or items). Format is the same; semantics differ.
+Use `WIZ6_PALETTE_1` (the "wiz6-main" palette discovered in Stage 1d — see `palette-discovery.md`). Portraits are shown during character creation and in the party UI, both of which run under this main palette.
 
 ## Validation
 
-`packages/parser/tests/formats/wport.test.ts` asserts the decoder produces 8 portraits of 16 32-byte tiles each, with correct pass-through of source metadata.
+`packages/parser/tests/formats/wport.test.ts` asserts the decoder produces 14 portraits of 9 32-byte tiles each, with correct pass-through of source metadata.

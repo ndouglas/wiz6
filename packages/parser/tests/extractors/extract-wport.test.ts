@@ -24,7 +24,7 @@ describe('extractWport', () => {
       });
 
       expect(() => PortraitSetSchema.parse(result)).not.toThrow();
-      expect(result.portraitCount).toBe(8);
+      expect(result.portraitCount).toBe(14);
       // Portrait 0 tile 0 = bytes 0..31, so tile[0][0] = 0, tile[0][1] = 1, etc.
       expect(result.portraits[0]!.tiles[0]![0]).toBe(0);
       expect(result.portraits[0]!.tiles[0]![1]).toBe(1);

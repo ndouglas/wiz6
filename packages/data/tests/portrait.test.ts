@@ -10,26 +10,26 @@ const blankTile = Array(32).fill(0);
 
 const validPortrait: Portrait = {
   index: 0,
-  tiles: Array.from({ length: 16 }, () => [...blankTile]),
+  tiles: Array.from({ length: 9 }, () => [...blankTile]),
 };
 
 const validSet: PortraitSet = {
   id: 'wport1',
   sourceFile: 'wport1.ega',
-  portraitCount: 8,
-  portraits: Array.from({ length: 8 }, (_, i) => ({
+  portraitCount: 14,
+  portraits: Array.from({ length: 14 }, (_, i) => ({
     index: i,
-    tiles: Array.from({ length: 16 }, () => [...blankTile]),
+    tiles: Array.from({ length: 9 }, () => [...blankTile]),
   })),
 };
 
 describe('PortraitSchema', () => {
-  it('accepts a portrait with index 0 and 16 32-byte tiles', () => {
+  it('accepts a portrait with index 0 and 9 32-byte tiles', () => {
     expect(() => PortraitSchema.parse(validPortrait)).not.toThrow();
   });
 
-  it('rejects a portrait with fewer than 16 tiles', () => {
-    const bad = { ...validPortrait, tiles: validPortrait.tiles.slice(0, 15) };
+  it('rejects a portrait with fewer than 9 tiles', () => {
+    const bad = { ...validPortrait, tiles: validPortrait.tiles.slice(0, 8) };
     expect(() => PortraitSchema.parse(bad)).toThrow();
   });
 
@@ -47,12 +47,12 @@ describe('PortraitSchema', () => {
 });
 
 describe('PortraitSetSchema', () => {
-  it('accepts a valid 8-portrait set', () => {
+  it('accepts a valid 14-portrait set', () => {
     expect(() => PortraitSetSchema.parse(validSet)).not.toThrow();
   });
 
   it('rejects a set whose portraitCount disagrees with portraits.length', () => {
-    const bad = { ...validSet, portraitCount: 7 };
+    const bad = { ...validSet, portraitCount: 13 };
     expect(() => PortraitSetSchema.parse(bad)).toThrow();
   });
 

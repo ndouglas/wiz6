@@ -23,7 +23,7 @@ const validPortraitSet = {
   portraits: [
     {
       index: 0,
-      tiles: Array.from({ length: 16 }, () => Array(32).fill(0)),
+      tiles: Array.from({ length: 9 }, () => Array(32).fill(0)),
     },
   ],
 };

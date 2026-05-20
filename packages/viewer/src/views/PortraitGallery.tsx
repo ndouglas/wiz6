@@ -4,10 +4,10 @@ import { loadPortraitSet } from '../data-loader.js';
 import { WIZ6_PALETTE_1 } from '../palettes/wiz6-palette-1.js';
 
 const TILE_PX = 8;
-const TILES_PER_SIDE = 4;
-const PORTRAIT_PX = TILE_PX * TILES_PER_SIDE; // 32
+const TILES_PER_SIDE = 3;
+const PORTRAIT_PX = TILE_PX * TILES_PER_SIDE; // 24
 const ZOOM = 4;
-const COLS = 4; // 4 portraits per display row
+const COLS = 7; // 7 portraits per display row (14 total → 2 rows)
 
 // Standard EGA plane order: B (plane 0), G (plane 1), R (plane 2), I (plane 3).
 function pixelColor(tile: number[], row: number, col: number): number {
@@ -89,7 +89,7 @@ export function PortraitGallery({ url, palette = WIZ6_PALETTE_1 }: Props) {
     <section>
       <h2>{set.id}</h2>
       <p>
-        Source: <code>{set.sourceFile}</code> · {set.portraitCount} portraits · 32 × 32 4bpp · palette:{' '}
+        Source: <code>{set.sourceFile}</code> · {set.portraitCount} portraits · 24 × 24 4bpp · palette:{' '}
         <code>{palette.name}</code>
       </p>
       <canvas ref={canvasRef} role="img" aria-label="Portrait set" />

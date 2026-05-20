@@ -1,9 +1,11 @@
 import { PortraitSetSchema, type PortraitSet } from '@wiz6/data';
 
 const EXPECTED_SIZE = 4096;
-const PORTRAITS_PER_FILE = 8;
-const TILES_PER_PORTRAIT = 16;
+const PORTRAITS_PER_FILE = 14;
+const TILES_PER_PORTRAIT = 9; // 3 × 3 row-major
 const TILE_BYTES = 32;
+// 14 × 9 × 32 = 4032 bytes used; the last 64 bytes of the 4096-byte file are
+// zero padding (two unused tile slots).
 
 export interface DecodeWportOpts {
   id: string;

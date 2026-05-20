@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import { Font4bppGlyphSchema } from './font-4bpp.js';
 
+// A portrait is a 24×24 image (3 × 3 8×8 tiles, row-major).
 export const PortraitSchema = z.object({
   index: z.number().int().nonnegative(),
-  tiles: z.array(Font4bppGlyphSchema).length(16),
+  tiles: z.array(Font4bppGlyphSchema).length(9),
 });
 
 export const PortraitSetSchema = z
