@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { loadFont } from '../src/data-loader.js';
+import { loadFont, loadFont4bpp } from '../src/data-loader.js';
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -28,5 +28,31 @@ describe('loadFont', () => {
   it('throws if the payload does not validate against the schema', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'x' }), { status: 200 })));
     await expect(loadFont('/bad.json')).rejects.toThrow();
+  });
+});
+
+const valid4bppFont = {
+  id: 'wfont1',
+  sourceFile: 'wfont1.ega',
+  glyphCount: 1,
+  glyphs: [Array(32).fill(0)],
+};
+
+describe('loadFont4bpp', () => {
+  it('fetches and validates a 4bpp font JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(valid4bppFont), { status: 200 })));
+    const font = await loadFont4bpp('/fonts/wfont1.json');
+    expect(font.id).toBe('wfont1');
+    expect(font.glyphCount).toBe(1);
+  });
+
+  it('throws if the fetch response is not ok', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('not found', { status: 404 })));
+    await expect(loadFont4bpp('/missing.json')).rejects.toThrow(/404/);
+  });
+
+  it('throws if the payload does not validate against Font4bppSchema', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'x' }), { status: 200 })));
+    await expect(loadFont4bpp('/bad.json')).rejects.toThrow();
   });
 });
