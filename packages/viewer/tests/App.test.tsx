@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { App } from '../src/App.js';
 
 const valid1bpp = {
@@ -28,5 +28,24 @@ describe('App', () => {
   it('renders the viewer heading', () => {
     render(<App />);
     expect(screen.getByRole('heading', { name: /wiz6 viewer/i })).toBeInTheDocument();
+  });
+
+  it('renders a palette picker with three options', () => {
+    render(<App />);
+    expect(screen.getByRole('radio', { name: /wiz6-main/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /wiz6-dungeon/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /ega-default/i })).toBeInTheDocument();
+  });
+
+  it('defaults the picker to wiz6-main', () => {
+    render(<App />);
+    expect(screen.getByRole('radio', { name: /wiz6-main/i })).toBeChecked();
+  });
+
+  it('switching the picker changes the picker state', () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('radio', { name: /ega-default/i }));
+    expect(screen.getByRole('radio', { name: /ega-default/i })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /wiz6-main/i })).not.toBeChecked();
   });
 });
