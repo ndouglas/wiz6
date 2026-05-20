@@ -22,3 +22,9 @@ export {
   type Palette,
   type RgbTuple,
 } from './schemas/palette.js';
+export {
+  PortraitSchema,
+  PortraitSetSchema,
+  type Portrait,
+  type PortraitSet,
+} from './schemas/portrait.js';
