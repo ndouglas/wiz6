@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describePlan } from './index.js';
 import { extractWfont } from './extractors/extract-wfont.js';
 import { extractWfont4bpp } from './extractors/extract-wfont-4bpp.js';
+import { extractWport } from './extractors/extract-wport.js';
 
 const subcommand = process.argv[2];
 
@@ -25,12 +26,24 @@ if (subcommand === 'extract-fonts') {
     });
     console.log(`wrote ${extractedDir}/fonts/wfont${n}.json (${font.glyphCount} glyphs, 4bpp)`);
   }
+} else if (subcommand === 'extract-portraits') {
+  const originalDir = process.argv[3] ?? './original';
+  const extractedDir = process.argv[4] ?? './extracted';
+
+  for (const n of [1, 2, 3]) {
+    const set = extractWport({
+      originalPath: join(originalDir, `wport${n}.ega`),
+      outputPath: join(extractedDir, 'portraits', `wport${n}.json`),
+      id: `wport${n}`,
+    });
+    console.log(`wrote ${extractedDir}/portraits/wport${n}.json (${set.portraitCount} portraits)`);
+  }
 } else if (subcommand === 'plan' || subcommand === undefined) {
   const originalDir = process.argv[3] ?? './original';
   const plan = describePlan({ originalDir });
   console.log(JSON.stringify(plan, null, 2));
 } else {
   console.error(`Unknown subcommand: ${subcommand}`);
-  console.error(`Usage: wiz6-parse [plan|extract-fonts] [<originalDir> [<extractedDir>]]`);
+  console.error(`Usage: wiz6-parse [plan|extract-fonts|extract-portraits] [<originalDir> [<extractedDir>]]`);
   process.exit(2);
 }
