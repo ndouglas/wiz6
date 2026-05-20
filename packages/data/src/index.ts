@@ -16,3 +16,9 @@ export {
   type Font4bpp,
   type Font4bppGlyph,
 } from './schemas/font-4bpp.js';
+export {
+  PaletteSchema,
+  RgbTupleSchema,
+  type Palette,
+  type RgbTuple,
+} from './schemas/palette.js';
