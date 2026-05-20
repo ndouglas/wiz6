@@ -31,7 +31,9 @@ export {
 export { EgaScreenSchema, type EgaScreen } from './schemas/ega-screen.js';
 export {
   MessageRecordSchema,
+  IndexedMessageSchema,
   MessageDbSchema,
   type MessageRecord,
+  type IndexedMessage,
   type MessageDb,
 } from './schemas/message-db.js';

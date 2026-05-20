@@ -7,16 +7,24 @@ import { huffmanDecode, decodeMessageDb } from '../../src/formats/message-db.js'
 // never traverse there in these tiny test streams).
 function buildMinimalABTree(): Uint8Array {
   const tree = new Uint8Array(1024);
-  // node 0: left = 0x0041 ('A'), right = 0x0042 ('B')
   tree[0] = 0x41; tree[1] = 0x00;
   tree[2] = 0x42; tree[3] = 0x00;
   return tree;
 }
 
+// An empty msg.hdr (count=0) with no entries.
+const EMPTY_HDR = new Uint8Array([0x00, 0x00]);
+
+const baseOpts = {
+  id: 'msg',
+  sourceFile: 'msg.dbs',
+  treeSourceFile: 'misc.hdr',
+  indexSourceFile: 'msg.hdr',
+};
+
 describe('huffmanDecode', () => {
   it('decodes 0-bit -> A, 1-bit -> B with the toy tree', () => {
     const tree = buildMinimalABTree();
-    // Stream: 0b01010101 = byte 0x55 -> ABABABAB
     const stream = new Uint8Array([0x55]);
     expect(huffmanDecode(tree, stream)).toBe('ABABABAB');
   });
@@ -28,40 +36,26 @@ describe('huffmanDecode', () => {
 
   it('stops at the end of the bit stream', () => {
     const tree = buildMinimalABTree();
-    // Stream: just one byte 0x80 = 0b10000000 -> B then AAAAAAA
     const stream = new Uint8Array([0x80]);
     expect(huffmanDecode(tree, stream)).toBe('BAAAAAAA');
   });
 
   it('handles internal-node traversal', () => {
-    // Two-level tree:
-    //   node 0: left = 0x0041 ('A'), right = -1 (-> node 4)
-    //   node 4: left = 0x0042 ('B'), right = 0x0043 ('C')
     const tree = new Uint8Array(1024);
-    tree[0] = 0x41; tree[1] = 0x00;          // root.left = 'A' (leaf)
-    tree[2] = 0xff; tree[3] = 0xff;          // root.right -> neg(-1) * 4 = 4
-    tree[4] = 0x42; tree[5] = 0x00;          // node 4.left = 'B' (leaf)
-    tree[6] = 0x43; tree[7] = 0x00;          // node 4.right = 'C' (leaf)
-    // Stream: 0b11_10_11_10 0b_... — let's use 8 bits: 11 10 11 10 = C, B, C, B
-    // But each "right -> internal -> leaf" is 2 bits = C or B. Each "left" alone is 'A' = 1 bit.
-    // So 0b11101110 (= 0xEE) reads: 1,1 (C), 1,0 (B), 1,1 (C), 1,0 (B) = "CBCB"
+    tree[0] = 0x41; tree[1] = 0x00;
+    tree[2] = 0xff; tree[3] = 0xff;
+    tree[4] = 0x42; tree[5] = 0x00;
+    tree[6] = 0x43; tree[7] = 0x00;
     const stream = new Uint8Array([0xEE]);
     expect(huffmanDecode(tree, stream)).toBe('CBCB');
   });
 });
 
-describe('decodeMessageDb', () => {
+describe('decodeMessageDb (records)', () => {
   it('parses length-prefixed records and decodes each', () => {
     const tree = buildMinimalABTree();
-    // Two records: each is `length + payload`. Total record size = length byte value.
-    // First record: 0x02 followed by 1 payload byte (0x55 -> ABABABAB).
-    // Second record: 0x02 followed by 1 payload byte (0x80 -> BAAAAAAA).
     const dbs = new Uint8Array([0x02, 0x55, 0x02, 0x80]);
-    const db = decodeMessageDb(dbs, tree, {
-      id: 'msg',
-      sourceFile: 'msg.dbs',
-      treeSourceFile: 'misc.hdr',
-    });
+    const db = decodeMessageDb(dbs, tree, EMPTY_HDR, baseOpts);
     expect(db.recordCount).toBe(2);
     expect(db.records[0]?.decodedText).toBe('ABABABAB');
     expect(db.records[1]?.decodedText).toBe('BAAAAAAA');
@@ -70,13 +64,8 @@ describe('decodeMessageDb', () => {
 
   it('handles a zero-length sentinel record', () => {
     const tree = buildMinimalABTree();
-    // Three records: empty (length=0), then a normal one (length=2).
     const dbs = new Uint8Array([0x00, 0x02, 0x55]);
-    const db = decodeMessageDb(dbs, tree, {
-      id: 'msg',
-      sourceFile: 'msg.dbs',
-      treeSourceFile: 'misc.hdr',
-    });
+    const db = decodeMessageDb(dbs, tree, EMPTY_HDR, baseOpts);
     expect(db.recordCount).toBe(2);
     expect(db.records[0]).toEqual({ index: 0, compressedBytes: 0, decodedText: '' });
     expect(db.records[1]?.decodedText).toBe('ABABABAB');
@@ -84,14 +73,63 @@ describe('decodeMessageDb', () => {
 
   it('stops cleanly on partial trailing data', () => {
     const tree = buildMinimalABTree();
-    // Length byte says 5 but only 2 trailing bytes exist — partial record dropped.
     const dbs = new Uint8Array([0x02, 0x55, 0x05, 0xab]);
-    const db = decodeMessageDb(dbs, tree, {
-      id: 'msg',
-      sourceFile: 'msg.dbs',
-      treeSourceFile: 'misc.hdr',
-    });
+    const db = decodeMessageDb(dbs, tree, EMPTY_HDR, baseOpts);
     expect(db.recordCount).toBe(1);
     expect(db.records[0]?.decodedText).toBe('ABABABAB');
+  });
+
+  it('produces zero indexed messages when msg.hdr count is 0', () => {
+    const tree = buildMinimalABTree();
+    const dbs = new Uint8Array([0x02, 0x55]);
+    const db = decodeMessageDb(dbs, tree, EMPTY_HDR, baseOpts);
+    expect(db.indexedCount).toBe(0);
+    expect(db.indexedMessages).toEqual([]);
+  });
+});
+
+describe('decodeMessageDb (indexed messages from msg.hdr)', () => {
+  it('parses 2-byte count header + 6-byte records', () => {
+    const tree = buildMinimalABTree();
+    // 32 bytes of "AB" data — when decoded as 0x55 stream gives "ABABABAB"
+    // per 1 byte. With 32 bytes we get 256 chars.
+    const dbs = new Uint8Array(32).fill(0x55);
+    // Two msg.hdr entries: (byteOffset=0, charOffset=0, raw=0) and (1, 4, 0).
+    // Section: [0..1), with end at next entry's byteOffset = 1.
+    // BUT — for our minimal test we want section to cover bytes 0..1.
+    const hdr = new Uint8Array([
+      0x02, 0x00,                  // count = 2
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,   // entry 0: byteOff=0, charOff=0, raw=0
+      0x01, 0x00, 0x04, 0x00, 0x00, 0x00,   // entry 1: byteOff=1, charOff=4, raw=0
+    ]);
+    const db = decodeMessageDb(dbs, tree, hdr, baseOpts);
+    expect(db.indexedCount).toBe(2);
+    // entry 0 decodes chars [0, 4) of section -> "ABAB"
+    expect(db.indexedMessages[0]?.decodedText).toBe('ABAB');
+    expect(db.indexedMessages[0]?.byteOffset).toBe(0);
+    expect(db.indexedMessages[0]?.charOffset).toBe(0);
+    expect(db.indexedMessages[0]?.sectionIndex).toBe(0);
+    // entry 1: charOffset=4 < prev charOffset=0? No, 4 > 0, so same section.
+    // section spans bytes [0, ?). Section ends at next-section-start or end of entries.
+    // No next section -> ends at dbs.length.
+    expect(db.indexedMessages[1]?.charOffset).toBe(4);
+  });
+
+  it('detects new sections when charOffset resets', () => {
+    const tree = buildMinimalABTree();
+    const dbs = new Uint8Array(32).fill(0x55);
+    // Three entries: (0, 0), (1, 4), (2, 0).
+    // entry 2 has charOffset < entry 1's -> new section starts at entry 2.
+    const hdr = new Uint8Array([
+      0x03, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x01, 0x00, 0x04, 0x00, 0x00, 0x00,
+      0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ]);
+    const db = decodeMessageDb(dbs, tree, hdr, baseOpts);
+    expect(db.indexedCount).toBe(3);
+    expect(db.indexedMessages[0]?.sectionIndex).toBe(0);
+    expect(db.indexedMessages[1]?.sectionIndex).toBe(0);
+    expect(db.indexedMessages[2]?.sectionIndex).toBe(1);
   });
 });

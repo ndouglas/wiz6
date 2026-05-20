@@ -58,10 +58,11 @@ if (subcommand === 'extract-fonts') {
   const db = extractMessageDb({
     dbsPath: join(originalDir, 'msg.dbs'),
     treePath: join(originalDir, 'misc.hdr'),
+    indexPath: join(originalDir, 'msg.hdr'),
     outputPath: join(extractedDir, 'messages', 'msg.json'),
     id: 'msg',
   });
-  console.log(`wrote ${extractedDir}/messages/msg.json (${db.recordCount} records)`);
+  console.log(`wrote ${extractedDir}/messages/msg.json (${db.recordCount} records, ${db.indexedCount} indexed messages)`);
 } else if (subcommand === 'plan' || subcommand === undefined) {
   const originalDir = process.argv[3] ?? './original';
   const plan = describePlan({ originalDir });

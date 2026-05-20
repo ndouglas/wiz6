@@ -41,8 +41,18 @@ const validMessageDb = {
   id: 'msg',
   sourceFile: 'msg.dbs',
   treeSourceFile: 'misc.hdr',
+  indexSourceFile: 'msg.hdr',
   recordCount: 1,
   records: [{ index: 0, compressedBytes: 4, decodedText: 'HELLO' }],
+  indexedCount: 1,
+  indexedMessages: [{
+    index: 0,
+    byteOffset: 0,
+    charOffset: 0,
+    raw: 0,
+    sectionIndex: 0,
+    decodedText: 'HELLO',
+  }],
 };
 
 describe('App', () => {
