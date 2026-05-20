@@ -55,10 +55,18 @@ const validMessageDb = {
   }],
 };
 
+const validNewgameDb = {
+  id: 'newgame',
+  sourceFile: 'newgame.dbs',
+  recordCount: 1,
+  records: [{ index: 0, bytes: Array(64).fill(0), empty: true }],
+};
+
 describe('App', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('newgame/')) return new Response(JSON.stringify(validNewgameDb), { status: 200 });
       if (url.includes('messages/')) return new Response(JSON.stringify(validMessageDb), { status: 200 });
       if (url.includes('screens/')) return new Response(JSON.stringify(validScreen), { status: 200 });
       if (url.includes('portraits/')) return new Response(JSON.stringify(validPortraitSet), { status: 200 });

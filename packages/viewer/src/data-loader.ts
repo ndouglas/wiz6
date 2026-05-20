@@ -8,6 +8,7 @@ import {
 } from '@wiz6/data';
 import { EgaScreenSchema, type EgaScreen } from '@wiz6/data';
 import { MessageDbSchema, type MessageDb } from '@wiz6/data';
+import { NewgameDbSchema, type NewgameDb } from '@wiz6/data';
 
 export async function loadFont(url: string): Promise<Font> {
   const response = await fetch(url);
@@ -52,4 +53,13 @@ export async function loadMessageDb(url: string): Promise<MessageDb> {
   }
   const data: unknown = await res.json();
   return MessageDbSchema.parse(data);
+}
+
+export async function loadNewgameDb(url: string): Promise<NewgameDb> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to load newgame db from ${url}: ${res.status}`);
+  }
+  const data: unknown = await res.json();
+  return NewgameDbSchema.parse(data);
 }

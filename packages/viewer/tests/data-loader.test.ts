@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { loadFont, loadFont4bpp, loadPortraitSet, loadEgaScreen, loadMessageDb } from '../src/data-loader.js';
+import { loadFont, loadFont4bpp, loadPortraitSet, loadEgaScreen, loadMessageDb, loadNewgameDb } from '../src/data-loader.js';
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -153,5 +153,32 @@ describe('loadMessageDb', () => {
   it('throws on a payload that does not validate', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'x' }), { status: 200 })));
     await expect(loadMessageDb('/bad.json')).rejects.toThrow();
+  });
+});
+
+const validNewgameDb = {
+  id: 'newgame',
+  sourceFile: 'newgame.dbs',
+  recordCount: 1,
+  records: [{ index: 0, bytes: Array(64).fill(0), empty: true }],
+};
+
+describe('loadNewgameDb', () => {
+  it('fetches and validates a newgame db', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(validNewgameDb), { status: 200 })));
+    const db = await loadNewgameDb('/newgame/newgame.json');
+    expect(db.id).toBe('newgame');
+    expect(db.recordCount).toBe(1);
+    expect(db.records[0]?.empty).toBe(true);
+  });
+
+  it('throws if response not ok', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 404 })));
+    await expect(loadNewgameDb('/missing.json')).rejects.toThrow(/404/);
+  });
+
+  it('throws on invalid payload', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'x' }), { status: 200 })));
+    await expect(loadNewgameDb('/bad.json')).rejects.toThrow();
   });
 });

@@ -6,6 +6,7 @@ import { extractWfont4bpp } from './extractors/extract-wfont-4bpp.js';
 import { extractWport } from './extractors/extract-wport.js';
 import { extractEgaScreen } from './extractors/extract-ega-screen.js';
 import { extractMessageDb } from './extractors/extract-message-db.js';
+import { extractNewgameDb } from './extractors/extract-newgame-db.js';
 
 const subcommand = process.argv[2];
 
@@ -63,12 +64,22 @@ if (subcommand === 'extract-fonts') {
     id: 'msg',
   });
   console.log(`wrote ${extractedDir}/messages/msg.json (${db.recordCount} records, ${db.indexedCount} indexed messages)`);
+} else if (subcommand === 'extract-newgame') {
+  const originalDir = process.argv[3] ?? './original';
+  const extractedDir = process.argv[4] ?? './extracted';
+  const db = extractNewgameDb({
+    originalPath: join(originalDir, 'newgame.dbs'),
+    outputPath: join(extractedDir, 'newgame', 'newgame.json'),
+    id: 'newgame',
+  });
+  const nonempty = db.records.filter((r) => !r.empty).length;
+  console.log(`wrote ${extractedDir}/newgame/newgame.json (${db.recordCount} records, ${nonempty} non-empty)`);
 } else if (subcommand === 'plan' || subcommand === undefined) {
   const originalDir = process.argv[3] ?? './original';
   const plan = describePlan({ originalDir });
   console.log(JSON.stringify(plan, null, 2));
 } else {
   console.error(`Unknown subcommand: ${subcommand}`);
-  console.error(`Usage: wiz6-parse [plan|extract-fonts|extract-portraits|extract-screens|extract-messages] [<originalDir> [<extractedDir>]]`);
+  console.error(`Usage: wiz6-parse [plan|extract-fonts|extract-portraits|extract-screens|extract-messages|extract-newgame] [<originalDir> [<extractedDir>]]`);
   process.exit(2);
 }

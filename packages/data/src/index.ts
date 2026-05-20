@@ -37,3 +37,9 @@ export {
   type IndexedMessage,
   type MessageDb,
 } from './schemas/message-db.js';
+export {
+  NewgameRecordSchema,
+  NewgameDbSchema,
+  type NewgameRecord,
+  type NewgameDb,
+} from './schemas/newgame-db.js';
