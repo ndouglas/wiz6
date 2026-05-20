@@ -16,10 +16,23 @@ const valid4bpp = {
   glyphs: [Array(32).fill(0)],
 };
 
+const validPortraitSet = {
+  id: 'wportN',
+  sourceFile: 'wportN.ega',
+  portraitCount: 1,
+  portraits: [
+    {
+      index: 0,
+      tiles: Array.from({ length: 16 }, () => Array(32).fill(0)),
+    },
+  ],
+};
+
 describe('App', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('portraits/')) return new Response(JSON.stringify(validPortraitSet), { status: 200 });
       if (url.includes('wfont0')) return new Response(JSON.stringify(valid1bpp), { status: 200 });
       return new Response(JSON.stringify(valid4bpp), { status: 200 });
     }));

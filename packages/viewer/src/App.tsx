@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Palette } from '@wiz6/data';
 import { FontGallery } from './views/FontGallery.js';
 import { Font4bppGallery } from './views/Font4bppGallery.js';
+import { PortraitGallery } from './views/PortraitGallery.js';
 import { EGA_PALETTE, WIZ6_PALETTE_1, WIZ6_PALETTE_2, type PaletteName } from './palettes/index.js';
 
 const PALETTE_BY_NAME: Record<PaletteName, Palette> = {
@@ -43,6 +44,9 @@ export function App() {
       <Font4bppGallery url="/fonts/wfont2.json" palette={palette} />
       <Font4bppGallery url="/fonts/wfont3.json" palette={palette} />
       <Font4bppGallery url="/fonts/wfont4.json" palette={palette} />
+      <PortraitGallery url="/portraits/wport1.json" palette={palette} />
+      <PortraitGallery url="/portraits/wport2.json" palette={palette} />
+      <PortraitGallery url="/portraits/wport3.json" palette={palette} />
     </main>
   );
 }
