@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { loadFont, loadFont4bpp } from '../src/data-loader.js';
+import { loadFont, loadFont4bpp, loadPortraitSet } from '../src/data-loader.js';
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -54,5 +54,36 @@ describe('loadFont4bpp', () => {
   it('throws if the payload does not validate against Font4bppSchema', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'x' }), { status: 200 })));
     await expect(loadFont4bpp('/bad.json')).rejects.toThrow();
+  });
+});
+
+const validPortraitSet = {
+  id: 'wport1',
+  sourceFile: 'wport1.ega',
+  portraitCount: 1,
+  portraits: [
+    {
+      index: 0,
+      tiles: Array.from({ length: 16 }, () => Array(32).fill(0)),
+    },
+  ],
+};
+
+describe('loadPortraitSet', () => {
+  it('fetches and validates a portrait set JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(validPortraitSet), { status: 200 })));
+    const set = await loadPortraitSet('/portraits/wport1.json');
+    expect(set.id).toBe('wport1');
+    expect(set.portraitCount).toBe(1);
+  });
+
+  it('throws if the fetch response is not ok', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('not found', { status: 404 })));
+    await expect(loadPortraitSet('/missing.json')).rejects.toThrow(/404/);
+  });
+
+  it('throws if the payload does not validate against PortraitSetSchema', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'x' }), { status: 200 })));
+    await expect(loadPortraitSet('/bad.json')).rejects.toThrow();
   });
 });
