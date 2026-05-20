@@ -5,30 +5,43 @@ import { WIZ6_PALETTE_1 } from '../palettes/wiz6-palette-1.js';
 
 const ZOOM = 2;
 
-// Per-plane (dx, dy) offsets discovered empirically (Stage 1f.1, branch
-// stage-1f-ega-screens). Each .ega file stores its 4 planes pre-shifted
-// horizontally by 0/+64/+128/+192 pixels (with cyclic wrap on the row), plus
-// small Y shifts. To produce a correct composite, we shift each plane back
-// to position (0, 0) before sampling. The same offsets apply to all 3
-// known screens (titlepag, graveyrd, dragonsc); see docs/re/ega-screen.md.
-const PLANE_OFFSETS: { dx: number; dy: number }[] = [
-  { dx: 0, dy: 0 },
-  { dx: 64, dy: -5 },
-  { dx: 128, dy: -10 },
-  { dx: -128, dy: -14 },
-];
+/**
+ * Per-plane source-coordinate transform for the 32 KB EGA screen files.
+ *
+ * Each .ega screen file stores its 4 EGA planes with PER-PLANE PRE-APPLIED
+ * SHIFTS: plane P's bytes correspond to the source image shifted by
+ * `shiftX = 64 * P` pixels horizontally (cyclically) and `shiftY = -5 * P`
+ * rows vertically. Because the storage uses a byte-level cyclic rotation
+ * of the entire 8000-byte plane buffer rather than a per-row rotation, the
+ * data rolls across row boundaries at the shift column — manifesting as
+ * an additional ONE-ROW Y shift for columns LEFT of the wrap.
+ *
+ * Discovered in Stage 1f.3 by interactive alignment in the
+ * ScreenAlignmentTool. The same pattern produces pixel-accurate composites
+ * for all three known screens (titlepag, graveyrd, dragonsc).
+ *
+ * The WHY of the per-plane shift pattern is still open — see
+ * docs/re/ega-screen.md "Why the planes are pre-shifted".
+ */
+function sourceCoordForPlane(
+  planeIdx: number,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): { srcX: number; srcY: number } | null {
+  const shiftX = (64 * planeIdx) % width;
+  const shiftY = -5 * planeIdx;
+  const yDrop = x < shiftX ? 1 : 0;
+  const srcY = y - shiftY - yDrop;
+  if (srcY < 0 || srcY >= height) return null;
+  const srcX = ((x - shiftX) % width + width) % width;
+  return { srcX, srcY };
+}
 
-// Read 1 bit from a plane after applying the plane's stored (dx, dy) shift.
-// The screen coordinate (x, y) maps back to the plane's stored byte via
-// cyclic-X-wrap and bounded-Y. Returns 0 outside the bounded Y range.
-function bitAt(plane: number[], width: number, height: number, x: number, y: number, dx: number, dy: number): number {
-  // The source pixel for screen coord (x, y) lives at plane coord (x - dx, y - dy).
-  // X uses cyclic wrap; Y is bounded.
-  const srcY = y - dy;
-  if (srcY < 0 || srcY >= height) return 0;
-  let srcX = (x - dx) % width;
-  if (srcX < 0) srcX += width;
-  const byteIdx = srcY * (width / 8) + (srcX >> 3);
+function bitAt(plane: number[], width: number, srcX: number, srcY: number): number {
+  const bytesPerRow = width / 8;
+  const byteIdx = srcY * bytesPerRow + (srcX >> 3);
   const bitIdx = 7 - (srcX & 7);
   return ((plane[byteIdx] ?? 0) >> bitIdx) & 1;
 }
@@ -70,11 +83,15 @@ export function ScreenGallery({ url, palette = WIZ6_PALETTE_1 }: Props) {
 
     for (let y = 0; y < screen.height; y++) {
       for (let x = 0; x < screen.width; x++) {
-        const b0 = bitAt(screen.planes[0] ?? [], screen.width, screen.height, x, y, PLANE_OFFSETS[0]!.dx, PLANE_OFFSETS[0]!.dy);
-        const b1 = bitAt(screen.planes[1] ?? [], screen.width, screen.height, x, y, PLANE_OFFSETS[1]!.dx, PLANE_OFFSETS[1]!.dy);
-        const b2 = bitAt(screen.planes[2] ?? [], screen.width, screen.height, x, y, PLANE_OFFSETS[2]!.dx, PLANE_OFFSETS[2]!.dy);
-        const b3 = bitAt(screen.planes[3] ?? [], screen.width, screen.height, x, y, PLANE_OFFSETS[3]!.dx, PLANE_OFFSETS[3]!.dy);
-        const colorIndex = (b3 << 3) | (b2 << 2) | (b1 << 1) | b0;
+        let colorIndex = 0;
+        for (let p = 0; p < 4; p++) {
+          const plane = screen.planes[p];
+          if (!plane) continue;
+          const src = sourceCoordForPlane(p, x, y, screen.width, screen.height);
+          if (!src) continue;
+          const bit = bitAt(plane, screen.width, src.srcX, src.srcY);
+          colorIndex |= bit << p;
+        }
         if (colorIndex === 0) continue;
         const rgb = palette.colors[colorIndex];
         if (!rgb) continue;

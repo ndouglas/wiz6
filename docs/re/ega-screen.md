@@ -17,49 +17,46 @@ offset 0x0000..0x1F3F  (8000 B)  plane 0 (blue),       40 bytes/row × 200 rows
 offset 0x1F40..0x3E7F  (8000 B)  plane 1 (green),      40 bytes/row × 200 rows
 offset 0x3E80..0x5DBF  (8000 B)  plane 2 (red),        40 bytes/row × 200 rows
 offset 0x5DC0..0x7CFF  (8000 B)  plane 3 (intensity),  40 bytes/row × 200 rows
-offset 0x7D00..0x7FFF  (768 B)   trailer (per-screen palette / animation script, encoding TBD; titlepag has ~256 B of content + ~512 B of trailing zeros, graveyrd has structured content extending past byte 256)
+offset 0x7D00..0x7FFF  (768 B)   trailer (very likely uninitialized buffer junk; titlepag has ~256 B of content + ~512 B zeros, graveyrd has scattered non-zero content, dragonsc is entirely zero — yet all three render correctly without using the trailer)
 ```
 
 Image: **320 × 200 pixels**, 16-color (4bpp), standard EGA color indices.
 
 ## Pixel decoding
 
-Each plane stores its pixel data pre-shifted horizontally by a per-plane offset. To produce the displayed pixel at screen coordinate `(x, y)`, sample each plane at `(x - dx_N, y - dy_N)` with **cyclic X wrap** (so coordinates outside 0..319 wrap modulo 320) and **bounded Y** (out-of-range = 0):
+Each plane stores its pixel data **pre-shifted by a per-plane offset**. Plane P's bytes correspond to the source image shifted by `shiftX = 64 * P` pixels horizontally (cyclically) and `shiftY = -5 * P` rows vertically.
+
+Crucially, the horizontal shift is implemented as a **byte-level cyclic rotation of the entire 8000-byte plane buffer** rather than a per-row rotation, so the data rolls across row boundaries at the shift column. This manifests as a **one-row Y offset on the left side of the wrap column**: pixels to the LEFT of `shiftX` come from one row LOWER in the source than pixels to the right.
+
+To produce displayed pixel `(x, y)` from plane P, with image width W = 320 and height H = 200:
 
 ```
-PLANE_OFFSETS = [
-    { dx:    0, dy:   0 },   // plane 0 (B)
-    { dx:  +64, dy:  -5 },   // plane 1 (G)
-    { dx: +128, dy: -10 },   // plane 2 (R)
-    { dx: -128, dy: -14 },   // plane 3 (I)  ≡  dx=+192 mod 320
-]
-
-for each (x, y) in 0..319, 0..199:
-    bits = [0, 0, 0, 0]
-    for plane_idx in 0..3:
-        (dx, dy) = PLANE_OFFSETS[plane_idx]
-        src_y = y - dy                              // bounded
-        if src_y < 0 or src_y >= 200: continue      // contributes 0
-        src_x = (x - dx) mod 320                    // cyclic
-        byte_idx = src_y * 40 + (src_x >> 3)        // 0..7999
-        bit_idx  = 7 - (src_x & 7)                  // MSB = leftmost
-        bits[plane_idx] = (plane[plane_idx][byte_idx] >> bit_idx) & 1
-    color_index = (bits[3] << 3) | (bits[2] << 2) | (bits[1] << 1) | bits[0]
+shiftX = (64 * P) mod W                               // 0, 64, 128, 192
+shiftY = -5 * P                                       // 0, -5, -10, -15
+yDrop  = (x < shiftX) ? 1 : 0                         // +1 row on the left side
+srcY   = y - shiftY - yDrop
+if srcY < 0 or srcY >= H: bit = 0                     // out of bounds
+else:
+    srcX  = (x - shiftX) mod W                        // cyclic
+    byte  = plane[P][srcY * 40 + (srcX >> 3)]
+    bitN  = 7 - (srcX & 7)                            // MSB = leftmost
+    bit   = (byte >> bitN) & 1
+color_index = (bit_3 << 3) | (bit_2 << 2) | (bit_1 << 1) | bit_0
 ```
 
-The shifts are **constant across all three known screens** (titlepag, graveyrd, dragonsc). The Y values (-5, -10, -14) are not a clean linear progression and may be approximations from manual visual alignment; expect refinement of ±1-2 pixels once the actual draw routine is traced in DOSBox-X.
+This formula was discovered in Stage 1f.3 by interactive alignment in the `ScreenAlignmentTool` (which supports per-plane split offsets so two regions can be tuned independently). The same pattern produces pixel-accurate composites for all three known screens — `titlepag`, `graveyrd`, and `dragonsc` — confirming this is the canonical file-format rule.
 
-For the simpler font and portrait formats (`wfont1-4.ega`, `wport1-3.ega`) the planes are **not shifted** — the per-plane offset trick is specific to the 32 KB screen files.
+For the simpler font and portrait formats (`wfont1-4.ega`, `wport1-3.ega`) the planes are **not shifted** — this per-plane shift pattern is specific to the 32 KB screen files.
 
 ### Why the planes are pre-shifted
 
-We don't yet know. Hypotheses:
+**Unknown.** Empirically verified that the formula above produces pixel-accurate output for all three known screens, but the reason the file format stores planes this way is not yet established. The very mechanical `64*P` / `-5*P` pattern suggests a tool-applied transform (consistent across all assets) rather than an artist-applied per-asset choice. Working hypotheses:
 
-- **Slide-in animation precompute**: the title screen slides in from the side; storing the image at 4 different cyclic shifts lets the engine display intermediate animation frames cheaply by selecting different plane-mask combinations.
-- **Authoring artifact**: the original graphics tool may have stored multi-image data in a way that produced this layout.
-- **EGA write-mode optimization**: pre-shifted data plus the EGA latch register can speed up certain compositing operations.
+- The shifts might fall out of the engine's draw routine using EGA "start address" hardware features — if each plane's source-data start address is offset by `(64*P pixels + 5*P rows)` in a shared video buffer, the displayed planes would appear shifted by exactly those amounts. The byte-level cyclic rotation we observe is consistent with EGA "start address" register behavior wrapping around the plane size.
+- Could be a storage layout optimized for specific EGA write-mode tricks (e.g., the latch register can copy pre-shifted bytes between planes during reads, which a packing tool could exploit).
+- Could just be an artifact of the artist's tool that the engine accommodates.
 
-Resolving this requires reading the draw routine in `wroot.exe` (the function reached via the overlay thunks from `winit.ovr`'s `FUN_08f7`). See `docs/re/ega-screen-investigation.md` for entry points.
+Confirming this would require tracing the actual draw routine reached via `winit.ovr`'s overlay thunks (`func_0xf130` / `func_0xf118`, called from `FUN_08f7`). Not load-bearing for correct rendering: the formula above is sufficient.
 
 ## Trailer
 
