@@ -73,24 +73,25 @@ Same as `wfont0`: the precise glyph-to-character mapping is Wizardry-specific an
 
 ## Reference fixture (used by decoder tests)
 
-Bytes 0x00–0x1F of `wfont1.ega` (glyph 0):
+Glyph 0 of `wfont1.ega` is entirely zero (an empty / unused slot in the codepoint table). For a non-trivial real-file reference, glyph 37 has content in all four planes:
+
+Bytes 0x4A0–0x4BF of `wfont1.ega` (glyph 37):
 
 ```text
-f8 e0 e0 c2 80 80 80 c0   plane 0 (rows 0..7)
-f8 e0 e0 c0 80 80 80 c0   plane 1 (rows 0..7)
-f8 e0 e0 c0 80 80 80 c1   plane 2 (rows 0..7)
-0d 0a 29 1a 25 4a 6b 13   plane 3 (rows 0..7)
+00 00 ea ac ea 00 00 00   plane 0 (rows 0..7)
+fe 00 00 00 00 00 fe 00   plane 1 (rows 0..7)
+fe 00 ea ac ea 00 fe 00   plane 2 (rows 0..7)
+ff 01 01 01 01 01 ff ff   plane 3 (rows 0..7)
 ```
 
-Pixel readings for glyph 0:
-- Row 0, column 0 → b0=1, b1=1, b2=1, b3=0 → color **7** (light gray)
-- Row 0, column 7 → b0=0, b1=0, b2=0, b3=1 → color **8** (dark gray)
-- Row 1, column 0 → b0=1, b1=1, b2=1, b3=0 → color **7** (light gray)
-- Row 7, column 0 → b0=1, b1=1, b2=1, b3=0 → color **7** (light gray)
+Pixel readings for glyph 37:
+- Row 0, column 0 → b0=0, b1=1, b2=1, b3=1 → color **14** (yellow). Plane bits: (0x00>>7=0, 0xfe>>7=1, 0xfe>>7=1, 0xff>>7=1).
+- Row 0, column 7 → b0=0, b1=0, b2=0, b3=1 → color **8** (dark gray). Plane bits: (0x00>>0=0, 0xfe>>0=0, 0xfe>>0=0, 0xff>>0=1).
+- Row 1, column 7 → b0=0, b1=0, b2=0, b3=1 → color **8** (dark gray). The first/last rows of the glyph are framed by plane 3.
+- Row 2, column 0 → b0=1, b1=0, b2=1, b3=0 → color **5** (magenta). Plane bits: (0xea>>7=1, 0x00>>7=0, 0xea>>7=1, 0x01>>7=0). Combined: `(0<<3) | (1<<2) | (0<<1) | 1` = `0b0101` = 5.
 
-Pixel arithmetic (synthetic):
-- Plane bits at row 0, col 0: f8 >> 7 = 1, f8 >> 7 = 1, f8 >> 7 = 1, 0d >> 7 = 0.
-- Combined color: `0<<3 | 1<<2 | 1<<1 | 1` = `0b0111` = `7`.
+Pixel arithmetic (synthetic, for the all-set case):
+- Plane bits at any (row, col) where each plane byte's relevant bit is 1: combined color = `(1<<3) | (1<<2) | (1<<1) | 1` = `0b1111` = `15` (white).
 
 ## Validation
 
