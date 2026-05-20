@@ -37,7 +37,7 @@ export function FontGallery({ url }: Props) {
     canvas.width = COLS * CELL_PX * ZOOM;
     canvas.height = rows * CELL_PX * ZOOM;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) throw new Error('2D canvas context not available');
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);

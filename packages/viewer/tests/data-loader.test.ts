@@ -15,7 +15,7 @@ const validFont = {
 describe('loadFont', () => {
   it('fetches the JSON and returns a typed Font', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(validFont), { status: 200 })));
-    const font = await loadFont('/extracted/fonts/wfont0.json');
+    const font = await loadFont('/fonts/wfont0.json');
     expect(font.id).toBe('wfont0');
     expect(font.glyphCount).toBe(1);
   });
