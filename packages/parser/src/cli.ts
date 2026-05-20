@@ -4,6 +4,7 @@ import { describePlan } from './index.js';
 import { extractWfont } from './extractors/extract-wfont.js';
 import { extractWfont4bpp } from './extractors/extract-wfont-4bpp.js';
 import { extractWport } from './extractors/extract-wport.js';
+import { extractEgaScreen } from './extractors/extract-ega-screen.js';
 
 const subcommand = process.argv[2];
 
@@ -38,12 +39,24 @@ if (subcommand === 'extract-fonts') {
     });
     console.log(`wrote ${extractedDir}/portraits/wport${n}.json (${set.portraitCount} portraits)`);
   }
+} else if (subcommand === 'extract-screens') {
+  const originalDir = process.argv[3] ?? './original';
+  const extractedDir = process.argv[4] ?? './extracted';
+
+  for (const name of ['titlepag', 'graveyrd', 'dragonsc']) {
+    const screen = extractEgaScreen({
+      originalPath: join(originalDir, `${name}.ega`),
+      outputPath: join(extractedDir, 'screens', `${name}.json`),
+      id: name,
+    });
+    console.log(`wrote ${extractedDir}/screens/${name}.json (320×200, ${screen.trailer.length}-byte trailer)`);
+  }
 } else if (subcommand === 'plan' || subcommand === undefined) {
   const originalDir = process.argv[3] ?? './original';
   const plan = describePlan({ originalDir });
   console.log(JSON.stringify(plan, null, 2));
 } else {
   console.error(`Unknown subcommand: ${subcommand}`);
-  console.error(`Usage: wiz6-parse [plan|extract-fonts|extract-portraits] [<originalDir> [<extractedDir>]]`);
+  console.error(`Usage: wiz6-parse [plan|extract-fonts|extract-portraits|extract-screens] [<originalDir> [<extractedDir>]]`);
   process.exit(2);
 }
