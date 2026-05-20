@@ -28,3 +28,4 @@ export {
   type Portrait,
   type PortraitSet,
 } from './schemas/portrait.js';
+export { EgaScreenSchema, type EgaScreen } from './schemas/ega-screen.js';
