@@ -7,6 +7,7 @@ import { ScreenGallery } from './views/ScreenGallery.js';
 import { ScreenAlignmentTool } from './views/ScreenAlignmentTool.js';
 import { MessageGallery } from './views/MessageGallery.js';
 import { NewgameGallery } from './views/NewgameGallery.js';
+import { ScenarioGallery } from './views/ScenarioGallery.js';
 import {
   EGA_PALETTE,
   WIZ6_PALETTE_1,
@@ -73,6 +74,10 @@ export function App() {
         Newgame database — 779 × 64-byte records (character creation templates)
       </h2>
       <NewgameGallery url="/newgame/newgame.json" />
+      <h2 style={{ marginTop: '2em', borderTop: '2px solid #888', paddingTop: '1em' }}>
+        Scenario database — XP tables &amp; item definitions
+      </h2>
+      <ScenarioGallery url="/scenario/scenario.json" />
       <h2 style={{ marginTop: '2em', borderTop: '2px solid #888', paddingTop: '1em' }}>
         Screen alignment tool — drag sliders to align planes manually
       </h2>

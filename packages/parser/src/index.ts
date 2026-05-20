@@ -17,6 +17,8 @@ export {
 export { extractMessageDb, type ExtractMessageDbOpts } from './extractors/extract-message-db.js';
 export { decodeNewgameDb, type DecodeNewgameDbOpts } from './formats/newgame-db.js';
 export { extractNewgameDb, type ExtractNewgameDbOpts } from './extractors/extract-newgame-db.js';
+export { decodeScenarioDb, type DecodeScenarioDbOpts } from './formats/scenario-db.js';
+export { extractScenarioDb, type ExtractScenarioDbOpts } from './extractors/extract-scenario-db.js';
 
 export interface Plan {
   originalDir: string;
