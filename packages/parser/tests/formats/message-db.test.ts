@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { huffmanDecode, decodeMessageDb } from '../../src/formats/message-db.js';
+import { huffmanDecode, decodeMessageDb, cleanIndexedText } from '../../src/formats/message-db.js';
 
 // Build a minimal tree that decodes 0 -> 'A', 1 -> 'B'.
 // Tree must be 1024 bytes (256 nodes × 4). Only node 0 is meaningful here;
@@ -131,5 +131,46 @@ describe('decodeMessageDb (indexed messages from msg.hdr)', () => {
     expect(db.indexedMessages[0]?.sectionIndex).toBe(0);
     expect(db.indexedMessages[1]?.sectionIndex).toBe(0);
     expect(db.indexedMessages[2]?.sectionIndex).toBe(1);
+  });
+});
+
+describe('cleanIndexedText', () => {
+  it('returns empty unchanged', () => {
+    expect(cleanIndexedText('')).toBe('');
+  });
+
+  it('returns text starting with uppercase letter unchanged', () => {
+    expect(cleanIndexedText('THE SPELL HAS BEEN')).toBe('THE SPELL HAS BEEN');
+    expect(cleanIndexedText('YOU CANNOT')).toBe('YOU CANNOT');
+  });
+
+  it('returns text starting with digit unchanged', () => {
+    expect(cleanIndexedText('1000 GOLD')).toBe('1000 GOLD');
+  });
+
+  it('returns text starting with sentence punctuation unchanged', () => {
+    expect(cleanIndexedText('"QUOTED"')).toBe('"QUOTED"');
+    expect(cleanIndexedText("'SINGLE'")).toBe("'SINGLE'");
+    expect(cleanIndexedText('*MARKER*')).toBe('*MARKER*');
+    expect(cleanIndexedText('(PAREN)')).toBe('(PAREN)');
+  });
+
+  it('strips leading lowercase noise up to first uppercase letter within 10 chars', () => {
+    expect(cleanIndexedText('reHE SPELL')).toBe('HE SPELL');
+    // Text already starts with uppercase K - no stripping
+    expect(cleanIndexedText('KCETIRTHE SPELL')).toBe('KCETIRTHE SPELL');
+  });
+
+  it('strips up to first digit within 10 chars', () => {
+    expect(cleanIndexedText('aaa1000 GOLD')).toBe('1000 GOLD');
+  });
+
+  it('leaves text unchanged when no clean start is within the first 10 chars', () => {
+    // 11 lowercase chars then a capital — beyond the 10-char window
+    expect(cleanIndexedText('aaaaaaaaaaaTHE')).toBe('aaaaaaaaaaaTHE');
+  });
+
+  it('leaves text unchanged when first 10 chars have no recognizable start', () => {
+    expect(cleanIndexedText('abc def gh')).toBe('abc def gh');
   });
 });

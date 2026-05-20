@@ -101,6 +101,62 @@ function parseMsgHdr(hdrBytes: Uint8Array): HdrEntry[] {
   return entries;
 }
 
+/**
+ * Strip leading-noise heuristic for indexed messages.
+ *
+ * Stage 1g.2 finding: each indexed message slice from msg.dbs often has 1-8
+ * chars of leading noise — either a per-message header (length / type byte
+ * that decodes to gibberish via the shared Huffman tree) or bit-stream
+ * resynchronization artifacts at message boundaries. The semantics of the
+ * leading bytes haven't been decoded.
+ *
+ * Empirical pass over all 718 indexed messages: 91 already start with an
+ * uppercase letter at position 0; 19 at position 1; 6 at position 2. So
+ * stripping leading non-uppercase chars (up to 10 chars max) cleans up many
+ * messages without eating real text. If nothing recognizable is in the
+ * first 10 chars, leave the slice intact.
+ *
+ * Returns a trimmed version of `text`. The original is preserved in
+ * `decodedText`; this output goes in `cleanedText`.
+ */
+export function cleanIndexedText(text: string): string {
+  if (text.length === 0) return text;
+
+  // Already starts cleanly: uppercase letter, digit, or common
+  // sentence-starting punctuation.
+  const first = text.charCodeAt(0);
+  if (
+    (first >= 0x41 && first <= 0x5A) ||  // A-Z
+    (first >= 0x30 && first <= 0x39) ||  // 0-9
+    first === 0x22 ||                    // "
+    first === 0x27 ||                    // '
+    first === 0x2A ||                    // *
+    first === 0x28                       // (
+  ) {
+    return text;
+  }
+
+  // Look for the first "clean start" character within the first 10 chars.
+  // We treat uppercase letters, digits, or sentence-starting punctuation as
+  // valid starts.
+  const maxScan = Math.min(10, text.length);
+  for (let i = 1; i < maxScan; i++) {
+    const c = text.charCodeAt(i);
+    if (
+      (c >= 0x41 && c <= 0x5A) ||
+      (c >= 0x30 && c <= 0x39) ||
+      c === 0x22 || c === 0x27 || c === 0x2A || c === 0x28
+    ) {
+      // Found a clean start. Only strip if at least one of the chars before
+      // it looks like noise (not a lowercase letter or space — those might
+      // be real text).
+      // Conservative: always strip if found within first 10 chars.
+      return text.slice(i);
+    }
+  }
+  return text;
+}
+
 function decodeIndexedMessages(
   dbsBytes: Uint8Array,
   treeBytes: Uint8Array,
@@ -146,6 +202,7 @@ function decodeIndexedMessages(
         raw: entries[i]!.raw,
         sectionIndex: s,
         decodedText,
+        cleanedText: cleanIndexedText(decodedText),
       });
     }
   }

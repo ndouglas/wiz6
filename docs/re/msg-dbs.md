@@ -77,21 +77,38 @@ record  4 ( 56 compressed bytes): "...TRADE WHICH ITEM?...TRADE GOLD (AMOUNT) >.
 
 The strings include all class names, item-action commands, spell categories, character options, and dialog text — clearly the game's UI/dialog text database.
 
-## Open question: per-message delimiters within a record
+## Per-message delimiters (Stage 1g.1 — msg.hdr resolved)
 
-Many records decode to LONG TEXT containing multiple distinct messages. For example, record 1 decodes to a 223-byte enumeration of all character classes. The boundaries between sub-messages are encoded somehow — the character `'E'` appears as an apparent separator in many records (e.g., `"DWARFEEOE GNOMEEET E LEM..."`), but it may just be a coincidence with the high-frequency `E` letter being a noisy filler at the end of bit streams.
+Initially we worried that each record contained multiple sub-messages with implicit delimiters. Stage 1g.1 cracked `msg.hdr` and revealed that **msg.dbs is more naturally read as one continuous Huffman bit stream**, with `msg.hdr` providing 718 (byte_offset, char_offset) indices into that stream. See `docs/re/msg-hdr.md` for the full layout.
 
-Possibilities for the per-message delimiter:
-- A control character (e.g., `0x00` or `0x01`) emitted between messages — but the decoded streams don't show clean nulls.
-- `msg.hdr` may give explicit `(record, offset, length)` triplets pointing to specific bytes within each record's decoded text.
-- The tree may emit a special "end of message" marker via a leaf with a high-byte value (e.g., 128-255) that we're not handling.
+The "E as separator" appearance in raw-record decoding turned out to be a side effect of the records each containing multiple bit-stream messages back-to-back — the 'E' chars are real letters from the decoded text, just at the boundaries between encoded messages.
 
-Resolving this would require either:
-- Static analysis of the routines in wroot.exe / overlays that READ from msg.dbs to display messages on screen.
-- DOSBox-X trace: hit Wizardry menus and capture the displayed text to cross-reference with our decoded records.
+## Stage 1g.2: leading-noise heuristic
 
-For Stage 1g's MVP, the records are exposed as `{recordIndex, compressedLength, decodedText}` and the viewer simply lists them. Sub-message extraction is deferred.
+Even with msg.hdr indexing, each indexed-message slice typically has **1-8 chars of leading "noise"** before the real text begins — either a per-message header (length / type byte that decodes through the Huffman tree to gibberish letters) or a bit-stream resynchronization artifact at the message boundary.
 
-## Open question: `msg.hdr` encoding
+Empirical analysis over all 718 indexed messages:
+- 402 of 718 are empty (sentinel slots).
+- 91 of the non-empty messages start with an uppercase letter at position 0.
+- 19 more start with uppercase at position 1, 6 at position 2.
+- The most common 2-char prefixes are `"EE"` (20×), `"E "` (18×), `"TE"` (11×), `"  "` (7×).
 
-5102 bytes. First word = `0x02ce` = 718. Doesn't divide cleanly into 4/6/8-byte records when treated as `header + entries`. Format is unresolved.
+The decoder now produces a `cleanedText` field alongside `decodedText`:
+
+- If `decodedText` already starts with an uppercase letter `A-Z`, digit `0-9`, or sentence-starting punctuation (`"`, `'`, `*`, `(`), `cleanedText === decodedText`.
+- Otherwise, scan the first 10 chars for any of those "clean-start" characters and strip everything before it.
+- If nothing clean is found in the first 10 chars, leave the text alone.
+
+This is conservative — it strips obvious leading whitespace and single-char lowercase prefixes, but leaves messages with stubborn multi-char noise intact. On real data, 71 messages get cleaning applied; the remaining 647 are passed through unchanged.
+
+`MessageGallery` defaults to showing `cleanedText` with a "strip leading garbage (heuristic)" checkbox to toggle back to `decodedText`. The JSON ships both fields.
+
+### Why the leading noise exists (open)
+
+We don't yet know why each message has a small leading prefix. Best guesses:
+
+1. **Per-message header byte(s)** — Wiz6 may store a length or type byte at the start of each message in msg.dbs, before the actual text. The Huffman tree encodes that byte alongside the text, decoding to seemingly-random letters when read.
+2. **Bit-stream resync artifacts** — Huffman codes are self-synchronizing, but starting decode mid-bit-stream produces a few garbage chars until alignment. Our section-based decoder starts on byte boundaries (col_a values), but the *previous section's last message may have ended mid-byte*, leaving leftover bits that decode to noise.
+3. **A specific control byte (e.g., 0x00) that we're treating as a literal character** — unlikely since the Huffman tree's known leaves are all 0x20+ ASCII range.
+
+Resolving this would require tracing the actual text-display routine in `wbase.ovr` / `wmaze.ovr` / etc. and watching how it interprets the bit stream byte by byte.

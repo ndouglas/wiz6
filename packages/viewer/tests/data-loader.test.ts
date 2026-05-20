@@ -133,6 +133,7 @@ const validMessageDb = {
     raw: 0,
     sectionIndex: 0,
     decodedText: 'HELLO',
+    cleanedText: 'HELLO',
   }],
 };
 

@@ -8,7 +8,12 @@ export { decodeWport, type DecodeWportOpts } from './formats/wport.js';
 export { extractWport, type ExtractWportOpts } from './extractors/extract-wport.js';
 export { decodeEgaScreen, type DecodeEgaScreenOpts } from './formats/ega-screen.js';
 export { extractEgaScreen, type ExtractEgaScreenOpts } from './extractors/extract-ega-screen.js';
-export { decodeMessageDb, huffmanDecode, type DecodeMessageDbOpts } from './formats/message-db.js';
+export {
+  decodeMessageDb,
+  huffmanDecode,
+  cleanIndexedText,
+  type DecodeMessageDbOpts,
+} from './formats/message-db.js';
 export { extractMessageDb, type ExtractMessageDbOpts } from './extractors/extract-message-db.js';
 export { decodeNewgameDb, type DecodeNewgameDbOpts } from './formats/newgame-db.js';
 export { extractNewgameDb, type ExtractNewgameDbOpts } from './extractors/extract-newgame-db.js';

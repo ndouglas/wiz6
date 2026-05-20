@@ -15,8 +15,8 @@ const validDb = {
   ],
   indexedCount: 2,
   indexedMessages: [
-    { index: 0, byteOffset: 100, charOffset: 0, raw: 5, sectionIndex: 0, decodedText: 'HUMAN' },
-    { index: 1, byteOffset: 119, charOffset: 5, raw: 14, sectionIndex: 0, decodedText: 'DWARF GNOME ELF' },
+    { index: 0, byteOffset: 100, charOffset: 0, raw: 5, sectionIndex: 0, decodedText: 'HUMAN', cleanedText: 'HUMAN' },
+    { index: 1, byteOffset: 119, charOffset: 5, raw: 14, sectionIndex: 0, decodedText: 'DWARF GNOME ELF', cleanedText: 'DWARF GNOME ELF' },
   ],
 };
 

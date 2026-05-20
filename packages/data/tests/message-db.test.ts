@@ -13,6 +13,7 @@ const validIndexed = {
   raw: 10,
   sectionIndex: 0,
   decodedText: 'HUMAN',
+  cleanedText: 'HUMAN',
 };
 const baseDb = {
   id: 'msg',

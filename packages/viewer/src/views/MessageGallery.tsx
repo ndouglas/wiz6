@@ -23,6 +23,7 @@ export function MessageGallery({ url }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [view, setView] = useState<View>('indexed');
+  const [showCleaned, setShowCleaned] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,6 +42,7 @@ export function MessageGallery({ url }: Props) {
     return db.indexedMessages.filter(
       (m) =>
         m.decodedText.toLowerCase().includes(needle) ||
+        m.cleanedText.toLowerCase().includes(needle) ||
         String(m.index).includes(filter),
     );
   }, [db, filter]);
@@ -83,6 +85,16 @@ export function MessageGallery({ url }: Props) {
           />{' '}
           Raw msg.dbs records
         </label>
+        {view === 'indexed' && (
+          <label style={{ marginLeft: '1.5em' }}>
+            <input
+              type="checkbox"
+              checked={showCleaned}
+              onChange={() => setShowCleaned(!showCleaned)}
+            />{' '}
+            strip leading garbage (heuristic)
+          </label>
+        )}
       </div>
       <label>
         Filter:{' '}
@@ -119,7 +131,7 @@ export function MessageGallery({ url }: Props) {
                 <td style={{ color: '#888' }}>{m.charOffset}</td>
                 <td style={{ color: '#888' }}>{m.raw}</td>
                 <td style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {escapeText(m.decodedText)}
+                  {escapeText(showCleaned ? m.cleanedText : m.decodedText)}
                 </td>
               </tr>
             ))}
