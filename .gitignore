@@ -18,3 +18,8 @@ Thumbs.db
 .idea/
 
 # Original Wizardry VI DOS files now live in /original/ (ignored above).
+
+# DOSBox-X trace conf (contains absolute paths specific to one machine);
+# captures (PNG screenshots from interactive runs) are kept as evidence of the
+# Stage 1f.2 palette discovery.
+/dosbox-trace/wiz6.conf
