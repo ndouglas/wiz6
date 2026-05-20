@@ -53,22 +53,23 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: /wiz6 viewer/i })).toBeInTheDocument();
   });
 
-  it('renders a palette picker with three options', () => {
+  it('renders a palette picker with four options', () => {
     render(<App />);
     expect(screen.getByRole('radio', { name: /wiz6-main/i })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /wiz6-dungeon/i })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /ega-default/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /wiz6-title/i })).toBeInTheDocument();
   });
 
-  it('defaults the picker to wiz6-main', () => {
+  it('defaults the picker to wiz6-title', () => {
     render(<App />);
-    expect(screen.getByRole('radio', { name: /wiz6-main/i })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /wiz6-title/i })).toBeChecked();
   });
 
   it('switching the picker changes the picker state', () => {
     render(<App />);
     fireEvent.click(screen.getByRole('radio', { name: /ega-default/i }));
     expect(screen.getByRole('radio', { name: /ega-default/i })).toBeChecked();
-    expect(screen.getByRole('radio', { name: /wiz6-main/i })).not.toBeChecked();
+    expect(screen.getByRole('radio', { name: /wiz6-title/i })).not.toBeChecked();
   });
 });

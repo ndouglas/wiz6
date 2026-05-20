@@ -63,13 +63,34 @@ Resolving this requires reading the draw routine in `wroot.exe` (the function re
 
 ## Trailer
 
-The 768 bytes at offset 0x7D00..0x7FFF are preserved verbatim in the extracted JSON (`trailer` field). Files differ in how much of the trailer they use — titlepag.ega has roughly 256 active bytes followed by ~512 zero bytes, while graveyrd.ega has structured content extending past byte 256 (79 non-zero bytes scattered between offset 256 and 304 of the trailer). The encoding is not yet decoded — it might be:
+The 768 bytes at offset 0x7D00..0x7FFF are preserved verbatim in the extracted JSON (`trailer` field). Files differ in how much of the trailer they use — titlepag.ega has roughly 256 active bytes followed by ~512 zero bytes, graveyrd.ega has structured content extending past byte 256, and dragonsc.ega's trailer is entirely zero. Given that dragonsc renders correctly with no trailer content, the trailer is **most likely uninitialized buffer junk** from the artist's tool, not data the engine actually reads.
 
-- A packed per-screen palette (each .ega file likely needs its own palette since the in-game color scheme — yellow title text, brown stone walls — doesn't match any palette found in `wroot.exe`).
-- A slide-in animation script (the title page is known to slide in from the left in the actual game).
-- A custom LUT for runtime color remapping.
+## Palette
 
-Resolving this is a follow-up task; see "Open questions" in `docs/re/ega-screen-investigation.md`.
+The engine renders the title sequence (titlepag, graveyrd, dragonsc) using a **custom 16-entry palette permutation** of the standard EGA defaults, NOT the `wiz6-main` palette used during gameplay. Stage 1f.2 discovered this palette by capturing the title screen in DOSBox-X and inverting the per-pixel bit-pattern → color mapping. The resulting table:
+
+| file pattern | EGA color | label |
+|---|---|---|
+| 0x0 | 0  | black (background) |
+| 0x1 | 15 | white (title text, highlights) |
+| 0x2 | 9  | light blue |
+| 0x3 | 5  | magenta |
+| 0x4 | 12 | bright red |
+| 0x5 | 14 | yellow |
+| 0x6 | 10 | bright green |
+| 0x7 | 11 | bright cyan |
+| 0x8 | 8  | dark gray (stone walls) |
+| 0x9 | 7  | light gray (wall highlights) |
+| 0xa | 1  | blue |
+| 0xb | 13 | bright magenta |
+| 0xc | 4  | red (wizard cape) |
+| 0xd | 6  | brown (dwarf beard, leather) |
+| 0xe | 2  | green (dwarf tunic) |
+| 0xf | 3  | cyan |
+
+This palette is stored as `WIZ6_TITLE_PALETTE` in `packages/viewer/src/palettes/wiz6-title.ts` and is auto-applied to all `<ScreenGallery>` instances regardless of the picker selection. The picker still offers `wiz6-title` as a fourth option for inspecting fonts/portraits under this palette.
+
+**Where the engine sets these palette registers is not yet known.** There is no `INT 10h AX=1002h` site in `wroot.exe` that loads this table, and no direct attribute-controller port writes anywhere in the binaries. The setup must happen via code reached through `winit.ovr`'s overlay thunks (likely `func_0xf130` or `func_0xf118`, called from `FUN_08f7`), or through individual `INT 10h AH=10h AL=0h` register writes we haven't matched. Tracing this requires either single-stepping in DOSBox-X's integrated debugger or resolving the MS-C overlay thunk table in `wroot.exe`. For now, the empirically-derived palette is what the renderer uses.
 
 ## File summary
 
@@ -81,9 +102,9 @@ Resolving this is a follow-up task; see "Open questions" in `docs/re/ega-screen-
 
 ## Known residual differences from the original game
 
-The current renderer produces structurally correct images that closely match the in-game appearance but with a faint greenish tinge and slightly muted color variation versus the original. Likely causes:
+After Stage 1f.2 (palette discovery via DOSBox-X capture), the renderer reproduces the title screen, graveyard, and dragon HUD with the correct colors. Small differences remain:
 
-- The **per-plane Y offsets** (-5, -10, -14) were found by manual visual alignment and may be a pixel or two off.
-- The **palette** is whichever the picker is set to (defaults to `wiz6-main`). The true per-screen palette may live in the 768-byte trailer or be set by a routine inside `wroot.exe` that we haven't traced yet.
+- The **per-plane Y offsets** (-5, -10, -14) were found by manual visual alignment and may be 1-2 pixels off from what the engine actually uses.
+- Where to find the **palette setup code** in the engine is still unknown (the palette values themselves are verified).
 
-Both can be resolved by a DOSBox-X trace of the actual draw routine.
+Both are minor and can be resolved by tracing the actual draw routine via the DOSBox-X integrated debugger.
