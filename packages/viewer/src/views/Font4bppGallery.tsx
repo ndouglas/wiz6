@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Font4bpp } from '@wiz6/data';
 import { loadFont4bpp } from '../data-loader.js';
-import { EGA_PALETTE } from '../ega-palette.js';
+import { EGA_PALETTE } from '../palettes/ega-default.js';
 
 const GLYPH_PX = 8;
 const CELL_PX = 8;
@@ -64,7 +64,7 @@ export function Font4bppGallery({ url }: Props) {
       for (let r = 0; r < GLYPH_PX; r++) {
         for (let c = 0; c < GLYPH_PX; c++) {
           const colorIndex = pixelColor(glyph, r, c);
-          const rgb = EGA_PALETTE[colorIndex];
+          const rgb = EGA_PALETTE.colors[colorIndex];
           if (!rgb) continue;
           ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
           ctx.fillRect((gx + c) * ZOOM, (gy + r) * ZOOM, ZOOM, ZOOM);
