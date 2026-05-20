@@ -28,10 +28,20 @@ const validPortraitSet = {
   ],
 };
 
+const validScreen = {
+  id: 'screenN',
+  sourceFile: 'screenN.ega',
+  width: 320,
+  height: 200,
+  planes: [Array(8000).fill(0), Array(8000).fill(0), Array(8000).fill(0), Array(8000).fill(0)],
+  trailer: Array(256).fill(0),
+};
+
 describe('App', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('screens/')) return new Response(JSON.stringify(validScreen), { status: 200 });
       if (url.includes('portraits/')) return new Response(JSON.stringify(validPortraitSet), { status: 200 });
       if (url.includes('wfont0')) return new Response(JSON.stringify(valid1bpp), { status: 200 });
       return new Response(JSON.stringify(valid4bpp), { status: 200 });
