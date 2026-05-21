@@ -1,0 +1,44 @@
+.grid {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: var(--space-2) var(--space-4);
+  align-items: baseline;
+}
+
+.label {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+
+.value {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+}
+
+.gloss {
+  color: var(--color-text-faint);
+  font-size: 0.85rem;
+  margin-left: var(--space-2);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border-radius: 2px;
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+.badgeFire { color: var(--color-element-fire); }
+.badgeCold { color: var(--color-element-cold); }
+.badgePoison { color: var(--color-element-poison); }
+.badgeMental { color: var(--color-element-mental); }
+
+.badgeClass1 { color: var(--color-class-1); }
+.badgeClass2 { color: var(--color-class-2); }
+.badgeClass3 { color: var(--color-class-3); }
+.badgeClass4 { color: var(--color-class-4); }

@@ -1,6 +1,7 @@
 import type { ScenarioMonster } from '@wiz6/data';
 import { useUrlState } from '../../lib/hooks/useUrlState.js';
 import styles from './MonsterDetail.module.css';
+import { OverviewTab } from './tabs/OverviewTab.js';
 
 type TabId = 'overview' | 'attacks' | 'saves';
 
@@ -47,9 +48,13 @@ export function MonsterDetail({ monster }: MonsterDetailProps) {
       </div>
 
       <div role="tabpanel" data-testid={`tab-${currentTab}`}>
-        <p className={styles.placeholder}>
-          {currentTab} content arrives in subsequent tasks (8 / 11 / 12).
-        </p>
+        {currentTab === 'overview' ? (
+          <OverviewTab monster={monster} />
+        ) : (
+          <p className={styles.placeholder}>
+            {currentTab} content arrives in a subsequent task (11 / 12).
+          </p>
+        )}
       </div>
     </>
   );
