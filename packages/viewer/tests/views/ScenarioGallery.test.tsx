@@ -30,6 +30,8 @@ const baseMonsterFields = {
   hpDiceSides: 0,
   monsterClass: 0,
   monsterSubClass: 0,
+  saveTable: [0, 0, 0, 0, 0],
+  effectChanceTable: [0, 0, 0, 0, 0],
 };
 
 const emptyMonster = (i: number) => ({
