@@ -170,8 +170,23 @@ function decodeFixedString(slice: Uint8Array, start: number, length: number): st
  *                                   7=vampiric (BANE KING, DRACULA),
  *                                   8=poison, 11=mental (BANSHEE, ghosts),
  *                                   12=charm (SIREN).
- *                    Remaining fields (byte 156, per-attack metadata bytes
- *                    8/10-21) are TBD — see Stage 1j.2.10.
+ *                      byte   156   monsterBehaviorClass    enum 0/1/2/5/8/
+ *                                   10/11. Clusters by combat behavior:
+ *                                   1=humanoid elite, 2=undead, 5=vampire
+ *                                   boss, 8=swarm/flying, 10=faerie
+ *                                   ethereal, 11=FAERIE QUEEN unique.
+ *                      bytes 18-19,
+ *                       34-35,
+ *                       50-51       attackNExtra[2] per-attack 2-byte data.
+ *                                   Present iff the corresponding attack
+ *                                   exists (100% correlation: byte 34-35
+ *                                   nonzero for all 84 monsters with atk2,
+ *                                   zero for all 105 without; same for
+ *                                   atk3). Likely damage type + flags
+ *                                   bitfield. Exact semantics TBD.
+ *                    Remaining un-decoded: byte 8/10-15 sparse per-attack
+ *                    "rare special" metadata (level drain, paralysis
+ *                    chance, etc.). See Stage 1j.2.11.
  *   0x2304E..end    unknownTail — 45,542 bytes, more tables. ASCII strings
  *                    suggest NPC/quest data ("SMITTY", "CAPTAIN MATEY").
  *
@@ -297,6 +312,10 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       ],
       goldStat: statSlice[56]!,
       specialAttackElement: statSlice[152]!,
+      monsterBehaviorClass: statSlice[156]!,
+      attack1Extra: [statSlice[18]!, statSlice[19]!],
+      attack2Extra: [statSlice[34]!, statSlice[35]!],
+      attack3Extra: [statSlice[50]!, statSlice[51]!],
     });
   }
 

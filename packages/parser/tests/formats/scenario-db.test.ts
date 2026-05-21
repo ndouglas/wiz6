@@ -196,7 +196,11 @@ describe('decodeScenarioDb', () => {
     bytes[stat + 149] = 1; // monsterSubClass = 1 (common)
     bytes[stat + 150] = 2; // monsterSex = 2 (neuter creature)
     bytes[stat + 152] = 3; // specialAttackElement = 3 (cold)
+    bytes[stat + 156] = 2; // monsterBehaviorClass = 2 (undead-like)
     bytes[stat + 157] = 2; // spriteGroup = 2 (small beast)
+    bytes[stat + 18] = 115; bytes[stat + 19] = 1; // attack1Extra
+    bytes[stat + 34] = 50; bytes[stat + 35] = 2;  // attack2Extra
+    bytes[stat + 50] = 25; bytes[stat + 51] = 3;  // attack3Extra
     const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
     const m = db.monsters[1]!;
     expect(m.xpOnKill).toBe(450);
@@ -228,6 +232,10 @@ describe('decodeScenarioDb', () => {
     expect(m.attributeSaves).toEqual([16, 21, 18, 18]);
     expect(m.goldStat).toBe(2);
     expect(m.specialAttackElement).toBe(3);
+    expect(m.monsterBehaviorClass).toBe(2);
+    expect(m.attack1Extra).toEqual([115, 1]);
+    expect(m.attack2Extra).toEqual([50, 2]);
+    expect(m.attack3Extra).toEqual([25, 3]);
   });
 
   it('marks empty monster slots correctly', () => {

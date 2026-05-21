@@ -121,7 +121,9 @@ followed by 158 bytes of stat data:
 | 144..147    | `attributeSaves[4]`    | medium-high | 4 save-throw percentages, heavily family-shared with per-variant tweaks. RAT family 16/21/18/{14 or 18}; BAT family 16/18/19/{10 or 14}; SPIRIT-class undead 20/44/34/18 (high middle = good vs spell); GIANT family 14/26/24/{16 or 20}; LESSER DEMON family 21/12/15/{18 or 12}; WILL O' WISP 26/53/38/24. Likely correspond to (save vs Magic, save vs Mental/Spell, save vs Death/Para, save vs Breath) or similar 4-category save system. |
 | 56          | `goldStat`             | medium-high | Scales with monster strength. RAT 1 (= 10 gp), ZOMBIE 20 (200 gp), PIT FIEND 140 (1,400 gp), BANE KING / DRACULA 150 (1,500 gp), HELLCAT=FIRE 60 (600 gp). Best-fit interpretation: average gold drop in tens of gold pieces. Byte 57 is nearly always 0 (no high byte), so this is a one-byte field. |
 | 152         | `specialAttackElement` | high        | Damage-type / element enum: 1=fire (HELLCAT, PIT FIEND, HELLION), 2=earth (GUARDIAN=ROCK, ROCK=RUMBLE), 3=cold (COLD SLIME, WHITE WYRM, WEIRD), 4=acid (RUBBER BEAST, GOOP GLOOP, MAN O' WAR), 5=disease (ZOMBIE family — 7 members), 6=water (FLOATER, WATER DRAGON), 7=vampiric (BANE KING, DRACULA, REBECCA), 8=poison (DRAGONFLY, BLUE TAIL FLY, B E L A), 9=plant poison (FUMING VINE, HYDRA PLANT), 11=mental/scream (BANSHEE, SPECTRE, ghosts), 12=charm (SIREN family). |
-| other       | TBD                    | —           | Remaining unidentified positions: byte 156 (small enum), per-attack metadata bytes (8, 10-21 inside each 16-byte attack record). Stage 1j.2.10 to continue.                                                                                |
+| 156         | `monsterBehaviorClass` | medium      | 7-value enum (0/1/2/5/8/10/11) clustering by combat behavior: 0=normal (103 monsters), 1=humanoid elite leader (19: CAPTAIN MATEY, QUEEQUEG, AMAZULU QUEEN, GUARDIAN=ROCK), 2=undead (27: BANSHEE, SPECTRE, SPIRIT, WRAITH, ghosts), 5=vampire boss (2: BANE KING, DRACULA), 8=swarm/flying/plant (33: BAT family, VINE family), 10=faerie ethereal (4: FAERIE SYLPH, WILL O' WISP, TWISTED SYLPH, PIXIE), 11=unique boss (1: FAERIE QUEEN). |
+| 18..19, 34..35, 50..51 | `attack1Extra[2]`, `attack2Extra[2]`, `attack3Extra[2]` | high (structural) | Per-attack 2-byte data fields, present iff the corresponding attack exists. Perfect 100% correlation: byte 34-35 nonzero for all 84 monsters with atk2 and zero for all 105 without; same for atk3 (byte 50-51 nonzero for 37/37 monsters with atk3, zero otherwise). Exact semantic interpretation TBD — likely encodes (damage type, attack flags / spell ID) per attack. byte 18 distribution favors multiples of 5 (65/75/50/85/70/35); byte 19 has many small values (1-4) plus powers of 2 (32/64/128) suggesting a flags bitfield. |
+| other       | TBD                    | —           | Remaining unidentified per-attack metadata bytes (8, 10-15) — sparse "rare special" data (e.g. byte 13 = secondary effect chance for BANSHEE/SPECTRE/ghosts at 50%/90%). See Stage 1j.2.11.                                                                                |
 
 **Attack record structure**: bytes 6..53 contain three 16-byte attack
 records at offsets 6, 22, 38. Each record holds (dice count, dice sides)
@@ -184,15 +186,17 @@ the *running scenario state*, not for the *scenario content file*.
 
 ## Future work
 
-- **Stage 1j.2.10**: continue cracking remaining monster stat fields.
-  Stages 1j.2.1–1j.2.9 nailed xpOnKill, HP/group/attack dice (all three
+- **Stage 1j.2.11**: continue cracking remaining monster stat fields.
+  Stages 1j.2.1–1j.2.10 nailed xpOnKill, HP/group/attack dice (all three
   attacks), per-attack special-effect chance %, monster class/subclass,
   save/effect tables, monster level, family ID, creatureKind, monsterSex,
-  moveStat, spriteGroup, monsterAC, attributeSaves, goldStat, and
-  specialAttackElement. Remaining leads:
-    - byte 156: small enum (0/1/2/5/8/10/11). 1=humanoid elites, 2=undead,
-      5=vampire bosses, 8=small flying/plant, 10=faerie ethereal, 11=
-      FAERIE QUEEN. Looks categorical but exact semantics unclear.
+  moveStat, spriteGroup, monsterAC, attributeSaves, goldStat,
+  specialAttackElement, monsterBehaviorClass, and the three per-attack
+  Extra[2] byte pairs. Remaining leads:
+    - Sparse per-attack metadata bytes (8, 10-15) — appear to encode
+      secondary effects (e.g. byte 13 = secondary special chance for
+      BANSHEE/SPECTRE/ghosts at 50%/90% — likely "second special effect
+      that triggers on hit").
     - Per-attack metadata bytes (8, 10-21 inside each 16-byte attack record)
       likely encode damage type (fire/cold/acid/poison) per individual
       attack and special-effect IDs.
