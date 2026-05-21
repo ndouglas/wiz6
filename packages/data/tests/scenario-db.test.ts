@@ -86,6 +86,10 @@ const baseMonsterFields = {
   secondarySpriteId: 0,
   magicResistChance: 0,
   combatTraitId: 0,
+  auxSave103: 0,
+  spellPowerChance: 0,
+  auxSave106: 0,
+  flyEvadeChance: 0,
 };
 const emptyMonster = (i: number) => ({
   index: i,
