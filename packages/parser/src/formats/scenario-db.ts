@@ -348,6 +348,8 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
         statSlice[89]!, statSlice[90]!, statSlice[91]!, statSlice[92]!,
         statSlice[93]!, statSlice[94]!, statSlice[95]!, statSlice[96]!,
       ],
+      combatSpriteId: statSlice[98]!,
+      combatSpriteAlt: statSlice[99]!,
     });
   }
 

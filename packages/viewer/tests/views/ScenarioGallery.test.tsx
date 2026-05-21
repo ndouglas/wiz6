@@ -75,6 +75,8 @@ const baseMonsterFields = {
   attack2PoisonStrength: 0,
   attack3PoisonStrength: 0,
   extendedSaves: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  combatSpriteId: 0,
+  combatSpriteAlt: 0,
 };
 
 const emptyMonster = (i: number) => ({

@@ -133,6 +133,8 @@ followed by 158 bytes of stat data:
 | 20, 36, 52  | `attackNDamageBonus`   | high        | Flat damage bonus added to the attack roll. Values monotonically scale with monster strength: GIANT RAT +1, HYDRA PLANT +2, GIANT SERPENT +4, HIGHLANDER/CHIMERA +4, NINJA +8, GREATER DEMON +20, ISLAND GIANT/GRANDFATHER +20, POISON GIANT +30, TYRANNASAURUS +10. Adds to the base XdY dice roll for total damage. |
 | 16, 32, 48  | `attackNPoisonStrength` | medium-high | Poison/status-effect intensity (likely poison dice count per turn or turns of duration). Set on poison/disease-inflicting monsters: CATERPILLAR 20, ASSASSIN 10, POISON VIPER 8, KUWALI KUBONA 6, MYSTAPHAPHAS 5, MAN O' WAR / AMAZULU QUEEN / TARANTULA 4, GIANT SERPENT / AMEN-TUT-BUTT / ACID SLIME / RABID RAT 3, GELATIN VAPOR / HUGE SPIDER / FORAGER / JAIL RAT 2, VAMPIRE BAT / POISON SLIME / JELLY CLOUD / FLOATER 1. Correlates with `attackNPoisonChance`. |
 | 85..96      | `extendedSaves[12]`    | medium-high | 12-byte cluster of save/resistance percentages (values 0, 25, 35, 50, 65, 75, 95, 125 — all multiples of 5 with 125 as immunity sentinel). Heavily family-shared: SPIRIT family (SPIRIT/WRAITH/LICHE/HAUNT/WRAITH LORD/SHADE/SHADOW/PHANTASM/ACCURSED ONE) shares `[65,65,65,125,125,125,125,125,125,125,*,*]` template — seven 125s indicate 7 categories of immunity for incorporeal undead. RAT family has all zeros (no special resistances). Likely encodes resistance to: physical/blade/blunt/piercing/missile/fire/cold/acid/poison/electric/mental/death — but exact category mapping is TBD. |
+| 98          | `combatSpriteId`       | high        | Combat-screen sprite / portrait ID. Strong family-sharing pattern: humanoid pirates (ROGUE/BUSHWACKER/BRIGAND/PIRATE) share 35, GIANT family (HILL/MINER/MOUNTAIN/ISLAND/FRYTZ/KLAUS GRYNS) share 124, SPIRIT-class undead (BANSHEE/SPECTRE/SPIRIT/WRAITH) share 128, GREATER DEMON / PIT FIEND / WRAITH LORD share 147, NINJA/ASSASSIN/CHUNIN share 140, BANE KING/DRACULA/REBECCA share 98. 63 distinct values in total. Unique values for unique bosses (CAPTAIN MATEY 4/28, FAERIE QUEEN 116, * XORPHITUS * 112, * B E L A * 113). |
+| 99          | `combatSpriteAlt`      | high        | Alternate / variant sprite ID. Byte 99 == byte 98 for 185/189 monsters. The 4 mismatches (BUSHWACKER/BRIGAND/PIRATE/CAPTAIN MATEY) have byte 99 = byte 98 + 1 — likely alternate-pose sprites for these encounter variants. |
 | (per-attack) +6 and +15 | (unused padding in real monsters) | high | Confirmed unused padding within attack records of real monster combat records: across all 250 regular monsters (indices 0-249), zero records have non-zero bytes at +6 or +15. The three records with apparent non-zero values at these offsets (indices 250-252) are not real monsters — they are special quest/event data records reusing the 222-byte format (see "Special quest-data records" below). |
 
 #### Special quest-data records (indices 250-252)
@@ -218,15 +220,14 @@ the *running scenario state*, not for the *scenario content file*.
 
 ## Future work
 
-- The monster attack records are now FULLY decoded: 14 named bytes per
-  16-byte attack × 3 attacks = 42 named bytes. Bytes +6 and +15 per
-  attack record (6 bytes total) are confirmed unused padding.
-- Beyond attack records, Stage 1j.2.14 also cracked the previously-missed
-  `extendedSaves[12]` cluster at bytes 85-96 — likely 12 elemental /
-  damage-type resistance percentages with 125 as the immunity sentinel.
-- Remaining un-decoded stat-block territory: bytes 98-112 (another dense
-  cluster of small-value fields, possibly spell IDs or per-category
-  multipliers).
+- Monster attack records FULLY decoded (Stages 1j.2.1–1j.2.14). Plus
+  `extendedSaves[12]` at 85-96 (resistance/immunity table) and
+  `combatSpriteId` / `combatSpriteAlt` at 98-99 (sprite IDs with strong
+  family-sharing pattern).
+- Remaining un-decoded stat-block territory: bytes 100-112. Mix of dense
+  fields (100 with 80 distinct, 102 with 15 percent-like, 104 with 16)
+  and sparse ones (105, 107, 109-110 all near-zero). Possibly spell
+  ids, per-category multipliers, or breath-weapon data.
 - **Stage 1j.3**: bind XP-table indices to character class names (probably
   resolvable by cross-reference with `newgame.dbs` records).
 - **Stage 1j.4**: identify AC for armor (no obvious field in the 74-byte
