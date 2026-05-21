@@ -47,9 +47,11 @@ export {
   XpTableSchema,
   ScenarioItemSchema,
   ScenarioMonsterSchema,
+  ScenarioQuestDataSchema,
   ScenarioDbSchema,
   type XpTable,
   type ScenarioItem,
   type ScenarioMonster,
+  type ScenarioQuestData,
   type ScenarioDb,
 } from './schemas/scenario-db.js';

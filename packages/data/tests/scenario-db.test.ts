@@ -3,6 +3,7 @@ import {
   ScenarioDbSchema,
   ScenarioItemSchema,
   ScenarioMonsterSchema,
+  ScenarioQuestDataSchema,
   XpTableSchema,
 } from '../src/schemas/scenario-db.js';
 
@@ -100,6 +101,13 @@ const emptyMonster = (i: number) => ({
   statBytes: validMonsterStatBytes,
   empty: true,
   ...baseMonsterFields,
+});
+const validQuestDataBytes = Array(222).fill(0);
+const emptyQuestData = (i: number) => ({
+  index: i,
+  names: ['', '', '', ''],
+  rawBytes: validQuestDataBytes,
+  empty: true,
 });
 
 describe('XpTableSchema', () => {
@@ -225,8 +233,10 @@ describe('ScenarioDbSchema', () => {
     itemCount: 1,
     items: [{ index: 0, name1: 'BROKEN ITEM', name2: '', bytes: validBytes, empty: false, ...baseItemFields }],
     unknownPreMonster: [],
-    monsterCount: 253,
-    monsters: Array.from({ length: 253 }, (_, i) => emptyMonster(i)),
+    monsterCount: 250,
+    monsters: Array.from({ length: 250 }, (_, i) => emptyMonster(i)),
+    questDataCount: 3,
+    questData: Array.from({ length: 3 }, (_, i) => emptyQuestData(i)),
     unknownTail: [],
   };
 
@@ -266,12 +276,12 @@ describe('ScenarioDbSchema', () => {
     expect(() => ScenarioDbSchema.parse({ ...baseDb, monsterCount: 100 })).toThrow();
   });
 
-  it('rejects when monsters.length is not 253', () => {
+  it('rejects when monsters.length is not 250', () => {
     expect(() =>
       ScenarioDbSchema.parse({
         ...baseDb,
-        monsters: baseDb.monsters.slice(0, 252),
-        monsterCount: 252,
+        monsters: baseDb.monsters.slice(0, 249),
+        monsterCount: 249,
       }),
     ).toThrow();
   });
@@ -279,5 +289,70 @@ describe('ScenarioDbSchema', () => {
   it('rejects monsters not indexed sequentially from 0', () => {
     const bad = baseDb.monsters.map((m, i) => ({ ...m, index: i === 0 ? 99 : i }));
     expect(() => ScenarioDbSchema.parse({ ...baseDb, monsters: bad })).toThrow();
+  });
+
+  it('rejects when questDataCount mismatches questData.length', () => {
+    expect(() => ScenarioDbSchema.parse({ ...baseDb, questDataCount: 2 })).toThrow();
+  });
+
+  it('rejects when questData.length is not 3', () => {
+    expect(() =>
+      ScenarioDbSchema.parse({
+        ...baseDb,
+        questData: baseDb.questData.slice(0, 2),
+        questDataCount: 2,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects questData not indexed sequentially from 0', () => {
+    const bad = baseDb.questData.map((q, i) => ({ ...q, index: i === 0 ? 99 : i }));
+    expect(() => ScenarioDbSchema.parse({ ...baseDb, questData: bad })).toThrow();
+  });
+});
+
+describe('ScenarioQuestDataSchema', () => {
+  it('accepts a valid quest-data record', () => {
+    expect(() =>
+      ScenarioQuestDataSchema.parse({
+        index: 0,
+        names: ['CAPTAIN MATEY', 'QUEEQUEG', '', ''],
+        rawBytes: validQuestDataBytes,
+        empty: false,
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects when rawBytes length is not 222', () => {
+    expect(() =>
+      ScenarioQuestDataSchema.parse({
+        index: 0,
+        names: ['', '', '', ''],
+        rawBytes: Array(221).fill(0),
+        empty: true,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects when names length is not 4', () => {
+    expect(() =>
+      ScenarioQuestDataSchema.parse({
+        index: 0,
+        names: ['A', 'B', 'C'],
+        rawBytes: validQuestDataBytes,
+        empty: false,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects when a name exceeds 15 chars', () => {
+    expect(() =>
+      ScenarioQuestDataSchema.parse({
+        index: 0,
+        names: ['X'.repeat(16), '', '', ''],
+        rawBytes: validQuestDataBytes,
+        empty: false,
+      }),
+    ).toThrow();
   });
 });

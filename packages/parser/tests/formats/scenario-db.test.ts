@@ -5,9 +5,15 @@ const XP_TOTAL = 14 * 16 * 4; // 896
 const ITEM_TOTAL = 500 * 74; // 37000
 const ITEM_TABLE_END = XP_TOTAL + ITEM_TOTAL; // 37896
 const MONSTER_TABLE_OFFSET = 0x0154e8; // 87272
-const MONSTER_TOTAL = 253 * 222; // 56166
-const MONSTER_TABLE_END = MONSTER_TABLE_OFFSET + MONSTER_TOTAL; // 143438
-const MIN_SIZE = MONSTER_TABLE_END;
+const MONSTER_RECORD_BYTES = 222;
+const MONSTER_RECORD_COUNT = 250;
+const QUEST_DATA_RECORD_COUNT = 3;
+const MONSTER_AND_QUEST_TOTAL =
+  (MONSTER_RECORD_COUNT + QUEST_DATA_RECORD_COUNT) * MONSTER_RECORD_BYTES; // 56166
+const QUEST_DATA_TABLE_OFFSET =
+  MONSTER_TABLE_OFFSET + MONSTER_RECORD_COUNT * MONSTER_RECORD_BYTES;
+const QUEST_DATA_TABLE_END = MONSTER_TABLE_OFFSET + MONSTER_AND_QUEST_TOTAL; // 143438
+const MIN_SIZE = QUEST_DATA_TABLE_END;
 
 function writeU32LE(buf: Uint8Array, off: number, v: number): void {
   buf[off] = v & 0xff;
@@ -131,7 +137,7 @@ describe('decodeScenarioDb', () => {
     expect(db.unknownPreMonster[expectedLen - 1]).toBe(0x22);
   });
 
-  it('parses 253 × 222-byte monster records with 4 name slots', () => {
+  it('parses 250 × 222-byte monster records with 4 name slots', () => {
     const bytes = new Uint8Array(MIN_SIZE);
     const base = MONSTER_TABLE_OFFSET + 1 * 222; // monster 1 (skip the RAT sentinel)
     writeAscii(bytes, base + 0, 'GIANT RAT');
@@ -140,7 +146,7 @@ describe('decodeScenarioDb', () => {
     writeAscii(bytes, base + 48, 'RATS');
     writeU16LE(bytes, base + 64, 450); // experience-on-kill
     const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
-    expect(db.monsterCount).toBe(253);
+    expect(db.monsterCount).toBe(250);
     const m = db.monsters[1]!;
     expect(m.nameIdSingular).toBe('GIANT RAT');
     expect(m.nameIdPlural).toBe('GIANT RATS');
@@ -318,7 +324,76 @@ describe('decodeScenarioDb', () => {
     const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
     expect(db.monsters[0]?.empty).toBe(false);
     expect(db.monsters[1]?.empty).toBe(true);
-    expect(db.monsters[252]?.empty).toBe(true);
+    expect(db.monsters[249]?.empty).toBe(true);
+  });
+
+  it('parses 3 × 222-byte quest-data records at file indices 250-252', () => {
+    // Matches real-file shape: only record 250 puts a string in a name
+    // slot ("CAPTAIN MATEY" at slot 0); the other two records leave the
+    // 64-byte name region zero and embed their strings deeper inside
+    // the 158-byte payload.
+    const bytes = new Uint8Array(MIN_SIZE);
+    const q0 = QUEST_DATA_TABLE_OFFSET + 0 * MONSTER_RECORD_BYTES;
+    writeAscii(bytes, q0 + 0, 'CAPTAIN MATEY');
+    // u16 LE sequence [0..7] at bytes 64-79 (drinking-contest turn data)
+    for (let i = 0; i < 8; i++) writeU16LE(bytes, q0 + 64 + i * 2, i);
+    // QUEEQUEG embedded inside payload at byte 130 (real-file position)
+    writeAscii(bytes, q0 + 130, 'QUEEQUEG');
+
+    const q1 = QUEST_DATA_TABLE_OFFSET + 1 * MONSTER_RECORD_BYTES;
+    // COSMIC FORGE embedded inside payload at byte 62 (real-file position)
+    writeAscii(bytes, q1 + 62, 'COSMIC FORGE');
+
+    const q2 = QUEST_DATA_TABLE_OFFSET + 2 * MONSTER_RECORD_BYTES;
+    writeAscii(bytes, q2 + 124, "L'MONTES");
+
+    const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
+    expect(db.questDataCount).toBe(3);
+    expect(db.questData).toHaveLength(3);
+
+    expect(db.questData[0]?.index).toBe(0);
+    expect(db.questData[0]?.names).toEqual(['CAPTAIN MATEY', '', '', '']);
+    expect(db.questData[0]?.rawBytes).toHaveLength(222);
+    expect(db.questData[0]?.empty).toBe(false);
+    // u16 LE sequence preserved in raw payload
+    expect(db.questData[0]?.rawBytes[64]).toBe(0);
+    expect(db.questData[0]?.rawBytes[78]).toBe(7);
+    // QUEEQUEG bytes recoverable from rawBytes (decoder doesn't expose it
+    // as a name — only the 4 canonical slots are decoded)
+    const queequeg = String.fromCharCode(...db.questData[0]!.rawBytes.slice(130, 138));
+    expect(queequeg).toBe('QUEEQUEG');
+
+    expect(db.questData[1]?.names).toEqual(['', '', '', '']);
+    const cosmic = String.fromCharCode(...db.questData[1]!.rawBytes.slice(62, 74));
+    expect(cosmic).toBe('COSMIC FORGE');
+
+    expect(db.questData[2]?.names).toEqual(['', '', '', '']);
+    const lmontes = String.fromCharCode(...db.questData[2]!.rawBytes.slice(124, 132));
+    expect(lmontes).toBe("L'MONTES");
+  });
+
+  it('decodes name strings written to any of the 4 quest-data name slots', () => {
+    // Decoder mechanics: each of the 4 16-byte slots is null-terminated
+    // and decoded independently. Real-file records only use slot 0, but
+    // the decoder must handle strings in any slot.
+    const bytes = new Uint8Array(MIN_SIZE);
+    const q0 = QUEST_DATA_TABLE_OFFSET;
+    writeAscii(bytes, q0 + 0, 'A');
+    writeAscii(bytes, q0 + 16, 'BB');
+    writeAscii(bytes, q0 + 32, 'CCC');
+    writeAscii(bytes, q0 + 48, 'DDDD');
+    const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
+    expect(db.questData[0]?.names).toEqual(['A', 'BB', 'CCC', 'DDDD']);
+  });
+
+  it('marks all-zero quest-data records as empty', () => {
+    const bytes = new Uint8Array(MIN_SIZE);
+    const q0 = QUEST_DATA_TABLE_OFFSET + 0 * MONSTER_RECORD_BYTES;
+    writeAscii(bytes, q0, 'NPC');
+    const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
+    expect(db.questData[0]?.empty).toBe(false);
+    expect(db.questData[1]?.empty).toBe(true);
+    expect(db.questData[2]?.empty).toBe(true);
   });
 
   it('throws when file is smaller than monster table end', () => {

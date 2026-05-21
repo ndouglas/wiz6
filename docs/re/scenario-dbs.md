@@ -13,7 +13,7 @@ monsters, and more tables yet to be cracked.
 | `0x0000..0x037F`   | 896 bytes    | XP-per-level tables — 14 classes × 16 levels × u32 LE                                                           |
 | `0x0380..0x9407`   | 37,000 bytes | Item table — 500 × 74-byte records                                                                              |
 | `0x9408..0x154E7`  | 49,376 bytes | **unknownPreMonster** — layout TBD. Hex patterns suggest 4bpp sprite graphics (item icons / monster portraits). |
-| `0x154E8..0x2304D` | 56,166 bytes | Monster table — 253 × 222-byte records                                                                          |
+| `0x154E8..0x2304D` | 56,166 bytes | Monster table — 250 × 222-byte combat-monster records followed by 3 × 222-byte quest-data records (same layout, different semantics) |
 | `0x2304E..0x2E233` | 45,542 bytes | **unknownTail** — more tables, layout TBD. ASCII strings ("SMITTY", "CAPTAIN MATEY") suggest NPC / quest data.  |
 
 ### XP tables (0x0000..0x037F)
@@ -82,8 +82,19 @@ dividers but don't always sit on category transitions. The decoded
 
 ### Monster table (0x154E8..0x2304D)
 
-253 fixed-size 222-byte records. Each record has FOUR 16-byte name slots
-followed by 158 bytes of stat data:
+253 fixed-size 222-byte slots, split into two semantic sections by the
+parser:
+
+- **Combat monsters (`monsters[0..249]`)**: 250 records that describe real
+  combat monsters. The decoded field table below applies to these.
+- **Quest data (`questData[0..2]`)**: 3 records at file-level indices
+  250-252 that reuse the 222-byte layout but carry embedded NPC / quest /
+  minigame data rather than monster stats. Exposed as `questData[]` with
+  the 4 name slots decoded but the 158-byte payload preserved as
+  `rawBytes`. See "Special quest-data records" below.
+
+Each monster record has FOUR 16-byte name slots followed by 158 bytes of
+stat data:
 
 | Record bytes | Field              | Notes                                                          |
 | ------------ | ------------------ | -------------------------------------------------------------- |
@@ -142,29 +153,37 @@ followed by 158 bytes of stat data:
 | 104         | `spellPowerChance`     | medium-high | Percent value with a clean spell-caster signature: SIREN SORCERESS / MAI-LAI / GOBLIN SHAMAN 100%, PRIESTESS 95%, WRAITH / LICHE / * XORPHITUS * 90%, GREATER DEMON 75%, ghost-class undead 65%. Looks like a "successful spell-cast" or "spell power roll" chance, distinct from `magicResistChance` (byte 102) which is the defensive side. |
 | 106         | `auxSave106`           | low         | Another percent byte (multiples of 5). Mixed patterns: vines / acid creatures around 20%, undead around 35%, sirens 75-80%. Doesn't fit cleanly into spell-resist or status-save categories, so named neutrally; could be an environmental-effect resistance or a behavior trigger. |
 | 111         | `flyEvadeChance`       | medium-high | Percent value strongly associated with the BAT family — every named BAT (BAT, HUGE, VAMPIRE, BLACK, MONSTROUS, INDIGO) has exactly 50%. Insects (DRAGONFLY, MOSQUITO) cluster around 25%, faerie/undead-ghost types around 20%. Pattern fits an evade / flight / "miss me on attack" mechanic for flying creatures; the name is provisional and could equally read as "agility evade". |
-| (per-attack) +6 and +15 | (unused padding in real monsters) | high | Confirmed unused padding within attack records of real monster combat records: across all 250 regular monsters (indices 0-249), zero records have non-zero bytes at +6 or +15. The three records with apparent non-zero values at these offsets (indices 250-252) are not real monsters — they are special quest/event data records reusing the 222-byte format (see "Special quest-data records" below). |
+| (per-attack) +6 and +15 | (unused padding in real monsters) | high | Confirmed unused padding within attack records: across all 250 monster records (`monsters[0..249]`), zero have non-zero bytes at +6 or +15 inside any attack record. (The three records that showed non-zero values at these offsets were the quest-data records, now split out into `questData[0..2]`.) |
 
-#### Special quest-data records (indices 250-252)
+#### Special quest-data records (file indices 250-252 → `questData[0..2]`)
 
-The last three entries of the monster table are not combat monsters — they
-are NPC / quest / minigame data structures that reuse the 222-byte
-monster-record format. They appear in the monster decoder as regular
-monsters but their byte-level interpretation is completely different from
-combat records:
+The last three entries of the monster-table region are not combat
+monsters — they are NPC / quest / minigame data structures that reuse the
+222-byte record layout. The parser exposes them as a separate
+`questData[]` array (schema `ScenarioQuestDataSchema`) carrying just the
+4 decoded 16-byte name slots and the 222-byte `rawBytes` payload; none of
+the monster stat fields are applied to them.
 
-| Record | Name slot          | Embedded content                                       | Interpretation |
-|--------|--------------------|--------------------------------------------------------|----------------|
-| 250    | "CAPTAIN MATEY"    | "QUEEQUEG" (Matey's first mate) + u16 LE sequences `[0,1,2,3,4,5,6,7]` and `[25,20,21,22,23,24]` | Drinking-contest minigame data |
-| 251    | (empty)            | "COSMIC FORGE" (the central plot artifact) + "* B E L A *" + u16 LE sequences | Cosmic-Forge quest event data |
-| 252    | (empty)            | "L'MONTES" (Wiz6 quest NPC) + u16 LE sequences `[285,286,287,288,289]` and `[12,13,14,15,16,17]` | L'MONTES quest event data |
+Only `questData[0]` puts a string in the canonical name-slot region; the
+other two records leave the 4 name slots zero (or carry small u16 LE
+values that happen to render as nonsense ASCII when scanned as a name)
+and embed their strings deeper inside the 158-byte payload.
+
+| File index | `questData[i]` | `names[0..3]` (real file)                                       | Strings embedded inside `rawBytes`                          | Interpretation                 |
+|-----------:|---------------:|-----------------------------------------------------------------|-------------------------------------------------------------|--------------------------------|
+| 250        | `questData[0]` | `["CAPTAIN MATEY", "", "", ""]`                                 | "QUEEQUEG" at bytes 130-137 (plus a stray "EEQUEG" at 138-143); u16 LE sequence `[0..7]` at bytes 64-79; `[25,20,21,22,23,24]` at bytes 208-219 | Drinking-contest minigame data |
+| 251        | `questData[1]` | `["", "", "", ""]` (slot 2 has u16 LE bytes that render as junk) | "COSMIC FORGE" at bytes 62-73; "* B E L A *" at bytes 197-207 | Cosmic-Forge quest event data  |
+| 252        | `questData[2]` | `["", "", "", ""]` (slot 3 holds u16 LE `[285..289]`)            | "L'MONTES" at bytes 124-131; u16 LE `[12..17]` at bytes 190-201 | L'MONTES quest event data      |
 
 The "byte +6" CAPTAIN MATEY value of 6 — which initially looked like an
-attack-record anomaly — is in fact just position 12 of record 250's u16 LE
-sequence `[0, 1, 2, 3, 4, 5, 6, 7]`. It belongs to the drinking-contest
-data structure, not the monster attack record.
+attack-record anomaly during stage 1j.2 monster-stat decoding — is in
+fact just position 12 of `questData[0].rawBytes`'s u16 LE sequence
+`[0, 1, 2, 3, 4, 5, 6, 7]` at bytes 64-79. It belongs to the
+drinking-contest data structure, not a monster attack record.
 
-Future stages should either expose these three records as a separate
-schema or pull them out of the monster decoder entirely.
+The internal layout of each 222-byte payload differs per quest and is
+still TBD. Future stages can decode the u16 sequences into named fields
+once their roles in the game event scripts are understood.
 
 **Attack record structure**: bytes 6..53 contain three 16-byte attack
 records at offsets 6, 22, 38. Each record holds (dice count, dice sides)
@@ -172,7 +191,8 @@ at +0, +1 and (special-effect chance %) at +3. The remaining bytes inside
 each attack record likely encode special-effect type/ID and damage type
 (fire/cold/poison/etc.) — those are still TBD.
 
-189 of the 253 slots are filled (the rest are reserved/empty). Sample
+189 of the 250 combat-monster slots are filled (the rest are
+reserved/empty). Sample
 monsters showing the unidentified-name mechanic and decoded fields:
 
 ```
