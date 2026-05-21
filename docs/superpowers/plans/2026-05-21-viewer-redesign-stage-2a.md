@@ -132,12 +132,13 @@ Create `packages/viewer/src/lib/slug.ts`:
 export function slugify(name: string): string {
   return name
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .replace(/[\s-]+/g, '-')
+    .replace(/'/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 }
 ```
+
+The two-step substitution is intentional. Apostrophes are removed without a separator (so `"L'MONTES"` becomes `"lmontes"`, not `"l-montes"`). Every other non-alphanumeric character (including `=`, `*`, whitespace, and pre-existing hyphens) becomes a separator, and runs of separators collapse to a single `-`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
