@@ -98,11 +98,15 @@ function decodeFixedString(slice: Uint8Array, start: number, length: number): st
  *     bytes 32..47  : nameUnidSingular (unidentified singular — what the party
  *                    sees before identifying the monster; "RAT" for a GIANT RAT)
  *     bytes 48..63  : nameUnidPlural   (unidentified plural)
- *     bytes 64..221 : statBytes (158 bytes) — per-field layout TBD.
- *                    Verified pattern: bytes 64-65 = u16 LE experience-on-kill
- *                    (GIANT RAT 450 XP, * XORPHITUS * 16,150 XP). Other fields
- *                    likely include HP, AC, attack dice, special abilities,
- *                    encounter group, etc.
+ *     bytes 64..221 : statBytes (158 bytes). Decoded fields (offsets relative
+ *                    to start of stat block, i.e. byte 64 of the full record):
+ *                      bytes  0-1   xpOnKill         u16 LE (RAT 150, * XORPHITUS * 16,150)
+ *                      bytes  6-7   attack1 dice     (count, sides)
+ *                      bytes 22-23  attack2 dice     (count, sides; 0,0 if none)
+ *                      bytes 54-55  group dice       encounter group size (count, sides)
+ *                      bytes 58-59  HP dice          monster HP roll (count, sides)
+ *                    Remaining fields (AC, gold drop, resistances, special
+ *                    abilities, spells) are TBD — see Stage 1j.2.2.
  *   0x2304E..end    unknownTail — 45,542 bytes, more tables. ASCII strings
  *                    suggest NPC/quest data ("SMITTY", "CAPTAIN MATEY").
  *
@@ -173,6 +177,7 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       statBytes[j] = b;
       if (b !== 0) allZero = false;
     }
+    const statSlice = slice.subarray(MONSTER_NAMES_TOTAL);
     monsters.push({
       index: i,
       nameIdSingular,
@@ -181,6 +186,15 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       nameUnidPlural,
       statBytes,
       empty: allZero,
+      xpOnKill: readU16LE(statSlice, 0),
+      attack1DiceCount: statSlice[6]!,
+      attack1DiceSides: statSlice[7]!,
+      attack2DiceCount: statSlice[22]!,
+      attack2DiceSides: statSlice[23]!,
+      groupDiceCount: statSlice[54]!,
+      groupDiceSides: statSlice[55]!,
+      hpDiceCount: statSlice[58]!,
+      hpDiceSides: statSlice[59]!,
     });
   }
 

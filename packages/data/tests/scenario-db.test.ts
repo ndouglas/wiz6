@@ -19,6 +19,17 @@ const baseItemFields = {
   classMask: 0,
   equipSlot: 0,
 };
+const baseMonsterFields = {
+  xpOnKill: 0,
+  attack1DiceCount: 0,
+  attack1DiceSides: 0,
+  attack2DiceCount: 0,
+  attack2DiceSides: 0,
+  groupDiceCount: 0,
+  groupDiceSides: 0,
+  hpDiceCount: 0,
+  hpDiceSides: 0,
+};
 const emptyMonster = (i: number) => ({
   index: i,
   nameIdSingular: '',
@@ -27,6 +38,7 @@ const emptyMonster = (i: number) => ({
   nameUnidPlural: '',
   statBytes: validMonsterStatBytes,
   empty: true,
+  ...baseMonsterFields,
 });
 
 describe('XpTableSchema', () => {
@@ -111,8 +123,18 @@ describe('ScenarioMonsterSchema', () => {
         nameUnidPlural: 'RATS',
         statBytes: validMonsterStatBytes,
         empty: false,
+        ...baseMonsterFields,
       }),
     ).not.toThrow();
+  });
+
+  it('rejects when xpOnKill exceeds u16 range', () => {
+    expect(() =>
+      ScenarioMonsterSchema.parse({
+        ...emptyMonster(0),
+        xpOnKill: 70000,
+      }),
+    ).toThrow();
   });
 
   it('rejects when statBytes length is not 158', () => {

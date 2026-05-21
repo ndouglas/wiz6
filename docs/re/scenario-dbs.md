@@ -85,32 +85,38 @@ dividers but don't always sit on category transitions. The decoded
 253 fixed-size 222-byte records. Each record has FOUR 16-byte name slots
 followed by 158 bytes of stat data:
 
-| Bytes  | Field              | Notes |
-|--------|--------------------|-------|
-| 0..15  | `nameIdSingular`   | Identified singular (e.g. "GIANT RAT") |
-| 16..31 | `nameIdPlural`     | Identified plural (e.g. "GIANT RATS") |
-| 32..47 | `nameUnidSingular` | What the party sees before identifying — "RAT" for a GIANT RAT |
-| 48..63 | `nameUnidPlural`   | Unidentified plural |
-| 64..221 | `statBytes` (158) | Per-field layout mostly TBD. **Confirmed:** bytes 64-65 = u16 LE experience-on-kill (RAT 150 XP, GIANT RAT 450, * XORPHITUS * 16,150). |
+| Record bytes | Field              | Notes |
+|--------------|--------------------|-------|
+| 0..15        | `nameIdSingular`   | Identified singular (e.g. "GIANT RAT") |
+| 16..31       | `nameIdPlural`     | Identified plural (e.g. "GIANT RATS") |
+| 32..47       | `nameUnidSingular` | What the party sees before identifying — "RAT" for a GIANT RAT |
+| 48..63       | `nameUnidPlural`   | Unidentified plural |
+| 64..221      | `statBytes` (158)  | See decoded-fields table below. |
 
-186 of the 253 slots are filled (the rest are reserved/empty). Sample
-monsters showing the unidentified-name mechanic:
+#### Stat-block fields (offsets relative to start of stat block; add 64 to get record offset)
+
+| Stat offset | Field              | Confidence | Notes |
+|-------------|--------------------|------------|-------|
+| 0..1        | `xpOnKill`         | high | u16 LE. RAT 150, GIANT RAT 450, ISLAND GIANT 14,252, PIT FIEND 56,786. |
+| 6..7        | `attack1Dice`      | high | (count, sides). Monsters with one attack mode use this. RAT 1d2, ZOMBIE 3d3, ISLAND GIANT 3d6, PIT FIEND 4d4. |
+| 22..23      | `attack2Dice`      | high | (count, sides). Monsters with two attack modes also fill this; bats and most simple monsters leave it 0,0. ROGUE has 1d4 here in addition to a 1d6 primary; GIANT SERPENT has 1d12. |
+| 54..55      | `groupDice`        | high | (count, sides) for encounter group size. RAT 1d3, BAT 1d3, ROGUE LEADER 1d1 (always alone), GIANT SERPENT 1d1, CREEPING VINE 2d3 (vines come in clumps). |
+| 58..59      | `hpDice`           | high | (count, sides) for the monster's HP roll. RAT 1d3, GIANT RAT 2d4, ZOMBIE 6d6, GIANT SERPENT 8d4, ISLAND GIANT 12d6, PIT FIEND 14d4 — monotonic with XP-on-kill. |
+| other       | TBD                | — | ~10 other positions show high population — likely AC, gold drop, resistances, special-attack/spell ids, save vs spell, etc. Stage 1j.2.2 to crack the rest. |
+
+189 of the 253 slots are filled (the rest are reserved/empty). Sample
+monsters showing the unidentified-name mechanic and decoded fields:
 
 ```
-[  0] RAT             unid=RAT          XP=150
-[  1] GIANT RAT       unid=RAT          XP=450
-[  2] BAT             unid=BAT          XP=99
-[  3] HUGE BAT        unid=BAT          XP=318
-[  4] VAMPIRE BAT     unid=BAT          XP=714
-[150] * XORPHITUS *                     XP=16,150  (final boss)
-[151] D R A C U L A                     XP=34,244  (hidden boss)
-[153] * B E L A *                       XP=44,163  (toughest)
+[  0] RAT             unid=RAT         XP=  150  HP=1d3  group=1d3  atk1=1d2  atk2=1d3
+[  1] GIANT RAT       unid=RAT         XP=  450  HP=2d4  group=1d2  atk1=2d2  atk2=1d7
+[  2] BAT             unid=BAT         XP=   99  HP=1d3  group=1d3  atk1=1d3
+[  3] HUGE BAT        unid=BAT         XP=  318  HP=2d3  group=1d2  atk1=2d3
+[  4] VAMPIRE BAT     unid=BAT         XP=  714  HP=3d3  group=1d2  atk1=1d5
+[150] * XORPHITUS *                    XP=16150            (final boss)
+[168] PIT FIEND                        XP=56786  HP=14d4  atk1=4d4
+[170] WRAITH LORD                      XP=46889  HP=14d4  atk1=8d2
 ```
-
-The 158 stat-byte block has several visibly recurring fields — bytes 70-71,
-82-83, 122-127, 134-137, etc. all show ~100% non-zero with constrained
-distributions, consistent with HP, AC, attack dice, group size, etc. Cracking
-those fields is Stage 1j.2.1.
 
 ### unknownPreMonster (0x9408..0x154E7)
 
@@ -153,10 +159,10 @@ the *running scenario state*, not for the *scenario content file*.
 
 ## Future work
 
-- **Stage 1j.2.1**: per-field decode of the 222-byte monster record — HP, AC,
-  attack dice, group size, special abilities, etc. Bytes 64-65 (XP-on-kill)
-  are confirmed; ~10 other positions show consistent population suggesting
-  more fixed fields.
+- **Stage 1j.2.2**: continue cracking the monster stat block — AC, gold drop,
+  resistances, special abilities, spells. Stage 1j.2.1 nailed down xpOnKill,
+  HP dice, group dice, and two attack-dice fields; ~10 other stat positions
+  show consistent high population.
 - **Stage 1j.3**: bind XP-table indices to character class names (probably
   resolvable by cross-reference with `newgame.dbs` records).
 - **Stage 1j.4**: identify AC for armor (no obvious field in the 74-byte

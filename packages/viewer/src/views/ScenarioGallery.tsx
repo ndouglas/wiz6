@@ -276,13 +276,16 @@ export function ScenarioGallery({ url }: Props) {
             <th style={{ width: '3em' }}>#</th>
             <th style={{ width: '13em' }}>identified (sing / plur)</th>
             <th style={{ width: '13em' }}>unidentified (sing / plur)</th>
-            <th style={{ width: '6em', textAlign: 'right' }}>XP-on-kill</th>
+            <th style={{ width: '6em', textAlign: 'right' }}>XP</th>
+            <th style={{ width: '5em' }}>HP</th>
+            <th style={{ width: '6em' }}>group</th>
+            <th style={{ width: '5em' }}>atk 1</th>
+            <th style={{ width: '5em' }}>atk 2</th>
             {showRaw && <th>stat bytes (hex)</th>}
           </tr>
         </thead>
         <tbody>
           {visibleMonsters.map((m) => {
-            const xpOnKill = m.statBytes[0]! | (m.statBytes[1]! << 8);
             const idName = m.nameIdSingular + (m.nameIdPlural ? ` / ${m.nameIdPlural}` : '');
             const unidName = m.nameUnidSingular + (m.nameUnidPlural ? ` / ${m.nameUnidPlural}` : '');
             return (
@@ -293,7 +296,19 @@ export function ScenarioGallery({ url }: Props) {
                 <td style={{ verticalAlign: 'top' }}>{idName}</td>
                 <td style={{ verticalAlign: 'top', color: '#aaa' }}>{unidName}</td>
                 <td style={{ verticalAlign: 'top', textAlign: 'right' }}>
-                  {xpOnKill > 0 ? xpOnKill.toLocaleString() : '—'}
+                  {m.xpOnKill > 0 ? m.xpOnKill.toLocaleString() : '—'}
+                </td>
+                <td style={{ verticalAlign: 'top' }}>
+                  {fmtDamage(m.hpDiceCount, m.hpDiceSides, 0)}
+                </td>
+                <td style={{ verticalAlign: 'top' }}>
+                  {fmtDamage(m.groupDiceCount, m.groupDiceSides, 0)}
+                </td>
+                <td style={{ verticalAlign: 'top' }}>
+                  {fmtDamage(m.attack1DiceCount, m.attack1DiceSides, 0)}
+                </td>
+                <td style={{ verticalAlign: 'top', color: '#aaa' }}>
+                  {fmtDamage(m.attack2DiceCount, m.attack2DiceSides, 0)}
                 </td>
                 {showRaw && (
                   <td style={{ whiteSpace: 'pre' }}>
