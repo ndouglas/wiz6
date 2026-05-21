@@ -135,8 +135,16 @@ function decodeFixedString(slice: Uint8Array, start: number, length: number): st
  *                                   BAT (4,4,17,16), SLIME (4,4,4,6),
  *                                   GHOST (9,9,12,12), GREATER DEMON
  *                                   (22,16,17,17).
+ *                      byte    64   creatureKind    body-type enum.
+ *                                   1=humanoid soldier, 2=stone elemental,
+ *                                   3=elite humanoid, 4=rodent/cat, 5=flying,
+ *                                   6=plant, 7=blob/slime, 8=undead,
+ *                                   10=elite warrior.
+ *                      byte   150   monsterSex      0=male humanoid,
+ *                                   1=female (Amazonian), 2=neuter/creature.
  *                    Remaining fields (AC, gold drop, spells, special-effect
- *                    IDs) are TBD — see Stage 1j.2.6.
+ *                    IDs, byte 60, byte 56, 144-147 partial) are TBD — see
+ *                    Stage 1j.2.7.
  *   0x2304E..end    unknownTail — 45,542 bytes, more tables. ASCII strings
  *                    suggest NPC/quest data ("SMITTY", "CAPTAIN MATEY").
  *
@@ -249,6 +257,8 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       monsterLevel: statSlice[62]!,
       monsterLevelMax: statSlice[63]!,
       familyId: [statSlice[70]!, statSlice[71]!, statSlice[72]!, statSlice[73]!],
+      creatureKind: statSlice[64]!,
+      monsterSex: statSlice[150]!,
     });
   }
 

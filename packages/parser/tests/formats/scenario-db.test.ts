@@ -187,8 +187,10 @@ describe('decodeScenarioDb', () => {
     bytes[stat + 123] = 10; // effectChanceTable[2]
     bytes[stat + 124] = 5;  // effectChanceTable[3]
     bytes[stat + 125] = 0;  // effectChanceTable[4]
+    bytes[stat + 64] = 4;  // creatureKind = 4 (rodent/cat)
     bytes[stat + 148] = 1; // monsterClass = 1 (animal)
     bytes[stat + 149] = 1; // monsterSubClass = 1 (common)
+    bytes[stat + 150] = 2; // monsterSex = 2 (neuter creature)
     const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
     const m = db.monsters[1]!;
     expect(m.xpOnKill).toBe(450);
@@ -212,6 +214,8 @@ describe('decodeScenarioDb', () => {
     expect(m.monsterLevel).toBe(5);
     expect(m.monsterLevelMax).toBe(10);
     expect(m.familyId).toEqual([6, 4, 14, 16]);
+    expect(m.creatureKind).toBe(4);
+    expect(m.monsterSex).toBe(2);
   });
 
   it('marks empty monster slots correctly', () => {

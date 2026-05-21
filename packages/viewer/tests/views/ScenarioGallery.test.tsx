@@ -35,6 +35,8 @@ const baseMonsterFields = {
   monsterLevel: 0,
   monsterLevelMax: 0,
   familyId: [0, 0, 0, 0],
+  creatureKind: 0,
+  monsterSex: 0,
 };
 
 const emptyMonster = (i: number) => ({

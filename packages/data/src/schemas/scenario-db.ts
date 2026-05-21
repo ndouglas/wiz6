@@ -47,6 +47,8 @@ export const ScenarioMonsterSchema = z.object({
   monsterLevel: z.number().int().min(0).max(255),
   monsterLevelMax: z.number().int().min(0).max(255),
   familyId: z.array(z.number().int().min(0).max(255)).length(4),
+  creatureKind: z.number().int().min(0).max(255),
+  monsterSex: z.number().int().min(0).max(255),
 });
 
 export const ScenarioItemSchema = z.object({
