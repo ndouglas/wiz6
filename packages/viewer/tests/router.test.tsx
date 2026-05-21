@@ -3,10 +3,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes } from 'react-router-dom';
 import { Suspense } from 'react';
 import { routes } from '../src/router.js';
+import { FIXTURE_SCENARIO_DB } from './fixtures/scenario-fixture.js';
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify(FIXTURE_SCENARIO_DB), { status: 200 })),
+  );
 });
 
 function renderAt(path: string) {
@@ -20,23 +24,30 @@ function renderAt(path: string) {
 }
 
 describe('router', () => {
-  it.each([
-    ['/', /wiz6 data explorer/i],
-    ['/monsters', /monsters/i],
-    ['/items', /items/i],
-    ['/quest', /quest records/i],
-    ['/screens', /screens/i],
-    ['/portraits', /portraits/i],
-    ['/fonts', /fonts/i],
-    ['/msg', /messages/i],
-    ['/newgame', /newgame/i],
-    ['/files', /files/i],
-  ])('mounts a page at %s with an h1 matching %s', async (path, headingPattern) => {
+  it.each<[string, RegExp, 'heading' | 'text']>([
+    ['/', /wiz6 data explorer/i, 'heading'],
+    ['/items', /items/i, 'heading'],
+    ['/quest', /quest records/i, 'heading'],
+    ['/screens', /screens/i, 'heading'],
+    ['/portraits', /portraits/i, 'heading'],
+    ['/fonts', /fonts/i, 'heading'],
+    ['/msg', /messages/i, 'heading'],
+    ['/newgame', /newgame/i, 'heading'],
+    ['/files', /files/i, 'heading'],
+  ])('mounts a page at %s with an h1 matching %s', async (path, pattern, kind) => {
     renderAt(path);
     await waitFor(() => {
-      expect(
-        screen.getByRole('heading', { level: 1, name: headingPattern }),
-      ).toBeInTheDocument();
+      if (kind === 'heading')
+        expect(screen.getByRole('heading', { level: 1, name: pattern })).toBeInTheDocument();
+      else expect(screen.getByText(pattern)).toBeInTheDocument();
+    });
+  });
+
+  it('mounts MonstersPage at /monsters with list + detail regions', async () => {
+    renderAt('/monsters');
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: /monster list/i })).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: /monster detail/i })).toBeInTheDocument();
     });
   });
 });
