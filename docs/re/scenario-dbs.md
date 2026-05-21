@@ -123,7 +123,10 @@ followed by 158 bytes of stat data:
 | 152         | `specialAttackElement` | high        | Damage-type / element enum: 1=fire (HELLCAT, PIT FIEND, HELLION), 2=earth (GUARDIAN=ROCK, ROCK=RUMBLE), 3=cold (COLD SLIME, WHITE WYRM, WEIRD), 4=acid (RUBBER BEAST, GOOP GLOOP, MAN O' WAR), 5=disease (ZOMBIE family — 7 members), 6=water (FLOATER, WATER DRAGON), 7=vampiric (BANE KING, DRACULA, REBECCA), 8=poison (DRAGONFLY, BLUE TAIL FLY, B E L A), 9=plant poison (FUMING VINE, HYDRA PLANT), 11=mental/scream (BANSHEE, SPECTRE, ghosts), 12=charm (SIREN family). |
 | 156         | `monsterBehaviorClass` | medium      | 7-value enum (0/1/2/5/8/10/11) clustering by combat behavior: 0=normal (103 monsters), 1=humanoid elite leader (19: CAPTAIN MATEY, QUEEQUEG, AMAZULU QUEEN, GUARDIAN=ROCK), 2=undead (27: BANSHEE, SPECTRE, SPIRIT, WRAITH, ghosts), 5=vampire boss (2: BANE KING, DRACULA), 8=swarm/flying/plant (33: BAT family, VINE family), 10=faerie ethereal (4: FAERIE SYLPH, WILL O' WISP, TWISTED SYLPH, PIXIE), 11=unique boss (1: FAERIE QUEEN). |
 | 18..19, 34..35, 50..51 | `attack1Extra[2]`, `attack2Extra[2]`, `attack3Extra[2]` | high (structural) | Per-attack 2-byte data fields, present iff the corresponding attack exists. Perfect 100% correlation: byte 34-35 nonzero for all 84 monsters with atk2 and zero for all 105 without; same for atk3 (byte 50-51 nonzero for 37/37 monsters with atk3, zero otherwise). Exact semantic interpretation TBD — likely encodes (damage type, attack flags / spell ID) per attack. byte 18 distribution favors multiples of 5 (65/75/50/85/70/35); byte 19 has many small values (1-4) plus powers of 2 (32/64/128) suggesting a flags bitfield. |
-| other       | TBD                    | —           | Remaining unidentified per-attack metadata bytes (8, 10-15) — sparse "rare special" data (e.g. byte 13 = secondary effect chance for BANSHEE/SPECTRE/ghosts at 50%/90%). See Stage 1j.2.11.                                                                                |
+| 10, 26, 42  | `attackNPoisonChance`  | high        | Percent chance attack N inflicts poison/disease/acid status. POISON VIPER 100%, CATERPILLAR 100%, MAN O' WAR 95%, ASSASSIN 95%, GIANT SERPENT 90%, AMAZULU QUEEN 90%, HUGE SPIDER/TARANTULA 85%, GREMLIN 50%, VAMPIRE BAT 40%, ACID SLIME 35%, POISON SLIME 25%, FLOATER 25%, POISON VINE 25%. Matches Wiz6 poison/disease inflictor archetype. |
+| 13, 29, 45  | `attackNDrainChance`   | high        | Percent chance attack N inflicts level drain. All matches are classic Wiz6 level-drain undead: WRAITH 100%, WRAITH LORD 100%, PHANTASM 100%, LICHE 100%, CHARRON 100%, ACCURSED ONE 100%, BANE KING 100%, DRACULA 100%, REBECCA 100%; SPECTRE 90%, GHOSTLY SHE-HAG 90%, EILA'S GHOST 90%; BANSHEE 50%, SPIRIT 50%, ghosts 50%; SHADE 35%; WILL O' WISP 25%. |
+| 15, 31, 47  | `attackNStunChance`    | high        | Percent chance attack N stuns/bashes. Pattern matches heavy-hitting / blunt-attack monsters: GUARDIAN=ROCK 25%, PRIEST=RAMM 25%, ROCK=RUMBLE 20%, SMITTY 20%, ARIEL SERVANT 20%, KING CRAB 15%, BORK 15%; ISLAND GIANT, HILL/MINER/MOUNTAIN GIANT, FRYTZ/KLAUS GRYNS, MAJOR DWARF, VALKYRIE, KNOLL TROLL, POISON GIANT all 10%. |
+| other       | TBD                    | —           | Remaining unidentified per-attack bytes (8, 11, 12, 14) — very sparse, possibly rare effect IDs or alignment-specific flags. Stage 1j.2.12 to continue.                                                                                |
 
 **Attack record structure**: bytes 6..53 contain three 16-byte attack
 records at offsets 6, 22, 38. Each record holds (dice count, dice sides)
@@ -186,20 +189,15 @@ the *running scenario state*, not for the *scenario content file*.
 
 ## Future work
 
-- **Stage 1j.2.11**: continue cracking remaining monster stat fields.
-  Stages 1j.2.1–1j.2.10 nailed xpOnKill, HP/group/attack dice (all three
-  attacks), per-attack special-effect chance %, monster class/subclass,
-  save/effect tables, monster level, family ID, creatureKind, monsterSex,
-  moveStat, spriteGroup, monsterAC, attributeSaves, goldStat,
-  specialAttackElement, monsterBehaviorClass, and the three per-attack
-  Extra[2] byte pairs. Remaining leads:
-    - Sparse per-attack metadata bytes (8, 10-15) — appear to encode
-      secondary effects (e.g. byte 13 = secondary special chance for
-      BANSHEE/SPECTRE/ghosts at 50%/90% — likely "second special effect
-      that triggers on hit").
-    - Per-attack metadata bytes (8, 10-21 inside each 16-byte attack record)
-      likely encode damage type (fire/cold/acid/poison) per individual
-      attack and special-effect IDs.
+- **Stage 1j.2.12**: continue cracking remaining monster stat fields.
+  Stages 1j.2.1–1j.2.11 nailed xpOnKill, HP/group/attack dice (all three
+  attacks), per-attack special/poison/drain/stun chances, monster
+  class/subclass, save/effect tables, monster level, family ID,
+  creatureKind, monsterSex, moveStat, spriteGroup, monsterAC,
+  attributeSaves, goldStat, specialAttackElement, monsterBehaviorClass,
+  and the three per-attack Extra[2] byte pairs. Remaining leads:
+    - Very sparse per-attack bytes (8, 11, 12, 14) — likely rare
+      effect-specific flags or alignment restrictions.
 - **Stage 1j.3**: bind XP-table indices to character class names (probably
   resolvable by cross-reference with `newgame.dbs` records).
 - **Stage 1j.4**: identify AC for armor (no obvious field in the 74-byte

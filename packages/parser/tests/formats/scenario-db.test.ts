@@ -201,6 +201,15 @@ describe('decodeScenarioDb', () => {
     bytes[stat + 18] = 115; bytes[stat + 19] = 1; // attack1Extra
     bytes[stat + 34] = 50; bytes[stat + 35] = 2;  // attack2Extra
     bytes[stat + 50] = 25; bytes[stat + 51] = 3;  // attack3Extra
+    bytes[stat + 10] = 40; // attack1PoisonChance
+    bytes[stat + 13] = 50; // attack1DrainChance
+    bytes[stat + 15] = 10; // attack1StunChance
+    bytes[stat + 26] = 25; // attack2PoisonChance
+    bytes[stat + 29] = 90; // attack2DrainChance
+    bytes[stat + 31] = 5;  // attack2StunChance
+    bytes[stat + 42] = 15; // attack3PoisonChance
+    bytes[stat + 45] = 75; // attack3DrainChance
+    bytes[stat + 47] = 20; // attack3StunChance
     const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
     const m = db.monsters[1]!;
     expect(m.xpOnKill).toBe(450);
@@ -236,6 +245,15 @@ describe('decodeScenarioDb', () => {
     expect(m.attack1Extra).toEqual([115, 1]);
     expect(m.attack2Extra).toEqual([50, 2]);
     expect(m.attack3Extra).toEqual([25, 3]);
+    expect(m.attack1PoisonChance).toBe(40);
+    expect(m.attack1DrainChance).toBe(50);
+    expect(m.attack1StunChance).toBe(10);
+    expect(m.attack2PoisonChance).toBe(25);
+    expect(m.attack2DrainChance).toBe(90);
+    expect(m.attack2StunChance).toBe(5);
+    expect(m.attack3PoisonChance).toBe(15);
+    expect(m.attack3DrainChance).toBe(75);
+    expect(m.attack3StunChance).toBe(20);
   });
 
   it('marks empty monster slots correctly', () => {

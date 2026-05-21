@@ -59,6 +59,15 @@ export const ScenarioMonsterSchema = z.object({
   attack1Extra: z.array(z.number().int().min(0).max(255)).length(2),
   attack2Extra: z.array(z.number().int().min(0).max(255)).length(2),
   attack3Extra: z.array(z.number().int().min(0).max(255)).length(2),
+  attack1PoisonChance: z.number().int().min(0).max(255),
+  attack1DrainChance: z.number().int().min(0).max(255),
+  attack1StunChance: z.number().int().min(0).max(255),
+  attack2PoisonChance: z.number().int().min(0).max(255),
+  attack2DrainChance: z.number().int().min(0).max(255),
+  attack2StunChance: z.number().int().min(0).max(255),
+  attack3PoisonChance: z.number().int().min(0).max(255),
+  attack3DrainChance: z.number().int().min(0).max(255),
+  attack3StunChance: z.number().int().min(0).max(255),
 });
 
 export const ScenarioItemSchema = z.object({
