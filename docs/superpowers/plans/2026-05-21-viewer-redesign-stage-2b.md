@@ -269,7 +269,7 @@ FIXTURE_MONSTERS[4] = {
   nameUnidSingular: 'FAERIE',
   nameUnidPlural: 'FAERIES',
   empty: false,
-  xpOnKill: 99999,
+  xpOnKill: 65535, // u16 max (ScenarioMonsterSchema caps xpOnKill at 0xffff)
   attack1DiceCount: 2,
   attack1DiceSides: 10,
   attack1SpecialChance: 100,
@@ -296,6 +296,22 @@ const emptyQuestData = (i: number): ScenarioQuestData => ({
   empty: true,
 });
 
+const emptyItem = (i: number) => ({
+  index: i,
+  name1: '',
+  name2: '',
+  bytes: Array(74).fill(0) as number[],
+  empty: true,
+  price: 0,
+  hitBonus: 0,
+  damageDiceCount: 0,
+  damageDiceSides: 0,
+  spellOrSongId: 0,
+  weight: 0,
+  classMask: 0,
+  equipSlot: 0,
+});
+
 export const FIXTURE_SCENARIO_DB: ScenarioDb = {
   id: 'scenario',
   sourceFile: 'scenario.dbs',
@@ -303,8 +319,8 @@ export const FIXTURE_SCENARIO_DB: ScenarioDb = {
     classIndex: i,
     levels: Array.from({ length: 16 }, (_, j) => 1000 * (j + 1) * (i + 1)),
   })),
-  itemCount: 0,
-  items: [],
+  itemCount: 1,
+  items: [emptyItem(0)],
   unknownPreMonster: [],
   monsterCount: 250,
   monsters: FIXTURE_MONSTERS,
@@ -313,10 +329,10 @@ export const FIXTURE_SCENARIO_DB: ScenarioDb = {
   unknownTail: [],
 };
 
-export { baseMonsterFields, emptyMonster, emptyQuestData };
+export { baseMonsterFields, emptyItem, emptyMonster, emptyQuestData };
 ```
 
-The `itemCount: 0` + empty `items: []` happens to satisfy `ScenarioDbSchema`'s `itemCount === items.length` refinement, so the fixture is a valid ScenarioDb.
+`ScenarioItemSchema` requires `itemCount: z.number().int().positive()` (excludes 0), so we ship one empty item record. The schema's `itemCount === items.length` refinement is also satisfied.
 
 - [ ] **Step 2: Write the failing test for `useScenarioDb`**
 
