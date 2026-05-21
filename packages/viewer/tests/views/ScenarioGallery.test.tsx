@@ -111,8 +111,8 @@ const validDb = {
     { index: 2, name1: '', name2: '', bytes: Array(74).fill(0), empty: true, ...baseItemFields },
   ],
   unknownPreMonster: [],
-  monsterCount: 253,
-  monsters: Array.from({ length: 253 }, (_, i) => {
+  monsterCount: 250,
+  monsters: Array.from({ length: 250 }, (_, i) => {
     if (i === 0) {
       return {
         index: 0,
@@ -134,6 +134,13 @@ const validDb = {
     }
     return emptyMonster(i);
   }),
+  questDataCount: 3,
+  questData: Array.from({ length: 3 }, (_, i) => ({
+    index: i,
+    names: ['', '', '', ''],
+    rawBytes: Array(222).fill(0),
+    empty: true,
+  })),
   unknownTail: [0xab, 0xcd],
 };
 
@@ -147,7 +154,7 @@ describe('ScenarioGallery', () => {
     render(<ScenarioGallery url="/scenario/scenario.json" />);
     await waitFor(() => {
       expect(
-        screen.getByRole('heading', { name: /scenario.*14 XP tables.*3 items.*2 filled.*253 monsters/i }),
+        screen.getByRole('heading', { name: /scenario.*14 XP tables.*3 items.*2 filled.*250 monsters/i }),
       ).toBeInTheDocument();
     });
   });

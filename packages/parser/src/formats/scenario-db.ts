@@ -3,6 +3,7 @@ import {
   type ScenarioDb,
   type ScenarioItem,
   type ScenarioMonster,
+  type ScenarioQuestData,
   type XpTable,
 } from '@wiz6/data';
 
@@ -22,13 +23,17 @@ const ITEM_TABLE_END = ITEM_TABLE_OFFSET + ITEM_TABLE_TOTAL_BYTES;
 
 const MONSTER_TABLE_OFFSET = 0x0154e8;
 const MONSTER_RECORD_BYTES = 222;
-const MONSTER_RECORD_COUNT = 253;
+const MONSTER_RECORD_COUNT = 250;
+const QUEST_DATA_RECORD_COUNT = 3;
 const MONSTER_NAME_SLOT_BYTES = 16;
 const MONSTER_NAMES_TOTAL = 4 * MONSTER_NAME_SLOT_BYTES;
 const MONSTER_STAT_BYTES = MONSTER_RECORD_BYTES - MONSTER_NAMES_TOTAL;
 const MONSTER_TABLE_END = MONSTER_TABLE_OFFSET + MONSTER_RECORD_COUNT * MONSTER_RECORD_BYTES;
+const QUEST_DATA_TABLE_OFFSET = MONSTER_TABLE_END;
+const QUEST_DATA_TABLE_END =
+  QUEST_DATA_TABLE_OFFSET + QUEST_DATA_RECORD_COUNT * MONSTER_RECORD_BYTES;
 
-const MIN_FILE_SIZE = MONSTER_TABLE_END;
+const MIN_FILE_SIZE = QUEST_DATA_TABLE_END;
 
 export interface DecodeScenarioDbOpts {
   id: string;
@@ -92,7 +97,12 @@ function decodeFixedString(slice: Uint8Array, start: number, length: number): st
  *   0x9408..0x154E7  unknownPreMonster — 49,376 bytes, layout TBD.
  *                    Hex patterns suggest 4bpp sprite graphics (item icons or
  *                    monster portraits referenced from elsewhere).
- *   0x154E8..0x2304D Monster table: 253 fixed-size 222-byte records. Layout:
+ *   0x154E8..0x2304D Monster table: 250 combat-monster records (file-level
+ *                    indices 0-249) followed by 3 quest-data records
+ *                    (file-level indices 250-252) that reuse the 222-byte
+ *                    layout for embedded NPC / minigame data. Both sections
+ *                    are 222 bytes per record; only the first 250 carry
+ *                    monster semantics. Layout of a monster record:
  *     bytes  0..15  : nameIdSingular   (identified singular, null-terminated)
  *     bytes 16..31  : nameIdPlural     (identified plural)
  *     bytes 32..47  : nameUnidSingular (unidentified singular — what the party
@@ -360,7 +370,27 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
     });
   }
 
-  const tail = bytes.subarray(MONSTER_TABLE_END);
+  const questData: ScenarioQuestData[] = [];
+  for (let i = 0; i < QUEST_DATA_RECORD_COUNT; i++) {
+    const base = QUEST_DATA_TABLE_OFFSET + i * MONSTER_RECORD_BYTES;
+    const slice = bytes.subarray(base, base + MONSTER_RECORD_BYTES);
+    const names: string[] = [
+      decodeFixedString(slice, 0, MONSTER_NAME_SLOT_BYTES),
+      decodeFixedString(slice, 16, MONSTER_NAME_SLOT_BYTES),
+      decodeFixedString(slice, 32, MONSTER_NAME_SLOT_BYTES),
+      decodeFixedString(slice, 48, MONSTER_NAME_SLOT_BYTES),
+    ];
+    const rawBytes: number[] = new Array(MONSTER_RECORD_BYTES);
+    let allZero = true;
+    for (let j = 0; j < MONSTER_RECORD_BYTES; j++) {
+      const b = slice[j]!;
+      rawBytes[j] = b;
+      if (b !== 0) allZero = false;
+    }
+    questData.push({ index: i, names, rawBytes, empty: allZero });
+  }
+
+  const tail = bytes.subarray(QUEST_DATA_TABLE_END);
   const unknownTail: number[] = new Array(tail.length);
   for (let i = 0; i < tail.length; i++) unknownTail[i] = tail[i]!;
 
@@ -373,6 +403,8 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
     unknownPreMonster,
     monsterCount: monsters.length,
     monsters,
+    questDataCount: questData.length,
+    questData,
     unknownTail,
   });
 }

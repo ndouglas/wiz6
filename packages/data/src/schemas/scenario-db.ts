@@ -6,7 +6,9 @@ const ITEM_RECORD_BYTES = 74;
 const ITEM_RECORD_COUNT = 500;
 
 const MONSTER_STAT_BYTES = 158;
-const MONSTER_RECORD_COUNT = 253;
+const MONSTER_RECORD_COUNT = 250;
+const QUEST_DATA_RECORD_COUNT = 3;
+const QUEST_DATA_RECORD_BYTES = 222;
 
 const xpLevels = z.array(z.number().int().nonnegative()).length(XP_LEVELS_PER_CLASS);
 
@@ -17,6 +19,7 @@ export const XpTableSchema = z.object({
 
 const itemBytes = z.array(z.number().int().min(0).max(255)).length(ITEM_RECORD_BYTES);
 const monsterStatBytes = z.array(z.number().int().min(0).max(255)).length(MONSTER_STAT_BYTES);
+const questDataBytes = z.array(z.number().int().min(0).max(255)).length(QUEST_DATA_RECORD_BYTES);
 
 export const ScenarioMonsterSchema = z.object({
   index: z.number().int().nonnegative(),
@@ -98,6 +101,16 @@ export const ScenarioMonsterSchema = z.object({
   flyEvadeChance: z.number().int().min(0).max(255),
 });
 
+// The last three records of the monster table (file-level indices 250-252)
+// are not combat monsters — they reuse the 222-byte record layout for
+// embedded NPC / quest / minigame data. See docs/re/scenario-dbs.md.
+export const ScenarioQuestDataSchema = z.object({
+  index: z.number().int().nonnegative(),
+  names: z.array(z.string().max(15)).length(4),
+  rawBytes: questDataBytes,
+  empty: z.boolean(),
+});
+
 export const ScenarioItemSchema = z.object({
   index: z.number().int().nonnegative(),
   name1: z.string().max(15),
@@ -124,6 +137,8 @@ export const ScenarioDbSchema = z
     unknownPreMonster: z.array(z.number().int().min(0).max(255)),
     monsterCount: z.number().int().nonnegative(),
     monsters: z.array(ScenarioMonsterSchema).length(MONSTER_RECORD_COUNT),
+    questDataCount: z.number().int().nonnegative(),
+    questData: z.array(ScenarioQuestDataSchema).length(QUEST_DATA_RECORD_COUNT),
     unknownTail: z.array(z.number().int().min(0).max(255)),
   })
   .refine((d) => d.itemCount === d.items.length, {
@@ -142,6 +157,14 @@ export const ScenarioDbSchema = z
     message: 'monsters must be indexed sequentially from 0',
     path: ['monsters'],
   })
+  .refine((d) => d.questDataCount === d.questData.length, {
+    message: 'questDataCount must equal questData.length',
+    path: ['questDataCount'],
+  })
+  .refine((d) => d.questData.every((q, i) => q.index === i), {
+    message: 'questData must be indexed sequentially from 0',
+    path: ['questData'],
+  })
   .refine((d) => d.xpTables.every((t, i) => t.classIndex === i), {
     message: 'xpTables must be indexed sequentially from 0',
     path: ['xpTables'],
@@ -150,4 +173,5 @@ export const ScenarioDbSchema = z
 export type XpTable = z.infer<typeof XpTableSchema>;
 export type ScenarioItem = z.infer<typeof ScenarioItemSchema>;
 export type ScenarioMonster = z.infer<typeof ScenarioMonsterSchema>;
+export type ScenarioQuestData = z.infer<typeof ScenarioQuestDataSchema>;
 export type ScenarioDb = z.infer<typeof ScenarioDbSchema>;
