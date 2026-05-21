@@ -125,8 +125,18 @@ function decodeFixedString(slice: Uint8Array, start: number, length: number): st
  *                                   inflicts a status effect on the party.
  *                                   Undead share template 15/40/30/10/5 across
  *                                   both tables.
- *                    Remaining fields (AC, gold drop, monster level, spells)
- *                    are TBD — see Stage 1j.2.5.
+ *                      byte    62   monsterLevel    1-50, effective combat
+ *                                   level. RAT 5, ZOMBIE 10, BANE KING 50.
+ *                      byte    63   monsterLevelMax usually equals byte 62.
+ *                                   RAT family has spread (RAT 5-10, GIANT
+ *                                   RAT 8-15). 180/189 monsters: level==max.
+ *                      bytes 70-73  familyId        4-byte monster-family
+ *                                   identifier. RAT family (6,4,14,16),
+ *                                   BAT (4,4,17,16), SLIME (4,4,4,6),
+ *                                   GHOST (9,9,12,12), GREATER DEMON
+ *                                   (22,16,17,17).
+ *                    Remaining fields (AC, gold drop, spells, special-effect
+ *                    IDs) are TBD — see Stage 1j.2.6.
  *   0x2304E..end    unknownTail — 45,542 bytes, more tables. ASCII strings
  *                    suggest NPC/quest data ("SMITTY", "CAPTAIN MATEY").
  *
@@ -236,6 +246,9 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
         statSlice[124]!,
         statSlice[125]!,
       ],
+      monsterLevel: statSlice[62]!,
+      monsterLevelMax: statSlice[63]!,
+      familyId: [statSlice[70]!, statSlice[71]!, statSlice[72]!, statSlice[73]!],
     });
   }
 

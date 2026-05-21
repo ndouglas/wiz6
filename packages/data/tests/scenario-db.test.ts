@@ -38,6 +38,9 @@ const baseMonsterFields = {
   monsterSubClass: 0,
   saveTable: [0, 0, 0, 0, 0],
   effectChanceTable: [0, 0, 0, 0, 0],
+  monsterLevel: 0,
+  monsterLevelMax: 0,
+  familyId: [0, 0, 0, 0],
 };
 const emptyMonster = (i: number) => ({
   index: i,
