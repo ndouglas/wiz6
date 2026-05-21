@@ -2,10 +2,14 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AppShell } from '../src/App.js';
+import { FIXTURE_SCENARIO_DB } from './fixtures/scenario-fixture.js';
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify(FIXTURE_SCENARIO_DB), { status: 200 })),
+  );
 });
 
 function renderAt(path: string) {
@@ -31,10 +35,10 @@ describe('AppShell', () => {
     });
   });
 
-  it('renders the Monsters stub at /monsters', async () => {
+  it('renders the MonstersPage at /monsters', async () => {
     renderAt('/monsters');
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1, name: /monsters/i })).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: /monster list/i })).toBeInTheDocument();
     });
   });
 });
