@@ -43,6 +43,10 @@ const baseMonsterFields = {
   attributeSaves: [0, 0, 0, 0],
   goldStat: 0,
   specialAttackElement: 0,
+  monsterBehaviorClass: 0,
+  attack1Extra: [0, 0],
+  attack2Extra: [0, 0],
+  attack3Extra: [0, 0],
 };
 
 const emptyMonster = (i: number) => ({
