@@ -40,6 +40,8 @@ export const ScenarioMonsterSchema = z.object({
   groupDiceSides: z.number().int().min(0).max(255),
   hpDiceCount: z.number().int().min(0).max(255),
   hpDiceSides: z.number().int().min(0).max(255),
+  monsterClass: z.number().int().min(0).max(255),
+  monsterSubClass: z.number().int().min(0).max(255),
 });
 
 export const ScenarioItemSchema = z.object({

@@ -276,6 +276,7 @@ export function ScenarioGallery({ url }: Props) {
             <th style={{ width: '3em' }}>#</th>
             <th style={{ width: '13em' }}>identified (sing / plur)</th>
             <th style={{ width: '13em' }}>unidentified (sing / plur)</th>
+            <th style={{ width: '5em' }}>class</th>
             <th style={{ width: '6em', textAlign: 'right' }}>XP</th>
             <th style={{ width: '5em' }}>HP</th>
             <th style={{ width: '6em' }}>group</th>
@@ -296,6 +297,9 @@ export function ScenarioGallery({ url }: Props) {
                 </td>
                 <td style={{ verticalAlign: 'top' }}>{idName}</td>
                 <td style={{ verticalAlign: 'top', color: '#aaa' }}>{unidName}</td>
+                <td style={{ verticalAlign: 'top', color: '#aaa' }}>
+                  {m.monsterClass}.{m.monsterSubClass}
+                </td>
                 <td style={{ verticalAlign: 'top', textAlign: 'right' }}>
                   {m.xpOnKill > 0 ? m.xpOnKill.toLocaleString() : '—'}
                 </td>

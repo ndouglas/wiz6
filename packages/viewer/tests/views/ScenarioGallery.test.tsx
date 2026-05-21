@@ -28,6 +28,8 @@ const baseMonsterFields = {
   groupDiceSides: 0,
   hpDiceCount: 0,
   hpDiceSides: 0,
+  monsterClass: 0,
+  monsterSubClass: 0,
 };
 
 const emptyMonster = (i: number) => ({

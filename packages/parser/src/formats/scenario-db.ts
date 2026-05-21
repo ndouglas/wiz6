@@ -110,8 +110,14 @@ function decodeFixedString(slice: Uint8Array, start: number, length: number): st
  *                        byte    41   attack3 special-effect chance
  *                      bytes 54-55  group dice       encounter group size
  *                      bytes 58-59  HP dice          monster HP roll
+ *                      byte    148  monsterClass    tier enum (1=animal,
+ *                                   2=humanoid/undead, 3=demon/elite,
+ *                                   4=ultimate boss; rare outliers 0/21/65)
+ *                      byte    149  monsterSubClass sub-category within
+ *                                   class (1=common, 2=special, 3=elite,
+ *                                   4=unique)
  *                    Remaining fields (AC, gold drop, resistances, special
- *                    ability ids, spells) are TBD — see Stage 1j.2.3.
+ *                    ability ids, spells, saves) are TBD — see Stage 1j.2.4.
  *   0x2304E..end    unknownTail — 45,542 bytes, more tables. ASCII strings
  *                    suggest NPC/quest data ("SMITTY", "CAPTAIN MATEY").
  *
@@ -205,6 +211,8 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       groupDiceSides: statSlice[55]!,
       hpDiceCount: statSlice[58]!,
       hpDiceSides: statSlice[59]!,
+      monsterClass: statSlice[148]!,
+      monsterSubClass: statSlice[149]!,
     });
   }
 
