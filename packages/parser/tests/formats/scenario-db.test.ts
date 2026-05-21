@@ -160,8 +160,13 @@ describe('decodeScenarioDb', () => {
     writeU16LE(bytes, stat + 0, 450); // xpOnKill
     bytes[stat + 6] = 2; // attack1 dice count
     bytes[stat + 7] = 2; // attack1 dice sides → 2d2
+    bytes[stat + 9] = 15; // attack1 special chance 15%
     bytes[stat + 22] = 1; // attack2 dice count
     bytes[stat + 23] = 7; // attack2 dice sides → 1d7
+    bytes[stat + 25] = 90; // attack2 special chance 90%
+    bytes[stat + 38] = 3; // attack3 dice count
+    bytes[stat + 39] = 4; // attack3 dice sides → 3d4
+    bytes[stat + 41] = 25; // attack3 special chance 25%
     bytes[stat + 54] = 1; // group dice count
     bytes[stat + 55] = 2; // group dice sides → 1d2 group
     bytes[stat + 58] = 2; // hp dice count
@@ -171,8 +176,13 @@ describe('decodeScenarioDb', () => {
     expect(m.xpOnKill).toBe(450);
     expect(m.attack1DiceCount).toBe(2);
     expect(m.attack1DiceSides).toBe(2);
+    expect(m.attack1SpecialChance).toBe(15);
     expect(m.attack2DiceCount).toBe(1);
     expect(m.attack2DiceSides).toBe(7);
+    expect(m.attack2SpecialChance).toBe(90);
+    expect(m.attack3DiceCount).toBe(3);
+    expect(m.attack3DiceSides).toBe(4);
+    expect(m.attack3SpecialChance).toBe(25);
     expect(m.groupDiceCount).toBe(1);
     expect(m.groupDiceSides).toBe(2);
     expect(m.hpDiceCount).toBe(2);

@@ -279,8 +279,9 @@ export function ScenarioGallery({ url }: Props) {
             <th style={{ width: '6em', textAlign: 'right' }}>XP</th>
             <th style={{ width: '5em' }}>HP</th>
             <th style={{ width: '6em' }}>group</th>
-            <th style={{ width: '5em' }}>atk 1</th>
-            <th style={{ width: '5em' }}>atk 2</th>
+            <th style={{ width: '8em' }}>atk 1 (special%)</th>
+            <th style={{ width: '8em' }}>atk 2 (special%)</th>
+            <th style={{ width: '8em' }}>atk 3 (special%)</th>
             {showRaw && <th>stat bytes (hex)</th>}
           </tr>
         </thead>
@@ -306,9 +307,21 @@ export function ScenarioGallery({ url }: Props) {
                 </td>
                 <td style={{ verticalAlign: 'top' }}>
                   {fmtDamage(m.attack1DiceCount, m.attack1DiceSides, 0)}
+                  {m.attack1SpecialChance > 0 && (
+                    <span style={{ color: '#cca' }}> ({m.attack1SpecialChance}%)</span>
+                  )}
                 </td>
                 <td style={{ verticalAlign: 'top', color: '#aaa' }}>
                   {fmtDamage(m.attack2DiceCount, m.attack2DiceSides, 0)}
+                  {m.attack2SpecialChance > 0 && (
+                    <span style={{ color: '#cca' }}> ({m.attack2SpecialChance}%)</span>
+                  )}
+                </td>
+                <td style={{ verticalAlign: 'top', color: '#aaa' }}>
+                  {fmtDamage(m.attack3DiceCount, m.attack3DiceSides, 0)}
+                  {m.attack3SpecialChance > 0 && (
+                    <span style={{ color: '#cca' }}> ({m.attack3SpecialChance}%)</span>
+                  )}
                 </td>
                 {showRaw && (
                   <td style={{ whiteSpace: 'pre' }}>
