@@ -106,7 +106,9 @@ followed by 158 bytes of stat data:
 | 41          | `attack3SpecialChance` | high | Percent chance for attack 3's special. MINO-DAEMON 75%, HYDRA PLANT 20%. |
 | 54..55      | `groupDice`        | high | (count, sides) for encounter group size. RAT 1d3, ROGUE LEADER 1d1 (alone), CREEPING VINE 2d3. |
 | 58..59      | `hpDice`           | high | (count, sides) for the monster's HP roll. RAT 1d3, ZOMBIE 6d6, ISLAND GIANT 12d6, PIT FIEND 14d4. |
-| other       | TBD                | — | ~10 other dense positions (bytes 56, 60, 62-63, 70-73, 122-125, 144-149) remain — likely AC, gold drop, resistances, monster category, special-effect IDs, save vs spell. Stage 1j.2.3 to continue. |
+| 148         | `monsterClass`     | high | Tier enum. 1=animal/beast (105 monsters: RAT, BAT, VINE, etc.), 2=humanoid/undead (61: ROGUE, ZOMBIE, BANSHEE), 3=demon/elite (14: GREATER DEMON, FAERIE SYLPH), 4=ultimate boss (5: HAIYATO DAIKUTA, * B E L A *, FAERIE QUEEN, LORD DAIMYO, CHARRON). Rare outliers 0/21/65 exist. |
+| 149         | `monsterSubClass`  | medium-high | Sub-tier within class. Mostly 1-4. Common values cluster by family — for class 1: 1=basic (RAT family, 82 monsters), 2=large (GIANT SERPENT, MAN O' WAR), 3=plant (JUNGLE VINE), 4=exotic (HYDRA PLANT). Exact semantics may also encode something like alignment. |
+| other       | TBD                | — | ~8 other dense positions (bytes 56, 60, 62-63, 70-73, 113-117, 122-125, 144-147) remain — likely AC, gold drop, resistances, save throws, monster level, family ID. Stage 1j.2.4 to continue. |
 
 **Attack record structure**: bytes 6..53 contain three 16-byte attack
 records at offsets 6, 22, 38. Each record holds (dice count, dice sides)
@@ -169,12 +171,20 @@ the *running scenario state*, not for the *scenario content file*.
 
 ## Future work
 
-- **Stage 1j.2.3**: continue cracking the monster stat block — AC, gold drop,
+- **Stage 1j.2.4**: continue cracking the monster stat block — AC, gold drop,
   resistances, damage type per attack, special-effect IDs, save vs spell.
-  Stages 1j.2.1 and 1j.2.2 nailed xpOnKill, HP dice, group dice, three
-  attack-dice fields, and per-attack special-effect chance %. The remaining
-  ~10 dense positions (56, 60, 62-63, 70-73, 122-125, 144-149) still need
-  identification.
+  Stages 1j.2.1–1j.2.3 nailed xpOnKill, HP dice, group dice, three attack-dice
+  fields, per-attack special-effect chance %, and monster class/subclass.
+  Strong leads for future work:
+    - bytes 113-117, 122-125: clusters of percent-like values, very likely 4-8
+      save-throw or resistance percentages by damage type.
+    - byte 60: monotonically increases with monster XP (50→244). Possibly
+      monster level × 10, max-HP precompute, or to-hit chance.
+    - bytes 62-63: usually a paired value 5-20 (sometimes asymmetric like
+      RAT 5,10). Plausible encounter-level range or monster tier.
+    - bytes 70-73: shared across same-family monsters (RAT/GIANT RAT both
+      06 04 0e 10). Family/sprite-set identifier.
+    - bytes 144-147: 4 separate values 5-44. Possibly 4 saving-throw % values.
 - **Stage 1j.3**: bind XP-table indices to character class names (probably
   resolvable by cross-reference with `newgame.dbs` records).
 - **Stage 1j.4**: identify AC for armor (no obvious field in the 74-byte
