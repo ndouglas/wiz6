@@ -10,6 +10,7 @@ const ITEM_TABLE_OFFSET = 0x0380;
 const ITEM_RECORD_BYTES = 74;
 const ITEM_RECORD_COUNT = 500;
 const ITEM_TABLE_TOTAL_BYTES = ITEM_RECORD_COUNT * ITEM_RECORD_BYTES;
+const ITEM_NAME_SLOT_BYTES = 16;
 
 const ITEM_TABLE_END = ITEM_TABLE_OFFSET + ITEM_TABLE_TOTAL_BYTES;
 const MIN_FILE_SIZE = ITEM_TABLE_END;
@@ -17,6 +18,10 @@ const MIN_FILE_SIZE = ITEM_TABLE_END;
 export interface DecodeScenarioDbOpts {
   id: string;
   sourceFile: string;
+}
+
+function readU16LE(bytes: Uint8Array, off: number): number {
+  return bytes[off]! | (bytes[off + 1]! << 8);
 }
 
 function readU32LE(bytes: Uint8Array, off: number): number {
@@ -28,29 +33,42 @@ function readU32LE(bytes: Uint8Array, off: number): number {
   );
 }
 
-function decodeNullTerminated(bytes: Uint8Array, start: number, maxLen: number): {
-  text: string;
-  next: number;
-} {
-  const limit = Math.min(start + maxLen, bytes.length);
-  let end = start;
-  while (end < limit && bytes[end] !== 0) end++;
-  const text = new TextDecoder('latin1').decode(bytes.subarray(start, end));
-  const next = end < limit ? end + 1 : end;
-  return { text, next };
+function decodeNameSlot(slice: Uint8Array): { name1: string; name2: string } {
+  let n1End = 0;
+  while (n1End < ITEM_NAME_SLOT_BYTES && slice[n1End] !== 0) n1End++;
+  const name1 = new TextDecoder('latin1').decode(slice.subarray(0, n1End));
+  // name2 sits between name1's null and the slot's end (byte 15). Anything past
+  // the slot is stat data and must NOT be read as a name.
+  const n2Start = n1End + 1;
+  if (n2Start >= ITEM_NAME_SLOT_BYTES) return { name1, name2: '' };
+  let n2End = n2Start;
+  while (n2End < ITEM_NAME_SLOT_BYTES && slice[n2End] !== 0) n2End++;
+  const name2 = new TextDecoder('latin1').decode(slice.subarray(n2Start, n2End));
+  return { name1, name2 };
 }
 
 /**
- * Decode `scenario.dbs`: a flat sequence of game-content tables. This decoder
- * exposes the two tables whose layouts we've identified:
+ * Decode `scenario.dbs`: a flat sequence of game-content tables.
  *
  *   0x0000..0x037F  XP-per-level tables: 14 character classes × 16 levels × u32 LE
- *   0x0380..0x9407  Item table: 500 fixed-size 74-byte records, each with two
- *                   null-terminated names (singular/plural) followed by raw
- *                   stat bytes whose per-field layout isn't yet decoded.
+ *   0x0380..0x9407  Item table: 500 fixed-size 74-byte records. Layout:
+ *     bytes  0..15 : name slot (15-char max name1, null-terminated; optional
+ *                    alt name2 fits in remaining bytes within the slot)
+ *     byte    16-17: price (u16 LE, gold)
+ *     byte      24 : weapon hit/damage bonus
+ *     byte      26 : damage dice count   (weapons)
+ *     byte      27 : damage dice sides   (weapons)
+ *     byte    28-29: spell or song id (u16 LE) — scrolls (slot 13), instruments (14)
+ *     byte      30 : weight (tenths of pounds)
+ *     byte    54-55: 14-bit class restriction bitmask (low 14 bits = classes 0..13)
+ *     byte      60 : equip slot enum (0=weapon 1H, 1=pole, 2=thrown, 3=ranged,
+ *                    4=ammo, 5=cloak, 6=head, 7=body, 8=legs, 9=hands, 10=feet,
+ *                    11=shield, 12=potion, 13=scroll, 14=instrument/book/misc,
+ *                    15=key, 16=dust)
+ *     other bytes  : not yet decoded — preserved in `bytes`
  *
  * Everything past 0x9408 is preserved as `unknownTail` for future stages.
- * See docs/re/scenario-dbs.md for what's known.
+ * See docs/re/scenario-dbs.md for the full investigation memo.
  */
 export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts): ScenarioDb {
   if (bytes.length < MIN_FILE_SIZE) {
@@ -80,9 +98,22 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       recordBytes[j] = b;
       if (b !== 0) allZero = false;
     }
-    const { text: name1, next: afterName1 } = decodeNullTerminated(slice, 0, ITEM_RECORD_BYTES);
-    const { text: name2 } = decodeNullTerminated(slice, afterName1, ITEM_RECORD_BYTES - afterName1);
-    items.push({ index: i, name1, name2, bytes: recordBytes, empty: allZero });
+    const { name1, name2 } = decodeNameSlot(slice);
+    items.push({
+      index: i,
+      name1,
+      name2,
+      bytes: recordBytes,
+      empty: allZero,
+      price: readU16LE(slice, 16),
+      hitBonus: slice[24]!,
+      damageDiceCount: slice[26]!,
+      damageDiceSides: slice[27]!,
+      spellOrSongId: readU16LE(slice, 28),
+      weight: slice[30]!,
+      classMask: readU16LE(slice, 54),
+      equipSlot: slice[60]!,
+    });
   }
 
   const tail = bytes.subarray(ITEM_TABLE_END);
