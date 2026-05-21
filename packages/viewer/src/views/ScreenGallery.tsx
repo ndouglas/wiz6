@@ -49,9 +49,10 @@ function bitAt(plane: number[], width: number, srcX: number, srcY: number): numb
 interface Props {
   url: string;
   palette?: Palette;
+  hideHeader?: boolean;
 }
 
-export function ScreenGallery({ url, palette = WIZ6_PALETTE_1 }: Props) {
+export function ScreenGallery({ url, palette = WIZ6_PALETTE_1, hideHeader = false }: Props) {
   const [screen, setScreen] = useState<EgaScreen | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -105,7 +106,7 @@ export function ScreenGallery({ url, palette = WIZ6_PALETTE_1 }: Props) {
 
   return (
     <section>
-      <h2>{screen ? screen.id : url}</h2>
+      {hideHeader ? null : <h2>{screen ? screen.id : url}</h2>}
       <canvas ref={canvasRef} style={{ imageRendering: 'pixelated' }} />
     </section>
   );

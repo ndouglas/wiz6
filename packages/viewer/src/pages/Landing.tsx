@@ -62,7 +62,7 @@ export function Landing() {
   return (
     <main className={styles.page}>
       <div className={styles.hero} data-testid="landing-hero">
-        <ScreenGallery url="/screens/titlepag.json" palette={WIZ6_TITLE_PALETTE} />
+        <ScreenGallery url="/screens/titlepag.json" palette={WIZ6_TITLE_PALETTE} hideHeader />
       </div>
       <h1 className={styles.heading}>Wiz6 Data Explorer</h1>
       <p className={styles.lede}>

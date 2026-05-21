@@ -88,7 +88,7 @@ export function ScreenAlignmentTool({ url }: Props) {
   const [planeVisible, setPlaneVisible] = useState<boolean[]>([true, true, true, true]);
   const [wrapX, setWrapX] = useState<boolean>(true);
   const [wrapY, setWrapY] = useState<boolean>(false);
-  const [renderMode, setRenderMode] = useState<RenderMode>('layers');
+  const [renderMode, setRenderMode] = useState<RenderMode>('composite');
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
