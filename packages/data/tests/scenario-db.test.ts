@@ -71,6 +71,12 @@ const baseMonsterFields = {
   attack3HpDrainChance: 0,
   attack3AgeChance: 0,
   attack3DecapitateChance: 0,
+  attack1Style: 0,
+  attack1DamageBonus: 0,
+  attack2Style: 0,
+  attack2DamageBonus: 0,
+  attack3Style: 0,
+  attack3DamageBonus: 0,
 };
 const emptyMonster = (i: number) => ({
   index: i,

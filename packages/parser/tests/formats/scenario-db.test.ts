@@ -219,6 +219,12 @@ describe('decodeScenarioDb', () => {
     bytes[stat + 40] = 5;  // attack3HpDrainChance
     bytes[stat + 43] = 20; // attack3AgeChance
     bytes[stat + 46] = 15; // attack3DecapitateChance
+    bytes[stat + 17] = 1; // attack1Style (grapple)
+    bytes[stat + 20] = 4; // attack1DamageBonus
+    bytes[stat + 33] = 2; // attack2Style (stun/crush)
+    bytes[stat + 36] = 8; // attack2DamageBonus
+    bytes[stat + 49] = 3; // attack3Style (ranged)
+    bytes[stat + 52] = 12; // attack3DamageBonus
     const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
     const m = db.monsters[1]!;
     expect(m.xpOnKill).toBe(450);
@@ -272,6 +278,12 @@ describe('decodeScenarioDb', () => {
     expect(m.attack3HpDrainChance).toBe(5);
     expect(m.attack3AgeChance).toBe(20);
     expect(m.attack3DecapitateChance).toBe(15);
+    expect(m.attack1Style).toBe(1);
+    expect(m.attack1DamageBonus).toBe(4);
+    expect(m.attack2Style).toBe(2);
+    expect(m.attack2DamageBonus).toBe(8);
+    expect(m.attack3Style).toBe(3);
+    expect(m.attack3DamageBonus).toBe(12);
   });
 
   it('marks empty monster slots correctly', () => {

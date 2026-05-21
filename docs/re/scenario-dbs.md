@@ -129,7 +129,9 @@ followed by 158 bytes of stat data:
 | 8, 24, 40   | `attackNHpDrainChance` | medium-high | Percent chance attack N drains stamina/HP. Pattern matches incorporeal undead: SPIRIT 25%, SHADE 25%, SHADOW 25%, WILL O' WISP 25%, HAUNT 20%, CAPTAIN MATEY 4%. Atk2/atk3 are very sparse. |
 | 11, 27, 43  | `attackNAgeChance`     | medium-high | Percent chance attack N inflicts aging. CHARRON 100%, WRAITH 50%, WRAITH LORD 50%, PHANTASM 50%, FAERIE QUEEN 50%, WILL O' WISP 25%, HAUNT 20%, WRAITH (variant) 15%. Classic Wiz6 aging-undead pattern. |
 | 14, 30, 46  | `attackNDecapitateChance` | high     | Percent chance attack N decapitates / scores instant-kill critical. NINJA 8%, ASSASSIN 8%, CHUNIN 10%, HAIYATO DAIKUTA 10%, MAI-LAI 10%, ROBIN WINDMARNE 10%, BRIGERD WOLTAN 10%, KNIGHT=DEATH 2%, GRANDFATHER 12%, * XORPHITUS * 15%, HORASTHMUS 15%, TYRANNASAURUS 50%. Matches Wiz6 Ninja / elite-warrior critical-strike mechanic. Atk2/atk3: DEMONIC HELLCAT/MAI-LAI/LORD DAIMYO/HELLCAT=FIRE/HELLION (atk2 byte 30) and GREMLIN/* B E L A * (atk3 byte 46). |
-| other       | TBD                    | —           | Bytes 12, 28, 44 — extremely sparse (only CAPTAIN MATEY at byte 12 has value 6). Likely unique-monster flags or unused.                                                                                |
+| 17, 33, 49  | `attackNStyle`         | high        | Attack style enum: 0=default melee (most monsters), 1=grapple/entangle (CREEPING/FUMING/STRANGLER/JUNGLE VINE, GIANT SERPENT, HYDRA PLANT, DUNGEON LEECH — 39 monsters), 2=stun/crush (GUARDIAN=ROCK, ROCK=RUMBLE, ARIEL SERVANT — 3 monsters), 3=ranged/precision (AMAZULU ARCHER, ROBIN WINDMARNE, HIGHLANDER, DROW ELF — 4 monsters). Every match aligns with the monster's archetypal attack form. |
+| 20, 36, 52  | `attackNDamageBonus`   | high        | Flat damage bonus added to the attack roll. Values monotonically scale with monster strength: GIANT RAT +1, HYDRA PLANT +2, GIANT SERPENT +4, HIGHLANDER/CHIMERA +4, NINJA +8, GREATER DEMON +20, ISLAND GIANT/GRANDFATHER +20, POISON GIANT +30, TYRANNASAURUS +10. Adds to the base XdY dice roll for total damage. |
+| other       | TBD                    | —           | Bytes 12/28/44 (+6) and 21/37/53 (+15) are essentially always 0. Bytes 16/32/48 (+10) are sparse and likely encode a status-effect intensity (POISON VIPER 8, CATERPILLAR 20). The full 16-byte attack record is now decoded with 14 of 16 bytes named per attack. |
 
 **Attack record structure**: bytes 6..53 contain three 16-byte attack
 records at offsets 6, 22, 38. Each record holds (dice count, dice sides)
@@ -192,15 +194,16 @@ the *running scenario state*, not for the *scenario content file*.
 
 ## Future work
 
-- The monster stat block is now substantially decoded. Stages 1j.2.1–1j.2.12
+- The monster stat block is now substantially decoded. Stages 1j.2.1–1j.2.13
   cracked xpOnKill, HP/group/attack dice (all three attacks), seven
   per-attack effect chances each (special, poison, drain, stun, hp-drain,
-  age, decapitate), monster class/subclass, save/effect tables, monster
-  level, family ID, creatureKind, monsterSex, moveStat, spriteGroup,
-  monsterAC, attributeSaves, goldStat, specialAttackElement,
-  monsterBehaviorClass, and the three per-attack Extra[2] byte pairs.
-  Only bytes 12/28/44 remain — extremely sparse, likely unique-monster
-  flags or unused.
+  age, decapitate), attack style, attack damage bonus, monster
+  class/subclass, save/effect tables, monster level, family ID,
+  creatureKind, monsterSex, moveStat, spriteGroup, monsterAC,
+  attributeSaves, goldStat, specialAttackElement, monsterBehaviorClass,
+  and the three per-attack Extra[2] byte pairs. Each 16-byte attack
+  record now has 14/16 bytes named; bytes +6 and +15 are essentially
+  always zero, byte +10 is sparse (likely status-effect intensity).
 - **Stage 1j.3**: bind XP-table indices to character class names (probably
   resolvable by cross-reference with `newgame.dbs` records).
 - **Stage 1j.4**: identify AC for armor (no obvious field in the 74-byte
