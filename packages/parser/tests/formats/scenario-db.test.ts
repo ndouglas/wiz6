@@ -171,6 +171,16 @@ describe('decodeScenarioDb', () => {
     bytes[stat + 55] = 2; // group dice sides → 1d2 group
     bytes[stat + 58] = 2; // hp dice count
     bytes[stat + 59] = 4; // hp dice sides → 2d4 HP
+    bytes[stat + 113] = 15; // saveTable[0]
+    bytes[stat + 114] = 40; // saveTable[1] (cold)
+    bytes[stat + 115] = 30; // saveTable[2]
+    bytes[stat + 116] = 10; // saveTable[3]
+    bytes[stat + 117] = 5;  // saveTable[4]
+    bytes[stat + 121] = 50; // effectChanceTable[0]
+    bytes[stat + 122] = 25; // effectChanceTable[1]
+    bytes[stat + 123] = 10; // effectChanceTable[2]
+    bytes[stat + 124] = 5;  // effectChanceTable[3]
+    bytes[stat + 125] = 0;  // effectChanceTable[4]
     bytes[stat + 148] = 1; // monsterClass = 1 (animal)
     bytes[stat + 149] = 1; // monsterSubClass = 1 (common)
     const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
@@ -191,6 +201,8 @@ describe('decodeScenarioDb', () => {
     expect(m.hpDiceSides).toBe(4);
     expect(m.monsterClass).toBe(1);
     expect(m.monsterSubClass).toBe(1);
+    expect(m.saveTable).toEqual([15, 40, 30, 10, 5]);
+    expect(m.effectChanceTable).toEqual([50, 25, 10, 5, 0]);
   });
 
   it('marks empty monster slots correctly', () => {

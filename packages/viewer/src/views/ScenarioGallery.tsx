@@ -283,6 +283,8 @@ export function ScenarioGallery({ url }: Props) {
             <th style={{ width: '8em' }}>atk 1 (special%)</th>
             <th style={{ width: '8em' }}>atk 2 (special%)</th>
             <th style={{ width: '8em' }}>atk 3 (special%)</th>
+            <th style={{ width: '10em' }}>saves (5 × %)</th>
+            <th style={{ width: '10em' }}>effects (5 × %)</th>
             {showRaw && <th>stat bytes (hex)</th>}
           </tr>
         </thead>
@@ -326,6 +328,16 @@ export function ScenarioGallery({ url }: Props) {
                   {m.attack3SpecialChance > 0 && (
                     <span style={{ color: '#cca' }}> ({m.attack3SpecialChance}%)</span>
                   )}
+                </td>
+                <td style={{ verticalAlign: 'top', color: '#aaa' }}>
+                  {m.saveTable.some((v) => v !== 0)
+                    ? m.saveTable.map((v) => v.toString().padStart(2)).join('/')
+                    : '—'}
+                </td>
+                <td style={{ verticalAlign: 'top', color: '#aaa' }}>
+                  {m.effectChanceTable.some((v) => v !== 0)
+                    ? m.effectChanceTable.map((v) => v.toString().padStart(2)).join('/')
+                    : '—'}
                 </td>
                 {showRaw && (
                   <td style={{ whiteSpace: 'pre' }}>

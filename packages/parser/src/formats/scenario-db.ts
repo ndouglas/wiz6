@@ -116,8 +116,17 @@ function decodeFixedString(slice: Uint8Array, start: number, length: number): st
  *                      byte    149  monsterSubClass sub-category within
  *                                   class (1=common, 2=special, 3=elite,
  *                                   4=unique)
- *                    Remaining fields (AC, gold drop, resistances, special
- *                    ability ids, spells, saves) are TBD — see Stage 1j.2.4.
+ *                      bytes 113-117 saveTable       5 percent values, likely
+ *                                   save-throw / damage-resistance percentages
+ *                                   per damage type. byte 114 = COLD confirmed:
+ *                                   COLD SLIME has 100% there.
+ *                      bytes 121-125 effectChanceTable 5 percent values, paired
+ *                                   with saveTable. Likely chance the monster
+ *                                   inflicts a status effect on the party.
+ *                                   Undead share template 15/40/30/10/5 across
+ *                                   both tables.
+ *                    Remaining fields (AC, gold drop, monster level, spells)
+ *                    are TBD — see Stage 1j.2.5.
  *   0x2304E..end    unknownTail — 45,542 bytes, more tables. ASCII strings
  *                    suggest NPC/quest data ("SMITTY", "CAPTAIN MATEY").
  *
@@ -213,6 +222,20 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       hpDiceSides: statSlice[59]!,
       monsterClass: statSlice[148]!,
       monsterSubClass: statSlice[149]!,
+      saveTable: [
+        statSlice[113]!,
+        statSlice[114]!,
+        statSlice[115]!,
+        statSlice[116]!,
+        statSlice[117]!,
+      ],
+      effectChanceTable: [
+        statSlice[121]!,
+        statSlice[122]!,
+        statSlice[123]!,
+        statSlice[124]!,
+        statSlice[125]!,
+      ],
     });
   }
 

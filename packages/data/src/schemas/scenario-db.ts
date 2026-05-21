@@ -42,6 +42,8 @@ export const ScenarioMonsterSchema = z.object({
   hpDiceSides: z.number().int().min(0).max(255),
   monsterClass: z.number().int().min(0).max(255),
   monsterSubClass: z.number().int().min(0).max(255),
+  saveTable: z.array(z.number().int().min(0).max(255)).length(5),
+  effectChanceTable: z.array(z.number().int().min(0).max(255)).length(5),
 });
 
 export const ScenarioItemSchema = z.object({
