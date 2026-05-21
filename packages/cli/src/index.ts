@@ -1,3 +1,4 @@
+import { runGrepCommand } from './commands/grep.js';
 import { runListCommand } from './commands/list.js';
 import { runShowCommand } from './commands/show.js';
 
@@ -41,6 +42,9 @@ export function run(argv: readonly string[], io: CliIO): number {
   }
   if (first === 'show') {
     return runShowCommand(argv.slice(1), { cwd: process.cwd(), io });
+  }
+  if (first === 'grep') {
+    return runGrepCommand(argv.slice(1), { cwd: process.cwd(), io });
   }
   // Subcommands will be wired up in subsequent tasks.
   io.writeErr(`unknown subcommand: ${first}\n\n${USAGE}`);
