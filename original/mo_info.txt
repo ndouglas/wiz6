@@ -1,0 +1,69 @@
+Mo'Slo CSSC v.1 from Dr.David's Super Crispy Software
+Copyright (c) David Perrell 1990,1997,1998
+Licensed by Interplay for use with the Wizardry Archives
+
+============== Mo'Slo CSSC END USER SOFTWARE LICENSE ================
+
+The Mo'Slo CSSC software program (subsequently referred to as the
+Software) is owned by David Perrell and is protected by United States
+copyright laws and related international treaty provisions. License to
+use the software is granted under the following terms and conditions:
+
+1. License is granted to use one copy of the Software on a single
+   terminal or workstation of a single computer so long as all of the
+   terms and conditions of this agreement are complied with.
+
+2. You may transfer the Software onto one mass storage media for
+   use in accordance with paragraph 1. You may not otherwise copy
+   or distribute the Software in any way without an appropriate
+   license from the author.
+
+3. You may not make, or have made by another, any modification to the
+   Software or its accompanying documentation. You may not adapt,
+   translate, reverse engineer, disassemble, or create derivative
+   works based on the Software.
+
+4. You may transfer the Software to another party ONLY in the form of
+   the media upon which it is legally distributed, and PROVIDED the
+   licensing terms of all software product(s) on that media are honored
+   AND the recipient of the Software agrees to all such terms. If the
+   Software is transferred, all copies you made must be destroyed.
+
+Use of the Software implies agreement. If you do not agree to comply
+with these terms and conditions, return the Software to the place of
+purchase for a full refund and delete any copies you may have made.
+
+===================== DISCLAIMER OF WARRANTY ========================
+
+Mo'Slo Deluxe is provided without warranty of any kind, express or
+implied, and the user assumes the entire risk of using it. The author
+will not be liable for any incidental, consequential, indirect or
+similar damages resulting from the use of this software. In no event
+will the author's liability ever exceed the price paid for the
+license to use the software, regardless of the nature of the claim.
+
+======================= TECHNICAL SUPPORT ===========================
+
+For tech support you should first contact the vendor of the product
+with which Mo'Slo is being used. It you have WWW access, visit the
+the vendor's website for tech support FAQs. You can also find answers
+to common questions on the Mo'Slo website at this address:
+
+            http://www.hpaa.com/moslo
+
+Mo'Slo tech support can be emailed at support@hpaa.com. Voice/fax
+telephone number is (1.818) 884.7157.
+
+===================== INSTALLATION AND USE ==========================
+
+Installation is normally done automatically as part of the installation
+process of the accompanying software product(s). For most users, Mo'Slo
+will operate transparently and automatically adjust system speed as
+required. Use of Mo'Slo CSSC is limited to the slowing the applications
+with which it is distributed. See the documentation for the
+Wizardry Archives for additional usage instructions.
+
+=====================================================================
+
+Mo'Slo CSSC is from Dr.David's Super Crispy Software
+division of Hearn/Perrell Art Associates
