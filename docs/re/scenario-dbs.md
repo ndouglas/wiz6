@@ -131,7 +131,31 @@ followed by 158 bytes of stat data:
 | 14, 30, 46  | `attackNDecapitateChance` | high     | Percent chance attack N decapitates / scores instant-kill critical. NINJA 8%, ASSASSIN 8%, CHUNIN 10%, HAIYATO DAIKUTA 10%, MAI-LAI 10%, ROBIN WINDMARNE 10%, BRIGERD WOLTAN 10%, KNIGHT=DEATH 2%, GRANDFATHER 12%, * XORPHITUS * 15%, HORASTHMUS 15%, TYRANNASAURUS 50%. Matches Wiz6 Ninja / elite-warrior critical-strike mechanic. Atk2/atk3: DEMONIC HELLCAT/MAI-LAI/LORD DAIMYO/HELLCAT=FIRE/HELLION (atk2 byte 30) and GREMLIN/* B E L A * (atk3 byte 46). |
 | 17, 33, 49  | `attackNStyle`         | high        | Attack style enum: 0=default melee (most monsters), 1=grapple/entangle (CREEPING/FUMING/STRANGLER/JUNGLE VINE, GIANT SERPENT, HYDRA PLANT, DUNGEON LEECH — 39 monsters), 2=stun/crush (GUARDIAN=ROCK, ROCK=RUMBLE, ARIEL SERVANT — 3 monsters), 3=ranged/precision (AMAZULU ARCHER, ROBIN WINDMARNE, HIGHLANDER, DROW ELF — 4 monsters). Every match aligns with the monster's archetypal attack form. |
 | 20, 36, 52  | `attackNDamageBonus`   | high        | Flat damage bonus added to the attack roll. Values monotonically scale with monster strength: GIANT RAT +1, HYDRA PLANT +2, GIANT SERPENT +4, HIGHLANDER/CHIMERA +4, NINJA +8, GREATER DEMON +20, ISLAND GIANT/GRANDFATHER +20, POISON GIANT +30, TYRANNASAURUS +10. Adds to the base XdY dice roll for total damage. |
-| other       | TBD                    | —           | Bytes 12/28/44 (+6) and 21/37/53 (+15) are essentially always 0. Bytes 16/32/48 (+10) are sparse and likely encode a status-effect intensity (POISON VIPER 8, CATERPILLAR 20). The full 16-byte attack record is now decoded with 14 of 16 bytes named per attack. |
+| 16, 32, 48  | `attackNPoisonStrength` | medium-high | Poison/status-effect intensity (likely poison dice count per turn or turns of duration). Set on poison/disease-inflicting monsters: CATERPILLAR 20, ASSASSIN 10, POISON VIPER 8, KUWALI KUBONA 6, MYSTAPHAPHAS 5, MAN O' WAR / AMAZULU QUEEN / TARANTULA 4, GIANT SERPENT / AMEN-TUT-BUTT / ACID SLIME / RABID RAT 3, GELATIN VAPOR / HUGE SPIDER / FORAGER / JAIL RAT 2, VAMPIRE BAT / POISON SLIME / JELLY CLOUD / FLOATER 1. Correlates with `attackNPoisonChance`. |
+| 85..96      | `extendedSaves[12]`    | medium-high | 12-byte cluster of save/resistance percentages (values 0, 25, 35, 50, 65, 75, 95, 125 — all multiples of 5 with 125 as immunity sentinel). Heavily family-shared: SPIRIT family (SPIRIT/WRAITH/LICHE/HAUNT/WRAITH LORD/SHADE/SHADOW/PHANTASM/ACCURSED ONE) shares `[65,65,65,125,125,125,125,125,125,125,*,*]` template — seven 125s indicate 7 categories of immunity for incorporeal undead. RAT family has all zeros (no special resistances). Likely encodes resistance to: physical/blade/blunt/piercing/missile/fire/cold/acid/poison/electric/mental/death — but exact category mapping is TBD. |
+| (per-attack) +6 and +15 | (unused padding in real monsters) | high | Confirmed unused padding within attack records of real monster combat records: across all 250 regular monsters (indices 0-249), zero records have non-zero bytes at +6 or +15. The three records with apparent non-zero values at these offsets (indices 250-252) are not real monsters — they are special quest/event data records reusing the 222-byte format (see "Special quest-data records" below). |
+
+#### Special quest-data records (indices 250-252)
+
+The last three entries of the monster table are not combat monsters — they
+are NPC / quest / minigame data structures that reuse the 222-byte
+monster-record format. They appear in the monster decoder as regular
+monsters but their byte-level interpretation is completely different from
+combat records:
+
+| Record | Name slot          | Embedded content                                       | Interpretation |
+|--------|--------------------|--------------------------------------------------------|----------------|
+| 250    | "CAPTAIN MATEY"    | "QUEEQUEG" (Matey's first mate) + u16 LE sequences `[0,1,2,3,4,5,6,7]` and `[25,20,21,22,23,24]` | Drinking-contest minigame data |
+| 251    | (empty)            | "COSMIC FORGE" (the central plot artifact) + "* B E L A *" + u16 LE sequences | Cosmic-Forge quest event data |
+| 252    | (empty)            | "L'MONTES" (Wiz6 quest NPC) + u16 LE sequences `[285,286,287,288,289]` and `[12,13,14,15,16,17]` | L'MONTES quest event data |
+
+The "byte +6" CAPTAIN MATEY value of 6 — which initially looked like an
+attack-record anomaly — is in fact just position 12 of record 250's u16 LE
+sequence `[0, 1, 2, 3, 4, 5, 6, 7]`. It belongs to the drinking-contest
+data structure, not the monster attack record.
+
+Future stages should either expose these three records as a separate
+schema or pull them out of the monster decoder entirely.
 
 **Attack record structure**: bytes 6..53 contain three 16-byte attack
 records at offsets 6, 22, 38. Each record holds (dice count, dice sides)
@@ -194,16 +218,15 @@ the *running scenario state*, not for the *scenario content file*.
 
 ## Future work
 
-- The monster stat block is now substantially decoded. Stages 1j.2.1–1j.2.13
-  cracked xpOnKill, HP/group/attack dice (all three attacks), seven
-  per-attack effect chances each (special, poison, drain, stun, hp-drain,
-  age, decapitate), attack style, attack damage bonus, monster
-  class/subclass, save/effect tables, monster level, family ID,
-  creatureKind, monsterSex, moveStat, spriteGroup, monsterAC,
-  attributeSaves, goldStat, specialAttackElement, monsterBehaviorClass,
-  and the three per-attack Extra[2] byte pairs. Each 16-byte attack
-  record now has 14/16 bytes named; bytes +6 and +15 are essentially
-  always zero, byte +10 is sparse (likely status-effect intensity).
+- The monster attack records are now FULLY decoded: 14 named bytes per
+  16-byte attack × 3 attacks = 42 named bytes. Bytes +6 and +15 per
+  attack record (6 bytes total) are confirmed unused padding.
+- Beyond attack records, Stage 1j.2.14 also cracked the previously-missed
+  `extendedSaves[12]` cluster at bytes 85-96 — likely 12 elemental /
+  damage-type resistance percentages with 125 as the immunity sentinel.
+- Remaining un-decoded stat-block territory: bytes 98-112 (another dense
+  cluster of small-value fields, possibly spell IDs or per-category
+  multipliers).
 - **Stage 1j.3**: bind XP-table indices to character class names (probably
   resolvable by cross-reference with `newgame.dbs` records).
 - **Stage 1j.4**: identify AC for armor (no obvious field in the 74-byte

@@ -340,6 +340,14 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       attack2DamageBonus: statSlice[36]!,
       attack3Style: statSlice[49]!,
       attack3DamageBonus: statSlice[52]!,
+      attack1PoisonStrength: statSlice[16]!,
+      attack2PoisonStrength: statSlice[32]!,
+      attack3PoisonStrength: statSlice[48]!,
+      extendedSaves: [
+        statSlice[85]!, statSlice[86]!, statSlice[87]!, statSlice[88]!,
+        statSlice[89]!, statSlice[90]!, statSlice[91]!, statSlice[92]!,
+        statSlice[93]!, statSlice[94]!, statSlice[95]!, statSlice[96]!,
+      ],
     });
   }
 
