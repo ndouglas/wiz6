@@ -142,9 +142,16 @@ function decodeFixedString(slice: Uint8Array, start: number, length: number): st
  *                                   10=elite warrior.
  *                      byte   150   monsterSex      0=male humanoid,
  *                                   1=female (Amazonian), 2=neuter/creature.
- *                    Remaining fields (AC, gold drop, spells, special-effect
- *                    IDs, byte 60, byte 56, 144-147 partial) are TBD — see
- *                    Stage 1j.2.7.
+ *                      byte    60   moveStat        defaults to monsterLevel ×
+ *                                   10 for ~85% of monsters. Designers
+ *                                   override for special cases (PIT FIEND
+ *                                   200, HAIYATO 244, WILL O' WISP 44).
+ *                                   Likely movement/speed in some encoding.
+ *                      byte   157   spriteGroup     2=small beast, 3=vine,
+ *                                   4=exotic plant, 6=blob/AMAZULU, 7=large
+ *                                   creature, 14=humanoid, 15=armored.
+ *                    Remaining fields (AC, gold drop, spells, byte 56,
+ *                    144-147 partial) are TBD — see Stage 1j.2.8.
  *   0x2304E..end    unknownTail — 45,542 bytes, more tables. ASCII strings
  *                    suggest NPC/quest data ("SMITTY", "CAPTAIN MATEY").
  *
@@ -259,6 +266,8 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       familyId: [statSlice[70]!, statSlice[71]!, statSlice[72]!, statSlice[73]!],
       creatureKind: statSlice[64]!,
       monsterSex: statSlice[150]!,
+      moveStat: statSlice[60]!,
+      spriteGroup: statSlice[157]!,
     });
   }
 
