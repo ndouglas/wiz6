@@ -1,0 +1,18 @@
+.git
+.github
+.claude
+.config
+.cache
+
+node_modules
+**/node_modules
+
+# Build outputs — regenerated inside the container
+extracted
+**/dist
+
+# Local-only artifacts
+*.log
+.DS_Store
+docs
+.worktrees
