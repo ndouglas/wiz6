@@ -150,8 +150,16 @@ function decodeFixedString(slice: Uint8Array, start: number, length: number): st
  *                      byte   157   spriteGroup     2=small beast, 3=vine,
  *                                   4=exotic plant, 6=blob/AMAZULU, 7=large
  *                                   creature, 14=humanoid, 15=armored.
- *                    Remaining fields (AC, gold drop, spells, byte 56,
- *                    144-147 partial) are TBD — see Stage 1j.2.8.
+ *                      byte   126   monsterAC       signed int8. Wiz6 AC
+ *                                   convention (lower=better). Range -14..+12.
+ *                                   RAT 5, PIT FIEND 2, WILL O' WISP -14,
+ *                                   FAERIE QUEEN -6, * XORPHITUS * -2.
+ *                      bytes 144-147 attributeSaves[4] 4 save-throw values,
+ *                                   highly family-shared (RAT family 16/21/18,
+ *                                   SPIRIT family 20/44/34, GIANT 14/26/24).
+ *                                   Byte 147 varies slightly per variant.
+ *                    Remaining fields (gold drop / byte 56, bytes 152/156,
+ *                    individual attack-type IDs) are TBD — see Stage 1j.2.9.
  *   0x2304E..end    unknownTail — 45,542 bytes, more tables. ASCII strings
  *                    suggest NPC/quest data ("SMITTY", "CAPTAIN MATEY").
  *
@@ -268,6 +276,13 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       monsterSex: statSlice[150]!,
       moveStat: statSlice[60]!,
       spriteGroup: statSlice[157]!,
+      monsterAC: statSlice[126]! >= 128 ? statSlice[126]! - 256 : statSlice[126]!,
+      attributeSaves: [
+        statSlice[144]!,
+        statSlice[145]!,
+        statSlice[146]!,
+        statSlice[147]!,
+      ],
     });
   }
 

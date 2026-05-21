@@ -117,7 +117,9 @@ followed by 158 bytes of stat data:
 | 150         | `monsterSex`           | high        | 0=male humanoid (54 monsters: ROGUE, BRIGAND, PIRATE, etc.), 1=female (23: AMAZULU, SHAMANESS, PRIESTESS, AMAZULU QUEEN, FAERIE QUEEN), 2=neuter/creature (110: RAT, BAT, VINE, ZOMBIE, PIT FIEND). The female-Amazonian cluster + female-Faerie cluster makes this categorization unambiguous.                                                              |
 | 60          | `moveStat`             | medium-high | Defaults to `monsterLevel × 10` (verified exactly for 171/189 monsters). Designers override for special creatures: PIT FIEND (lvl 12) 200, HAIYATO (lvl 20) 244, but WILL O' WISP & FAERIE QUEEN (lvl 20) only 44 — ethereal/teleporting monsters look "slow" on this scale. Likely movement speed or combat-engagement stat. Exact semantics still TBD. |
 | 157         | `spriteGroup`          | medium-high | Sprite/animation group enum. 2 = small beast (48: RAT, BAT, GIANT SERPENT), 3 = vine (4), 4 = exotic plant (HYDRA PLANT, RUBBER BEAST), 6 = blob/humanoid-flexible (71: SLIME, AMAZULU types), 7 = large creature (16: GIANT, MINO-DAEMON), 14 = generic humanoid (34: ROGUE, BRIGAND), 15 = armored (8: DARK CRUSADER, VALKYRIE). |
-| other       | TBD                    | —           | Dense positions still un-named: byte 56 (scales with XP non-linearly — likely gold drop with table encoding), bytes 144-147 (3 family-template + 1 per-variant modifier), bytes 126/152/156 (small enums). Stage 1j.2.8 to continue.                                                                                |
+| 126         | `monsterAC`            | high        | Signed int8. Wiz6 AC convention (lower = better). Range -14 to +12. Normal monsters AC 4-8 (RAT 5, BAT 7, ZOMBIE 10, GIANT SERPENT 4). Tough monsters AC 2-3 (PIT FIEND 2, GIANT RAT 3). Legendary monsters get NEGATIVE AC: FAERIE SYLPH -4, FAERIE QUEEN / * B E L A * -6, * XORPHITUS * -2, WILL O' WISP -14 (nearly untouchable). |
+| 144..147    | `attributeSaves[4]`    | medium-high | 4 save-throw percentages, heavily family-shared with per-variant tweaks. RAT family 16/21/18/{14 or 18}; BAT family 16/18/19/{10 or 14}; SPIRIT-class undead 20/44/34/18 (high middle = good vs spell); GIANT family 14/26/24/{16 or 20}; LESSER DEMON family 21/12/15/{18 or 12}; WILL O' WISP 26/53/38/24. Likely correspond to (save vs Magic, save vs Mental/Spell, save vs Death/Para, save vs Breath) or similar 4-category save system. |
+| other       | TBD                    | —           | Dense positions still un-named: byte 56 (scales with XP non-linearly — likely gold drop with table encoding), bytes 152/156 (small enums). Stage 1j.2.9 to continue.                                                                                |
 
 **Attack record structure**: bytes 6..53 contain three 16-byte attack
 records at offsets 6, 22, 38. Each record holds (dice count, dice sides)
@@ -180,19 +182,18 @@ the *running scenario state*, not for the *scenario content file*.
 
 ## Future work
 
-- **Stage 1j.2.8**: continue cracking the monster stat block — AC, gold drop,
-  damage type per attack, special-effect IDs. Stages 1j.2.1–1j.2.7 nailed
-  xpOnKill, HP dice, group dice, three attack-dice fields, per-attack
-  special-effect chance %, monster class/subclass, save/effect tables,
-  monster level, family ID, creatureKind, monsterSex, moveStat, and
-  spriteGroup. Remaining leads:
-    - bytes 144-147: 3 family-template values + 1 per-variant modifier byte.
-      Could be 3 save throws + 1 HP/damage modifier per monster.
+- **Stage 1j.2.9**: continue cracking remaining monster stat fields.
+  Stages 1j.2.1–1j.2.8 nailed xpOnKill, HP/group/attack dice (all three
+  attacks), per-attack special-effect chance %, monster class/subclass,
+  save/effect tables, monster level, family ID, creatureKind, monsterSex,
+  moveStat, spriteGroup, monsterAC, and attributeSaves. Remaining leads:
     - byte 56: scales with monster XP but with non-linear ratio (XP/b56
       varies from 86 to 983). Possibly gold drop using a table-lookup
       encoding rather than direct value.
-    - bytes 126, 152, 156: small dense enums likely encoding more category
-      info (animation IDs, damage types, etc.).
+    - bytes 152, 156: small dense enums likely encoding more category info
+      (animation IDs, damage types, etc.).
+    - Per-attack metadata bytes (8, 10-21 inside each 16-byte attack record)
+      likely encode damage type (fire/cold/acid/poison) and special-effect ID.
 - **Stage 1j.3**: bind XP-table indices to character class names (probably
   resolvable by cross-reference with `newgame.dbs` records).
 - **Stage 1j.4**: identify AC for armor (no obvious field in the 74-byte

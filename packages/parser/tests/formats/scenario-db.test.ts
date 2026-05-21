@@ -189,6 +189,8 @@ describe('decodeScenarioDb', () => {
     bytes[stat + 125] = 0;  // effectChanceTable[4]
     bytes[stat + 60] = 80; // moveStat = 80 (= level 8 × 10)
     bytes[stat + 64] = 4;  // creatureKind = 4 (rodent/cat)
+    bytes[stat + 126] = 0xfc; // monsterAC = -4 (signed byte 252)
+    bytes[stat + 144] = 16; bytes[stat + 145] = 21; bytes[stat + 146] = 18; bytes[stat + 147] = 18; // attributeSaves (RAT family)
     bytes[stat + 148] = 1; // monsterClass = 1 (animal)
     bytes[stat + 149] = 1; // monsterSubClass = 1 (common)
     bytes[stat + 150] = 2; // monsterSex = 2 (neuter creature)
@@ -220,6 +222,8 @@ describe('decodeScenarioDb', () => {
     expect(m.monsterSex).toBe(2);
     expect(m.moveStat).toBe(80);
     expect(m.spriteGroup).toBe(2);
+    expect(m.monsterAC).toBe(-4);
+    expect(m.attributeSaves).toEqual([16, 21, 18, 18]);
   });
 
   it('marks empty monster slots correctly', () => {

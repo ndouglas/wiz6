@@ -51,6 +51,8 @@ export const ScenarioMonsterSchema = z.object({
   monsterSex: z.number().int().min(0).max(255),
   moveStat: z.number().int().min(0).max(255),
   spriteGroup: z.number().int().min(0).max(255),
+  monsterAC: z.number().int().min(-128).max(127),
+  attributeSaves: z.array(z.number().int().min(0).max(255)).length(4),
 });
 
 export const ScenarioItemSchema = z.object({
