@@ -231,6 +231,9 @@ describe('decodeScenarioDb', () => {
     for (let j = 0; j < 12; j++) bytes[stat + 85 + j] = 50 + j; // extendedSaves
     bytes[stat + 98] = 35; // combatSpriteId
     bytes[stat + 99] = 35; // combatSpriteAlt (echo)
+    bytes[stat + 100] = 8;  // secondarySpriteId
+    bytes[stat + 102] = 50; // magicResistChance
+    bytes[stat + 112] = 10; // combatTraitId
     const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
     const m = db.monsters[1]!;
     expect(m.xpOnKill).toBe(450);
@@ -296,6 +299,9 @@ describe('decodeScenarioDb', () => {
     expect(m.extendedSaves).toEqual([50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61]);
     expect(m.combatSpriteId).toBe(35);
     expect(m.combatSpriteAlt).toBe(35);
+    expect(m.secondarySpriteId).toBe(8);
+    expect(m.magicResistChance).toBe(50);
+    expect(m.combatTraitId).toBe(10);
   });
 
   it('marks empty monster slots correctly', () => {

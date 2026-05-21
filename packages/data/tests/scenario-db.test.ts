@@ -83,6 +83,9 @@ const baseMonsterFields = {
   extendedSaves: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   combatSpriteId: 0,
   combatSpriteAlt: 0,
+  secondarySpriteId: 0,
+  magicResistChance: 0,
+  combatTraitId: 0,
 };
 const emptyMonster = (i: number) => ({
   index: i,
