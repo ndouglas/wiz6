@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import type { PortraitSet } from '@wiz6/data';
-import { decodeWport } from '../formats/wport.js';
+import { decodeWport } from '@wiz6/parser';
 
 export interface ExtractWportOpts {
   originalPath: string;

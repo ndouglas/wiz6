@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import type { NewgameDb } from '@wiz6/data';
-import { decodeNewgameDb } from '../formats/newgame-db.js';
+import { decodeNewgameDb } from '@wiz6/parser';
 
 export interface ExtractNewgameDbOpts {
   originalPath: string;

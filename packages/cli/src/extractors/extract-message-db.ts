@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import type { MessageDb } from '@wiz6/data';
-import { decodeMessageDb } from '../formats/message-db.js';
+import { decodeMessageDb } from '@wiz6/parser';
 
 export interface ExtractMessageDbOpts {
   dbsPath: string;

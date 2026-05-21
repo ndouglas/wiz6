@@ -1,14 +1,12 @@
 import { parseArgs } from 'node:util';
 import { join } from 'node:path';
-import {
-  extractWfont,
-  extractWfont4bpp,
-  extractWport,
-  extractEgaScreen,
-  extractMessageDb,
-  extractNewgameDb,
-  extractScenarioDb,
-} from '@wiz6/parser';
+import { extractWfont } from '../extractors/extract-wfont.js';
+import { extractWfont4bpp } from '../extractors/extract-wfont-4bpp.js';
+import { extractWport } from '../extractors/extract-wport.js';
+import { extractEgaScreen } from '../extractors/extract-ega-screen.js';
+import { extractMessageDb } from '../extractors/extract-message-db.js';
+import { extractNewgameDb } from '../extractors/extract-newgame-db.js';
+import { extractScenarioDb } from '../extractors/extract-scenario-db.js';
 import { resolveOriginalDir } from '../lib/loaders.js';
 import type { CliIO } from '../index.js';
 
