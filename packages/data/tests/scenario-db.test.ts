@@ -43,6 +43,8 @@ const baseMonsterFields = {
   familyId: [0, 0, 0, 0],
   creatureKind: 0,
   monsterSex: 0,
+  moveStat: 0,
+  spriteGroup: 0,
 };
 const emptyMonster = (i: number) => ({
   index: i,

@@ -115,7 +115,9 @@ followed by 158 bytes of stat data:
 | 70..73      | `familyId[4]`          | high        | 4-byte family/sprite-set identifier shared by related monsters. RAT family `(6,4,14,16)` covers 5 rats; BAT family `(4,4,17,16)` covers 4 bats; SLIME `(4,4,4,6)` 4 slimes; SKELETON `(12,12,16,12)` 5; SPIRIT-class undead `(10,12,12,12)` 9 members; GREATER DEMON `(22,16,17,17)` 4. 110 unique families total across 189 monsters.                   |
 | 64          | `creatureKind`         | high        | Body-type enum. 1=humanoid soldier (ROGUE, BRIGAND, PIRATE, AMAZULU), 2=stone elemental (GUARDIAN=ROCK, ROCK=RUMBLE), 3=elite humanoid (HIGHLANDER, DROW ELF), 4=rodent/cat (RAT family, HELLCAT), 5=flying creature (BAT family, GIANT SERPENT), 6=plant (VINE family, RUBBER BEAST), 7=blob/slime (SLIME, JELLY CLOUD, MAN O' WAR), 8=undead (ZOMBIE, BANSHEE, SPECTRE), 10=elite warrior (NINJA, ASSASSIN, PIT FIEND). Orthogonal to `monsterClass`.                                              |
 | 150         | `monsterSex`           | high        | 0=male humanoid (54 monsters: ROGUE, BRIGAND, PIRATE, etc.), 1=female (23: AMAZULU, SHAMANESS, PRIESTESS, AMAZULU QUEEN, FAERIE QUEEN), 2=neuter/creature (110: RAT, BAT, VINE, ZOMBIE, PIT FIEND). The female-Amazonian cluster + female-Faerie cluster makes this categorization unambiguous.                                                              |
-| other       | TBD                    | —           | Dense positions still un-named: bytes 56 (scales with XP but non-linearly — possibly gold drop with table encoding), 60 (monotonic 50-244 but not level × 10), 144-147 (3 family-template values + 1 per-variant modifier), 126, 152, 156, 157. Stage 1j.2.7 to continue.                                                                                |
+| 60          | `moveStat`             | medium-high | Defaults to `monsterLevel × 10` (verified exactly for 171/189 monsters). Designers override for special creatures: PIT FIEND (lvl 12) 200, HAIYATO (lvl 20) 244, but WILL O' WISP & FAERIE QUEEN (lvl 20) only 44 — ethereal/teleporting monsters look "slow" on this scale. Likely movement speed or combat-engagement stat. Exact semantics still TBD. |
+| 157         | `spriteGroup`          | medium-high | Sprite/animation group enum. 2 = small beast (48: RAT, BAT, GIANT SERPENT), 3 = vine (4), 4 = exotic plant (HYDRA PLANT, RUBBER BEAST), 6 = blob/humanoid-flexible (71: SLIME, AMAZULU types), 7 = large creature (16: GIANT, MINO-DAEMON), 14 = generic humanoid (34: ROGUE, BRIGAND), 15 = armored (8: DARK CRUSADER, VALKYRIE). |
+| other       | TBD                    | —           | Dense positions still un-named: byte 56 (scales with XP non-linearly — likely gold drop with table encoding), bytes 144-147 (3 family-template + 1 per-variant modifier), bytes 126/152/156 (small enums). Stage 1j.2.8 to continue.                                                                                |
 
 **Attack record structure**: bytes 6..53 contain three 16-byte attack
 records at offsets 6, 22, 38. Each record holds (dice count, dice sides)
@@ -178,21 +180,19 @@ the *running scenario state*, not for the *scenario content file*.
 
 ## Future work
 
-- **Stage 1j.2.7**: continue cracking the monster stat block — AC, gold drop,
-  damage type per attack, special-effect IDs. Stages 1j.2.1–1j.2.6 nailed
+- **Stage 1j.2.8**: continue cracking the monster stat block — AC, gold drop,
+  damage type per attack, special-effect IDs. Stages 1j.2.1–1j.2.7 nailed
   xpOnKill, HP dice, group dice, three attack-dice fields, per-attack
   special-effect chance %, monster class/subclass, save/effect tables,
-  monster level, family ID, creatureKind, and monsterSex. Remaining leads:
-    - byte 60: monotonically increases with monster XP (50→244). Not strictly
-      level × 10 (mismatches for 93/189). Possibly to-hit chance, max-HP
-      precompute, or movement-related stat.
-    - bytes 144-147: 3 family-template values + 1 per-variant modifier byte
-      (byte 147). Could be 3 save throws + 1 HP/damage modifier.
+  monster level, family ID, creatureKind, monsterSex, moveStat, and
+  spriteGroup. Remaining leads:
+    - bytes 144-147: 3 family-template values + 1 per-variant modifier byte.
+      Could be 3 save throws + 1 HP/damage modifier per monster.
     - byte 56: scales with monster XP but with non-linear ratio (XP/b56
       varies from 86 to 983). Possibly gold drop using a table-lookup
       encoding rather than direct value.
-    - bytes 126, 152, 156, 157: small dense enums. Likely sprite/animation
-      indices or additional category fields. Need more investigation.
+    - bytes 126, 152, 156: small dense enums likely encoding more category
+      info (animation IDs, damage types, etc.).
 - **Stage 1j.3**: bind XP-table indices to character class names (probably
   resolvable by cross-reference with `newgame.dbs` records).
 - **Stage 1j.4**: identify AC for armor (no obvious field in the 74-byte
