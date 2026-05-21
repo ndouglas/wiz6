@@ -68,6 +68,15 @@ export const ScenarioMonsterSchema = z.object({
   attack3PoisonChance: z.number().int().min(0).max(255),
   attack3DrainChance: z.number().int().min(0).max(255),
   attack3StunChance: z.number().int().min(0).max(255),
+  attack1HpDrainChance: z.number().int().min(0).max(255),
+  attack1AgeChance: z.number().int().min(0).max(255),
+  attack1DecapitateChance: z.number().int().min(0).max(255),
+  attack2HpDrainChance: z.number().int().min(0).max(255),
+  attack2AgeChance: z.number().int().min(0).max(255),
+  attack2DecapitateChance: z.number().int().min(0).max(255),
+  attack3HpDrainChance: z.number().int().min(0).max(255),
+  attack3AgeChance: z.number().int().min(0).max(255),
+  attack3DecapitateChance: z.number().int().min(0).max(255),
 });
 
 export const ScenarioItemSchema = z.object({
