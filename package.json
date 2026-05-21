@@ -13,6 +13,7 @@
     "typecheck": "pnpm -r --filter './packages/*' typecheck",
     "verify": "pnpm lint && pnpm typecheck && pnpm test",
     "dev:viewer": "pnpm --filter @wiz6/viewer dev",
+    "wiz6": "tsx packages/cli/src/bin/wiz6.ts",
     "extract": "pnpm extract:fonts && pnpm extract:portraits && pnpm extract:screens && pnpm extract:messages && pnpm extract:newgame && pnpm extract:scenario",
     "extract:fonts": "tsx packages/parser/src/cli.ts extract-fonts ./original ./extracted",
     "extract:portraits": "tsx packages/parser/src/cli.ts extract-portraits ./original ./extracted",
