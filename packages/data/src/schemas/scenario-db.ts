@@ -26,6 +26,15 @@ export const ScenarioMonsterSchema = z.object({
   nameUnidPlural: z.string().max(15),
   statBytes: monsterStatBytes,
   empty: z.boolean(),
+  xpOnKill: z.number().int().min(0).max(0xffff),
+  attack1DiceCount: z.number().int().min(0).max(255),
+  attack1DiceSides: z.number().int().min(0).max(255),
+  attack2DiceCount: z.number().int().min(0).max(255),
+  attack2DiceSides: z.number().int().min(0).max(255),
+  groupDiceCount: z.number().int().min(0).max(255),
+  groupDiceSides: z.number().int().min(0).max(255),
+  hpDiceCount: z.number().int().min(0).max(255),
+  hpDiceSides: z.number().int().min(0).max(255),
 });
 
 export const ScenarioItemSchema = z.object({

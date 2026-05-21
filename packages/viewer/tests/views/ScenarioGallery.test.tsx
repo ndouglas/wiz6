@@ -13,6 +13,18 @@ const baseItemFields = {
   equipSlot: 0,
 };
 
+const baseMonsterFields = {
+  xpOnKill: 0,
+  attack1DiceCount: 0,
+  attack1DiceSides: 0,
+  attack2DiceCount: 0,
+  attack2DiceSides: 0,
+  groupDiceCount: 0,
+  groupDiceSides: 0,
+  hpDiceCount: 0,
+  hpDiceSides: 0,
+};
+
 const emptyMonster = (i: number) => ({
   index: i,
   nameIdSingular: '',
@@ -21,6 +33,7 @@ const emptyMonster = (i: number) => ({
   nameUnidPlural: '',
   statBytes: Array(158).fill(0),
   empty: true,
+  ...baseMonsterFields,
 });
 
 const validDb = {
@@ -48,6 +61,14 @@ const validDb = {
         nameUnidPlural: 'RATS',
         statBytes: Array(158).fill(0).map((_, j) => j === 0 ? 0xc2 : j === 1 ? 0x01 : 0),
         empty: false,
+        ...baseMonsterFields,
+        xpOnKill: 450,
+        attack1DiceCount: 2,
+        attack1DiceSides: 2,
+        groupDiceCount: 1,
+        groupDiceSides: 2,
+        hpDiceCount: 2,
+        hpDiceSides: 4,
       };
     }
     return emptyMonster(i);

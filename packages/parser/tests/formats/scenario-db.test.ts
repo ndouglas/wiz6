@@ -152,6 +152,33 @@ describe('decodeScenarioDb', () => {
     expect(m.empty).toBe(false);
   });
 
+  it('parses monster stat fields at fixed stat-block offsets', () => {
+    const bytes = new Uint8Array(MIN_SIZE);
+    const base = MONSTER_TABLE_OFFSET + 1 * 222;
+    const stat = base + 64; // start of 158-byte stat block
+    writeAscii(bytes, base + 0, 'GIANT RAT');
+    writeU16LE(bytes, stat + 0, 450); // xpOnKill
+    bytes[stat + 6] = 2; // attack1 dice count
+    bytes[stat + 7] = 2; // attack1 dice sides → 2d2
+    bytes[stat + 22] = 1; // attack2 dice count
+    bytes[stat + 23] = 7; // attack2 dice sides → 1d7
+    bytes[stat + 54] = 1; // group dice count
+    bytes[stat + 55] = 2; // group dice sides → 1d2 group
+    bytes[stat + 58] = 2; // hp dice count
+    bytes[stat + 59] = 4; // hp dice sides → 2d4 HP
+    const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
+    const m = db.monsters[1]!;
+    expect(m.xpOnKill).toBe(450);
+    expect(m.attack1DiceCount).toBe(2);
+    expect(m.attack1DiceSides).toBe(2);
+    expect(m.attack2DiceCount).toBe(1);
+    expect(m.attack2DiceSides).toBe(7);
+    expect(m.groupDiceCount).toBe(1);
+    expect(m.groupDiceSides).toBe(2);
+    expect(m.hpDiceCount).toBe(2);
+    expect(m.hpDiceSides).toBe(4);
+  });
+
   it('marks empty monster slots correctly', () => {
     const bytes = new Uint8Array(MIN_SIZE);
     writeAscii(bytes, MONSTER_TABLE_OFFSET, 'X');
