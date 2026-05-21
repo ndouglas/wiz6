@@ -1,4 +1,6 @@
 import { SectionCard } from '../components/SectionCard.js';
+import { ScreenGallery } from '../views/ScreenGallery.js';
+import { WIZ6_TITLE_PALETTE } from '../palettes/index.js';
 import styles from './Landing.module.css';
 
 const SECTIONS = [
@@ -60,11 +62,7 @@ export function Landing() {
   return (
     <main className={styles.page}>
       <div className={styles.hero} data-testid="landing-hero">
-        {/* titlepag canvas is wired up in Task 7 once the page is mounted by the router.
-            Placeholder slot here so the test for the hero element exists from this task. */}
-        <p style={{ color: 'var(--color-text-faint)', fontFamily: 'var(--font-mono)' }}>
-          title screen loads here
-        </p>
+        <ScreenGallery url="/screens/titlepag.json" palette={WIZ6_TITLE_PALETTE} />
       </div>
       <h1 className={styles.heading}>Wiz6 Data Explorer</h1>
       <p className={styles.lede}>

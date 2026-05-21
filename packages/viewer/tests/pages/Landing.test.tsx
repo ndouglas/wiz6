@@ -44,4 +44,15 @@ describe('Landing', () => {
     renderLanding();
     expect(screen.getByTestId('landing-hero')).toBeInTheDocument();
   });
+
+  it('fetches the titlepag screen for the hero', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    renderLanding();
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith('/screens/titlepag.json');
+    });
+  });
 });
