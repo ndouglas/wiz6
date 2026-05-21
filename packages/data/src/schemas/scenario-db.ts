@@ -44,6 +44,9 @@ export const ScenarioMonsterSchema = z.object({
   monsterSubClass: z.number().int().min(0).max(255),
   saveTable: z.array(z.number().int().min(0).max(255)).length(5),
   effectChanceTable: z.array(z.number().int().min(0).max(255)).length(5),
+  monsterLevel: z.number().int().min(0).max(255),
+  monsterLevelMax: z.number().int().min(0).max(255),
+  familyId: z.array(z.number().int().min(0).max(255)).length(4),
 });
 
 export const ScenarioItemSchema = z.object({

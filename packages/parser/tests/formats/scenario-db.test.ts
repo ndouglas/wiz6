@@ -171,6 +171,12 @@ describe('decodeScenarioDb', () => {
     bytes[stat + 55] = 2; // group dice sides → 1d2 group
     bytes[stat + 58] = 2; // hp dice count
     bytes[stat + 59] = 4; // hp dice sides → 2d4 HP
+    bytes[stat + 62] = 5;   // monsterLevel = 5
+    bytes[stat + 63] = 10;  // monsterLevelMax = 10 (RAT family spread)
+    bytes[stat + 70] = 6;   // familyId byte 0
+    bytes[stat + 71] = 4;   // familyId byte 1
+    bytes[stat + 72] = 14;  // familyId byte 2
+    bytes[stat + 73] = 16;  // familyId byte 3 (RAT family signature)
     bytes[stat + 113] = 15; // saveTable[0]
     bytes[stat + 114] = 40; // saveTable[1] (cold)
     bytes[stat + 115] = 30; // saveTable[2]
@@ -203,6 +209,9 @@ describe('decodeScenarioDb', () => {
     expect(m.monsterSubClass).toBe(1);
     expect(m.saveTable).toEqual([15, 40, 30, 10, 5]);
     expect(m.effectChanceTable).toEqual([50, 25, 10, 5, 0]);
+    expect(m.monsterLevel).toBe(5);
+    expect(m.monsterLevelMax).toBe(10);
+    expect(m.familyId).toEqual([6, 4, 14, 16]);
   });
 
   it('marks empty monster slots correctly', () => {
