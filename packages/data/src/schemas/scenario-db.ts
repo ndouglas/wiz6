@@ -53,6 +53,8 @@ export const ScenarioMonsterSchema = z.object({
   spriteGroup: z.number().int().min(0).max(255),
   monsterAC: z.number().int().min(-128).max(127),
   attributeSaves: z.array(z.number().int().min(0).max(255)).length(4),
+  goldStat: z.number().int().min(0).max(255),
+  specialAttackElement: z.number().int().min(0).max(255),
 });
 
 export const ScenarioItemSchema = z.object({

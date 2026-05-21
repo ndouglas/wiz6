@@ -47,6 +47,8 @@ const baseMonsterFields = {
   spriteGroup: 0,
   monsterAC: 0,
   attributeSaves: [0, 0, 0, 0],
+  goldStat: 0,
+  specialAttackElement: 0,
 };
 const emptyMonster = (i: number) => ({
   index: i,
