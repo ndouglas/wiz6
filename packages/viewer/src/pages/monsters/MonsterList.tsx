@@ -1,6 +1,6 @@
 import { useParams } from 'react-router-dom';
 import type { ScenarioMonster } from '@wiz6/data';
-import { monsterSlug } from '../../lib/monsters.js';
+import { monsterSlug } from '@wiz6/parser';
 import { MonsterRow } from './MonsterRow.js';
 import styles from './MonsterList.module.css';
 

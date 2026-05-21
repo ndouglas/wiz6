@@ -20,6 +20,27 @@ export { extractNewgameDb, type ExtractNewgameDbOpts } from './extractors/extrac
 export { decodeScenarioDb, type DecodeScenarioDbOpts } from './formats/scenario-db.js';
 export { extractScenarioDb, type ExtractScenarioDbOpts } from './extractors/extract-scenario-db.js';
 
+export {
+  slugify,
+} from './queries/slug.js';
+
+export {
+  monsterSlug,
+  findMonsterBySlug,
+  searchMonsters,
+  filterMonsters,
+  sortMonsters,
+  familyKey,
+  uniqueFilterValues,
+  formatLevelRange,
+  formatHpDice,
+  formatAttackDice,
+  type MonsterFilter,
+  type MonsterSortField,
+  type SortDir,
+  type UniqueFilterValues,
+} from './queries/monsters.js';
+
 export interface Plan {
   originalDir: string;
   schemaVersion: Manifest['schemaVersion'];

@@ -3,7 +3,7 @@ import {
   familyKey,
   formatHpDice,
   formatLevelRange,
-} from '../../../lib/monsters.js';
+} from '@wiz6/parser';
 import styles from './OverviewTab.module.css';
 
 const CLASS_LABEL: Record<number, string> = {

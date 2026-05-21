@@ -1,5 +1,5 @@
 import { useUrlState } from '../../lib/hooks/useUrlState.js';
-import type { UniqueFilterValues, MonsterSortField } from '../../lib/monsters.js';
+import type { UniqueFilterValues, MonsterSortField } from '@wiz6/parser';
 import styles from './MonsterFilters.module.css';
 
 const SORT_FIELDS: { value: MonsterSortField; label: string }[] = [
