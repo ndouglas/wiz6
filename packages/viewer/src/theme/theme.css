@@ -1,0 +1,75 @@
+:root {
+  /* Surfaces */
+  --color-bg: #0c0c14;
+  --color-surface: #16161e;
+  --color-surface-elevated: #1e1e28;
+
+  /* Borders */
+  --color-border: #2a2f44;
+  --color-border-strong: #3d4360;
+
+  /* Text */
+  --color-text: #e8e4d8;
+  --color-text-muted: #8a8b95;
+  --color-text-faint: #5a5b65;
+
+  /* Accent / interaction */
+  --color-accent: #6d8bd8;
+
+  /* Class tiers */
+  --color-class-1: #6da870; /* animal/beast */
+  --color-class-2: #9a6dc8; /* humanoid/undead */
+  --color-class-3: #c87060; /* demon/elite */
+  --color-class-4: #d8a850; /* boss */
+
+  /* Element badges */
+  --color-element-fire: #d87038;
+  --color-element-cold: #6db8d8;
+  --color-element-poison: #6db870;
+  --color-element-mental: #d8769a;
+
+  /* Resistance heatmap */
+  --color-heatmap-cold: #2a2f44;
+  --color-heatmap-hot: #d8a850;
+  --color-immunity-glow: #f5d870;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Type */
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-display: var(--font-body);
+
+  font-family: var(--font-body);
+  font-feature-settings: 'tnum' 1; /* tabular numerals */
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  min-height: 100vh;
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+}
