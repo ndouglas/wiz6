@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   ScenarioDbSchema,
   ScenarioItemSchema,
+  ScenarioMonsterSchema,
   XpTableSchema,
 } from '../src/schemas/scenario-db.js';
 
 const validBytes = Array(74).fill(0);
+const validMonsterStatBytes = Array(158).fill(0);
 const validLevels = Array(16).fill(0);
 const baseItemFields = {
   price: 0,
@@ -17,6 +19,15 @@ const baseItemFields = {
   classMask: 0,
   equipSlot: 0,
 };
+const emptyMonster = (i: number) => ({
+  index: i,
+  nameIdSingular: '',
+  nameIdPlural: '',
+  nameUnidSingular: '',
+  nameUnidPlural: '',
+  statBytes: validMonsterStatBytes,
+  empty: true,
+});
 
 describe('XpTableSchema', () => {
   it('accepts a valid XP table', () => {
@@ -89,6 +100,40 @@ describe('ScenarioItemSchema', () => {
   });
 });
 
+describe('ScenarioMonsterSchema', () => {
+  it('accepts a valid monster', () => {
+    expect(() =>
+      ScenarioMonsterSchema.parse({
+        index: 0,
+        nameIdSingular: 'GIANT RAT',
+        nameIdPlural: 'GIANT RATS',
+        nameUnidSingular: 'RAT',
+        nameUnidPlural: 'RATS',
+        statBytes: validMonsterStatBytes,
+        empty: false,
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects when statBytes length is not 158', () => {
+    expect(() =>
+      ScenarioMonsterSchema.parse({
+        ...emptyMonster(0),
+        statBytes: Array(157).fill(0),
+      }),
+    ).toThrow();
+  });
+
+  it('rejects when name exceeds 15 chars', () => {
+    expect(() =>
+      ScenarioMonsterSchema.parse({
+        ...emptyMonster(0),
+        nameIdSingular: 'X'.repeat(16),
+      }),
+    ).toThrow();
+  });
+});
+
 describe('ScenarioDbSchema', () => {
   const baseDb = {
     id: 'scenario',
@@ -96,6 +141,9 @@ describe('ScenarioDbSchema', () => {
     xpTables: Array.from({ length: 14 }, (_, i) => ({ classIndex: i, levels: validLevels })),
     itemCount: 1,
     items: [{ index: 0, name1: 'BROKEN ITEM', name2: '', bytes: validBytes, empty: false, ...baseItemFields }],
+    unknownPreMonster: [],
+    monsterCount: 253,
+    monsters: Array.from({ length: 253 }, (_, i) => emptyMonster(i)),
     unknownTail: [],
   };
 
@@ -129,5 +177,24 @@ describe('ScenarioDbSchema', () => {
     expect(() =>
       ScenarioDbSchema.parse({ ...baseDb, xpTables: baseDb.xpTables.slice(0, 13) }),
     ).toThrow();
+  });
+
+  it('rejects when monsterCount mismatches monsters.length', () => {
+    expect(() => ScenarioDbSchema.parse({ ...baseDb, monsterCount: 100 })).toThrow();
+  });
+
+  it('rejects when monsters.length is not 253', () => {
+    expect(() =>
+      ScenarioDbSchema.parse({
+        ...baseDb,
+        monsters: baseDb.monsters.slice(0, 252),
+        monsterCount: 252,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects monsters not indexed sequentially from 0', () => {
+    const bad = baseDb.monsters.map((m, i) => ({ ...m, index: i === 0 ? 99 : i }));
+    expect(() => ScenarioDbSchema.parse({ ...baseDb, monsters: bad })).toThrow();
   });
 });

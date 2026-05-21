@@ -1,4 +1,10 @@
-import { ScenarioDbSchema, type ScenarioDb, type ScenarioItem, type XpTable } from '@wiz6/data';
+import {
+  ScenarioDbSchema,
+  type ScenarioDb,
+  type ScenarioItem,
+  type ScenarioMonster,
+  type XpTable,
+} from '@wiz6/data';
 
 const XP_TABLES_OFFSET = 0x0000;
 const XP_CLASS_COUNT = 14;
@@ -13,7 +19,16 @@ const ITEM_TABLE_TOTAL_BYTES = ITEM_RECORD_COUNT * ITEM_RECORD_BYTES;
 const ITEM_NAME_SLOT_BYTES = 16;
 
 const ITEM_TABLE_END = ITEM_TABLE_OFFSET + ITEM_TABLE_TOTAL_BYTES;
-const MIN_FILE_SIZE = ITEM_TABLE_END;
+
+const MONSTER_TABLE_OFFSET = 0x0154e8;
+const MONSTER_RECORD_BYTES = 222;
+const MONSTER_RECORD_COUNT = 253;
+const MONSTER_NAME_SLOT_BYTES = 16;
+const MONSTER_NAMES_TOTAL = 4 * MONSTER_NAME_SLOT_BYTES;
+const MONSTER_STAT_BYTES = MONSTER_RECORD_BYTES - MONSTER_NAMES_TOTAL;
+const MONSTER_TABLE_END = MONSTER_TABLE_OFFSET + MONSTER_RECORD_COUNT * MONSTER_RECORD_BYTES;
+
+const MIN_FILE_SIZE = MONSTER_TABLE_END;
 
 export interface DecodeScenarioDbOpts {
   id: string;
@@ -47,6 +62,13 @@ function decodeNameSlot(slice: Uint8Array): { name1: string; name2: string } {
   return { name1, name2 };
 }
 
+function decodeFixedString(slice: Uint8Array, start: number, length: number): string {
+  let end = start;
+  const limit = start + length;
+  while (end < limit && slice[end] !== 0) end++;
+  return new TextDecoder('latin1').decode(slice.subarray(start, end));
+}
+
 /**
  * Decode `scenario.dbs`: a flat sequence of game-content tables.
  *
@@ -67,7 +89,23 @@ function decodeNameSlot(slice: Uint8Array): { name1: string; name2: string } {
  *                    15=key, 16=dust)
  *     other bytes  : not yet decoded — preserved in `bytes`
  *
- * Everything past 0x9408 is preserved as `unknownTail` for future stages.
+ *   0x9408..0x154E7  unknownPreMonster — 49,376 bytes, layout TBD.
+ *                    Hex patterns suggest 4bpp sprite graphics (item icons or
+ *                    monster portraits referenced from elsewhere).
+ *   0x154E8..0x2304D Monster table: 253 fixed-size 222-byte records. Layout:
+ *     bytes  0..15  : nameIdSingular   (identified singular, null-terminated)
+ *     bytes 16..31  : nameIdPlural     (identified plural)
+ *     bytes 32..47  : nameUnidSingular (unidentified singular — what the party
+ *                    sees before identifying the monster; "RAT" for a GIANT RAT)
+ *     bytes 48..63  : nameUnidPlural   (unidentified plural)
+ *     bytes 64..221 : statBytes (158 bytes) — per-field layout TBD.
+ *                    Verified pattern: bytes 64-65 = u16 LE experience-on-kill
+ *                    (GIANT RAT 450 XP, * XORPHITUS * 16,150 XP). Other fields
+ *                    likely include HP, AC, attack dice, special abilities,
+ *                    encounter group, etc.
+ *   0x2304E..end    unknownTail — 45,542 bytes, more tables. ASCII strings
+ *                    suggest NPC/quest data ("SMITTY", "CAPTAIN MATEY").
+ *
  * See docs/re/scenario-dbs.md for the full investigation memo.
  */
 export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts): ScenarioDb {
@@ -116,7 +154,37 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
     });
   }
 
-  const tail = bytes.subarray(ITEM_TABLE_END);
+  const preMonsterSlice = bytes.subarray(ITEM_TABLE_END, MONSTER_TABLE_OFFSET);
+  const unknownPreMonster: number[] = new Array(preMonsterSlice.length);
+  for (let i = 0; i < preMonsterSlice.length; i++) unknownPreMonster[i] = preMonsterSlice[i]!;
+
+  const monsters: ScenarioMonster[] = [];
+  for (let i = 0; i < MONSTER_RECORD_COUNT; i++) {
+    const base = MONSTER_TABLE_OFFSET + i * MONSTER_RECORD_BYTES;
+    const slice = bytes.subarray(base, base + MONSTER_RECORD_BYTES);
+    const nameIdSingular = decodeFixedString(slice, 0, MONSTER_NAME_SLOT_BYTES);
+    const nameIdPlural = decodeFixedString(slice, 16, MONSTER_NAME_SLOT_BYTES);
+    const nameUnidSingular = decodeFixedString(slice, 32, MONSTER_NAME_SLOT_BYTES);
+    const nameUnidPlural = decodeFixedString(slice, 48, MONSTER_NAME_SLOT_BYTES);
+    const statBytes: number[] = new Array(MONSTER_STAT_BYTES);
+    let allZero = nameIdSingular === '';
+    for (let j = 0; j < MONSTER_STAT_BYTES; j++) {
+      const b = slice[MONSTER_NAMES_TOTAL + j]!;
+      statBytes[j] = b;
+      if (b !== 0) allZero = false;
+    }
+    monsters.push({
+      index: i,
+      nameIdSingular,
+      nameIdPlural,
+      nameUnidSingular,
+      nameUnidPlural,
+      statBytes,
+      empty: allZero,
+    });
+  }
+
+  const tail = bytes.subarray(MONSTER_TABLE_END);
   const unknownTail: number[] = new Array(tail.length);
   for (let i = 0; i < tail.length; i++) unknownTail[i] = tail[i]!;
 
@@ -126,6 +194,9 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
     xpTables,
     itemCount: items.length,
     items,
+    unknownPreMonster,
+    monsterCount: monsters.length,
+    monsters,
     unknownTail,
   });
 }

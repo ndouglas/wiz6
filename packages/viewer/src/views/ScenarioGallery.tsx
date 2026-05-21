@@ -52,6 +52,8 @@ export function ScenarioGallery({ url }: Props) {
   const [hideEmpty, setHideEmpty] = useState(true);
   const [showRaw, setShowRaw] = useState(false);
   const [search, setSearch] = useState('');
+  const [hideEmptyMonsters, setHideEmptyMonsters] = useState(true);
+  const [monsterSearch, setMonsterSearch] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -79,16 +81,34 @@ export function ScenarioGallery({ url }: Props) {
     return filtered;
   }, [db, hideEmpty, search]);
 
+  const visibleMonsters = useMemo(() => {
+    if (!db) return [];
+    let filtered = db.monsters;
+    if (hideEmptyMonsters) filtered = filtered.filter((m) => !m.empty);
+    if (monsterSearch) {
+      const q = monsterSearch.toUpperCase();
+      filtered = filtered.filter(
+        (m) =>
+          m.nameIdSingular.toUpperCase().includes(q) ||
+          m.nameUnidSingular.toUpperCase().includes(q) ||
+          String(m.index) === q,
+      );
+    }
+    return filtered;
+  }, [db, hideEmptyMonsters, monsterSearch]);
+
   if (error) return <p>Failed to load {url}: {error}</p>;
   if (!db) return <p>Loading {url}…</p>;
 
   const nonEmptyItems = db.items.filter((it) => !it.empty).length;
+  const nonEmptyMonsters = db.monsters.filter((m) => !m.empty).length;
 
   return (
     <section>
       <h2>
-        {db.id} — {db.xpTables.length} XP tables, {db.itemCount} item slots ({nonEmptyItems} filled)
-        , {db.unknownTail.length}-byte tail
+        {db.id} — {db.xpTables.length} XP tables, {db.itemCount} items ({nonEmptyItems} filled)
+        , {db.monsterCount} monsters ({nonEmptyMonsters} filled),{' '}
+        {db.unknownPreMonster.length}-byte pre-monster region, {db.unknownTail.length}-byte tail
       </h2>
 
       <h3 style={{ marginTop: '1em' }}>XP-per-level by character class</h3>
@@ -203,6 +223,81 @@ export function ScenarioGallery({ url }: Props) {
                 {showRaw && (
                   <td style={{ whiteSpace: 'pre' }}>
                     {it.bytes.map((b, i) => {
+                      const isZero = b === 0;
+                      const sep = (i + 1) % 16 === 0 ? '\n' : ' ';
+                      return (
+                        <span key={i} style={{ color: isZero ? '#444' : '#ddd' }}>
+                          {fmtByte(b)}{sep}
+                        </span>
+                      );
+                    })}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      <h3 style={{ marginTop: '1.5em' }}>Monsters (222-byte records, 4 name slots + 158 stat bytes)</h3>
+      <div style={{ marginBottom: '0.5em', fontSize: '0.9em' }}>
+        <label style={{ marginRight: '1em' }}>
+          <input
+            type="checkbox"
+            checked={hideEmptyMonsters}
+            onChange={() => setHideEmptyMonsters(!hideEmptyMonsters)}
+          />{' '}
+          hide empty slots
+        </label>
+        <label>
+          search:{' '}
+          <input
+            type="text"
+            value={monsterSearch}
+            onChange={(e) => setMonsterSearch(e.target.value)}
+            placeholder="RAT / 42"
+            style={{ width: '12em', fontFamily: 'monospace' }}
+          />
+        </label>
+        <span style={{ marginLeft: '1em', color: '#888' }}>
+          showing {visibleMonsters.length} / {db.monsterCount}
+        </span>
+      </div>
+      <table
+        style={{
+          width: '100%',
+          fontFamily: 'monospace',
+          fontSize: '0.78em',
+          borderCollapse: 'collapse',
+        }}
+      >
+        <thead>
+          <tr style={{ borderBottom: '1px solid #888', textAlign: 'left' }}>
+            <th style={{ width: '3em' }}>#</th>
+            <th style={{ width: '13em' }}>identified (sing / plur)</th>
+            <th style={{ width: '13em' }}>unidentified (sing / plur)</th>
+            <th style={{ width: '6em', textAlign: 'right' }}>XP-on-kill</th>
+            {showRaw && <th>stat bytes (hex)</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {visibleMonsters.map((m) => {
+            const xpOnKill = m.statBytes[0]! | (m.statBytes[1]! << 8);
+            const idName = m.nameIdSingular + (m.nameIdPlural ? ` / ${m.nameIdPlural}` : '');
+            const unidName = m.nameUnidSingular + (m.nameUnidPlural ? ` / ${m.nameUnidPlural}` : '');
+            return (
+              <tr key={m.index} style={{ borderBottom: '1px solid #222' }}>
+                <td style={{ color: m.empty ? '#444' : '#888', verticalAlign: 'top' }}>
+                  {m.index}
+                </td>
+                <td style={{ verticalAlign: 'top' }}>{idName}</td>
+                <td style={{ verticalAlign: 'top', color: '#aaa' }}>{unidName}</td>
+                <td style={{ verticalAlign: 'top', textAlign: 'right' }}>
+                  {xpOnKill > 0 ? xpOnKill.toLocaleString() : '—'}
+                </td>
+                {showRaw && (
+                  <td style={{ whiteSpace: 'pre' }}>
+                    {m.statBytes.map((b, i) => {
                       const isZero = b === 0;
                       const sep = (i + 1) % 16 === 0 ? '\n' : ' ';
                       return (
