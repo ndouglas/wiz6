@@ -27,8 +27,21 @@ export function ScenarioDbProvider({
     (async () => {
       try {
         const res = await fetch(url);
-        if (!res.ok) throw new Error(`fetch failed: HTTP ${res.status}`);
-        const json = await res.json();
+        if (!res.ok) throw new Error(`fetch failed for ${url}: HTTP ${res.status}`);
+        const text = await res.text();
+        let json: unknown;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          // Most common cause: Vite's SPA fallback served index.html because
+          // the JSON file does not exist. Surface a clear, actionable error.
+          if (text.trimStart().startsWith('<')) {
+            throw new Error(
+              `expected JSON at ${url} but got HTML — the file likely does not exist. Run \`pnpm extract\` from the repo root to generate extracted/ assets.`,
+            );
+          }
+          throw new Error(`failed to parse JSON from ${url}`);
+        }
         const parsed = ScenarioDbSchema.parse(json);
         if (!cancelled) setState({ data: parsed, loading: false, error: null });
       } catch (err) {
