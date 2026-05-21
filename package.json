@@ -11,7 +11,8 @@
     "test": "pnpm -r --filter './packages/*' test",
     "build": "pnpm -r --filter './packages/*' build",
     "typecheck": "pnpm -r --filter './packages/*' typecheck",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test"
+    "verify": "pnpm lint && pnpm typecheck && pnpm test",
+    "dev:viewer": "pnpm --filter @wiz6/viewer dev"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
