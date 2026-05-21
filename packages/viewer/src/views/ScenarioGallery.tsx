@@ -277,6 +277,8 @@ export function ScenarioGallery({ url }: Props) {
             <th style={{ width: '13em' }}>identified (sing / plur)</th>
             <th style={{ width: '13em' }}>unidentified (sing / plur)</th>
             <th style={{ width: '5em' }}>class</th>
+            <th style={{ width: '4em' }}>kind</th>
+            <th style={{ width: '3em' }}>sex</th>
             <th style={{ width: '4em' }}>lvl</th>
             <th style={{ width: '8em' }}>family</th>
             <th style={{ width: '6em', textAlign: 'right' }}>XP</th>
@@ -303,6 +305,12 @@ export function ScenarioGallery({ url }: Props) {
                 <td style={{ verticalAlign: 'top', color: '#aaa' }}>{unidName}</td>
                 <td style={{ verticalAlign: 'top', color: '#aaa' }}>
                   {m.monsterClass}.{m.monsterSubClass}
+                </td>
+                <td style={{ verticalAlign: 'top', color: '#aaa' }}>
+                  {m.creatureKind}
+                </td>
+                <td style={{ verticalAlign: 'top', color: '#aaa' }}>
+                  {m.monsterSex === 0 ? 'M' : m.monsterSex === 1 ? 'F' : m.monsterSex === 2 ? 'N' : `${m.monsterSex}`}
                 </td>
                 <td style={{ verticalAlign: 'top' }}>
                   {m.monsterLevel === m.monsterLevelMax
