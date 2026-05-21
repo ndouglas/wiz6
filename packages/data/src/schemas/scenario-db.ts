@@ -5,6 +5,9 @@ const XP_LEVELS_PER_CLASS = 16;
 const ITEM_RECORD_BYTES = 74;
 const ITEM_RECORD_COUNT = 500;
 
+const MONSTER_STAT_BYTES = 158;
+const MONSTER_RECORD_COUNT = 253;
+
 const xpLevels = z.array(z.number().int().nonnegative()).length(XP_LEVELS_PER_CLASS);
 
 export const XpTableSchema = z.object({
@@ -13,6 +16,17 @@ export const XpTableSchema = z.object({
 });
 
 const itemBytes = z.array(z.number().int().min(0).max(255)).length(ITEM_RECORD_BYTES);
+const monsterStatBytes = z.array(z.number().int().min(0).max(255)).length(MONSTER_STAT_BYTES);
+
+export const ScenarioMonsterSchema = z.object({
+  index: z.number().int().nonnegative(),
+  nameIdSingular: z.string().max(15),
+  nameIdPlural: z.string().max(15),
+  nameUnidSingular: z.string().max(15),
+  nameUnidPlural: z.string().max(15),
+  statBytes: monsterStatBytes,
+  empty: z.boolean(),
+});
 
 export const ScenarioItemSchema = z.object({
   index: z.number().int().nonnegative(),
@@ -37,15 +51,26 @@ export const ScenarioDbSchema = z
     xpTables: z.array(XpTableSchema).length(XP_CLASS_COUNT),
     itemCount: z.number().int().positive(),
     items: z.array(ScenarioItemSchema),
+    unknownPreMonster: z.array(z.number().int().min(0).max(255)),
+    monsterCount: z.number().int().nonnegative(),
+    monsters: z.array(ScenarioMonsterSchema).length(MONSTER_RECORD_COUNT),
     unknownTail: z.array(z.number().int().min(0).max(255)),
   })
   .refine((d) => d.itemCount === d.items.length, {
     message: 'itemCount must equal items.length',
     path: ['itemCount'],
   })
+  .refine((d) => d.monsterCount === d.monsters.length, {
+    message: 'monsterCount must equal monsters.length',
+    path: ['monsterCount'],
+  })
   .refine((d) => d.items.every((it, i) => it.index === i), {
     message: 'items must be indexed sequentially from 0',
     path: ['items'],
+  })
+  .refine((d) => d.monsters.every((m, i) => m.index === i), {
+    message: 'monsters must be indexed sequentially from 0',
+    path: ['monsters'],
   })
   .refine((d) => d.xpTables.every((t, i) => t.classIndex === i), {
     message: 'xpTables must be indexed sequentially from 0',
@@ -54,4 +79,5 @@ export const ScenarioDbSchema = z
 
 export type XpTable = z.infer<typeof XpTableSchema>;
 export type ScenarioItem = z.infer<typeof ScenarioItemSchema>;
+export type ScenarioMonster = z.infer<typeof ScenarioMonsterSchema>;
 export type ScenarioDb = z.infer<typeof ScenarioDbSchema>;

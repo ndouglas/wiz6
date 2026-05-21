@@ -4,17 +4,17 @@
 **Companion:** `scenario.hdr` (414 bytes) — see "scenario.hdr is unrelated" below
 
 `scenario.dbs` is a flat sequence of game-content tables: XP curves, items,
-and a long unidentified tail that almost certainly contains monsters, spells,
-encounter tables, and dungeon-content data. This stage decoded two of those
-tables; the other ~151 KB stays as `unknownTail` for future stages.
+monsters, and more tables yet to be cracked.
 
 ## Layout
 
-| Range              | Size        | Content                                |
-|--------------------|-------------|----------------------------------------|
-| `0x0000..0x037F`   | 896 bytes   | XP-per-level tables — 14 classes × 16 levels × u32 LE |
-| `0x0380..0x9407`   | 37,000 bytes | Item table — 500 × 74-byte records   |
-| `0x9408..0x2E233`  | 151,084 bytes | **unknownTail** — more tables, layout TBD |
+| Range              | Size         | Content                                |
+|--------------------|--------------|----------------------------------------|
+| `0x0000..0x037F`   | 896 bytes    | XP-per-level tables — 14 classes × 16 levels × u32 LE |
+| `0x0380..0x9407`   | 37,000 bytes | Item table — 500 × 74-byte records |
+| `0x9408..0x154E7`  | 49,376 bytes | **unknownPreMonster** — layout TBD. Hex patterns suggest 4bpp sprite graphics (item icons / monster portraits). |
+| `0x154E8..0x2304D` | 56,166 bytes | Monster table — 253 × 222-byte records |
+| `0x2304E..0x2E233` | 45,542 bytes | **unknownTail** — more tables, layout TBD. ASCII strings ("SMITTY", "CAPTAIN MATEY") suggest NPC / quest data. |
 
 ### XP tables (0x0000..0x037F)
 
@@ -80,21 +80,54 @@ The sub-block boundaries aren't sharply marked — empty slots act as soft
 dividers but don't always sit on category transitions. The decoded
 `equipSlot` field is a more reliable category signal than slot-range.
 
-### unknownTail (0x9408..0x2E233)
+### Monster table (0x154E8..0x2304D)
 
-151,084 bytes of additional tables. Best guesses based on what a CRPG of
-this vintage typically packs into one content file:
-- monster definitions (stats, AI flags, encounter groups)
-- spell definitions (school, level, cost, effect handler)
-- encounter tables (zone-keyed lists of monster groups)
-- dungeon-level metadata (linking back to mazedata.ega per-zone records)
-- shop inventories
-- NPC dialogue trees / event scripts
+253 fixed-size 222-byte records. Each record has FOUR 16-byte name slots
+followed by 158 bytes of stat data:
 
-These aren't structurally similar to items — none of the strings in this
-region look like item names, and the 74-byte stride breaks down. Decoding
-this region needs new RE work, probably starting from the `wbase.ovr`
-routines that load scenario data at game-init time.
+| Bytes  | Field              | Notes |
+|--------|--------------------|-------|
+| 0..15  | `nameIdSingular`   | Identified singular (e.g. "GIANT RAT") |
+| 16..31 | `nameIdPlural`     | Identified plural (e.g. "GIANT RATS") |
+| 32..47 | `nameUnidSingular` | What the party sees before identifying — "RAT" for a GIANT RAT |
+| 48..63 | `nameUnidPlural`   | Unidentified plural |
+| 64..221 | `statBytes` (158) | Per-field layout mostly TBD. **Confirmed:** bytes 64-65 = u16 LE experience-on-kill (RAT 150 XP, GIANT RAT 450, * XORPHITUS * 16,150). |
+
+186 of the 253 slots are filled (the rest are reserved/empty). Sample
+monsters showing the unidentified-name mechanic:
+
+```
+[  0] RAT             unid=RAT          XP=150
+[  1] GIANT RAT       unid=RAT          XP=450
+[  2] BAT             unid=BAT          XP=99
+[  3] HUGE BAT        unid=BAT          XP=318
+[  4] VAMPIRE BAT     unid=BAT          XP=714
+[150] * XORPHITUS *                     XP=16,150  (final boss)
+[151] D R A C U L A                     XP=34,244  (hidden boss)
+[153] * B E L A *                       XP=44,163  (toughest)
+```
+
+The 158 stat-byte block has several visibly recurring fields — bytes 70-71,
+82-83, 122-127, 134-137, etc. all show ~100% non-zero with constrained
+distributions, consistent with HP, AC, attack dice, group size, etc. Cracking
+those fields is Stage 1j.2.1.
+
+### unknownPreMonster (0x9408..0x154E7)
+
+49,376 bytes between the item table and the monster table. Best guess:
+4bpp sprite graphics for inventory item icons and/or monster portraits.
+The byte patterns include high-nibble/low-nibble pairs suggestive of EGA
+color data, plus mirror-symmetric runs that look like pixel art.
+
+### unknownTail (0x2304E..0x2E233)
+
+45,542 bytes past the monster table. ASCII strings inside this region
+include NPC names like "SMITTY" and "CAPTAIN MATEY". Likely contains:
+- NPC definitions (dialogue triggers, quest hooks)
+- Spell definitions (school, level, cost, effect handler)
+- Encounter tables (zone-keyed lists of monster groups)
+- Dungeon-level metadata
+- Shop inventories
 
 ## scenario.hdr is unrelated to scenario.dbs
 
@@ -120,13 +153,21 @@ the *running scenario state*, not for the *scenario content file*.
 
 ## Future work
 
-- **Stage 1j.2**: identify the next table after 0x9408 (likely monsters).
-  Look for repeating-stride patterns and name-like ASCII strings.
+- **Stage 1j.2.1**: per-field decode of the 222-byte monster record — HP, AC,
+  attack dice, group size, special abilities, etc. Bytes 64-65 (XP-on-kill)
+  are confirmed; ~10 other positions show consistent population suggesting
+  more fixed fields.
 - **Stage 1j.3**: bind XP-table indices to character class names (probably
   resolvable by cross-reference with `newgame.dbs` records).
 - **Stage 1j.4**: identify AC for armor (no obvious field in the 74-byte
-  record — AC may be implicit to equipSlot+weight, or live in a side
+  item record — AC may be implicit to equipSlot+weight, or live in a side
   table). Trace `wbase.ovr`'s combat / equip routines in Ghidra.
-- **Stage 1j.5**: nail down the low-population fields (18, 20, 22-23, 33-49,
-  56-58, 70-72). Some of these likely encode resistances, special-attack
-  flags, alignment/race restrictions, and identification difficulty.
+- **Stage 1j.5**: nail down the low-population item fields (18, 20, 22-23,
+  33-49, 56-58, 70-72). Some of these likely encode resistances,
+  special-attack flags, alignment/race restrictions, and identification
+  difficulty.
+- **Stage 1j.6**: identify the unknownPreMonster region (0x9408..0x154E7,
+  49 KB). Patterns look like sprite graphics — probably the inventory-icon
+  data referenced by item byte 61 (sprite index).
+- **Stage 1j.7**: crack the unknownTail (0x2304E..end, 45 KB). NPC names
+  visible inside — likely NPC / quest / shop / encounter data.

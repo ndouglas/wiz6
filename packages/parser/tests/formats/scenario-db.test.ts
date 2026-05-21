@@ -3,7 +3,11 @@ import { decodeScenarioDb } from '../../src/formats/scenario-db.js';
 
 const XP_TOTAL = 14 * 16 * 4; // 896
 const ITEM_TOTAL = 500 * 74; // 37000
-const MIN_SIZE = XP_TOTAL + ITEM_TOTAL; // 37896
+const ITEM_TABLE_END = XP_TOTAL + ITEM_TOTAL; // 37896
+const MONSTER_TABLE_OFFSET = 0x0154e8; // 87272
+const MONSTER_TOTAL = 253 * 222; // 56166
+const MONSTER_TABLE_END = MONSTER_TABLE_OFFSET + MONSTER_TOTAL; // 143438
+const MIN_SIZE = MONSTER_TABLE_END;
 
 function writeU32LE(buf: Uint8Array, off: number, v: number): void {
   buf[off] = v & 0xff;
@@ -106,7 +110,7 @@ describe('decodeScenarioDb', () => {
     expect(db.items[499]?.empty).toBe(true);
   });
 
-  it('preserves bytes past the item table in unknownTail', () => {
+  it('preserves bytes past the monster table in unknownTail', () => {
     const bytes = new Uint8Array(MIN_SIZE + 100);
     bytes[MIN_SIZE] = 0xab;
     bytes[MIN_SIZE + 99] = 0xcd;
@@ -116,12 +120,53 @@ describe('decodeScenarioDb', () => {
     expect(db.unknownTail[99]).toBe(0xcd);
   });
 
-  it('throws when file is smaller than XP tables + item table', () => {
+  it('preserves bytes between item and monster tables as unknownPreMonster', () => {
+    const bytes = new Uint8Array(MIN_SIZE);
+    bytes[ITEM_TABLE_END] = 0x11;
+    bytes[MONSTER_TABLE_OFFSET - 1] = 0x22;
+    const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
+    const expectedLen = MONSTER_TABLE_OFFSET - ITEM_TABLE_END;
+    expect(db.unknownPreMonster).toHaveLength(expectedLen);
+    expect(db.unknownPreMonster[0]).toBe(0x11);
+    expect(db.unknownPreMonster[expectedLen - 1]).toBe(0x22);
+  });
+
+  it('parses 253 × 222-byte monster records with 4 name slots', () => {
+    const bytes = new Uint8Array(MIN_SIZE);
+    const base = MONSTER_TABLE_OFFSET + 1 * 222; // monster 1 (skip the RAT sentinel)
+    writeAscii(bytes, base + 0, 'GIANT RAT');
+    writeAscii(bytes, base + 16, 'GIANT RATS');
+    writeAscii(bytes, base + 32, 'RAT');
+    writeAscii(bytes, base + 48, 'RATS');
+    writeU16LE(bytes, base + 64, 450); // experience-on-kill
+    const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
+    expect(db.monsterCount).toBe(253);
+    const m = db.monsters[1]!;
+    expect(m.nameIdSingular).toBe('GIANT RAT');
+    expect(m.nameIdPlural).toBe('GIANT RATS');
+    expect(m.nameUnidSingular).toBe('RAT');
+    expect(m.nameUnidPlural).toBe('RATS');
+    expect(m.statBytes).toHaveLength(158);
+    // XP-on-kill (u16 LE) lives in the first 2 stat bytes
+    expect(m.statBytes[0] | (m.statBytes[1]! << 8)).toBe(450);
+    expect(m.empty).toBe(false);
+  });
+
+  it('marks empty monster slots correctly', () => {
+    const bytes = new Uint8Array(MIN_SIZE);
+    writeAscii(bytes, MONSTER_TABLE_OFFSET, 'X');
+    const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
+    expect(db.monsters[0]?.empty).toBe(false);
+    expect(db.monsters[1]?.empty).toBe(true);
+    expect(db.monsters[252]?.empty).toBe(true);
+  });
+
+  it('throws when file is smaller than monster table end', () => {
     expect(() =>
       decodeScenarioDb(new Uint8Array(MIN_SIZE - 1), {
         id: 'scenario',
         sourceFile: 'scenario.dbs',
       }),
-    ).toThrow(/37896/);
+    ).toThrow(/143438/);
   });
 });

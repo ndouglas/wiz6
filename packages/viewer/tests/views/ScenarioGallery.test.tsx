@@ -13,6 +13,16 @@ const baseItemFields = {
   equipSlot: 0,
 };
 
+const emptyMonster = (i: number) => ({
+  index: i,
+  nameIdSingular: '',
+  nameIdPlural: '',
+  nameUnidSingular: '',
+  nameUnidPlural: '',
+  statBytes: Array(158).fill(0),
+  empty: true,
+});
+
 const validDb = {
   id: 'scenario',
   sourceFile: 'scenario.dbs',
@@ -26,6 +36,22 @@ const validDb = {
     { index: 1, name1: 'DAGGER', name2: 'DAGGERS', bytes: Array(74).fill(0).map((_, i) => i === 0 ? 0x44 : 0), empty: false, ...baseItemFields, price: 15, damageDiceCount: 1, damageDiceSides: 4, weight: 10, classMask: 0x3fff },
     { index: 2, name1: '', name2: '', bytes: Array(74).fill(0), empty: true, ...baseItemFields },
   ],
+  unknownPreMonster: [],
+  monsterCount: 253,
+  monsters: Array.from({ length: 253 }, (_, i) => {
+    if (i === 0) {
+      return {
+        index: 0,
+        nameIdSingular: 'GIANT RAT',
+        nameIdPlural: 'GIANT RATS',
+        nameUnidSingular: 'RAT',
+        nameUnidPlural: 'RATS',
+        statBytes: Array(158).fill(0).map((_, j) => j === 0 ? 0xc2 : j === 1 ? 0x01 : 0),
+        empty: false,
+      };
+    }
+    return emptyMonster(i);
+  }),
   unknownTail: [0xab, 0xcd],
 };
 
@@ -39,7 +65,7 @@ describe('ScenarioGallery', () => {
     render(<ScenarioGallery url="/scenario/scenario.json" />);
     await waitFor(() => {
       expect(
-        screen.getByRole('heading', { name: /scenario.*14 XP tables.*3 item slots.*2 filled/i }),
+        screen.getByRole('heading', { name: /scenario.*14 XP tables.*3 items.*2 filled.*253 monsters/i }),
       ).toBeInTheDocument();
     });
   });
