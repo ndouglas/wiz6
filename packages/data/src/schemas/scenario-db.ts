@@ -87,6 +87,8 @@ export const ScenarioMonsterSchema = z.object({
   attack2PoisonStrength: z.number().int().min(0).max(255),
   attack3PoisonStrength: z.number().int().min(0).max(255),
   extendedSaves: z.array(z.number().int().min(0).max(255)).length(12),
+  combatSpriteId: z.number().int().min(0).max(255),
+  combatSpriteAlt: z.number().int().min(0).max(255),
 });
 
 export const ScenarioItemSchema = z.object({
