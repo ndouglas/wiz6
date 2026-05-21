@@ -282,9 +282,11 @@ export function ScenarioGallery({ url }: Props) {
             <th style={{ width: '3em' }}>sex</th>
             <th style={{ width: '4em' }}>lvl</th>
             <th style={{ width: '4em' }}>move</th>
+            <th style={{ width: '4em', textAlign: 'right' }}>AC</th>
             <th style={{ width: '8em' }}>family</th>
             <th style={{ width: '6em', textAlign: 'right' }}>XP</th>
             <th style={{ width: '5em' }}>HP</th>
+            <th style={{ width: '10em' }}>attr saves</th>
             <th style={{ width: '6em' }}>group</th>
             <th style={{ width: '8em' }}>atk 1 (special%)</th>
             <th style={{ width: '8em' }}>atk 2 (special%)</th>
@@ -325,6 +327,9 @@ export function ScenarioGallery({ url }: Props) {
                 <td style={{ verticalAlign: 'top', color: '#aaa' }}>
                   {m.moveStat || '—'}
                 </td>
+                <td style={{ verticalAlign: 'top', textAlign: 'right' }}>
+                  {m.empty ? '—' : m.monsterAC}
+                </td>
                 <td style={{ verticalAlign: 'top', color: '#aaa' }}>
                   {m.familyId.some((v) => v !== 0) ? m.familyId.join(',') : '—'}
                 </td>
@@ -333,6 +338,11 @@ export function ScenarioGallery({ url }: Props) {
                 </td>
                 <td style={{ verticalAlign: 'top' }}>
                   {fmtDamage(m.hpDiceCount, m.hpDiceSides, 0)}
+                </td>
+                <td style={{ verticalAlign: 'top', color: '#aaa' }}>
+                  {m.attributeSaves.some((v) => v !== 0)
+                    ? m.attributeSaves.map((v) => v.toString().padStart(2)).join('/')
+                    : '—'}
                 </td>
                 <td style={{ verticalAlign: 'top' }}>
                   {fmtDamage(m.groupDiceCount, m.groupDiceSides, 0)}
