@@ -98,11 +98,21 @@ followed by 158 bytes of stat data:
 | Stat offset | Field              | Confidence | Notes |
 |-------------|--------------------|------------|-------|
 | 0..1        | `xpOnKill`         | high | u16 LE. RAT 150, GIANT RAT 450, ISLAND GIANT 14,252, PIT FIEND 56,786. |
-| 6..7        | `attack1Dice`      | high | (count, sides). Monsters with one attack mode use this. RAT 1d2, ZOMBIE 3d3, ISLAND GIANT 3d6, PIT FIEND 4d4. |
-| 22..23      | `attack2Dice`      | high | (count, sides). Monsters with two attack modes also fill this; bats and most simple monsters leave it 0,0. ROGUE has 1d4 here in addition to a 1d6 primary; GIANT SERPENT has 1d12. |
-| 54..55      | `groupDice`        | high | (count, sides) for encounter group size. RAT 1d3, BAT 1d3, ROGUE LEADER 1d1 (always alone), GIANT SERPENT 1d1, CREEPING VINE 2d3 (vines come in clumps). |
-| 58..59      | `hpDice`           | high | (count, sides) for the monster's HP roll. RAT 1d3, GIANT RAT 2d4, ZOMBIE 6d6, GIANT SERPENT 8d4, ISLAND GIANT 12d6, PIT FIEND 14d4 — monotonic with XP-on-kill. |
-| other       | TBD                | — | ~10 other positions show high population — likely AC, gold drop, resistances, special-attack/spell ids, save vs spell, etc. Stage 1j.2.2 to crack the rest. |
+| 6..7        | `attack1Dice`      | high | (count, sides). First attack damage roll. RAT 1d2, ZOMBIE 3d3, PIT FIEND 4d4. |
+| 9           | `attack1SpecialChance` | high | Percent chance the special effect on attack 1 triggers. ZOMBIE 80% (disease), STRANGLER VINE 15% (strangle), BANSHEE 50% (death scream), GHOSTS 50% (level drain). |
+| 22..23      | `attack2Dice`      | high | (count, sides). Second attack mode; 0,0 if monster has only one attack. ROGUE 1d4, GIANT SERPENT 1d12, ZOMBIE 2d8. |
+| 25          | `attack2SpecialChance` | high | Percent chance for attack 2's special. ZOMBIE 90%, ZOMBIE BONES 50%, MONSTROUS SNAKE 50% (poison). |
+| 38..39      | `attack3Dice`      | high | (count, sides). Third attack mode — only 37 monsters use it (multi-attack creatures: CAPTAIN MATEY 1d6+1d6+1d6, GREMLIN 2d8+3d4+2d20, ISLAND GIANT 3d6). |
+| 41          | `attack3SpecialChance` | high | Percent chance for attack 3's special. MINO-DAEMON 75%, HYDRA PLANT 20%. |
+| 54..55      | `groupDice`        | high | (count, sides) for encounter group size. RAT 1d3, ROGUE LEADER 1d1 (alone), CREEPING VINE 2d3. |
+| 58..59      | `hpDice`           | high | (count, sides) for the monster's HP roll. RAT 1d3, ZOMBIE 6d6, ISLAND GIANT 12d6, PIT FIEND 14d4. |
+| other       | TBD                | — | ~10 other dense positions (bytes 56, 60, 62-63, 70-73, 122-125, 144-149) remain — likely AC, gold drop, resistances, monster category, special-effect IDs, save vs spell. Stage 1j.2.3 to continue. |
+
+**Attack record structure**: bytes 6..53 contain three 16-byte attack
+records at offsets 6, 22, 38. Each record holds (dice count, dice sides)
+at +0, +1 and (special-effect chance %) at +3. The remaining bytes inside
+each attack record likely encode special-effect type/ID and damage type
+(fire/cold/poison/etc.) — those are still TBD.
 
 189 of the 253 slots are filled (the rest are reserved/empty). Sample
 monsters showing the unidentified-name mechanic and decoded fields:
@@ -159,10 +169,12 @@ the *running scenario state*, not for the *scenario content file*.
 
 ## Future work
 
-- **Stage 1j.2.2**: continue cracking the monster stat block — AC, gold drop,
-  resistances, special abilities, spells. Stage 1j.2.1 nailed down xpOnKill,
-  HP dice, group dice, and two attack-dice fields; ~10 other stat positions
-  show consistent high population.
+- **Stage 1j.2.3**: continue cracking the monster stat block — AC, gold drop,
+  resistances, damage type per attack, special-effect IDs, save vs spell.
+  Stages 1j.2.1 and 1j.2.2 nailed xpOnKill, HP dice, group dice, three
+  attack-dice fields, and per-attack special-effect chance %. The remaining
+  ~10 dense positions (56, 60, 62-63, 70-73, 122-125, 144-149) still need
+  identification.
 - **Stage 1j.3**: bind XP-table indices to character class names (probably
   resolvable by cross-reference with `newgame.dbs` records).
 - **Stage 1j.4**: identify AC for armor (no obvious field in the 74-byte

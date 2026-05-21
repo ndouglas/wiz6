@@ -100,13 +100,18 @@ function decodeFixedString(slice: Uint8Array, start: number, length: number): st
  *     bytes 48..63  : nameUnidPlural   (unidentified plural)
  *     bytes 64..221 : statBytes (158 bytes). Decoded fields (offsets relative
  *                    to start of stat block, i.e. byte 64 of the full record):
- *                      bytes  0-1   xpOnKill         u16 LE (RAT 150, * XORPHITUS * 16,150)
- *                      bytes  6-7   attack1 dice     (count, sides)
- *                      bytes 22-23  attack2 dice     (count, sides; 0,0 if none)
- *                      bytes 54-55  group dice       encounter group size (count, sides)
- *                      bytes 58-59  HP dice          monster HP roll (count, sides)
+ *                      bytes  0-1   xpOnKill         u16 LE
+ *                      attack records — 3 × 16 bytes starting at byte 6:
+ *                        bytes  6-7   attack1 dice (count, sides)
+ *                        byte     9   attack1 special-effect chance (percent)
+ *                        bytes 22-23  attack2 dice
+ *                        byte    25   attack2 special-effect chance
+ *                        bytes 38-39  attack3 dice
+ *                        byte    41   attack3 special-effect chance
+ *                      bytes 54-55  group dice       encounter group size
+ *                      bytes 58-59  HP dice          monster HP roll
  *                    Remaining fields (AC, gold drop, resistances, special
- *                    abilities, spells) are TBD — see Stage 1j.2.2.
+ *                    ability ids, spells) are TBD — see Stage 1j.2.3.
  *   0x2304E..end    unknownTail — 45,542 bytes, more tables. ASCII strings
  *                    suggest NPC/quest data ("SMITTY", "CAPTAIN MATEY").
  *
@@ -189,8 +194,13 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       xpOnKill: readU16LE(statSlice, 0),
       attack1DiceCount: statSlice[6]!,
       attack1DiceSides: statSlice[7]!,
+      attack1SpecialChance: statSlice[9]!,
       attack2DiceCount: statSlice[22]!,
       attack2DiceSides: statSlice[23]!,
+      attack2SpecialChance: statSlice[25]!,
+      attack3DiceCount: statSlice[38]!,
+      attack3DiceSides: statSlice[39]!,
+      attack3SpecialChance: statSlice[41]!,
       groupDiceCount: statSlice[54]!,
       groupDiceSides: statSlice[55]!,
       hpDiceCount: statSlice[58]!,
