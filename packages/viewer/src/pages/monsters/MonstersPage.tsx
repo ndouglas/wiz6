@@ -11,6 +11,7 @@ import {
   type MonsterSortField,
   type SortDir,
 } from '../../lib/monsters.js';
+import { MonsterDetail } from './MonsterDetail.js';
 import { MonsterFilters } from './MonsterFilters.js';
 import { MonsterList } from './MonsterList.js';
 import styles from './MonstersPage.module.css';
@@ -74,7 +75,7 @@ function MonstersPageInner() {
             Select a monster from the list to view its details.
           </p>
         ) : (
-          <h2>{selected.nameIdSingular}</h2>
+          <MonsterDetail monster={selected} />
         )}
       </section>
     </div>
