@@ -126,7 +126,10 @@ followed by 158 bytes of stat data:
 | 10, 26, 42  | `attackNPoisonChance`  | high        | Percent chance attack N inflicts poison/disease/acid status. POISON VIPER 100%, CATERPILLAR 100%, MAN O' WAR 95%, ASSASSIN 95%, GIANT SERPENT 90%, AMAZULU QUEEN 90%, HUGE SPIDER/TARANTULA 85%, GREMLIN 50%, VAMPIRE BAT 40%, ACID SLIME 35%, POISON SLIME 25%, FLOATER 25%, POISON VINE 25%. Matches Wiz6 poison/disease inflictor archetype. |
 | 13, 29, 45  | `attackNDrainChance`   | high        | Percent chance attack N inflicts level drain. All matches are classic Wiz6 level-drain undead: WRAITH 100%, WRAITH LORD 100%, PHANTASM 100%, LICHE 100%, CHARRON 100%, ACCURSED ONE 100%, BANE KING 100%, DRACULA 100%, REBECCA 100%; SPECTRE 90%, GHOSTLY SHE-HAG 90%, EILA'S GHOST 90%; BANSHEE 50%, SPIRIT 50%, ghosts 50%; SHADE 35%; WILL O' WISP 25%. |
 | 15, 31, 47  | `attackNStunChance`    | high        | Percent chance attack N stuns/bashes. Pattern matches heavy-hitting / blunt-attack monsters: GUARDIAN=ROCK 25%, PRIEST=RAMM 25%, ROCK=RUMBLE 20%, SMITTY 20%, ARIEL SERVANT 20%, KING CRAB 15%, BORK 15%; ISLAND GIANT, HILL/MINER/MOUNTAIN GIANT, FRYTZ/KLAUS GRYNS, MAJOR DWARF, VALKYRIE, KNOLL TROLL, POISON GIANT all 10%. |
-| other       | TBD                    | —           | Remaining unidentified per-attack bytes (8, 11, 12, 14) — very sparse, possibly rare effect IDs or alignment-specific flags. Stage 1j.2.12 to continue.                                                                                |
+| 8, 24, 40   | `attackNHpDrainChance` | medium-high | Percent chance attack N drains stamina/HP. Pattern matches incorporeal undead: SPIRIT 25%, SHADE 25%, SHADOW 25%, WILL O' WISP 25%, HAUNT 20%, CAPTAIN MATEY 4%. Atk2/atk3 are very sparse. |
+| 11, 27, 43  | `attackNAgeChance`     | medium-high | Percent chance attack N inflicts aging. CHARRON 100%, WRAITH 50%, WRAITH LORD 50%, PHANTASM 50%, FAERIE QUEEN 50%, WILL O' WISP 25%, HAUNT 20%, WRAITH (variant) 15%. Classic Wiz6 aging-undead pattern. |
+| 14, 30, 46  | `attackNDecapitateChance` | high     | Percent chance attack N decapitates / scores instant-kill critical. NINJA 8%, ASSASSIN 8%, CHUNIN 10%, HAIYATO DAIKUTA 10%, MAI-LAI 10%, ROBIN WINDMARNE 10%, BRIGERD WOLTAN 10%, KNIGHT=DEATH 2%, GRANDFATHER 12%, * XORPHITUS * 15%, HORASTHMUS 15%, TYRANNASAURUS 50%. Matches Wiz6 Ninja / elite-warrior critical-strike mechanic. Atk2/atk3: DEMONIC HELLCAT/MAI-LAI/LORD DAIMYO/HELLCAT=FIRE/HELLION (atk2 byte 30) and GREMLIN/* B E L A * (atk3 byte 46). |
+| other       | TBD                    | —           | Bytes 12, 28, 44 — extremely sparse (only CAPTAIN MATEY at byte 12 has value 6). Likely unique-monster flags or unused.                                                                                |
 
 **Attack record structure**: bytes 6..53 contain three 16-byte attack
 records at offsets 6, 22, 38. Each record holds (dice count, dice sides)
@@ -189,15 +192,15 @@ the *running scenario state*, not for the *scenario content file*.
 
 ## Future work
 
-- **Stage 1j.2.12**: continue cracking remaining monster stat fields.
-  Stages 1j.2.1–1j.2.11 nailed xpOnKill, HP/group/attack dice (all three
-  attacks), per-attack special/poison/drain/stun chances, monster
-  class/subclass, save/effect tables, monster level, family ID,
-  creatureKind, monsterSex, moveStat, spriteGroup, monsterAC,
-  attributeSaves, goldStat, specialAttackElement, monsterBehaviorClass,
-  and the three per-attack Extra[2] byte pairs. Remaining leads:
-    - Very sparse per-attack bytes (8, 11, 12, 14) — likely rare
-      effect-specific flags or alignment restrictions.
+- The monster stat block is now substantially decoded. Stages 1j.2.1–1j.2.12
+  cracked xpOnKill, HP/group/attack dice (all three attacks), seven
+  per-attack effect chances each (special, poison, drain, stun, hp-drain,
+  age, decapitate), monster class/subclass, save/effect tables, monster
+  level, family ID, creatureKind, monsterSex, moveStat, spriteGroup,
+  monsterAC, attributeSaves, goldStat, specialAttackElement,
+  monsterBehaviorClass, and the three per-attack Extra[2] byte pairs.
+  Only bytes 12/28/44 remain — extremely sparse, likely unique-monster
+  flags or unused.
 - **Stage 1j.3**: bind XP-table indices to character class names (probably
   resolvable by cross-reference with `newgame.dbs` records).
 - **Stage 1j.4**: identify AC for armor (no obvious field in the 74-byte
