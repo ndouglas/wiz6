@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom';
 import { ScenarioDbProvider, useScenarioDb } from '../../lib/hooks/useScenarioDb.js';
 import { findMonsterBySlug } from '../../lib/monsters.js';
+import { MonsterList } from './MonsterList.js';
 import styles from './MonstersPage.module.css';
 
 function MonstersPageInner() {
@@ -21,10 +22,10 @@ function MonstersPageInner() {
   return (
     <div className={styles.page}>
       <section className={styles.list} aria-label="monster list">
-        {/* Placeholder until Task 5 wires the list. */}
-        <p style={{ padding: 'var(--space-4)', color: 'var(--color-text-faint)' }}>
-          list pane
-        </p>
+        <MonsterList
+          monsters={data.monsters.filter((m) => !m.empty)}
+          totalFilled={data.monsters.filter((m) => !m.empty).length}
+        />
       </section>
       <section className={styles.detail} aria-label="monster detail">
         {slug && !selected ? (
