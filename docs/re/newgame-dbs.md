@@ -17,7 +17,7 @@ Average non-empty record uses ~30 of its 64 bytes for non-zero data. Per-byte-po
 
 779 records is roughly consistent with the combined size of:
 - ~11 races
-- ~14 classes  
+- ~14 classes
 - ~3 alignments
 - ~200 spells
 - ~300+ items / weapons / armor

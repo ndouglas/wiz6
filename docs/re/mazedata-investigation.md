@@ -60,23 +60,23 @@ struct SpriteDescriptor {
 
 **From buffer at `*0x4faa` (mazedata):**
 
-| Buffer offset | Purpose (inferred from code) |
-|---|---|
-| `+0x1e0` (= 480) | Byte array — `X coord` lookup for "things" (FUN_35b7) |
-| `+0x1ec` (= 492) | Byte array — `Y coord` lookup for "things" |
-| `+0x4fa` (= 1274) | Bit-packed coordinate table (5-bit-stride entries × 3-bit reads). Probably room/object X. |
-| `+0x512` (= 1298) | Sister table to `+0x4fa` — Y. |
-| `+0x4e08` (= 19976) | Per-maze 8×8 grid (64 bytes per maze). Walked by FUN_01d1 (set-tile-state). |
+| Buffer offset       | Purpose (inferred from code)                                                              |
+| ------------------- | ----------------------------------------------------------------------------------------- |
+| `+0x1e0` (= 480)    | Byte array — `X coord` lookup for "things" (FUN_35b7)                                     |
+| `+0x1ec` (= 492)    | Byte array — `Y coord` lookup for "things"                                                |
+| `+0x4fa` (= 1274)   | Bit-packed coordinate table (5-bit-stride entries × 3-bit reads). Probably room/object X. |
+| `+0x512` (= 1298)   | Sister table to `+0x4fa` — Y.                                                             |
+| `+0x4e08` (= 19976) | Per-maze 8×8 grid (64 bytes per maze). Walked by FUN_01d1 (set-tile-state).               |
 
 **From buffer at `*0x4fa8` (companion data):**
 
-| Buffer offset | Purpose |
-|---|---|
-| `+0x360` (= 864) | Byte array, 144 entries (X coords?) |
-| `+0x3f0` (= 1008) | Byte array, 144 entries (Y coords?) |
-| `+0x480` (= 1152) | Byte array, 144 entries (unknown) |
+| Buffer offset     | Purpose                                                              |
+| ----------------- | -------------------------------------------------------------------- |
+| `+0x360` (= 864)  | Byte array, 144 entries (X coords?)                                  |
+| `+0x3f0` (= 1008) | Byte array, 144 entries (Y coords?)                                  |
+| `+0x480` (= 1152) | Byte array, 144 entries (unknown)                                    |
 | `+0x510` (= 1296) | Byte array, 144 entries (`type_id` — used for filtering in FUN_366e) |
-| `+0x5a0` (= 1440) | Byte array, 144 entries (status byte?) |
+| `+0x5a0` (= 1440) | Byte array, 144 entries (status byte?)                               |
 
 This **parallel-array layout** (each "record" is one byte at the same index across multiple arrays) is a common DOS-era idiom. The 144-entry × 5-byte structure likely tracks game-world objects (NPCs, encounters, treasures, etc.).
 

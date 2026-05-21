@@ -66,24 +66,24 @@ The 768 bytes at offset 0x7D00..0x7FFF are preserved verbatim in the extracted J
 
 The engine renders the title sequence (titlepag, graveyrd, dragonsc) using a **custom 16-entry palette permutation** of the standard EGA defaults, NOT the `wiz6-main` palette used during gameplay. Stage 1f.2 discovered this palette by capturing the title screen in DOSBox-X and inverting the per-pixel bit-pattern → color mapping. The resulting table:
 
-| file pattern | EGA color | label |
-|---|---|---|
-| 0x0 | 0  | black (background) |
-| 0x1 | 15 | white (title text, highlights) |
-| 0x2 | 9  | light blue |
-| 0x3 | 5  | magenta |
-| 0x4 | 12 | bright red |
-| 0x5 | 14 | yellow |
-| 0x6 | 10 | bright green |
-| 0x7 | 11 | bright cyan |
-| 0x8 | 8  | dark gray (stone walls) |
-| 0x9 | 7  | light gray (wall highlights) |
-| 0xa | 1  | blue |
-| 0xb | 13 | bright magenta |
-| 0xc | 4  | red (wizard cape) |
-| 0xd | 6  | brown (dwarf beard, leather) |
-| 0xe | 2  | green (dwarf tunic) |
-| 0xf | 3  | cyan |
+| file pattern | EGA color | label                          |
+| ------------ | --------- | ------------------------------ |
+| 0x0          | 0         | black (background)             |
+| 0x1          | 15        | white (title text, highlights) |
+| 0x2          | 9         | light blue                     |
+| 0x3          | 5         | magenta                        |
+| 0x4          | 12        | bright red                     |
+| 0x5          | 14        | yellow                         |
+| 0x6          | 10        | bright green                   |
+| 0x7          | 11        | bright cyan                    |
+| 0x8          | 8         | dark gray (stone walls)        |
+| 0x9          | 7         | light gray (wall highlights)   |
+| 0xa          | 1         | blue                           |
+| 0xb          | 13        | bright magenta                 |
+| 0xc          | 4         | red (wizard cape)              |
+| 0xd          | 6         | brown (dwarf beard, leather)   |
+| 0xe          | 2         | green (dwarf tunic)            |
+| 0xf          | 3         | cyan                           |
 
 This palette is stored as `WIZ6_TITLE_PALETTE` in `packages/viewer/src/palettes/wiz6-title.ts` and is auto-applied to all `<ScreenGallery>` instances regardless of the picker selection. The picker still offers `wiz6-title` as a fourth option for inspecting fonts/portraits under this palette.
 
@@ -91,10 +91,10 @@ This palette is stored as `WIZ6_TITLE_PALETTE` in `packages/viewer/src/palettes/
 
 ## File summary
 
-| File          | Visible content                                                |
-|---------------|----------------------------------------------------------------|
-| `titlepag.ega` | "BANE OF THE COSMIC FORGE" title screen — text on the left, dungeon-wall background, dwarf and three wizards on the right |
-| `graveyrd.ega` | Graveyard cinematic — central ghost figure, tombstones and crosses, dead tree, magical glow |
+| File           | Visible content                                                                                                                     |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `titlepag.ega` | "BANE OF THE COSMIC FORGE" title screen — text on the left, dungeon-wall background, dwarf and three wizards on the right           |
+| `graveyrd.ega` | Graveyard cinematic — central ghost figure, tombstones and crosses, dead tree, magical glow                                         |
 | `dragonsc.ega` | Top-strip HUD: "Wizardry" title in red between two golden dragon wings, character-class portrait icons in framed boxes on each side |
 
 ## Known residual differences from the original game

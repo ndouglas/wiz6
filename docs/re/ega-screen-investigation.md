@@ -11,10 +11,10 @@ context on the investigation path.
 
 ## Files involved
 
-| File | Size | Likely content |
-| ---- | ---- | -------------- |
-| `original/titlepag.ega` | 32768 bytes | Title screen ("BANE OF THE COSMIC FORGE") |
-| `original/graveyrd.ega` | 32768 bytes | Graveyard cinematic scene |
+| File                    | Size        | Likely content                                                              |
+| ----------------------- | ----------- | --------------------------------------------------------------------------- |
+| `original/titlepag.ega` | 32768 bytes | Title screen ("BANE OF THE COSMIC FORGE")                                   |
+| `original/graveyrd.ega` | 32768 bytes | Graveyard cinematic scene                                                   |
 | `original/dragonsc.ega` | 32768 bytes | In-game header strip (Wizardry logo + dragon + status icons across the top) |
 
 Companion `.cga` (16384 bytes, 2bpp) and `.t16` (32768 bytes, Tandy) variants exist for each. String table in `winit.ovr` at file offset 0x138F enumerates all three filenames × three modes:
@@ -31,15 +31,15 @@ Companion `.cga` (16384 bytes, 2bpp) and `.t16` (32768 bytes, Tandy) variants ex
 
 All decode attempts assumed the data is a single 320×200 4bpp planar EGA image (32000 bytes) with various preamble/header arrangements totaling 768 bytes of "extra" content (32768 − 32000 = 768).
 
-| Hypothesis | Result |
-|---|---|
-| Plane-sequential, no prefix | "BANE" text on the **left**, heavy speckling; appears as ghost-images shifted vertically |
-| Plane-sequential, 256-byte prefix | "BANE" text on the **right**, clear horizontal/vertical channel ghosting |
+| Hypothesis                                          | Result                                                                                                                                                                     |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plane-sequential, no prefix                         | "BANE" text on the **left**, heavy speckling; appears as ghost-images shifted vertically                                                                                   |
+| Plane-sequential, 256-byte prefix                   | "BANE" text on the **right**, clear horizontal/vertical channel ghosting                                                                                                   |
 | Per-plane 64-byte header (4 × `[hdr64 + data8000]`) | Cleanest of the bunch — "BANE" + wizard + warriors visible — **but** still has a vertical seam at ~83% of width and a black-and-white "channel split" on the right portion |
-| Row-interleaved (4 planes per scanline) | Highly garbled — rows visibly separated by black bars |
-| Chunky 4bpp (2 pixels per byte) | Tiled-repeating pattern; wrong format |
-| Two side-by-side half-images (160×200 each) | Garbled |
-| Two top/bottom half-images (320×100 each) | Each half shows **its own copy of "BANE" text in different colors** — strong hint at layered/composite storage |
+| Row-interleaved (4 planes per scanline)             | Highly garbled — rows visibly separated by black bars                                                                                                                      |
+| Chunky 4bpp (2 pixels per byte)                     | Tiled-repeating pattern; wrong format                                                                                                                                      |
+| Two side-by-side half-images (160×200 each)         | Garbled                                                                                                                                                                    |
+| Two top/bottom half-images (320×100 each)           | Each half shows **its own copy of "BANE" text in different colors** — strong hint at layered/composite storage                                                             |
 
 The top/bottom-halves render is the most informative failure: the title text appears in both halves with different palettes. This suggests the storage involves some kind of layered or compositional encoding that's resolved at draw time — not a single flat planar image.
 
@@ -106,12 +106,12 @@ Full decompiler output preserved at `/tmp/wroot-loaders.c` and
 
 Each loader writes its target buffer segment into a CS-relative slot:
 
-| Function     | CS offset | Purpose | Distinguishing trait |
-|--------------|-----------|---------|----------------------|
-| `FUN_21bb`   | 0x21bb    | font/portrait loader | error: "I/O error reading font."; reads 0x400 / 0x800 / 0x1000 bytes into one of 5 buffers (cs:[0x1b64/68/6c/70/74]) based on `asset_type` (0..4) and the EGA/CGA/Tandy mode flags at cs:[0x1b4e/0x1b50] |
-| `FUN_2985`   | 0x2985    | misc-table loader    | error: "I/O error loading Misc. table."; reads exactly 0x400 bytes into cs:[0x1b80] |
-| `FUN_33e9`   | 0x33e9    | **Huffman-tree decompressor** | reads 2-byte header; if 0 → uncompressed (`alloc(file_size-2); read into buffer`); if non-zero → that value is tree-size, deserializes binary tree at ds:0..tree_size, then bit-stream-decodes into a DOS-allocated buffer of size `*(word*)(stream+0)`. Tree node: 4 bytes `{left, right}`; high bit (0x8000) of pointer → internal-node link (negate, then ×4 for byte offset); cleared → leaf value (low byte is output byte). Bit stream buffered in 4KB chunks at ds:0x400. |
-| `FUN_3817`   | 0x3817    | generic `read()` wrapper | low-level: `read(handle, dx, cx)`, error stored at cs:[0x660] |
+| Function   | CS offset | Purpose                       | Distinguishing trait                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------- | --------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FUN_21bb` | 0x21bb    | font/portrait loader          | error: "I/O error reading font."; reads 0x400 / 0x800 / 0x1000 bytes into one of 5 buffers (cs:[0x1b64/68/6c/70/74]) based on `asset_type` (0..4) and the EGA/CGA/Tandy mode flags at cs:[0x1b4e/0x1b50]                                                                                                                                                                                                                                                                         |
+| `FUN_2985` | 0x2985    | misc-table loader             | error: "I/O error loading Misc. table."; reads exactly 0x400 bytes into cs:[0x1b80]                                                                                                                                                                                                                                                                                                                                                                                              |
+| `FUN_33e9` | 0x33e9    | **Huffman-tree decompressor** | reads 2-byte header; if 0 → uncompressed (`alloc(file_size-2); read into buffer`); if non-zero → that value is tree-size, deserializes binary tree at ds:0..tree_size, then bit-stream-decodes into a DOS-allocated buffer of size `*(word*)(stream+0)`. Tree node: 4 bytes `{left, right}`; high bit (0x8000) of pointer → internal-node link (negate, then ×4 for byte offset); cleared → leaf value (low byte is output byte). Bit stream buffered in 4KB chunks at ds:0x400. |
+| `FUN_3817` | 0x3817    | generic `read()` wrapper      | low-level: `read(handle, dx, cx)`, error stored at cs:[0x660]                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 ### winit.ovr structure
 
@@ -157,14 +157,14 @@ thunk table in wroot.exe (or run in DOSBox-X with a breakpoint).
 
 ### Confirmed titlepag.ega file structure
 
-| Range         | Size | Density | Content |
-|---------------|------|---------|---------|
-| 0x0000..0x1F40 | 8000 | 72%     | Bitmap chunk 0 — when rendered as 1bpp, **clearly shows full title** "BANE OF THE COSMIC FORGE" on left, wizards on right, dungeon background |
-| 0x1F40..0x3E80 | 8000 | 14%     | Bitmap chunk 1 — sparse, shows wizard figures centered-right |
-| 0x3E80..0x5DC0 | 8000 | 21%     | Bitmap chunk 2 — sparse, shows wizard figures centered-left |
-| 0x5DC0..0x7D00 | 8000 | 83%     | Bitmap chunk 3 — dense, shows scene with text appearing on RIGHT (mirrored layout) |
-| 0x7D00..0x7E00 | 256  | high-entropy | Non-palette data (131 unique byte values, no repetition) |
-| 0x7E00..0x8000 | 512  | zeros   | Padding |
+| Range          | Size | Density      | Content                                                                                                                                       |
+| -------------- | ---- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0x0000..0x1F40 | 8000 | 72%          | Bitmap chunk 0 — when rendered as 1bpp, **clearly shows full title** "BANE OF THE COSMIC FORGE" on left, wizards on right, dungeon background |
+| 0x1F40..0x3E80 | 8000 | 14%          | Bitmap chunk 1 — sparse, shows wizard figures centered-right                                                                                  |
+| 0x3E80..0x5DC0 | 8000 | 21%          | Bitmap chunk 2 — sparse, shows wizard figures centered-left                                                                                   |
+| 0x5DC0..0x7D00 | 8000 | 83%          | Bitmap chunk 3 — dense, shows scene with text appearing on RIGHT (mirrored layout)                                                            |
+| 0x7D00..0x7E00 | 256  | high-entropy | Non-palette data (131 unique byte values, no repetition)                                                                                      |
+| 0x7E00..0x8000 | 512  | zeros        | Padding                                                                                                                                       |
 
 ### Working hypothesis for the chunk layout
 
@@ -230,14 +230,14 @@ hypothesis is confirmed.
 
 Each of `titlepag.ega`, `graveyrd.ega`, `dragonsc.ega` is a 32 KB file:
 
-| Offset      | Size  | Content |
-|-------------|-------|---------|
-| 0x0000      | 8000  | EGA plane 0 (B) — 320×200, 40 bytes/row × 200 rows |
-| 0x1F40      | 8000  | EGA plane 1 (G) |
-| 0x3E80      | 8000  | EGA plane 2 (R) |
-| 0x5DC0      | 8000  | EGA plane 3 (I) |
-| 0x7D00      | 256   | per-screen palette / palette LUT (see "Trailer" below) |
-| 0x7E00      | 512   | zero padding |
+| Offset | Size | Content                                                |
+| ------ | ---- | ------------------------------------------------------ |
+| 0x0000 | 8000 | EGA plane 0 (B) — 320×200, 40 bytes/row × 200 rows     |
+| 0x1F40 | 8000 | EGA plane 1 (G)                                        |
+| 0x3E80 | 8000 | EGA plane 2 (R)                                        |
+| 0x5DC0 | 8000 | EGA plane 3 (I)                                        |
+| 0x7D00 | 256  | per-screen palette / palette LUT (see "Trailer" below) |
+| 0x7E00 | 512  | zero padding                                           |
 
 Standard EGA plane order. To decode:
 

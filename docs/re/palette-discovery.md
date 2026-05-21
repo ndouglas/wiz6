@@ -86,7 +86,7 @@ For each channel, the displayed value is the sum of contributions from the two b
 | 6    | 0x0A                | (0, 170, 85)    | blue-green       |
 | 7    | 0x0B                | (0, 170, 255)   | bright cyan      |
 | 8    | 0x08                | (0, 0, 85)      | dim blue         |
-| 9–15 | (same as Palette 1) |                 |
+| 9–15 | (same as Palette 1) |                 |                  |
 
 Indices 9–15 are identical between the two palettes; only 1–8 differ. Wizardry preserves the "primary" colors (red, green, blue, magenta, cyan, yellow, light gray) across both palettes and re-uses indices 1–8 for scene-specific accents.
 

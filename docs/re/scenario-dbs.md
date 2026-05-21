@@ -8,13 +8,13 @@ monsters, and more tables yet to be cracked.
 
 ## Layout
 
-| Range              | Size         | Content                                |
-|--------------------|--------------|----------------------------------------|
-| `0x0000..0x037F`   | 896 bytes    | XP-per-level tables — 14 classes × 16 levels × u32 LE |
-| `0x0380..0x9407`   | 37,000 bytes | Item table — 500 × 74-byte records |
+| Range              | Size         | Content                                                                                                         |
+| ------------------ | ------------ | --------------------------------------------------------------------------------------------------------------- |
+| `0x0000..0x037F`   | 896 bytes    | XP-per-level tables — 14 classes × 16 levels × u32 LE                                                           |
+| `0x0380..0x9407`   | 37,000 bytes | Item table — 500 × 74-byte records                                                                              |
 | `0x9408..0x154E7`  | 49,376 bytes | **unknownPreMonster** — layout TBD. Hex patterns suggest 4bpp sprite graphics (item icons / monster portraits). |
-| `0x154E8..0x2304D` | 56,166 bytes | Monster table — 253 × 222-byte records |
-| `0x2304E..0x2E233` | 45,542 bytes | **unknownTail** — more tables, layout TBD. ASCII strings ("SMITTY", "CAPTAIN MATEY") suggest NPC / quest data. |
+| `0x154E8..0x2304D` | 56,166 bytes | Monster table — 253 × 222-byte records                                                                          |
+| `0x2304E..0x2E233` | 45,542 bytes | **unknownTail** — more tables, layout TBD. ASCII strings ("SMITTY", "CAPTAIN MATEY") suggest NPC / quest data.  |
 
 ### XP tables (0x0000..0x037F)
 
@@ -46,35 +46,35 @@ scattered through the table.
 
 #### Record layout
 
-| Bytes  | Type   | Field             | Confidence | Notes |
-|--------|--------|-------------------|------------|-------|
-| 0..15  | name slot | `name1`, optional `name2` | high | 15-char max name1, null-terminated. Optional alt name2 fits in remaining slot bytes. Anything past byte 15 is stat data — never read as ASCII. |
-| 16..17 | u16 LE | `price`           | high | Gold cost. DAGGER 15g, LONGSWORD 60g, KATANA 400g, PLATE MAIL 1850g — all match Wiz6 economy. |
-| 22..23 | u8, u8 | (effect dice?)    | low  | Mostly 0 except on consumables / magical items. Possibly effect-roll dice for potions and scrolls. |
-| 24     | u8     | `hitBonus`        | high | Weapon +to-hit/damage. CLAYMORE +2, BEASTMASTER +4, FANG +8, EXCALIBER +4, SWORD=LADING +8. |
-| 26     | u8     | `damageDiceCount` | high | Weapon damage dice count. |
-| 27     | u8     | `damageDiceSides` | high | Weapon damage dice sides. DAGGER 1d4, LONGSWORD 1d8, BASTARD SWORD 2d4. |
-| 28..29 | u16 LE | `spellOrSongId`   | high | Spell ID for scrolls (slot 13) and song/effect ID for instruments (slot 14). 0 otherwise. |
-| 30     | u8     | `weight`          | high | Tenths of pounds. DAGGER 10 (1.0 lb), BASTARD SWORD 100 (10 lb), BRONZE CUIRASS 210 (21 lb). |
-| 33..49 | u8 × N | (resistances?)    | low  | Sparse 25/50/75 values suggest percent resistance to damage types. Only on magic-resistant gear. |
-| 54..55 | u16 LE | `classMask`       | high | 14-bit bitmask, classes 0..13. STAFF = 0x3fff (all classes). KATANA = restricted few. |
-| 56     | u8     | (race mask?)      | medium | 8 bits, mostly 0xff/0xdf. Likely race restriction. |
-| 57     | u8     | (alignment?)      | medium | Mostly 0x07 (3 low bits = G/N/E?). |
-| 58     | u8     | (?)               | low | Mostly 0x03. Possibly sex restriction (2 bits). |
-| 60     | u8     | `equipSlot`       | high | Enum: 0=1H weapon, 1=pole, 2=thrown, 3=ranged, 4=ammo, 5=cloak, 6=head, 7=body, 8=legs, 9=hands, 10=feet, 11=shield, 12=potion, 13=scroll, 14=instrument/book/misc, 15=key, 16=dust. |
-| 61     | u8     | (sprite index?)   | medium | 100 distinct values, 0..119. Likely index into an inventory-sprite catalog. |
-| other  | —      | TBD               | — | A handful of low-population fields (18, 20, 70..72) remain unidentified. |
+| Bytes  | Type      | Field                     | Confidence | Notes                                                                                                                                                                                |
+| ------ | --------- | ------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0..15  | name slot | `name1`, optional `name2` | high       | 15-char max name1, null-terminated. Optional alt name2 fits in remaining slot bytes. Anything past byte 15 is stat data — never read as ASCII.                                       |
+| 16..17 | u16 LE    | `price`                   | high       | Gold cost. DAGGER 15g, LONGSWORD 60g, KATANA 400g, PLATE MAIL 1850g — all match Wiz6 economy.                                                                                        |
+| 22..23 | u8, u8    | (effect dice?)            | low        | Mostly 0 except on consumables / magical items. Possibly effect-roll dice for potions and scrolls.                                                                                   |
+| 24     | u8        | `hitBonus`                | high       | Weapon +to-hit/damage. CLAYMORE +2, BEASTMASTER +4, FANG +8, EXCALIBER +4, SWORD=LADING +8.                                                                                          |
+| 26     | u8        | `damageDiceCount`         | high       | Weapon damage dice count.                                                                                                                                                            |
+| 27     | u8        | `damageDiceSides`         | high       | Weapon damage dice sides. DAGGER 1d4, LONGSWORD 1d8, BASTARD SWORD 2d4.                                                                                                              |
+| 28..29 | u16 LE    | `spellOrSongId`           | high       | Spell ID for scrolls (slot 13) and song/effect ID for instruments (slot 14). 0 otherwise.                                                                                            |
+| 30     | u8        | `weight`                  | high       | Tenths of pounds. DAGGER 10 (1.0 lb), BASTARD SWORD 100 (10 lb), BRONZE CUIRASS 210 (21 lb).                                                                                         |
+| 33..49 | u8 × N    | (resistances?)            | low        | Sparse 25/50/75 values suggest percent resistance to damage types. Only on magic-resistant gear.                                                                                     |
+| 54..55 | u16 LE    | `classMask`               | high       | 14-bit bitmask, classes 0..13. STAFF = 0x3fff (all classes). KATANA = restricted few.                                                                                                |
+| 56     | u8        | (race mask?)              | medium     | 8 bits, mostly 0xff/0xdf. Likely race restriction.                                                                                                                                   |
+| 57     | u8        | (alignment?)              | medium     | Mostly 0x07 (3 low bits = G/N/E?).                                                                                                                                                   |
+| 58     | u8        | (?)                       | low        | Mostly 0x03. Possibly sex restriction (2 bits).                                                                                                                                      |
+| 60     | u8        | `equipSlot`               | high       | Enum: 0=1H weapon, 1=pole, 2=thrown, 3=ranged, 4=ammo, 5=cloak, 6=head, 7=body, 8=legs, 9=hands, 10=feet, 11=shield, 12=potion, 13=scroll, 14=instrument/book/misc, 15=key, 16=dust. |
+| 61     | u8        | (sprite index?)           | medium     | 100 distinct values, 0..119. Likely index into an inventory-sprite catalog.                                                                                                          |
+| other  | —         | TBD                       | —          | A handful of low-population fields (18, 20, 70..72) remain unidentified.                                                                                                             |
 
 #### Sub-block summary (by name + equip slot)
 
-| Slot range  | Apparent category | Examples                                |
-|-------------|-------------------|-----------------------------------------|
-| 0..163      | Weapons (164 entries) | DAGGER, MAIN GAUCHE, SHORT SWORD, RAPIER, KATANA, BOW |
-| 164..169    | Reserved (6 empty) | — |
-| 170..?      | Armor & misc gear | BRONZE CUIRASS, LEATHER GREAVES, HELM&COIF, ROUND SHIELD |
-| ?..?        | Accessories       | RING=DELPHI, SCARAB NECKLACE, MEDICINE BAG |
-| ?..?        | Books / wands     | BOOK=LEVITATION, WAND=GHOSTS, NECROLOGY ROD |
-| ?..482      | Quest items / keys | KEY=WIZARD CAVE, NORTH EXIT KEY, J.R. DECODER |
+| Slot range | Apparent category     | Examples                                                 |
+| ---------- | --------------------- | -------------------------------------------------------- |
+| 0..163     | Weapons (164 entries) | DAGGER, MAIN GAUCHE, SHORT SWORD, RAPIER, KATANA, BOW    |
+| 164..169   | Reserved (6 empty)    | —                                                        |
+| 170..?     | Armor & misc gear     | BRONZE CUIRASS, LEATHER GREAVES, HELM&COIF, ROUND SHIELD |
+| ?..?       | Accessories           | RING=DELPHI, SCARAB NECKLACE, MEDICINE BAG               |
+| ?..?       | Books / wands         | BOOK=LEVITATION, WAND=GHOSTS, NECROLOGY ROD              |
+| ?..482     | Quest items / keys    | KEY=WIZARD CAVE, NORTH EXIT KEY, J.R. DECODER            |
 
 The sub-block boundaries aren't sharply marked — empty slots act as soft
 dividers but don't always sit on category transitions. The decoded
@@ -85,35 +85,35 @@ dividers but don't always sit on category transitions. The decoded
 253 fixed-size 222-byte records. Each record has FOUR 16-byte name slots
 followed by 158 bytes of stat data:
 
-| Record bytes | Field              | Notes |
-|--------------|--------------------|-------|
-| 0..15        | `nameIdSingular`   | Identified singular (e.g. "GIANT RAT") |
-| 16..31       | `nameIdPlural`     | Identified plural (e.g. "GIANT RATS") |
+| Record bytes | Field              | Notes                                                          |
+| ------------ | ------------------ | -------------------------------------------------------------- |
+| 0..15        | `nameIdSingular`   | Identified singular (e.g. "GIANT RAT")                         |
+| 16..31       | `nameIdPlural`     | Identified plural (e.g. "GIANT RATS")                          |
 | 32..47       | `nameUnidSingular` | What the party sees before identifying — "RAT" for a GIANT RAT |
-| 48..63       | `nameUnidPlural`   | Unidentified plural |
-| 64..221      | `statBytes` (158)  | See decoded-fields table below. |
+| 48..63       | `nameUnidPlural`   | Unidentified plural                                            |
+| 64..221      | `statBytes` (158)  | See decoded-fields table below.                                |
 
 #### Stat-block fields (offsets relative to start of stat block; add 64 to get record offset)
 
-| Stat offset | Field              | Confidence | Notes |
-|-------------|--------------------|------------|-------|
-| 0..1        | `xpOnKill`         | high | u16 LE. RAT 150, GIANT RAT 450, ISLAND GIANT 14,252, PIT FIEND 56,786. |
-| 6..7        | `attack1Dice`      | high | (count, sides). First attack damage roll. RAT 1d2, ZOMBIE 3d3, PIT FIEND 4d4. |
-| 9           | `attack1SpecialChance` | high | Percent chance the special effect on attack 1 triggers. ZOMBIE 80% (disease), STRANGLER VINE 15% (strangle), BANSHEE 50% (death scream), GHOSTS 50% (level drain). |
-| 22..23      | `attack2Dice`      | high | (count, sides). Second attack mode; 0,0 if monster has only one attack. ROGUE 1d4, GIANT SERPENT 1d12, ZOMBIE 2d8. |
-| 25          | `attack2SpecialChance` | high | Percent chance for attack 2's special. ZOMBIE 90%, ZOMBIE BONES 50%, MONSTROUS SNAKE 50% (poison). |
-| 38..39      | `attack3Dice`      | high | (count, sides). Third attack mode — only 37 monsters use it (multi-attack creatures: CAPTAIN MATEY 1d6+1d6+1d6, GREMLIN 2d8+3d4+2d20, ISLAND GIANT 3d6). |
-| 41          | `attack3SpecialChance` | high | Percent chance for attack 3's special. MINO-DAEMON 75%, HYDRA PLANT 20%. |
-| 54..55      | `groupDice`        | high | (count, sides) for encounter group size. RAT 1d3, ROGUE LEADER 1d1 (alone), CREEPING VINE 2d3. |
-| 58..59      | `hpDice`           | high | (count, sides) for the monster's HP roll. RAT 1d3, ZOMBIE 6d6, ISLAND GIANT 12d6, PIT FIEND 14d4. |
-| 148         | `monsterClass`     | high | Tier enum. 1=animal/beast (105 monsters: RAT, BAT, VINE, etc.), 2=humanoid/undead (61: ROGUE, ZOMBIE, BANSHEE), 3=demon/elite (14: GREATER DEMON, FAERIE SYLPH), 4=ultimate boss (5: HAIYATO DAIKUTA, * B E L A *, FAERIE QUEEN, LORD DAIMYO, CHARRON). Rare outliers 0/21/65 exist. |
-| 149         | `monsterSubClass`  | medium-high | Sub-tier within class. Mostly 1-4. Common values cluster by family — for class 1: 1=basic (RAT family, 82 monsters), 2=large (GIANT SERPENT, MAN O' WAR), 3=plant (JUNGLE VINE), 4=exotic (HYDRA PLANT). Exact semantics may also encode something like alignment. |
-| 113..117    | `saveTable[5]`     | high | 5 percent values — save-throw / damage-resistance percentages by category. COLD SLIME has `[0, 100, 0, 0, 0]` (100% at index 1 → byte 114 = COLD resistance). VAMPIRE BAT 40% cold resists. PIT FIEND 65% cold (fits demon archetype). Undead family shares template `[15, 40, 30, 10, 5]`. Exact category mapping for indices 0, 2, 3, 4 still TBD. |
-| 121..125    | `effectChanceTable[5]` | high | 5 percent values paired with `saveTable` — likely chance the monster INFLICTS a status effect on the party (not the monster's own saves). Many undead have identical 113-117 and 121-125 templates `[15,40,30,10,5]` since their melee inflicts the same things they resist (life drain, paralysis). PIT FIEND has nonzero saves but zero effectChances. |
-| 62          | `monsterLevel`     | high | 1-50, effective combat level used for save & spell calcs. RAT 5, BAT 5, ZOMBIE 7, ISLAND GIANT 12, PIT FIEND 12, BANE KING 50. |
-| 63          | `monsterLevelMax`  | high | Usually equals `monsterLevel` (180/189 monsters). For the RAT family, this is the upper bound of an encounter-level range (RAT 5-10, GIANT RAT 8-15, etc. — only 9 monsters use the range form). |
-| 70..73      | `familyId[4]`      | high | 4-byte family/sprite-set identifier shared by related monsters. RAT family `(6,4,14,16)` covers 5 rats; BAT family `(4,4,17,16)` covers 4 bats; SLIME `(4,4,4,6)` 4 slimes; SKELETON `(12,12,16,12)` 5; SPIRIT-class undead `(10,12,12,12)` 9 members; GREATER DEMON `(22,16,17,17)` 4. 110 unique families total across 189 monsters. |
-| other       | TBD                | — | Dense positions still un-named: bytes 56 (scales with XP but not cleanly linear — possibly gold drop or treasure score), 60 (monotonic 50-244 but not level × 10), 144-147 (4 per-family template values plus per-variant byte 147 modifier). Stage 1j.2.6 to continue. |
+| Stat offset | Field                  | Confidence  | Notes                                                                                                                                                                                                                                                                                                                                                    |
+| ----------- | ---------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0..1        | `xpOnKill`             | high        | u16 LE. RAT 150, GIANT RAT 450, ISLAND GIANT 14,252, PIT FIEND 56,786.                                                                                                                                                                                                                                                                                   |
+| 6..7        | `attack1Dice`          | high        | (count, sides). First attack damage roll. RAT 1d2, ZOMBIE 3d3, PIT FIEND 4d4.                                                                                                                                                                                                                                                                            |
+| 9           | `attack1SpecialChance` | high        | Percent chance the special effect on attack 1 triggers. ZOMBIE 80% (disease), STRANGLER VINE 15% (strangle), BANSHEE 50% (death scream), GHOSTS 50% (level drain).                                                                                                                                                                                       |
+| 22..23      | `attack2Dice`          | high        | (count, sides). Second attack mode; 0,0 if monster has only one attack. ROGUE 1d4, GIANT SERPENT 1d12, ZOMBIE 2d8.                                                                                                                                                                                                                                       |
+| 25          | `attack2SpecialChance` | high        | Percent chance for attack 2's special. ZOMBIE 90%, ZOMBIE BONES 50%, MONSTROUS SNAKE 50% (poison).                                                                                                                                                                                                                                                       |
+| 38..39      | `attack3Dice`          | high        | (count, sides). Third attack mode — only 37 monsters use it (multi-attack creatures: CAPTAIN MATEY 1d6+1d6+1d6, GREMLIN 2d8+3d4+2d20, ISLAND GIANT 3d6).                                                                                                                                                                                                 |
+| 41          | `attack3SpecialChance` | high        | Percent chance for attack 3's special. MINO-DAEMON 75%, HYDRA PLANT 20%.                                                                                                                                                                                                                                                                                 |
+| 54..55      | `groupDice`            | high        | (count, sides) for encounter group size. RAT 1d3, ROGUE LEADER 1d1 (alone), CREEPING VINE 2d3.                                                                                                                                                                                                                                                           |
+| 58..59      | `hpDice`               | high        | (count, sides) for the monster's HP roll. RAT 1d3, ZOMBIE 6d6, ISLAND GIANT 12d6, PIT FIEND 14d4.                                                                                                                                                                                                                                                        |
+| 148         | `monsterClass`         | high        | Tier enum. 1=animal/beast (105 monsters: RAT, BAT, VINE, etc.), 2=humanoid/undead (61: ROGUE, ZOMBIE, BANSHEE), 3=demon/elite (14: GREATER DEMON, FAERIE SYLPH), 4=ultimate boss (5: HAIYATO DAIKUTA, * B E L A *, FAERIE QUEEN, LORD DAIMYO, CHARRON). Rare outliers 0/21/65 exist.                                                                     |
+| 149         | `monsterSubClass`      | medium-high | Sub-tier within class. Mostly 1-4. Common values cluster by family — for class 1: 1=basic (RAT family, 82 monsters), 2=large (GIANT SERPENT, MAN O' WAR), 3=plant (JUNGLE VINE), 4=exotic (HYDRA PLANT). Exact semantics may also encode something like alignment.                                                                                       |
+| 113..117    | `saveTable[5]`         | high        | 5 percent values — save-throw / damage-resistance percentages by category. COLD SLIME has `[0, 100, 0, 0, 0]` (100% at index 1 → byte 114 = COLD resistance). VAMPIRE BAT 40% cold resists. PIT FIEND 65% cold (fits demon archetype). Undead family shares template `[15, 40, 30, 10, 5]`. Exact category mapping for indices 0, 2, 3, 4 still TBD.     |
+| 121..125    | `effectChanceTable[5]` | high        | 5 percent values paired with `saveTable` — likely chance the monster INFLICTS a status effect on the party (not the monster's own saves). Many undead have identical 113-117 and 121-125 templates `[15,40,30,10,5]` since their melee inflicts the same things they resist (life drain, paralysis). PIT FIEND has nonzero saves but zero effectChances. |
+| 62          | `monsterLevel`         | high        | 1-50, effective combat level used for save & spell calcs. RAT 5, BAT 5, ZOMBIE 7, ISLAND GIANT 12, PIT FIEND 12, BANE KING 50.                                                                                                                                                                                                                           |
+| 63          | `monsterLevelMax`      | high        | Usually equals `monsterLevel` (180/189 monsters). For the RAT family, this is the upper bound of an encounter-level range (RAT 5-10, GIANT RAT 8-15, etc. — only 9 monsters use the range form).                                                                                                                                                         |
+| 70..73      | `familyId[4]`          | high        | 4-byte family/sprite-set identifier shared by related monsters. RAT family `(6,4,14,16)` covers 5 rats; BAT family `(4,4,17,16)` covers 4 bats; SLIME `(4,4,4,6)` 4 slimes; SKELETON `(12,12,16,12)` 5; SPIRIT-class undead `(10,12,12,12)` 9 members; GREATER DEMON `(22,16,17,17)` 4. 110 unique families total across 189 monsters.                   |
+| other       | TBD                    | —           | Dense positions still un-named: bytes 56 (scales with XP but not cleanly linear — possibly gold drop or treasure score), 60 (monotonic 50-244 but not level × 10), 144-147 (4 per-family template values plus per-variant byte 147 modifier). Stage 1j.2.6 to continue.                                                                                  |
 
 **Attack record structure**: bytes 6..53 contain three 16-byte attack
 records at offsets 6, 22, 38. Each record holds (dice count, dice sides)
