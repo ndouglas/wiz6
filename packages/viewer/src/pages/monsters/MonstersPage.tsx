@@ -1,12 +1,34 @@
 import { useParams } from 'react-router-dom';
 import { ScenarioDbProvider, useScenarioDb } from '../../lib/hooks/useScenarioDb.js';
-import { findMonsterBySlug } from '../../lib/monsters.js';
+import { useUrlState } from '../../lib/hooks/useUrlState.js';
+import {
+  findMonsterBySlug,
+  filterMonsters,
+  searchMonsters,
+  sortMonsters,
+  uniqueFilterValues,
+  type MonsterFilter,
+  type MonsterSortField,
+  type SortDir,
+} from '../../lib/monsters.js';
+import { MonsterFilters } from './MonsterFilters.js';
 import { MonsterList } from './MonsterList.js';
 import styles from './MonstersPage.module.css';
 
 function MonstersPageInner() {
   const { data, loading, error } = useScenarioDb();
   const { slug } = useParams<{ slug?: string }>();
+
+  const [search] = useUrlState('search');
+  const [sort] = useUrlState('sort');
+  const [dir] = useUrlState('dir');
+  const [empty] = useUrlState('empty');
+  const [classes] = useUrlState.list('class');
+  const [elements] = useUrlState.list('element');
+  const [families] = useUrlState.list('family');
+  const [creatureKinds] = useUrlState.list('creatureKind');
+  const [sexes] = useUrlState.list('sex');
+  const [behaviorClasses] = useUrlState.list('behavior');
 
   if (loading) return <p className={styles.loading}>loading scenario data…</p>;
   if (error)
@@ -17,15 +39,32 @@ function MonstersPageInner() {
     );
   if (!data) return null;
 
+  const filter: MonsterFilter = {
+    classes: classes.map(Number),
+    elements: elements.map(Number),
+    families,
+    creatureKinds: creatureKinds.map(Number),
+    sexes: sexes.map(Number),
+    behaviorClasses: behaviorClasses.map(Number),
+    includeEmpty: empty === '1',
+  };
+  const sortField = (sort as MonsterSortField | null) ?? 'name';
+  const sortDir: SortDir = dir === 'desc' ? 'desc' : 'asc';
+
+  const filtered = sortMonsters(
+    searchMonsters(filterMonsters(data.monsters, filter), search ?? ''),
+    sortField,
+    sortDir,
+  );
+  const totalFilled = data.monsters.filter((m) => !m.empty).length;
   const selected = slug ? findMonsterBySlug(data.monsters, slug) : null;
+  const filterValues = uniqueFilterValues(data.monsters);
 
   return (
     <div className={styles.page}>
       <section className={styles.list} aria-label="monster list">
-        <MonsterList
-          monsters={data.monsters.filter((m) => !m.empty)}
-          totalFilled={data.monsters.filter((m) => !m.empty).length}
-        />
+        <MonsterFilters values={filterValues} />
+        <MonsterList monsters={filtered} totalFilled={totalFilled} />
       </section>
       <section className={styles.detail} aria-label="monster detail">
         {slug && !selected ? (
@@ -35,10 +74,7 @@ function MonstersPageInner() {
             Select a monster from the list to view its details.
           </p>
         ) : (
-          <>
-            {/* Placeholder header — full MonsterDetail comes in Task 7. */}
-            <h2>{selected.nameIdSingular}</h2>
-          </>
+          <h2>{selected.nameIdSingular}</h2>
         )}
       </section>
     </div>

@@ -1,0 +1,120 @@
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.searchRow {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.search {
+  flex: 1;
+  padding: var(--space-2);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  border-radius: 2px;
+  font-family: inherit;
+  font-size: 0.92rem;
+}
+
+.search:focus {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.sortRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.sortRow select {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  padding: var(--space-1) var(--space-2);
+  border-radius: 2px;
+  font-family: inherit;
+}
+
+.dirButton {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  padding: var(--space-1) var(--space-2);
+  border-radius: 2px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+
+.toggleRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.toggleRow input[type='checkbox'] {
+  margin-right: var(--space-1);
+}
+
+.filtersRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.filterDetails {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 2px;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.filterDetails summary {
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  list-style: none;
+  color: var(--color-text-muted);
+}
+
+.filterDetails summary::-webkit-details-marker {
+  display: none;
+}
+
+.filterDetails[open] summary {
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.filterOptions {
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.filterOptions label {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  color: var(--color-text);
+}
+
+.filterCount {
+  margin-left: var(--space-1);
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
