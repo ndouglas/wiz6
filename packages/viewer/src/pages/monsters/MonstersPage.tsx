@@ -13,7 +13,7 @@ import {
   type MonsterFilter,
   type MonsterSortField,
   type SortDir,
-} from '../../lib/monsters.js';
+} from '@wiz6/parser';
 import { MonsterFilters } from './MonsterFilters.js';
 import { MonsterList } from './MonsterList.js';
 import { MonsterDetail } from './MonsterDetail.js';

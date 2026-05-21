@@ -1,5 +1,5 @@
 import type { ScenarioMonster } from '@wiz6/data';
-import { formatAttackDice } from '../../../lib/monsters.js';
+import { formatAttackDice } from '@wiz6/parser';
 import styles from './AttacksTab.module.css';
 
 const STYLE_LABEL: Record<number, string> = {

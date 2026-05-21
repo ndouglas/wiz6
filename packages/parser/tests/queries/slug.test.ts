@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { slugify } from '../../src/lib/slug.js';
+import { slugify } from '../../src/queries/slug.js';
 
 describe('slugify', () => {
   it('lowercases and replaces spaces with hyphens', () => {

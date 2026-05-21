@@ -1,21 +1,21 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
-import type { ScenarioDb } from '@wiz6/data';
-import { decodeScenarioDb } from '../formats/scenario-db.js';
+import type { Font } from '@wiz6/data';
+import { decodeWfont } from '@wiz6/parser';
 
-export interface ExtractScenarioDbOpts {
+export interface ExtractWfontOpts {
   originalPath: string;
   outputPath: string;
   id: string;
 }
 
-export function extractScenarioDb(opts: ExtractScenarioDbOpts): ScenarioDb {
+export function extractWfont(opts: ExtractWfontOpts): Font {
   const bytes = new Uint8Array(readFileSync(opts.originalPath));
-  const db = decodeScenarioDb(bytes, {
+  const font = decodeWfont(bytes, {
     id: opts.id,
     sourceFile: basename(opts.originalPath),
   });
   mkdirSync(dirname(opts.outputPath), { recursive: true });
-  writeFileSync(opts.outputPath, JSON.stringify(db, null, 2));
-  return db;
+  writeFileSync(opts.outputPath, JSON.stringify(font, null, 2));
+  return font;
 }

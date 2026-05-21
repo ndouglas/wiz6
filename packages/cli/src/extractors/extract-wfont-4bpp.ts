@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import type { Font4bpp } from '@wiz6/data';
-import { decodeWfont4bpp } from '../formats/wfont-4bpp.js';
+import { decodeWfont4bpp } from '@wiz6/parser';
 
 export interface ExtractWfont4bppOpts {
   originalPath: string;

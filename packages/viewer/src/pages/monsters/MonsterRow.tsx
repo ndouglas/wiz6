@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import type { ScenarioMonster } from '@wiz6/data';
-import { monsterSlug, formatLevelRange } from '../../lib/monsters.js';
+import { monsterSlug, formatLevelRange } from '@wiz6/parser';
 import styles from './MonsterList.module.css';
 
 interface MonsterRowProps {

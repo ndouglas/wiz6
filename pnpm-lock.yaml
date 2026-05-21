@@ -24,6 +24,25 @@ importers:
         specifier: ^8.5.0
         version: 8.59.4(eslint@9.39.4)(typescript@5.9.3)
 
+  packages/cli:
+    dependencies:
+      '@wiz6/data':
+        specifier: workspace:*
+        version: link:../data
+      '@wiz6/parser':
+        specifier: workspace:*
+        version: link:../parser
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.41
+      typescript:
+        specifier: ^5.6.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.41)(jsdom@25.0.1)
+
   packages/data:
     dependencies:
       zod:
@@ -52,6 +71,9 @@ importers:
       '@wiz6/data':
         specifier: workspace:*
         version: link:../data
+      '@wiz6/parser':
+        specifier: workspace:*
+        version: link:../parser
       react:
         specifier: ^18.3.1
         version: 18.3.1

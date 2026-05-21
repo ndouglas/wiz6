@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { MonsterFilters } from '../../../src/pages/monsters/MonsterFilters.js';
-import { uniqueFilterValues } from '../../../src/lib/monsters.js';
+import { uniqueFilterValues } from '@wiz6/parser';
 import { FIXTURE_SCENARIO_DB } from '../../fixtures/scenario-fixture.js';
 
 const VALUES = uniqueFilterValues(FIXTURE_SCENARIO_DB.monsters);
