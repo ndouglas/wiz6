@@ -1,3 +1,5 @@
+import { runListCommand } from './commands/list.js';
+
 export interface CliIO {
   write: (s: string) => void;
   writeErr: (s: string) => void;
@@ -32,6 +34,9 @@ export function run(argv: readonly string[], io: CliIO): number {
   if (first === '--help' || first === '-h') {
     io.write(USAGE);
     return 0;
+  }
+  if (first === 'list') {
+    return runListCommand(argv.slice(1), { cwd: process.cwd(), io });
   }
   // Subcommands will be wired up in subsequent tasks.
   io.writeErr(`unknown subcommand: ${first}\n\n${USAGE}`);
