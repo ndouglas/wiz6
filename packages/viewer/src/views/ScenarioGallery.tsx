@@ -10,10 +10,47 @@ function fmtByte(b: number): string {
   return b.toString(16).padStart(2, '0');
 }
 
+const EQUIP_SLOT_LABELS: Record<number, string> = {
+  0: 'weapon-1H',
+  1: 'pole',
+  2: 'thrown',
+  3: 'ranged',
+  4: 'ammo',
+  5: 'cloak',
+  6: 'head',
+  7: 'body',
+  8: 'legs',
+  9: 'hands',
+  10: 'feet',
+  11: 'shield',
+  12: 'potion',
+  13: 'scroll',
+  14: 'instrument/book',
+  15: 'key',
+  16: 'dust',
+};
+
+function fmtDamage(count: number, sides: number, bonus: number): string {
+  if (count === 0 && sides === 0) return '—';
+  const base = `${count}d${sides}`;
+  return bonus ? `${base}+${bonus}` : base;
+}
+
+function fmtClasses(mask: number): string {
+  if (mask === 0) return '—';
+  if (mask === 0x3fff) return 'all 14';
+  const bits: number[] = [];
+  for (let i = 0; i < 14; i++) {
+    if ((mask >> i) & 1) bits.push(i);
+  }
+  return bits.join(',');
+}
+
 export function ScenarioGallery({ url }: Props) {
   const [db, setDb] = useState<ScenarioDb | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hideEmpty, setHideEmpty] = useState(true);
+  const [showRaw, setShowRaw] = useState(false);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
@@ -82,7 +119,7 @@ export function ScenarioGallery({ url }: Props) {
         </tbody>
       </table>
 
-      <h3 style={{ marginTop: '1.5em' }}>Items (74-byte records, raw stat bytes shown)</h3>
+      <h3 style={{ marginTop: '1.5em' }}>Items (74-byte records)</h3>
       <div style={{ marginBottom: '0.5em', fontSize: '0.9em' }}>
         <label style={{ marginRight: '1em' }}>
           <input
@@ -91,6 +128,14 @@ export function ScenarioGallery({ url }: Props) {
             onChange={() => setHideEmpty(!hideEmpty)}
           />{' '}
           hide empty slots
+        </label>
+        <label style={{ marginRight: '1em' }}>
+          <input
+            type="checkbox"
+            checked={showRaw}
+            onChange={() => setShowRaw(!showRaw)}
+          />{' '}
+          show raw bytes
         </label>
         <label>
           search:{' '}
@@ -116,33 +161,61 @@ export function ScenarioGallery({ url }: Props) {
       >
         <thead>
           <tr style={{ borderBottom: '1px solid #888', textAlign: 'left' }}>
-            <th style={{ width: '4em' }}>#</th>
-            <th style={{ width: '12em' }}>name1</th>
-            <th style={{ width: '12em' }}>name2</th>
-            <th>bytes (hex)</th>
+            <th style={{ width: '3em' }}>#</th>
+            <th style={{ width: '11em' }}>name</th>
+            <th style={{ width: '7em' }}>slot</th>
+            <th style={{ width: '4em', textAlign: 'right' }}>price</th>
+            <th style={{ width: '6em' }}>damage</th>
+            <th style={{ width: '4em', textAlign: 'right' }}>wt</th>
+            <th style={{ width: '5em' }}>spell/song</th>
+            <th>classes (14 bits)</th>
+            {showRaw && <th>bytes (hex)</th>}
           </tr>
         </thead>
         <tbody>
-          {visibleItems.map((it) => (
-            <tr key={it.index} style={{ borderBottom: '1px solid #222' }}>
-              <td style={{ color: it.empty ? '#444' : '#888', verticalAlign: 'top' }}>
-                {it.index}
-              </td>
-              <td style={{ verticalAlign: 'top' }}>{it.name1}</td>
-              <td style={{ verticalAlign: 'top', color: '#888' }}>{it.name2}</td>
-              <td style={{ whiteSpace: 'pre' }}>
-                {it.bytes.map((b, i) => {
-                  const isZero = b === 0;
-                  const sep = (i + 1) % 16 === 0 ? '\n' : ' ';
-                  return (
-                    <span key={i} style={{ color: isZero ? '#444' : '#ddd' }}>
-                      {fmtByte(b)}{sep}
-                    </span>
-                  );
-                })}
-              </td>
-            </tr>
-          ))}
+          {visibleItems.map((it) => {
+            const slotLabel = EQUIP_SLOT_LABELS[it.equipSlot] ?? `slot ${it.equipSlot}`;
+            const isWeapon = it.equipSlot <= 4;
+            const isCaster = it.equipSlot === 13 || it.equipSlot === 14;
+            const name = it.name1 + (it.name2 ? ` (${it.name2})` : '');
+            return (
+              <tr key={it.index} style={{ borderBottom: '1px solid #222' }}>
+                <td style={{ color: it.empty ? '#444' : '#888', verticalAlign: 'top' }}>
+                  {it.index}
+                </td>
+                <td style={{ verticalAlign: 'top' }}>{name}</td>
+                <td style={{ verticalAlign: 'top', color: '#aaa' }}>{slotLabel}</td>
+                <td style={{ verticalAlign: 'top', textAlign: 'right' }}>
+                  {it.price > 0 ? it.price.toLocaleString() : '—'}
+                </td>
+                <td style={{ verticalAlign: 'top' }}>
+                  {isWeapon
+                    ? fmtDamage(it.damageDiceCount, it.damageDiceSides, it.hitBonus)
+                    : '—'}
+                </td>
+                <td style={{ verticalAlign: 'top', textAlign: 'right' }}>
+                  {it.weight > 0 ? (it.weight / 10).toFixed(1) : '—'}
+                </td>
+                <td style={{ verticalAlign: 'top' }}>
+                  {isCaster && it.spellOrSongId > 0 ? `#${it.spellOrSongId}` : '—'}
+                </td>
+                <td style={{ verticalAlign: 'top', color: '#aaa' }}>{fmtClasses(it.classMask)}</td>
+                {showRaw && (
+                  <td style={{ whiteSpace: 'pre' }}>
+                    {it.bytes.map((b, i) => {
+                      const isZero = b === 0;
+                      const sep = (i + 1) % 16 === 0 ? '\n' : ' ';
+                      return (
+                        <span key={i} style={{ color: isZero ? '#444' : '#ddd' }}>
+                          {fmtByte(b)}{sep}
+                        </span>
+                      );
+                    })}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </section>

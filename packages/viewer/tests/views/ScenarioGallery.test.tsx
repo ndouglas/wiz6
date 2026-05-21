@@ -2,6 +2,17 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { ScenarioGallery } from '../../src/views/ScenarioGallery.js';
 
+const baseItemFields = {
+  price: 0,
+  hitBonus: 0,
+  damageDiceCount: 0,
+  damageDiceSides: 0,
+  spellOrSongId: 0,
+  weight: 0,
+  classMask: 0,
+  equipSlot: 0,
+};
+
 const validDb = {
   id: 'scenario',
   sourceFile: 'scenario.dbs',
@@ -11,9 +22,9 @@ const validDb = {
   })),
   itemCount: 3,
   items: [
-    { index: 0, name1: 'BROKEN ITEM', name2: '', bytes: Array(74).fill(0), empty: false },
-    { index: 1, name1: 'DAGGER', name2: 'DAGGERS', bytes: Array(74).fill(0).map((_, i) => i === 0 ? 0x44 : 0), empty: false },
-    { index: 2, name1: '', name2: '', bytes: Array(74).fill(0), empty: true },
+    { index: 0, name1: 'BROKEN ITEM', name2: '', bytes: Array(74).fill(0), empty: false, ...baseItemFields },
+    { index: 1, name1: 'DAGGER', name2: 'DAGGERS', bytes: Array(74).fill(0).map((_, i) => i === 0 ? 0x44 : 0), empty: false, ...baseItemFields, price: 15, damageDiceCount: 1, damageDiceSides: 4, weight: 10, classMask: 0x3fff },
+    { index: 2, name1: '', name2: '', bytes: Array(74).fill(0), empty: true, ...baseItemFields },
   ],
   unknownTail: [0xab, 0xcd],
 };
@@ -47,7 +58,7 @@ describe('ScenarioGallery', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(validDb), { status: 200 })));
     const { container } = render(<ScenarioGallery url="/scenario/scenario.json" />);
     await waitFor(() => {
-      expect(screen.getByText('DAGGER')).toBeInTheDocument();
+      expect(screen.getByText(/DAGGER/)).toBeInTheDocument();
     });
     const itemTable = container.querySelectorAll('table')[1];
     const rows = itemTable!.querySelectorAll('tbody tr');
@@ -58,7 +69,7 @@ describe('ScenarioGallery', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(validDb), { status: 200 })));
     const { container } = render(<ScenarioGallery url="/scenario/scenario.json" />);
     await waitFor(() => {
-      expect(screen.getByText('DAGGER')).toBeInTheDocument();
+      expect(screen.getByText(/DAGGER/)).toBeInTheDocument();
     });
     fireEvent.change(screen.getByPlaceholderText(/DAGGER \/ 42/i), { target: { value: 'dagger' } });
     await waitFor(() => {

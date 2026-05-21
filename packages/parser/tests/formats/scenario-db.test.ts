@@ -12,6 +12,11 @@ function writeU32LE(buf: Uint8Array, off: number, v: number): void {
   buf[off + 3] = (v >>> 24) & 0xff;
 }
 
+function writeU16LE(buf: Uint8Array, off: number, v: number): void {
+  buf[off] = v & 0xff;
+  buf[off + 1] = (v >>> 8) & 0xff;
+}
+
 function writeAscii(buf: Uint8Array, off: number, s: string): void {
   for (let i = 0; i < s.length; i++) buf[off + i] = s.charCodeAt(i);
 }
@@ -46,6 +51,50 @@ describe('decodeScenarioDb', () => {
     expect(db.items[0]?.name2).toBe('');
     expect(db.items[1]?.name1).toBe('DAGGER');
     expect(db.items[1]?.name2).toBe('DAGGERS');
+  });
+
+  it('confines name2 to the 16-byte name slot (does not read stat bytes as ASCII)', () => {
+    // A 15-char name1 exactly fills the slot with name1+null. The byte at
+    // offset 16 (first stat byte) must NOT be interpreted as the start of
+    // name2, even if it happens to be a printable ASCII character.
+    const bytes = new Uint8Array(MIN_SIZE);
+    writeAscii(bytes, 0x0380, 'BEARDED WAR AXE');
+    bytes[0x0380 + 16] = '2'.charCodeAt(0); // stat byte that looks like ASCII
+    const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
+    expect(db.items[0]?.name1).toBe('BEARDED WAR AXE');
+    expect(db.items[0]?.name2).toBe('');
+  });
+
+  it('parses item stat fields at fixed offsets', () => {
+    const bytes = new Uint8Array(MIN_SIZE);
+    writeAscii(bytes, 0x0380, 'LONGSWORD');
+    const base = 0x0380;
+    writeU16LE(bytes, base + 16, 60); // price 60g
+    bytes[base + 24] = 0; // hit bonus
+    bytes[base + 26] = 1; // damage dice count
+    bytes[base + 27] = 8; // damage dice sides → 1d8
+    writeU16LE(bytes, base + 28, 0); // not a scroll/instrument
+    bytes[base + 30] = 50; // weight 5.0 lb
+    writeU16LE(bytes, base + 54, 0x3fff); // all 14 classes allowed
+    bytes[base + 60] = 0; // slot 0 = main-hand weapon
+    const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
+    const it = db.items[0]!;
+    expect(it.price).toBe(60);
+    expect(it.damageDiceCount).toBe(1);
+    expect(it.damageDiceSides).toBe(8);
+    expect(it.weight).toBe(50);
+    expect(it.classMask).toBe(0x3fff);
+    expect(it.equipSlot).toBe(0);
+  });
+
+  it('reads scroll spellOrSongId as u16 LE at offset 28', () => {
+    const bytes = new Uint8Array(MIN_SIZE);
+    writeAscii(bytes, 0x0380, 'MAGIC MISSILE');
+    writeU16LE(bytes, 0x0380 + 28, 578);
+    bytes[0x0380 + 60] = 13; // slot 13 = scroll
+    const db = decodeScenarioDb(bytes, { id: 'scenario', sourceFile: 'scenario.dbs' });
+    expect(db.items[0]?.spellOrSongId).toBe(578);
+    expect(db.items[0]?.equipSlot).toBe(13);
   });
 
   it('marks all-zero item records as empty', () => {

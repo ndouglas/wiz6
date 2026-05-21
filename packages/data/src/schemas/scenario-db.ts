@@ -16,10 +16,18 @@ const itemBytes = z.array(z.number().int().min(0).max(255)).length(ITEM_RECORD_B
 
 export const ScenarioItemSchema = z.object({
   index: z.number().int().nonnegative(),
-  name1: z.string(),
-  name2: z.string(),
+  name1: z.string().max(15),
+  name2: z.string().max(15),
   bytes: itemBytes,
   empty: z.boolean(),
+  price: z.number().int().min(0).max(0xffff),
+  hitBonus: z.number().int().min(0).max(255),
+  damageDiceCount: z.number().int().min(0).max(255),
+  damageDiceSides: z.number().int().min(0).max(255),
+  spellOrSongId: z.number().int().min(0).max(0xffff),
+  weight: z.number().int().min(0).max(255),
+  classMask: z.number().int().min(0).max(0xffff),
+  equipSlot: z.number().int().min(0).max(255),
 });
 
 export const ScenarioDbSchema = z
