@@ -158,8 +158,20 @@ function decodeFixedString(slice: Uint8Array, start: number, length: number): st
  *                                   highly family-shared (RAT family 16/21/18,
  *                                   SPIRIT family 20/44/34, GIANT 14/26/24).
  *                                   Byte 147 varies slightly per variant.
- *                    Remaining fields (gold drop / byte 56, bytes 152/156,
- *                    individual attack-type IDs) are TBD — see Stage 1j.2.9.
+ *                      byte    56   goldStat        Scales with monster
+ *                                   strength. RAT 1, ZOMBIE 40, PIT FIEND
+ *                                   140, BANE KING 150. Likely gold drop
+ *                                   in tens-of-gold encoding.
+ *                      byte   152   specialAttackElement  damage-type enum.
+ *                                   1=fire (HELLCAT, PIT FIEND), 2=earth
+ *                                   (GUARDIAN=ROCK), 3=cold (COLD SLIME,
+ *                                   WHITE WYRM), 4=acid (RUBBER BEAST,
+ *                                   GOOP GLOOP), 5=disease (ZOMBIE family),
+ *                                   7=vampiric (BANE KING, DRACULA),
+ *                                   8=poison, 11=mental (BANSHEE, ghosts),
+ *                                   12=charm (SIREN).
+ *                    Remaining fields (byte 156, per-attack metadata bytes
+ *                    8/10-21) are TBD — see Stage 1j.2.10.
  *   0x2304E..end    unknownTail — 45,542 bytes, more tables. ASCII strings
  *                    suggest NPC/quest data ("SMITTY", "CAPTAIN MATEY").
  *
@@ -283,6 +295,8 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
         statSlice[146]!,
         statSlice[147]!,
       ],
+      goldStat: statSlice[56]!,
+      specialAttackElement: statSlice[152]!,
     });
   }
 

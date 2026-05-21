@@ -119,7 +119,9 @@ followed by 158 bytes of stat data:
 | 157         | `spriteGroup`          | medium-high | Sprite/animation group enum. 2 = small beast (48: RAT, BAT, GIANT SERPENT), 3 = vine (4), 4 = exotic plant (HYDRA PLANT, RUBBER BEAST), 6 = blob/humanoid-flexible (71: SLIME, AMAZULU types), 7 = large creature (16: GIANT, MINO-DAEMON), 14 = generic humanoid (34: ROGUE, BRIGAND), 15 = armored (8: DARK CRUSADER, VALKYRIE). |
 | 126         | `monsterAC`            | high        | Signed int8. Wiz6 AC convention (lower = better). Range -14 to +12. Normal monsters AC 4-8 (RAT 5, BAT 7, ZOMBIE 10, GIANT SERPENT 4). Tough monsters AC 2-3 (PIT FIEND 2, GIANT RAT 3). Legendary monsters get NEGATIVE AC: FAERIE SYLPH -4, FAERIE QUEEN / * B E L A * -6, * XORPHITUS * -2, WILL O' WISP -14 (nearly untouchable). |
 | 144..147    | `attributeSaves[4]`    | medium-high | 4 save-throw percentages, heavily family-shared with per-variant tweaks. RAT family 16/21/18/{14 or 18}; BAT family 16/18/19/{10 or 14}; SPIRIT-class undead 20/44/34/18 (high middle = good vs spell); GIANT family 14/26/24/{16 or 20}; LESSER DEMON family 21/12/15/{18 or 12}; WILL O' WISP 26/53/38/24. Likely correspond to (save vs Magic, save vs Mental/Spell, save vs Death/Para, save vs Breath) or similar 4-category save system. |
-| other       | TBD                    | —           | Dense positions still un-named: byte 56 (scales with XP non-linearly — likely gold drop with table encoding), bytes 152/156 (small enums). Stage 1j.2.9 to continue.                                                                                |
+| 56          | `goldStat`             | medium-high | Scales with monster strength. RAT 1 (= 10 gp), ZOMBIE 20 (200 gp), PIT FIEND 140 (1,400 gp), BANE KING / DRACULA 150 (1,500 gp), HELLCAT=FIRE 60 (600 gp). Best-fit interpretation: average gold drop in tens of gold pieces. Byte 57 is nearly always 0 (no high byte), so this is a one-byte field. |
+| 152         | `specialAttackElement` | high        | Damage-type / element enum: 1=fire (HELLCAT, PIT FIEND, HELLION), 2=earth (GUARDIAN=ROCK, ROCK=RUMBLE), 3=cold (COLD SLIME, WHITE WYRM, WEIRD), 4=acid (RUBBER BEAST, GOOP GLOOP, MAN O' WAR), 5=disease (ZOMBIE family — 7 members), 6=water (FLOATER, WATER DRAGON), 7=vampiric (BANE KING, DRACULA, REBECCA), 8=poison (DRAGONFLY, BLUE TAIL FLY, B E L A), 9=plant poison (FUMING VINE, HYDRA PLANT), 11=mental/scream (BANSHEE, SPECTRE, ghosts), 12=charm (SIREN family). |
+| other       | TBD                    | —           | Remaining unidentified positions: byte 156 (small enum), per-attack metadata bytes (8, 10-21 inside each 16-byte attack record). Stage 1j.2.10 to continue.                                                                                |
 
 **Attack record structure**: bytes 6..53 contain three 16-byte attack
 records at offsets 6, 22, 38. Each record holds (dice count, dice sides)
@@ -182,18 +184,18 @@ the *running scenario state*, not for the *scenario content file*.
 
 ## Future work
 
-- **Stage 1j.2.9**: continue cracking remaining monster stat fields.
-  Stages 1j.2.1–1j.2.8 nailed xpOnKill, HP/group/attack dice (all three
+- **Stage 1j.2.10**: continue cracking remaining monster stat fields.
+  Stages 1j.2.1–1j.2.9 nailed xpOnKill, HP/group/attack dice (all three
   attacks), per-attack special-effect chance %, monster class/subclass,
   save/effect tables, monster level, family ID, creatureKind, monsterSex,
-  moveStat, spriteGroup, monsterAC, and attributeSaves. Remaining leads:
-    - byte 56: scales with monster XP but with non-linear ratio (XP/b56
-      varies from 86 to 983). Possibly gold drop using a table-lookup
-      encoding rather than direct value.
-    - bytes 152, 156: small dense enums likely encoding more category info
-      (animation IDs, damage types, etc.).
+  moveStat, spriteGroup, monsterAC, attributeSaves, goldStat, and
+  specialAttackElement. Remaining leads:
+    - byte 156: small enum (0/1/2/5/8/10/11). 1=humanoid elites, 2=undead,
+      5=vampire bosses, 8=small flying/plant, 10=faerie ethereal, 11=
+      FAERIE QUEEN. Looks categorical but exact semantics unclear.
     - Per-attack metadata bytes (8, 10-21 inside each 16-byte attack record)
-      likely encode damage type (fire/cold/acid/poison) and special-effect ID.
+      likely encode damage type (fire/cold/acid/poison) per individual
+      attack and special-effect IDs.
 - **Stage 1j.3**: bind XP-table indices to character class names (probably
   resolvable by cross-reference with `newgame.dbs` records).
 - **Stage 1j.4**: identify AC for armor (no obvious field in the 74-byte

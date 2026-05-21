@@ -284,6 +284,8 @@ export function ScenarioGallery({ url }: Props) {
             <th style={{ width: '4em' }}>move</th>
             <th style={{ width: '4em', textAlign: 'right' }}>AC</th>
             <th style={{ width: '8em' }}>family</th>
+            <th style={{ width: '4em', textAlign: 'right' }}>gold</th>
+            <th style={{ width: '4em' }}>elem</th>
             <th style={{ width: '6em', textAlign: 'right' }}>XP</th>
             <th style={{ width: '5em' }}>HP</th>
             <th style={{ width: '10em' }}>attr saves</th>
@@ -332,6 +334,12 @@ export function ScenarioGallery({ url }: Props) {
                 </td>
                 <td style={{ verticalAlign: 'top', color: '#aaa' }}>
                   {m.familyId.some((v) => v !== 0) ? m.familyId.join(',') : '—'}
+                </td>
+                <td style={{ verticalAlign: 'top', textAlign: 'right', color: '#aaa' }}>
+                  {m.goldStat > 0 ? (m.goldStat * 10).toLocaleString() : '—'}
+                </td>
+                <td style={{ verticalAlign: 'top', color: '#aaa' }}>
+                  {m.specialAttackElement || '—'}
                 </td>
                 <td style={{ verticalAlign: 'top', textAlign: 'right' }}>
                   {m.xpOnKill > 0 ? m.xpOnKill.toLocaleString() : '—'}
