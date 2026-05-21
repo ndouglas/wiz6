@@ -89,6 +89,9 @@ export const ScenarioMonsterSchema = z.object({
   extendedSaves: z.array(z.number().int().min(0).max(255)).length(12),
   combatSpriteId: z.number().int().min(0).max(255),
   combatSpriteAlt: z.number().int().min(0).max(255),
+  secondarySpriteId: z.number().int().min(0).max(255),
+  magicResistChance: z.number().int().min(0).max(255),
+  combatTraitId: z.number().int().min(0).max(255),
 });
 
 export const ScenarioItemSchema = z.object({

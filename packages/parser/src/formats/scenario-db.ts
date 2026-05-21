@@ -350,6 +350,9 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       ],
       combatSpriteId: statSlice[98]!,
       combatSpriteAlt: statSlice[99]!,
+      secondarySpriteId: statSlice[100]!,
+      magicResistChance: statSlice[102]!,
+      combatTraitId: statSlice[112]!,
     });
   }
 
