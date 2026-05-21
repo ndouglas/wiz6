@@ -334,6 +334,12 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       attack3HpDrainChance: statSlice[40]!,
       attack3AgeChance: statSlice[43]!,
       attack3DecapitateChance: statSlice[46]!,
+      attack1Style: statSlice[17]!,
+      attack1DamageBonus: statSlice[20]!,
+      attack2Style: statSlice[33]!,
+      attack2DamageBonus: statSlice[36]!,
+      attack3Style: statSlice[49]!,
+      attack3DamageBonus: statSlice[52]!,
     });
   }
 
