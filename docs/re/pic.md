@@ -12,11 +12,11 @@ visualization / DOSBox-X cross-check is needed before writing decoder code.
 
 59 monster sprite files plus one full-screen image:
 
-| File path             | Count | Size range       |
-| --------------------- | ----- | ---------------- |
-| `original/mon00.pic`  | 1     | 1 166 B          |
-| `original/mon01.pic` … `mon58.pic` | 58 | 2 060 B (`mon06`) → 26 099 B (`mon50`) |
-| `original/credits.pic` | 1    | 20 906 B         |
+| File path                          | Count | Size range                             |
+| ---------------------------------- | ----- | -------------------------------------- |
+| `original/mon00.pic`               | 1     | 1 166 B                                |
+| `original/mon01.pic` … `mon58.pic` | 58    | 2 060 B (`mon06`) → 26 099 B (`mon50`) |
+| `original/credits.pic`             | 1     | 20 906 B                               |
 
 No size is a multiple of any obvious page size (no 4 KB / 8 KB / 32 KB
 boundaries), so the format is **fully byte-packed RLE** with no fixed-size
@@ -93,14 +93,14 @@ This decoder cleanly tokenises every byte of `mon00..mon58.pic` and
 If we count the total emitted slot count between consecutive `END`s as a "row
 width", the dominant decoded widths in typical monster files are:
 
-| File          | Top decoded row widths (in slots)                |
-| ------------- | ------------------------------------------------ |
-| `mon00.pic`   | 24 ×16, 16 ×8, 6 ×5, 32 ×2, then chaos           |
-| `mon01.pic`   | 24 ×24, plus long-tail of mixed widths           |
-| `mon02.pic`   | 24 ×15, 32 ×6, 25/31 ×4, ...                     |
-| `mon05.pic`   | 24 ×23, then 48, 1872, 483, 2716, 8 (one each)   |
-| `mon13.pic`   | 8 ×30, 24 ×17, 9 ×15, 16 ×8, 17 ×6, 26 ×5        |
-| `credits.pic` | 16 ×91, 8 ×75, 32 ×73, 9 ×37, 18 ×37, 17 ×27     |
+| File          | Top decoded row widths (in slots)              |
+| ------------- | ---------------------------------------------- |
+| `mon00.pic`   | 24 ×16, 16 ×8, 6 ×5, 32 ×2, then chaos         |
+| `mon01.pic`   | 24 ×24, plus long-tail of mixed widths         |
+| `mon02.pic`   | 24 ×15, 32 ×6, 25/31 ×4, ...                   |
+| `mon05.pic`   | 24 ×23, then 48, 1872, 483, 2716, 8 (one each) |
+| `mon13.pic`   | 8 ×30, 24 ×17, 9 ×15, 16 ×8, 17 ×6, 26 ×5      |
+| `credits.pic` | 16 ×91, 8 ×75, 32 ×73, 9 ×37, 18 ×37, 17 ×27   |
 
 The dominant value `24` is striking. **A 24-slot "row" appears to be a
 fundamental packing unit** for monster sprites, possibly representing one
@@ -122,17 +122,17 @@ structure:
 
 Concrete examples (all from offset 0 of the respective file):
 
-| File       | Op           | pos_lo pos_hi | W H    | Trailing pixel-payload bytes              |
-| ---------- | ------------ | ------------- | ------ | ----------------------------------------- |
-| `mon00.pic`| `L2 S3 L1`   | `58 02`       | (n/a)  | (no W/H; this is an outlier — see below)  |
-| `mon01.pic`| `L6 S18`     | `58 02`       | `03 05`| `ff 7f`                                   |
-| `mon02.pic`| `L9 S15`     | `58 02`       | `07 06`| `ff 9f ef e7 e3`                          |
-| `mon03.pic`| `L6 S18`     | `58 02`       | `04 03`| `ff 0f`                                   |
-| `mon04.pic`| `L5 S19`     | `58 02`       | `03 03`| `bf`                                      |
-| `mon05.pic`| `L5 S19`     | `58 02`       | `02 01`| `03`                                      |
-| `mon13.pic`| `L21 S3`     | `58 02`       | `0b 0c`| `00 80 03 3f f8 81 1f 7c e0 03 1f f8 c0 07 7f f0 01` |
-| `mon32.pic`| `L6 S18`     | `58 02`       | `03 04`| `fb 03`                                   |
-| `mon50.pic`| `L31 S5 S1 L24 ...` | `58 02`| `0d 0c`| `f7 ff df ff 7f ff 87 3f c0 01 7c c0 4f fe cf ff f9 3f f8 00` (27 bytes) |
+| File        | Op                  | pos_lo pos_hi | W H     | Trailing pixel-payload bytes                                             |
+| ----------- | ------------------- | ------------- | ------- | ------------------------------------------------------------------------ |
+| `mon00.pic` | `L2 S3 L1`          | `58 02`       | (n/a)   | (no W/H; this is an outlier — see below)                                 |
+| `mon01.pic` | `L6 S18`            | `58 02`       | `03 05` | `ff 7f`                                                                  |
+| `mon02.pic` | `L9 S15`            | `58 02`       | `07 06` | `ff 9f ef e7 e3`                                                         |
+| `mon03.pic` | `L6 S18`            | `58 02`       | `04 03` | `ff 0f`                                                                  |
+| `mon04.pic` | `L5 S19`            | `58 02`       | `03 03` | `bf`                                                                     |
+| `mon05.pic` | `L5 S19`            | `58 02`       | `02 01` | `03`                                                                     |
+| `mon13.pic` | `L21 S3`            | `58 02`       | `0b 0c` | `00 80 03 3f f8 81 1f 7c e0 03 1f f8 c0 07 7f f0 01`                     |
+| `mon32.pic` | `L6 S18`            | `58 02`       | `03 04` | `fb 03`                                                                  |
+| `mon50.pic` | `L31 S5 S1 L24 ...` | `58 02`       | `0d 0c` | `f7 ff df ff 7f ff 87 3f c0 01 7c c0 4f fe cf ff f9 3f f8 00` (27 bytes) |
 
 Key observations:
 
@@ -187,15 +187,15 @@ Raw hex:
 
 Decoded record-by-record:
 
-| Off    | Bytes                  | Tokens             | Decoded contents                                                        |
-| ------ | ---------------------- | ------------------ | ----------------------------------------------------------------------- |
+| Off    | Bytes                          | Tokens              | Decoded contents                                                                               |
+| ------ | ------------------------------ | ------------------- | ---------------------------------------------------------------------------------------------- |
 | 0x0000 | `06 58 02 03 05 ff 7f` `ee 00` | LIT(6) SKIP(18) END | sub-sprite at VRAM offset `0x0258`, W=3, H=5, payload `ff 7f`; then 18 transparent slots ; END |
-| 0x0009 | `06 38 04 03 05 ff 7f` `ee 00` | LIT(6) SKIP(18) END | sub-sprite at `0x0438`, W=3, H=5, payload `ff 7f` |
-| 0x0012 | `05 18 06 02 03 3f`    `ed 00` | LIT(5) SKIP(19) END | sub-sprite at `0x0618`, W=2, H=3, payload `3f`     |
-| 0x001A | `05 d8 06 02 03 3f`    `ed 00` | LIT(5) SKIP(19) END | sub-sprite at `0x06d8`, W=2, H=3, payload `3f`     |
-| 0x0022 | `05 98 07 01 02 03`    `ed 00` | LIT(5) SKIP(19) END | sub-sprite at `0x0798`, W=1, H=2, payload `03`     |
-| 0x002A | `05 d8 07 01 02 03`    `ed 00` | LIT(5) SKIP(19) END | sub-sprite at `0x07d8`, W=1, H=2, payload `03`     |
-| 0x0032 | `06 18 08 03 05 ff 7f` `ee 00` | LIT(6) SKIP(18) END | sub-sprite at `0x0818`, W=3, H=5, payload `ff 7f`  |
+| 0x0009 | `06 38 04 03 05 ff 7f` `ee 00` | LIT(6) SKIP(18) END | sub-sprite at `0x0438`, W=3, H=5, payload `ff 7f`                                              |
+| 0x0012 | `05 18 06 02 03 3f`    `ed 00` | LIT(5) SKIP(19) END | sub-sprite at `0x0618`, W=2, H=3, payload `3f`                                                 |
+| 0x001A | `05 d8 06 02 03 3f`    `ed 00` | LIT(5) SKIP(19) END | sub-sprite at `0x06d8`, W=2, H=3, payload `3f`                                                 |
+| 0x0022 | `05 98 07 01 02 03`    `ed 00` | LIT(5) SKIP(19) END | sub-sprite at `0x0798`, W=1, H=2, payload `03`                                                 |
+| 0x002A | `05 d8 07 01 02 03`    `ed 00` | LIT(5) SKIP(19) END | sub-sprite at `0x07d8`, W=1, H=2, payload `03`                                                 |
+| 0x0032 | `06 18 08 03 05 ff 7f` `ee 00` | LIT(6) SKIP(18) END | sub-sprite at `0x0818`, W=3, H=5, payload `ff 7f`                                              |
 
 Each record is **9 bytes** (or 8 for the smaller W×H ones), consisting of 1
 length byte + 4 inline-header bytes + N payload bytes + 1 skip-opcode + 1
@@ -343,26 +343,26 @@ For each failing file, the table lists the file size, the position where the
 decoder gives up, the opcode it tried to read there, the previous 8 bytes,
 and how many records it had successfully closed before the failure:
 
-| File          | Size   | Fail at | Op    | Records before | From EOF | Prev 8 bytes              |
-| ------------- | ------ | ------- | ----- | -------------- | -------- | ------------------------- |
-| credits.pic   | 20 906 | 20 837  | 0x60  | 608            | 69       | `70 ff 24 04 04 84 00 20` |
-| mon01.pic     |  4 469 |  4 384  | 0x78  | 84             | 85       | `07 ef df ff 98 f9 3a 38` |
-| mon02.pic     |  8 973 |  8 870  | 0x6a  | 71             | 103      | `00 01 00 01 00 01 00 00` |
-| mon05.pic     |  2 184 |  2 166  | 0x43  | 28             | 18       | `ff 03 07 fc 0f 09 8f ff` |
-| mon12.pic     | 10 494 | 10 478  | 0x3f  | 99             | 16       | `ff 02 7f 3f fa ff 02 7f` |
-| mon25.pic     | 11 047 | 11 040  | 0x7f  | 87             | 7        | `2f 1f 47 c3 f7 07 ff bf` |
-| mon26.pic     | 15 374 | 15 261  | 0x7f  | 198            | 113      | `f9 ff ff 7f 6f 5f bf fd` |
-| mon35.pic     | 14 877 | 14 853  | 0x7f  | 181            | 24       | `7f bf 2f 07 0f cf ff ff` |
-| mon42.pic     | 11 471 | 11 429  | 0x4d  | 46             | 42       | `40 52 2d 28 20 0d 02 07` |
-| mon43.pic     | 14 728 | 14 716  | 0x13  | 88             | 12       | `03 fb ff fd 03 fb ff 03` |
-| mon44.pic     |  9 967 |  9 928  | 0x7f  | 183            | 39       | `fa ff 02 7f 7f fa ff 02` |
-| mon45.pic     | 19 752 | 19 722  | 0x1f  | 372            | 30       | `06 ff 83 01 ff 3f 3f fd` |
-| mon47.pic     | 21 350 | 21 326  | 0x7f  | 239            | 24       | `7d 7f 7f fc ff 01 00 fd` |
-| mon48.pic     | 15 679 | 15 561  | 0x7f  | 594            | 118      | `0f 02 1f 1f fb 0f 02 df` |
-| mon49.pic     | 11 168 | 11 128  | 0x5e  | 142            | 40       | `1c 23 00 00 f8 ff ff dd` |
-| mon51.pic     |  9 841 |  9 811  | 0x1f  | 117            | 30       | `fb bf ff c3 03 1f 5f 1f` |
-| mon54.pic     | 22 762 | 22 683  | 0x7f  | 484            | 79       | `fa ff 02 7f bf fc ff 04` |
-| mon57.pic     |  6 472 |  6 445  | 0x3f  | 184            | 27       | `e8 f4 fa fd fe ff 7f fc` |
+| File        | Size   | Fail at | Op   | Records before | From EOF | Prev 8 bytes              |
+| ----------- | ------ | ------- | ---- | -------------- | -------- | ------------------------- |
+| credits.pic | 20 906 | 20 837  | 0x60 | 608            | 69       | `70 ff 24 04 04 84 00 20` |
+| mon01.pic   | 4 469  | 4 384   | 0x78 | 84             | 85       | `07 ef df ff 98 f9 3a 38` |
+| mon02.pic   | 8 973  | 8 870   | 0x6a | 71             | 103      | `00 01 00 01 00 01 00 00` |
+| mon05.pic   | 2 184  | 2 166   | 0x43 | 28             | 18       | `ff 03 07 fc 0f 09 8f ff` |
+| mon12.pic   | 10 494 | 10 478  | 0x3f | 99             | 16       | `ff 02 7f 3f fa ff 02 7f` |
+| mon25.pic   | 11 047 | 11 040  | 0x7f | 87             | 7        | `2f 1f 47 c3 f7 07 ff bf` |
+| mon26.pic   | 15 374 | 15 261  | 0x7f | 198            | 113      | `f9 ff ff 7f 6f 5f bf fd` |
+| mon35.pic   | 14 877 | 14 853  | 0x7f | 181            | 24       | `7f bf 2f 07 0f cf ff ff` |
+| mon42.pic   | 11 471 | 11 429  | 0x4d | 46             | 42       | `40 52 2d 28 20 0d 02 07` |
+| mon43.pic   | 14 728 | 14 716  | 0x13 | 88             | 12       | `03 fb ff fd 03 fb ff 03` |
+| mon44.pic   | 9 967  | 9 928   | 0x7f | 183            | 39       | `fa ff 02 7f 7f fa ff 02` |
+| mon45.pic   | 19 752 | 19 722  | 0x1f | 372            | 30       | `06 ff 83 01 ff 3f 3f fd` |
+| mon47.pic   | 21 350 | 21 326  | 0x7f | 239            | 24       | `7d 7f 7f fc ff 01 00 fd` |
+| mon48.pic   | 15 679 | 15 561  | 0x7f | 594            | 118      | `0f 02 1f 1f fb 0f 02 df` |
+| mon49.pic   | 11 168 | 11 128  | 0x5e | 142            | 40       | `1c 23 00 00 f8 ff ff dd` |
+| mon51.pic   | 9 841  | 9 811   | 0x1f | 117            | 30       | `fb bf ff c3 03 1f 5f 1f` |
+| mon54.pic   | 22 762 | 22 683  | 0x7f | 484            | 79       | `fa ff 02 7f bf fc ff 04` |
+| mon57.pic   | 6 472  | 6 445   | 0x3f | 184            | 27       | `e8 f4 fa fd fe ff 7f fc` |
 
 Key observations:
 
@@ -382,18 +382,18 @@ Key observations:
 (Test harness: `/tmp/pic-hyp*.mjs`, `/tmp/pic-stop-at-60-7f.mjs`,
 `/tmp/pic-rle-hyp.mjs`, `/tmp/pic-implicit-end.mjs` — none committed.)
 
-| Hypothesis                                                              | Files OK / 60 | Conclusion |
-| ----------------------------------------------------------------------- | ------------- | ---------- |
-| (baseline) `op<0x80 ⇒ LIT(op)`                                          | 42            | reference  |
-| `op<0x60 ⇒ LIT(op)`, `0x60..0x7f` is no-op                              | 51            | partial    |
-| `op<0x60 ⇒ LIT(op)`, `0x60..0x7f` ends current record                   | 51            | partial    |
-| `op<0x70 ⇒ LIT(op)`, `0x70..0x7f` is LIT(op-runMin+1) of next byte (RLE)| 48            | no         |
-| `0x80` as stream-terminator (return cleanly)                            | 60 *          | **false**  |
-| `op<0x60 ⇒ LIT(op)`, `0x60..0x7f` as stream-terminator                  | 60 *          | **false**  |
-| Implicit record-end at N=24/32/48/64/128 slots                          | 42            | no         |
-| `op<0x80 ⇒ LIT(op & 0x3f)` (mask off bit 6)                             | 46            | partial    |
-| `op==0x80` is LIT_LONG (next byte is real length)                       | 40            | no         |
-| `op<0x40 ⇒ LIT(op)`, `0x40..0x7f` various                               | 49            | no         |
+| Hypothesis                                                               | Files OK / 60 | Conclusion |
+| ------------------------------------------------------------------------ | ------------- | ---------- |
+| (baseline) `op<0x80 ⇒ LIT(op)`                                           | 42            | reference  |
+| `op<0x60 ⇒ LIT(op)`, `0x60..0x7f` is no-op                               | 51            | partial    |
+| `op<0x60 ⇒ LIT(op)`, `0x60..0x7f` ends current record                    | 51            | partial    |
+| `op<0x70 ⇒ LIT(op)`, `0x70..0x7f` is LIT(op-runMin+1) of next byte (RLE) | 48            | no         |
+| `0x80` as stream-terminator (return cleanly)                             | 60 *          | **false**  |
+| `op<0x60 ⇒ LIT(op)`, `0x60..0x7f` as stream-terminator                   | 60 *          | **false**  |
+| Implicit record-end at N=24/32/48/64/128 slots                           | 42            | no         |
+| `op<0x80 ⇒ LIT(op & 0x3f)` (mask off bit 6)                              | 46            | partial    |
+| `op==0x80` is LIT_LONG (next byte is real length)                        | 40            | no         |
+| `op<0x40 ⇒ LIT(op)`, `0x40..0x7f` various                                | 49            | no         |
 
 (*) The "0x80 is terminator" and "0x60..0x7f is terminator" hypotheses
 both reach 60/60 but only because they stop the decoder very early — often
@@ -491,25 +491,25 @@ budgets (`W*H`, `W`, `H`, `W+H`, etc., or a fixed constant) gives a clean
 All rules use the documented opcode set (`op==0 ⇒ END`, `op<0x80 ⇒ LIT(op)`,
 `op>=0x80 ⇒ SKIP(256-op)`). The variation is how LIT counts are capped.
 
-| Rule                                            | Files OK / 60 | Notes |
-| ----------------------------------------------- | ------------- | ----- |
-| (baseline) LIT(op) consumes exactly `op` bytes | 42            | reference; the 18 failures are documented above |
-| Fixed budget = 24 (LIT+SKIP slots per record)  | 57            | partial; degenerates inside large records |
-| Fixed budget = 16                              | 60 *          | **false positive** (see below) |
-| Fixed budget = 8                               | 60 *          | **false positive** |
-| Fixed budget = 4                               | 60 *          | **false positive** |
-| Fixed budget = 17 (LIT+SKIP slots per record)  | 60 *          | **false positive** |
-| Fixed budget = 32                              | 56            | partial |
-| Fixed budget = 40                              | 58            | partial |
-| LIT-only budget = 16                           | 60 *          | **false positive** |
-| LIT-only budget = 32                           | 59            | nearly passes but desyncs |
-| Budget = W·H (from first LIT's header)         | 41            | worse than baseline |
-| Budget = W                                      | 48            | partial |
-| Budget = H                                      | 47            | partial |
-| Budget = W+H                                    | 43            | partial |
-| Budget = W·H·2                                  | 42            | partial |
-| LIT-only Budget = W·H                          | 41            | partial |
-| LIT-only Budget = W                             | 44            | partial |
+| Rule                                           | Files OK / 60 | Notes                                                                 |
+| ---------------------------------------------- | ------------- | --------------------------------------------------------------------- |
+| (baseline) LIT(op) consumes exactly `op` bytes | 42            | reference; the 18 failures are documented above                       |
+| Fixed budget = 24 (LIT+SKIP slots per record)  | 57            | partial; degenerates inside large records                             |
+| Fixed budget = 16                              | 60 *          | **false positive** (see below)                                        |
+| Fixed budget = 8                               | 60 *          | **false positive**                                                    |
+| Fixed budget = 4                               | 60 *          | **false positive**                                                    |
+| Fixed budget = 17 (LIT+SKIP slots per record)  | 60 *          | **false positive**                                                    |
+| Fixed budget = 32                              | 56            | partial                                                               |
+| Fixed budget = 40                              | 58            | partial                                                               |
+| LIT-only budget = 16                           | 60 *          | **false positive**                                                    |
+| LIT-only budget = 32                           | 59            | nearly passes but desyncs                                             |
+| Budget = W·H (from first LIT's header)         | 41            | worse than baseline                                                   |
+| Budget = W                                     | 48            | partial                                                               |
+| Budget = H                                     | 47            | partial                                                               |
+| Budget = W+H                                   | 43            | partial                                                               |
+| Budget = W·H·2                                 | 42            | partial                                                               |
+| LIT-only Budget = W·H                          | 41            | partial                                                               |
+| LIT-only Budget = W                            | 44            | partial                                                               |
 | **"LIT may be truncated by EOF" only**         | **60**        | **clean win — exactly the 18 known files have a truncated final LIT** |
 
 ### Why the "60/60" small-budget passes are false positives
@@ -666,12 +666,12 @@ The four drivers contain byte-identical copies of the decoder. The EGA copy
 is at file offset `0x1C25` (function entry) with the inner decode loop at
 `0x1C6C..0x1C8B`. Equivalent offsets:
 
-| Driver       | Function entry | Decode loop |
-| ------------ | -------------- | ----------- |
-| `ega.drv`    | `0x1C25`       | `0x1C6C`    |
-| `cga.drv`    | (above 0x150D) | `0x151B`    |
-| `herc.drv`   | (above 0x16FB) | `0x1707`    |
-| `tandy.drv`  | (above 0x199F) | `0x19A1`    |
+| Driver      | Function entry | Decode loop |
+| ----------- | -------------- | ----------- |
+| `ega.drv`   | `0x1C25`       | `0x1C6C`    |
+| `cga.drv`   | (above 0x150D) | `0x151B`    |
+| `herc.drv`  | (above 0x16FB) | `0x1707`    |
+| `tandy.drv` | (above 0x199F) | `0x19A1`    |
 
 ### The decoder loop — EGA disassembly
 
@@ -783,12 +783,12 @@ else:                                  ; 0x80..0xFF
 
 After running the corrected decoder over all 60 files:
 
-| Segment count | Files |
-| ------------- | ----- |
-| 1             | 44    |
-| 2             | 10    |
-| 3             | 5     |
-| 4             | 1     |
+| Segment count | Files  |
+| ------------- | ------ |
+| 1             | 44     |
+| 2             | 10     |
+| 3             | 5      |
+| 4             | 1      |
 | **Total**     | **60** |
 
 Multi-segment files and their segment sizes (decoded-output bytes):
@@ -976,12 +976,12 @@ mon05.pic, which has 24 real descriptors + 1 zero terminator).
 
 ### Descriptor format (24 bytes)
 
-| Offset | Size  | Field   | Meaning                                                |
-| ------ | ----- | ------- | ------------------------------------------------------ |
-| 0      | u16LE | `pos`   | Byte offset into the SAME decoded buffer where this descriptor's cell run starts |
-| 2      | u8    | `W`     | Width in 8-pixel cells (so sprite is `W*8` pixels wide)|
-| 3      | u8    | `H`     | Height in 8-pixel cells (so sprite is `H*8` pixels tall)|
-| 4..23  | 20B   | `mask`  | Up to 20 mask bytes; `W*H` bits total, LSB-first, packed across rows |
+| Offset | Size  | Field  | Meaning                                                                          |
+| ------ | ----- | ------ | -------------------------------------------------------------------------------- |
+| 0      | u16LE | `pos`  | Byte offset into the SAME decoded buffer where this descriptor's cell run starts |
+| 2      | u8    | `W`    | Width in 8-pixel cells (so sprite is `W*8` pixels wide)                          |
+| 3      | u8    | `H`    | Height in 8-pixel cells (so sprite is `H*8` pixels tall)                         |
+| 4..23  | 20B   | `mask` | Up to 20 mask bytes; `W*H` bits total, LSB-first, packed across rows             |
 
 The 20-byte mask field accommodates up to `W*H = 160` cells per sprite
 (actual cell count = `ceil(W*H/8)` bytes of real mask; the rest is padding).
@@ -1134,16 +1134,16 @@ to EGA memory at `0xA000`.
 
 ### Units summary
 
-| Field                            | Unit                                      |
-| -------------------------------- | ----------------------------------------- |
-| Descriptor `pos`                 | Byte offset into the decoded sprite buffer |
-| Descriptor `W`                   | 8-pixel cells (so sprite is `W*8` pixels wide) |
-| Descriptor `H`                   | 8-pixel cells (so sprite is `H*8` pixels tall) |
-| Mask bit at row `r`, col `c`     | LSB-first index `r*W + c` into the mask byte stream |
-| Cell pixel data                  | 32 bytes per cell, 4 planes × 8 rows × 1 byte |
-| In-byte pixel order              | MSB of each plane byte = leftmost pixel |
-| Transparent color                | 0xF (15) — all 4 planes = 1               |
-| Palette                          | Standard hardware EGA 16-color (no custom palette loaded by driver) |
+| Field                        | Unit                                                                |
+| ---------------------------- | ------------------------------------------------------------------- |
+| Descriptor `pos`             | Byte offset into the decoded sprite buffer                          |
+| Descriptor `W`               | 8-pixel cells (so sprite is `W*8` pixels wide)                      |
+| Descriptor `H`               | 8-pixel cells (so sprite is `H*8` pixels tall)                      |
+| Mask bit at row `r`, col `c` | LSB-first index `r*W + c` into the mask byte stream                 |
+| Cell pixel data              | 32 bytes per cell, 4 planes × 8 rows × 1 byte                       |
+| In-byte pixel order          | MSB of each plane byte = leftmost pixel                             |
+| Transparent color            | 0xF (15) — all 4 planes = 1                                         |
+| Palette                      | Standard hardware EGA 16-color (no custom palette loaded by driver) |
 
 ### `renderSegment` reference pseudocode
 

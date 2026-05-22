@@ -15,12 +15,12 @@ The byte at offset 145 of each 158-byte monster record in `scenario.dbs` IS the 
 Three dynamic-debugging encounters in DOSBox-X (INT 21h ah=0x3D logging via `tools/dosbox/wiz6.conf`):
 
 | Encounter | File opened | Monster row | `statBytes[145]` |
-|-----------|------------|-------------|------------------|
-| 4 rogues  | `MON22.PIC` | m8 ROGUE    | 22 ✓ |
-| 3 rogues  | `MON22.PIC` | m8 ROGUE    | 22 ✓ |
-| 1 rat     | `MON21.PIC` | m0 RAT      | 21 ✓ |
-| 2 rats    | `MON21.PIC` | m0 RAT      | 21 ✓ |
-| 1 bat     | `MON18.PIC` | m2 BAT      | 18 ✓ |
+| --------- | ----------- | ----------- | ---------------- |
+| 4 rogues  | `MON22.PIC` | m8 ROGUE    | 22 ✓             |
+| 3 rogues  | `MON22.PIC` | m8 ROGUE    | 22 ✓             |
+| 1 rat     | `MON21.PIC` | m0 RAT      | 21 ✓             |
+| 2 rats    | `MON21.PIC` | m0 RAT      | 21 ✓             |
+| 1 bat     | `MON18.PIC` | m2 BAT      | 18 ✓             |
 
 Byte 145 is the unique offset where (rat=21, bat=18, rogue=22) all hold simultaneously across all 158 bytes.
 

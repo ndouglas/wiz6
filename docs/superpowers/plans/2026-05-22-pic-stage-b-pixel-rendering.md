@@ -1734,9 +1734,13 @@ EOF
 
 ---
 
-## Task 7: Smoke + deploy
+## Task 7: Smoke + deploy — COMPLETE
 
-- [ ] **Step 1: Full tests + typecheck + build**
+Merge commit: `6867c1cca6d681e9338661bec1ad0bc448a6c0f3`
+Image tag: `sha-6867c1cca6d681e9338661bec1ad0bc448a6c0f3`
+Gitops commit: `9f975b64d051f2329842ff6f464a0dc10ae58869`
+
+- [x] **Step 1: Full tests + typecheck + build**
 
 ```bash
 cd ~/.config/superpowers/worktrees/wiz6/stage-pic-b
@@ -1747,7 +1751,7 @@ pnpm -r build 2>&1 | tail -5
 
 All green.
 
-- [ ] **Step 2: Merge to main**
+- [x] **Step 2: Merge to main**
 
 ```bash
 cd ~/Projects/ndouglas/wiz6
@@ -1779,7 +1783,7 @@ git worktree prune
 git branch -d stage-pic-b
 ```
 
-- [ ] **Step 3: Watch GH Actions build**
+- [x] **Step 3: Watch GH Actions build**
 
 ```bash
 sleep 10
@@ -1790,7 +1794,7 @@ SHORT="${NEW_SHA:0:7}"
 echo "new image tag candidate: sha-$NEW_SHA (short: sha-$SHORT)"
 ```
 
-- [ ] **Step 4: Bump goldentooth + reconcile**
+- [x] **Step 4: Bump goldentooth + reconcile**
 
 ```bash
 cd ~/Projects/goldentooth/gitops
@@ -1810,7 +1814,7 @@ sleep 5
 kubectl rollout status deployment/wiz6 -n wiz6 --timeout=2m 2>&1 | tail -3
 ```
 
-- [ ] **Step 5: Curl-verify the live site**
+- [x] **Step 5: Curl-verify the live site**
 
 ```bash
 curl -fsSk -o /dev/null -w "/pics:            %{http_code}\n" https://wiz6.goldentooth.net/pics
@@ -1822,7 +1826,7 @@ curl -fsSk https://wiz6.goldentooth.net/pics/mon22.json | python3 -c "import jso
 
 Expected: all 200s; mon22 has descriptors with the right shape.
 
-- [ ] **Step 6: Open the site for a visual check**
+- [x] **Step 6: Open the site for a visual check** (deferred to user for visual confirmation; all 6 curl checks returned HTTP 200)
 
 `https://wiz6.goldentooth.net/pics` should show a wall of 60 monster sprite thumbnails.
 `https://wiz6.goldentooth.net/monsters/0` should show the RAT with its sprite (mon21).
