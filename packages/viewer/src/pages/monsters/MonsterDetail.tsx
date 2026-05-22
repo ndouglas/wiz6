@@ -40,6 +40,27 @@ export function MonsterDetail({ monster, allMonsters }: MonsterDetailProps) {
           {monster.nameUnidSingular ? <span>{monster.nameUnidSingular}</span> : null}
           {monster.nameUnidPlural ? <span>{monster.nameUnidPlural}</span> : null}
         </div>
+        <div className={styles.actions}>
+          <button
+            type="button"
+            className={styles.actionBtn}
+            onClick={() => {
+              const hex = monster.statBytes.map((b) => b.toString(16).padStart(2, '0')).join(' ');
+              void navigator.clipboard.writeText(hex);
+            }}
+          >
+            Copy raw bytes hex
+          </button>
+          <button
+            type="button"
+            className={styles.actionBtn}
+            onClick={() => {
+              void navigator.clipboard.writeText(JSON.stringify(monster, null, 2));
+            }}
+          >
+            Copy as JSON
+          </button>
+        </div>
       </header>
 
       <div className={styles.tabBar} role="tablist">
