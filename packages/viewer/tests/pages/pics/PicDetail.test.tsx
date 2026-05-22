@@ -103,4 +103,13 @@ describe('PicDetail', () => {
       expect(screen.getByText(/58 02 03 05/i)).toBeInTheDocument();
     });
   });
+
+  it('renders a canvas per descriptor in the sprites gallery', async () => {
+    renderDetail();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 2, name: /Sprites \(1\)/i })).toBeInTheDocument();
+    });
+    const canvases = document.querySelectorAll('canvas');
+    expect(canvases.length).toBeGreaterThanOrEqual(1);
+  });
 });
