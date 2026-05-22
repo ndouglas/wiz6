@@ -63,6 +63,8 @@ export function MonsterFilters({ values }: MonsterFiltersProps) {
   const [sort, setSort] = useUrlState('sort');
   const [dir, setDir] = useUrlState('dir');
   const [empty, setEmpty] = useUrlState('empty');
+  const [view, setView] = useUrlState('view');
+  const isFamilies = view === 'families';
   const navigate = useNavigate();
   const [compareIds] = useUrlState.list('ids');
 
@@ -124,6 +126,14 @@ export function MonsterFilters({ values }: MonsterFiltersProps) {
             onChange={(e) => setEmpty(e.target.checked ? '1' : null)}
           />
           include empty slots
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={isFamilies}
+            onChange={(e) => setView(e.target.checked ? 'families' : null)}
+          />
+          group by family
         </label>
       </div>
 

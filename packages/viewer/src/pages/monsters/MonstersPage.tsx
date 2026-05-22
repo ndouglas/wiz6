@@ -16,6 +16,7 @@ import {
 } from '@wiz6/parser';
 import { MonsterFilters } from './MonsterFilters.js';
 import { MonsterList } from './MonsterList.js';
+import { MonsterListFamilies } from './MonsterListFamilies.js';
 import { MonsterDetail } from './MonsterDetail.js';
 import { KeyboardHelp } from './KeyboardHelp.js';
 import { CompareView } from './CompareView.js';
@@ -34,6 +35,7 @@ function MonstersPageInner() {
   const [sort] = useUrlState('sort');
   const [dir] = useUrlState('dir');
   const [empty] = useUrlState('empty');
+  const [viewMode] = useUrlState('view');
   const [classes] = useUrlState.list('class');
   const [elements] = useUrlState.list('element');
   const [families] = useUrlState.list('family');
@@ -118,7 +120,11 @@ function MonstersPageInner() {
       <div className={styles.page}>
         <section className={styles.list} aria-label="monster list">
           <MonsterFilters values={filterValues} />
-          <MonsterList monsters={filtered} totalFilled={totalFilled} />
+          {viewMode === 'families' ? (
+            <MonsterListFamilies monsters={filtered} totalFilled={totalFilled} />
+          ) : (
+            <MonsterList monsters={filtered} totalFilled={totalFilled} />
+          )}
         </section>
         <section className={styles.detail} aria-label="monster detail">
           {isCompareMode ? (
