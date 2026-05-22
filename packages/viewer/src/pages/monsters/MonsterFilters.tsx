@@ -87,7 +87,7 @@ export function MonsterFilters({ values }: MonsterFiltersProps) {
         <div style={{ marginTop: 'var(--space-1)' }}>
           <button
             type="button"
-            onClick={() => navigate(`/monsters/compare?ids=${compareIds.join(',')}`)}
+            onClick={() => navigate(`/explore/monsters/compare?ids=${compareIds.join(',')}`)}
             className={styles.dirButton}
           >
             Compare ({compareIds.length})

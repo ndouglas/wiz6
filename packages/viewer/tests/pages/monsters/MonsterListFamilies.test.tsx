@@ -13,10 +13,10 @@ function LocationProbe() {
 
 function renderFamilies(monsters = FILLED) {
   return render(
-    <MemoryRouter initialEntries={['/monsters']}>
+    <MemoryRouter initialEntries={['/explore/monsters']}>
       <Routes>
         <Route
-          path="/monsters"
+          path="/explore/monsters"
           element={
             <>
               <MonsterListFamilies monsters={monsters} totalFilled={FILLED.length} />
@@ -25,7 +25,7 @@ function renderFamilies(monsters = FILLED) {
           }
         />
         <Route
-          path="/monsters/:slug"
+          path="/explore/monsters/:slug"
           element={
             <>
               <MonsterListFamilies monsters={monsters} totalFilled={FILLED.length} />
@@ -54,7 +54,7 @@ describe('MonsterListFamilies', () => {
   it('clicking a monster name navigates to its slug', () => {
     renderFamilies();
     fireEvent.click(screen.getByText('GIANT RAT'));
-    expect(screen.getByTestId('location')).toHaveTextContent('/monsters/giant-rat');
+    expect(screen.getByTestId('location')).toHaveTextContent('/explore/monsters/giant-rat');
   });
 
   it('shows the family member count', () => {

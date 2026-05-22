@@ -28,7 +28,7 @@ function renderIndex() {
     }),
   );
   return render(
-    <MemoryRouter initialEntries={['/pics']}>
+    <MemoryRouter initialEntries={['/explore/pics']}>
       <PicsIndex />
     </MemoryRouter>,
   );
@@ -53,8 +53,8 @@ describe('PicsIndex', () => {
   it('each card links to its detail page', async () => {
     renderIndex();
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: /mon00/i })).toHaveAttribute('href', '/pics/mon00');
-      expect(screen.getByRole('link', { name: /credits/i })).toHaveAttribute('href', '/pics/credits');
+      expect(screen.getByRole('link', { name: /mon00/i })).toHaveAttribute('href', '/explore/pics/mon00');
+      expect(screen.getByRole('link', { name: /credits/i })).toHaveAttribute('href', '/explore/pics/credits');
     });
   });
 });

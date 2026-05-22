@@ -65,7 +65,7 @@ export function MonsterListFamilies({ monsters, totalFilled }: MonsterListFamili
                     <button
                       type="button"
                       className={styles.member}
-                      onClick={() => navigate(`/monsters/${monsterSlug(m)}`)}
+                      onClick={() => navigate(`/explore/monsters/${monsterSlug(m)}`)}
                     >
                       {m.nameIdSingular || `(empty slot ${m.index})`}
                     </button>

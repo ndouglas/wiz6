@@ -75,7 +75,7 @@ export function PicsIndex() {
       </p>
       <div className={styles.grid}>
         {summaries.map((s) => (
-          <Link key={s.id} className={styles.card} to={`/pics/${s.id}`}>
+          <Link key={s.id} className={styles.card} to={`/explore/pics/${s.id}`}>
             <div className={styles.cardThumb}>
               {s.thumbnail ? (
                 <PicCanvas

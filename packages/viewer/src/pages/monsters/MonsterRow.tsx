@@ -40,7 +40,7 @@ export function MonsterRow({ monster, selected }: MonsterRowProps) {
           }
           return;
         }
-        navigate(`/monsters/${slug}`);
+        navigate(`/explore/monsters/${slug}`);
       }}
     >
       <span className={styles.name}>

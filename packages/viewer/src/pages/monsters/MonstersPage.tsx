@@ -80,13 +80,13 @@ function MonstersPageInner() {
       if (filtered.length === 0) return;
       const idx = slug ? filtered.findIndex((m) => monsterSlug(m) === slug) : -1;
       const nextIdx = idx + 1 < filtered.length ? idx + 1 : 0;
-      navigate(`/monsters/${monsterSlug(filtered[nextIdx]!)}`);
+      navigate(`/explore/monsters/${monsterSlug(filtered[nextIdx]!)}`);
     },
     ArrowUp: () => {
       if (filtered.length === 0) return;
       const idx = slug ? filtered.findIndex((m) => monsterSlug(m) === slug) : 0;
       const prevIdx = idx > 0 ? idx - 1 : filtered.length - 1;
-      navigate(`/monsters/${monsterSlug(filtered[prevIdx]!)}`);
+      navigate(`/explore/monsters/${monsterSlug(filtered[prevIdx]!)}`);
     },
     '1': () => setTab(null),
     '2': () => setTab('attacks'),

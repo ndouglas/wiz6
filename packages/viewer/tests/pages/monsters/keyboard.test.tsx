@@ -15,8 +15,8 @@ function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/monsters" element={<MonstersPage />} />
-        <Route path="/monsters/:slug" element={<MonstersPage />} />
+        <Route path="/explore/monsters" element={<MonstersPage />} />
+        <Route path="/explore/monsters/:slug" element={<MonstersPage />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -29,7 +29,7 @@ describe('monsters keyboard shortcuts', () => {
   });
 
   it('arrow-down selects the next monster in the list', async () => {
-    renderAt('/monsters/giant-rat');
+    renderAt('/explore/monsters/giant-rat');
     await waitFor(() => {
       expect(
         screen.getByRole('heading', { level: 2, name: /giant rat/i }),
@@ -44,7 +44,7 @@ describe('monsters keyboard shortcuts', () => {
   });
 
   it('arrow-up selects the previous monster', async () => {
-    renderAt('/monsters/pit-fiend');
+    renderAt('/explore/monsters/pit-fiend');
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 2, name: /pit fiend/i })).toBeInTheDocument();
     });
@@ -55,7 +55,7 @@ describe('monsters keyboard shortcuts', () => {
   });
 
   it('pressing 2 jumps to the Attacks tab', async () => {
-    renderAt('/monsters/giant-rat');
+    renderAt('/explore/monsters/giant-rat');
     await waitFor(() => {
       expect(
         screen.getByRole('heading', { level: 2, name: /giant rat/i }),
@@ -68,7 +68,7 @@ describe('monsters keyboard shortcuts', () => {
   });
 
   it('pressing ? opens the help overlay', async () => {
-    renderAt('/monsters');
+    renderAt('/explore/monsters');
     await waitFor(() => {
       expect(screen.getByRole('region', { name: /monster list/i })).toBeInTheDocument();
     });

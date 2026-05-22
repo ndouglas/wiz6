@@ -103,7 +103,7 @@ export function SpritesIdsTab({ monster, allMonsters }: SpritesIdsTabProps) {
                     sharers.slice(0, 5).map((m, i) => (
                       <span key={m.index}>
                         {i > 0 ? ', ' : ''}
-                        <Link to={`/monsters/${monsterSlug(m)}`}>{m.nameIdSingular}</Link>
+                        <Link to={`/explore/monsters/${monsterSlug(m)}`}>{m.nameIdSingular}</Link>
                       </span>
                     ))
                   )}

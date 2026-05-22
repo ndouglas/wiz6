@@ -13,10 +13,10 @@ function LocationProbe() {
 
 function renderList(monsters = FILLED, selectedSlug?: string) {
   return render(
-    <MemoryRouter initialEntries={[selectedSlug ? `/monsters/${selectedSlug}` : '/monsters']}>
+    <MemoryRouter initialEntries={[selectedSlug ? `/explore/monsters/${selectedSlug}` : '/explore/monsters']}>
       <Routes>
         <Route
-          path="/monsters"
+          path="/explore/monsters"
           element={
             <>
               <MonsterList monsters={monsters} totalFilled={FILLED.length} />
@@ -25,7 +25,7 @@ function renderList(monsters = FILLED, selectedSlug?: string) {
           }
         />
         <Route
-          path="/monsters/:slug"
+          path="/explore/monsters/:slug"
           element={
             <>
               <MonsterList monsters={monsters} totalFilled={FILLED.length} />
@@ -72,10 +72,10 @@ describe('MonsterList', () => {
     expect(screen.getByText(/showing 2 \/ 5/i)).toBeInTheDocument();
   });
 
-  it('clicking a row navigates to /monsters/:slug', () => {
+  it('clicking a row navigates to /explore/monsters/:slug', () => {
     renderList();
     fireEvent.click(screen.getByText('GIANT RAT'));
-    expect(screen.getByTestId('location')).toHaveTextContent('/monsters/giant-rat');
+    expect(screen.getByTestId('location')).toHaveTextContent('/explore/monsters/giant-rat');
   });
 
   it('marks the selected row via aria-current', () => {

@@ -36,7 +36,7 @@ export function FamilyTab({ monster, allMonsters }: FamilyTabProps) {
             <li key={m.index} style={{ marginBottom: 'var(--space-1)' }}>
               <button
                 type="button"
-                onClick={() => navigate(`/monsters/${monsterSlug(m)}`)}
+                onClick={() => navigate(`/explore/monsters/${monsterSlug(m)}`)}
                 style={{
                   background: 'transparent',
                   border: '1px solid var(--color-border)',
