@@ -1,0 +1,83 @@
+.grid {
+  display: grid;
+  grid-template-columns: 40px repeat(16, 1fr);
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  margin-bottom: var(--space-3);
+}
+
+.headerCorner {
+  /* top-left corner cell */
+}
+
+.colHeader,
+.rowHeader {
+  color: var(--color-text-faint);
+  text-align: center;
+  padding: 2px 0;
+  font-size: 0.75rem;
+}
+
+.rowHeader {
+  text-align: right;
+  padding-right: var(--space-2);
+}
+
+.cell {
+  text-align: center;
+  padding: var(--space-1) 0;
+  border-radius: 2px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: default;
+  user-select: none;
+  position: relative;
+  transition: background-color 100ms ease;
+}
+
+.cell:hover {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+  color: var(--color-text);
+}
+
+.groupCore { background: rgba(109, 139, 216, 0.18); color: var(--color-text); }
+.groupAttack { background: rgba(216, 112, 56, 0.18); color: var(--color-text); }
+.groupSave { background: rgba(109, 184, 112, 0.18); color: var(--color-text); }
+.groupSprite { background: rgba(154, 109, 200, 0.18); color: var(--color-text); }
+.groupFamily { background: rgba(216, 168, 80, 0.18); color: var(--color-text); }
+.groupMeta { background: rgba(109, 184, 216, 0.18); color: var(--color-text); }
+
+.highlight {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--color-accent); }
+  50% { box-shadow: 0 0 6px 1px var(--color-accent); }
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.legendSwatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}

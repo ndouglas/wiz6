@@ -21,11 +21,16 @@ interface HeatmapRowProps {
   label: string;
   values: readonly number[];
   startOffset: number;
+  onHover?: (entered: boolean) => void;
 }
 
-export function HeatmapRow({ label, values, startOffset }: HeatmapRowProps) {
+export function HeatmapRow({ label, values, startOffset, onHover }: HeatmapRowProps) {
   return (
-    <div className={styles.row}>
+    <div
+      className={styles.row}
+      onMouseEnter={() => onHover?.(true)}
+      onMouseLeave={() => onHover?.(false)}
+    >
       <div className={styles.label}>{label}</div>
       <div className={styles.cells} role="row">
         {values.map((v, i) => {
