@@ -33,3 +33,6 @@ original/SAVEGAME.DBS
 tools/ghidra/wiz6.gpr
 tools/ghidra/wiz6.rep/
 tools/ghidra/wiz6.lock*
+
+# DOSBox-X save states (user playthrough artifacts)
+tools/dosbox/save/
