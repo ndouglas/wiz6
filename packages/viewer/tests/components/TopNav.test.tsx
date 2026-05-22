@@ -27,6 +27,7 @@ describe('TopNav', () => {
     ['Fonts', '/fonts'],
     ['Messages', '/msg'],
     ['Newgame', '/newgame'],
+    ['Pics', '/pics'],
     ['Files', '/files'],
   ])('renders a nav link to %s → %s', (label, href) => {
     renderWithRouter();

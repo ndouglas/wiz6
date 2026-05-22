@@ -1,0 +1,99 @@
+.page {
+  padding: var(--space-5);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.card {
+  display: block;
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.card:hover {
+  border-color: var(--color-accent);
+  text-decoration: none;
+}
+
+.cardName {
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--space-1);
+}
+
+.cardMeta {
+  color: var(--color-text-faint);
+  font-size: 0.78rem;
+}
+
+.detailWrapper {
+  padding: var(--space-5);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.summary {
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.table th {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.table td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.decodedHex {
+  color: var(--color-text-faint);
+  word-break: break-all;
+  max-width: 400px;
+}
+
+.noHeader {
+  color: var(--color-text-faint);
+  font-style: italic;
+}
+
+.backLink {
+  display: inline-block;
+  margin-bottom: var(--space-3);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.error {
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-element-fire);
+}

@@ -55,3 +55,17 @@ export {
   type ScenarioQuestData,
   type ScenarioDb,
 } from './schemas/scenario-db.js';
+export {
+  PicSchema,
+  PicSegmentSchema,
+  PicOpSchema,
+  PicLitOpSchema,
+  PicRunOpSchema,
+  PicHeaderSchema,
+  type Pic,
+  type PicSegment,
+  type PicOp,
+  type PicLitOp,
+  type PicRunOp,
+  type PicHeader,
+} from './schemas/pic.js';

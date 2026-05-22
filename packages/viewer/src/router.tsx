@@ -29,6 +29,12 @@ const NewgamePage = lazy(() =>
 const FilesOverview = lazy(() =>
   import('./pages/FilesOverview.js').then((m) => ({ default: m.FilesOverview })),
 );
+const PicsIndex = lazy(() =>
+  import('./pages/pics/PicsIndex.js').then((m) => ({ default: m.PicsIndex })),
+);
+const PicDetail = lazy(() =>
+  import('./pages/pics/PicDetail.js').then((m) => ({ default: m.PicDetail })),
+);
 
 export const routes = (
   <>
@@ -44,5 +50,7 @@ export const routes = (
     <Route path="/msg" element={<MsgPage />} />
     <Route path="/newgame" element={<NewgamePage />} />
     <Route path="/files" element={<FilesOverview />} />
+    <Route path="/pics" element={<PicsIndex />} />
+    <Route path="/pics/:name" element={<PicDetail />} />
   </>
 );
