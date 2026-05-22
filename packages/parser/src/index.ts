@@ -44,6 +44,25 @@ export {
   type UniqueFilterValues,
 } from './queries/monsters.js';
 
+export {
+  initialIntroState,
+  stepIntro,
+  visibleScrollEntries,
+  type IntroPhase,
+  type IntroState,
+  type IntroInputs,
+  type VisibleEntry,
+} from './sim/intro-sequence.js';
+export {
+  CREDITS_SCROLL_ENTRIES,
+  SCROLL_STEP_PER_FRAME,
+  SCROLL_TERMINAL_POS,
+  TITLE_HOLD_FRAMES_SHORT,
+  TITLE_HOLD_FRAMES_LONG,
+  POST_SCROLL_HOLD_FRAMES,
+  type CreditScrollEntry,
+} from './sim/intro-constants.js';
+
 export interface Plan {
   originalDir: string;
   schemaVersion: Manifest['schemaVersion'];
