@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ScenarioDbProvider, useScenarioDb } from '../../lib/hooks/useScenarioDb.js';
 import { useUrlState } from '../../lib/hooks/useUrlState.js';
 import { useKeyboardShortcuts } from '../../lib/hooks/useKeyboardShortcuts.js';
@@ -16,14 +16,18 @@ import {
 } from '@wiz6/parser';
 import { MonsterFilters } from './MonsterFilters.js';
 import { MonsterList } from './MonsterList.js';
+import { MonsterListFamilies } from './MonsterListFamilies.js';
 import { MonsterDetail } from './MonsterDetail.js';
 import { KeyboardHelp } from './KeyboardHelp.js';
+import { CompareView } from './CompareView.js';
 import styles from './MonstersPage.module.css';
 
 function MonstersPageInner() {
   const { data, loading, error } = useScenarioDb();
   const { slug } = useParams<{ slug?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isCompareMode = location.pathname.endsWith('/monsters/compare');
   const [helpOpen, setHelpOpen] = useState(false);
 
   const [search] = useUrlState('search');
@@ -31,6 +35,7 @@ function MonstersPageInner() {
   const [sort] = useUrlState('sort');
   const [dir] = useUrlState('dir');
   const [empty] = useUrlState('empty');
+  const [viewMode] = useUrlState('view');
   const [classes] = useUrlState.list('class');
   const [elements] = useUrlState.list('element');
   const [families] = useUrlState.list('family');
@@ -115,10 +120,16 @@ function MonstersPageInner() {
       <div className={styles.page}>
         <section className={styles.list} aria-label="monster list">
           <MonsterFilters values={filterValues} />
-          <MonsterList monsters={filtered} totalFilled={totalFilled} />
+          {viewMode === 'families' ? (
+            <MonsterListFamilies monsters={filtered} totalFilled={totalFilled} />
+          ) : (
+            <MonsterList monsters={filtered} totalFilled={totalFilled} />
+          )}
         </section>
         <section className={styles.detail} aria-label="monster detail">
-          {slug && !selected ? (
+          {isCompareMode ? (
+            <CompareView allMonsters={data.monsters} />
+          ) : slug && !selected ? (
             <p className={styles.emptyDetail}>no monster matches slug "{slug}"</p>
           ) : !selected ? (
             <p className={styles.emptyDetail}>

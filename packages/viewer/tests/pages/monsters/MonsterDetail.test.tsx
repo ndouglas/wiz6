@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { MonsterDetail } from '../../../src/pages/monsters/MonsterDetail.js';
@@ -64,5 +64,25 @@ describe('MonsterDetail', () => {
   it('renders a placeholder body for each tab', () => {
     renderDetail('/monsters/wraith?tab=attacks');
     expect(screen.getByTestId('tab-attacks')).toBeInTheDocument();
+  });
+
+  it('Copy raw bytes hex button puts hex on the clipboard', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderDetail();
+    const btn = screen.getByRole('button', { name: /copy raw bytes hex/i });
+    fireEvent.click(btn);
+    // WRAITH's statBytes in the fixture is all zeros → 158 bytes of "00"
+    expect(writeText).toHaveBeenCalledWith(Array(158).fill('00').join(' '));
+  });
+
+  it('Copy as JSON button puts the monster JSON on the clipboard', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderDetail();
+    const btn = screen.getByRole('button', { name: /copy as json/i });
+    fireEvent.click(btn);
+    const arg = writeText.mock.calls[0]![0]!;
+    expect(arg).toMatch(/"nameIdSingular": "WRAITH"/);
   });
 });

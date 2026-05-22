@@ -50,4 +50,12 @@ describe('router', () => {
       expect(screen.getByRole('region', { name: /monster detail/i })).toBeInTheDocument();
     });
   });
+
+  it('mounts MonstersPage at /monsters/compare', async () => {
+    renderAt('/monsters/compare');
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: /monster list/i })).toBeInTheDocument();
+      expect(screen.getByText(/no monsters selected/i)).toBeInTheDocument();
+    });
+  });
 });
