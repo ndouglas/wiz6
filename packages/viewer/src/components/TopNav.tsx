@@ -34,6 +34,9 @@ export function TopNav() {
           </li>
         ))}
       </ul>
+      <Link to="/" className={styles.gameLink}>
+        ← Wizardry VI
+      </Link>
     </nav>
   );
 }

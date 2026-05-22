@@ -40,3 +40,14 @@
 .linkActive {
   color: var(--color-text);
 }
+
+.gameLink {
+  margin-left: auto;
+  color: var(--color-text-faint);
+  font-size: 0.85rem;
+}
+
+.gameLink:hover {
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
