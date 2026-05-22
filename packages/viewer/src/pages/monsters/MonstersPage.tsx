@@ -125,7 +125,7 @@ function MonstersPageInner() {
               Select a monster from the list to view its details.
             </p>
           ) : (
-            <MonsterDetail monster={selected} />
+            <MonsterDetail monster={selected} allMonsters={data.monsters} />
           )}
         </section>
       </div>

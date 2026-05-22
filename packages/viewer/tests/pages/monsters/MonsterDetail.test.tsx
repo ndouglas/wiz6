@@ -14,7 +14,7 @@ function LocationProbe() {
 function renderDetail(initial = '/monsters/wraith') {
   return render(
     <MemoryRouter initialEntries={[initial]}>
-      <MonsterDetail monster={WRAITH} />
+      <MonsterDetail monster={WRAITH} allMonsters={FIXTURE_SCENARIO_DB.monsters} />
       <LocationProbe />
     </MemoryRouter>,
   );
