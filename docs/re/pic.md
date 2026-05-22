@@ -919,3 +919,416 @@ remaining bytes are bitmap pixels at width/height matching `W*H` or
    are walked — the `combatSpriteId → file + segment index` mapping likely
    lives there.
 
+## Pixel encoding (Stage B Phase 1A — 2026-05-22)
+
+**Status: SOLVED.** Visual cross-check confirms: rendering mon13's first
+descriptor produces a recognizable Wizardry monster sprite (a robed wizard
+holding a glowing wand, multiple animation frames), and `credits.pic` renders
+the actual credit text ("Written and Programming by D.W. Bradley", "SIR-TECH",
+"Wizardry" logo). The format was reverse-engineered from continuing the EGA
+driver disassembly past the LIT/RUN/END decode loop (function `0x1C25`) into
+the **renderer** function `0x1C94` and its per-sprite worker `0x210C`.
+
+### Where the renderer lives
+
+The EGA driver exposes **two** dispatch-table thunks for `.pic` files:
+
+| Thunk offset | Calls function | Purpose                                       |
+| ------------ | -------------- | --------------------------------------------- |
+| `0x27`       | `0x1C25`       | Decode .pic segment into a destination buffer |
+| `0x2B`       | `0x1C94`       | Render decoded buffer onto EGA screen         |
+
+The caller's typical flow is:
+
+1. Call thunk `0x27` (decode) one or more times to fill a sprite buffer with
+   decoded segment bytes (segments laid out contiguously — see "Multi-segment
+   composition" below).
+2. Call thunk `0x2B` (render) with arguments specifying screen position, a
+   script-list pointer, and flags. The renderer walks the script list,
+   composites the selected sub-sprites into a 5 120-byte off-screen work
+   buffer, and blits the result to the EGA frame buffer at `0xA000`.
+
+The renderer code spans `0x1C94..0x20FF` plus the helper `0x210C..0x225E`.
+
+### Decoded segment layout: descriptor table + cell atlas
+
+After the decoder writes its output to the destination buffer, that buffer is
+organised as:
+
+```text
++-----------------------------+
+|  Descriptor table           |   each descriptor = 24 bytes
+|  [pos_lo pos_hi W H mask×20]|   first all-zero descriptor = terminator
+|  ...                        |
+|  [00 00 00 00 …]            |   end-of-table sentinel (24 zero bytes)
++-----------------------------+
+|  Cell atlas                 |   32 bytes per 8×8-pixel cell
+|  cell0 cell1 cell2 …        |   addressed by descriptor.pos (byte offset
+|  ...                        |   into the SAME buffer, NOT a screen coord)
++-----------------------------+
+```
+
+Confirmed against all 60 files: in every `mon*.pic` and `credits.pic`, the
+24-byte descriptor block at offset 0 of the first segment terminates in an
+all-zero descriptor, and the first descriptor's `pos` field points exactly to
+the first byte after that terminator (e.g., `pos=0x0258=600 = 25×24` in
+mon05.pic, which has 24 real descriptors + 1 zero terminator).
+
+### Descriptor format (24 bytes)
+
+| Offset | Size  | Field   | Meaning                                                |
+| ------ | ----- | ------- | ------------------------------------------------------ |
+| 0      | u16LE | `pos`   | Byte offset into the SAME decoded buffer where this descriptor's cell run starts |
+| 2      | u8    | `W`     | Width in 8-pixel cells (so sprite is `W*8` pixels wide)|
+| 3      | u8    | `H`     | Height in 8-pixel cells (so sprite is `H*8` pixels tall)|
+| 4..23  | 20B   | `mask`  | Up to 20 mask bytes; `W*H` bits total, LSB-first, packed across rows |
+
+The 20-byte mask field accommodates up to `W*H = 160` cells per sprite
+(actual cell count = `ceil(W*H/8)` bytes of real mask; the rest is padding).
+Real sprites use `W ≤ 38, H ≤ 14`, so the mask is comfortably small for all
+known files.
+
+### The cell atlas — 4-plane EGA packed planar 8×8 tiles
+
+Each **cell** is exactly **32 bytes** representing an 8-pixel-wide × 8-pixel-tall
+tile in 4-plane EGA planar format:
+
+```text
+cell = [
+  plane0_row0, plane0_row1, ..., plane0_row7,    ; bytes 0..7   (blue plane)
+  plane1_row0, plane1_row1, ..., plane1_row7,    ; bytes 8..15  (green plane)
+  plane2_row0, plane2_row1, ..., plane2_row7,    ; bytes 16..23 (red plane)
+  plane3_row0, plane3_row1, ..., plane3_row7,    ; bytes 24..31 (intensity plane)
+]
+```
+
+For row R column C (0 ≤ R,C < 8) of one cell, the 4-bit color index is:
+
+```text
+bit = 7 - C                                       ; MSB of each plane byte is the LEFTMOST pixel
+b0  = (cell[0  + R] >> bit) & 1
+b1  = (cell[8  + R] >> bit) & 1
+b2  = (cell[16 + R] >> bit) & 1
+b3  = (cell[24 + R] >> bit) & 1
+color = b0 | (b1<<1) | (b2<<2) | (b3<<3)          ; standard EGA 4bpp index
+```
+
+Verified by inspecting the EGA driver's inner blit at `0x21AB..0x21FE`:
+
+```text
+0x21AB  mov bl,[si]          ; plane 0 byte for current source row
+0x21AD  and bl,[si+8]        ;   AND plane 1 (transparency mask test)
+0x21B0  and bl,[si+0x10]     ;   AND plane 2
+0x21B3  and bl,[si+0x18]     ;   AND plane 3
+0x21B6  mov bh,bl
+0x21B8  not bl               ; bl = ~(all-4-planes-set)  = foreground mask
+0x21BA  mov al,[si]          ; plane 0 source
+0x21BC  and al,bl
+0x21BE  mov ah,[es:di]       ; plane 0 dest preserved where transparent
+0x21C1  and ah,bh
+0x21C3  or  al,ah
+0x21C5  mov [es:di],al       ; merged plane 0
+; (same merge for [si+8]/[es:di+8], [si+0x10]/[es:di+0x10], [si+0x18]/[es:di+0x18])
+0x21FB  inc si               ; advance 1 byte per source row
+0x21FC  inc di
+0x21FD  loop 0x21AB          ; 8 iterations = 8 source rows
+0x21FF  pop bx
+0x2200  add si,0x18          ; skip past planes 1..3 partial bytes (8 + 0x18 = 32 total)
+```
+
+### Transparency: color 15 is the "see-through" value
+
+The driver's inner blit treats a pixel as transparent **iff all 4 planes have
+a 1 bit at that position**, i.e., the pixel's 4bpp color index is `0xF` (15 =
+bright white). At setup, the renderer clears the off-screen work buffer to
+`0xFF` (all 4 planes set → all pixels color 15 = transparent), then composites
+sub-sprites into it with this AND/OR merge. Final blit-to-screen at
+`0x1F84..0x20BE` uses the **same** transparency rule when writing to EGA
+video memory at `0xA000`, so existing screen content shows through every
+color-15 pixel of the sprite.
+
+**Practical implication:** when rendering for a UI canvas, treat color-15
+pixels as fully transparent (alpha=0). The other 15 colors render with the
+standard hardware EGA palette (no custom palette is loaded by these drivers —
+no `out 0x3C0…` writes occur anywhere in `ega.drv`).
+
+### Sub-sprite render algorithm
+
+For a single descriptor at index `idx`, the renderer at `0x210C` does:
+
+```text
+function renderSubSprite(buffer, idx, dst_x, dst_y):
+    rec      = buffer[idx*24 .. idx*24+24]
+    pos      = u16LE(rec[0..2])
+    W, H     = rec[2], rec[3]
+    mask     = rec[4..24]
+    src_off  = pos              # advance only for DRAWN cells (skipped cells consume no source)
+    mask_bit = 0                # global flat bit index into mask
+    for cy in 0..H-1:
+        for cx in 0..W-1:
+            byte_idx = mask_bit // 8
+            bit_idx  = mask_bit % 8
+            mask_bit += 1
+            if (mask[byte_idx] >> bit_idx) & 1:
+                # draw 8×8 cell from buffer[src_off..src_off+32] at (cx*8, cy*8)
+                blitCell(buffer, src_off, dst_x + cx*8, dst_y + cy*8)
+                src_off += 32
+            # else: skip — dest cells default to color 15 (transparent)
+```
+
+The "skip cells consume no source" rule is critical and was verified from the
+disassembly: at `0x21A5  jz 0x2208`, when the mask bit is 0 the renderer jumps
+to `0x2208  add di, 0x20` (advance dest by 32) **without** touching `si` (the
+source pointer). Only when the mask bit is 1 does the cell-blit loop run and
+advance `si` by 32.
+
+This means the cell atlas is **packed** — it stores only the cells that
+actually have content (a 1 bit in the mask). For a sparse sprite (lots of
+empty corners), the atlas is much smaller than `W*H*32` bytes.
+
+Verified by hand-rendering: applying this algorithm to mon13.pic descriptor 0
+(W=11, H=12, mask = 17 bytes selecting roughly half the cells) produces an
+88×96-pixel image of a robed wizard. mon05.pic descriptors render as small
+sword/arrow/insect sprites. credits.pic descriptors render as crisp credit
+lines with the text "WRITTEN AND PROGRAMMING BY", "D.W. BRADLEY", "SIR-TECH",
+the Wizardry logo, etc.
+
+### Renderer dispatch (the script list)
+
+Function `0x1C94` (render entry point) takes (in addition to the destination
+index, position, clip rect, and flags) a pointer to a **script list** at
+`[bp+0x1A]`. The script is a sequence of 1-based descriptor indices terminated
+by `0x00`:
+
+```text
+0x1CEE  mov si,[bp+0x1A]      ; script pointer
+0x1CF1  inc word [bp+0x1A]    ; advance
+0x1CF4  mov al,[es:si]
+0x1CF7  or al,al
+0x1CF9  jz 0x1D00             ; 0 = end of script
+0x1CFB  call 0x210C           ; render sub-sprite for this index
+0x1CFE  jmp 0x1CEE
+```
+
+Each call to `0x210C` composites its sub-sprite into the work buffer **at
+offset 0**. Because color 15 is transparent, multiple sub-sprites stack: later
+script entries paint over the work buffer wherever they have non-transparent
+pixels. Typically a monster's "render this sprite" call uses a 1-element script
+`[idx, 0x00]`. The mechanism allows the engine to overlay e.g. a "stunned
+star" layer on top of a base monster sprite using two script entries.
+
+The work buffer (5 120 bytes, segment `[cs:0x16d]`, cleared to 0xFF at the
+start of every `0x1C94` call) holds a single composite at native sprite
+dimensions in the same 4-plane interleaved layout as the cell atlas. After all
+script entries are processed, a flip/mirror pass (controlled by the `[bp+0x16]`
+flags bits 0/1 for horizontal/vertical flip) and finally a plane-aware blit
+to EGA memory at `0xA000`.
+
+### Units summary
+
+| Field                            | Unit                                      |
+| -------------------------------- | ----------------------------------------- |
+| Descriptor `pos`                 | Byte offset into the decoded sprite buffer |
+| Descriptor `W`                   | 8-pixel cells (so sprite is `W*8` pixels wide) |
+| Descriptor `H`                   | 8-pixel cells (so sprite is `H*8` pixels tall) |
+| Mask bit at row `r`, col `c`     | LSB-first index `r*W + c` into the mask byte stream |
+| Cell pixel data                  | 32 bytes per cell, 4 planes × 8 rows × 1 byte |
+| In-byte pixel order              | MSB of each plane byte = leftmost pixel |
+| Transparent color                | 0xF (15) — all 4 planes = 1               |
+| Palette                          | Standard hardware EGA 16-color (no custom palette loaded by driver) |
+
+### `renderSegment` reference pseudocode
+
+```python
+def render_pic_file(picBytes) -> list[Sprite]:
+    """Decode a .pic file and produce one rendered Sprite per descriptor."""
+    # Step 1: decode all segments into one contiguous buffer
+    segments = decode_lit_run_end(picBytes)            # LIT/RUN/END from Stage A
+    buf = b"".join(seg.output for seg in segments)
+
+    # Step 2: read the descriptor table at the start of buf
+    descriptors = []
+    i = 0
+    while i + 24 <= len(buf):
+        rec = buf[i:i+24]
+        if rec == b"\x00" * 24:
+            break
+        pos = rec[0] | (rec[1] << 8)
+        W, H = rec[2], rec[3]
+        mask = rec[4:]
+        descriptors.append((pos, W, H, mask))
+        i += 24
+
+    # Step 3: render each descriptor as an (W*8) × (H*8) 4bpp image
+    sprites = []
+    for pos, W, H, mask in descriptors:
+        sprite = render_sub_sprite(buf, pos, W, H, mask)
+        sprites.append(sprite)
+    return sprites
+
+def render_sub_sprite(buf, pos, W, H, mask) -> Sprite:
+    width_px  = W * 8
+    height_px = H * 8
+    pixels    = bytearray([15] * (width_px * height_px))  # init transparent
+    src       = pos
+    bit       = 0
+    for cy in range(H):
+        for cx in range(W):
+            byte_idx, bit_idx = bit // 8, bit % 8
+            bit += 1
+            if not (mask[byte_idx] & (1 << bit_idx)):
+                continue           # skip — leave transparent, source not consumed
+            # blit one 8×8 cell from buf[src..src+32] at (cx*8, cy*8)
+            for r in range(8):
+                p0 = buf[src + 0  + r]
+                p1 = buf[src + 8  + r]
+                p2 = buf[src + 16 + r]
+                p3 = buf[src + 24 + r]
+                for c in range(8):
+                    b = 7 - c
+                    color = ((p0 >> b) & 1) | (((p1 >> b) & 1) << 1) | \
+                            (((p2 >> b) & 1) << 2) | (((p3 >> b) & 1) << 3)
+                    pixels[(cy*8 + r) * width_px + (cx*8 + c)] = color
+            src += 32
+    return Sprite(width_px, height_px, pixels)  # color 15 = transparent at view time
+```
+
+A complete reference implementation lives in `/tmp/wiz6-stageb/render_mon2.py`
+and produces visually-correct sprites for all of mon05, mon11, mon13, mon32,
+mon50, and credits.pic.
+
+## Multi-segment composition (Stage B Phase 1B — 2026-05-22)
+
+**Status: SOLVED.** Multi-segment `.pic` files are **composition**, not
+animation frames or layers. The segments are decoded one after another into a
+**single contiguous buffer**, in file order, with no header or alignment
+between them. The descriptors in segment 0 reference cell-atlas bytes located
+in the LATER segments via their `pos` field (which is a flat byte offset into
+the concatenated buffer).
+
+### Evidence
+
+The 16 multi-segment files (10 of 2 segments, 5 of 3, 1 of 4 — see Stage A
+inventory) cluster into two patterns:
+
+- **Large monster sprites** (mon09, mon11, mon27, mon32, mon37, mon45, mon50,
+  mon54, mon44, mon58…). The first segment contains the descriptor table and
+  the first few hundred cells; remaining segments are pure cell-atlas
+  continuation bytes. Confirmed: rendering mon32 with `buf = seg0 + seg1`
+  produces a coherent multi-frame monster sprite (winged demon with red
+  details). Rendering only `seg0` produces sprites whose last few cells are
+  empty white blocks because their `pos` fields point past the end of
+  `seg0`-only data.
+- **`credits.pic`** has the same structure: 5 640-byte seg 0 (the descriptor
+  table for the 13 credit lines + first cells of the credits-screen art) and a
+  24 944-byte seg 1 holding the rest of the credits-screen graphics. Rendering
+  the concatenation produces the recognisable Wizardry credits screen with
+  the text "WRITTEN AND PROGRAMMING BY", "D.W. BRADLEY", "SIR-TECH", etc.
+
+The 0-byte and 1-byte sub-segments seen in mon11, mon56, mon36 (Stage A's
+multi-segment table) are simply **edge-case decoder outputs**: a `.pic` file
+encoded by the original tool can contain a `0x00` byte at any position, which
+the decoder treats as "end of current segment, start a new one." Some
+files accidentally emit a `0x00` immediately after a previous `0x00` (1-byte
+segment of just END) or even back-to-back `0x00 0x00` (a 0-byte segment).
+These are harmless when segments are concatenated.
+
+### Composition rule
+
+```text
+decoded_buffer = concat(segment_0, segment_1, ..., segment_N)
+descriptors    = read at offset 0 of decoded_buffer, 24 bytes each, until
+                 a 24-zero record (which is the end-of-descriptor sentinel)
+cell_atlas     = decoded_buffer[start_of_atlas:]
+```
+
+For `credits.pic`:
+
+```text
+seg 0:  5 640 bytes  → contains [descriptor table (312 B = 13 descriptors + 1 zero terminator) | first ~5 322 B of cell atlas]
+seg 1: 24 944 bytes  → continuation of cell atlas
+TOTAL: 30 584 bytes
+```
+
+Descriptor 11 of `credits.pic` has `pos=0x5978=22 904`, which is comfortably
+inside the concatenated buffer (30 584 bytes) but well past the end of seg 0
+alone (5 640 bytes). Rendering with the concatenated buffer produces a clean
+"SIR-TECH" graphic; rendering with only seg 0 produces garbage at that
+descriptor.
+
+### Destination buffer geometry
+
+There is no fixed destination-buffer geometry imposed by the format itself —
+each descriptor's `W` and `H` independently specify the sprite size in 8-pixel
+cells, and each is drawn at its own caller-specified `(x, y)` on the EGA
+screen via the renderer at `0x1C94`. Monster sprites are typically `W ≤ 13,
+H ≤ 14` (≤ 104 × 112 px), well within the EGA 320×200 viewport. Credits-screen
+descriptors are wider (up to `W=38`, 304 px) and represent horizontal credit
+lines.
+
+### Implications for the parser
+
+The Stage A parser must change to:
+
+1. **Concatenate** all decoded segments into one `Uint8Array` per file, in
+   file order. Do not expose per-segment outputs to higher layers (the
+   segment boundary is purely a streaming-decoder concern).
+2. **Parse** the descriptor table at offset 0 of the concatenated buffer,
+   stopping at the first all-zero 24-byte record.
+3. **Expose** descriptors as a structured array
+   `{ pos: number, W: number, H: number, mask: Uint8Array }[]`.
+4. **Render** at view time via `renderSubSprite(buf, descriptor) →
+   { width, height, pixels: Uint8ClampedArray }` using the algorithm above.
+
+The parser's `PicSchema` should grow a `descriptors` field but should NOT
+bake pixels into JSON — at typical sprite sizes (88×96 × 4-byte RGBA = 32 KB
+per descriptor × ~15 descriptors per file × 60 files = ~30 MB), it would
+balloon the extracted JSON unnecessarily. Rendering happens in the viewer
+canvas component.
+
+### Verification gallery
+
+Reference renders produced from the disassembled spec:
+
+- `mon05.pic` — 24 small weapon/glyph sprites (W,H ≤ 3,3)
+- `mon11.pic` — cyclops-like swordsman, 11 animation frames
+- `mon13.pic` — robed wizard with glowing wand, 13 animation frames
+- `mon32.pic` — winged demon, multi-segment composition verified
+- `mon50.pic` — multi-segment, 3-frame red-robed figure with flame base
+- `credits.pic` — recognisable Sir-Tech Wizardry credits screen
+
+All renders include the expected EGA colour palette (blue robes, cyan
+highlights, red accents) and use color-15 transparency to overlay correctly
+on a notional game background.
+
+### Probe scripts used (all in `/tmp/wiz6-stageb/`, not committed)
+
+- `decode.py` — LIT/RUN/END segment decoder (Stage A logic, ported to Python)
+- `dump_records.py`, `count_records.py`, `verify_pos.py`, `find_boundary.py` —
+  exploratory scans of decoded-segment layout
+- `render_mon.py` — initial (incorrect: per-cell mask) renderer
+- `render_mon2.py` — final (correct: packed-cell mask) renderer + PPM output
+- `render_seg.py`, `render_credits.py` — per-segment and concatenated-buffer
+  driver scripts
+- `render_planar.py` — verifies that seg 1+ are NOT raw planar images (rules
+  out the "first segment is descriptors, second is a planar screenshot"
+  hypothesis)
+- `ega.asm` — `ndisasm -b 16 -o 0x0000 original/ega.drv` output (162 KB,
+  4 077 lines), spanning the decoder at `0x1C25..0x1C93` and the renderer at
+  `0x1C94..0x225E`
+
+### Open follow-ups for Stage B Phase 2
+
+1. **Custom palette.** The hardware-default EGA palette renders monsters with
+   noticeable magenta/cyan speckle in some files (e.g. mon11). This suggests
+   the game may reprogram the EGA Attribute Controller palette registers at
+   runtime via `out 0x3C0, …` somewhere in `wroot.exe` or its overlays (the
+   driver itself does not). Worth tracing if the viewer's rendered sprites
+   look "off" compared to in-game.
+2. **`combatSpriteId → monNN.pic` indirection table.** Stage B Phase 1C
+   investigates this separately (`docs/re/sprite-id-table.md`).
+3. **Per-descriptor labelling.** Each `.pic` file's descriptors look like
+   animation frames or pose variants. Higher-level metadata (which descriptor
+   is the "default" pose, which are attack/cast animations) probably lives in
+   `wmele.ovr` near the monster-draw routine. The viewer can punt by
+   displaying all descriptors as a strip until that's resolved.
