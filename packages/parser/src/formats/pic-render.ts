@@ -13,12 +13,13 @@ export const EGA_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
  *
  * Empirically calibrated against actual-game screenshots. Base layer is
  * the standard EGA 16-color palette (the BIOS default for mode 0Dh);
- * six logical colors are overridden where pixel-picked actual-game
+ * seven logical colors are overridden where pixel-picked actual-game
  * values diverged from the standard.
  *
  * Overrides:
  *   1   WHITE          (was blue)         — Wizardry logo letters, scene highlights
- *   5   BRIGHT YELLOW  (was magenta)      — credits text, fountain body
+ *   5   BRIGHT YELLOW  (was magenta)      — credits text, gem/fountain body
+ *   6   BRIGHT GREEN   (was brown)        — succubus/demon skin (mon45 Rebecca)
  *   9   LIGHT GRAY     (was light blue)   — wall stippling highlight pixels
  *   10  BLUE           (was light green)  — mon08 water
  *   13  BROWN          (was bright magenta) — fountain accents
@@ -32,7 +33,7 @@ export const EGA_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
  * empirical mappings — they give "duller" / less-intensity-boosted
  * versions of the same hues. The actual game must patch palette
  * registers at runtime, or there's a third palette load we haven't
- * located. Empirically this six-override palette matches all the
+ * located. Empirically this seven-override palette matches all the
  * screenshot calibrations so far.
  */
 export const WIZ6_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
@@ -42,7 +43,7 @@ export const WIZ6_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
   [0x00, 0xaa, 0xaa], // 3:  cyan                    (standard EGA)
   [0xaa, 0x00, 0x00], // 4:  red                     (standard EGA — chest body shadow)
   [0xff, 0xff, 0x55], // 5:  BRIGHT YELLOW           (override — was magenta)
-  [0xaa, 0x55, 0x00], // 6:  brown                   (standard EGA)
+  [0x00, 0xff, 0x00], // 6:  BRIGHT GREEN            (override — was brown; succubus skin)
   [0xaa, 0xaa, 0xaa], // 7:  light gray              (standard EGA)
   [0x55, 0x55, 0x55], // 8:  dark gray               (standard EGA)
   [0xaa, 0xaa, 0xaa], // 9:  LIGHT GRAY              (override — was light blue)
