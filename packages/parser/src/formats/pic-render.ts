@@ -28,20 +28,20 @@ export const EGA_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
  */
 export const WIZ6_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
   [0x00, 0x00, 0x00], // 0:  black                  (matches actual game)
-  [0xff, 0xff, 0xff], // 1:  WHITE                  (override — was blue; Wizardry-logo letters)
+  [0xff, 0xff, 0xff], // 1:  WHITE                  (override — was blue; Wizardry letters / scene highlights)
   [0x00, 0xaa, 0x00], // 2:  green                  (standard EGA)
   [0x00, 0xaa, 0xaa], // 3:  cyan                   (standard EGA)
   [0xaa, 0x00, 0x00], // 4:  red                    (matches dark sword body #9c1f14)
-  [0xff, 0xff, 0x55], // 5:  YELLOW                 (override — was magenta; credits text body)
+  [0xff, 0xff, 0x55], // 5:  YELLOW                 (override — was magenta; credits text body / gem accents)
   [0xaa, 0x55, 0x00], // 6:  brown                  (standard EGA)
   [0xaa, 0xaa, 0xaa], // 7:  light gray             (standard EGA)
-  [0x55, 0x55, 0x55], // 8:  dark gray              (matches sword/letter outlines)
-  [0xaa, 0xaa, 0xaa], // 9:  LIGHT GRAY             (override — was light blue; wall stippling)
-  [0x55, 0xff, 0x55], // 10: light green            (standard EGA)
+  [0x55, 0x55, 0x55], // 8:  dark gray              (matches sword/letter outlines, wall dither low)
+  [0xaa, 0xaa, 0xaa], // 9:  LIGHT GRAY             (override — was light blue; wall dither high)
+  [0x00, 0x00, 0xaa], // 10: BLUE                   (override — was light green; mon08 water)
   [0x55, 0xff, 0xff], // 11: light cyan             (standard EGA)
   [0xff, 0x55, 0x55], // 12: bright red             (matches sword highlight #ec625c)
   [0xff, 0x55, 0xff], // 13: bright magenta         (standard EGA)
-  [0xff, 0xff, 0x55], // 14: bright yellow          (standard EGA)
+  [0x00, 0xaa, 0x00], // 14: GREEN                  (override — was bright yellow; vines / moss)
   [0xff, 0xff, 0xff], // 15: white                  (unused — handled as transparent by the renderer)
 ];
 
