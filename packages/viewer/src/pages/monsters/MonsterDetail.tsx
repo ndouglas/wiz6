@@ -7,13 +7,15 @@ import { FamilyTab } from './tabs/FamilyTab.js';
 import { OverviewTab } from './tabs/OverviewTab.js';
 import { RawBytesTab } from './tabs/RawBytesTab.js';
 import { SavesTab } from './tabs/SavesTab.js';
+import { SpritesIdsTab } from './tabs/SpritesIdsTab.js';
 
-type TabId = 'overview' | 'attacks' | 'saves' | 'raw' | 'family';
+type TabId = 'overview' | 'attacks' | 'saves' | 'sprites' | 'raw' | 'family';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'attacks', label: 'Attacks' },
   { id: 'saves', label: 'Saves & Resistances' },
+  { id: 'sprites', label: 'Sprites & IDs' },
   { id: 'raw', label: 'Raw bytes' },
   { id: 'family', label: 'Family' },
 ];
@@ -63,6 +65,8 @@ export function MonsterDetail({ monster, allMonsters }: MonsterDetailProps) {
             <AttacksTab monster={monster} />
           ) : currentTab === 'saves' ? (
             <SavesTab monster={monster} />
+          ) : currentTab === 'sprites' ? (
+            <SpritesIdsTab monster={monster} allMonsters={allMonsters} />
           ) : currentTab === 'family' ? (
             <FamilyTab monster={monster} allMonsters={allMonsters} />
           ) : (
