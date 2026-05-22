@@ -41,7 +41,6 @@ export function PicDetail() {
           <tr>
             <th>#</th>
             <th>encoded</th>
-            <th>header</th>
             <th>ops</th>
             <th>decoded len</th>
             <th>decoded bytes (hex)</th>
@@ -53,17 +52,6 @@ export function PicDetail() {
               <td>{seg.segmentIndex}</td>
               <td>
                 @{seg.encodedOffset.toLocaleString()} · {seg.encodedLength}B
-              </td>
-              <td>
-                {seg.header ? (
-                  <>
-                    <span>pos 0x{seg.header.pos.toString(16).padStart(4, '0')}</span>
-                    {' · '}
-                    <span>{`${seg.header.width} × ${seg.header.height}`}</span>
-                  </>
-                ) : (
-                  <span className={styles.noHeader}>no header</span>
-                )}
               </td>
               <td>
                 {seg.ops
@@ -78,6 +66,40 @@ export function PicDetail() {
               <td className={styles.decodedHex}>{bytesHex(seg.decodedBytes)}</td>
             </tr>
           ))}
+        </tbody>
+      </table>
+      <h2 style={{ marginTop: 'var(--space-5)' }}>Descriptors ({data.descriptors.length})</h2>
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>pos</th>
+            <th>W × H (cells)</th>
+            <th>W × H (px)</th>
+            <th>populated cells</th>
+            <th>mask (hex)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.descriptors.map((d) => {
+            const cellCount = d.width * d.height;
+            let populated = 0;
+            for (let i = 0; i < cellCount; i++) {
+              const byte = d.mask[i >> 3] ?? 0;
+              if ((byte >> (i & 7)) & 1) populated++;
+            }
+            const maskHex = d.mask.map((b) => b.toString(16).padStart(2, '0')).join(' ');
+            return (
+              <tr key={d.index}>
+                <td>{d.index}</td>
+                <td>0x{d.pos.toString(16).padStart(4, '0')}</td>
+                <td>{d.width} × {d.height}</td>
+                <td>{d.width * 8} × {d.height * 8}</td>
+                <td>{populated} / {cellCount}</td>
+                <td className={styles.decodedHex}>{maskHex}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </main>
