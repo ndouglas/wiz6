@@ -12,6 +12,7 @@ export {
 } from './formats/message-db.js';
 export { decodeNewgameDb, type DecodeNewgameDbOpts } from './formats/newgame-db.js';
 export { decodeScenarioDb, type DecodeScenarioDbOpts } from './formats/scenario-db.js';
+export { decodePic, type DecodePicOpts } from './formats/pic.js';
 
 export {
   slugify,
