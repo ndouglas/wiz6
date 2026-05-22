@@ -9,6 +9,7 @@ interface SpritesIdsTabProps {
 
 type SpriteField = keyof Pick<
   ScenarioMonster,
+  | 'picId'
   | 'combatSpriteId'
   | 'combatSpriteAlt'
   | 'secondarySpriteId'
@@ -21,9 +22,10 @@ type SpriteField = keyof Pick<
 >;
 
 const FIELDS: { name: SpriteField; label: string; isPercent?: boolean }[] = [
-  { name: 'combatSpriteId', label: 'Combat sprite' },
-  { name: 'combatSpriteAlt', label: 'Combat sprite (alt)' },
-  { name: 'secondarySpriteId', label: 'Secondary sprite' },
+  { name: 'picId', label: 'Pic file (monNN.pic)' },
+  { name: 'combatSpriteId', label: 'Combat sprite ID' },
+  { name: 'combatSpriteAlt', label: 'Combat sprite ID (alt)' },
+  { name: 'secondarySpriteId', label: 'Secondary sprite ID' },
   { name: 'combatTraitId', label: 'Combat trait' },
   { name: 'magicResistChance', label: 'Magic resist', isPercent: true },
   { name: 'spellPowerChance', label: 'Spell power', isPercent: true },

@@ -995,12 +995,20 @@ tile in 4-plane EGA planar format:
 
 ```text
 cell = [
-  plane0_row0, plane0_row1, ..., plane0_row7,    ; bytes 0..7   (blue plane)
-  plane1_row0, plane1_row1, ..., plane1_row7,    ; bytes 8..15  (green plane)
+  plane0_row0, plane0_row1, ..., plane0_row7,    ; bytes 0..7   (GREEN plane)
+  plane1_row0, plane1_row1, ..., plane1_row7,    ; bytes 8..15  (BLUE plane)
   plane2_row0, plane2_row1, ..., plane2_row7,    ; bytes 16..23 (red plane)
   plane3_row0, plane3_row1, ..., plane3_row7,    ; bytes 24..31 (intensity plane)
 ]
 ```
+
+> **Correction 2026-05-22:** the original Phase 1A+B notes labeled byte 0..7 as
+> the **blue** plane and 8..15 as **green**. Empirical verification against the
+> live game (the credits sprite, whose text is yellow in-game but rendered
+> purple under the original assumption) shows the order is reversed: bytes 0..7
+> are GREEN, bytes 8..15 are BLUE. The order is therefore `[G, B, R, I]`, not
+> `[B, G, R, I]`. The renderer in `@wiz6/parser` and these notes have been
+> corrected to match.
 
 For row R column C (0 ≤ R,C < 8) of one cell, the 4-bit color index is:
 

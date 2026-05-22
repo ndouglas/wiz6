@@ -20,6 +20,13 @@ export interface RenderedSprite {
 /**
  * Render one descriptor's image. Cells are 4bpp EGA planar (32 bytes per
  * 8×8 cell: 8 bytes per plane × 4 planes, MSB-first within each plane byte).
+ *
+ * Plane order in the stored byte stream is [green, blue, red, intensity]:
+ * bytes 0..7 = plane G, 8..15 = plane B, 16..23 = plane R, 24..31 = plane I.
+ * Verified empirically: with this order the credits sprite renders yellow
+ * text (matches the live game). Phase 1A+B's notes said [B, G, R, I] but
+ * that produced purple text for the same data.
+ *
  * Color 15 is treated as transparent (alpha=0). Skipped cells (mask bit
  * unset) produce transparent regions and do NOT advance the atlas pointer.
  */
@@ -47,17 +54,19 @@ export function renderPicDescriptor(
         continue;
       }
       for (let row = 0; row < 8; row++) {
-        const p0 = decodedBuffer[atlasOffset + row] ?? 0;
-        const p1 = decodedBuffer[atlasOffset + 8 + row] ?? 0;
-        const p2 = decodedBuffer[atlasOffset + 16 + row] ?? 0;
-        const p3 = decodedBuffer[atlasOffset + 24 + row] ?? 0;
+        const planeG = decodedBuffer[atlasOffset + row] ?? 0;
+        const planeB = decodedBuffer[atlasOffset + 8 + row] ?? 0;
+        const planeR = decodedBuffer[atlasOffset + 16 + row] ?? 0;
+        const planeI = decodedBuffer[atlasOffset + 24 + row] ?? 0;
         for (let col = 0; col < 8; col++) {
           const bit = 7 - col;
-          const b0 = (p0 >> bit) & 1;
-          const b1 = (p1 >> bit) & 1;
-          const b2 = (p2 >> bit) & 1;
-          const b3 = (p3 >> bit) & 1;
-          const color = b0 | (b1 << 1) | (b2 << 2) | (b3 << 3);
+          // Color bit layout: bit 0 = blue, bit 1 = green, bit 2 = red, bit 3 = intensity.
+          // So EGA_PALETTE[color] indexes into the standard EGA 16-color table.
+          const bB = (planeB >> bit) & 1;
+          const bG = (planeG >> bit) & 1;
+          const bR = (planeR >> bit) & 1;
+          const bI = (planeI >> bit) & 1;
+          const color = bB | (bG << 1) | (bR << 2) | (bI << 3);
           const pxX = cx * 8 + col;
           const pxY = cy * 8 + row;
           const idx = (pxY * pxW + pxX) * 4;

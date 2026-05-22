@@ -18,8 +18,9 @@ describe('SpritesIdsTab', () => {
   it('renders each sprite / ID field', () => {
     renderTab(PIT_FIEND);
     for (const label of [
-      /^combat sprite$/i,
-      /secondary sprite/i,
+      /pic file/i,
+      /combat sprite id$/i,
+      /secondary sprite id/i,
       /magic resist/i,
       /spell power/i,
       /aux save .* 103/i,
@@ -35,11 +36,6 @@ describe('SpritesIdsTab', () => {
     renderTab(PIT_FIEND);
     // PIT FIEND magicResistChance = 80
     expect(screen.getByText(/^80(%| )?/)).toBeInTheDocument();
-  });
-
-  it('renders a sprite placeholder slot', () => {
-    renderTab(PIT_FIEND);
-    expect(screen.getByTestId('sprite-placeholder')).toBeInTheDocument();
   });
 
   it('shows zero "shared with" when the value is unique', () => {

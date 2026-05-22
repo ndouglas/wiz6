@@ -49,17 +49,25 @@ describe('renderPicDescriptor', () => {
     expect(Array.from(out.rgba.subarray(row1off, row1off + 4))).toEqual([0, 0, 0, 255]);
   });
 
-  it('renders color 1 (blue) when only plane 0 is set', () => {
-    // plane 0 row 0 = 0xFF, others 0 => row 0 all color 1 (EGA blue: 0x00 0x00 0xAA)
+  it('renders color 2 (green) when only the green plane (bytes 0-7) is set', () => {
+    // Plane order in file: [G, B, R, I]. Bytes 0-7 are green.
+    // EGA color 2 = green = (0x00, 0xAA, 0x00).
     const buffer = Array(32).fill(0);
     buffer[0] = 0xff;
+    const d = descriptor({ pos: 0, width: 1, height: 1, mask: [0x01] });
+    const out = renderPicDescriptor(d, buffer);
+    expect(Array.from(out.rgba.subarray(0, 4))).toEqual([0x00, 0xaa, 0x00, 0xff]);
+  });
+
+  it('renders color 1 (blue) when only the blue plane (bytes 8-15) is set', () => {
+    const buffer = Array(32).fill(0);
+    buffer[8] = 0xff;
     const d = descriptor({ pos: 0, width: 1, height: 1, mask: [0x01] });
     const out = renderPicDescriptor(d, buffer);
     expect(Array.from(out.rgba.subarray(0, 4))).toEqual([0x00, 0x00, 0xaa, 0xff]);
   });
 
-  it('renders color 12 (light red) when planes 2 and 3 are set', () => {
-    // plane 2 = red bit, plane 3 = intensity bit => color = 0b1100 = 12
+  it('renders color 12 (light red) when red (16-23) and intensity (24-31) planes are set', () => {
     const buffer = Array(32).fill(0);
     buffer[16] = 0xff;
     buffer[24] = 0xff;
@@ -68,12 +76,23 @@ describe('renderPicDescriptor', () => {
     expect(Array.from(out.rgba.subarray(0, 4))).toEqual([0xff, 0x55, 0x55, 0xff]);
   });
 
+  it('renders color 14 (yellow) when green + red + intensity planes are set', () => {
+    // Yellow = R + G + I = color 0b1110 = 14. EGA palette[14] = (0xFF, 0xFF, 0x55).
+    // Verified empirically against the live credits sprite — text should be yellow,
+    // not purple (which is what the swapped plane order produced).
+    const buffer = Array(32).fill(0);
+    buffer[0] = 0xff;   // green
+    buffer[16] = 0xff;  // red
+    buffer[24] = 0xff;  // intensity
+    const d = descriptor({ pos: 0, width: 1, height: 1, mask: [0x01] });
+    const out = renderPicDescriptor(d, buffer);
+    expect(Array.from(out.rgba.subarray(0, 4))).toEqual([0xff, 0xff, 0x55, 0xff]);
+  });
+
   it('skips unpopulated cells without consuming atlas bytes', () => {
     // 2×1 sprite, mask = 0b10 (only cell 1 is populated).
-    // Cell at descriptor.pos: 32 bytes that should be drawn at COLUMN 1 (right half).
-    // Cell at left half (col 0) should be untouched (transparent).
     const buffer = Array(32).fill(0);
-    buffer[0] = 0xff;  // plane 0 row 0 — gives blue
+    buffer[8] = 0xff;  // blue plane row 0 — gives blue
     const d = descriptor({ pos: 0, width: 2, height: 1, mask: [0b10] });
     const out = renderPicDescriptor(d, buffer);
     expect(out.width).toBe(16);
