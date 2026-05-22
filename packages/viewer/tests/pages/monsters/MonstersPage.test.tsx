@@ -54,10 +54,10 @@ describe('MonstersPage', () => {
     });
   });
 
-  it('renders compare placeholder when path is /monsters/compare', async () => {
+  it('renders CompareView when path is /monsters/compare', async () => {
     renderAt('/monsters/compare');
     await waitFor(() => {
-      expect(screen.getByTestId('compare-placeholder')).toBeInTheDocument();
+      expect(screen.getByText(/no monsters selected/i)).toBeInTheDocument();
     });
   });
 

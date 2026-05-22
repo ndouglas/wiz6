@@ -18,6 +18,7 @@ import { MonsterFilters } from './MonsterFilters.js';
 import { MonsterList } from './MonsterList.js';
 import { MonsterDetail } from './MonsterDetail.js';
 import { KeyboardHelp } from './KeyboardHelp.js';
+import { CompareView } from './CompareView.js';
 import styles from './MonstersPage.module.css';
 
 function MonstersPageInner() {
@@ -121,7 +122,7 @@ function MonstersPageInner() {
         </section>
         <section className={styles.detail} aria-label="monster detail">
           {isCompareMode ? (
-            <p data-testid="compare-placeholder">Compare mode (CompareView arrives in Task 4)</p>
+            <CompareView allMonsters={data.monsters} />
           ) : slug && !selected ? (
             <p className={styles.emptyDetail}>no monster matches slug "{slug}"</p>
           ) : !selected ? (

@@ -55,7 +55,7 @@ describe('router', () => {
     renderAt('/monsters/compare');
     await waitFor(() => {
       expect(screen.getByRole('region', { name: /monster list/i })).toBeInTheDocument();
-      expect(screen.getByTestId('compare-placeholder')).toBeInTheDocument();
+      expect(screen.getByText(/no monsters selected/i)).toBeInTheDocument();
     });
   });
 });
