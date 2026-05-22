@@ -1,20 +1,29 @@
 /**
- * Constants for the intro / title / credits sequence. Sourced from the
- * winit.ovr RE pass (commit eb2d1cc, see docs/re/startup-sequence.md and
- * docs/re/findings/startup-sequence.json).
+ * Constants for the intro / title / credits sequence. Two layers:
  *
- * The credit-scroll entry table at SCROLL entries[] is byte-exact: same
- * fields, same initial values as the engine's stack-allocated array. The
- * timing constants (TITLE_HOLD_FRAMES_*, POST_SCROLL_HOLD_FRAMES) are
- * hand-tuned to feel right per-Nate's recollection — the engine's
- * busy-wait primitive uses CPU-speed-calibrated constants we can't pin
- * down statically. See "wall-clock pacing" below for the rationale.
+ * 1. The credit-scroll table (CREDITS_SCROLL_ENTRIES) — byte-exact from the
+ *    engine, sourced from the winit.ovr RE pass (commit eb2d1cc, see
+ *    docs/re/startup-sequence.md and docs/re/findings/startup-sequence.json).
+ *    Same fields, same initial values as the engine's stack array.
+ *
+ * 2. Phase durations (PHASE_FRAMES_*) — hand-tuned to match the user's lived
+ *    experience of the original game on a 486DX/33. The engine's busy-wait
+ *    primitive at wroot 0x2858 uses CPU-speed-calibrated constants we can't
+ *    pin down statically, and DOSBox-X playback at varying cycles=fixed
+ *    settings does not faithfully reproduce the original pacing. So we
+ *    target the lived feel: ~half-second black pauses, ~2-3 second splash
+ *    holds, ~2 second post-scroll. Tunable from this file.
+ *
+ * Engine state 1 (winit_state1_title_and_credits @ winit 0x9f3) draws ONE
+ * static splash between pauses; the user's recollection has TWO distinct
+ * splashes (Sir-Tech, then Bradley). The discrepancy is likely accounted for
+ * by additional logic in state 0's 11-way disk-header dispatch (file offset
+ * 0x5EC) which we haven't mapped yet. The user's memory is the spec.
  */
 
 /**
  * One scroll-table entry. The "token" field is the descriptor index into
  * credits.pic — see docs/re/startup-sequence.md "credit scroll" section.
- * "col" and "y" units are engine pixels (a 320×200-ish frame).
  */
 export interface CreditScrollEntry {
   /** Descriptor index into credits.pic. */
@@ -31,7 +40,6 @@ export interface CreditScrollEntry {
 
 /**
  * The 9-entry table from winit.ovr at function entry of `winit_state1_title_and_credits`.
- * Mirrors the on-stack array layout (entry[0..8]); see RE doc for raw bytes.
  *
  *   i | token | col  | appear | fieldB | cap
  *   --+-------+------+--------+--------+-----
@@ -68,28 +76,15 @@ export const SCROLL_STEP_PER_FRAME = 2;
 export const SCROLL_TERMINAL_POS = 0xfb;
 
 /**
- * Wall-clock pacing — hand-tuned, not engine-derived.
+ * Phase durations in frames at 60 FPS. Tunable from here.
  *
- * The engine's busy-wait primitive at wroot 0x2858 takes calibration
- * constants from C-runtime startup we don't have statically. The "delay
- * unit" count is known precisely (title_wait_short = 20 units = 2 * 10,
- * title_wait_long = 720 units = 0x48 * 10) but the wall-clock per-unit
- * duration is calibrated to the original 486-DX/33 CPU and bears no
- * relationship to a modern browser frame.
- *
- * Per the user's recollection: title-page hold should be "real pause,
- * like a second or two" — long enough to feel intentional, short enough
- * to not bore. At 60 FPS, the values below give:
- *
- *   - short pause: 60 frames  = 1.0 sec   (between title PIC load + splash text draw)
- *   - long pause:  300 frames = 5.0 sec   (after splash, before scroll starts)
- *   - post-scroll: 120 frames = 2.0 sec   (after scroll finishes, before menu)
- *
- * The scroll itself is engine-driven: 126 frames at the viewer's target
- * FPS. At 60 FPS that's ~2.1 sec, which is fast — but the engine math is
- * exact, so we don't second-guess it; if the viewer wants a slower feel
- * it can step the sim at < 1 frame per RAF tick.
+ * Total pre-scroll content: ~5.5 sec (matches "feels intentional but
+ * doesn't bore" target). Scroll itself is engine-driven (126 frames =
+ * ~2.1 sec). Post-scroll adds a beat before navigating away.
  */
-export const TITLE_HOLD_FRAMES_SHORT = 60;
-export const TITLE_HOLD_FRAMES_LONG = 300;
-export const POST_SCROLL_HOLD_FRAMES = 120;
+export const PHASE_FRAMES_PAUSE_PRE_SIRTECH = 30; // 0.5s
+export const PHASE_FRAMES_SIRTECH_SPLASH = 120; // 2.0s
+export const PHASE_FRAMES_PAUSE_BETWEEN_SPLASHES = 30; // 0.5s
+export const PHASE_FRAMES_BRADLEY_SPLASH = 120; // 2.0s
+export const PHASE_FRAMES_PAUSE_PRE_SCROLL = 30; // 0.5s
+export const PHASE_FRAMES_POST_SCROLL = 90; // 1.5s

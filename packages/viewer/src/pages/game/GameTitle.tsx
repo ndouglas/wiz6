@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { PicSchema } from '@wiz6/data';
+import { PicSchema, type EgaScreen } from '@wiz6/data';
 import {
   renderPicDescriptor,
   concatenatePicSegments,
@@ -10,9 +10,10 @@ import {
   type IntroState,
   type RenderedSprite,
 } from '@wiz6/parser';
+import { loadEgaScreen } from '../../data-loader.js';
+import { WIZ6_TITLE_PALETTE } from '../../palettes/index.js';
 import styles from './GameTitle.module.css';
 
-// Engine resolution. Coordinates from the intro sim are in engine pixels.
 const ENGINE_W = 320;
 const ENGINE_H = 200;
 const SCALE = 3;
@@ -23,6 +24,7 @@ export function GameTitle() {
   const stateRef = useRef<IntroState>(initialIntroState());
   const skipRef = useRef(false);
   const [spritesByDesc, setSpritesByDesc] = useState<RenderedSprite[] | null>(null);
+  const [titlepagRgba, setTitlepagRgba] = useState<Uint8ClampedArray | null>(null);
 
   // Load credits.pic once and render every descriptor into RGBA.
   useEffect(() => {
@@ -38,7 +40,7 @@ export function GameTitle() {
         const rendered = pic.descriptors.map((d) => renderPicDescriptor(d, decoded));
         if (!cancelled) setSpritesByDesc(rendered);
       } catch {
-        // leave null; canvas just won't render
+        /* leave null */
       }
     })();
     return () => {
@@ -46,7 +48,24 @@ export function GameTitle() {
     };
   }, []);
 
-  // RAF loop: step the sim, draw the canvas, navigate on done.
+  // Load titlepag.scr and render to RGBA (used as scroll-phase background).
+  useEffect(() => {
+    let cancelled = false;
+    loadEgaScreen('/screens/titlepag.json')
+      .then((screen) => {
+        if (cancelled) return;
+        const rgba = renderEgaScreenToRgba(screen, WIZ6_TITLE_PALETTE);
+        setTitlepagRgba(rgba);
+      })
+      .catch(() => {
+        /* leave null; scroll falls back to black bg */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // RAF loop.
   useEffect(() => {
     if (!spritesByDesc) return;
     const canvas = canvasRef.current;
@@ -61,13 +80,11 @@ export function GameTitle() {
       skipRef.current = false;
       stateRef.current = stepIntro(stateRef.current, 1, { skipPressed });
 
-      // Draw
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, ENGINE_W, ENGINE_H);
-      const state = stateRef.current;
-      drawFrame(ctx, state, spritesByDesc);
+      drawFrame(ctx, stateRef.current, spritesByDesc, titlepagRgba);
 
-      if (state.phase === 'done') {
+      if (stateRef.current.phase === 'done') {
         navigate('/castle');
         return;
       }
@@ -75,21 +92,17 @@ export function GameTitle() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [spritesByDesc, navigate]);
+  }, [spritesByDesc, titlepagRgba, navigate]);
 
-  // Skip handling: any click or key toggles skipPressed for next frame.
   useEffect(() => {
-    const onKey = () => {
+    const onSkip = () => {
       skipRef.current = true;
     };
-    const onClick = () => {
-      skipRef.current = true;
-    };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onClick);
+    window.addEventListener('keydown', onSkip);
+    window.addEventListener('mousedown', onSkip);
     return () => {
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('mousedown', onClick);
+      window.removeEventListener('keydown', onSkip);
+      window.removeEventListener('mousedown', onSkip);
     };
   }, []);
 
@@ -123,59 +136,57 @@ function drawFrame(
   ctx: CanvasRenderingContext2D,
   state: IntroState,
   sprites: RenderedSprite[],
+  titlepagRgba: Uint8ClampedArray | null,
 ): void {
   const drawSprite = (descIdx: number, x: number, y: number) => {
     const s = sprites[descIdx];
     if (!s) return;
-    // Build an ImageData from the sprite's RGBA buffer and blit at (x, y).
-    // Clip negative-x/y so partial off-screen sprites still draw correctly.
     const img = new ImageData(new Uint8ClampedArray(s.rgba), s.width, s.height);
     ctx.putImageData(img, x, y);
   };
 
+  // Sir-Tech splash layout: dragon ABOVE wordmark, red-bar edges meeting.
+  // Each is 152×32. Position so dragon's bottom red bar lines up with
+  // wordmark's top red bar — they share one visual red strip.
+  // Tuned by eye against the user's recollection; the engine's exact
+  // positions are step-9's "2 hard-coded text token positions" which we
+  // haven't pinned down to a coordinate pair yet.
+  const cxLogo = Math.floor((ENGINE_W - 152) / 2);
+  const dragonY = 70;
+  const wordmarkY = dragonY + 30; // -2px overlap so red bars touch / blend
+
+  // Bradley splash layout: tagline above signature, both centered.
+  const cxBradleyLine = Math.floor((ENGINE_W - 144) / 2);
+  const cxBradleySig = Math.floor((ENGINE_W - 112) / 2);
+  const bradleyLineY = 80;
+  const bradleySigY = bradleyLineY + 36;
+
   switch (state.phase) {
-    case 'splash-pause-short':
-      // First moments — black screen. (In the engine: kbd_flush, load PIC.)
+    case 'pause-pre-sirtech':
+    case 'pause-between':
+    case 'pause-pre-scroll':
+      // black — already filled above
       break;
 
-    case 'splash-display':
-    case 'splash-pause-long': {
-      // Static "splash" display. Best guess from the user's recollection: this
-      // is the Sir-Tech / red-dragon screen with the "Fantasy Role-Playing
-      // Simulation by D.M. Bradley" tagline.
-      //
-      // From the credits.pic descriptor inventory:
-      //   desc 10 = SIR-TECH wordmark (152×32)
-      //   desc 9  = red dragon         (152×32)
-      //   desc 12 = "a Fantasy R-P Sim by" tagline (144×32)
-      //   desc 8  = "D.M. Bradley" signature (112×24)
-      //
-      // Layout these centered. Engine step 9 says "draw 2 text tokens at
-      // hard-coded positions" — we approximate with 4-element splash for now;
-      // refine once we have a DOSBox trace of step 9's actual call args.
-      const cx = ENGINE_W / 2;
-      drawSprite(10, Math.floor(cx - 152 / 2), 60); // SIR-TECH
-      drawSprite(9, Math.floor(cx - 152 / 2), 95); // red dragon
-      drawSprite(12, Math.floor(cx - 144 / 2), 140); // "Fantasy R-P Sim by"
-      drawSprite(8, Math.floor(cx - 112 / 2), 165); // "D.M. Bradley"
+    case 'sirtech-splash':
+      drawSprite(9, cxLogo, dragonY); // red dragon (top)
+      drawSprite(10, cxLogo, wordmarkY); // SIR-TECH wordmark (below)
       break;
-    }
 
-    case 'scroll': {
-      // Per-entry positions from the sim's layout solver. Entries are returned
-      // in back-to-front order (i=8 first).
-      const visible = visibleScrollEntries(state.scrollPos);
-      for (const v of visible) {
-        drawSprite(v.descriptorIndex, v.col, v.y);
-      }
+    case 'bradley-splash':
+      drawSprite(12, cxBradleyLine, bradleyLineY); // "a Fantasy R-P Sim by"
+      drawSprite(8, cxBradleySig, bradleySigY); // "D.M. Bradley"
       break;
-    }
 
+    case 'scroll':
     case 'post-scroll': {
-      // Same as the final scroll frame, plus a "press any key" hint could
-      // go here once we know which token the engine renders for that.
-      const visible = visibleScrollEntries(state.scrollPos);
-      for (const v of visible) {
+      // titlepag.scr as background (persists with the Wizardry logo); credit
+      // sprites composite over it per visibleScrollEntries.
+      if (titlepagRgba) {
+        const bg = new ImageData(new Uint8ClampedArray(titlepagRgba), ENGINE_W, ENGINE_H);
+        ctx.putImageData(bg, 0, 0);
+      }
+      for (const v of visibleScrollEntries(state.scrollPos)) {
         drawSprite(v.descriptorIndex, v.col, v.y);
       }
       break;
@@ -184,4 +195,53 @@ function drawFrame(
     case 'done':
       break;
   }
+}
+
+/**
+ * Render an EGA screen to row-major RGBA bytes using the per-plane shift
+ * pattern that ScreenGallery uses (discovered in Stage 1f.3). Color 0 is
+ * treated as transparent (alpha 0) so any underlying canvas content shows
+ * through; for our intro we draw on a black background so transparent ==
+ * black in practice.
+ */
+function renderEgaScreenToRgba(
+  screen: EgaScreen,
+  palette: { colors: ReadonlyArray<readonly [number, number, number]> },
+): Uint8ClampedArray {
+  const { width: w, height: h, planes } = screen;
+  const out = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let idx = 0;
+      for (let p = 0; p < 4; p++) {
+        const plane = planes[p];
+        if (!plane) continue;
+        const shiftX = (64 * p) % w;
+        const shiftY = -5 * p;
+        const yDrop = x < shiftX ? 1 : 0;
+        const srcY = y - shiftY - yDrop;
+        if (srcY < 0 || srcY >= h) continue;
+        const srcX = (((x - shiftX) % w) + w) % w;
+        const bytesPerRow = w / 8;
+        const byteIdx = srcY * bytesPerRow + (srcX >> 3);
+        const bitIdx = 7 - (srcX & 7);
+        const bit = ((plane[byteIdx] ?? 0) >> bitIdx) & 1;
+        idx |= bit << p;
+      }
+      const offset = (y * w + x) * 4;
+      if (idx === 0) {
+        out[offset] = 0;
+        out[offset + 1] = 0;
+        out[offset + 2] = 0;
+        out[offset + 3] = 0;
+      } else {
+        const rgb = palette.colors[idx] ?? [0, 0, 0];
+        out[offset] = rgb[0];
+        out[offset + 1] = rgb[1];
+        out[offset + 2] = rgb[2];
+        out[offset + 3] = 0xff;
+      }
+    }
+  }
+  return out;
 }
