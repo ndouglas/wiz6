@@ -1,0 +1,264 @@
+{
+  "topic": "wroot-naming-pass",
+  "subagent_run": "2026-05-22",
+  "binaries": ["wroot.exe"],
+  "summary": "Named 75 of 145 FUN_XXXX functions in wroot.exe via Ghidra annotations (SourceType.USER_DEFINED). Coverage skews toward the MS-C 5.x runtime (41 fns) and the windowing UI (14 fns), with smaller but high-value clusters in keyboard input, file I/O, boot/disk-prompt, overlay loading, and mouse. The remaining 70 functions are mostly small game-logic helpers whose purpose can't be confidently inferred from static analysis alone — they need either string-ref tracing through the overlays (where most game data lives) or dynamic context.",
+  "method": "PyGhidra + Ghidra's headless DecompInterface. For each function we extracted: (a) string operands by mapping DGROUP-relative (0x1fd80 base) and CS-relative (0x10000 base) scalar operands back to the in-memory ASCII strings; (b) INT 21h/10h/13h/16h interrupt sites with reverse-walk to find AH/AL/AX load instructions; (c) outgoing CALL edges; (d) decompiled C for any function with INT or string evidence. Names were applied only when there was direct evidence (DOS-int subfunction code, distinctive string ref, or unambiguous library pattern like memcpy/strcpy/strlen).",
+  "stats": {
+    "total_functions": 145,
+    "renamed": 75,
+    "remaining_FUN_XXXX": 69,
+    "categories": {
+      "crt": 41,
+      "ui": 14,
+      "file_io": 4,
+      "kbd": 4,
+      "boot": 3,
+      "ovl": 3,
+      "mouse": 3,
+      "video": 1,
+      "disk": 1,
+      "rng": 1
+    }
+  },
+  "findings": [
+    {
+      "id": "fn-crt-startup",
+      "claim": "0x14072 is the MS-C 5.x/6.x process entry point _astart",
+      "category": "crt",
+      "applied_name": "crt_startup",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": "0x14072",
+        "type": "mz_entry + pattern",
+        "details": "MZ header CS:IP = 0000:4072. Function resizes program memory via INT 21 AH=4A, parses argv from PSP env at [0x2c], zero-fills BSS from 0x6be for 0x2498 words, calls FUN_42bd (_cinit stub) then FUN_41df (_main)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-crt-main",
+      "claim": "0x141df is the C runtime's _main wrapper",
+      "category": "crt",
+      "applied_name": "crt_main_set_iostate",
+      "evidence": {
+        "address": "0x141df",
+        "type": "caller_and_pattern",
+        "details": "Called from crt_startup with parsed argv/argc. Initializes _osfile[0..2] (TTY flags for stdin/stdout/stderr) via FUN_4485 (INT 21 AH=44 ioctl). Calls FUN_44a5 (sbrk) for argv table. Calls FUN_132d (ovl_install_table) and FUN_42ab (atexit+exit)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-crt-dos-thunks",
+      "claim": "0x14309/14321/14340/14358/14485/13988/13970/1393a are thin INT 21h wrappers",
+      "category": "crt",
+      "applied_name": "crt_dos_close / lseek / unlink / rename / ioctl / pack_open_flags / free_block / alloc_block",
+      "evidence": {
+        "type": "unique_int21_subfunc",
+        "details": "Each function contains exactly one INT 21h, with a preceding MOV AH,N where N maps to the standard DOS API number (3E=close, 42=lseek, 41=unlink, 56=rename, 44=ioctl, 49=free, 48=alloc). CF-failure path stores errno-equivalent at [0x660]. This is the canonical MS-C INT 21h dispatch idiom."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-crt-open",
+      "claim": "0x13e88 implements the C runtime's _open() with O_* flag conversion",
+      "category": "crt",
+      "applied_name": "crt_open",
+      "evidence": {
+        "address": "0x13e88",
+        "type": "decompile",
+        "details": "Builds 0x3D00 (open) or 0x3C00 (create) control word from O_RDONLY/CREATE/TRUNC/APPEND-style flags in param_2. Dispatches via crt_dos_open_or_create. On success, runs ioctl to set TTY flag in handle table at [fd+0x6a4]. This is the canonical MS-C _open structure."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-strings",
+      "claim": "0x1387a/1390e/138d7/1400f are stock C library memcpy/strcpy/strcat/strlen",
+      "category": "crt",
+      "evidence": {
+        "type": "decompile_pattern_match",
+        "details": "memcpy at 0x1387a uses the classic 16-bit word copy with 1-byte tail. strcpy at 0x1390e measures source length then REP MOVSW + tail. strcat at 0x138d7 walks dst to nul then appends src. strlen at 0x1400f counts to nul and returns offset."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-printf",
+      "claim": "0x13b9f is the MS-C printf formatter",
+      "category": "crt",
+      "applied_name": "printf_format",
+      "evidence": {
+        "type": "jump_table + format_string",
+        "details": "Scans format string for '%'; on hit, parses flags +/-/space/#, width, precision, then indexes into a jump table at 0x3b5a using char position in the string 'LlhFNoxXudiscpneEfgG%G' (this exact 22-char dispatch string lives at file 0x3d45). All major format conversions present (%d/%s/%c/%f/%g/%x/%X/%o/%u/%p/%n with l/h/F width modifiers)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-boot-prompt",
+      "claim": "0x10d26 is the disk-swap / game-data load orchestrator",
+      "category": "boot",
+      "applied_name": "boot_prompt_swap_disk_and_load",
+      "evidence": {
+        "address": "0x10d26",
+        "type": "string_xrefs",
+        "details": "References ALL of: 'WMAZE.OVR', 'INSERT SAVEGAME DISK', 'INSERT DISK (^)', 'INTO DRIVE ^', 'PRESS X', 'CREDITS.PIC', 'DISK.HDR', 'MSG.DBS', 'SCENARIO.DBS' — i.e. every file the game prompts the user to load. Composes a window via ui_window_create, builds the prompt message via boot_build_prompt_message, waits for ENTER via kbd_check_with_filter, then opens via crt_open. Heart of the floppy-juggling UX."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-ovl-install",
+      "claim": "0x1132d builds the overlay-name table",
+      "category": "ovl",
+      "applied_name": "ovl_install_table",
+      "evidence": {
+        "address": "0x1132d",
+        "type": "string_xrefs",
+        "details": "References all overlay names in order: WINIT, WBASE, WMAZE, WMELE, WPOPS, WMEXE, WTREA, WPCMK, WPCVW, WMNPC, WDOPT. These are the 11 .ovr files in original/. Called from crt_main_set_iostate during startup."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-huffman",
+      "claim": "0x133e9 + 0x134d5 are the compressed-asset loader and Huffman bit-stream decoder",
+      "category": "file_io",
+      "applied_name": "huffman_load_and_decompress / huffman_decode_bitstream",
+      "evidence": {
+        "type": "prior_anchor + decompile",
+        "details": "Matches the project's prior reverse-engineering anchor: 'FUN_33e9 Huffman decompressor'. Inner function (0x134d5) does 8-bit-at-a-time fetch from a 0x1000-byte buffer at 0x400; refills via INT 21 AH=3F when SI passes 0x13ff; walks a tree table at 0x357b using bit-direction left/right via 0x8000 leaf-flag — textbook Huffman decoder."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-keyboard",
+      "claim": "0x12643/12724/1280c are the keyboard input cluster",
+      "category": "kbd",
+      "applied_name": "kbd_check_with_filter / kbd_getkey_with_filter / kbd_flush_buffer",
+      "evidence": {
+        "type": "int16+int21_pattern",
+        "details": "kbd_check_with_filter uses INT 16 AH=01 (status) + INT 21 AH=07 (raw read no echo) and filters chars by category mask (digit-only / printable / arrows). Maps arrow scancodes K/H/M/P to 0x08/0x09/0x0a/0x0b for unified handling. Internal queue at 0x262b/0x262d/0x262c (count/char/scancode arrays of size 20)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-rng",
+      "claim": "0x125b9 is a Wichmann-Hill-style 3-stream Lehmer LCG",
+      "category": "rng",
+      "applied_name": "rng_advance",
+      "evidence": {
+        "type": "decompile",
+        "details": "Three independent streams; each does (state % q) * a + (state / q) * c with stream-specific (q,a,c) = (0xb1,0xab,-2)/(0xb0,0xac,-0x23)/(0xb2,0xaa,-0x3f); reseeds to positive via +0x763d/0x7663/0x7673. This is the textbook Wichmann-Hill 1982 RNG."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-ui-cluster",
+      "claim": "0x1011a/0x102d2/0x123e3/0x1251d/0x12b19/0x12a63/etc. form a windowing UI subsystem",
+      "category": "ui",
+      "evidence": {
+        "type": "decompile + fn_table_dispatch",
+        "details": "All UI functions go through a driver function-table at [0x1b8a..0x1bca] (10 slots); window structs are linked through a chain at [0x1bd2]. Each window has shape: { width, height, top, left, ?, flags, cursor_x, cursor_y, ..., border_flags[9..f], char/attr cells[]@+0x10 }. The blit (0x12b19) is the heaviest path at 1082 bytes; it dispatches each cell through the driver and is wrapped by lock/unlock calls to [0x1ba2]/[0x1ba6]."
+      },
+      "confidence": "high"
+    }
+  ],
+  "renamed_full_list": [
+    {"addr": "0x10000", "old": "FUN_1000_0000", "new": "abort_cleanup_dispatch", "category": "crt"},
+    {"addr": "0x100d5", "old": "FUN_1000_00d5", "new": "abort_with_code", "category": "crt"},
+    {"addr": "0x100ea", "old": "FUN_1000_00ea", "new": "abort_alloc_fail", "category": "crt"},
+    {"addr": "0x100fe", "old": "FUN_1000_00fe", "new": "memcpy_thunk_5arg", "category": "crt"},
+    {"addr": "0x1011a", "old": "FUN_1000_011a", "new": "ui_window_create", "category": "ui"},
+    {"addr": "0x102d2", "old": "FUN_1000_02d2", "new": "ui_window_destroy", "category": "ui"},
+    {"addr": "0x1030b", "old": "FUN_1000_030b", "new": "ui_window_set_cursor", "category": "ui"},
+    {"addr": "0x105c1", "old": "FUN_1000_05c1", "new": "string_substitute_char", "category": "crt"},
+    {"addr": "0x109fb", "old": "FUN_1000_09fb", "new": "ui_window_redraw_focused", "category": "ui"},
+    {"addr": "0x10bd8", "old": "FUN_1000_0bd8", "new": "mouse_get_pos", "category": "mouse"},
+    {"addr": "0x10c16", "old": "FUN_1000_0c16", "new": "mouse_status_set_field", "category": "mouse"},
+    {"addr": "0x10c42", "old": "FUN_1000_0c42", "new": "mouse_read_state_or_zero", "category": "mouse"},
+    {"addr": "0x10c82", "old": "FUN_1000_0c82", "new": "strncpy_until_delim", "category": "crt"},
+    {"addr": "0x10cd6", "old": "FUN_1000_0cd6", "new": "boot_build_prompt_message", "category": "boot"},
+    {"addr": "0x10d26", "old": "FUN_1000_0d26", "new": "boot_prompt_swap_disk_and_load", "category": "boot"},
+    {"addr": "0x11124", "old": "FUN_1000_1124", "new": "boot_select_disk_for_content", "category": "boot"},
+    {"addr": "0x1132d", "old": "FUN_1000_132d", "new": "ovl_install_table", "category": "ovl"},
+    {"addr": "0x11462", "old": "FUN_1000_1462", "new": "disk_int13_reset", "category": "disk"},
+    {"addr": "0x11c59", "old": "FUN_1000_1c59", "new": "video_set_cursor_position", "category": "video"},
+    {"addr": "0x12168", "old": "FUN_1000_2168", "new": "crt_dos_exit_with_code", "category": "crt"},
+    {"addr": "0x121bb", "old": "FUN_1000_21bb", "new": "load_font_or_portrait", "category": "file_io"},
+    {"addr": "0x123e3", "old": "FUN_1000_23e3", "new": "ui_window_putchar", "category": "ui"},
+    {"addr": "0x1251d", "old": "FUN_1000_251d", "new": "ui_window_puts", "category": "ui"},
+    {"addr": "0x125b9", "old": "FUN_1000_25b9", "new": "rng_advance", "category": "rng"},
+    {"addr": "0x12643", "old": "FUN_1000_2643", "new": "kbd_check_with_filter", "category": "kbd"},
+    {"addr": "0x12724", "old": "FUN_1000_2724", "new": "kbd_getkey_with_filter", "category": "kbd"},
+    {"addr": "0x1280c", "old": "FUN_1000_280c", "new": "kbd_flush_buffer", "category": "kbd"},
+    {"addr": "0x12985", "old": "FUN_1000_2985", "new": "load_misc_table", "category": "file_io"},
+    {"addr": "0x12a63", "old": "FUN_1000_2a63", "new": "ui_screen_refresh", "category": "ui"},
+    {"addr": "0x12b19", "old": "FUN_1000_2b19", "new": "ui_window_blit", "category": "ui"},
+    {"addr": "0x1303e", "old": "FUN_1000_303e", "new": "ui_window_remove_from_chain", "category": "ui"},
+    {"addr": "0x13118", "old": "FUN_1000_3118", "new": "ui_window_focus", "category": "ui"},
+    {"addr": "0x131d1", "old": "FUN_1000_31d1", "new": "ui_window_unfocus", "category": "ui"},
+    {"addr": "0x13250", "old": "FUN_1000_3250", "new": "ui_window_inner_bounds", "category": "ui"},
+    {"addr": "0x132be", "old": "FUN_1000_32be", "new": "ui_window_clear", "category": "ui"},
+    {"addr": "0x133e9", "old": "FUN_1000_33e9", "new": "huffman_load_and_decompress", "category": "file_io"},
+    {"addr": "0x134d5", "old": "FUN_1000_34d5", "new": "huffman_decode_bitstream", "category": "file_io"},
+    {"addr": "0x13556", "old": "FUN_1000_3556", "new": "crt_dos_free_env", "category": "crt"},
+    {"addr": "0x13640", "old": "FUN_1000_3640", "new": "kbd_pre_input_disk_check", "category": "kbd"},
+    {"addr": "0x136e9", "old": "FUN_1000_36e9", "new": "ovl_make_filename", "category": "ovl"},
+    {"addr": "0x137c5", "old": "FUN_1000_37c5", "new": "ovl_load_or_die", "category": "ovl"},
+    {"addr": "0x137fa", "old": "FUN_1000_37fa", "new": "crt_int21_wrapper", "category": "crt"},
+    {"addr": "0x13817", "old": "FUN_1000_3817", "new": "crt_dos_read_handle", "category": "crt"},
+    {"addr": "0x1387a", "old": "FUN_1000_387a", "new": "memcpy", "category": "crt"},
+    {"addr": "0x138d7", "old": "FUN_1000_38d7", "new": "strcat", "category": "crt"},
+    {"addr": "0x1390e", "old": "FUN_1000_390e", "new": "strcpy", "category": "crt"},
+    {"addr": "0x1393a", "old": "FUN_1000_393a", "new": "crt_dos_alloc_block", "category": "crt"},
+    {"addr": "0x13970", "old": "FUN_1000_3970", "new": "crt_dos_free_block", "category": "crt"},
+    {"addr": "0x13988", "old": "FUN_1000_3988", "new": "crt_pack_open_flags", "category": "crt"},
+    {"addr": "0x13b20", "old": "FUN_1000_3b20", "new": "ui_window_free_struct", "category": "ui"},
+    {"addr": "0x13b9f", "old": "FUN_1000_3b9f", "new": "printf_format", "category": "crt"},
+    {"addr": "0x13e08", "old": "FUN_1000_3e08", "new": "printf_putchar", "category": "crt"},
+    {"addr": "0x13e3f", "old": "FUN_1000_3e3f", "new": "printf_parse_width_or_precision", "category": "crt"},
+    {"addr": "0x13e88", "old": "FUN_1000_3e88", "new": "crt_open", "category": "crt"},
+    {"addr": "0x1400f", "old": "FUN_1000_400f", "new": "strlen", "category": "crt"},
+    {"addr": "0x1402c", "old": "FUN_1000_402c", "new": "crt_dos_open_or_create", "category": "crt"},
+    {"addr": "0x14072", "old": "entry", "new": "crt_startup", "category": "crt"},
+    {"addr": "0x141b6", "old": "FUN_1000_41b6", "new": "crt_exit_raw", "category": "crt"},
+    {"addr": "0x141df", "old": "FUN_1000_41df", "new": "crt_main_set_iostate", "category": "crt"},
+    {"addr": "0x142ab", "old": "FUN_1000_42ab", "new": "crt_run_atexit_and_exit", "category": "crt"},
+    {"addr": "0x142bd", "old": "FUN_1000_42bd", "new": "crt_cinit_stub", "category": "crt"},
+    {"addr": "0x142bf", "old": "FUN_1000_42bf", "new": "crt_write_thunk", "category": "crt"},
+    {"addr": "0x142d3", "old": "FUN_1000_42d3", "new": "crt_read_via_fd", "category": "crt"},
+    {"addr": "0x142da", "old": "FUN_1000_42da", "new": "crt_write_via_fd", "category": "crt"},
+    {"addr": "0x142f7", "old": "FUN_1000_42f7", "new": "crt_int21_with_carry", "category": "crt"},
+    {"addr": "0x14309", "old": "FUN_1000_4309", "new": "crt_dos_close", "category": "crt"},
+    {"addr": "0x14321", "old": "FUN_1000_4321", "new": "crt_dos_lseek", "category": "crt"},
+    {"addr": "0x14340", "old": "FUN_1000_4340", "new": "crt_dos_unlink", "category": "crt"},
+    {"addr": "0x14358", "old": "FUN_1000_4358", "new": "crt_dos_rename", "category": "crt"},
+    {"addr": "0x14379", "old": "FUN_1000_4379", "new": "crt_fgets_buffered", "category": "crt"},
+    {"addr": "0x14440", "old": "FUN_1000_4440", "new": "crt_memmove", "category": "crt"},
+    {"addr": "0x14485", "old": "FUN_1000_4485", "new": "crt_dos_ioctl", "category": "crt"},
+    {"addr": "0x144a5", "old": "FUN_1000_44a5", "new": "crt_sbrk", "category": "crt"},
+    {"addr": "0x144d9", "old": "FUN_1000_44d9", "new": "crt_brk", "category": "crt"},
+    {"addr": "0x14565", "old": "FUN_1000_4565", "new": "crt_set_sp_min", "category": "crt"}
+  ],
+  "unresolved": [
+    "69 functions remain as FUN_XXXX. They cluster in the 0x10100-0x10c00 range (small UI helpers, mostly tiny wrappers around the windowing dispatch) and 0x11800-0x12500 (more boot-time helpers and what appear to be format/print helpers).",
+    "Game-logic functions (combat, dungeon stepping, character stats, NPC dialog) are NOT in wroot.exe — wroot is just the dispatcher/loader. Those subsystems live in the overlays (wmele.ovr=combat, wmaze.ovr=dungeon, wpcmk.ovr=character creation, wpcvw.ovr=character view, wmnpc.ovr=NPC, wpops.ovr=popups, wtrea.ovr=treasure, etc.). Naming those is the next major task and requires per-overlay passes since they share segment 0x1fd8 for DGROUP.",
+    "Many remaining small functions (e.g. 0x1011a's neighbors at 0x10100-0x10c00) appear to be window-system helpers but with no direct evidence beyond participating in the UI dispatch table. Naming them confidently needs traces from dynamic runs OR understanding the driver fn-table layout."
+  ],
+  "next_steps": [
+    "Rename pass on the overlays (especially wmaze.ovr and wmele.ovr) where the actual game logic lives. Headless setup is identical; loader spec differs (BinaryLoader + Real Mode).",
+    "Type/struct-shape pass on wroot: the window struct at offset 0/1/2/3/5/6/7/8-f/10... has a fairly clear layout that could be annotated as a Ghidra struct, dramatically improving decompiler output across all UI fns.",
+    "The driver function table at [0x1b8a..0x1bca] needs its 10 slots named — this maps directly to the driver-binary (ega.drv/cga.drv/etc.) exports."
+  ],
+  "operational_notes": {
+    "ghidra_install": "/opt/homebrew/Cellar/ghidra/12.1/libexec",
+    "pyghidra_version": "3.1.0",
+    "project_path": "tools/ghidra/wiz6.gpr",
+    "program": "wroot.exe",
+    "scripts_used": [
+      "/tmp/ghidra-scripts/wroot_analyze.py (initial INT-pattern dump)",
+      "/tmp/ghidra-scripts/wroot_dstrings.py (DGROUP-relative string ref scan)",
+      "/tmp/ghidra-scripts/wroot_full2.py (combined evidence gather)",
+      "/tmp/ghidra-scripts/wroot_decomp.py (per-function decompile)",
+      "/tmp/ghidra-scripts/wroot_rename.py (apply renames + save)",
+      "/tmp/ghidra-scripts/wroot_verify.py (verify persistence)"
+    ],
+    "key_quirk": "Ghidra's MzLoader places strings at byte addresses 0x202xx but actual operand values in the code are DGROUP-relative offsets (subtract 0x1fd80, not 0x20000) — used 0x20000-0x1fd80 = 0x280 byte offset between the two interpretations. Code-segment-relative refs (e.g. 'ega.drv' at file_off 0x211c) appear as scalar 0x211c in instructions; their actual address in ram is 0x1211c (CODE_0 base 0x10000)."
+  }
+}

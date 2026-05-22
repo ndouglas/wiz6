@@ -42,6 +42,15 @@ python3 tools/ghidra/scripts/dump_function.py --binary wroot.exe --name pic_load
 
 Useful for: capturing function source for docs/re/ notes, diffing decompiled output before/after rename passes, feeding C into other tools.
 
+### `apply_wroot_names.py` — replay the wroot.exe naming pass
+
+```bash
+python3 tools/ghidra/scripts/apply_wroot_names.py             # apply
+python3 tools/ghidra/scripts/apply_wroot_names.py --dry-run   # preview
+```
+
+Reads `docs/re/findings/wroot-naming-pass.json` and applies every `renamed_full_list` entry to the live Ghidra project. Idempotent: functions already at the target name are skipped. Use this to re-apply names after a `setup.sh --force` rebuild, or to extend the rename list (edit the JSON, then re-run).
+
 ## Adding new scripts
 
 Templates worth writing when the need comes up (not yet — YAGNI):
