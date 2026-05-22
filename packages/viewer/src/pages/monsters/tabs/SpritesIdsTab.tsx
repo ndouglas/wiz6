@@ -1,10 +1,49 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ScenarioMonster } from '@wiz6/data';
-import { monsterSlug, monsterDisplayName } from '@wiz6/parser';
+import { PicSchema } from '@wiz6/data';
+import { renderPicDescriptor, concatenatePicSegments, monsterSlug, monsterDisplayName } from '@wiz6/parser';
+import { PicCanvas } from '../../../components/PicCanvas.js';
 
 interface SpritesIdsTabProps {
   monster: ScenarioMonster;
   allMonsters: readonly ScenarioMonster[];
+}
+
+interface RenderedSprite {
+  width: number;
+  height: number;
+  rgba: Uint8ClampedArray;
+}
+
+function usePicDescriptors(picId: number): RenderedSprite[] | null {
+  const [sprites, setSprites] = useState<RenderedSprite[] | null>(null);
+  useEffect(() => {
+    if (!picId || picId === 0) {
+      setSprites(null);
+      return;
+    }
+    let cancelled = false;
+    const padded = picId.toString().padStart(2, '0');
+    (async () => {
+      try {
+        const res = await fetch(`/pics/mon${padded}.json`);
+        if (!res.ok) return;
+        const text = await res.text();
+        if (text.trimStart().startsWith('<')) return;
+        const pic = PicSchema.parse(JSON.parse(text));
+        const decoded = concatenatePicSegments(pic.segments);
+        const rendered = pic.descriptors.map((d) => renderPicDescriptor(d, decoded));
+        if (!cancelled) setSprites(rendered);
+      } catch {
+        // Swallow — leave sprites null; page still renders.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [picId]);
+  return sprites;
 }
 
 type SpriteField = keyof Pick<
@@ -48,25 +87,58 @@ function sharedWith(
 }
 
 export function SpritesIdsTab({ monster, allMonsters }: SpritesIdsTabProps) {
+  const sprites = usePicDescriptors(monster.picId);
+  const padded = monster.picId > 0 ? monster.picId.toString().padStart(2, '0') : null;
+
   return (
     <div>
-      <div
-        data-testid="sprite-placeholder"
-        style={{
-          width: 96,
-          height: 96,
-          background: 'var(--color-surface)',
-          border: '1px dashed var(--color-border)',
-          color: 'var(--color-text-faint)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: 'var(--font-mono)',
-          fontSize: '0.75rem',
-          marginBottom: 'var(--space-4)',
-        }}
-      >
-        sprite{'\n'}TBD
+      <div data-testid="sprite-gallery" style={{ marginBottom: 'var(--space-4)' }}>
+        {monster.picId === 0 ? (
+          <div
+            style={{
+              padding: 'var(--space-3)',
+              border: '1px dashed var(--color-border)',
+              color: 'var(--color-text-faint)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.85rem',
+            }}
+          >
+            no sprite (picId = 0)
+          </div>
+        ) : sprites === null ? (
+          <div style={{ color: 'var(--color-text-muted)' }}>loading sprite…</div>
+        ) : sprites.length === 0 ? (
+          <div style={{ color: 'var(--color-text-muted)' }}>mon{padded}.pic has no descriptors</div>
+        ) : (
+          <>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 'var(--space-3)',
+                alignItems: 'flex-start',
+              }}
+            >
+              {sprites.map((sprite, i) => (
+                <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <PicCanvas
+                    width={sprite.width}
+                    height={sprite.height}
+                    rgba={sprite.rgba}
+                    scale={2}
+                  />
+                  <span style={{ color: 'var(--color-text-faint)', fontSize: '0.75rem', marginTop: 2 }}>
+                    desc {i}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p style={{ color: 'var(--color-text-faint)', fontSize: '0.8rem', marginTop: 'var(--space-2)' }}>
+              from <Link to={`/explore/pics/mon${padded}`}>mon{padded}.pic</Link>
+              {' · '}{sprites.length} descriptor{sprites.length === 1 ? '' : 's'}
+            </p>
+          </>
+        )}
       </div>
       <table
         style={{

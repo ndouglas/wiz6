@@ -1,0 +1,548 @@
+{
+  "topic": "startup-sequence",
+  "subagent_run": "2026-05-22T19:00:00Z",
+  "binaries": ["winit.ovr", "wroot.exe"],
+  "summary": "Mapped the winit.ovr state machine for the Wiz6 startup sequence. The overlay's entry point at file offset 0x0c is a 4-way dispatch on the global game-state variable (wroot's DGROUP 0x363a) routing to state 0 (load disk/master hdr), state 1 (title page + scrolling credits), state 2 (init fonts/windows), or state 8 (graveyard / party-dead). State transitions: 0 → 1 → 2 → 4 (handoff to wbase.ovr main menu); state 8 (party-dead) → 2. The credits scroll is a time-keyed text overlay with 9 entries, each with appear_tick/duration/cap fields, advancing scroll_pos += 2 per frame. Frame timing comes from wroot's calibrated busy-wait primitive at 0x2858. The scroll terminates when scroll_pos exceeds 0xFB (~251), or when the user presses ENTER or moves the mouse. Named 13 of 13 winit.ovr functions plus 3 dispatch-reachable entry points.",
+  "method": "PyGhidra + ndisasm. Resolved cross-overlay BSS function-pointer thunks by deriving the constant offset delta (thunk_addr - 0xba9c = wroot_file_offset). Verified by checking known mappings: thunk 0xbbb6 - 0xba9c = 0x11a = wroot ui_window_create. With this delta the full call graph from winit to wroot became readable. Decoded the overlay entry dispatch at file offset 0x0c by inspecting the raw bytes (couldn't be auto-disassembled because the file starts with a 12-byte overlay header).",
+  "stats": {
+    "functions_named_in_winit": 13,
+    "total_functions_in_winit": 13,
+    "dispatch_entry_points_named": 3,
+    "winit_file_size_bytes": 5173,
+    "state_machine_states_documented": 4,
+    "timing_constants_extracted": 5
+  },
+  "thunk_delta_law": {
+    "claim": "Every cross-overlay function call in winit.ovr (and by extension wmaze/wmele/wmnpc/wdopt) calls a thunk at address (wroot_file_offset + 0xBA9C). The overlay loader installs JMP/CALL stubs at these fixed addresses pointing to the corresponding wroot function.",
+    "evidence": {
+      "type": "constant_offset_match",
+      "details": "Verified across many calls. Examples: thunk 0xbbb6 - 0xba9c = 0x11a = wroot ui_window_create. thunk 0xbb71 - 0xba9c = 0xd5 = wroot abort_with_code. thunk 0xe0df - 0xba9c = 0x2643 = wroot kbd_check_with_filter. thunk 0xe1c0 - 0xba9c = 0x2724 = wroot kbd_getkey_with_filter. thunk 0xee85 - 0xba9c = 0x33e9 = wroot huffman_load_and_decompress (the .pic decoder thunk). thunk 0xf924 - 0xba9c = 0x3e88 = wroot crt_open. thunk 0xfda5 - 0xba9c = 0x4309 = wroot crt_dos_close. All match."
+    },
+    "confidence": "high"
+  },
+  "state_machine": {
+    "state_var": {
+      "address": "0x363a",
+      "type": "word",
+      "scope": "shared DGROUP (set by wroot's main loop at wroot 0x132d and read by all overlays)"
+    },
+    "states": [
+      {
+        "id": 0,
+        "name": "STATE_LOAD_DISK_CONFIG",
+        "handler_winit_addr": "0x525",
+        "purpose": "Open MASTER.HDR / DISK.HDR (filename pointer at runtime address 0x501c), read 0x19e bytes into 0x33f8, dispatch on byte at 0x3595 via repne-scasw key table at 0x4b3a.",
+        "exit_transition": "writes 0x363a := 1 at winit file offset 0x8ed; returns to wroot's ovl_install_table loop which re-loads winit for state 1"
+      },
+      {
+        "id": 1,
+        "name": "STATE_TITLE_AND_CREDITS",
+        "handler_winit_addr": "0x9f3",
+        "purpose": "Display the title page picture, draw the static header text, then run the scrolling-credits animation. Frame is composed by repeatedly drawing 9 text-token entries at time-shifted Y positions, with optional skip via ENTER or mouse-move.",
+        "exit_transition": "writes 0x363a := 2 at winit file offset 0xdc4; returns to wroot loop"
+      },
+      {
+        "id": 2,
+        "name": "STATE_INIT_FONTS_WINDOWS",
+        "handler_winit_addr": "0xf43",
+        "purpose": "Load WFONT0..WFONT4 and MAZEDATA in active video mode (EGA/CGA/T16/Hercules), create all major UI windows (status bar, party panel, message window, screen overlay window), zero per-party state arrays, set encounter table.",
+        "exit_transition": "writes 0x363a := 4 at winit file offset 0x11e7 (inside FUN_0000_0f43); returns to wroot loop which loads wbase.ovr (main menu)"
+      },
+      {
+        "id": 8,
+        "name": "STATE_GRAVEYARD",
+        "handler_winit_addr": "0xdf6",
+        "purpose": "Party-dead recovery: free per-zone maze data buffers (0x4fa8, 0x4faa), zero party_size (0x43ce), destroy all gameplay windows, load GRAVEYRD.PIC (file index 0x22), display death-cause string based on flags at 0x4fc6, wait for any keypress.",
+        "exit_transition": "writes 0x363a := 2 at winit file offset 0xf21; returns to wroot loop which re-runs state 2 (init)"
+      }
+    ],
+    "transitions_outside_winit": {
+      "state_4_wbase": "Loaded by wroot's FUN_1000_36dc(0x5fa) — wbase.ovr (main menu / save-load). Out of scope for this investigation.",
+      "states_5_6_17_wmaze": "Loaded by wroot's FUN_1000_36dc(0x600) — wmaze.ovr (in-dungeon gameplay).",
+      "states_10_11_14": "FUN_1000_36dc(0x606) — some overlay (combat?).",
+      "state_12": "FUN_1000_36dc(0x60c).",
+      "state_13": "FUN_1000_36dc(0x612).",
+      "states_15_21": "FUN_1000_36dc(0x618).",
+      "state_16": "FUN_1000_36dc(0x61e).",
+      "states_17_22": "FUN_1000_36dc(0x624).",
+      "state_18": "FUN_1000_36dc(0x62a).",
+      "states_19_20": "FUN_1000_36dc(0x630).",
+      "state_24_25": "boot_select_disk_for_content(1, 0); FUN_1000_36dc(0x5fa) (wbase with disk-swap prompt)."
+    }
+  },
+  "timing_constants": [
+    {
+      "name": "delay_primitive_busy_wait",
+      "wroot_file_offset": "0x2858",
+      "winit_thunk": "0xe2f4",
+      "claim": "Calibrated CPU busy-wait. One call ≈ '1 tick' but exact duration is CPU-speed-dependent. Inner loop runs *(0x1fe2) iterations, outer loop runs *(0x1fe4) passes, each with 0x10000 inner iterations. Comparison target is *(0x206b) — typically 0 — set at calibration.",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": "0x2858",
+        "type": "disasm",
+        "details": "MOV CX,[CS:0x1fe2]; MOV DX,[CS:0x1fe4]; SUB CX,1; CMP CX,[BX=0x206b]; JNZ -7; CMP DX,[BX]; JZ done; DEC DX; JMP -inner. Calibration constants live in CS at offsets 0x1fe2/0x1fe4 (file 0x1fe2/0x1fe4 in wroot.exe). The comparison target *(0x206b) is also CS-relative."
+      },
+      "confidence": "high"
+    },
+    {
+      "name": "title_wait_or_enter_unit",
+      "winit_file_offset": "0x9ae",
+      "claim": "FUN_0000_09ae(param_1): loops `param_1 * 10` times. Each iteration: kbd_check; if ENTER pressed return 1; else delay 1 unit (call 0xe2f4 → wroot 0x2858). Returns 0 on timeout. The *10 multiplier means each 'unit' from the caller is 10 busy-wait calls.",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x9ae",
+        "type": "disasm",
+        "details": "PUSH BP; MOV BP,SP; MOV AX,[BP+4]; MOV DX,AX; SHL AX,1; SHL AX,1; ADD AX,DX; SHL AX,1 (= AX * 10); MOV [BP+4],AX. Loop until [BP+4]==0, calling kbd_check (0xe0df), kbd_getkey (0xe1c0) checking for 0x0D (\\r), and delay (0xe2f4)."
+      },
+      "confidence": "high"
+    },
+    {
+      "name": "title_wait_short",
+      "winit_file_offset": "0xacc (call site)",
+      "claim": "After title page first appears, before drawing static text: title_wait_or_enter(2) — 20 delay-units. With a typical 18.2 Hz tick this is ~1.1 sec; with a calibrated ~60 Hz tick this is ~0.33 sec.",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0xacc",
+        "type": "disasm",
+        "details": "MOV AX,0x2; PUSH AX; CALL 0x9ae"
+      },
+      "confidence": "high"
+    },
+    {
+      "name": "title_wait_long",
+      "winit_file_offset": "0xb1f (call site)",
+      "claim": "After drawing static header text, before scroll starts: title_wait_or_enter(0x48) — 720 delay-units. Approximate wall time: 720/18.2 = ~40 sec at PIT tick, or 720/60 = ~12 sec at VRetrace. Likely the latter given engine UX expectations.",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0xb1f",
+        "type": "disasm",
+        "details": "MOV AX,0x48; PUSH AX; CALL 0x9ae"
+      },
+      "confidence": "medium",
+      "needs": "DOSBox-X interactive breakpoint timing measurement to confirm wall-clock duration of one 0x2858 call on the original target CPU."
+    },
+    {
+      "name": "credit_scroll_terminal_position",
+      "winit_file_offset": "0xd59",
+      "claim": "Scroll loop runs until scroll_position (initialized to 0, incremented by 2 per frame) exceeds entry-7's (appear_tick + field_b - cap) = 0x78 + 0x90 - 0xd = 0xFB = 251. So the scroll runs for ~126 frames (251/2 rounded up), each frame = one full inner-loop pass over 9 entries.",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0xd59",
+        "type": "disasm",
+        "details": "CMP [BP-0x6E], 0; JZ end_scroll. Else: MOV AX,[BP-0x36]; ADD AX,[BP-0x4A]; SUB AX,[BP-0x5E]; CMP AX,[BP-0x2]; JNG end_scroll. The [BP-0x36] etc. correspond to entry 7's appear_tick / field_b / cap (0x78, 0x90, 0xd respectively — initialized at function entry)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "credits_scroll_mechanism": {
+    "summary": "9 text-token entries (parameterized via on-stack array), each rendered once per frame at a y-position computed as (entry.field_b - max(0, scroll_pos - entry.appear_tick)). Entries clamp at entry.cap (their target Y). The scroll position starts at 0 and increments by 2 per frame. Per frame: clear window, render all visible entries, refresh window, check skip (mouse-move or ENTER).",
+    "entry_struct": {
+      "layout": "stack-allocated; per-entry stride 2 bytes, 9 entries indexed [0..8]",
+      "fields": {
+        "text_token (BP-0x1c-2i)": "Probably a MSG.DBS string-ID or font-glyph index passed to render-text-token (FUN_0000_097c → wroot's text-driver thunk at 0x3670).",
+        "col (BP-0x30-2i)": "Column position on screen.",
+        "appear_tick (BP-0x44-2i)": "Scroll-position at which this entry becomes visible. Pre-init values: [0, 0, 0, 0, 4, 36, 60, 88, 120, 152] (i=0..8 with one apparent dummy slot).",
+        "field_b (BP-0x58-2i)": "Initial Y-position when entry first appears. Pre-init: [0x43, 0x63, 0xd, 0x90, 0x90, 0x90, 0x90, 0x90, 0x50].",
+        "cap (BP-0x6c-2i)": "Minimum Y-position (where the entry rests). Pre-init: [3, 0x23, 0xd, 0xd, 0xd, 0xd, 0xd, 0xd, 0x50]."
+      },
+      "render_formula": "y = entry.field_b - max(0, scroll_pos - entry.appear_tick); if (i >= 3 && i != 8) y = max(y, entry.cap); skip if y > entry.cap (note: condition is `cap > computed_y` i.e. computed_y is below cap — skip)."
+    },
+    "loop_body_pseudocode": [
+      "for (frame = 0; (entry[7].appear + entry[7].field_b - entry[7].cap > scroll_pos) && continue_flag; frame++) {",
+      "    call ui_pre_frame_thunk(0xffff)               ; 0xf118 — possibly buffer-swap or pre-render",
+      "    for (i = 8; i >= 0; i--) {",
+      "        if (entry[i].appear > scroll_pos) continue ; not yet visible",
+      "        delta = scroll_pos - entry[i].appear",
+      "        y = entry[i].field_b - delta",
+      "        if (i >= 3 && i != 8 && y < entry[i].cap) y = entry[i].cap   ; clamp",
+      "        if (y > entry[i].cap) continue                    ; past rest",
+      "        render_text_token(entry[i].text_token, entry[i].col, y)",
+      "    }",
+      "    call ui_post_frame_thunk(*0x4fbe)             ; 0xf13c — window-refresh",
+      "    if (mouse_poll() != 0) continue_flag = 0       ; 0xc6de — mouse_read_state_or_zero",
+      "    if (kbd_check(1) != 0) {                       ; 0xe0df — kbd_check_with_filter",
+      "        keychar = kbd_getkey(1)                    ; 0xe1c0",
+      "        continue_flag = 0",
+      "    }",
+      "    scroll_pos += 2",
+      "}"
+    ],
+    "evidence": {
+      "binary": "winit.ovr",
+      "address": "0xc86..0xd6d",
+      "type": "disasm",
+      "details": "Inner loop labelled at 0xcaa (BP-0x6 = i counter). Outer loop continuation at 0xc9d. End-of-scroll branch at 0xd70."
+    },
+    "confidence": "high"
+  },
+  "input_handling": {
+    "title_phase": {
+      "claim": "Two timed waits between title-page-load and credit-scroll. Each calls FUN_0000_09ae(n) which returns 1 if ENTER is pressed during the wait, 0 on timeout. The 'skip' flag accumulates via +=. If skip becomes non-zero, both subsequent waits are bypassed AND the scroll's continue_flag starts as 0 (so scroll doesn't run).",
+      "evidence_addr": "0xacc, 0xb1f, 0xb50, 0xb9c, 0xc89"
+    },
+    "scroll_phase": {
+      "claim": "Each frame polls (a) mouse via FUN_1000_0c42 thunk (0xc6de — mouse_read_state_or_zero) and (b) keyboard via wroot kbd_check_with_filter / kbd_getkey_with_filter (0xe0df / 0xe1c0). Either non-zero sets continue_flag to 0 to break the scroll. Captured keychar is stored at [BP-0x70] for downstream processing (currently unused beyond breaking scroll).",
+      "evidence_addr": "0xd29, 0xd35"
+    },
+    "post_scroll": {
+      "claim": "After scroll ends, if user did NOT skip (continue_flag != 0 at end) calls FUN_1000_09a3 (wroot 0x9a3 — another 'wait n ticks or enter' variant) with n=0x1c. If user DID skip, loops polling kbd_check until any key is pressed.",
+      "evidence_addr": "0xde7, 0xdce"
+    }
+  },
+  "dgroup_state_variables": [
+    {
+      "address": "0x363a",
+      "name": "game_state",
+      "type": "word",
+      "purpose": "Master state machine variable. Read by all overlays; values 0..0x19 select which overlay/state to run."
+    },
+    {
+      "address": "0x363c",
+      "name": "current_zone_id",
+      "type": "word",
+      "purpose": "Active dungeon zone (from wmaze findings)."
+    },
+    {
+      "address": "0x3592",
+      "name": "boot_disk_letter_or_kind",
+      "type": "byte",
+      "purpose": "Used by FUN_0000_0081: when ==3 or ==5, triggers a disk-prompt build/load via 0xc7c2 (boot_prompt_swap_disk_and_load). Value 3 vs 5 selects different prompt-template addresses (0x3540 vs 0x3554)."
+    },
+    {
+      "address": "0x3594",
+      "name": "??? boot config byte",
+      "type": "byte",
+      "purpose": "Checked against 1 in state-2 init driver alongside the high bit of 0x4fc6 (vmode flags & 0x1000). Likely a flag for a special-config branch (T16 secondary?)."
+    },
+    {
+      "address": "0x3595",
+      "name": "boot_dispatch_key",
+      "type": "byte",
+      "purpose": "Read by FUN_0000_0525 (state 0) as the key for the repne-scasw dispatch at 0x4b3a. The dispatched code path determines branching of disk-load behavior."
+    },
+    {
+      "address": "0x4fc6",
+      "name": "video_mode_flags",
+      "type": "word",
+      "purpose": "Bitmask of available video modes: bit 0=EGA, bit 1=CGA, bit 2=T16, bit 3=Hercules. Bit 12 (0x1000) appears to be a secondary T16 flag. Read by state-1 (title), state-2 (init), state-8 (graveyard) to select which TITLEPAG/GRAVEYRD/font file to load."
+    },
+    {
+      "address": "0x4fbe",
+      "name": "win_handle_titlescreen",
+      "type": "word",
+      "purpose": "Handle for the 40x25 fullscreen-overlay window used by state-1, state-2, state-8. Created via FUN_1000_011a (ui_window_create) with bounds (0,0,40,25)."
+    },
+    {
+      "address": "0x4fa8",
+      "name": "buffer_ptr_a",
+      "type": "word",
+      "purpose": "Free'd in state 8 (graveyard) via 0xf5bc (ui_window_free_struct). One of the per-zone maze-data buffers."
+    },
+    {
+      "address": "0x4faa",
+      "name": "buffer_ptr_maze_data",
+      "type": "word",
+      "purpose": "Maze-data base pointer (per wmaze findings). Free'd in state 8."
+    },
+    {
+      "address": "0x43ce",
+      "name": "party_size",
+      "type": "word",
+      "purpose": "Number of party members (0..6). Reset to 0 in state 8 (graveyard) — all party members died."
+    },
+    {
+      "address": "0x4336",
+      "name": "last_pic_index",
+      "type": "word",
+      "purpose": "Written by FUN_0000_038a (winit_load_pic_by_index) at function entry. Stores the last-loaded PIC file index."
+    },
+    {
+      "address": "0x33ec",
+      "name": "pic_filename_buffer",
+      "type": "byte[]",
+      "purpose": "Output buffer for the file-name string built by func_0x0000c31e(9, 0x33ec, index, 0). The .pic loader then opens this filename."
+    },
+    {
+      "address": "0x33f0/0x33f2",
+      "name": "pic_offset_lo/hi",
+      "type": "dword (split)",
+      "purpose": "File offset within the looked-up file (zero for stand-alone .pic; non-zero for files-in-archives). Re-fetched if both zero (lazy init)."
+    },
+    {
+      "address": "0x33f8",
+      "name": "master_hdr_buffer",
+      "type": "byte[0x19e]",
+      "purpose": "Destination for the 0x19e-byte read from MASTER.HDR/DISK.HDR by FUN_0000_0525 (state 0)."
+    },
+    {
+      "address": "0x4ee8",
+      "name": "last_cell_index",
+      "type": "word",
+      "purpose": "From wmaze findings — last-known cell index."
+    },
+    {
+      "address": "0x4fb6/0x4fb8/0x4fba/0x4fbc/0x4fb0/0x4fac/0x3342/0x4fb2",
+      "name": "window_handles_party_panels",
+      "type": "word[]",
+      "purpose": "Window handles created in state 2 (init) — status bar, party member panels (3), message window, etc. All destroyed in state 8."
+    }
+  ],
+  "findings": [
+    {
+      "id": "fn-overlay-entry",
+      "claim": "winit.ovr file offset 0x0c is the overlay entry point — a 4-way dispatch on game_state (*0x363a). Routes to state 0 (0x525), state 1 (0x9f3), state 2 (0xf43), or state 8 (0xdf6); returns 0 (AX=0) for any other state.",
+      "category": "state_machine",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x0c",
+        "type": "raw_disasm",
+        "details": "POP BP; PUSH DI; MOV AX,[0x363a]; JMP +0x14; (4× {CALL state_handler; JMP epilogue}); CMP AX,0/1/2/8 → JZ to respective handler; epilogue: MOV AX,0; RET. The 12-byte header preceding 0x0c (file bytes 0..0x0b) is an MS overlay-link header (relocation count etc.) — not code."
+      },
+      "confidence": "high",
+      "applied_name_at_addr_0x0c": "winit_overlay_entry"
+    },
+    {
+      "id": "fn-state0",
+      "claim": "FUN_0000_0525 is the state-0 handler: loads MASTER.HDR/DISK.HDR, dispatches via repne-scasw table at 0x4b3a keyed by *0x3595, sets *0x363a := 1 to advance to title-screen state.",
+      "category": "state_machine",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x525",
+        "type": "decomp+disasm",
+        "details": "Opens file via crt_open (0xf924 thunk) using filename at runtime address 0x501c, reads 0x19e bytes via crt_read_via_fd (0xfd6f thunk) into 0x33f8, closes via crt_dos_close (0xfda5). Then sets up dispatch: ES:=CS; DI:=0x4b3a; CX:=0xb; REPNE SCASW. CX after match has *0x206b, [DI+0x12] is the matched code pointer. *0x363a := 1 written at file offset 0x8ed."
+      },
+      "confidence": "high",
+      "applied_name": "winit_state0_load_master_hdr"
+    },
+    {
+      "id": "fn-state1",
+      "claim": "Code starting at file offset 0x9f3 is the state-1 handler: load title-page picture (PIC index 0x27), load SOUND00.SND, show video-mode credit string, run static-then-scrolling credit display, transition to state 2.",
+      "category": "state_machine",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x9f3",
+        "type": "raw_disasm",
+        "details": "PUSH BP; MOV BP,SP; ADD SP,-0x72; CALL 0xe2a8 (kbd_flush_buffer); PUSH 0x27; CALL 0x38a (winit_load_pic_by_index) → loads PIC file index 39. Then opens 'SOUND00.SND' via thunk 0xc772 (boot_build_prompt_message — likely file-template-resolver). Then vmode dispatch on *0x4fc6. Then 4 text-token renders. Then 9-entry credit-scroll loop. *0x363a := 2 at file offset 0xdc4."
+      },
+      "confidence": "high",
+      "applied_name_at_addr_0x9f3": "winit_state1_title_and_credits"
+    },
+    {
+      "id": "fn-state2",
+      "claim": "FUN_0000_0f43 is the state-2 handler: loads WFONT0..WFONT4 and MAZEDATA in the active video mode, creates all UI windows, initializes party-state arrays. Transitions to state 4 (wbase.ovr / main menu).",
+      "category": "state_machine",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0xf43",
+        "type": "decomp",
+        "details": "First zeroes 10 bytes at 0x432c, 10 at 0x4322. Then 7 calls to FUN_0000_01bd (winit_load_font_table_entry) with args (3,0), (1,1), (2,2), (7,3), (4,7), (5,8), (6,9) — loading WFONT entries by table-index. Then vmode dispatch (calls FUN_0000_08f7 with one of 0x51ae/0x51bb/0x51c8/0x51d5 — likely the TITLEPAG.{EGA|CGA|T16|HRC} filenames). Then 6 calls to ui_window_create (0xbbb6) for various UI windows, storing handles in 0x4fb6, 0x4fba, 0x4fb8, 0x3342, 0x4fb2, 0x4fbc, 0x4fac. Then per-party-slot init (0x432c, 0x4326 zeroing). *0x363a := 4 at file offset 0x11e7."
+      },
+      "confidence": "high",
+      "applied_name": "winit_state2_init_fonts_windows"
+    },
+    {
+      "id": "fn-state8",
+      "claim": "Code starting at file offset 0xdf6 is the state-8 handler: party-dead recovery / graveyard screen. Frees per-zone buffers, destroys gameplay windows, loads GRAVEYRD.PIC (index 0x22), shows death-cause message, waits for key, transitions to state 2.",
+      "category": "state_machine",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0xdf6",
+        "type": "raw_disasm",
+        "details": "CMP [0x4fa8],0; JZ skip1; CALL 0xf5bc (ui_window_free_struct or similar — actually wroot 0x3b20 ui_window_free_struct); same for 0x4faa. Then *0x43ce := 0 (party_size). 8× ui_window_destroy (0xbd6e) on stored window handles. CALL 0x38a(0x22) loads GRAVEYRD picture. Then vmode dispatch on *0x4fc6 (4 branches based on bits 1/2/4/8). Render text. CALL 0xc546(0xe) → ui_window_blit or scroll. Wait loop polling 0xe0df / 0xc6de until ENTER or mouse. *0x363a := 2 at file offset 0xf21."
+      },
+      "confidence": "high",
+      "applied_name_at_addr_0xdf6": "winit_state8_graveyard"
+    },
+    {
+      "id": "fn-09ae-titlewait",
+      "claim": "FUN_0000_09ae(n) is the 'wait n×10 delay-units or ENTER' primitive used during the title/credits sequence. Returns 1 if ENTER pressed, 0 on timeout.",
+      "category": "timing",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x9ae",
+        "type": "decomp+disasm",
+        "details": "n *= 10; while (n > 0) { if (kbd_check && kbd_getkey == '\\r') return 1; delay_1_unit(); n--; } return 0; — Decomp matches exactly. Identical pattern to wroot FUN_1000_09a3."
+      },
+      "confidence": "high",
+      "applied_name": "winit_wait_ticks_or_enter"
+    },
+    {
+      "id": "fn-0291-monster-preload",
+      "claim": "FUN_0000_0291 is the MON??.PIC preload loop (loads N monster sprites by composing 'MON%02d.PIC' for combat_sprite_id 0..N-1).",
+      "category": "asset_loading",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x291",
+        "type": "prior_doc",
+        "details": "Already documented in docs/re/pic-loader.md — sprite preload loop entry @ 0x33A is inside this function, calls 0xee85 (huffman_load_and_decompress) for each monster sprite."
+      },
+      "confidence": "high",
+      "applied_name": "winit_preload_monster_sprites"
+    },
+    {
+      "id": "fn-038a-pic-loader",
+      "claim": "FUN_0000_038a(index) is the .pic-by-index loader: builds filename via wroot's file-table-resolver (thunk 0xc31e, kind=9), opens file, dispatches to ega.drv decoder via thunk 0xee85 (huffman_load_and_decompress).",
+      "category": "asset_loading",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x38a",
+        "type": "prior_doc+decomp",
+        "details": "Already partly documented — credits.pic loader entry @ 0x432 is inside this function. The function is generic: takes an index, dispatches to wroot. Used by state 1 (title with index 0x27), state 8 (graveyard with index 0x22)."
+      },
+      "confidence": "high",
+      "applied_name": "winit_load_pic_by_index"
+    },
+    {
+      "id": "fn-01bd-font-load",
+      "claim": "FUN_0000_01bd(font_arg, table_index) loads a single WFONT/MAZEDATA entry by indexing into the per-font table at runtime address 0x36de (entries are 0x13a bytes each).",
+      "category": "asset_loading",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x1bd",
+        "type": "decomp",
+        "details": "Looks up filename via func_0x0000c31e(8, table_index * 0x13a + 0x36de, font_arg) — the kind=8 flag selects font table. Opens file via crt_open, reads via thunk 0xf100 (some video-driver-aware reader), stores handle in 0x4fe8. Closes. Per-byte init loop using table-stride 0x13a + 0x3812 (font count). Called by FUN_0f43 (state 2 init) seven times."
+      },
+      "confidence": "high",
+      "applied_name": "winit_load_font_table_entry"
+    },
+    {
+      "id": "fn-08f7-pic-or-driver-display",
+      "claim": "FUN_0000_08f7(filename_ptr) opens a video-driver or pic file, reads into the title-overlay window, displays. Used by state-2 init (vmode-specific driver/font load) and indirectly by state-1/state-8 for video-mode strings.",
+      "category": "video",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x8f7",
+        "type": "decomp",
+        "details": "ui_window_create(0,0,40,25,1,0xffff,2,0) → stores handle in 0x4fbe. Opens param_1 via crt_open. Calls 0xf130 (video-driver thunk — wroot 0x3694 indirect call into video driver) and 0xf118 (wroot 0x367c — another video-driver thunk). Closes file. Calls 0xf13c (wroot 0x36a0 — yet another video-driver thunk). Used by FUN_0f43 for vmode dispatch."
+      },
+      "confidence": "high",
+      "applied_name": "winit_show_pic_in_window"
+    },
+    {
+      "id": "fn-097c-render-token",
+      "claim": "FUN_0000_097c(token_byte, col, row) renders a single character/token at (col, row) by dispatching to wroot's video text-driver thunk (0xf10c → wroot 0x3670 → *(0x1bb2)). Used by both the title's static text and the credits scroll.",
+      "category": "video",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x97c",
+        "type": "decomp",
+        "details": "Local 2-byte buffer with param_1 followed by 0; calls func_0x0000f10c(0, col, row, 0, 0x13f, 0, 0, &local). The 0x13f is likely an attribute or color code."
+      },
+      "confidence": "high",
+      "applied_name": "winit_render_text_token"
+    },
+    {
+      "id": "fn-003f-file-into-buffer",
+      "claim": "FUN_0000_003f(filename_template_ptr, dest_buf_ptr) is a simple file-into-buffer reader: open + load_font_or_portrait (the wroot wrapper that handles error codes) + close.",
+      "category": "file_io",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x3f",
+        "type": "decomp",
+        "details": "uVar1 = func_0x0000c772(param_1,0,0); iVar2 = func_0x0000f924(uVar1); if (==-1) abort(3); func_0x0000dc57(iVar2, param_2); func_0x0000fda5(); Used by state-2 init for some specific asset load."
+      },
+      "confidence": "high",
+      "applied_name": "winit_load_file_to_buffer"
+    },
+    {
+      "id": "fn-0081-load-with-disk-prompt",
+      "claim": "FUN_0000_0081 loads a file but first runs a disk-swap prompt if *0x3592 ∈ {3, 5}. Selects different prompt-template strings based on disk-kind.",
+      "category": "file_io",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x81",
+        "type": "decomp",
+        "details": "Checks *0x3592; if ==3 uses string at 0x3540, if ==5 uses 0x3554. Calls boot_prompt_swap_disk_and_load thunk (0xc7c2 → wroot 0xd26), then opens file, reads via thunk 0xf124 (video-driver), closes."
+      },
+      "confidence": "high",
+      "applied_name": "winit_load_with_disk_prompt"
+    },
+    {
+      "id": "fn-013b-read-at-offset",
+      "claim": "FUN_0000_013b(template_ptr, offset, length) opens a file and reads `length` bytes from `offset`. Generic seek+read primitive.",
+      "category": "file_io",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x13b",
+        "type": "decomp",
+        "details": "open + abort(6) on -1 + func_0x0000fd6f(param_2, param_2, param_3) (the crt_read_via_fd — actually called with overlapping args, suggesting read-from-offset-into-same-region) + close."
+      },
+      "confidence": "medium",
+      "applied_name": "winit_read_at_offset"
+    },
+    {
+      "id": "fn-0180-load-misc",
+      "claim": "FUN_0000_0180(template_ptr) opens a file and dispatches to load_misc_table (wroot 0x2985 via thunk 0xe421). Used to load MISC.HDR or similar headers.",
+      "category": "file_io",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x180",
+        "type": "decomp",
+        "details": "open + abort(6) on -1 + func_0x0000e421(handle) [= wroot load_misc_table] + close."
+      },
+      "confidence": "high",
+      "applied_name": "winit_load_misc_table"
+    },
+    {
+      "id": "fn-0466-show-error-overlay",
+      "claim": "FUN_0000_0466 displays an error/info screen: opens file at 0x5010 (some pre-set BSS filename), reads, creates 40x25 window, renders two characters via 097c, closes.",
+      "category": "ui",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x466",
+        "type": "decomp",
+        "details": "open(0x5010, 1, 0); read(0x51aa) via thunk 0xf100; ui_window_create(0,0,40,25,1,-1,2); 2× FUN_0000_097c calls; ui_window_destroy. Not internally called — must be invoked via the dispatch table at 0x4b3a populated at runtime. Pure error/info-overlay function."
+      },
+      "confidence": "medium",
+      "applied_name": "winit_show_error_overlay"
+    }
+  ],
+  "renamed_full_list": [
+    {"addr": "0x3f",   "old": "FUN_0000_003f", "new": "winit_load_file_to_buffer"},
+    {"addr": "0x81",   "old": "FUN_0000_0081", "new": "winit_load_with_disk_prompt"},
+    {"addr": "0x13b",  "old": "FUN_0000_013b", "new": "winit_read_at_offset"},
+    {"addr": "0x180",  "old": "FUN_0000_0180", "new": "winit_load_misc_table"},
+    {"addr": "0x1bd",  "old": "FUN_0000_01bd", "new": "winit_load_font_table_entry"},
+    {"addr": "0x291",  "old": "FUN_0000_0291", "new": "winit_preload_monster_sprites"},
+    {"addr": "0x38a",  "old": "FUN_0000_038a", "new": "winit_load_pic_by_index"},
+    {"addr": "0x466",  "old": "FUN_0000_0466", "new": "winit_show_error_overlay"},
+    {"addr": "0x525",  "old": "FUN_0000_0525", "new": "winit_state0_load_master_hdr"},
+    {"addr": "0x8f7",  "old": "FUN_0000_08f7", "new": "winit_show_pic_in_window"},
+    {"addr": "0x97c",  "old": "FUN_0000_097c", "new": "winit_render_text_token"},
+    {"addr": "0x9ae",  "old": "FUN_0000_09ae", "new": "winit_wait_ticks_or_enter"},
+    {"addr": "0xf43",  "old": "FUN_0000_0f43", "new": "winit_state2_init_fonts_windows"}
+  ],
+  "new_functions_to_create": [
+    {"addr": "0xc",   "new": "winit_overlay_entry",
+     "purpose": "The overlay's dispatch entry point at file offset 0x0c (right after the 12-byte overlay header). Reads *0x363a (game_state) and branches to one of 4 state handlers.",
+     "comment": "Ghidra has not created a function here because the bytes were reached only via JMP from the state-loader in wroot. The function is reachable but unlabeled."},
+    {"addr": "0x9f3", "new": "winit_state1_title_and_credits",
+     "purpose": "State-1 handler called from the dispatch at 0xc.",
+     "comment": "Same — reached only via the dispatch CALL at file offset 0x18."},
+    {"addr": "0xdf6", "new": "winit_state8_graveyard",
+     "purpose": "State-8 handler called from the dispatch at 0xc.",
+     "comment": "Same — reached only via the dispatch CALL at file offset 0x1d."}
+  ],
+  "unresolved": [
+    "Exact PIC file index for state-1 (call 0x38a(0x27)) — without a DOSBox-X file-open trace at game-startup we cannot definitively confirm whether 0x27 (=39) selects TITLEPAG.PIC, CREDITS.PIC, or another file. The mechanism is fully traced; only the resolved filename is undetermined.",
+    "Repne-scasw key table at 0x4b3a (used by state-0 FUN_0000_0525) lives in BSS that is populated at runtime by an unidentified setup path. The 11 keys at file offsets 0x5d6..0x5f0 (00,01,02,03,04,05,06,07,08,FF,FA) appear to be the SOURCE of the table, copied to 0x4b3a by some init code. The code pointers at 0x5ec..0x602 are the target table.",
+    "Calibration constants *(0x1fe2) and *(0x1fe4) in wroot's CS are not captured statically. To convert one delay-primitive call to wall-clock time, we need DOSBox-X to snapshot these after game-startup. Estimated values: *(0x1fe2) calibrated so that one outer iteration ≈ 1/100 sec on the target CPU.",
+    "The 0x97c render-token primitive: each entry's 'token' value (7, 8, 0xc, 1, 2, 3, 4, 5, 6) — its semantic mapping (MSG.DBS string-ID? font glyph ID? graphics-tile ID?) requires dynamic confirmation. The disasm shows the call site passes one byte and 0x13f (likely color/attribute) to the wroot text-driver.",
+    "Window handle slots 0x4fb0, 0x4fac, 0x4fb6, 0x4fba, 0x4fb8, 0x4fbc — their exact role (status bar? party panels? message?) is inferred from state-2 init order but needs runtime verification."
+  ],
+  "next_steps": [
+    "DOSBox-X trace: enable file-open logging + breakpoint at winit's 0x38a entry. Confirm file index → filename mapping for state-1 (0x27).",
+    "DOSBox-X memory snapshot at 0x1fe2/0x1fe4/0x206b in wroot's runtime DGROUP to capture calibrated delay constants.",
+    "Decode the 0x4b3a dispatch table by either (a) populating it manually in Ghidra (set bytes), or (b) tracing FUN_0000_0525's startup population path.",
+    "Identify the wroot functions for the f100/f118/f124/f130/f13c thunks (wroot 0x3664/0x367c/0x3688/0x3694/0x36a0). These are likely 5 video-driver dispatch wrappers (open, refresh, blit, etc.). Best done via the video driver (ega.drv) reverse-engineering.",
+    "Confirm the deduced thunk-delta law (thunk_addr = wroot_file_offset + 0xba9c) holds for wmaze/wmele/wmnpc/wdopt as well — would unlock fast naming of all cross-overlay calls."
+  ],
+  "operational_notes": {
+    "ghidra_install": "/opt/homebrew/Cellar/ghidra/12.1/libexec",
+    "pyghidra_version": "3.1.0",
+    "project_path": "tools/ghidra/wiz6.gpr",
+    "program": "winit.ovr",
+    "scripts_used": ["/tmp/inspect_winit.py (interactive PyGhidra inspector)", "/tmp/inspect_wroot.py (wroot cross-reference)", "ndisasm (NASM linear disassembler for header bytes)"],
+    "key_quirk": "winit.ovr is loaded with BinaryLoader (no MZ header), so file offset == Ghidra address. Ghidra only auto-defines functions reachable via direct call analysis; the three dispatch-reached entry points (0xc, 0x9f3, 0xdf6) need to be manually created via CreateFunction. The first 12 bytes of the file (offsets 0..0x0b) are an MS overlay-link header (relocation table?) — not code."
+  }
+}
