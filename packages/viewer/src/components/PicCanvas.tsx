@@ -53,7 +53,7 @@ export function PicCanvas({
     off.height = height;
     const offCtx = off.getContext('2d');
     if (!offCtx) return;
-    const imageData = new ImageData(rgba, width, height);
+    const imageData = new ImageData(rgba as Uint8ClampedArray<ArrayBuffer>, width, height);
     offCtx.putImageData(imageData, 0, 0);
     ctx.drawImage(off, 0, 0, scaledW, scaledH);
   }, [width, height, rgba, scale, showTransparencyBg]);
