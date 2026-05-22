@@ -27,14 +27,16 @@ interface SplitOffset {
 
 const DEFAULT_OFFSET: SplitOffset = { dx: 0, dy: 0, dx2: 0, dy2: 0, splitX: 320 };
 
-// Canonical per-plane offsets discovered in Stage 1f.1 — seeded into each new
-// session of the alignment tool so the user starts at a good baseline instead
-// of redoing the manual alignment work.
+// Canonical per-plane offsets — seeded into each new session of the alignment
+// tool so the user starts at a pixel-accurate baseline. The split-X position
+// per plane is `64 * P` (mod width), and the dy/dy2 values differ by one to
+// encode the row-wrap-drop that happens at that column boundary; this matches
+// the algorithm used by ScreenGallery's composite rendering.
 const SEEDED_OFFSETS: SplitOffset[] = [
   { dx:    0, dy:   0, dx2:    0, dy2:   0, splitX: 320 },
-  { dx:  +64, dy:  -5, dx2:  +64, dy2:  -5, splitX: 320 },
-  { dx: +128, dy: -10, dx2: +128, dy2: -10, splitX: 320 },
-  { dx: -128, dy: -14, dx2: -128, dy2: -14, splitX: 320 },
+  { dx:  +64, dy:  -4, dx2:  +64, dy2:  -5, splitX:  64 },
+  { dx: +128, dy:  -9, dx2: +128, dy2: -10, splitX: 128 },
+  { dx: -128, dy: -14, dx2: -128, dy2: -15, splitX: 192 },
 ];
 
 interface Props {
@@ -192,8 +194,8 @@ export function ScreenAlignmentTool({ url }: Props) {
       <h2>{screen ? `${screen.id} (alignment tool)` : url}</h2>
       <canvas ref={canvasRef} style={{ imageRendering: 'pixelated', border: '1px solid #444' }} />
       <div style={{ marginTop: '0.5em' }}>
-        <button onClick={resetAll}>Reset to Stage 1f.1 baseline</button>{' '}
-        <button onClick={resetToZero}>Zero all offsets</button>{' '}
+        <button onClick={resetAll}>Reset</button>{' '}
+        <button onClick={resetToZero}>Reset to Zero</button>{' '}
         <label style={{ marginLeft: '1em' }}>
           render:{' '}
           <select value={renderMode} onChange={(e) => setRenderMode(e.target.value as RenderMode)}>
