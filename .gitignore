@@ -22,3 +22,9 @@ Thumbs.db
 # captures (PNG screenshots from interactive runs) are kept as evidence of the
 # Stage 1f.2 palette discovery.
 /dosbox-trace/wiz6.conf
+
+# DOSBox-X session output (transient)
+tools/dosbox/dosbox.log
+
+# Wiz6 savegames + modified scenario.hdr from user playthroughs
+original/SAVEGAME.DBS
