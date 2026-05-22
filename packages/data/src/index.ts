@@ -61,11 +61,11 @@ export {
   PicOpSchema,
   PicLitOpSchema,
   PicRunOpSchema,
-  PicHeaderSchema,
+  PicDescriptorSchema,
   type Pic,
   type PicSegment,
   type PicOp,
   type PicLitOp,
   type PicRunOp,
-  type PicHeader,
+  type PicDescriptor,
 } from './schemas/pic.js';

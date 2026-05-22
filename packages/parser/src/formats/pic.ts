@@ -1,4 +1,10 @@
-import { PicSchema, type Pic, type PicOp, type PicSegment } from '@wiz6/data';
+import {
+  PicSchema,
+  type Pic,
+  type PicOp,
+  type PicSegment,
+  type PicDescriptor,
+} from '@wiz6/data';
 
 export interface DecodePicOpts {
   id: string;
@@ -6,26 +12,19 @@ export interface DecodePicOpts {
 }
 
 /**
- * Decode the outer envelope of a `.pic` file: a byte-stream consisting of
- * one or more segments, where each segment is a sequence of opcodes
- * terminated by 0x00:
+ * Decode the outer envelope of a `.pic` file into segments + descriptors.
  *
- *   op == 0x00       END this segment (return to caller)
- *   op  < 0x80       LIT(op): copy `op` raw bytes verbatim into segment output
- *   op >= 0x80       RUN(256 - op, fill = next_byte()): emit (256 - op)
- *                    copies of the FOLLOWING byte
+ * Each segment is a sequence of opcodes terminated by 0x00:
+ *   op == 0x00       END this segment
+ *   op  < 0x80       LIT(op): copy `op` raw bytes
+ *   op >= 0x80       RUN(256 - op, fill = next_byte()): emit (256 - op) copies
  *
- * After decoding a segment, the first 4 bytes of the segment's decoded
- * output are interpreted as a caller-side header:
- *   [pos_lo, pos_hi, W, H]
- * where pos is u16 LE and W, H are sprite dimensions (interpretation TBD).
+ * After RLE-decoding all segments, descriptors are parsed from the start
+ * of the CONCATENATED decoded buffer: each descriptor is 24 bytes
+ * `[pos_lo, pos_hi, W, H, mask×20]`, terminated by a 24-byte all-zero record.
  *
- * Multi-segment files (mon50, credits, etc.) are decoded by looping until
- * the source bytes are exhausted: each `0x00` ends the current segment,
- * then a new segment starts at the next byte.
- *
- * See `docs/re/pic.md` "Decoder source" section for the disassembled
- * EGA-driver implementation this mirrors.
+ * See `docs/re/pic.md` "Pixel encoding" and "Multi-segment composition" sections
+ * for the disassembled spec this mirrors.
  */
 export function decodePic(bytes: Uint8Array, opts: DecodePicOpts): Pic {
   const segments: PicSegment[] = [];
@@ -45,7 +44,6 @@ export function decodePic(bytes: Uint8Array, opts: DecodePicOpts): Pic {
         segmentTerminated = true;
         break;
       } else if (op < 0x80) {
-        // LIT(op): copy `op` bytes verbatim
         if (pos + op > bytes.length) {
           throw new Error(
             `decodePic: truncated LIT at byte ${pos - 1} (need ${op} bytes, ${bytes.length - pos} available)`,
@@ -56,7 +54,6 @@ export function decodePic(bytes: Uint8Array, opts: DecodePicOpts): Pic {
         for (const b of litBytes) decoded.push(b);
         pos += op;
       } else {
-        // RUN(256 - op, fill = next_byte())
         const count = 256 - op;
         if (pos >= bytes.length) {
           throw new Error(
@@ -70,19 +67,7 @@ export function decodePic(bytes: Uint8Array, opts: DecodePicOpts): Pic {
       }
     }
 
-    if (!segmentTerminated && ops.length === 0) {
-      // Trailing empty bytes? Shouldn't happen on real files. Bail out.
-      break;
-    }
-
-    let header: PicSegment['header'] = null;
-    if (decoded.length >= 4) {
-      header = {
-        pos: decoded[0]! | (decoded[1]! << 8),
-        width: decoded[2]!,
-        height: decoded[3]!,
-      };
-    }
+    if (!segmentTerminated && ops.length === 0) break;
 
     segments.push({
       segmentIndex,
@@ -90,15 +75,35 @@ export function decodePic(bytes: Uint8Array, opts: DecodePicOpts): Pic {
       encodedLength: pos - segStart,
       ops,
       decodedBytes: decoded,
-      header,
     });
     segmentIndex++;
+  }
+
+  // Parse descriptors from the concatenated decoded buffer.
+  // Descriptors are 24 bytes each, terminated by a 24-byte all-zero record.
+  const concatenated: number[] = [];
+  for (const s of segments) concatenated.push(...s.decodedBytes);
+
+  const descriptors: PicDescriptor[] = [];
+  let descIdx = 0;
+  while ((descIdx + 1) * 24 <= concatenated.length) {
+    const rec = concatenated.slice(descIdx * 24, (descIdx + 1) * 24);
+    if (rec.every((b) => b === 0)) break;
+    descriptors.push({
+      index: descIdx,
+      pos: rec[0]! | (rec[1]! << 8),
+      width: rec[2]!,
+      height: rec[3]!,
+      mask: rec.slice(4),
+    });
+    descIdx++;
   }
 
   return PicSchema.parse({
     id: opts.id,
     sourceFile: opts.sourceFile,
     segments,
+    descriptors,
     totalBytes: bytes.length,
   });
 }

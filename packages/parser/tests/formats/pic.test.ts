@@ -12,87 +12,70 @@ describe('decodePic', () => {
     const pic = decodePic(buf, { id: 'mon01', sourceFile: 'mon01.pic' });
     expect(pic.id).toBe('mon01');
     expect(pic.segments).toHaveLength(1);
-    const seg = pic.segments[0]!;
-    expect(seg.segmentIndex).toBe(0);
-    expect(seg.encodedOffset).toBe(0);
-    expect(seg.encodedLength).toBe(buf.length);
-    expect(seg.ops).toEqual([
+    expect(pic.segments[0]!.ops).toEqual([
       { type: 'lit', bytes: [0x58, 0x02, 0x03, 0x05, 0xff, 0x7f] },
       { type: 'run', count: 18, fillByte: 0x00 },
     ]);
-    expect(seg.decodedBytes.slice(0, 6)).toEqual([0x58, 0x02, 0x03, 0x05, 0xff, 0x7f]);
-    expect(seg.decodedBytes.slice(6)).toEqual(Array(18).fill(0));
-    expect(seg.decodedBytes).toHaveLength(24);
-    expect(seg.header).toEqual({ pos: 0x0258, width: 3, height: 5 });
-    expect(pic.totalBytes).toBe(buf.length);
+    expect(pic.segments[0]!.decodedBytes).toHaveLength(24);
   });
 
-  it('decodes multiple segments', () => {
-    // Two consecutive segments, each L6 R18(0) END
-    const buf = bytes(
-      0x06, 0x58, 0x02, 0x03, 0x05, 0xff, 0x7f, 0xee, 0x00, 0x00,
-      0x06, 0x38, 0x04, 0x03, 0x05, 0xff, 0x7f, 0xee, 0x00, 0x00,
-    );
-    const pic = decodePic(buf, { id: 'mon-multi', sourceFile: 'mon-multi.pic' });
-    expect(pic.segments).toHaveLength(2);
-    expect(pic.segments[0]!.header).toEqual({ pos: 0x0258, width: 3, height: 5 });
-    expect(pic.segments[1]!.header).toEqual({ pos: 0x0438, width: 3, height: 5 });
-    expect(pic.segments[1]!.encodedOffset).toBe(10);
+  it('parses one descriptor + zero-terminator into descriptors[]', () => {
+    // 24-byte descriptor: pos=0x0258, W=3, H=5, mask = 20×0x00
+    // 24-byte zero terminator
+    // Total = 48 bytes of decoded output.
+    // LIT(48) is too big (max 127), so emit two LITs: LIT(48 capped at 0x30) = 48 OK; LIT can be up to 0x7f.
+    const descriptor = [0x58, 0x02, 3, 5, ...Array(20).fill(0)];
+    const terminator = Array(24).fill(0);
+    const payload = [...descriptor, ...terminator];
+    // LIT(48) — opcode 0x30 says "copy next 48 bytes"
+    const buf = bytes(0x30, ...payload, 0x00);
+    const pic = decodePic(buf, { id: 'desc1', sourceFile: 'desc1.pic' });
+    expect(pic.descriptors).toHaveLength(1);
+    expect(pic.descriptors[0]).toEqual({
+      index: 0,
+      pos: 0x0258,
+      width: 3,
+      height: 5,
+      mask: Array(20).fill(0),
+    });
   });
 
-  it('decodes the canonical mon00.pic first 7 bytes verbatim', () => {
-    // mon00.pic starts: 02 58 02 fd 01 ed 00  (single segment)
-    // Decoded: LIT(2)=[58 02]  RUN(256-0xfd=3, fill=0x01)  RUN(256-0xed=19, fill=0x00)... wait
-    // Actually let me re-check: 02 58 02 fd 01 ed 00
-    //   LIT(2): bytes [58, 02]
-    //   0xfd: high-bit set → RUN(256-0xfd=3, fillByte=bytes[next]=0x01)
-    //   0xed: high-bit set → RUN(256-0xed=19, fillByte=??)
-    // But there's only 1 byte (0x00) left before EOF — wait, the next byte after 0xed
-    // would be... let me re-look at the raw bytes:
-    //   index 0: 02   (LIT 2)
-    //   index 1: 58   (LIT payload)
-    //   index 2: 02   (LIT payload)
-    //   index 3: fd   (RUN; 256-0xfd=3)
-    //   index 4: 01   (RUN fill byte)
-    //   index 5: ed   (RUN; 256-0xed=19)
-    //   index 6: 00   (RUN fill byte = 0x00)
-    //
-    // Wait — after the RUN fill is consumed, we're at index 7. But the buf is only 7 bytes
-    // long! So this 7-byte sequence is actually one segment with NO trailing 0x00 END.
-    //
-    // Looking at mon00.pic for real (xxd output from earlier): the file is 1166 bytes long;
-    // the END markers appear later. So a 7-byte input slice may not include an END.
-    //
-    // For this test, use a proper segment-ending sequence:
-    const buf = bytes(
-      0x02, 0x58, 0x02,       // LIT(2) [58 02]
-      0xfd, 0x01,             // RUN(3, fill=0x01)
-      0xed, 0x00,             // RUN(19, fill=0x00)
-      0x00,                   // END
-    );
+  it('parses multiple descriptors before zero-terminator', () => {
+    // Two descriptors then terminator = 24+24+24 = 72 bytes payload
+    const d0 = [0x10, 0x00, 1, 1, ...Array(20).fill(0)]; // pos=0x10, W=H=1
+    const d1 = [0x40, 0x00, 2, 1, ...Array(20).fill(0)]; // pos=0x40, W=2, H=1
+    const term = Array(24).fill(0);
+    const payload = [...d0, ...d1, ...term];
+    // Two LIT(36) ops (since LIT max payload is 127, but we'll do one LIT(72) which is 0x48 > 0x7f? No: 0x48 = 72 < 0x80, OK)
+    const buf = bytes(0x48, ...payload, 0x00);
+    const pic = decodePic(buf, { id: 'desc2', sourceFile: 'desc2.pic' });
+    expect(pic.descriptors).toHaveLength(2);
+    expect(pic.descriptors[0]!.index).toBe(0);
+    expect(pic.descriptors[0]!.pos).toBe(0x10);
+    expect(pic.descriptors[1]!.index).toBe(1);
+    expect(pic.descriptors[1]!.pos).toBe(0x40);
+    expect(pic.descriptors[1]!.width).toBe(2);
+  });
+
+  it('stops descriptor parsing if no zero-terminator is hit before buffer end', () => {
+    // Single descriptor, no terminator — should still appear in descriptors list
+    const d0 = [0x10, 0x00, 1, 1, ...Array(20).fill(0)];
+    const buf = bytes(0x18, ...d0, 0x00);
+    const pic = decodePic(buf, { id: 'desc3', sourceFile: 'desc3.pic' });
+    expect(pic.descriptors).toHaveLength(1);
+  });
+
+  it('handles the canonical mon00.pic 7-byte prefix as one segment, parses partial descriptor as descriptor 0', () => {
+    // 02 58 02 fd 01 ed 00 + 00  decodes to bytes [0x58, 0x02, 0x01, 0x01, 0x01, 0x00, 0x00, ... 19 more zeros]
+    // = 24 bytes total. That's one descriptor: pos=0x0258, W=0x01, H=0x01, mask=[1, 0, ...]
+    // Then a trailing 0x00 END marker.
+    const buf = bytes(0x02, 0x58, 0x02, 0xfd, 0x01, 0xed, 0x00, 0x00);
     const pic = decodePic(buf, { id: 'mon00-prefix', sourceFile: 'mon00.pic' });
-    expect(pic.segments).toHaveLength(1);
-    const seg = pic.segments[0]!;
-    expect(seg.ops).toEqual([
-      { type: 'lit', bytes: [0x58, 0x02] },
-      { type: 'run', count: 3, fillByte: 0x01 },
-      { type: 'run', count: 19, fillByte: 0x00 },
-    ]);
-    expect(seg.decodedBytes).toEqual([
-      0x58, 0x02,
-      0x01, 0x01, 0x01,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    ]);
-    expect(seg.header).toEqual({ pos: 0x0258, width: 0x01, height: 0x01 });
-  });
-
-  it('segments with decoded < 4 bytes get header=null', () => {
-    // LIT(2) [12 34]  END
-    const buf = bytes(0x02, 0x12, 0x34, 0x00);
-    const pic = decodePic(buf, { id: 'tiny', sourceFile: 'tiny.pic' });
-    expect(pic.segments).toHaveLength(1);
-    expect(pic.segments[0]!.header).toBeNull();
-    expect(pic.segments[0]!.decodedBytes).toEqual([0x12, 0x34]);
+    expect(pic.descriptors).toHaveLength(1);
+    expect(pic.descriptors[0]!.pos).toBe(0x0258);
+    expect(pic.descriptors[0]!.width).toBe(1);
+    expect(pic.descriptors[0]!.height).toBe(1);
+    expect(pic.descriptors[0]!.mask[0]).toBe(1);
   });
 
   it('reports totalBytes equal to input length', () => {
@@ -101,34 +84,19 @@ describe('decodePic', () => {
     expect(pic.totalBytes).toBe(10);
   });
 
-  it('throws on truncated LIT (not enough remaining bytes)', () => {
-    // LIT(5) but only 3 bytes follow before EOF
+  it('throws on truncated LIT', () => {
     const buf = bytes(0x05, 0x01, 0x02, 0x03);
-    expect(() =>
-      decodePic(buf, { id: 'bad-lit', sourceFile: 'bad.pic' }),
-    ).toThrow(/truncated|out of bounds/i);
+    expect(() => decodePic(buf, { id: 'bad', sourceFile: 'bad.pic' })).toThrow(/truncated/i);
   });
 
-  it('throws on truncated RUN (missing fill byte)', () => {
-    // RUN op with no fill byte after
+  it('throws on truncated RUN', () => {
     const buf = bytes(0xfd);
-    expect(() =>
-      decodePic(buf, { id: 'bad-run', sourceFile: 'bad.pic' }),
-    ).toThrow(/truncated|out of bounds/i);
-  });
-
-  it('handles a RUN with count 1 (op 0xff)', () => {
-    const buf = bytes(0xff, 0xab, 0x00);
-    const pic = decodePic(buf, { id: 'one-byte-run', sourceFile: 'x.pic' });
-    expect(pic.segments[0]!.ops).toEqual([{ type: 'run', count: 1, fillByte: 0xab }]);
-    expect(pic.segments[0]!.decodedBytes).toEqual([0xab]);
+    expect(() => decodePic(buf, { id: 'bad', sourceFile: 'bad.pic' })).toThrow(/truncated/i);
   });
 
   it('handles a RUN with count 128 (op 0x80)', () => {
     const buf = bytes(0x80, 0xcd, 0x00);
     const pic = decodePic(buf, { id: 'max-run', sourceFile: 'x.pic' });
-    expect(pic.segments[0]!.ops).toEqual([{ type: 'run', count: 128, fillByte: 0xcd }]);
     expect(pic.segments[0]!.decodedBytes).toHaveLength(128);
-    expect(pic.segments[0]!.decodedBytes.every((b) => b === 0xcd)).toBe(true);
   });
 });

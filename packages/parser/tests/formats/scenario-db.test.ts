@@ -310,6 +310,7 @@ describe('decodeScenarioDb', () => {
     expect(m.combatSpriteId).toBe(35);
     expect(m.combatSpriteAlt).toBe(35);
     expect(m.secondarySpriteId).toBe(8);
+    expect(m.picId).toBe(21);
     expect(m.magicResistChance).toBe(50);
     expect(m.combatTraitId).toBe(10);
     expect(m.auxSave103).toBe(25);

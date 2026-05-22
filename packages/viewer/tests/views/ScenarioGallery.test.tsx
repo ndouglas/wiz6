@@ -78,6 +78,7 @@ const baseMonsterFields = {
   combatSpriteId: 0,
   combatSpriteAlt: 0,
   secondarySpriteId: 0,
+  picId: 0,
   magicResistChance: 0,
   combatTraitId: 0,
   auxSave103: 0,

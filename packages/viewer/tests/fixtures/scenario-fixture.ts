@@ -69,6 +69,7 @@ const baseMonsterFields = {
   combatSpriteId: 0,
   combatSpriteAlt: 0,
   secondarySpriteId: 0,
+  picId: 0,
   magicResistChance: 0,
   combatTraitId: 0,
   auxSave103: 0,
@@ -119,6 +120,7 @@ FIXTURE_MONSTERS[0] = {
   specialAttackElement: 8,
   monsterBehaviorClass: 0,
   goldStat: 1,
+  picId: 21,
 };
 
 FIXTURE_MONSTERS[1] = {

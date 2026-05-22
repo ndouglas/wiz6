@@ -13,9 +13,9 @@ const SAMPLE_PIC = {
       encodedLength: 9,
       ops: [{ type: 'lit', bytes: [0x58, 0x02] }],
       decodedBytes: [0x58, 0x02],
-      header: null,
     },
   ],
+  descriptors: [],
   totalBytes: 1166,
 };
 

@@ -19,7 +19,6 @@ const SAMPLE = {
         0x58, 0x02, 0x03, 0x05, 0xff, 0x7f,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       ],
-      header: { pos: 0x0258, width: 3, height: 5 },
     },
     {
       segmentIndex: 1,
@@ -27,7 +26,15 @@ const SAMPLE = {
       encodedLength: 4,
       ops: [{ type: 'lit', bytes: [0x12] }],
       decodedBytes: [0x12],
-      header: null,
+    },
+  ],
+  descriptors: [
+    {
+      index: 0,
+      pos: 0x0258,
+      width: 3,
+      height: 5,
+      mask: Array(20).fill(0),
     },
   ],
   totalBytes: 4469,
@@ -74,23 +81,18 @@ describe('PicDetail', () => {
     renderDetail();
     await waitFor(() => {
       const rows = screen.getAllByRole('row');
-      // 2 segment rows + 1 header row
+      // 2 segment rows + 1 segment header + 1 descriptor row + 1 descriptor header = 5
       expect(rows.length).toBeGreaterThanOrEqual(3);
     });
   });
 
-  it('renders the parsed header (pos, w, h) for segment 0', async () => {
+  it('renders the descriptors section', async () => {
     renderDetail();
     await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 2, name: /Descriptors \(1\)/i })).toBeInTheDocument();
       expect(screen.getByText(/0x0258/i)).toBeInTheDocument();
-      expect(screen.getByText(/^3\s*[×x]\s*5$/i)).toBeInTheDocument();
-    });
-  });
-
-  it('shows "no header" for segments with header=null', async () => {
-    renderDetail();
-    await waitFor(() => {
-      expect(screen.getByText(/no header/i)).toBeInTheDocument();
+      expect(screen.getByText(/^3 × 5$/i)).toBeInTheDocument();  // cells column
+      expect(screen.getByText(/^24 × 40$/i)).toBeInTheDocument(); // pixels column (3*8 × 5*8)
     });
   });
 
@@ -100,5 +102,14 @@ describe('PicDetail', () => {
       // The first segment's decoded bytes start 58 02 03 05 ff 7f
       expect(screen.getByText(/58 02 03 05/i)).toBeInTheDocument();
     });
+  });
+
+  it('renders a canvas per descriptor in the sprites gallery', async () => {
+    renderDetail();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 2, name: /Sprites \(1\)/i })).toBeInTheDocument();
+    });
+    const canvases = document.querySelectorAll('canvas');
+    expect(canvases.length).toBeGreaterThanOrEqual(1);
   });
 });
