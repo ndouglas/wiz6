@@ -13,6 +13,7 @@ function renderAt(path: string) {
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/monsters" element={<MonstersPage />} />
+        <Route path="/monsters/compare" element={<MonstersPage />} />
         <Route path="/monsters/:slug" element={<MonstersPage />} />
       </Routes>
     </MemoryRouter>,
@@ -50,6 +51,13 @@ describe('MonstersPage', () => {
     renderAt('/monsters/no-such-monster');
     await waitFor(() => {
       expect(screen.getByText(/no monster matches/i)).toBeInTheDocument();
+    });
+  });
+
+  it('renders compare placeholder when path is /monsters/compare', async () => {
+    renderAt('/monsters/compare');
+    await waitFor(() => {
+      expect(screen.getByTestId('compare-placeholder')).toBeInTheDocument();
     });
   });
 

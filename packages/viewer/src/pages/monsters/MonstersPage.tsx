@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ScenarioDbProvider, useScenarioDb } from '../../lib/hooks/useScenarioDb.js';
 import { useUrlState } from '../../lib/hooks/useUrlState.js';
 import { useKeyboardShortcuts } from '../../lib/hooks/useKeyboardShortcuts.js';
@@ -24,6 +24,8 @@ function MonstersPageInner() {
   const { data, loading, error } = useScenarioDb();
   const { slug } = useParams<{ slug?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isCompareMode = location.pathname.endsWith('/monsters/compare');
   const [helpOpen, setHelpOpen] = useState(false);
 
   const [search] = useUrlState('search');
@@ -118,7 +120,9 @@ function MonstersPageInner() {
           <MonsterList monsters={filtered} totalFilled={totalFilled} />
         </section>
         <section className={styles.detail} aria-label="monster detail">
-          {slug && !selected ? (
+          {isCompareMode ? (
+            <p data-testid="compare-placeholder">Compare mode (CompareView arrives in Task 4)</p>
+          ) : slug && !selected ? (
             <p className={styles.emptyDetail}>no monster matches slug "{slug}"</p>
           ) : !selected ? (
             <p className={styles.emptyDetail}>

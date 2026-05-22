@@ -34,6 +34,7 @@ export const routes = (
   <>
     <Route path="/" element={<Landing />} />
     <Route path="/monsters" element={<MonstersPage />} />
+    <Route path="/monsters/compare" element={<MonstersPage />} />
     <Route path="/monsters/:slug" element={<MonstersPage />} />
     <Route path="/items" element={<ItemsPage />} />
     <Route path="/quest" element={<QuestRecords />} />
