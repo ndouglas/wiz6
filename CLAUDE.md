@@ -92,10 +92,53 @@ ghidraRun "$(pwd)/tools/ghidra/wiz6.gpr"
 - **Live deploy**: pushing to `main` of the wiz6 repo builds a container; the goldentooth gitops repo (`~/Projects/goldentooth/gitops/apps/wiz6/deployment.yaml`) pins a specific image SHA; flux reconciles to the K8s cluster. Live URL: https://wiz6.goldentooth.net/.
 - **`pnpm dev:viewer` runs predev → re-extracts** all JSON assets before launching Vite, so schema changes never get tested against stale assets.
 
+## Parity testing — `tools/parity/`
+
+Differential testing against the original binary. The workflow that cracked the multi-segment `.pic` bug, generalized:
+
+```bash
+# 1. Run the game in DOSBox-X to a known checkpoint, save state to tools/dosbox/save/N.sav
+# 2. Locate the target buffer in physical memory
+python3 tools/parity/extract.py find tools/dosbox/save/1.sav --pattern '58 02 09 0d'
+
+# 3. Dump engine view
+python3 tools/parity/extract.py dump tools/dosbox/save/1.sav --offset 0x5b928 --length 24376 --output /tmp/engine.bin
+
+# 4. Compute ours
+pnpm tsx tools/parity/decode-pic.ts original/mon11.pic /tmp/ours.bin
+
+# 5. Diff (exit 0 on match, 1 on divergence)
+python3 tools/parity/diff.py /tmp/engine.bin /tmp/ours.bin
+```
+
+Use this any time a decoder needs ground-truth validation, or when reimplementing a game-logic routine. See `tools/parity/README.md` for additional examples.
+
+## PyGhidra scripts — `tools/ghidra/scripts/`
+
+Reusable headless queries. PyGhidra is preinstalled. **The Ghidra GUI must be closed** while these run (project lock).
+
+```bash
+python3 tools/ghidra/scripts/list_functions.py --binary wroot.exe --only-unnamed
+python3 tools/ghidra/scripts/find_string_xrefs.py --binary wroot.exe --string "MON"
+python3 tools/ghidra/scripts/dump_function.py --binary wroot.exe --addr 0x1f41
+```
+
+Add new scripts under this directory when a query becomes repeat-worthy. See `tools/ghidra/scripts/README.md` for the template.
+
+## Subagent RE findings — `docs/re/findings/`
+
+Subagents doing RE work emit **structured JSON findings** to `docs/re/findings/<topic>.json`, not direct edits to `docs/re/<format>.md`. The parent reviews, spot-checks high-confidence claims, and promotes verified prose into the canonical docs.
+
+Why: we've been burned by confidently-wrong RE conclusions written straight to docs. JSON-first findings force evidence anchors (address, byte pattern, save-state offset) and make audit cheap. Schema and example in `docs/re/findings/README.md`.
+
+When dispatching an RE subagent, include in the prompt:
+
+> **Deliverable:** write findings to `docs/re/findings/<topic>.json` per the schema in `docs/re/findings/README.md`. Do NOT modify `docs/re/<format>.md` — the parent will promote findings after review.
+
 ## Known partial / in-progress issues
 
-- **Multi-segment .pic cell rendering**: cells whose atlas position extends past segment-0's end render as garbage. Affects 16 of 60 .pic files. Naive concatenation, skip-phantom, and various padding alignments all fail. Needs Ghidra analysis of the .pic loader's segment-destination logic to resolve. See `docs/superpowers/plans/2026-05-22-pic-stage-b-pixel-rendering.md` and the most recent conversation context.
 - **Per-scene palettes**: we ship one empirical palette with 7 overrides on standard EGA that matches the most common scenes. Other scenes (e.g. specific NPCs) may show slightly-off colors; per-scene palette selection deferred.
+- **Comprehensive function naming**: `wroot.exe` and the gameplay overlays have auto-generated `FUN_XXXX` names from Ghidra analysis. A comprehensive naming pass is the prerequisite for game-simulation work (combat math, dungeon, NPC, character) — schedule when starting simulation.
 
 ## Where to look when stuck
 
