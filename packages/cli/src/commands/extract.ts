@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { extractWfont } from '../extractors/extract-wfont.js';
 import { extractWfont4bpp } from '../extractors/extract-wfont-4bpp.js';
@@ -7,6 +8,7 @@ import { extractEgaScreen } from '../extractors/extract-ega-screen.js';
 import { extractMessageDb } from '../extractors/extract-message-db.js';
 import { extractNewgameDb } from '../extractors/extract-newgame-db.js';
 import { extractScenarioDb } from '../extractors/extract-scenario-db.js';
+import { extractPic } from '../extractors/extract-pic.js';
 import { resolveOriginalDir } from '../lib/loaders.js';
 import type { CliIO } from '../index.js';
 
@@ -15,8 +17,8 @@ interface ExtractOpts {
   io: CliIO;
 }
 
-type TypeName = 'fonts' | 'portraits' | 'screens' | 'messages' | 'newgame' | 'scenario';
-const ALL_TYPES: TypeName[] = ['fonts', 'portraits', 'screens', 'messages', 'newgame', 'scenario'];
+type TypeName = 'fonts' | 'portraits' | 'screens' | 'messages' | 'newgame' | 'scenario' | 'pics';
+const ALL_TYPES: TypeName[] = ['fonts', 'portraits', 'screens', 'messages', 'newgame', 'scenario', 'pics'];
 
 const USAGE = `usage: wiz6 extract <type|--all> [flags]
 
@@ -27,6 +29,7 @@ types:
   messages     msg.dbs (Huffman-decoded text)
   newgame      newgame.dbs (character creation templates)
   scenario     scenario.dbs (XP tables, items, monsters, quest data)
+  pics         mon00-mon58 + credits.pic (outer-envelope decoded; pixel rendering TBD)
   --all        extract all of the above
 
 flags:
@@ -115,6 +118,23 @@ function extractOneType(
       io.write(
         `wrote ${extractedDir}/scenario/scenario.json (${s.xpTables.length} XP tables, ${s.itemCount} item slots [${nonemptyItems} non-empty], ${s.unknownTail.length}-byte tail)\n`,
       );
+      return;
+    }
+    case 'pics': {
+      const entries = readdirSync(originalDir)
+        .filter((f) => f.endsWith('.pic'))
+        .sort();
+      for (const f of entries) {
+        const id = f.replace(/\.pic$/, '');
+        const pic = extractPic({
+          originalPath: join(originalDir, f),
+          outputPath: join(extractedDir, 'pics', `${id}.json`),
+          id,
+        });
+        io.write(
+          `wrote ${extractedDir}/pics/${id}.json (${pic.segments.length} segments, ${pic.totalBytes} bytes)\n`,
+        );
+      }
       return;
     }
   }

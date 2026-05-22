@@ -38,7 +38,7 @@ beforeEach(() => {
   mkdirSync(join(tmpDir, 'original'));
   // Copy the input files needed by the messages/newgame/scenario tests.
   // extractMessageDb requires msg.dbs + misc.hdr (huffman tree) + msg.hdr (index).
-  for (const f of ['scenario.dbs', 'newgame.dbs', 'msg.dbs', 'misc.hdr', 'msg.hdr']) {
+  for (const f of ['scenario.dbs', 'newgame.dbs', 'msg.dbs', 'misc.hdr', 'msg.hdr', 'mon00.pic', 'mon01.pic']) {
     const src = join(REAL_ORIGINAL, f);
     if (existsSync(src)) copyFileSync(src, join(tmpDir, 'original', f));
   }
@@ -65,6 +65,13 @@ describe('wiz6 extract', () => {
     const { code } = capture(['extract', 'newgame'], tmpDir);
     expect(code).toBe(0);
     expect(existsSync(join(tmpDir, 'extracted/newgame/newgame.json'))).toBe(true);
+  });
+
+  it('extracts pics into extracted/pics/*.json', () => {
+    const { code } = capture(['extract', 'pics'], tmpDir);
+    expect(code).toBe(0);
+    expect(existsSync(join(tmpDir, 'extracted/pics/mon00.json'))).toBe(true);
+    expect(existsSync(join(tmpDir, 'extracted/pics/mon01.json'))).toBe(true);
   });
 
   it('rejects an unknown extract type', () => {
