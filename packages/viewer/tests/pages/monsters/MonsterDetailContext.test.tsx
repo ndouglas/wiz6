@@ -38,7 +38,10 @@ describe('MonsterDetailContext', () => {
     expect(screen.getByTestId('value')).toHaveTextContent('null');
   });
 
-  it('throws when used outside the provider', () => {
-    expect(() => render(<Probe />)).toThrow(/MonsterDetailProvider/);
+  it('returns no-op state when used outside the provider (no throw)', () => {
+    render(<Probe />);
+    expect(screen.getByTestId('value')).toHaveTextContent('null');
+    fireEvent.click(screen.getByText('set'));
+    expect(screen.getByTestId('value')).toHaveTextContent('null');
   });
 });

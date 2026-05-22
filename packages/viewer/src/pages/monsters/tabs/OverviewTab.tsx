@@ -5,6 +5,8 @@ import {
   formatLevelRange,
 } from '@wiz6/parser';
 import styles from './OverviewTab.module.css';
+import { useMonsterDetail } from '../MonsterDetailContext.js';
+import type { MonsterFieldName } from '../../../lib/monster-byte-map.js';
 
 const CLASS_LABEL: Record<number, string> = {
   1: '1 — animal/beast',
@@ -52,13 +54,36 @@ const CLASS_BADGE: Record<number, string | undefined> = {
   4: styles.badgeClass4,
 };
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({
+  label,
+  fieldName,
+  children,
+}: {
+  label: string;
+  fieldName?: MonsterFieldName;
+  children: React.ReactNode;
+}) {
+  const { setHighlightedField } = useMonsterDetail();
+  const handleEnter = () => {
+    if (fieldName) setHighlightedField(fieldName);
+  };
+  const handleLeave = () => setHighlightedField(null);
   return (
     <>
-      <div className={styles.label} aria-hidden="true">
+      <div
+        className={styles.label}
+        aria-hidden="true"
+        onMouseEnter={handleEnter}
+        onMouseLeave={handleLeave}
+      >
         {label}
       </div>
-      <div className={styles.value} aria-label={label}>
+      <div
+        className={styles.value}
+        aria-label={label}
+        onMouseEnter={handleEnter}
+        onMouseLeave={handleLeave}
+      >
         {children}
       </div>
     </>
@@ -74,41 +99,43 @@ export function OverviewTab({ monster: m }: OverviewTabProps) {
   const elemBadgeClass = elem?.cls ? styles[elem.cls] : undefined;
   return (
     <div className={styles.grid}>
-      <Row label="class">
+      <Row label="class" fieldName="monsterClass">
         <span className={`${styles.badge} ${CLASS_BADGE[m.monsterClass] ?? ''}`.trim()}>
           {CLASS_LABEL[m.monsterClass] ?? `class ${m.monsterClass}`}
         </span>
         <span className={styles.gloss}>· sub {m.monsterSubClass}</span>
       </Row>
-      <Row label="level">{formatLevelRange(m.monsterLevel, m.monsterLevelMax)}</Row>
-      <Row label="ac">
+      <Row label="level" fieldName="monsterLevel">
+        {formatLevelRange(m.monsterLevel, m.monsterLevelMax)}
+      </Row>
+      <Row label="ac" fieldName="monsterAC">
         {m.monsterAC}
         <span className={styles.gloss}>(wiz6: lower = better)</span>
       </Row>
-      <Row label="hp">{formatHpDice(m.hpDiceCount, m.hpDiceSides)}</Row>
-      <Row label="xp on kill">{m.xpOnKill.toLocaleString()}</Row>
-      <Row label="gold">
+      <Row label="hp" fieldName="hpDiceCount">{formatHpDice(m.hpDiceCount, m.hpDiceSides)}</Row>
+      <Row label="xp on kill" fieldName="xpOnKill">{m.xpOnKill.toLocaleString()}</Row>
+      <Row label="gold" fieldName="goldStat">
         {m.goldStat}
         <span className={styles.gloss}>≈ {(m.goldStat * 10).toLocaleString()} gp</span>
       </Row>
-      <Row label="element">
+      <Row label="element" fieldName="specialAttackElement">
         {elem ? (
           <span className={`${styles.badge} ${elemBadgeClass ?? ''}`.trim()}>{elem.label}</span>
         ) : (
           <span className={styles.gloss}>element {m.specialAttackElement}</span>
         )}
       </Row>
-      <Row label="sex">{SEX_LABEL[m.monsterSex] ?? `sex ${m.monsterSex}`}</Row>
-      <Row label="creature kind">
+      <Row label="sex" fieldName="monsterSex">{SEX_LABEL[m.monsterSex] ?? `sex ${m.monsterSex}`}</Row>
+      <Row label="creature kind" fieldName="creatureKind">
         {CREATURE_KIND_LABEL[m.creatureKind] ?? `kind ${m.creatureKind}`}
       </Row>
-      <Row label="behavior">
+      <Row label="behavior" fieldName="monsterBehaviorClass">
         {m.monsterBehaviorClass}
         <span className={styles.gloss}>(see docs/re/scenario-dbs.md)</span>
       </Row>
-      <Row label="move stat">{m.moveStat}</Row>
-      <Row label="sprite group">{m.spriteGroup}</Row>
-      <Row label="family">
+      <Row label="move stat" fieldName="moveStat">{m.moveStat}</Row>
+      <Row label="sprite group" fieldName="spriteGroup">{m.spriteGroup}</Row>
+      <Row label="family" fieldName="familyId">
         <span className={styles.gloss}>{familyKey(m.familyId)}</span>
       </Row>
     </div>

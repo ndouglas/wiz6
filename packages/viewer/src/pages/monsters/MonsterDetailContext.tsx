@@ -6,7 +6,12 @@ interface MonsterDetailState {
   setHighlightedField: (next: MonsterFieldName | null) => void;
 }
 
-const MonsterDetailCtx = createContext<MonsterDetailState | undefined>(undefined);
+const NOOP_STATE: MonsterDetailState = {
+  highlightedField: null,
+  setHighlightedField: () => {},
+};
+
+const MonsterDetailCtx = createContext<MonsterDetailState>(NOOP_STATE);
 
 export function MonsterDetailProvider({ children }: { children: ReactNode }) {
   const [highlightedField, setHighlightedField] = useState<MonsterFieldName | null>(null);
@@ -18,7 +23,5 @@ export function MonsterDetailProvider({ children }: { children: ReactNode }) {
 }
 
 export function useMonsterDetail(): MonsterDetailState {
-  const ctx = useContext(MonsterDetailCtx);
-  if (!ctx) throw new Error('useMonsterDetail must be used inside MonsterDetailProvider');
-  return ctx;
+  return useContext(MonsterDetailCtx);
 }
