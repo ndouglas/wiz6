@@ -11,43 +11,47 @@ export const EGA_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
 /**
  * Wiz6's effective logical-color → RGB palette.
  *
- * Derived from the palette table at wroot.exe file offset 0x2054, loaded
- * via INT 10h AX=1002h ("Set palette block"). The byte table is the
- * sequence of physical EGA palette register values for logical colors
- * 0..15:
+ * Empirically calibrated against actual-game screenshots. Base layer is
+ * the standard EGA 16-color palette (the BIOS default for mode 0Dh);
+ * six logical colors are overridden where pixel-picked actual-game
+ * values diverged from the standard.
  *
- *     [0, 15, 9, 13, 12, 14, 10, 11, 8, 7, 1, 5, 4, 6, 2, 3]
+ * Overrides:
+ *   1   WHITE          (was blue)         — Wizardry logo letters, scene highlights
+ *   5   BRIGHT YELLOW  (was magenta)      — credits text, fountain body
+ *   9   LIGHT GRAY     (was light blue)   — wall stippling highlight pixels
+ *   10  BLUE           (was light green)  — mon08 water
+ *   13  BROWN          (was bright magenta) — fountain accents
+ *   14  GREEN          (was bright yellow) — vines / moss
  *
- * Each physical value is then decoded as the standard 6-bit EGA palette
- * register encoding (bits 0-2 = primary BGR, bits 3-5 = secondary BGR;
- * primary contributes 0xAA per channel, secondary 0x55).
+ * Logical 15 (= "all 4 planes set" sentinel) is treated as transparent
+ * by the renderer to support sprite-blit compositing.
  *
- * The ONE empirical override is logical 1: the Wiz6 palette table maps
- * it to physical 15 (`#aaaaff` lavender), but the actual game renders
- * the Wizardry-logo letters as pure white. Either there's a third
- * palette load we haven't located, or the game patches this single
- * register at runtime. Either way the override is the only deviation
- * from the static table that empirically matches the game.
- *
- * Logical 15 is unused here — the renderer treats it as transparent.
+ * The two static palette tables we located in wroot.exe (file offsets
+ * 0x2043 and 0x2054, both loaded via INT 10h AX=1002h) don't match these
+ * empirical mappings — they give "duller" / less-intensity-boosted
+ * versions of the same hues. The actual game must patch palette
+ * registers at runtime, or there's a third palette load we haven't
+ * located. Empirically this six-override palette matches all the
+ * screenshot calibrations so far.
  */
 export const WIZ6_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
-  [0x00, 0x00, 0x00], // 0:  black                   (phys  0)
-  [0xff, 0xff, 0xff], // 1:  WHITE                   (override — table value phys 15 = lavender)
-  [0x00, 0x00, 0xff], // 2:  pure blue               (phys  9)
-  [0xaa, 0x00, 0xff], // 3:  bright violet           (phys 13)
-  [0xaa, 0x00, 0x55], // 4:  wine red / sword body   (phys 12)
-  [0xaa, 0xaa, 0x55], // 5:  olive-yellow            (phys 14)
-  [0x00, 0xaa, 0x55], // 6:  teal-green              (phys 10)
-  [0x00, 0xaa, 0xff], // 7:  bright cyan             (phys 11)
-  [0x00, 0x00, 0x55], // 8:  very dark blue          (phys  8)
-  [0xaa, 0xaa, 0xaa], // 9:  light gray              (phys  7)
-  [0x00, 0x00, 0xaa], // 10: blue / water            (phys  1)
-  [0xaa, 0x00, 0xaa], // 11: magenta                 (phys  5)
-  [0xaa, 0x00, 0x00], // 12: red / sword highlight   (phys  4)
-  [0xaa, 0xaa, 0x00], // 13: dark yellow / brown     (phys  6)
-  [0x00, 0xaa, 0x00], // 14: green / vines           (phys  2)
-  [0xff, 0xff, 0xff], // 15: (unused — rendered as transparent)
+  [0x00, 0x00, 0x00], // 0:  black                   (standard EGA)
+  [0xff, 0xff, 0xff], // 1:  WHITE                   (override — was blue)
+  [0x00, 0xaa, 0x00], // 2:  green                   (standard EGA)
+  [0x00, 0xaa, 0xaa], // 3:  cyan                    (standard EGA)
+  [0xaa, 0x00, 0x00], // 4:  red                     (standard EGA — chest body shadow)
+  [0xff, 0xff, 0x55], // 5:  BRIGHT YELLOW           (override — was magenta)
+  [0xaa, 0x55, 0x00], // 6:  brown                   (standard EGA)
+  [0xaa, 0xaa, 0xaa], // 7:  light gray              (standard EGA)
+  [0x55, 0x55, 0x55], // 8:  dark gray               (standard EGA)
+  [0xaa, 0xaa, 0xaa], // 9:  LIGHT GRAY              (override — was light blue)
+  [0x00, 0x00, 0xaa], // 10: BLUE                    (override — was light green)
+  [0x55, 0xff, 0xff], // 11: light cyan              (standard EGA)
+  [0xff, 0x55, 0x55], // 12: bright red              (standard EGA — chest body highlight)
+  [0xaa, 0x55, 0x00], // 13: BROWN                   (override — was bright magenta)
+  [0x00, 0xaa, 0x00], // 14: GREEN                   (override — was bright yellow)
+  [0xff, 0xff, 0xff], // 15: white                   (unused — rendered as transparent)
 ];
 
 export interface RenderedSprite {
