@@ -52,6 +52,12 @@ const SECTIONS = [
     meta: '779 records',
   },
   {
+    title: 'Pics',
+    to: '/pics',
+    description: '59 monster sprites + credits — outer-envelope decoded (pixel rendering Stage B).',
+    meta: '60 entries',
+  },
+  {
     title: 'Files',
     to: '/files',
     description: 'Every parsed .dbs file with its section layout and parse status.',
