@@ -153,11 +153,11 @@ describe('ScenarioItemSchema', () => {
     ).toThrow();
   });
 
-  it('rejects when name1 exceeds 15 chars', () => {
+  it('rejects when name1 exceeds 32 chars', () => {
     expect(() =>
       ScenarioItemSchema.parse({
         index: 0,
-        name1: 'X'.repeat(16),
+        name1: 'X'.repeat(33),
         name2: '',
         bytes: validBytes,
         empty: false,
@@ -215,11 +215,11 @@ describe('ScenarioMonsterSchema', () => {
     ).toThrow();
   });
 
-  it('rejects when name exceeds 15 chars', () => {
+  it('rejects when name exceeds 32 chars', () => {
     expect(() =>
       ScenarioMonsterSchema.parse({
         ...emptyMonster(0),
-        nameIdSingular: 'X'.repeat(16),
+        nameIdSingular: 'X'.repeat(33),
       }),
     ).toThrow();
   });
@@ -345,11 +345,11 @@ describe('ScenarioQuestDataSchema', () => {
     ).toThrow();
   });
 
-  it('rejects when a name exceeds 15 chars', () => {
+  it('rejects when a name exceeds 32 chars', () => {
     expect(() =>
       ScenarioQuestDataSchema.parse({
         index: 0,
-        names: ['X'.repeat(16), '', '', ''],
+        names: ['X'.repeat(33), '', '', ''],
         rawBytes: validQuestDataBytes,
         empty: false,
       }),

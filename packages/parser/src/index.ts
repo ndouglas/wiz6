@@ -17,6 +17,8 @@ export {
   slugify,
 } from './queries/slug.js';
 
+export { expandOfLigature } from './queries/name-format.js';
+
 export {
   monsterSlug,
   findMonsterBySlug,

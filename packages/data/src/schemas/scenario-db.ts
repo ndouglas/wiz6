@@ -21,12 +21,16 @@ const itemBytes = z.array(z.number().int().min(0).max(255)).length(ITEM_RECORD_B
 const monsterStatBytes = z.array(z.number().int().min(0).max(255)).length(MONSTER_STAT_BYTES);
 const questDataBytes = z.array(z.number().int().min(0).max(255)).length(QUEST_DATA_RECORD_BYTES);
 
+// Names in the on-disk file are bounded by their 15-byte slot, but the parser
+// expands the font's `=` ligature to ` OF ` (a Wiz6 convention; see
+// expandOfLigature). That can push a 13-char name like GUARDIAN=ROCK to a
+// 16-char GUARDIAN OF ROCK. Cap at 32 to leave headroom for multi-`=` names.
 export const ScenarioMonsterSchema = z.object({
   index: z.number().int().nonnegative(),
-  nameIdSingular: z.string().max(15),
-  nameIdPlural: z.string().max(15),
-  nameUnidSingular: z.string().max(15),
-  nameUnidPlural: z.string().max(15),
+  nameIdSingular: z.string().max(32),
+  nameIdPlural: z.string().max(32),
+  nameUnidSingular: z.string().max(32),
+  nameUnidPlural: z.string().max(32),
   statBytes: monsterStatBytes,
   empty: z.boolean(),
   xpOnKill: z.number().int().min(0).max(0xffff),
@@ -106,15 +110,15 @@ export const ScenarioMonsterSchema = z.object({
 // embedded NPC / quest / minigame data. See docs/re/scenario-dbs.md.
 export const ScenarioQuestDataSchema = z.object({
   index: z.number().int().nonnegative(),
-  names: z.array(z.string().max(15)).length(4),
+  names: z.array(z.string().max(32)).length(4),
   rawBytes: questDataBytes,
   empty: z.boolean(),
 });
 
 export const ScenarioItemSchema = z.object({
   index: z.number().int().nonnegative(),
-  name1: z.string().max(15),
-  name2: z.string().max(15),
+  name1: z.string().max(32),
+  name2: z.string().max(32),
   bytes: itemBytes,
   empty: z.boolean(),
   price: z.number().int().min(0).max(0xffff),

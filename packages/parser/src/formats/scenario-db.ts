@@ -7,6 +7,8 @@ import {
   type XpTable,
 } from '@wiz6/data';
 
+import { expandOfLigature } from '../queries/name-format.js';
+
 const XP_TABLES_OFFSET = 0x0000;
 const XP_CLASS_COUNT = 14;
 const XP_LEVELS_PER_CLASS = 16;
@@ -60,18 +62,20 @@ function decodeNameSlot(slice: Uint8Array): { name1: string; name2: string } {
   // name2 sits between name1's null and the slot's end (byte 15). Anything past
   // the slot is stat data and must NOT be read as a name.
   const n2Start = n1End + 1;
-  if (n2Start >= ITEM_NAME_SLOT_BYTES) return { name1, name2: '' };
+  if (n2Start >= ITEM_NAME_SLOT_BYTES) {
+    return { name1: expandOfLigature(name1), name2: '' };
+  }
   let n2End = n2Start;
   while (n2End < ITEM_NAME_SLOT_BYTES && slice[n2End] !== 0) n2End++;
   const name2 = new TextDecoder('latin1').decode(slice.subarray(n2Start, n2End));
-  return { name1, name2 };
+  return { name1: expandOfLigature(name1), name2: expandOfLigature(name2) };
 }
 
 function decodeFixedString(slice: Uint8Array, start: number, length: number): string {
   let end = start;
   const limit = start + length;
   while (end < limit && slice[end] !== 0) end++;
-  return new TextDecoder('latin1').decode(slice.subarray(start, end));
+  return expandOfLigature(new TextDecoder('latin1').decode(slice.subarray(start, end)));
 }
 
 /**
