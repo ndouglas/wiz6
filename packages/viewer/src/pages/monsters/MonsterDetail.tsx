@@ -1,16 +1,19 @@
 import type { ScenarioMonster } from '@wiz6/data';
 import { useUrlState } from '../../lib/hooks/useUrlState.js';
 import styles from './MonsterDetail.module.css';
+import { MonsterDetailProvider } from './MonsterDetailContext.js';
 import { AttacksTab } from './tabs/AttacksTab.js';
 import { OverviewTab } from './tabs/OverviewTab.js';
+import { RawBytesTab } from './tabs/RawBytesTab.js';
 import { SavesTab } from './tabs/SavesTab.js';
 
-type TabId = 'overview' | 'attacks' | 'saves';
+type TabId = 'overview' | 'attacks' | 'saves' | 'raw';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'attacks', label: 'Attacks' },
   { id: 'saves', label: 'Saves & Resistances' },
+  { id: 'raw', label: 'Raw bytes' },
 ];
 
 interface MonsterDetailProps {
@@ -49,15 +52,19 @@ export function MonsterDetail({ monster }: MonsterDetailProps) {
         ))}
       </div>
 
-      <div role="tabpanel" data-testid={`tab-${currentTab}`}>
-        {currentTab === 'overview' ? (
-          <OverviewTab monster={monster} />
-        ) : currentTab === 'attacks' ? (
-          <AttacksTab monster={monster} />
-        ) : (
-          <SavesTab monster={monster} />
-        )}
-      </div>
+      <MonsterDetailProvider>
+        <div role="tabpanel" data-testid={`tab-${currentTab}`}>
+          {currentTab === 'overview' ? (
+            <OverviewTab monster={monster} />
+          ) : currentTab === 'attacks' ? (
+            <AttacksTab monster={monster} />
+          ) : currentTab === 'saves' ? (
+            <SavesTab monster={monster} />
+          ) : (
+            <RawBytesTab monster={monster} />
+          )}
+        </div>
+      </MonsterDetailProvider>
     </>
   );
 }
