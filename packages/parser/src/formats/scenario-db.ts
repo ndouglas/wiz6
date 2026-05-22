@@ -365,6 +365,7 @@ export function decodeScenarioDb(bytes: Uint8Array, opts: DecodeScenarioDbOpts):
       combatSpriteId: statSlice[98]!,
       combatSpriteAlt: statSlice[99]!,
       secondarySpriteId: statSlice[100]!,
+      picId: statSlice[145]!,
       magicResistChance: statSlice[102]!,
       combatTraitId: statSlice[112]!,
       auxSave103: statSlice[103]!,

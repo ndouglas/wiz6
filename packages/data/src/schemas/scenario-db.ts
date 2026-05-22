@@ -97,6 +97,8 @@ export const ScenarioMonsterSchema = z.object({
   combatSpriteId: z.number().int().min(0).max(255),
   combatSpriteAlt: z.number().int().min(0).max(255),
   secondarySpriteId: z.number().int().min(0).max(255),
+  /** Filename suffix for the monster's combat sprite: monNN.pic where NN = picId. 0 = no sprite. Source: statBytes[145]. */
+  picId: z.number().int().min(0).max(58),
   magicResistChance: z.number().int().min(0).max(255),
   combatTraitId: z.number().int().min(0).max(255),
   auxSave103: z.number().int().min(0).max(255),
