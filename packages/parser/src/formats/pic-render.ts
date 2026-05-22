@@ -9,40 +9,45 @@ export const EGA_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
 ];
 
 /**
- * Wiz6's effective logical-color → RGB palette. Empirically calibrated
- * against the actual game's title page screenshot (the "Wizardry" logo):
+ * Wiz6's effective logical-color → RGB palette.
  *
- * - Logical 1 must render as WHITE — the logo letters are stored as
- *   color 1 in the cell data and appear pure white in-game. Standard
- *   EGA logical 1 is blue, so Wiz6 ships a non-default palette.
- * - Everything else matches the standard EGA hardware palette: sword
- *   bodies show as red (logical 4), highlights as bright red (12),
- *   outlines as black (0) or dark gray (8).
+ * Derived from the palette table at wroot.exe file offset 0x2054, loaded
+ * via INT 10h AX=1002h ("Set palette block"). The byte table is the
+ * sequence of physical EGA palette register values for logical colors
+ * 0..15:
  *
- * The two palette tables found in wroot.exe (at file offsets 0x2043
- * and 0x2054, loaded via INT 10h AX=1002h) don't match this calibration
- * exactly, suggesting either a third palette set at runtime or that the
- * static tables aren't the ones actually active during the title screen.
- * Phase 1A+B's "standard EGA hardware default" claim was 14-of-16 correct;
- * only logical 1 differs.
+ *     [0, 15, 9, 13, 12, 14, 10, 11, 8, 7, 1, 5, 4, 6, 2, 3]
+ *
+ * Each physical value is then decoded as the standard 6-bit EGA palette
+ * register encoding (bits 0-2 = primary BGR, bits 3-5 = secondary BGR;
+ * primary contributes 0xAA per channel, secondary 0x55).
+ *
+ * The ONE empirical override is logical 1: the Wiz6 palette table maps
+ * it to physical 15 (`#aaaaff` lavender), but the actual game renders
+ * the Wizardry-logo letters as pure white. Either there's a third
+ * palette load we haven't located, or the game patches this single
+ * register at runtime. Either way the override is the only deviation
+ * from the static table that empirically matches the game.
+ *
+ * Logical 15 is unused here — the renderer treats it as transparent.
  */
 export const WIZ6_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
-  [0x00, 0x00, 0x00], // 0:  black                  (matches actual game)
-  [0xff, 0xff, 0xff], // 1:  WHITE                  (override — was blue; Wizardry letters / scene highlights)
-  [0x00, 0xaa, 0x00], // 2:  green                  (standard EGA)
-  [0x00, 0xaa, 0xaa], // 3:  cyan                   (standard EGA)
-  [0xaa, 0x00, 0x00], // 4:  red                    (matches dark sword body #9c1f14)
-  [0xff, 0xff, 0x55], // 5:  YELLOW                 (override — was magenta; credits text body / gem accents)
-  [0xaa, 0x55, 0x00], // 6:  brown                  (standard EGA)
-  [0xaa, 0xaa, 0xaa], // 7:  light gray             (standard EGA)
-  [0x55, 0x55, 0x55], // 8:  dark gray              (matches sword/letter outlines, wall dither low)
-  [0xaa, 0xaa, 0xaa], // 9:  LIGHT GRAY             (override — was light blue; wall dither high)
-  [0x00, 0x00, 0xaa], // 10: BLUE                   (override — was light green; mon08 water)
-  [0x55, 0xff, 0xff], // 11: light cyan             (standard EGA)
-  [0xff, 0x55, 0x55], // 12: bright red             (matches sword highlight #ec625c)
-  [0xff, 0x55, 0xff], // 13: bright magenta         (standard EGA)
-  [0x00, 0xaa, 0x00], // 14: GREEN                  (override — was bright yellow; vines / moss)
-  [0xff, 0xff, 0xff], // 15: white                  (unused — handled as transparent by the renderer)
+  [0x00, 0x00, 0x00], // 0:  black                   (phys  0)
+  [0xff, 0xff, 0xff], // 1:  WHITE                   (override — table value phys 15 = lavender)
+  [0x00, 0x00, 0xff], // 2:  pure blue               (phys  9)
+  [0xaa, 0x00, 0xff], // 3:  bright violet           (phys 13)
+  [0xaa, 0x00, 0x55], // 4:  wine red / sword body   (phys 12)
+  [0xaa, 0xaa, 0x55], // 5:  olive-yellow            (phys 14)
+  [0x00, 0xaa, 0x55], // 6:  teal-green              (phys 10)
+  [0x00, 0xaa, 0xff], // 7:  bright cyan             (phys 11)
+  [0x00, 0x00, 0x55], // 8:  very dark blue          (phys  8)
+  [0xaa, 0xaa, 0xaa], // 9:  light gray              (phys  7)
+  [0x00, 0x00, 0xaa], // 10: blue / water            (phys  1)
+  [0xaa, 0x00, 0xaa], // 11: magenta                 (phys  5)
+  [0xaa, 0x00, 0x00], // 12: red / sword highlight   (phys  4)
+  [0xaa, 0xaa, 0x00], // 13: dark yellow / brown     (phys  6)
+  [0x00, 0xaa, 0x00], // 14: green / vines           (phys  2)
+  [0xff, 0xff, 0xff], // 15: (unused — rendered as transparent)
 ];
 
 export interface RenderedSprite {
