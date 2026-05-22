@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   monsterSlug,
+  monsterDisplayName,
   findMonsterBySlug,
   searchMonsters,
   filterMonsters,
@@ -253,6 +254,48 @@ describe('monsterSlug', () => {
     const empty = ALL[100]!;
     expect(monsterSlug(empty)).toBe('slot-100');
   });
+
+  it('disambiguates same-named records with a -N suffix when allMonsters provided', () => {
+    const a = { ...emptyMonster(0), nameIdSingular: 'GREATER DEMON', empty: false };
+    const b = { ...emptyMonster(1), nameIdSingular: 'GREATER DEMON', empty: false };
+    const c = { ...emptyMonster(2), nameIdSingular: 'GREATER DEMON', empty: false };
+    const all = [a, b, c];
+    expect(monsterSlug(a, all)).toBe('greater-demon');
+    expect(monsterSlug(b, all)).toBe('greater-demon-2');
+    expect(monsterSlug(c, all)).toBe('greater-demon-3');
+  });
+
+  it('does not disambiguate unique names even when allMonsters provided', () => {
+    expect(monsterSlug(ALL[0]!, ALL)).toBe('giant-rat');
+  });
+
+  it('ignores empty records when computing ordinals', () => {
+    const a = { ...emptyMonster(0), nameIdSingular: 'GHOUL', empty: false };
+    const empty = emptyMonster(1);
+    const b = { ...emptyMonster(2), nameIdSingular: 'GHOUL', empty: false };
+    expect(monsterSlug(b, [a, empty, b])).toBe('ghoul-2');
+  });
+});
+
+describe('monsterDisplayName', () => {
+  it('returns plain name for unique records', () => {
+    expect(monsterDisplayName(ALL[0]!, ALL)).toBe('GIANT RAT');
+  });
+
+  it('appends (#N) when the name is shared', () => {
+    const a = { ...emptyMonster(0), nameIdSingular: 'GREATER DEMON', empty: false };
+    const b = { ...emptyMonster(1), nameIdSingular: 'GREATER DEMON', empty: false };
+    expect(monsterDisplayName(a, [a, b])).toBe('GREATER DEMON (#1)');
+    expect(monsterDisplayName(b, [a, b])).toBe('GREATER DEMON (#2)');
+  });
+
+  it('returns plain name when allMonsters not provided', () => {
+    expect(monsterDisplayName(ALL[0]!)).toBe('GIANT RAT');
+  });
+
+  it('shows empty slot placeholder for empty records', () => {
+    expect(monsterDisplayName(ALL[100]!, ALL)).toBe('(empty slot 100)');
+  });
 });
 
 describe('findMonsterBySlug', () => {
@@ -267,6 +310,20 @@ describe('findMonsterBySlug', () => {
 
   it('finds empty slots by their fallback slug', () => {
     expect(findMonsterBySlug(ALL, 'slot-100')?.index).toBe(100);
+  });
+
+  it('matches the disambiguated -N slug for the right record', () => {
+    const a = { ...emptyMonster(0), nameIdSingular: 'IMP', empty: false };
+    const b = { ...emptyMonster(1), nameIdSingular: 'IMP', empty: false };
+    const all = [a, b];
+    expect(findMonsterBySlug(all, 'imp')?.index).toBe(0);
+    expect(findMonsterBySlug(all, 'imp-2')?.index).toBe(1);
+  });
+
+  it('treats <name>-1 as an alias for the bare slug', () => {
+    const a = { ...emptyMonster(0), nameIdSingular: 'IMP', empty: false };
+    const b = { ...emptyMonster(1), nameIdSingular: 'IMP', empty: false };
+    expect(findMonsterBySlug([a, b], 'imp-1')?.index).toBe(0);
   });
 });
 

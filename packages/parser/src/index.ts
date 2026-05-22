@@ -28,6 +28,7 @@ export { expandOfLigature } from './queries/name-format.js';
 
 export {
   monsterSlug,
+  monsterDisplayName,
   findMonsterBySlug,
   searchMonsters,
   filterMonsters,

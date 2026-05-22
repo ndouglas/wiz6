@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import type { ScenarioMonster } from '@wiz6/data';
-import { familyKey, monsterSlug } from '@wiz6/parser';
+import { familyKey, monsterSlug, monsterDisplayName } from '@wiz6/parser';
 
 interface FamilyTabProps {
   monster: ScenarioMonster;
@@ -36,7 +36,7 @@ export function FamilyTab({ monster, allMonsters }: FamilyTabProps) {
             <li key={m.index} style={{ marginBottom: 'var(--space-1)' }}>
               <button
                 type="button"
-                onClick={() => navigate(`/explore/monsters/${monsterSlug(m)}`)}
+                onClick={() => navigate(`/explore/monsters/${monsterSlug(m, allMonsters)}`)}
                 style={{
                   background: 'transparent',
                   border: '1px solid var(--color-border)',
@@ -48,7 +48,7 @@ export function FamilyTab({ monster, allMonsters }: FamilyTabProps) {
                   fontSize: '0.92rem',
                 }}
               >
-                {m.nameIdSingular || `(empty slot ${m.index})`}
+                {monsterDisplayName(m, allMonsters)}
               </button>
             </li>
           ))}

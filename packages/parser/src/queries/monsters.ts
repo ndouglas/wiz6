@@ -14,16 +14,71 @@ export interface MonsterFilter {
   includeEmpty?: boolean;
 }
 
-export function monsterSlug(m: ScenarioMonster): string {
-  if (m.nameIdSingular) return slugify(m.nameIdSingular);
-  return `slot-${m.index}`;
+/**
+ * Slug for routing. When `allMonsters` is provided AND another non-empty
+ * record shares the same `nameIdSingular`, the slug is suffixed with `-N`
+ * (where N is the 1-based ordinal of this record among same-named records,
+ * ordered by `index`). The first same-named record keeps the bare slug for
+ * backwards-compatibility with existing URLs.
+ *
+ * Empty-name slots always slug as `slot-${index}` regardless of `allMonsters`.
+ */
+export function monsterSlug(
+  m: ScenarioMonster,
+  allMonsters?: readonly ScenarioMonster[],
+): string {
+  if (!m.nameIdSingular) return `slot-${m.index}`;
+  const base = slugify(m.nameIdSingular);
+  if (!allMonsters) return base;
+  const ordinal = nameOrdinal(m, allMonsters);
+  return ordinal <= 1 ? base : `${base}-${ordinal}`;
+}
+
+/**
+ * Display name with `(#N)` suffix when shared with another non-empty record.
+ * Returns plain `nameIdSingular` otherwise (or `(empty slot N)` for empties).
+ */
+export function monsterDisplayName(
+  m: ScenarioMonster,
+  allMonsters?: readonly ScenarioMonster[],
+): string {
+  if (!m.nameIdSingular) return `(empty slot ${m.index})`;
+  if (!allMonsters) return m.nameIdSingular;
+  const sameName = sameNameRecords(m, allMonsters);
+  if (sameName.length <= 1) return m.nameIdSingular;
+  const ordinal = sameName.findIndex((o) => o.index === m.index) + 1;
+  return `${m.nameIdSingular} (#${ordinal})`;
+}
+
+function sameNameRecords(
+  m: ScenarioMonster,
+  allMonsters: readonly ScenarioMonster[],
+): ScenarioMonster[] {
+  return allMonsters
+    .filter((o) => !o.empty && o.nameIdSingular === m.nameIdSingular)
+    .sort((a, b) => a.index - b.index);
+}
+
+function nameOrdinal(m: ScenarioMonster, allMonsters: readonly ScenarioMonster[]): number {
+  const sameName = sameNameRecords(m, allMonsters);
+  if (sameName.length <= 1) return 1;
+  return sameName.findIndex((o) => o.index === m.index) + 1;
 }
 
 export function findMonsterBySlug(
   monsters: readonly ScenarioMonster[],
   slug: string,
 ): ScenarioMonster | null {
-  return monsters.find((m) => monsterSlug(m) === slug) ?? null;
+  // Try disambiguated slug first
+  const exact = monsters.find((m) => monsterSlug(m, monsters) === slug);
+  if (exact) return exact;
+  // Accept `<name>-1` as an alias for the bare slug (the first same-named record)
+  const m1 = slug.match(/^(.+)-1$/);
+  if (m1) {
+    const base = m1[1]!;
+    return monsters.find((m) => monsterSlug(m, monsters) === base) ?? null;
+  }
+  return null;
 }
 
 export function searchMonsters(

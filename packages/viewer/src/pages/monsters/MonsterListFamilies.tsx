@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ScenarioMonster } from '@wiz6/data';
-import { familyKey, monsterSlug } from '@wiz6/parser';
+import { familyKey, monsterSlug, monsterDisplayName } from '@wiz6/parser';
 import styles from './MonsterListFamilies.module.css';
 
 interface MonsterListFamiliesProps {
   monsters: readonly ScenarioMonster[];
   totalFilled: number;
+  allMonsters: readonly ScenarioMonster[];
 }
 
 interface FamilyGroup {
@@ -28,7 +29,7 @@ function group(monsters: readonly ScenarioMonster[]): FamilyGroup[] {
     .sort((a, b) => b.members.length - a.members.length || a.key.localeCompare(b.key));
 }
 
-export function MonsterListFamilies({ monsters, totalFilled }: MonsterListFamiliesProps) {
+export function MonsterListFamilies({ monsters, totalFilled, allMonsters }: MonsterListFamiliesProps) {
   const navigate = useNavigate();
   const groups = group(monsters);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -65,9 +66,9 @@ export function MonsterListFamilies({ monsters, totalFilled }: MonsterListFamili
                     <button
                       type="button"
                       className={styles.member}
-                      onClick={() => navigate(`/explore/monsters/${monsterSlug(m)}`)}
+                      onClick={() => navigate(`/explore/monsters/${monsterSlug(m, allMonsters)}`)}
                     >
-                      {m.nameIdSingular || `(empty slot ${m.index})`}
+                      {monsterDisplayName(m, allMonsters)}
                     </button>
                   </li>
                 ))}

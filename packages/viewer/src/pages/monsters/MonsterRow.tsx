@@ -1,12 +1,13 @@
 import { useNavigate } from 'react-router-dom';
 import type { ScenarioMonster } from '@wiz6/data';
-import { monsterSlug, formatLevelRange } from '@wiz6/parser';
+import { monsterSlug, monsterDisplayName, formatLevelRange } from '@wiz6/parser';
 import { useUrlState } from '../../lib/hooks/useUrlState.js';
 import styles from './MonsterList.module.css';
 
 interface MonsterRowProps {
   monster: ScenarioMonster;
   selected: boolean;
+  allMonsters: readonly ScenarioMonster[];
 }
 
 const CLASS_STYLES: Record<number, string> = {
@@ -16,11 +17,11 @@ const CLASS_STYLES: Record<number, string> = {
   4: styles.rowClass4!,
 };
 
-export function MonsterRow({ monster, selected }: MonsterRowProps) {
+export function MonsterRow({ monster, selected, allMonsters }: MonsterRowProps) {
   const navigate = useNavigate();
-  const slug = monsterSlug(monster);
+  const slug = monsterSlug(monster, allMonsters);
   const classClass = CLASS_STYLES[monster.monsterClass] ?? '';
-  const name = monster.nameIdSingular || `(empty slot ${monster.index})`;
+  const name = monsterDisplayName(monster, allMonsters);
   const range = formatLevelRange(monster.monsterLevel, monster.monsterLevelMax);
   const [compareIds, setCompareIds] = useUrlState.list('ids');
   const inCompare = compareIds.includes(slug);

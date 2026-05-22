@@ -7,9 +7,10 @@ import styles from './MonsterList.module.css';
 interface MonsterListProps {
   monsters: readonly ScenarioMonster[];
   totalFilled: number;
+  allMonsters: readonly ScenarioMonster[];
 }
 
-export function MonsterList({ monsters, totalFilled }: MonsterListProps) {
+export function MonsterList({ monsters, totalFilled, allMonsters }: MonsterListProps) {
   const { slug } = useParams<{ slug?: string }>();
   return (
     <>
@@ -18,7 +19,8 @@ export function MonsterList({ monsters, totalFilled }: MonsterListProps) {
           <MonsterRow
             key={m.index}
             monster={m}
-            selected={!!slug && monsterSlug(m) === slug}
+            selected={!!slug && monsterSlug(m, allMonsters) === slug}
+            allMonsters={allMonsters}
           />
         ))}
       </div>

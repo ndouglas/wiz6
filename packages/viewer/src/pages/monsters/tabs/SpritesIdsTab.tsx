@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { ScenarioMonster } from '@wiz6/data';
-import { monsterSlug } from '@wiz6/parser';
+import { monsterSlug, monsterDisplayName } from '@wiz6/parser';
 
 interface SpritesIdsTabProps {
   monster: ScenarioMonster;
@@ -103,7 +103,7 @@ export function SpritesIdsTab({ monster, allMonsters }: SpritesIdsTabProps) {
                     sharers.slice(0, 5).map((m, i) => (
                       <span key={m.index}>
                         {i > 0 ? ', ' : ''}
-                        <Link to={`/explore/monsters/${monsterSlug(m)}`}>{m.nameIdSingular}</Link>
+                        <Link to={`/explore/monsters/${monsterSlug(m, allMonsters)}`}>{monsterDisplayName(m, allMonsters)}</Link>
                       </span>
                     ))
                   )}

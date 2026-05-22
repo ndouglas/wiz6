@@ -77,16 +77,18 @@ function MonstersPageInner() {
 
   useKeyboardShortcuts({
     ArrowDown: () => {
-      if (filtered.length === 0) return;
-      const idx = slug ? filtered.findIndex((m) => monsterSlug(m) === slug) : -1;
+      if (filtered.length === 0 || !data) return;
+      const all = data.monsters;
+      const idx = slug ? filtered.findIndex((m) => monsterSlug(m, all) === slug) : -1;
       const nextIdx = idx + 1 < filtered.length ? idx + 1 : 0;
-      navigate(`/explore/monsters/${monsterSlug(filtered[nextIdx]!)}`);
+      navigate(`/explore/monsters/${monsterSlug(filtered[nextIdx]!, all)}`);
     },
     ArrowUp: () => {
-      if (filtered.length === 0) return;
-      const idx = slug ? filtered.findIndex((m) => monsterSlug(m) === slug) : 0;
+      if (filtered.length === 0 || !data) return;
+      const all = data.monsters;
+      const idx = slug ? filtered.findIndex((m) => monsterSlug(m, all) === slug) : 0;
       const prevIdx = idx > 0 ? idx - 1 : filtered.length - 1;
-      navigate(`/explore/monsters/${monsterSlug(filtered[prevIdx]!)}`);
+      navigate(`/explore/monsters/${monsterSlug(filtered[prevIdx]!, all)}`);
     },
     '1': () => setTab(null),
     '2': () => setTab('attacks'),
@@ -121,9 +123,9 @@ function MonstersPageInner() {
         <section className={styles.list} aria-label="monster list">
           <MonsterFilters values={filterValues} />
           {viewMode === 'families' ? (
-            <MonsterListFamilies monsters={filtered} totalFilled={totalFilled} />
+            <MonsterListFamilies monsters={filtered} totalFilled={totalFilled} allMonsters={data.monsters} />
           ) : (
-            <MonsterList monsters={filtered} totalFilled={totalFilled} />
+            <MonsterList monsters={filtered} totalFilled={totalFilled} allMonsters={data.monsters} />
           )}
         </section>
         <section className={styles.detail} aria-label="monster detail">
