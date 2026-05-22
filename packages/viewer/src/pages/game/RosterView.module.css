@@ -1,0 +1,23 @@
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: var(--space-5);
+}
+
+.heading {
+  font-size: 1.6rem;
+  margin: 0 0 var(--space-2);
+}
+
+.lede {
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-5);
+  max-width: 60ch;
+}
+
+.stub {
+  border: 1px dashed var(--color-border);
+  padding: var(--space-5);
+  text-align: center;
+  color: var(--color-text-faint);
+}

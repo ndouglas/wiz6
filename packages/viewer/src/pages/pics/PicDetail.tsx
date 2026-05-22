@@ -31,7 +31,7 @@ export function PicDetail() {
   if (error)
     return (
       <main className={styles.detailWrapper}>
-        <Link to="/pics" className={styles.backLink}>
+        <Link to="/explore/pics" className={styles.backLink}>
           ← back to pics
         </Link>
         <div className={styles.error}>{error.message}</div>
@@ -41,7 +41,7 @@ export function PicDetail() {
 
   return (
     <main className={styles.detailWrapper}>
-      <Link to="/pics" className={styles.backLink}>
+      <Link to="/explore/pics" className={styles.backLink}>
         ← back to pics
       </Link>
       <h1>{data.id}</h1>

@@ -1,5 +1,17 @@
 import { lazy } from 'react';
 import { Route } from 'react-router-dom';
+import { GameLayout } from './layouts/GameLayout.js';
+import { ExploreLayout } from './layouts/ExploreLayout.js';
+
+const GameTitle = lazy(() =>
+  import('./pages/game/GameTitle.js').then((m) => ({ default: m.GameTitle })),
+);
+const CastleScreen = lazy(() =>
+  import('./pages/game/CastleScreen.js').then((m) => ({ default: m.CastleScreen })),
+);
+const RosterView = lazy(() =>
+  import('./pages/game/RosterView.js').then((m) => ({ default: m.RosterView })),
+);
 
 const Landing = lazy(() => import('./pages/Landing.js').then((m) => ({ default: m.Landing })));
 const MonstersPage = lazy(() =>
@@ -38,19 +50,26 @@ const PicDetail = lazy(() =>
 
 export const routes = (
   <>
-    <Route path="/" element={<Landing />} />
-    <Route path="/monsters" element={<MonstersPage />} />
-    <Route path="/monsters/compare" element={<MonstersPage />} />
-    <Route path="/monsters/:slug" element={<MonstersPage />} />
-    <Route path="/items" element={<ItemsPage />} />
-    <Route path="/quest" element={<QuestRecords />} />
-    <Route path="/screens" element={<ScreensIndex />} />
-    <Route path="/portraits" element={<PortraitsIndex />} />
-    <Route path="/fonts" element={<FontsPage />} />
-    <Route path="/msg" element={<MsgPage />} />
-    <Route path="/newgame" element={<NewgamePage />} />
-    <Route path="/files" element={<FilesOverview />} />
-    <Route path="/pics" element={<PicsIndex />} />
-    <Route path="/pics/:name" element={<PicDetail />} />
+    <Route element={<GameLayout />}>
+      <Route path="/" element={<GameTitle />} />
+      <Route path="/castle" element={<CastleScreen />} />
+      <Route path="/roster" element={<RosterView />} />
+    </Route>
+    <Route path="/explore" element={<ExploreLayout />}>
+      <Route index element={<Landing />} />
+      <Route path="monsters" element={<MonstersPage />} />
+      <Route path="monsters/compare" element={<MonstersPage />} />
+      <Route path="monsters/:slug" element={<MonstersPage />} />
+      <Route path="items" element={<ItemsPage />} />
+      <Route path="quest" element={<QuestRecords />} />
+      <Route path="screens" element={<ScreensIndex />} />
+      <Route path="portraits" element={<PortraitsIndex />} />
+      <Route path="fonts" element={<FontsPage />} />
+      <Route path="msg" element={<MsgPage />} />
+      <Route path="newgame" element={<NewgamePage />} />
+      <Route path="files" element={<FilesOverview />} />
+      <Route path="pics" element={<PicsIndex />} />
+      <Route path="pics/:name" element={<PicDetail />} />
+    </Route>
   </>
 );

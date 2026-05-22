@@ -2,22 +2,22 @@ import { NavLink, Link } from 'react-router-dom';
 import styles from './TopNav.module.css';
 
 const SECTIONS: { label: string; to: string }[] = [
-  { label: 'Monsters', to: '/monsters' },
-  { label: 'Items', to: '/items' },
-  { label: 'Quest', to: '/quest' },
-  { label: 'Screens', to: '/screens' },
-  { label: 'Portraits', to: '/portraits' },
-  { label: 'Fonts', to: '/fonts' },
-  { label: 'Messages', to: '/msg' },
-  { label: 'Newgame', to: '/newgame' },
-  { label: 'Pics', to: '/pics' },
-  { label: 'Files', to: '/files' },
+  { label: 'Monsters', to: '/explore/monsters' },
+  { label: 'Items', to: '/explore/items' },
+  { label: 'Quest', to: '/explore/quest' },
+  { label: 'Screens', to: '/explore/screens' },
+  { label: 'Portraits', to: '/explore/portraits' },
+  { label: 'Fonts', to: '/explore/fonts' },
+  { label: 'Messages', to: '/explore/msg' },
+  { label: 'Newgame', to: '/explore/newgame' },
+  { label: 'Pics', to: '/explore/pics' },
+  { label: 'Files', to: '/explore/files' },
 ];
 
 export function TopNav() {
   return (
     <nav className={styles.bar} aria-label="Primary">
-      <Link to="/" className={styles.title}>
+      <Link to="/explore" className={styles.title}>
         Wiz6 Data Explorer
       </Link>
       <ul className={styles.links} style={{ listStyle: 'none', padding: 0, margin: 0 }}>

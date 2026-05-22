@@ -21,13 +21,31 @@ function renderAt(path: string) {
 }
 
 describe('AppShell', () => {
-  it('renders the TopNav on every page', async () => {
-    renderAt('/monsters');
-    expect(screen.getByRole('navigation', { name: /primary/i })).toBeInTheDocument();
+  it('renders the Game nav on game routes', async () => {
+    renderAt('/');
+    await waitFor(() => {
+      expect(screen.getByRole('navigation', { name: /game/i })).toBeInTheDocument();
+    });
   });
 
-  it('renders the Landing page content at /', async () => {
+  it('renders the Primary nav on explore routes', async () => {
+    renderAt('/explore/monsters');
+    await waitFor(() => {
+      expect(screen.getByRole('navigation', { name: /primary/i })).toBeInTheDocument();
+    });
+  });
+
+  it('renders the GameTitle at /', async () => {
     renderAt('/');
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { level: 1, name: /wizardry/i }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('renders the ExploreLanding at /explore', async () => {
+    renderAt('/explore');
     await waitFor(() => {
       expect(
         screen.getByRole('heading', { level: 1, name: /wiz6 data explorer/i }),
@@ -35,8 +53,8 @@ describe('AppShell', () => {
     });
   });
 
-  it('renders the MonstersPage at /monsters', async () => {
-    renderAt('/monsters');
+  it('renders the MonstersPage at /explore/monsters', async () => {
+    renderAt('/explore/monsters');
     await waitFor(() => {
       expect(screen.getByRole('region', { name: /monster list/i })).toBeInTheDocument();
     });
