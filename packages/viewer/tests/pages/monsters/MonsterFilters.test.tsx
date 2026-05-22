@@ -9,7 +9,7 @@ const VALUES = uniqueFilterValues(FIXTURE_SCENARIO_DB.monsters);
 
 function LocationProbe() {
   const loc = useLocation();
-  return <p data-testid="location">{loc.search || '(empty)'}</p>;
+  return <p data-testid="location">{loc.pathname}{loc.search || '(empty)'}</p>;
 }
 
 function renderFilters(initial = '/monsters') {
@@ -75,5 +75,23 @@ describe('MonsterFilters', () => {
     fireEvent.click(screen.getByText(/class/i));
     fireEvent.click(screen.getByLabelText('class 2'));
     expect(screen.getByTestId('location')).toHaveTextContent('class=2');
+  });
+
+  it('shows Compare button when 2+ ids in URL', () => {
+    renderFilters('/monsters?ids=giant-rat,zombie');
+    expect(screen.getByRole('button', { name: /compare \(2\)/i })).toBeInTheDocument();
+  });
+
+  it('hides Compare button when fewer than 2 ids in URL', () => {
+    renderFilters('/monsters?ids=giant-rat');
+    expect(screen.queryByRole('button', { name: /^compare/i })).not.toBeInTheDocument();
+  });
+
+  it('clicking Compare navigates to /monsters/compare with same ids', () => {
+    renderFilters('/monsters?ids=giant-rat,zombie');
+    fireEvent.click(screen.getByRole('button', { name: /compare \(2\)/i }));
+    // URL encodes the comma as %2C in some setups; check for either form
+    const loc = screen.getByTestId('location');
+    expect(loc.textContent).toMatch(/\/monsters\/compare\?ids=giant-rat(,|%2C)zombie/);
   });
 });

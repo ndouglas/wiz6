@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { useUrlState } from '../../lib/hooks/useUrlState.js';
 import type { UniqueFilterValues, MonsterSortField } from '@wiz6/parser';
 import styles from './MonsterFilters.module.css';
@@ -62,6 +63,8 @@ export function MonsterFilters({ values }: MonsterFiltersProps) {
   const [sort, setSort] = useUrlState('sort');
   const [dir, setDir] = useUrlState('dir');
   const [empty, setEmpty] = useUrlState('empty');
+  const navigate = useNavigate();
+  const [compareIds] = useUrlState.list('ids');
 
   const currentSort = (sort as MonsterSortField | null) ?? 'name';
   const currentDir = dir === 'desc' ? 'desc' : 'asc';
@@ -77,6 +80,18 @@ export function MonsterFilters({ values }: MonsterFiltersProps) {
           onChange={(e) => setSearch(e.target.value || null)}
         />
       </div>
+
+      {compareIds.length >= 2 ? (
+        <div style={{ marginTop: 'var(--space-1)' }}>
+          <button
+            type="button"
+            onClick={() => navigate(`/monsters/compare?ids=${compareIds.join(',')}`)}
+            className={styles.dirButton}
+          >
+            Compare ({compareIds.length})
+          </button>
+        </div>
+      ) : null}
 
       <div className={styles.sortRow}>
         <label htmlFor="monster-sort">Sort</label>

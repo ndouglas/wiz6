@@ -69,3 +69,20 @@
   font-family: var(--font-mono);
   font-size: 0.85rem;
 }
+
+.rowCompare {
+  background: var(--color-surface-elevated);
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.compareBadge {
+  display: inline-block;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 1px 4px;
+  border-radius: 2px;
+  margin-right: var(--space-1);
+}
