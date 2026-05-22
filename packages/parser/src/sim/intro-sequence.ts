@@ -164,15 +164,29 @@ export interface VisibleEntry {
  * Compute the list of visible scroll entries at the current scroll position.
  * Returned in back-to-front order (i=8 first), matching the engine's draw order.
  *
- * Entry visibility:
- *   - Hidden if entry.appear > scroll_pos (not yet appeared)
- *   - y = entry.fieldB - (scroll_pos - entry.appear)
- *   - Entries 3..7 clamp y at entry.cap (resting on screen)
- *   - All entries cull when y < 0 (slid off the top)
+ * Empirical interpretation of the engine's scroll loop (winit.ovr 0xc86..0xd6d),
+ * verified against the user's lived recollection of the original game:
  *
- * The per-entry visibility comparator in the disasm was marked `???` by
- * the RE agent; "off-screen cull" is a reasonable approximation. To be
- * re-verified once we have a DOSBox trace of an unskipped scroll.
+ *   - Engine tokens are 1-indexed into credits.pic descriptors. So token N
+ *     means descriptor (N-1). (Entry 0's token=7 → desc 6 = Wizardry logo top;
+ *     entry 1's token=8 → desc 7 = Wizardry logo bottom; entries 3..8 map to
+ *     descriptors 0..5 — the six credit panels and copyright notice.)
+ *
+ *   - Hidden if entry.appear > scroll_pos.
+ *
+ *   - y = entry.fieldB - (scroll_pos - entry.appear).
+ *
+ *   - Entries 0/1/2 CLAMP at cap (Wizardry logo top, Wizardry logo bottom,
+ *     and a header decoration — all persistent at the top of the credit window).
+ *
+ *   - Entries 3..8 are UNCLAMPED: they slide from fieldB through cap and exit
+ *     off the top of the credit window. Culled when y < 0.
+ *
+ * This differs from the RE agent's literal pseudocode (clamp on i>=3 && i!=8,
+ * cull on y > cap), which the agent flagged as uncertain — the comparator at
+ * winit.ovr 0xCFB was marked `???`. The rules above are what actually produces
+ * the user-described visual: Wiz logo persists at top, credit panels scroll
+ * up underneath. To be re-verified with a DOSBox trace.
  */
 export function visibleScrollEntries(scrollPos: number): VisibleEntry[] {
   const out: VisibleEntry[] = [];
@@ -181,10 +195,10 @@ export function visibleScrollEntries(scrollPos: number): VisibleEntry[] {
     if (e.appear > scrollPos) continue;
     const delta = scrollPos - e.appear;
     let y = e.fieldB - delta;
-    const isClamped = i >= 3 && i !== 8;
+    const isClamped = i < 3;
     if (isClamped && y < e.cap) y = e.cap;
     if (y < 0) continue;
-    out.push({ entryIndex: i, descriptorIndex: e.token, col: e.col, y });
+    out.push({ entryIndex: i, descriptorIndex: e.token - 1, col: e.col, y });
   }
   return out;
 }

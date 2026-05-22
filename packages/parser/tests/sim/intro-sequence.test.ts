@@ -154,17 +154,24 @@ describe('visibleScrollEntries: per-frame layout', () => {
     expect(visibleScrollEntries(4).some((v) => v.entryIndex === 3)).toBe(true);
   });
 
-  it('clamped entry slides toward cap then rests there', () => {
-    // Entry 3: appear=4, fieldB=0x90, cap=0x0d.
-    const v0 = visibleScrollEntries(4).find((v) => v.entryIndex === 3)!;
-    expect(v0.y).toBe(0x90);
-    const v1 = visibleScrollEntries(10).find((v) => v.entryIndex === 3)!;
-    expect(v1.y).toBe(0x90 - 6);
+  it('clamped entry (i<3) slides to cap then rests there forever', () => {
+    // Entry 0: appear=0, fieldB=0x43, cap=3.
+    expect(visibleScrollEntries(0).find((v) => v.entryIndex === 0)!.y).toBe(0x43);
+    expect(visibleScrollEntries(10).find((v) => v.entryIndex === 0)!.y).toBe(0x43 - 10);
     // Past clamp threshold: y stays at cap.
-    const v2 = visibleScrollEntries(4 + 0x83).find((v) => v.entryIndex === 3)!;
-    expect(v2.y).toBe(0x0d);
-    const v3 = visibleScrollEntries(4 + 0x200).find((v) => v.entryIndex === 3)!;
-    expect(v3.y).toBe(0x0d);
+    expect(visibleScrollEntries(0x80).find((v) => v.entryIndex === 0)!.y).toBe(3);
+    expect(visibleScrollEntries(0x200).find((v) => v.entryIndex === 0)!.y).toBe(3);
+  });
+
+  it('unclamped entry (i>=3) slides through cap and culls when y < 0', () => {
+    // Entry 3: appear=4, fieldB=0x90=144, cap=0x0d=13.
+    // Visible while y >= 0, i.e., delta <= 144, i.e., scrollPos <= 4 + 144 = 148.
+    expect(visibleScrollEntries(4).find((v) => v.entryIndex === 3)!.y).toBe(0x90);
+    expect(visibleScrollEntries(50).find((v) => v.entryIndex === 3)!.y).toBe(0x90 - 46);
+    // Past cap (no clamp): still visible.
+    expect(visibleScrollEntries(140).find((v) => v.entryIndex === 3)!.y).toBe(0x90 - 136);
+    // Off-screen: culled.
+    expect(visibleScrollEntries(200).some((v) => v.entryIndex === 3)).toBe(false);
   });
 
   it('renders in back-to-front order (high index first)', () => {
@@ -173,6 +180,18 @@ describe('visibleScrollEntries: per-frame layout', () => {
     for (let i = 1; i < indices.length; i++) {
       expect(indices[i - 1]!).toBeGreaterThan(indices[i]!);
     }
+  });
+
+  it('descriptorIndex is token - 1 (1-indexed → 0-indexed)', () => {
+    // Entry 0: token=7 → desc 6 (Wizardry logo top)
+    const e0 = visibleScrollEntries(0).find((v) => v.entryIndex === 0)!;
+    expect(e0.descriptorIndex).toBe(6);
+    // Entry 1: token=8 → desc 7
+    const e1 = visibleScrollEntries(0).find((v) => v.entryIndex === 1)!;
+    expect(e1.descriptorIndex).toBe(7);
+    // Entry 8: token=6 → desc 5 (copyright notice)
+    const e8 = visibleScrollEntries(152).find((v) => v.entryIndex === 8)!;
+    expect(e8.descriptorIndex).toBe(5);
   });
 });
 

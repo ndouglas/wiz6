@@ -18,6 +18,16 @@ const ENGINE_W = 320;
 const ENGINE_H = 200;
 const SCALE = 3;
 
+/**
+ * Window offset for the credit scroll. State 1 step 9 opens a UI window
+ * (handle at wroot DGROUP 0x4FBE) and the scroll renders inside that window —
+ * the scroll-entry (col, y) values are window-relative. We don't have the
+ * window's actual origin from the RE pass; this is hand-tuned so credits
+ * land beneath the Wizardry logo in titlepag.scr.
+ */
+const CREDIT_WINDOW_X = 0;
+const CREDIT_WINDOW_Y = 70;
+
 export function GameTitle() {
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -75,14 +85,17 @@ export function GameTitle() {
     ctx.imageSmoothingEnabled = false;
 
     let raf = 0;
+    // Per-frame compositing buffer — one putImageData per frame, all sprite
+    // blending happens by hand into this buffer so alpha actually composites.
+    const frameRgba = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
+
     const tick = () => {
       const skipPressed = skipRef.current;
       skipRef.current = false;
       stateRef.current = stepIntro(stateRef.current, 1, { skipPressed });
 
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, ENGINE_W, ENGINE_H);
-      drawFrame(ctx, stateRef.current, spritesByDesc, titlepagRgba);
+      composeFrame(frameRgba, stateRef.current, spritesByDesc, titlepagRgba);
+      ctx.putImageData(new ImageData(frameRgba, ENGINE_W, ENGINE_H), 0, 0);
 
       if (stateRef.current.phase === 'done') {
         navigate('/castle');
@@ -132,30 +145,31 @@ export function GameTitle() {
   );
 }
 
-function drawFrame(
-  ctx: CanvasRenderingContext2D,
+/**
+ * Compose one frame into `dest` (ENGINE_W*ENGINE_H*4 RGBA bytes). Composites
+ * sprite alpha properly: transparent sprite pixels are skipped, the underlying
+ * background pixel is preserved. One `dest` buffer, mutated in place; viewer
+ * calls putImageData(dest) once per frame.
+ */
+function composeFrame(
+  dest: Uint8ClampedArray,
   state: IntroState,
   sprites: RenderedSprite[],
   titlepagRgba: Uint8ClampedArray | null,
 ): void {
-  const drawSprite = (descIdx: number, x: number, y: number) => {
-    const s = sprites[descIdx];
-    if (!s) return;
-    const img = new ImageData(new Uint8ClampedArray(s.rgba), s.width, s.height);
-    ctx.putImageData(img, x, y);
-  };
+  fillBlack(dest);
 
-  // Sir-Tech splash layout: dragon ABOVE wordmark, red-bar edges meeting.
-  // Each is 152×32. Position so dragon's bottom red bar lines up with
-  // wordmark's top red bar — they share one visual red strip.
-  // Tuned by eye against the user's recollection; the engine's exact
-  // positions are step-9's "2 hard-coded text token positions" which we
-  // haven't pinned down to a coordinate pair yet.
+  // Background per phase.
+  if ((state.phase === 'scroll' || state.phase === 'post-scroll') && titlepagRgba) {
+    dest.set(titlepagRgba);
+  }
+
+  // Sir-Tech splash layout: dragon ABOVE wordmark, red-bar edges meeting
+  // (152×32 each, ~2px overlap so red strips visually join).
   const cxLogo = Math.floor((ENGINE_W - 152) / 2);
   const dragonY = 70;
-  const wordmarkY = dragonY + 30; // -2px overlap so red bars touch / blend
+  const wordmarkY = dragonY + 30;
 
-  // Bradley splash layout: tagline above signature, both centered.
   const cxBradleyLine = Math.floor((ENGINE_W - 144) / 2);
   const cxBradleySig = Math.floor((ENGINE_W - 112) / 2);
   const bradleyLineY = 80;
@@ -165,35 +179,70 @@ function drawFrame(
     case 'pause-pre-sirtech':
     case 'pause-between':
     case 'pause-pre-scroll':
-      // black — already filled above
+    case 'done':
+      // background only
       break;
 
     case 'sirtech-splash':
-      drawSprite(9, cxLogo, dragonY); // red dragon (top)
-      drawSprite(10, cxLogo, wordmarkY); // SIR-TECH wordmark (below)
+      blendSprite(dest, sprites[9], cxLogo, dragonY);
+      blendSprite(dest, sprites[10], cxLogo, wordmarkY);
       break;
 
     case 'bradley-splash':
-      drawSprite(12, cxBradleyLine, bradleyLineY); // "a Fantasy R-P Sim by"
-      drawSprite(8, cxBradleySig, bradleySigY); // "D.M. Bradley"
+      blendSprite(dest, sprites[12], cxBradleyLine, bradleyLineY);
+      blendSprite(dest, sprites[8], cxBradleySig, bradleySigY);
       break;
 
     case 'scroll':
-    case 'post-scroll': {
-      // titlepag.scr as background (persists with the Wizardry logo); credit
-      // sprites composite over it per visibleScrollEntries.
-      if (titlepagRgba) {
-        const bg = new ImageData(new Uint8ClampedArray(titlepagRgba), ENGINE_W, ENGINE_H);
-        ctx.putImageData(bg, 0, 0);
-      }
+    case 'post-scroll':
       for (const v of visibleScrollEntries(state.scrollPos)) {
-        drawSprite(v.descriptorIndex, v.col, v.y);
+        blendSprite(
+          dest,
+          sprites[v.descriptorIndex],
+          v.col + CREDIT_WINDOW_X,
+          v.y + CREDIT_WINDOW_Y,
+        );
       }
       break;
-    }
+  }
+}
 
-    case 'done':
-      break;
+function fillBlack(buf: Uint8ClampedArray): void {
+  for (let i = 0; i < buf.length; i += 4) {
+    buf[i] = 0;
+    buf[i + 1] = 0;
+    buf[i + 2] = 0;
+    buf[i + 3] = 0xff;
+  }
+}
+
+/**
+ * Composite a sprite over the destination buffer, respecting per-pixel alpha.
+ * Transparent sprite pixels (alpha=0) leave the destination untouched.
+ * Out-of-bounds destination pixels are clipped.
+ */
+function blendSprite(
+  dest: Uint8ClampedArray,
+  sprite: RenderedSprite | undefined,
+  dx: number,
+  dy: number,
+): void {
+  if (!sprite) return;
+  const { width: sw, height: sh, rgba } = sprite;
+  for (let y = 0; y < sh; y++) {
+    const dstY = dy + y;
+    if (dstY < 0 || dstY >= ENGINE_H) continue;
+    for (let x = 0; x < sw; x++) {
+      const srcIdx = (y * sw + x) * 4;
+      if (rgba[srcIdx + 3] === 0) continue;
+      const dstX = dx + x;
+      if (dstX < 0 || dstX >= ENGINE_W) continue;
+      const dstIdx = (dstY * ENGINE_W + dstX) * 4;
+      dest[dstIdx] = rgba[srcIdx]!;
+      dest[dstIdx + 1] = rgba[srcIdx + 1]!;
+      dest[dstIdx + 2] = rgba[srcIdx + 2]!;
+      dest[dstIdx + 3] = 0xff;
+    }
   }
 }
 
