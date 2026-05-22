@@ -1,0 +1,283 @@
+{
+  "topic": "wmaze-naming-pass",
+  "subagent_run": "2026-05-22",
+  "binaries": ["wmaze.ovr"],
+  "summary": "Named 68 of 118 FUN_XXXX functions in wmaze.ovr via Ghidra annotations (SourceType.USER_DEFINED). Coverage centers on the dungeon-traversal core (party position state, wall checks, 12-facing rotation, automap reveal, view rendering, encounter/event triggers, save/load) and the in-dungeon menus (status panel, message windows, generic selector). Remaining 50 functions are mostly render sub-helpers — small wrappers that contribute to the 3D-corridor frame composition at varying depths — and require either dynamic traces or a dedicated render-pass dive to name with confidence.",
+  "method": "PyGhidra + DecompInterface for all 118 functions. For each: extracted (a) decompiled C, (b) outgoing CALL edges (both intra-overlay and indirect — indirect calls go through BSS function-pointer thunks that resolve to wroot.exe exports at runtime; we left those as func_0x0000XXXX in decompile and used the call signature as a fingerprint), (c) scalar operand values. No INT calls in wmaze.ovr — all syscalls go through wroot's crt_* thunks. Names were applied when there was multi-signal evidence: distinctive coordinate arithmetic on the 8x8x12 maze grid, BSS reads matching the per-zone maze data table at 0x4faa+offset, calls into the central renderer (0x4ad7) or selector (0x1574), or unambiguous structural patterns (recursive flood-fill, position save/restore, save/load file I/O).",
+  "stats": {
+    "total_functions": 118,
+    "renamed": 68,
+    "remaining_FUN_XXXX": 50,
+    "categories": {
+      "maze_state": 13,
+      "maze_view": 12,
+      "dungeon_loop": 4,
+      "party_panel": 7,
+      "message_window": 11,
+      "menu_selector": 4,
+      "automap": 1,
+      "save_load": 3,
+      "encounter": 4,
+      "special_square": 4,
+      "rest_camp": 2,
+      "ui_helper": 3
+    }
+  },
+  "key_discoveries": [
+    "Player state is in BSS globals: 0x4f9a=facing (0..11), 0x4f9c=z/level, 0x4f9e=y, 0x4fa0=x, 0x4fa2=global-y, 0x4fa4=global-x, 0x4fa6=fwd-cache, 0x4f8a-0x4f96=position save slot. 0x363a=game state, 0x363c=current scenario zone, 0x43ce=party size, DAT_43e8+i*0x1b0=party member i (max 6 slots).",
+    "Maze data ptr is at 0x4faa. Per-zone layout: +0x60=north wall bits (12*8*8 cells * 2 bits), +0x120=west wall bits, +0x1e0=facing-to-dy lookup (12 entries), +0x1ec=facing-to-dx lookup (12 entries), +0x1f8=special-square index per cell, +0x240=event table (2 bytes/cell), +0x378=door state, +0x43a=floor pit/chute flag, +0x4fa+i*5/+0x512+i*5=automap discovery history (5 entries per level).",
+    "12 facings, not 4. The dx/dy lookup tables at +0x1e0/+0x1ec are 12 bytes each, and rotation code (0x35b7) iterates `(i+1) % 0xc`. Player rotation in 0x3304 is in 4-step increments (N/E/S/W=0..3), but per-zone wall encoding supports hex-style 12-direction maps.",
+    "Central renderer 0x4ad7 (2192 bytes, the largest function) iterates depth 0..3, calls 0x3828 (corridor side walls), 0x3c11/0x3dce (sub-frame pieces), then 0x406c/0x4892/0x45b4/0x48f5/0x4926/0x4957/0x4984/0x49b6/0x49e8 (per-segment sprite drawing routines for floor/wall/ceiling at each depth slot).",
+    "Main dungeon loop is 0x2abc. Polls keypresses (case 0/2=rotate via 0x3304, case 6/5=state-change via 0x3d3, case 3=continue), handles 1000-tick screensaver, draws status panels via 0x925, dispatches encounter checks via 0x5e22, and recursively re-enters on state transitions. Idle-rotation timer at 0x4f80/0x4f82.",
+    "Save/load is two paths: 0x8974 (save) and 0x8e4f (load), both drawn through the rest/camp UI with the per-character box-drawing helper 0x894e. 0x20eb is the lower-level disk write orchestrator (references SAVEGAME.DBS at file offset 0x9711). 0x9345 is the save-slot picker."
+  ],
+  "findings": [
+    {
+      "id": "fn-position-globals",
+      "claim": "BSS layout for party position is z(0x4f9c)/y(0x4f9e)/x(0x4fa0)/face(0x4f9a); global-coords cache at 0x4fa2/0x4fa4; save slot at 0x4f8c-0x4f98; maze-data pointer at 0x4faa.",
+      "category": "maze_state",
+      "evidence": {
+        "addresses": ["0x10ed", "0x1145"],
+        "details": "FUN_0000_10ed (save position, applied as maze_save_position) copies 0x4fa4/0x4fa2/0x4fa0/0x4f9e/0x4f9c/0x363c/0x4f9a → 0x4f96/0x4f94/0x4f92/0x4f90/0x4f8e/0x4f98/0x4f8c. FUN_0000_1145 (applied as maze_restore_position) does the inverse plus calls 0x35b7 to resolve the new cell."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-step-and-rotate",
+      "claim": "0x108b is the position-update step routine; 0x3304 is the rotation routine; 0xf2a is the wall-check dispatcher.",
+      "category": "maze_state",
+      "evidence": {
+        "addresses": ["0x108b", "0x3304", "0xf2a", "0x3244", "0x3286"],
+        "details": "0x108b: switch(direction){case 0: y+=n; case 1: x+=n; case 2: y-=n; case 3: x-=n;} — global-coord update. 0x3304: while facing!=target, increment facing % 4 + animate via 0x5367 + delay via 0xdd7 — pure rotation loop. 0xf2a: dispatches per axis: direction 0/2 reads N-walls at +0x60, 1/3 reads W-walls at +0x120 (with 36dd/3742 for backward cases). 0x3244: combined 'can-step-here' check that calls 0xf2a then 0x309d for door/portcullis handling. 0x3286: temporary-position step animation."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-flood-reveal",
+      "claim": "0x1d1 is the recursive automap reveal flood-fill.",
+      "category": "automap",
+      "evidence": {
+        "addresses": ["0x1d1"],
+        "details": "Takes (level, x, y, value); writes value to 0x4e08 at cell index level*0x40+y*8+x via 0xe31d. For value==0, also scans the per-level discovery list at +0x4fa/+0x512 for matching (x,y) and clears those entries. Then for each of N/E/S/W (reading walls at +0x60 with `cell` and `cell-8` for S, +0x120 for E/W) recursively calls itself if the wall is open. Classic flood-fill."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-dungeon-loop",
+      "claim": "0x2abc is the main dungeon-game-loop state machine.",
+      "category": "dungeon_loop",
+      "evidence": {
+        "addresses": ["0x2abc"],
+        "details": "1023 bytes. Updates 0x4ee8 (last-cell-marker), draws party panel via 0x925, runs the per-tick idle counter (0x4f80/0x4f82, 32-bit), polls keyboard, and on key codes 0..4 dispatches to: rotate (0x3304), level transition (0x03d3), party check (0x1e90), encounter check (0x5e22), recursive call back to self. Sets state machine variable 0x363a to values 5 (normal play), 8 (party dead), 10 (transition), 15 (encounter)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-renderer",
+      "claim": "0x4ad7 is the 3D-corridor view renderer; 0x37a7 is its 'step forward by facing' transform; 0x3828/0x3c11/0x3dce/0x406c are per-depth piece-drawing helpers.",
+      "category": "maze_view",
+      "evidence": {
+        "addresses": ["0x4ad7", "0x37a7", "0x3828", "0x3c11", "0x3dce", "0x406c"],
+        "details": "0x4ad7: 2192-byte renderer, the largest function. Iterates 4 depths (0x521e=4), calls 0x37a7 to step the view-cursor forward 0..3 cells, then 0x3828 (sides), 0x3c11 (corners/doors), 0x3dce (overlay), 0x406c (sprite at depth). 0x37a7: takes (delta_forward, delta_side); transforms by facing 0..3 (matches the 4 cardinal step deltas); finally calls 0x35b7 to resolve cross-zone wrap. The 0x521a parity check (`(x+y+face) % 2`) is for ALTERNATING the LEFT/RIGHT corridor side rendering."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-rng-table",
+      "claim": "0x117 reads a 4-entry table indexed by RNG; 0x184 writes a 4-byte selection. Both used for randomized texture/animation variants in the view.",
+      "category": "maze_view",
+      "evidence": {
+        "addresses": ["0x117", "0x184"],
+        "details": "0x117: `iVar1 = rng(100); rng(100); return [0x4faa+param*0x18 + (iVar1%4)*3];` — randomized 4-variant lookup. 0x184: similar pattern, writes 4 bytes at +0x52a depending on rng vs threshold byte."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "fn-event-and-encounter",
+      "claim": "0x6144 is the special-square execution handler; 0x5cc8 is the teleporter; 0x5a28 is the chute/fall animation; 0x5e22 is the encounter-square trigger; 0x5f91 is the random-encounter roll.",
+      "category": "encounter",
+      "evidence": {
+        "addresses": ["0x6144", "0x5cc8", "0x5a28", "0x5e22", "0x5f91"],
+        "details": "All share the same data fetch pattern: `evt_ptr = *(0x4fa8 + 0x4ee8*2 + 0x240)` (per-cell event record). 0x6144 reads (x,y,facing,distance) from event, opens walls along the way via 0xe376 (set bits). 0x5cc8 reads (x,y,z,zone), calls 0x03d3 to switch zone. 0x5a28 loops 8 facings, rotates each tick and steps forward (a 'falling down chute' animation). 0x5e22 reads facing-match flag at bit 0xe, on match sets game-state 0x15 (combat). 0x5f91 rolls `rng(100) < threshold-at-0x4ed2`, then picks a non-dead party member via rng-loop."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-rest-camp",
+      "claim": "0x8974 and 0x8e4f are the two camp/rest UI variants (with hunger ticker), both built from the cell-writer helper 0x894e.",
+      "category": "rest_camp",
+      "evidence": {
+        "addresses": ["0x894e", "0x8974", "0x8e4f"],
+        "details": "0x894e: writes a single character to window cell `w[((y*w.stride)+x)*2 + 0x10]` — the ui_window_putchar pattern. 0x8974 and 0x8e4f both: open a 0x14-wide window via 0xbbb6, draw a frame with ~12 calls to 0x894e at specific (x,y) positions, then enter a per-tick loop that decrements HP at +0x4404, ticks turn counter, and applies hunger/death on threshold."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-save-load",
+      "claim": "0x20eb is the save-game write orchestrator; 0x9345 is the save-slot menu.",
+      "category": "save_load",
+      "evidence": {
+        "addresses": ["0x20eb", "0x9345"],
+        "details": "0x20eb: 1406 bytes. References 'SAVEGAME.DBS' at file offset 0x9711 (the only ASCII string in wmaze.ovr beyond SOUND00.SND). Opens, writes party member structs (each 0x1b0 bytes) one-by-one, writes maze position state. 0x9345 builds a menu of save slots via 0x1574 (selector), then calls 0x8974 or 0x8e4f to do the actual save/load."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-party-panel",
+      "claim": "0x644 draws one party-member status box; 0x925 calls 0x644 for each party member to repaint the full panel.",
+      "category": "party_panel",
+      "evidence": {
+        "addresses": ["0x644", "0x925", "0x983", "0x66bc", "0x6608"],
+        "details": "0x644: 737 bytes. Reads from DAT_43e8+slot*0x1b0; alternates display window 0x4fb8/0x4fba based on slot parity; renders name (offset 0 in slot), status bar including HP (+0x4404), dead/petrified flags (+0x450c/+0x450d), poison level (+0x4589), spell-points (+0x4400/4402/4404/4406). 0x925: iterates 0..party_size-1 (0x43ce) calling 0x644 for each. 0x983: helper for paint-without-clear. 0x66bc: damage_party_member — subtracts HP from +0x4400; if HP<=0 calls 0x6608 to set death flag. 0x6608: apply_status_effect — raises level at +0x4589 if higher."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-menu-selector",
+      "claim": "0x1574 is a generic up/down/left/right grid menu selector; 0x1539 repaints one menu item; 0x09c8 is the slot-list picker.",
+      "category": "menu_selector",
+      "evidence": {
+        "addresses": ["0x1574", "0x1539", "0x09c8"],
+        "details": "0x1574: 1225 bytes. Takes (window, base_msg_id, mask_table, row_height, col_width, ?, num_cols, ?, single_select). Reads msgs one-by-one via 0xc1f7. Loop reads keypress via FUN_0000_0fd0; switch on 1/2/3/4=arrows + 5=enter + (case 5=cancel, 6=secondary). Returns selected item index. 0x1539: simple item-redraw helper (positions at `(local_8/cols)*row + (local_8%cols)*col`). 0x09c8: the larger save-slot picker."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-message-window",
+      "claim": "0x5ebd, 0x58ed, 0x64ec are message-window display helpers; 0x57a8 is the word-wrapping text drawer; 0x577a is the scroll/clear post-action.",
+      "category": "message_window",
+      "evidence": {
+        "addresses": ["0x5ebd", "0x58ed", "0x64ec", "0x57a8", "0x577a", "0x56b5", "0x5e22"],
+        "details": "0x5ebd: opens a window via 0xbbb6 (0x13 wide, 5 tall), prints message i-th-arg, waits via 0xdd7, closes. 0x58ed: similar but with 2-line variant. 0x64ec: party-member-name-prepended message draw. 0x57a8: text drawer that handles '$' and '^' formatting codes (similar to wroot's string_substitute_char). 0x577a: scroll/wait-then-close."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-cell-resolve",
+      "claim": "0x35b7 resolves global (x,y) back to (zone-local x, y, z) via per-facing dx/dy tables; 0x357a tests if a facing's range covers a position; 0x3073 stores (gx,gy) and resolves.",
+      "category": "maze_state",
+      "evidence": {
+        "addresses": ["0x35b7", "0x357a", "0x3073"],
+        "details": "0x357a: returns -1 if `gy not in [dy, dy+7]` or `gx not in [dx, dx+7]` where dx/dy are at *0x4faa+facing+0x1e0/0x1ec. 0x35b7: tries current facing, cached fwd facing (0x4fa6), then loops all 12 facings; on match writes back (gx-dx, gy-dy) as (zone-local x, y) and caches new facing. 0x3073: writes new (gx,gy) and calls 0x35b7."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-load-zone",
+      "claim": "0x03d3 is the per-zone loader/initializer.",
+      "category": "dungeon_loop",
+      "evidence": {
+        "addresses": ["0x03d3"],
+        "details": "Sets 0x363c=new-zone-id; calls 0xcbc0 (wroot's load_misc_table/load_zone thunk); on failure (-zone) sets game-state to 7 (error). Clears 0x4e68 (0x60 bytes), then iterates 0x90 entries at +0x510/+0x360/+0x480/+0x3f0 (special-square per-cell flag tables) and marks visible cells via 0xe31d. Then runs flood-fill via 0x1d1 over all 5 (xy) discovery slots * 12 levels for the per-zone automap reveal. Sets state to 5 (normal play)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-decay-timers",
+      "claim": "0x1053 is the per-step status-effect timer decay.",
+      "category": "maze_state",
+      "evidence": {
+        "addresses": ["0x1053"],
+        "details": "Loops 0..5 entries at +0x4ec8 (4-byte stride), subtracts param_1 from each; on <=0 zeroes both the duration AND the effect-id at +0x4eca (except entry 0). 6 entries x 4 bytes = 24-byte status array. Matches Wizardry's per-party status-effect slot count."
+      },
+      "confidence": "high"
+    }
+  ],
+  "renamed_full_list": [
+    {"addr": "0xf1", "old": "FUN_0000_00f1", "new": "anim_tick_render_idle", "category": "maze_view"},
+    {"addr": "0x42", "old": "FUN_0000_0042", "new": "view_load_floor_ceiling_tiles", "category": "maze_view"},
+    {"addr": "0x117", "old": "FUN_0000_0117", "new": "view_pick_rng_variant_byte", "category": "maze_view"},
+    {"addr": "0x184", "old": "FUN_0000_0184", "new": "view_write_rng_variant_byte", "category": "maze_view"},
+    {"addr": "0x1d1", "old": "FUN_0000_01d1", "new": "automap_reveal_flood", "category": "automap"},
+    {"addr": "0x3d3", "old": "FUN_0000_03d3", "new": "dungeon_load_zone", "category": "dungeon_loop"},
+    {"addr": "0x563", "old": "FUN_0000_0563", "new": "ui_panel_draw_glyph_row", "category": "party_panel"},
+    {"addr": "0x644", "old": "FUN_0000_0644", "new": "party_panel_draw_member", "category": "party_panel"},
+    {"addr": "0x925", "old": "FUN_0000_0925", "new": "party_panel_redraw_all", "category": "party_panel"},
+    {"addr": "0x983", "old": "FUN_0000_0983", "new": "party_panel_redraw_name", "category": "party_panel"},
+    {"addr": "0xdd7", "old": "FUN_0000_0dd7", "new": "delay_with_keypress_poll", "category": "ui_helper"},
+    {"addr": "0xe54", "old": "FUN_0000_0e54", "new": "msg_draw_to_main_window", "category": "message_window"},
+    {"addr": "0xe81", "old": "FUN_0000_0e81", "new": "msg_load_and_draw_string", "category": "message_window"},
+    {"addr": "0xea0", "old": "FUN_0000_0ea0", "new": "msg_show_with_pause", "category": "message_window"},
+    {"addr": "0xf2a", "old": "FUN_0000_0f2a", "new": "maze_check_wall_in_direction", "category": "maze_state"},
+    {"addr": "0xfd0", "old": "FUN_0000_0fd0", "new": "menu_wait_for_key_or_repaint", "category": "menu_selector"},
+    {"addr": "0x1053", "old": "FUN_0000_1053", "new": "status_effects_decay_timers", "category": "maze_state"},
+    {"addr": "0x108b", "old": "FUN_0000_108b", "new": "maze_step_global_xy", "category": "maze_state"},
+    {"addr": "0x10ed", "old": "FUN_0000_10ed", "new": "maze_save_position", "category": "maze_state"},
+    {"addr": "0x1118", "old": "FUN_0000_1118", "new": "msg_show_in_main_window", "category": "message_window"},
+    {"addr": "0x1145", "old": "FUN_0000_1145", "new": "maze_restore_position", "category": "maze_state"},
+    {"addr": "0x1190", "old": "FUN_0000_1190", "new": "msg_show_centered_with_choice", "category": "message_window"},
+    {"addr": "0x1539", "old": "FUN_0000_1539", "new": "menu_redraw_item", "category": "menu_selector"},
+    {"addr": "0x1574", "old": "FUN_0000_1574", "new": "menu_grid_select", "category": "menu_selector"},
+    {"addr": "0x1b0b", "old": "FUN_0000_1b0b", "new": "party_remove_member_and_compact", "category": "party_panel"},
+    {"addr": "0x20eb", "old": "FUN_0000_20eb", "new": "save_write_party_and_state", "category": "save_load"},
+    {"addr": "0x20cd", "old": "FUN_0000_20cd", "new": "save_load_error_cleanup", "category": "save_load"},
+    {"addr": "0x2086", "old": "FUN_0000_2086", "new": "party_check_member_alive", "category": "party_panel"},
+    {"addr": "0x2794", "old": "FUN_0000_2794", "new": "dungeon_in_camp_menu", "category": "dungeon_loop"},
+    {"addr": "0x2abc", "old": "FUN_0000_2abc", "new": "dungeon_main_loop", "category": "dungeon_loop"},
+    {"addr": "0x3073", "old": "FUN_0000_3073", "new": "maze_set_global_xy_and_resolve", "category": "maze_state"},
+    {"addr": "0x309d", "old": "FUN_0000_309d", "new": "maze_can_pass_doors_and_walls", "category": "maze_state"},
+    {"addr": "0x3244", "old": "FUN_0000_3244", "new": "maze_can_step_in_facing", "category": "maze_state"},
+    {"addr": "0x3286", "old": "FUN_0000_3286", "new": "maze_animate_temp_step", "category": "maze_state"},
+    {"addr": "0x32f5", "old": "FUN_0000_32f5", "new": "maze_clear_and_load_msg", "category": "message_window"},
+    {"addr": "0x3304", "old": "FUN_0000_3304", "new": "maze_rotate_party", "category": "maze_state"},
+    {"addr": "0x357a", "old": "FUN_0000_357a", "new": "maze_facing_covers_xy", "category": "maze_state"},
+    {"addr": "0x35b7", "old": "FUN_0000_35b7", "new": "maze_resolve_xy_to_facing", "category": "maze_state"},
+    {"addr": "0x36dd", "old": "FUN_0000_36dd", "new": "maze_check_wall_north_step", "category": "maze_state"},
+    {"addr": "0x3742", "old": "FUN_0000_3742", "new": "maze_check_wall_west_step", "category": "maze_state"},
+    {"addr": "0x37a7", "old": "FUN_0000_37a7", "new": "view_step_forward_by_facing", "category": "maze_view"},
+    {"addr": "0x3828", "old": "FUN_0000_3828", "new": "view_draw_corridor_sides", "category": "maze_view"},
+    {"addr": "0x3c11", "old": "FUN_0000_3c11", "new": "view_draw_corridor_corners", "category": "maze_view"},
+    {"addr": "0x3dce", "old": "FUN_0000_3dce", "new": "view_draw_corridor_overlay", "category": "maze_view"},
+    {"addr": "0x406c", "old": "FUN_0000_406c", "new": "view_draw_sprite_at_depth", "category": "maze_view"},
+    {"addr": "0x4ad7", "old": "FUN_0000_4ad7", "new": "view_render_corridor_frame", "category": "maze_view"},
+    {"addr": "0x5367", "old": "FUN_0000_5367", "new": "view_render_and_present", "category": "maze_view"},
+    {"addr": "0x554a", "old": "FUN_0000_554a", "new": "ui_draw_progress_bar", "category": "ui_helper"},
+    {"addr": "0x577a", "old": "FUN_0000_577a", "new": "msg_window_close_or_continue", "category": "message_window"},
+    {"addr": "0x57a8", "old": "FUN_0000_57a8", "new": "msg_window_draw_text_wrapped", "category": "message_window"},
+    {"addr": "0x58ed", "old": "FUN_0000_58ed", "new": "msg_show_short_in_window", "category": "message_window"},
+    {"addr": "0x5a28", "old": "FUN_0000_5a28", "new": "special_chute_fall_sequence", "category": "special_square"},
+    {"addr": "0x5c58", "old": "FUN_0000_5c58", "new": "special_mark_visited_bits", "category": "special_square"},
+    {"addr": "0x5cc8", "old": "FUN_0000_5cc8", "new": "special_teleport_party", "category": "special_square"},
+    {"addr": "0x5e22", "old": "FUN_0000_5e22", "new": "encounter_check_trigger", "category": "encounter"},
+    {"addr": "0x5ebd", "old": "FUN_0000_5ebd", "new": "msg_show_event_dialog", "category": "message_window"},
+    {"addr": "0x5f91", "old": "FUN_0000_5f91", "new": "encounter_roll_random_member", "category": "encounter"},
+    {"addr": "0x6144", "old": "FUN_0000_6144", "new": "special_execute_event", "category": "special_square"},
+    {"addr": "0x612a", "old": "FUN_0000_612a", "new": "getbits_2_thunk", "category": "ui_helper"},
+    {"addr": "0x64ec", "old": "FUN_0000_64ec", "new": "msg_show_for_party_member", "category": "message_window"},
+    {"addr": "0x6608", "old": "FUN_0000_6608", "new": "party_apply_status_effect", "category": "party_panel"},
+    {"addr": "0x66bc", "old": "FUN_0000_66bc", "new": "party_damage_member", "category": "party_panel"},
+    {"addr": "0x894e", "old": "FUN_0000_894e", "new": "ui_window_putchar_at", "category": "ui_helper"},
+    {"addr": "0x8974", "old": "FUN_0000_8974", "new": "rest_save_session", "category": "rest_camp"},
+    {"addr": "0x8e4f", "old": "FUN_0000_8e4f", "new": "rest_load_session", "category": "rest_camp"},
+    {"addr": "0x9345", "old": "FUN_0000_9345", "new": "save_load_menu", "category": "save_load"},
+    {"addr": "0x96aa", "old": "FUN_0000_96aa", "new": "compare_word_strings", "category": "ui_helper"},
+    {"addr": "0x9532", "old": "FUN_0000_9532", "new": "encounter_check_face_match", "category": "encounter"}
+  ],
+  "unresolved": [
+    "Most of the per-depth view sub-helpers (0x4892, 0x48f5, 0x4926, 0x4957, 0x4984, 0x49b6, 0x49e8, 0x4a15) are unnamed — they are tightly coupled to the renderer 0x4ad7 and differ by which sprite slot they draw, but without dynamic traces the exact 'which piece of the 3D-corridor frame' role is ambiguous.",
+    "Several wall/door-state helpers and animation tweens (0x4689 'caseD_0', 0x4792, 0x479f) appear to be jump-table fragments mis-identified as functions by Ghidra. 0x479f is a 4-byte trivial 'return' shim.",
+    "A cluster of small dialog/input helpers (0x29cc, 0x2a3f, 0x53e4, 0x5373, 0x5502, 0x56b5, 0x59c1, 0x5992, 0x59f0, 0x5dad, 0x5e22, 0x6cee, 0x6d62, 0x6e48, 0x6f9c) are tied to msg display and the in-camp interaction model but each is a niche helper; naming them confidently needs dynamic trace context.",
+    "The remaining unnamed functions in the 0x7000-0x9700 range (0x6fd9, 0x743e, 0x7589, 0x7683, 0x772f, 0x7b5b, 0x7c1e, 0x7e63, 0x7e81, 0x7f13, 0x8387, 0x84ce, 0x850e, 0x86ac, 0x88af, 0x891d) cluster around the rest-camp dialog and the save-list management UI but the individual roles need dynamic trace context to pin down."
+  ],
+  "next_steps": [
+    "Dynamic trace pass: run wmaze.ovr in DOSBox-X debugger with breakpoints on the named functions (especially maze_rotate_party, view_render_corridor_frame, dungeon_main_loop) and capture the actual sequence on a known input (W to step, A to turn left). This will resolve the per-depth render-helpers (0x4892..0x49e8) and the rest-camp helpers (0x6fd9..0x891d).",
+    "Type/struct pass on the party-member struct (0x1b0 bytes): name fields at 0x4400(HP), 0x4404(SP), 0x4514(level?), 0x4527(encounter_threshold), 0x4589(status_level), 0x450c/0x450d(death/petrified). The save_write_party_and_state function at 0x20eb gives a complete field map.",
+    "Type/struct pass on the maze-data struct at 0x4faa: known fields at +0x60(N-walls), +0x120(W-walls), +0x1e0/+0x1ec(facing tables), +0x1f8(cell flags), +0x240(events), +0x378(doors), +0x43a(pits), +0x4fa/+0x512(automap history). 60+ fields total.",
+    "Continue the overlay pass with wmele.ovr (combat) — the next obvious target since dungeon_main_loop dispatches to combat via state 0x15.",
+    "BSS function-pointer table at the boundary 0xbb9a..0xfedc is wroot.exe exports installed at runtime. Cataloging these (especially 0xc1f7=load_msg_into_buf, 0xbb9a=image_blit, 0xc47e=rng_next, 0xe3c1=getbits_n, 0xe34b=getbit_test, 0xe376=setbit, 0xed5a/0xec6d=window_close, 0xbbb6=window_create, 0xbda7=cursor_at) would unlock the rest of the unnamed wmaze functions."
+  ],
+  "operational_notes": {
+    "ghidra_install": "/opt/homebrew/Cellar/ghidra/12.1/libexec",
+    "pyghidra_version": "3.1.0",
+    "project_path": "tools/ghidra/wiz6.gpr",
+    "program": "wmaze.ovr",
+    "scripts_used": [
+      "/tmp/wmaze_list.py (function listing)",
+      "/tmp/wmaze_evidence.py (full evidence dump per function)",
+      "/tmp/wmaze_analyze.py (call graph + statistics)",
+      "/tmp/wmaze_show.py (per-function decompile inspector)",
+      "tools/ghidra/scripts/apply_wmaze_names.py (the deliverable)"
+    ],
+    "key_quirk": "wmaze.ovr is loaded with BinaryLoader (no MZ header), so file offset == Ghidra address (no 0x200 subtraction). The overlay's data references go into wroot's DGROUP (base 0x1fd80); cross-overlay function calls go through BSS function-pointer thunks (decompile shows `func_0x0000XXXX(...)`) which resolve to wroot exports at runtime. Strings the overlay 'shows' to the user are passed by message-ID, not by string address — wroot's load_msg_into_buf (the func_0x0000c1f7 thunk) fetches them from MSG.DBS at runtime."
+  }
+}
