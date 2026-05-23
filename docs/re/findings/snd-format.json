@@ -156,13 +156,13 @@
     },
     {
       "id": "snd-format-bitstream",
-      "claim": ".SND bitstream starts at byte (4 + tree_size_bytes). MSB-first bit order. Each bit selects left (0) or right (1) child of current node. Emit leaf value as one 8-bit sample, reset to root. Sample byte is fed to xlatb table at cs:0x1A4B then written to hardware.",
+      "claim": ".SND bitstream starts at byte (4 + tree_size_bytes). MSB-first bit order. Each bit selects left (0) or right (1) child of current node. Emit leaf value as one 8-bit sample (low byte of the child word), reset to root. The leaf-flag test is `(child & 0x8000) == 0` (matches the asm `test ...,0x8000` decompiled from huffman_decode_bitstream).",
       "category": "file_format",
       "evidence": {
         "binary": "wroot.exe, original/sound00.snd",
         "address": "huffman_decode_bitstream @ 0x134d5",
         "type": "decompiled_match + format_verification",
-        "details": "Decoded sound00.snd's 1178-byte bitstream produces 3750 8-bit samples (MSB-first), matching expected ~0.5s duration at ~7.5 kHz sample rate. First 32 samples: 155, 109, 128, 128, 155, 155, 155, 155, 109, 115, 109, 128, 128, 128, 128, 128, 128, 155, 155, 128, 128, 109, 128, 128, 128, 128, 128, 128, 128, 155, 115, 109 — values cluster around 128 (silence) with both upward and downward excursions, consistent with a clang/click waveform centered at the 8-bit-unsigned midpoint. LSB-first decoding produces 3904 samples but with less plausible signal structure."
+        "details": "Decoded with the 4-byte-header + 0x8000-leaf-flag interpretation: sound00 → 3953 8-bit samples, sound22 → 18227 samples (top sample value 136, broad distribution), sound03 → 17538 samples, etc. The with-header interpretation produces higher-entropy (more realistic) output than a no-header interpretation in every one of 35 files (entropy difference averages 1 bit/sample). The no-header decoder accidentally works for sound00 alone because its header bytes (0x80, 0x00, 0xFF, 0xFF) parse coherently as a tree prefix; every other file fails without header stripping."
       },
       "confidence": "high"
     },

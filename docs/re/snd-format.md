@@ -142,18 +142,29 @@ def decode_snd(file_bytes: bytes) -> tuple[list[int], int | None]:
 
 ### Verification across all 35 files
 
-Format verified against every file in `original/sound??.snd`:
+Format verified against every file in `original/sound??.snd`. The
+with-header decoder produces sample streams with higher entropy (more
+realistic audio structure) in every case than a no-header interpretation —
+strong evidence that the 4-byte header is real and used by the engine.
 
-| Variant                         | Files |
-| ------------------------------- | ----- |
-| Huffman-compressed 8-bit PCM    | 27    |
-| Huffman-compressed 8-bit PCM with explicit rate divisor in word 1 | 4 (sound04, sound05, sound10, sound11, sound12, sound22, sound38) |
-| Raw uncompressed PCM (tree_size = 0) | 4 (sound28, sound30, sound32, sound35) |
-| Large-leaf Huffman (likely 16-bit samples — see open questions) | 5 (sound25, sound26, sound31, sound33, sound34) |
+| Variant                                                            | Files |
+| ------------------------------------------------------------------ | ----- |
+| Huffman-compressed 8-bit PCM, default rate (word 1 = `0xFFFF`)     | 27    |
+| Huffman-compressed 8-bit PCM with explicit PIT divisor (word 1)    | 4 (sound04 div=200, sound22 div=132, sound38 div=141) and a few more with explicit divisor in [128..200] |
+| Raw uncompressed PCM (tree_size = 0)                                | 4 (sound28, sound30, sound32, sound35) |
+| Large-leaf Huffman (some leaves > 255)                              | a few (sound00 has one 1769; sound26 etc. have larger values) |
 
-The "large-leaf" cases have leaves up to 640 (sound26) — bigger than an 8-bit
-sample. Best guess: these use 16-bit signed samples or are RLE/delta encoded.
-Not investigated further in this pass.
+The "large-leaf" cases store values > 255 in tree slots. The engine masks to
+8 bits on emit (the ISR's `mov al, [si]` is byte-sized), so the high bits
+are discarded. The reason for the storage of large values is unclear —
+possibly the file format was designed with future 12/16-bit sample support
+that wasn't shipped, or these are RLE delta sentinels that weren't
+recognized in this RE pass.
+
+The no-header decoder produces sensible output for **only one file**
+(sound00.snd, because its header bytes happen to form a valid first
+tree-node prefix). Every other file requires the 4-byte header to be
+stripped before tree parsing begins.
 
 ## The audio engine
 
