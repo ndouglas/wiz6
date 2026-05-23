@@ -13,7 +13,7 @@ export interface DecodeSndOpts {
  * placeholder — gives ~4 kHz sample rate, consistent with 1990-era PC speaker
  * digitized speech. Tunable here if files sound wrong at the default rate.
  */
-export const DEFAULT_SND_RATE_DIVISOR = 150;
+export const DEFAULT_SND_RATE_DIVISOR = 100;
 
 /**
  * Log-attenuation LUT extracted from `wroot.exe` at file offset `0x1C4B`
@@ -84,13 +84,16 @@ const PIT_FREQ_HZ = 1_193_182;
 /**
  * Compute the wall-clock sample rate (Hz) for a decoded SND.
  *
- * Engine path: PIT counter 0 fires IRQ0 at `PIT_FREQ_HZ / divisor`. The ISR
- * advances the sample pointer by 0.5 samples per tick, so the effective sample
- * rate is half the timer tick rate.
+ * `sample_rate = PIT_FREQ_HZ / divisor`. The agent's RE initially suggested
+ * an additional `/2` because the ISR pseudocode mentioned "DI advances
+ * 0.5 sample/tick", but spectrogram analysis of DOSBox-X recordings shows
+ * content up to ~6 kHz — requires sample rate ≥12 kHz, ruling out the `/2`.
+ * The 0.5/tick observation likely applies to a different ISR variant or
+ * describes interleave behavior we haven't fully traced.
  */
 export function sndSampleRateHz(rateDivisor: number | null): number {
   const div = rateDivisor ?? DEFAULT_SND_RATE_DIVISOR;
-  return Math.round(PIT_FREQ_HZ / div / 2);
+  return Math.round(PIT_FREQ_HZ / div);
 }
 
 /**

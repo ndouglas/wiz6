@@ -150,17 +150,14 @@ describe('decodeSnd', () => {
     });
   });
 });
-
 describe('sndSampleRateHz', () => {
   it('uses the default divisor when rateDivisor is null', () => {
-    const expected = Math.round(1_193_182 / DEFAULT_SND_RATE_DIVISOR / 2);
+    const expected = Math.round(1_193_182 / DEFAULT_SND_RATE_DIVISOR);
     expect(sndSampleRateHz(null)).toBe(expected);
   });
 
-  it('computes sample rate from an explicit divisor (DI advances 0.5 sample/tick)', () => {
-    // divisor 200 → 1193182 / 200 / 2 ≈ 2982.96 → 2983
-    expect(sndSampleRateHz(200)).toBe(2983);
-    // divisor 132 → 1193182 / 132 / 2 ≈ 4519.63 → 4520
-    expect(sndSampleRateHz(132)).toBe(4520);
+  it('computes sample rate from an explicit divisor (PIT_FREQ / divisor)', () => {
+    expect(sndSampleRateHz(200)).toBe(5966); // 1193182 / 200 ≈ 5965.91
+    expect(sndSampleRateHz(132)).toBe(9039); // 1193182 / 132 ≈ 9039.26
   });
 });
