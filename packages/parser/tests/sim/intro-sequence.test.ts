@@ -175,10 +175,14 @@ describe('visibleScrollEntries: per-frame layout', () => {
     expect(visibleScrollEntries(200).some((v) => v.entryIndex === 3)).toBe(false);
   });
 
-  it('entry 8 (copyright finale) clamps at cap and persists', () => {
-    // Entry 8: appear=152, fieldB=0x50=80, cap=0x50=80. Static at y=80 forever.
-    expect(visibleScrollEntries(152).find((v) => v.entryIndex === 8)!.y).toBe(0x50);
-    expect(visibleScrollEntries(200).find((v) => v.entryIndex === 8)!.y).toBe(0x50);
+  it('entry 8 (copyright finale) slides in from below then clamps at cap', () => {
+    // Entry 8: appear=152, fieldB=0x90=144 (override), cap=0x50=80.
+    // Starts sliding in at scrollPos=152.
+    expect(visibleScrollEntries(152).find((v) => v.entryIndex === 8)!.y).toBe(0x90);
+    expect(visibleScrollEntries(160).find((v) => v.entryIndex === 8)!.y).toBe(0x90 - 8);
+    // Reaches cap at delta = 144 - 80 = 64, scrollPos = 152 + 64 = 216.
+    expect(visibleScrollEntries(216).find((v) => v.entryIndex === 8)!.y).toBe(0x50);
+    // Clamps at cap from then on.
     expect(visibleScrollEntries(0xff).find((v) => v.entryIndex === 8)!.y).toBe(0x50);
   });
 

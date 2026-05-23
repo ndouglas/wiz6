@@ -62,7 +62,13 @@ export const CREDITS_SCROLL_ENTRIES: readonly CreditScrollEntry[] = [
   { token: 3, col: 0x14, appear: 60, fieldB: 0x90, cap: 0x0d },
   { token: 4, col: 0x14, appear: 88, fieldB: 0x90, cap: 0x0d },
   { token: 5, col: 0x14, appear: 120, fieldB: 0x90, cap: 0x0d },
-  { token: 6, col: 0x0e, appear: 152, fieldB: 0x50, cap: 0x50 },
+  // Entry 8: the copyright finale. Engine table has fieldB=cap=0x50=80 which,
+  // combined with the i==8 clamp, would render the copyright instantly at y=80
+  // (no slide-in). User's lived recollection: the copyright slides in from
+  // below like the other credit panels and locks at y=80 as the others
+  // continue past. Override fieldB to 0x90=144 (matching entries 3..7) to
+  // get the slide-in behavior; keep cap=0x50 as the rest position.
+  { token: 6, col: 0x0e, appear: 152, fieldB: 0x90, cap: 0x50 },
 ];
 
 /** scroll_pos increments by this per frame. Engine constant. */
@@ -88,3 +94,13 @@ export const PHASE_FRAMES_PAUSE_BETWEEN_SPLASHES = 30; // 0.5s
 export const PHASE_FRAMES_BRADLEY_SPLASH = 120; // 2.0s
 export const PHASE_FRAMES_PAUSE_PRE_SCROLL = 30; // 0.5s
 export const PHASE_FRAMES_POST_SCROLL = 90; // 1.5s
+
+/**
+ * RAF-ticks per scroll sim step. Engine ran scroll at ~60 Hz with scrollPos
+ * += 2/frame (126 frames = ~2 seconds). At modern RAF that's too fast for
+ * the credits to be readable. Stretch by stepping the sim once per N RAFs
+ * during the scroll phase only — splashes and pauses still tick 1:1.
+ *
+ * 3 → ~6.3 seconds of scroll, enough to read each credit panel.
+ */
+export const SCROLL_RAF_STEP_RATIO = 3;

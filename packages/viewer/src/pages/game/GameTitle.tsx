@@ -7,6 +7,7 @@ import {
   initialIntroState,
   stepIntro,
   visibleScrollEntries,
+  SCROLL_RAF_STEP_RATIO,
   type IntroState,
   type RenderedSprite,
 } from '@wiz6/parser';
@@ -88,10 +89,23 @@ export function GameTitle() {
     // blending happens by hand into this buffer so alpha actually composites.
     const frameRgba = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
 
+    // Sub-frame counter for slowing the scroll phase. Outside scroll, we
+    // step the sim every RAF (1:1). During scroll, we step once per
+    // SCROLL_RAF_STEP_RATIO RAFs — credits scroll slow enough to read.
+    // skipRef is only consumed on stepping frames, so input is never lost.
+    let subRaf = 0;
+
     const tick = () => {
-      const skipPressed = skipRef.current;
-      skipRef.current = false;
-      stateRef.current = stepIntro(stateRef.current, 1, { skipPressed });
+      const isScroll = stateRef.current.phase === 'scroll';
+      const interval = isScroll ? SCROLL_RAF_STEP_RATIO : 1;
+      subRaf = (subRaf + 1) % interval;
+      const shouldStep = subRaf === 0;
+
+      if (shouldStep) {
+        const skipPressed = skipRef.current;
+        skipRef.current = false;
+        stateRef.current = stepIntro(stateRef.current, 1, { skipPressed });
+      }
 
       composeFrame(frameRgba, stateRef.current, spritesByDesc, titlepagRgba);
       ctx.putImageData(new ImageData(frameRgba, ENGINE_W, ENGINE_H), 0, 0);

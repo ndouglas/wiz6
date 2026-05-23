@@ -63,6 +63,7 @@ export {
   PHASE_FRAMES_BRADLEY_SPLASH,
   PHASE_FRAMES_PAUSE_PRE_SCROLL,
   PHASE_FRAMES_POST_SCROLL,
+  SCROLL_RAF_STEP_RATIO,
   type CreditScrollEntry,
 } from './sim/intro-constants.js';
 
