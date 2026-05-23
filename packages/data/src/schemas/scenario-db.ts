@@ -3,7 +3,6 @@ import { z } from 'zod';
 const XP_CLASS_COUNT = 14;
 const XP_LEVELS_PER_CLASS = 16;
 const ITEM_RECORD_BYTES = 74;
-const ITEM_RECORD_COUNT = 500;
 
 const MONSTER_STAT_BYTES = 158;
 const MONSTER_RECORD_COUNT = 250;

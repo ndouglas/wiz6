@@ -112,7 +112,7 @@ export function stepIntro(
 ): IntroState {
   if (frames <= 0 || state.phase === 'done') return state;
 
-  let next: IntroState = { ...state, frame: state.frame + frames };
+  const next: IntroState = { ...state, frame: state.frame + frames };
   const skip = inputs.skipPressed === true;
 
   if (skip) {

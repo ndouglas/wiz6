@@ -4,8 +4,6 @@ import {
   PicSegmentSchema,
   PicOpSchema,
   PicDescriptorSchema,
-  PicLitOpSchema,
-  PicRunOpSchema,
 } from '../src/schemas/pic.js';
 
 describe('PicOpSchema', () => {

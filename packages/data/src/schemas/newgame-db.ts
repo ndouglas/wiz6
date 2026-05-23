@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 const RECORD_BYTES = 64;
-const TOTAL_RECORDS = 779;
 
 const byteSchema = z.number().int().min(0).max(255);
 const recordBytes = z.array(byteSchema).length(RECORD_BYTES);
