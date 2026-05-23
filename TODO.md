@@ -13,11 +13,19 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#011**
+Next free ID: **#012**
 
 ---
 
 ## Open
+
+- #011 [open] — Surface RE work in the data explorer
+  - Currently `/explore/docs` flat-renders every markdown file under `docs/`, but the RE findings (overlay function tables, marquee mechanics like the bonus-point roller, format spec disassembly) aren't curated for browsing. Three layers worth considering:
+    - **Layer A — Auto-generated function-table pages.** For each `docs/re/findings/<overlay>-naming-pass.json`, render a searchable table of named functions with click-to-expand evidence and disassembly snippet. Effectively API docs for the Wiz6 engine. Half-day-ish; gives every future RE pass a free home.
+    - **Layer B — "Did you know?" / RE-highlights page.** Hand-curated callouts of marquee findings (bonus-point roller math, .pic bit-pattern permutation, .snd Huffman tree, the structural overlay-header families, the "wpcmk is a library not a state handler" pattern). Each = a tight 1–2 paragraph write-up with relevant disassembly + callout. Stand-alone; ships value immediately.
+    - **Layer C — Inline "Director's commentary" tooltips.** Contextual RE badges in the gameplay UI — e.g. the bonus-roller commentary attaches to a future character-creation screen; the .pic permutation commentary attaches to sprite pages. Highest effort (content + careful UI integration) but highest payoff for fans.
+  - Recommended order: B (immediate fun-fact page) → A (base reference layer) → C (contextual integration once we know what reads well).
+  - Goal: turn the corpus of RE work into something that's actually *fun* to browse, not just a doc dump. The wpcmk bonus-roller alone justifies the effort.
 
 - #003 [open] — Naming passes for combat/character/NPC/treasure overlays
   - Still on `FUN_XXXX` auto-names: `wmele.ovr`, `wpcmk.ovr`, `wpcvw.ovr`, `wmnpc.ovr`, `wtrea.ovr`.
