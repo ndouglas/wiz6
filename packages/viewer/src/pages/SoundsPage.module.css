@@ -1,0 +1,67 @@
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--space-5);
+}
+
+.lede {
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-5);
+  max-width: 80ch;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.table th {
+  color: var(--color-text-muted);
+  font-weight: 500;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.id {
+  font-family: var(--font-mono);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+.num {
+  font-family: var(--font-mono);
+  color: var(--color-text);
+  text-align: right;
+}
+
+.dim {
+  color: var(--color-text-faint);
+  font-size: 0.85em;
+}
+
+.audio {
+  height: 32px;
+  width: 240px;
+}
+
+.note {
+  margin-top: var(--space-6);
+  max-width: 80ch;
+  color: var(--color-text-faint);
+  font-size: 0.85rem;
+}

@@ -62,6 +62,12 @@ const SECTIONS = [
     to: '/explore/files',
     description: 'Every parsed .dbs file with its section layout and parse status.',
   },
+  {
+    title: 'Sounds',
+    to: '/explore/sounds',
+    description: '35 sound effects (.snd) — Huffman-decoded 8-bit PCM with per-sound metadata and inline preview.',
+    meta: '35 entries',
+  },
 ];
 
 export function Landing() {

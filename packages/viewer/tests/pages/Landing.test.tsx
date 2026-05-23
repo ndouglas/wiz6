@@ -36,6 +36,7 @@ describe('Landing', () => {
       'Newgame',
       'Pics',
       'Files',
+      'Sounds',
     ]) {
       expect(screen.getByRole('link', { name: new RegExp(label, 'i') })).toBeInTheDocument();
     }

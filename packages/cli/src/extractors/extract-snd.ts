@@ -18,10 +18,42 @@ export interface SndMetadata {
 }
 
 /**
- * Extract a `.snd` file: copies the raw bytes to `<outputDir>/<basename>` so
- * the viewer can fetch + decode in-browser, and writes a small JSON metadata
- * file alongside. We don't store decoded samples in JSON — they're large
- * (10k+ entries per file) and the browser-side decoder is fast.
+ * Encode 8-bit unsigned PCM mono samples as a minimal WAV file.
+ * Browsers can play this via `<audio src="...wav">` directly — useful for
+ * isolating "does the decode produce real audio?" from "is the Web Audio
+ * playback path correct?".
+ */
+function encodeWav(samples: number[], sampleRate: number): Uint8Array {
+  const n = samples.length;
+  const out = new Uint8Array(44 + n);
+  const view = new DataView(out.buffer);
+  // RIFF header
+  out.set([0x52, 0x49, 0x46, 0x46], 0); // 'RIFF'
+  view.setUint32(4, 36 + n, true); // chunk size
+  out.set([0x57, 0x41, 0x56, 0x45], 8); // 'WAVE'
+  // fmt subchunk
+  out.set([0x66, 0x6d, 0x74, 0x20], 12); // 'fmt '
+  view.setUint32(16, 16, true); // subchunk size (PCM)
+  view.setUint16(20, 1, true); // audio format (PCM)
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true); // sample rate
+  view.setUint32(28, sampleRate, true); // byte rate (= rate * 1 byte * 1 channel)
+  view.setUint16(32, 1, true); // block align
+  view.setUint16(34, 8, true); // bits per sample
+  // data subchunk
+  out.set([0x64, 0x61, 0x74, 0x61], 36); // 'data'
+  view.setUint32(40, n, true); // data size
+  for (let i = 0; i < n; i++) out[44 + i] = samples[i]!;
+  return out;
+}
+
+/**
+ * Extract a `.snd` file:
+ *   - Copies the raw bytes to `<outputDir>/<basename>` (browser-fetchable for
+ *     in-browser decode via the parser).
+ *   - Writes a small JSON metadata file (compression / rate / sample count).
+ *   - Renders a `.wav` rendering for direct `<audio>` playback — useful for
+ *     verifying decode correctness without going through our Web Audio path.
  */
 export function extractSnd(opts: ExtractSndOpts): SndMetadata {
   mkdirSync(opts.outputDir, { recursive: true });
@@ -31,6 +63,7 @@ export function extractSnd(opts: ExtractSndOpts): SndMetadata {
 
   const bytes = new Uint8Array(readFileSync(opts.originalPath));
   const snd = decodeSnd(bytes, { id: opts.id, sourceFile: source });
+  const sampleRateHz = sndSampleRateHz(snd.rateDivisor);
 
   const meta: SndMetadata = {
     id: snd.id,
@@ -38,9 +71,12 @@ export function extractSnd(opts: ExtractSndOpts): SndMetadata {
     compression: snd.compression,
     rateDivisor: snd.rateDivisor,
     sampleCount: snd.samples.length,
-    sampleRateHz: sndSampleRateHz(snd.rateDivisor),
+    sampleRateHz,
   };
   writeFileSync(join(opts.outputDir, `${opts.id}.json`), JSON.stringify(meta, null, 2));
+
+  // WAV at the decoded sample rate.
+  writeFileSync(join(opts.outputDir, `${opts.id}.wav`), encodeWav(snd.samples, sampleRateHz));
 
   return meta;
 }

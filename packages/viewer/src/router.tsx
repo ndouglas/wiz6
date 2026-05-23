@@ -50,6 +50,9 @@ const PicsIndex = lazy(() =>
 const PicDetail = lazy(() =>
   import('./pages/pics/PicDetail.js').then((m) => ({ default: m.PicDetail })),
 );
+const SoundsPage = lazy(() =>
+  import('./pages/SoundsPage.js').then((m) => ({ default: m.SoundsPage })),
+);
 
 export const routes = (
   <>
@@ -74,6 +77,7 @@ export const routes = (
       <Route path="files" element={<FilesOverview />} />
       <Route path="pics" element={<PicsIndex />} />
       <Route path="pics/:name" element={<PicDetail />} />
+      <Route path="sounds" element={<SoundsPage />} />
     </Route>
   </>
 );
