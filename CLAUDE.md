@@ -152,7 +152,9 @@ wroot.exe drives a state-machine loop in `ovl_install_table` @ wroot 0x132d that
 | 0x0a (10)               | `wmele.ovr` 0x2d6d  | Combat: init encounter                   |
 | 0x0b (11)               | `wmele.ovr` 0x2b6a  | Combat: per-round redraw + monster attacks |
 | 0x0e (14)               | `wmele.ovr` 0x2ceb  | Combat: end-of-round cleanup             |
+| 0x0f (15)               | `wtrea.ovr`         | Post-combat treasure roll + distribution |
 | 0x11 (17)               | `wpcvw.ovr` 0x6804  | Character view (interactive)             |
+| 0x15 (21)               | `wtrea.ovr`         | In-dungeon chest encounter (open / inspect / disarm / spell / leave) |
 | 0x16 (22)               | `wpcvw.ovr` 0xb4ba  | Post-combat bulk level-up                |
 
 To transition, a handler writes the new state value to `*0x363a` (or to `*0x4fce` in wbase/wmele, which the entry dispatcher copies into `*0x363a` after the handler returns — deferred transition pattern). The outer loop reloads the appropriate overlay.

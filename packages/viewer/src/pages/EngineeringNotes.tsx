@@ -11,6 +11,7 @@ type Tag =
   | 'character-creation'
   | 'character-progression'
   | 'dialogue'
+  | 'treasure'
   | 'palette'
   | 'audio'
   | 'maze'
@@ -454,48 +455,217 @@ roll = rng(100) + penalty
   // -------------------------------------------------------------------
   {
     id: 'npc-duplicated-renderer',
-    title: 'The Dialogue View Has Its Own Copy Of The Dungeon Renderer',
-    tags: ['dialogue', 'engine', 'quirk', 'maze'],
+    title: 'The 3D Wall Renderer Lives In Three Overlays',
+    tags: ['dialogue', 'treasure', 'engine', 'quirk', 'maze'],
     pitch:
-      'When an NPC dialogue opens, the corridor stays visible behind it. So wmnpc ships a 2192-byte copy of wmaze\'s 3D wall-rendering code — same constants, hand-duplicated. A maintenance hazard the original devs noticed and didn\'t fix.',
+      'Wiz6 carries three independent copies of the same 2192-byte 3D wall-rendering code — one in the dungeon-traversal overlay (original), one in the NPC dialogue overlay, one in the chest-encounter overlay. Constants hand-copied across all three.',
     body: (
       <>
         <ProseRow>
-          Wiz6's NPC dialogue panel doesn't take over the whole screen. The
-          corridor view stays drawn behind it — the NPC stands "in front of"
-          the player in the dungeon. To draw that view, <Code>wmnpc.ovr</Code>{' '}
-          ships its own copy of <Code>wmaze.ovr</Code>'s 3D wall-rendering code.
-          2192 bytes of it.
+          When you talk to an NPC, the corridor stays drawn behind the dialogue
+          panel. When you open a chest, the corridor stays drawn behind the
+          chest UI. Neither overlay takes over the screen — they composite on
+          top of the dungeon view. To re-render that view from its own context,
+          each overlay ships <em>its own</em> copy of the 3D wall-rendering
+          code:
         </ProseRow>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Overlay</th>
+              <th>Used when</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><Code>wmaze.ovr</Code></td><td>Walking around the dungeon (the canonical copy)</td></tr>
+            <tr><td><Code>wmnpc.ovr</Code></td><td>An NPC dialogue is open over the corridor</td></tr>
+            <tr><td><Code>wtrea.ovr</Code></td><td>A chest UI is open over the corridor</td></tr>
+          </tbody>
+        </table>
         <ProseRow>
-          This copy:
+          All three copies:
         </ProseRow>
         <ul className={styles.bullets}>
-          <li>Reads the same wall-bitmaps at <Code>*0x4faa + 0x43a</Code> and <Code>+0x49a</Code>.</li>
-          <li>Applies the same facing-rotation math.</li>
-          <li>Uses <em>identical</em> hardcoded pixel coordinates — <Code>0x48</Code>, <Code>0xf8</Code>, <Code>0x7a</Code>, <Code>0x82</Code>, and others.</li>
+          <li>Read the same wall-bitmaps at <Code>*0x4faa + 0x43a</Code> and <Code>+0x49a</Code>.</li>
+          <li>Apply the same facing-rotation math.</li>
+          <li>Use <em>identical</em> hardcoded pixel coordinates — <Code>0x48</Code>, <Code>0xf8</Code>, <Code>0x7a</Code>, <Code>0x82</Code>, and others.</li>
         </ul>
         <ProseRow>
-          The constants aren't shared via header or data table — they're
-          hand-copied into both files. If anyone at Sir-Tech ever tweaked
-          wmaze's wall positions without exactly-matching tweaks in wmnpc, the
-          encounter view would render slightly different walls than the
-          gameplay view. A continuity glitch waiting to happen, that nobody
-          would notice in QA because nobody pays attention to the corridor
-          behind an open dialogue box.
+          The constants aren't shared via a header or data table — they're
+          hand-copied into all three files. Any tweak to wmaze's wall positions
+          would silently desync the NPC-encounter and chest-encounter views
+          unless someone hand-edited all three. The original developers almost
+          certainly noticed this and just lived with it: maybe the cost of
+          overlay-to-overlay code sharing was higher than the cost of three
+          synchronized copies.
         </ProseRow>
-        <ProseRow>
-          The original developers presumably noticed this and just didn't
-          refactor away from it — maybe the cost of overlay-to-overlay code
-          sharing was higher than maintaining two copies. The port can do
-          better: share the constants from a single source so the duplication
-          can't drift.
-        </ProseRow>
+        <Aside title="The port's chance">
+          We can do better here than the original. The wall-render math should
+          live in <Code>@wiz6/parser</Code> exactly once; the three overlay
+          contexts just call into it. No drift possible.
+        </Aside>
       </>
     ),
     seeAlso: [
       { label: 'wmnpc-npc-dialogue.md', href: '/explore/docs/re/wmnpc-npc-dialogue.md' },
       { label: 'wmaze-functions.md', href: '/explore/docs/re/wmaze-functions.md' },
+      { label: 'wtrea-treasure.md', href: '/explore/docs/re/wtrea-treasure.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'trap-misidentify-equals-critical-fail',
+    title: 'Picking The Wrong Trap Name Is A Critical Fail',
+    tags: ['treasure', 'design-choice', 'undocumented'],
+    pitch:
+      'Disarming a chest trap requires picking the correct trap name from a list of candidates first. Guessing wrong sets the trap off — same outcome as botching the dice roll. The penalty for not knowing the game is identical to the penalty for failing the skill check.',
+    body: (
+      <>
+        <ProseRow>
+          When the player chooses DISARM at a chest in Wiz6, the engine
+          presents a list of candidate trap names. The player has to pick
+          which one is actually present before the disarm roll even happens.
+        </ProseRow>
+        <ProseRow>
+          The dispatch is brutal:
+        </ProseRow>
+        <CodeBlock>
+{`if guess != actual_trap:
+    return -1                ; CRITICAL FAIL — trap auto-triggers
+else:
+    score = thief_skill/2 + dex/2 + level - depth*2 + class_bonus
+    score = clamp(score, 5, 95)
+    roll = rng(100)
+    if roll < score:                            SUCCESS
+    if roll > 100 - (100 - score)/3 or roll > 94:  CRITICAL FAIL
+    else:                                        MISS (no progress, no trap)`}
+        </CodeBlock>
+        <ProseRow>
+          A miss is fine — the player just doesn't progress. A critical fail
+          drops the trap on the party. <strong>Misidentifying the trap name
+          is structurally identical to a critical fail.</strong> If the player
+          guesses the wrong name from the candidate list, the trap goes off
+          before any skill check even runs.
+        </ProseRow>
+        <ProseRow>
+          A non-Thief who guesses wrong eats the trap; a non-Thief who guesses
+          right and then rolls a miss gets a do-over. The penalty for not
+          knowing the game is identical to the penalty for the worst possible
+          dice roll. (This pairs interestingly with the Calfo word-puzzle
+          mechanic below — Wiz6 wants you to <em>identify</em> the trap before
+          you try to disarm it.)
+        </ProseRow>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wtrea-treasure.md', href: '/explore/docs/re/wtrea-treasure.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'calfo-word-puzzle',
+    title: 'Calfo Doesn\'t Reveal The Trap — It Builds A Word Puzzle',
+    tags: ['treasure', 'design-choice', 'quirk'],
+    pitch:
+      'Each INSPECT or Calfo cast adds a few letters to a persistent display buffer — some real (rendered white), some fake decoys (rendered dark gray). Players see a partial word with mixed real and decoy letters and have to deduce the trap. Multiple casts compound; nothing guarantees a clean answer.',
+    body: (
+      <>
+        <ProseRow>
+          Naive understanding: the Calfo spell tells you the chest's trap.
+          Reality: Calfo (and INSPECT — they call the same routine with
+          different skill parameters) runs a multi-attempt letter-by-letter
+          reveal that's much more interesting.
+        </ProseRow>
+        <ProseRow>
+          Each invocation walks a persistent display buffer at <Code>*0x51bc</Code>:
+        </ProseRow>
+        <ul className={styles.bullets}>
+          <li>
+            <strong>For each existing decoy slot</strong>: roll{' '}
+            <Code>rng(100)</Code>. If it passes a skill gate, try to "promote"
+            the decoy to a real letter — but only if the real trap name
+            actually contains that character.
+          </li>
+          <li>
+            <strong>For each remaining reveal allowance</strong>: roll again.
+            On a success, add a random character from the real trap name
+            (rendered as color 6, <strong>white</strong>). On a failure, add a
+            random decoy letter <Code>rng(26) + 'A'</Code> (rendered as color
+            12, <strong>dark gray</strong>).
+          </li>
+        </ul>
+        <ProseRow>
+          The state persists across multiple casts. The player sees a partial
+          word with white and dark letters interleaved, and has to guess the
+          trap from incomplete information. Subsequent casts can fill in more
+          real letters and replace some decoys — but a low-skill caster may
+          add decoys faster than real letters surface, so the puzzle gets
+          <em> worse </em> the more you try.
+        </ProseRow>
+        <Aside title="What this means">
+          Calfo isn't a "skill check that returns true / false." It's a
+          structured information game. Players who learned to play it well
+          (cast high-skill characters, learn to read partial reveals, take
+          calculated risks on the guess) were rewarded; players who treated
+          it as a yes/no roll were repeatedly mauled by traps they'd
+          misidentified.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wtrea-treasure.md', href: '/explore/docs/re/wtrea-treasure.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'tpk-loot-forfeit',
+    title: 'Wipe On The Killing Blow And You Forfeit The Loot',
+    tags: ['treasure', 'combat', 'design-choice', 'quirk'],
+    pitch:
+      'The post-combat loot rolls happen first, then the alive-count check happens. If everyone died killing the last monster, the engine rolls treasure and then throws it away because nobody is alive to claim it.',
+    body: (
+      <>
+        <ProseRow>
+          When combat ends in a victory, the engine drops into post-combat
+          state 0x0f, which rolls the loot table. The distribution loop:
+        </ProseRow>
+        <CodeBlock>
+{`alive = sum(1 for c in party if c.status == 0)
+if alive == 0:
+    *0x363a = 8     ; graveyard (winit.ovr 0xdf6)
+    return          ; skip distribution entirely
+else:
+    divide_gold(alive)
+    award_xp_full(each_alive_character)
+    insert_items_into_inventory(...)`}
+        </CodeBlock>
+        <ProseRow>
+          If your party wipes mid-combat against the killing blow that drops
+          the last monster, the engine still rolls the loot table — and then
+          forfeits everything because nobody's alive to claim it. You go to
+          the graveyard with the same dead party <em>and</em> with no
+          consolation prize for the encounter you technically won.
+        </ProseRow>
+        <ProseRow>
+          The fix on the engine side: keep at least one party member alive
+          through the kill-the-last-monster moment. The fix on the player
+          side: don't take the last hit on the last monster with a sliver of
+          HP unless you're sure your front-liners can soak.
+        </ProseRow>
+        <Aside title="Did the rolls actually happen?">
+          They did — they just got discarded. The engine doesn't roll
+          conditionally; it rolls unconditionally and then checks who's alive.
+          So there's a deterministic-RNG argument for save-scumming the
+          combat to play out differently, since the loot rolls themselves
+          consumed RNG state.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wtrea-treasure.md', href: '/explore/docs/re/wtrea-treasure.md' },
     ],
   },
 
@@ -709,6 +879,7 @@ const ALL_TAGS: Tag[] = [
   'character-creation',
   'character-progression',
   'dialogue',
+  'treasure',
   'palette',
   'audio',
   'maze',
