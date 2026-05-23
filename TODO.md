@@ -38,12 +38,6 @@ Next free ID: **#017**
   - **Method**: find the engine code that triggers each intro-phase sound. CLAUDE.md notes `winit_state1_title_and_credits` makes `audio_play_sound` calls with N = `4, 0xD, 0xE, 6, 7` — five calls, not three. Disambiguate which map to actual phase transitions vs other events; use those sound IDs to determine which `.snd` file is canonical per transition.
   - Refs: `7a3d8ba`, `winit.ovr` state 1 entry @ image 0x9f3, `audio_play_sound` @ wroot 0x10AAA, `docs/re/snd-format.md` §"Sound ID → filename mapping".
 
-- #008 [open] — Title "Wizardry" lingers before scroll (RE-traced)
-  - Raw: "title 'Wizardry' needs to linger a moment before everything starts scrolling up".
-  - **Method**: find the delay loop in `winit.ovr` state 1 (title-and-credits routine at image 0x9f3) that holds the title visible before the scroll begins. Reproduce its frame count, NOT its wall-clock duration (per CLAUDE.md RE caveat: "wall-clock parity ≠ byte parity").
-  - Builds on prior intro-timing work — `959e304` (scroll runs 3× slower), `6061453` (credit panels cull at y<cap), `54f9b6f` (tokens 1-indexed).
-  - Refs: `winit.ovr` state 1 @ image 0x9f3.
-
 - #009 [open] — Savegame management strategy for the web port (design done, implementation pending)
   - **Design settled**: see [`docs/superpowers/specs/2026-05-23-savegame-strategy.md`](docs/superpowers/specs/2026-05-23-savegame-strategy.md).
   - **TL;DR**: our own zod-validated JSON schema in `@wiz6/data` as the canonical save format. 6-slot localStorage with manual download/upload for portability. RNG seed captured as advisory metadata. DOS `SAVEGAME.DBS` interop deferred to a separate bridge module (import + export buttons) that needs a follow-up RE pass on the binary save format. Savegame editor in the data explorer also deferred.
