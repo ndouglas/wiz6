@@ -41,6 +41,9 @@
 }
 
 .tagFilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: var(--space-1) var(--space-2);
   background: transparent;
   color: var(--color-text-muted, #aaa);
@@ -52,15 +55,95 @@
   transition: all 0.1s;
 }
 
-.tagFilter:hover {
+.tagFilter:hover:not(:disabled) {
   color: var(--color-text, #eee);
   border-color: var(--color-text-muted, #777);
+}
+
+.tagFilter:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .tagFilterActive {
   background: var(--color-accent, #88f);
   color: #000;
   border-color: var(--color-accent, #88f);
+}
+
+.tagCount {
+  display: inline-block;
+  min-width: 1.5em;
+  padding: 0 5px;
+  background: var(--color-surface-2, #2a2a2a);
+  color: var(--color-text-muted, #888);
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.7rem;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.tagFilterActive .tagCount {
+  background: rgba(0, 0, 0, 0.25);
+  color: #000;
+}
+
+.toc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-bottom: var(--space-5);
+  background: var(--color-surface, #1a1a1a);
+  border-radius: var(--radius-1, 4px);
+  border: 1px solid var(--color-border, #333);
+}
+
+.tocLabel {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted, #888);
+  font-variant-numeric: tabular-nums;
+  margin-right: var(--space-1);
+}
+
+.tocList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px var(--space-2);
+}
+
+.tocItem {
+  display: inline;
+}
+
+.tocItem:not(:last-child)::after {
+  content: '·';
+  color: var(--color-text-faint, #555);
+  margin-left: var(--space-2);
+}
+
+.tocLink {
+  color: var(--color-text-muted, #aaa);
+  font-size: 0.88rem;
+  text-decoration: none;
+}
+
+.tocLink:hover {
+  color: var(--color-accent, #88f);
+  text-decoration: underline;
+}
+
+.tocEmpty {
+  color: var(--color-text-faint, #777);
+  font-style: italic;
+  font-size: 0.88rem;
 }
 
 .clearBtn {

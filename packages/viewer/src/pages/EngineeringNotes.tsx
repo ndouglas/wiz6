@@ -512,6 +512,16 @@ const ALL_TAGS: Tag[] = [
   'engine',
 ];
 
+// Total cards per tag (independent of current filter selection). Computed at
+// module scope since NOTES is static.
+const TAG_COUNTS: Record<Tag, number> = (() => {
+  const counts = Object.fromEntries(ALL_TAGS.map((t) => [t, 0])) as Record<Tag, number>;
+  for (const note of NOTES) {
+    for (const t of note.tags) counts[t]++;
+  }
+  return counts;
+})();
+
 export function EngineeringNotes() {
   const [activeTags, setActiveTags] = useState<Set<Tag>>(new Set());
 
@@ -545,14 +555,17 @@ export function EngineeringNotes() {
         <span className={styles.filterLabel}>Filter by tag:</span>
         {ALL_TAGS.map((t) => {
           const active = activeTags.has(t);
+          const count = TAG_COUNTS[t];
           return (
             <button
               key={t}
               type="button"
               className={`${styles.tagFilter} ${active ? styles.tagFilterActive : ''}`}
               onClick={() => toggleTag(t)}
+              disabled={count === 0}
             >
-              {t}
+              <span>{t}</span>
+              <span className={styles.tagCount}>{count}</span>
             </button>
           );
         })}
@@ -566,6 +579,22 @@ export function EngineeringNotes() {
           </button>
         )}
       </div>
+
+      <nav className={styles.toc} aria-label="Notes contents">
+        <span className={styles.tocLabel}>
+          Jump to {activeTags.size > 0 ? `(${visible.length} of ${NOTES.length})` : `(${NOTES.length})`}:
+        </span>
+        <ul className={styles.tocList}>
+          {visible.map((note) => (
+            <li key={note.id} className={styles.tocItem}>
+              <a href={`#${note.id}`} className={styles.tocLink}>{note.title}</a>
+            </li>
+          ))}
+          {visible.length === 0 && (
+            <li className={styles.tocEmpty}>nothing matches</li>
+          )}
+        </ul>
+      </nav>
 
       <section className={styles.cards}>
         {visible.map((note) => (
