@@ -85,6 +85,14 @@ export const OVERLAY_MANIFEST: OverlayManifestEntry[] = [
     applyScript: 'apply_wpops_names.py',
   },
   {
+    slug: 'wdopt',
+    label: 'wdopt.ovr',
+    subtitle: 'Out-of-combat cast-spell + use-item — states 0x13, 0x14',
+    findingsFile: 'wdopt-naming-pass.json',
+    docFile: 'wdopt-dungeon-cast-use.md',
+    applyScript: 'apply_wdopt_names.py',
+  },
+  {
     slug: 'wpcmk',
     label: 'wpcmk.ovr',
     subtitle: 'Character creation — library overlay called from wbase main-menu slot 5',

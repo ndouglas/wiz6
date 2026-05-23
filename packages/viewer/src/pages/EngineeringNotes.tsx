@@ -455,10 +455,10 @@ roll = rng(100) + penalty
   // -------------------------------------------------------------------
   {
     id: 'npc-duplicated-renderer',
-    title: 'The 3D Wall Renderer Lives In Six Overlays',
+    title: 'The 3D Wall Renderer Lives In Seven Overlays',
     tags: ['dialogue', 'treasure', 'combat', 'engine', 'quirk', 'maze'],
     pitch:
-      'Wiz6 carries six independent copies of the same 2192-byte 3D wall-rendering code — dungeon-traversal original plus mirror copies in the NPC dialogue, chest encounter, combat loop, combat-action-execution, and combat-action-selection overlays. Constants hand-copied across all six.',
+      'Wiz6 carries seven independent copies of the same 2192-byte 3D wall-rendering code — the dungeon-traversal original plus mirror copies in every overlay that draws over the corridor: NPC dialogue, chest encounter, three combat states, and dungeon-cast / use-item. Hand-synchronized constants across all seven.',
     body: (
       <>
         <ProseRow>
@@ -483,10 +483,11 @@ roll = rng(100) + penalty
             <tr><td><Code>wmele.ovr</Code></td><td>Combat-round redraw backdrop</td></tr>
             <tr><td><Code>wmexe.ovr</Code></td><td>Combat-action-execution backdrop</td></tr>
             <tr><td><Code>wpops.ovr</Code></td><td>Combat-action-selection backdrop</td></tr>
+            <tr><td><Code>wdopt.ovr</Code></td><td>Dungeon cast-spell / use-item backdrop</td></tr>
           </tbody>
         </table>
         <ProseRow>
-          All six copies:
+          All seven copies:
         </ProseRow>
         <ul className={styles.bullets}>
           <li>Read the same wall-bitmaps at <Code>*0x4faa + 0x43a</Code> and <Code>+0x49a</Code>.</li>
@@ -495,17 +496,17 @@ roll = rng(100) + penalty
         </ul>
         <ProseRow>
           The constants aren't shared via a header or data table — they're
-          hand-copied into all six files. Any tweak to wmaze's wall
-          positions would silently desync the other five views unless
+          hand-copied into all seven files. Any tweak to wmaze's wall
+          positions would silently desync the other six views unless
           someone hand-edited every copy. The original developers almost
           certainly noticed this and just lived with it: maybe the cost of
-          overlay-to-overlay code sharing was higher than the cost of six
-          synchronized copies, on a platform where every byte of overlay
-          space was budgeted.
+          overlay-to-overlay code sharing was higher than the cost of
+          seven synchronized copies, on a platform where every byte of
+          overlay space was budgeted.
         </ProseRow>
         <Aside title="The port's chance">
           We can do better here than the original. The wall-render math
-          should live in <Code>@wiz6/parser</Code> exactly once; the six
+          should live in <Code>@wiz6/parser</Code> exactly once; the seven
           overlay contexts just call into it. No drift possible.
         </Aside>
       </>
@@ -1064,6 +1065,161 @@ else:
       { label: 'palette-discovery.md', href: '/explore/docs/re/palette-discovery.md' },
       { label: 'palette-loads.json', href: '/explore/docs/re/findings/palette-loads.json' },
       { label: 'palette calibration tool', href: '/explore/calibrate' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'items-as-dungeon-keys',
+    title: 'Items Only Do Anything At Scripted Dungeon Cells',
+    tags: ['dialogue', 'design-choice', 'undocumented'],
+    pitch:
+      'Wiz6 has no global "use" action for items. The silver key does nothing until you\'re standing on the silver-locked door. Use-item triggers fire only when the current cell has a matching type-0x13 marker — anywhere else, nothing happens.',
+    body: (
+      <>
+        <ProseRow>
+          You'd think the way to use an item in Wiz6 is to select it and
+          have something happen. That's not how it works. The item-use
+          handler in <Code>wdopt_dungeon_item_trigger_check</Code> at{' '}
+          <Code>0x1ffd</Code> validates first:
+        </ProseRow>
+        <CodeBlock>
+{`for each entry in current_cell's spell-cell trigger table:
+    if entry.type == 0x13 and entry.item_id == selected_item_id:
+        setbit(*0x363c * 10 + 0x4eec, entry.bit)   ; fire cell effect
+        play_sound(entry.sound_id)
+        return SUCCESS
+return NO_EFFECT`}
+        </CodeBlock>
+        <ProseRow>
+          The silver key only works at the silver-locked door because only
+          that cell carries a type-0x13 entry referencing the silver key's
+          item ID. The healing potion at full HP does nothing visible — the
+          dungeon-cast layer doesn't care that you've selected a healing
+          item if no scripted trigger matches. Identify scrolls outside of
+          the appropriate identification room are inert.
+        </ProseRow>
+        <ProseRow>
+          The activation bitmap at <Code>*0x363c * 10 + 0x4eec</Code> is
+          per-scenario-zone (the multiplication keys it to current-zone
+          index). Once a trigger fires, the bit is set — re-using the same
+          item on the same cell does nothing. The silver key opens the
+          door <em>once</em>, then becomes inert dead weight in your
+          inventory.
+        </ProseRow>
+        <Aside title="Design takeaway">
+          This is a tight content-design tool, not just an engineering
+          quirk. The designers can place an item-triggered event without
+          worrying about the player using the item somewhere else. The
+          cost is a player mental model that's harder to develop: trying
+          items at every door eventually teaches you which items are
+          context-keyed, but the game never tells you.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wdopt-dungeon-cast-use.md', href: '/explore/docs/re/wdopt-dungeon-cast-use.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'spell-picker-duplicated',
+    title: 'There Are Two Independent Copies Of The Spell-School Picker',
+    tags: ['combat', 'engine', 'quirk', 'undocumented'],
+    pitch:
+      'The in-combat spell picker (wpops) and the in-dungeon spell picker (wdopt) are independently-drifted copies of the same code. Common ancestor, divergent grids, divergent exit semantics. Maintaining both was clearly the path of least resistance.',
+    body: (
+      <>
+        <ProseRow>
+          When you cast a spell in Wiz6, you go through a spell-school
+          picker — six schools in a grid, with the schools you don't have
+          spells in greyed out. Same UI in combat, same UI in the dungeon.
+        </ProseRow>
+        <ProseRow>
+          Except it's not the same UI. There are <strong>two independent
+          copies</strong> of the spell-school picker in the binary:
+        </ProseRow>
+        <ul className={styles.bullets}>
+          <li><Code>wpops_ui_picker_spell</Code> at <Code>0x1ee6</Code> — used in combat (state 0x0c).</li>
+          <li><Code>wdopt_ui_picker_spell</Code> at <Code>0x2699</Code> — used in the dungeon (state 0x13).</li>
+        </ul>
+        <ProseRow>
+          They look like they descend from a common ancestor — both
+          present six schools, both filter against the caster's known-
+          spells bitmap, both gate power-level selection. But they've{' '}
+          <strong>drifted</strong>:
+        </ProseRow>
+        <ul className={styles.bullets}>
+          <li>Rendering order is slightly different.</li>
+          <li>Exit semantics differ (combat returns to action-picker; dungeon returns to wmaze).</li>
+          <li>The cancel option lives at a different grid slot in each.</li>
+        </ul>
+        <ProseRow>
+          Whichever copy was authored first, the other was probably
+          duplicated from it with intent-to-share that never happened.
+          Both copies got maintained independently from then on. Players
+          noticing the small UX inconsistencies between in-combat and
+          in-dungeon spell casting were noticing real divergence.
+        </ProseRow>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wpops-action-selection.md', href: '/explore/docs/re/wpops-action-selection.md' },
+      { label: 'wdopt-dungeon-cast-use.md', href: '/explore/docs/re/wdopt-dungeon-cast-use.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'dungeon-overcast-backfire',
+    title: 'Overcasting In The Dungeon Doesn\'t Fail — It Hits You With A Status Effect',
+    tags: ['combat', 'design-choice', 'quirk'],
+    pitch:
+      'In combat, an unaffordable spell silently fizzles. In the dungeon, the same overcast applies a random status effect (6 + rng(6)) to the caster. Same engine, different consequence — the asymmetry is intentional.',
+    body: (
+      <>
+        <ProseRow>
+          Wiz6 spells can cost HP, not just MP — some of the more powerful
+          ones drain both. The cast handlers deduct the cost from the
+          caster's pool and check whether it would drop the caster below
+          zero. The interesting part is what happens then.
+        </ProseRow>
+        <ProseRow>
+          <strong>In combat</strong> (via <Code>wmexe</Code>): the spell
+          silently fizzles. The mana / HP pool goes negative due to the
+          underflow bug{' '}
+          (see <a href="#spell-picker-shows-unaffordable">that card</a>);
+          the caster suffers no visible consequence beyond the wasted
+          action.
+        </ProseRow>
+        <ProseRow>
+          <strong>In the dungeon</strong> (via <Code>wdopt</Code>): the
+          engine takes a different path. At <Code>wdopt_state_13_cast_spell</Code>{' '}
+          (0x39cc):
+        </ProseRow>
+        <CodeBlock>
+{`if (char.hp - spell_hp_cost < 0):
+    char.status (+0x450c) = 6 + rng(6)   ; status code 6..11`}
+        </CodeBlock>
+        <ProseRow>
+          The caster gets a random status effect — code 6..11 (the exact
+          mapping is unmapped but likely paralysis / confusion / stun /
+          poison-of-some-sort). The caster <em>survives</em> the attempt
+          but is temporarily incapacitated.
+        </ProseRow>
+        <Aside title="Why the asymmetry">
+          The combat path can afford to be lenient — failed casts there
+          cost a round, which is already a serious penalty. The dungeon
+          path has to <em>actively</em> punish overcasts because the
+          alternative is reload-spamming until the cast lucks into a
+          favorable RNG outcome. The dungeon fizzle penalty makes
+          save-scumming a low-HP cast harder than just retrying.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wdopt-dungeon-cast-use.md', href: '/explore/docs/re/wdopt-dungeon-cast-use.md' },
     ],
   },
 

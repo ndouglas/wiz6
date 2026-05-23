@@ -70,10 +70,31 @@ export const NOTE_INDEX: NoteIndexEntry[] = [
   },
   {
     id: 'npc-duplicated-renderer',
-    title: 'The 3D Wall Renderer Lives In Six Overlays',
+    title: 'The 3D Wall Renderer Lives In Seven Overlays',
     pitch:
-      'Wiz6 carries six independent copies of the same 2192-byte 3D wall-rendering code — dungeon-traversal original plus mirror copies in the NPC dialogue, chest encounter, combat loop, combat-action-execution, and combat-action-selection overlays. Constants hand-copied across all six.',
+      'Wiz6 carries seven independent copies of the same 2192-byte 3D wall-rendering code — the dungeon-traversal original plus mirror copies in every overlay that draws over the corridor: NPC dialogue, chest encounter, three combat states, and dungeon-cast / use-item. Hand-synchronized constants across all seven.',
     tags: ['dialogue', 'treasure', 'combat', 'engine', 'quirk', 'maze'],
+  },
+  {
+    id: 'items-as-dungeon-keys',
+    title: 'Items Only Do Anything At Scripted Dungeon Cells',
+    pitch:
+      'Wiz6 has no global "use" action for items. The silver key does nothing until you\'re standing on the silver-locked door. Use-item triggers fire only when the current cell has a matching type-0x13 marker — anywhere else, nothing happens.',
+    tags: ['dialogue', 'design-choice', 'undocumented'],
+  },
+  {
+    id: 'spell-picker-duplicated',
+    title: 'There Are Two Independent Copies Of The Spell-School Picker',
+    pitch:
+      'The in-combat spell picker (wpops) and the in-dungeon spell picker (wdopt) are independently-drifted copies of the same code. Common ancestor, divergent grids, divergent exit semantics.',
+    tags: ['combat', 'engine', 'quirk', 'undocumented'],
+  },
+  {
+    id: 'dungeon-overcast-backfire',
+    title: 'Overcasting In The Dungeon Doesn\'t Fail — It Hits You With A Status Effect',
+    pitch:
+      'In combat, an unaffordable spell silently fizzles. In the dungeon, the same overcast applies a random status effect (6 + rng(6)) to the caster. Same engine, different consequence — the asymmetry is intentional.',
+    tags: ['combat', 'design-choice', 'quirk'],
   },
   {
     id: 'trap-misidentify-equals-critical-fail',

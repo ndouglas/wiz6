@@ -156,7 +156,8 @@ wroot.exe drives a state-machine loop in `ovl_install_table` @ wroot 0x132d that
 | 0x0e (14)               | `wmele.ovr` 0x2ceb  | Combat: end-of-round cleanup             |
 | 0x0f (15)               | `wtrea.ovr`         | Post-combat treasure roll + distribution |
 | 0x11 (17)               | `wpcvw.ovr` 0x6804  | Character view (interactive)             |
-| 0x13 (19) / 0x14 (20)   | `wdopt.ovr` (unnamed) | Likely two-stage options or save/load dialog; discovered via state-machine grep during the wmexe pass |
+| 0x13 (19)               | `wdopt.ovr` 0x39cc  | Dungeon: cast spell (out of combat). Returns to wmaze state 5 |
+| 0x14 (20)               | `wdopt.ovr` 0x32fc  | Dungeon: use item (out of combat). Returns to wmaze state 5 |
 | 0x15 (21)               | `wtrea.ovr`         | In-dungeon chest encounter (open / inspect / disarm / spell / leave) |
 | 0x16 (22)               | `wpcvw.ovr` 0xb4ba  | Post-combat bulk level-up                |
 
