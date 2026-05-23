@@ -21,12 +21,21 @@ export const EGA_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
  *   5   BRIGHT YELLOW  (was magenta)      — credits text, gem/fountain body
  *   6   BRIGHT GREEN   (was brown)        — succubus/demon skin (mon45 Rebecca)
  *   9   LIGHT GRAY     (was light blue)   — wall stippling highlight pixels
- *   10  BLUE           (was light green)  — mon08 water
+ *   10  BLUE           (was light green)  — mon08 water (deeper shade)
  *   13  BROWN          (was bright magenta) — fountain accents
- *   14  GREEN          (was bright yellow) — vines / moss
+ *   14  GREEN          (was bright yellow) — vines / moss (dragonsc foliage)
  *
  * Logical 15 (= "all 4 planes set" sentinel) is treated as transparent
  * by the renderer to support sprite-blit compositing.
+ *
+ * Known regression: **mon57 (spaceship) body should be blue but renders
+ * as green** because it uses logical index 2 (standard EGA green) which
+ * the engine reprograms to blue at runtime via the EGA Attribute
+ * Controller for that scene. The same problem affects mon08's statue
+ * water flow (multiple shades of blue, one renders as green). A global
+ * palette override for index 2 would fix the ship but break dragonsc
+ * foliage + other scenes that legitimately want green. The proper fix
+ * is per-scene palette switching — see TODO at the file bottom.
  *
  * The two static palette tables we located in wroot.exe (file offsets
  * 0x2043 and 0x2054, both loaded via INT 10h AX=1002h) don't match these
@@ -39,7 +48,7 @@ export const EGA_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
 export const WIZ6_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
   [0x00, 0x00, 0x00], // 0:  black                   (standard EGA)
   [0xff, 0xff, 0xff], // 1:  WHITE                   (override — was blue)
-  [0x00, 0xaa, 0x00], // 2:  green                   (standard EGA)
+  [0x00, 0xaa, 0x00], // 2:  green                   (standard EGA; mon57 wants blue here)
   [0x00, 0xaa, 0xaa], // 3:  cyan                    (standard EGA)
   [0xaa, 0x00, 0x00], // 4:  red                     (standard EGA — chest body shadow)
   [0xff, 0xff, 0x55], // 5:  BRIGHT YELLOW           (override — was magenta)
@@ -51,9 +60,15 @@ export const WIZ6_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
   [0x55, 0xff, 0xff], // 11: light cyan              (standard EGA)
   [0xff, 0x55, 0x55], // 12: bright red              (standard EGA — chest body highlight)
   [0xaa, 0x55, 0x00], // 13: BROWN                   (override — was bright magenta)
-  [0x00, 0xaa, 0x00], // 14: GREEN                   (override — was bright yellow)
+  [0x00, 0xaa, 0x00], // 14: GREEN                   (override — was bright yellow; vines)
   [0xff, 0xff, 0xff], // 15: white                   (unused — rendered as transparent)
 ];
+
+// TODO: per-scene palette switching. Wiz6 reprograms the EGA Attribute
+// Controller per scene via INT 10h AX=1002h (verified at wroot 0x209B and
+// 0x2105). Until we trace which palette is active during each .pic load,
+// scenes that reprogram logical index 2 → blue (mon57 spaceship, mon08
+// statue water) render with green where blue is intended.
 
 export interface RenderedSprite {
   /** Sprite width in pixels (descriptor.width * 8). */
