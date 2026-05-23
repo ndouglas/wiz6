@@ -135,10 +135,68 @@ When dispatching an RE subagent, include in the prompt:
 
 > **Deliverable:** write findings to `docs/re/findings/<topic>.json` per the schema in `docs/re/findings/README.md`. Do NOT modify `docs/re/<format>.md` — the parent will promote findings after review.
 
+## Engine architecture — what we know
+
+### Overlay state machine
+
+wroot.exe drives a state-machine loop in `ovl_install_table` @ wroot 0x132d that reads a **game-state word at DGROUP `0x363a`** and loads whichever `.ovr` handles that state. Each overlay dispatches its own subset of states from its entry point at file offset `0x0c` (the byte before is a 12-byte overlay-link header).
+
+| State value | Handler overlay     | Purpose                                  |
+| ----------- | ------------------- | ---------------------------------------- |
+| 0           | `winit.ovr` 0x525   | Load disk headers (master.hdr/disk.hdr)  |
+| 1           | `winit.ovr` 0x9f3   | Title page + scrolling credits           |
+| 2           | `winit.ovr` 0xf43   | Load fonts/portraits + create UI windows |
+| 4           | `wbase.ovr`         | Main menu (MASTER OPTIONS)               |
+| 5/6/17      | `wmaze.ovr`         | Dungeon traversal                        |
+| 8           | `winit.ovr` 0xdf6   | Graveyard / total-party-kill recovery    |
+
+To transition, a handler writes the new state value to `*0x363a` and returns. The outer loop reloads the appropriate overlay.
+
+### Cross-overlay calls: the thunk-delta law (HIGH CONFIDENCE)
+
+```
+thunk_address = wroot_file_offset + 0xBA9C
+```
+
+Every cross-overlay call goes through a BSS function-pointer thunk at this offset. To resolve any `call [bss_offset]` indirect call in an overlay, subtract `0xBA9C` to get the wroot file offset, then look up the named function in `docs/re/wroot-functions.md` or `docs/re/findings/wroot-naming-pass.json`. Verified across `winit.ovr`, `wmaze.ovr`, and (transitively) `wbase.ovr`. **Tell every overlay-RE subagent about this.**
+
+Known sampled mappings (illustrative):
+- `0xbbb6` − `0xBA9C` = `0x11a` → `ui_window_create`
+- `0xe0df` − `0xBA9C` = `0x2643` → `kbd_check_with_filter`
+- `0xee85` − `0xBA9C` = `0x33e9` → `huffman_load_and_decompress` (the .pic decoder thunk)
+
+## RE caveats — common bug patterns
+
+Patterns we've been bitten by; tell every RE subagent to expect them.
+
+### Index-shaped fields may be 1-indexed
+
+In the credits scroll table, the `token` byte values (7, 8, 0xC, 1, 2, …, 6) turned out to be 1-indexed into `credits.pic` descriptors. Token `N` → descriptor `N-1`. Sentinel value 0 = "no token / end of list." Visual cross-check via the per-descriptor PNGs (`extracted/pics/<id>/desc-NN.png`) is the fastest validation.
+
+### Comparator direction is easy to misread
+
+When pseudocode includes `if (y < cap)` vs `if (y > cap)` or similar from disasm, the comparator (JL/JG/JLE/JGE) is easy to flip in a manual read. **Mark `confidence: low` on any comparator the disasm is ambiguous about**, and recommend DOSBox-X breakpoint verification before publishing. The credit-scroll clamp set + cull comparator in the winit RE pass were both wrong on first read — corrected via behavior verification during the port.
+
+### Wall-clock parity ≠ byte parity
+
+Engine *frame counts* and *increments* translate cleanly to the port. Engine *durations* don't — they're calibrated against the original CPU's busy-wait at boot (CRT delay calibration writes to `*(CS:0x1FE2)` and `*(CS:0x1FE4)`). On a 486DX/33 the effective tick rate was ~20 Hz, so a "60 Hz loop with 126 iterations" actually ran ~6 seconds wall-clock. DOSBox-X's `cycles=fixed` doesn't reproduce this faithfully. **Don't aim for wall-clock parity; aim for byte parity on the math and tune the per-frame interval to feel right.**
+
+### Coordinate conventions vary
+
+The credit-scroll table uses absolute screen pixels (320×200) even though a UI window is opened during init. But that may not generalize — combat windows, dialog windows, etc. may use window-relative coords. If positions look offset, try both interpretations.
+
+## Audio (Wiz6 sound system)
+
+Wiz6 supports **PC speaker, AdLib, and SoundBlaster** outputs. There is **no separate audio driver file** (no `*.drv` for audio — graphics-only); audio output is inline in `wroot.exe`, gated by the video-mode flag at `*0x4FC6` or similar.
+
+Sounds are minimal-fidelity effects: clicks, drags, clangs, the title-screen "clang." No music, no instrumental sample playback — just simple short tones / samples. Don't expect AdLib FM melodies. The `.snd` files at `original/sound00.snd` through `sound38.snd` (35 files total) hold the effect data; format appears Huffman-encoded (negative values count monotonically -1, -2, -3, …, classic tree-node representation).
+
+The play-sound entry point is at wroot `0x10AAA` (target of winit's `call 0xc546(N)` thunks). The parameter `N` (e.g., 4 for the title clang, 0xD for the second sound) is presumably an index into a sound-ID → filename table somewhere in wroot.
+
 ## Known partial / in-progress issues
 
 - **Per-scene palettes**: we ship one empirical palette with 7 overrides on standard EGA that matches the most common scenes. Other scenes (e.g. specific NPCs) may show slightly-off colors; per-scene palette selection deferred.
-- **Comprehensive function naming**: `wroot.exe` and the gameplay overlays have auto-generated `FUN_XXXX` names from Ghidra analysis. A comprehensive naming pass is the prerequisite for game-simulation work (combat math, dungeon, NPC, character) — schedule when starting simulation.
+- **Comprehensive function naming**: `wroot.exe` and the gameplay overlays have auto-generated `FUN_XXXX` names from Ghidra analysis. wroot, wmaze, and winit have had naming passes (~half coverage each). The combat / character / NPC / treasure overlays (`wmele.ovr`, `wpcmk.ovr`, `wpcvw.ovr`, `wmnpc.ovr`, `wtrea.ovr`) still need passes — schedule when starting simulation work on those subsystems.
 
 ## Where to look when stuck
 
