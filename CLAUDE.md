@@ -205,12 +205,14 @@ Sounds are minimal-fidelity effects: clicks, drags, clangs, the title-screen "cl
 
 **Play-sound entry** at wroot `0x10AAA` (target of overlays' `call 0xc546(N)` thunks). Parameter `N` indexes a runtime sound table at DGROUP `0x3344` (12-byte entries) which holds per-trigger settings (volume, etc.) backed by the same loaded `.snd` buffer.
 
-**Open audio issue** (in-progress): raw .snd files (tree_size=0; sound28/30/32/35) play correctly via /explore/sounds; Huffman files still sound like noise despite the decoder being verified against asm. Suggests a remaining playback-side transform we haven't traced (different ISR variant? per-table-entry post-processing? log-LUT applied selectively?). See open task tracker.
+**Status**: decoder is byte-correct and audible for both raw (tree_size=0) and Huffman variants. Verified against asm and by listening. Open per-sound questions (native rate per slot, fast-mode trigger, variable-port hardware) are tracked as `#Q-*` items in [`TODO.md`](TODO.md).
 
 ## Known partial / in-progress issues
 
-- **Per-scene palettes**: we ship one empirical palette with 7 overrides on standard EGA that matches the most common scenes. Other scenes (e.g. specific NPCs) may show slightly-off colors; per-scene palette selection deferred.
-- **Comprehensive function naming**: `wroot.exe` and the gameplay overlays have auto-generated `FUN_XXXX` names from Ghidra analysis. wroot, wmaze, and winit have had naming passes (~half coverage each). The combat / character / NPC / treasure overlays (`wmele.ovr`, `wpcmk.ovr`, `wpcvw.ovr`, `wmnpc.ovr`, `wtrea.ovr`) still need passes — schedule when starting simulation work on those subsystems.
+**Authoritative tracker: [`TODO.md`](TODO.md) at the repo root.** Stable numeric IDs (`#001`...), persists across sessions, edit by hand or via the Edit tool. The list below is a high-level summary; check `TODO.md` for the current open set, dependencies, and questions.
+
+- **Per-scene palettes** (#002): one empirical palette + 7 overrides; other scenes show off-colors.
+- **Overlay naming passes** (#003): `wmele.ovr`, `wpcmk.ovr`, `wpcvw.ovr`, `wmnpc.ovr`, `wtrea.ovr` still on `FUN_XXXX` names.
 
 ## Where to look when stuck
 
