@@ -193,9 +193,19 @@ The .snd decoder bug: decoded bytes had a centered distribution around 128, 32 d
 
 Wiz6 supports **PC speaker, AdLib, and SoundBlaster** outputs. There is **no separate audio driver file** (no `*.drv` for audio — graphics-only); audio output is inline in `wroot.exe`, gated by the video-mode flag at `*0x4FC6` or similar.
 
-Sounds are minimal-fidelity effects: clicks, drags, clangs, the title-screen "clang." No music, no instrumental sample playback — just simple short tones / samples. Don't expect AdLib FM melodies. The `.snd` files at `original/sound00.snd` through `sound38.snd` (35 files total) hold the effect data; format appears Huffman-encoded (negative values count monotonically -1, -2, -3, …, classic tree-node representation).
+Sounds are minimal-fidelity effects: clicks, drags, clangs, the title-screen "clang." No music, no instrumental sample playback — just simple short tones / samples. The `.snd` files at `original/sound00.snd` through `sound38.snd` (35 files total) hold the effect data.
 
-The play-sound entry point is at wroot `0x10AAA` (target of winit's `call 0xc546(N)` thunks). The parameter `N` (e.g., 4 for the title clang, 0xD for the second sound) is presumably an index into a sound-ID → filename table somewhere in wroot.
+**Format** (verified against asm `huffman_decode_bitstream` @ wroot image 0x134D5, see [`docs/re/snd-format.md`](docs/re/snd-format.md)):
+- bytes 0..1: `tree_size` (u16 LE). If 0 → raw 8-bit PCM at bytes 2..end. Else huffman.
+- bytes 2..1+tree_size: huffman tree, 4 bytes/node = (left, right) signed i16. Top-bit-set = internal link; clear = leaf with low byte as sample.
+- bytes 2+tree_size..3+tree_size: `decoded_length` (u16 LE) — number of samples to emit.
+- bytes 4+tree_size..end: MSB-first bitstream.
+
+**Sample rate is constant**: `SND_SAMPLE_RATE_HZ = 10026` (engine sets PIT counter 0 to 0x48, fractional advance gives ~10 kHz effective). No per-file rate field on disk.
+
+**Play-sound entry** at wroot `0x10AAA` (target of overlays' `call 0xc546(N)` thunks). Parameter `N` indexes a runtime sound table at DGROUP `0x3344` (12-byte entries) which holds per-trigger settings (volume, etc.) backed by the same loaded `.snd` buffer.
+
+**Open audio issue** (in-progress): raw .snd files (tree_size=0; sound28/30/32/35) play correctly via /explore/sounds; Huffman files still sound like noise despite the decoder being verified against asm. Suggests a remaining playback-side transform we haven't traced (different ISR variant? per-table-entry post-processing? log-LUT applied selectively?). See open task tracker.
 
 ## Known partial / in-progress issues
 
