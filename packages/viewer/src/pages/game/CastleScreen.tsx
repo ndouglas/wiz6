@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PicSchema, EGA_DEFAULT, EGA_DEFAULT } from '@wiz6/data';
+import { PicSchema, EGA_DEFAULT } from '@wiz6/data';
 import {
   renderPicDescriptor,
   renderEgaScreen,
