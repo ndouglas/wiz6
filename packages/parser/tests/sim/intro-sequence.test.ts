@@ -163,15 +163,23 @@ describe('visibleScrollEntries: per-frame layout', () => {
     expect(visibleScrollEntries(0x200).find((v) => v.entryIndex === 0)!.y).toBe(3);
   });
 
-  it('unclamped entry (i>=3) slides through cap and culls when y < 0', () => {
+  it('credit panel (i in 3..7) slides from fieldB and culls at y < cap', () => {
     // Entry 3: appear=4, fieldB=0x90=144, cap=0x0d=13.
-    // Visible while y >= 0, i.e., delta <= 144, i.e., scrollPos <= 4 + 144 = 148.
+    // Visible while y >= cap=13. Once delta > 144-13 = 131 (scrollPos > 135), cull.
     expect(visibleScrollEntries(4).find((v) => v.entryIndex === 3)!.y).toBe(0x90);
     expect(visibleScrollEntries(50).find((v) => v.entryIndex === 3)!.y).toBe(0x90 - 46);
-    // Past cap (no clamp): still visible.
-    expect(visibleScrollEntries(140).find((v) => v.entryIndex === 3)!.y).toBe(0x90 - 136);
-    // Off-screen: culled.
+    // Still visible at cap (y == cap exactly).
+    expect(visibleScrollEntries(4 + 131).find((v) => v.entryIndex === 3)!.y).toBe(0x0d);
+    // Past cap: culled (doesn't peek above the logo area).
+    expect(visibleScrollEntries(4 + 132).some((v) => v.entryIndex === 3)).toBe(false);
     expect(visibleScrollEntries(200).some((v) => v.entryIndex === 3)).toBe(false);
+  });
+
+  it('entry 8 (copyright finale) clamps at cap and persists', () => {
+    // Entry 8: appear=152, fieldB=0x50=80, cap=0x50=80. Static at y=80 forever.
+    expect(visibleScrollEntries(152).find((v) => v.entryIndex === 8)!.y).toBe(0x50);
+    expect(visibleScrollEntries(200).find((v) => v.entryIndex === 8)!.y).toBe(0x50);
+    expect(visibleScrollEntries(0xff).find((v) => v.entryIndex === 8)!.y).toBe(0x50);
   });
 
   it('renders in back-to-front order (high index first)', () => {

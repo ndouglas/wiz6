@@ -195,9 +195,16 @@ export function visibleScrollEntries(scrollPos: number): VisibleEntry[] {
     if (e.appear > scrollPos) continue;
     const delta = scrollPos - e.appear;
     let y = e.fieldB - delta;
-    const isClamped = i < 3;
-    if (isClamped && y < e.cap) y = e.cap;
-    if (y < 0) continue;
+    // Clamped entries (Wizardry logo top/bottom, header decoration, and the
+    // final copyright finale) rest at cap and stay there.
+    const isClamped = i < 3 || i === 8;
+    if (isClamped) {
+      if (y < e.cap) y = e.cap;
+    } else {
+      // Unclamped entries (credit panels) hide once they've slid past cap —
+      // they disappear behind the logo area rather than peek out above it.
+      if (y < e.cap) continue;
+    }
     out.push({ entryIndex: i, descriptorIndex: e.token - 1, col: e.col, y });
   }
   return out;
