@@ -153,8 +153,8 @@ if rng(20) == 0:  bonus += 8   ;  another independent 1-in-20`}
       </>
     ),
     seeAlso: [
-      { label: 'wpcmk-character-creation.md', href: '/explore/docs/re/wpcmk-character-creation.md' },
-      { label: 'findings JSON', href: '/explore/docs/re/findings/wpcmk-naming-pass.json' },
+      { label: 'wpcmk-character-creation.md', href: '/explore/docs/wpcmk-character-creation.md' },
+      { label: 'findings JSON', href: '/explore/docs/findings/wpcmk-naming-pass.json' },
     ],
   },
 
@@ -199,7 +199,7 @@ if rng(20) == 0:  bonus += 8   ;  another independent 1-in-20`}
       </>
     ),
     seeAlso: [
-      { label: 'wpcvw-character-view.md', href: '/explore/docs/re/wpcvw-character-view.md' },
+      { label: 'wpcvw-character-view.md', href: '/explore/docs/wpcvw-character-view.md' },
     ],
   },
 
@@ -244,7 +244,7 @@ if rng(20) == 0:  bonus += 8   ;  another independent 1-in-20`}
       </>
     ),
     seeAlso: [
-      { label: 'wpcvw-character-view.md', href: '/explore/docs/re/wpcvw-character-view.md' },
+      { label: 'wpcvw-character-view.md', href: '/explore/docs/wpcvw-character-view.md' },
     ],
   },
 
@@ -294,7 +294,7 @@ while rng(2) == 0:
       </>
     ),
     seeAlso: [
-      { label: 'wpcvw-character-view.md', href: '/explore/docs/re/wpcvw-character-view.md' },
+      { label: 'wpcvw-character-view.md', href: '/explore/docs/wpcvw-character-view.md' },
     ],
   },
 
@@ -343,7 +343,7 @@ while rng(2) == 0:
       </>
     ),
     seeAlso: [
-      { label: 'wmnpc-npc-dialogue.md', href: '/explore/docs/re/wmnpc-npc-dialogue.md' },
+      { label: 'wmnpc-npc-dialogue.md', href: '/explore/docs/wmnpc-npc-dialogue.md' },
     ],
   },
 
@@ -387,7 +387,7 @@ while rng(2) == 0:
       </>
     ),
     seeAlso: [
-      { label: 'wmnpc-npc-dialogue.md', href: '/explore/docs/re/wmnpc-npc-dialogue.md' },
+      { label: 'wmnpc-npc-dialogue.md', href: '/explore/docs/wmnpc-npc-dialogue.md' },
     ],
   },
 
@@ -448,7 +448,7 @@ roll = rng(100) + penalty
       </>
     ),
     seeAlso: [
-      { label: 'wmnpc-npc-dialogue.md', href: '/explore/docs/re/wmnpc-npc-dialogue.md' },
+      { label: 'wmnpc-npc-dialogue.md', href: '/explore/docs/wmnpc-npc-dialogue.md' },
     ],
   },
 
@@ -512,9 +512,9 @@ roll = rng(100) + penalty
       </>
     ),
     seeAlso: [
-      { label: 'wmnpc-npc-dialogue.md', href: '/explore/docs/re/wmnpc-npc-dialogue.md' },
-      { label: 'wmaze-functions.md', href: '/explore/docs/re/wmaze-functions.md' },
-      { label: 'wtrea-treasure.md', href: '/explore/docs/re/wtrea-treasure.md' },
+      { label: 'wmnpc-npc-dialogue.md', href: '/explore/docs/wmnpc-npc-dialogue.md' },
+      { label: 'wmaze-functions.md', href: '/explore/docs/wmaze-functions.md' },
+      { label: 'wtrea-treasure.md', href: '/explore/docs/wtrea-treasure.md' },
     ],
   },
 
@@ -564,7 +564,7 @@ else:
       </>
     ),
     seeAlso: [
-      { label: 'wtrea-treasure.md', href: '/explore/docs/re/wtrea-treasure.md' },
+      { label: 'wtrea-treasure.md', href: '/explore/docs/wtrea-treasure.md' },
     ],
   },
 
@@ -620,7 +620,7 @@ else:
       </>
     ),
     seeAlso: [
-      { label: 'wtrea-treasure.md', href: '/explore/docs/re/wtrea-treasure.md' },
+      { label: 'wtrea-treasure.md', href: '/explore/docs/wtrea-treasure.md' },
     ],
   },
 
@@ -670,7 +670,7 @@ else:
       </>
     ),
     seeAlso: [
-      { label: 'wtrea-treasure.md', href: '/explore/docs/re/wtrea-treasure.md' },
+      { label: 'wtrea-treasure.md', href: '/explore/docs/wtrea-treasure.md' },
     ],
   },
 
@@ -720,8 +720,8 @@ while counter > 0:
       </>
     ),
     seeAlso: [
-      { label: 'wmexe-action-execution.md', href: '/explore/docs/re/wmexe-action-execution.md' },
-      { label: 'wmele-combat.md', href: '/explore/docs/re/wmele-combat.md' },
+      { label: 'wmexe-action-execution.md', href: '/explore/docs/wmexe-action-execution.md' },
+      { label: 'wmele-combat.md', href: '/explore/docs/wmele-combat.md' },
     ],
   },
 
@@ -763,7 +763,7 @@ while counter > 0:
       </>
     ),
     seeAlso: [
-      { label: 'wmexe-action-execution.md', href: '/explore/docs/re/wmexe-action-execution.md' },
+      { label: 'wmexe-action-execution.md', href: '/explore/docs/wmexe-action-execution.md' },
     ],
   },
 
@@ -815,7 +815,7 @@ while counter > 0:
       </>
     ),
     seeAlso: [
-      { label: 'wmexe-action-execution.md', href: '/explore/docs/re/wmexe-action-execution.md' },
+      { label: 'wmexe-action-execution.md', href: '/explore/docs/wmexe-action-execution.md' },
     ],
   },
 
@@ -871,7 +871,7 @@ while true:
       </>
     ),
     seeAlso: [
-      { label: 'wmexe-action-execution.md', href: '/explore/docs/re/wmexe-action-execution.md' },
+      { label: 'wmexe-action-execution.md', href: '/explore/docs/wmexe-action-execution.md' },
     ],
   },
 
@@ -917,7 +917,7 @@ while true:
       </>
     ),
     seeAlso: [
-      { label: 'wpops-action-selection.md', href: '/explore/docs/re/wpops-action-selection.md' },
+      { label: 'wpops-action-selection.md', href: '/explore/docs/wpops-action-selection.md' },
     ],
   },
 
@@ -960,7 +960,7 @@ while true:
       </>
     ),
     seeAlso: [
-      { label: 'wpops-action-selection.md', href: '/explore/docs/re/wpops-action-selection.md' },
+      { label: 'wpops-action-selection.md', href: '/explore/docs/wpops-action-selection.md' },
     ],
   },
 
@@ -1018,7 +1018,7 @@ else:
       </>
     ),
     seeAlso: [
-      { label: 'wpops-action-selection.md', href: '/explore/docs/re/wpops-action-selection.md' },
+      { label: 'wpops-action-selection.md', href: '/explore/docs/wpops-action-selection.md' },
     ],
   },
 
@@ -1062,8 +1062,8 @@ else:
       </>
     ),
     seeAlso: [
-      { label: 'palette-discovery.md', href: '/explore/docs/re/palette-discovery.md' },
-      { label: 'palette-loads.json', href: '/explore/docs/re/findings/palette-loads.json' },
+      { label: 'palette-discovery.md', href: '/explore/docs/palette-discovery.md' },
+      { label: 'palette-loads.json', href: '/explore/docs/findings/palette-loads.json' },
       { label: 'palette calibration tool', href: '/explore/calibrate' },
     ],
   },
@@ -1118,7 +1118,7 @@ return NO_EFFECT`}
       </>
     ),
     seeAlso: [
-      { label: 'wdopt-dungeon-cast-use.md', href: '/explore/docs/re/wdopt-dungeon-cast-use.md' },
+      { label: 'wdopt-dungeon-cast-use.md', href: '/explore/docs/wdopt-dungeon-cast-use.md' },
     ],
   },
 
@@ -1165,8 +1165,8 @@ return NO_EFFECT`}
       </>
     ),
     seeAlso: [
-      { label: 'wpops-action-selection.md', href: '/explore/docs/re/wpops-action-selection.md' },
-      { label: 'wdopt-dungeon-cast-use.md', href: '/explore/docs/re/wdopt-dungeon-cast-use.md' },
+      { label: 'wpops-action-selection.md', href: '/explore/docs/wpops-action-selection.md' },
+      { label: 'wdopt-dungeon-cast-use.md', href: '/explore/docs/wdopt-dungeon-cast-use.md' },
     ],
   },
 
@@ -1219,7 +1219,7 @@ return NO_EFFECT`}
       </>
     ),
     seeAlso: [
-      { label: 'wdopt-dungeon-cast-use.md', href: '/explore/docs/re/wdopt-dungeon-cast-use.md' },
+      { label: 'wdopt-dungeon-cast-use.md', href: '/explore/docs/wdopt-dungeon-cast-use.md' },
     ],
   },
 
@@ -1257,7 +1257,7 @@ return NO_EFFECT`}
       </>
     ),
     seeAlso: [
-      { label: 'startup-sequence.md', href: '/explore/docs/re/startup-sequence.md' },
+      { label: 'startup-sequence.md', href: '/explore/docs/startup-sequence.md' },
     ],
   },
 
@@ -1291,7 +1291,7 @@ return NO_EFFECT`}
       </>
     ),
     seeAlso: [
-      { label: 'wmaze-functions.md', href: '/explore/docs/re/wmaze-functions.md' },
+      { label: 'wmaze-functions.md', href: '/explore/docs/wmaze-functions.md' },
     ],
   },
 
@@ -1331,7 +1331,7 @@ return NO_EFFECT`}
       </>
     ),
     seeAlso: [
-      { label: 'wpcmk-character-creation.md', href: '/explore/docs/re/wpcmk-character-creation.md' },
+      { label: 'wpcmk-character-creation.md', href: '/explore/docs/wpcmk-character-creation.md' },
     ],
   },
 
@@ -1372,7 +1372,7 @@ return NO_EFFECT`}
       </>
     ),
     seeAlso: [
-      { label: 'snd-format.md', href: '/explore/docs/re/snd-format.md' },
+      { label: 'snd-format.md', href: '/explore/docs/snd-format.md' },
     ],
   },
 ];

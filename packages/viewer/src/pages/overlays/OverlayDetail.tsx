@@ -42,7 +42,7 @@ export function OverlayDetail() {
     let cancelled = false;
     setFindings(null);
     setError(null);
-    fetch(`/docs/re/findings/${manifest.findingsFile}`)
+    fetch(`/docs/findings/${manifest.findingsFile}`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json() as Promise<NamingPassFindings>;
@@ -247,12 +247,12 @@ export function OverlayDetail() {
             <h2>See also</h2>
             <ul className={styles.linksList}>
               <li>
-                <Link to={`/explore/docs/re/${manifest.docFile}`}>
+                <Link to={`/explore/docs/${manifest.docFile}`}>
                   📄 Canonical doc: <code>{manifest.docFile}</code>
                 </Link>
               </li>
               <li>
-                <a href={`/docs/re/findings/${manifest.findingsFile}`} target="_blank" rel="noreferrer">
+                <a href={`/docs/findings/${manifest.findingsFile}`} target="_blank" rel="noreferrer">
                   📦 Raw findings JSON: <code>{manifest.findingsFile}</code>
                 </a>
               </li>

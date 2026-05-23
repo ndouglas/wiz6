@@ -1,8 +1,8 @@
 /**
  * Manifest of every overlay/binary that has a published naming-pass findings
  * JSON. Add a new entry when a fresh overlay gets a naming pass. Slug is the
- * URL-visible identifier; findingsPath is the JSON served at /docs/re/findings/...;
- * docPath is the canonical prose doc served at /explore/docs/re/...
+ * URL-visible identifier; findingsPath is the JSON served at /docs/findings/...;
+ * docPath is the canonical prose doc served at /explore/docs/...
  */
 
 export interface OverlayManifestEntry {
@@ -11,9 +11,9 @@ export interface OverlayManifestEntry {
   label: string;
   /** One-line subtitle describing the overlay's role. */
   subtitle: string;
-  /** Findings JSON path under /docs/re/findings/ (e.g. "wmele-naming-pass.json"). */
+  /** Findings JSON path under /docs/findings/ (e.g. "wmele-naming-pass.json"). */
   findingsFile: string;
-  /** Canonical doc filename under /explore/docs/re/ (e.g. "wmele-combat.md"). */
+  /** Canonical doc filename under /explore/docs/ (e.g. "wmele-combat.md"). */
   docFile: string;
   /** Replay script under /tools/ghidra/scripts/ (not browsable; link is informational). */
   applyScript?: string;

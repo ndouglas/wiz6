@@ -22,7 +22,7 @@ export function OverlaysIndex() {
       const results = await Promise.all(
         OVERLAY_MANIFEST.map(async (m): Promise<OverlaySummary> => {
           try {
-            const res = await fetch(`/docs/re/findings/${m.findingsFile}`);
+            const res = await fetch(`/docs/findings/${m.findingsFile}`);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = (await res.json()) as NamingPassFindings;
             return {
