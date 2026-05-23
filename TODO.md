@@ -13,7 +13,7 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#017**
+Next free ID: **#018**
 
 ---
 
@@ -43,12 +43,17 @@ Next free ID: **#017**
   - **TL;DR**: three persistence layers (per-visitor roster + 6 save slots + curated static gallery). Our own zod schemas (`CharacterSchema`, `PartyMemberSchema`, `SaveSchema`, `RosterSchema`) in `@wiz6/data`. localStorage primary, manual download/upload for portability. RNG seed advisory. DOS `SAVEGAME.DBS` interop deferred to a bridge module (needs separate RE pass). Saves are character snapshots with optional roster back-references; saves remain loadable without the roster. Curated gallery (static `/public/gallery/characters.json`) seeds new visitors' rosters on first visit. Savegame + roster editors in the data explorer deferred.
   - **Implementation phases** (none on the critical path yet): schemas → encoder/decoder → save+roster storage → gallery seed → roster page → saves page. Phase 7 (DOS interop) + Phase 8 (editors) wait until the core ships.
 
-- #010 [open] — DOS↔TS A/B comparison harness
+- #010 [open] — DOS↔TS A/B comparison harness (now subsumed by #017)
   - Raw: "how do we maximize the ability to run the DOS version and the TS version and compare behavioral and graphical outputs?".
-  - **Open design question.** Today: DOSBox-X separately + manual screenshot diffing + `tools/parity/` for byte-level decoder validation.
-  - Possibilities to evaluate: side-by-side dev mode in the viewer (DOSBox-X embed via iframe / noVNC; probably hard); automated pixel-diff pipeline that captures canonical frames on both sides continuously; DOSBox-X state-replay harness (deterministic input → check engine memory at checkpoints); recording/playback of user input sessions for replay on both engines.
-  - Driving question: what's the friction users hit today when validating the port? Answer shapes the design.
+  - **Direction decided**: build a DOSBox-X MCP server that exposes the running engine to AI agents for live introspection. Browser-side human-driven introspection (the original "Tier 1" framing) is left as a future follow-up; the MCP server is more valuable for development right now. See #017.
   - Refs: `tools/parity/` (existing differential tooling), `tools/dosbox/wiz6.conf`.
+
+- #017 [open] — DOSBox-X MCP server (design done, implementation pending)
+  - **Design settled**: see [`docs/superpowers/specs/2026-05-23-dosbox-mcp.md`](docs/superpowers/specs/2026-05-23-dosbox-mcp.md).
+  - **TL;DR**: a Model Context Protocol server (new package `packages/wiz6-mcp/`, TypeScript) that exposes the running DOSBox-X emulator to AI agents as a set of typed tools. Lifecycle (`launch`, `kill`), control (`send_input`, `pause`, `step`, `run_until`), breakpoints (with symbol resolution from naming-pass JSONs), inspection (`read_memory`, `read_struct`, `read_palette_registers`, `get_state_machine`, `get_call_chain`), snapshots (`save_state`, `load_state`, `screenshot`). Struct schemas in `@wiz6/data` derived declaratively from the existing BSS field maps in naming-pass findings.
+  - **Bridge to DOSBox-X**: initial implementation drives the built-in debugger via stdin/stdout (universal, brittle output-parsing); later versions can swap in faster backends (OS memory poking, plugins).
+  - **First-payoff target**: answer `#Q-F` (when does the engine load `wiz6-main` / `wiz6-dungeon`) by setting breakpoints at wroot 0x209B and 0x2105 and playing through every game state.
+  - **10 implementation phases**: schemas → symbol resolver → DOSBox-X bridge (riskiest, do early) → MCP scaffold → lifecycle → control → inspection → breakpoints → snapshots → first-payoff experiment. Tracing deferred to v2.
 
 ---
 
