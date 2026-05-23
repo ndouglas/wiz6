@@ -11,7 +11,4 @@ Freeform jot pad. Add anything — bug, idea, half-baked thought, "remember to l
 
 ## Items
 
-- title/credits sound effects wrong (should be drag, explosion or whoosh, clang of steel-on-steel)
-- title "Wizardry" needs to linger a moment before everything starts scrolling up
-- how do we do savegame management for the public at large? local browser storage?
-- how do we maximize the ability to run the DOS version and the TS version and compare behavioral and graphical outputs?
+(none)
