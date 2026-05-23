@@ -18,10 +18,11 @@ export interface ExtractPicOpts {
 
 export function extractPic(opts: ExtractPicOpts): Pic {
   const bytes = new Uint8Array(readFileSync(opts.originalPath));
-  const pic = decodePic(bytes, {
+  const decoded = decodePic(bytes, {
     id: opts.id,
     sourceFile: basename(opts.originalPath),
   });
+  const pic: Pic = { ...decoded, palette: 'wiz6-dungeon' };
   mkdirSync(dirname(opts.outputPath), { recursive: true });
   writeFileSync(opts.outputPath, JSON.stringify(pic, null, 2));
 
