@@ -9,6 +9,7 @@ type Tag =
   | 'undocumented'
   | 'combat'
   | 'character-creation'
+  | 'character-progression'
   | 'palette'
   | 'audio'
   | 'maze'
@@ -110,6 +111,146 @@ if rng(20) == 0:  bonus += 8   ;  another independent 1-in-20`}
     seeAlso: [
       { label: 'wpcmk-character-creation.md', href: '/explore/docs/re/wpcmk-character-creation.md' },
       { label: 'findings JSON', href: '/explore/docs/re/findings/wpcmk-naming-pass.json' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'class-change-tax',
+    title: 'The Hidden Class-Change Tax',
+    tags: ['character-progression', 'design-choice', 'undocumented'],
+    pitch:
+      'Changing class costs you your level and your XP — that part is documented. The hidden cost is a saved old-level cap that throttles every stat, HP, and skill gain on the way back up.',
+    body: (
+      <>
+        <ProseRow>
+          When a Wiz6 character changes class, the engine takes three visible actions:
+          level reset to 1, XP wiped to zero, and a fresh class assigned. That's what
+          the manual tells you. What it <em>doesn't</em> tell you: the engine also
+          saves your previous level in <Code>*0x4597</Code>.
+        </ProseRow>
+        <ProseRow>
+          Six different functions consult that saved value:
+        </ProseRow>
+        <ul className={styles.bullets}>
+          <li>HP/SP regen (<Code>derived_hp_sp_regen</Code>)</li>
+          <li>AC recompute (<Code>derived_ac</Code>)</li>
+          <li>Level-up driver (<Code>level_up_apply</Code>)</li>
+          <li>Skill apply (<Code>skill_apply_growth</Code>)</li>
+          <li>Skill rolls (<Code>skill_roll_check</Code>)</li>
+          <li>Spell-list display (<Code>spell_list_render</Code>)</li>
+        </ul>
+        <ProseRow>
+          Each one throttles gains until your current level catches back up to the
+          saved old-level. So when you change class, you don't just lose your levels —
+          you grind through them a second time with massively reduced stat, HP, and
+          skill gains the entire way back up to where you used to be.
+        </ProseRow>
+        <Aside title="The takeaway">
+          Class change in Wiz6 is presented as a choice; the engine treats it as a
+          mistake. The undocumented tax is several times more punishing than the
+          visible cost. Players who change class at high level are paying for that
+          decision continuously, every level, for the duration of the catch-up grind.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wpcvw-character-view.md', href: '/explore/docs/re/wpcvw-character-view.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'faerie-tax',
+    title: 'The Faerie Race Pays a Penalty In Three Places',
+    tags: ['character-progression', 'design-choice', 'arbitrary'],
+    pitch:
+      'Faerie characters get a -2 AC bonus and a -1 level cap and a separate HP/SP regen penalty. The race is hard-coded into three independent engine paths.',
+    body: (
+      <>
+        <ProseRow>
+          Faerie is race index 5 in Wiz6's race table. Three different engine
+          functions check <Code>race == 5</Code> and apply special-case modifiers,
+          rather than reading the modifiers from a per-race data table:
+        </ProseRow>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Function</th>
+              <th>Effect for Faeries</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><Code>derived_ac</Code></td><td>AC -2 (better AC; this is the compensation)</td></tr>
+            <tr><td><Code>derived_hp_sp_regen</Code></td><td>Separate flat negative modifier on HP/SP gain</td></tr>
+            <tr><td>Level cap calc</td><td>-1 level cap relative to other races in the same class</td></tr>
+          </tbody>
+        </table>
+        <ProseRow>
+          Mechanically: small AC win, smaller HP pool, lower level cap. The race's
+          other attributes (raw stats, agility scaling, spell potential) have to
+          carry the player past the deficit.
+        </ProseRow>
+        <ProseRow>
+          The interesting bit is that this is <em>baked in</em>, not table-driven.
+          Other races' modifiers are looked up from per-race data; Faerie is special-
+          cased in three separate places. Likely an artifact of feature evolution —
+          the race got tuned post-data-format-freeze.
+        </ProseRow>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wpcvw-character-view.md', href: '/explore/docs/re/wpcvw-character-view.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'stat-creep-three-try-filter',
+    title: 'Why Your Last Attribute Creeps Up But Doesn\'t Lock',
+    tags: ['character-progression', 'design-choice', 'quirk'],
+    pitch:
+      'On level-up the stat roller picks 3 attributes with rng(7) and tries to bump them. When 6 of 7 are capped at 18, the last one bumps roughly 82% of the time. Hence the slow ascent, never the certain one.',
+    body: (
+      <>
+        <ProseRow>
+          Wiz6's stat increases on level-up are not deterministic and they don't
+          have a "you have N points to spend" UI. They roll. Here's the actual loop:
+        </ProseRow>
+        <CodeBlock>
+{`for k in 0..3:
+  i = rng(7)
+  if attr[i] < 18 and not seen[i]:
+    attr[i] += 1
+    seen[i] = true
+
+while rng(2) == 0:
+  retry one more attribute`}
+        </CodeBlock>
+        <ProseRow>
+          Three guaranteed attempts plus a Bernoulli tail (each retry has a 50%
+          chance to continue). The <Code>seen[]</Code> set prevents one stat from
+          getting bumped twice on the same level-up — once it's selected, it's out
+          of the pool for this level.
+        </ProseRow>
+        <ProseRow>
+          The interesting consequence: when 6 of your 7 attributes are capped at 18,
+          the one remaining gets selected with probability 3/7 ≈ 43% per pull. Over
+          3 pulls, that's ~82% chance per level of bumping the last attribute. So
+          late-game characters with one un-maxed stat see it creep upward most levels —
+          but not <em>every</em> level. The deliberately stochastic ascent is by
+          design.
+        </ProseRow>
+        <Aside title="And about that 'while rng(2) == 0'">
+          The tail loop terminates with probability 1, but it's a geometric
+          distribution — most rolls do nothing extra, but you'll occasionally see a
+          character get 5 or 6 attribute increases in a single level-up. Always
+          legal; always rare; never explained in the manual.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wpcvw-character-view.md', href: '/explore/docs/re/wpcvw-character-view.md' },
     ],
   },
 
@@ -320,6 +461,7 @@ const ALL_TAGS: Tag[] = [
   'undocumented',
   'combat',
   'character-creation',
+  'character-progression',
   'palette',
   'audio',
   'maze',
