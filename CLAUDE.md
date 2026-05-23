@@ -151,7 +151,7 @@ wroot.exe drives a state-machine loop in `ovl_install_table` @ wroot 0x132d that
 | 8                       | `winit.ovr` 0xdf6   | Graveyard / total-party-kill recovery    |
 | 0x0a (10)               | `wmele.ovr` 0x2d6d  | Combat: init encounter                   |
 | 0x0b (11)               | `wmele.ovr` 0x2b6a  | Combat: per-round redraw + monster attacks |
-| 0x0c (12)               | `wpops.ovr` (unnamed) | Combat: popup / action-queue step (between 0x0b and 0x0d) |
+| 0x0c (12)               | `wpops.ovr` 0x000e  | Combat: action SELECTION — party picker + monster-AI selection (party + monster pickers run; then transitions to wmexe for resolution) |
 | 0x0d (13)               | `wmexe.ovr` 0x2ccc  | Combat: action resolution — initiative-down-from-100 loop |
 | 0x0e (14)               | `wmele.ovr` 0x2ceb  | Combat: end-of-round cleanup             |
 | 0x0f (15)               | `wtrea.ovr`         | Post-combat treasure roll + distribution |

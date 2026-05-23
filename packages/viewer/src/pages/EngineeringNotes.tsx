@@ -455,10 +455,10 @@ roll = rng(100) + penalty
   // -------------------------------------------------------------------
   {
     id: 'npc-duplicated-renderer',
-    title: 'The 3D Wall Renderer Lives In Five Overlays',
+    title: 'The 3D Wall Renderer Lives In Six Overlays',
     tags: ['dialogue', 'treasure', 'combat', 'engine', 'quirk', 'maze'],
     pitch:
-      'Wiz6 carries five independent copies of the same 2192-byte 3D wall-rendering code — the dungeon-traversal original plus mirror copies in the NPC dialogue, chest encounter, combat loop, and combat-action-execution overlays. Constants hand-copied across all five.',
+      'Wiz6 carries six independent copies of the same 2192-byte 3D wall-rendering code — dungeon-traversal original plus mirror copies in the NPC dialogue, chest encounter, combat loop, combat-action-execution, and combat-action-selection overlays. Constants hand-copied across all six.',
     body: (
       <>
         <ProseRow>
@@ -482,10 +482,11 @@ roll = rng(100) + penalty
             <tr><td><Code>wtrea.ovr</Code></td><td>A chest UI is open over the corridor</td></tr>
             <tr><td><Code>wmele.ovr</Code></td><td>Combat-round redraw backdrop</td></tr>
             <tr><td><Code>wmexe.ovr</Code></td><td>Combat-action-execution backdrop</td></tr>
+            <tr><td><Code>wpops.ovr</Code></td><td>Combat-action-selection backdrop</td></tr>
           </tbody>
         </table>
         <ProseRow>
-          All five copies:
+          All six copies:
         </ProseRow>
         <ul className={styles.bullets}>
           <li>Read the same wall-bitmaps at <Code>*0x4faa + 0x43a</Code> and <Code>+0x49a</Code>.</li>
@@ -494,17 +495,17 @@ roll = rng(100) + penalty
         </ul>
         <ProseRow>
           The constants aren't shared via a header or data table — they're
-          hand-copied into all five files. Any tweak to wmaze's wall
-          positions would silently desync the other four views unless someone
-          hand-edited every copy. The original developers almost certainly
-          noticed this and just lived with it: maybe the cost of
-          overlay-to-overlay code sharing was higher than the cost of five
+          hand-copied into all six files. Any tweak to wmaze's wall
+          positions would silently desync the other five views unless
+          someone hand-edited every copy. The original developers almost
+          certainly noticed this and just lived with it: maybe the cost of
+          overlay-to-overlay code sharing was higher than the cost of six
           synchronized copies, on a platform where every byte of overlay
           space was budgeted.
         </ProseRow>
         <Aside title="The port's chance">
           We can do better here than the original. The wall-render math
-          should live in <Code>@wiz6/parser</Code> exactly once; the five
+          should live in <Code>@wiz6/parser</Code> exactly once; the six
           overlay contexts just call into it. No drift possible.
         </Aside>
       </>
@@ -870,6 +871,153 @@ while true:
     ),
     seeAlso: [
       { label: 'wmexe-action-execution.md', href: '/explore/docs/re/wmexe-action-execution.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'combat-back-reset-navigator',
+    title: 'Wiz6 Lets You Walk Back The Whole Combat Round',
+    tags: ['combat', 'design-choice'],
+    pitch:
+      'Action selection in combat is a stack, not a queue. You can press BACK to undo any character\'s pick and RESET to clear the whole round. Uncommon player-forgiveness UX for a 1990 CRPG.',
+    body: (
+      <>
+        <ProseRow>
+          When you pick actions for your party at the start of a combat
+          round, most contemporary CRPGs of the era committed each pick
+          immediately. Bard's Tale, Might & Magic, Wizardry I-IV — once you
+          pressed the action key for a character, that pick was locked.
+          Misclick on character #3 with a healing spell selected when you
+          meant attack? Live with it.
+        </ProseRow>
+        <ProseRow>
+          Wiz6 doesn't work that way. The action picker in{' '}
+          <Code>wpops.ovr</Code> maintains a per-character stack-frame
+          indexed by slot. The navigator UI supports:
+        </ProseRow>
+        <ul className={styles.bullets}>
+          <li><strong>BACK</strong> — undo the previous character's choice; the cursor moves back to them.</li>
+          <li><strong>RESET</strong> — clear every pick in the current round; restart from character 1.</li>
+        </ul>
+        <ProseRow>
+          Until every character has confirmed an action, the player can
+          revise earlier picks at any time. The implementation cost is
+          small — one extra per-character stack-frame in BSS — but the
+          player-experience consequence is significant: no rage-quitting
+          because you fat-fingered character #3.
+        </ProseRow>
+        <Aside title="Why this matters as a design choice">
+          This is a deliberate decision that contemporary games skipped to
+          save memory or development time. Wiz6 spent the bytes. The result
+          is a combat UX that feels modern in a way the rest of the game's
+          UI conspicuously doesn't.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wpops-action-selection.md', href: '/explore/docs/re/wpops-action-selection.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'spell-picker-shows-unaffordable',
+    title: 'The Spell Picker Shows Spells You Can\'t Afford',
+    tags: ['combat', 'design-choice', 'undocumented'],
+    pitch:
+      'When a caster picks SPELL in combat, the picker shows every spell they know — including ones they don\'t have mana for, rendered greyed. Picking a greyed spell still tries to cast it (and silently fails). Designed pedagogy: the player learns what spells exist by seeing them.',
+    body: (
+      <>
+        <ProseRow>
+          The naive UI: only show spells the caster has mana for. Cleaner,
+          shorter list, no wasted clicks. Wiz6 doesn't do this.
+        </ProseRow>
+        <ProseRow>
+          The combat spell picker shows <strong>every spell the character
+          knows</strong>. Spells the caster can't afford are rendered
+          greyed but remain selectable. Picking a greyed spell triggers a
+          cost check at action-execution time — and silently fails (or
+          pops up an error) if mana is insufficient.
+        </ProseRow>
+        <ProseRow>
+          This is <strong>designed pedagogy</strong>. A new Bishop with 20
+          MP can see "oh, I'll get Tiltowait at higher levels — that's the
+          end of the picker, that's what I'm working toward." Hiding
+          unaffordable spells would have been simpler and probably
+          cheaper to implement, but worse for the player's mental model of
+          their character's spell repertoire. Sir-Tech made the player-
+          knowledge choice over the UI-cleanliness choice.
+        </ProseRow>
+        <Aside title="A note on the underlying bug">
+          The cast-time mana check has{' '}
+          <a href="#two-palettes-never-used">an underflow bug</a> (no
+          clamp; can go negative). But the picker's display layer is
+          innocent of that bug — it just lets you select. The mana
+          accounting that breaks is downstream, in <Code>wmexe</Code>.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wpops-action-selection.md', href: '/explore/docs/re/wpops-action-selection.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'monster-prejudice-table',
+    title: 'Monsters Have A Three-Slot Grudge List That Sometimes Targets Each Other',
+    tags: ['combat', 'design-choice', 'quirk'],
+    pitch:
+      'Every monster type has a 3-byte "prejudice" table identifying other monster types it likes to target. The target picker rolls a slot and may fire on another monster group instead of the party. That\'s why mixed encounters sometimes turn into intra-monster brawls.',
+    body: (
+      <>
+        <ProseRow>
+          Each monster type in Wiz6 has a 3-byte field at offset{' '}
+          <Code>+0x80..+0x82</Code> in its data record. Each byte is
+          either zero (target the party) or another monster type ID
+          (target a group of that type if present). Call it the prejudice
+          table.
+        </ProseRow>
+        <ProseRow>
+          When a monster picks a target, the engine runs:
+        </ProseRow>
+        <CodeBlock>
+{`slot = rng(3)               ; pick one of the three prejudice slots
+if prejudice[slot] == 0:
+    target = party            ; default behavior
+else:
+    target = first_present_group_of_type(prejudice[slot])
+    if target is None:
+        target = party        ; fallback
+`}
+        </CodeBlock>
+        <ProseRow>
+          So if encounters spawn multiple monster types and at least one
+          type's prejudice table references another <em>present</em> type,
+          those monsters will start swinging at each other instead of the
+          party. Players who've seen the orcs gang up on the demon, or
+          the dragons turn on the rogues, were watching the prejudice
+          table at work.
+        </ProseRow>
+        <ProseRow>
+          Mechanically this is a passive "let the enemies fight"
+          opportunity — bringing a mixed group of monsters together can
+          sometimes thin them for you. The mechanic isn't documented, but
+          it's discoverable: if you keep seeing one type of monster die
+          first without your party touching it, you're seeing prejudice.
+        </ProseRow>
+        <Aside title="A latent infinite-loop risk">
+          If a monster's prejudice table is all zeros — never happens with
+          shipped data, but possible in modded scenarios — the target
+          loop has no termination guarantee in some code paths. The
+          shipped game presumably avoids the case, but the bug is
+          structurally present.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wpops-action-selection.md', href: '/explore/docs/re/wpops-action-selection.md' },
     ],
   },
 

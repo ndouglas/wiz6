@@ -77,6 +77,14 @@ export const OVERLAY_MANIFEST: OverlayManifestEntry[] = [
     applyScript: 'apply_wmnpc_names.py',
   },
   {
+    slug: 'wpops',
+    label: 'wpops.ovr',
+    subtitle: 'Combat action selection (party + monster-AI pickers) — state 0x0c',
+    findingsFile: 'wpops-naming-pass.json',
+    docFile: 'wpops-action-selection.md',
+    applyScript: 'apply_wpops_names.py',
+  },
+  {
     slug: 'wpcmk',
     label: 'wpcmk.ovr',
     subtitle: 'Character creation — library overlay called from wbase main-menu slot 5',
