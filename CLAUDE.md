@@ -139,7 +139,7 @@ When dispatching an RE subagent, include in the prompt:
 
 ### Overlay state machine
 
-wroot.exe drives a state-machine loop in `ovl_install_table` @ wroot 0x132d that reads a **game-state word at DGROUP `0x363a`** and loads whichever `.ovr` handles that state. Each overlay dispatches its own subset of states from its entry point. Overlay header sizes vary: `winit.ovr` is 12 bytes (entry at file 0x0c); `wbase.ovr` and `wmele.ovr` are 14 bytes (entry at file 0x0e).
+wroot.exe drives a state-machine loop in `ovl_install_table` @ wroot 0x132d that reads a **game-state word at DGROUP `0x363a`** and loads whichever `.ovr` handles that state. Each overlay dispatches its own subset of states from its entry point. Overlay header sizes vary: `winit.ovr` is 12 bytes (entry at file 0x0c); `wbase.ovr` and `wmele.ovr` are 14 bytes (entry at file 0x0e); `wpcmk.ovr` is 16 bytes (entry at file 0x10) and is a **library** rather than a state handler — its dispatch stub is a no-op that returns to state 4; its UI is invoked via cross-overlay calls from wbase main-menu slot 5.
 
 | State value (hex / dec) | Handler overlay     | Purpose                                  |
 | ----------------------- | ------------------- | ---------------------------------------- |
