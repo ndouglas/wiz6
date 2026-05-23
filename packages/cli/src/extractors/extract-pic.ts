@@ -5,7 +5,7 @@ import {
   renderPicDescriptor,
   concatenatePicSegments,
 } from '@wiz6/parser';
-import { WIZ6_MAIN, type Pic } from '@wiz6/data';
+import { EGA_DEFAULT, type Pic } from '@wiz6/data';
 import { encodePngRgba, encodeContactSheetPng } from '../lib/png.js';
 
 export interface ExtractPicOpts {
@@ -22,13 +22,14 @@ export function extractPic(opts: ExtractPicOpts): Pic {
     id: opts.id,
     sourceFile: basename(opts.originalPath),
   });
-  // wiz6-main is the bright everyday-UI palette (loaded at wroot.exe 0x209B).
-  // Almost every .pic — credits, main menu, monsters, NPCs — is drawn while
-  // wiz6-main is active. The other engine palette (wiz6-dungeon, blue-leaning)
-  // uses dimmer +85-only color combinations and is reserved for the dungeon-
-  // corridor view. If specific .pic ids turn out to be drawn under wiz6-dungeon,
-  // override per-id here.
-  const pic: Pic = { ...decoded, palette: 'wiz6-main' };
+  // Default palette for .pic sprites is ega-default (BIOS-default EGA palette).
+  // The .pic decoder permutes file bit-patterns to standard EGA palette indices
+  // via EGA_FILE_INDEX_PERMUTATION before lookup; under that permutation the
+  // BIOS-default palette is what's active when Wiz6 actually draws sprites.
+  // The two engine-loaded palettes (wiz6-main, wiz6-dungeon) remain in the
+  // catalog but are not used by the standard sprite render path; if specific
+  // .pic ids turn out to need them, override per-id here.
+  const pic: Pic = { ...decoded, palette: 'ega-default' };
   mkdirSync(dirname(opts.outputPath), { recursive: true });
   writeFileSync(opts.outputPath, JSON.stringify(pic, null, 2));
 
@@ -36,7 +37,7 @@ export function extractPic(opts: ExtractPicOpts): Pic {
     const buffer = concatenatePicSegments(pic.segments);
     const pngDir = join(dirname(opts.outputPath), opts.id);
     mkdirSync(pngDir, { recursive: true });
-    const sprites = pic.descriptors.map((d) => renderPicDescriptor(d, buffer, WIZ6_MAIN));
+    const sprites = pic.descriptors.map((d) => renderPicDescriptor(d, buffer, EGA_DEFAULT));
     for (let i = 0; i < sprites.length; i++) {
       const sprite = sprites[i]!;
       const padded = String(i).padStart(2, '0');

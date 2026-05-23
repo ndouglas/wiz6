@@ -1,5 +1,6 @@
 import type { EgaScreen, Palette } from '@wiz6/data';
 import type { RenderedSprite } from './pic-render.js';
+import { EGA_FILE_INDEX_PERMUTATION } from './ega-permutation.js';
 
 /**
  * Per-plane source-coordinate transform for the 32 KB EGA screen files.
@@ -36,19 +37,6 @@ function bitAt(plane: readonly number[], width: number, srcX: number, srcY: numb
   const bitIdx = 7 - (srcX & 7);
   return ((plane[byteIdx] ?? 0) >> bitIdx) & 1;
 }
-
-/**
- * Wiz6 .ega files store pixels with a permuted index ordering; the engine
- * relies on the BIOS-default EGA palette being active when title-sequence
- * screens render, with the file's bit-pattern decoding to EGA-standard
- * indices via this permutation. Discovered in Stage 1f.2 by inverting the
- * pixel-to-bit-pattern mapping captured from DOSBox-X.
- *
- * Table: file bit-pattern 0x0..0xF → standard EGA palette index.
- */
-const EGA_FILE_INDEX_PERMUTATION = [
-  0, 15, 9, 5, 12, 14, 10, 11, 8, 7, 1, 13, 4, 6, 2, 3,
-] as const;
 
 /**
  * Render an EGA screen to row-major RGBA bytes.

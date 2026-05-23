@@ -48,16 +48,16 @@ describe('extractWfont4bpp', () => {
     }
   });
 
-  it("emits palette: 'wiz6-main' in the extracted JSON", () => {
+  it("emits palette: 'ega-default' in the extracted JSON", () => {
     const tmp = mkdtempSync(join(tmpdir(), 'wiz6-extract-wfont-4bpp-palette-'));
     try {
       const originalPath = join(tmp, 'wfont1.ega');
       const outputPath = join(tmp, 'wfont1.json');
       writeFileSync(originalPath, new Uint8Array(4096));
       const result = extractWfont4bpp({ originalPath, outputPath, id: 'wfont1' });
-      expect((result as { palette?: string }).palette).toBe('wiz6-main');
+      expect((result as { palette?: string }).palette).toBe('ega-default');
       const onDisk = JSON.parse(readFileSync(outputPath, 'utf8'));
-      expect(onDisk.palette).toBe('wiz6-main');
+      expect(onDisk.palette).toBe('ega-default');
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

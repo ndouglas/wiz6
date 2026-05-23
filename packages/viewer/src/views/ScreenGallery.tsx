@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { EgaScreen, Palette, PaletteName } from '@wiz6/data';
-import { PALETTE_CATALOG, WIZ6_MAIN } from '@wiz6/data';
+import { PALETTE_CATALOG, EGA_DEFAULT } from '@wiz6/data';
+import { EGA_FILE_INDEX_PERMUTATION } from '@wiz6/parser';
 import { loadEgaScreen } from '../data-loader.js';
 
 const ZOOM = 2;
@@ -52,14 +53,14 @@ interface Props {
   hideHeader?: boolean;
 }
 
-export function ScreenGallery({ url, palette = WIZ6_MAIN, hideHeader = false }: Props) {
+export function ScreenGallery({ url, palette = EGA_DEFAULT, hideHeader = false }: Props) {
   const [screen, setScreen] = useState<EgaScreen | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const resolvedPalette: Palette =
     typeof palette === 'string'
-      ? (PALETTE_CATALOG[palette] ?? PALETTE_CATALOG['wiz6-main']!)
+      ? (PALETTE_CATALOG[palette] ?? PALETTE_CATALOG['ega-default']!)
       : palette;
 
   useEffect(() => {
@@ -99,7 +100,8 @@ export function ScreenGallery({ url, palette = WIZ6_MAIN, hideHeader = false }: 
           colorIndex |= bit << p;
         }
         if (colorIndex === 0) continue;
-        const rgb = resolvedPalette.colors[colorIndex];
+        const egaIdx = EGA_FILE_INDEX_PERMUTATION[colorIndex]!;
+        const rgb = resolvedPalette.colors[egaIdx];
         if (!rgb) continue;
         ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
         ctx.fillRect(x * ZOOM, y * ZOOM, ZOOM, ZOOM);

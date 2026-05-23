@@ -15,7 +15,7 @@ export function extractWfont4bpp(opts: ExtractWfont4bppOpts): Font4bpp {
     id: opts.id,
     sourceFile: basename(opts.originalPath),
   });
-  const font: Font4bpp = { ...decoded, palette: 'wiz6-main' };
+  const font: Font4bpp = { ...decoded, palette: 'ega-default' };
   mkdirSync(dirname(opts.outputPath), { recursive: true });
   writeFileSync(opts.outputPath, JSON.stringify(font, null, 2));
   return font;

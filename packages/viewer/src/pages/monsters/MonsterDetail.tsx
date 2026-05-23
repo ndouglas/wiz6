@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ScenarioMonster } from '@wiz6/data';
-import { PicSchema, WIZ6_MAIN } from '@wiz6/data';
+import { PicSchema, EGA_DEFAULT } from '@wiz6/data';
 import { renderPicDescriptor, concatenatePicSegments } from '@wiz6/parser';
 import { PicCanvas } from '../../components/PicCanvas.js';
 import { useUrlState } from '../../lib/hooks/useUrlState.js';
@@ -38,7 +38,7 @@ function useMonsterSprite(picId: number): RenderedSprite | null {
         const firstDesc = pic.descriptors[0];
         if (!firstDesc) return;
         const decoded = concatenatePicSegments(pic.segments);
-        const r = renderPicDescriptor(firstDesc, decoded, WIZ6_MAIN);
+        const r = renderPicDescriptor(firstDesc, decoded, EGA_DEFAULT);
         if (!cancelled) setSprite(r);
       } catch {
         // Swallow — leave sprite null; page still renders.

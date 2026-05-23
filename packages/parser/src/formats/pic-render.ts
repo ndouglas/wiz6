@@ -1,4 +1,5 @@
 import type { PicDescriptor, Palette } from '@wiz6/data';
+import { EGA_FILE_INDEX_PERMUTATION } from './ega-permutation.js';
 
 export interface RenderedSprite {
   /** Sprite width in pixels (descriptor.width * 8). */
@@ -14,16 +15,19 @@ export interface RenderedSprite {
  * 8×8 cell: 8 bytes per plane × 4 planes, MSB-first within each plane byte).
  *
  * Plane order is [blue, green, red, intensity]: bytes 0..7 = plane B,
- * 8..15 = plane G, 16..23 = plane R, 24..31 = plane I. Color bit layout:
- * bit 0 = B, bit 1 = G, bit 2 = R, bit 3 = I.
+ * 8..15 = plane G, 16..23 = plane R, 24..31 = plane I. Bit assignment in the
+ * raw on-disk 4-bit pattern: bit 0 = B, bit 1 = G, bit 2 = R, bit 3 = I.
  *
- * Logical colors are looked up via the supplied `palette` (the game's custom
- * runtime palette loaded via INT 10h AX=1002h), rather than the vanilla EGA
- * hardware default; the values in the sprite data are "logical" colors that
- * the game's palette setup remaps to physical RGB colors before display.
+ * The on-disk bit pattern is NOT a direct palette index — Wiz6 stores sprite
+ * indices under the same permutation used by `.ega` screen files. We map the
+ * bit pattern through `EGA_FILE_INDEX_PERMUTATION` to obtain a standard EGA
+ * palette index, then look up RGB in the supplied palette. The default
+ * palette for sprite rendering is `EGA_DEFAULT` (the BIOS-default state the
+ * engine runs against for the asset-rendering scenes we currently support).
  *
- * Color 15 is treated as transparent (alpha=0) — matches what ega.drv's
- * sprite-blit code does when compositing sprites onto a scene.
+ * Color 15 (file bit-pattern, before permutation) is treated as transparent
+ * (alpha=0) — matches what ega.drv's sprite-blit code does when compositing
+ * sprites onto a scene.
  *
  * Skipped cells (mask bit unset) produce transparent regions and do NOT
  * advance the atlas pointer.
@@ -63,17 +67,18 @@ export function renderPicDescriptor(
           const bG = (planeG >> bit) & 1;
           const bR = (planeR >> bit) & 1;
           const bI = (planeI >> bit) & 1;
-          const color = bB | (bG << 1) | (bR << 2) | (bI << 3);
+          const fileIdx = bB | (bG << 1) | (bR << 2) | (bI << 3);
           const pxX = cx * 8 + col;
           const pxY = cy * 8 + row;
           const idx = (pxY * pxW + pxX) * 4;
-          if (color === 15) {
+          if (fileIdx === 15) {
             rgba[idx] = 0;
             rgba[idx + 1] = 0;
             rgba[idx + 2] = 0;
             rgba[idx + 3] = 0;
           } else {
-            const [r, g, b] = palette.colors[color]!;
+            const egaIdx = EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
+            const [r, g, b] = palette.colors[egaIdx]!;
             rgba[idx] = r;
             rgba[idx + 1] = g;
             rgba[idx + 2] = b;

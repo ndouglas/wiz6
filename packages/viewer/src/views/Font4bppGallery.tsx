@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Font4bpp, Palette, PaletteName } from '@wiz6/data';
-import { PALETTE_CATALOG, WIZ6_MAIN } from '@wiz6/data';
+import { PALETTE_CATALOG, EGA_DEFAULT } from '@wiz6/data';
+import { EGA_FILE_INDEX_PERMUTATION } from '@wiz6/parser';
 import { loadFont4bpp } from '../data-loader.js';
 
 const GLYPH_PX = 8;
@@ -24,14 +25,14 @@ interface Props {
   palette?: PaletteName | Palette;
 }
 
-export function Font4bppGallery({ url, palette = WIZ6_MAIN }: Props) {
+export function Font4bppGallery({ url, palette = EGA_DEFAULT }: Props) {
   const [font, setFont] = useState<Font4bpp | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const resolvedPalette: Palette =
     typeof palette === 'string'
-      ? (PALETTE_CATALOG[palette] ?? PALETTE_CATALOG['wiz6-main']!)
+      ? (PALETTE_CATALOG[palette] ?? PALETTE_CATALOG['ega-default']!)
       : palette;
 
   useEffect(() => {
@@ -67,8 +68,9 @@ export function Font4bppGallery({ url, palette = WIZ6_MAIN }: Props) {
       if (!glyph) continue;
       for (let r = 0; r < GLYPH_PX; r++) {
         for (let c = 0; c < GLYPH_PX; c++) {
-          const colorIndex = pixelColor(glyph, r, c);
-          const rgb = resolvedPalette.colors[colorIndex];
+          const fileIdx = pixelColor(glyph, r, c);
+          const egaIdx = EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
+          const rgb = resolvedPalette.colors[egaIdx];
           if (!rgb) continue;
           ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
           ctx.fillRect((gx + c) * ZOOM, (gy + r) * ZOOM, ZOOM, ZOOM);

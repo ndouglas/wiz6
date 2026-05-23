@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { WIZ6_MAIN } from '@wiz6/data';
+import { EGA_DEFAULT } from '@wiz6/data';
 import { renderPicDescriptor, concatenatePicSegments } from '@wiz6/parser';
 import { PicCanvas } from '../../components/PicCanvas.js';
 import { usePic } from '../../lib/hooks/usePic.js';
@@ -24,7 +24,7 @@ export function PicDetail() {
     [data],
   );
   const rendered = useMemo(
-    () => (data ? data.descriptors.map((d) => renderPicDescriptor(d, decodedBuffer, WIZ6_MAIN)) : []),
+    () => (data ? data.descriptors.map((d) => renderPicDescriptor(d, decodedBuffer, EGA_DEFAULT)) : []),
     [data, decodedBuffer],
   );
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { PicSchema, WIZ6_MAIN, EGA_DEFAULT } from '@wiz6/data';
+import { PicSchema, EGA_DEFAULT, EGA_DEFAULT } from '@wiz6/data';
 import {
   renderPicDescriptor,
   renderEgaScreen,
@@ -63,7 +63,7 @@ export function GameTitle() {
         if (text.trimStart().startsWith('<')) return;
         const pic = PicSchema.parse(JSON.parse(text));
         const decoded = concatenatePicSegments(pic.segments);
-        const rendered = pic.descriptors.map((d) => renderPicDescriptor(d, decoded, WIZ6_MAIN));
+        const rendered = pic.descriptors.map((d) => renderPicDescriptor(d, decoded, EGA_DEFAULT));
         if (!cancelled) setSpritesByDesc(rendered);
       } catch {
         /* leave null */
