@@ -185,6 +185,10 @@ Engine *frame counts* and *increments* translate cleanly to the port. Engine *du
 
 The credit-scroll table uses absolute screen pixels (320×200) even though a UI window is opened during init. But that may not generalize — combat windows, dialog windows, etc. may use window-relative coords. If positions look offset, try both interpretations.
 
+### Structurally-plausible output can still come from a misaligned decoder
+
+The .snd decoder bug: decoded bytes had a centered distribution around 128, 32 distinct quantized levels, mean diff ≈ 25 — every statistic looked like real 8-bit PCM. It sounded like noise because the decoder started 2 bytes too late (treated bytes 2-3 as a `rate_word` when they were actually the first word of the Huffman tree), misaligning every tree walk from the start. The format was also missing a 2-byte decoded-length prefix at the start of the bitstream, which was being consumed as 16 bits of garbage. We chased LUT transformations, sample-rate variants, unipolar-vs-bipolar interpretations, AdLib log-to-linear conversions — all post-process — for *hours* before checking the decoder against the engine's actual decode loop in asm. **When output looks structurally right but behaves wrong, suspect alignment in the decoder, not interpretation downstream.** Verify offsets against the engine's asm BEFORE exploring post-process transformations.
+
 ## Audio (Wiz6 sound system)
 
 Wiz6 supports **PC speaker, AdLib, and SoundBlaster** outputs. There is **no separate audio driver file** (no `*.drv` for audio — graphics-only); audio output is inline in `wroot.exe`, gated by the video-mode flag at `*0x4FC6` or similar.
