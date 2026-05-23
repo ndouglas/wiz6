@@ -151,9 +151,12 @@ wroot.exe drives a state-machine loop in `ovl_install_table` @ wroot 0x132d that
 | 8                       | `winit.ovr` 0xdf6   | Graveyard / total-party-kill recovery    |
 | 0x0a (10)               | `wmele.ovr` 0x2d6d  | Combat: init encounter                   |
 | 0x0b (11)               | `wmele.ovr` 0x2b6a  | Combat: per-round redraw + monster attacks |
+| 0x0c (12)               | `wpops.ovr` (unnamed) | Combat: popup / action-queue step (between 0x0b and 0x0d) |
+| 0x0d (13)               | `wmexe.ovr` 0x2ccc  | Combat: action resolution — initiative-down-from-100 loop |
 | 0x0e (14)               | `wmele.ovr` 0x2ceb  | Combat: end-of-round cleanup             |
 | 0x0f (15)               | `wtrea.ovr`         | Post-combat treasure roll + distribution |
 | 0x11 (17)               | `wpcvw.ovr` 0x6804  | Character view (interactive)             |
+| 0x13 (19) / 0x14 (20)   | `wdopt.ovr` (unnamed) | Likely two-stage options or save/load dialog; discovered via state-machine grep during the wmexe pass |
 | 0x15 (21)               | `wtrea.ovr`         | In-dungeon chest encounter (open / inspect / disarm / spell / leave) |
 | 0x16 (22)               | `wpcvw.ovr` 0xb4ba  | Post-combat bulk level-up                |
 

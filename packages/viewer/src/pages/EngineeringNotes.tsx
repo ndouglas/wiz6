@@ -455,19 +455,19 @@ roll = rng(100) + penalty
   // -------------------------------------------------------------------
   {
     id: 'npc-duplicated-renderer',
-    title: 'The 3D Wall Renderer Lives In Three Overlays',
-    tags: ['dialogue', 'treasure', 'engine', 'quirk', 'maze'],
+    title: 'The 3D Wall Renderer Lives In Five Overlays',
+    tags: ['dialogue', 'treasure', 'combat', 'engine', 'quirk', 'maze'],
     pitch:
-      'Wiz6 carries three independent copies of the same 2192-byte 3D wall-rendering code — one in the dungeon-traversal overlay (original), one in the NPC dialogue overlay, one in the chest-encounter overlay. Constants hand-copied across all three.',
+      'Wiz6 carries five independent copies of the same 2192-byte 3D wall-rendering code — the dungeon-traversal original plus mirror copies in the NPC dialogue, chest encounter, combat loop, and combat-action-execution overlays. Constants hand-copied across all five.',
     body: (
       <>
         <ProseRow>
-          When you talk to an NPC, the corridor stays drawn behind the dialogue
-          panel. When you open a chest, the corridor stays drawn behind the
-          chest UI. Neither overlay takes over the screen — they composite on
-          top of the dungeon view. To re-render that view from its own context,
-          each overlay ships <em>its own</em> copy of the 3D wall-rendering
-          code:
+          When you talk to an NPC, the corridor stays drawn behind the
+          dialogue panel. When you open a chest, the corridor stays drawn
+          behind the chest UI. When combat starts, the corridor stays drawn
+          behind the combat layout. None of these overlays take over the
+          screen — they composite on top of the dungeon view. So each one
+          ships <em>its own</em> copy of the 3D wall-rendering code:
         </ProseRow>
         <table className={styles.table}>
           <thead>
@@ -480,10 +480,12 @@ roll = rng(100) + penalty
             <tr><td><Code>wmaze.ovr</Code></td><td>Walking around the dungeon (the canonical copy)</td></tr>
             <tr><td><Code>wmnpc.ovr</Code></td><td>An NPC dialogue is open over the corridor</td></tr>
             <tr><td><Code>wtrea.ovr</Code></td><td>A chest UI is open over the corridor</td></tr>
+            <tr><td><Code>wmele.ovr</Code></td><td>Combat-round redraw backdrop</td></tr>
+            <tr><td><Code>wmexe.ovr</Code></td><td>Combat-action-execution backdrop</td></tr>
           </tbody>
         </table>
         <ProseRow>
-          All three copies:
+          All five copies:
         </ProseRow>
         <ul className={styles.bullets}>
           <li>Read the same wall-bitmaps at <Code>*0x4faa + 0x43a</Code> and <Code>+0x49a</Code>.</li>
@@ -492,17 +494,18 @@ roll = rng(100) + penalty
         </ul>
         <ProseRow>
           The constants aren't shared via a header or data table — they're
-          hand-copied into all three files. Any tweak to wmaze's wall positions
-          would silently desync the NPC-encounter and chest-encounter views
-          unless someone hand-edited all three. The original developers almost
-          certainly noticed this and just lived with it: maybe the cost of
-          overlay-to-overlay code sharing was higher than the cost of three
-          synchronized copies.
+          hand-copied into all five files. Any tweak to wmaze's wall
+          positions would silently desync the other four views unless someone
+          hand-edited every copy. The original developers almost certainly
+          noticed this and just lived with it: maybe the cost of
+          overlay-to-overlay code sharing was higher than the cost of five
+          synchronized copies, on a platform where every byte of overlay
+          space was budgeted.
         </ProseRow>
         <Aside title="The port's chance">
-          We can do better here than the original. The wall-render math should
-          live in <Code>@wiz6/parser</Code> exactly once; the three overlay
-          contexts just call into it. No drift possible.
+          We can do better here than the original. The wall-render math
+          should live in <Code>@wiz6/parser</Code> exactly once; the five
+          overlay contexts just call into it. No drift possible.
         </Aside>
       </>
     ),
@@ -666,6 +669,207 @@ else:
     ),
     seeAlso: [
       { label: 'wtrea-treasure.md', href: '/explore/docs/re/wtrea-treasure.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'combat-initiative-countdown',
+    title: 'Wiz6 Combat Is A 100-Down Initiative Tick, Not A Turn Queue',
+    tags: ['combat', 'design-choice', 'undocumented'],
+    pitch:
+      'Combat doesn\'t sort combatants by initiative and step through them in order. The engine counts down from 100, firing every combatant whose initiative byte matches the current tick — plus a random pause-jitter that staggers each action by 5–14 ticks. That\'s why Wiz6 fights feel like they\'re "winding up" rather than going around a table.',
+    body: (
+      <>
+        <ProseRow>
+          The naive understanding of combat: roll initiative, sort combatants
+          by it, take turns in order. That's not what Wiz6 does. The engine
+          runs:
+        </ProseRow>
+        <CodeBlock>
+{`counter = 100
+while counter > 0:
+    for each combatant in all 7 groups:
+        if combatant.initiative_byte == counter:
+            fire_action(combatant)
+    counter -= 1`}
+        </CodeBlock>
+        <ProseRow>
+          So initiative is a continuous-time index from 100 down to 0, and a
+          combatant whose initiative byte happens to land on 72 fires when
+          the counter hits 72. Two combatants on the same initiative fire on
+          the same tick.
+        </ProseRow>
+        <ProseRow>
+          The interesting part: when an action becomes eligible, the engine
+          introduces a random <strong>pause-jitter</strong>:
+        </ProseRow>
+        <CodeBlock>
+{`counter -= rng(10) - 5    ; ±5 tick jitter on top of the base init`}
+        </CodeBlock>
+        <ProseRow>
+          So the same character with init 72 fires somewhere between tick 67
+          and tick 77 from one round to the next. This is the engine reason
+          Wiz6 combat <em>feels</em> like a stagger of actions — not turns
+          marching past, but moments of action separated by anticipation —
+          even though no animation pause-loop explicitly causes it. The pause
+          is in the counter math itself.
+        </ProseRow>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wmexe-action-execution.md', href: '/explore/docs/re/wmexe-action-execution.md' },
+      { label: 'wmele-combat.md', href: '/explore/docs/re/wmele-combat.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'four-sub-action-queue',
+    title: 'Fast Monsters Get Four Attacks Per Round (Hence Dragons)',
+    tags: ['combat', 'design-choice', 'quirk'],
+    pitch:
+      'Every combatant has a 4-slot sub-action queue with four independent initiative bytes. A fast monster fires four times per round at four different ticks. That\'s how a single dragon can deliver a flurry of claw/claw/bite/tail-swipe in what feels like one action.',
+    body: (
+      <>
+        <ProseRow>
+          Each combatant in Wiz6 has a four-slot sub-action queue at offset{' '}
+          <Code>+0x18..+0x1b</Code>, with four corresponding initiative
+          values at <Code>+0x192..+0x195</Code>. The initiative tick loop
+          checks all four for every combatant on every counter step.
+        </ProseRow>
+        <ProseRow>
+          A slow combatant — most player characters with one melee attack —
+          uses slot 0 only; the other three init bytes are 0 (never match
+          the counter, never fire).
+        </ProseRow>
+        <ProseRow>
+          A fast monster — a dragon with claw / claw / bite / tail-swipe —
+          fills all four slots with different initiative values. Over the
+          course of a single round it fires <strong>four times</strong>, at
+          four spread-out ticks, hitting the party in succession.
+        </ProseRow>
+        <ProseRow>
+          From the player's perspective: the dragon goes once and does four
+          things. From the engine's perspective: the dragon was four
+          independent combatants for four independent initiative checks.
+          Combined with the random pause-jitter from the initiative card,
+          this is why high-level Wiz6 monsters feel <em>relentless</em> —
+          they're not "taking their turn"; they're injecting four actions
+          into the round at four different moments.
+        </ProseRow>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wmexe-action-execution.md', href: '/explore/docs/re/wmexe-action-execution.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'morale-asymmetry',
+    title: 'Party Morale Rolls Get 10× The Monster Reward',
+    tags: ['combat', 'design-choice', 'arbitrary'],
+    pitch:
+      'On the same morale-check roll, the party draws from a {0, 5, 10, 20, 40} bucket while monsters draw from {0, 0, 1, 2, 4}. A structural bias in the player\'s favor, baked into the engine.',
+    body: (
+      <>
+        <ProseRow>
+          When a morale event fires (a character is killed, a monster gets
+          critical-hit, the party flees, etc.), the engine rolls a single
+          random index and looks up the reward in one of two tables — one
+          for party characters, one for monsters:
+        </ProseRow>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Roll outcome</th>
+              <th>Party gets</th>
+              <th>Monster gets</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Common</td><td>0</td><td>0</td></tr>
+            <tr><td>Less common</td><td>5</td><td>0</td></tr>
+            <tr><td>Rare</td><td>10</td><td>1</td></tr>
+            <tr><td>Rarer</td><td>20</td><td>2</td></tr>
+            <tr><td>Rarest</td><td>40</td><td>4</td></tr>
+          </tbody>
+        </table>
+        <ProseRow>
+          On the same underlying roll, the party can get up to <strong>10×
+          the morale boost</strong> a monster gets. Combined with the way
+          morale gates fleeing, surrender, and berserker-style temporary
+          attack bonuses, this is a structural party-favoring bias.
+          Monsters never get the spikes that turn fights around; players
+          do.
+        </ProseRow>
+        <Aside title="A design choice, not a bug">
+          The asymmetric tables are intentional — they're separate lookups,
+          not a single shared table accidentally indexed wrong. Sir-Tech
+          deliberately stacked the morale system in the player's favor,
+          presumably because Wiz6 was already mean enough.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wmexe-action-execution.md', href: '/explore/docs/re/wmexe-action-execution.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'animation-queue-crash',
+    title: 'The 12-Slot Animation Queue Will Hang The Game If You Overflow It',
+    tags: ['combat', 'bug', 'engine'],
+    pitch:
+      'wmexe.ovr\'s animation queue has a hardcoded 12-slot limit and no overflow guard. A combat round that tries to enqueue more than 12 animations falls into an infinite play_sound(0) loop and never returns. A genuine bug that ships in the game.',
+    body: (
+      <>
+        <ProseRow>
+          During combat, hits, spell effects, status-flag flashes, and
+          morale visuals all get pushed into an animation queue with{' '}
+          <strong>12 fixed slots</strong>. The push routine in{' '}
+          <Code>wmexe_animation_queue_push</Code> at <Code>0x1cd5</Code> has
+          no overflow guard:
+        </ProseRow>
+        <CodeBlock>
+{`for slot in 0..11:
+    if queue[slot].empty:
+        queue[slot] = new_anim
+        return
+; fell off the end — no slot found
+while true:
+    play_sound(0)         ; plays nothing audible
+; never returns`}
+        </CodeBlock>
+        <ProseRow>
+          When the queue is full, the function infinite-loops on{' '}
+          <Code>play_sound(0)</Code> — which doesn't play anything audible.
+          The game hangs silently. No crash, no error message, just a
+          freeze. The same pattern appears in the 30-slot sprite-queue push
+          at <Code>0x9978</Code>.
+        </ProseRow>
+        <ProseRow>
+          A combat round that tries to enqueue more than 12 animations will
+          hit this. The situations that produce that many animations are
+          rare in normal play — most combat encounters never come close —
+          but a large AoE spell hitting many monsters with elaborate visual
+          effects, or a chain of status applications across a full enemy
+          group, can plausibly land you there.
+        </ProseRow>
+        <Aside title="The bug is real, and it ships">
+          Sir-Tech presumably either never triggered this or never noticed
+          because the bug is silent. Players who experienced "the game just
+          froze in combat one time" with no other explanation almost
+          certainly hit this. The port will fix it by either growing the
+          queue, dropping overflow anims, or rendering directly without
+          queuing.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wmexe-action-execution.md', href: '/explore/docs/re/wmexe-action-execution.md' },
     ],
   },
 
