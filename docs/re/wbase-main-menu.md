@@ -147,17 +147,17 @@ on a menu item is also handled, via the `*0x4fc4` flag set by
 
 The options array is initialized all-enabled then filtered:
 
-| Slot | Default | Disable conditions                                              |
-| ---- | ------- | --------------------------------------------------------------- |
+| Slot | Default | Disable conditions                                                                               |
+| ---- | ------- | ------------------------------------------------------------------------------------------------ |
 | 0    | 0       | (overridden) enabled only if scan over `*0x4fd8[..*0x4fd2]` finds a byte == 1 AND party_size < 6 |
-| 1    | 1       | party_size < 1                                                  |
-| 2    | 1       | party_size < 1                                                  |
-| 3    | 1       | party_size < 2                                                  |
-| 4    | 1       | party_size >= 1                                                 |
-| 5    | 1       | (always enabled)                                                |
-| 6    | 1       | (always enabled)                                                |
-| 7    | 1       | (always enabled)                                                |
-| 8    | 1       | (always enabled)                                                |
+| 1    | 1       | party_size < 1                                                                                   |
+| 2    | 1       | party_size < 1                                                                                   |
+| 3    | 1       | party_size < 2                                                                                   |
+| 4    | 1       | party_size >= 1                                                                                  |
+| 5    | 1       | (always enabled)                                                                                 |
+| 6    | 1       | (always enabled)                                                                                 |
+| 7    | 1       | (always enabled)                                                                                 |
+| 8    | 1       | (always enabled)                                                                                 |
 
 For a **first-launch, no-party** state with PCFILE.DBS containing unloaded
 characters, slots {0, 4, 5, 6, 7, 8} = 6 options are visible — matching
@@ -184,17 +184,17 @@ file at offset 0x2dbb**, mapped via a constant delta:
 
 Verified for the main-menu jump table:
 
-| Slot | runtime word at 0x731f+slot×2 | = file offset | Handler                                 |
-| ---- | ---------------------------- | ------------- | --------------------------------------- |
-| 0    | 0x725b                       | 0x2cf7        | `wbase_option0_add_party_member`        |
-| 1    | 0x726d                       | 0x2d09        | `wbase_option1_choose_leader`           |
-| 2    | 0x7291                       | 0x2d2d        | `wbase_option2_character_menu`          |
-| 3    | 0x72c1                       | 0x2d5d        | `wbase_option3_unload_then_load`        |
-| 4    | 0x72ee                       | 0x2d8a        | `wbase_option4_resume_saved_game`       |
-| 5    | 0x72b5                       | 0x2d51        | `wbase_option5_make_character`          |
-| 6    | 0x72f8                       | 0x2d94        | `wbase_option6_game_configuration`      |
-| 7    | 0x7303                       | 0x2d9f        | `wbase_option7_show_title_page`         |
-| 8    | 0x7311                       | 0x2dad        | `wbase_option8_quit_game`               |
+| Slot | runtime word at 0x731f+slot×2 | = file offset | Handler                            |
+| ---- | ----------------------------- | ------------- | ---------------------------------- |
+| 0    | 0x725b                        | 0x2cf7        | `wbase_option0_add_party_member`   |
+| 1    | 0x726d                        | 0x2d09        | `wbase_option1_choose_leader`      |
+| 2    | 0x7291                        | 0x2d2d        | `wbase_option2_character_menu`     |
+| 3    | 0x72c1                        | 0x2d5d        | `wbase_option3_unload_then_load`   |
+| 4    | 0x72ee                        | 0x2d8a        | `wbase_option4_resume_saved_game`  |
+| 5    | 0x72b5                        | 0x2d51        | `wbase_option5_make_character`     |
+| 6    | 0x72f8                        | 0x2d94        | `wbase_option6_game_configuration` |
+| 7    | 0x7303                        | 0x2d9f        | `wbase_option7_show_title_page`    |
+| 8    | 0x7311                        | 0x2dad        | `wbase_option8_quit_game`          |
 
 The same delta-0x4564 pattern applies to the state-0x18 sub-handler's
 jump table at runtime `0x7667` (file ~0x3103) and another at runtime
@@ -202,17 +202,17 @@ jump table at runtime `0x7667` (file ~0x3103) and another at runtime
 
 ### Per-option handler behaviors and transitions
 
-| Slot | msg ID | Label (hypothesis)       | Handler behavior                                                                          | State transition           |
-| ---- | -----: | ------------------------ | ----------------------------------------------------------------------------------------- | -------------------------- |
-| 0    | 0x3ea  | **ADD PARTY MEMBER**     | `wbase_add_party_member_action` — picks from PCFILE.DBS, copies char data into party slot | continues loop             |
-| 1    | 0x3eb  | (CHOOSE LEADER?)         | `pick_party_member(msg 0x4b2)`; if picked: state 0x11 + next-state 4                      | → state 0x11 (WPCVW)       |
-| 2    | 0x3ec  | (CHARACTER MENU?)        | `pick_party_member(msg 0x4b3)`; if picked: `character_submenu(picked)`                    | continues loop             |
-| 3    | 0x3ed  | (REMOVE/UNLOAD?)         | Mark all party char slots as "available" in `*0x4fd8`, then `load_or_quit(0)`             | depends on `load_or_quit` |
-| 4    | 0x3ee  | **RESUME SAVED GAME**    | `load_or_quit(1)` — load saved game with "resume" semantics                              | → state 6 (game) or 3      |
-| 5    | 0x3ef  | **CHARACTER MENU** (probably MAKE CHARACTER) | `unload_all_party_members()`; state := 0x10                                | → state 0x10 (WPCMK)       |
-| 6    | 0x3f0  | **GAME CONFIGURATION**   | next-state 4 cached; call `wbase_state18_config_submenu` directly                         | stays in wbase             |
-| 7    | 0x3f1  | **SHOW TITLE PAGE**      | `unload_all_party_members()`; `FUN_2a83()`; state := 1                                    | → state 1 (winit title)    |
-| 8    | 0x3f2  | **QUIT GAME**            | `unload_all_party_members()`; `FUN_2a83()`; state := 3                                    | → state 3 (QUIT)           |
+| Slot | msg ID | Label (hypothesis)                           | Handler behavior                                                                          | State transition          |
+| ---- | -----: | -------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------- |
+| 0    |  0x3ea | **ADD PARTY MEMBER**                         | `wbase_add_party_member_action` — picks from PCFILE.DBS, copies char data into party slot | continues loop            |
+| 1    |  0x3eb | (CHOOSE LEADER?)                             | `pick_party_member(msg 0x4b2)`; if picked: state 0x11 + next-state 4                      | → state 0x11 (WPCVW)      |
+| 2    |  0x3ec | (CHARACTER MENU?)                            | `pick_party_member(msg 0x4b3)`; if picked: `character_submenu(picked)`                    | continues loop            |
+| 3    |  0x3ed | (REMOVE/UNLOAD?)                             | Mark all party char slots as "available" in `*0x4fd8`, then `load_or_quit(0)`             | depends on `load_or_quit` |
+| 4    |  0x3ee | **RESUME SAVED GAME**                        | `load_or_quit(1)` — load saved game with "resume" semantics                               | → state 6 (game) or 3     |
+| 5    |  0x3ef | **CHARACTER MENU** (probably MAKE CHARACTER) | `unload_all_party_members()`; state := 0x10                                               | → state 0x10 (WPCMK)      |
+| 6    |  0x3f0 | **GAME CONFIGURATION**                       | next-state 4 cached; call `wbase_state18_config_submenu` directly                         | stays in wbase            |
+| 7    |  0x3f1 | **SHOW TITLE PAGE**                          | `unload_all_party_members()`; `FUN_2a83()`; state := 1                                    | → state 1 (winit title)   |
+| 8    |  0x3f2 | **QUIT GAME**                                | `unload_all_party_members()`; `FUN_2a83()`; state := 3                                    | → state 3 (QUIT)          |
 
 **Visible label vs. slot mapping (first launch, party_size=0):** slots 0,
 4, 5, 6, 7, 8 = 6 options. Matching the user-described menu items in order:
@@ -248,35 +248,35 @@ behaviors not decoded in this pass.
 
 ## Assets used by the main menu
 
-| Asset                                                  | Loaded by                                       | Notes |
-| ------------------------------------------------------ | ----------------------------------------------- | ----- |
-| **dragonsc.{ega/cga/t16}** — top stripe with Wizardry logo | NOT loaded by wbase — leftover from winit state 2 | wbase doesn't clear or repaint the top stripe region; the previous overlay's draw persists. |
-| **MON08.PIC** — castle gates + red figure decoration   | `wbase_load_font_table_entry(8, 4)` at prelude | Loaded via wroot's c31e file-table thunk (kind=8 path); the pre-extracted PNGs at `extracted/pics/mon08/desc-NN.png` match the visible decoration. |
-| **Per-descriptor renders** (0x7b, 0x7c, 0x7d, ...)     | `wbase_menu_init_decoration` → `wbase_menu_draw_decoration_frame` via video-driver thunk 0xf148 | The thunk renders one PIC descriptor at a time; precise placement (col, row) not extracted. |
-| **MSG.DBS text** for banner + 9 menu options + picker titles | `load_msg_into_buf` (thunk 0xc1f7 → wroot 0x75b) | msg IDs 0x3e9 (banner), 0x3ea..0x3f2 (options), 0x4b2/0x4b3 (picker titles). |
-| **Party-member icons / portraits**                     | Drawn by `FUN_1b2d(slot)` (called once per existing member at prelude, and from `wbase_add_party_member_action`) | Per-slot panels in the right-side window. |
+| Asset                                                        | Loaded by                                                                                                        | Notes                                                                                                                                              |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **dragonsc.{ega/cga/t16}** — top stripe with Wizardry logo   | NOT loaded by wbase — leftover from winit state 2                                                                | wbase doesn't clear or repaint the top stripe region; the previous overlay's draw persists.                                                        |
+| **MON08.PIC** — castle gates + red figure decoration         | `wbase_load_font_table_entry(8, 4)` at prelude                                                                   | Loaded via wroot's c31e file-table thunk (kind=8 path); the pre-extracted PNGs at `extracted/pics/mon08/desc-NN.png` match the visible decoration. |
+| **Per-descriptor renders** (0x7b, 0x7c, 0x7d, ...)           | `wbase_menu_init_decoration` → `wbase_menu_draw_decoration_frame` via video-driver thunk 0xf148                  | The thunk renders one PIC descriptor at a time; precise placement (col, row) not extracted.                                                        |
+| **MSG.DBS text** for banner + 9 menu options + picker titles | `load_msg_into_buf` (thunk 0xc1f7 → wroot 0x75b)                                                                 | msg IDs 0x3e9 (banner), 0x3ea..0x3f2 (options), 0x4b2/0x4b3 (picker titles).                                                                       |
+| **Party-member icons / portraits**                           | Drawn by `FUN_1b2d(slot)` (called once per existing member at prelude, and from `wbase_add_party_member_action`) | Per-slot panels in the right-side window.                                                                                                          |
 
 ## Key DGROUP state variables specific to wbase
 
-| Address  | Purpose                                                          |
-| -------: | ---------------------------------------------------------------- |
-| `0x363a` | game_state (shared with all overlays)                            |
-| `0x4fce` | **next_state_cache** — wbase-only deferred state transition      |
-| `0x43ce` | party_size (0..6) — drives nearly every option-enable rule       |
-| `0x43cc` | last-picked party-slot index (output of FUN_26c7)                |
-| `0x43dc` | party-slot → PCFILE.DBS character-index map (word[6])            |
-| `0x43d0` | per-slot portrait IDs (word[6])                                  |
-| `0x43e8` | full character data per slot (byte[6][0x1b0])                    |
-| `0x4fd2` | scenario PCFILE character count                                  |
-| `0x4fd8` | per-character availability (0=missing, 1=available, 2=in-party)  |
-| `0x5060` | menu animation tick                                              |
-| `0x3646` | menu animation parity                                            |
-| `0x5062` | animation Y offset                                               |
-| `0x5064` | animation X offset                                               |
-| `0x5066` | menu filename buffer (msg #1000 loaded here at prelude)          |
-| `0x4fc4` | mouse-click flag (set by `wbase_menu_poll_input`)                |
-| `0x3596` | mouse-click state (read by input poll)                           |
-| `0x846`  | menu skip-redraw flag (suppresses cursor in `wbase_menu_select_loop`) |
+|  Address | Purpose                                                               |
+| -------: | --------------------------------------------------------------------- |
+| `0x363a` | game_state (shared with all overlays)                                 |
+| `0x4fce` | **next_state_cache** — wbase-only deferred state transition           |
+| `0x43ce` | party_size (0..6) — drives nearly every option-enable rule            |
+| `0x43cc` | last-picked party-slot index (output of FUN_26c7)                     |
+| `0x43dc` | party-slot → PCFILE.DBS character-index map (word[6])                 |
+| `0x43d0` | per-slot portrait IDs (word[6])                                       |
+| `0x43e8` | full character data per slot (byte[6][0x1b0])                         |
+| `0x4fd2` | scenario PCFILE character count                                       |
+| `0x4fd8` | per-character availability (0=missing, 1=available, 2=in-party)       |
+| `0x5060` | menu animation tick                                                   |
+| `0x3646` | menu animation parity                                                 |
+| `0x5062` | animation Y offset                                                    |
+| `0x5064` | animation X offset                                                    |
+| `0x5066` | menu filename buffer (msg #1000 loaded here at prelude)               |
+| `0x4fc4` | mouse-click flag (set by `wbase_menu_poll_input`)                     |
+| `0x3596` | mouse-click state (read by input poll)                                |
+|  `0x846` | menu skip-redraw flag (suppresses cursor in `wbase_menu_select_loop`) |
 
 ## Correction to prior findings
 
@@ -297,50 +297,50 @@ wmaze.
 
 ## State table (wroot's ovl_install_table, definitive)
 
-| state | load arg | overlay     | purpose                                                          |
-| ----: | -------- | ----------- | ---------------------------------------------------------------- |
-|     0 | `0x5f4`  | WINIT.OVR   | boot/init                                                        |
-|     1 | `0x5f4`  | WINIT.OVR   | title page + credits                                             |
-|     2 | `0x5f4`  | WINIT.OVR   | load fonts + create windows                                      |
-|     3 |    —     |     —       | **QUIT** — `abort_cleanup_dispatch + crt_run_atexit_and_exit`    |
-|     4 | `0x5fa`  | WBASE.OVR   | main menu                                                        |
-|     5 | `0x600`  | WMAZE.OVR   | dungeon (entry A)                                                |
-|     6 | `0x600`  | WMAZE.OVR   | dungeon (entry B — load-zone)                                    |
-|     7 | `0x5fa`  | WBASE.OVR   | post-gameplay cleanup (after `boot_select_disk_for_content(1,0)`)|
-|     8 | `0x5f4`  | WINIT.OVR   | graveyard (after `boot_select_disk_for_content(3,0)`)            |
-|    10 | `0x606`  | WMELE.OVR   | melee combat                                                     |
-|    11 | `0x606`  | WMELE.OVR   | combat (variant)                                                 |
-|    12 | `0x60c`  | WPOPS.OVR   | popup / merchant (?)                                             |
-|    13 | `0x612`  | WMEXE.OVR   | maze-exec (?)                                                    |
-|    14 | `0x606`  | WMELE.OVR   | combat (variant)                                                 |
-|    15 | `0x618`  | WTREA.OVR   | treasure                                                         |
-|    16 | `0x61e`  | WPCMK.OVR   | **make player character (target of main-menu slot 5)**           |
-|    17 | `0x624`  | WPCVW.OVR   | **view player character (target of main-menu slot 1)**           |
-|    18 | `0x62a`  | WMNPC.OVR   | NPC dialogue                                                     |
-|    19 | `0x630`  | WDOPT.OVR   | options                                                          |
-|    20 | `0x630`  | WDOPT.OVR   | options (variant)                                                |
-|    21 | `0x618`  | WTREA.OVR   | treasure (variant)                                               |
-|    22 | `0x624`  | WPCVW.OVR   | view player character (variant)                                  |
-|    23 | `0x600`  | WMAZE.OVR   | dungeon (variant)                                                |
-|    24 | `0x5fa`  | WBASE.OVR   | config submenu (after `boot_select_disk_for_content(1,0)`)       |
-|    25 | `0x600`  | WMAZE.OVR   | load-zone-then-dungeon (after `boot_select_disk_for_content(2, *0x363c)`) |
+| state | load arg | overlay   | purpose                                                                   |
+| ----: | -------- | --------- | ------------------------------------------------------------------------- |
+|     0 | `0x5f4`  | WINIT.OVR | boot/init                                                                 |
+|     1 | `0x5f4`  | WINIT.OVR | title page + credits                                                      |
+|     2 | `0x5f4`  | WINIT.OVR | load fonts + create windows                                               |
+|     3 | —        | —         | **QUIT** — `abort_cleanup_dispatch + crt_run_atexit_and_exit`             |
+|     4 | `0x5fa`  | WBASE.OVR | main menu                                                                 |
+|     5 | `0x600`  | WMAZE.OVR | dungeon (entry A)                                                         |
+|     6 | `0x600`  | WMAZE.OVR | dungeon (entry B — load-zone)                                             |
+|     7 | `0x5fa`  | WBASE.OVR | post-gameplay cleanup (after `boot_select_disk_for_content(1,0)`)         |
+|     8 | `0x5f4`  | WINIT.OVR | graveyard (after `boot_select_disk_for_content(3,0)`)                     |
+|    10 | `0x606`  | WMELE.OVR | melee combat                                                              |
+|    11 | `0x606`  | WMELE.OVR | combat (variant)                                                          |
+|    12 | `0x60c`  | WPOPS.OVR | popup / merchant (?)                                                      |
+|    13 | `0x612`  | WMEXE.OVR | maze-exec (?)                                                             |
+|    14 | `0x606`  | WMELE.OVR | combat (variant)                                                          |
+|    15 | `0x618`  | WTREA.OVR | treasure                                                                  |
+|    16 | `0x61e`  | WPCMK.OVR | **make player character (target of main-menu slot 5)**                    |
+|    17 | `0x624`  | WPCVW.OVR | **view player character (target of main-menu slot 1)**                    |
+|    18 | `0x62a`  | WMNPC.OVR | NPC dialogue                                                              |
+|    19 | `0x630`  | WDOPT.OVR | options                                                                   |
+|    20 | `0x630`  | WDOPT.OVR | options (variant)                                                         |
+|    21 | `0x618`  | WTREA.OVR | treasure (variant)                                                        |
+|    22 | `0x624`  | WPCVW.OVR | view player character (variant)                                           |
+|    23 | `0x600`  | WMAZE.OVR | dungeon (variant)                                                         |
+|    24 | `0x5fa`  | WBASE.OVR | config submenu (after `boot_select_disk_for_content(1,0)`)                |
+|    25 | `0x600`  | WMAZE.OVR | load-zone-then-dungeon (after `boot_select_disk_for_content(2, *0x363c)`) |
 
 ## Confidence summary
 
-| Element                                                | Confidence                                                  |
-| ------------------------------------------------------ | ----------------------------------------------------------- |
-| State machine (states 4, 7, 0x18 and transitions)      | HIGH — direct disasm + exhaustive state-var write scan       |
-| Entry dispatch layout at file 0x0e                     | HIGH — raw byte trace                                       |
-| Main menu loop structure                               | HIGH — full decomp + per-instruction verification           |
-| 9-slot dispatch jump table (file 0x2dbb)               | HIGH — every target verified as a coherent option handler   |
-| Data-segment runtime delta 0x4564                      | HIGH — verified for main-menu jump table                    |
-| Per-slot enable rules                                  | HIGH — direct disasm                                        |
-| Per-slot state transitions                             | HIGH — direct state-var writes                              |
-| Per-slot label assignments to ADD/RESUME/etc           | MEDIUM — inferred from behavior + screenshot 6-item match  |
-| Msg ID → text decoding for 0x3ea..0x3f2                | LOW — IDs outside the 0..717 extracted msg.hdr range; needs further decoding |
-| MON08.PIC identification via `wbase_load_font_table_entry(8, 4)` | MEDIUM — visual match + asset-table indexing pattern |
-| dragonsc.scr top-stripe persistence from winit         | MEDIUM — no clear/repaint in wbase for that region          |
-| Animation timing                                       | LOW — counters identified but no wall-clock pacing reads    |
+| Element                                                          | Confidence                                                                   |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| State machine (states 4, 7, 0x18 and transitions)                | HIGH — direct disasm + exhaustive state-var write scan                       |
+| Entry dispatch layout at file 0x0e                               | HIGH — raw byte trace                                                        |
+| Main menu loop structure                                         | HIGH — full decomp + per-instruction verification                            |
+| 9-slot dispatch jump table (file 0x2dbb)                         | HIGH — every target verified as a coherent option handler                    |
+| Data-segment runtime delta 0x4564                                | HIGH — verified for main-menu jump table                                     |
+| Per-slot enable rules                                            | HIGH — direct disasm                                                         |
+| Per-slot state transitions                                       | HIGH — direct state-var writes                                               |
+| Per-slot label assignments to ADD/RESUME/etc                     | MEDIUM — inferred from behavior + screenshot 6-item match                    |
+| Msg ID → text decoding for 0x3ea..0x3f2                          | LOW — IDs outside the 0..717 extracted msg.hdr range; needs further decoding |
+| MON08.PIC identification via `wbase_load_font_table_entry(8, 4)` | MEDIUM — visual match + asset-table indexing pattern                         |
+| dragonsc.scr top-stripe persistence from winit                   | MEDIUM — no clear/repaint in wbase for that region                           |
+| Animation timing                                                 | LOW — counters identified but no wall-clock pacing reads                     |
 
 ## Open questions
 
