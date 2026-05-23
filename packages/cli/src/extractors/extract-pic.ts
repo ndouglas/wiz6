@@ -22,13 +22,9 @@ export function extractPic(opts: ExtractPicOpts): Pic {
     id: opts.id,
     sourceFile: basename(opts.originalPath),
   });
-  // Default palette for .pic sprites is ega-default (BIOS-default EGA palette).
-  // The .pic decoder permutes file bit-patterns to standard EGA palette indices
-  // via EGA_FILE_INDEX_PERMUTATION before lookup; under that permutation the
-  // BIOS-default palette is what's active when Wiz6 actually draws sprites.
-  // The two engine-loaded palettes (wiz6-main, wiz6-dungeon) remain in the
-  // catalog but are not used by the standard sprite render path; if specific
-  // .pic ids turn out to need them, override per-id here.
+  // .pic sprites render against the BIOS-default EGA palette; the renderer
+  // permutes file bit-patterns via EGA_FILE_INDEX_PERMUTATION. See
+  // docs/re/palette-discovery.md.
   const pic: Pic = { ...decoded, palette: 'ega-default' };
   mkdirSync(dirname(opts.outputPath), { recursive: true });
   writeFileSync(opts.outputPath, JSON.stringify(pic, null, 2));

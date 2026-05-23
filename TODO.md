@@ -19,12 +19,6 @@ Next free ID: **#011**
 
 ## Open
 
-- #002 [open] — Per-scene palette switching
-  - Ship one empirical EGA palette + 7 overrides. Other scenes (spaceship is the canonical example: blue-green) show off-colors.
-  - Goal: absolute fidelity to the source app — every scene matches DOSBox-X output byte-for-byte.
-  - Needs: a way to identify which palette index applies per scene (probably encoded in screen metadata or a per-screen field in the loader path).
-  - Refs: palette-related commits `19df14d` ("revert overzealous index 6/14 overrides"), `docs/superpowers/specs/2026-05-19-stage-1d-palette-design.md`.
-
 - #003 [open] — Naming passes for combat/character/NPC/treasure overlays
   - Still on `FUN_XXXX` auto-names: `wmele.ovr`, `wpcmk.ovr`, `wpcvw.ovr`, `wmnpc.ovr`, `wtrea.ovr`.
   - Schedule when simulation work on those subsystems starts.
@@ -87,3 +81,8 @@ Next free ID: **#011**
 
 - #Q-E — Bogus `audio_adlib_init_voice` rename at image `0x11962`
   - Listed in findings file but the bytes there are just an EOI/IRET stub. Real AdLib init must be elsewhere — possibly `FUN_1000_17fe`. Not yet traced.
+
+- #Q-F — When does the engine actually load `wiz6-main` / `wiz6-dungeon`?
+  - Phase 1 of #002 confirmed both palette tables are loaded via `INT 10h AX=1002h` at wroot 0x209B and 0x2105 respectively, but Phase 6 calibration showed the current asset-render scenes operate against the BIOS-default palette (the engine has not yet executed either load when those scenes draw). Gameplay states that exercise the two engine palettes haven't been identified.
+  - Method: DOSBox-X `int10 = debug` runtime trace through every game state.
+  - Until resolved, both palettes ship in `@wiz6/data`'s catalog as RE artifacts but are not referenced by any extractor.

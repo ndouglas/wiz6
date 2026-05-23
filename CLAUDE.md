@@ -213,7 +213,6 @@ Sounds are minimal-fidelity effects: clicks, drags, clangs, the title-screen "cl
 
 **Inbox: [`INBOX.md`](INBOX.md)** — Nate's freeform jot pad. Read it on session start; if non-empty, clarify items with him then process in a single batch commit that adds TODO entries and clears INBOX.
 
-- **Per-scene palettes** (#002): one empirical palette + 7 overrides; other scenes show off-colors.
 - **Overlay naming passes** (#003): `wmele.ovr`, `wpcmk.ovr`, `wpcvw.ovr`, `wmnpc.ovr`, `wtrea.ovr` still on `FUN_XXXX` names.
 
 ## Where to look when stuck
