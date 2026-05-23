@@ -3,6 +3,7 @@ import type { Palette } from '@wiz6/data';
 import { PALETTE_CATALOG, EGA_DEFAULT } from '@wiz6/data';
 import { renderPicDescriptor, concatenatePicSegments, EGA_FILE_INDEX_PERMUTATION } from '@wiz6/parser';
 import { PicCanvas } from '../components/PicCanvas.js';
+import { RECommentary } from '../components/RECommentary.js';
 import { usePic } from '../lib/hooks/usePic.js';
 import styles from './CalibratePalette.module.css';
 
@@ -331,6 +332,12 @@ export function CalibratePalette() {
         active index. Repeat until our render matches the original; copy the
         exported palette from the right pane.
       </p>
+
+      <RECommentary
+        label="Why this page exists"
+        intro="The calibration tool was built during the per-scene-palette pass to confirm two specific RE findings."
+        cardIds={['two-palettes-never-used']}
+      />
 
       <div className={styles.controls}>
         <label className={styles.field}>

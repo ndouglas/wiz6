@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { PicSchema, EGA_DEFAULT } from '@wiz6/data';
 import { renderPicDescriptor, concatenatePicSegments } from '@wiz6/parser';
 import { PicCanvas } from '../../components/PicCanvas.js';
+import { RECommentary } from '../../components/RECommentary.js';
 import styles from './PicsIndex.module.css';
 
 const PIC_NAMES = [
@@ -73,6 +74,11 @@ export function PicsIndex() {
         Click a card to see all sprite views (descriptors), the segment
         structure, and raw byte data.
       </p>
+      <RECommentary
+        label="About these sprites"
+        intro="A few engineering notes on how Wiz6 sprites actually render — the bit-pattern permutation, the unused engine palettes, and why we built the calibration tool."
+        cardIds={['two-palettes-never-used']}
+      />
       <div className={styles.grid}>
         {summaries.map((s) => (
           <Link key={s.id} className={styles.card} to={`/explore/pics/${s.id}`}>

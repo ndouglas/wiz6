@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { RECommentary } from '../components/RECommentary.js';
 import styles from './SoundsPage.module.css';
 
 const SOUND_IDS = [
@@ -49,6 +50,11 @@ export function SoundsPage() {
         Decoded samples are 8-bit unsigned PCM at a single engine-derived rate (~10 kHz). See{' '}
         <code>docs/re/snd-format.md</code>.
       </p>
+      <RECommentary
+        label="About the .snd format"
+        intro="One of the more memorable debugging moments from this project — the decoder produced statistically-plausible output that sounded like white noise, because two bytes of misalignment cascaded through every Huffman tree walk."
+        cardIds={['snd-format-bug-distribution']}
+      />
       <table className={styles.table}>
         <thead>
           <tr>
