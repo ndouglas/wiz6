@@ -62,8 +62,8 @@ sounds the engine plays at ~10 kHz (see "playback rate" below).
 
 ### Header (2 bytes)
 
-| Offset | Size  | Field                                                                                                                           |
-| -----: | :---: | ------------------------------------------------------------------------------------------------------------------------------- |
+| Offset | Size  | Field                                                                                                                            |
+| -----: | :---: | -------------------------------------------------------------------------------------------------------------------------------- |
 | `0x00` | u16le | **tree_size_bytes** — size of the Huffman tree in bytes (multiple of 4). Value `0` = no Huffman; raw 8-bit PCM follows directly. |
 
 ### Huffman tree (variable, when tree_size_bytes > 0)
@@ -164,10 +164,10 @@ def decode_snd(file_bytes: bytes) -> list[int]:
 
 ### Inventory across all 35 files
 
-| Variant                          | Files                                       |
-| -------------------------------- | ------------------------------------------- |
-| Huffman-compressed 8-bit PCM     | 31 (sound00..38 except the four below)      |
-| Raw uncompressed PCM (tree_size=0) | 4 (sound28, sound30, sound32, sound35)    |
+| Variant                            | Files                                  |
+| ---------------------------------- | -------------------------------------- |
+| Huffman-compressed 8-bit PCM       | 31 (sound00..38 except the four below) |
+| Raw uncompressed PCM (tree_size=0) | 4 (sound28, sound30, sound32, sound35) |
 
 There are no "large-leaf" anomalies in the corrected decode. Previous
 observations of leaves > 255 (e.g. `sound00` node 31 right = 1769) were an
