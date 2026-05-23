@@ -38,6 +38,19 @@ function bitAt(plane: readonly number[], width: number, srcX: number, srcY: numb
 }
 
 /**
+ * Wiz6 .ega files store pixels with a permuted index ordering; the engine
+ * relies on the BIOS-default EGA palette being active when title-sequence
+ * screens render, with the file's bit-pattern decoding to EGA-standard
+ * indices via this permutation. Discovered in Stage 1f.2 by inverting the
+ * pixel-to-bit-pattern mapping captured from DOSBox-X.
+ *
+ * Table: file bit-pattern 0x0..0xF → standard EGA palette index.
+ */
+const EGA_FILE_INDEX_PERMUTATION = [
+  0, 15, 9, 5, 12, 14, 10, 11, 8, 7, 1, 13, 4, 6, 2, 3,
+] as const;
+
+/**
  * Render an EGA screen to row-major RGBA bytes.
  *
  * Color 0 (background) → alpha 0 (transparent). All other colors → opaque.
@@ -48,16 +61,18 @@ export function renderEgaScreen(screen: EgaScreen, palette: Palette): RenderedSp
   const rgba = new Uint8ClampedArray(width * height * 4);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      let idx = 0;
+      let fileIdx = 0;
       for (let p = 0; p < 4; p++) {
         const plane = planes[p];
         if (!plane) continue;
         const src = sourceCoordForPlane(p, x, y, width, height);
         if (!src) continue;
-        idx |= bitAt(plane, width, src.srcX, src.srcY) << p;
+        fileIdx |= bitAt(plane, width, src.srcX, src.srcY) << p;
       }
+      // Permute file bit-pattern → standard EGA palette index, then look up RGB.
+      const idx = EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
       const offset = (y * width + x) * 4;
-      if (idx === 0) {
+      if (fileIdx === 0) {
         rgba[offset + 3] = 0;
       } else {
         const rgb = palette.colors[idx] ?? [0, 0, 0];
