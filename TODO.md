@@ -44,12 +44,10 @@ Next free ID: **#017**
   - Builds on prior intro-timing work — `959e304` (scroll runs 3× slower), `6061453` (credit panels cull at y<cap), `54f9b6f` (tokens 1-indexed).
   - Refs: `winit.ovr` state 1 @ image 0x9f3.
 
-- #009 [open] — Savegame management strategy for the web port
-  - Raw: "how do we do savegame management for the public at large? local browser storage?".
-  - **Open design question.** How do public-facing users save/load Wizardry VI state in the browser-based port?
-  - Possibilities to evaluate: `localStorage` / IndexedDB (browser-local; lost on cache clear; per-device); server-side store (requires auth + infra); download/upload save file (user manages files; portable); URL-encoded share links (small saves only).
-  - Investigation needed before design: how big is a Wizardry VI save? What's the `.sav` format on the DOS side? Per-character vs per-party save model?
-  - Refs: `original/*.sav` (DOS save files), DOSBox-X save-state files (different format, captures engine memory).
+- #009 [open] — Savegame management strategy for the web port (design done, implementation pending)
+  - **Design settled**: see [`docs/superpowers/specs/2026-05-23-savegame-strategy.md`](docs/superpowers/specs/2026-05-23-savegame-strategy.md).
+  - **TL;DR**: our own zod-validated JSON schema in `@wiz6/data` as the canonical save format. 6-slot localStorage with manual download/upload for portability. RNG seed captured as advisory metadata. DOS `SAVEGAME.DBS` interop deferred to a separate bridge module (import + export buttons) that needs a follow-up RE pass on the binary save format. Savegame editor in the data explorer also deferred.
+  - **Implementation phases** (none on the critical path yet): SaveSchema → encoder/decoder → localStorage abstraction → UX. Phases 5-6 (DOS interop, editor) wait until the core ships.
 
 - #010 [open] — DOS↔TS A/B comparison harness
   - Raw: "how do we maximize the ability to run the DOS version and the TS version and compare behavioral and graphical outputs?".
