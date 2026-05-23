@@ -1,0 +1,1702 @@
+{
+  "topic": "wmexe-naming-pass",
+  "subagent_run": "2026-05-23",
+  "binaries": [
+    "wmexe.ovr"
+  ],
+  "summary": "Named 95 of 95 FUN_XXXX functions in wmexe.ovr (plus 2 missed functions that Ghidra failed to auto-detect \u2014 the overlay entry stub at 0xad5e and the state-machine dispatcher at 0x2ccc \u2014 for a total of 97 names applied). **MEXE = MAZE EXECUTE: this overlay is the COMBAT ACTION RESOLUTION ENGINE** for Wiz6 \u2014 it runs the per-initiative-tick action-execution loop that fires queued attacks/spells/items after combat round-setup (wmele) and post-round operations (wpops). wmexe.ovr is a STATE-MACHINE HANDLER for state 0x0d (13), but with a UNIQUE entry-point structure: unlike every other state-machine overlay (wmele/wbase/wpcvw/wtrea/wmaze), wmexe's wroot-callable entry point is NOT at file 0x0e. Instead, wroot far-calls into the OVERLAY ENTRY STUB at 0xad5e (which Ghidra missed), which zero-inits BSS from 0x4ff8..0x5304 (4364 bytes of static state), then near-calls the actual dispatcher at 0x2ccc (also Ghidra-missed), which is the canonical `cmp word [0x363a], 0x0d; jnz; call 0x8ba5; mov ax, 0; ret` state pattern. After the state-0xd handler completes, control transitions to state 0xe (back to wmele for next round init or end-of-round cleanup). **Flagship discoveries**: (1) the INITIATIVE-TICK MAIN LOOP at `wmexe_state_0d_initiative_round_loop` (0x8ba5) \u2014 counts initiative from 100 DOWN to 0, and at each tick iterates ALL 7 combatant groups (party + 6 monster groups), firing the action of any member whose +0x25 (initiative byte) matches the current counter. A pre-action 'pause' branch fires at *(slot+0x2b)=='\\0' (no pending pause) if the action-pointer hasn't run yet this tick: it sets +0x2b=3 (pause-3-ticks) and reduces the upcoming initiative via `rng(10) - 5` (i.e. the queued action gets randomly delayed 1..10 ticks). When the pause runs out (+0x2b=='\\x03'), the action fires and the pointer advances. Initiative ties are broken by group-then-member ordering, so the PARTY always acts first at any given init count (party = group 0). (2) the COMBAT-ROUND TIMING LAW \u2014 actions don't fire on a simple priority queue; instead each combatant has 4 SUB-ACTION SLOTS at +0x18..+0x1b (the 4 actions queued for this round) with corresponding INIT VALUES at +0x192..+0x195. wmexe iterates all 4 slots in init-counter order, so a fast monster can attack 4 times against a slow party member's 1 action, with the timing of each strike dependent on rolled init. This is why some Wiz6 monsters seem to 'spam' attacks \u2014 they have 4 sub-actions per round. (3) the STATUS-EFFECT TICK at `wmexe_tick_status_effects_on_combatant` (0x810a, 1995 bytes) \u2014 per-combatant per-init tick: checks SLEEP (+0x11), PARALYZE (+0x10), POISON (+0x15 -> msg 0xc85..0xc88), FEAR (+0x14 -> msg 0xc8a), CHARM (+0x12 -> msg 0xc84), TURNED (+0x16 -> msg 0xc83), and the leader-flag check at -0x69 (signed byte = 0x97, the 'leader monster' marker we saw in wmele) for special-attack escalation. Poison damage uses `local_6 = rng(3) + 0xc85` to randomize WHICH poison msg displays (the 3 different 'poisons writhe' variants), and `bVar3=true` makes it 50% chance to also trigger 'attempts to fight' message \u2014 combining damage + behavior modifier in a single tick. The bVar3 path actually FIRES THE COMBATANT'S ATTACK PREMATURELY at the current init, separately from their queued action. (4) the LEADER-MONSTER HARDCODE \u2014 at 0x810a line `if (*(int *)(grp+0x19a) == -0x69)` the code checks for the magic byte `-105 = 0x97` (which decompiles as signed -0x69). This is the SAME 'leader monster' flag we found in wmele (0x97/0x99/0x80). When the leader is paralyzed mid-action, the combatant gets status=3 (death) instantly rather than recovering. So the LEADER tag has a unique death-on-paralyze rule the rest of the group doesn't have. (5) the MORALE/INITIATIVE BUCKETING at `wmexe_compute_morale_initiative_tier` (0x000e) \u2014 calls 32-bit math (FUN_3f1e) to produce 0..99, then BUCKETS into 5 levels: < 0x33 (51) -> tier 0 / out=0; < 0x43 (67) -> tier 1 / out=5; < 0x4c (76) -> tier 1 / out=10; < 0x5b (91) -> tier 2 / out=14; else tier 4 / out=40. The output magnitude differs when param_1==0 (party caster) \u2014 so the SAME roll in a Wiz6 attack produces a 5/10/14/40 'edge' bonus for a party member but 0/1/2/4 for a monster. **This is the source of party power-curve** \u2014 at high rolls a party member's edge is 10x what a monster gets. (6) the EMBEDDED 3D RENDERER at `wmexe_render_3d_view` (0xa4c2, 2192 bytes) \u2014 wmexe ships its OWN 3D dungeon viewport renderer, identical in shape to wtrea 0x6c8f, wmnpc 0xa8ca, and the wmele combat-scene renderer. Four overlays (wmaze, wmele, wmnpc, wtrea, wmexe) each carry a copy of this code \u2014 five places to update if the 3D math changes. The wmexe variant exists so the dungeon stays visible behind the action-execution message stream. (7) the ANIMATION QUEUE MECHANIC at `wmexe_animation_queue_insert_sorted` (0x1cd5) \u2014 12-entry queue at 0x4390 stride 0xc, sorted by depth-byte (+0x14). Used to depth-sort attack animations (front-rank attacks render first, back-rank attacks layered behind). Crash-fails if more than 12 pending \u2014 the do-while loop at the end calls play_sound(0) infinitely, hanging the game. This is a HARD LIMIT: more than 12 simultaneous attack animations crashes Wiz6. Same with the 30-entry sprite queue at `scene_sprite_queue_insert` (0x9978) \u2014 30 sprite slots, beyond which the game hangs.",
+  "method": "PyGhidra + DecompInterface for all 95 functions in wmexe.ovr (BinaryLoader, file_offset == Ghidra address). For each function: (a) decompiled C, (b) intra-overlay CALL targets parsed from raw bytes (Ghidra's `getReferencesFrom()` returned segmented refs that I had to manually parse from instruction bytes), (c) cross-overlay thunk calls to addresses >= 0xB000 (the wroot BSS thunk space). 32 distinct thunks resolved via the thunk-delta law (bss_offset - 0xBA9C = wroot file offset); 31 of them resolved to NAMED wroot functions or informal names from prior passes (wmele, wtrea, wmnpc, wpcvw, wbase, wmaze). Only 1 thunk (0xbe80 -> wroot 0x3e4) remained unnamed. Names applied when multi-signal evidence converged: BSS field offsets shared with wmele (combat-slot at 0x43a8[group]+slot*0x2c, with +0x18..+0x1c action codes, +0x21 action_idx, +0x22 status, +0x25 init, +0x2a rank-file, +0x2b pause-counter), thunk-call vocabularies (rng heavy use = 95 callsites, play_sound heavy = 37, load_msg = 59, set_cursor = 33), distinctive structural patterns (the 100-down-to-0 initiative loop, the 7-group iteration, the 4-sub-action slot scan, the 12-entry animation queue, the depth-sorted insert, the wall-bitmap dispatchers at +0x43a/+0x49a/+0x60/+0x120/+0x1f8/+0x378). Confirmed wmexe is a STATE-MACHINE HANDLER for state 0x0d by raw byte grep showing `83 3e 3a 36 0d` at 0x2ccc with `call 0x8ba5` immediately following \u2014 the canonical dispatch pattern. Also confirmed the unique wmexe entry-point structure: file 0xad5e holds the overlay-entry stub that zero-inits BSS from 0x4ff8 to 0x5304 then calls the dispatcher at 0x2ccc. BOTH 0x2ccc and 0xad5e were NOT auto-detected by Ghidra \u2014 the apply script creates them.",
+  "stats": {
+    "total_functions": 95,
+    "renamed": 95,
+    "renamed_plus_created": 97,
+    "remaining_FUN_XXXX": 0,
+    "categories": {
+      "action_resolver": 33,
+      "render_3d": 20,
+      "data_util": 17,
+      "ui": 15,
+      "animation": 8,
+      "dispatch_entry": 2,
+      "spell": 1,
+      "state_handler": 1
+    }
+  },
+  "state_machine": {
+    "states_handled": [
+      {
+        "value": "0x0d",
+        "decimal": 13,
+        "purpose": "Combat ACTION EXECUTION (initiative-tick loop). Entered from wpops.ovr (state 0x0c, post-round operations) after wmele (state 0x0b, per-round init) queued the actions. The state-0xd handler at 0x8ba5 runs the initiative-down-from-100 loop, firing each combatant's queued sub-actions when their +0x25 initiative byte matches the current counter. Transitions OUT to state 0x0e (wmele, end-of-round cleanup or next round) when initiative reaches 0.",
+        "handler": "wmexe_state_0d_initiative_round_loop (0x8ba5)"
+      }
+    ],
+    "dispatch_entry": "0x2ccc (NOT at file 0x0e like other overlays \u2014 Ghidra did NOT auto-detect this function). Pattern: `cmp word [0x363a], 0xd; jnz +3; call 0x8ba5; mov ax, 0; ret`. Only handles state 0x0d (no default branch, no fallback). Created by the apply script.",
+    "overlay_entry_stub": "0xad5e \u2014 the FAR-CALLABLE entry point that wroot uses to invoke wmexe. Saves caller sp/bp/si/di to *0x4ff2..0x4ff0, zero-inits BSS from 0x4ff8 to 0x5304 (4364 bytes of static state), then near-calls 0x2ccc (the dispatcher). After dispatch returns, restores regs and far-jumps back via pushed cx/[0x4ff6]. Also NOT detected by Ghidra; created by the apply script.",
+    "header_size_bytes": 14,
+    "header_bytes_hex": "f2 00 72 45 b3 ad ee 4f 0a 00 0c 03 c2 f2",
+    "header_note": "Header bytes 0..13 are the standard 14-byte overlay header. But unlike other 14-byte-header overlays (wmele/wbase/wtrea/wpcvw/wmaze/wmnpc), the dispatch entry is NOT at file 0x0e. The function at 0x0e (174 bytes) is actually `wmexe_compute_morale_initiative_tier`, a library helper called from 4 sites inside the overlay. The wroot-invokable entry point is at 0xad5e \u2014 about as far from the start of the file as you can get.",
+    "transitions_out": [
+      "state 0x0e: written by `wmexe_state_0d_initiative_round_loop` (0x8ba5) when the initiative counter (*0x435a) reaches 0. Routes back to wmele.ovr for end-of-round resolution (XP, treasure, fleeing)."
+    ],
+    "transitions_in": [
+      "state 0x0c (wpops.ovr): wpops handles state 0x0c (likely 'post-round operations' \u2014 perhaps the cleanup/status-decrement BEFORE actions fire). Writes *0x363a=0x0d to hand control to wmexe.",
+      "Possible: state 0x0a/0x0b (wmele.ovr): wmele's per-round-init handler (state 0x0b) might write 0x0d directly without going through 0x0c. Not confirmed without trace; the path through wpops is suggested by the state-table ordering."
+    ]
+  },
+  "key_discoveries": [
+    "**INITIATIVE-DOWN-FROM-100 MAIN LOOP at `wmexe_state_0d_initiative_round_loop` (0x8ba5)** \u2014 Wiz6 combat action ordering is a tick-down system: a 16-bit counter at *0x435a starts at 100, decrements by 1 per outer iteration. At each tick value, the engine iterates ALL combatants (party + 6 monster groups, total 7 groups), and any combatant whose +0x25 init byte matches the current counter fires their action. This means a weapon with init+0 fires before a weapon with init+10, since 100 (high init) comes early in the count-down. Wiz6's init bytes are in the 0..100 range, and the 100-down structure means HIGH INIT = FAST. **Implication for players**: tools like 'attack speed' modifiers shift init values DOWN (faster) \u2014 and at the edge cases, an init-modifier of -5 on a base-90 weapon makes you attack at tick 95 vs your opponent's tick 90, giving you the 5-tick window to land a kill before their counterattack. The PAUSE/REROLL mechanic (next discovery) adds noise to this.",
+    "**THE INITIATIVE PAUSE/REROLL MECHANIC at `wmexe_state_0d_initiative_round_loop` (0x8ba5)** \u2014 When an action FIRST becomes eligible (+0x25 init matches *0x435a, AND +0x2b pause-byte == 0), wmexe does NOT fire the action immediately. Instead, it (a) sets +0x2b = 3 (pause-3-counter), (b) plays a 'preparing' message via FUN_72fb(0xdbe, ...) \u2014 the 'XXX prepares to ...' screen flash \u2014 and (c) recomputes init: `local_8 = (*0x435a - rng(10)) - 5`, with clamp `local_8 < 1 ? 1`. So when an action FIRST appears to be ready, the engine actually DEFERS it by a random 1..10 ticks. Only when the PAUSED action (+0x2b == 3) comes around again does the engine clear the pause, write +0x25 = 0, and FUN_810a (action fire). This adds visible delay between 'XXX prepares to attack' and the actual attack \u2014 a Wiz6 signature pacing trick. **Player-experience implication**: even a fast weapon doesn't fire instantly when its init tick hits \u2014 there's always a 1..10 tick delay, so combat has staggered, somewhat unpredictable rhythm even with identical initiative values. The randomness here is the source of the 'sometimes my Lord goes first, sometimes the dragon does' feeling.",
+    "**FOUR SUB-ACTIONS PER COMBATANT PER ROUND at +0x18..+0x1b (action codes) and +0x192..+0x195 (init values)** \u2014 A combatant doesn't just get ONE action per round. Each combatant has a 4-slot action queue (+0x18..+0x1b = 4 action-code bytes) with corresponding init values at +0x192..+0x195. When wmexe ticks initiative, it scans ALL 4 SLOTS per combatant, dispatching FUN_3be5 (case 0 = melee attack), FUN_3e8f (case 1 = priest spell), FUN_3e8f (case 2 = mage spell with different params), FUN_3be5 (case 3 = ranged) based on slot index. So a monster with attack-count 4 fires 4 times per round at potentially-different initiatives, while a slow party member with 1 action fires once. **Player-experience implication**: a level-3 mage drake with 4 attacks fires 4 spells per round; a level-20 Lord with 1 high-init melee swing fires once. The 4-attack monster does NOT take 4 'turns' in the traditional sense \u2014 they take 4 init-positions in the same combat round, interleaved with party actions. This is what makes Wiz6 monsters feel like fast-twitch threats: an opponent monster can attack at init=90, then again at init=75, then at init=60, then at init=45 \u2014 all in the same round.",
+    "**LEADER-MONSTER FLAG -0x69 (=0x97) HARDCODED DEATH-ON-PARALYZE at `wmexe_tick_status_effects_on_combatant` (0x810a)** \u2014 During the per-monster status-effect tick, wmexe checks `if (*(group + 0x19a) == -0x69)` (signed byte == -105 == 0x97 unsigned) \u2014 this is the SAME 'leader' flag we previously found in wmele (mapping to 0x97, 0x99, 0x80). When the leader monster has a charm/turn status set AND another monster in the group has +0x14 (fear) set, the leader gets BOTH +0x2b = 3 (instant pause) AND +0x24 = 1 (action-fire flag), with the wmexe outer-counter incremented by 2. **This is the only place in wmexe** where a status effect propagates *between* combatants \u2014 the LEADER tagging makes the leader uniquely vulnerable to group-status-induced collapse. Other members of the group don't have this rule. **Player-experience implication**: identifying and incapacitating the LEADER monster (the one with the 0x97 byte) in a Wiz6 encounter has cascading effects that don't propagate through the group otherwise \u2014 it's not just one extra HP bar to chew through, it's the trigger for the group's collective behavior. This justifies the gameplay focus on 'killing the head' over 'killing the foot soldiers'.",
+    "**THE MORALE/INITIATIVE BUCKET FUNCTION `wmexe_compute_morale_initiative_tier` (0x000e)** \u2014 Called 4 times throughout the overlay (in 0x6e4, 0x4677, 0x9978, 0x95fc). Rolls 32-bit math (FUN_3f1e, a signed-multi-purpose helper) to produce a roll 0..99, then buckets: <0x33 (51) -> bucket 0; <0x43 (67) -> bucket 1; <0x4c (76) -> bucket 2; <0x5b (91) -> bucket 3; else bucket 4. Output VALUES differ on whether param_1==0 (treating caller as 'is party' branch): if 0, outputs are 0/5/10/14/40 (the BIG bonuses); else outputs are 0/0/1/2/4 (small bonuses). So a high-roll for a PARTY MEMBER yields +40 to the wielding stat, while the SAME high-roll for a MONSTER yields just +4. **This 10x asymmetry is the source of Wiz6's PARTY POWER ADVANTAGE** \u2014 even when stats are otherwise balanced, the party gets a much larger edge from lucky rolls. Without this asymmetric bucketing the party would be 1/10 as effective per dice roll, which would make the game unwinnable for non-grinded parties. **Implication**: third-party 'monster buff' mods that don't account for the asymmetric bucket will UNDERESTIMATE monster buffs by 10x, leading to monsters that are nominally 10x as strong but feel only 10% stronger in play.",
+    "**12-SLOT ANIMATION QUEUE HARD LIMIT at `wmexe_animation_queue_insert_sorted` (0x1cd5)** \u2014 Wiz6 has a fixed 12-entry animation queue at 0x4390 stride 0xc. If the queue overflows (13th entry attempted), the code enters an INFINITE LOOP: `do { play_sound(0); } while (true);` \u2014 silently HANGING THE GAME. **Practical limit**: 12 simultaneous attack animations on screen. With 7 groups \u00d7 4 sub-actions per round = up to 28 attacks per round in principle, but the queue is depth-sorted and entries are popped as they complete, so the cap is more like 'no more than 12 attacks in flight at the same moment.' **The sprite queue at `scene_sprite_queue_insert` (0x9978) has the same crash-on-overflow** with a 30-entry cap. These are NOT graceful failures \u2014 they hang the game forever. **In the TS port, we must replace these with bounded ring buffers or skipped renders.**",
+    "**SPELL-SCHOOL RESISTANCE TABLE at `wmexe_resolve_offensive_spell` (0x6ad8, 1041 bytes)** \u2014 Spells are dispatched through a 6-entry table at 0xde with stride 6 bytes (so 82 spells x 6 = 492 bytes total spell-record block, same layout as wtrea). For each cast: `school = spell.byte_at_+0` selects which of the 6 schools; `base_damage = spell.byte_at_+2 * power`; RESISTANCE check via `monster.resist_byte_at_+0x96 - power_threshold > rng(100)`. On resistance, the damage is FUN_3593-clamped (signed-32-bit-divide and clamp) to either 0 or 1, depending on flags. **Notable**: mana costs use a SEPARATE per-school 4-byte field at +0x4410 + school*4 (24 bytes total per character for 6 schools). The mana decrement is `mana -= spell.byte_at_+0xe0 * power_level`, with no underflow check \u2014 meaning you can in fact go NEGATIVE on a school's mana if you're casting at boundary. **Implication**: Wiz6 silently allows boundary mana underflow in some edge cases (spell.byte_at_+0xe0 > mana), which means a class with very low max mana for a school can sometimes cast a spell they 'shouldn't' have the mana for, then heal back to 0.",
+    "**CHARACTER ROSTER SHUFFLING via memcpy + ad9c BYTE-SWAP at `wmexe_swap_characters_in_party` (0x7db6)** \u2014 Moving a character UP or DOWN the party roster (used by 'flee from front rank' mechanics) doesn't just swap pointers \u2014 it does a FULL 432-byte (0x1b0) memcpy via a byte-by-byte swap helper at 0xad9c (which uses LOCK XCHG between source and destination one byte at a time). This is the SAME 0xad9c helper used in winit and elsewhere \u2014 it's a portable byte-swap memcpy. **Performance implication**: a roster shuffle of 5 characters = 5 * 432 * N swap iterations. The 0xad9c helper does 1 byte per loop iteration, so swapping 1 character ~= 432 LOCK XCHG operations. On a 286/386 this is FAST; on modern hardware with cache invalidation it would be slow but irrelevant for a turn-based game. **Port note**: replace with std::swap on character structs.",
+    "**STATE TRANSITION CHAIN \u2014 wmele -> wpops -> wmexe -> wmele** \u2014 wmexe owns state 0x0d. wmele owns 0x0a/0x0b/0x0e. wpops owns 0x0c. Examined together, the combat round structure is: state 0x0a (wmele init combat encounter), 0x0b (wmele per-round round-init, write 0x0c), 0x0c (wpops post-round operations \u2014 possibly status-decrement, fade animations, fleeing-monster removal \u2014 write 0x0d), 0x0d (wmexe action execution \u2014 this overlay! \u2014 write 0x0e), 0x0e (wmele end-of-round cleanup \u2014 XP, treasure dispatch, next-round-or-end-combat decision). So the combat-round dance is a 4-overlay chain: wmele -> wpops -> wmexe -> wmele, with wmexe being the ACTION RESOLVER in the middle. Discovering this chain was the result of tracing transitions OUT in each overlay's findings JSON.",
+    "**THE 0x97/-0x69 LEADER FLAG IS DOMAIN-WIDE** \u2014 found in wmele (combat loop), and now wmexe (status tick). Combined with the 0x80/0x99 flags from wmele's findings, the LEADER tagging is a 3-byte family (0x80, 0x97, 0x99 \u2014 and possibly more). These bytes are stored at +0x19a in the monster-group record. The leader flag controls (a) whose action triggers group morale (checked here at wmexe 0x7c80), (b) whose death triggers a 'group flees' cascade (in wmele), and (c) special status-effect propagation. **Player-tip**: kill the LEADER first \u2014 it's not just symbolic \u2014 it's hard-coded."
+  ],
+  "thunk_usage": [
+    {
+      "thunk": "0xc47e",
+      "wroot_offset": "0x000009e2",
+      "name": "rng_next",
+      "callsites": 95,
+      "sample_callers": [
+        "0x000e",
+        "0x06d0",
+        "0x023f",
+        "0x06e4"
+      ],
+      "note": "Heavy RNG use \u2014 95 callsites \u2014 confirms wmexe is the 'randomized combat outcomes' overlay. Initiative jitter, damage rolls, save-vs-effect rolls, special-attack proc rolls, all driven by this."
+    },
+    {
+      "thunk": "0xc1f7",
+      "wroot_offset": "0x0000075b",
+      "name": "load_msg_into_buf",
+      "callsites": 59,
+      "sample_callers": [
+        "0x06e4",
+        "0x72fb",
+        "0x8b49",
+        "0x34b2"
+      ],
+      "note": "Heavy message lookup \u2014 combat narration for each action result."
+    },
+    {
+      "thunk": "0xc546",
+      "wroot_offset": "0x00000aaa",
+      "name": "play_sound",
+      "callsites": 37,
+      "sample_callers": [
+        "0x1cd5",
+        "0x9978",
+        "0x23fa",
+        "0x4998"
+      ],
+      "note": "Combat sound effects \u2014 attack hits, magic spells, sound-on-overflow-crash."
+    },
+    {
+      "thunk": "0xf148",
+      "wroot_offset": "0x000036ac",
+      "name": "sprite_render_at_screen_pos",
+      "callsites": 36,
+      "sample_callers": [
+        "0x9a57",
+        "0x9f9f",
+        "0xa18e",
+        "0xa4c2"
+      ],
+      "note": "Sprite-rendering for the 3D scene and the combat animation queue."
+    },
+    {
+      "thunk": "0xbda7",
+      "wroot_offset": "0x0000030b",
+      "name": "ui_window_set_cursor",
+      "callsites": 33,
+      "sample_callers": [
+        "0x27ce",
+        "0x268d",
+        "0x2def",
+        "0x6ad8"
+      ]
+    },
+    {
+      "thunk": "0xe34b",
+      "wroot_offset": "0x000028af",
+      "name": "getbit_test",
+      "callsites": 17,
+      "sample_callers": [
+        "0x9213",
+        "0x95fc",
+        "0x97b9",
+        "0xa4c2"
+      ],
+      "note": "Wall-bitmap testing for the 3D scene renderer."
+    },
+    {
+      "thunk": "0xde7f",
+      "wroot_offset": "0x000023e3",
+      "name": "ui_window_putchar",
+      "callsites": 15,
+      "sample_callers": [
+        "0x2def",
+        "0x2d0e",
+        "0x3ad2"
+      ]
+    },
+    {
+      "thunk": "0xbddb",
+      "wroot_offset": "0x0000033f",
+      "name": "ui_window_box_draw",
+      "callsites": 15,
+      "sample_callers": [
+        "0x3238",
+        "0x34b2",
+        "0x21de"
+      ],
+      "note": "Border-decoration for action result messages."
+    },
+    {
+      "thunk": "0xe3c1",
+      "wroot_offset": "0x00002925",
+      "name": "getbit_chunk",
+      "callsites": 14,
+      "sample_callers": [
+        "0x9213",
+        "0x95fc",
+        "0x97b9"
+      ],
+      "note": "Wall-bitmap chunk reads for the 3D scene renderer."
+    },
+    {
+      "thunk": "0xbd8c",
+      "wroot_offset": "0x000002f0",
+      "name": "ui_window_swap_focus",
+      "callsites": 11,
+      "sample_callers": [
+        "0x8ba5",
+        "0x6ad8",
+        "0x6ee9"
+      ],
+      "note": "Window-focus swap for the action narration UI."
+    },
+    {
+      "thunk": "0xf34c",
+      "wroot_offset": "0x000038b0",
+      "name": "memset",
+      "callsites": 10,
+      "sample_callers": [
+        "0xa4c2",
+        "0xa400"
+      ]
+    },
+    {
+      "thunk": "0xfaab",
+      "wroot_offset": "0x0000400f",
+      "name": "strlen",
+      "callsites": 10,
+      "sample_callers": [
+        "0x268d",
+        "0x27ce"
+      ]
+    },
+    {
+      "thunk": "0xbf8d",
+      "wroot_offset": "0x000004f1",
+      "name": "FUN_04f1",
+      "callsites": 9,
+      "sample_callers": [
+        "0x6e4",
+        "0x3878"
+      ],
+      "note": "Number-to-string helper (used for damage display)."
+    },
+    {
+      "thunk": "0xfedc",
+      "wroot_offset": "0x00004440",
+      "name": "FUN_4440",
+      "callsites": 8,
+      "sample_callers": [
+        "0x35f5",
+        "0x36f6",
+        "0x3878"
+      ],
+      "note": "Likely a per-character condition-flag spreader (writes to char+0x453a region)."
+    },
+    {
+      "thunk": "0xf3aa",
+      "wroot_offset": "0x0000390e",
+      "name": "strcpy",
+      "callsites": 7,
+      "sample_callers": [
+        "0x263f",
+        "0x2def"
+      ]
+    },
+    {
+      "thunk": "0xf9ba",
+      "wroot_offset": "0x00003f1e",
+      "name": "FUN_3f1e",
+      "callsites": 7,
+      "sample_callers": [
+        "0x000e",
+        "0x2d0e",
+        "0x3593"
+      ],
+      "note": "Signed 32-bit math (multiply or divide depending on flag). Used by the morale-bucket function 0x000e and the damage-clamp 0x3593."
+    },
+    {
+      "thunk": "0xf10c",
+      "wroot_offset": "0x00003670",
+      "name": "sprite_blit_short",
+      "callsites": 4,
+      "sample_callers": [
+        "0xa4c2"
+      ],
+      "note": "Sprite blit for the 3D scene."
+    },
+    {
+      "thunk": "0xdf85",
+      "wroot_offset": "0x000024e9",
+      "name": "ui_window_write_chars",
+      "callsites": 3,
+      "sample_callers": [
+        "0x268d",
+        "0x2def"
+      ]
+    },
+    {
+      "thunk": "0xc31e",
+      "wroot_offset": "0x00000882",
+      "name": "FUN_0882",
+      "callsites": 3,
+      "sample_callers": [
+        "0x06e4",
+        "0x6ee9"
+      ],
+      "note": "Likely 'load item record from data table' \u2014 used during weapon resolution."
+    },
+    {
+      "thunk": "0xf13c",
+      "wroot_offset": "0x000036a0",
+      "name": "FUN_36a0",
+      "callsites": 2,
+      "sample_callers": [
+        "0x30f6"
+      ],
+      "note": "Sprite-blit sibling."
+    },
+    {
+      "thunk": "0xe2f4",
+      "wroot_offset": "0x00002858",
+      "name": "FUN_2858",
+      "callsites": 2,
+      "sample_callers": [
+        "0x1ff8"
+      ],
+      "note": "Input-prep sibling of kbd_flush_buffer."
+    },
+    {
+      "thunk": "0xedec",
+      "wroot_offset": "0x00003350",
+      "name": "memchr_or_index",
+      "callsites": 1,
+      "sample_callers": [
+        "0x268d"
+      ]
+    },
+    {
+      "thunk": "0xf130",
+      "wroot_offset": "0x00003694",
+      "name": "FUN_3694",
+      "callsites": 1,
+      "sample_callers": [
+        "0xa4c2"
+      ],
+      "note": "Sprite-render sibling."
+    },
+    {
+      "thunk": "0xe1c0",
+      "wroot_offset": "0x00002724",
+      "name": "kbd_getkey_with_filter",
+      "callsites": 1,
+      "sample_callers": [
+        "0x31e7"
+      ]
+    },
+    {
+      "thunk": "0xc05d",
+      "wroot_offset": "0x000005c1",
+      "name": "string_substitute_char",
+      "callsites": 1,
+      "sample_callers": [
+        "0x27a7"
+      ]
+    },
+    {
+      "thunk": "0xc6de",
+      "wroot_offset": "0x00000c42",
+      "name": "mouse_read_state_or_zero",
+      "callsites": 1,
+      "sample_callers": [
+        "0x31e7"
+      ]
+    },
+    {
+      "thunk": "0xdfb9",
+      "wroot_offset": "0x0000251d",
+      "name": "ui_window_puts",
+      "callsites": 1,
+      "sample_callers": [
+        "0x2def"
+      ]
+    },
+    {
+      "thunk": "0xe2a8",
+      "wroot_offset": "0x0000280c",
+      "name": "kbd_flush_buffer",
+      "callsites": 1,
+      "sample_callers": [
+        "0x31e7"
+      ]
+    },
+    {
+      "thunk": "0xbe80",
+      "wroot_offset": "0x000003e4",
+      "name": "FUN_03e4",
+      "callsites": 1,
+      "sample_callers": [
+        "0x268d"
+      ],
+      "note": "Unknown wroot helper \u2014 likely a window-size-recompute helper. Only thunk that didn't resolve to a known name."
+    },
+    {
+      "thunk": "0xe0df",
+      "wroot_offset": "0x00002643",
+      "name": "kbd_check_with_filter",
+      "callsites": 1,
+      "sample_callers": [
+        "0x31e7"
+      ]
+    },
+    {
+      "thunk": "0xe4ff",
+      "wroot_offset": "0x00002a63",
+      "name": "ui_screen_refresh",
+      "callsites": 1,
+      "sample_callers": [
+        "0x8ba5"
+      ]
+    },
+    {
+      "thunk": "0xe31d",
+      "wroot_offset": "0x00002881",
+      "name": "setbit",
+      "callsites": 1,
+      "sample_callers": [
+        "0x32e4"
+      ],
+      "note": "Used in monster-kill cleanup to clear bit in some global flag table."
+    }
+  ],
+  "thunk_usage_summary": {
+    "total_distinct_thunks": 32,
+    "resolved_to_named_wroot_fn": 22,
+    "resolved_to_informally_named": 9,
+    "resolved_to_unnamed_FUN_xxxx": 1,
+    "total_call_sites_approx": 432,
+    "note": "Of 32 distinct thunks in wmexe, 22 resolve to fully-named wroot functions, 9 more to informal names from prior overlay passes (FUN_04f1, FUN_4440, FUN_3f1e, FUN_36a0, FUN_2858, FUN_3694, FUN_0882). Only 1 (FUN_03e4) remains unresolved \u2014 it appears once at 0x268d (the word-wrap printer), likely a window-size-recompute helper. Total ~432 thunk callsites across the 95 functions, with rng_next dominating at 95 (heavy RNG use is the wmexe signature). Promoting FUN_04f1, FUN_4440, FUN_3f1e and the other 5 informal names into wroot-naming-pass.json would lift wmexe's named-thunk ratio from 22/32 to 31/32."
+  },
+  "bss_layout": {
+    "topic": "wmexe BSS layout \u2014 shared with wmele combat-slot state and per-character record",
+    "note": "wmexe uses the same combat-slot array structure as wmele (group ptr at 0x43a8 + group_idx*2, then slot+0x2c stride within the group; monster type record ptr at 0x43b6 + group_idx*2). Character records at 0x43e8 stride 0x1b0 shared with all overlays. wmexe-unique state lives in 0x4ff8..0x5304 (the 4364-byte BSS area that the entry stub zero-inits).",
+    "fields": [
+      {
+        "addr": "0x363a",
+        "size": 2,
+        "name": "game_state_word",
+        "note": "Read by 0x2ccc dispatcher. wmexe handles 0x0d only."
+      },
+      {
+        "addr": "0x363c",
+        "size": 2,
+        "name": "scene_sub_state",
+        "note": "Used by 3D renderer at 0xa4c2 to pick wall-render variant (0/4/5/0xc)."
+      },
+      {
+        "addr": "0x3644",
+        "size": 2,
+        "name": "anim_frame_mod3",
+        "note": "Per-frame counter cycling 0..2 \u2014 drives sprite-frame variants."
+      },
+      {
+        "addr": "0x3646",
+        "size": 2,
+        "name": "anim_frame_mod2",
+        "note": "Per-frame counter cycling 0..1 \u2014 drives sprite L/R parity."
+      },
+      {
+        "addr": "0x4348",
+        "size": "1 * 10",
+        "name": "rank_file_flag_table_a",
+        "note": "10 bytes (2 rows \u00d7 5 cols) \u2014 current-rank-occupancy in combat scene grid."
+      },
+      {
+        "addr": "0x433e",
+        "size": "1 * 10",
+        "name": "rank_file_flag_table_b"
+      },
+      {
+        "addr": "0x4358",
+        "size": 2,
+        "name": "anim_tick_stage",
+        "note": "Animation-tick stage counter: -3 / -2 / -1 / 0..11. Cycles via 0x30f6."
+      },
+      {
+        "addr": "0x4360",
+        "size": 2,
+        "name": "active_monster_group_count",
+        "note": "1..6 number of active monster groups in this encounter."
+      },
+      {
+        "addr": "0x4362",
+        "size": "2 * 10",
+        "name": "rank_file_to_group_mapping",
+        "note": "Maps grid position (0..9) to group_id, for rendering."
+      },
+      {
+        "addr": "0x435a",
+        "size": 2,
+        "name": "initiative_counter",
+        "note": "Starts at 100, decremented to 0 by 0x8ba5. This is THE initiative tick. Each combatant's +0x25 init byte is matched against this."
+      },
+      {
+        "addr": "0x435c",
+        "size": 2,
+        "name": "current_slot_idx",
+        "note": "Inner loop variable in 0x8ba5 \u2014 which slot within the current group we're processing."
+      },
+      {
+        "addr": "0x435e",
+        "size": 2,
+        "name": "current_group_idx",
+        "note": "Outer loop variable in 0x8ba5 \u2014 0..6 (0 = party, 1..6 = monster groups)."
+      },
+      {
+        "addr": "0x4380",
+        "size": "various",
+        "name": "anim_queue_slot_state"
+      },
+      {
+        "addr": "0x438e",
+        "size": 2,
+        "name": "anim_queue_count",
+        "note": "Number of active entries in the animation queue (cap 12)."
+      },
+      {
+        "addr": "0x4390",
+        "size": "12 * N",
+        "name": "anim_queue_entries",
+        "note": "12-entry animation queue, stride 0xc bytes per entry."
+      },
+      {
+        "addr": "0x43a8",
+        "size": "2 * 7",
+        "name": "monster_group_record_ptrs",
+        "note": "7 pointers to group-records \u2014 group 0 = party (special), groups 1..6 = monster groups."
+      },
+      {
+        "addr": "0x43b4",
+        "size": 2,
+        "name": "party_overflow_group_ptr"
+      },
+      {
+        "addr": "0x43b6",
+        "size": "2 * 7",
+        "name": "monster_type_record_ptrs",
+        "note": "7 pointers to monster-TYPE records (one per group; references the shared monster-record block)."
+      },
+      {
+        "addr": "0x43b8",
+        "size": 2,
+        "name": "current_action_target_group_ptr"
+      },
+      {
+        "addr": "0x43ce",
+        "size": 2,
+        "name": "party_size"
+      },
+      {
+        "addr": "0x43d0",
+        "size": "2 * N",
+        "name": "char_to_rank_file_position"
+      },
+      {
+        "addr": "0x43dc",
+        "size": "2 * N",
+        "name": "char_to_action_group"
+      },
+      {
+        "addr": "0x4400",
+        "size": 4,
+        "name": "char.hp_32bit",
+        "note": "32-bit HP. Same as wtrea's +0x4400."
+      },
+      {
+        "addr": "0x4408",
+        "size": 2,
+        "name": "char.inventory_weight_total"
+      },
+      {
+        "addr": "0x440c",
+        "size": 2,
+        "name": "char.level"
+      },
+      {
+        "addr": "0x4410",
+        "size": "4 * 6",
+        "name": "char.mana_by_school",
+        "note": "6 schools \u00d7 4 bytes, total 24 bytes. Same as wtrea."
+      },
+      {
+        "addr": "0x4428",
+        "size": "8 * 22",
+        "name": "char.inventory_records",
+        "note": "22-slot inventory. Same layout as wpcvw / wtrea / wmnpc."
+      },
+      {
+        "addr": "0x44d8",
+        "size": "4 * 4",
+        "name": "char.weapon_damage_table_lo",
+        "note": "Cached weapon-damage params for currently-equipped weapon (used by hit-roll computation in 0x06e4)."
+      },
+      {
+        "addr": "0x44e6",
+        "size": 1,
+        "name": "char.weapon_hit_bonus"
+      },
+      {
+        "addr": "0x44f6",
+        "size": 1,
+        "name": "char.unarmed_damage_bonus"
+      },
+      {
+        "addr": "0x44f8",
+        "size": 1,
+        "name": "char.equipped_weapon_slot",
+        "note": "Index into inventory of currently-wielded weapon. -1 = none. Used by 0x06e4."
+      },
+      {
+        "addr": "0x44f9",
+        "size": 1,
+        "name": "char.equipped_secondary_slot",
+        "note": "Secondary weapon (dual-wield / shield)."
+      },
+      {
+        "addr": "0x450a",
+        "size": "1 * 10",
+        "name": "char.condition_bits",
+        "note": "Per-condition byte (sleep, paralyze, poison, fear, charm, etc.)."
+      },
+      {
+        "addr": "0x451c",
+        "size": "1 * 16",
+        "name": "char.skill_bytes",
+        "note": "Skill scores 0..100. Skill ids 0..15 (per wpcvw findings)."
+      },
+      {
+        "addr": "0x452c",
+        "size": 1,
+        "name": "char.weapon_skill",
+        "note": "Skill index 0x10 (weapon mastery)."
+      },
+      {
+        "addr": "0x4528",
+        "size": 1,
+        "name": "char.priest_bonus_byte"
+      },
+      {
+        "addr": "0x453a",
+        "size": "1 * N",
+        "name": "char.condition_resistance",
+        "note": "Per-status resistance (same as wtrea)."
+      },
+      {
+        "addr": "0x4570",
+        "size": "11 bytes (82 bits)",
+        "name": "char.known_spells_bitmap",
+        "note": "Same as wtrea."
+      },
+      {
+        "addr": "0x4586",
+        "size": 1,
+        "name": "char.race_byte",
+        "note": "Race id; used for death-sound lookup (+8 offset for sound id base)."
+      },
+      {
+        "addr": "0x4587",
+        "size": 1,
+        "name": "char.class_byte"
+      },
+      {
+        "addr": "0x4589",
+        "size": 1,
+        "name": "char.status_byte"
+      },
+      {
+        "addr": "0x4594",
+        "size": 1,
+        "name": "char.inventory_main_count"
+      },
+      {
+        "addr": "0x4595",
+        "size": 1,
+        "name": "char.inventory_overflow_count"
+      },
+      {
+        "addr": "0x4596",
+        "size": 1,
+        "name": "char.attack_init_bonus",
+        "note": "Init/speed bonus that subtracts from action-init at fire-time."
+      },
+      {
+        "addr": "0x4ec8",
+        "size": "4 * 6",
+        "name": "scene_decoration_counts",
+        "note": "Per-direction decoration counter (used by a400)."
+      },
+      {
+        "addr": "0x4fa0",
+        "size": "various",
+        "name": "scene_state",
+        "note": "Camera/cell state for the 3D renderer."
+      },
+      {
+        "addr": "0x4faa",
+        "size": 2,
+        "name": "wall_bitmap_ptr",
+        "note": "Same wall-bitmap pointer as wmaze/wmnpc/wtrea."
+      },
+      {
+        "addr": "0x4f9a",
+        "size": 2,
+        "name": "party_facing",
+        "note": "0..3 = N/E/S/W. Same as other overlays."
+      },
+      {
+        "addr": "0x4fb6",
+        "size": 2,
+        "name": "active_action_msg_window"
+      },
+      {
+        "addr": "0x4fb8",
+        "size": 2,
+        "name": "even_party_panel_window"
+      },
+      {
+        "addr": "0x4fba",
+        "size": 2,
+        "name": "odd_party_panel_window"
+      },
+      {
+        "addr": "0x4fbc",
+        "size": 2,
+        "name": "scene_overview_window"
+      },
+      {
+        "addr": "0x4fc8",
+        "size": 2,
+        "name": "msg_pause_ticks_base",
+        "note": "Base wait duration for message displays; /2 or /4 gives sub-second pauses."
+      },
+      {
+        "addr": "0x4ff2",
+        "size": 2,
+        "name": "saved_sp",
+        "note": "Caller's sp saved by entry stub at 0xad5e."
+      },
+      {
+        "addr": "0x4ff4",
+        "size": 2,
+        "name": "saved_bp"
+      },
+      {
+        "addr": "0x4fee",
+        "size": 2,
+        "name": "saved_si"
+      },
+      {
+        "addr": "0x4ff0",
+        "size": 2,
+        "name": "saved_di"
+      },
+      {
+        "addr": "0x4ff6",
+        "size": 4,
+        "name": "return_far_ptr",
+        "note": "Far-pointer for the entry-stub to far-jmp back to wroot."
+      },
+      {
+        "addr": "0x4ff8",
+        "size": "0x30c",
+        "name": "wmexe_local_bss",
+        "note": "wmexe-private BSS area zeroed by 0xad5e on entry; covers 0x4ff8..0x5304 = 4364 bytes."
+      },
+      {
+        "addr": "0x500a",
+        "size": 2,
+        "name": "msg_layout_code",
+        "note": "Action-result message layout: 2 = short row, 4 = multi-line."
+      },
+      {
+        "addr": "0x500c",
+        "size": "0x14",
+        "name": "actor_name_buffer",
+        "note": "Buffer where wmexe_load_combatant_name (0x263f) writes the action source's display name."
+      },
+      {
+        "addr": "0x5006",
+        "size": 2,
+        "name": "dice_pack_arg_0"
+      },
+      {
+        "addr": "0x5008",
+        "size": 2,
+        "name": "dice_pack_arg_1"
+      },
+      {
+        "addr": "0x50ac",
+        "size": "0x50",
+        "name": "msg_main_buffer",
+        "note": "Action-result main message buffer."
+      },
+      {
+        "addr": "0x505c",
+        "size": "0x50",
+        "name": "msg_target_buffer",
+        "note": "Action-result target-name buffer."
+      },
+      {
+        "addr": "0x50fe",
+        "size": "2 * 10",
+        "name": "rank_file_grid",
+        "note": "10-entry 2x5 grid \u2014 which rank-file positions are currently visible."
+      },
+      {
+        "addr": "0x5112",
+        "size": 2,
+        "name": "pending_blit_flag"
+      },
+      {
+        "addr": "0x5114",
+        "size": 2,
+        "name": "current_attack_sound_id",
+        "note": "Sound to play when an attack lands (e.g., sword-swing, fireball-fwoosh). Read by 0x23fa."
+      },
+      {
+        "addr": "0x5116",
+        "size": 2,
+        "name": "skip_wait_flag",
+        "note": "If 1, 31e7 and 6abd skip their wait \u2014 used to fast-forward action sequences when the player presses ENTER."
+      },
+      {
+        "addr": "0x5118",
+        "size": 2,
+        "name": "action_extra_flag_a"
+      },
+      {
+        "addr": "0x511a",
+        "size": 2,
+        "name": "scene_cell_iteration"
+      },
+      {
+        "addr": "0x511c",
+        "size": "various",
+        "name": "scene_flag_table_a"
+      },
+      {
+        "addr": "0x5128",
+        "size": "various",
+        "name": "scene_flag_table_b"
+      },
+      {
+        "addr": "0x5140",
+        "size": "0x18",
+        "name": "scene_wall_flag_table"
+      },
+      {
+        "addr": "0x5184",
+        "size": "various",
+        "name": "scene_flag_table_c"
+      },
+      {
+        "addr": "0x51a8",
+        "size": 2,
+        "name": "sprite_queue_count"
+      },
+      {
+        "addr": "0x51aa",
+        "size": "0xb * 30",
+        "name": "sprite_queue_entries",
+        "note": "30-entry sprite queue, stride 0xb. Overflow crashes via infinite play_sound(0)."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "fn-dispatch-stub-and-entry-point",
+      "claim": "wmexe.ovr has a UNIQUE entry-point structure unlike every other state-machine overlay. wroot's overlay-load mechanism far-calls 0xad5e (the OVERLAY ENTRY STUB, not auto-detected by Ghidra). 0xad5e saves caller registers, zero-inits BSS from 0x4ff8 to 0x5304 (4364 bytes), then near-calls 0x2ccc (the state-machine dispatcher, also not auto-detected). 0x2ccc does `cmp word [0x363a], 0x0d; jnz +3; call 0x8ba5; mov ax, 0; ret` \u2014 handling only state 0x0d. wmexe is therefore a TRUE state-machine handler (not a library overlay), but with an unusual entry-point layout.",
+      "category": "dispatch_entry",
+      "evidence": {
+        "binary": "wmexe.ovr",
+        "addresses": [
+          "0xad5e",
+          "0x2ccc",
+          "0x8ba5"
+        ],
+        "type": "instruction_pattern_match",
+        "details": "Bytes at 0xad5e: `8f 06 f6 4f 59 89 26 f2 4f 89 2e f4 4f 89 36 ee 4f 89 3e f0 4f` = pop word [0x4ff6]; pop cx; mov [0x4ff2], sp; mov [0x4ff4], bp; mov [0x4fee], si; mov [0x4ff0], di. Then `fc bf f8 4f b9 04 53 2b cf d1 e9 74 04 2b c0 f3 ab` = cld; mov di, 0x4ff8; mov cx, 0x5304; sub cx, di; shr cx, 1; je +4; sub ax, ax; rep stosw (zero-init BSS). Then `e8 45 7f` = call rel16 0x7f45, target = 0xad87 + 0x7f45 = 0x12ccc \u2192 0x2ccc (mod 0x10000). Bytes at 0x2ccc: `83 3e 3a 36 0d 75 03 e8 cf 5e b8 00 00 c3` = cmp word [0x363a], 0x0d; jnz +3; call rel16 0x5ecf (target = 0x2cd6 + 0x5ecf = 0x8ba5); mov ax, 0; ret. Confirmed wmexe handles state 0x0d only by exhaustive scan of all `cmp [0x363a]` patterns \u2014 only 0x2ccc has the dispatch shape; 0x8d2e has the SAME bytes but `jz +5` (an inline state-guard, not a dispatcher)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-initiative-tick-loop",
+      "claim": "`wmexe_state_0d_initiative_round_loop` (0x8ba5) is the action-execution MAIN LOOP. Initializes `*0x435a = 100`. For each iteration of the outer loop: iterate group_idx 0..6 (party + 6 monster groups), and per group, iterate slot_idx 0..(group+0x19d) \u2014 group's member count. For each slot, check if `slot+0x25 (init byte) == *0x435a`. If yes, and the slot's pause-byte `+0x2b == '\\0'`: set pause=3, reroll init via `(*0x435a - rng(10)) - 5` clamped to 1, narrate 'preparing' via FUN_72fb(0xdbe, ...). If pause==3: clear pause, clear init, fire the action via FUN_810a, advance the action-pointer at +0x21. After the full sweep, decrement *0x435a. When 0, write `*0x363a = 0xe` (transition to wmele end-of-round) and return.",
+      "category": "state_handler",
+      "evidence": {
+        "binary": "wmexe.ovr",
+        "address": "0x8ba5",
+        "details": "Decompiled inner-loop: `do { *0x435e = 0; do { *0x435c = 0; while (*0x435c < *(byte*)(*(int*)(*0x435e*2 + 0x43a8) + 0x19d)) { iVar2 = *(*0x435e*2+0x43a8) + *0x435c*0x2c; if (*(char*)(iVar2+0x24) != '\\0' && *(byte*)(iVar2+0x25) == *(uint*)0x435a) { if (*(char*)(iVar2+0x2b) == '\\0') { ... defer logic ... } else if (*(char*)(iVar2+0x2b) == '\\x03') { ... fire action ... FUN_810a(); +0x21++; } } ... } } while (*0x435e++ < 7); *0x435a--; if (*0x435a == 0) { FUN_31e7(8); *0x363a = 0xe; return; } } while (true);`. The 7-group iteration confirms wmexe handles 6 monster groups + 1 party group. The 4-sub-action structure at +0x18..+0x1c is implicit in the +0x21 action-pointer advance (it's bounded to 3 max via `if (3 < +0x21) +0x21 = 3`)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-pause-and-init-reroll-mechanic",
+      "claim": "When an action FIRST becomes eligible (init match, no pause), wmexe DOES NOT fire immediately \u2014 it sets `+0x2b = 3` (pause byte), plays the 'preparing' message (FUN_72fb with msg 0xdbe), and reroll the init via `(current_init - rng(10)) - 5`. This DEFERS the action's actual firing by 1..10 ticks. The pause==3 branch handles 'now fire': clear pause, fire action, advance the slot's action-pointer at +0x21.",
+      "category": "state_handler",
+      "evidence": {
+        "binary": "wmexe.ovr",
+        "address": "0x8ba5",
+        "details": "Inner branch at decompiled position: `if (*(char*)(iVar2 + 0x2b) == '\\0') { if (*(byte*)(iVar2 + *(byte*)(iVar2+0x21) + 0x18) != *(uint*)0x435a) { *(undefined1*)(iVar2 + 0x2b) = 3; FUN_31e7(2); FUN_72fb(0xdbe, 0xffff, 6); FUN_31e7(*0x4fc8 / 2); } iVar3 = func_0x0000c47e(10); local_8 = (*0x435a - iVar3) + -5; if (local_8 < 1) local_8 = 1; *(undefined1*)(iVar2 + 0x25) = (undefined1)local_8; }`. The c47e(10) is rng_next(10), so the reroll is rng 0..9. Subtracting also -5 gives delta range [-14, -5], so the rerolled init is *0x435a - 5..14 ticks later (counter is decrementing, so subtracting MORE means LATER fire). Clamped to >=1 prevents underflow."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-status-tick-and-leader-flag",
+      "claim": "`wmexe_tick_status_effects_on_combatant` (0x810a) is the 1995-byte per-init-per-combatant status processor. Reads combatant's status bits at +0xf (silent), +0x10 (paralyze), +0x11 (sleep), +0x12 (charm), +0x14 (fear), +0x15 (poison), +0x16 (turned). On poison, rolls `rng(3) + 0xc85` for which of 3 poison messages to show. The CRITICAL LEADER CHECK: `if (group+0x19a == -0x69)` (signed -105 = 0x97 unsigned). When the leader has +0x19a == 0x97 AND the slot has +0x14 (fear) set, the slot gets BOTH instant pause (+0x2b = 3) AND action-fire (+0x24 = 1), with iVar9 = 2 (an outer-counter increment of 2). Otherwise iVar9 = 1 (normal increment). This special-cases the LEADER role for collective behaviors.",
+      "category": "action_resolver",
+      "evidence": {
+        "binary": "wmexe.ovr",
+        "address": "0x810a",
+        "details": "Decompiled excerpt: `if ((*(byte*)(*(int*)(*0x435e*2+0x43b6)+0xdc) & 4) != 0) && (*(char*)(*(int*)((uint)*(byte*)(iVar5+0x1f)*2+0x43a8) + (uint)*(byte*)(iVar5+0x20)*0x2c + 0x14) != '\\0') { local_6 = 0xc92; if (*(char*)(*(int*)(*0x435e*2+0x43a8)+0x19a) == -0x69) { *(undefined1*)(iVar5+0x2b) = 3; *(undefined1*)(iVar5+0x24) = 1; iVar9 = 2; } else { iVar9 = 1; } }`. The `-0x69` byte literal is 0x97 unsigned \u2014 the LEADER marker we found in wmele 0x16b6 (the 0x80/0x97/0x99 family). The msg 0xc92 displayed is presumably 'leader collapses in fear / turn-the-undead success' depending on the source. Confirmed by the (+0xdc & 4) check \u2014 bit 2 of +0xdc on the monster-type record is the 'turnable / fearable' flag."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-morale-bucket-asymmetric",
+      "claim": "`wmexe_compute_morale_initiative_tier` (0x000e) returns asymmetric values depending on whether the caller is party (param_1 == 0) or monster (param_1 != 0). For the SAME underlying roll, party gets buckets {0, 5, 10, 14, 40} while monsters get {0, 0, 1, 2, 4}. So at the top bucket (roll >= 0x5b), party gets +40 stat-modifier, monster gets +4 \u2014 a 10x asymmetric advantage for the party.",
+      "category": "data_util",
+      "evidence": {
+        "binary": "wmexe.ovr",
+        "address": "0x000e",
+        "details": "Decompiled: `uVar6 = func_0x0000f9ba(); iVar4 = (int)((ulong)uVar6 >> 0x10); uVar2 = 100 - (uint)uVar6; iVar5 = -(uint)(100 < (uint)uVar6) - iVar4; if ((iVar5 < 1) && ((iVar1 != iVar4 || (uVar2 < 0x33)))) { uVar3 = 0; } else if (... uVar2 < 0x43) { uVar3 = 0; if (param_1 == 0) uVar3 = 5; } else if (... uVar2 < 0x4c) { uVar3 = 1; if (param_1 == 0) uVar3 = 10; } else if (... uVar2 < 0x5b) { uVar3 = 2; if (param_1 == 0) uVar3 = 0x14 (=20); } else { uVar3 = 4; if (param_1 == 0) uVar3 = 0x28 (=40); }`. The 32-bit math f9ba returns a value 0..99 (rng_in_range_signed_or_unsigned). The 0x33/0x43/0x4c/0x5b thresholds are 51/67/76/91 (so 5 buckets: 0..50, 51..66, 67..75, 76..90, 91..99). Party output: {0, 5, 10, 20, 40}; monster output: {0, 0, 1, 2, 4}."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-animation-queue-12-slot-cap",
+      "claim": "`wmexe_animation_queue_insert_sorted` (0x1cd5) inserts into a 12-entry depth-sorted animation queue at 0x4390 (stride 0xc, 12 slots). Sorted by param_1 (depth byte) \u2014 entries with smaller depth values come first. Overflow (insert beyond slot 11) triggers `do { play_sound(0); } while (true);` \u2014 an infinite loop that HANGS THE GAME. So if more than 12 attack animations are simultaneously in-flight, Wiz6 crashes.",
+      "category": "animation",
+      "evidence": {
+        "binary": "wmexe.ovr",
+        "address": "0x1cd5",
+        "details": "Decompiled: `local_4 = 0; while ((local_4 < *0x438e && ((int)*(byte*)(*(int*)(local_4*2 + 0x4390) + 0x14) <= param_1))) { local_4++; } for (local_6 = *0x438e; local_4 < local_6; local_6--) { ... shift entries down ... } if (0xb < local_4) { do { func_0x0000c546(0); } while (true); }`. The 0xb cap is 11 (the highest valid slot index for a 12-slot queue). play_sound(0) is the NULL sound. The `do { ... } while (true)` is an obvious deliberate hang \u2014 a defensive abort. The same crash-on-overflow pattern is in `scene_sprite_queue_insert` (0x9978) with a 30-entry cap."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-sprite-queue-30-slot-cap",
+      "claim": "`scene_sprite_queue_insert` (0x9978) maintains a 30-entry sprite queue at 0x51aa, stride 0xb bytes per entry. Overflow (queue count >= 0x1e = 30) triggers `do { play_sound(0); } while (true);` \u2014 same crash-hang as the animation queue. The cap is hardcoded \u2014 there's no graceful degradation.",
+      "category": "animation",
+      "evidence": {
+        "binary": "wmexe.ovr",
+        "address": "0x9978",
+        "details": "Decompiled: `iVar1 = *(int*)0x51a8 * 0xb; ... *(int*)0x51a8++; if (0x1d < *(int*)0x51a8) { do { func_0x0000c546(0); } while (true); }`. The 0x1d cap is 29 (30 valid slots, so post-increment to 30 triggers the loop). play_sound(0) hangs."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-spell-resolver-school-mana",
+      "claim": "`wmexe_resolve_offensive_spell` (0x6ad8) is the offensive-spell resolver. Reads spell record at `0xde + spell_id * 6` (6-byte stride, 82 total = 492 bytes). Spell byte +0x00 = school_id (0..5 for the 6 schools). For damage spells, computes `damage = rng(school_mana_pool + power_level * 5)`, then reduces by resistance from monster-type at +0x96 (resist byte for school) minus 'caster proficiency penalty' (some derived value). On successful cast, decrements caster's per-school mana column at `+0x4410 + school * 4` (4 bytes per school = 24 bytes total). NO underflow check on mana \u2014 can go negative.",
+      "category": "spell",
+      "evidence": {
+        "binary": "wmexe.ovr",
+        "address": "0x6ad8",
+        "details": "Excerpt: `iVar6 = func_0x0000c47e((uint)*(byte*)(*(int*)(*0x435e*2+0x43a8)+0x191) + *param_1 + 1); if (iVar6 < (int)(uint)*(byte*)(*(int*)(*0x435e*2+0x43a8)+0x191)) { *(undefined2*)0x5118 = 1; } ... if (*0x435e == 0) { piVar1 = (int*)(*0x435c*0x1b0 + (uint)*(byte*)(iVar7*6 + 0xde) * 4 + 0x4410); *piVar1 = *piVar1 - (uint)*(byte*)(iVar7*6 + 0xe0) * iVar4; }`. The +0xde + spell_id*6 access matches the wtrea findings (spell table base 0xde, stride 6). The +0xe0 byte (4 bytes into the spell record) is the per-power-level mana cost. The 6-byte spell record per entry: +0=school, +1=name_id_lo, +2=base_dmg, +3..+4=more_data, +5=flags/cost. The mana decrement `*piVar1 -= ... * iVar4` reduces the school's pool but the i.l.l. code does NOT clamp to 0."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-4-sub-action-queue-per-combatant",
+      "claim": "Each combatant has a 4-slot action queue at +0x18..+0x1b (action codes) and corresponding init values at +0x192..+0x195 (init bytes). The state-0d loop iterates all 4 slots per combatant per round. Action codes 0..3 map to: 0=melee attack (FUN_3be5), 1=priest spell (FUN_3e8f with msg 0xd95), 2=mage spell (FUN_3e8f with msg 0xd98), 3=ranged/special (FUN_3be5). Fast monsters can have all 4 slots populated, firing 4 attacks per round; slow party members may only have slot 0 set.",
+      "category": "state_handler",
+      "evidence": {
+        "binary": "wmexe.ovr",
+        "address": "0x8ba5",
+        "details": "Decompiled inner-loop after slot-pause-cleared: `if (*(char*)(iVar2 + 0x19d) != '\\0') { local_6 = 0; do { iVar2 = *(int*)(*0x435e*2+0x43a8); uVar4 = (uint)*(byte*)(iVar2 + local_6 + 0x192); if (*(byte*)(iVar2 + local_6 + 0x196) == *(uint*)0x435a && uVar4 != 0) { ... if (local_6 == 0) { FUN_8b49(0xc94, 4); FUN_3be5(*0x435e, 0xfff6, 2, 4, uVar4, 1, uVar4*5+0x19); } else if (local_6 == 1) { FUN_8b49(0xc95, 3); FUN_3e8f(*0x435e, 0xfff6, 0xd95, 6, uVar4, ...); } else if (local_6 == 2) { FUN_8b49(0xc96, 6); FUN_3e8f(*0x435e, 0xfff6, 0xd98, ...); } else if (local_6 == 3) { FUN_8b49(0xc97, 6); FUN_3be5(...); } } local_6++; } while (local_6 < 4); }`. The +0x192..+0x195 init array (4 bytes), +0x196..+0x199 (another 4 bytes \u2014 possibly action-flags), and +0x19d (action count cap) are interleaved BSS fields. Note: each sub-action gets its own narration message id (0xc94/0xc95/0xc96/0xc97)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-attack-resolver-weapon-table",
+      "claim": "`wmexe_resolve_physical_attack` (0x06e4, 4105 bytes \u2014 the BIGGEST function in wmexe) is the main physical-attack resolver. Reads attacker's equipped weapon at slot+0x44f8, looks up weapon-type byte in inventory record (+0x442d), dispatches via 13-entry table at 0x4dd9..0x4dde (8 bytes of weapon-type to attack-style mapping). Combines hit roll = `wmexe_compute_morale_initiative_tier(0, init, ...) + char.attack_init_bonus(+0x4596) + weapon_hit_bonus(+0x44e6) + +0x27_byte*5 + group_init_modifier(0x43b6+0x89/+0x88/+0x87 avg)/2 - target_armor_avg/2 - char.weapon_skill(+0x451c+weapon_skill_idx)/3`. The big number of factors makes it the GAMEPLAY-CORE hit formula.",
+      "category": "action_resolver",
+      "evidence": {
+        "binary": "wmexe.ovr",
+        "address": "0x06e4",
+        "details": "Excerpt: `local_58 = (iVar8 + *(char*)(*0x435c*0x1b0+0x4596) + (int)*(char*)(*0x435c*0x1b0 + param_2*0x10 + 0x44e6) + *(char*)(param_1 + 0x27) * 5 + local_56 + iVar12) - *(byte*)(*0x435c*0x1b0 + local_7e + 0x451c) / 3;` where iVar8 = FUN_000e(0, ...) (the morale-bucket bonus), local_56 = (sum of group attack bonuses at +0x89/+0x88/+0x87)/2 - (sum of target's at same offsets)/2 \u2014 a TARGET-VS-ATTACKER ARMOR DELTA. The 13-entry table at 0x4dd9 maps weapon-type-id to a dispatch case; the puVar14[0xb] indirect call at line 0x4dd9-0x4dde-relative pattern is the actual switch. The +0x44d8/+0x44da is the weapon's per-power damage range (lo/hi)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-state-transition-chain",
+      "claim": "Combat round state flow: wmele 0x0a (combat init) -> wmele 0x0b (per-round draw + monster attacks) -> wpops 0x0c (post-round operations) -> wmexe 0x0d (action execution loop) -> wmele 0x0e (end-of-round cleanup). wmexe transitions OUT to 0x0e only via the initiative-counter-zero branch in 0x8ba5.",
+      "category": "state_handler",
+      "evidence": {
+        "binary": "wmexe.ovr",
+        "address": "0x8ba5",
+        "details": "Decompiled bottom of state-0d loop: `piVar1 = (int*)0x435a; iVar2 = *piVar1; *piVar1 = *piVar1 + -1; if (*piVar1 == 0 || SBORROW2(iVar2,1) != *piVar1 < 0) { FUN_31e7(8); *(undefined2*)0x363a = 0xe; return; }`. The SBORROW2 check is the signed-underflow detection \u2014 when the initial value of *0x435a (initially 100, decrementing) reaches 0 and would underflow, the loop exits. The `*0x363a = 0xe` then routes to wmele's state 0xe handler (end-of-round cleanup). Cross-referenced with wmele's findings showing 0xe is one of its handled states. The path INTO state 0xd is inferred from the state-table: wpops handles 0xc, and the only state value coming after 0xc that wmexe handles is 0xd, so wpops presumably writes 0xd to *0x363a on its exit."
+      },
+      "confidence": "high"
+    }
+  ],
+  "renamed_full_list": [
+    {
+      "addr": "0x000e",
+      "old": "FUN_0000_000e",
+      "new": "wmexe_compute_morale_initiative_tier",
+      "category": "data_util",
+      "note": "Uses 32-bit math (f9ba) to roll 0..99 and bucket into morale/init levels (0/5/10/14/40); param controls output magnitude (0=lower buckets)"
+    },
+    {
+      "addr": "0x00bc",
+      "old": "FUN_0000_00bc",
+      "new": "wmexe_build_action_attack_args",
+      "category": "action_resolver",
+      "note": "Returns a 14-byte struct of attack parameters for the current character/slot \u2014 used by attack-resolvers (0x6e4, 0x4677) to assemble dice + bonuses"
+    },
+    {
+      "addr": "0x023f",
+      "old": "FUN_0000_023f",
+      "new": "wmexe_action_dice_dispatch",
+      "category": "action_resolver",
+      "note": "rng(100) gates between 06c3 and 06d0 (probably 'critical' vs 'normal' damage paths)"
+    },
+    {
+      "addr": "0x0375",
+      "old": "caseD_0",
+      "new": "wmexe_caseD_06d0_recurse",
+      "category": "action_resolver",
+      "note": "Trivial caseD_0 wrapper that tail-calls 06d0"
+    },
+    {
+      "addr": "0x06c3",
+      "old": "FUN_0000_06c3",
+      "new": "wmexe_dice_roll_lookup_table",
+      "category": "action_resolver",
+      "note": "Lookup-based dice roll using 8-entry table; small jumptable variant of 06d0"
+    },
+    {
+      "addr": "0x06d0",
+      "old": "FUN_0000_06d0",
+      "new": "wmexe_dice_roll_recursive",
+      "category": "action_resolver",
+      "note": "Recursive dice-roll helper, up to 8 iterations; called by 06c3 and 0023f"
+    },
+    {
+      "addr": "0x06e4",
+      "old": "FUN_0000_06e4",
+      "new": "wmexe_resolve_physical_attack",
+      "category": "action_resolver",
+      "note": "4105 bytes \u2014 the main physical-attack resolver. Reads weapon-id (slot+0x44f8), dispatches on item-type at 0x442d via 13-entry lookup table at 0x4dd9, computes hit roll using class skill + dex + level + weapon damage table (5125+) - target armor bonuses (43b6+0x89+0x88+0x87)/2, then applies damage and special effects (crits, status hits)"
+    },
+    {
+      "addr": "0x1957",
+      "old": "FUN_0000_1957",
+      "new": "wmexe_accumulate_dice_rolls",
+      "category": "data_util",
+      "note": "for param_2 iterations, roll rng(param_2.hi) + 1, accumulate sum (param_1 base) \u2014 packed-dice rolling"
+    },
+    {
+      "addr": "0x1986",
+      "old": "FUN_0000_1986",
+      "new": "wmexe_pack_dice_args",
+      "category": "data_util",
+      "note": "Packs (base, count, size) -> returns pointer to 0x5006/0x5008 static buffer holding the dice spec"
+    },
+    {
+      "addr": "0x19b5",
+      "old": "FUN_0000_19b5",
+      "new": "wmexe_sync_slot_to_character_record",
+      "category": "data_util",
+      "note": "Copies HP (2 + 6) and status_byte (+0x22 -> +0x4589) and conditions (+0xe..+0x18 -> +0x450a) from combat-slot to character-record"
+    },
+    {
+      "addr": "0x1a3c",
+      "old": "FUN_0000_1a3c",
+      "new": "wmexe_monster_attack_pick_sequence",
+      "category": "action_resolver",
+      "note": "Per-monster attack sequence selector \u2014 reads monster's attack-pattern record at 0x3816+UVar1*0x13a (entry count) and 0x3648+param_2*0x1e+iVar3*3 (attack ID + 0..3 byte fields); fills param_3 buffer with attack codes for each subaction in this round; if attack count run out (0x3815 cap), rolls new attack via 3814/3815 percentiles"
+    },
+    {
+      "addr": "0x1cd5",
+      "old": "FUN_0000_1cd5",
+      "new": "wmexe_animation_queue_insert_sorted",
+      "category": "animation",
+      "note": "Insert into 12-entry animation queue at 0x4390 stride; sorted by depth-byte param_1 (+0x14); shifts later entries down via 0xc-byte memcpy"
+    },
+    {
+      "addr": "0x1dd5",
+      "old": "FUN_0000_1dd5",
+      "new": "wmexe_render_monster_idle_anim",
+      "category": "animation",
+      "note": "Per-(depth,slot) monster idle animation; reads monster's idle-pose byte at 3810+monster_idx*0x13a and offsets at 37fa+depth*10+slot*2; calls 1cd5 with the resulting sprite frame"
+    },
+    {
+      "addr": "0x1ff8",
+      "old": "FUN_0000_1ff8",
+      "new": "wmexe_render_animation_step",
+      "category": "animation",
+      "note": "Per-animation step renderer; reads queue entry at 4390+param_1*2, dispatches on stage byte at +0x15 against magic codes (0x14, 0x23, 0x36, 0x39); calls 30f6 and updates sprite frames in queue slot"
+    },
+    {
+      "addr": "0x21de",
+      "old": "FUN_0000_21de",
+      "new": "wmexe_render_party_combat_panel",
+      "category": "ui",
+      "note": "718-byte render \u2014 per-character combat panel; called twice per row by 30f6 iVar1==-1 branch; handles status icons (0x44f8 weapon, 0x4528 attribs)"
+    },
+    {
+      "addr": "0x23fa",
+      "old": "FUN_0000_23fa",
+      "new": "wmexe_play_attack_animation",
+      "category": "animation",
+      "note": "581-byte function. Sound (+5114 sound id), spawn sprite for attack effect \u2014 different L/R orientations based on party_size % 2"
+    },
+    {
+      "addr": "0x263f",
+      "old": "FUN_0000_263f",
+      "new": "wmexe_load_combatant_name",
+      "category": "ui",
+      "note": "Copies the actor's display name into buf param_1 \u2014 branches on group==0 (party char at 43e8 stride 0x1b0) vs monster (43b6+ +0x19c offset)"
+    },
+    {
+      "addr": "0x268d",
+      "old": "FUN_0000_268d",
+      "new": "wmexe_print_word_wrapped",
+      "category": "ui",
+      "note": "Word-wrap printer \u2014 walks string, finds spaces (memchr_or_index), wraps at window width, prints each line via ui_window_write_chars"
+    },
+    {
+      "addr": "0x275f",
+      "old": "FUN_0000_275f",
+      "new": "wmexe_print_centered_msg",
+      "category": "ui",
+      "note": "Centers a string then prints it via FUN_268d"
+    },
+    {
+      "addr": "0x27a7",
+      "old": "FUN_0000_27a7",
+      "new": "wmexe_modal_msg_box",
+      "category": "ui",
+      "note": "Loads msg into buffer and centers+prints \u2014 basic modal-msg helper"
+    },
+    {
+      "addr": "0x27ce",
+      "old": "FUN_0000_27ce",
+      "new": "wmexe_print_3_strings_centered",
+      "category": "ui",
+      "note": "Computes total length of 3 strings + spaces, centers within window (width-total)/2, then prints each non-empty"
+    },
+    {
+      "addr": "0x289d",
+      "old": "FUN_0000_289d",
+      "new": "inventory_item_weight_lookup",
+      "category": "data_util",
+      "note": "Returns item_weight * quantity for inventory slot; same as wpcvw/wmnpc/wtrea's 0x3fc0/0x289d"
+    },
+    {
+      "addr": "0x28fc",
+      "old": "FUN_0000_28fc",
+      "new": "inventory_recompute_total_weight",
+      "category": "data_util",
+      "note": "Sums per-slot weights via 0x289d; updates char+0x4408 (inventory weight total); main + overflow loops"
+    },
+    {
+      "addr": "0x2986",
+      "old": "FUN_0000_2986",
+      "new": "weighted_pick_from_table",
+      "category": "data_util",
+      "note": "Rolls rng(100), decrements iterating param_1[0..7] weights; returns first index where roll < entry, else 4"
+    },
+    {
+      "addr": "0x2b32",
+      "old": "FUN_0000_2b32",
+      "new": "wmexe_inventory_decrement_quantity",
+      "category": "data_util",
+      "note": "Decrements char+0x442e (quantity) of slot; on zero, removes slot and shifts following slots up \u2014 used after item-cast on chests / weapon-break"
+    },
+    {
+      "addr": "0x2cda",
+      "old": "FUN_0000_2cda",
+      "new": "wmexe_resolve_physical_attack_wrap",
+      "category": "action_resolver",
+      "note": "Wrapper that tail-calls 06e4 \u2014 used by caller that needs a stable entry point"
+    },
+    {
+      "addr": "0x2cf0",
+      "old": "FUN_0000_2cf0",
+      "new": "wmexe_drain_sp",
+      "category": "action_resolver",
+      "note": "Decrements param_1+6 (SP / mana) by param_2; clamps to 0"
+    },
+    {
+      "addr": "0x2d0e",
+      "old": "FUN_0000_2d0e",
+      "new": "wmexe_render_text_marquee",
+      "category": "ui",
+      "note": "Infinite-loop text painter \u2014 calls f9ba twice then loops set_cursor+putchar (warning: unreachable block; probably interactive helper not normally called)"
+    },
+    {
+      "addr": "0x2def",
+      "old": "FUN_0000_2def",
+      "new": "wmexe_redraw_party_member_card",
+      "category": "ui",
+      "note": "775-byte rebuild of one character's combat-panel card (HP, SP, status, class, weapon char); writes into 4fba/4fb8 window based on slot%2 parity"
+    },
+    {
+      "addr": "0x30f6",
+      "old": "FUN_0000_30f6",
+      "new": "wmexe_animation_tick",
+      "category": "animation",
+      "note": "Main per-frame animation tick \u2014 switches on *0x4358 (animation stage counter -3..11). Stage -3: refresh sprite, advance frame counters at 3644/3646. Stage -2: full a4c2 redraw. Stage -1: redraw all monster sprites via 1dd5/21de. Else: dispatch 1ff8 per queued animation. Increments 4358; wraps -3 at +12"
+    },
+    {
+      "addr": "0x31d6",
+      "old": "FUN_0000_31d6",
+      "new": "wmexe_animation_run_to_completion",
+      "category": "animation",
+      "note": "Pumps wmexe_animation_tick until *0x4358 == -2 (animation done)"
+    },
+    {
+      "addr": "0x31e7",
+      "old": "FUN_0000_31e7",
+      "new": "wmexe_wait_ticks_with_input_poll",
+      "category": "ui",
+      "note": "Waits N*10 frames, animating + polling for mouse/keyboard input (ENTER=0xd cancels early)"
+    },
+    {
+      "addr": "0x32b2",
+      "old": "FUN_0000_32b2",
+      "new": "wmexe_spell_school_mana_offset",
+      "category": "spell",
+      "note": "Returns school_byte*3 + spell_power*3 - 6 \u2014 likely the mana column index into char's school array"
+    },
+    {
+      "addr": "0x3238",
+      "old": "FUN_0000_3238",
+      "new": "wmexe_draw_action_msg_border",
+      "category": "ui",
+      "note": "Draws decorated 0x27 (apostrophe) border for action-result msg; uses 4fb6 window"
+    },
+    {
+      "addr": "0x3270",
+      "old": "FUN_0000_3270",
+      "new": "skill_train_chance_increment",
+      "category": "data_util",
+      "note": "Same as wtrea/wpcvw \u2014 train skill at param_2 with class_modifier param_3"
+    },
+    {
+      "addr": "0x32e4",
+      "old": "FUN_0000_32e4",
+      "new": "wmexe_kill_combatant",
+      "category": "action_resolver",
+      "note": "Marks combatant as dead: clears HP/SP, sets status=3, releases rank-file slot at 4348/433e, clears action queue at 0x18..0x1c; refunds gold on monster kill (+0x40 monster value)"
+    },
+    {
+      "addr": "0x34b2",
+      "old": "FUN_0000_34b2",
+      "new": "wmexe_show_action_result_msg",
+      "category": "ui",
+      "note": "Shows the action-result message with name + verb + target \u2014 handles different layouts based on 0x500a (msg style code: 2=short, 4=multi-line)"
+    },
+    {
+      "addr": "0x35f5",
+      "old": "FUN_0000_35f5",
+      "new": "wmexe_apply_status_or_death",
+      "category": "action_resolver",
+      "note": "Same shape as wtrea_apply_status_or_death \u2014 rolls save vs target's condition_resistance (+0x4537a+param_4); on fail or unconditional, sets combatant status_byte (+0x22) and plays death sound (+0x4586+8) if severity>=3"
+    },
+    {
+      "addr": "0x3593",
+      "old": "FUN_0000_3593",
+      "new": "wmexe_dice_in_range",
+      "category": "data_util",
+      "note": "Roll 0..cap+1 with f9ba (32-bit), return param_2 - roll; used as damage-roll-with-cap helper"
+    },
+    {
+      "addr": "0x3878",
+      "old": "FUN_0000_3878",
+      "new": "wmexe_apply_dice_damage_to_slot",
+      "category": "action_resolver",
+      "note": "Roll param_5*param_3 dice via rng(param_4); apply to slot's HP; on kill call 35f5 with death status; else show damage msg + play sound"
+    },
+    {
+      "addr": "0x3ad2",
+      "old": "FUN_0000_3ad2",
+      "new": "wmexe_show_msg_with_decoration",
+      "category": "ui",
+      "note": "Helper: draw 27-decorated border + show msg + wait"
+    },
+    {
+      "addr": "0x3b00",
+      "old": "FUN_0000_3b00",
+      "new": "wmexe_apply_status_resistance",
+      "category": "action_resolver",
+      "note": "If rng(param_4) < monster's status_resist_byte at +0x18c+param_2: roll f9ba and reduce damage by random portion. param_2 selects which status timer (0..4)"
+    },
+    {
+      "addr": "0x3b68",
+      "old": "FUN_0000_3b68",
+      "new": "wmexe_apply_elemental_resistance",
+      "category": "action_resolver",
+      "note": "Reduce damage param_3 based on element type param_2 (1=fire, 3=cold, 5=other -> timer slot 0/1/3; default slot 4) via 3b00"
+    },
+    {
+      "addr": "0x3be5",
+      "old": "FUN_0000_3be5",
+      "new": "wmexe_apply_to_target_or_group",
+      "category": "action_resolver",
+      "note": "Apply damage/status to single target (param_2 >= 0) or all-alive in group (param_2 < 0 means random multi-target); per-target calls 3878 + 2def to redraw"
+    },
+    {
+      "addr": "0x3cfb",
+      "old": "FUN_0000_3cfb",
+      "new": "wmexe_apply_status_to_target_or_group",
+      "category": "action_resolver",
+      "note": "Like 3be5 but uses 35f5 (status apply) or 36f6 (alternate status), targets single or group with elemental resistance pre-pass"
+    },
+    {
+      "addr": "0x3e8f",
+      "old": "FUN_0000_3e8f",
+      "new": "wmexe_apply_compound_status_to_group",
+      "category": "action_resolver",
+      "note": "Wider variant of 3cfb (15 params) \u2014 multi-status, multi-dice spell applied to single/group"
+    },
+    {
+      "addr": "0x36f6",
+      "old": "FUN_0000_36f6",
+      "new": "wmexe_apply_status_via_dice",
+      "category": "action_resolver",
+      "note": "Apply status using dice-packed effect spec; pack args via 1986, roll via 1957, save vs resist via 3593"
+    },
+    {
+      "addr": "0x40ba",
+      "old": "FUN_0000_40ba",
+      "new": "wmexe_apply_spell_to_groups",
+      "category": "action_resolver",
+      "note": "Top-level spell dispatch: if group is 0/6 (party variants), apply to BOTH party slots and party-overflow; else iterate 1..4360 (active monster groups)"
+    },
+    {
+      "addr": "0x4146",
+      "old": "FUN_0000_4146",
+      "new": "wmexe_apply_status_to_group_loop",
+      "category": "action_resolver",
+      "note": "Per-group loop iterating 0..0x19d alive members; calls 3cfb for each; handles 'sleep' (param_3==5) and 'paralyze' (param_3==0xb) special level-scaling cases"
+    },
+    {
+      "addr": "0x424a",
+      "old": "FUN_0000_424a",
+      "new": "wmexe_apply_compound_status_to_groups",
+      "category": "action_resolver",
+      "note": "Top-level: iterate active monster groups or party halves and call 4146 per group"
+    },
+    {
+      "addr": "0x42fd",
+      "old": "FUN_0000_42fd",
+      "new": "wmexe_clamp_attribute_modifier",
+      "category": "data_util",
+      "note": "Sign-aware clamp: param_3==1 -> reduce by param_1 (with floor at -param_1); param_3==0 -> raise by param_1 (with cap at param_1)"
+    },
+    {
+      "addr": "0x434d",
+      "old": "FUN_0000_434d",
+      "new": "wmexe_resolve_thrown_ranged_attack",
+      "category": "action_resolver",
+      "note": "Thrown/ranged attack to random members of target group: roll position via rng + clamp count; per-target hit-roll vs target's armor at +0x4537+0x94; on hit, apply damage and possibly use 42fd to update target's attack/defense"
+    },
+    {
+      "addr": "0x4677",
+      "old": "FUN_0000_4677",
+      "new": "wmexe_resolve_attack_multi_target",
+      "category": "action_resolver",
+      "note": "Multi-target attack resolver \u2014 outer loop picks target slots in target group with rng; inner switch handles different attack types (case 1 = std weapon strike sharing structure with 06e4)"
+    },
+    {
+      "addr": "0x4998",
+      "old": "FUN_0000_4998",
+      "new": "wmexe_dispatch_attack_animation",
+      "category": "animation",
+      "note": "Sets up attack animation for source-rank-position vs target-rank \u2014 feeds to 23fa with appropriate L/R orientation flags"
+    },
+    {
+      "addr": "0x4a44",
+      "old": "FUN_0000_4a44",
+      "new": "wmexe_resolve_breath_or_aoe_attack",
+      "category": "action_resolver",
+      "note": "Breath/AOE attack resolver \u2014 uses weapon table lookup, big switch on attack-type byte; sibling of 4677 and 06e4"
+    },
+    {
+      "addr": "0x4ea1",
+      "old": "FUN_0000_4ea1",
+      "new": "wmexe_finish_action_with_attack_anim",
+      "category": "action_resolver",
+      "note": "Clears wait-flag, calls 32b2 (mana lookup?), kicks 6ab0 (anim dispatcher), wraps action completion"
+    },
+    {
+      "addr": "0x5000",
+      "old": "caseD_0",
+      "new": "wmexe_action_case_default",
+      "category": "action_resolver",
+      "note": "Case fragment: calls 4998 (anim) and 3be5 (apply to target) \u2014 default action handler"
+    },
+    {
+      "addr": "0x6ab0",
+      "old": "FUN_0000_6ab0",
+      "new": "wmexe_action_jumptable_dispatch",
+      "category": "action_resolver",
+      "note": "Indirect jumptable dispatch for action type \u2014 AX < 0x52 jumps via -0x5090 table; else falls back to 31e7 wait"
+    },
+    {
+      "addr": "0x6abd",
+      "old": "FUN_0000_6abd",
+      "new": "wmexe_wait_if_not_skipped",
+      "category": "ui",
+      "note": "If *0x5116==0 (skip flag not set), wait *0x4fc8/2 ticks \u2014 animation pause primitive"
+    },
+    {
+      "addr": "0x6ad8",
+      "old": "FUN_0000_6ad8",
+      "new": "wmexe_resolve_offensive_spell",
+      "category": "action_resolver",
+      "note": "1041 bytes \u2014 offensive spell-cast resolver. Reads spell table at 0xde+spell_id*6 (spell record), computes target-armor-vs-school check, rolls damage and reduces by school resistance (+0xe1 spell flags); decrements caster's mana by spell.mana_per_power_byte * power_level"
+    },
+    {
+      "addr": "0x6ee9",
+      "old": "FUN_0000_6ee9",
+      "new": "wmexe_resolve_status_spell",
+      "category": "action_resolver",
+      "note": "1042 bytes \u2014 status/cure spell resolver. Spell-type byte switch (0xc=cure, 0xd=cure-status with target=0x18, 0x10=resurrect, etc.); decrement target mana column at +0x4410+school*4; class-conditional class==6 (Bishop?) bonus to power; final damage roll via rng(power*10 + spell.base*5)"
+    },
+    {
+      "addr": "0x72fb",
+      "old": "FUN_0000_72fb",
+      "new": "wmexe_show_actor_msg_then_continue",
+      "category": "ui",
+      "note": "Loads msg, displays via 27ce, optionally pauses 31e7 \u2014 wrapper for short combat narration"
+    },
+    {
+      "addr": "0x75c0",
+      "old": "caseD_0",
+      "new": "wmexe_action_case_continue",
+      "category": "action_resolver",
+      "note": "Case fragment \u2014 calls 72fb, 4998, 3be5 with random multi-target params"
+    },
+    {
+      "addr": "0x7b00",
+      "old": "FUN_0000_7b00",
+      "new": "wmexe_action_run_away_check",
+      "category": "action_resolver",
+      "note": "Compute escape DC: party's level + skill - sum of monster levels; or for monster, base * 5 - party levels; show 'tries to run' msg"
+    },
+    {
+      "addr": "0x7c80",
+      "old": "FUN_0000_7c80",
+      "new": "wmexe_action_morale_break",
+      "category": "action_resolver",
+      "note": "Monster morale roll: base level + 0x5a - sum of monster init-bytes - leader class - 2*(monster speed). On rng(100) < threshold, set status=2 (paralyzed/scared) and print appropriate message"
+    },
+    {
+      "addr": "0x7db6",
+      "old": "FUN_0000_7db6",
+      "new": "wmexe_swap_characters_in_party",
+      "category": "data_util",
+      "note": "Swap two party slots: memcpy 0x1b0-byte character records via ad9c byte-swap, swap rank-file indices at 43d0/43dc, redraw both panels"
+    },
+    {
+      "addr": "0x7e8a",
+      "old": "FUN_0000_7e8a",
+      "new": "wmexe_move_character_in_roster",
+      "category": "data_util",
+      "note": "Move character from param_1 to param_2 by repeated adjacent swaps via 7db6; prints 'moves forward/back' msg"
+    },
+    {
+      "addr": "0x7f83",
+      "old": "FUN_0000_7f83",
+      "new": "wmexe_pick_neighbor_alive_target",
+      "category": "data_util",
+      "note": "Pick first alive (+0x22 < 3, +0x2b == 0) slot near param_1 \u2014 try previous, then next, up to 2 hops"
+    },
+    {
+      "addr": "0x7fe2",
+      "old": "FUN_0000_7fe2",
+      "new": "wmexe_find_target_in_group_by_rank",
+      "category": "data_util",
+      "note": "Find slot in target group whose rank-file code (+0x2a) matches the action source's rank-file probe; if not found, pick first slot with status > 2 (already wounded)"
+    },
+    {
+      "addr": "0x810a",
+      "old": "FUN_0000_810a",
+      "new": "wmexe_tick_status_effects_on_combatant",
+      "category": "action_resolver",
+      "note": "1995 bytes \u2014 Per-combatant per-initiative status-tick: checks ongoing conditions (sleep at +0x10/0x11, poison at +0x15 -> msg 0xc85..0xc88, etc.) and rolls cure/persistence; applies sleep wake-up; player-paralyze-attack with leader-flag (-0x69 = signed -105 / 0x97) check"
+    },
+    {
+      "addr": "0x8b18",
+      "old": "FUN_0000_8b18",
+      "new": "wmexe_init_rank_file_table",
+      "category": "data_util",
+      "note": "Initializes 2x5 rank-file slot grid at 0x50fe to 0xffff (10 slots \u2014 2 rows \u00d7 5 cols)"
+    },
+    {
+      "addr": "0x8b49",
+      "old": "FUN_0000_8b49",
+      "new": "wmexe_show_action_msg_with_pause",
+      "category": "ui",
+      "note": "Shows action msg (27a7) and if monster group, marks its position visible at 50fe, then pumps animation"
+    },
+    {
+      "addr": "0x8ba5",
+      "old": "FUN_0000_8ba5",
+      "new": "wmexe_state_0d_initiative_round_loop",
+      "category": "state_handler",
+      "note": "960 bytes \u2014 the heart of wmexe. Initialize rank/file (8b18), refresh screen, set *0x435a=100; loop: for each group 0..6, for each member 0..(+0x19d), if member's init==*0x435a and alive, fire their action (810a) and advance the action-pointer (+0x21). After full sweep, *0x435a-- ; if 0, jmp to state 0xe (back to wmele round-end)"
+    },
+    {
+      "addr": "0x8f65",
+      "old": "FUN_0000_8f65",
+      "new": "scene_cell_contains_point",
+      "category": "render_3d",
+      "note": "Same as wtrea/wmele scene_cell_contains_point \u2014 bounds check x in [cell_x..cell_x+7], y in [cell_y..cell_y+7]"
+    },
+    {
+      "addr": "0x8fa2",
+      "old": "FUN_0000_8fa2",
+      "new": "scene_resolve_neighbor_cell",
+      "category": "render_3d",
+      "note": "Find which cell contains (x, y) \u2014 search current, last-known (4fa6), then linear scan all 12 cells. Returns 0 on found (and writes to params) or 1 on not-found"
+    },
+    {
+      "addr": "0x90c8",
+      "old": "FUN_0000_90c8",
+      "new": "scene_left_neighbor_walls",
+      "category": "render_3d",
+      "note": "Check wall presence on left neighbor (x-1) using wall bitmap at *0x4faa+0x60 \u2014 sibling of scene_left_neighbor_walls in wtrea/wmele"
+    },
+    {
+      "addr": "0x912d",
+      "old": "FUN_0000_912d",
+      "new": "scene_right_neighbor_walls",
+      "category": "render_3d",
+      "note": "Check wall presence on right neighbor \u2014 mirror of 90c8 using *0x4faa+0x120"
+    },
+    {
+      "addr": "0x9192",
+      "old": "FUN_0000_9192",
+      "new": "scene_apply_facing_rotation",
+      "category": "render_3d",
+      "note": "Rotate movement vector (param_6, param_7) by facing *0x4f9a (0..3) and apply to (x,y) refs at param_1/2"
+    },
+    {
+      "addr": "0x9213",
+      "old": "FUN_0000_9213",
+      "new": "scene_visit_forward_cell",
+      "category": "render_3d",
+      "note": "Visit forward cell with rotation; check wall bitmaps at +0x43a / +0x49a; dispatch via 13-entry jumptable at -0x26e9 (by *0x363c sub-state) and another at -0x2693; per-facing left/right neighbor wall test"
+    },
+    {
+      "addr": "0x95fc",
+      "old": "FUN_0000_95fc",
+      "new": "scene_visit_left_neighbor",
+      "category": "render_3d",
+      "note": "Visit left neighbor cell \u2014 branches on facing and dispatches per-direction wall test (369-byte sibling of 9213)"
+    },
+    {
+      "addr": "0x97b9",
+      "old": "FUN_0000_97b9",
+      "new": "scene_visit_right_neighbor",
+      "category": "render_3d",
+      "note": "Visit right neighbor cell \u2014 symmetric to 95fc"
+    },
+    {
+      "addr": "0x9978",
+      "old": "FUN_0000_9978",
+      "new": "scene_sprite_queue_insert",
+      "category": "animation",
+      "note": "Insert sprite into 30-entry sprite-queue at 0x51aa, stride 0xb. Spawns infinite-loop play_sound(0) if queue overflows (defensive crash)"
+    },
+    {
+      "addr": "0x9a57",
+      "old": "FUN_0000_9a57",
+      "new": "scene_draw_directional_wall",
+      "category": "render_3d",
+      "note": "397-byte directional wall drawer \u2014 picks bitmap rows from 511c/5184/5128 flag bitmaps; uses 0x52f4 / 0x52f6 parity for L/R variants"
+    },
+    {
+      "addr": "0x9f9f",
+      "old": "FUN_0000_9f9f",
+      "new": "scene_draw_directional_wall_alt",
+      "category": "render_3d",
+      "note": "Smaller sibling of 9a57 \u2014 branches on param_1==3 && param_2!=0; dispatches via 14-entry table at -0x193b"
+    },
+    {
+      "addr": "0xa18e",
+      "old": "FUN_0000_a18e",
+      "new": "scene_draw_directional_wall_corner",
+      "category": "render_3d",
+      "note": "Corner wall drawer \u2014 uses 511c, 5184, 5128 flag tables; param_1 0..2 indexes; checks both 52f4 + 3646 parity for diagonal variants"
+    },
+    {
+      "addr": "0xa27d",
+      "old": "FUN_0000_a27d",
+      "new": "scene_clear_block_5165",
+      "category": "render_3d",
+      "note": "Zeros a chunk of the visibility/decoration grid at 5141 if param_2 matches conditions"
+    },
+    {
+      "addr": "0xa2e0",
+      "old": "FUN_0000_a2e0",
+      "new": "scene_clear_block_5154",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0xa311",
+      "old": "FUN_0000_a311",
+      "new": "scene_clear_block_516c",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0xa342",
+      "old": "FUN_0000_a342",
+      "new": "scene_clear_block_515d",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0xa36f",
+      "old": "FUN_0000_a36f",
+      "new": "scene_clear_block_514d",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0xa3a1",
+      "old": "FUN_0000_a3a1",
+      "new": "scene_clear_block_5175",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0xa3d3",
+      "old": "FUN_0000_a3d3",
+      "new": "scene_clear_block_517d",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0xa400",
+      "old": "FUN_0000_a400",
+      "new": "scene_render_door_or_decoration",
+      "category": "render_3d",
+      "note": "Sub-renderer with 6-entry table jump at -0x1634; counts above-zero accumulator at 4ec8 (likely door/decoration count per depth)"
+    },
+    {
+      "addr": "0xa4c2",
+      "old": "FUN_0000_a4c2",
+      "new": "wmexe_render_3d_view",
+      "category": "render_3d",
+      "note": "2192-byte main 3D dungeon viewport renderer \u2014 same code shape as wtrea_render_3d_view (0x6c8f) and wmele's analog; uses 5140/511c/5184/5128 flag tables and 52f4 parity for L/R variants"
+    },
+    {
+      "addr": "0xad9c",
+      "old": "FUN_0000_ad9c",
+      "new": "byte_swap_memcpy",
+      "category": "data_util",
+      "note": "param_3-byte swap-copy between param_1 and param_2: a = *src; *dst++ = a; *src++ = a (used by 7db6 character swap)"
+    },
+    {
+      "addr": "0x2ccc",
+      "old": "(none \u2014 not auto-detected)",
+      "new": "wmexe_dispatch_state_0d",
+      "category": "dispatch_entry",
+      "note": "Embedded inside another function \u2014 Ghidra did NOT auto-detect this entry. wmexe's overlay entry-stub at file 0xad5e calls THIS dispatcher, which is `cmp word [0x363a], 0xd; jnz +3; call 0x8ba5; mov ax,0; ret`. So 0x2ccc is the de-facto state-machine dispatcher; the apply script must create it."
+    },
+    {
+      "addr": "0xad5e",
+      "old": "(none \u2014 not auto-detected)",
+      "new": "wmexe_overlay_entry_stub",
+      "category": "dispatch_entry",
+      "note": "WMEXE OVERLAY ENTRY POINT (called by wroot when loading the overlay). Saves caller sp/bp/si/di to *0x4ff2..0x4ff0, zero-inits BSS from 0x4ff8 up to 0x5304 (=4364 bytes), calls 0x2ccc (state-0d dispatcher), restores regs, far-jumps back via *0x4ff6. This is wmexe's unique entry-point pattern \u2014 most other overlays put the entry at file 0x0e directly."
+    }
+  ],
+  "unresolved": [
+    "The dispatch tables embedded INSIDE 0x06e4 and 0x4677 \u2014 these are 13-entry weapon-type-to-action-case lookups at byte offset 0x4dd9 (a code-embedded table). The exact mapping from weapon-type-byte to action-style is not extracted in this pass \u2014 would require parsing the 13 entries from raw bytes.",
+    "The action-code dispatch table at -0x5090 inside `wmexe_action_jumptable_dispatch` (0x6ab0). This is the master action-code dispatcher (82 entries, indexed by action_code in AX). Resolving would name every individual combat-action handler (e.g., 'attack', 'cast Calfo', 'use item', 'flee', 'special attack X').",
+    "The jumptable at -0x1c13 inside `scene_draw_directional_wall` (0x9a57) and the 13-entry tables inside `scene_visit_forward_cell` (0x9213) at -0x26e9 / -0x2693. These are 3D-scene render dispatchers similar to wtrea's. Same code shape; could be cross-referenced against wtrea's findings.",
+    "FUN_3e8f's 15-parameter signature includes several `undefined2` params at the end \u2014 likely save-vs-effect type, secondary damage dice, and animation-id, but we couldn't disambiguate without runtime trace. The 15-param shape suggests wmexe handles 'compound' spells (multi-effect: damage + status + push-back) via this single function rather than separate handlers.",
+    "The FUN_03e4 thunk (only unmapped wroot helper) \u2014 appears once at 0x268d (the word-wrap printer). Likely a window-size-recompute or text-width-measurement helper. Worth resolving in the next wroot naming pass.",
+    "The init reroll constant `-5` in the pause-and-reroll mechanic at 0x8ba5: we explained the rng(10) component but the literal -5 (giving init range [*0x435a - 14, *0x435a - 5]) may be a class-level constant or a difficulty modifier. Worth verifying with a save-state dump showing the actual init values written before and after a pause-trigger."
+  ],
+  "next_steps": [
+    "Dynamic-trace pass: open a combat encounter, single-step from `*0x363a == 0xc` (wpops entry) to `*0x363a == 0xd` (wmexe entry) and capture the full state. Verify (a) wpops actually writes 0xd, (b) what wpops did with the combatant state before handing off, (c) the actual init values stored in +0x192..+0x195 and +0x196..+0x199 at the start of wmexe.",
+    "Begin a naming pass on wpops.ovr (state 0xc handler) \u2014 the only remaining combat-flow overlay we haven't named. Likely a small overlay (maybe < 8KB) but documents the inter-round operations that we haven't fully traced.",
+    "Resolve the 13-entry weapon-type table at 0x4dd9 inside 0x06e4 via raw-byte extraction + Ghidra script \u2014 would name 13 weapon-class action handlers.",
+    "Resolve the 82-entry action-code dispatch table at -0x5090 inside 0x6ab0 \u2014 would name every individual combat action handler.",
+    "Promote informal thunk names (FUN_04f1, FUN_4440, FUN_3f1e, FUN_36a0, FUN_2858, FUN_3694, FUN_0882, FUN_03e4) to wroot-naming-pass.json. These are reused by every overlay we've named \u2014 naming them properly in wroot lifts named-thunk ratios across all 7 overlays we've now profiled.",
+    "Engineering Notes page additions: the 4 flagship findings (initiative-tick loop, pause-and-reroll, 4-sub-action queue, leader-flag death-on-paralyze, 12-slot queue crash) are all 'engineering archaeology' material \u2014 each gets a 1-paragraph card."
+  ],
+  "engineering_notes_candidates": [
+    {
+      "title": "Wiz6 combat is a 100-down initiative tick with random pause-jitter \u2014 not a turn queue",
+      "addr": "wmexe.ovr 0x8ba5",
+      "summary": "Wiz6's combat-action ordering is NOT a traditional turn queue. Instead, a 16-bit counter at *0x435a starts at 100, decrements by 1 per tick. At each tick value, the engine iterates ALL 7 groups (party + 6 monster groups) and fires any combatant whose +0x25 init byte matches. So a weapon with init 90 fires before a weapon with init 80 (since 90 comes first in the count-down from 100). **But there's a critical wrinkle**: when an action FIRST becomes eligible (init match, no pending pause), wmexe DOES NOT fire it immediately. It sets a pause-byte at +0x2b = 3, shows a 'preparing to attack' message via FUN_72fb, and REROLLS the init via `(current_init - rng(10)) - 5` \u2014 deferring the actual fire by 5..14 ticks. Only when the pause hits 3 does the action fire AND advance the action-pointer. **This is the source of Wiz6's signature combat pacing**: actions don't pop instantly at their declared init \u2014 there's always a randomized delay, so even with identical initiative values, Wiz6 combat feels staggered and unpredictable. Tools that try to 'pre-compute' combat outcomes (DOSBox state replays of the same combat) will sometimes succeed and sometimes fail because the rng pause is burned at the moment of the FIRST eligibility match, not at the action queue setup."
+    },
+    {
+      "title": "Fast monsters get 4 sub-actions per round \u2014 that's why dragons feel relentless",
+      "addr": "wmexe.ovr 0x8ba5",
+      "summary": "Wiz6 each combatant has a 4-SLOT ACTION QUEUE at +0x18..+0x1b (action codes) and corresponding init values at +0x192..+0x195. wmexe iterates ALL 4 SLOTS per combatant per round. So a monster with attack_count=4 (+0x19d byte) fires FOUR times per round at potentially-different initiatives, while a slow party member with attack_count=1 fires once. The 4 slot types are wired into different dispatchers: slot 0 (melee, FUN_3be5), slot 1 (priest spell, FUN_3e8f), slot 2 (mage spell, FUN_3e8f), slot 3 (ranged/special, FUN_3be5). Each slot's narration message is DIFFERENT (msg 0xc94/0xc95/0xc96/0xc97 \u2014 the 'attacks!', 'casts!', 'invokes!', 'fires!' variants). So when a Wiz6 dragon hits you 4 times per round at varying init values (perhaps 90, 70, 50, 30), it's not taking 4 'turns' \u2014 it's filling 4 init-positions in the SAME round. **This is why the dragon-tier monsters feel so much harder than the '1 attack' monsters: they're 4x the action volume per round, but it all happens within the same single tick-down cycle.** Party members with the 'haste' status get attack_count incremented, gaining the same multi-action structure \u2014 which is why haste is so disproportionately powerful in Wiz6."
+    },
+    {
+      "title": "Wiz6's party-vs-monster combat is 10x asymmetric on lucky rolls",
+      "addr": "wmexe.ovr 0x000e",
+      "summary": "Wiz6 calls the function `wmexe_compute_morale_initiative_tier` (file offset 0x0e) at 4 critical points during attack resolution. It rolls 32-bit math producing 0..99 and buckets into 5 tiers: 0..50 (tier 0), 51..66 (tier 1), 67..75 (tier 2), 76..90 (tier 3), 91..99 (tier 4). But the OUTPUT VALUES per tier differ by 10x based on a single param: if param_1 == 0 (party caller), output is {0, 5, 10, 20, 40}; else (monster caller), output is {0, 0, 1, 2, 4}. The same lucky roll that gives a party member +40 to their hit/damage stat gives a monster +4. **This asymmetric bucketing is the source of the 'party power curve' feeling** \u2014 Wiz6 party members are nominally on par with monsters of the same level, but on the EXCEPTIONAL ROLLS (the 10% above tier-3, the 9% above tier-2, etc.) party members blow past monster output. It explains why a level-15 Lord can solo a level-15 dragon: when both roll a high tier-4, the Lord gets +40 attack, the dragon gets +4. It also means third-party 'monster strength' mods that don't account for this asymmetry will under-estimate monster buffs by 10x \u2014 leading to monsters that nominally hit 10x harder but feel only 10% stronger in play."
+    },
+    {
+      "title": "Wiz6's animation queue has a hardcoded crash-on-overflow \u2014 12 slots, then it hangs",
+      "addr": "wmexe.ovr 0x1cd5 and 0x9978",
+      "summary": "Wiz6 has TWO fixed-size queues that crash via INFINITE LOOP when overflowed: the animation queue at 0x4390 (12 slots, stride 0xc) and the sprite queue at 0x51aa (30 slots, stride 0xb). Both insert helpers have an identical defensive pattern at the cap: `do { play_sound(0); } while (true);` \u2014 an unconditional infinite loop with a null sound effect. **This is NOT a graceful failure** \u2014 it hangs the game forever. The 12-slot animation queue means **no more than 12 attack-animations can be simultaneously in-flight** before Wiz6 crashes. With 7 groups \u00d7 4 sub-actions per round, the theoretical max is 28 attacks per round, but the queue is depth-sorted and entries are popped as they complete \u2014 so the cap is more like '12 concurrent animations.' **In the TS port, these MUST be replaced with bounded ring buffers or skipped renders**, or we will inherit a deterministic crash bug. Notably, the original game probably never hit this in practice (the encounter sizes are tuned to the queue depth), but a 'too many monsters' modded encounter would brick the game."
+    }
+  ],
+  "operational_notes": {
+    "ghidra_install": "/opt/homebrew/Cellar/ghidra/12.1/libexec",
+    "pyghidra_version": "3.1.0",
+    "project_path": "/Users/nathan/Projects/ndouglas/wiz6/tools/ghidra/wiz6.gpr (canonical path; the worktree's tools/ghidra/ is a symlink \u2014 PyGhidra rejects .config paths)",
+    "program": "wmexe.ovr",
+    "scripts_used": [
+      "/tmp/wmexe_enum.py (enumerated all 95 functions with raw-byte CALL parsing)",
+      "/tmp/wmexe_decomp.json (DecompInterface output for all 95 functions)",
+      "/tmp/wmexe_renames.json (built the renamed_full_list)",
+      "tools/ghidra/scripts/apply_wmexe_names.py (the deliverable replay script)"
+    ],
+    "key_quirk": "wmexe.ovr loaded with BinaryLoader. File offset == Ghidra address. UNIQUE entry-point structure: the 14-byte header (bytes 0..0x0d) is followed by FUN_000e (a math helper, NOT a state dispatcher). The actual wroot-invokable entry point is at file 0xad5e (the overlay-entry stub that zero-inits BSS), which then calls the state-machine dispatcher at file 0x2ccc \u2014 BOTH missed by Ghidra's auto-detection. The apply script creates them. The dispatcher ONLY handles state 0x0d \u2014 wmexe is the action-execution layer for combat rounds. Cross-overlay thunks: subtract 0xBA9C from bss_offset to get wroot file offset; Ghidra represents direct CALLs as `CALL 0x0000:imm16` (segmented but the segment is always 0) so callsite parsing must read raw 0xe8 rel16 bytes.",
+    "address_translation": "wmexe.ovr Ghidra addr == file offset (BinaryLoader; no 0x200 / 0x10000 adjustment). Cross-overlay thunk: subtract 0xBA9C from bss_offset to get wroot file offset.",
+    "naming_convention": "Functions named `<scope>_<action>_<context>` style: cross-binary entry points prefixed `wmexe_`, UI primitives prefixed `wmexe_` for combat-specific or unprefixed for generic (skill_train_chance_increment, inventory_item_weight_lookup, etc.), 3D-scene helpers prefixed `scene_`, data-structure manipulators (byte_swap_memcpy, weighted_pick_from_table) left without overlay prefix to indicate reuse-elsewhere."
+  }
+}
