@@ -38,6 +38,10 @@
   align-items: center;
   justify-content: center;
   background: rgb(40, 40, 40);
+  /* The integer-floor scale calc keeps a minimum of 1× for wider-than-tall
+   * sprites (e.g. credits.pic, ~256px wide × 16 tall). Clip so the overflow
+   * doesn't break the grid layout. */
+  overflow: hidden;
 }
 
 .cardName {
