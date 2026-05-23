@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { EgaScreen } from '@wiz6/data';
 import { loadEgaScreen } from '../data-loader.js';
 import { EGA_DEFAULT } from '@wiz6/data';
+import { EGA_FILE_INDEX_PERMUTATION } from '@wiz6/parser';
 
 const ZOOM = 2;
 type RenderMode = 'layers' | 'composite';
@@ -120,10 +121,12 @@ export function ScreenAlignmentTool({ url }: Props) {
 
     if (renderMode === 'composite') {
       // For each displayed pixel, sample all 4 planes at their (split) source
-      // coords and combine to a 4bpp color index, then look up wiz6-title.
+      // coords and combine to a 4-bit file index. Wiz6 .ega files permute the
+      // file bit-pattern → standard EGA index (see ega-permutation.ts); we
+      // apply that permutation before looking up RGB in EGA_DEFAULT.
       for (let y = 0; y < screen.height; y++) {
         for (let x = 0; x < screen.width; x++) {
-          let colorIndex = 0;
+          let fileIdx = 0;
           for (let p = 0; p < 4; p++) {
             if (!planeVisible[p]) continue;
             const plane = screen.planes[p];
@@ -132,10 +135,11 @@ export function ScreenAlignmentTool({ url }: Props) {
             const src = sourceCoord(x, y, off, screen.width, screen.height, wrapX, wrapY);
             if (!src) continue;
             const bit = bitAt(plane, screen.width, src[0], src[1]);
-            colorIndex |= bit << p;
+            fileIdx |= bit << p;
           }
-          if (colorIndex === 0) continue;
-          const rgb = EGA_DEFAULT.colors[colorIndex];
+          if (fileIdx === 0) continue;
+          const egaIdx = EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
+          const rgb = EGA_DEFAULT.colors[egaIdx];
           if (!rgb) continue;
           ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
           ctx.fillRect(x * ZOOM, y * ZOOM, ZOOM, ZOOM);
@@ -200,7 +204,7 @@ export function ScreenAlignmentTool({ url }: Props) {
           render:{' '}
           <select value={renderMode} onChange={(e) => setRenderMode(e.target.value as RenderMode)}>
             <option value="layers">discrete layers</option>
-            <option value="composite">composite (wiz6-title palette)</option>
+            <option value="composite">composite (ega-default + permutation)</option>
           </select>
         </label>{' '}
         <label style={{ marginLeft: '1em' }}>

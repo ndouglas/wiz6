@@ -9,9 +9,11 @@ const PALETTE_OPTIONS: Array<{ name: PaletteName; label: string }> = Object.keys
   PALETTE_CATALOG,
 ).map((name) => ({ name: name as PaletteName, label: name }));
 
-// Default selection: the palette the extractor stamped on the .ega 4bpp fonts.
-// (See packages/cli/src/extractors/extract-wfont-4bpp.ts → palette: 'wiz6-main'.)
-const DEFAULT_PALETTE: PaletteName = 'wiz6-main';
+// Default selection: the palette the extractor stamped on the 4bpp fonts.
+// (See packages/cli/src/extractors/extract-wfont-4bpp.ts → palette: 'ega-default'.)
+// Wiz6's font files use the bit-pattern permutation against the
+// BIOS-default EGA palette; see docs/re/palette-discovery.md.
+const DEFAULT_PALETTE: PaletteName = 'ega-default';
 
 export function FontsPage() {
   const [selected, setSelected] = useState<PaletteName>(DEFAULT_PALETTE);
