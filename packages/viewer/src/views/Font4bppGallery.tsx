@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Font4bpp, Palette } from '@wiz6/data';
+import type { Font4bpp, Palette, PaletteName } from '@wiz6/data';
+import { PALETTE_CATALOG, WIZ6_MAIN } from '@wiz6/data';
 import { loadFont4bpp } from '../data-loader.js';
-import { WIZ6_PALETTE_1 } from '../palettes/wiz6-palette-1.js';
 
 const GLYPH_PX = 8;
 const CELL_PX = 8;
@@ -21,13 +21,18 @@ function pixelColor(glyph: number[], row: number, col: number): number {
 
 interface Props {
   url: string;
-  palette?: Palette;
+  palette?: PaletteName | Palette;
 }
 
-export function Font4bppGallery({ url, palette = WIZ6_PALETTE_1 }: Props) {
+export function Font4bppGallery({ url, palette = WIZ6_MAIN }: Props) {
   const [font, setFont] = useState<Font4bpp | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const resolvedPalette: Palette =
+    typeof palette === 'string'
+      ? (PALETTE_CATALOG[palette] ?? PALETTE_CATALOG['wiz6-main']!)
+      : palette;
 
   useEffect(() => {
     let cancelled = false;
@@ -63,14 +68,14 @@ export function Font4bppGallery({ url, palette = WIZ6_PALETTE_1 }: Props) {
       for (let r = 0; r < GLYPH_PX; r++) {
         for (let c = 0; c < GLYPH_PX; c++) {
           const colorIndex = pixelColor(glyph, r, c);
-          const rgb = palette.colors[colorIndex];
+          const rgb = resolvedPalette.colors[colorIndex];
           if (!rgb) continue;
           ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
           ctx.fillRect((gx + c) * ZOOM, (gy + r) * ZOOM, ZOOM, ZOOM);
         }
       }
     }
-  }, [font, palette]);
+  }, [font, resolvedPalette]);
 
   if (error) {
     return <div role="alert">Error: {error}</div>;
@@ -82,7 +87,7 @@ export function Font4bppGallery({ url, palette = WIZ6_PALETTE_1 }: Props) {
     <section>
       <h2>{font.id}</h2>
       <p>
-        Source: <code>{font.sourceFile}</code> · {font.glyphCount} glyphs · 4bpp · palette: <code>{palette.name}</code>
+        Source: <code>{font.sourceFile}</code> · {font.glyphCount} glyphs · 4bpp · palette: <code>{resolvedPalette.name}</code>
       </p>
       <canvas ref={canvasRef} role="img" aria-label="4bpp font glyph grid" />
     </section>

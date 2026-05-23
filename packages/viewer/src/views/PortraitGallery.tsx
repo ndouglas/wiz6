@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Palette, PortraitSet } from '@wiz6/data';
+import type { Palette, PaletteName, PortraitSet } from '@wiz6/data';
+import { PALETTE_CATALOG, WIZ6_MAIN } from '@wiz6/data';
 import { loadPortraitSet } from '../data-loader.js';
-import { WIZ6_PALETTE_1 } from '../palettes/wiz6-palette-1.js';
 
 const TILE_PX = 8;
 const TILES_PER_SIDE = 3;
@@ -20,13 +20,18 @@ function pixelColor(tile: number[], row: number, col: number): number {
 
 interface Props {
   url: string;
-  palette?: Palette;
+  palette?: PaletteName | Palette;
 }
 
-export function PortraitGallery({ url, palette = WIZ6_PALETTE_1 }: Props) {
+export function PortraitGallery({ url, palette = WIZ6_MAIN }: Props) {
   const [set, setSet] = useState<PortraitSet | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const resolvedPalette: Palette =
+    typeof palette === 'string'
+      ? (PALETTE_CATALOG[palette] ?? PALETTE_CATALOG['wiz6-main']!)
+      : palette;
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +71,7 @@ export function PortraitGallery({ url, palette = WIZ6_PALETTE_1 }: Props) {
           for (let r = 0; r < TILE_PX; r++) {
             for (let c = 0; c < TILE_PX; c++) {
               const colorIndex = pixelColor(tile, r, c);
-              const rgb = palette.colors[colorIndex];
+              const rgb = resolvedPalette.colors[colorIndex];
               if (!rgb) continue;
               const screenX = (px + tx * TILE_PX + c) * ZOOM;
               const screenY = (py + ty * TILE_PX + r) * ZOOM;
@@ -77,7 +82,7 @@ export function PortraitGallery({ url, palette = WIZ6_PALETTE_1 }: Props) {
         }
       }
     }
-  }, [set, palette]);
+  }, [set, resolvedPalette]);
 
   if (error) {
     return <div role="alert">Error: {error}</div>;
@@ -90,7 +95,7 @@ export function PortraitGallery({ url, palette = WIZ6_PALETTE_1 }: Props) {
       <h2>{set.id}</h2>
       <p>
         Source: <code>{set.sourceFile}</code> · {set.portraitCount} portraits · 24 × 24 4bpp · palette:{' '}
-        <code>{palette.name}</code>
+        <code>{resolvedPalette.name}</code>
       </p>
       <canvas ref={canvasRef} role="img" aria-label="Portrait set" />
     </section>

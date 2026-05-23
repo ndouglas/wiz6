@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { Font4bppGallery } from '../../src/views/Font4bppGallery.js';
-import { EGA_PALETTE, WIZ6_PALETTE_1 } from '../../src/palettes/index.js';
+import { EGA_DEFAULT, WIZ6_MAIN } from '@wiz6/data';
 
 const tinyFont = {
   id: 'wfont1',
@@ -34,18 +34,18 @@ describe('Font4bppGallery', () => {
 
   it('accepts and renders with a custom palette prop', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(tinyFont), { status: 200 })));
-    render(<Font4bppGallery url="/fonts/wfont1.json" palette={EGA_PALETTE} />);
+    render(<Font4bppGallery url="/fonts/wfont1.json" palette={EGA_DEFAULT} />);
     await waitFor(() => expect(screen.getByRole('img', { name: /4bpp font glyph grid/i })).toBeInTheDocument());
   });
 
-  it('defaults to WIZ6_PALETTE_1 when no palette prop is given', async () => {
+  it('defaults to WIZ6_MAIN when no palette prop is given', async () => {
     // Schema sanity (smoke): if we render without palette, no crash, canvas present.
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(tinyFont), { status: 200 })));
     render(<Font4bppGallery url="/fonts/wfont1.json" />);
     await waitFor(() => expect(screen.getByRole('img', { name: /4bpp font glyph grid/i })).toBeInTheDocument());
     // Document the default in a structural way the test can assert without
     // pixel inspection: the named export exists and the default is the main palette.
-    expect(WIZ6_PALETTE_1.name).toBe('wiz6-main');
+    expect(WIZ6_MAIN.name).toBe('wiz6-main');
   });
 
   it('renders an error message if loading fails', async () => {

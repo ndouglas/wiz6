@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { PortraitGallery } from '../../src/views/PortraitGallery.js';
-import { EGA_PALETTE } from '../../src/palettes/index.js';
+import { EGA_DEFAULT } from '@wiz6/data';
 
 const blankTile = Array(32).fill(0);
 
@@ -37,7 +37,7 @@ describe('PortraitGallery', () => {
 
   it('accepts and renders with a custom palette prop', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(tinyPortraitSet), { status: 200 })));
-    render(<PortraitGallery url="/portraits/wport1.json" palette={EGA_PALETTE} />);
+    render(<PortraitGallery url="/portraits/wport1.json" palette={EGA_DEFAULT} />);
     await waitFor(() => expect(screen.getByRole('img', { name: /portrait set/i })).toBeInTheDocument());
   });
 

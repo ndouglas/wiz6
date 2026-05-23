@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import type { EgaScreen, Palette } from '@wiz6/data';
+import type { EgaScreen, Palette, PaletteName } from '@wiz6/data';
+import { PALETTE_CATALOG, WIZ6_MAIN } from '@wiz6/data';
 import { loadEgaScreen } from '../data-loader.js';
-import { WIZ6_PALETTE_1 } from '../palettes/wiz6-palette-1.js';
 
 const ZOOM = 2;
 
@@ -48,14 +48,19 @@ function bitAt(plane: number[], width: number, srcX: number, srcY: number): numb
 
 interface Props {
   url: string;
-  palette?: Palette;
+  palette?: PaletteName | Palette;
   hideHeader?: boolean;
 }
 
-export function ScreenGallery({ url, palette = WIZ6_PALETTE_1, hideHeader = false }: Props) {
+export function ScreenGallery({ url, palette = WIZ6_MAIN, hideHeader = false }: Props) {
   const [screen, setScreen] = useState<EgaScreen | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const resolvedPalette: Palette =
+    typeof palette === 'string'
+      ? (PALETTE_CATALOG[palette] ?? PALETTE_CATALOG['wiz6-main']!)
+      : palette;
 
   useEffect(() => {
     let cancelled = false;
@@ -94,13 +99,13 @@ export function ScreenGallery({ url, palette = WIZ6_PALETTE_1, hideHeader = fals
           colorIndex |= bit << p;
         }
         if (colorIndex === 0) continue;
-        const rgb = palette.colors[colorIndex];
+        const rgb = resolvedPalette.colors[colorIndex];
         if (!rgb) continue;
         ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
         ctx.fillRect(x * ZOOM, y * ZOOM, ZOOM, ZOOM);
       }
     }
-  }, [screen, palette]);
+  }, [screen, resolvedPalette]);
 
   if (error) return <p>Failed to load {url}: {error}</p>;
 
