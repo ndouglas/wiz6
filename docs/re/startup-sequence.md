@@ -118,40 +118,58 @@ counter (`[BP-0x2]`) increments by 2 per frame.
 
 Each of 9 entries has 5 fields:
 
-| Field | Offset | Description |
-|------:|-------:|-------------|
-| F1 | `BP-0x1c-2i` | text token (passed to `winit_render_text_token`; values: 7, 8, 0xc, 1, 2, 3, 4, 5, 6) |
-| F2 | `BP-0x30-2i` | column position |
-| F3 | `BP-0x44-2i` | `appear_tick` (scroll-position at which entry becomes visible) |
-| F4 | `BP-0x58-2i` | `field_b` (initial Y when entry first appears) |
-| F5 | `BP-0x6c-2i` | `cap` (target/minimum Y where entry rests) |
+| Field |       Offset | Description                                                                                         |
+| ----: | -----------: | --------------------------------------------------------------------------------------------------- |
+|    F1 | `BP-0x1c-2i` | **1-indexed** descriptor number into the loaded `credits.pic` (values: 7, 8, 0xc, 1, 2, 3, 4, 5, 6) |
+|    F2 | `BP-0x30-2i` | column position (absolute screen X, not window-relative)                                            |
+|    F3 | `BP-0x44-2i` | `appear_tick` (scroll-position at which entry becomes visible)                                      |
+|    F4 | `BP-0x58-2i` | `field_b` (initial Y when entry first appears)                                                      |
+|    F5 | `BP-0x6c-2i` | `cap` (target/minimum Y where entry rests)                                                          |
 
 Initial values (entries 0..8):
 
-| i | F1 (token) | F2 (col) | F3 (appear) | F4 (field_b) | F5 (cap) |
-|--:|-----------:|---------:|------------:|-------------:|---------:|
-| 0 | 7    | 0x4c | 0       | 0x43 | 3    |
-| 1 | 8    | 0x4c | 0       | 0x63 | 0x23 |
-| 2 | 0x0C | 0x08 | 0       | 0x0D | 0x0D |
-| 3 | 1    | 0x14 | 4       | 0x90 | 0x0D |
-| 4 | 2    | 0x14 | 0x24=36 | 0x90 | 0x0D |
-| 5 | 3    | 0x14 | 0x3c=60 | 0x90 | 0x0D |
-| 6 | 4    | 0x14 | 0x58=88 | 0x90 | 0x0D |
-| 7 | 5    | 0x14 | 0x78=120| 0x90 | 0x0D |
-| 8 | 6    | 0x0E | 0x98=152| 0x50 | 0x50 |
+|    i | F1 (token) | desc # | content                          | F2 (col) | F3 (appear) | F4 (field_b) | F5 (cap) |
+| ---: | ---------: | -----: | -------------------------------- | -------: | ----------: | -----------: | -------: |
+|    0 |          7 |      6 | Wizardry logo (top)              |     0x4c |           0 |         0x43 |        3 |
+|    1 |          8 |      7 | Wizardry logo (bottom)           |     0x4c |           0 |         0x63 |     0x23 |
+|    2 |       0x0C |     11 | header decoration (cave/scenery) |     0x08 |           0 |         0x0D |     0x0D |
+|    3 |          1 |      0 | "Written and Programmed by …"    |     0x14 |           4 |         0x90 |     0x0D |
+|    4 |          2 |      1 | "Computer Graphics …"            |     0x14 |     0x24=36 |         0x90 |     0x0D |
+|    5 |          3 |      2 | "Suzanne Snelling …"             |     0x14 |     0x3c=60 |         0x90 |     0x0D |
+|    6 |          4 |      3 | "PlayMaster's Guide …"           |     0x14 |     0x58=88 |         0x90 |     0x0D |
+|    7 |          5 |      4 | "Digitized Sound Programming …"  |     0x14 |    0x78=120 |         0x90 |     0x0D |
+|    8 |          6 |      5 | "Copyright 1990 by Sir-Tech"     |     0x0E |    0x98=152 |         0x50 |     0x50 |
 
-Per-frame render formula:
+The token values in F1 are **1-indexed** into the loaded `credits.pic` descriptor
+list — verified by direct visual cross-check during port implementation. Token
+`N` renders descriptor `N-1`. (Sentinel value 0 likely means "no token / end of
+list"; no entry uses it.)
+
+Per-frame render formula (**corrected** — the agent's first-pass pseudocode
+inverted the clamp set and the cull comparator; this version produces the
+actual user-observed behavior):
 ```
 for i = 8 down to 0:
     if (entry[i].appear > scroll_pos) continue          # not yet visible
     y = entry[i].field_b - (scroll_pos - entry[i].appear)
-    if (i >= 3 && i != 8 && y < entry[i].cap):
-        y = entry[i].cap                                  # clamp
-    if (y > entry[i].cap):                                # ??? — see disasm at 0xCFB
-        continue                                          # past rest, hide
-    render_text_token(entry[i].token, entry[i].col, y)
+    if (i < 3 || i == 8):                               # CLAMPED set
+        if (y < entry[i].cap) y = entry[i].cap          # clamp to rest position
+    else:
+        if (y < entry[i].cap) continue                  # past rest, hide
+    render_descriptor(entry[i].token - 1, entry[i].col, y)
 scroll_pos += 2
 ```
+
+The clamp set is `{0, 1, 2, 8}` — the persistent header pieces (Wizardry logo
+top + bottom, header decoration) plus the copyright "finale" that locks at
+`y=cap` for the end of the scroll. Entries 3..7 are the credit panels that
+slide from `fieldB` up through `cap` and disappear.
+
+The original agent pseudocode said clamp applies to `i >= 3 && i != 8` and
+cull on `y > cap`; the comparator at `winit.ovr 0xCFB` was marked uncertain
+(`???`). The corrected interpretation above is the inverse — likely a single
+`JL` ↔ `JG` confusion in the disasm read. **This is the kind of low-confidence
+RE finding that's worth re-verifying via DOSBox-X breakpoint trace.**
 
 The scroll terminates when `entry[7].appear + entry[7].field_b - entry[7].cap > scroll_pos`
 becomes false — i.e., `scroll_pos >= 0x78 + 0x90 - 0x0D = 0xFB = 251`.
@@ -162,6 +180,45 @@ Input handling inside the scroll loop:
 - kbd_check (`kbd_check_with_filter` thunk `0xe0df` → wroot `0x2643`): if hit, also consumes one key via `kbd_getkey_with_filter` and sets continue_flag = 0
 
 Either input source ends the scroll early.
+
+### Coordinate convention
+
+The `col` and `y` fields in the scroll table are **absolute screen coordinates**
+in engine pixels (320×200), not relative to the title-screen UI window opened
+in step 9 (handle `*0x4FBE`). The window opens but the renderer's text-driver
+takes absolute screen offsets. Caution: this pattern may not hold for other
+overlays — combat-window draws etc. may be window-relative.
+
+### Wall-clock pacing
+
+The engine paces the scroll via `delay_one_unit` (wroot `0x2858`), a busy-wait
+loop calibrated by CRT startup against the target CPU. On a 486DX/33 the
+effective frame rate was probably ~20 Hz (not 60 Hz). So:
+
+- Engine: 126 frames × ~50 ms/frame ≈ **6 seconds** wall-clock on original
+  hardware.
+- Modern port: 126 frames × 3 RAFs/frame ÷ 60 RAFs/sec = **6.3 seconds**.
+
+The port's slowdown ratio of 3 (`SCROLL_RAF_STEP_RATIO` in
+`packages/parser/src/sim/intro-constants.ts`) was tuned by feel — but it lands
+remarkably close to the engine's wall-clock pace on its target CPU. **Lesson
+for future RE: engine "tick" counts translate to wall-clock cleanly only
+after accounting for busy-wait calibration. The bytes are exact; the seconds
+depend on hardware.**
+
+### Port-side deviations from the engine
+
+The TS reimplementation in `packages/parser/src/sim/intro-sequence.ts`
+diverges from the engine table in one place, deliberately:
+
+- **Entry 8's `fieldB` is overridden from `0x50` (80) to `0x90` (144)** so
+  the copyright "Copyright 1990 by Sir-Tech" slides in from below like the
+  other credit panels before clamping at `cap=80`. The engine table's
+  `fieldB == cap == 80` would render the copyright instantly at its rest
+  position with no slide-in. The user's lived recollection of the original
+  game has it sliding in — possibly an illusion-of-motion effect from the
+  surrounding panels, possibly a subtle engine behavior we haven't captured
+  here. Either way, the deviation is documented in `intro-constants.ts`.
 
 ## State 2 — `winit_state2_init_fonts_windows` (file 0xf43)
 
@@ -248,38 +305,38 @@ function at file offset `0xBBB6 - 0xBA9C = 0x011A` = `ui_window_create`.
 
 Selected verified mappings (sorted by thunk address):
 
-| Thunk    | Wroot file | Wroot name                       |
-|----------|-----------:|----------------------------------|
-| 0xBB71   | 0x00D5     | `abort_with_code`                |
-| 0xBBB6   | 0x011A     | `ui_window_create`               |
-| 0xBD6E   | 0x02D2     | `ui_window_destroy`              |
-| 0xC31E   | 0x0882     | (file table lookup by kind+idx)  |
-| 0xC43F   | 0x09A3     | (alt. wait-ticks-or-enter)       |
-| 0xC497   | 0x09FB     | `ui_window_redraw_focused`       |
-| 0xC546   | 0x0AAA     | (UI animation helper)            |
-| 0xC6DE   | 0x0C42     | `mouse_read_state_or_zero`       |
-| 0xC71E   | 0x0C82     | `strncpy_until_delim`            |
-| 0xC772   | 0x0CD6     | `boot_build_prompt_message` (filename resolver) |
-| 0xC7C2   | 0x0D26     | `boot_prompt_swap_disk_and_load` |
-| 0xDC57   | 0x21BB     | `load_font_or_portrait`          |
-| 0xE0DF   | 0x2643     | `kbd_check_with_filter`          |
-| 0xE1C0   | 0x2724     | `kbd_getkey_with_filter`         |
-| 0xE2A8   | 0x280C     | `kbd_flush_buffer`               |
-| 0xE2F4   | 0x2858     | `delay_one_unit` (timing primitive) |
-| 0xE421   | 0x2985     | `load_misc_table`                |
-| 0xED5A   | 0x32BE     | `ui_window_clear`                |
-| 0xEE85   | 0x33E9     | `huffman_load_and_decompress`    |
-| 0xF0DC   | 0x3640     | `kbd_pre_input_disk_check`       |
-| 0xF100   | 0x3664     | video-driver thunk (call *0x1BAE)|
-| 0xF118   | 0x367C     | video-driver thunk (call *0x1BB6)|
-| 0xF124   | 0x3688     | video-driver thunk (call *0x1BBA)|
-| 0xF130   | 0x3694     | video-driver thunk (call *0x1BBE)|
-| 0xF13C   | 0x36A0     | video-driver thunk (call *0x1BC2)|
-| 0xF3AA   | 0x390E     | `strcpy`                         |
-| 0xF5BC   | 0x3B20     | `ui_window_free_struct`          |
-| 0xF924   | 0x3E88     | `crt_open`                       |
-| 0xFD6F   | 0x42D3     | `crt_read_via_fd`                |
-| 0xFDA5   | 0x4309     | `crt_dos_close`                  |
+| Thunk  | Wroot file | Wroot name                                      |
+| ------ | ---------: | ----------------------------------------------- |
+| 0xBB71 |     0x00D5 | `abort_with_code`                               |
+| 0xBBB6 |     0x011A | `ui_window_create`                              |
+| 0xBD6E |     0x02D2 | `ui_window_destroy`                             |
+| 0xC31E |     0x0882 | (file table lookup by kind+idx)                 |
+| 0xC43F |     0x09A3 | (alt. wait-ticks-or-enter)                      |
+| 0xC497 |     0x09FB | `ui_window_redraw_focused`                      |
+| 0xC546 |     0x0AAA | (UI animation helper)                           |
+| 0xC6DE |     0x0C42 | `mouse_read_state_or_zero`                      |
+| 0xC71E |     0x0C82 | `strncpy_until_delim`                           |
+| 0xC772 |     0x0CD6 | `boot_build_prompt_message` (filename resolver) |
+| 0xC7C2 |     0x0D26 | `boot_prompt_swap_disk_and_load`                |
+| 0xDC57 |     0x21BB | `load_font_or_portrait`                         |
+| 0xE0DF |     0x2643 | `kbd_check_with_filter`                         |
+| 0xE1C0 |     0x2724 | `kbd_getkey_with_filter`                        |
+| 0xE2A8 |     0x280C | `kbd_flush_buffer`                              |
+| 0xE2F4 |     0x2858 | `delay_one_unit` (timing primitive)             |
+| 0xE421 |     0x2985 | `load_misc_table`                               |
+| 0xED5A |     0x32BE | `ui_window_clear`                               |
+| 0xEE85 |     0x33E9 | `huffman_load_and_decompress`                   |
+| 0xF0DC |     0x3640 | `kbd_pre_input_disk_check`                      |
+| 0xF100 |     0x3664 | video-driver thunk (call *0x1BAE)               |
+| 0xF118 |     0x367C | video-driver thunk (call *0x1BB6)               |
+| 0xF124 |     0x3688 | video-driver thunk (call *0x1BBA)               |
+| 0xF130 |     0x3694 | video-driver thunk (call *0x1BBE)               |
+| 0xF13C |     0x36A0 | video-driver thunk (call *0x1BC2)               |
+| 0xF3AA |     0x390E | `strcpy`                                        |
+| 0xF5BC |     0x3B20 | `ui_window_free_struct`                         |
+| 0xF924 |     0x3E88 | `crt_open`                                      |
+| 0xFD6F |     0x42D3 | `crt_read_via_fd`                               |
+| 0xFDA5 |     0x4309 | `crt_dos_close`                                 |
 
 The 5 video-driver thunks at `0xF100..0xF13C` all dispatch via function
 pointers in wroot's CS at fixed slots `0x1BAE..0x1BC2`. The `ega.drv` /
@@ -288,33 +345,33 @@ the driver's exported dispatch table.
 
 ## Key DGROUP state variables
 
-| Address | Purpose |
-|--------:|---------|
-| 0x363A  | `game_state` (master state machine) |
-| 0x363C  | current zone id (per wmaze findings) |
-| 0x3592  | boot disk kind/letter byte |
-| 0x3594  | boot config flag byte |
-| 0x3595  | boot dispatch key (read by state 0) |
-| 0x33EC  | pic filename buffer (output of file-resolver) |
-| 0x33F0/F2 | pic file offset (lo/hi) |
-| 0x33F8  | master.hdr read buffer (0x19E bytes) |
-| 0x4336  | last-loaded PIC file index |
-| 0x43CE  | party_size (0..6) |
-| 0x4FA8/AA | maze-data buffer pointers (freed in graveyard) |
-| 0x4FBE  | win_handle_titlescreen (overlay window for title/credits/graveyard) |
-| 0x4FB0/AC/B6/BA/B8/BC | other window handles created in state 2 |
-| 0x4FC6  | video_mode_flags (bits 0=EGA, 1=CGA, 2=T16, 3=Hercules) |
+|               Address | Purpose                                                             |
+| --------------------: | ------------------------------------------------------------------- |
+|                0x363A | `game_state` (master state machine)                                 |
+|                0x363C | current zone id (per wmaze findings)                                |
+|                0x3592 | boot disk kind/letter byte                                          |
+|                0x3594 | boot config flag byte                                               |
+|                0x3595 | boot dispatch key (read by state 0)                                 |
+|                0x33EC | pic filename buffer (output of file-resolver)                       |
+|             0x33F0/F2 | pic file offset (lo/hi)                                             |
+|                0x33F8 | master.hdr read buffer (0x19E bytes)                                |
+|                0x4336 | last-loaded PIC file index                                          |
+|                0x43CE | party_size (0..6)                                                   |
+|             0x4FA8/AA | maze-data buffer pointers (freed in graveyard)                      |
+|                0x4FBE | win_handle_titlescreen (overlay window for title/credits/graveyard) |
+| 0x4FB0/AC/B6/BA/B8/BC | other window handles created in state 2                             |
+|                0x4FC6 | video_mode_flags (bits 0=EGA, 1=CGA, 2=T16, 3=Hercules)             |
 
 ## Confidence summary
 
-| Element | Confidence |
-|---------|-----------|
-| State machine (0/1/2/8 and transitions) | HIGH — direct disasm + state-var writes |
-| Overlay entry dispatch table at 0x0C | HIGH — raw byte trace |
-| Credits scroll mechanism | HIGH — full per-frame loop traced |
-| `winit_wait_ticks_or_enter` semantics | HIGH — small function, clearly decompiled |
-| Wall-clock timing of one `delay_one_unit` call | MEDIUM — busy-wait calibration constants unknown; needs DOSBox-X snapshot |
-| Specific file index → filename for state-1 PIC load (0x27) | MEDIUM — mechanism clear; dynamic trace needed for exact filename |
-| Specific file index for state-8 (0x22 = GRAVEYRD) | HIGH — string-order matches |
-| Token semantics (0x97c's first arg: msg-ID, glyph-ID, or tile-ID?) | LOW — mechanism clear, semantic unconfirmed |
-| Thunk-delta law (BA9C offset) | HIGH — multiple verified mappings |
+| Element                                                            | Confidence                                                                |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| State machine (0/1/2/8 and transitions)                            | HIGH — direct disasm + state-var writes                                   |
+| Overlay entry dispatch table at 0x0C                               | HIGH — raw byte trace                                                     |
+| Credits scroll mechanism                                           | HIGH — full per-frame loop traced                                         |
+| `winit_wait_ticks_or_enter` semantics                              | HIGH — small function, clearly decompiled                                 |
+| Wall-clock timing of one `delay_one_unit` call                     | MEDIUM — busy-wait calibration constants unknown; needs DOSBox-X snapshot |
+| Specific file index → filename for state-1 PIC load (0x27)         | MEDIUM — mechanism clear; dynamic trace needed for exact filename         |
+| Specific file index for state-8 (0x22 = GRAVEYRD)                  | HIGH — string-order matches                                               |
+| Token semantics (0x97c's first arg: msg-ID, glyph-ID, or tile-ID?) | LOW — mechanism clear, semantic unconfirmed                               |
+| Thunk-delta law (BA9C offset)                                      | HIGH — multiple verified mappings                                         |
