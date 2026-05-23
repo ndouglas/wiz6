@@ -14,5 +14,7 @@ extracted
 # Local-only artifacts
 *.log
 .DS_Store
-docs
+# docs/re/ is needed by `wiz6 extract docs` (renders /explore/docs in viewer).
+# Only exclude the internal plans/specs.
+docs/superpowers
 .worktrees
