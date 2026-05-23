@@ -34,4 +34,22 @@ describe('extractEgaScreen', () => {
     expect(written.planes).toHaveLength(4);
     expect(written.trailer).toHaveLength(768);
   });
+
+  it("emits palette: 'ega-default' in the extracted JSON", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wiz6-ega-screen-palette-'));
+    const inputPath = join(dir, 'titlepag.ega');
+    const outputPath = join(dir, 'titlepag.json');
+    writeFileSync(inputPath, new Uint8Array(32768));
+
+    const screen = extractEgaScreen({
+      originalPath: inputPath,
+      outputPath,
+      id: 'titlepag',
+      emitPng: false,
+    });
+
+    expect((screen as { palette?: string }).palette).toBe('ega-default');
+    const written = JSON.parse(readFileSync(outputPath, 'utf-8'));
+    expect(written.palette).toBe('ega-default');
+  });
 });

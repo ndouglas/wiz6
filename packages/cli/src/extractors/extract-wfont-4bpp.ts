@@ -11,10 +11,11 @@ export interface ExtractWfont4bppOpts {
 
 export function extractWfont4bpp(opts: ExtractWfont4bppOpts): Font4bpp {
   const bytes = new Uint8Array(readFileSync(opts.originalPath));
-  const font = decodeWfont4bpp(bytes, {
+  const decoded = decodeWfont4bpp(bytes, {
     id: opts.id,
     sourceFile: basename(opts.originalPath),
   });
+  const font: Font4bpp = { ...decoded, palette: 'wiz6-main' };
   mkdirSync(dirname(opts.outputPath), { recursive: true });
   writeFileSync(opts.outputPath, JSON.stringify(font, null, 2));
   return font;

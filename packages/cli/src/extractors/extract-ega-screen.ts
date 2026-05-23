@@ -37,10 +37,11 @@ const HARDWARE_EGA_PALETTE: Palette = {
 
 export function extractEgaScreen(opts: ExtractEgaScreenOpts): EgaScreen {
   const bytes = new Uint8Array(readFileSync(opts.originalPath));
-  const screen = decodeEgaScreen(bytes, {
+  const decoded = decodeEgaScreen(bytes, {
     id: opts.id,
     sourceFile: basename(opts.originalPath),
   });
+  const screen: EgaScreen = { ...decoded, palette: 'ega-default' };
   mkdirSync(dirname(opts.outputPath), { recursive: true });
   writeFileSync(opts.outputPath, JSON.stringify(screen, null, 2));
 
