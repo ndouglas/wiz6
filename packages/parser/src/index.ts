@@ -15,7 +15,6 @@ export { decodeSnd, SND_SAMPLE_RATE_HZ, type DecodeSndOpts } from './formats/snd
 export {
   renderPicDescriptor,
   concatenatePicSegments,
-  EGA_PALETTE,
   type RenderedSprite,
 } from './formats/pic-render.js';
 export { renderEgaScreen } from './formats/ega-screen-render.js';
