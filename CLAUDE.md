@@ -139,18 +139,21 @@ When dispatching an RE subagent, include in the prompt:
 
 ### Overlay state machine
 
-wroot.exe drives a state-machine loop in `ovl_install_table` @ wroot 0x132d that reads a **game-state word at DGROUP `0x363a`** and loads whichever `.ovr` handles that state. Each overlay dispatches its own subset of states from its entry point at file offset `0x0c` (the byte before is a 12-byte overlay-link header).
+wroot.exe drives a state-machine loop in `ovl_install_table` @ wroot 0x132d that reads a **game-state word at DGROUP `0x363a`** and loads whichever `.ovr` handles that state. Each overlay dispatches its own subset of states from its entry point. Overlay header sizes vary: `winit.ovr` is 12 bytes (entry at file 0x0c); `wbase.ovr` and `wmele.ovr` are 14 bytes (entry at file 0x0e).
 
-| State value | Handler overlay     | Purpose                                  |
-| ----------- | ------------------- | ---------------------------------------- |
-| 0           | `winit.ovr` 0x525   | Load disk headers (master.hdr/disk.hdr)  |
-| 1           | `winit.ovr` 0x9f3   | Title page + scrolling credits           |
-| 2           | `winit.ovr` 0xf43   | Load fonts/portraits + create UI windows |
-| 4           | `wbase.ovr`         | Main menu (MASTER OPTIONS)               |
-| 5/6/17      | `wmaze.ovr`         | Dungeon traversal                        |
-| 8           | `winit.ovr` 0xdf6   | Graveyard / total-party-kill recovery    |
+| State value (hex / dec) | Handler overlay     | Purpose                                  |
+| ----------------------- | ------------------- | ---------------------------------------- |
+| 0                       | `winit.ovr` 0x525   | Load disk headers (master.hdr/disk.hdr)  |
+| 1                       | `winit.ovr` 0x9f3   | Title page + scrolling credits           |
+| 2                       | `winit.ovr` 0xf43   | Load fonts/portraits + create UI windows |
+| 4                       | `wbase.ovr`         | Main menu (MASTER OPTIONS)               |
+| 5 / 6 / 17 (0x11)       | `wmaze.ovr`         | Dungeon traversal                        |
+| 8                       | `winit.ovr` 0xdf6   | Graveyard / total-party-kill recovery    |
+| 10 (0x0a)               | `wmele.ovr` 0x2d6d  | Combat: init encounter                   |
+| 11 (0x0b)               | `wmele.ovr` 0x2b6a  | Combat: per-round redraw + monster attacks |
+| 14 (0x0e)               | `wmele.ovr` 0x2ceb  | Combat: end-of-round cleanup             |
 
-To transition, a handler writes the new state value to `*0x363a` and returns. The outer loop reloads the appropriate overlay.
+To transition, a handler writes the new state value to `*0x363a` (or to `*0x4fce` in wbase/wmele, which the entry dispatcher copies into `*0x363a` after the handler returns — deferred transition pattern). The outer loop reloads the appropriate overlay.
 
 ### Cross-overlay calls: the thunk-delta law (HIGH CONFIDENCE)
 
