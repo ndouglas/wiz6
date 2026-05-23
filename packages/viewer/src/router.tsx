@@ -56,6 +56,9 @@ const SoundsPage = lazy(() =>
 const DocsPage = lazy(() =>
   import('./pages/DocsPage.js').then((m) => ({ default: m.DocsPage })),
 );
+const CalibratePalette = lazy(() =>
+  import('./pages/CalibratePalette.js').then((m) => ({ default: m.CalibratePalette })),
+);
 
 export const routes = (
   <>
@@ -83,6 +86,7 @@ export const routes = (
       <Route path="sounds" element={<SoundsPage />} />
       <Route path="docs" element={<DocsPage />} />
       <Route path="docs/*" element={<DocsPage />} />
+      <Route path="calibrate" element={<CalibratePalette />} />
     </Route>
   </>
 );
