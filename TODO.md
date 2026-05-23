@@ -38,10 +38,10 @@ Next free ID: **#017**
   - **Method**: find the engine code that triggers each intro-phase sound. CLAUDE.md notes `winit_state1_title_and_credits` makes `audio_play_sound` calls with N = `4, 0xD, 0xE, 6, 7` — five calls, not three. Disambiguate which map to actual phase transitions vs other events; use those sound IDs to determine which `.snd` file is canonical per transition.
   - Refs: `7a3d8ba`, `winit.ovr` state 1 entry @ image 0x9f3, `audio_play_sound` @ wroot 0x10AAA, `docs/re/snd-format.md` §"Sound ID → filename mapping".
 
-- #009 [open] — Savegame management strategy for the web port (design done, implementation pending)
+- #009 [open] — Savegame + Roster management strategy for the web port (design done, implementation pending)
   - **Design settled**: see [`docs/superpowers/specs/2026-05-23-savegame-strategy.md`](docs/superpowers/specs/2026-05-23-savegame-strategy.md).
-  - **TL;DR**: our own zod-validated JSON schema in `@wiz6/data` as the canonical save format. 6-slot localStorage with manual download/upload for portability. RNG seed captured as advisory metadata. DOS `SAVEGAME.DBS` interop deferred to a separate bridge module (import + export buttons) that needs a follow-up RE pass on the binary save format. Savegame editor in the data explorer also deferred.
-  - **Implementation phases** (none on the critical path yet): SaveSchema → encoder/decoder → localStorage abstraction → UX. Phases 5-6 (DOS interop, editor) wait until the core ships.
+  - **TL;DR**: three persistence layers (per-visitor roster + 6 save slots + curated static gallery). Our own zod schemas (`CharacterSchema`, `PartyMemberSchema`, `SaveSchema`, `RosterSchema`) in `@wiz6/data`. localStorage primary, manual download/upload for portability. RNG seed advisory. DOS `SAVEGAME.DBS` interop deferred to a bridge module (needs separate RE pass). Saves are character snapshots with optional roster back-references; saves remain loadable without the roster. Curated gallery (static `/public/gallery/characters.json`) seeds new visitors' rosters on first visit. Savegame + roster editors in the data explorer deferred.
+  - **Implementation phases** (none on the critical path yet): schemas → encoder/decoder → save+roster storage → gallery seed → roster page → saves page. Phase 7 (DOS interop) + Phase 8 (editors) wait until the core ships.
 
 - #010 [open] — DOS↔TS A/B comparison harness
   - Raw: "how do we maximize the ability to run the DOS version and the TS version and compare behavioral and graphical outputs?".

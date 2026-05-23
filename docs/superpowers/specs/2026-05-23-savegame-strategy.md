@@ -1,19 +1,25 @@
-# Savegame Strategy — Design Spec
+# Savegame & Roster Strategy — Design Spec
 
 **Date:** 2026-05-23
 **Status:** Design approved (no implementation work yet).
 **Tracker:** [`TODO.md`](../../../TODO.md) #009.
-**Scope:** Define how the Wiz6 web port will persist, load, share, and exchange player save data — both internally (browser-side) and externally (compatibility with the original DOS `SAVEGAME.DBS` format).
+**Scope:** Define how the Wiz6 web port will persist, load, share, and exchange player data across **three layers**: the per-visitor character roster (third-persistence layer), individual save slots (six per visitor), and external interchange with the original DOS `SAVEGAME.DBS` format.
 
 ## Problem
 
-The port has no save/load mechanism today. As the gameplay simulation extends past character creation into combat, dungeon traversal, and quest progression, persisting party state across sessions becomes necessary for both player UX and developer testing.
+The port has no persistence mechanism today. As the gameplay simulation extends past character creation into combat, dungeon traversal, and quest progression, two related but distinct persistence needs emerge:
 
-We have to decide three things, each independent of the others:
+1. **The roster** — characters live independently of any individual game. A visitor creates a character once; that character can be drafted into multiple parties, return to the roster between adventures, persist their death state across game-overs, and (in original Wiz6) be the unit of long-term player identity.
+2. **The save** — a particular game's mid-flight party + dungeon position + scenario flags + timing state.
+
+Both need a UX, a format, and a scope.
+
+We have to decide:
 
 1. **User-facing UX** — how does a player save and load?
 2. **Underlying format** — what does the save data structurally contain?
 3. **State scope** — what's actually captured in a snapshot?
+4. **Roster model** — is the roster shared or per-visitor? Is the save self-contained or roster-dependent? What's the first-time-visitor experience?
 
 This spec is the answer.
 
@@ -37,6 +43,26 @@ The canonical save format is a versioned **JSON document** validated by a zod sc
 
 ```typescript
 // Sketch — exact field list determined during implementation.
+
+export const CharacterSchema = z.object({
+  /** Stable UUID. Used by the roster as the primary key, and by saves to
+   * carry an optional back-reference to the roster entry. */
+  id: z.string().uuid(),
+  name: z.string(),
+  race: z.string(),
+  class: z.string(),
+  // ... full stats / inventory / equipped / spells / conditions / XP / level / gold
+  // (derived from the wpcvw character-record layout at BSS 0x43e8 stride 0x1b0)
+});
+
+export const PartyMemberSchema = CharacterSchema.extend({
+  /** If present, the engine should sync state changes (level-up, death,
+   * class change, etc.) back to this roster entry on save / end-of-game.
+   * Absent when a save was imported from another visitor without their
+   * roster (the party member is a one-off snapshot). */
+  rosterCharacterId: z.string().uuid().optional(),
+});
+
 export const SaveSchema = z.object({
   schemaVersion: z.literal(1),
   metadata: z.object({
@@ -45,10 +71,15 @@ export const SaveSchema = z.object({
     portVersion: z.string(),
     rngSeed: z.number().int().optional(), // advisory; see "State scope" below
   }),
-  party: z.array(CharacterSchema).max(6),
+  party: z.array(PartyMemberSchema).max(6),
   position: PositionSchema,
   scenarioFlags: z.record(z.string(), z.unknown()),
   mazeState: MazeStateSchema,
+});
+
+export const RosterSchema = z.object({
+  schemaVersion: z.literal(1),
+  characters: z.array(CharacterSchema),
 });
 ```
 
@@ -81,61 +112,116 @@ A save does **not** capture:
 - Mid-combat state. Wiz6 didn't allow mid-combat saves; we follow.
 - UI / camera state (sidebar open/closed, palette picker, etc.). Those live in their own localStorage scopes.
 
+### Roster: per-visitor private + curated gallery, snapshot-style saves
+
+The original Wiz6 has **three** persistence layers, not two: the roster (`SCENARIO.DBS` character database) lives independently of any individual game. Characters are created into the roster *first*, drafted into parties *second*, and persist their last-known state (XP, level, gear, death) across game boundaries. Saves snapshot the party at save-time but don't own the characters.
+
+We mirror this three-layer model.
+
+**Roster scope decision: per-visitor private + curated gallery.**
+
+- Each visitor's roster lives in their browser's localStorage at `wiz6:roster`. Not shared with other visitors.
+- A small **curated gallery** ships with the build as a static `/public/gallery/characters.json` — pre-made characters the project owner publishes for everyone. Read-only in the UI; visitors can import gallery characters into their private roster with a click. This gives new visitors something to immediately play with, and is a natural home for "the canonical Manual party" / Wiz lore characters / engineering-archaeology curiosities.
+- Per-account / server-side rosters are explicitly out of scope (same rationale as the savegame UX decision — no auth, no infra).
+
+**Save ↔ roster relationship: snapshot, with optional back-reference.**
+
+- A save embeds the full character records of its party. Self-contained — loadable even if the visitor's roster has been wiped.
+- Each party member optionally carries a `rosterCharacterId` field. If present, the engine can synchronize back to the roster on death, level-up, or "end of game" events (mirrors how DOS Wiz6's roster reflects a character's most-recent in-save state). If absent (e.g. a downloaded save imported from another visitor), the party member is treated as a one-off snapshot — the save loads fine, but there's no roster entry to update.
+
+**Lifecycle:**
+
+| Action | Roster effect | Save effect |
+|---|---|---|
+| Create a character | Add new record with stable UUID | — |
+| Form a party for a new game | — | Each chosen roster character's record gets snapshotted into the save's `party[]` and stamped with `rosterCharacterId` |
+| Save mid-game | — | Party snapshots in the save update |
+| Character levels up / dies / changes class in-game | Optional write-back to roster on save (mirrors DOS behavior) | Save reflects new state |
+| Delete roster character | Remove record | Existing saves keep their self-contained snapshot; the back-reference becomes dangling but the save still loads |
+| Download a character | — | New `.wiz6char.json` file in the user's downloads |
+| Upload a character | New record imported into roster | — |
+| Import a gallery character | Copy the gallery record into the visitor's private roster | — |
+
+**First-time-visitor experience:** the roster is pre-seeded with the curated gallery on first visit. Visitors can immediately form a party and start a game. Creating their own characters bumps them above the seed in the roster UI. Gallery characters are mark-visibly as such ("imported from gallery") so the visitor knows they're playing with someone else's design.
+
 ## File structure
 
 ```
 packages/data/src/schemas/
-  ├── save.ts                   # SaveSchema + Character/Position/Maze sub-schemas
+  ├── character.ts              # CharacterSchema + PartyMemberSchema (shared)
+  ├── save.ts                   # SaveSchema + Position/Maze sub-schemas
+  └── roster.ts                 # RosterSchema
 
 packages/parser/src/formats/
   ├── save.ts                   # encodeSave / decodeSave (round-trip the JSON envelope)
+  ├── roster.ts                 # encodeRoster / decodeRoster
   └── savegame-dbs.ts           # DEFERRED — importDosSave / exportDosSave (needs DOS RE)
 
 packages/viewer/src/lib/
-  ├── save-store.ts             # localStorage / IndexedDB abstraction; 6-slot CRUD
-  └── save-export.ts            # Download / Upload (`.wiz6.json` file helpers)
+  ├── save-store.ts             # localStorage abstraction; 6-slot CRUD
+  ├── roster-store.ts           # localStorage abstraction; full-list CRUD + back-sync from save
+  ├── gallery.ts                # static-JSON gallery loader + "import to roster" helper
+  └── save-export.ts            # Download / Upload helpers (`.wiz6.json`, `.wiz6char.json`)
 
 packages/viewer/src/pages/saves/
   ├── SavesPage.tsx             # /explore/saves — slot grid, download/upload, future editor
   └── SaveSlot.tsx              # single-slot card component
+
+packages/viewer/src/pages/roster/
+  ├── RosterPage.tsx            # /explore/roster — character list, create/edit/delete, gallery import
+  └── RosterCharacterCard.tsx   # single-character card
+
+packages/viewer/public/gallery/
+  └── characters.json           # static curated gallery, shipped with build
 ```
 
-The `savegame-dbs.ts` module is a stub initially; it gets implemented after the DOS-format RE pass lands.
+The `savegame-dbs.ts` module is a stub initially; it gets implemented after the DOS-format RE pass lands. The gallery JSON ships hand-curated content; adding new characters is a content commit, not a code change.
 
 ## Implementation phases
 
 Each phase ships independently. None of them depend on the SAVEGAME.DBS RE work.
 
-### Phase 1 — Schema
+### Phase 1 — Schemas
 
-Define `SaveSchema` + sub-schemas in `@wiz6/data`. zod-validated. TDD with snapshot tests for stability.
+Define `CharacterSchema`, `PartyMemberSchema`, `SaveSchema`, `RosterSchema` in `@wiz6/data`. zod-validated. TDD with snapshot tests for stability. Character schema is shared between roster and save (PartyMember extends with the optional `rosterCharacterId` back-reference).
 
 ### Phase 2 — Encoder / decoder
 
-`encodeSave(save) → Uint8Array` (gzipped JSON, base64-encoded for URL-safe transport) and `decodeSave(bytes) → Save` round-trip pair in `@wiz6/parser`. Round-trip tests.
+`encodeSave(save) → Uint8Array` (gzipped JSON, base64-encoded for URL-safe transport) and `decodeSave(bytes) → Save` round-trip pair in `@wiz6/parser`. Same shape for `encodeRoster` / `decodeRoster`. Round-trip tests for both.
 
 ### Phase 3 — Storage
 
-Browser-side abstraction in `packages/viewer/src/lib/save-store.ts`. 6-slot localStorage (fallback to IndexedDB if size limit hit). API: `listSlots() / readSlot(n) / writeSlot(n, save) / deleteSlot(n)`.
+Two browser-side abstractions:
 
-### Phase 4 — UX
+- `packages/viewer/src/lib/save-store.ts` — 6-slot localStorage (fallback to IndexedDB if size limit hit). API: `listSlots() / readSlot(n) / writeSlot(n, save) / deleteSlot(n)`.
+- `packages/viewer/src/lib/roster-store.ts` — single-roster localStorage. API: `readRoster() / writeRoster(r) / addCharacter(c) / removeCharacter(id) / updateCharacter(c)`. Also `syncFromSave(save)` — when a save's party members carry `rosterCharacterId`, copy their updated stats back into the matching roster entries (mirrors DOS Wiz6's roster-reflects-most-recent-save behavior).
 
-`/explore/saves` page (or a section of an in-game shell when the shell exists). Slot grid, download/upload buttons. No editor yet — that's a follow-up.
+### Phase 4 — Gallery seed
 
-### Phase 5 — DOS interop (deferred)
+Curated `/public/gallery/characters.json` shipped with the build (initially: 1-6 hand-authored characters, content-only — no UI yet). `packages/viewer/src/lib/gallery.ts` exposes `loadGallery() / importToRoster(galleryCharId)`. On first visit, the roster auto-seeds with the gallery.
+
+### Phase 5 — Roster page UX
+
+`/explore/roster` page: character list, create / edit / delete affordances, "import from gallery" button, "download character" / "upload character" buttons (separate from save download). Gallery characters in the roster are visibly marked as such.
+
+### Phase 6 — Saves page UX
+
+`/explore/saves` page (or a section of an in-game shell when the shell exists). Slot grid, download/upload buttons. "Form party" UI when starting a new game pulls from the visitor's roster. No editor yet — that's a follow-up.
+
+### Phase 7 — DOS interop (deferred)
 
 Requires:
-- A separate RE pass on `SAVEGAME.DBS` — file structure, field layout, character-record packing, scenario-flag encoding.
+- A separate RE pass on `SAVEGAME.DBS` — file structure, field layout, character-record packing, scenario-flag encoding. Whether the DOS roster (`SCENARIO.DBS`-character section?) is in scope: TBD; the RE pass clarifies.
 - Implementation of `importDosSave` + `exportDosSave` in `packages/parser/src/formats/savegame-dbs.ts`.
-- Import/export buttons on the saves page.
+- Import/export buttons on the saves and (possibly) roster pages.
 
-Tracked as a follow-up TODO once Phase 4 has shipped and the format is actually useful.
+Tracked as a follow-up TODO once Phase 6 has shipped and the format is actually useful.
 
-### Phase 6 — Savegame editor (deferred)
+### Phase 8 — Savegame editor (deferred)
 
-A `/explore/saves/edit/:slot` page that renders each field of a save as an editable form, with "engineering-archaeology" tooltips on each field showing what byte offset / RE finding it came from. Fits the rest of the data-explorer's framing.
+A `/explore/saves/edit/:slot` and `/explore/roster/edit/:id` pair of pages that render each field as an editable form, with "engineering-archaeology" tooltips on each field showing what byte offset / RE finding it came from. Fits the rest of the data-explorer's framing.
 
-Depends on Phase 4. Independent of Phase 5 (works on the port's own saves without needing DOS interop).
+Depends on Phase 5 + 6. Independent of Phase 7 (works on the port's own data without needing DOS interop).
 
 ## Non-goals
 
@@ -149,9 +235,13 @@ Depends on Phase 4. Independent of Phase 5 (works on the port's own saves withou
 - *Should we mirror SAVEGAME.DBS exactly?* No — schema-evolution risk is too high. DOS interop is a bridge, not the foundation.
 - *Should we capture the RNG seed?* Yes, but as an advisory field, not a load-bearing one. Doesn't force determinism on gameplay; enables future analysis tooling.
 - *Should there be a savegame editor?* Yes, but as a follow-up. The port-canonical schema is the prerequisite.
+- *Is the character roster shared across visitors or per-visitor?* Per-visitor private, plus a curated gallery shipped with the build. No accounts, no infra.
+- *Are saves snapshots or roster references?* Snapshots. Optional `rosterCharacterId` back-reference per party member lets the engine sync state back to the roster, but isn't required for load.
+- *What's a new visitor's first experience?* Roster pre-seeded with the curated gallery. Visitor can immediately form a party and start. Creating their own characters bumps them above the seed.
 
 ## See also
 
-- [`docs/re/wpcvw-character-view.md`](../../re/wpcvw-character-view.md) — character record layout at BSS `0x43e8` stride `0x1b0`; this is the primary source for what fields a save must capture.
+- [`docs/re/wpcvw-character-view.md`](../../re/wpcvw-character-view.md) — character record layout at BSS `0x43e8` stride `0x1b0`; this is the primary source for what fields a save (and the roster) must capture.
 - [`docs/re/wmaze-functions.md`](../../re/wmaze-functions.md) — the in-engine save flow (`maze_save` at 0x8974, `maze_load` at 0x8e4f) plus the position-state globals at `0x4f80..0x4faa`.
+- [`docs/re/wpcmk-character-creation.md`](../../re/wpcmk-character-creation.md) — character-creation overlay; the roster I/O at `0x001b` (read/write fixed-size records via `*0x4fee` template) is the closest DOS-side analog to our `roster-store.ts`.
 - [`docs/re/wmexe-action-execution.md`](../../re/wmexe-action-execution.md) — combat round chain; informs whether we need to capture mid-combat state (we don't).
