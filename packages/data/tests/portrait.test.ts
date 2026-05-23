@@ -61,4 +61,14 @@ describe('PortraitSetSchema', () => {
     void sourceFile;
     expect(() => PortraitSetSchema.parse(incomplete)).toThrow();
   });
+
+  it('accepts an optional palette name field', () => {
+    const withPalette = { ...validSet, palette: 'wiz6-main' };
+    const parsed = PortraitSetSchema.parse(withPalette);
+    expect((parsed as PortraitSet & { palette?: string }).palette).toBe('wiz6-main');
+  });
+
+  it('accepts a PortraitSet without a palette field (backward compat)', () => {
+    expect(() => PortraitSetSchema.parse(validSet)).not.toThrow();
+  });
 });

@@ -15,6 +15,7 @@ export const EgaScreenSchema = z.object({
   height: z.literal(HEIGHT),
   planes: z.array(planeSchema).length(4),
   trailer: z.array(byteSchema).length(TRAILER_BYTES),
+  palette: z.string().min(1).optional(),
 });
 
 export type EgaScreen = z.infer<typeof EgaScreenSchema>;

@@ -44,4 +44,14 @@ describe('Font4bppSchema', () => {
     void sourceFile;
     expect(() => Font4bppSchema.parse(incomplete)).toThrow();
   });
+
+  it('accepts an optional palette name field', () => {
+    const withPalette = { ...validFont, palette: 'wiz6-main' };
+    const parsed = Font4bppSchema.parse(withPalette);
+    expect((parsed as Font4bpp & { palette?: string }).palette).toBe('wiz6-main');
+  });
+
+  it('accepts a Font4bpp without a palette field (backward compat)', () => {
+    expect(() => Font4bppSchema.parse(validFont)).not.toThrow();
+  });
 });

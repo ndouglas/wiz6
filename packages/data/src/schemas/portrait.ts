@@ -13,6 +13,7 @@ export const PortraitSetSchema = z
     sourceFile: z.string().min(1),
     portraitCount: z.number().int().positive(),
     portraits: z.array(PortraitSchema),
+    palette: z.string().min(1).optional(),
   })
   .refine((s) => s.portraitCount === s.portraits.length, {
     message: 'portraitCount must equal portraits.length',

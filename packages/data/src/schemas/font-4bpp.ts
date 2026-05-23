@@ -10,6 +10,7 @@ export const Font4bppSchema = z
     sourceFile: z.string().min(1),
     glyphCount: z.number().int().positive(),
     glyphs: z.array(Font4bppGlyphSchema),
+    palette: z.string().min(1).optional(),
   })
   .refine((f) => f.glyphCount === f.glyphs.length, {
     message: 'glyphCount must equal glyphs.length',

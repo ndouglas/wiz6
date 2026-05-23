@@ -48,4 +48,13 @@ describe('EgaScreenSchema', () => {
   it('rejects an empty id', () => {
     expect(() => EgaScreenSchema.parse({ ...validScreen, id: '' })).toThrow();
   });
+
+  it('accepts an optional palette name field', () => {
+    const parsed = EgaScreenSchema.parse({ ...validScreen, palette: 'ega-default' });
+    expect(parsed.palette).toBe('ega-default');
+  });
+
+  it('accepts an EgaScreen without a palette field (backward compat)', () => {
+    expect(() => EgaScreenSchema.parse(validScreen)).not.toThrow();
+  });
 });
