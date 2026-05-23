@@ -1,15 +1,17 @@
 # wiz6 TODO
 
-Stable-ID task list for cross-session tracking. Future sessions: read this on start; create new items with the next free ID; close items by moving them to **Done** with a one-line outcome. Never reuse IDs.
+Stable-ID task list for cross-session tracking. Future sessions: read this on start; new items go in **Open** with the next free ID; closed items get **deleted** (git log preserves history). Never reuse IDs.
 
 Format:
 
 ```
-- #NNN [open|blocked|done] — Title
+- #NNN [open|blocked] — Title
   - Notes / dependencies / refs
 ```
 
-Status legend: `open` = ready to work / unblocked, `blocked` = waiting on another ID, `done` = closed (moved to Done section).
+`open` = ready to work, `blocked` = waiting on another ID. There is no `done` status — finished items are removed.
+
+Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
 Next free ID: **#007**
 
@@ -19,6 +21,7 @@ Next free ID: **#007**
 
 - #002 [open] — Per-scene palette switching
   - Ship one empirical EGA palette + 7 overrides. Other scenes (spaceship is the canonical example: blue-green) show off-colors.
+  - Goal: absolute fidelity to the source app — every scene matches DOSBox-X output byte-for-byte.
   - Needs: a way to identify which palette index applies per scene (probably encoded in screen metadata or a per-screen field in the loader path).
   - Refs: palette-related commits `19df14d` ("revert overzealous index 6/14 overrides"), `docs/superpowers/specs/2026-05-19-stage-1d-palette-design.md`.
 
@@ -38,7 +41,7 @@ Next free ID: **#007**
 - #006 [open] — Viewer redesign Stage 2d (monster power tools)
   - Plan: `docs/superpowers/plans/2026-05-22-viewer-redesign-stage-2d.md` (0/44).
   - Compare mode (`/monsters/compare`), family-grouped index, copy-bytes/JSON header buttons.
-  - Notes `.pic` monster sprites are still blocked on prior stage; cross-references with #004.
+  - `.pic` monster sprites are still blocked on prior stage; cross-references with #004.
 
 ---
 
@@ -58,9 +61,3 @@ Next free ID: **#007**
 
 - #Q-E — Bogus `audio_adlib_init_voice` rename at image `0x11962`
   - Listed in findings file but the bytes there are just an EOI/IRET stub. Real AdLib init must be elsewhere — possibly `FUN_1000_17fe`. Not yet traced.
-
----
-
-## Done
-
-- #001 — Reconciled .snd Huffman playback status across docs (2026-05-23). CLAUDE.md's stale "Open audio issue" paragraph replaced with a "Status: byte-correct and audible" note; snd-format.md already correct. Open per-sound questions moved under the `#Q-*` items.

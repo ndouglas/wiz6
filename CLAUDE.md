@@ -209,7 +209,9 @@ Sounds are minimal-fidelity effects: clicks, drags, clangs, the title-screen "cl
 
 ## Known partial / in-progress issues
 
-**Authoritative tracker: [`TODO.md`](TODO.md) at the repo root.** Stable numeric IDs (`#001`...), persists across sessions, edit by hand or via the Edit tool. The list below is a high-level summary; check `TODO.md` for the current open set, dependencies, and questions.
+**Authoritative tracker: [`TODO.md`](TODO.md) at the repo root.** Stable numeric IDs (`#001`...), persists across sessions, edit by hand or via the Edit tool. Closed items are deleted (git log preserves them). The list below is a high-level summary; check `TODO.md` for the current open set, dependencies, and questions.
+
+**Inbox: [`INBOX.md`](INBOX.md)** — Nate's freeform jot pad. Read it on session start; if non-empty, clarify items with him then process in a single batch commit that adds TODO entries and clears INBOX.
 
 - **Per-scene palettes** (#002): one empirical palette + 7 overrides; other scenes show off-colors.
 - **Overlay naming passes** (#003): `wmele.ovr`, `wpcmk.ovr`, `wpcvw.ovr`, `wmnpc.ovr`, `wtrea.ovr` still on `FUN_XXXX` names.
