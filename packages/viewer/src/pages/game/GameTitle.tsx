@@ -19,14 +19,13 @@ const ENGINE_H = 200;
 const SCALE = 3;
 
 /**
- * Window offset for the credit scroll. State 1 step 9 opens a UI window
- * (handle at wroot DGROUP 0x4FBE) and the scroll renders inside that window —
- * the scroll-entry (col, y) values are window-relative. We don't have the
- * window's actual origin from the RE pass; this is hand-tuned so credits
- * land beneath the Wizardry logo in titlepag.scr.
+ * Engine (col, y) values from the scroll entry table appear to be absolute
+ * screen coordinates, not window-relative — entry 0 caps at y=3 (Wizardry
+ * logo top) which puts it 3px below the top edge of the screen. No offset
+ * needed; renderer just maps engine coords 1:1 to canvas coords.
  */
 const CREDIT_WINDOW_X = 0;
-const CREDIT_WINDOW_Y = 70;
+const CREDIT_WINDOW_Y = 0;
 
 export function GameTitle() {
   const navigate = useNavigate();
