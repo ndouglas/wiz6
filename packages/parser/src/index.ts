@@ -19,6 +19,7 @@ export {
   EGA_PALETTE,
   type RenderedSprite,
 } from './formats/pic-render.js';
+export { renderEgaScreen } from './formats/ega-screen-render.js';
 
 export {
   slugify,

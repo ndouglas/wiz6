@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { PicSchema, type EgaScreen } from '@wiz6/data';
+import { PicSchema } from '@wiz6/data';
 import {
   renderPicDescriptor,
+  renderEgaScreen,
   concatenatePicSegments,
   initialIntroState,
   stepIntro,
@@ -64,8 +65,8 @@ export function GameTitle() {
     loadEgaScreen('/screens/titlepag.json')
       .then((screen) => {
         if (cancelled) return;
-        const rgba = renderEgaScreenToRgba(screen, WIZ6_TITLE_PALETTE);
-        setTitlepagRgba(rgba);
+        const rendered = renderEgaScreen(screen, WIZ6_TITLE_PALETTE);
+        setTitlepagRgba(rendered.rgba);
       })
       .catch(() => {
         /* leave null; scroll falls back to black bg */
@@ -259,51 +260,3 @@ function blendSprite(
   }
 }
 
-/**
- * Render an EGA screen to row-major RGBA bytes using the per-plane shift
- * pattern that ScreenGallery uses (discovered in Stage 1f.3). Color 0 is
- * treated as transparent (alpha 0) so any underlying canvas content shows
- * through; for our intro we draw on a black background so transparent ==
- * black in practice.
- */
-function renderEgaScreenToRgba(
-  screen: EgaScreen,
-  palette: { colors: ReadonlyArray<readonly [number, number, number]> },
-): Uint8ClampedArray {
-  const { width: w, height: h, planes } = screen;
-  const out = new Uint8ClampedArray(w * h * 4);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let idx = 0;
-      for (let p = 0; p < 4; p++) {
-        const plane = planes[p];
-        if (!plane) continue;
-        const shiftX = (64 * p) % w;
-        const shiftY = -5 * p;
-        const yDrop = x < shiftX ? 1 : 0;
-        const srcY = y - shiftY - yDrop;
-        if (srcY < 0 || srcY >= h) continue;
-        const srcX = (((x - shiftX) % w) + w) % w;
-        const bytesPerRow = w / 8;
-        const byteIdx = srcY * bytesPerRow + (srcX >> 3);
-        const bitIdx = 7 - (srcX & 7);
-        const bit = ((plane[byteIdx] ?? 0) >> bitIdx) & 1;
-        idx |= bit << p;
-      }
-      const offset = (y * w + x) * 4;
-      if (idx === 0) {
-        out[offset] = 0;
-        out[offset + 1] = 0;
-        out[offset + 2] = 0;
-        out[offset + 3] = 0;
-      } else {
-        const rgb = palette.colors[idx] ?? [0, 0, 0];
-        out[offset] = rgb[0];
-        out[offset + 1] = rgb[1];
-        out[offset + 2] = rgb[2];
-        out[offset + 3] = 0xff;
-      }
-    }
-  }
-  return out;
-}
