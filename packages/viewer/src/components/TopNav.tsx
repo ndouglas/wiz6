@@ -17,6 +17,7 @@ const DATA_SECTIONS: NavItem[] = [
 ];
 
 const TOOL_SECTIONS: NavItem[] = [
+  { label: 'Notes', to: '/explore/notes' },
   { label: 'Calibrate', to: '/explore/calibrate' },
   { label: 'Docs', to: '/explore/docs' },
   { label: 'Files', to: '/explore/files' },

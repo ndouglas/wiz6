@@ -59,6 +59,9 @@ const DocsPage = lazy(() =>
 const CalibratePalette = lazy(() =>
   import('./pages/CalibratePalette.js').then((m) => ({ default: m.CalibratePalette })),
 );
+const EngineeringNotes = lazy(() =>
+  import('./pages/EngineeringNotes.js').then((m) => ({ default: m.EngineeringNotes })),
+);
 
 export const routes = (
   <>
@@ -87,6 +90,7 @@ export const routes = (
       <Route path="docs" element={<DocsPage />} />
       <Route path="docs/*" element={<DocsPage />} />
       <Route path="calibrate" element={<CalibratePalette />} />
+      <Route path="notes" element={<EngineeringNotes />} />
     </Route>
   </>
 );
