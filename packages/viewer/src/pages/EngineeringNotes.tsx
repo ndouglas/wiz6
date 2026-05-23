@@ -10,6 +10,7 @@ type Tag =
   | 'combat'
   | 'character-creation'
   | 'character-progression'
+  | 'dialogue'
   | 'palette'
   | 'audio'
   | 'maze'
@@ -298,6 +299,208 @@ while rng(2) == 0:
 
   // -------------------------------------------------------------------
   {
+    id: 'npc-keyword-synonyms',
+    title: 'NPC Dialogue Has Synonyms But Not Typos',
+    tags: ['dialogue', 'design-choice', 'undocumented'],
+    pitch:
+      'The Wiz6 NPC parser silently expands GET → TAKE, DRAGON → WYRM, HELLO → HI. A 38-entry alias table normalizes player input before any keyword lookup runs. But TAEK never matches anything — it handles canonical alternatives, not edit-distance.',
+    body: (
+      <>
+        <ProseRow>
+          When you type a word at a Wiz6 NPC, the engine doesn't immediately look it
+          up. First, it normalizes. A <strong>38-entry × 50-byte</strong> keyword
+          table at runtime <Code>BSS 0x6316</Code> holds slash-delimited synonym
+          lists, populated from <Code>MSG.DBS</Code> at startup:
+        </ProseRow>
+        <CodeBlock>
+{`"GET/TAKE/GRAB/PICK UP/TAKE"
+"HELLO/HI/GREETINGS/HELLO"
+"DRAGON/WYRM/SERPENT/DRAGON"
+(... 35 more)`}
+        </CodeBlock>
+        <ProseRow>
+          The parser iterates every entry, extracts each slash-delimited token,
+          and <Code>strncmp</Code>s against the input. On hit, it copies the{' '}
+          <em>last</em> token of the entry over the input. So GET / TAKE / GRAB all
+          collapse to TAKE before any dialogue logic looks anything up.
+        </ProseRow>
+        <ProseRow>
+          What this means in practice:
+        </ProseRow>
+        <ul className={styles.bullets}>
+          <li>Synonyms work — players don't need to know the NPC's exact keyword.</li>
+          <li>Typos don't — TAEK isn't an alias of TAKE, so it doesn't match anything.</li>
+          <li>The vocabulary is bounded — 38 entries split between verbs and nouns,
+          shared across every NPC in the game. All dialogue draws from a finite set.</li>
+        </ul>
+        <Aside title="The aging engineering view">
+          1990's "good enough" natural language: handle the variations the writers
+          could enumerate, ignore everything else. No fuzzy matching, no
+          Levenshtein, just a hand-curated alias table. Players who tried odd
+          synonyms occasionally got rewarded; players with typos got nowhere.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wmnpc-npc-dialogue.md', href: '/explore/docs/re/wmnpc-npc-dialogue.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'npc-cumulative-bribery',
+    title: 'NPCs Remember Every Gold Piece You Hand Them (For This Encounter)',
+    tags: ['dialogue', 'design-choice', 'undocumented'],
+    pitch:
+      'Gifting an NPC gold doesn\'t just earn a one-shot reaction bump. A 32-bit running total accumulates across the encounter, and crossing each of 7 secret thresholds unlocks a previously-hidden dialogue option.',
+    body: (
+      <>
+        <ProseRow>
+          When you GIVE an NPC gold, the engine doesn't just check the current
+          gift's value. It runs an{' '}
+          <Code>adc</Code> (add-with-carry) into a 32-bit accumulator at{' '}
+          <Code>*0x52cc</Code> / <Code>*0x52ce</Code>. The running total persists
+          for the duration of the encounter.
+        </ProseRow>
+        <ProseRow>
+          A <strong>7-entry threshold table</strong> at <Code>*0x5156</Code> holds
+          gold values. Each time the cumulative total crosses one of these
+          thresholds, a "type-2 trigger" fires and unlocks a previously-hidden
+          dialogue option. The NPC reveals something they wouldn't have told you
+          if you'd just dropped one big gift on them — or rather, that they
+          wouldn't have told you for any single payment below the threshold.
+        </ProseRow>
+        <ProseRow>
+          The accumulator is zeroed by <Code>wmnpc_encounter_init</Code>, so the
+          memory is <strong>per-encounter</strong>, not lifetime. You can't
+          drip-feed the same NPC across multiple visits to slowly unlock secrets.
+          But within one conversation, multiple small gifts compound — three
+          50-gold gifts unlock the same option as one 150-gold gift.
+        </ProseRow>
+        <Aside title="Buried mechanic">
+          This was never documented. Players who intuited it ("maybe gold counts
+          add up?") and tested it found the unlocks; players who didn't never
+          saw the hidden options. The kind of mechanic that made Wiz6 feel
+          mysterious in a way modern games don't try to be.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wmnpc-npc-dialogue.md', href: '/explore/docs/re/wmnpc-npc-dialogue.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'npc-charm-save-scum-penalty',
+    title: 'The Charm Roll That Punishes Reload-Spammers',
+    tags: ['dialogue', 'design-choice', 'undocumented'],
+    pitch:
+      'Every charm attempt in an encounter gets ~10 harder than the previous one — and a critical-failed charm permanently drops the NPC\'s reaction AND forces combat. Save-scum at your peril.',
+    body: (
+      <>
+        <ProseRow>
+          The base charm score in Wiz6 is unsurprising:
+        </ProseRow>
+        <CodeBlock>
+{`score = (level - npc_threshold) * 5
+      + skill[18] / 2            ; persuasion skill
+      + class_bonus
+      + CHA
+      + reaction / 4
+      - 10
+score = clamp(score, 0, 95)`}
+        </CodeBlock>
+        <ProseRow>
+          The roll is where it gets mean. The engine keeps a cumulative penalty
+          at <Code>*0x5892</Code> that survives across charm attempts within the
+          same encounter:
+        </ProseRow>
+        <CodeBlock>
+{`penalty = *0x5892
+penalty += rng(10) + 5         ; +5..14 per attempt, compounding
+roll = rng(100) + penalty
+*0x5892 = penalty              ; persist back`}
+        </CodeBlock>
+        <ProseRow>
+          So the second charm attempt is ~10 harder than the first. The third is
+          ~10 harder than the second. The state lives in volatile memory, not in
+          the save file, so reloading a save doesn't reset it — but it also
+          doesn't help much, because the penalty only zeroes on a <em>fresh</em>{' '}
+          encounter, which most NPCs don't let you trigger twice.
+        </ProseRow>
+        <ProseRow>
+          The worse outcome: the critical-failure branch (<Code>2*roll &lt; score</Code>{' '}
+          — a hard miss, not just an ordinary failure) does <em>two</em>{' '}
+          punishing things:
+        </ProseRow>
+        <ul className={styles.bullets}>
+          <li><Code>reaction -= rng(25) + 25</Code> — the NPC's permanent reaction drops by 25-49.</li>
+          <li><Code>*0x363a = 10</Code> — force a transition into combat (wmele state 0xa).</li>
+        </ul>
+        <ProseRow>
+          A single botched charm can turn a previously-peaceful NPC permanently
+          hostile <em>and</em> drop you straight into combat against them. The
+          engine's most punishing dialogue branch isn't documented anywhere — it
+          just exists, waiting.
+        </ProseRow>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wmnpc-npc-dialogue.md', href: '/explore/docs/re/wmnpc-npc-dialogue.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'npc-duplicated-renderer',
+    title: 'The Dialogue View Has Its Own Copy Of The Dungeon Renderer',
+    tags: ['dialogue', 'engine', 'quirk', 'maze'],
+    pitch:
+      'When an NPC dialogue opens, the corridor stays visible behind it. So wmnpc ships a 2192-byte copy of wmaze\'s 3D wall-rendering code — same constants, hand-duplicated. A maintenance hazard the original devs noticed and didn\'t fix.',
+    body: (
+      <>
+        <ProseRow>
+          Wiz6's NPC dialogue panel doesn't take over the whole screen. The
+          corridor view stays drawn behind it — the NPC stands "in front of"
+          the player in the dungeon. To draw that view, <Code>wmnpc.ovr</Code>{' '}
+          ships its own copy of <Code>wmaze.ovr</Code>'s 3D wall-rendering code.
+          2192 bytes of it.
+        </ProseRow>
+        <ProseRow>
+          This copy:
+        </ProseRow>
+        <ul className={styles.bullets}>
+          <li>Reads the same wall-bitmaps at <Code>*0x4faa + 0x43a</Code> and <Code>+0x49a</Code>.</li>
+          <li>Applies the same facing-rotation math.</li>
+          <li>Uses <em>identical</em> hardcoded pixel coordinates — <Code>0x48</Code>, <Code>0xf8</Code>, <Code>0x7a</Code>, <Code>0x82</Code>, and others.</li>
+        </ul>
+        <ProseRow>
+          The constants aren't shared via header or data table — they're
+          hand-copied into both files. If anyone at Sir-Tech ever tweaked
+          wmaze's wall positions without exactly-matching tweaks in wmnpc, the
+          encounter view would render slightly different walls than the
+          gameplay view. A continuity glitch waiting to happen, that nobody
+          would notice in QA because nobody pays attention to the corridor
+          behind an open dialogue box.
+        </ProseRow>
+        <ProseRow>
+          The original developers presumably noticed this and just didn't
+          refactor away from it — maybe the cost of overlay-to-overlay code
+          sharing was higher than maintaining two copies. The port can do
+          better: share the constants from a single source so the duplication
+          can't drift.
+        </ProseRow>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wmnpc-npc-dialogue.md', href: '/explore/docs/re/wmnpc-npc-dialogue.md' },
+      { label: 'wmaze-functions.md', href: '/explore/docs/re/wmaze-functions.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
     id: 'two-palettes-never-used',
     title: 'The Two Engine Palettes That Are Never Active',
     tags: ['palette', 'undocumented', 'quirk'],
@@ -505,6 +708,7 @@ const ALL_TAGS: Tag[] = [
   'combat',
   'character-creation',
   'character-progression',
+  'dialogue',
   'palette',
   'audio',
   'maze',
