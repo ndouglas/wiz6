@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Palette } from '@wiz6/data';
-import { PALETTE_CATALOG, WIZ6_MAIN } from '@wiz6/data';
-import { renderPicDescriptor, concatenatePicSegments } from '@wiz6/parser';
+import { PALETTE_CATALOG, EGA_DEFAULT } from '@wiz6/data';
+import { renderPicDescriptor, concatenatePicSegments, EGA_FILE_INDEX_PERMUTATION } from '@wiz6/parser';
 import { PicCanvas } from '../components/PicCanvas.js';
 import { usePic } from '../lib/hooks/usePic.js';
 import styles from './CalibratePalette.module.css';
@@ -200,7 +200,7 @@ export function CalibratePalette() {
   const [picId, setPicId] = useState<string>('mon57');
   const [descIdx, setDescIdx] = useState<number>(0);
   const [colors, setColors] = useState<Array<[number, number, number]>>(() =>
-    clonePaletteColors(WIZ6_MAIN),
+    clonePaletteColors(EGA_DEFAULT),
   );
   const [activeIndex, setActiveIndex] = useState<number>(2);
   const [spriteScale, setSpriteScale] = useState<number>(3);
@@ -264,15 +264,20 @@ export function CalibratePalette() {
           const pI = decodedBuffer[atlasOffset + 24 + row] ?? 0;
           for (let col = 0; col < 8; col++) {
             const bit = 7 - col;
-            const c =
+            const fileIdx =
               ((pB >> bit) & 1) |
               (((pG >> bit) & 1) << 1) |
               (((pR >> bit) & 1) << 2) |
               (((pI >> bit) & 1) << 3);
+            // Wiz6 .pic files permute file bit-pattern → standard EGA palette
+            // index. Track the *palette* index (post-permutation) so swatches
+            // labelled N correspond to palette.colors[N] — clicking a body
+            // pixel selects the swatch that actually controls it.
+            const paletteIdx = fileIdx === 15 ? -1 : EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
             const px = cx * 8 + col;
             const py = cy * 8 + row;
-            map[py * pxW + px] = c;
-            used.add(c);
+            map[py * pxW + px] = paletteIdx;
+            if (paletteIdx >= 0) used.add(paletteIdx);
           }
         }
         atlasOffset += 32;
