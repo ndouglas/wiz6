@@ -45,6 +45,48 @@ function Code({ children }: { children: React.ReactNode }) {
   return <code className={styles.codeInline}>{children}</code>;
 }
 
+function CopyPermalinkButton({ noteId, title }: { noteId: string; title: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    if (typeof window === 'undefined') return;
+    const url = `${window.location.origin}${window.location.pathname}#${noteId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API not available (e.g. http on non-localhost) — fall back to a textarea trick
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      } catch {
+        /* swallow; nothing more we can do */
+      }
+      document.body.removeChild(ta);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className={`${styles.permalinkBtn} ${copied ? styles.permalinkBtnCopied : ''}`}
+      onClick={handleCopy}
+      aria-label={`Copy permalink to "${title}"`}
+      title={copied ? 'Copied!' : 'Copy permalink'}
+    >
+      {copied ? '✓ Copied' : '🔗'}
+    </button>
+  );
+}
+
 function CodeBlock({ children }: { children: React.ReactNode }) {
   return <pre className={styles.codeBlock}>{children}</pre>;
 }
@@ -385,8 +427,9 @@ while rng(2) == 0:
           Wiz6's game loop reads a state word at <Code>*0x363a</Code> and loads
           whichever overlay handles that state. <Code>winit.ovr</Code> handles
           0/1/2/8. <Code>wbase.ovr</Code> handles 4 (the main menu). <Code>wmaze.ovr</Code>{' '}
-          handles 5/6/17 (dungeon traversal). <Code>wmele.ovr</Code> handles 10/11/14
-          (combat).
+          handles 5/6/0x17 (dungeon traversal). <Code>wmele.ovr</Code> handles
+          0x0a/0x0b/0x0e (combat). <Code>wpcvw.ovr</Code> handles 0x11/0x16
+          (character view + post-combat level-up).
         </ProseRow>
         <ProseRow>
           <Code>wpcmk.ovr</Code> — the character-creation overlay — doesn't own any
@@ -528,9 +571,12 @@ export function EngineeringNotes() {
         {visible.map((note) => (
           <article key={note.id} id={note.id} className={styles.card}>
             <header className={styles.cardHeader}>
-              <h2>
-                <a href={`#${note.id}`} className={styles.anchorLink}>{note.title}</a>
-              </h2>
+              <div className={styles.cardTitleRow}>
+                <h2>
+                  <a href={`#${note.id}`} className={styles.anchorLink}>{note.title}</a>
+                </h2>
+                <CopyPermalinkButton noteId={note.id} title={note.title} />
+              </div>
               <div className={styles.tagRow}>
                 {note.tags.map((t) => (
                   <span key={t} className={styles.tag}>{t}</span>
