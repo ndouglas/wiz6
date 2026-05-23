@@ -11,8 +11,4 @@ Freeform jot pad. Add anything — bug, idea, half-baked thought, "remember to l
 
 ## Items
 
-- Docs left-hand menu in the Data Explorer should render backticks as <code> tags.
-- Header menu in the Data Explorer is getting pretty crowded.
-- Permalinks for the notes (as you suggested)
-- Tag-count badges on the filter chips in notes would be nice
-- Inline TOC at the top of the notes page would be cool
+(none)
