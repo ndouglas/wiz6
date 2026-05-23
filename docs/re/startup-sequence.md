@@ -140,17 +140,45 @@ The big one — the title page and scrolling credits.
    - bit 3 → `0x516D` (Hercules)
    - else `abort(0xC)`
 5. Initialize local skip-flag (`[BP-0x72]` = 0).
-6. `call 0xc546(4)`: trigger sound/animation 4 (`wroot 0xaaa` — TBD video helper).
-7. `if (!skip) skip += winit_wait_ticks_or_enter(2)`: short wait (~20 delay units, ~0.3-1 sec depending on calibration).
-8. `call 0xc546(0xd)`: trigger sound/animation 0xD.
+6. `audio_play_sound(4)` at file `0xac2` — fires as Sir-Tech splash becomes visible. **SOUND04.SND**.
+7. `if (!skip) skip += winit_wait_ticks_or_enter(2)`: short wait.
+8. `audio_play_sound(0xD)` at file `0xadb` — fires before "D.W. Bradley" credit renders. **SOUND13.SND**.
 9. Open the title-screen UI window (`*0x4FBE`), draw two text tokens (positions hard-coded), refresh.
-10. `if (!skip) skip += winit_wait_ticks_or_enter(0x48)`: long wait (~720 delay units, ~12s at 60 Hz / ~40s at 18.2 Hz).
-11. Initialize the credit-scroll entry array (9 entries × 5 fields each, stored on stack).
-12. Enter scroll loop (file 0xC9D..0xD6D) — see below.
-13. After scroll: draw the "PRESS ANY KEY" / final text tokens, destroy the overlay window.
-14. **Transition:** writes `*0x363a := 2` at file offset `0xDC4`.
-15. Wait one more time (mouse + keyboard poll until key or skip-driven completion).
-16. `kbd_flush_buffer` and return.
+10. `if (!skip) skip += winit_wait_ticks_or_enter(0x48)`: long wait (~720 delay units). Title page holds visible.
+11. Page clear: `f118(-1)` clears window, `f13c` refreshes (screen blanks). `audio_play_sound(0xE)` at file `0xb43` — **SOUND14.SND**.
+12. `wait(10)`.
+13. `audio_play_sound(6)` at file `0xb5c` — **SOUND06.SND** (pre-header reveal, interstitial).
+14. Render the "Wizardry VI" / "Bane of the Cosmic Forge" header tokens.
+15. Refresh.
+16. `audio_play_sound(7)` at file `0xb90` — **SOUND07.SND** (pre-scroll motion, interstitial).
+17. `wait(10)`.
+18. Initialize the credit-scroll entry array (9 entries × 5 fields each, stored on stack).
+19. Enter scroll loop (file `0xC9D..0xD6D`) — see below.
+20. After scroll: draw the "PRESS ANY KEY" / final text tokens, destroy the overlay window.
+21. **Transition:** writes `*0x363a := 2` at file offset `0xDC4`.
+22. Wait one more time (mouse + keyboard poll until key or skip-driven completion).
+23. `kbd_flush_buffer` and return.
+
+### Audio mapping (verified 2026-05-23 — see [`findings/winit-state1-audio.json`](findings/winit-state1-audio.json))
+
+The five `audio_play_sound` calls in state 1 fire at these moments, indexed by their N argument into the runtime sound table at DGROUP `0x3344`:
+
+| Step | File offset | N      | .snd file    | Moment                                |
+| ---- | ----------- | ------ | ------------ | ------------------------------------- |
+| 6    | `0xac2`     | `0x04` | SOUND04.SND  | Sir-Tech splash becomes visible       |
+| 8    | `0xadb`     | `0x0D` | SOUND13.SND  | Bradley credit about to render        |
+| 11   | `0xb43`     | `0x0E` | SOUND14.SND  | Title page clears (end of title-hold) |
+| 13   | `0xb5c`     | `0x06` | SOUND06.SND  | Pre-"Wizardry VI" header reveal       |
+| 16   | `0xb90`     | `0x07` | SOUND07.SND  | Pre-scroll motion                     |
+
+The sound-table population happens via `winit_preload_sounds(14)` at winit `0x291` (loop bound `i < 14` per JGE at `0x381`) — preloading slots 0..13. SOUND01 and SOUND09 are absent on disk; those slots presumably alias via the table's `alias_id` field at offset 0 in each 12-byte entry. SOUND14 (used as slot 14 by call 3 above) lies outside the preload loop's bound — needs verification whether it's separately loaded, aliased, or covered by an off-by-one in the loop bound. Tracked under #017's first-payoff experiment (the DOSBox-X MCP server).
+
+**Port wiring** (`packages/viewer/src/pages/game/GameTitle.tsx`): three of the five sounds are wired to phase transitions:
+- `pause-pre-sirtech → sirtech-splash` plays SOUND04.
+- `pause-between → bradley-splash` plays SOUND13.
+- `title-hold → scroll` plays SOUND14.
+
+SOUND06 and SOUND07 fire between page-clear and scroll-start in the engine — that interval is collapsed into our `title-hold → scroll` transition. Modeling them faithfully would require sub-phases (a `page-clear` → `header-reveal` → `pre-scroll` sequence between `title-hold` and `scroll`). Deferred.
 
 ### The credit scroll
 

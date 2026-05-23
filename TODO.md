@@ -32,12 +32,6 @@ Next free ID: **#018**
   - Compare mode (`/monsters/compare`), family-grouped index, copy-bytes/JSON header buttons.
   - `.pic` monster sprites are still blocked on prior stage; cross-references with #004.
 
-- #007 [open] — Intro sound effects per transition (RE-traced)
-  - Raw: "title/credits sound effects wrong (should be drag, explosion or whoosh, clang of steel-on-steel)".
-  - Currently all three intro phase transitions (sirtech logo, D.W. Bradley credits, scroll start) play the same title clang sound (commit `7a3d8ba`). Should be three distinct sounds matching the original DOS playback.
-  - **Method**: find the engine code that triggers each intro-phase sound. CLAUDE.md notes `winit_state1_title_and_credits` makes `audio_play_sound` calls with N = `4, 0xD, 0xE, 6, 7` — five calls, not three. Disambiguate which map to actual phase transitions vs other events; use those sound IDs to determine which `.snd` file is canonical per transition.
-  - Refs: `7a3d8ba`, `winit.ovr` state 1 entry @ image 0x9f3, `audio_play_sound` @ wroot 0x10AAA, `docs/re/snd-format.md` §"Sound ID → filename mapping".
-
 - #009 [open] — Savegame + Roster management strategy for the web port (design done, implementation pending)
   - **Design settled**: see [`docs/superpowers/specs/2026-05-23-savegame-strategy.md`](docs/superpowers/specs/2026-05-23-savegame-strategy.md).
   - **TL;DR**: three persistence layers (per-visitor roster + 6 save slots + curated static gallery). Our own zod schemas (`CharacterSchema`, `PartyMemberSchema`, `SaveSchema`, `RosterSchema`) in `@wiz6/data`. localStorage primary, manual download/upload for portability. RNG seed advisory. DOS `SAVEGAME.DBS` interop deferred to a bridge module (needs separate RE pass). Saves are character snapshots with optional roster back-references; saves remain loadable without the roster. Curated gallery (static `/public/gallery/characters.json`) seeds new visitors' rosters on first visit. Savegame + roster editors in the data explorer deferred.
