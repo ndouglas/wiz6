@@ -71,8 +71,8 @@ const SECTIONS = [
   {
     title: 'Docs',
     to: '/explore/docs',
-    description: 'Reverse-engineering notes, format specs, and implementation plans — searchable in-browser.',
-    meta: '40 entries',
+    description: 'Reverse-engineering notes + format specs — every .pic / .scr / .snd / .dbs RE finding searchable in-browser.',
+    meta: '21 entries',
   },
 ];
 

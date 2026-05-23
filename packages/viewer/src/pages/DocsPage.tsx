@@ -69,13 +69,15 @@ export function DocsPage() {
     return marked.parse(content, { async: false }) as string;
   }, [content]);
 
-  // Group manifest entries by top-level dir for the sidebar.
+  // Group manifest entries by top-level dir for the sidebar. Files at the
+  // root of the doc tree go in a group called 're notes' (the docs are now
+  // sourced from docs/re/, so the root entries are the main RE notes).
   const grouped = useMemo(() => {
     if (!manifest) return {} as Record<string, DocEntry[]>;
     const out: Record<string, DocEntry[]> = {};
     for (const e of manifest.entries) {
       const slash = e.path.indexOf('/');
-      const group = slash > 0 ? e.path.slice(0, slash) : '.';
+      const group = slash > 0 ? e.path.slice(0, slash) : 're notes';
       (out[group] ??= []).push(e);
     }
     return out;

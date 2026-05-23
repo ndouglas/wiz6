@@ -178,10 +178,11 @@ function extractOneType(
       return;
     }
     case 'docs': {
-      // docs/ lives at repo root, two levels up from originalDir typically.
+      // Only ship the RE notes — superpowers/ contains plans/specs that are
+      // internal scaffolding noise. RE docs are the project's "public" knowledge.
       const repoRoot = join(originalDir, '..');
       const manifest = extractDocs({
-        docsDir: join(repoRoot, 'docs'),
+        docsDir: join(repoRoot, 'docs', 're'),
         outputDir: join(extractedDir, 'docs'),
       });
       io.write(`wrote ${extractedDir}/docs/manifest.json (${manifest.entries.length} markdown files)\n`);
