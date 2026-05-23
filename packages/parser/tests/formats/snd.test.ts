@@ -118,14 +118,19 @@ describe('decodeSnd', () => {
       expect(snd.samples.length).toBeGreaterThan(0);
     });
 
-    it('decodes sound28.snd as raw PCM (tree_size = 0)', () => {
+    it('decodes sound28.snd as "unknown" (tree_size=0 + implausible rate_word)', () => {
       const snd = decodeSnd(loadSnd('sound28.snd'), {
         id: 'sound28',
         sourceFile: 'sound28.snd',
       });
-      expect(snd.compression).toBe('raw');
-      // File size 10270 bytes; 4-byte header → 10266 samples
+      // The agent's format spec said tree_size=0 means raw PCM, but the 4 such
+      // files (sound28/30/32/35) all have rate_words that aren't plausible PIT
+      // divisors (>1000). They're flagged 'unknown' until we RE the actual format.
+      expect(snd.compression).toBe('unknown');
+      // File size 10270 bytes; 4-byte header → 10266 samples (still emitted)
       expect(snd.samples.length).toBe(10266);
+      // rateDivisor cleared for 'unknown' since the on-disk value is nonsense.
+      expect(snd.rateDivisor).toBeNull();
     });
 
     it('decodes all 35 sound files without throwing', () => {

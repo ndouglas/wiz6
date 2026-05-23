@@ -1,6 +1,6 @@
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { decodeSnd, sndSampleRateHz } from '@wiz6/parser';
+import { decodeSnd, sndApplyLut, sndSampleRateHz } from '@wiz6/parser';
 
 export interface ExtractSndOpts {
   originalPath: string;
@@ -75,8 +75,16 @@ export function extractSnd(opts: ExtractSndOpts): SndMetadata {
   };
   writeFileSync(join(opts.outputDir, `${opts.id}.json`), JSON.stringify(meta, null, 2));
 
-  // WAV at the decoded sample rate.
-  writeFileSync(join(opts.outputDir, `${opts.id}.wav`), encodeWav(snd.samples, sampleRateHz));
+  // WAVs at the decoded sample rate. Two variants:
+  //   - .wav    : LUT-transformed samples (linear amplitude, suitable for
+  //                Web Audio / general PCM playback). Default user-facing.
+  //   - .raw.wav: untransformed sample bytes (the .snd's stored values directly).
+  //                Useful for diagnosing whether the LUT model is correct.
+  // The "unknown" compression files don't go through the LUT — their bytes
+  // aren't sample indices, so LUT'ing them produces nonsense too.
+  const lutSamples = snd.compression === 'unknown' ? snd.samples : sndApplyLut(snd.samples);
+  writeFileSync(join(opts.outputDir, `${opts.id}.wav`), encodeWav(lutSamples, sampleRateHz));
+  writeFileSync(join(opts.outputDir, `${opts.id}.raw.wav`), encodeWav(snd.samples, sampleRateHz));
 
   return meta;
 }

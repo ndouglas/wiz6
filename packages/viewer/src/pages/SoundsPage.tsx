@@ -11,7 +11,7 @@ const SOUND_IDS = [
 interface SoundMeta {
   id: string;
   sourceFile: string;
-  compression: 'raw' | 'huffman';
+  compression: 'raw' | 'huffman' | 'unknown';
   rateDivisor: number | null;
   sampleCount: number;
   sampleRateHz: number;
@@ -46,9 +46,12 @@ export function SoundsPage() {
       <h1>Sounds</h1>
       <p className={styles.lede}>
         35 `.snd` files extracted from <code>original/sound??.snd</code>. Format is a 4-byte
-        header + optional Huffman tree + bitstream of 8-bit unsigned PCM samples. See{' '}
-        <code>docs/re/snd-format.md</code>. Each row shows decode metadata + a player using a
-        rendered <code>.wav</code> at the decoded sample rate.
+        header + Huffman tree + bitstream of indices that map through a log-attenuation LUT to
+        amplitude values. See <code>docs/re/snd-format.md</code>. Each row shows the decoded
+        metadata; both columns play the same data — <strong>LUT</strong> applies the engine&apos;s
+        log-attenuation table (linear PCM amplitude — what you should hear),{' '}
+        <strong>raw</strong> plays the sample bytes directly (what we tried first; sounds like
+        noise because the bytes are log-quantized loudness indices, not waveform amplitudes).
       </p>
       <table className={styles.table}>
         <thead>
@@ -59,7 +62,8 @@ export function SoundsPage() {
             <th>Rate</th>
             <th>Samples</th>
             <th>Duration</th>
-            <th>Preview</th>
+            <th>LUT (linear)</th>
+            <th>Raw bytes</th>
           </tr>
         </thead>
         <tbody>
@@ -67,7 +71,9 @@ export function SoundsPage() {
             <tr key={m.id}>
               <td className={styles.id}>{m.id}</td>
               <td className={styles.mono}>{m.sourceFile}</td>
-              <td>{m.compression}</td>
+              <td className={m.compression === 'unknown' ? styles.warn : undefined}>
+                {m.compression}
+              </td>
               <td className={styles.mono}>
                 {m.sampleRateHz} Hz{' '}
                 <span className={styles.dim}>
@@ -77,18 +83,30 @@ export function SoundsPage() {
               <td className={styles.num}>{m.sampleCount.toLocaleString()}</td>
               <td className={styles.num}>{(m.sampleCount / m.sampleRateHz).toFixed(2)}s</td>
               <td>
-                <audio controls src={`/sounds/${m.id}.wav`} preload="none" className={styles.audio} />
+                <audio
+                  controls
+                  src={`/sounds/${m.id}.wav`}
+                  preload="none"
+                  className={styles.audio}
+                />
+              </td>
+              <td>
+                <audio
+                  controls
+                  src={`/sounds/${m.id}.raw.wav`}
+                  preload="none"
+                  className={styles.audio}
+                />
               </td>
             </tr>
           ))}
         </tbody>
       </table>
       <p className={styles.note}>
-        WAVs are rendered at the decoded sample rate. If the audio sounds wrong, it could be:
-        decoder bug (sample values incorrect), wrong sample rate (engine default divisor unknown
-        statically — placeholder is 150), or the hardware-output-path mismatch (samples may
-        assume PC speaker PWM nonlinearity which raw PCM playback doesn't reproduce). Use these
-        previews to triangulate.
+        4 files (sound28, 30, 32, 35) are flagged <strong>unknown</strong>: their headers have
+        tree_size=0 but rate_word values that aren&apos;t plausible PIT divisors (21183, 25469,
+        12605, 32896). The format spec wrongly called them &quot;raw PCM&quot;; their actual
+        encoding is TBD. Both columns play their raw bytes since LUT-mapping doesn&apos;t apply.
       </p>
     </main>
   );

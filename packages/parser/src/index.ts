@@ -14,6 +14,8 @@ export { decodePic, type DecodePicOpts } from './formats/pic.js';
 export {
   decodeSnd,
   sndSampleRateHz,
+  sndApplyLut,
+  SND_LOG_LUT,
   DEFAULT_SND_RATE_DIVISOR,
   type DecodeSndOpts,
 } from './formats/snd.js';

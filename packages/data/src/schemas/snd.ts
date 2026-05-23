@@ -22,7 +22,11 @@ const ByteSchema = z.number().int().min(0).max(255);
 export const SndSchema = z.object({
   id: z.string().min(1),
   sourceFile: z.string().min(1),
-  compression: z.enum(['raw', 'huffman']),
+  // 'huffman' is the normal case (tree_size > 0).
+  // 'raw' = tree_size == 0 with a plausible rate_word; treat following bytes as PCM.
+  // 'unknown' = tree_size == 0 with an implausible rate_word — these 4 files
+  //   (sound28/30/32/35) use a different format we haven't reverse-engineered yet.
+  compression: z.enum(['raw', 'huffman', 'unknown']),
   rateDivisor: z.number().int().min(1).nullable(),
   samples: z.array(ByteSchema),
 });

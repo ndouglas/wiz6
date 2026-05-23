@@ -56,7 +56,12 @@
 
 .audio {
   height: 32px;
-  width: 240px;
+  width: 200px;
+}
+
+.warn {
+  color: #ff9a3c;
+  font-weight: 600;
 }
 
 .note {

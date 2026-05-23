@@ -1,4 +1,4 @@
-import { decodeSnd, sndSampleRateHz } from '@wiz6/parser';
+import { decodeSnd, sndApplyLut, sndSampleRateHz } from '@wiz6/parser';
 
 /**
  * Web Audio playback for Wiz6 `.snd` files.
@@ -65,8 +65,13 @@ export async function loadSnd(url: string): Promise<PlayableSnd | null> {
     const buf = await res.arrayBuffer();
     const bytes = new Uint8Array(buf);
     const decoded = decodeSnd(bytes, { id: 'load', sourceFile: url });
+    // Apply the engine's log-attenuation LUT — the sample bytes in .snd files
+    // are log-quantized loudness indices, not linear PCM amplitudes. Without
+    // the LUT they sound like noise. See `sndApplyLut` for the math.
+    const samples =
+      decoded.compression === 'unknown' ? decoded.samples : sndApplyLut(decoded.samples);
     return {
-      samples: decoded.samples,
+      samples,
       sampleRateHz: sndSampleRateHz(decoded.rateDivisor),
     };
   } catch {
