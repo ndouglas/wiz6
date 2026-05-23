@@ -1,0 +1,480 @@
+{
+  "topic": "wpcvw-naming-pass",
+  "subagent_run": "2026-05-23",
+  "binaries": ["wpcvw.ovr"],
+  "summary": "Named 90 of 97 FUN_XXXX functions in wpcvw.ovr (PC-VW = player-character view: the in-game character sheet that shows attributes, inventory, spellbook, equipment, status and lets the player CAST/USE/EQUIP/UNEQUIP/DROP/GIVE/TRADE items, edit name, CHANGE PORTRAIT, even CHANGE CLASS — and which also owns the post-combat LEVEL-UP flow). wpcvw has a 14-byte overlay header (entry at file 0x0e) and IS a true state-machine handler: it owns state 0x11 (interactive view, called with current-leader-slot from `*0x43cc`) and state 0x16 (the bulk-level-up loop run after combat). State 0x11 main is 0x67f6; state 0x16 main is 0xb4ac. Most of wpcvw's 100 fns are panel renderers and action handlers reached from a 12-option main menu in 0x67f6. **Flagship discoveries**: (1) the CLASS CHANGE math at 0x6054 with `*0x440c := 1` (level reset) + `*0x4597 := old_level` (saved cap) + `*0x43f4/6 := 0` (XP wipe), confirming Wiz6's famously brutal class-change tax; (2) the per-level STAT INCREASE roller at 0xb004 — `rng(7) → attr_idx`, bump if <18, 50% chance per stat to try again — explaining why Wiz6 stats creep up tied to level; (3) the AC/HP/SP derivation in 0x884f that's class-and-race-dispatched via 14-entry jump tables; (4) the 1d(N) repeated K times dice combinator at 0x2501 used for found-item quantities; (5) the CURSED-ITEM lockout at 0x67f6 case 5 (`item.flags & 0x43` blocks unequip and plays beep); (6) the GIVE-GOLD flow at 0x513e with proper 32-bit subtract-with-borrow / add-with-carry; (7) the PARTY MEMBER mini-portrait renderer at 0x465 that displays 2 weapon icons + status overlay + 10-condition tracker + scaled HP/SP bars. The character record layout is at BSS base **0x43e8** (stride **0x1b0 = 432 bytes**), so slot N occupies [0x43e8 + N*0x1b0 .. 0x43e8 + (N+1)*0x1b0). Important known field offsets are documented in the BSS layout finding.",
+  "method": "PyGhidra + DecompInterface for all 97 functions in wpcvw.ovr (BinaryLoader, so file_offset == Ghidra address). For each function: (a) decompiled C, (b) outgoing CALL edges (intra-overlay + indirect via BSS thunks), (c) scalar operands and BSS field accesses. Thunks resolved via the thunk-delta law (bss_offset - 0xBA9C = wroot file offset); 51 distinct thunks across ~344 call sites. Header size determined by manual disassembly of bytes 0..0x40 (12 bytes of overlay link header + 2 bytes of FPU/CLI setup = 14 bytes, then the state-dispatch entry at file 0x0e). The dispatch entry handles state 0x11 (with arg = leader slot pushed from `*0x43cc`) → call 0x67f6, and state 0x16 (no arg) → call 0xb4ac. Names applied when multi-signal evidence converged: record-field access patterns (0x43e8 name / 0x43f4 XP / 0x43fc gold / 0x4400 HP / 0x4404 SP / 0x4514..0x4519 attrs / 0x4548 level-cap / 0x4585 race / 0x4587 class / 0x4589 sex / 0x458a-b extra / 0x4590 spells-to-learn / 0x4594 inv-count / 0x4595 equip/pool count / 0x4597 saved-old-level), thunk-call patterns matching the wmaze/wmele/wbase/wpcmk vocabulary (window create/focus/clear/redraw, message load/print, key/mouse polling, RNG, sound, data table loading), and class-dispatch idioms (14-entry jump table at cs:-NNNN with bound check `class < 0xe`).",
+  "stats": {
+    "total_functions": 97,
+    "renamed": 90,
+    "remaining_FUN_XXXX": 7,
+    "categories": {
+      "state_machine": 2,
+      "menu_dispatch": 1,
+      "panel_render": 14,
+      "inventory_action": 12,
+      "spell_view": 7,
+      "level_up": 11,
+      "class_change": 4,
+      "derived_stats": 6,
+      "party_member_ui": 5,
+      "name_edit": 3,
+      "portrait": 1,
+      "ui_widget": 9,
+      "data_util": 4
+    }
+  },
+  "state_machine": {
+    "states_handled": [
+      {"value": "0x11", "decimal": 17, "purpose": "WPCVW INTERACTIVE VIEW — character sheet shown when player presses VIEW PC button. The leader slot is passed in via `push word [0x43cc]` and the loop at 0x67f6 runs the 12-option main menu (CAST / USE / EQUIP / UNEQUIP / DROP / GIVE / TRADE / SHARE / EDIT / POOL / EXIT). Honors return-context flags at *0x4fce to enable/disable destructive actions when called from outside the camp (e.g. read-only when called from in-dungeon).", "handler": "0x67f6"},
+      {"value": "0x16", "decimal": 22, "purpose": "WPCVW POST-COMBAT LEVEL-UP — after each combat where XP was awarded, this state iterates every party member calling FUN_b362 which loops level-up attempts until XP no longer meets the next threshold. Then unfocuses 3 windows and transitions to state 5 (wmaze dungeon).", "handler": "0xb4ac"}
+    ],
+    "dispatch_entry": "0x0e",
+    "header_size_bytes": 14,
+    "header_bytes_hex": "f2 00 72 45 38 b6 ee 4f 3c 05 10 03 db fa",
+    "transitions_out": [
+      "state 5: written by 0xb4ac at the start of the level-up handler — `mov word [0x363a], 5; mov word [0x4fce], 5` — so after the per-party level-up loop completes, control returns to wmaze (dungeon). State 0x11 returns naturally via 0x67f6's case-11 exit; it does NOT write a new state, allowing the outer state machine to consult whatever state was set before wpcvw was invoked."
+    ],
+    "subroutine_entry_points": [
+      "0x67f6 — wpcvw_view_main_loop (state 0x11 handler)",
+      "0xb4ac — wpcvw_levelup_state_handler (state 0x16 handler)",
+      "0xb362 — wpcvw_per_character_levelup_loop (called from state 0x16 per slot)"
+    ]
+  },
+  "key_discoveries": [
+    "**CLASS CHANGE TAX at 0x6054** — `wpcvw_class_change_execute` is THE infamous mechanic that taxes you for changing class. Body: (1) FUN_5c95 prepares the 14-entry class-availability table at *(0x57e0+i*2) based on current stats vs class requirements; (2) opens picker window via FUN_006c; (3) on confirm: `*0x4587 := new_class - 1`; **`*0x4597 := *0x440c` IF level < 250 ELSE 0** (saves old level as a skill-cap multiplier used by ~6 other functions: 0xa7bd, 0xaa94, 0xac9d, 0xb220, 0x86d2, 0xa4c1, 0x9dfb — all use `*0x4597` to throttle gains when current level < saved-old-level, so the early levels after a class change have STAT/HP gains capped to your old level's ceiling, NOT free progression); **`*0x440c := 1`** (level reset); `*0x4588 := 0` (high-water-mark reset); **`*0x43f4/0x43f6 := 0`** (XP wiped to 0 — the 32-bit XP counter is split across two words at +0x43f4 low / +0x43f6 high). Then calls FUN_5f4d (race-side re-init), FUN_5e04 (class-side re-init), FUN_4e94 (full redraw), and FUN_8e35 (recompute ALL derived stats including the unequip-everything pass — see next finding). This is the canonical class-change-as-pseudo-newgame mechanism: you keep your attributes but lose your power level, all spells need to be relearned slowly through level-ups, and the new class's stat-growth is held back by your old level for a long time.",
+    "**STAT INCREASE ROLLER at 0xb004** — Wiz6's per-level stat-bump mechanic is a 'retry on success' geometric. Pseudocode: `seen = {}; while(true) { for attempt in 0..3 { i = rng(7); if attr[i] < 18 and i not in seen: break }; if all 3 attempts hit a capped/seen attr: exit; bump attr[i]; seen.add(i); show 'You feel stronger!' msg; if rng(2) != 0 exit; }`. So: each level guarantees at least one stat attempt, but if all 3 retries land on already-maxed (or this-level-already-bumped) attrs, you get nothing. Each successful bump has a 50% chance to roll for another. Expected number of stat bumps per level ≈ 2 (one guaranteed first attempt that succeeds with high prob plus 50% to try again, plus 50% of that, ...). However, the attribute table covers indices 0..6 (only 7 attrs of the 9-byte block at 0x4514..0x451a), so STR/INT/PIE/VIT/DEX/SPD/(PER?) are the 7 candidates — KAR may not roll. The attr cap is 18 — so by mid-game characters cluster near 18 across all stats.",
+    "**LEVEL-UP execution at 0xb220** — `wpcvw_apply_levelup`. Steps: (1) `*0x440c++` (level); (2) if `new_level >= *0x4597` clear the post-class-change cap; (3) FUN_b182 (update high-water-mark at *0x4588 by counting how many of 7 level-thresholds are now met); (4) FUN_4e94 (redraw sheet); (5) show 'congratulations' msg 0x1392 with name + class-title; (6) FUN_a352 (info popup wait); (7) FUN_b004 (stat increase roller); (8) FUN_a7bd (HP/SP regen tick — `+rng(4) + (STR+DEX)/6` HP, scaled by DEX brackets); (9) FUN_aa94 (recalc AC at *0x4548 from class+DEX-bracket+VIT-bracket); (10) FUN_a529 (set *0x4590 = rng(6)+5 = 'new spells to learn this level'); (11) IF *0x4590 != 0 → FUN_a3be (spell-school selection loop with per-school FUN_9dfb display + FUN_9966 YES/NO confirm); (12) FUN_ac9d (class-specific level-up hook); (13) loop on *0x4500..*0x4503 calling FUN_3def — possibly the post-level bit-flag clear or condition recovery (cures level-1 condition slot but not the rest, classic Wiz6).",
+    "**CURSED-ITEM UNEQUIP LOCKOUT at 0x67f6 case 5** — when player selects UNEQUIP and picks an item: `bVar5 = *(slot*0x1b0 + inv_idx*8 + 0x442f); if ((bVar5 & 1) == 0 && (bVar5 & 2) == 0 && (bVar5 & 0x40) == 0) goto unequip_ok; else { play_sound(0); /* the deny-beep */ goto bail; }`. So flag bits 0x01, 0x02, 0x40 of the per-inventory-slot item flag byte ALL block unequip. Bit 0x01 is almost certainly 'CURSED-after-identification'; bit 0x02 may be 'CURSED-before-identification'; bit 0x40 is likely a 'class-restricted alignment-stuck' indicator. The unique 0x43 = 0x40 | 0x02 | 0x01 combined check explains why some cursed items in Wiz6 can't even be SWAPPED into a different equipment slot. Same flag is checked again in 0x513e (GIVE to another char) with bits 0x01 | 0x02 — so cursed-class items cannot even be traded away. The DROP path at 0x67f6 case 6 does NOT check this flag — meaning you CAN drop a cursed item (it goes to the pool), and that's the only way to be free of it short of a Remove Curse spell.",
+    "**GIVE GOLD + ITEMS at 0x513e** — `wpcvw_give_to_party_member`. Picks recipient via FUN_4419 with msg 0x1f5 ('Give to whom?'). Reads source gold from 32-bit field at `slot*0x1b0 + 0x43fc` (low) and `+0x43fe` (high). Prompts amount via FUN_5062(msg=0x194, max_digits=8). The math is proper 32-bit add-with-carry and subtract-with-borrow: source gold decrements by exactly the amount (with borrow propagated to high word); recipient gold increments correspondingly. Then item-transfer loop: while `recipient.inv_count + recipient.equip_count < 22 && source.inv_count > 0` (the 22-item-per-character HARD CAP), pick item via FUN_1a48 with msg 0x193; if item flags & 1 OR & 2 → beep and bail; if item-type's wroot-runtime byte at `*(0x442c+0xcc)` == 1 → ask for quantity via FUN_5062(msg=0x195, max_digits=3); then transfer. This is why Wiz6 inventory feels tight — even the +1 from grouped stackables hits the 22 cap quickly.",
+    "**PARTY MEMBER MINI-PORTRAIT at 0x465** — `ui_render_party_member_row`. Draws one party-slot widget showing: (a) name at +0x43e8 (left-padded to 7 chars); (b) RACE-COLORED face at +5, +5 using `*(*0x4589 * 2 + cs:0x526)` table lookup (sex/race composite icon, with dead/paralyzed overrides via *0x450c and *0x450d); (c) up to 10 STATUS CONDITIONS at +0x450a..+0x4513 (10 bytes!), worst-rendered via `*(0x532 + i*2)` icon table (so the engine has 10 status slots: probably the 10 Wizardry conditions: OK / ASLEEP / AFRAID / POISONED / DRAINED / DISEASED / SILENCED / PARALYZED / STONE / DEAD); (d) 2-letter CLASS ABBREVIATION via 14-entry class table at cs:0x3a (e.g. 'F1','C2','S3','...' style); (e) 2 EQUIPMENT-SLOT icons at +0x44f8/+0x44f9 (the two-hand weapon slots — visible in the in-game mini-sprite); (f) HP bar (current/max at +0x4400/+0x4402) via FUN_0384; (g) SP bar (current/max at +0x4404/+0x4406) via FUN_0384. This is the widget seen above every character's portrait in the party display.",
+    "**HP/SP BAR ADAPTIVE SCALING at 0x0c2a** — `bar_compute_render_geometry`. Computes bar segment configuration based on a random roll (`func_0x0000f9ba`) that varies the visual style — but waaait, looking more carefully: the func at thunk 0xbf8d (FUN_04f1 / `f9ba`) is actually NOT rng; it's likely a 'window-width' or 'monitor-aspect' lookup. The function returns a 7-word config block at 0x552a containing: bar_kind (0..4 for 'no bar', 'small 5-wide', 'medium 10-wide', 'large 20-wide', 'huge 40-wide'), max_HP_per_segment, second_bar_offset, percent_thresholds, and color codes. For very high HP values (lVar6 >= 91), each bar segment represents 25 HP; for low HP (lVar6 < 67), each represents 1 HP. This explains why the in-game party HP bars dynamically change resolution as the chars level up.",
+    "**1d(N) REPEATED K TIMES at 0x2501** — `dice_roll_k_of_n`. Pseudocode: `result = base; for i in 0..K { result += rng(N) + 1 }; return result`. Where param_2.lo = K (count), param_2.hi = N (sides), param_1 = base. So a single 16-bit param packs both dice count and sides, useful for compact item-table encoding (e.g. 'this gem stack = 2d6 gems' encoded as 0x0602 in one word). Used by FUN_55db (pick-up item quantity) to randomize stack sizes when picking up items from a treasure chest.",
+    "**WIZ6 CONDITION ARRAY at +0x450a..0x4513 (10 bytes)** — The party-member-row renderer (0x465) iterates 10 condition slots checking each for non-zero, and picks the worst-priority icon from a 10-entry table at cs:0x532. Combined with the explicit dead-check at +0x450c and paralyzed-check at +0x450d (both also rendered by 0x465 as condition overrides), these are almost certainly the 10 Wizardry condition slots: 0=OK 1=AFRAID 2=ASLEEP 3=SILENCED 4=POISONED 5=DISEASED 6=DRAINED 7=PARALYZED 8=STONE 9=DEAD/UNCONSCIOUS — though the exact assignment needs save-state verification. The 'is character available for action' check at 0x5b11 (FUN_5b11 → `wpcvw_is_character_active`) returns 1 ONLY IF `*0x4589 == 0 && *0x450c == 0 && *0x450d == 0` — meaning sex=0 (unused/empty) AND not-dead AND not-paralyzed. Used by 0x67f6 to gray out menu options when the leader is in a non-actionable state.",
+    "**SCROLLING-TEXT READER at 0x4940** — `ui_scrolling_text_reader`. When player selects 'USE' (case 4) on a book/scroll item, this opens a 40x16 window and reads sequential msg IDs starting from param_2 (incrementing param_2++ per page), interpreting embedded control chars: '!' → paragraph break; '@' → set local_4 = 13 then page-advance (forces page break); '$' → reset x-cursor to 1 (left-align); '^' → leave x as-is (continuation/no-indent); default → centered, x = 0x14 - (msg_len+1)/2. The exit condition is *0x3042 != 0 (mouse-or-key acknowledged). This is the in-game 'book/scroll/rune' reading UI — explains how Wiz6's lore-dump items work.",
+    "**24-BYTE ITEM-USE-DISPATCH TABLE at cs:0xbc61** — Inside 0x7160 (the 3.5KB item inspector), there's a 35-entry name-matching table at 0xbc61 holding (item_type_byte → handler_offset) pairs. The match is `local_15` (item.type_byte read from data table) vs each entry's first byte; if match, call `puVar7[0x23]()`. So byte +0x23 in each entry is the inline handler (8 bytes per entry: 1-byte type, 7 padding, 2-byte handler?). 35 entries × 8 = 280 bytes spanning 0xbc61..0xbd79. These are the **per-item-type USE handlers**: weapon → equip flow, scroll → read, potion → drink, ring → analyze, etc. The exact handler map is left as a dynamic-trace pass — but knowing the table location lets us replay each item-type's behavior offline.",
+    "**SCRIPTABLE CLASS-CHANGE / LEVELUP via 14-entry jump tables** — Multiple functions (0x884f, 0xa529, 0xa7bd, 0xaa94, 0xac9d, 0x9dfb, 0xb182) dispatch on `*(slot*0x1b0 + 0x4587)` (the class byte 0..13) via inline jump tables at various cs-relative offsets: -0x3173 (0x884f, derived stats), -0x1333 (0xa529, personality), -0x1246 (0xa7bd, HP regen), -0xf9e (0xaa94, AC step 1), -0xed6 (0xaa94, AC step 2), -0xc18 (0xac9d), -0x1b05 (0x9dfb, spell list), -0x8d4 (0xb182). Each table has 14 entries × 2 bytes = 28 bytes per table. So **wpcvw embeds at minimum 7 class-dispatch tables = 196 bytes of inline 16-bit pointer data** in its data segment. These pointers each call into per-class code stubs that compute class-specific bonuses (e.g. monk's DEX-based AC, mage's INT-based SP regen, fighter's STR-based HP regen). Combined with the 11-race tables, wpcvw has ~25 class-or-race-specific code stubs — a sizable lookup-driven mechanic surface."
+  ],
+  "thunk_usage": [
+    {"thunk": "0xbb71", "wroot_offset": "0x00d5", "name": "abort_with_code", "callsites": 1, "callers": ["0xbb71"], "note": "wpcvw's only call to abort — used by 0x6229 on CRT_OPEN failure"},
+    {"thunk": "0xbbb6", "wroot_offset": "0x011a", "name": "ui_window_create", "callsites": 9, "callers": ["0x1db3", "0x32a6", "0x4940", "0x6054", "0x63bc", "0x67f6", "0x7160", "0xa3be", "0xb362"]},
+    {"thunk": "0xbd6e", "wroot_offset": "0x02d2", "name": "ui_window_destroy", "callsites": 10, "callers": ["0x1db3", "0x32a6", "0x4940", "0x5b4a", "0x6054", "0x63bc", "0x67f6", "0xa3be", "0xb220", "0xb362"]},
+    {"thunk": "0xbda7", "wroot_offset": "0x030b", "name": "ui_window_set_cursor", "callsites": 40, "callers": ["broadly used by all panel renderers"]},
+    {"thunk": "0xbddb", "wroot_offset": "0x033f", "name": "FUN_033f", "callsites": 4, "callers": ["0x1db3", "0x32a6", "0x6674", "0x6c81"], "note": "ui_window_box_draw — used to outline prompt sub-windows"},
+    {"thunk": "0xbe32", "wroot_offset": "0x0396", "name": "FUN_0396", "callsites": 3, "callers": ["0x1db3", "0x55db", "0x6c81"], "note": "ui_window_putchar_with_attr (puts char with style)"},
+    {"thunk": "0xbf8d", "wroot_offset": "0x04f1", "name": "FUN_04f1", "callsites": 2, "callers": ["0x7160", "0xa7bd"], "note": "Likely the same 'compute window-relative coords' helper seen in wmaze"},
+    {"thunk": "0xbfa3", "wroot_offset": "0x0507", "name": "FUN_0507", "callsites": 1, "callers": ["0xf47"], "note": "Likely 2-arg formatted-number printer used in stats panel"},
+    {"thunk": "0xc041", "wroot_offset": "0x05a5", "name": "FUN_05a5", "callsites": 10, "callers": ["0xe96", "0xf47", "0x1db3", "0x32a6", "0x6c81", "0xa7bd", "0xb004"], "note": "Right-aligned numeric printer in window (named informally as ui_window_print_number)"},
+    {"thunk": "0xc05d", "wroot_offset": "0x05c1", "name": "FUN_05c1", "callsites": 5, "callers": ["0x3def", "0x8e35", "0xa7bd", "0xb004", "0xb220"], "note": "Likely string-concat or 2-arg formatted-string printer"},
+    {"thunk": "0xc1f7", "wroot_offset": "0x075b", "name": "load_msg_into_buf", "callsites": 20, "callers": ["0x6c", "0xb7b", "0xbb1", "0xf47", "0x1a48", "0x32a6", "0x4940", "0x4e94", "0x55db", "0x63bc", "0x671f", "0x6674", "0x6c81", "0x7160", "0x8e35", "0xa3be", "0xa529", "0xa7bd", "0xb004", "0xb220"]},
+    {"thunk": "0xc2db", "wroot_offset": "0x083f", "name": "FUN_083f", "callsites": 11, "callers": ["0x1db3", "0x2cb6", "0x31e5", "0x32a6", "0x3def", "0x55db", "0x6054", "0x63bc", "0x67f6", "0x9966"], "note": "ui_window_write_msg_by_id (load+write combo)"},
+    {"thunk": "0xc31e", "wroot_offset": "0x0882", "name": "FUN_0882", "callsites": 8, "callers": ["0x1db3", "0x4a5b", "0x55db", "0x6c81", "0x7160", "0x8e35", "0xa7bd", "0xb362"], "note": "Generic data-loader thunk — load (table_id, dest_ptr, idx, flag). Used here primarily with table_id=1 (items) and 0 (classes/races for FUN_b362)"},
+    {"thunk": "0xc43f", "wroot_offset": "0x09a3", "name": "FUN_09a3", "callsites": 3, "callers": ["0x255f", "0x55db", "0xa352"], "note": "Likely ui_screen_refresh sibling / wait-for-vblank"},
+    {"thunk": "0xc47e", "wroot_offset": "0x09e2", "name": "rng_next", "callsites": 7, "callers": ["0x2501", "0x3def", "0xa4c1", "0xa529", "0xa7bd", "0xb004"]},
+    {"thunk": "0xc497", "wroot_offset": "0x09fb", "name": "ui_window_redraw_focused", "callsites": 3, "callers": ["0x5b4a", "0x67f6", "0xb362"]},
+    {"thunk": "0xc4de", "wroot_offset": "0x0a42", "name": "FUN_0a42", "callsites": 1, "callers": ["0x5b4a"], "note": "Used in state-0x11 exit when *0x4fce == 5 (returning to camp menu mode)"},
+    {"thunk": "0xc546", "wroot_offset": "0x0aaa", "name": "play_sound", "callsites": 7, "callers": ["0x1db3", "0x32a6", "0x4ef5", "0x513e", "0x55db", "0x67f6", "0xb362"], "note": "Played on bad input, cursed-item lockout beep, item pickup chime"},
+    {"thunk": "0xc61a", "wroot_offset": "0x0b7e", "name": "FUN_0b7e", "callsites": 1, "callers": ["0x47d6"], "note": "Mouse-pointer-related (visible/hide)"},
+    {"thunk": "0xc674", "wroot_offset": "0x0bd8", "name": "FUN_0bd8", "callsites": 1, "callers": ["0x432d"], "note": "Used in the key-mouse poll loop"},
+    {"thunk": "0xc6b2", "wroot_offset": "0x0c16", "name": "FUN_0c16", "callsites": 7, "callers": ["0x6c", "0x1a48", "0x32a6", "0x4419", "0x63bc", "0x9966"], "note": "5-arg menu-entry setup (registers a hover/select rectangle)"},
+    {"thunk": "0xc6de", "wroot_offset": "0x0c42", "name": "mouse_read_state_or_zero", "callsites": 2, "callers": ["0x47d6", "0x7160"]},
+    {"thunk": "0xc71e", "wroot_offset": "0x0c82", "name": "FUN_0c82", "callsites": 1, "callers": ["0x63bc"], "note": "Special-table lookup (alignment/shop pricing?)"},
+    {"thunk": "0xc772", "wroot_offset": "0x0cd6", "name": "boot_build_prompt_message", "callsites": 1, "callers": ["0x6229"]},
+    {"thunk": "0xc7c2", "wroot_offset": "0x0d26", "name": "FUN_0d26", "callsites": 1, "callers": ["0x63bc"]},
+    {"thunk": "0xdcf2", "wroot_offset": "0x2256", "name": "FUN_2256", "callsites": 1, "callers": ["0x6229"]},
+    {"thunk": "0xdd53", "wroot_offset": "0x22b7", "name": "FUN_22b7", "callsites": 11, "callers": ["0xe96", "0xf47", "0x2bbb", "0x31e5", "0x32a6", "0x4ef5", "0x6c81", "0xa3be", "0xa7bd", "0xb004", "0xb220"], "note": "ui_window_put_char_repeat"},
+    {"thunk": "0xde7f", "wroot_offset": "0x23e3", "name": "ui_window_putchar", "callsites": 14, "callers": ["0x384", "0x465", "0xbd8", "0xc01", "0xf47", "0x1a48", "0x4940", "0x55db", "0x6c58", "0x6c81", "0xb004", "0xb220"]},
+    {"thunk": "0xdf85", "wroot_offset": "0x24e9", "name": "FUN_24e9", "callsites": 19, "callers": ["0x6c", "0xb56", "0xb7b", "0xbb1", "0xf47", "0x1a48", "0x4940", "0x4ef5", "0x6c", "0x6bfb", "0x6c31", "0x6c81", "0x7160", "0x9dfb"], "note": "ui_window_write_chars — print buffer with style (named informally in wbase findings)"},
+    {"thunk": "0xdfb9", "wroot_offset": "0x251d", "name": "ui_window_puts", "callsites": 11, "callers": ["0x31", "0x6c", "0x465", "0x1a48", "0x42b3", "0x4940", "0x4ef5", "0x6c81", "0x9dfb", "0xa352", "0xb220"]},
+    {"thunk": "0xe0df", "wroot_offset": "0x2643", "name": "kbd_check_with_filter", "callsites": 3, "callers": ["0x432d", "0x47d6", "0x7160"]},
+    {"thunk": "0xe1c0", "wroot_offset": "0x2724", "name": "kbd_getkey_with_filter", "callsites": 4, "callers": ["0x432d", "0x47d6", "0x4ef5", "0x7160"]},
+    {"thunk": "0xe2a8", "wroot_offset": "0x280c", "name": "kbd_flush_buffer", "callsites": 1, "callers": ["0x67f6"], "note": "Flush between menu iterations"},
+    {"thunk": "0xe2f4", "wroot_offset": "0x2858", "name": "FUN_2858", "callsites": 1, "callers": ["0x432d"], "note": "Inside key-poll loop"},
+    {"thunk": "0xe31d", "wroot_offset": "0x2881", "name": "FUN_2881", "callsites": 1, "callers": ["0x3def"], "note": "setbit (sets a bit in a bitmap array, named in wpcmk pass)"},
+    {"thunk": "0xe34b", "wroot_offset": "0x28af", "name": "FUN_28af", "callsites": 6, "callers": ["0xf47", "0x318a", "0x3def", "0x7160", "0x835e"], "note": "getbit_test (named in wmaze/wmele/wpcmk passes; reads a bit at index in a bitmap)"},
+    {"thunk": "0xe4ff", "wroot_offset": "0x2a63", "name": "ui_screen_refresh", "callsites": 9, "callers": ["0x1db3", "0x4419", "0x4e94", "0x5062", "0x55db", "0x63bc", "0x6674", "0x671f", "0x86d2"]},
+    {"thunk": "0xe5b5", "wroot_offset": "0x2b19", "name": "FUN_2b19", "callsites": 16, "callers": ["used by panel renderers — ui_window_focus_or_refresh paired with ui_window_clear"]},
+    {"thunk": "0xebb4", "wroot_offset": "0x3118", "name": "ui_window_focus", "callsites": 17, "callers": ["broadly across panel render flows"]},
+    {"thunk": "0xec6d", "wroot_offset": "0x31d1", "name": "ui_window_unfocus", "callsites": 17, "callers": ["broadly across panel render flows"]},
+    {"thunk": "0xed5a", "wroot_offset": "0x32be", "name": "ui_window_clear", "callsites": 23, "callers": ["broadly across panel render flows"]},
+    {"thunk": "0xedec", "wroot_offset": "0x3350", "name": "FUN_3350", "callsites": 1, "callers": ["0x432d"], "note": "kbd validate/filter — used inside key-poll loop"},
+    {"thunk": "0xf0dc", "wroot_offset": "0x3640", "name": "kbd_pre_input_disk_check", "callsites": 1, "callers": ["0x6229"], "note": "Called before portrait file open"},
+    {"thunk": "0xf34c", "wroot_offset": "0x38b0", "name": "FUN_38b0", "callsites": 3, "callers": ["0x3def", "0x5062", "0x9dfb"], "note": "memset-like primitive (named in wmele as memset)"},
+    {"thunk": "0xf3aa", "wroot_offset": "0x390e", "name": "strcpy", "callsites": 9, "callers": ["0x17f7", "0x1963", "0x1db3", "0x32a6", "0x55db", "0x6229", "0x6674", "0xa3be", "0xb220"]},
+    {"thunk": "0xf924", "wroot_offset": "0x3e88", "name": "crt_open", "callsites": 1, "callers": ["0x6229"]},
+    {"thunk": "0xf9ba", "wroot_offset": "0x3f1e", "name": "FUN_3f1e", "callsites": 3, "callers": ["0x384", "0xc2a", "0xf47"], "note": "Some integer/coord query — used in HP-bar scaling"},
+    {"thunk": "0xfaab", "wroot_offset": "0x400f", "name": "strlen", "callsites": 10, "callers": ["0x6c", "0x465", "0xf47", "0x1a48", "0x4419", "0x4940", "0x55db", "0x9966", "0xa352"]},
+    {"thunk": "0xfd6f", "wroot_offset": "0x42d3", "name": "FUN_42d3", "callsites": 1, "callers": ["0x6229"], "note": "crt_read (read N bytes from open file) — used in portrait load"},
+    {"thunk": "0xfda5", "wroot_offset": "0x4309", "name": "crt_dos_close", "callsites": 1, "callers": ["0x6229"]},
+    {"thunk": "0xfdbd", "wroot_offset": "0x4321", "name": "FUN_4321", "callsites": 1, "callers": ["0x6229"], "note": "crt_lseek (seek to byte offset)"},
+    {"thunk": "0xfedc", "wroot_offset": "0x4440", "name": "crt_memmove", "callsites": 1, "callers": ["0x3def"]}
+  ],
+  "thunk_usage_summary": {
+    "total_distinct_thunks": 51,
+    "resolved_to_named_wroot_fn": 22,
+    "resolved_to_unnamed_FUN_xxxx": 29,
+    "informally_named_via_prior_passes": 12,
+    "total_call_sites_approx": 344,
+    "note": "Of 51 distinct thunks, 22 resolve to a wroot function already named in wroot-naming-pass.json. The remaining 29 resolve to FUN_XXXX in wroot Ghidra; 12 of those have informal names from wmaze/wmele/wbase/wpcmk findings (load_msg_into_buf, rng_next, play_sound, getbit_test, setbit, ui_window_put_char_repeat, ui_window_write_chars, ui_window_redraw_focused, memset, strcpy, strlen, crt_read/lseek/memmove). Promoting those names into wroot-naming-pass.json would lift the named ratio to ~34/51."
+  },
+  "bss_layout": {
+    "topic": "Character record layout (slot N at base 0x43e8 + N*0x1b0; stride 0x1b0 = 432 bytes; spans 0x43e8..0x4598 per record)",
+    "fields": [
+      {"offset": "+0x00", "abs_slot_0": "0x43e8", "field": "name", "size": 12, "type": "char[12]", "note": "ASCIIZ name (max 11 chars + null)"},
+      {"offset": "+0x0c", "abs_slot_0": "0x43f4", "field": "xp_low", "size": 2, "type": "u16", "note": "XP 32-bit low word; full XP = xp_low | (xp_high << 16)"},
+      {"offset": "+0x0e", "abs_slot_0": "0x43f6", "field": "xp_high", "size": 2, "type": "u16", "note": "XP 32-bit high word"},
+      {"offset": "+0x14", "abs_slot_0": "0x43fc", "field": "gold_low", "size": 2, "type": "u16", "note": "Gold 32-bit low (proper carry math used in 0x513e GIVE flow)"},
+      {"offset": "+0x16", "abs_slot_0": "0x43fe", "field": "gold_high", "size": 2, "type": "u16"},
+      {"offset": "+0x18", "abs_slot_0": "0x4400", "field": "hp_cur", "size": 2, "type": "u16", "note": "Current HP — increments via rest/regen at 0xa7bd; max at +0x4402"},
+      {"offset": "+0x1a", "abs_slot_0": "0x4402", "field": "hp_max", "size": 2, "type": "u16"},
+      {"offset": "+0x1c", "abs_slot_0": "0x4404", "field": "sp_cur", "size": 2, "type": "u16", "note": "Current SP — at +0x4406 max"},
+      {"offset": "+0x1e", "abs_slot_0": "0x4406", "field": "sp_max", "size": 2, "type": "u16"},
+      {"offset": "+0x24", "abs_slot_0": "0x440c", "field": "level", "size": 2, "type": "u16", "note": "Current level (1-based)"},
+      {"offset": "+0x40", "abs_slot_0": "0x4428", "field": "inventory_records", "size": "8 * 22 = 176", "type": "item_record[22]", "note": "Each item_record is 8 bytes at offsets [+0..+7]: +0 item_id (u16), +2 word, +4 byte, +5 byte (quantity?), +6 byte (icon style?), +7 byte. Field +0x442e is quantity (decremented by 0x19ef on use). Field +0x442c is item-type-byte used to lookup wroot table at 0xcc (defines whether it's a 'consumable' that prompts for quantity). Field +0x442d is something like 'identified-name-index'. Field +0x442f is item flags (bit 0x01=cursed, 0x02=cursed-unidentified?, 0x40=class/alignment-restricted)"},
+      {"offset": "+0x110", "abs_slot_0": "0x44f8", "field": "equipment_slots", "size": 8, "type": "u8[8]", "note": "8 equipment slots holding inventory-index of equipped item (0xff=empty). Slots 0/1 are visible in the party-row weapon icons. Total 8 = weapon, shield, armor, helm, gauntlets, boots, ring1, ring2 (Wiz6 standard)."},
+      {"offset": "+0x122", "abs_slot_0": "0x450a", "field": "conditions[10]", "size": 10, "type": "u8[10]", "note": "10 condition slots — each non-zero indicates an active status condition. Worst-priority rendered via cs:0x532 table in 0x465. Likely AFRAID/ASLEEP/SILENCED/POISONED/DISEASED/DRAINED slots."},
+      {"offset": "+0x124", "abs_slot_0": "0x450c", "field": "is_dead", "size": 1, "type": "u8", "note": "Hard 'dead' flag — overrides conditions, displays the death icon. Checked by 0x5b11 'character-available' predicate."},
+      {"offset": "+0x125", "abs_slot_0": "0x450d", "field": "is_paralyzed_or_stone", "size": 1, "type": "u8", "note": "Hard 'cannot act' flag — separate from conditions, blocks all menu actions"},
+      {"offset": "+0x12c", "abs_slot_0": "0x4514", "field": "STR", "size": 1, "type": "u8", "note": "Strength (0..18). Modified by 0x884f via class+race dispatch."},
+      {"offset": "+0x12d", "abs_slot_0": "0x4515", "field": "INT", "size": 1, "type": "u8"},
+      {"offset": "+0x12e", "abs_slot_0": "0x4516", "field": "PIE", "size": 1, "type": "u8"},
+      {"offset": "+0x12f", "abs_slot_0": "0x4517", "field": "VIT", "size": 1, "type": "u8"},
+      {"offset": "+0x130", "abs_slot_0": "0x4518", "field": "DEX_or_LUCK", "size": 1, "type": "u8", "note": "Field at +0x4518 is used by 0xaa94 for AC modifier; if <8 → AC -1; if ≥16 → AC +2; if ≥18 → AC +3. Combined with 0x4519 reads suggests this is DEX (or LUCK in WIZ6 naming)."},
+      {"offset": "+0x131", "abs_slot_0": "0x4519", "field": "SPD", "size": 1, "type": "u8"},
+      {"offset": "+0x134", "abs_slot_0": "0x451c", "field": "skill_levels[14]", "size": 14, "type": "u8[14]", "note": "Per-skill levels (cap 0x32 per 0xa4c1)"},
+      {"offset": "+0x13e", "abs_slot_0": "0x4526", "field": "skill_flags_or_spells_known[12]", "size": 12, "type": "u8[12]", "note": "From 0x982f comparison logic — character-vs-class skill bitmap field"},
+      {"offset": "+0x145", "abs_slot_0": "0x452d", "field": "flags_3[14]", "size": 14, "type": "u8[14]"},
+      {"offset": "+0x14a", "abs_slot_0": "0x4532", "field": "flags_4[14]", "size": 14, "type": "u8[14]", "note": "Additional bitmap range — possibly per-school spell-known"},
+      {"offset": "+0x152", "abs_slot_0": "0x453a", "field": "saved_skill_bumps[14]", "size": 14, "type": "u8[14]", "note": "Cleared by 0x86d2 each train cycle"},
+      {"offset": "+0x160", "abs_slot_0": "0x4548", "field": "level_cap", "size": 1, "type": "u8", "note": "Maximum level for next level-up — recomputed by 0xaa94 based on SPD bracket and race==5 (Faerie penalty -1)"},
+      {"offset": "+0x161", "abs_slot_0": "0x4549", "field": "level_cap_extra", "size": 1, "type": "u8"},
+      {"offset": "+0x19c", "abs_slot_0": "0x4585", "field": "race", "size": 1, "type": "u8", "note": "Race index 0..10 (11 races). Race==5 = Faerie has special HP and SPD penalties throughout the engine. Race table lookups via cs:-NNNN."},
+      {"offset": "+0x19e", "abs_slot_0": "0x4587", "field": "class", "size": 1, "type": "u8", "note": "Class index 0..13 (14 classes). Used as jump-table key in 0x884f, 0xa529, 0xa7bd, 0xaa94, 0xac9d, 0x9dfb, 0xb182 — at least 7 inline 14-entry tables dispatch on class."},
+      {"offset": "+0x19f", "abs_slot_0": "0x4588", "field": "high_water_level", "size": 1, "type": "u8", "note": "Tracks highest level threshold met — set by 0xb182 from 7-entry threshold table"},
+      {"offset": "+0x1a0", "abs_slot_0": "0x4589", "field": "sex", "size": 1, "type": "u8", "note": "Sex/gender byte — used as portrait offset. 0=female, 1=male (or vice versa). Test for `sex==0` AND not-dead AND not-paralyzed determines 'character available' (0x5b11)."},
+      {"offset": "+0x1a2", "abs_slot_0": "0x458a", "field": "selected_weapon_hand_0", "size": 1, "type": "u8", "note": "Cleared by 0x8e35 — tracks which slot is 'main hand' for combat"},
+      {"offset": "+0x1a3", "abs_slot_0": "0x458b", "field": "selected_weapon_hand_1", "size": 1, "type": "u8"},
+      {"offset": "+0x1a8", "abs_slot_0": "0x4590", "field": "spells_to_learn_this_level", "size": 1, "type": "u8", "note": "Set by 0xa529 to `rng(6)+5` on level-up; decremented in 0xa3be loop as player picks new spells; render gates on this in 0x6c81"},
+      {"offset": "+0x1a9", "abs_slot_0": "0x4591", "field": "magic_power_lo", "size": 1, "type": "u8", "note": "Used by HP/SP bar scaling in 0x0c2a"},
+      {"offset": "+0x1aa", "abs_slot_0": "0x4592", "field": "magic_power_hi", "size": 1, "type": "u8"},
+      {"offset": "+0x1ac", "abs_slot_0": "0x4594", "field": "inventory_count", "size": 1, "type": "u8", "note": "Count of items in inventory (max 22 — see 0x513e cap)"},
+      {"offset": "+0x1ad", "abs_slot_0": "0x4595", "field": "equipped_or_pool_count", "size": 1, "type": "u8", "note": "Used by 0x1a48 for an alternate-list mode and by 0x1db3 (POOL view)"},
+      {"offset": "+0x1ae", "abs_slot_0": "0x4596", "field": "ac_extra_byte", "size": 1, "type": "u8", "note": "Adjusted by 0xaa94 based on DEX bracket"},
+      {"offset": "+0x1af", "abs_slot_0": "0x4597", "field": "saved_old_level_post_class_change", "size": 1, "type": "u8", "note": "Set to OLD level by 0x6054 on class change (capped at 0xfa); used by ~6 functions to throttle stat/HP/skill growth until current_level >= saved_old_level. The brutal class-change tax that limits early-level grinding power."}
+    ],
+    "shared_globals": [
+      {"addr": "0x43cc", "name": "current_leader_slot", "note": "Pushed as arg to 0x67f6 by dispatch entry. The slot index 0..5 of the party member currently selected for VIEW."},
+      {"addr": "0x43ce", "name": "party_size", "note": "Number of party members (1..6). Disables 'switch character' and 'give to' when < 2."},
+      {"addr": "0x4fce", "name": "view_context_mode", "note": "Controls return path from state-0x11 exit: 4 → wbase camp menu; 5 → wmaze dungeon; 0xd → something else (with additional ui_window_focus call)"},
+      {"addr": "0x4fc6", "name": "video_mode_flags", "note": "Bits 1/2/4/8 select portrait filename template (4 templates at cs+0x5165/0x5170/0x517b/0x5186 for EGA/VGA/CGA/Hercules)"},
+      {"addr": "0x553c", "name": "cursor_blink_state", "note": "Init -1 at dispatch entry; toggled by 0x432d's cursor-blink loop"},
+      {"addr": "0x553e", "name": "kbd_input_buffer", "note": "0x100-byte input buffer used by all text-entry primitives"},
+      {"addr": "0x57e0", "name": "class_availability_flags[14]", "note": "Set by FUN_5c95; 1 = char qualifies for this class (used as enable-flags by 0x6054 class-change picker)"},
+      {"addr": "0x57fc", "name": "data_loaded_guard", "note": "Set to 0 by 0x67f6 entry; tested by 0x6c81 inventory render to gate item-data refresh"},
+      {"addr": "0x57fe", "name": "item_skill_bitmap[]", "note": "Set by 0x982f to mark which skills make an item usable"},
+      {"addr": "0x5752", "name": "main_window_handle", "note": "Returned by ui_window_create on the outer 20x20 character-sheet panel"}
+    ]
+  },
+  "findings": [
+    {
+      "id": "fn-dispatch-and-state",
+      "claim": "wpcvw.ovr has 14-byte overlay header (bytes 0..0x0d: standard overlay prefix `f2 00 72 45 NN NN ee 4f NN NN NN NN` followed by `db fa` FPU-init / cli). Dispatch entry at file 0x0e runs `mov word [0x553c], 0xffff; cmp [0x363a],0x11; jnz +8; push [0x43cc]; call 0x67f6; pop cx; cmp [0x363a],0x16; jnz +3; call 0xb4ac; mov ax, 0; ret`. So wpcvw is a TRUE state-machine handler owning states 0x11 (view) and 0x16 (level-up).",
+      "category": "state_machine",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": "0x0e",
+        "type": "instruction_pattern_match",
+        "details": "Raw asm at file 0x0e..0x30: `c7 06 3c 55 ff ff 83 3e 3a 36 11 75 08 ff 36 cc 43 e8 d4 67 59 83 3e 3a 36 16 75 03 e8 7f b4`. Linear disasm confirms the two state comparisons and the two cross-state CALLs. Ghidra's auto-analysis missed this entry; we must create it manually."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-class-change-tax",
+      "claim": "0x6054 is the master CLASS CHANGE handler. On player confirmation it resets level (`*0x440c=1`), wipes XP (`*0x43f4/0x43f6=0`), saves old level as a stat-growth cap (`*0x4597=*0x440c if<250 else 0`), unsets the high-water-mark (`*0x4588=0`), then calls race-handler 0x5f4d, class-handler 0x5e04, redraw 0x4e94, and finally 0x8e35 which unequips ALL 8 equipment slots (`*0x44f8..*0x44ff = 0xff`) and clears all 22 inventory-slot 'equipped' flag bits (`*0x442f &= 0xfe`).",
+      "category": "class_change",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "addresses": ["0x6054", "0x8e35", "0x5f4d", "0x5e04"],
+        "details": "0x6054 line-by-line: opens 20x30 window; calls FUN_5c95 to compute class-availability flags into *(0x57e0+i*2)[14]; FUN_006c picker on those flags; on choice > 0: `*0x4587 := pick-1`; conditional `*0x4597 := *0x440c` only if old level < 0xfa; `*0x440c := 1`; XP and high-water clear; race/class re-init; redraw; 0x8e35. 0x8e35 then iterates 0..7 and sets each equipment slot to 0xff; iterates 0..inv_count and clears bit 0x01 of each item flag byte. This is the canonical class-change-as-pseudo-reset that gives Wiz6 its meaningful but reversible character archetype switching."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-stat-increase-roller",
+      "claim": "0xb004 is the per-level STAT INCREASE roller. Pseudocode: `seen[8]=0; do { for k in 0..3 { i = rng(7); if attr[i] < 18 and !seen[i]: break } if no good i: exit; bump attr[i]; seen[i]=1; show 'You feel stronger!' msg with attr name; } while (rng(2) == 0)`. So expected stat increases per level form a geometric distribution with p=0.5 stopping after each success, capped by the 3-tries-per-iteration filter.",
+      "category": "level_up",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "addresses": ["0xb004"],
+        "type": "instruction_pattern_match",
+        "details": "0xb004 body: `local_4=0; do { auStack_16[i]=0; local_4++; } while (local_4<8)` (clears seen[]). Outer `do { local_6=0; do { local_4=rng(7); local_6++; if (*(0x4514+local_4)<0x12 && seen[local_4]==0) break; } while (local_6<3); if same condition: bump attr `*pcVar1 += 1`; load msg 0x1396; load msg `local_4 + 0x13ba` (per-attr-name); show 'increased'; load msg `local_4 + 0xcc` via FUN_6bfb; print new value; } while (rng(2) == 0);`. The clamping is HARD: at 0xb004 line 0x29 `if (*(0x4514+local_4) < 0x12)` — attr must be strictly < 18 to be eligible. Three retries means: with all 7 attrs maxed, 3 misses guarantee exit; with one or two attrs free, the rng(7) hits one within 3 attempts with high probability."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-hp-sp-regen-on-levelup",
+      "claim": "0xa7bd is the per-level HP/SP REGEN tick. Formula: `regen = rng(4) + (STR+VIT)/6 - level/3` (class-dispatched for special cases). Clamped to ≥1 if current_level < saved_old_level. Adds regen to BOTH current AND max HP at *0x4400/*0x4402, and SP at *0x4404/*0x4406.",
+      "category": "level_up",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": "0xa7bd",
+        "details": "0xa7bd body: dispatch on `*(slot+0x4587)` if < 14 to per-class regen formula via jump table at cs:-0x1246. For default (else) branch: `iVar1 = rng(4) + (uVar2+uVar3)/6` where uVar2=STR (*0x4514) and uVar3=VIT (*0x4517). DEX adjustments: `if uVar3<8: regen-1; if uVar3>=16: regen+1; if uVar3>=18: regen+1`. Floor at 1. If `*0x440c < *0x4597` (under class-change cap): force regen = 1. Then `*0x4400 += regen, *0x4402 += regen, *0x4404 += iVar1, *0x4406 += iVar1`. Displays HP% via `iVar1 = (*0x4404 * 100) / *0x4406`."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-ac-recomputation",
+      "claim": "0xaa94 RECOMPUTES AC after level/stats/race-change. Base AC = 10; SPD>=16 → -1; SPD>=18 → another -1; race==5 (Faerie) → -2; for class 13 or 12 (likely Monk/Ninja): bonus = floor(min(level,16)/2) + skill[10]/10 → subtract from AC. Result stored at *0x4548, with delta propagated to sub-AC slots *0x4549..*0x454d.",
+      "category": "derived_stats",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": "0xaa94",
+        "details": "0xaa94 dispatches on *0x4587 (class) via jump tables at cs:-0xf9e and cs:-0xed6 for class-specific AC logic. Default branch computes AC delta: `cVar1=0; if dex<8: cVar1=-1; if class<14: dispatch; *0x4596 -= cVar1 (clamp >=0). local_a=10; if SPD>=16: local_a=9; if SPD>=18: local_a-=1; if race==5: local_a-=2; if class==13 or 12: scale = min(20, level/2 if level<21); local_a -= scale + skill[10]/10. iVar3 = local_a - *0x4548; if iVar3 != 0: *0x4548 = local_a; for sub-AC slot in 3..7: *(0x4548+slot) += iVar3`. This is the **AC value used in combat** — referenced by wmele monster-attack-resolution which we haven't decoded yet."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-spell-learn-on-levelup",
+      "claim": "0xa3be is the SPELL LEARN loop at level-up. Reads `*0x4590` ('spells to learn this level' set by 0xa529 = rng(6)+5). Loops while *0x4590 != 0: opens window, calls FUN_9dfb (per-school spell-list display, school = param_2), calls FUN_9966 (YES/NO confirm to learn), advances param_2 = (param_2+1)%4 (cycle 4 schools). This is the 'choose a spell from this school' picker that runs after every level-up that grants spells.",
+      "category": "spell_view",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "addresses": ["0xa3be", "0x9dfb", "0x9966", "0xa529"],
+        "details": "0xa3be: opens 20x32 window; do-while loop: `FUN_9dfb(window, param_1)` displays spell list for school param_2; `FUN_9966(...)` returns YES/NO choice; param_2 = (param_2+1)%4 with a special-case forcing 3 if 2 chosen and current school was 0. Exits when *0x4590 reaches 0. The 4-school cycle is 'Fire/Water/Air/Earth' or 'Elemental/Divine/Mental/Cosmic' — the 4 'realms' of Wiz6 caster magic. 0xa529 sets *0x4590 = rng(6)+5 + class-specific dispatch."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-state-0x16-levelup",
+      "claim": "State 0x16 (handler at 0xb4ac) runs the BULK LEVEL-UP after combat. Body: writes `*0x363a=5, *0x4fce=5` (transition to wmaze dungeon); loads msg 300 (0x12c) into buffer; iterates i=0..*0x43ce calling FUN_b362(i) for each party member; unfocuses 3 windows (*0x4fb0, *0x3342, *0x4fb2); returns. FUN_b362 then runs the inner per-character level-up loop in 0xb220.",
+      "category": "level_up",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "addresses": ["0xb4ac", "0xb362", "0xb220"],
+        "details": "Raw asm at 0xb4ac: standard prologue, then `mov [0x4fce],5; mov [0x363a],5; push 0x553e; push 0x12c (msg 300); call 0xc1f7; for i=0..*0x43ce call 0xb362(i); ...`. 0xb362 creates 40x20 + 40x15 windows, loads class data via FUN_c31e(0), then while-loop: if XP >= threshold(level), call 0xb220 (level up execute); else break. Closes windows and returns."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-cursed-item-lockout",
+      "claim": "Unequip (0x67f6 case 5) is blocked when item flag byte at `slot*0x1b0 + inv_idx*8 + 0x442f` has bits 0x01, 0x02, or 0x40 set. The blocked path plays sound 0 (beep) and aborts. GIVE (0x513e) blocks on bits 0x01 | 0x02 only. DROP path does NOT check these flags, so dropping is the only escape.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "addresses": ["0x67f6", "0x513e"],
+        "details": "Raw asm in 0x67f6 case 5 (file 0x6ab5): `mov ax, 0x1b0; imul [bp+4]; mov cx, [0x43ca]; shl cx, 3; add ax, cx; mov bx, ax; mov al, [bx + 0x442f]; sub ah,ah; test ax, 0x1; jnz beep; test ax, 0x2; jnz beep; test ax, 0x40; jz unequip; beep: push 0; call play_sound; jmp bail; unequip: call 0x17f7`. In 0x513e: `bVar5 = *(slot+invIdx*8+0x442f); if ((bVar5 & 1) == 0 && (bVar5 & 2) == 0) { /* allow transfer */ } else { /* beep + cancel */ }`. The asymmetry in flag-check between unequip (0x43=cursed+block+restrict) and give (0x03=cursed+block) is meaningful: bit 0x40 is 'class-or-alignment-locked' which prevents unequip BUT allows give-to-another-char (because the recipient may be the right class). However the engine ALSO enforces a per-class equip check at FUN_17f7 entry — so giving a locked item just transfers the bag-burden, doesn't grant use."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-give-gold-32bit",
+      "claim": "0x513e is the GIVE GOLD + ITEMS flow. Gold is stored as 32-bit LE at +0x43fc (low) / +0x43fe (high). The transfer uses proper add-with-carry / subtract-with-borrow math; if amount > source gold, plays beep and re-prompts. Item-transfer loop respects the 22-item hard cap (inv_count + equipped_count ≥ 0x16 = 22).",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "addresses": ["0x513e", "0x4419", "0x5062", "0x1a48"],
+        "details": "0x513e body: `iVar9 = FUN_4419(0x1f5, -1)` → recipient slot; if iVar9 != -1 && iVar9 != source: read source 32-bit gold; do { lVar16 = FUN_5062(msg=0x194, max_digits=8); if lVar16 < 0 || lVar16 > source_gold: beep; else { source -= amount with borrow; dest += amount with carry; break; } } while (true). Then item transfer: while (dest.inv_count + dest.equip_count < 0x16 && source.inv_count > 0): pick item via FUN_1a48; if flags & 1 OR & 2: beep + bail; if item-type-byte at (item.+442c + 0xcc) == 1: prompt qty via FUN_5062(msg=0x195, max_digits=3); transfer."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-party-row-render",
+      "claim": "0x465 is the PARTY MEMBER MINI-ROW renderer. Draws (1) name at +0x43e8 padded to 7 chars, (2) sex/race icon from cs:0x526 table indexed by *0x4589, (3) worst-condition icon from cs:0x532 (10 conditions checked at +0x450a..+0x4513), (4) class abbreviation 2-char from cs:0x3a indexed by *0x4587, (5) 2 weapon-hand icons at +0x44f8/+0x44f9 (with 'empty' fallback to a generic icon), (6) HP bar via FUN_0384(+0x4400, +0x4402, icon 0x56), (7) SP bar via FUN_0384(+0x4404, +0x4406, icon 99).",
+      "category": "party_member_ui",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": "0x465",
+        "details": "0x465 decompiled flow: position at (col=slot%2*9+2, row=slot/2*4+2); puts name via ui_window_puts with style 3; pads to col 7 with spaces; draws 3x3 icon grid at col+5,row+1: iVar3 selects 0..2 based on (sex_byte * 2 + cs:0x526)[lookup], overridden to 1 if dead, 2 if paralyzed; draws condition icon at col+5,row+5: scans i=0..9 of (+0x450a + i), tracking max-priority via cs:0x532[i*2]; class abbreviation: 2 chars from `class_byte * 2 + cs:0x3a + iVar3` for iVar3=0,1; equipment icons: 2 chars at col+5,row+3, reading +0x44f8 and +0x44f9 (0xff = empty → icon 0x25+i); finally FUN_0384 twice for HP and SP bars."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-inventory-render",
+      "claim": "0x6c81 is the INVENTORY PANEL renderer. Displays AC (+0x4548+0x4549 as combined), 6 attribute values (STR..SPD at +0x4514..+0x4519), and the 22-slot inventory with equipped-state icons. Inventory records at `slot*0x1b0 + i*8 + 0x4428..+0x442f`. Equipment slots at +0x44f8..+0x44ff hold inventory indices.",
+      "category": "panel_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": "0x6c81",
+        "details": "0x6c81: loads global stats config (FUN_0c2a → hp/sp bar geometry); writes AC value; loops 0..6 reading equipment slot[i] at +0x44f8+i, displays as 'equipped slot N' if present else generic empty icon; loops 0..6 for attribute display (msg ids 0xcc + i for STR/INT/PIE/VIT/DEX/SPD names); inventory loop `for local_4 in 0..*0x4594`: load item via FUN_c31e(table=1, idx=*(0x4428+local_4*8)); strcpy name to *(0x55de+local_4*16); check if any of 8 equipment slots equals local_4 — if so, mark with style 6 (or 3/7 for specific slots); style 9 if not equipped."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-stats-render",
+      "claim": "0x0f47 is the BIG STATS PANEL renderer (1.8KB). Displays portrait (offset computed from race byte at +0x4585 — sex+race composite), name with right-padding, class label (msg `*0x4586 + 0x8c`), race label (msg `*0x4585 + 0x64`), alignment label (msg `*0x4587 + 0x78`). Also shows 3-bit-mapped flags at +0x4580 (8 bits: gender/class/race flags), level/XP, HP/SP, AC.",
+      "category": "panel_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": "0xf47",
+        "details": "0xf47 line-by-line: position cursor; draws portrait 3x3 character grid at (1, +0x4585*9 + 0x48); loads name via FUN_0b56 from +0x43e8 with style 5; class abbrev from msg `*0x4586+0x8c`; race abbrev from msg `*0x4585+0x64`; alignment chars 3 from *0x4587+0x78. Iterates 11 bits then 2 bits then 14 bits at *0x4580 via FUN_e34b (getbit_test), printing on/off flag icons. Loads various XP/level/HP/SP into specific positions."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-1d_n-dice",
+      "claim": "0x2501 is `dice_roll_k_of_n(base, kn_packed)` — rolls K dice of N sides where `kn_packed.lo = K, kn_packed.hi = N`. Pseudocode: `result = base; while (k-- != 0) result += rng(n) + 1`. Used by 0x55db for randomized found-item stack sizes.",
+      "category": "data_util",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": "0x2501",
+        "details": "0x2501: `local_4 = param_1; for (; (char)param_2 != 0; param_2.lo-- ) { local_4 += rng(param_2.hi) + 1 }; return local_4`. Packed into 16-bit param_2 = (n << 8) | k. Called once by 0x55db with the item-table's stack-randomization word."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-condition-array",
+      "claim": "Characters track 10 status conditions at +0x450a..+0x4513 plus 2 'hard' flags at +0x450c (dead) and +0x450d (paralyzed/stone). Worst-priority condition is displayed in the party-row via cs:0x532 priority table. Combined with the 'is character actionable' check at 0x5b11, dead OR paralyzed disable ALL actions; soft conditions only disable specific ones.",
+      "category": "party_member_ui",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "addresses": ["0x465", "0x5b11"],
+        "details": "0x465 loop: `for iVar3 in 0..10: if *(slot+iVar3+0x450a) != 0 and local_4 < *(0x532+iVar3*2): local_4 = *(0x532+iVar3*2)`. 0x5b11: `return *0x4589 == 0 && *0x450c == 0 && *0x450d == 0`. The 10-slot condition array overlaps with the 'hard' dead/paralyzed flags at +0x450c/+0x450d (indices 2 and 3 of the array), implying those slots have BOTH the condition byte AND a separate hard flag. Wizardry VI's classic conditions: AFRAID(1), ASLEEP(2), SILENCED(3), POISONED(4), DISEASED(5), DRAINED(6), PARALYZED(7), STONE(8), DEAD(9) — but exact mapping needs save-state validation."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "fn-portrait-loader",
+      "claim": "0x6229 loads ONE portrait from disk based on video mode bits in *0x4fc6. Uses 4 filename templates at cs+0x5165 (EGA), +0x5170 (VGA), +0x517b (CGA), +0x5186 (Hercules). Portrait number = `portrait_id / 14 + '1'` (3 files of 14 portraits each = 42 total, same as wpcmk).",
+      "category": "portrait",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": "0x6229",
+        "details": "0x6229: tests *0x4fc6 against bits 1, 2, 4, 8 sequentially, picks template via strcpy from 4 short string offsets; substitutes file number `param_1 / 14 + '1'`; calls FUN_f0dc (pre-input disk check), FUN_c772 (build full path prompt), FUN_f924 (crt_open), FUN_fdbd (lseek), FUN_fd6f (read), FUN_fda5 (close)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-bss-layout",
+      "claim": "Character record array starts at BSS 0x43e8 with stride 0x1b0 (432 bytes per record). Maximum party size 6 means the array spans [0x43e8 .. 0x43e8 + 6*0x1b0] = [0x43e8 .. 0x4a48]. Adjacent BSS at 0x4a50+ holds the 'unbound items' POOL inventory (storing extra items dropped or unclaimed).",
+      "category": "data_util",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "details": "Inferred from the consistent `iVar = slot * 0x1b0 + 0xNNNN` access patterns. Smallest accessed field is +0x43e8 (name; see 0x6674 NAME EDIT writing strcpy(*, slot*0x1b0+0x43e8)). Largest is +0x4597 (saved old level; see 0x6054 class change). The 0x1b0 record size matches wpcmk's `record_size` from *0x4fd0. Cross-reference: wpcmk creates a TEMPORARY working buffer at *0x5470 for a character being created; that buffer is then saved to the roster at slot * 0x1b0 by FUN_001b. When the party loads via wmaze/wbase, each slot's record is copied INTO the 0x43e8 array at slot*0x1b0 offset — making wpcvw's 0x43e8 the LIVE PARTY array, while wpcmk's 0x5470 is the WORKING BUFFER for one creation/edit session."
+      },
+      "confidence": "high"
+    }
+  ],
+  "renamed_full_list": [
+    {"addr": "0x31", "old": "FUN_0000_0031", "new": "ui_grid_set_cursor_compute", "category": "ui_widget"},
+    {"addr": "0x6c", "old": "FUN_0000_006c", "new": "ui_menu_picker_grid", "category": "menu_dispatch"},
+    {"addr": "0x384", "old": "FUN_0000_0384", "new": "ui_draw_progress_bar", "category": "ui_widget"},
+    {"addr": "0x465", "old": "FUN_0000_0465", "new": "ui_render_party_member_row", "category": "party_member_ui"},
+    {"addr": "0x744", "old": "FUN_0000_0744", "new": "ui_draw_character_sheet_borders", "category": "panel_render"},
+    {"addr": "0xb56", "old": "FUN_0000_0b56", "new": "ui_print_at_xy", "category": "ui_widget"},
+    {"addr": "0xb7b", "old": "FUN_0000_0b7b", "new": "ui_print_msg_at_xy", "category": "ui_widget"},
+    {"addr": "0xbb1", "old": "FUN_0000_0bb1", "new": "ui_print_msg_with_byte_arg", "category": "ui_widget"},
+    {"addr": "0xbd8", "old": "FUN_0000_0bd8", "new": "ui_putchar_style2", "category": "ui_widget"},
+    {"addr": "0xc01", "old": "FUN_0000_0c01", "new": "ui_putchar_with_style", "category": "ui_widget"},
+    {"addr": "0xc2a", "old": "FUN_0000_0c2a", "new": "bar_compute_render_geometry", "category": "party_member_ui"},
+    {"addr": "0xdad", "old": "FUN_0000_0dad", "new": "ui_render_stats_header", "category": "panel_render"},
+    {"addr": "0xe0c", "old": "FUN_0000_0e0c", "new": "ui_render_stats_subheader", "category": "panel_render"},
+    {"addr": "0xe96", "old": "FUN_0000_0e96", "new": "ui_render_stat_pair", "category": "panel_render"},
+    {"addr": "0xf47", "old": "FUN_0000_0f47", "new": "ui_render_character_stats_panel", "category": "panel_render"},
+    {"addr": "0x1681", "old": "FUN_0000_1681", "new": "menu_count_enabled_entries", "category": "ui_widget"},
+    {"addr": "0x17f7", "old": "FUN_0000_17f7", "new": "inventory_equip_or_unequip", "category": "inventory_action"},
+    {"addr": "0x1963", "old": "FUN_0000_1963", "new": "inventory_remove_pool_slot", "category": "inventory_action"},
+    {"addr": "0x19ef", "old": "FUN_0000_19ef", "new": "inventory_decrement_quantity", "category": "inventory_action"},
+    {"addr": "0x1a22", "old": "FUN_0000_1a22", "new": "ui_put_styled_char_at", "category": "ui_widget"},
+    {"addr": "0x1a48", "old": "FUN_0000_1a48", "new": "ui_pick_inventory_item", "category": "inventory_action"},
+    {"addr": "0x1db3", "old": "FUN_0000_1db3", "new": "wpcvw_show_pool_inventory", "category": "inventory_action"},
+    {"addr": "0x2501", "old": "FUN_0000_2501", "new": "dice_roll_k_of_n", "category": "data_util"},
+    {"addr": "0x255f", "old": "FUN_0000_255f", "new": "ui_refocus_window", "category": "ui_widget"},
+    {"addr": "0x25d8", "old": "FUN_0000_25d8", "new": "inventory_transfer_to_party_member", "category": "inventory_action"},
+    {"addr": "0x2bbb", "old": "FUN_0000_2bbb", "new": "ui_render_spellbook_attr_value", "category": "spell_view"},
+    {"addr": "0x2be4", "old": "FUN_0000_2be4", "new": "ui_render_spellbook_header_row", "category": "spell_view"},
+    {"addr": "0x2c3b", "old": "FUN_0000_2c3b", "new": "ui_draw_spellbook_sub_borders", "category": "spell_view"},
+    {"addr": "0x2cb6", "old": "FUN_0000_2cb6", "new": "ui_draw_spellbook_borders", "category": "spell_view"},
+    {"addr": "0x318a", "old": "FUN_0000_318a", "new": "spell_render_known_indicator", "category": "spell_view"},
+    {"addr": "0x31e5", "old": "FUN_0000_31e5", "new": "ui_render_spellbook_list_window", "category": "spell_view"},
+    {"addr": "0x32a6", "old": "FUN_0000_32a6", "new": "wpcvw_show_spellbook", "category": "spell_view"},
+    {"addr": "0x3def", "old": "FUN_0000_3def", "new": "level_post_condition_or_spell_roll", "category": "level_up"},
+    {"addr": "0x42b3", "old": "FUN_0000_42b3", "new": "ui_blink_cursor", "category": "ui_widget"},
+    {"addr": "0x432d", "old": "FUN_0000_432d", "new": "input_poll_key_or_mouse_with_blink", "category": "ui_widget"},
+    {"addr": "0x43d3", "old": "FUN_0000_43d3", "new": "ui_highlight_party_slot", "category": "party_member_ui"},
+    {"addr": "0x4419", "old": "FUN_0000_4419", "new": "ui_pick_party_member", "category": "party_member_ui"},
+    {"addr": "0x47d6", "old": "FUN_0000_47d6", "new": "input_poll_with_mouse_pointer", "category": "ui_widget"},
+    {"addr": "0x4870", "old": "FUN_0000_4870", "new": "ui_draw_text_reader_borders", "category": "ui_widget"},
+    {"addr": "0x4940", "old": "FUN_0000_4940", "new": "ui_scrolling_text_reader", "category": "inventory_action"},
+    {"addr": "0x4a5b", "old": "FUN_0000_4a5b", "new": "wpcvw_item_drop_or_give_dispatch", "category": "inventory_action"},
+    {"addr": "0x4e94", "old": "FUN_0000_4e94", "new": "ui_render_full_character_sheet", "category": "panel_render"},
+    {"addr": "0x4ef5", "old": "FUN_0000_4ef5", "new": "ui_text_input_editor", "category": "name_edit"},
+    {"addr": "0x5062", "old": "FUN_0000_5062", "new": "ui_numeric_input_editor", "category": "name_edit"},
+    {"addr": "0x513e", "old": "FUN_0000_513e", "new": "wpcvw_give_to_party_member", "category": "inventory_action"},
+    {"addr": "0x55db", "old": "FUN_0000_55db", "new": "inventory_pick_up_item", "category": "inventory_action"},
+    {"addr": "0x5a1b", "old": "FUN_0000_5a1b", "new": "ui_put_styled_char_at_alt", "category": "ui_widget"},
+    {"addr": "0x5a44", "old": "FUN_0000_5a44", "new": "ui_draw_view_window_borders", "category": "panel_render"},
+    {"addr": "0x5b11", "old": "FUN_0000_5b11", "new": "wpcvw_is_character_active", "category": "data_util"},
+    {"addr": "0x5b4a", "old": "FUN_0000_5b4a", "new": "wpcvw_state_0x11_exit_cleanup", "category": "state_machine"},
+    {"addr": "0x5c95", "old": "FUN_0000_5c95", "new": "class_compute_availability_flags", "category": "class_change"},
+    {"addr": "0x5e04", "old": "FUN_0000_5e04", "new": "class_change_apply_class_handler", "category": "class_change"},
+    {"addr": "0x5f4d", "old": "FUN_0000_5f4d", "new": "class_change_apply_race_handler", "category": "class_change"},
+    {"addr": "0x6054", "old": "FUN_0000_6054", "new": "wpcvw_class_change_execute", "category": "class_change"},
+    {"addr": "0x6229", "old": "FUN_0000_6229", "new": "portrait_load_from_disk", "category": "portrait"},
+    {"addr": "0x6347", "old": "FUN_0000_6347", "new": "ui_render_identify_or_shop_row", "category": "ui_widget"},
+    {"addr": "0x63bc", "old": "FUN_0000_63bc", "new": "wpcvw_identify_shop_or_temple", "category": "inventory_action"},
+    {"addr": "0x6674", "old": "FUN_0000_6674", "new": "wpcvw_edit_name", "category": "name_edit"},
+    {"addr": "0x671f", "old": "FUN_0000_671f", "new": "wpcvw_edit_submenu", "category": "menu_dispatch"},
+    {"addr": "0x67f6", "old": "FUN_0000_67f6", "new": "wpcvw_view_main_loop", "category": "state_machine"},
+    {"addr": "0x6bd5", "old": "FUN_0000_6bd5", "new": "ui_put_styled_char_at_v2", "category": "ui_widget"},
+    {"addr": "0x6bfb", "old": "FUN_0000_6bfb", "new": "ui_print_msg_at_xy_v2", "category": "ui_widget"},
+    {"addr": "0x6c31", "old": "FUN_0000_6c31", "new": "ui_print_msg_with_byte_arg_v2", "category": "ui_widget"},
+    {"addr": "0x6c58", "old": "FUN_0000_6c58", "new": "ui_putchar_style4", "category": "ui_widget"},
+    {"addr": "0x6c81", "old": "FUN_0000_6c81", "new": "ui_render_inventory_panel", "category": "panel_render"},
+    {"addr": "0x7160", "old": "FUN_0000_7160", "new": "wpcvw_item_inspect_and_use", "category": "inventory_action"},
+    {"addr": "0x81c2", "old": "FUN_0000_81c2", "new": "ui_render_equip_swap_window", "category": "inventory_action"},
+    {"addr": "0x835e", "old": "FUN_0000_835e", "new": "ui_render_spell_school_indicators", "category": "spell_view"},
+    {"addr": "0x8690", "old": "FUN_0000_8690", "new": "skill_set_level_indexed", "category": "derived_stats"},
+    {"addr": "0x876e", "old": "FUN_0000_876e", "new": "skill_apply_class_table", "category": "derived_stats"},
+    {"addr": "0x884f", "old": "FUN_0000_884f", "new": "derived_stats_recompute_for_class", "category": "derived_stats"},
+    {"addr": "0x8dcd", "old": "FUN_0000_8dcd", "new": "derived_stats_recompute_for_race", "category": "derived_stats"},
+    {"addr": "0x8e35", "old": "FUN_0000_8e35", "new": "wpcvw_unequip_all_and_recompute", "category": "class_change"},
+    {"addr": "0x982f", "old": "FUN_0000_982f", "new": "item_compute_usability_bitmaps", "category": "inventory_action"},
+    {"addr": "0x993b", "old": "FUN_0000_993b", "new": "ui_render_yesno_box_borders", "category": "ui_widget"},
+    {"addr": "0x9966", "old": "FUN_0000_9966", "new": "ui_yesno_confirm_dialog", "category": "ui_widget"},
+    {"addr": "0x9dfb", "old": "FUN_0000_9dfb", "new": "ui_render_spell_school_picker", "category": "spell_view"},
+    {"addr": "0xa352", "old": "FUN_0000_a352", "new": "ui_show_modal_msg_window", "category": "ui_widget"},
+    {"addr": "0xa3be", "old": "FUN_0000_a3be", "new": "level_pick_new_spells_loop", "category": "level_up"},
+    {"addr": "0xa4c1", "old": "FUN_0000_a4c1", "new": "level_skill_increase_roll", "category": "level_up"},
+    {"addr": "0xa529", "old": "FUN_0000_a529", "new": "level_roll_spells_to_learn", "category": "level_up"},
+    {"addr": "0xa7bd", "old": "FUN_0000_a7bd", "new": "level_hp_sp_regen_tick", "category": "level_up"},
+    {"addr": "0xaa94", "old": "FUN_0000_aa94", "new": "level_recompute_ac_and_level_cap", "category": "derived_stats"},
+    {"addr": "0xac9d", "old": "FUN_0000_ac9d", "new": "level_class_specific_hook", "category": "level_up"},
+    {"addr": "0xb004", "old": "FUN_0000_b004", "new": "level_stat_increase_roller", "category": "level_up"},
+    {"addr": "0xb182", "old": "FUN_0000_b182", "new": "level_update_high_water_mark", "category": "level_up"},
+    {"addr": "0xb220", "old": "FUN_0000_b220", "new": "wpcvw_apply_levelup", "category": "level_up"},
+    {"addr": "0xb362", "old": "FUN_0000_b362", "new": "wpcvw_per_character_levelup_loop", "category": "level_up"},
+    {"addr": "0xb5b5", "old": "FUN_0000_b5b5", "new": "strtol", "category": "data_util"},
+    {"addr": "0xbb71", "old": "FUN_0000_bb71", "new": "abort_with_code", "category": "data_util"}
+  ],
+  "unresolved": [
+    "7 functions left FUN_xxxx because of limited multi-signal evidence: 0x2530 (47 bytes, callers=0 — orphaned-looking helper), 0x2588 (80 bytes, callers=0), 0x4d36 (callers=0, called by 0x67f6 case 10 — likely 'log message' or 'audit' window), 0x5826 (callers=0, small — may be unreachable / debug), 0x572a (252 bytes, callers=0 — possibly a sub-action of one of the 12 menu cases), 0x5bb7 (callers=0; possibly the alignment/karma display helpers), 0x5c43 (callers=0; companion to 0x5c95). Plus the per-class jump tables in 0x884f/0xa529/0xa7bd/0xaa94/0xac9d/0x9dfb/0xb182 — each has 14 class-specific stubs which weren't individually named (these stubs live inside wpcvw's data segment at cs-relative offsets, not as standalone functions Ghidra has analyzed).",
+    "The 14-entry CLASS-DISPATCH jump tables inside wpcvw at cs-relative offsets: -0x3173 (0x884f derived stats), -0x1b05 (0x9dfb spell list), -0x1333 (0xa529 spells-to-learn), -0x1246 (0xa7bd HP/SP regen), -0xf9e (0xaa94 AC step 1), -0xed6 (0xaa94 AC step 2), -0xc18 (0xac9d level-up hook), -0x8d4 (0xb182). Plus the 11-entry RACE-DISPATCH tables in 0x6054 (cs:-0x655a likely) and 0x5f4d. Resolving these would name the per-class growth formulas (e.g. Monk-AC, Mage-SP-regen, Fighter-HP-regen) and is a natural follow-up.",
+    "10 thunks resolve to wroot FUN_XXXX functions that have informal names from prior overlay passes but aren't promoted into wroot-naming-pass.json: 0xc1f7 (load_msg_into_buf), 0xc2db (ui_window_write_msg_by_id), 0xc41f (FUN_05c1 = ui_window_format_string?), 0xc47e (rng_next), 0xc497 (ui_window_redraw_focused — already in informal), 0xc546 (play_sound), 0xdd53 (ui_window_put_char_repeat), 0xdf85 (ui_window_write_chars), 0xe34b (getbit_test), 0xf34c (memset), 0xf3aa (strcpy), 0xfaab (strlen). Promoting these into wroot-naming-pass.json would lift wpcvw's thunk-named count from 22/51 to 34/51.",
+    "BSS offsets at +0x4500..+0x4503 are read by 0xb220 in a 'cure conditions' loop calling 0x3def. The exact semantics (condition slots? saved-spell-effect-counters?) aren't clear. 0x3def itself is a complex function with rng + setbit + crt_memmove — it might be the 'spell-effect cleanup' helper that runs once per level-up.",
+    "The 35-entry item-type dispatch table at cs:0xbc61 inside 0x7160 — these are per-item-type USE handlers but their offsets weren't unrolled. A follow-up should dump the table bytes and name each as `item_use_handler_<type>`.",
+    "wpcvw's role from wbase's main menu: state 0x11 is invoked from wbase's slot-1/2/3/4 (VIEW PARTY) handler via direct cross-overlay call, NOT through the state-machine transition. The wbase main-menu handler that triggers wpcvw isn't yet decoded — a follow-up wbase pass should name `wbase_state4_view_party_dispatch` and trace which wpcvw entry-point it invokes."
+  ],
+  "next_steps": [
+    "Dynamic-trace pass: boot Wiz6 to camp, navigate to VIEW PARTY → cycle through each menu option (CAST/USE/EQUIP/UNEQUIP/DROP/GIVE/POOL/EDIT), capture the actual UI flow and confirm the menu-slot → handler mapping. The 'EDIT' submenu (FUN_671f) and its EDIT NAME / EDIT PORTRAIT / CHANGE CLASS sub-actions are the most likely to be confused by the option ordering — verify by capturing the actual msg-string for each menu entry.",
+    "Promote informal thunk names into wroot-naming-pass.json (12 candidates listed in unresolved[]). Would auto-lift wpcvw's thunk-named ratio without re-analysis.",
+    "Run a parity check: load a known save state with mid-level characters, decode the BSS at 0x43e8..0x4a48 in TypeScript, and verify all field offsets (especially the +0x450a..0x4513 condition array — set up DOSBox-X poisoning the character with each spell-class one at a time and dumping the bytes).",
+    "Resolve the 14-entry class-dispatch tables to name the per-class HP/SP/AC/spell-learning stubs. A simple PyGhidra script can dump 28 bytes at each cs-relative offset (file_off = address - delta) and identify the inline stub function offsets — then name each as `class_<N>_<purpose>_handler`.",
+    "Begin overlay pass on wmnpc.ovr (NPC interaction) and wtrea.ovr (treasure/loot) — they share the same inventory/item vocabulary (FUN_c31e table loader, the +0x4428 inventory layout) and will benefit from this BSS map.",
+    "Validate the bonus-distribution discoveries empirically: in a TypeScript test, simulate 10^6 level-ups using the 0xb004 stat-roller logic and compare expected mean attribute growth against engine traces."
+  ],
+  "operational_notes": {
+    "ghidra_install": "/opt/homebrew/Cellar/ghidra/12.1/libexec",
+    "pyghidra_version": "3.1.0",
+    "project_path": "/Users/nathan/Projects/ndouglas/wiz6/tools/ghidra/wiz6.gpr (canonical path; worktree's tools/ghidra/ is a symlink — PyGhidra rejects .config paths)",
+    "program": "wpcvw.ovr",
+    "scripts_used": [
+      "/tmp/wpcvw_enum.py (enumerates all 97 functions, decompiles each, dumps outgoing CALL edges)",
+      "/tmp/wpcvw_analyze.py (call-graph + thunk-resolution against wroot-naming-pass.json + prior overlay informal names)",
+      "/tmp/wpcvw_show.py (interactive inspector for showing specific function decompiles)",
+      "tools/ghidra/scripts/apply_wpcvw_names.py (the deliverable replay script)"
+    ],
+    "key_quirk": "wpcvw.ovr loaded with BinaryLoader. File offset == Ghidra address. The 14-byte overlay header (matching wbase/wmele, longer than winit's 12 but shorter than wpcmk's 16) is followed by a dispatch entry at file 0x0e that handles BOTH states 0x11 and 0x16 via cmp/jnz/call sequences. Unlike wpcmk (which has a no-op state-transition stub at 0x10 and only runs as a callable library), wpcvw IS a real state-machine handler. Ghidra missed creating a function at 0x0e — must be created manually as part of the rename pass.",
+    "address_translation": "wpcvw.ovr Ghidra addr == file offset (BinaryLoader; no 0x200 / 0x10000 adjustment). Cross-overlay thunk: subtract 0xBA9C from bss_offset to get wroot file offset.",
+    "naming_convention": "Functions are named `<scope>_<action>_<context>` style: top-level state handlers prefixed `wpcvw_`, UI primitives prefixed `ui_`, level-up helpers prefixed `level_`, derived stats prefixed `derived_stats_`, class-change prefixed `class_change_` or `class_`. Inventory operations use `inventory_` prefix."
+  }
+}

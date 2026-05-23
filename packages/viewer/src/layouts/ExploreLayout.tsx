@@ -1,11 +1,14 @@
 import { Outlet } from 'react-router-dom';
-import { TopNav } from '../components/TopNav.js';
+import { SidebarNav } from '../components/SidebarNav.js';
+import styles from './ExploreLayout.module.css';
 
 export function ExploreLayout() {
   return (
-    <>
-      <TopNav />
-      <Outlet />
-    </>
+    <div className={styles.shell}>
+      <SidebarNav />
+      <main className={styles.content}>
+        <Outlet />
+      </main>
+    </div>
   );
 }

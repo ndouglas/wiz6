@@ -1,0 +1,135 @@
+/* Fixed-position toggle button — always in the same screen location so it's
+ * predictable whether the sidebar is open or closed. */
+.toggle {
+  position: fixed;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 100;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface, #1a1a1a);
+  color: var(--color-text, #ddd);
+  border: 1px solid var(--color-border, #333);
+  border-radius: var(--radius-1, 4px);
+  font-family: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.toggle:hover {
+  background: var(--color-surface-2, #2a2a2a);
+  color: var(--color-accent, #88f);
+  border-color: var(--color-accent, #88f);
+}
+
+.sidebar {
+  background: var(--color-surface, #1a1a1a);
+  border-right: 1px solid var(--color-border, #333);
+  /* Slide out via transform when closed, so siblings can use 0-width via grid */
+  transition: width 0.18s ease, opacity 0.12s ease;
+  overflow: hidden;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+}
+
+.sidebarOpen {
+  width: 240px;
+}
+
+.sidebarClosed {
+  width: 0;
+  border-right: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.inner {
+  width: 240px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  /* Leave room at top for the floating toggle button */
+  padding: calc(2rem + var(--space-3)) var(--space-3) var(--space-3);
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.title {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--color-text, #eee);
+  text-decoration: none;
+  margin-bottom: var(--space-4);
+  display: block;
+}
+
+.title:hover {
+  color: var(--color-accent, #88f);
+  text-decoration: none;
+}
+
+.nav {
+  flex: 1;
+}
+
+.groupLabel {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-faint, #666);
+  margin: var(--space-3) 0 var(--space-1);
+}
+
+.groupLabel:first-child {
+  margin-top: 0;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.link {
+  display: block;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-muted, #aaa);
+  font-size: 0.92rem;
+  text-decoration: none;
+  border-radius: var(--radius-1, 4px);
+}
+
+.link:hover {
+  color: var(--color-text, #eee);
+  background: var(--color-surface-2, rgba(255, 255, 255, 0.04));
+  text-decoration: none;
+}
+
+.linkActive {
+  color: var(--color-text, #eee);
+  background: var(--color-surface-2, rgba(255, 255, 255, 0.08));
+  font-weight: 600;
+}
+
+.backLink {
+  display: block;
+  padding: var(--space-2);
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--color-border, #2a2a2a);
+  color: var(--color-text-faint, #777);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: var(--color-text-muted, #ccc);
+  text-decoration: none;
+}

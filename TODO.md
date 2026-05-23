@@ -19,11 +19,6 @@ Next free ID: **#017**
 
 ## Open
 
-- #003 [open] — Naming passes for combat/character/NPC/treasure overlays
-  - Still on `FUN_XXXX` auto-names: `wmele.ovr`, `wpcmk.ovr`, `wpcvw.ovr`, `wmnpc.ovr`, `wtrea.ovr`.
-  - Schedule when simulation work on those subsystems starts.
-  - Pattern reference: `docs/re/findings/wmaze-naming-pass.json`, `docs/re/findings/wbase-main-menu.json`.
-
 - #004 [open] — PIC Stage B: pixel rendering + monster sprite integration
   - In-flight plan: `docs/superpowers/plans/2026-05-22-pic-stage-b-pixel-rendering.md` (6/57 boxes checked).
   - Decoder spec is complete; need descriptor parsing rewrite, EGA cell rendering, viewer wiring.
@@ -63,34 +58,11 @@ Next free ID: **#017**
   - Driving question: what's the friction users hit today when validating the port? Answer shapes the design.
   - Refs: `tools/parity/` (existing differential tooling), `tools/dosbox/wiz6.conf`.
 
-- #012 [open] — Docs left-hand menu: render backticks as `<code>`
-  - Raw: "Docs left-hand menu in the Data Explorer should render backticks as <code> tags."
-  - In `DocsPage`'s sidebar (the file tree), filenames like `docs/re/snd-format.md` show their `code-styled-segments` as literal backticks rather than rendering them as monospace. Strip backticks + wrap in `<code>` when rendering each tree entry's label.
-  - Refs: `packages/viewer/src/pages/DocsPage.tsx`, `packages/viewer/src/pages/DocsPage.module.css`.
-
-- #013 [open] — Replace top-bar nav with collapsible sidebar
-  - Raw: "Header menu in the Data Explorer is getting pretty crowded."
-  - Current TopNav holds 10 data items + 4 tools items + divider + title + back-link. Wraps to multiple rows on narrower viewports.
-  - Direction (per user): **sidebar instead of top bar.** Collapsible left-side rail; frees horizontal space; common pattern for tooling-heavy apps. Larger refactor than overflow-menu approach.
-  - Considerations: persistence of open/closed state (localStorage?), responsive collapse on small viewports, breadcrumb-or-title slot at top of content area to replace the title bar role, keyboard-accessible toggle.
-  - Refs: `packages/viewer/src/components/TopNav.tsx`, `packages/viewer/src/layouts/ExploreLayout.tsx`.
-
-- #014 [open] — Per-card permalinks on `/explore/notes`
-  - Raw: "Permalinks for the notes (as you suggested)".
-  - Each Engineering Notes card already has an `id` anchor (e.g. `/explore/notes#bonus-point-lottery`), but no affordance to copy that URL. Add a "🔗" copy-to-clipboard button on each card header that copies the deep-link.
-  - Optional polish: brief "Copied!" toast after click.
-  - Refs: `packages/viewer/src/pages/EngineeringNotes.tsx`.
-
-- #015 [open] — Tag-count badges on filter chips (`/explore/notes`)
-  - Raw: "Tag-count badges on the filter chips in notes would be nice".
-  - Each tag chip in the filter bar shows just the tag name. Add a small count badge per chip showing how many cards carry that tag (e.g. `design-choice (4)`). Helps gauge tag distribution at a glance.
-  - Refs: `packages/viewer/src/pages/EngineeringNotes.tsx`, `EngineeringNotes.module.css`.
-
-- #016 [open] — Inline TOC at top of `/explore/notes`
-  - Raw: "Inline TOC at the top of the notes page would be cool".
-  - Once the page crosses ~10 cards, scrolling to find a specific one gets cumbersome. Add a collapsible TOC at the top of the page listing each card title, anchor-linked. Honor the active tag filter (TOC reflects what's currently visible).
-  - Cross-references #014 (each TOC entry could double as a permalink source).
-  - Refs: `packages/viewer/src/pages/EngineeringNotes.tsx`.
+- #011 [open] — Surface RE work in the data explorer (layers A + C remaining)
+  - **Layer B shipped** in this session: the `/explore/notes` Engineering Notes page with 16 curated cards covering cursed mechanics, bugs, arbitrary design choices, and their player-experience consequences. Filter chips, tag counts, TOC, per-card permalinks.
+  - **Layer A — Auto-generated function-table pages.** Still pending. For each `docs/re/findings/<overlay>-naming-pass.json`, render a searchable table of named functions with click-to-expand evidence and disassembly snippet. Effectively API docs for the Wiz6 engine.
+  - **Layer C — Inline "Director's commentary" tooltips.** Still pending. Contextual RE badges in the gameplay UI (e.g. bonus-roller commentary on a future character-creation screen, .pic permutation commentary on sprite pages). Highest effort, highest payoff for fans.
+  - Recommended order now: A next (base reference layer), then C once layer A has settled the patterns we want to commentary-link from.
 
 ---
 

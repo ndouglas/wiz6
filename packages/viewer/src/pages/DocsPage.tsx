@@ -13,6 +13,23 @@ interface DocManifest {
   entries: DocEntry[];
 }
 
+/**
+ * Split a title on backticks and wrap the odd segments in <code>. Without
+ * this, the sidebar shows literal backtick characters around filenames like
+ * `titlepag.ega` because the title comes from the markdown H1, which often
+ * uses inline-code formatting on filename mentions.
+ *
+ * Unbalanced backticks (rare; our doc titles control this) produce a trailing
+ * <code> with whatever remains, which is harmless visually.
+ */
+function renderTitleWithBackticks(title: string): React.ReactNode {
+  const parts = title.split('`');
+  if (parts.length === 1) return title;
+  return parts.map((part, i) =>
+    i % 2 === 0 ? part : <code key={i} className={styles.entryCode}>{part}</code>,
+  );
+}
+
 export function DocsPage() {
   const { '*': rawPath } = useParams<{ '*': string }>();
   const docPath = rawPath ?? '';
@@ -103,7 +120,7 @@ export function DocsPage() {
                           to={`/explore/docs/${e.path}`}
                           className={active ? `${styles.entry} ${styles.entryActive}` : styles.entry}
                         >
-                          {e.title}
+                          {renderTitleWithBackticks(e.title)}
                         </Link>
                       </li>
                     );
