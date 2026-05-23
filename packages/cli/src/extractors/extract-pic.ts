@@ -5,7 +5,7 @@ import {
   renderPicDescriptor,
   concatenatePicSegments,
 } from '@wiz6/parser';
-import type { Pic } from '@wiz6/data';
+import { WIZ6_DUNGEON, type Pic } from '@wiz6/data';
 import { encodePngRgba, encodeContactSheetPng } from '../lib/png.js';
 
 export interface ExtractPicOpts {
@@ -29,7 +29,7 @@ export function extractPic(opts: ExtractPicOpts): Pic {
     const buffer = concatenatePicSegments(pic.segments);
     const pngDir = join(dirname(opts.outputPath), opts.id);
     mkdirSync(pngDir, { recursive: true });
-    const sprites = pic.descriptors.map((d) => renderPicDescriptor(d, buffer));
+    const sprites = pic.descriptors.map((d) => renderPicDescriptor(d, buffer, WIZ6_DUNGEON));
     for (let i = 0; i < sprites.length; i++) {
       const sprite = sprites[i]!;
       const padded = String(i).padStart(2, '0');
