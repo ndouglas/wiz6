@@ -35,13 +35,13 @@ describe('extractPic', () => {
     expect(written.segments[0].header).toBeUndefined();
   });
 
-  it("emits palette: 'wiz6-dungeon' in the extracted JSON", () => {
+  it("emits palette: 'wiz6-main' in the extracted JSON", () => {
     const src = join(tmpDir, 'mon00.pic');
     const out = join(tmpDir, 'mon00.json');
     writeFileSync(src, Buffer.from([0x06, 0x58, 0x02, 0x03, 0x05, 0xff, 0x7f, 0xee, 0x00, 0x00]));
     const pic = extractPic({ originalPath: src, outputPath: out, id: 'mon00', emitPngs: false });
-    expect(pic.palette).toBe('wiz6-dungeon');
+    expect(pic.palette).toBe('wiz6-main');
     const written = JSON.parse(readFileSync(out, 'utf8'));
-    expect(written.palette).toBe('wiz6-dungeon');
+    expect(written.palette).toBe('wiz6-main');
   });
 });
