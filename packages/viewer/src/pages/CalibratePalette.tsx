@@ -6,6 +6,29 @@ import { PicCanvas } from '../components/PicCanvas.js';
 import { usePic } from '../lib/hooks/usePic.js';
 import styles from './CalibratePalette.module.css';
 
+// Empirically-extracted "title" palette — removed from @wiz6/data catalog in
+// Phase 1 (it's not a real engine palette, just EGA_DEFAULT under a permuted
+// .ega bit-pattern). Kept here as a calibration preset since the values are
+// historically useful for comparison.
+const WIZ6_TITLE_PRESET: Array<[number, number, number]> = [
+  [0, 0, 0],
+  [255, 255, 255],
+  [85, 85, 255],
+  [170, 0, 170],
+  [255, 85, 85],
+  [255, 255, 85],
+  [85, 255, 85],
+  [85, 255, 255],
+  [85, 85, 85],
+  [170, 170, 170],
+  [0, 0, 170],
+  [255, 85, 255],
+  [170, 0, 0],
+  [170, 85, 0],
+  [0, 170, 0],
+  [0, 170, 170],
+];
+
 const PIC_OPTIONS = [
   'mon00', 'mon01', 'mon02', 'mon03', 'mon04', 'mon05', 'mon06', 'mon07',
   'mon08', 'mon09', 'mon10', 'mon11', 'mon12', 'mon13', 'mon14', 'mon15',
@@ -209,22 +232,27 @@ export function CalibratePalette() {
     return renderPicDescriptor(d, decodedBuffer, palette);
   }, [data, decodedBuffer, descIdx, palette]);
 
-  const usedIndices = useMemo(() => {
-    if (!data || !rendered) return new Set<number>();
+  // Build an index map (one palette-index per pixel; -1 = transparent/skipped)
+  // and the set of used indices in one pass.
+  const { indexMap, usedIndices, mapW, mapH } = useMemo(() => {
+    if (!data) return { indexMap: null, usedIndices: new Set<number>(), mapW: 0, mapH: 0 };
     const d = data.descriptors[Math.min(descIdx, data.descriptors.length - 1)];
-    if (!d) return new Set<number>();
+    if (!d) return { indexMap: null, usedIndices: new Set<number>(), mapW: 0, mapH: 0 };
+    const pxW = d.width * 8;
+    const pxH = d.height * 8;
+    const map = new Int8Array(pxW * pxH).fill(-1);
     const used = new Set<number>();
-    const cellW = d.width;
-    const cellH = d.height;
     let atlasOffset = d.pos;
-    for (let cy = 0; cy < cellH; cy++) {
-      for (let cx = 0; cx < cellW; cx++) {
-        const bitIdx = cy * cellW + cx;
+    for (let cy = 0; cy < d.height; cy++) {
+      for (let cx = 0; cx < d.width; cx++) {
+        const bitIdx = cy * d.width + cx;
         const byteIdx = bitIdx >> 3;
         const bitInByte = bitIdx & 7;
         const populated =
           byteIdx < d.mask.length && ((d.mask[byteIdx] ?? 0) & (1 << bitInByte)) !== 0;
-        if (!populated) continue;
+        if (!populated) {
+          continue;
+        }
         if (atlasOffset + 32 > decodedBuffer.length) {
           atlasOffset += 32;
           continue;
@@ -241,14 +269,17 @@ export function CalibratePalette() {
               (((pG >> bit) & 1) << 1) |
               (((pR >> bit) & 1) << 2) |
               (((pI >> bit) & 1) << 3);
+            const px = cx * 8 + col;
+            const py = cy * 8 + row;
+            map[py * pxW + px] = c;
             used.add(c);
           }
         }
         atlasOffset += 32;
       }
     }
-    return used;
-  }, [data, decodedBuffer, descIdx, rendered]);
+    return { indexMap: map, usedIndices: used, mapW: pxW, mapH: pxH };
+  }, [data, decodedBuffer, descIdx]);
 
   function setColor(i: number, rgb: [number, number, number]) {
     setColors((prev) => {
@@ -261,6 +292,17 @@ export function CalibratePalette() {
   function loadPreset(name: string) {
     const preset = PALETTE_CATALOG[name];
     if (preset) setColors(clonePaletteColors(preset));
+  }
+
+  function loadTitlePreset() {
+    setColors(WIZ6_TITLE_PRESET.map((c) => [c[0], c[1], c[2]] as [number, number, number]));
+  }
+
+  function pickIndexFromSprite(x: number, y: number) {
+    if (!indexMap) return;
+    const i = indexMap[y * mapW + x];
+    if (i == null || i < 0) return;
+    setActiveIndex(i);
   }
 
   function exportPalette(): string {
@@ -277,9 +319,12 @@ export function CalibratePalette() {
     <main className={styles.wrapper}>
       <h1>Palette Calibration</h1>
       <p className={styles.intro}>
-        Pick a sprite, drop a DOSBox screenshot of the same sprite, click on a pixel
-        to assign its RGB to the currently-active palette index. Adjust until our render
-        matches the original.
+        Click any pixel of <em>our render</em> on the left to select that pixel's
+        palette index as the active target. Then drop / paste a DOSBox screenshot
+        of the same sprite into the middle pane and click the matching pixel in
+        the reference image — that pixel's RGB becomes the new value for the
+        active index. Repeat until our render matches the original; copy the
+        exported palette from the right pane.
       </p>
 
       <div className={styles.controls}>
@@ -317,6 +362,14 @@ export function CalibratePalette() {
               {name}
             </button>
           ))}
+          <button
+            type="button"
+            className={styles.presetBtn}
+            onClick={loadTitlePreset}
+            title="empirically-extracted title palette; not in @wiz6/data catalog (not a real engine palette per Phase 1 RE)"
+          >
+            wiz6-title (legacy)
+          </button>
         </div>
       </div>
 
@@ -344,6 +397,7 @@ export function CalibratePalette() {
                 height={rendered.height}
                 rgba={rendered.rgba}
                 scale={spriteScale}
+                onPixelClick={pickIndexFromSprite}
               />
             )}
             {!rendered && !loading && !error && <p>no sprite data</p>}

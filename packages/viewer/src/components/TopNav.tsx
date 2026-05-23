@@ -1,7 +1,9 @@
 import { NavLink, Link } from 'react-router-dom';
 import styles from './TopNav.module.css';
 
-const SECTIONS: { label: string; to: string }[] = [
+type NavItem = { label: string; to: string };
+
+const DATA_SECTIONS: NavItem[] = [
   { label: 'Monsters', to: '/explore/monsters' },
   { label: 'Items', to: '/explore/items' },
   { label: 'Quest', to: '/explore/quest' },
@@ -12,9 +14,28 @@ const SECTIONS: { label: string; to: string }[] = [
   { label: 'Newgame', to: '/explore/newgame' },
   { label: 'Pics', to: '/explore/pics' },
   { label: 'Sounds', to: '/explore/sounds' },
+];
+
+const TOOL_SECTIONS: NavItem[] = [
+  { label: 'Calibrate', to: '/explore/calibrate' },
   { label: 'Docs', to: '/explore/docs' },
   { label: 'Files', to: '/explore/files' },
 ];
+
+function NavItemLi({ label, to }: NavItem) {
+  return (
+    <li>
+      <NavLink
+        to={to}
+        className={({ isActive }) =>
+          isActive ? `${styles.link} ${styles.linkActive}` : styles.link
+        }
+      >
+        {label}
+      </NavLink>
+    </li>
+  );
+}
 
 export function TopNav() {
   return (
@@ -23,17 +44,12 @@ export function TopNav() {
         Wiz6 Data Explorer
       </Link>
       <ul className={styles.links} style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-        {SECTIONS.map(({ label, to }) => (
-          <li key={to}>
-            <NavLink
-              to={to}
-              className={({ isActive }) =>
-                isActive ? `${styles.link} ${styles.linkActive}` : styles.link
-              }
-            >
-              {label}
-            </NavLink>
-          </li>
+        {DATA_SECTIONS.map((s) => (
+          <NavItemLi key={s.to} {...s} />
+        ))}
+        <li className={styles.divider} aria-hidden="true" />
+        {TOOL_SECTIONS.map((s) => (
+          <NavItemLi key={s.to} {...s} />
         ))}
       </ul>
       <Link to="/" className={styles.gameLink}>

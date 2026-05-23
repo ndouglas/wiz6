@@ -9,6 +9,11 @@ interface PicCanvasProps {
   className?: string;
   /** Optional checker-board background for transparency. Default true. */
   showTransparencyBg?: boolean;
+  /**
+   * If provided, the canvas reports click coordinates in unscaled (image-native)
+   * pixel space — (0,0) at top-left, integer x/y. Out-of-bounds clicks are clamped.
+   */
+  onPixelClick?: (x: number, y: number) => void;
 }
 
 export function PicCanvas({
@@ -18,6 +23,7 @@ export function PicCanvas({
   scale = 1,
   className,
   showTransparencyBg = true,
+  onPixelClick,
 }: PicCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -58,12 +64,27 @@ export function PicCanvas({
     ctx.drawImage(off, 0, 0, scaledW, scaledH);
   }, [width, height, rgba, scale, showTransparencyBg]);
 
+  function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (!onPixelClick) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.floor(((e.clientX - rect.left) / rect.width) * width);
+    const y = Math.floor(((e.clientY - rect.top) / rect.height) * height);
+    onPixelClick(
+      Math.max(0, Math.min(width - 1, x)),
+      Math.max(0, Math.min(height - 1, y)),
+    );
+  }
+
   return (
     <canvas
       ref={canvasRef}
       width={width * scale}
       height={height * scale}
       className={`${styles.canvas} ${className ?? ''}`}
+      onClick={onPixelClick ? handleClick : undefined}
+      style={onPixelClick ? { cursor: 'crosshair' } : undefined}
     />
   );
 }
