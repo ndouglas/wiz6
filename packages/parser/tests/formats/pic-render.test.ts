@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { renderPicDescriptor, EGA_PALETTE, WIZ6_PALETTE } from '../../src/formats/pic-render.js';
+import { renderPicDescriptor } from '../../src/formats/pic-render.js';
+import { WIZ6_MAIN, EGA_DEFAULT } from '@wiz6/data';
 import type { PicDescriptor } from '@wiz6/data';
 
 function descriptor(opts: { pos: number; width: number; height: number; mask: number[] }): PicDescriptor {
@@ -16,31 +17,31 @@ describe('renderPicDescriptor', () => {
   it('renders a 1×1-cell sprite with one populated cell of color 0 (black)', () => {
     const buffer = Array(32).fill(0);
     const d = descriptor({ pos: 0, width: 1, height: 1, mask: [0x01] });
-    const out = renderPicDescriptor(d, buffer);
+    const out = renderPicDescriptor(d, buffer, WIZ6_MAIN);
     expect(out.width).toBe(8);
     expect(out.height).toBe(8);
     expect(out.rgba.length).toBe(256);
-    // WIZ6_PALETTE[0] is also black.
+    // WIZ6_MAIN.colors[0] is also black.
     expect(Array.from(out.rgba.subarray(0, 4))).toEqual([0, 0, 0, 255]);
   });
 
-  it('renders logical color 1 (blue plane bytes 0-7 set) via WIZ6_PALETTE[1]', () => {
+  it('renders logical color 1 (blue plane bytes 0-7 set) via WIZ6_MAIN.colors[1]', () => {
     const buffer = Array(32).fill(0);
     buffer[0] = 0xff;
     const d = descriptor({ pos: 0, width: 1, height: 1, mask: [0x01] });
-    const out = renderPicDescriptor(d, buffer);
-    const [r, g, b] = WIZ6_PALETTE[1]!;
+    const out = renderPicDescriptor(d, buffer, WIZ6_MAIN);
+    const [r, g, b] = WIZ6_MAIN.colors[1]!;
     expect(Array.from(out.rgba.subarray(0, 4))).toEqual([r, g, b, 0xff]);
   });
 
-  it('renders logical color 5 (B+R) via WIZ6_PALETTE[5]', () => {
+  it('renders logical color 5 (B+R) via WIZ6_MAIN.colors[5]', () => {
     // Bytes 0-7 = B plane, bytes 16-23 = R plane. With B+R bits set => logical 5.
     const buffer = Array(32).fill(0);
     buffer[0] = 0xff;
     buffer[16] = 0xff;
     const d = descriptor({ pos: 0, width: 1, height: 1, mask: [0x01] });
-    const out = renderPicDescriptor(d, buffer);
-    const [r, g, b] = WIZ6_PALETTE[5]!;
+    const out = renderPicDescriptor(d, buffer, WIZ6_MAIN);
+    const [r, g, b] = WIZ6_MAIN.colors[5]!;
     expect(Array.from(out.rgba.subarray(0, 4))).toEqual([r, g, b, 0xff]);
   });
 
@@ -54,7 +55,7 @@ describe('renderPicDescriptor', () => {
     buffer[16] = 0xff;
     buffer[24] = 0xff;
     const d = descriptor({ pos: 0, width: 1, height: 1, mask: [0x01] });
-    const out = renderPicDescriptor(d, buffer);
+    const out = renderPicDescriptor(d, buffer, WIZ6_MAIN);
     expect(Array.from(out.rgba.subarray(0, 4))).toEqual([0, 0, 0, 0]);
   });
 
@@ -63,37 +64,37 @@ describe('renderPicDescriptor', () => {
     const buffer = Array(32).fill(0);
     buffer[0] = 0xff;  // populated cell will paint blue here
     const d = descriptor({ pos: 0, width: 2, height: 1, mask: [0b10] });
-    const out = renderPicDescriptor(d, buffer);
+    const out = renderPicDescriptor(d, buffer, WIZ6_MAIN);
     expect(out.width).toBe(16);
     expect(out.height).toBe(8);
     // Pixel (0,0) — left half — transparent (cell skipped)
     expect(Array.from(out.rgba.subarray(0, 4))).toEqual([0, 0, 0, 0]);
-    // Pixel (0,8) — right half — painted with logical color 1 via WIZ6_PALETTE[1]
-    const [r, g, b] = WIZ6_PALETTE[1]!;
+    // Pixel (0,8) — right half — painted with logical color 1 via WIZ6_MAIN.colors[1]
+    const [r, g, b] = WIZ6_MAIN.colors[1]!;
     expect(Array.from(out.rgba.subarray(8 * 4, 8 * 4 + 4))).toEqual([r, g, b, 0xff]);
   });
 });
 
-describe('EGA_PALETTE', () => {
+describe('EGA_DEFAULT', () => {
   it('has 16 entries', () => {
-    expect(EGA_PALETTE).toHaveLength(16);
+    expect(EGA_DEFAULT.colors).toHaveLength(16);
   });
 
   it('entry 0 is black', () => {
-    expect(EGA_PALETTE[0]).toEqual([0, 0, 0]);
+    expect(EGA_DEFAULT.colors[0]).toEqual([0, 0, 0]);
   });
 
   it('entry 15 is white', () => {
-    expect(EGA_PALETTE[15]).toEqual([0xff, 0xff, 0xff]);
+    expect(EGA_DEFAULT.colors[15]).toEqual([0xff, 0xff, 0xff]);
   });
 });
 
-describe('WIZ6_PALETTE', () => {
+describe('WIZ6_MAIN', () => {
   it('has 16 entries', () => {
-    expect(WIZ6_PALETTE).toHaveLength(16);
+    expect(WIZ6_MAIN.colors).toHaveLength(16);
   });
 
   it('logical 0 is black (physical 0)', () => {
-    expect(WIZ6_PALETTE[0]).toEqual([0, 0, 0]);
+    expect(WIZ6_MAIN.colors[0]).toEqual([0, 0, 0]);
   });
 });
