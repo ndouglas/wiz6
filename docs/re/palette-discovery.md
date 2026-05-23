@@ -93,3 +93,17 @@ Indices 9–15 are identical between the two palettes; only 1–8 differ. Wizard
 ## Cross-validation (Stage 1d task 2, optional)
 
 If a DOSBox screenshot is taken, the 16 unique non-transparent colors visible in a main-game screen should match Palette 1 RGB values. A screen of the dungeon should match Palette 2. (Validation step is documented as optional in the design spec; the binary evidence alone is considered sufficient.)
+
+## Comprehensive scan (2026-05-23)
+
+The 2026-05-23 pass for the per-scene palette work (`docs/superpowers/specs/2026-05-23-per-scene-palette-design.md`) re-scanned every binary for any palette-touching site. Findings in [`findings/palette-loads.json`](findings/palette-loads.json); summary:
+
+**Result: exactly two EGA-palette-write sites total across every binary.** Both are the `INT 10h AX=1002h` calls already documented above (wroot.exe `0x209B` → palette 1, wroot.exe `0x2105` → palette 2). Specifically:
+
+- **Zero** `INT 10h AX=1000h` (set one palette register) sites.
+- **Zero** `INT 10h AX=1001h` (set overscan/border) sites.
+- **Zero** `INT 10h AX=1003h` (blink/intensity toggle) sites.
+- **Zero** direct EGA Attribute Controller port writes (no `MOV DX, 0x3C0`, no `MOV DX, 0x3DA`, no short-form `OUT 0xC0, AL`) in any binary.
+- Seven other `INT 10h` sites in `wroot.exe` were decoded; all are video-mode-set (modes 0Dh, 4h, 9h), cursor positioning (AH=02h), video-mode query (AH=0Fh), or CGA palette select (AH=0Bh; CGA-only function, does not touch EGA palette registers).
+
+**Implication.** The engine has exactly two EGA palettes; there is no per-scene palette switching beyond switching between Palette 1 and Palette 2 at scene transitions, and no runtime register tweaking. The empirically-extracted `wiz6-title` palette in `packages/viewer/src/palettes/wiz6-title.ts` is therefore not a third engine palette — its 16 RGB tuples are exactly the standard EGA-default colors, just assigned to permuted file-bit-pattern indices in the `.ega` decoder's lookup. Title-sequence screens render against the BIOS-default EGA palette (the engine has not yet loaded its first palette table when those screens are drawn). The decoder-side bit permutation should be made explicit in the `.ega` decode path and the calibration palette retired.
