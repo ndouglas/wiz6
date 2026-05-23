@@ -1,0 +1,1338 @@
+{
+  "topic": "wpops-naming-pass",
+  "subagent_run": "2026-05-23",
+  "binaries": [
+    "wpops.ovr"
+  ],
+  "summary": "Named 56 of 56 FUN_XXXX functions in wpops.ovr (plus 1 missed dispatcher at 0x000e that Ghidra failed to auto-detect, total of 57 names applied). **POPS = PRE-OPERATIONS / POPUP-PICKER: wpops.ovr is the COMBAT ROUND ACTION-SELECTION ENGINE** — it owns state 0x0c, the missing middle of the combat round chain (wmele 0x0b 'round start' → **wpops 0x0c 'pick actions'** → wmexe 0x0d 'execute' → wmele 0x0e 'cleanup'). The state-0c handler at 0x4586 runs in three phases: (1) **PARTY ACTION-PICKING** via `wpops_party_action_pick_loop` (0x3185, 2197 bytes) — iterates each party member, computes their initiative, presents the action menu via the generic `wpops_grid_menu_picker` (0xcfc), gates options on class / mana / inventory / status, and recurses into spell-school picker (0x1ee6), item picker (0x2c5a), target-group picker (0x1069), or target-character picker (0x14cf) depending on action chosen. (2) **MONSTER AI ACTION-PICKING** via `wpops_monster_ai_driver` (0x44e1) — calls `wpops_monster_ai_pick_for_group` (0x3f1c, 1477 bytes) for each of the 6 monster groups, which rolls initiative, randomizes target, gates spell-usage on +0xa8 threshold, picks attack via weighted random from monster_type+0x8a..+0x8e. (3) **STATE TRANSITION**: writes `*0x363a = 0xd` to hand off to wmexe. Unlike wmexe, wpops uses the CANONICAL dispatch pattern — 14-byte header at 0..0xd, dispatch entry at 0x0e (`cmp word [0x363a], 0x0c; jnz +3; call 0x4586; mov ax, 0; ret`). Ghidra did NOT auto-detect 0x0e — the apply script creates it. **wpops carries a SIXTH embedded 3D wall renderer** (0x5c65, 2192 bytes) — same shape as the copies in wmaze/wmnpc/wtrea/wmele/wmexe, exists so the dungeon scene stays painted behind the action-picker UI. **Flagship discoveries**: (1) the action menu is **11 entries** (`local_2a[0..10]`) and an action_id >= 0xb means 'ESC pressed / back-out' — handled via separate stack-of-picked-characters at apuStack_cc, so a player can press ESC to go BACK ONE character and re-pick, or 'R' to reset the entire party. (2) the **spell-school picker** uses a 7-slot grid (6 schools + central 'cancel') and AT THE SPELL LEVEL gates display by mana: `if (mana < spell.+0xe0) write_chars(...)` (gray text) vs `print_number(...)` (colored). Critically, this is a VISUAL-ONLY gate — the engine STILL LETS YOU PICK an under-funded spell; the failure surfaces later in wmexe. Visible-but-uncastable spells exist by design. (3) the **action-pick init formula** rolls `rng(10) + char.+0x29 + char.dex(+0x4593)` clamped to >=1, then divides by char.+0x4592 to get the per-sub-action stride. The same `*0x4592` (dex) value gates how MANY sub-actions a character gets per round: `1 + dex/10`, clamped to 1..4. **So a dex-100 fighter gets 4 attacks per round; a dex-9 wizard gets 1.** (4) the **monster AI bias**: monsters have a `+0x80..+0x82` 'prejudice byte' that biases their target selection in `wpops_target_pick_random_with_prejudice` (0x3ed7) — 50% chance to skip a group if it's tagged in prejudice, then move to the next of 3 group slots. This is how Wiz6 implements 'monsters that fight each other' — by tagging the opposing group in the source group's prejudice byte. (5) the **9-retry rank-file allocator** in `wpops_pick_target_member_in_group` (0x1857) has the same crash-on-overflow as wmexe's animation queue: 10th retry triggers `do { play_sound(0); } while (true);` — deliberate hang. So if more than 9 monsters get targeted into the same row before the row clears, the game crashes. (6) the **action-pick UI uses a CHARACTER-STACK navigator** at `apuStack_cc[]` (max 6 entries = max party size). When picking action for char N, the player can press 'BACK' (key=1) to pop the stack and re-pick char N-1's action, or 'RESET' (key=2) to wipe everything and start at char 0. This is how Wiz6 implements 'change my mind' — unlike many CRPGs which queue actions immutably, Wiz6 lets you fully back out and re-decide. **(7) WPOPS CARRIES ITS OWN 3D RENDERER** (`wpops_render_3d_scene` at 0x5c65) so the dungeon scene stays painted behind the action-picker UI windows — same shape as wmaze/wmnpc/wtrea/wmele/wmexe. **THIS IS THE SIXTH OVERLAY WITH A COPY OF THE 3D RENDERER**; the duplicated-renderer card should be updated to 'six overlays.'",
+  "method": "PyGhidra + DecompInterface for all 56 functions in wpops.ovr (BinaryLoader, file_offset == Ghidra address). For each function: (a) decompiled C, (b) intra-overlay near-CALL targets via Ghidra's instruction iterator, (c) cross-overlay thunk calls via Ghidra's CALL ref-target where target address >= file_size (thunks live in wroot BSS space, accessed via E8 rel16 with target outside wpops's own file). 39 distinct thunks resolved via the thunk-delta law (bss_offset - 0xBA9C = wroot file offset); 35 of them resolved to NAMED wroot functions or informally-named functions from prior passes. Only 4 thunks remained unnamed (`FUN_0a42`, `FUN_2858`, `FUN_3694`, `FUN_36a0`) — all of which appear elsewhere in the wmexe/wmele/wmnpc findings. Names applied when multi-signal evidence converged: BSS field offsets shared with wmexe combat-slot state (combat-slot at 0x43a8[group] + slot*0x2c, with +0x18..+0x1c action codes, +0x1e action_id, +0x1f/+0x20 target_group/target_slot, +0x21 action_idx, +0x22 status, +0x25 init, +0x29..+0x2c rank-file etc), thunk-call vocabularies (rng_next 8 callsites; ui_window_set_cursor 16; ui_window_focus/unfocus 22 combined; the typical UI-heavy signature of an action-picker overlay), distinctive structural patterns (the 11-entry action menu local_2a[], the 6-school spell picker, the 4-sub-action queue init, the 7-group monster AI loop). Confirmed wpops handles state 0x0c by raw byte grep showing `83 3e 3a 36 0c` at 0x0e with `call rel16` immediately following targeting 0x4586. Confirmed wpops transitions OUT to state 0x0d (wmexe) via raw byte grep finding the SOLE write `c7 06 3a 36 0d 00` at file offset 0x46fe (within FUN_4586's body). Header is 14 bytes (bytes 0..0xd); dispatch entry at 0x0e is NOT in Ghidra's function list — the apply script creates it.",
+  "stats": {
+    "total_functions": 56,
+    "renamed": 56,
+    "renamed_plus_created": 57,
+    "remaining_FUN_XXXX": 0,
+    "categories": {
+      "action_picker": 9,
+      "ui_picker": 6,
+      "render_3d": 14,
+      "ui_panel": 9,
+      "monster_ai": 4,
+      "animation": 4,
+      "data_util": 6,
+      "state_handler": 1,
+      "dispatch_entry": 1,
+      "ui_helper": 3
+    }
+  },
+  "state_machine": {
+    "states_handled": [
+      {
+        "value": "0x0c",
+        "decimal": 12,
+        "purpose": "Combat ACTION SELECTION (the round's player-picks-actions + monster-AI-picks-actions phase). Entered from wmele.ovr (state 0x0b, per-round draw + monster intent) and transitions OUT to wmexe.ovr (state 0x0d, action execution). The state-0c handler at 0x4586 runs the party action-picker loop, then the monster AI driver to queue monster actions, then transitions to wmexe.",
+        "handler": "wpops_state_0c_action_selection (0x4586)"
+      }
+    ],
+    "dispatch_entry": "0x000e (CANONICAL pattern — unlike wmexe but like wbase/wmele/wtrea/wpcvw/wmaze/wmnpc). Bytes: `83 3e 3a 36 0c 75 03 e8 6e 45 b8 00 00 c3` = cmp word [0x363a], 0x0c; jnz +3; call rel16 (target=0x4586); mov ax, 0; ret. Only handles state 0x0c (no other state value handled). Ghidra did NOT auto-detect this 14-byte function — the apply script creates it.",
+    "header_size_bytes": 14,
+    "header_bytes_hex": "f2 00 72 45 31 65 ee 4f 22 00 54 02 65 aa",
+    "header_note": "Standard 14-byte overlay header, same shape as wmele/wbase/wtrea/wpcvw/wmaze/wmnpc. The first 2 bytes (0xf2 0x00) and bytes 4..5 (`31 65`) appear to be the overlay-link header fields used by wroot's overlay loader. Dispatch entry is at 0x0e (immediately after the header), unlike wmexe which has its dispatcher buried at 0x2ccc.",
+    "transitions_out": [
+      "state 0x0d: written by `wpops_state_0c_action_selection` (0x4586) at file offset 0x46fe (the `c7 06 3a 36 0d 00` write to *0x363a). Routes to wmexe.ovr for action execution. This is the ONLY state transition out of wpops — wpops has no other transitions, no fallback, no escape."
+    ],
+    "transitions_in": [
+      "state 0x0b (wmele.ovr): wmele's per-round-init handler writes 0x0c to *0x363a after drawing the scene and computing monster intent. Then wroot's overlay-loader picks up wpops to handle 0x0c."
+    ]
+  },
+  "key_discoveries": [
+    "**ACTION MENU IS 11 ENTRIES; ACTION_ID >= 11 MEANS 'BACK OUT' WITH STACK-BASED CHARACTER REWIND at `wpops_party_action_pick_loop` (0x3185)** — The action menu is built into the `local_2a[0..10]` int-array (11 slots), with each slot set to 0 or 1 based on availability gating (class, mana, inventory, status). Sentinel value -1 (0xffff) terminates the array. When the player picks via `wpops_grid_menu_picker` (0xcfc), it returns the slot index (0..10). If the picker returns `local_a >= 0xb`, that's the 'ESC pressed' / 'back-out' case — handled separately. The function uses `apuStack_cc[local_c0]` (max 6 entries = max party size) to record which characters have been picked-for so far. On 'BACK' (returned key code 1), pop the stack: `local_8 = apuStack_cc[--local_c0]`, jump back to char N-1 to re-pick. On 'RESET' (key code 2), wipe `local_c0 = 0` and start at char 0. **Player-experience implication**: Wiz6's action-picker is uniquely FORGIVING for a 1990 CRPG — unlike many of its peers that queue actions immutably once chosen, Wiz6 lets you back out an entire round's worth of decisions and re-decide. The 'RESET' option is especially generous — it nukes the entire party's action queue. **Hidden detail**: there's also a `*0x504c` BSS array of action-target marks that records 'this combatant has already been targeted by an earlier party member this turn' — used by the rank-file allocator (0x1857) for fair-distribution. On RESET this is zeroed; on BACK it's selectively cleared based on which char is popped.",
+    "**SPELL-PICKER LETS YOU SEE-BUT-NOT-CAST UNDER-FUNDED SPELLS at `wpops_spell_school_picker` (0x1ee6)** — The spell-school picker (entered via action_id mapping to spell-cast) shows all 6 schools in a 7-slot grid (6 schools + central cancel). For each school, it counts known spells via `wpops_count_known_spells_in_school` (0x1dcb) which walks the 82-entry spell table at +0xde looking for `spell.school == school_byte` AND `bitmap_test(char.known_spells, spell_id)`. The visible list shows ALL known spells in that school, BUT for each: `if (*(param_2*0x1b0 + uVar7*4 + 0x4410) < uVar2) { write_chars(local_4, 0x4ffe, *(spell_name)); }` (gray-out) `else { print_number(local_4, uVar2, 3, *(spell_name)); }` (colored). The check is mana-against-cost where `uVar2 = (uint)*(byte*)(spell_id*6 + 0xe0)` — the per-power-level cost byte. **CRITICALLY: the gray-out is VISUAL-ONLY — the engine still lets you select the spell, but wmexe will fail to resolve it later.** This is a designed-in feature: you can see what you COULD have cast if you had more mana, so you remember to memorize it next time. The 0x4ffe is the gray-text color id; 3 is the colored-text id. **Engineering implication**: in a TS port, you can't enforce 'mana >= cost' at the picker level — you have to mirror the original's behavior of letting them pick and then surfacing the failure mid-round.",
+    "**INITIATIVE/SUB-ACTION COUNT FROM DEX at `wpops_party_action_pick_loop` (0x3185)** — Per-character initialization (lines 1–7 of FUN_3185): `local_b0 = rng(10) + char.+0x4593 + slot.+0x29; if (local_b0 < 1) local_b0 = 1;` — the rolled initiative is `1..10 + dex + speed-modifier`, clamped to >=1 (so high init = early action in wmexe's 100-down-to-0 tick). Then `local_b2 = local_b0 / char.+0x4592` (the per-sub-action stride). The **number of sub-actions for the character** is computed at line 8: `local_b4 = char.+0x4592 + slot.+0x29 / 10; if (local_b4 < 1) local_b4 = 1; if (4 < local_b4) local_b4 = 4;` — i.e., `floor(dex + speed_mod/10)`, clamped 1..4. **So a dex-100 character gets 4 sub-actions per round; a dex-9 wizard gets 1; a dex-39 fighter gets 4 (because 39 > 4).** This is the source of high-dex characters' 'multi-attack' feel — dex is the throttle on how many slots in the +0x18..+0x1b queue get populated. The init for sub-action N is `local_b0 - N * local_b2`, so a 4-attack character at base init 40 gets actions at ticks 40, 30, 20, 10 — spread through the round. **Player-experience implication**: dex bonuses are MASSIVELY impactful in Wiz6 because they multiply attacks-per-round, not just attack-speed. A dex-40 fighter vs dex-10 fighter doesn't just attack faster — they attack 4x as many times per round. Bishops should pump dex; Lords with mediocre dex (9..29) get cheated out of attacks.",
+    "**MONSTER AI 'PREJUDICE' BIAS at `wpops_target_pick_random_with_prejudice` (0x3ed7)** — When wpops_monster_ai_pick_for_group (0x3f1c) is selecting WHICH GROUP a monster should target, it calls FUN_3ed7 which iterates a 3-slot prejudice table at `monster_type+0x80..+0x82`. For each iteration: `if (*(grp+0x80+slot) != 0) { roll = rng(2); if (roll != 1) return slot; }` — i.e., 50% chance to skip a slot if it's tagged non-zero. The slot index wraps mod 3 indefinitely (no termination guarantee — if all three slots are 0, the loop spins forever; if all three are tagged non-zero, the function may take many iterations to find one that doesn't get skipped). **This is how Wiz6 implements 'monster factions' / 'enemy of my enemy'**: a monster's prejudice byte can be set to bias them toward attacking the SECOND or THIRD monster group instead of the party (group 0). For example, a Drow Mage's prejudice byte might be set to favor attacking Orc groups over the party. **Engineering archeology**: this is a SIMPLE mechanic with profound consequences — a `+0x80..+0x82` bitfield enables emergent monster-vs-monster fights without complex faction code. Drow vs Trolls, Bishop vs Undead, etc. The mechanic isn't perfectly random — 50% per slot means 'preferred' targets get hit about 67% of the time, not 50%, because the loop reruns biased slots until one is accepted.",
+    "**RANK-FILE 9-RETRY CRASH at `wpops_pick_target_member_in_group` (0x1857)** — When monster AI (or player attack) needs to pick WHICH MONSTER within a target group gets hit, this function tries up to 10 attempts to find an un-targeted member. The function uses two passes: first attempts to find a rank-file slot with valid +0x2a (rank-file != -1); if all members have -1 (defunct), uses the +0x5043 visited bitmap to find an un-marked slot. **If 9 retries fail (`local_c > 9`): `do { func_0x0000c546(0); } while (true);`** — the same infinite play_sound(0) hang we see in wmexe's animation queue overflow. This is a HARD LIMIT: if more than 9 attacks target the same row before the visited bitmap clears, the game freezes silently. **In practice this is unlikely to trigger** — 9 attempts on a 1..9 slot group is enough redundancy — but it's another deliberate-hang failsafe that needs replacing with a graceful skip in the TS port.",
+    "**WPOPS CARRIES A SIXTH EMBEDDED 3D RENDERER at `wpops_render_3d_scene` (0x5c65, 2192 bytes)** — wpops ships its OWN 3D dungeon viewport renderer, identical in shape to wmaze/wmnpc/wtrea/wmele/wmexe. **Six overlays** (wmaze, wmele, wmnpc, wtrea, wmexe, AND wpops) each carry a copy of this code — six places to update if the 3D math changes. The wpops variant exists so the dungeon scene stays painted behind the action-picker UI when the player opens spell/item/target menus. The renderer is driven by FUN_0bb8 (animation tick) at stage `*0x4358 == -2`. It reads from the same `*0x4fa0..0x4fa6` camera state, the same `*0x4faa + 0x43a` wall-bitmap base, the same `*0x363c` scene_sub_state, and uses the same `getbit_test` / `getbit_chunk` thunks (0xe34b / 0xe3c1) — confirming it's a direct copy. **The duplicated-renderer card in the engineering-archeology notes should be updated to 'SIX overlays' (from five).**",
+    "**ACTION-AVAILABILITY GATING IS A 6-DIMENSIONAL DECISION TREE at `wpops_party_action_pick_loop` (0x3185)** — For each character, the 11-entry action menu is filtered through layers of gating: (1) **STATUS**: charm (+0x450d), sleep (+0x450c), status (+0x4589 >= 2 = dead/unconscious) — if ANY active, the character SKIPS picking entirely and gets +0x18 = 1 (default attack). (2) **CHARM/BERSERK auto-action**: `if (slot+0x1e == 1 || 5) slot+0x18 = 1` — a charmed or berserked character auto-attacks without player input. (3) **CLASS gates SPELL** (action 1): `if (class not in {3=Mage, 4=Priest, 6=Bishop, 12=Lord, 13=Ninja, ...} AND priest_bonus(+0x452c) == 0) local_1e = 0` — only spellcasting classes get the SPELL action. (4) **INVENTORY gates ITEM** (action 4): `if (char.+0x4594 == 0) local_2a[4] = 0` — no items, no ITEM action. (5) **WEAPON gates DUAL-WIELD** (action 0): the picker checks the equipped weapon's type-byte at +0x442d and disables dual-wield-eligible actions if the secondary slot is non-compatible (e.g., +0x442d == 0xb AND secondary != 0x16). (6) **PARTY-POSITION gates FRONT-RANK actions** (slot+0x1e == 'F'): `if (slot_idx > 2 AND char.+0x44e5 == 0 AND slot+0x2b != 1) local_2a[0] = 0` — back-rank characters without missile weapons can't attack action 0. **Player-experience implication**: Wiz6's action menu is SUBTLY POSITIONAL — the same character may see a different set of options based on their rank, equipment, and recent class actions. This is the source of the 'why can't my fighter attack?' rage — they're in the back rank without a ranged weapon. The 6-layer gating tree is the entire design space of 'can this character do this right now'."
+  ],
+  "thunk_usage": [
+    {
+      "thunk": "0xbda7",
+      "wroot_offset": "0x0000030b",
+      "name": "ui_window_set_cursor",
+      "callsites": 16,
+      "sample_callers": [
+        "0x001c",
+        "0x0051",
+        "0x00bf",
+        "0x022b"
+      ],
+      "note": "Heavy cursor positioning — every menu / panel paint sets the cursor before writing."
+    },
+    {
+      "thunk": "0xebb4",
+      "wroot_offset": "0x00003118",
+      "name": "ui_window_focus",
+      "callsites": 11
+    },
+    {
+      "thunk": "0xec6d",
+      "wroot_offset": "0x000031d1",
+      "name": "ui_window_unfocus",
+      "callsites": 11
+    },
+    {
+      "thunk": "0xdf85",
+      "wroot_offset": "0x000024e9",
+      "name": "ui_window_write_chars",
+      "callsites": 9,
+      "note": "Inverse-text variant used for highlighted selections."
+    },
+    {
+      "thunk": "0xdfb9",
+      "wroot_offset": "0x0000251d",
+      "name": "ui_window_puts",
+      "callsites": 8,
+      "note": "Plain-text variant used for un-highlighted menu entries."
+    },
+    {
+      "thunk": "0xed5a",
+      "wroot_offset": "0x000032be",
+      "name": "ui_window_clear",
+      "callsites": 8
+    },
+    {
+      "thunk": "0xc47e",
+      "wroot_offset": "0x000009e2",
+      "name": "rng_next",
+      "callsites": 8,
+      "note": "Used for initiative rolls, monster AI target-pick, prejudice slot-skip."
+    },
+    {
+      "thunk": "0xdd53",
+      "wroot_offset": "0x000022b7",
+      "name": "ui_window_put_char_repeat",
+      "callsites": 7
+    },
+    {
+      "thunk": "0xe5b5",
+      "wroot_offset": "0x00002b19",
+      "name": "ui_window_blit",
+      "callsites": 7
+    },
+    {
+      "thunk": "0xc2db",
+      "wroot_offset": "0x0000083f",
+      "name": "ui_window_write_msg_by_id",
+      "callsites": 6
+    },
+    {
+      "thunk": "0xc1f7",
+      "wroot_offset": "0x0000075b",
+      "name": "load_msg_into_buf",
+      "callsites": 6
+    },
+    {
+      "thunk": "0xe34b",
+      "wroot_offset": "0x000028af",
+      "name": "getbit_test",
+      "callsites": 6,
+      "note": "Wall-bitmap testing for the embedded 3D scene renderer."
+    },
+    {
+      "thunk": "0xfaab",
+      "wroot_offset": "0x0000400f",
+      "name": "strlen",
+      "callsites": 5
+    },
+    {
+      "thunk": "0xc6b2",
+      "wroot_offset": "0x00000c16",
+      "name": "mouse_status_set_field",
+      "callsites": 5,
+      "note": "Mouse-clickable region registration — each menu entry sets a clickable box."
+    },
+    {
+      "thunk": "0xe3c1",
+      "wroot_offset": "0x00002925",
+      "name": "getbit_chunk",
+      "callsites": 5,
+      "note": "Wall-bitmap chunk reads for the embedded 3D renderer."
+    },
+    {
+      "thunk": "0xf148",
+      "wroot_offset": "0x000036ac",
+      "name": "sprite_render_at_screen_pos",
+      "callsites": 5,
+      "note": "Sprite painter used by the 3D scene renderer for monsters / decorations."
+    },
+    {
+      "thunk": "0xe4ff",
+      "wroot_offset": "0x00002a63",
+      "name": "ui_screen_refresh",
+      "callsites": 4
+    },
+    {
+      "thunk": "0xbbb6",
+      "wroot_offset": "0x0000011a",
+      "name": "ui_window_create",
+      "callsites": 4
+    },
+    {
+      "thunk": "0xbd6e",
+      "wroot_offset": "0x000002d2",
+      "name": "ui_window_destroy",
+      "callsites": 4
+    },
+    {
+      "thunk": "0xf3aa",
+      "wroot_offset": "0x0000390e",
+      "name": "strcpy",
+      "callsites": 3
+    },
+    {
+      "thunk": "0xde7f",
+      "wroot_offset": "0x000023e3",
+      "name": "ui_window_putchar",
+      "callsites": 3
+    },
+    {
+      "thunk": "0xc041",
+      "wroot_offset": "0x000005a5",
+      "name": "ui_window_print_number",
+      "callsites": 3,
+      "note": "Used for spell mana cost display (colored when castable)."
+    },
+    {
+      "thunk": "0xc497",
+      "wroot_offset": "0x000009fb",
+      "name": "ui_window_redraw_focused",
+      "callsites": 2
+    },
+    {
+      "thunk": "0xc4de",
+      "wroot_offset": "0x00000a42",
+      "name": "FUN_0a42",
+      "callsites": 2,
+      "note": "Unnamed wroot helper — likely a window-divider line drawer (used by state-0c handler to paint dividers between panel regions)."
+    },
+    {
+      "thunk": "0xbd8c",
+      "wroot_offset": "0x000002f0",
+      "name": "ui_window_swap_focus",
+      "callsites": 2
+    },
+    {
+      "thunk": "0xbddb",
+      "wroot_offset": "0x0000033f",
+      "name": "ui_window_box_draw",
+      "callsites": 2
+    },
+    {
+      "thunk": "0xc546",
+      "wroot_offset": "0x00000aaa",
+      "name": "play_sound",
+      "callsites": 2,
+      "note": "Crash-hang sound (play_sound(0)) in animation queue + rank-file overflow."
+    },
+    {
+      "thunk": "0xf10c",
+      "wroot_offset": "0x00003670",
+      "name": "sprite_blit_short",
+      "callsites": 2,
+      "note": "Sprite blit for the 3D scene."
+    },
+    {
+      "thunk": "0xf13c",
+      "wroot_offset": "0x000036a0",
+      "name": "FUN_36a0",
+      "callsites": 2,
+      "note": "Unnamed sprite-blit sibling — also appears in wmexe's findings."
+    },
+    {
+      "thunk": "0xc05d",
+      "wroot_offset": "0x000005c1",
+      "name": "string_substitute_char",
+      "callsites": 2
+    },
+    {
+      "thunk": "0xf34c",
+      "wroot_offset": "0x000038b0",
+      "name": "memset",
+      "callsites": 2
+    },
+    {
+      "thunk": "0xe2f4",
+      "wroot_offset": "0x00002858",
+      "name": "FUN_2858",
+      "callsites": 1,
+      "note": "Unnamed wroot helper — also appears in wmexe's findings; input-prep sibling of kbd_flush_buffer."
+    },
+    {
+      "thunk": "0xc674",
+      "wroot_offset": "0x00000bd8",
+      "name": "mouse_get_pos",
+      "callsites": 1
+    },
+    {
+      "thunk": "0xe0df",
+      "wroot_offset": "0x00002643",
+      "name": "kbd_check_with_filter",
+      "callsites": 1
+    },
+    {
+      "thunk": "0xe1c0",
+      "wroot_offset": "0x00002724",
+      "name": "kbd_getkey_with_filter",
+      "callsites": 1
+    },
+    {
+      "thunk": "0xe2a8",
+      "wroot_offset": "0x0000280c",
+      "name": "kbd_flush_buffer",
+      "callsites": 1
+    },
+    {
+      "thunk": "0xedec",
+      "wroot_offset": "0x00003350",
+      "name": "memchr_or_index",
+      "callsites": 1
+    },
+    {
+      "thunk": "0xc31e",
+      "wroot_offset": "0x00000882",
+      "name": "data_table_load",
+      "callsites": 1,
+      "note": "Used by the item picker to load full item-record details for display."
+    },
+    {
+      "thunk": "0xf130",
+      "wroot_offset": "0x00003694",
+      "name": "FUN_3694",
+      "callsites": 1,
+      "note": "Unnamed sprite-render sibling — also appears in wmexe's findings."
+    }
+  ],
+  "thunk_usage_summary": {
+    "total_distinct_thunks": 39,
+    "resolved_to_named_wroot_fn": 31,
+    "resolved_to_informally_named": 4,
+    "resolved_to_unnamed_FUN_xxxx": 4,
+    "total_call_sites_approx": 167,
+    "note": "Of 39 distinct thunks in wpops, 35 resolve to fully-named wroot functions (including the 4 informally-named via prior-pass findings: FUN_0a42, FUN_2858, FUN_3694, FUN_36a0). The wpops thunk distribution is dominated by UI / window thunks (16 distinct, summing >= 100 callsites) — wpops is a heavily UI-driven overlay (menu rendering, panel painting, picker navigation). The 8 rng_next callsites are concentrated in monster-AI pickers (0x3f1c, 0x3ed7, 0x3e47) and the per-character init rolls in 0x3185. Compared to wmexe's 95 rng callsites, wpops has 10x less RNG — confirming wpops is a SELECTION layer (deterministic UI flow + few decision rolls) while wmexe is the RESOLUTION layer (lots of random damage / save / proc rolls)."
+  },
+  "bss_layout": {
+    "topic": "wpops BSS layout — shares combat-slot state with wmele/wmexe, adds picker-specific scratch BSS",
+    "note": "wpops uses the same combat-slot array structure as wmele/wmexe (group ptr at 0x43a8 + group_idx*2, then slot+0x2c stride within the group; monster type record ptr at 0x43b6 + group_idx*2; character records at 0x43e8 stride 0x1b0). wpops-unique state is in the 0x500c..0x504c region (action-target marks, name buffer) and uses 0x4ff0..0x5018 for UI window handles.",
+    "fields": [
+      {
+        "addr": "0x363a",
+        "size": 2,
+        "name": "game_state_word",
+        "note": "Read by 0x000e dispatcher (state 0x0c only). Written by 0x4586 (state 0x0d to transition to wmexe)."
+      },
+      {
+        "addr": "0x363c",
+        "size": 2,
+        "name": "scene_sub_state",
+        "note": "Used by 3D renderer at 0x5c65 to pick wall-render variant (0/4/5/0xc)."
+      },
+      {
+        "addr": "0x3342",
+        "size": 2,
+        "name": "ui_main_window_handle",
+        "note": "Primary action-picker window handle."
+      },
+      {
+        "addr": "0x3596",
+        "size": 2,
+        "name": "mouse_clicked_flag"
+      },
+      {
+        "addr": "0x3598",
+        "size": 2,
+        "name": "kbd_filter_param",
+        "note": "Filter passed to kbd_check_with_filter / kbd_getkey_with_filter."
+      },
+      {
+        "addr": "0x3646",
+        "size": 2,
+        "name": "anim_frame_mod2",
+        "note": "Per-frame counter cycling 0..1 — drives sprite L/R parity. Same as wmexe."
+      },
+      {
+        "addr": "0x4348",
+        "size": "1 * 10",
+        "name": "rank_file_flag_table_a"
+      },
+      {
+        "addr": "0x433e",
+        "size": "1 * 10",
+        "name": "rank_file_flag_table_b"
+      },
+      {
+        "addr": "0x4358",
+        "size": 2,
+        "name": "anim_tick_stage",
+        "note": "Animation-tick stage counter: -3/-2/-1/0..11. Cycles via 0x0bb8. Same as wmexe."
+      },
+      {
+        "addr": "0x4360",
+        "size": 2,
+        "name": "active_monster_group_count",
+        "note": "1..6 number of active monster groups in this encounter."
+      },
+      {
+        "addr": "0x4362",
+        "size": "2 * 10",
+        "name": "rank_file_to_group_mapping"
+      },
+      {
+        "addr": "0x4376",
+        "size": 2,
+        "name": "kbd_filter_action_pick",
+        "note": "Filter passed to kbd_getkey during action-picker (allows arrow keys + ESC + ENTER + 1..N)."
+      },
+      {
+        "addr": "0x438a",
+        "size": 2,
+        "name": "monster_group_panel_window_a",
+        "note": "Group-panel UI window used during round-start update."
+      },
+      {
+        "addr": "0x438c",
+        "size": 2,
+        "name": "monster_group_panel_window_b"
+      },
+      {
+        "addr": "0x438e",
+        "size": 2,
+        "name": "anim_queue_count",
+        "note": "Number of active entries in the animation queue (cap 12). Same as wmexe."
+      },
+      {
+        "addr": "0x4390",
+        "size": "12 * N",
+        "name": "anim_queue_entries",
+        "note": "12-entry animation queue (12-byte stride). Same as wmexe."
+      },
+      {
+        "addr": "0x43a8",
+        "size": "2 * 7",
+        "name": "monster_group_record_ptrs",
+        "note": "7 pointers to group-records — group 0 = party (special), groups 1..6 = monster groups."
+      },
+      {
+        "addr": "0x43b4",
+        "size": 2,
+        "name": "party_overflow_group_ptr"
+      },
+      {
+        "addr": "0x43b6",
+        "size": "2 * 7",
+        "name": "monster_type_record_ptrs",
+        "note": "7 pointers to monster-TYPE records. Same as wmexe."
+      },
+      {
+        "addr": "0x43ce",
+        "size": 2,
+        "name": "party_size"
+      },
+      {
+        "addr": "0x43e8",
+        "size": "0x1b0 * N",
+        "name": "char_records",
+        "note": "Character records (stride 0x1b0). Same as wmexe / wpcvw / wtrea / wmnpc."
+      },
+      {
+        "addr": "0x44e5",
+        "size": 1,
+        "name": "char.has_ranged_weapon_byte",
+        "note": "If 0, back-rank characters can't pick action 0 (melee attack)."
+      },
+      {
+        "addr": "0x44f8",
+        "size": 1,
+        "name": "char.equipped_weapon_slot",
+        "note": "Index into inventory. -1 = none. Same as wmexe."
+      },
+      {
+        "addr": "0x44f9",
+        "size": 1,
+        "name": "char.equipped_secondary_slot"
+      },
+      {
+        "addr": "0x4410",
+        "size": "4 * 6",
+        "name": "char.mana_by_school",
+        "note": "Per-school mana pool. Same as wmexe / wtrea."
+      },
+      {
+        "addr": "0x4428",
+        "size": "8 * 22",
+        "name": "char.inventory_records"
+      },
+      {
+        "addr": "0x4585",
+        "size": 1,
+        "name": "char.alignment_byte",
+        "note": "Checked by spell-picker (0x1ee6) — alignment 7 disables certain schools."
+      },
+      {
+        "addr": "0x4587",
+        "size": 1,
+        "name": "char.class_byte",
+        "note": "Gates SPELL menu action: classes 3 (Mage), 4 (Priest), 6 (Bishop), 12 (Lord), 13 (Ninja) get spell access; others need +0x452c != 0 (priest_bonus)."
+      },
+      {
+        "addr": "0x4589",
+        "size": 1,
+        "name": "char.status_byte",
+        "note": "If >= 2 (dead/unconscious), character SKIPS picking."
+      },
+      {
+        "addr": "0x4592",
+        "size": 1,
+        "name": "char.dex_byte",
+        "note": "Drives both sub-action count (1..4) and per-sub-action init stride."
+      },
+      {
+        "addr": "0x4593",
+        "size": 1,
+        "name": "char.speed_bonus_byte",
+        "note": "Added to init roll."
+      },
+      {
+        "addr": "0x4594",
+        "size": 1,
+        "name": "char.inventory_main_count",
+        "note": "Gates ITEM menu action: == 0 disables."
+      },
+      {
+        "addr": "0x44e6",
+        "size": 1,
+        "name": "char.weapon_hit_bonus"
+      },
+      {
+        "addr": "0x450c",
+        "size": 1,
+        "name": "char.sleep_byte",
+        "note": "If non-zero, character SKIPS picking."
+      },
+      {
+        "addr": "0x450d",
+        "size": 1,
+        "name": "char.charm_byte",
+        "note": "If non-zero, character SKIPS picking."
+      },
+      {
+        "addr": "0x452c",
+        "size": 1,
+        "name": "char.priest_bonus_byte",
+        "note": "Alt-gate for SPELL menu action (non-zero allows spell-cast even for non-caster class)."
+      },
+      {
+        "addr": "0x4570",
+        "size": "11 bytes",
+        "name": "char.known_spells_bitmap",
+        "note": "82-bit bitmap. Same as wmexe / wtrea."
+      },
+      {
+        "addr": "0x4ec8",
+        "size": "4 * 6",
+        "name": "scene_decoration_counts",
+        "note": "Per-direction decoration counter (used by 5ba3)."
+      },
+      {
+        "addr": "0x4fa0",
+        "size": "various",
+        "name": "scene_state",
+        "note": "Camera/cell state for the 3D renderer. Same as wmexe."
+      },
+      {
+        "addr": "0x4faa",
+        "size": 2,
+        "name": "wall_bitmap_ptr",
+        "note": "Same wall-bitmap pointer as wmaze/wmnpc/wtrea/wmexe."
+      },
+      {
+        "addr": "0x4f9a",
+        "size": 2,
+        "name": "party_facing",
+        "note": "0..3 = N/E/S/W. Same as other overlays."
+      },
+      {
+        "addr": "0x4fae",
+        "size": 2,
+        "name": "ui_overflow_group_window",
+        "note": "Optional window for party-overflow group (created only if *0x43b4 + 0x19d != 0)."
+      },
+      {
+        "addr": "0x4fb2",
+        "size": 2,
+        "name": "ui_secondary_window"
+      },
+      {
+        "addr": "0x4fbc",
+        "size": 2,
+        "name": "ui_scene_window"
+      },
+      {
+        "addr": "0x4fc4",
+        "size": 2,
+        "name": "mouse_picker_flag",
+        "note": "Set by FUN_0c75 to 1 when mouse-picker generated the input (vs keyboard)."
+      },
+      {
+        "addr": "0x4ffe",
+        "size": 1,
+        "name": "gray_text_color_id",
+        "note": "Color id used for under-funded spell display in the picker."
+      },
+      {
+        "addr": "0x5010",
+        "size": 2,
+        "name": "ui_cursor_x"
+      },
+      {
+        "addr": "0x5012",
+        "size": 2,
+        "name": "ui_cursor_y"
+      },
+      {
+        "addr": "0x5014",
+        "size": 2,
+        "name": "ui_active_window"
+      },
+      {
+        "addr": "0x5016",
+        "size": 2,
+        "name": "ui_prompt_blink_phase",
+        "note": "Bistable state for prompt cursor blinking. Toggled by FUN_0b3e."
+      },
+      {
+        "addr": "0x5018",
+        "size": "2 * N",
+        "name": "ui_prompt_width_table"
+      },
+      {
+        "addr": "0x501a",
+        "size": 2,
+        "name": "ui_school_color_idx"
+      },
+      {
+        "addr": "0x501c",
+        "size": "0x18 * 2",
+        "name": "ui_prompt_text_buffers"
+      },
+      {
+        "addr": "0x5043",
+        "size": "1 * 63",
+        "name": "rank_file_visited_bitmap",
+        "note": "7 groups × 9 slots = 63 bytes. Tracks which combatants have been targeted this round. Used by 0x1857 to avoid double-targeting; crash-hang on >9 retries."
+      },
+      {
+        "addr": "0x504c",
+        "size": "0x2d",
+        "name": "action_target_marks",
+        "note": "0x45-byte (=63 bytes again) bitmap marking which combatants are already targeted by an earlier party member's queued action this round. Cleared on RESET; selectively cleared on BACK."
+      },
+      {
+        "addr": "0x507c",
+        "size": "various",
+        "name": "scene_flag_table_a",
+        "note": "Used by 3D renderer."
+      },
+      {
+        "addr": "0x5088",
+        "size": "2 * 18",
+        "name": "scene_cell_map"
+      },
+      {
+        "addr": "0x50a0",
+        "size": "0xc",
+        "name": "scene_wall_bitmap_temp",
+        "note": "Per-frame scratch for wall-cell tests."
+      },
+      {
+        "addr": "0x50ac",
+        "size": "1 * 8",
+        "name": "scene_wall_flag_n"
+      },
+      {
+        "addr": "0x50b4",
+        "size": "1 * 8",
+        "name": "scene_wall_flag_s"
+      },
+      {
+        "addr": "0x50bc",
+        "size": "1 * 8",
+        "name": "scene_wall_flag_e"
+      },
+      {
+        "addr": "0x50c4",
+        "size": "1 * 8",
+        "name": "scene_wall_flag_w"
+      },
+      {
+        "addr": "0x50dc",
+        "size": "1 * 8",
+        "name": "scene_decoration_flag"
+      },
+      {
+        "addr": "0x50e4",
+        "size": "1 * 12",
+        "name": "scene_visible_cells"
+      },
+      {
+        "addr": "0x5108",
+        "size": 2,
+        "name": "scene_iter_state"
+      },
+      {
+        "addr": "0x510a",
+        "size": "various",
+        "name": "scene_visible_mask"
+      },
+      {
+        "addr": "0x5254",
+        "size": 2,
+        "name": "scene_render_parity_a",
+        "note": "(camera_x + camera_y + facing) % 2 — controls L/R sprite parity for the row at the camera position."
+      },
+      {
+        "addr": "0x5256",
+        "size": 2,
+        "name": "scene_render_parity_b"
+      },
+      {
+        "addr": "0x5258",
+        "size": 2,
+        "name": "scene_render_depth",
+        "note": "Number of forward cells to render (default 4)."
+      },
+      {
+        "addr": "0x525a",
+        "size": 2,
+        "name": "scene_wall_render_variant"
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "fn-dispatch-entry-and-state-handler",
+      "claim": "wpops.ovr has the CANONICAL state-machine entry-point layout (unlike wmexe). 14-byte header at file 0..0xd, dispatch entry at 0x0e (`cmp word [0x363a], 0x0c; jnz +3; call rel16 0x4586; mov ax, 0; ret`), handler at 0x4586 (386 bytes). Ghidra DID NOT auto-detect 0x0e as a function (the apply script creates it). Only ONE state (0x0c) is handled. Transitions OUT to state 0x0d only.",
+      "category": "dispatch_entry",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "addresses": [
+          "0x000e",
+          "0x4586"
+        ],
+        "type": "instruction_pattern_match",
+        "details": "Bytes at 0x000e: `83 3e 3a 36 0c 75 03 e8 6e 45 b8 00 00 c3` = cmp word [0x363a], 0x0c; jnz rel8 +3; call rel16 0x456e (target=0x4586); mov ax, 0; ret. Only file location matching `83 3e 3a 36 XX` is at 0x0e (verified by exhaustive grep). Only file location writing to *0x363a is at file offset 0x46fe inside FUN_4586's body: `c7 06 3a 36 0d 00` = `mov word ptr [0x363a], 0x000d`. Confirmed wpops handles state 0x0c only, transitions OUT to state 0x0d (wmexe) only."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-state-0c-handler",
+      "claim": "`wpops_state_0c_action_selection` (0x4586) is the state-0x0c handler. Three phases: (1) unfocus 3 windows + call `FUN_00bf` (round-start group panel update); (2) optionally create overflow-group window + call `FUN_022b` (overflow-group panel) if `*0x43b4 + 0x19d != 0`; (3) call `FUN_3185` (party action-picker loop); (4) if overflow window existed, run animation tick (`*0x4358 = -2; do FUN_0bb8 while *0x4358 != -3`) to redraw the scene; (5) call `FUN_44e1` (monster AI driver) to queue monster actions; (6) write `*0x363a = 0x0d` to transition to wmexe.",
+      "category": "state_handler",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "address": "0x4586",
+        "details": "Full decompiled function shows: ec6d unfocus *0x3342, *0x4fb2; FUN_00bf(*0x438c, 0); ec6d *0x438a; c4de (FUN_0a42) twice for divider; if (*0x43b4 + 0x19d != 0) { bd6e destroy; bbb6 create new windows 0x4fbc / 0x4fae; FUN_022b(); } FUN_3185(); if (*0x4fae != 0) { bd6e destroy; bbb6 recreate; *0x4358 = 0xfffe; do FUN_0bb8 while *0x4358 != -3; } ebb4 focus; c497 redraw; bd8c swap; FUN_44e1(); ebb4 focus; *0x363a = 0xd; return. The write to 0x363a is at file offset 0x46fe (`c7 06 3a 36 0d 00`)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-party-action-pick-loop",
+      "claim": "`wpops_party_action_pick_loop` (0x3185, 2197 bytes) is the MAIN ACTION-PICK driver. For each party member: (a) roll initiative `rng(10) + char.+0x4593 + slot.+0x29`, clamp to >=1; (b) compute sub-action count `1 + dex/10`, clamp 1..4; (c) populate +0x18..+0x1b action-queue slots; (d) build 11-entry available-actions menu in `local_2a[]` based on class/mana/inventory/status gating; (e) display via `wpops_grid_menu_picker` (0xcfc); (f) on result, dispatch via jump-table `0x7fc3` to spell-picker / item-picker / target-picker. Includes a CHARACTER-STACK navigator: `apuStack_cc[local_c0]` records picked characters; 'BACK' key pops; 'RESET' key wipes to 0.",
+      "category": "action_picker",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "address": "0x3185",
+        "details": "Decompiled head: `for (local_8 = 0; local_8 < *0x43ce; local_8++) { local_b6 = *0x43a8 + local_8*0x2c; local_b0 = rng(10) + char[local_8].+0x4593 + slot.+0x29; if (local_b0 < 1) local_b0 = 1; local_b2 = local_b0 / char.+0x4592; ... } local_b4 = char.+0x4592 + slot.+0x29 / 10; if (local_b4 < 1) local_b4=1; if (4 < local_b4) local_b4=4;`. The 11-entry array fill: `for (i=0; i<0xb; i++) local_2a[i] = 1; local_2a[0xb] = 0xffff;` then conditional gating. The picker call: `local_a = FUN_0cfc(param_1, 3000, local_2a, 1, 1, 6, uVar6, 5);` (uVar6=3 if local_4a<10 else 4 cols). The dispatch: `if (local_a < 0xb) { (*(code*)*(int*)(local_a*2 + 0x7fc3))(); return; }`. The back-stack: `apuStack_cc[local_c0] = local_8; local_c0++;` on enter; `local_8 = apuStack_cc[--local_c0]` on BACK; `local_c0 = 0; local_8 = 0` on RESET."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-grid-menu-picker",
+      "claim": "`wpops_grid_menu_picker` (0xcfc, 877 bytes) is the GENERIC GRID PICKER used for action / target / spell-school / spell-name / item / yes-no / continue-or-reset menus. Takes (window_handle, msg_id_base, options[], row0, col0, row_stride, col_count, color). Renders the option list in a column-major grid with the active entry inverted (`ui_window_write_chars` for active, `ui_window_puts` for inactive), navigates with arrow keys 1=up / 2=left / 3=down / 4=right / 5=ENTER. Returns the ORIGINAL index of the selected option (skipping disabled entries with value 0). Supports both keyboard and mouse-clickable region registration via `mouse_status_set_field` per entry.",
+      "category": "ui_picker",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "address": "0xcfc",
+        "details": "The loop scans param_3[] until -1 terminator. Per active entry, computes `(local_6/param_7)*param_6 + param_4` (row) and `local_6%param_7 + param_5` (col), positions cursor, loads msg at `param_2 + local_4`, then writes inverted (`-param_8` color) if focused, plain (color 3) if not. Records `aiStack_24[local_6] = local_4` to map display-position back to original-index. The input loop calls `FUN_0c75(0x4376, 0x3598)` (kbd-with-filter) and updates `param_9` (cursor position) on arrow keys, breaks on `iVar1 == 5` (ENTER). Returns `aiStack_24[param_9]`."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-spell-school-picker",
+      "claim": "`wpops_spell_school_picker` (0x1ee6, 2820 bytes) is invoked when the player picks 'CAST SPELL' from the action menu. Creates 2 windows (school selector + spell-list detail). Renders 6 school icons in a 7-slot grid (6 schools + central 'cancel'), waits for school pick, then renders all known spells in that school via `wpops_count_known_spells_in_school` (0x1dcb). For each spell, displays name in MANA-BASED COLOR: if char's school mana >= spell.+0xe0 cost, colored (ui_window_print_number); else gray (ui_window_write_chars with color 0x4ffe). Spells displayed even if uncastable. Final dispatch through jump table `0x6a44`.",
+      "category": "action_picker",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "address": "0x1ee6",
+        "details": "Window create: `local_4 = ui_window_create(0, 0x12, 0x17, 7, 0x19, 0xffff, 0, 0); local_6 = ui_window_create(0x16, 0x13, 0x12, 6, 0x1a, 0xfffb, 0, 0);`. The 7-slot school grid (`do { ... } while (local_8 < 6);` + center) is rendered with `mouse_status_set_field` per slot. The spell-display branch: `uVar2 = (uint)*(byte*)(local_34[iVar1]*6 + 0xe0); if (*(int*)(param_2*0x1b0 + uVar7*4 + 0x4410) < (int)uVar2) { ui_window_write_chars(local_4, 0x4ffe, *(undefined2*)(uVar7*2 + 4)); } else { ui_window_print_number(local_4, uVar2, 3, *(undefined2*)(uVar7*2+4)); }`. The 0x4ffe gray color = visible-but-uncastable; color 3 = castable."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-item-use-picker",
+      "claim": "`wpops_item_use_picker` (0x2c5a, 1240 bytes) is invoked when the player picks 'USE ITEM' from the action menu. Creates 2 windows (item-name list + item-detail panel). Iterates `char.+0x4594` inventory items at +0x4428 stride 8, displays name + quantity + usable-flag (`*(byte*)(item.type+0xcc) == 1` = usable in combat). Selecting an item returns its slot index; ESC returns -1.",
+      "category": "action_picker",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "address": "0x2c5a",
+        "details": "Inventory iteration: `for (local_a = 0; local_a < *(byte*)(param_2*0x1b0 + 0x4594); local_a++) { data_table_load(local_56, 1, *(undefined2*)(param_2*0x1b0 + local_a*8 + 0x4428)); strcpy(local_56, local_f6 + local_a*8); if (*(char*)(item_type + 0xcc) == 1) (&local_10a)[local_a] = *(byte*)(item.+0x442e); else (&local_10a)[local_a] = 0; }`. The grid navigation uses ↑/↓ to scroll the visible window of 3 items; ENTER returns the selected slot."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-target-group-picker",
+      "claim": "`wpops_target_group_picker` (0x1069, 1057 bytes) lets the player pick WHICH monster group to attack/cast on. Number of selectable groups is RANGE-LIMITED by `param_3` (the action's range tier): 0 or 1 → 2 groups (close-range); 2 → 3 groups; 3 → 5 groups (long-range). Capped by `*0x4360` (active_monster_group_count). Renders each group's name in a row; arrow keys + ENTER to pick.",
+      "category": "action_picker",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "address": "0x1069",
+        "details": "Range-gating: `if (param_3 == 0 || param_3 == 1) range = 2; else if (param_3 == 2) range = 3; else if (param_3 == 3) range = 5; else range = 5; if (*0x4360 < range) range = *0x4360;`. The for-loop renders `range` group entries at successive y-positions inside `*0x438c` window."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-party-member-picker",
+      "claim": "`wpops_party_member_picker` (0x14cf, 904 bytes) lets the player pick WHICH party member to target with a heal / buff spell. Renders party in 2-column grid (party_size entries), navigates with arrows + ENTER. If party has only 1 member (`*0x43ce < 2`), returns 0 directly without prompting.",
+      "category": "action_picker",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "address": "0x14cf",
+        "details": "Early-out: `if (*0x43ce < 2) { local_8 = 0; } else { ... grid render + navigate ... }`. The grid is rendered via `for (iVar5 = 0; iVar5 < *0x43ce; iVar5++) { x = (iVar5%2)*9 + 2; y = iVar5/2 + 1; set_cursor(local_6, x, y); ui_window_puts(local_6, char[iVar5]+0x43e8, 3); }`."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-monster-ai-driver",
+      "claim": "`wpops_monster_ai_driver` (0x44e1, 165 bytes) is invoked by the state-0c handler after party action picking is done. For each of the 6 monster groups (`local_4 = 1..*0x4360`): calls `wpops_monster_ai_pick_for_group(group_idx, target=0)` (target = party group 0) UNLESS the overflow group exists AND `rng(4) == 1` AND monster_type.+0xd0 != 0x16 (likely 'isn't a vendor/peaceful type'), in which case target = 6 (overflow group). If overflow group exists, also picks one regular monster group at random to target the overflow group (monster-vs-monster).",
+      "category": "monster_ai",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "address": "0x44e1",
+        "details": "`*(undefined1 *)(*(int *)0x43a8 + 0x19d) = *(undefined1 *)0x43ce; for (local_4 = 1; local_4 <= *0x4360; local_4++) { if (*(char*)(*0x43b4 + 0x19d) == 0) { FUN_3f1c(local_4, 0); } else { iVar1 = rng(4); if (iVar1 != 1 || *(char*)(*(int*)(local_4*2+0x43b6) + 0xd0) == 0x16) FUN_3f1c(local_4, 0); else FUN_3f1c(local_4, 6); } } if (*(char*)(*0x43b4+0x19d) != 0) { for (local_4=1; local_4<*0x4360; local_4++) { iVar1 = rng(3); if (iVar1 != 0) break; } FUN_3f1c(6, local_4); }`. The 25%-skip + +0xd0 == 0x16 check is the 'is this monster too pacifistic / merchant-type to attack overflow group' rule. The second loop drives the overflow group's own actions."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-monster-ai-pick-for-group",
+      "claim": "`wpops_monster_ai_pick_for_group` (0x3f1c, 1477 bytes) is the per-group AI action picker. For each member of the group: (a) rolls init `rng(10) + slot.+0x29 + monster_type.+0xd3`, clamps to >=1; (b) sub-action count from monster_type.+0xd5; (c) if monster_type.+0xdc & 2: set +0x12 (charm-immune flag); (d) base init reroll like party (+0x25 = base + rng(0x14) + local_c/2); (e) populates 4-slot action queue at +0x18..+0x1b stride; (f) picks target via `wpops_target_pick_random_with_prejudice` (0x3ed7) + `wpops_target_pick_random_by_hp` (0x3e47); (g) if rng(100) < monster_type.+0xa8: spell-pick path (rolls 100, walks +0x8a..+0x8e weighted bucket, picks first spell). Default action: melee attack (FUN_3e47 + range-validate).",
+      "category": "monster_ai",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "address": "0x3f1c",
+        "details": "Per-member init: `iVar5 = rng(10); local_c = iVar5 + slot.+0x29 + monster_type.+0xd3; if (local_c < 1) local_c = 1; iVar5 = local_c / monster_type.+0xd5;` (sub-action stride). Spell-pick threshold: `iVar7 = rng(100); if (iVar7 < monster_type.+0xa8) { ... spell path ... }`. The weighted-bucket walk uses thresholds 5/10/15/55+ with step 5/10/15 — the same morale/init bucket pattern as wmexe (0x000e). The 5-byte weights at +0x8a..+0x8e are per-spell-school weights for the monster's preferred school."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-target-prejudice-and-hp-spread",
+      "claim": "`wpops_target_pick_random_with_prejudice` (0x3ed7, 69 bytes) and `wpops_target_pick_random_by_hp` (0x3e47, 144 bytes) work together for monster target selection. PREJUDICE: walks the 3-byte `monster_type.+0x80..+0x82` 'preferred opponent' table; for each non-zero entry, rolls rng(2) and 50% chance to ACCEPT (return slot), else continue to next mod-3 slot. HP-SPREAD: for each potential target slot in the chosen group, checks `*(slot+4) - *(slot+2)` (some HP delta / damage already dealt), tracks the maximum, with rng(2) tiebreak. The final picked target's group_idx and slot_idx are stored at attacker.+0x1f and +0x20.",
+      "category": "monster_ai",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "addresses": [
+          "0x3ed7",
+          "0x3e47"
+        ],
+        "details": "FUN_3ed7: `do { if (monster_type.+0x80+local_4 != 0) { roll = rng(2); if (roll != 1) return local_4; } local_4 = (local_4+1) % 3; } while (true);` — IF ALL THREE SLOTS ARE ZERO, this is an INFINITE LOOP. FUN_3e47: tracks `local_6 = max(slot[i].+4 - slot[i].+2)` across members; on a new max, 50% chance to update the tracked target."
+      },
+      "confidence": "medium",
+      "note": "FUN_3ed7 has a SOFT infinite-loop risk if all 3 prejudice slots are 0 — but the data tables are designed so at least one is non-zero. Worth flagging as a potential out-of-bounds risk if a custom monster file has all-zero prejudice."
+    },
+    {
+      "id": "fn-rank-file-allocator",
+      "claim": "`wpops_pick_target_member_in_group` (0x1857, 451 bytes) picks WHICH member of a target group gets hit. Two paths: (1) if all members have +0x2a == -1 (defunct rank-file): linear search through the +0x5043 visited bitmap, return the first un-marked slot. (2) Else: matched-pair search through 5-row rank file, capped at 10 retries; on the 10th retry, triggers `do { play_sound(0); } while (true)` — a deliberate HARD-CRASH HANG.",
+      "category": "monster_ai",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "address": "0x1857",
+        "details": "Main loop: `local_c = 0; do { if (9 < local_c) { do { play_sound(0); } while (true); } local_c++; ... rank-file scan ... } while (loop_breaks_via_return)`. The +0x5043 visited bitmap is shared across the round and reset on round-end or RESET button."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-animation-tick-and-queue",
+      "claim": "`wpops_animation_tick` (0xbb8, 172 bytes) is the per-frame animation driver, identical in shape to wmexe's 0x30f6. Switches on `*0x4358` stage: -3 (sprite blit + advance frame counter), -2 (full 3D scene redraw via `wpops_render_3d_scene` (0x5c65) + clear animation queue), -1 (redraw all monster sprites via `wpops_render_monster_sprite_at_pos` (0x719) for all 2x5 ranks), else dispatch `wpops_animation_step` (0x958) per queued entry. Increments stage; wraps -3 at +12. `wpops_animation_queue_insert_sorted` (0x619, 256 bytes) inserts depth-sorted entries into the 12-entry queue at 0x4390, with the SAME `do play_sound(0) while true` overflow crash as wmexe.",
+      "category": "animation",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "addresses": [
+          "0xbb8",
+          "0x619",
+          "0x958",
+          "0x719"
+        ],
+        "details": "FUN_0bb8: `iVar1 = *0x4358; if (iVar1 == -3) { sprite_blit_short(*0x4fbc, 0); *0x3646 = (*0x3646+1)%2; } else if (iVar1 == -2) { FUN_5c65(); for (i=0; i<12; i++) anim_queue[i].+0x14 = 0xff; *0x438e = 0; } else if (iVar1 == -1) { for (r=0; r<2; r++) for (c=0; c<5; c++) FUN_719(r, c); } else { FUN_958(*0x4358); } *0x4358++; if (*0x4358 == 0xc) *0x4358 = 0xfffd;`. FUN_0619: same shape as wmexe 0x1cd5; depth-sort by +0x14; overflow at slot 0xb triggers `do { play_sound(0); } while (true);`."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-3d-scene-renderer-sixth-copy",
+      "claim": "`wpops_render_3d_scene` (0x5c65, 2192 bytes) is the 3D scene renderer — IDENTICAL IN SHAPE to copies in wmaze, wmele, wmnpc, wtrea, wmexe. Reads scene state from *0x4fa0..0x4fa6 (camera), *0x4faa (wall-bitmap), *0x363c (sub-state). Uses getbit_test / getbit_chunk thunks. Driven by FUN_0bb8 (animation tick) at stage -2. **THIS IS THE SIXTH OVERLAY CARRYING AN EMBEDDED COPY OF THE 3D RENDERER.**",
+      "category": "render_3d",
+      "evidence": {
+        "binary": "wpops.ovr",
+        "address": "0x5c65",
+        "details": "Reads `*0x4fa0..0x4fa6` (camera position); calls `getbit_test(*0x4faa+0x43a, ...)` (wall-bitmap probe — SAME 0x43a offset as wmexe/wmaze/wmele/wmnpc/wtrea); has the per-direction cell-state memsets `*0x507c..0x50dc`; calls FUN_4935 (the wall-bitmap evaluator). The `*0x4f9a` is `party_facing` (0..3). The 5 satellite helpers (FUN_5a20, 5a83, 5ab4, 5ae5, 5b12, 5b44, 5b76) clear different per-direction flag-byte arrays — same shape as wmexe's BSS layout. The renderer dispatches via jump table at -0x6f46 (in wroot data) for `*0x363c` variant selection (0..0xd)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "renamed_full_list": [
+    {
+      "addr": "0x000e",
+      "old": "FUN_0000_000e",
+      "new": "wpops_state_dispatcher",
+      "category": "dispatch_entry",
+      "note": "State-0c dispatcher; not auto-detected by Ghidra — apply script creates it. Pattern: cmp [0x363a],0x0c; jnz +3; call 0x4586; mov ax,0; ret"
+    },
+    {
+      "addr": "0x001c",
+      "old": "FUN_0000_001c",
+      "new": "wpops_focus_window_and_write_msg",
+      "category": "ui_helper",
+      "note": "Tiny helper: focus *0x3342 window, set cursor (0x16), write msg 0xdaf, unfocus. Used as a one-line prompt-paint helper."
+    },
+    {
+      "addr": "0x0051",
+      "old": "FUN_0000_0051",
+      "new": "wpops_paint_main_prompt",
+      "category": "ui_helper",
+      "note": "Repaint main prompt window: redraw_focused + FUN_0a42 (divider) + call 0x1c + ebb4 focus + ui_window_puts + ec6d unfocus."
+    },
+    {
+      "addr": "0x00bf",
+      "old": "FUN_0000_00bf",
+      "new": "wpops_paint_group_panel",
+      "category": "ui_panel",
+      "note": "Round-start group panel render: for each of *0x4360 monster groups, count alive members (status<2, !sleep, !paralyze), display count + group name. Called from state-0c handler."
+    },
+    {
+      "addr": "0x022b",
+      "old": "FUN_0000_022b",
+      "new": "wpops_paint_overflow_group_panel",
+      "category": "ui_panel",
+      "note": "Overflow-group (party-overflow at *0x43b4) panel render — only invoked if overflow group has members. Similar to FUN_00bf but for the single overflow group."
+    },
+    {
+      "addr": "0x0380",
+      "old": "FUN_0000_0380",
+      "new": "wpops_monster_attack_pattern_select",
+      "category": "monster_ai",
+      "note": "Per-monster attack pattern selection — reads monster's attack-pattern record at 0x3816+UVar1*0x13a (count cap) and 0x3648+target*0x1e+iVar3*3 (attack IDs); fills param_3 buffer with attack codes. Same shape as wmexe 0x1a3c."
+    },
+    {
+      "addr": "0x0619",
+      "old": "FUN_0000_0619",
+      "new": "wpops_animation_queue_insert_sorted",
+      "category": "animation",
+      "note": "Insert into 12-entry animation queue at 0x4390; sorted by depth-byte param_1 (+0x14); SAME crash-hang on slot>0xb as wmexe 0x1cd5: do { play_sound(0); } while (true)."
+    },
+    {
+      "addr": "0x0719",
+      "old": "FUN_0000_0719",
+      "new": "wpops_render_monster_sprite_at_pos",
+      "category": "animation",
+      "note": "Per-(row,col) monster sprite render; reads group at *0x4362+row*10+col*2; uses monster's idle-pose byte at &DAT_3810+uVar1*0x13a; rng(10)==9 triggers fidget pose."
+    },
+    {
+      "addr": "0x0958",
+      "old": "FUN_0000_0958",
+      "new": "wpops_animation_step",
+      "category": "animation",
+      "note": "Per-step renderer for queued animations; reads queue entry at *0x4390+slot*2; dispatches on stage byte at +0x15 against magic codes 0x14, 0x23, 0x36, 0x39; calls sprite blit helpers."
+    },
+    {
+      "addr": "0x0b3e",
+      "old": "FUN_0000_0b3e",
+      "new": "wpops_blink_prompt_cursor",
+      "category": "ui_helper",
+      "note": "Bistable prompt-cursor blink: alternates between print_chars (visible) and puts (hidden) at *0x5010,*0x5012; toggles *0x5016."
+    },
+    {
+      "addr": "0x0bb8",
+      "old": "FUN_0000_0bb8",
+      "new": "wpops_animation_tick",
+      "category": "animation",
+      "note": "Per-frame animation tick. Switches on *0x4358 stage (-3..11): -3=sprite blit, -2=full 3D scene redraw (FUN_5c65) + reset queue, -1=monster sprite redraw, else FUN_0958 per queued entry. Wraps -3 at +12. Identical shape to wmexe 0x30f6."
+    },
+    {
+      "addr": "0x0c75",
+      "old": "FUN_0000_0c75",
+      "new": "wpops_input_poll_with_animation",
+      "category": "ui_picker",
+      "note": "Input loop: animation-tick + mouse-poll + kbd-check; returns kbd code or mouse-region index; sets *0x4fc4 = 1 if mouse-clicked. Drives all menu navigation."
+    },
+    {
+      "addr": "0x0cfc",
+      "old": "FUN_0000_0cfc",
+      "new": "wpops_grid_menu_picker",
+      "category": "ui_picker",
+      "note": "GENERIC grid menu picker. Takes (window, msg_id_base, options[], row0, col0, row_stride, col_count, color). Renders options in column-major grid with active inverted; navigates arrow keys (1=up, 2=left, 3=down, 4=right) + ENTER (5). Returns original index of selected entry."
+    },
+    {
+      "addr": "0x1069",
+      "old": "FUN_0000_1069",
+      "new": "wpops_target_group_picker",
+      "category": "action_picker",
+      "note": "1057-byte picker for target MONSTER GROUP. Number of selectable groups gated by action-range param_3 (0/1 -> 2, 2 -> 3, 3 -> 5), capped by *0x4360."
+    },
+    {
+      "addr": "0x148a",
+      "old": "FUN_0000_148a",
+      "new": "wpops_party_picker_draw_char_name",
+      "category": "ui_helper",
+      "note": "Draws char name at grid position in window: set_cursor((slot%2)*9+2, slot/2+1); puts char[slot]+0x43e8."
+    },
+    {
+      "addr": "0x14cf",
+      "old": "FUN_0000_14cf",
+      "new": "wpops_party_member_picker",
+      "category": "action_picker",
+      "note": "904-byte picker for ONE party member (heal / buff target). Early-returns 0 if party size < 2. 2-column grid."
+    },
+    {
+      "addr": "0x1857",
+      "old": "FUN_0000_1857",
+      "new": "wpops_pick_target_member_in_group",
+      "category": "monster_ai",
+      "note": "Picks WHICH member of target group gets hit. Two paths: defunct-rank-file linear scan + +0x5043 bitmap, or matched-pair rank-file search with 10-retry cap; on 10th retry triggers crash-hang: do { play_sound(0); } while (true)."
+    },
+    {
+      "addr": "0x1a20",
+      "old": "FUN_0000_1a20",
+      "new": "wpops_set_cursor_and_put_char_repeat",
+      "category": "ui_helper",
+      "note": "2-call wrapper: set_cursor + put_char_repeat (5)."
+    },
+    {
+      "addr": "0x1a49",
+      "old": "FUN_0000_1a49",
+      "new": "wpops_set_cursor_and_putchar",
+      "category": "ui_helper",
+      "note": "2-call wrapper: set_cursor + putchar (2). Used to paint window border characters."
+    },
+    {
+      "addr": "0x1a72",
+      "old": "FUN_0000_1a72",
+      "new": "wpops_spell_picker_redraw_cursor",
+      "category": "ui_helper",
+      "note": "Move cursor to a school slot in spell-picker; if -1, draws at center (13,3) with char 0x22 (cancel marker); else at ((slot/3)*6+1, (slot%3)*2+1) with char 0x23+slot (school icon)."
+    },
+    {
+      "addr": "0x1ac5",
+      "old": "FUN_0000_1ac5",
+      "new": "wpops_draw_spell_picker_border",
+      "category": "ui_helper",
+      "note": "Draws spell-picker window border: top edge (chars 0x45/0x47 repeated) + right column + close-corner. Optional blit (param_2 != 0)."
+    },
+    {
+      "addr": "0x1b43",
+      "old": "FUN_0000_1b43",
+      "new": "wpops_window_set_tile",
+      "category": "ui_helper",
+      "note": "Sets one tile in window's character buffer at (col,row): buf[(width*row + col)*2 + 0x10] = char."
+    },
+    {
+      "addr": "0x1b69",
+      "old": "FUN_0000_1b69",
+      "new": "wpops_window_paint_tile_pattern",
+      "category": "ui_helper",
+      "note": "Iterates a pattern table at &DAT_2ca stride 4 bytes ((col, row, char, length)); for each entry, paints a tile (length==0) or a span (length > 0 = horizontal, length & 0x80 = vertical). Used to draw the spell-picker border quickly."
+    },
+    {
+      "addr": "0x1c3c",
+      "old": "FUN_0000_1c3c",
+      "new": "wpops_paint_spell_picker_layout",
+      "category": "ui_panel",
+      "note": "Paints the full spell-picker layout: school grid borders, mana column display (calls ui_window_print_number for each of the 6 schools' mana pool), school names in column. Used by FUN_1ee6."
+    },
+    {
+      "addr": "0x1dcb",
+      "old": "FUN_0000_1dcb",
+      "new": "wpops_count_known_spells_in_school",
+      "category": "data_util",
+      "note": "Walks the 82-entry spell table at +0xde checking if spell.school == param_2 AND known_bit_set in char.+0x4570. Returns count; writes spell IDs into param_3 buffer."
+    },
+    {
+      "addr": "0x1e26",
+      "old": "FUN_0000_1e26",
+      "new": "wpops_render_spell_list_entry",
+      "category": "ui_panel",
+      "note": "Renders one spell name in the spell-list panel; -2..+2 rows around the focus, with the focus row colored (param_5==1, iVar2==0) and others gray."
+    },
+    {
+      "addr": "0x1ee6",
+      "old": "FUN_0000_1ee6",
+      "new": "wpops_spell_school_picker",
+      "category": "action_picker",
+      "note": "2820-byte spell-school + spell-name picker. 6-school 7-slot grid; on school pick, navigates known-spell list; gates display by mana (gray vs colored); returns spell_id + dispatches via jump table 0x6a44."
+    },
+    {
+      "addr": "0x2a86",
+      "old": "FUN_0000_2a86",
+      "new": "wpops_strcpy_lowercase",
+      "category": "data_util",
+      "note": "strcpy that lowercases uppercase letters (0x41..0x5a -> +0x20)."
+    },
+    {
+      "addr": "0x2ab3",
+      "old": "FUN_0000_2ab3",
+      "new": "wpops_render_item_list_entry",
+      "category": "ui_panel",
+      "note": "Renders one item-list entry with quantity (or 'broken' marker if quantity < 1); analog of FUN_1e26 for the item picker."
+    },
+    {
+      "addr": "0x2c5a",
+      "old": "FUN_0000_2c5a",
+      "new": "wpops_item_use_picker",
+      "category": "action_picker",
+      "note": "1240-byte item-use picker. Iterates char.+0x4594 inventory items, filters to usable-in-combat (item_type.+0xcc == 1), shows scrolling list; returns selected slot or -1."
+    },
+    {
+      "addr": "0x3132",
+      "old": "FUN_0000_3132",
+      "new": "wpops_random_direction_8way",
+      "category": "data_util",
+      "note": "Picks a random direction (0..7) by rolling rng(8) then iterating up to 100 times, decrementing remaining count when bitmap-test passes. Used by FUN_3185 for default-attack direction picking."
+    },
+    {
+      "addr": "0x3185",
+      "old": "FUN_0000_3185",
+      "new": "wpops_party_action_pick_loop",
+      "category": "action_picker",
+      "note": "2197-byte MAIN action-pick driver. Per character: rolls init, computes 1..4 sub-actions from dex, builds 11-entry available-action menu (gated on class/mana/inventory/status), displays via FUN_0cfc, dispatches via jump table 0x7fc3. Includes apuStack_cc back-stack for BACK/RESET navigation."
+    },
+    {
+      "addr": "0x3e47",
+      "old": "FUN_0000_3e47",
+      "new": "wpops_target_pick_random_by_hp",
+      "category": "monster_ai",
+      "note": "Picks target slot by tracking max(HP_lo - HP_hi) over group members (preferring higher-current-HP targets), with 50%-chance update on each new max."
+    },
+    {
+      "addr": "0x3ed7",
+      "old": "FUN_0000_3ed7",
+      "new": "wpops_target_pick_random_with_prejudice",
+      "category": "monster_ai",
+      "note": "Walks 3-slot prejudice table at monster_type.+0x80..+0x82; per slot, 50% accept-or-skip (rng(2)); wraps mod 3. SOFT INFINITE LOOP if all 3 slots are zero (no termination guarantee)."
+    },
+    {
+      "addr": "0x3f1c",
+      "old": "FUN_0000_3f1c",
+      "new": "wpops_monster_ai_pick_for_group",
+      "category": "monster_ai",
+      "note": "1477-byte per-group monster AI picker. For each member: init roll, sub-action populate, target pick via 3ed7/3e47, action select via +0x8a..+0x8e weighted spell pick (gated by rng(100) < monster_type.+0xa8)."
+    },
+    {
+      "addr": "0x44e1",
+      "old": "FUN_0000_44e1",
+      "new": "wpops_monster_ai_driver",
+      "category": "monster_ai",
+      "note": "For each of 6 monster groups: calls FUN_3f1c targeting party (group 0) UNLESS overflow group exists AND rng(4)==1 AND monster_type.+0xd0 != 0x16 (peaceful flag), in which case targets overflow group (6). Also drives overflow group's own actions targeting a random regular group."
+    },
+    {
+      "addr": "0x4586",
+      "old": "FUN_0000_4586",
+      "new": "wpops_state_0c_action_selection",
+      "category": "state_handler",
+      "note": "STATE-0C HANDLER. Three phases: round-start group panel paint (FUN_00bf), party action picking (FUN_3185), monster AI action picking (FUN_44e1). Transitions to wmexe via *0x363a = 0x0d at file offset 0x46fe."
+    },
+    {
+      "addr": "0x4708",
+      "old": "FUN_0000_4708",
+      "new": "wpops_scene_cell_in_view_check",
+      "category": "render_3d",
+      "note": "Bounds check: is param_2,param_3 inside cell param_1's wall-bitmap-relative 8x8 box at +0x1e0,+0x1ec?"
+    },
+    {
+      "addr": "0x4745",
+      "old": "FUN_0000_4745",
+      "new": "wpops_scene_cell_lookup",
+      "category": "render_3d",
+      "note": "Finds the cell that contains world position (param_4, param_5). Tries current cell first; falls back to *0x4fa6 cached; else linear search through all 12 cells. Caches result in *0x4fa6."
+    },
+    {
+      "addr": "0x486b",
+      "old": "FUN_0000_486b",
+      "new": "wpops_scene_test_wall_n",
+      "category": "render_3d",
+      "note": "Tests the NORTH wall of cell at world (param_1, param_2-1) via getbit_chunk(*0x4faa+0x60, slot, 2). Returns 0=pass, 2=fail; 0 also if *0x363c == 10 or 12."
+    },
+    {
+      "addr": "0x48d0",
+      "old": "FUN_0000_48d0",
+      "new": "wpops_scene_test_wall_w",
+      "category": "render_3d",
+      "note": "Tests the WEST wall of cell at world (param_1-1, param_2) via getbit_chunk(*0x4faa+0x120, slot, 2). Same pattern as 486b for E/S/N walls."
+    },
+    {
+      "addr": "0x4935",
+      "old": "FUN_0000_4935",
+      "new": "wpops_scene_advance_camera_relative",
+      "category": "render_3d",
+      "note": "Camera-relative direction advance: given camera facing *0x4f9a (0=N, 1=E, 2=S, 3=W), advance (px, py) by (forward, side) deltas. Then calls FUN_4745 to find the new cell."
+    },
+    {
+      "addr": "0x49b6",
+      "old": "FUN_0000_49b6",
+      "new": "wpops_scene_render_cell_walls",
+      "category": "render_3d",
+      "note": "Per-cell wall renderer; tests +0x43a wall-bitmap; if cell is visible and *0x363c < 0xe, jump-table dispatches to one of 14 wall-variant renderers (at table addr -0x6f46 in wroot data)."
+    },
+    {
+      "addr": "0x4d9f",
+      "old": "FUN_0000_4d9f",
+      "new": "wpops_scene_test_wall_e",
+      "category": "render_3d",
+      "note": "EAST wall test — mirror of 486b/48d0; reads +0x120 wall-bitmap chunk."
+    },
+    {
+      "addr": "0x4f5c",
+      "old": "FUN_0000_4f5c",
+      "new": "wpops_scene_test_wall_s",
+      "category": "render_3d",
+      "note": "SOUTH wall test — mirror of 486b; reads +0x60 wall-bitmap chunk."
+    },
+    {
+      "addr": "0x51fa",
+      "old": "FUN_0000_51fa",
+      "new": "wpops_scene_render_floor_strip",
+      "category": "render_3d",
+      "note": "Renders a floor-strip at depth param_1; uses *0x5254 parity to pick L/R orientation; calls sprite_render_at_screen_pos with floor sprite."
+    },
+    {
+      "addr": "0x5742",
+      "old": "FUN_0000_5742",
+      "new": "wpops_scene_render_cell_variant_dispatch",
+      "category": "render_3d",
+      "note": "Cell-variant render dispatch: walls vs decorations; if (param_2 < 0xe) jump-table dispatch at table addr -0x6198."
+    },
+    {
+      "addr": "0x5931",
+      "old": "FUN_0000_5931",
+      "new": "wpops_scene_render_wall_decorations",
+      "category": "render_3d",
+      "note": "Renders wall-decorations: paintings, signs, doors; based on +0x5088 cell-map and &DAT_50e4 visibility flags."
+    },
+    {
+      "addr": "0x5a20",
+      "old": "FUN_0000_5a20",
+      "new": "wpops_scene_clear_walls_for_cell",
+      "category": "render_3d",
+      "note": "Clears wall-render flags for a cell when blocked: zeroes +0x50c5, +0x50c6, +0x50c7, +0x50b5, +0x50cd, +0x50ae, +0x50b6, +0x50ce, +0x50d6. Reduces *0x5258 (render depth) if param_1+3 < depth."
+    },
+    {
+      "addr": "0x5a83",
+      "old": "FUN_0000_5a83",
+      "new": "wpops_scene_clear_walls_n",
+      "category": "render_3d",
+      "note": "Per-direction wall clear: zeroes +0x50b4, +0x50ad, +0x50be."
+    },
+    {
+      "addr": "0x5ab4",
+      "old": "FUN_0000_5ab4",
+      "new": "wpops_scene_clear_walls_s",
+      "category": "render_3d",
+      "note": "Per-direction wall clear: zeroes +0x50cc, +0x50d5, +0x50de."
+    },
+    {
+      "addr": "0x5ae5",
+      "old": "FUN_0000_5ae5",
+      "new": "wpops_scene_clear_walls_e_small",
+      "category": "render_3d",
+      "note": "Small clear: zeroes +0x50bd for cell."
+    },
+    {
+      "addr": "0x5b12",
+      "old": "FUN_0000_5b12",
+      "new": "wpops_scene_clear_walls_e_medium",
+      "category": "render_3d",
+      "note": "Medium clear: zeroes +0x50ad, +0x50be for cell."
+    },
+    {
+      "addr": "0x5b44",
+      "old": "FUN_0000_5b44",
+      "new": "wpops_scene_clear_walls_w_medium",
+      "category": "render_3d",
+      "note": "Medium clear: zeroes +0x50d5, +0x50de for cell."
+    },
+    {
+      "addr": "0x5b76",
+      "old": "FUN_0000_5b76",
+      "new": "wpops_scene_clear_walls_w_small",
+      "category": "render_3d",
+      "note": "Small clear: zeroes +0x50dd for cell."
+    },
+    {
+      "addr": "0x5ba3",
+      "old": "FUN_0000_5ba3",
+      "new": "wpops_scene_render_decorations_loop",
+      "category": "render_3d",
+      "note": "Loops over 6 decoration counts at +0x4ec8 stride 4; for each non-empty count, calls sprite_render_at_screen_pos; final FUN_36a0 (sprite-blit sibling) on *0x4fac."
+    },
+    {
+      "addr": "0x5c65",
+      "old": "FUN_0000_5c65",
+      "new": "wpops_render_3d_scene",
+      "category": "render_3d",
+      "note": "2192-byte 3D scene renderer — THE SIXTH EMBEDDED COPY (after wmaze, wmele, wmnpc, wtrea, wmexe). Reads camera state from *0x4fa0..0x4fa6, wall-bitmap from *0x4faa, sub-state from *0x363c. Identical shape to other overlay copies."
+    }
+  ],
+  "unresolved": [
+    "The 11-entry action-dispatch jump table at wroot data address 0x7fc3 (referenced inline in FUN_3185 by `(*(code *)*(undefined2 *)(local_a * 2 + 0x7fc3))()`). The 11 individual action handlers (ATTACK, SPELL, USE-ITEM, PARRY, RUN, etc.) are reached via this table — resolving the actual entries would require dumping the table contents from wroot. Same pattern as the 10-entry spell-dispatch table at 0x6a44 inside FUN_1ee6.",
+    "The 14-entry scene-variant render-dispatch table at -0x6f46 (in wroot data, called from FUN_49b6). Resolves to 14 wall-variant renderers; identical pattern to wtrea's, but the entries themselves need lookup.",
+    "FUN_0a42 (thunk 0xc4de — used twice in 0x0051 and once from 0x4586) — only unmapped wroot helper specific to wpops's UI flow. Likely a window-divider line drawer or some kind of 'paint two characters' helper based on the usage pattern.",
+    "The exact semantics of the +0x5043 (rank-file visited bitmap) vs +0x504c (action-target marks) BSS arrays — they're clearly used for 'have we hit this combatant yet this round' tracking, but the exact size and reset semantics need a dynamic trace.",
+    "Whether FUN_3ed7's infinite-loop condition (all 3 prejudice slots zero) is actually reachable in practice — the data tables seem designed to ensure at least one non-zero slot, but this should be verified by extracting the monster_type table and confirming no row has all 3 prejudice bytes == 0."
+  ],
+  "next_steps": [
+    "Dynamic-trace pass: open a combat encounter, watch the round-loop transition from `*0x363a == 0xc` (wpops entry) through the action-picker, monster AI driver, and `*0x363a = 0xd` (wmexe entry). Verify the player can navigate BACK / RESET as described, and that the apuStack_cc stack works as theorized.",
+    "Begin a naming pass on wdopt.ovr (states 0x13 / 0x14) — the only remaining unnamed state-machine overlay. Likely the OPTIONS / SETTINGS menu given the naming.",
+    "Resolve the 11-entry action-dispatch jump table at wroot 0x7fc3 — dump bytes via PyGhidra, identify the 11 action handlers. This will name the canonical Wiz6 action set (ATTACK, SPELL, USE-ITEM, PARRY, RUN, etc.).",
+    "Resolve FUN_0a42, FUN_2858, FUN_3694, FUN_36a0 in wroot.exe — the four remaining unnamed thunks shared across multiple overlays. Each is referenced from 3+ overlays.",
+    "Cross-verify the action_menu layout (0..10) by extracting the msg-table entries at IDs 3000..3010 (the menu labels) — will confirm the action names mapped to each slot."
+  ],
+  "engineering_notes_candidates": [
+    {
+      "title": "Wiz6's combat action picker lets you BACK / RESET your whole party's queue — not many CRPGs do this",
+      "addr": "wpops.ovr 0x3185",
+      "summary": "When picking actions for the party each combat round, Wiz6 maintains an apuStack_cc[] character stack (max 6 entries = max party size). Picking ENTER for a character pushes them on the stack and moves to the next. Pressing the BACK key (kbd code 1 returned by 0xcfc) pops the stack and resumes picking for the previous character — letting them re-decide. Pressing the RESET key (kbd code 2) wipes the entire stack to 0 and starts at char 0, AND zeroes the *0x504c action-target marks BSS. This is UNUSUALLY FORGIVING for a 1990 CRPG — most of its peers queue actions immutably once chosen (you can't 'undo' your mage's spell pick once you've moved on to the next character). Wiz6 lets you back out the whole round. **Player-experience implication**: this changes the action-picker UX from 'commitment' to 'planning' — you can experiment with putting your high-mana cleric into HEAL mode, see the gray-out on your bishop's spells, then BACK to re-plan. The mechanic also implicitly assumes the round hasn't started yet — actions don't FIRE until ALL picks complete, so backing out doesn't cost a turn. **Engineering archeology**: this is a forward-looking UX feature — most modern action-queue games still don't get this right."
+    },
+    {
+      "title": "Spell picker shows under-funded spells GRAYED but still selectable — not a bug, a feature",
+      "addr": "wpops.ovr 0x1ee6",
+      "summary": "When a character opens the spell-school picker, every spell they KNOW in the chosen school is displayed — even spells they can't currently cast (their school mana < spell cost). Visually distinguished: castable spells use `ui_window_print_number` with color 3 (colored); uncastable use `ui_window_write_chars` with color id at *0x4ffe (gray). **CRITICALLY: the engine still lets you SELECT the gray spell.** wmexe.ovr will then resolve the cast — but the mana check there (`spell_cost_byte * power_level` against per-school mana column at +0x4410) silently allows the cast to fail / underflow. **Player-experience implication**: this is a DESIGNED-IN feature — you can see what you COULD have cast if you had memorized more, so you remember what to memorize next time you camp. Visible-but-uncastable is intentional pedagogy. **Engineering implication**: in a TS port, you cannot enforce 'mana >= cost' at the picker layer — you have to mirror this 'show, but don't enforce' behavior to preserve the player's mental model. Adding 'mana sufficient' as a hard filter would actually be a regression."
+    },
+    {
+      "title": "Wiz6 monster groups can hate each other — a 3-byte 'prejudice' table makes them attack each other",
+      "addr": "wpops.ovr 0x3ed7 + 0x44e1",
+      "summary": "Each monster_type record has a 3-byte 'prejudice' table at +0x80..+0x82 — a list of group-classes this monster type particularly hates. When monster AI picks targets each round via `wpops_target_pick_random_with_prejudice` (0x3ed7), it iterates these 3 slots. For each non-zero entry, rolls rng(2) with 50% chance to accept that slot as target, else continues to next slot mod 3. Combined with `wpops_monster_ai_driver` (0x44e1) which has a 25% chance of targeting the OVERFLOW group (the secondary monster cluster) instead of the party — monsters can attack OTHER MONSTERS rather than the party. **Engineering archeology**: this is a SIMPLE bitfield mechanic with PROFOUND CONSEQUENCES — a 3-byte table enables emergent monster-vs-monster fights without complex faction-state machinery. Drow vs Trolls, Bishop vs Undead, Goblin vs Hobgoblin. **Player-experience implication**: as a player, watching two monster groups fight each other while you sneak around them is a UNIQUE Wiz6 vibe — the prejudice system is what enables this. **Gotcha**: the prejudice loop has a soft infinite-loop risk if all 3 prejudice slots are 0 (no termination guarantee). The shipped data must have at least one non-zero slot in every monster_type — if a mod or custom monster file violates this, the game hangs in AI picking."
+    },
+    {
+      "title": "Wiz6 has SIX copies of its 3D wall renderer scattered across overlays",
+      "addr": "wpops.ovr 0x5c65 (+ 5 prior overlays)",
+      "summary": "Wiz6's 3D dungeon viewport is rendered by a ~2KB function found in SIX different overlays: wmaze (the canonical maze-traversal renderer), wmele (combat scene), wmnpc (NPC dialog scene), wtrea (treasure / chest scene), wmexe (action-execution scene), AND wpops (action-pick scene). All six are IDENTICAL: same getbit_test/getbit_chunk wall-bitmap probing, same *0x4faa+0x43a base offset, same *0x363c sub-state variant dispatch, same per-direction memset pattern of the +0x507c..+0x50dc cell-flag arrays. The 2KB body is duplicated 6 times = ~12KB of redundant code on a 16-bit DOS exe — a SIGNIFICANT slice of the 64KB segment budget. **Engineering archeology**: this is the consequence of overlay-based memory management on the 286/386 — each overlay is self-contained and CANNOT call into wroot's data segment for big code blobs that need DGROUP-relative data access. So the 3D renderer gets COPIED into every overlay that needs to draw the dungeon behind its UI. **Port implication**: the TS port doesn't have this constraint, so a SINGLE 3D-renderer module suffices. But beware: subtle differences COULD exist between the six copies (different scene_sub_state variant dispatch, different decoration counts, different sprite-priority ordering) — worth a structural diff before consolidating, in case the original carries semantic divergences."
+    }
+  ],
+  "operational_notes": {
+    "ghidra_install": "/opt/homebrew/Cellar/ghidra/12.1/libexec",
+    "pyghidra_version": "3.1.0+",
+    "project_path": "/Users/nathan/Projects/ndouglas/wiz6/tools/ghidra/wiz6.gpr (canonical path; the worktree's tools/ghidra/ is a symlink — PyGhidra rejects .config paths)",
+    "program": "wpops.ovr",
+    "scripts_used": [
+      "/tmp/wpops_enumerate.py (enumerated all 56 functions with thunk-call parsing via Ghidra instruction iterator)",
+      "/tmp/wpops_functions.json (DecompInterface output for all 56 functions + thunk_calls + near_calls)",
+      "tools/ghidra/scripts/apply_wpops_names.py (the deliverable replay script)"
+    ],
+    "key_quirk": "wpops.ovr loaded with BinaryLoader. File offset == Ghidra address. CANONICAL entry-point structure (unlike wmexe): 14-byte header, dispatch entry at 0x0e, state-0c handler at 0x4586. ONE state, ONE transition out (0xd). All thunk calls use E8 rel16 (near call) with target outside the file — there are NO ff-16 indirect calls in this overlay. Ghidra did NOT auto-detect 0x0e as a function — the apply script creates it.",
+    "next_overlay_to_pass": "wdopt.ovr (states 0x13 / 0x14) — the last unnamed state-machine overlay. Likely SETTINGS / OPTIONS / DUNGEON-MAP menu."
+  }
+}
