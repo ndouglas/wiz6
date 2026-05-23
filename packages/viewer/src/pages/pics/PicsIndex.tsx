@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { PicSchema } from '@wiz6/data';
+import { PicSchema, WIZ6_DUNGEON } from '@wiz6/data';
 import { renderPicDescriptor, concatenatePicSegments } from '@wiz6/parser';
 import { PicCanvas } from '../../components/PicCanvas.js';
 import styles from './PicsIndex.module.css';
@@ -45,7 +45,7 @@ export function PicsIndex() {
             totalBytes: pic.totalBytes,
           };
           if (firstDesc) {
-            summary.thumbnail = renderPicDescriptor(firstDesc, decoded);
+            summary.thumbnail = renderPicDescriptor(firstDesc, decoded, WIZ6_DUNGEON);
           }
           results.push(summary);
         } catch (err) {

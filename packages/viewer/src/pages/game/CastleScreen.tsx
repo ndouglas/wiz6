@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PicSchema } from '@wiz6/data';
+import { PicSchema, WIZ6_DUNGEON } from '@wiz6/data';
 import {
   renderPicDescriptor,
   renderEgaScreen,
@@ -56,7 +56,7 @@ export function CastleScreen() {
         if (text.trimStart().startsWith('<')) return;
         const pic = PicSchema.parse(JSON.parse(text));
         const decoded = concatenatePicSegments(pic.segments);
-        const rendered = pic.descriptors.map((d) => renderPicDescriptor(d, decoded));
+        const rendered = pic.descriptors.map((d) => renderPicDescriptor(d, decoded, WIZ6_DUNGEON));
         if (!cancelled) setMon08Sprites(rendered);
       } catch {
         /* leave null */
