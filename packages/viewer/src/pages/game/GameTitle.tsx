@@ -34,7 +34,9 @@ export function GameTitle() {
   const [spritesByDesc, setSpritesByDesc] = useState<RenderedSprite[] | null>(null);
   const [titlepagRgba, setTitlepagRgba] = useState<Uint8ClampedArray | null>(null);
   const clangRef = useRef<PlayableSnd | null>(null);
-  const clangPlayedRef = useRef(false);
+  // Track which phase transitions have already triggered the clang so a
+  // single phase doesn't fire repeatedly during its hold frames.
+  const clangFiredRef = useRef<Set<string>>(new Set());
 
   // Install one-shot listener so first user gesture unlocks Web Audio.
   useEffect(() => installAudioUnlockListener(), []);
@@ -121,18 +123,26 @@ export function GameTitle() {
         skipRef.current = false;
         const prevPhase = stateRef.current.phase;
         stateRef.current = stepIntro(stateRef.current, 1, { skipPressed });
-        // Engine state 1 step 6: call 0xc546(4) plays the title clang at the
-        // moment the splash content first appears. We fire it on the
-        // pause-pre-sirtech → sirtech-splash transition. Silent if audio not
-        // yet unlocked (user hasn't clicked/keyed yet).
+        // Fire the clang on key transitions. Engine state 1 has at least two
+        // sound triggers (step 6 = call 0xc546(4) and step 8 = call 0xc546(0xD));
+        // both use entries in the sound table at 0x3344 that index the same
+        // SOUND00.SND buffer with different parameters. We don't have the
+        // parameters mapped yet, so all triggers play sound00 directly.
+        // The user's lived recollection includes a clang at the Wizardry-logo
+        // reveal (scroll start), so we also fire there.
+        const transition = `${prevPhase}->${stateRef.current.phase}`;
+        const SOUND_TRIGGERS = new Set([
+          'pause-pre-sirtech->sirtech-splash', // step 6 / 8 — splash appears
+          'pause-between->bradley-splash', // user-described "Bradley" beat
+          'pause-pre-scroll->scroll', // Wizardry-logo + scroll start
+        ]);
         if (
-          !clangPlayedRef.current &&
-          prevPhase === 'pause-pre-sirtech' &&
-          stateRef.current.phase === 'sirtech-splash' &&
-          clangRef.current
+          clangRef.current &&
+          SOUND_TRIGGERS.has(transition) &&
+          !clangFiredRef.current.has(transition)
         ) {
           playSnd(clangRef.current);
-          clangPlayedRef.current = true;
+          clangFiredRef.current.add(transition);
         }
       }
 
