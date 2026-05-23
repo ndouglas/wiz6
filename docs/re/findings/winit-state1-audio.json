@@ -1,0 +1,294 @@
+{
+  "topic": "winit-state1-audio",
+  "subagent_run": "2026-05-23T19:30:00Z",
+  "binaries": ["winit.ovr", "wroot.exe"],
+  "summary": "Enumerated the 5 audio_play_sound calls inside winit_state1_title_and_credits (file 0x9f3 in winit.ovr) and identified the runtime sound-table populator. State 1 uses N = {4, 0xD, 0xE, 6, 7} which map directly to SOUND04/13/14/06/07.SND respectively, because the runtime sound-table populator at winit 0x291 (mis-named 'winit_preload_monster_sprites' in earlier passes — it is actually the SOUND preload) iterates i = 0..N-1 and opens 'SOUND<i:02>.SND' for each entry whose buffer offsets in MASTER.HDR are non-zero. The five state-1 calls map onto the three user-visible intro transitions as: N=4 → Sir-Tech splash sound (SOUND04.SND), N=0xD → Bradley splash sound (SOUND13.SND), N=0xE → Scroll-page transition (SOUND14.SND), with N=6 and N=7 firing as internal beats during the post-clear / pre-scroll static-header reveal (SOUND06.SND, SOUND07.SND).",
+  "method": "PyGhidra decompile of winit_state1_title_and_credits (0x9f3). Raw byte scan to enumerate every CALL 0xC546 (audio_play_sound thunk) in winit.ovr (the thunk-delta law gives 0xC546 - 0xBA9C = 0xAAA = wroot audio_play_sound). PyGhidra disassembly of winit 0x291 to identify the sound-table populator. Decompile of wroot 0x10AAA (audio_play_sound) to verify the 12-byte-per-slot layout. Decompile of wroot 0x10882 (file-table-resolver, kind=9) to confirm how sound descriptors flow from MASTER.HDR to DGROUP 0x3344.",
+  "stats": {
+    "audio_calls_found_in_state1": 5,
+    "audio_calls_total_in_winit": 6,
+    "audio_calls_in_state8": 1,
+    "sound_table_slots_preloaded": 14,
+    "sound_files_referenced_by_state1": 5
+  },
+
+  "state1_audio_calls": {
+    "summary": "Five CALL 0xC546 (= audio_play_sound thunk) sites inside winit_state1_title_and_credits, in execution order. Each pushes a single byte argument N immediately before the call (pattern: B8 0X 00 50 E8 lo hi). N indexes the runtime sound table at DGROUP 0x3344 + N*0xC.",
+    "thunk_target": {
+      "thunk_address": "0xC546",
+      "wroot_offset": "0xAAA",
+      "wroot_function": "audio_play_sound",
+      "note": "Resolved via the thunk-delta law: 0xC546 - 0xBA9C = 0xAAA"
+    },
+    "calls": [
+      {
+        "index": 1,
+        "winit_file_offset": "0xac2",
+        "N": 4,
+        "byte_pattern": "b8 04 00 50 e8 81 ba",
+        "context": "Fires immediately after winit_show_pic_in_window has rendered the title-page PIC for the active video mode (EGA/CGA/T16/Hercules). Preceded by the vmode-dispatch block (0xa42..0xac1) that selects the TITLEPAG.{EGA|CGA|T16|HRC} filename string at one of 0x5146/0x5153/0x5160/0x516d and shows the PIC in the title window 0x4fbe. Followed by 'if skip==0: winit_wait_ticks_or_enter(2)' (~short delay).",
+        "user_visible_phase": "sirtech-splash",
+        "user_visible_description": "Title page first appears with Sir-Tech dragon logo + wordmark."
+      },
+      {
+        "index": 2,
+        "winit_file_offset": "0xadb",
+        "N": 13,
+        "N_hex": "0xD",
+        "byte_pattern": "b8 0d 00 50 e8 68 ba",
+        "context": "Fires after the short wait(2). Followed by f130(*0x4fbe, 0) [ui_window_pre_frame thunk], then winit_render_text_token(0xd, 0x5b, 0x34) and winit_render_text_token(9, 0x6b, 0x52) — these two tokens are the 'D.W. Bradley' credit ('Fantasy Role-Playing Simulation by / D.W. Bradley'). Followed by f13c(*0x4fbe) refresh and then 'if skip==0: winit_wait_ticks_or_enter(0x48)' — the long title-hold (~720 delay units).",
+        "user_visible_phase": "bradley-splash",
+        "user_visible_description": "D.W. Bradley credit text appears below the Sir-Tech / Wizardry title page."
+      },
+      {
+        "index": 3,
+        "winit_file_offset": "0xb43",
+        "N": 14,
+        "N_hex": "0xE",
+        "byte_pattern": "b8 0e 00 50 e8 00 ba",
+        "context": "Fires immediately after the long title-hold wait, which is followed by f118(-1) (clear the title window) and f13c(*0x4fbe) (refresh — screen now blank). So audio_play_sound(0xE) fires *during the page-clear transition* — the moment the Sir-Tech/Bradley title page goes away and the credits header starts being drawn. Followed by 'if skip==0: winit_wait_ticks_or_enter(10)'.",
+        "user_visible_phase": "scroll-start",
+        "user_visible_description": "Sir-Tech/Bradley title page clears; the credits-scroll page (with the 'Wizardry VI / Bane of the Cosmic Forge' header) begins to be drawn."
+      },
+      {
+        "index": 4,
+        "winit_file_offset": "0xb5c",
+        "N": 6,
+        "byte_pattern": "b8 06 00 50 e8 e7 b9",
+        "context": "Fires after the post-clear short wait(10). Followed immediately by winit_render_text_token(7, 0x4c, 0x43) and winit_render_text_token(8, 0x4c, 99) — tokens 7 and 8 at column 0x4c, rows 0x43 and 99. Per the credits-scroll-mechanism findings, tokens 7 and 8 are the static 'Wizardry VI' / 'Bane of the Cosmic Forge' header above the scrolling credits. Then f13c(*0x4fbe) refresh — the header becomes visible.",
+        "user_visible_phase": "internal-pre-header",
+        "user_visible_description": "Static-header reveal: token 7 + token 8 rendered above the credits area. The 'reveal beat' — perceived as part of the scroll-page transition rather than as a separate user-visible event."
+      },
+      {
+        "index": 5,
+        "winit_file_offset": "0xb90",
+        "N": 7,
+        "byte_pattern": "b8 07 00 50 e8 b3 b9",
+        "context": "Fires after the static header has been rendered and the window refreshed (so the 'Wizardry VI' / 'Bane' text is now on-screen). Followed by 'if skip==0: winit_wait_ticks_or_enter(10)' and then the credits-scroll-table initialisation block (entries 0..8 with their appear_tick/field_b/cap fields) plus the scroll loop at 0xc86. So audio_play_sound(7) is the very last sound triggered before the credits scroll actually begins moving.",
+        "user_visible_phase": "internal-pre-scroll",
+        "user_visible_description": "Final beat just before the credit-scroll motion begins. Likely a 'roll' or 'fanfare' cue tied to the scroll start; perceived as part of the same scroll-start transition as N=0xE."
+      }
+    ],
+    "evidence": {
+      "binary": "winit.ovr",
+      "type": "decomp+raw_byte_scan",
+      "decomp_source": "PyGhidra decompile of winit_state1_title_and_credits (entry 0x9f3). Despite Ghidra reporting body_size=1 for this function, the decompiler still produces a full structured decode by following CALLs through the dispatch table.",
+      "raw_scan_source": "Linear scan for opcode 0xE8 (CALL rel16) with target == 0xC546. All 6 hits in winit.ovr listed; 5 fall inside the state-1 handler body (0x9f3..0xdc4), 1 inside state-8 graveyard (0xf0c)."
+    },
+    "confidence": "high"
+  },
+
+  "sound_table_population": {
+    "summary": "The runtime sound table at DGROUP 0x3344 (12 bytes per entry × 14 entries = 168 bytes) is populated by a preload loop at winit.ovr file offset 0x291. The function is currently named 'winit_preload_monster_sprites' in the Ghidra project — that name is WRONG. It is the SOUND preload, not the monster-sprite preload. The Ghidra rename was carried over from an earlier doc (docs/re/pic-loader.md line 23) that incorrectly attributed file offset 0x33A to a 'mon00..monNN' loop. Inspecting the actual assembly: the file name template at DGROUP 0x4ff8 is 'SOUND%02d.SND' (digits patched at template[5] and template[6], not template[3] and template[4] as a MON??.PIC template would do), and the descriptor table populated is 0x3344 (the sound table), not the monster-sprite table.",
+    "populator_function": {
+      "winit_file_offset": "0x291",
+      "current_ghidra_name": "winit_preload_monster_sprites",
+      "correct_name": "winit_preload_sounds",
+      "signature": "void winit_preload_sounds(int n_slots)",
+      "called_with": {
+        "value": 14,
+        "value_hex": "0xE",
+        "from_winit_file_offset": "0x873",
+        "by_function": "winit_state0_load_master_hdr (file 0x525) — the call site at 0x873 is inside state-0's extended body (state-0 runs from 0x525 well past the Ghidra-reported end at 0x616; the gap 0x617..0x8f6 is reached via short JMPs from inside 0x525)"
+      },
+      "pseudocode": [
+        "void winit_preload_sounds(int n_slots) {",
+        "    audio_wait_for_idle();   // call thunk 0xf0dc — flushes any in-progress audio",
+        "    for (int i = 0; i < n_slots; i++) {",
+        "        // Populate this slot's 12-byte descriptor from MASTER.HDR via file-table-resolver",
+        "        // kind=9 ⇒ records of size *(0x3312) = 12 bytes, sourced from offset *(dword*)0x306C + i*12",
+        "        file_table_resolver(kind=9, dst=&sound_table[i], index=i, mode=0);",
+        "        ",
+        "        int16 buf_hi = *(int16*)(&sound_table[i] + 6);  // [BX+0x334a]",
+        "        int16 buf_lo = *(int16*)(&sound_table[i] + 4);  // [BX+0x3348]",
+        "        if (buf_hi < 0) continue;",
+        "        if (buf_hi == 0 && buf_lo == 0) continue;  // slot is empty / aliased — skip load",
+        "        ",
+        "        // Build filename SOUND<i:02>.SND from template at 0x4ff8",
+        "        char fname[12];",
+        "        copy_template(fname, 0x4ff8);   // 'SOUND00.SND'",
+        "        fname[5] = '0' + (i / 10);",
+        "        fname[6] = '0' + (i % 10);",
+        "        *(uint16*)0x4f84 = 0x4fcc;     // bookkeeping (purpose unknown)",
+        "        ",
+        "        int handle = crt_open(fname);",
+        "        if (handle == -1) abort_with_code(10);",
+        "        ",
+        "        // Load and decompress the .SND file via the shared huffman loader",
+        "        // The buf_lo/buf_hi values from MASTER.HDR are passed as the sample-buffer slot index",
+        "        if (huffman_load_and_decompress(buf_lo, buf_hi, 0, 0, handle) != 0)",
+        "            abort_with_code(11);",
+        "        crt_dos_close(handle);",
+        "    }",
+        "}"
+      ]
+    },
+    "table_layout": {
+      "base_address": "DGROUP 0x3344",
+      "entry_size_bytes": 12,
+      "entry_count_after_preload": 14,
+      "fields_per_entry": {
+        "+0x00 word": "alias_id (index into sample-buffer table at 0x3579 — used when buf_lo+buf_hi == 0 to redirect to another slot's loaded buffer)",
+        "+0x02 word": "reserved / status",
+        "+0x04 word": "buf_lo (low half of buffer reference; sourced from MASTER.HDR record)",
+        "+0x06 word": "buf_hi (high half of buffer reference; sourced from MASTER.HDR record)",
+        "+0x08 word": "duration (passed as param_2 to audio_play_by_id)",
+        "+0x0A byte": "rate_or_vol (volume index; scaled by music-mode at *0x3590)",
+        "+0x0B byte": "flags (passed as param_4 to audio_play_by_id)"
+      },
+      "note": "Verified against audio_play_sound's decompile at wroot 0x10AAA. The table is entirely in BSS — no static initializer on disk in any binary. Population is exclusively via the runtime preload at winit 0x291, fed by per-slot 12-byte descriptors read from MASTER.HDR by file_table_resolver(kind=9)."
+    },
+    "sound_id_to_filename_mapping": {
+      "rule": "For slot N preloaded by winit_preload_sounds(N>=N+1), the engine opens 'SOUND<N:02>.SND' (digits substituted into template[5] and template[6] of the 11-char template at DGROUP 0x4ff8). The N in audio_play_sound(N) is the table index, and unless the entry is aliased (buf_lo+buf_hi == 0 ⇒ use the alias_id field at offset 0 to redirect), the file is exactly SOUND0N.SND.",
+      "slots_referenced_by_state1": [
+        {"N": 4, "N_hex": "0x4", "filename": "SOUND04.SND", "file_exists": true, "tree_size_bytes": 16, "file_size_bytes": 340},
+        {"N": 6, "N_hex": "0x6", "filename": "SOUND06.SND", "file_exists": true, "tree_size_bytes": 160, "file_size_bytes": 1486},
+        {"N": 7, "N_hex": "0x7", "filename": "SOUND07.SND", "file_exists": true, "tree_size_bytes": 252, "file_size_bytes": 2185},
+        {"N": 13, "N_hex": "0xD", "filename": "SOUND13.SND", "file_exists": true, "tree_size_bytes": 140, "file_size_bytes": 1712},
+        {"N": 14, "N_hex": "0xE", "filename": "SOUND14.SND", "file_exists": true, "tree_size_bytes": 152, "file_size_bytes": 5506}
+      ],
+      "full_preloaded_table_0_to_13": {
+        "note": "winit_preload_sounds(14) preloads slots 0..13. Slot N → filename SOUND<N:02>.SND if MASTER.HDR's record for slot N has non-zero buf_lo/buf_hi; otherwise the slot stays unloaded and falls back to the alias_id at offset 0 of its 12-byte descriptor.",
+        "files_present_in_range_0_13": [
+          "SOUND00.SND", "SOUND02.SND", "SOUND03.SND", "SOUND04.SND", "SOUND05.SND",
+          "SOUND06.SND", "SOUND07.SND", "SOUND08.SND", "SOUND10.SND", "SOUND11.SND",
+          "SOUND12.SND", "SOUND13.SND"
+        ],
+        "files_missing_in_range_0_13": ["SOUND01.SND", "SOUND09.SND"],
+        "interpretation": "The missing SOUND01.SND and SOUND09.SND suggest those slots are aliased (their MASTER.HDR record has buf_lo==buf_hi==0 so the preload skips them) — at playback time audio_play_sound(1 or 9) reads the alias_id field and redirects to another slot's loaded buffer. SOUND14.SND is preloaded by slot 14 = 0xE (which IS within the preload range since the loop iterates i=0..n_slots-1 with n_slots=0xE=14, so i goes 0..13 — meaning slot 14 itself is NOT preloaded by this call). However, audio_play_sound(0xE) at 0xb43 expects slot 14's table entry to be populated. This means either (a) the preload count is intentionally one too small and slot 0xE is loaded by a different code path, (b) the bound is i<=n_slots not i<n_slots and Ghidra mis-decoded the JGE at 0x381, or (c) the table descriptors at 0x3344 + 14*12 are populated separately. NEEDS VERIFICATION."
+      },
+      "confidence": "medium-high",
+      "verification_needed": "Confirm via DOSBox-X file-open trace at engine startup that SOUND00..SOUND13 (12 files) and SOUND14.SND get opened during winit_state0/winit_state1 — and in what order. Also confirm whether the loop bound at winit 0x381 (JGE) is i<n_slots or i<=n_slots."
+    }
+  },
+
+  "transition_mapping": {
+    "user_visible_transitions": 3,
+    "audio_calls": 5,
+    "extras": "Two of the five calls (N=6, N=7) fire as internal beats inside the scroll-start transition — they're tied to the static-header reveal animation between the page-clear (N=0xE) and the actual scroll motion.",
+    "mapping": {
+      "sirtech-splash": {
+        "winit_file_offset": "0xac2",
+        "N": 4,
+        "filename": "SOUND04.SND",
+        "description": "Title page first becomes visible — vmode-specific TITLEPAG.{EGA|CGA|T16|HRC} is rendered, then audio_play_sound(4) fires.",
+        "confidence": "high"
+      },
+      "bradley-splash": {
+        "winit_file_offset": "0xadb",
+        "N": 13,
+        "N_hex": "0xD",
+        "filename": "SOUND13.SND",
+        "description": "After short wait(2), audio_play_sound(0xD) fires, then the 'by D.W. Bradley' text tokens (0xd and 9) are rendered.",
+        "confidence": "high"
+      },
+      "scroll-start": {
+        "winit_file_offset": "0xb43",
+        "N": 14,
+        "N_hex": "0xE",
+        "filename": "SOUND14.SND",
+        "description": "After long title-hold wait(0x48), window clears (f118(-1) + f13c refresh), then audio_play_sound(0xE) fires — coincides exactly with the page transition from title-screen to credits-page.",
+        "confidence": "high"
+      },
+      "internal-pre-header": {
+        "winit_file_offset": "0xb5c",
+        "N": 6,
+        "filename": "SOUND06.SND",
+        "description": "After post-clear short wait(10), audio_play_sound(6) fires, then tokens 7+8 ('Wizardry VI' / 'Bane of the Cosmic Forge') are rendered. Layered onto the scroll-start transition.",
+        "confidence": "high",
+        "note_for_todo_007": "If user wants 1-sound-per-visible-transition, this is the same transition as scroll-start. If they want distinct beats, this fires ~10 delay-units after scroll-start, simultaneously with the static header text rendering."
+      },
+      "internal-pre-scroll": {
+        "winit_file_offset": "0xb90",
+        "N": 7,
+        "filename": "SOUND07.SND",
+        "description": "After header tokens rendered + refreshed, audio_play_sound(7) fires; then wait(10), then the credits-scroll setup and loop begins. Marks the moment scroll actually starts moving.",
+        "confidence": "high",
+        "note_for_todo_007": "Same transition (scroll-start) but at the very end of the static-header reveal. Could be wired as the literal 'scroll starts moving' cue if a separate beat from the page-clear is desired."
+      }
+    },
+
+    "final_block": {
+      "sirtech-splash": "SOUND04.SND  (call site winit 0xac2, N=4)",
+      "bradley-splash": "SOUND13.SND  (call site winit 0xadb, N=0xD)",
+      "scroll-start":   "SOUND14.SND  (call site winit 0xb43, N=0xE)",
+      "internal-beats": "SOUND06.SND  (call site winit 0xb5c, N=6) + SOUND07.SND (call site winit 0xb90, N=7) — these fire during the scroll-start transition; SOUND06.SND coincides with the 'Wizardry VI' header reveal, SOUND07.SND coincides with the scroll-motion start"
+    }
+  },
+
+  "findings": [
+    {
+      "id": "winit-preload-mis-naming",
+      "claim": "The function at winit.ovr file 0x291, currently named 'winit_preload_monster_sprites' (per docs/re/findings/startup-sequence.json and the active Ghidra project), is actually the SOUND preload loop, not the monster-sprite preload. The mis-naming was carried over from docs/re/pic-loader.md line 23 which incorrectly attributed the 'startup MON??.PIC preload' to file offset 0x33A (which is actually a literal abort_with_code(10) call inside this function's error path).",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x291",
+        "type": "disasm",
+        "details": "At file 0x2fa..0x308: AX=i; CWD; IDIV CX(=0xa); ADD AX,0x30; MOV [BP-0xF],AL; ADD DX,0x30; MOV [BP-0xE],AL. This patches digits at template[5] and template[6] of an 11-byte string at [BP-0x14]. The 11-byte template located via copy from DGROUP 0x4ff8 has positions [5][6] = '0''0' — meaning the source template is 'SOUND00.SND' (S-O-U-N-D-0-0-.-S-N-D), NOT 'MON00.PIC' (which would patch positions [3][4]). The descriptor table populated is 0x3344 (sound table), confirmed by the index expression 'i*12 + 0x3344' at file 0x2b6, and by the buf-not-zero check at 0x2d3 against [BX+0x334a] (offset 6 of a sound-table entry — the high-half buffer pointer)."
+      },
+      "confidence": "high",
+      "remediation": "Rename winit 0x291 to 'winit_preload_sounds' in the Ghidra project and update docs/re/findings/startup-sequence.json (fn-0291-monster-preload) and docs/re/pic-loader.md (the 'winit.ovr 0x033A startup MON??.PIC preload' row)."
+    },
+    {
+      "id": "state1-audio-calls-cataloged",
+      "claim": "Five CALL 0xC546 (audio_play_sound) sites in winit_state1_title_and_credits: at file offsets 0xac2, 0xadb, 0xb43, 0xb5c, 0xb90 with N = 4, 0xD, 0xE, 6, 7 respectively.",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0xac2, 0xadb, 0xb43, 0xb5c, 0xb90",
+        "type": "raw_byte_scan+disasm",
+        "details": "Each call site shows pattern 'b8 0X 00 50 e8 lo hi' = MOV AX, X; PUSH AX; CALL rel16. Decoded byte patterns: 0xac2 → b8 04 00 50; 0xadb → b8 0d 00 50; 0xb43 → b8 0e 00 50; 0xb5c → b8 06 00 50; 0xb90 → b8 07 00 50. Total 0xE8 CALLs to target 0xC546 in winit.ovr: 6 (5 in state-1, 1 in state-8 at 0xf0c with N=0xE — the graveyard chime)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "sound-table-source-master-hdr",
+      "claim": "The 12-byte descriptors at DGROUP 0x3344 + i*12 are read from MASTER.HDR (the disk header file) by file_table_resolver(kind=9). The resolver looks up record size at DGROUP 0x3312 (= 12 for kind=9), base far-pointer at DGROUP 0x306C/0x306E, and seeks to (base + i * 12) in the open file handle stored at DGROUP 0x842.",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": "0x10882 (= 1000:0882)",
+        "type": "decomp",
+        "details": "FUN_1000_0882(kind, dst, index, mode) switches on kind; for default cases (incl. kind=9) it doesn't remap the index. Then calls crt_dos_lseek(file_handle=*0x842, offset = index * *(0x3300 + kind*2) + far_base[kind]) and crt_read_via_fd into dst. The 'records_per_kind' table at 0x3300 and the 'far_base_per_kind' table at 0x3048 are populated at game boot from MASTER.HDR's own header section (read into DGROUP 0x33f8 by winit_state0_load_master_hdr)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "loop-bound-question",
+      "claim": "winit_preload_sounds is called from state-0 with n_slots = 14 (= 0xE). The loop body iterates for i in 0..n_slots-1 (JGE check at file 0x381 between AX and [BP+4]=14). But state-1 then calls audio_play_sound(0xE) — slot 14 — which is one past the preloaded range. Either (a) slot 14's descriptor IS populated by a different code path before state-1 runs, (b) the JGE is actually a JG and the loop runs i=0..n_slots (15 iterations preloading slots 0..14), or (c) slot 14's entry is intentionally aliased and audio_play_sound(0xE) uses the alias_id field to redirect to a loaded slot. This warrants DOSBox-X verification.",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "0x37b..0x383",
+        "type": "disasm",
+        "details": "0x37b: MOV AX,[BP-0x18]; 0x37e: CMP AX,[BP+4]; 0x381: JGE 0x386 (loop exit); 0x383: JMP 0x2a2 (loop body). JGE means signed greater-or-equal; loop exits when i >= n. Standard i<n bound, so slot 14 would NOT be preloaded by winit_preload_sounds(14). But the game audibly works (per docs/re/snd-format.md the title-screen audio plays a clang). So either the slot is loaded elsewhere or audio_play_sound(0xE) falls back to alias_id."
+      },
+      "confidence": "medium",
+      "needs": "DOSBox-X file-open trace at startup to count how many SOUND<N>.SND files are opened (12-14 would discriminate the hypotheses) AND a breakpoint at audio_play_sound(0xE) to inspect the [BX+0x3344+0xE*12+0..0xb] table entry."
+    }
+  ],
+
+  "unresolved": [
+    "Why winit_preload_sounds is called with 14 but audio_play_sound(0xE) targets slot 14 — see finding 'loop-bound-question'. Likely answered by DOSBox-X file-open trace + memory snapshot at audio_play_sound(0xE) entry.",
+    "The two 'internal beat' sounds (N=6 SOUND06.SND, N=7 SOUND07.SND) fire during the scroll-start transition but in close succession. Without listening to them in-engine, we can't tell if they are intended as a single multi-beat fanfare or as two distinct UI cues. The TS reimplementation may choose either approach.",
+    "The semantic content of tokens 0xd, 9, 7, 8 (as text-token IDs in the title page) hasn't been ground-truth verified. Per startup-sequence.json this is in the 'unresolved' list. For TODO #007 the audio mapping doesn't depend on token semantics — the per-call user-visible phase is identifiable from the screen-clear/refresh pattern alone.",
+    "The state-0 call to winit_preload_sounds at file 0x873 lives inside the un-disassembled gap 0x617..0x8f6 in Ghidra. State-0 (winit_state0_load_master_hdr) is much longer than the 125 bytes Ghidra reports — its body extends past 0x8ed (where *0x363a := 1 is written). A future RE pass could force-disassemble that range and define the rest of state-0 properly."
+  ],
+
+  "next_steps": [
+    "Run DOSBox-X with file-open logging (tools/dosbox/run-with-logging.sh) from cold boot through the credit scroll. Count and order the SOUND<N>.SND opens. Verify the SOUND14.SND open against the 'loop-bound-question' finding.",
+    "Implement TODO #007 in the viewer/parser by wiring the three visible transitions to the correct .snd assets: SOUND04.SND for sirtech-splash, SOUND13.SND for bradley-splash, SOUND14.SND for scroll-start. Optionally layer SOUND06.SND and SOUND07.SND as the scroll-start reveal/motion beats.",
+    "Rename winit 0x291 from 'winit_preload_monster_sprites' to 'winit_preload_sounds' (via apply_winit_names.py or a follow-up rename pass). Fix docs/re/pic-loader.md line 23 (the 'winit.ovr 0x033A startup pre-load loop' row is wrong on both the address and the file kind)."
+  ],
+
+  "operational_notes": {
+    "ghidra_install": "/opt/homebrew/Cellar/ghidra/12.1/libexec",
+    "pyghidra_version": "3.1.0",
+    "project_path": "tools/ghidra/wiz6.gpr",
+    "key_quirk": "winit.ovr's state-1 entry at 0x9f3 has no Ghidra-defined function body (size=1) because Ghidra only auto-defines functions reached by direct CALL analysis; state-1 is reached via the dispatch at winit 0x0c. PyGhidra's decompiler still produces a full decode by following CALLs through. For the gap 0x617..0x8f6 — extended body of state-0 — even the decompiler doesn't traverse, since the JMPs into it are from inside the wrongly-bounded state-0 function. Force-disassemble that range to define state-0's true body. The audio-engine functions in wroot.exe live at segmented addresses 1000:0AAA, 1000:35FD, 1000:1462 etc. — Ghidra represents them as image offsets 0x10AAA, 0x135FD, 0x11462 by combining CS=0x1000 << 4 + offset, NOT file offsets (which would require subtracting the 0x200 MZ header).",
+    "scripts_used": [
+      "/tmp/dump_state1.py (decompile winit state-1)",
+      "/tmp/dump_winit_preload.py + /tmp/dump_winit_preload_asm.py (decompile + disasm winit 0x291 = sound preload)",
+      "/tmp/dump_audio_play.py (decompile wroot audio_play_sound / audio_play_by_id)",
+      "/tmp/dump_file_resolver.py (decompile wroot 0x10882 file-table-resolver)",
+      "/tmp/find_writes_3344.py + raw byte scans for cross-references to 0x3344"
+    ]
+  }
+}
