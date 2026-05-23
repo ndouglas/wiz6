@@ -15,6 +15,7 @@ import {
   PHASE_FRAMES_PAUSE_PRE_SIRTECH,
   PHASE_FRAMES_POST_SCROLL,
   PHASE_FRAMES_SIRTECH_SPLASH,
+  PHASE_FRAMES_TITLE_HOLD,
 } from '../../src/sim/intro-constants.js';
 
 function runFrames(initial = initialIntroState(), frames = 1, inputs = {}) {
@@ -45,6 +46,8 @@ describe('stepIntro: phase progression', () => {
     s = runFrames(s, PHASE_FRAMES_BRADLEY_SPLASH);
     expect(s.phase).toBe('pause-pre-scroll');
     s = runFrames(s, PHASE_FRAMES_PAUSE_PRE_SCROLL);
+    expect(s.phase).toBe('title-hold');
+    s = runFrames(s, PHASE_FRAMES_TITLE_HOLD);
     expect(s.phase).toBe('scroll');
     expect(s.scrollPos).toBe(0);
   });
@@ -56,7 +59,8 @@ describe('stepIntro: phase progression', () => {
       PHASE_FRAMES_SIRTECH_SPLASH +
       PHASE_FRAMES_PAUSE_BETWEEN_SPLASHES +
       PHASE_FRAMES_BRADLEY_SPLASH +
-      PHASE_FRAMES_PAUSE_PRE_SCROLL;
+      PHASE_FRAMES_PAUSE_PRE_SCROLL +
+      PHASE_FRAMES_TITLE_HOLD;
     s = runFrames(s, preScrollFrames);
     expect(s.phase).toBe('scroll');
     // 126 frames at +=2 → scrollPos = 252 (> 251 = terminal)
@@ -74,13 +78,34 @@ describe('stepIntro: phase progression', () => {
       PHASE_FRAMES_SIRTECH_SPLASH +
       PHASE_FRAMES_PAUSE_BETWEEN_SPLASHES +
       PHASE_FRAMES_BRADLEY_SPLASH +
-      PHASE_FRAMES_PAUSE_PRE_SCROLL;
+      PHASE_FRAMES_PAUSE_PRE_SCROLL +
+      PHASE_FRAMES_TITLE_HOLD;
     s = runFrames(s, preScrollFrames);
     expect(s.phase).toBe('scroll');
     s = stepIntro(s);
     expect(s.scrollPos).toBe(SCROLL_STEP_PER_FRAME);
     s = stepIntro(s);
     expect(s.scrollPos).toBe(SCROLL_STEP_PER_FRAME * 2);
+  });
+
+  it('title-hold lasts PHASE_FRAMES_TITLE_HOLD frames before scroll starts', () => {
+    let s = initialIntroState();
+    const preTitleHoldFrames =
+      PHASE_FRAMES_PAUSE_PRE_SIRTECH +
+      PHASE_FRAMES_SIRTECH_SPLASH +
+      PHASE_FRAMES_PAUSE_BETWEEN_SPLASHES +
+      PHASE_FRAMES_BRADLEY_SPLASH +
+      PHASE_FRAMES_PAUSE_PRE_SCROLL;
+    s = runFrames(s, preTitleHoldFrames);
+    expect(s.phase).toBe('title-hold');
+    expect(s.holdFramesRemaining).toBe(PHASE_FRAMES_TITLE_HOLD);
+    // One frame short of expiry — still title-hold, scroll hasn't started.
+    s = runFrames(s, PHASE_FRAMES_TITLE_HOLD - 1);
+    expect(s.phase).toBe('title-hold');
+    // Final frame transitions into scroll.
+    s = stepIntro(s);
+    expect(s.phase).toBe('scroll');
+    expect(s.scrollPos).toBe(0);
   });
 
   it('done is a fixed point', () => {
@@ -106,6 +131,8 @@ describe('stepIntro: skip semantics', () => {
     s = stepIntro(s);
     expect(s.phase).toBe('pause-pre-scroll');
     s = stepIntro(s);
+    expect(s.phase).toBe('title-hold');
+    s = stepIntro(s);
     expect(s.phase).toBe('scroll');
     // Skip latch fast-forwards past scroll too.
     expect(s.scrollPos).toBeGreaterThan(SCROLL_TERMINAL_POS);
@@ -118,7 +145,8 @@ describe('stepIntro: skip semantics', () => {
       PHASE_FRAMES_SIRTECH_SPLASH +
       PHASE_FRAMES_PAUSE_BETWEEN_SPLASHES +
       PHASE_FRAMES_BRADLEY_SPLASH +
-      PHASE_FRAMES_PAUSE_PRE_SCROLL;
+      PHASE_FRAMES_PAUSE_PRE_SCROLL +
+      PHASE_FRAMES_TITLE_HOLD;
     s = runFrames(s, preScrollFrames);
     s = stepIntro(s); // scrollPos = 2
     expect(s.phase).toBe('scroll');
@@ -133,7 +161,8 @@ describe('stepIntro: skip semantics', () => {
       PHASE_FRAMES_SIRTECH_SPLASH +
       PHASE_FRAMES_PAUSE_BETWEEN_SPLASHES +
       PHASE_FRAMES_BRADLEY_SPLASH +
-      PHASE_FRAMES_PAUSE_PRE_SCROLL;
+      PHASE_FRAMES_PAUSE_PRE_SCROLL +
+      PHASE_FRAMES_TITLE_HOLD;
     s = runFrames(s, preScrollFrames);
     s = runFrames(s, 126);
     expect(s.phase).toBe('post-scroll');

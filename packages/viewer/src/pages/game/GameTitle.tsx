@@ -133,7 +133,7 @@ export function GameTitle() {
         const SOUND_TRIGGERS = new Set([
           'pause-pre-sirtech->sirtech-splash', // step 6 / 8 — splash appears
           'pause-between->bradley-splash', // user-described "Bradley" beat
-          'pause-pre-scroll->scroll', // Wizardry-logo + scroll start
+          'pause-pre-scroll->title-hold', // Wizardry logo reveal (titlepag draws)
         ]);
         if (
           clangRef.current &&
@@ -210,8 +210,12 @@ function composeFrame(
 ): void {
   fillBlack(dest);
 
-  // Background per phase.
-  if ((state.phase === 'scroll' || state.phase === 'post-scroll') && titlepagRgba) {
+  // Background per phase. titlepag shows during the new title-hold phase too
+  // (Wizardry wordmark + scene visible before credits start scrolling).
+  if (
+    (state.phase === 'title-hold' || state.phase === 'scroll' || state.phase === 'post-scroll') &&
+    titlepagRgba
+  ) {
     dest.set(titlepagRgba);
   }
 
@@ -230,8 +234,9 @@ function composeFrame(
     case 'pause-pre-sirtech':
     case 'pause-between':
     case 'pause-pre-scroll':
+    case 'title-hold':
     case 'done':
-      // background only
+      // background only (titlepag for title-hold; black for the pauses)
       break;
 
     case 'sirtech-splash':
