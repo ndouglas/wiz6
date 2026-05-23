@@ -26,25 +26,25 @@ rest of the function is the entire audio engine (PIT programming, IRQ0 ISR
 install, speaker gate, AdLib init). The 2026-05-22 audio-RE pass renamed it
 and 16 related functions / ISRs:
 
-| Address    | Was                            | Now                              |
-| ---------- | ------------------------------ | -------------------------------- |
-| `0x10AAA`  | `FUN_1000_0aaa`                | `audio_play_sound`               |
-| `0x10A8F`  | `FUN_1000_0a8f`                | `audio_volume_range_check`       |
-| `0x11462`  | `disk_int13_reset` (incorrect) | `audio_engine_play`              |
-| `0x118C3`  | (no function — IVT-only)       | `audio_isr_adlib_slow`           |
-| `0x11901`  | (no function — IVT-only)       | `audio_isr_adlib_fast`           |
-| `0x11919`  | (no function — IVT-only)       | `audio_isr_var_slow`             |
-| `0x11947`  | (no function — IVT-only)       | `audio_isr_var_fast`             |
-| `0x1196A`  | (no function — IVT-only)       | `audio_isr_pc_speaker_fast`      |
-| `0x11962`  | (no function — internal)       | `audio_adlib_init_voice`         |
-| `0x119D4`  | (no function — IVT-only)       | `audio_isr_pc_speaker_slow`      |
-| `0x11A08`  | (no function — IVT-only)       | `audio_isr_pc_speaker_alt`       |
-| `0x11A88`  | (no function — IVT-only)       | `audio_isr_tick_no_sound`        |
-| `0x11A92`  | (no function — internal)       | `audio_opl_write`                |
-| `0x11AA3`  | (no function — internal)       | `audio_opl_status_wait_long`     |
-| `0x11AB3`  | (no function — internal)       | `audio_opl_status_wait_short`    |
-| `0x135FD`  | `FUN_1000_35fd`                | `audio_play_by_id`               |
-| `0x13640`  | `kbd_pre_input_disk_check`     | `audio_wait_for_idle`            |
+| Address   | Was                            | Now                           |
+| --------- | ------------------------------ | ----------------------------- |
+| `0x10AAA` | `FUN_1000_0aaa`                | `audio_play_sound`            |
+| `0x10A8F` | `FUN_1000_0a8f`                | `audio_volume_range_check`    |
+| `0x11462` | `disk_int13_reset` (incorrect) | `audio_engine_play`           |
+| `0x118C3` | (no function — IVT-only)       | `audio_isr_adlib_slow`        |
+| `0x11901` | (no function — IVT-only)       | `audio_isr_adlib_fast`        |
+| `0x11919` | (no function — IVT-only)       | `audio_isr_var_slow`          |
+| `0x11947` | (no function — IVT-only)       | `audio_isr_var_fast`          |
+| `0x1196A` | (no function — IVT-only)       | `audio_isr_pc_speaker_fast`   |
+| `0x11962` | (no function — internal)       | `audio_adlib_init_voice`      |
+| `0x119D4` | (no function — IVT-only)       | `audio_isr_pc_speaker_slow`   |
+| `0x11A08` | (no function — IVT-only)       | `audio_isr_pc_speaker_alt`    |
+| `0x11A88` | (no function — IVT-only)       | `audio_isr_tick_no_sound`     |
+| `0x11A92` | (no function — internal)       | `audio_opl_write`             |
+| `0x11AA3` | (no function — internal)       | `audio_opl_status_wait_long`  |
+| `0x11AB3` | (no function — internal)       | `audio_opl_status_wait_short` |
+| `0x135FD` | `FUN_1000_35fd`                | `audio_play_by_id`            |
+| `0x13640` | `kbd_pre_input_disk_check`     | `audio_wait_for_idle`         |
 
 Replay script: `tools/ghidra/scripts/apply_audio_names.py` (idempotent).
 
@@ -52,10 +52,10 @@ Replay script: `tools/ghidra/scripts/apply_audio_names.py` (idempotent).
 
 ### Header (4 bytes)
 
-| Offset | Size  | Field                                         |
-| -----: | :---: | --------------------------------------------- |
+| Offset | Size  | Field                                                                                                                            |
+| -----: | :---: | -------------------------------------------------------------------------------------------------------------------------------- |
 | `0x00` | u16le | **tree_size_bytes** — size of the Huffman tree in bytes (always a multiple of 4). Value `0` = no Huffman; raw 8-bit PCM follows. |
-| `0x02` | u16le | **rate_or_default** — PIT sample-rate divisor (smaller = faster sample rate). Value `0xFFFF` = use engine-default rate. |
+| `0x02` | u16le | **rate_or_default** — PIT sample-rate divisor (smaller = faster sample rate). Value `0xFFFF` = use engine-default rate.          |
 
 ### Huffman tree (variable)
 
@@ -147,12 +147,12 @@ with-header decoder produces sample streams with higher entropy (more
 realistic audio structure) in every case than a no-header interpretation —
 strong evidence that the 4-byte header is real and used by the engine.
 
-| Variant                                                            | Files |
-| ------------------------------------------------------------------ | ----- |
-| Huffman-compressed 8-bit PCM, default rate (word 1 = `0xFFFF`)     | 27    |
-| Huffman-compressed 8-bit PCM with explicit PIT divisor (word 1)    | 4 (sound04 div=200, sound22 div=132, sound38 div=141) and a few more with explicit divisor in [128..200] |
-| Raw uncompressed PCM (tree_size = 0)                                | 4 (sound28, sound30, sound32, sound35) |
-| Large-leaf Huffman (some leaves > 255)                              | a few (sound00 has one 1769; sound26 etc. have larger values) |
+| Variant                                                         | Files                                                                                                    |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Huffman-compressed 8-bit PCM, default rate (word 1 = `0xFFFF`)  | 27                                                                                                       |
+| Huffman-compressed 8-bit PCM with explicit PIT divisor (word 1) | 4 (sound04 div=200, sound22 div=132, sound38 div=141) and a few more with explicit divisor in [128..200] |
+| Raw uncompressed PCM (tree_size = 0)                            | 4 (sound28, sound30, sound32, sound35)                                                                   |
+| Large-leaf Huffman (some leaves > 255)                          | a few (sound00 has one 1769; sound26 etc. have larger values)                                            |
 
 The "large-leaf" cases store values > 255 in tree slots. The engine masks to
 8 bits on emit (the ISR's `mov al, [si]` is byte-sized), so the high bits
@@ -216,16 +216,16 @@ stripped before tree parsing begins.
 Seven IRQ0 timer handlers, one per (device × fast/slow) combination, plus one
 "no sound playing" tick handler:
 
-| Address    | Device              | Variant   | Output port               |
-| ---------- | ------------------- | --------- | ------------------------- |
-| `0x118C3`  | AdLib (OPL2)        | slow      | `0x389`                   |
-| `0x11901`  | AdLib (OPL2)        | fast      | `0x389`                   |
-| `0x11919`  | variable PSG        | slow      | `[cs:0x175B]` (runtime)   |
-| `0x11947`  | variable PSG        | fast      | `[cs:0x175B]` (runtime)   |
-| `0x1196A`  | PC speaker          | fast      | `0x42` (PIT, mode 0)      |
-| `0x119D4`  | PC speaker          | slow      | `0x42` (PIT, mode 0)      |
-| `0x11A08`  | PC speaker          | alt       | `0x42` (PIT, mode 0)      |
-| `0x11A88`  | (none)              | tick only | — increments tick counter |
+| Address   | Device       | Variant   | Output port               |
+| --------- | ------------ | --------- | ------------------------- |
+| `0x118C3` | AdLib (OPL2) | slow      | `0x389`                   |
+| `0x11901` | AdLib (OPL2) | fast      | `0x389`                   |
+| `0x11919` | variable PSG | slow      | `[cs:0x175B]` (runtime)   |
+| `0x11947` | variable PSG | fast      | `[cs:0x175B]` (runtime)   |
+| `0x1196A` | PC speaker   | fast      | `0x42` (PIT, mode 0)      |
+| `0x119D4` | PC speaker   | slow      | `0x42` (PIT, mode 0)      |
+| `0x11A08` | PC speaker   | alt       | `0x42` (PIT, mode 0)      |
+| `0x11A88` | (none)       | tick only | — increments tick counter |
 
 Selection rule (from `audio_engine_play` decompile):
 
@@ -259,17 +259,17 @@ table-translate** before writing to hardware:
 
 The 256-byte table at `cs:0x1A4B` is a **logarithmic-attenuation lookup**:
 
-| Input byte | Output byte (attenuation) |
-| ---------: | ------------------------- |
-| 0          | 0x3F (silent / max attenuation) |
-| 32         | 0x16                       |
-| 64         | 0x0E                       |
-| 96         | 0x0A                       |
-| **128**    | **0x06** (silence centerpoint) |
-| 160        | 0x04                       |
-| 192        | 0x02                       |
-| 224        | 0x00                       |
-| 255        | 0x00 (max output)          |
+| Input byte | Output byte (attenuation)       |
+| ---------: | ------------------------------- |
+|          0 | 0x3F (silent / max attenuation) |
+|         32 | 0x16                            |
+|         64 | 0x0E                            |
+|         96 | 0x0A                            |
+|    **128** | **0x06** (silence centerpoint)  |
+|        160 | 0x04                            |
+|        192 | 0x02                            |
+|        224 | 0x00                            |
+|        255 | 0x00 (max output)               |
 
 Output range `0x00..0x3F` matches:
 - **AdLib operator total-level register** (0x40/0x43; 0 = full output, 0x3F = silent)
@@ -283,15 +283,15 @@ They're presumably used when the input data is already in hardware-units.
 Per-sound state, 12 bytes per entry, indexed by the sound trigger ID. Layout
 (inferred from `audio_play_sound` decompile):
 
-| Offset | Type | Field                                                |
-| -----: | :--- | ---------------------------------------------------- |
-| `+0`   | word | **alias_id** — index into sample-buffer table at `0x3579` (4 bytes per slot: offset+segment). Allows N sound-IDs to share one buffer. |
-| `+2`   | word | (reserved or status)                                 |
-| `+4`   | word | **buf_lo** — 'is loaded' check (paired with +6)      |
-| `+6`   | word | **buf_hi** — both zero ⇒ not loaded, use alias_id    |
-| `+8`   | word | **duration** — passed as length/period to audio_engine_play |
-| `+A`   | byte | **rate_or_vol** — passed as uVar1, sometimes halved per device |
-| `+B`   | byte | **flags** — passed as flags arg to audio_engine_play |
+| Offset | Type | Field                                                                                                                                 |
+| -----: | :--- | ------------------------------------------------------------------------------------------------------------------------------------- |
+|   `+0` | word | **alias_id** — index into sample-buffer table at `0x3579` (4 bytes per slot: offset+segment). Allows N sound-IDs to share one buffer. |
+|   `+2` | word | (reserved or status)                                                                                                                  |
+|   `+4` | word | **buf_lo** — 'is loaded' check (paired with +6)                                                                                       |
+|   `+6` | word | **buf_hi** — both zero ⇒ not loaded, use alias_id                                                                                     |
+|   `+8` | word | **duration** — passed as length/period to audio_engine_play                                                                           |
+|   `+A` | byte | **rate_or_vol** — passed as uVar1, sometimes halved per device                                                                        |
+|   `+B` | byte | **flags** — passed as flags arg to audio_engine_play                                                                                  |
 
 ### The sample-buffer table at DGROUP `0x3579`
 
@@ -308,11 +308,11 @@ Read by `audio_play_sound` to scale the per-sound volume/timer. Cases 1-5:
 
 | Case | Behavior                                                              |
 | ---: | --------------------------------------------------------------------- |
-| `1`  | If `rate_or_vol` in range [10, 12]: halve. Else: pass through.        |
-| `2`  | Range-check (early-out on out-of-range).                              |
-| `3`  | Always halve.                                                          |
-| `4`  | Halve + range-check.                                                  |
-| `5`  | Return `sound_id * 0xC` immediately (probe-only? gets buffer offset?) |
+|  `1` | If `rate_or_vol` in range [10, 12]: halve. Else: pass through.        |
+|  `2` | Range-check (early-out on out-of-range).                              |
+|  `3` | Always halve.                                                         |
+|  `4` | Halve + range-check.                                                  |
+|  `5` | Return `sound_id * 0xC` immediately (probe-only? gets buffer offset?) |
 
 `*0x3590` is written only by `wbase.ovr` (the main-menu overlay), at file
 `0x1488` where 5 consecutive bytes are copied to `(0x3590..0x3594)` from a
