@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { EgaScreen } from '@wiz6/data';
 import { loadEgaScreen } from '../data-loader.js';
-import { WIZ6_TITLE_PALETTE } from '../palettes/wiz6-title.js';
+import { EGA_DEFAULT } from '@wiz6/data';
 
 const ZOOM = 2;
 type RenderMode = 'layers' | 'composite';
@@ -135,7 +135,7 @@ export function ScreenAlignmentTool({ url }: Props) {
             colorIndex |= bit << p;
           }
           if (colorIndex === 0) continue;
-          const rgb = WIZ6_TITLE_PALETTE.colors[colorIndex];
+          const rgb = EGA_DEFAULT.colors[colorIndex];
           if (!rgb) continue;
           ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
           ctx.fillRect(x * ZOOM, y * ZOOM, ZOOM, ZOOM);

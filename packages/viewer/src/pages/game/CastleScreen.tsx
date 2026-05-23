@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PicSchema, WIZ6_DUNGEON } from '@wiz6/data';
+import { PicSchema, WIZ6_DUNGEON, EGA_DEFAULT } from '@wiz6/data';
 import {
   renderPicDescriptor,
   renderEgaScreen,
@@ -11,7 +11,6 @@ import {
   type RenderedSprite,
 } from '@wiz6/parser';
 import { loadEgaScreen } from '../../data-loader.js';
-import { WIZ6_TITLE_PALETTE } from '../../palettes/index.js';
 import styles from './CastleScreen.module.css';
 
 const ENGINE_W = 320;
@@ -72,7 +71,7 @@ export function CastleScreen() {
     loadEgaScreen('/screens/dragonsc.json')
       .then((screen) => {
         if (cancelled) return;
-        setDragonscRgba(renderEgaScreen(screen, WIZ6_TITLE_PALETTE).rgba);
+        setDragonscRgba(renderEgaScreen(screen, EGA_DEFAULT).rgba);
       })
       .catch(() => {
         /* leave null */

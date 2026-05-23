@@ -1,6 +1,6 @@
+import { EGA_DEFAULT } from '@wiz6/data';
 import { SectionCard } from '../components/SectionCard.js';
 import { ScreenGallery } from '../views/ScreenGallery.js';
-import { WIZ6_TITLE_PALETTE } from '../palettes/index.js';
 import styles from './Landing.module.css';
 
 const SECTIONS = [
@@ -80,7 +80,7 @@ export function Landing() {
   return (
     <main className={styles.page}>
       <div className={styles.hero} data-testid="landing-hero">
-        <ScreenGallery url="/screens/titlepag.json" palette={WIZ6_TITLE_PALETTE} hideHeader />
+        <ScreenGallery url="/screens/titlepag.json" palette={EGA_DEFAULT} hideHeader />
       </div>
       <h1 className={styles.heading}>Wiz6 Data Explorer</h1>
       <p className={styles.lede}>

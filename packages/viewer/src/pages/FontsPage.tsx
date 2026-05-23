@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import type { Palette } from '@wiz6/data';
+import { EGA_DEFAULT } from '@wiz6/data';
 import { FontGallery } from '../views/FontGallery.js';
 import { Font4bppGallery } from '../views/Font4bppGallery.js';
 import {
   EGA_PALETTE,
   WIZ6_PALETTE_1,
   WIZ6_PALETTE_2,
-  WIZ6_TITLE_PALETTE,
   type PaletteName,
 } from '../palettes/index.js';
 
@@ -14,7 +14,7 @@ const PALETTE_BY_NAME: Record<PaletteName, Palette> = {
   'wiz6-main': WIZ6_PALETTE_1,
   'wiz6-dungeon': WIZ6_PALETTE_2,
   'ega-default': EGA_PALETTE,
-  'wiz6-title': WIZ6_TITLE_PALETTE,
+  'wiz6-title': EGA_DEFAULT,
 };
 
 const PICKER_OPTIONS: { name: PaletteName; label: string }[] = [

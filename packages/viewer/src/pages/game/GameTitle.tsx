@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { PicSchema, WIZ6_DUNGEON } from '@wiz6/data';
+import { PicSchema, WIZ6_DUNGEON, EGA_DEFAULT } from '@wiz6/data';
 import {
   renderPicDescriptor,
   renderEgaScreen,
@@ -13,7 +13,6 @@ import {
   type RenderedSprite,
 } from '@wiz6/parser';
 import { loadEgaScreen } from '../../data-loader.js';
-import { WIZ6_TITLE_PALETTE } from '../../palettes/index.js';
 import { loadSnd, playSnd, installAudioUnlockListener, type PlayableSnd } from '../../lib/audio.js';
 import styles from './GameTitle.module.css';
 
@@ -81,7 +80,7 @@ export function GameTitle() {
     loadEgaScreen('/screens/titlepag.json')
       .then((screen) => {
         if (cancelled) return;
-        const rendered = renderEgaScreen(screen, WIZ6_TITLE_PALETTE);
+        const rendered = renderEgaScreen(screen, EGA_DEFAULT);
         setTitlepagRgba(rendered.rgba);
       })
       .catch(() => {
