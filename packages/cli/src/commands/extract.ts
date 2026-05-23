@@ -9,6 +9,7 @@ import { extractMessageDb } from '../extractors/extract-message-db.js';
 import { extractNewgameDb } from '../extractors/extract-newgame-db.js';
 import { extractScenarioDb } from '../extractors/extract-scenario-db.js';
 import { extractPic } from '../extractors/extract-pic.js';
+import { extractSnd } from '../extractors/extract-snd.js';
 import { resolveOriginalDir } from '../lib/loaders.js';
 import type { CliIO } from '../index.js';
 
@@ -17,8 +18,25 @@ interface ExtractOpts {
   io: CliIO;
 }
 
-type TypeName = 'fonts' | 'portraits' | 'screens' | 'messages' | 'newgame' | 'scenario' | 'pics';
-const ALL_TYPES: TypeName[] = ['fonts', 'portraits', 'screens', 'messages', 'newgame', 'scenario', 'pics'];
+type TypeName =
+  | 'fonts'
+  | 'portraits'
+  | 'screens'
+  | 'messages'
+  | 'newgame'
+  | 'scenario'
+  | 'pics'
+  | 'sounds';
+const ALL_TYPES: TypeName[] = [
+  'fonts',
+  'portraits',
+  'screens',
+  'messages',
+  'newgame',
+  'scenario',
+  'pics',
+  'sounds',
+];
 
 const USAGE = `usage: wiz6 extract <type|--all> [flags]
 
@@ -30,6 +48,7 @@ types:
   newgame      newgame.dbs (character creation templates)
   scenario     scenario.dbs (XP tables, items, monsters, quest data)
   pics         mon00-mon58 + credits.pic (full decode, per-descriptor PNGs + contact sheet)
+  sounds       sound00-sound38.snd (raw bytes + decoded metadata JSON)
   --all        extract all of the above
 
 flags:
@@ -133,6 +152,23 @@ function extractOneType(
         });
         io.write(
           `wrote ${extractedDir}/pics/${id}.json (${pic.segments.length} segments, ${pic.totalBytes} bytes)\n`,
+        );
+      }
+      return;
+    }
+    case 'sounds': {
+      const entries = readdirSync(originalDir)
+        .filter((f) => f.toLowerCase().endsWith('.snd'))
+        .sort();
+      for (const f of entries) {
+        const id = f.replace(/\.snd$/i, '');
+        const meta = extractSnd({
+          originalPath: join(originalDir, f),
+          outputDir: join(extractedDir, 'sounds'),
+          id,
+        });
+        io.write(
+          `wrote ${extractedDir}/sounds/${f} (${meta.compression}, ${meta.sampleCount} samples @ ${meta.sampleRateHz} Hz)\n`,
         );
       }
       return;

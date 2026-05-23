@@ -12,6 +12,12 @@ export { decodeNewgameDb, type DecodeNewgameDbOpts } from './formats/newgame-db.
 export { decodeScenarioDb, type DecodeScenarioDbOpts } from './formats/scenario-db.js';
 export { decodePic, type DecodePicOpts } from './formats/pic.js';
 export {
+  decodeSnd,
+  sndSampleRateHz,
+  DEFAULT_SND_RATE_DIVISOR,
+  type DecodeSndOpts,
+} from './formats/snd.js';
+export {
   renderPicDescriptor,
   concatenatePicSegments,
   EGA_PALETTE,

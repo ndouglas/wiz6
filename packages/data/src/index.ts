@@ -69,3 +69,4 @@ export {
   type PicRunOp,
   type PicDescriptor,
 } from './schemas/pic.js';
+export { SndSchema, type Snd } from './schemas/snd.js';
