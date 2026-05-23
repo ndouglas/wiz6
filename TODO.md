@@ -56,12 +56,6 @@ Next free ID: **#017**
   - Driving question: what's the friction users hit today when validating the port? Answer shapes the design.
   - Refs: `tools/parity/` (existing differential tooling), `tools/dosbox/wiz6.conf`.
 
-- #011 [open] — Surface RE work in the data explorer (layers A + C remaining)
-  - **Layer B shipped** in this session: the `/explore/notes` Engineering Notes page with 16 curated cards covering cursed mechanics, bugs, arbitrary design choices, and their player-experience consequences. Filter chips, tag counts, TOC, per-card permalinks.
-  - **Layer A — Auto-generated function-table pages.** Still pending. For each `docs/re/findings/<overlay>-naming-pass.json`, render a searchable table of named functions with click-to-expand evidence and disassembly snippet. Effectively API docs for the Wiz6 engine.
-  - **Layer C — Inline "Director's commentary" tooltips.** Still pending. Contextual RE badges in the gameplay UI (e.g. bonus-roller commentary on a future character-creation screen, .pic permutation commentary on sprite pages). Highest effort, highest payoff for fans.
-  - Recommended order now: A next (base reference layer), then C once layer A has settled the patterns we want to commentary-link from.
-
 ---
 
 ## Open questions (lower priority; investigation tasks, not features)
