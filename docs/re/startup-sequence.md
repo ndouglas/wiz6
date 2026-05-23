@@ -1,14 +1,56 @@
 # Wiz6 startup sequence — RE notes
 
-**Status:** state machine mapped; timing constants confirmed by static analysis.
-DOSBox-X dynamic confirmation still pending for a handful of specifics (see
-`docs/re/findings/startup-sequence.json` for the gaps).
+**Status:** state machine mapped + cross-verified against working TS
+reimplementation (`packages/parser/src/sim/intro-sequence.ts`). State
+transitions, table layout, token mapping, scroll math, wall-clock pacing
+all confirmed. DOSBox-X dynamic confirmation still pending for the comparator
+direction at `winit.ovr 0xCFB` — the port's behavior matches user lived
+recollection, which is the inverse of the agent's first-pass reading.
 
 The startup → title → credits → main-menu flow lives in `winit.ovr`. It is
 driven by a global state variable at wroot DGROUP **`0x363a`** (`game_state`)
 which the outer dispatch loop in wroot.exe (`ovl_install_table` @ wroot
 `0x132d`) consults each iteration to decide which `.ovr` to (re-)load. winit
 itself handles four of these states: **0, 1, 2, 8**.
+
+## Corrections from implementation cross-check (2026-05-22)
+
+Building the TS port (`packages/parser/src/sim/intro-sequence.ts` +
+`packages/viewer/src/pages/game/GameTitle.tsx`) and validating against the
+user's lived recollection of the original game pulled several corrections
+out of the first-pass RE. These are documented inline in the relevant
+sections below; in summary:
+
+- **Tokens in the scroll table are 1-indexed** into the loaded `credits.pic`
+  descriptors. Token `N` renders descriptor `N-1`. Visual verification: `token=7`
+  rendered descriptor 6 = Wizardry logo top.
+- **Clamp condition was inverted.** Correct: clamp applies to `i < 3 || i == 8`
+  (entries 0, 1, 2, 8 — persistent header + finale). Original agent reading
+  said `i >= 3 && i != 8`, which would have credit panels stack at cap instead
+  of sliding through.
+- **Cull comparator was reversed.** Correct: skip when `y < cap` (entry has
+  slid above its rest position). Original pseudocode said `y > cap`. The agent
+  flagged the comparator at `winit.ovr 0xCFB` with `???`; the inverse reading
+  is what produces actual observed behavior.
+- **Coordinates are absolute screen pixels**, not window-relative to the
+  UI window opened in step 9.
+- **Wall-clock pacing**: 126 scroll frames × engine's calibrated busy-wait
+  ≈ 6 sec on a 486DX/33. The port's 3:1 RAF:sim ratio lands at ~6.3 sec —
+  accidental parity. See "Wall-clock pacing" section below.
+
+## Lessons for future overlay RE
+
+1. **Comparator direction is a common bug.** When disasm can't distinguish
+   `JL` vs `JG` / `JLE` vs `JGE`, mark `confidence: low` and verify behavior
+   in DOSBox-X before publishing pseudocode that downstream code will copy.
+2. **Off-by-one in index-shaped fields.** Engine "tokens" / "IDs" that look
+   like descriptor indices may be 1-indexed with 0 as a sentinel. Visual
+   cross-check is fast confirmation.
+3. **Wall-clock parity ≠ byte parity.** Engine frame *counts* translate
+   cleanly to the port; frame *durations* don't, because they're calibrated
+   to original-CPU speed via busy-wait loops at boot.
+4. **The thunk-delta law (`thunk_addr = wroot_file_offset + 0xBA9C`)**
+   discovered during this pass applies to all overlays. See findings JSON.
 
 ## State machine
 
