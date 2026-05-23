@@ -15,6 +15,7 @@
   "dependencies": {
     "@wiz6/data": "workspace:*",
     "@wiz6/parser": "workspace:*",
+    "marked": "^18.0.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0"

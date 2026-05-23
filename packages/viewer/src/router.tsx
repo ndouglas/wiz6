@@ -53,6 +53,9 @@ const PicDetail = lazy(() =>
 const SoundsPage = lazy(() =>
   import('./pages/SoundsPage.js').then((m) => ({ default: m.SoundsPage })),
 );
+const DocsPage = lazy(() =>
+  import('./pages/DocsPage.js').then((m) => ({ default: m.DocsPage })),
+);
 
 export const routes = (
   <>
@@ -78,6 +81,8 @@ export const routes = (
       <Route path="pics" element={<PicsIndex />} />
       <Route path="pics/:name" element={<PicDetail />} />
       <Route path="sounds" element={<SoundsPage />} />
+      <Route path="docs" element={<DocsPage />} />
+      <Route path="docs/*" element={<DocsPage />} />
     </Route>
   </>
 );

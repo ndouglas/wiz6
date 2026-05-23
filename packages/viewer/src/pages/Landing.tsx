@@ -68,6 +68,12 @@ const SECTIONS = [
     description: '35 sound effects (.snd) — Huffman-decoded 8-bit PCM with per-sound metadata and inline preview.',
     meta: '35 entries',
   },
+  {
+    title: 'Docs',
+    to: '/explore/docs',
+    description: 'Reverse-engineering notes, format specs, and implementation plans — searchable in-browser.',
+    meta: '40 entries',
+  },
 ];
 
 export function Landing() {

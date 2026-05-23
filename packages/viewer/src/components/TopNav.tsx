@@ -12,6 +12,7 @@ const SECTIONS: { label: string; to: string }[] = [
   { label: 'Newgame', to: '/explore/newgame' },
   { label: 'Pics', to: '/explore/pics' },
   { label: 'Sounds', to: '/explore/sounds' },
+  { label: 'Docs', to: '/explore/docs' },
   { label: 'Files', to: '/explore/files' },
 ];
 
