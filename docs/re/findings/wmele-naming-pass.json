@@ -1,0 +1,391 @@
+{
+  "topic": "wmele-naming-pass",
+  "subagent_run": "2026-05-23",
+  "binaries": ["wmele.ovr"],
+  "summary": "Named 47 of 58 FUN_XXXX functions in wmele.ovr via Ghidra annotations (SourceType.USER_DEFINED). wmele.ovr is the melee-combat overlay: it owns game states 0x0a (combat init), 0x0b (per-round redraw), and 0x0e (end-of-round cleanup / transition). Coverage spans the full combat lifecycle: encounter setup (monster-group spawn from monster-type templates, party-into-combat-slots copy, recursive group expansion), per-round resolution (rank/file assignment, attack-target rolling, attack-animation queue with depth-sorted insertion, per-slot status-effect decay, party-member damage/death, XP/treasure awards), the 3D combat-scene viewport renderer (a 2192-byte function that reuses the maze-walk position state to draw the dungeon walls behind the monster sprites, then overlays the monster placements via 11-byte slot records at 0x51a8), and the surrounding UI (window create/destroy, party panel redraw, flee attempt, sound effect playback). 11 functions remain as FUN_XXXX: 7 are tiny per-depth render flag-clearers (0x42a3 / 0x4306 / 0x4337 / 0x4368 / 0x4395 / 0x43c7 / 0x43f9 — each ~50 bytes, gated on the `0x513e..0x5140` per-depth bit flags, but their specific 'which piece of the combat-scene frame' role is too granular to name without dynamic-trace context), plus a few jump-table fragments Ghidra mis-identified as functions (0x4426 dispatches via an out-of-segment jump table at -0x760e).",
+  "method": "PyGhidra + DecompInterface for all 58 functions. For each: extracted (a) decompiled C, (b) outgoing CALL edges (intra-overlay FUN_XXXX + indirect func_0x0000XXXX BSS thunks), (c) scalar operand values, (d) BSS data references. Thunks resolved via the thunk-delta law (bss_offset - 0xBA9C = wroot file offset); resolved 44 distinct thunks across 122 call sites. Names applied when there was multi-signal evidence: distinctive BSS field access patterns matching the combat-slot layout (0x43a8[i]+0x2c stride, slot fields at +0x2/+0x4 HP, +0x6/+0x8 SP, +0x22 status_level, +0x2a rank-file code, +0x18c..+0x195 status-timer arrays), unique state-transition writes to 0x363a, clear loops over the 7 monster-group / 12 animation-slot / 5-rank x 2-file tables. The maze-traversal helpers (0x2f8b, 0x2fc8, 0x30ee, 0x3153, 0x31b8, 0x3239, 0x3622, 0x37df) are byte-equivalent to the wmaze.ovr renderer's wall-check + step-by-facing helpers (0x357a, 0x35b7, 0xf2a, 0x36dd, 0x3742, 0x37a7) — they're reused for the combat-scene background view of the same map cell.",
+  "stats": {
+    "total_functions": 58,
+    "renamed": 47,
+    "remaining_FUN_XXXX": 11,
+    "categories": {
+      "state_machine": 4,
+      "encounter_setup": 8,
+      "monster_groups": 6,
+      "round_resolution": 7,
+      "attack_animation": 6,
+      "combat_view": 9,
+      "party_panel": 2,
+      "ui_helper": 2,
+      "audio": 1,
+      "data_util": 2
+    }
+  },
+  "state_machine": {
+    "states_handled": [
+      {"value": "0x0a", "decimal": 10, "purpose": "init combat encounter", "handler": "0x2d6d (wmele_state_0a_init_combat)"},
+      {"value": "0x0b", "decimal": 11, "purpose": "per-round redraw + monster attacks", "handler": "0x2b6a (wmele_state_0b_run_round)"},
+      {"value": "0x0e", "decimal": 14, "purpose": "end-of-round cleanup / transition", "handler": "0x2ceb (wmele_state_0e_end_round)"}
+    ],
+    "dispatch_entry": "0x0e",
+    "header_size_bytes": 14,
+    "transitions_out": [
+      "state 0xb: written by 0x2d6d (after init) and by 0x2ceb (when combat continues)",
+      "state 0xc: written by 0x2b6a (after round runs)",
+      "state 0x8: written by 0x1716 when entire party dies (party-wipe transition)",
+      "state 0x17: written by 0x1716 when 0x4356 (combat-end flag) is set by escape/victory paths",
+      "state from 0x4fce: written by 0x2ceb on combat-end (escape/victory transitions to caller's choice)"
+    ]
+  },
+  "key_discoveries": [
+    "wmele.ovr has a 14-byte overlay header (matches wbase.ovr, differs from winit.ovr's 12-byte). Dispatch entry at file offset 0x0e: clears 3 BSS flags (0x500e, 0x5010, 0x5012), then sequentially tests *0x363a == 0xa → calls 0x2d6d, == 0xe → calls 0x2ceb, == 0xb → calls 0x2b6a. Returns ax=0.",
+    "Combat slot layout (0x2c bytes each, 13 slots per group at 0x43a8[group]+slot*0x2c): +0x00 hp_max, +0x02 hp_cur, +0x04 sp_max_a (e.g. mage), +0x06 sp_cur_a, +0x08 sp_max_b (e.g. priest), +0x0a..0x17 (10 bytes) status-effect timer array, +0x10 'attacking' flag, +0x11 paralysis-ish flag, +0x13 some-status flag, +0x16 ?, +0x19a monster_type_id, +0x19b zone-resolved monster idx, +0x19c is_first_round, +0x19d slot_count_in_group, +0x18c..0x195 per-group status-timer arrays, +0x22 status_level (0..5), +0x23 secondary status flag, +0x24 turn-skip counter, +0x26/+0x27/+0x29 ambush damage flags, +0x29 attack target rank, +0x2a rank*10+file (0..0x4F, 0xff=unassigned), +0x2b some flee/fled flag.",
+    "Monster type layout (0xde bytes each, loaded via 0xc31e thunk into *0x43b6[i]): +0x74/+0x76 group-size dice (XdY format), +0x78/+0x7a hp-dice, +0x7c/+0x7e sp-dice, +0xa4/+0xa6 secondary-spawn type+chance, +0xa8 group-size-modifier divisor, +0xaa/+0xab speed-boost bytes, +0xc4 attack-damage-by-round table (4 bytes), +0xd1 zone-roll dice, +0xd2 sound-id-on-spawn, +0xd6 attack-count modifier, +0xd7 base attack count, +0xdc/+0xda special-zone-flags, +0x74 zone-spawn-count.",
+    "3D combat-scene viewport (renderer at 0x44e8, 2192 bytes — same size as wmaze.ovr's view_render_corridor_frame at 0x4ad7) reuses the maze-state globals (0x4f9a facing, 0x4f9c..0x4fa0 z/y/x, 0x4faa maze-data ptr) AND has its own combat-only renderer state at 0x5118 (current depth iter), 0x52f6 (active depth count, default 4), 0x52f2/0x52f4 (L/R parity flags), 0x51a8+i*0xb (monster placement records: byte +0x0/+0x2/+0x4/+0x6 are sprite ptrs L/R/back/forward; +0xa is depth idx; +0xb is some 0xff marker). Calls FUN_3239/FUN_3622/FUN_37df for front/left/right walls and FUN_3a7d/FUN_3fc5/FUN_41b4 to actually emit the wall/door descriptors via video_descriptor_render (0xf148 thunk).",
+    "Combat windows: 0x438a (left party panel, 0x13 wide x 0xb tall at (0,0x13)), 0x438c (right monster panel, 0x14 wide x 0xa tall at (0x14,0x13)). These hold the message scroll on left and the monster portrait area on right. Created in 0x2d6d, destroyed in 0x2a52.",
+    "The state-0xa handler 0x2d6d allocates 7 group descriptors + 12 animation slots up-front via the 0xf4be thunk (wroot 0x3a22, likely a per-overlay arena malloc — matches its use across all overlays for fresh allocations).",
+    "Sound: 0x008d loads + decompresses a SOUND%02d.SND file inline (filename built via 0x0cd6 boot_build_prompt_message — that's actually the generic 'load file by template' wroot helper). Plays via the global 'play sound' path (0xc546, the *ui_animation_helper / play-sound thunk). 0x008d is called from 0x401 (spawn) and 0x1010 (refresh) when monster type has a sound-id at +0xd2.",
+    "Recursive group spawn: 0x401 recursively spawns up to 5 monster groups (one per recursion depth). Each spawn rolls a 'secondary-spawn-chance' from the monster type at +0xa4..+0xa7 and if it triggers, recursively calls 0x401 with the secondary type's ID. Depth cap is (current_zone+1)/2 + 1 (+ 1 more if 0x4338 is non-zero). 100/150/75 for normal/ambush/party-surprise.",
+    "Rank/file occupancy at 0x4362 is a 2x5 (rank x file) array of 2-byte 'group index' entries (0x14 bytes total, cleared in 0x024d). 0x50b4 is a parallel 'is-attacking-this-turn' bitmap (also 2x5). 0x4348+i*5 and 0x433e+i*5 are per-rank-file attack target overrides (mage targeting hit dice etc.)."
+  ],
+  "thunk_usage": [
+    {"thunk": "0xbb71", "wroot_offset": "0x00d5", "name": "abort_with_code", "callsites": 2, "callers": ["0x008d", "0x0169"]},
+    {"thunk": "0xbbb6", "wroot_offset": "0x011a", "name": "ui_window_create", "callsites": 1, "callers": ["0x2d6d"]},
+    {"thunk": "0xbd6e", "wroot_offset": "0x02d2", "name": "ui_window_destroy", "callsites": 1, "callers": ["0x2a52"]},
+    {"thunk": "0xbd8c", "wroot_offset": "0x02f0", "name": "FUN_02f0", "callsites": 3, "callers": ["0x2ceb", "0x2d6d", "0x11e7"], "note": "wroot fn unnamed; used as ui_window_refresh-like after focus changes"},
+    {"thunk": "0xbda7", "wroot_offset": "0x030b", "name": "ui_window_set_cursor", "callsites": 6, "callers": ["0x1716", "0x1971", "0x1a82", "0x2a52", "0x11e7", "0x2d6d"]},
+    {"thunk": "0xc1f7", "wroot_offset": "0x075b", "name": "load_msg_into_buf", "callsites": 4, "callers": ["0x024d", "0x28ae", "0x11e7", "0x2d6d"], "note": "Named informally in wmaze pass; still FUN_xxxx in wroot Ghidra"},
+    {"thunk": "0xc31e", "wroot_offset": "0x0882", "name": "FUN_0882", "callsites": 3, "callers": ["0x008d", "0x0169", "0x0401"], "note": "Generic 4-arg data-loader thunk: load (table_id, dest_ptr, idx, flag). Used to load .snd headers, monster-type data, and external content tables."},
+    {"thunk": "0xc47e", "wroot_offset": "0x09e2", "name": "rng_next", "callsites": 12, "callers": ["0x02c5", "0x099e", "0x0b02", "0x0c8c", "0x0f2f", "0x0f71", "0x11e7", "0x215b", "0x2692", "0x28ae", "0x0401", "0x1dc2"], "note": "Named informally in wmaze pass; still FUN_xxxx in wroot Ghidra"},
+    {"thunk": "0xc497", "wroot_offset": "0x09fb", "name": "ui_window_redraw_focused", "callsites": 2, "callers": ["0x28ae", "0x2a52"]},
+    {"thunk": "0xc4de", "wroot_offset": "0x0a42", "name": "FUN_0a42", "callsites": 1, "callers": ["0x2a52"], "note": "Named informally as 'ui_helper_a42' in wbase findings"},
+    {"thunk": "0xc546", "wroot_offset": "0x0aaa", "name": "FUN_0aaa", "callsites": 5, "callers": ["0x1716", "0x205b", "0x28ae", "0x11e7", "0x2d6d"], "note": "Named informally as 'ui_animation_helper' in wbase findings; here clearly used as the play-sound entry point (matches CLAUDE.md note: 'play-sound entry at wroot 0x10AAA')"},
+    {"thunk": "0xc61a", "wroot_offset": "0x0b7e", "name": "FUN_0b7e", "callsites": 1, "callers": ["0x28ae"]},
+    {"thunk": "0xc6de", "wroot_offset": "0x0c42", "name": "mouse_read_state_or_zero", "callsites": 1, "callers": ["0x0042"]},
+    {"thunk": "0xc772", "wroot_offset": "0x0cd6", "name": "boot_build_prompt_message", "callsites": 2, "callers": ["0x008d", "0x0169"]},
+    {"thunk": "0xde7f", "wroot_offset": "0x23e3", "name": "ui_window_putchar", "callsites": 3, "callers": ["0x1971", "0x1a82", "0x2a52"]},
+    {"thunk": "0xdf85", "wroot_offset": "0x24e9", "name": "FUN_24e9", "callsites": 3, "callers": ["0x1716", "0x11e7", "0x2d6d"], "note": "Named informally as 'ui_window_write_chars' in wbase findings"},
+    {"thunk": "0xdfb9", "wroot_offset": "0x251d", "name": "ui_window_puts", "callsites": 1, "callers": ["0x1a82"]},
+    {"thunk": "0xe0df", "wroot_offset": "0x2643", "name": "kbd_check_with_filter", "callsites": 1, "callers": ["0x0042"]},
+    {"thunk": "0xe1c0", "wroot_offset": "0x2724", "name": "kbd_getkey_with_filter", "callsites": 1, "callers": ["0x0042"]},
+    {"thunk": "0xe2a8", "wroot_offset": "0x280c", "name": "kbd_flush_buffer", "callsites": 1, "callers": ["0x0042"]},
+    {"thunk": "0xe2f4", "wroot_offset": "0x2858", "name": "FUN_2858", "callsites": 1, "callers": ["0x23af"], "note": "Named informally as 'delay_one_unit' in wbase findings"},
+    {"thunk": "0xe31d", "wroot_offset": "0x2881", "name": "FUN_2881", "callsites": 1, "callers": ["0x0c8c"], "note": "Named informally as 'set_text_attrib' / 'setbit'; the call here passes 3-bit ambush damage flag bit, plausibly setbit"},
+    {"thunk": "0xe34b", "wroot_offset": "0x28af", "name": "FUN_28af", "callsites": 4, "callers": ["0x3239", "0x3622", "0x37df", "0x44e8"], "note": "Named informally as 'getbit_test' in wmaze findings — confirmed by use here reading wall/pit bit fields at +0x43a and +0x49a"},
+    {"thunk": "0xe3c1", "wroot_offset": "0x2925", "name": "FUN_2925", "callsites": 5, "callers": ["0x30ee", "0x3153", "0x3239", "0x3622", "0x37df"], "note": "Named informally as 'getbits_n' in wmaze findings — confirmed by use here reading 2/4-bit fields"},
+    {"thunk": "0xe4ff", "wroot_offset": "0x2a63", "name": "ui_screen_refresh", "callsites": 3, "callers": ["0x2ceb", "0x11e7", "0x2d6d"]},
+    {"thunk": "0xebb4", "wroot_offset": "0x3118", "name": "ui_window_focus", "callsites": 3, "callers": ["0x2a52", "0x11e7", "0x2d6d"]},
+    {"thunk": "0xec6d", "wroot_offset": "0x31d1", "name": "ui_window_unfocus", "callsites": 1, "callers": ["0x2a52"]},
+    {"thunk": "0xed5a", "wroot_offset": "0x32be", "name": "ui_window_clear", "callsites": 2, "callers": ["0x2ceb", "0x2a52"]},
+    {"thunk": "0xee85", "wroot_offset": "0x33e9", "name": "huffman_load_and_decompress", "callsites": 1, "callers": ["0x008d"]},
+    {"thunk": "0xf0dc", "wroot_offset": "0x3640", "name": "kbd_pre_input_disk_check", "callsites": 2, "callers": ["0x008d", "0x0169"]},
+    {"thunk": "0xf100", "wroot_offset": "0x3664", "name": "FUN_3664", "callsites": 1, "callers": ["0x0169"], "note": "Named informally as 'video_driver_thunk_0' in wbase findings"},
+    {"thunk": "0xf10c", "wroot_offset": "0x3670", "name": "FUN_3670", "callsites": 2, "callers": ["0x23af", "0x44e8"], "note": "video driver sprite-blit thunk (used by animation player + 3D scene renderer)"},
+    {"thunk": "0xf130", "wroot_offset": "0x3694", "name": "FUN_3694", "callsites": 1, "callers": ["0x44e8"], "note": "Named informally as 'video_driver_thunk_3' in wbase findings"},
+    {"thunk": "0xf13c", "wroot_offset": "0x36a0", "name": "FUN_36a0", "callsites": 2, "callers": ["0x27e9", "0x4426"], "note": "Named informally as 'video_driver_post_frame_refresh' in wbase findings"},
+    {"thunk": "0xf148", "wroot_offset": "0x36ac", "name": "FUN_36ac", "callsites": 5, "callers": ["0x3a7d", "0x3fc5", "0x41b4", "0x4426", "0x44e8"], "note": "Named informally as 'video_descriptor_render' in wbase findings — confirmed: this is the per-PIC-sprite blit primitive used by the combat-scene 3D renderer for every wall/door/monster descriptor"},
+    {"thunk": "0xf34c", "wroot_offset": "0x38b0", "name": "FUN_38b0", "callsites": 2, "callers": ["0x024d", "0x44e8"], "note": "memset-like primitive (clears N bytes at ptr; takes 3rd arg as fill byte)"},
+    {"thunk": "0xf3aa", "wroot_offset": "0x390e", "name": "strcpy", "callsites": 5, "callers": ["0x008d", "0x0169", "0x205b", "0x11e7", "0x2d6d"]},
+    {"thunk": "0xf4be", "wroot_offset": "0x3a22", "name": "FUN_3a22", "callsites": 1, "callers": ["0x2d6d"], "note": "Per-overlay malloc-like arena allocator (allocates N bytes, returns pointer)"},
+    {"thunk": "0xf5bc", "wroot_offset": "0x3b20", "name": "ui_window_free_struct", "callsites": 1, "callers": ["0x2a52"]},
+    {"thunk": "0xf924", "wroot_offset": "0x3e88", "name": "crt_open", "callsites": 2, "callers": ["0x008d", "0x0169"]},
+    {"thunk": "0xf9ba", "wroot_offset": "0x3f1e", "name": "FUN_3f1e", "callsites": 3, "callers": ["0x0c8c", "0x1971", "0x11e7"], "note": "Likely rng-helper or coinflip — called with no args, returns small int"},
+    {"thunk": "0xfaab", "wroot_offset": "0x400f", "name": "strlen", "callsites": 3, "callers": ["0x1a82", "0x11e7", "0x2d6d"]},
+    {"thunk": "0xfda5", "wroot_offset": "0x4309", "name": "crt_dos_close", "callsites": 2, "callers": ["0x008d", "0x0169"]},
+    {"thunk": "0xfedc", "wroot_offset": "0x4440", "name": "crt_memmove", "callsites": 2, "callers": ["0x07f7", "0x168f"]}
+  ],
+  "thunk_usage_summary": {
+    "total_distinct_thunks": 44,
+    "resolved_to_named_wroot_fn": 26,
+    "resolved_to_unnamed_FUN_xxxx": 18,
+    "informally_named_via_prior_passes": 14,
+    "total_call_sites": 122,
+    "note": "Of 44 distinct thunks, 26 resolve to a wroot function already named in wroot-naming-pass.json. The remaining 18 resolve to FUN_XXXX in the wroot Ghidra project, but 14 of those have informal names documented in either the wmaze or wbase findings (e.g. rng_next, load_msg_into_buf, getbit_test, getbits_n, ui_animation_helper, video_descriptor_render). Promoting those informal names into wroot-naming-pass.json (next wroot pass) would lift the 'fully named' count to 40/44."
+  },
+  "findings": [
+    {
+      "id": "fn-dispatch-and-states",
+      "claim": "wmele.ovr has 14-byte header. Dispatch entry at file offset 0x0e handles game-state values 0x0a, 0x0b, 0x0e by calling 0x2d6d, 0x2b6a, 0x2ceb respectively.",
+      "category": "state_machine",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "address": "0x0e",
+        "type": "instruction_pattern_match",
+        "details": "ndisasm at file offset 0x0e shows: clear 0x500e/0x5010/0x5012, then three back-to-back `cmp word [0x363a], <N>; jnz; call <handler>` sequences for N=0xa,0xe,0xb. Header bytes 0x00..0x0d are F2 00 72 45 D9 4D EE 4F 20 00 F4 02 E8 92 (overlay link table). Matches wbase.ovr header style. State transitions: 0x2d6d→0xb; 0x2b6a→0xc; 0x2ceb→0xb (continue) or 0x4fce (escape)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-encounter-init",
+      "claim": "0x2d6d is the state-0xa init-combat handler; 0x1d6a is the encounter-setup orchestrator; 0x024d is the per-encounter buffer reset.",
+      "category": "encounter_setup",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x2d6d", "0x1d6a", "0x024d"],
+        "details": "0x2d6d allocates 7 monster-group buffers (0x1a0 bytes each) + 7 monster-type buffers (0xde bytes each) + 12 animation slots (0x18 bytes each) via the 0xf4be arena thunk, creates the two combat windows via 0xbbb6 (left 0x13x0xb, right 0x14x0xa), calls 0x1d6a, optionally shows a 'surprise' message if 0x4fce==0x12 and >1 group, then transitions to state 0xb. 0x1d6a clears flags 0x43c8/0x43c6, sets 0x4354 if leader monster type matches scripted IDs (0x80/0x97/0x99), calls 0x024d (reset buffers), 0x0401 (spawn root monster group), 0x0f71 (initial xp tracking), 0x07f7 (load party into combat slots). 0x024d clears 0x4362 (rank matrix, 0x14 bytes), zeros all 7 group monster arrays (0x1a0 bytes each), resets count fields, sets 0x4358 (anim tick) to -2."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-monster-spawn",
+      "claim": "0x0401 is the recursive monster-group spawn routine; 0x02c5 is the standard XdY+Z dice roller; 0x02f4 is a jump-table dispatcher (likely 'find zone for monster type').",
+      "category": "monster_groups",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x0401", "0x02c5", "0x02f4"],
+        "details": "0x0401 takes (monster_type_id, group_slot): increments 0x4360 (group count), loads monster-type data via 0xc31e (the generic data-loader thunk) into *0x43b6[slot], stores type id at +0x19a of group's monster buffer, picks zone via 0x02f4, plays sound via 0x008d if type has a sound-id at +0xd2, rolls group size via 0x02c5 dice (with +/- adjustment based on 0x3593 ambush flag), clamps to 1..9, then per-monster: rolls HP via 0x02c5 on +0x78/+0x7a, rolls SP via 0x02c5 on +0x7c/+0x7e, sets rank=0xff (unassigned). At end, computes spawn cap from zone (363c+1)/2 + 1, rolls per-secondary-spawn (+0xa4/+0xa6) and recursively spawns into group_slot+1. 0x02c5 is `result = base + sum(rng(sides)+1 for _ in range(N))` — Wizardry's XdY+base. 0x02f4 reads a 12-entry table at 0x486f and jumps via piVar3[9] — a 12-case computed jump for monster-type → zone mapping."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-load-party-into-slots",
+      "claim": "0x07f7 copies the party from the wmaze party struct array (0x43e8+i*0x1b0) into combat group 0's monster slots (0x43a8[0]+i*0x2c). 0x168f is the per-member writeback after combat.",
+      "category": "encounter_setup",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x07f7", "0x168f"],
+        "details": "0x07f7 sets *0x43a8[0]+0x19d = *0x43ce (party size); zeros status-timer arrays at +0x18c (6 bytes) and +0x192 (4 bytes); for each party member i in 0..party_size-1, copies (HP, HP_max, SP_a, SP_a_max, SP_b, SP_b_max, status_level, 10-byte status flags, secondary_status_flag) from party struct fields at +0x4400/4402/4404/4406/440c/4589/450a/458c into combat slot fields at +0/+2/+4/+6/+8/+22/+e/+23. Sets +0x2a (rank) to 0xff. 0x168f does the inverse for ONE member: copies HP/SP/status back from combat slot to party struct. The 0x1b0 stride is identical to wmaze's party struct stride."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-round-driver",
+      "claim": "0x2b6a is the state-0xb per-round driver; 0x2ceb is the state-0xe end-of-round handler.",
+      "category": "state_machine",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x2b6a", "0x2ceb"],
+        "details": "0x2b6a: iterates party members calling 0x1a82 (redraw_member_in_panel), calls 0x2692 (assign_monsters_to_rank_positions), calls 0x28ae(0) (animate 4 attack rounds), then if 0x5012==0 calls 0x11e7 (try_flee_combat); zeros 0x5012; sets 0x363a=0xc. 0x2ceb: calls 0x1716 (end-of-round resolve), 0x1086 (compact_groups), 0x0e66(6) (compact alive in some group), 0x2baf (decay status effects); if 0x4356 (combat-end flag) is set, writes back party via 0x168f loop, calls 0x2a52 (cleanup_windows), sets 0x363a = 0x4fce (return-to-caller state); else sets 0x363a=0xb (continue combat) and refreshes screen."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-attack-animation-pipeline",
+      "claim": "0x205b is the animation-slot insert (sorted by depth); 0x215b is queue-attack-for-position; 0x23af plays one slot's animation frame; 0x27e9 advances the anim tick; 0x289d runs a full anim cycle.",
+      "category": "attack_animation",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x205b", "0x215b", "0x23af", "0x27e9", "0x289d"],
+        "details": "0x205b takes (depth_key, sprite_id, payload_bytes, target_byte, base_x, base_y, frame_bytes, str_ptr): finds insertion point in the 0..*0x438e sorted slot list at 0x4390[], memmoves later entries down, fills in new entry (+0x14 depth, +0x15 sprite, ptrs at +0/2/4/6, +0x16 frame_bytes), copies string via 0xf3aa, increments count. If 0x438e overflows 0xc, loops forever on 0xc546 (sound-loop). 0x215b reads 0x4362[rank][file] to find which group occupies position; rolls an attack table from monster type at +0x3750..+0x375c and queues via 0x205b. 0x23af: for slot i, if not erased (+0x14 != 0xff), checks monster type code at +0x432c; for type chars '\\x14','#','6','9' iterates payload bytes calling 0xf10c (sprite blit) for each frame; otherwise single blit. 0x27e9: based on 0x4358 tick value: -3 = post-frame refresh via 0xf13c; -2 = call 0x44e8 (scene render) and reset slots to 0xff; -1 = iterate 2 ranks * 5 files calling 0x215b to queue attacks; 0..0xb = 0x23af on slot 0x4358. Increments 0x4358, wraps -3..0xb. 0x289d: sets 0x4358=-2, loops calling 0x27e9 until back to -2."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-rank-assignment",
+      "claim": "0x2692 is the assign-monsters-to-rank-positions main loop; 0x2595/0x266b are the try-assign helpers; 0x0b02 assigns one monster to a specific rank/file with attack-target init.",
+      "category": "round_resolution",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x2692", "0x2595", "0x266b", "0x0b02"],
+        "details": "0x2692: for each rank (0..1) and each file via rng-permutation, looks up which group should claim that slot via 0x266b based on group count (1/2/3+ groups dictate which rank gets which); explicitly handles the case where 0x5010 (surprise flag) is 1 to force group at (0,0). 0x2595: takes (group_id, rank, file); finds first unassigned slot (+0x2a==0xff) in group, marks it assigned with rank*10+file, also marks 0x50b4 attack-flag and 0x4362 occupancy. 0x266b: starting from group `param_1`, calls 0x2595; if fails (returned non-zero), retries with group+1 up to group 3 (i.e. backoff up the group list). 0x0b02 iterates all assigned monsters in a group and computes which rank/file each one occupies based on its prior position, calls 0x099e to roll attacks for monsters in front rank only."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-attack-target-rolls",
+      "claim": "0x099e rolls attack-target lookups for one group's monsters; 0x1dc2 is the per-monster attack-target picker.",
+      "category": "round_resolution",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x099e", "0x1dc2"],
+        "details": "0x099e: for slot 0..count-1, reads monster-type's attack-data tables at +0x3732/+0x373c (base+dice), +0x3746/+0x3750 (target rank base+dice), +0x375b/+0x375c (target-flag base+dice). Stores results in the per-rank/file attack lookup at 0x3648/0x3649/0x364a (3-byte stride). Special-cases monster type '6' for slot 0. 0x1dc2: takes (group_id, attack_slot, output_buffer). For one monster's attack at a given slot, reads target IDs from the same +0x3648..+0x364a arrays, applies a counter at +0x3649 to walk through cycle, and writes attack-target list to output_buffer."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-status-decay-and-damage",
+      "claim": "0x0c8c is the per-slot status-effect tick (HP regen, damage, decay); 0x0e66 is compact-alive-in-group; 0x0f2f is the skill-levelup-on-hit roll; 0x0f71 is post-encounter xp-and-treasure award; 0x2baf is decay-per-group-status-effects.",
+      "category": "round_resolution",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x0c8c", "0x0e66", "0x0f2f", "0x0f71", "0x2baf"],
+        "details": "0x0c8c: takes (group_id, slot_idx, damage_in, defense_in). If 'attacking' flag (+0x10) set, rolls poison-tick via rng. Subtracts (damage - defense - armor_at_+0x23) from HP at +0x2; on HP<=0 sets death flag at +0x22=3, clears rank, clears 0x50b4 attack flag, and if monster has 'on-death' bit at +0xdc bit 0 calls 0xe31d (setbit) to flag an event. Iterates 10 status-timer slots at +0xe..+0x17 decrementing each. Returns 1 if died. 0x0e66: iterates group, calls 0x0c8c per slot with attack_in from monster type +0xd7, then bubbles surviving slots to front and updates count at +0x19d. 0x0f2f: rolls rng(skill_val at +0x451c); if rolled <= HP_max*N, increments skill value. 0x0f71: iterates groups, per party-member rolls rng(100) against thresholds at member+0x4533 (zone-modified by 0x363c) and +0x4515; on match clears 'has-attacked' flag and rolls XP/treasure via 0x0f2f. 0x2baf: iterates 7 groups, 6 status-timer types at +0x18c, 4 at +0x192, decrements each by max(1, decay_amt); also handles party-wide marker at 0x4ed8/0x4eda."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-flee-attempt",
+      "claim": "0x11e7 is the flee-combat attempt routine.",
+      "category": "round_resolution",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x11e7"],
+        "details": "1192 bytes — a high-complexity function. Iterates groups, computes per-group 'speed sum' from per-slot HP/4 (excluding stunned at +0x22/+0x10/+0x11). Modifies via group-type +0xa8/+0xaa/+0xab speed bytes. Then iterates groups 0x4360..2, rolls rng on each group's flee-chance, on success: refreshes screen, calls FUN_42 (delay), formats a flee message using msg IDs 0xdb6 ('Group flees!') or 0xdb7 ('You all flee!'), positions the cursor centered, prints via 0xdf85, plays sound. Then swaps the fleeing group's pointers with group_count-1, calls 0x4dc2 (swap_bytes) to swap data, decrements 0x4360, and updates everything via 0x1010/0x0b02/0x2692/0x28ae. The 0xdb6/0xdb7/0xdb8 message ids are the smoking gun: those are the standard Wiz6 flee messages."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-end-of-round-resolve",
+      "claim": "0x1716 is the end-of-round resolve: applies per-member status updates, writes back to party struct, re-sorts party by status_level (alive first), checks for party wipe or all-fled.",
+      "category": "round_resolution",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x1716"],
+        "details": "Iterates 0..party_size-1: if status_level<3 (alive/stunned), calls 0x0c8c with monster_type's poison-damage values (+0x458a/+0x458b); on 'died this round' (==1), calls 0x1a82 to redraw the death animation, plays sound via 0xc546 with sound-id at +0x4586, writes the post-death party box. Then for each member calls 0x168f to write back to party struct. Then bubble-sort party by +0x4589 (status_level): swaps 0x1b0 bytes (full party struct) + 0x2c bytes (combat slot) + 2 secondary pointers via 0x4dc2. Then counts members with status_level>=2: if all = party_size, sets 0x4fce=8 (party-dead state) and 0x4356=1 (combat-end flag); also checks +0x2b==2 (all-fled flag), if so 0x4fce=0x17 + 0x4356=1."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-group-compact-and-finish",
+      "claim": "0x1086 is compact-and-check-end-of-combat: removes empty groups, transfers special groups, sets combat-end if all groups dead.",
+      "category": "round_resolution",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x1086"],
+        "details": "Iterates groups 1..0x4360 calling 0x0e66 on each (compact alive in group). If group survives, copies it to its new compacted index (group i → group local_8 if local_8<i). Special-cases two rank codes ('\\v'=11 and '\\f'=12) — those are 'summoned-creature' markers; on first sighting per combat the corresponding flag at 0x4368 / 0x436a is set and a 'replacement' attack-roll is queued via 0x099e. After compaction, sets 0x4360=local_8. If 0x4360==0 and 0x4fce!=8, sets 0x4fce=0xf (victory state) and 0x4356=1 (combat-end). Then calls 0x1010 (refresh monster zone links) and 0x0f71 (xp rolls)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-monster-sound-load",
+      "claim": "0x008d loads a SOUND%02d.SND file; 0x0169 loads a video-driver descriptor file (uses video_driver_thunk_0 at end).",
+      "category": "audio",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x008d", "0x0169"],
+        "details": "0x008d: param_1 = sound id. Writes id to 0x4336 (current sound). Calls 0xf0dc (pre-input disk check), builds filename via 0xc772 (boot_build_prompt_message — the 'load file by template' helper) with the printf-style number-to-ASCII via 'param_1/10+\"0\"', opens via 0xf924 (crt_open), reads via 0xee85 (huffman_load_and_decompress), and closes via 0xfda5 (crt_dos_close). Aborts via 0xbb71 on open/read failure. 0x0169 is the same pattern but for sprite descriptors (extension changes — references +0x36de/+0x36e2/+0x36e4 video-driver tables, and the final call after read is 0xf100, not the sound thunk)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-combat-scene-renderer",
+      "claim": "0x44e8 is the 3D combat-scene viewport renderer (2192 bytes); 0x4426 is the all-status-panels render dispatch; 0x3a7d/0x3fc5/0x41b4 are per-depth wall/door descriptor emitters; 0x42a3/0x4306/0x4337/0x4368/0x4395/0x43c7/0x43f9 are per-depth render-bit clearers.",
+      "category": "combat_view",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x44e8", "0x4426", "0x3a7d", "0x3fc5", "0x41b4"],
+        "details": "0x44e8: 2192 bytes (matches wmaze's view renderer in size). Saves party position (0x4fa0..0x4f9c), checks 0x43a (pit) bit: if set and zone is 0/4/5 calls 0x4426 (status-only render). Otherwise: zeros 7 per-depth flag bit-arrays at 0x513e/0x511a/0x5182/0x5126/0x518e/0x51a8 via 0xf34c. Iterates depth 0..4 (0x52f6 default 4): calls 0x3239 (front-wall check), 0x3622 (left-wall), 0x37df (right-wall), and dispatches to 0x3a7d (paint front-wall descriptors), 0x3fc5 (paint side walls), 0x41b4 (paint corners), each followed by a per-depth flag-clearer (0x42a3..0x43f9). After all depths drawn, iterates 0x51a6 monster-placement records (at 0x51a8, 11-byte stride: sprite ptrs + position + depth idx + state byte) calling 0xf148 (video_descriptor_render) to draw each monster sprite. Finally calls 0x4426 (status panels). 0x4426 iterates 6 status icons via jump table at -0x760e (a CS-relative offset), then status timers at 0x4ec8+i*4, then calls 0xf13c (post-frame refresh). 0x3a7d/0x3fc5/0x41b4 each take a depth + facing + sprite-ID args and call 0xf148 to blit. 0x42a3..0x43f9 each clear specific bits in the depth flag arrays after a piece has been drawn."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-maze-helpers-reused",
+      "claim": "0x2f8b, 0x2fc8, 0x30ee, 0x3153, 0x31b8 are byte-equivalent maze-walk helpers reused from wmaze.ovr's wall-check logic, used by the combat-scene renderer to draw the dungeon view behind the monster sprites.",
+      "category": "combat_view",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x2f8b", "0x2fc8", "0x30ee", "0x3153", "0x31b8"],
+        "details": "0x2f8b: facing-covers-xy check — returns -1 if (gy,gx) not in facing's 8x8 zone window; identical pattern to wmaze 0x357a. 0x2fc8: resolve global (x,y) to (zone-local x,y,facing) by trying current facing first, then cached fwd, then loops all 12 facings; identical to wmaze 0x35b7. 0x30ee/0x3153: dual wall-check primitives — both call 0x2fc8 then read bit-field at 0x4faa+0x60 (north walls) or 0x4faa+0x120 (west walls) respectively via getbits_n. 0x31b8: takes (xptr,yptr,faceptr,...,dx,dy) and applies the dx/dy in the appropriate axis based on current 4-direction facing 0x4f9a, then resolves to zone via 0x2fc8. These are all conceptually the same as wmaze's view_step_forward_by_facing (0x37a7) etc."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-wall-check-by-direction",
+      "claim": "0x3239 / 0x3622 / 0x37df are the front-wall / left-wall / right-wall checkers for the combat-scene viewport — each tests for pit/special-bit, then dispatches the actual N/W-wall lookup based on facing, then checks per-cell door state and special-square triggers.",
+      "category": "combat_view",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x3239", "0x3622", "0x37df"],
+        "details": "All three: optionally apply offset via 0x31b8, compute cell index = z*0x40+y*8+x, getbit_test at +0x43a (pit) → if set AND zone<0xe, dispatch via jumptable at 0x793d (16 zone-specific handlers). getbit_test at +0x49a (some other event) → if set AND zone<0xe, dispatch via 0x7993. Then read walls via getbits_n based on facing 0..3 (each function rotates which wall offset to use — front uses +0x60/+0x120 in order 0,1,2,3; left rotates by one; right by two). Read +0x1f8 (special-square idx, 4 bits) and +0x378 (door state, 2 bits); on certain combinations dispatch via 0x7b3a/0x7d17/0x7ed6 (16-entry tables of zone-specific handlers). The triple cover the 3 walls visible at each depth in the 3-wide viewport."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-windows-cleanup",
+      "claim": "0x2a52 destroys all combat UI windows and frees descriptor structs (party portrait windows + combat panels + sprite slots).",
+      "category": "ui_helper",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x2a52"],
+        "details": "Calls 0xbd6e (ui_window_destroy) on 0x438a and 0x438c (the two combat windows); 0xec6d (unfocus) on 0x3342 and 0x4fb2 and an unnamed window; 0xc497 (redraw_focused); 0xebb4 (focus); 0xed5a (clear) on the main window; then 5x putchar (drawing blank corners?) at the bottom row. Then 0xf5bc (free_struct) 14 times (7*2) for the monster-group struct buffers, and 12 more times for the sprite slots."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-party-panel",
+      "claim": "0x1a82 redraws one party member in their portrait window; 0x1971 draws a right-aligned 2-digit stat number.",
+      "category": "party_panel",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x1a82", "0x1971"],
+        "details": "0x1a82: takes member_idx. Picks window 0x4fba (even slots) or 0x4fb8 (odd) — the two party-portrait windows. Computes per-member yoffset = (idx/2)*4. Writes member name via 0xdfb9 (puts) + spaces. Iterates 3 cols * 3 rows drawing a 3x3 portrait grid of glyphs (via 0xde7f putchar). Computes status-level icon via lookup table at 0x526 (status sprites). Draws 2-byte equipment/weapon icons. Calls 0x1971 twice for HP and SP printouts at right-aligned positions. 0x1971: takes (window, x, y, value, max, color). Computes 3-digit decimal from value (offset trick: tens, units, with carry rotation). Calls 0xbda7 (set cursor) + 0xde7f for each digit."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fn-misc-utils",
+      "claim": "0x0042 delays N*10 ticks with keyboard-break; 0x4dc2 swaps two byte arrays of length N in place; 0x1010 refreshes monster-type-to-zone mapping after group changes.",
+      "category": "data_util",
+      "evidence": {
+        "binary": "wmele.ovr",
+        "addresses": ["0x0042", "0x4dc2", "0x1010"],
+        "details": "0x0042: flushes kbd, multiplies param by 10, loops while ticks>0 calling 0x27e9 (animation tick) and decrementing; exits early on mouse press, ENTER keypress, or other keys. The mouse-and-keyboard break pattern matches wmaze 0xdd7 (delay_with_keypress_poll). 0x4dc2: classic LOCKed byte-swap of arrays — XCHG-like memswap. 37 bytes. 0x1010: clears 0x4326..0x4328 (round-marker?), iterates groups 1..0x4360 recomputing each group's zone via 0x02f4 (find_zone_for_monster_type); also checks if leader monster has a sound id and plays it via 0x008d on type-change."
+      },
+      "confidence": "high"
+    }
+  ],
+  "renamed_full_list": [
+    {"addr": "0x42", "old": "FUN_0000_0042", "new": "delay_with_keypress_break", "category": "ui_helper"},
+    {"addr": "0x8d", "old": "FUN_0000_008d", "new": "snd_load_sound_file", "category": "audio"},
+    {"addr": "0x169", "old": "FUN_0000_0169", "new": "video_load_sprite_descriptor", "category": "combat_view"},
+    {"addr": "0x24d", "old": "FUN_0000_024d", "new": "combat_reset_buffers", "category": "encounter_setup"},
+    {"addr": "0x2c5", "old": "FUN_0000_02c5", "new": "dice_roll_xdy_plus_base", "category": "data_util"},
+    {"addr": "0x2f4", "old": "FUN_0000_02f4", "new": "monster_find_zone_for_type", "category": "monster_groups"},
+    {"addr": "0x401", "old": "FUN_0000_0401", "new": "monster_spawn_group_recursive", "category": "encounter_setup"},
+    {"addr": "0x7f7", "old": "FUN_0000_07f7", "new": "party_load_into_combat_slots", "category": "encounter_setup"},
+    {"addr": "0x99e", "old": "FUN_0000_099e", "new": "monster_roll_attack_targets_for_group", "category": "round_resolution"},
+    {"addr": "0xb02", "old": "FUN_0000_0b02", "new": "monster_assign_to_rank_with_attacks", "category": "round_resolution"},
+    {"addr": "0xc8c", "old": "FUN_0000_0c8c", "new": "slot_tick_apply_damage_and_status", "category": "round_resolution"},
+    {"addr": "0xe66", "old": "FUN_0000_0e66", "new": "group_compact_alive_slots", "category": "monster_groups"},
+    {"addr": "0xf2f", "old": "FUN_0000_0f2f", "new": "skill_roll_level_up_on_use", "category": "round_resolution"},
+    {"addr": "0xf71", "old": "FUN_0000_0f71", "new": "post_encounter_award_xp_rolls", "category": "round_resolution"},
+    {"addr": "0x1010", "old": "FUN_0000_1010", "new": "monster_refresh_zone_links", "category": "monster_groups"},
+    {"addr": "0x1086", "old": "FUN_0000_1086", "new": "groups_compact_and_check_end", "category": "round_resolution"},
+    {"addr": "0x11e7", "old": "FUN_0000_11e7", "new": "combat_try_flee", "category": "round_resolution"},
+    {"addr": "0x168f", "old": "FUN_0000_168f", "new": "party_writeback_from_combat_slot", "category": "encounter_setup"},
+    {"addr": "0x1716", "old": "FUN_0000_1716", "new": "combat_resolve_round_for_party", "category": "round_resolution"},
+    {"addr": "0x1971", "old": "FUN_0000_1971", "new": "ui_draw_stat_pair_right_aligned", "category": "party_panel"},
+    {"addr": "0x1a82", "old": "FUN_0000_1a82", "new": "ui_party_member_panel_redraw", "category": "party_panel"},
+    {"addr": "0x1d6a", "old": "FUN_0000_1d6a", "new": "combat_setup_encounter", "category": "encounter_setup"},
+    {"addr": "0x1dc2", "old": "FUN_0000_1dc2", "new": "monster_pick_attack_targets_for_slot", "category": "round_resolution"},
+    {"addr": "0x205b", "old": "FUN_0000_205b", "new": "anim_slot_insert_sorted", "category": "attack_animation"},
+    {"addr": "0x215b", "old": "FUN_0000_215b", "new": "anim_queue_attack_for_position", "category": "attack_animation"},
+    {"addr": "0x23af", "old": "FUN_0000_23af", "new": "anim_play_slot_frames", "category": "attack_animation"},
+    {"addr": "0x2595", "old": "FUN_0000_2595", "new": "monster_try_assign_to_position", "category": "monster_groups"},
+    {"addr": "0x266b", "old": "FUN_0000_266b", "new": "monster_try_assign_with_group_fallback", "category": "monster_groups"},
+    {"addr": "0x2692", "old": "FUN_0000_2692", "new": "monster_assign_to_rank_positions", "category": "round_resolution"},
+    {"addr": "0x27e9", "old": "FUN_0000_27e9", "new": "anim_tick_advance", "category": "attack_animation"},
+    {"addr": "0x289d", "old": "FUN_0000_289d", "new": "anim_run_full_cycle", "category": "attack_animation"},
+    {"addr": "0x28ae", "old": "FUN_0000_28ae", "new": "anim_run_attack_round", "category": "attack_animation"},
+    {"addr": "0x2a52", "old": "FUN_0000_2a52", "new": "combat_destroy_windows", "category": "ui_helper"},
+    {"addr": "0x2b6a", "old": "FUN_0000_2b6a", "new": "wmele_state_0b_run_round", "category": "state_machine"},
+    {"addr": "0x2baf", "old": "FUN_0000_2baf", "new": "groups_decay_status_timers", "category": "round_resolution"},
+    {"addr": "0x2ceb", "old": "FUN_0000_2ceb", "new": "wmele_state_0e_end_round", "category": "state_machine"},
+    {"addr": "0x2d6d", "old": "FUN_0000_2d6d", "new": "wmele_state_0a_init_combat", "category": "state_machine"},
+    {"addr": "0x2f8b", "old": "FUN_0000_2f8b", "new": "maze_facing_covers_xy", "category": "combat_view"},
+    {"addr": "0x2fc8", "old": "FUN_0000_2fc8", "new": "maze_resolve_xy_to_facing", "category": "combat_view"},
+    {"addr": "0x30ee", "old": "FUN_0000_30ee", "new": "wall_check_north_via_facing", "category": "combat_view"},
+    {"addr": "0x3153", "old": "FUN_0000_3153", "new": "wall_check_west_via_facing", "category": "combat_view"},
+    {"addr": "0x31b8", "old": "FUN_0000_31b8", "new": "view_step_by_dx_dy", "category": "combat_view"},
+    {"addr": "0x3239", "old": "FUN_0000_3239", "new": "view_check_front_wall", "category": "combat_view"},
+    {"addr": "0x3622", "old": "FUN_0000_3622", "new": "view_check_left_wall", "category": "combat_view"},
+    {"addr": "0x37df", "old": "FUN_0000_37df", "new": "view_check_right_wall", "category": "combat_view"},
+    {"addr": "0x44e8", "old": "FUN_0000_44e8", "new": "combat_view_render_scene", "category": "combat_view"},
+    {"addr": "0x4dc2", "old": "FUN_0000_4dc2", "new": "memswap_bytes", "category": "data_util"}
+  ],
+  "unresolved": [
+    "Per-depth flag-clearer helpers (0x42a3, 0x4306, 0x4337, 0x4368, 0x4395, 0x43c7, 0x43f9 — each 45-99 bytes) are recognized as part of the 3D-scene renderer's flag-management pipeline but their individual semantics (which depth-slot bit each clears) need dynamic-trace context to name without speculation. They mirror wmaze.ovr's 0x4892/0x48f5/etc per-depth view sub-helpers, which were also left unnamed there.",
+    "0x4426 (combat_view_render_status_panels?) has a jump-table fragment at -0x760e that Ghidra couldn't fully analyze — the address is CS-relative and out of the overlay's 0..0x4dc6 range. Likely jumps to status-icon-specific draw routines via runtime-relocated table. Renamed but with low confidence on the role.",
+    "Three thunks resolve to wroot FUN_XXXX functions that have informal names in wmaze/wbase findings but aren't yet promoted into wroot-naming-pass.json: 0xc1f7 (load_msg_into_buf), 0xc47e (rng_next), 0xc546 (play_sound / ui_animation_helper), 0xe34b (getbit_test), 0xe3c1 (getbits_n), 0xf148 (video_descriptor_render). A follow-up wroot pass should formalize these — that would lift the named-thunk count from 26/44 to 32/44.",
+    "Per-zone special-square dispatchers at the indirect-jump sites in 0x3239/0x3622/0x37df (offsets 0x793d, 0x7993, 0x7b3a, 0x7d17, 0x7ed6) and 0x44e8's CS-relative table — these are tables of 16 zone-specific 'on-special-square' handler addresses inside wmele or another overlay. Resolving them would unlock per-zone special-square behavior."
+  ],
+  "next_steps": [
+    "Dynamic trace pass: Boot wmele.ovr via wmaze state 0x15 (combat-trigger encounter), step through 0x2d6d (state init) → 0x2b6a (round) → 0x2ceb (end-round) and capture (a) BSS deltas in 0x43a8/0x43b6, (b) which 0x363a transition is taken, (c) the actual call sequence into 0x44e8 (view renderer) and 0x28ae (anim round). That confirms the rank assignment + sound dispatch + flee transitions.",
+    "Promote informal thunk names from wmaze/wbase findings into wroot-naming-pass.json: rng_next (0x9e2), load_msg_into_buf (0x75b), play_sound_entry (0xaaa, matches CLAUDE.md note), getbit_test (0x28af), getbits_n (0x2925), video_descriptor_render (0x36ac). Doing so would also flow back into this findings file (regenerate the thunk_usage table).",
+    "Type/struct pass on the combat-slot struct (0x2c bytes) and monster-type struct (0xde bytes). The field map is fairly complete from the spawn/load/writeback functions (0x401/0x7f7/0x168f/0xc8c/0x1716) — naming these in Ghidra's Data Type Manager would auto-rename ~50 of the `*(int *)(...+0xN)` accesses across the overlay.",
+    "Continue overlay-pass with wmexe.ovr (combat-magic?), wmnpc.ovr (NPCs), wpcmk.ovr (character-make), wpcvw.ovr (character-view), wtrea.ovr (treasure) — they almost certainly call into wmele.ovr's slot-writeback patterns and share BSS layouts."
+  ],
+  "operational_notes": {
+    "ghidra_install": "/opt/homebrew/Cellar/ghidra/12.1/libexec",
+    "pyghidra_version": "3.1.0",
+    "project_path": "tools/ghidra/wiz6.gpr (symlinked to /Users/nathan/Projects/ndouglas/wiz6/tools/ghidra/)",
+    "program": "wmele.ovr",
+    "scripts_used": [
+      "/tmp/wmele_enum.py (function enumeration + decompile + outgoing-call extraction)",
+      "/tmp/wmele_analyze.py (thunk resolution + per-function inspection + bulk dump)",
+      "tools/ghidra/scripts/apply_wmele_names.py (the deliverable replay script)"
+    ],
+    "key_quirk": "wmele.ovr is loaded with BinaryLoader (no MZ header), so file offset == Ghidra address. Cross-overlay calls go through BSS function-pointer thunks; the thunk-delta law (bss_offset - 0xBA9C = wroot file offset) resolved all 44 thunks deterministically. The project path symlinks the worktree's tools/ghidra/ to the canonical /Users/nathan/Projects/ndouglas/wiz6/tools/ghidra/, but PyGhidra rejects paths containing '.config' (leading-dot directories) so scripts must use the canonical path explicitly.",
+    "address_translation": "wmele.ovr Ghidra addr == file offset (BinaryLoader); no 0x200 or 0x10000 adjustment needed. Cross-overlay thunk: subtract 0xBA9C from bss_offset to get wroot file offset (which in wroot.exe Ghidra terms is wroot_ghidra_addr - 0x10000)."
+  }
+}
