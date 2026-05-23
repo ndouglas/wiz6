@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { decodeSnd, sndSampleRateHz, DEFAULT_SND_RATE_DIVISOR } from '../../src/formats/snd.js';
+import { decodeSnd, SND_SAMPLE_RATE_HZ } from '../../src/formats/snd.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const ORIGINAL = join(REPO_ROOT, 'original');
@@ -12,51 +12,30 @@ function loadSnd(name: string): Uint8Array {
 
 describe('decodeSnd', () => {
   describe('header parsing', () => {
-    it('parses rate_word == 0xFFFF as null (engine default)', () => {
-      // Minimal valid file: header only, no tree (raw PCM mode, zero samples).
-      const bytes = new Uint8Array([0, 0, 0xff, 0xff]);
+    it('parses tree_size==0 as raw mode', () => {
+      const bytes = new Uint8Array([0, 0, 128, 129, 130]);
       const snd = decodeSnd(bytes, { id: 't', sourceFile: 't.snd' });
-      expect(snd.rateDivisor).toBeNull();
       expect(snd.compression).toBe('raw');
-      expect(snd.samples).toEqual([]);
+      expect(snd.samples).toEqual([128, 129, 130]);
     });
 
-    it('parses an explicit rate divisor', () => {
-      const bytes = new Uint8Array([0, 0, 0xc8, 0x00]); // divisor 200
-      const snd = decodeSnd(bytes, { id: 't', sourceFile: 't.snd' });
-      expect(snd.rateDivisor).toBe(200);
-    });
-
-    it('throws on a file shorter than the 4-byte header', () => {
-      expect(() => decodeSnd(new Uint8Array([0, 0, 0]), { id: 't', sourceFile: 't.snd' })).toThrow(
+    it('throws on a file shorter than the 2-byte header', () => {
+      expect(() => decodeSnd(new Uint8Array([0]), { id: 't', sourceFile: 't.snd' })).toThrow(
         /too short/,
       );
     });
   });
 
-  describe('raw PCM mode (tree_size = 0)', () => {
-    it('emits bytes 4..end as samples', () => {
-      const bytes = new Uint8Array([0, 0, 0xff, 0xff, 128, 129, 130, 127, 126]);
-      const snd = decodeSnd(bytes, { id: 't', sourceFile: 't.snd' });
-      expect(snd.compression).toBe('raw');
-      expect(snd.samples).toEqual([128, 129, 130, 127, 126]);
-    });
-  });
-
   describe('huffman mode', () => {
-    it('decodes a minimal 1-node tree (leaf-only left branch)', () => {
-      // tree_size = 4 (one node: left=0x0080 leaf=128, right=0x0080 leaf=128)
-      // bitstream byte 0xff (8 bits) → 8 samples of 128
+    it('decodes a minimal 1-node tree (leaf-only, both branches same)', () => {
+      // tree_size=4, one node: left=0x0080 leaf=128, right=0x0080 leaf=128
+      // decoded_length=8 → expect 8 samples of 128 regardless of bitstream content
       const bytes = new Uint8Array([
-        0x04,
-        0x00, // tree_size = 4
-        0xff,
-        0xff, // rate_word = default
-        0x80,
-        0x00, // left  = 0x0080 (leaf, value 128)
-        0x80,
-        0x00, // right = 0x0080 (leaf, value 128)
-        0xff, // bitstream: all bits = 1, all decode to leaf
+        0x04, 0x00,  // tree_size = 4
+        0x80, 0x00,  // node 0 left  = leaf 128
+        0x80, 0x00,  // node 0 right = leaf 128
+        0x08, 0x00,  // decoded_length = 8
+        0xff,        // bitstream: any bits → leaves
       ]);
       const snd = decodeSnd(bytes, { id: 't', sourceFile: 't.snd' });
       expect(snd.compression).toBe('huffman');
@@ -64,73 +43,69 @@ describe('decodeSnd', () => {
     });
 
     it('follows an internal link to a deeper leaf', () => {
-      // node 0: left = leaf(0x10), right = link(0xFFFF means -1, next_node = 1)
-      // node 1: left = leaf(0x20), right = leaf(0x30)
-      // bitstream byte 0b10_00_00_00 = 0x80: first bit 1 → link to node 1; next bit 0 → leaf 0x20; remaining bits → tree walks again
+      // node 0: left=leaf(0x10), right=link to node 1 (-1 = 0xFFFF)
+      // node 1: left=leaf(0x20), right=leaf(0x30)
+      // bitstream 0b10000000 = 0x80: (link→1)(leaf 0x20)(leaf 0x10)*6
+      // decoded_length=7 → stop after 7 samples
       const bytes = new Uint8Array([
-        0x08,
-        0x00, // tree_size = 8 (2 nodes)
-        0xff,
-        0xff, // rate_word = default
-        // node 0
-        0x10,
-        0x00, // left  = leaf 0x10
-        0xff,
-        0xff, // right = link, next_node = 0x10000 - 0xFFFF = 1
-        // node 1
-        0x20,
-        0x00, // left  = leaf 0x20
-        0x30,
-        0x00, // right = leaf 0x30
-        0x80, // bitstream: 1, 0, 0, 0, 0, 0, 0, 0  →  (link→1)(leaf 0x20)(leaf 0x10)*6
+        0x08, 0x00,  // tree_size = 8 (2 nodes)
+        0x10, 0x00,  // node 0 left  = leaf 0x10
+        0xff, 0xff,  // node 0 right = link, next_node = 0x10000 - 0xFFFF = 1
+        0x20, 0x00,  // node 1 left  = leaf 0x20
+        0x30, 0x00,  // node 1 right = leaf 0x30
+        0x07, 0x00,  // decoded_length = 7
+        0x80,        // bitstream: 1,0,0,0,0,0,0,0
       ]);
       const snd = decodeSnd(bytes, { id: 't', sourceFile: 't.snd' });
-      expect(snd.samples.slice(0, 7)).toEqual([0x20, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10]);
+      expect(snd.samples).toEqual([0x20, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10]);
+    });
+
+    it('respects the decoded_length cap even if more bits remain', () => {
+      // Same minimal tree, but decoded_length=2 with plenty of bitstream
+      const bytes = new Uint8Array([
+        0x04, 0x00,
+        0x80, 0x00, 0x80, 0x00,
+        0x02, 0x00,  // decoded_length = 2
+        0xff, 0xff, 0xff,
+      ]);
+      const snd = decodeSnd(bytes, { id: 't', sourceFile: 't.snd' });
+      expect(snd.samples).toEqual([128, 128]);
     });
   });
 
   describe('against real game files', () => {
-    it('decodes sound00.snd (title clang, huffman, default rate)', () => {
+    it('decodes sound00.snd (title clang) to its declared length', () => {
       const snd = decodeSnd(loadSnd('sound00.snd'), {
         id: 'sound00',
         sourceFile: 'sound00.snd',
       });
       expect(snd.compression).toBe('huffman');
-      expect(snd.rateDivisor).toBeNull();
-      // Sample count should be reasonable for a ~0.1 sec clang at ~8 kHz.
-      // 1302-byte input → expect hundreds-to-thousands of samples.
-      expect(snd.samples.length).toBeGreaterThan(100);
-      expect(snd.samples.length).toBeLessThan(20000);
-      // 8-bit unsigned PCM: samples should center near 128, range 0..255.
+      // sound00.snd's decoded_length prefix declares 1769 samples.
+      expect(snd.samples.length).toBe(1769);
+      // 8-bit unsigned PCM, centered around silence.
       const min = Math.min(...snd.samples);
       const max = Math.max(...snd.samples);
       expect(min).toBeGreaterThanOrEqual(0);
       expect(max).toBeLessThanOrEqual(255);
     });
 
-    it('decodes sound04.snd (huffman, explicit divisor=200)', () => {
-      const snd = decodeSnd(loadSnd('sound04.snd'), {
-        id: 'sound04',
-        sourceFile: 'sound04.snd',
+    it('decodes sound22.snd (longer sustained sound)', () => {
+      const snd = decodeSnd(loadSnd('sound22.snd'), {
+        id: 'sound22',
+        sourceFile: 'sound22.snd',
       });
       expect(snd.compression).toBe('huffman');
-      expect(snd.rateDivisor).toBe(200);
-      expect(snd.samples.length).toBeGreaterThan(0);
+      expect(snd.samples.length).toBe(11134);
     });
 
-    it('decodes sound28.snd as "unknown" (tree_size=0 + implausible rate_word)', () => {
+    it('decodes sound28.snd as raw (tree_size=0)', () => {
       const snd = decodeSnd(loadSnd('sound28.snd'), {
         id: 'sound28',
         sourceFile: 'sound28.snd',
       });
-      // The agent's format spec said tree_size=0 means raw PCM, but the 4 such
-      // files (sound28/30/32/35) all have rate_words that aren't plausible PIT
-      // divisors (>1000). They're flagged 'unknown' until we RE the actual format.
-      expect(snd.compression).toBe('unknown');
-      // File size 10270 bytes; 4-byte header → 10266 samples (still emitted)
-      expect(snd.samples.length).toBe(10266);
-      // rateDivisor cleared for 'unknown' since the on-disk value is nonsense.
-      expect(snd.rateDivisor).toBeNull();
+      expect(snd.compression).toBe('raw');
+      // File is 10270 bytes; we strip the 2-byte tree_size word → 10268 samples.
+      expect(snd.samples.length).toBe(10268);
     });
 
     it('decodes all 35 sound files without throwing', () => {
@@ -150,14 +125,9 @@ describe('decodeSnd', () => {
     });
   });
 });
-describe('sndSampleRateHz', () => {
-  it('uses the default divisor when rateDivisor is null', () => {
-    const expected = Math.round(1_193_182 / DEFAULT_SND_RATE_DIVISOR);
-    expect(sndSampleRateHz(null)).toBe(expected);
-  });
 
-  it('computes sample rate from an explicit divisor (PIT_FREQ / divisor)', () => {
-    expect(sndSampleRateHz(200)).toBe(5966); // 1193182 / 200 ≈ 5965.91
-    expect(sndSampleRateHz(132)).toBe(9039); // 1193182 / 132 ≈ 9039.26
+describe('SND_SAMPLE_RATE_HZ', () => {
+  it('is the engine-derived ~10kHz rate', () => {
+    expect(SND_SAMPLE_RATE_HZ).toBe(10026);
   });
 });

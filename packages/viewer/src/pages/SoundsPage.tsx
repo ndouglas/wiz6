@@ -11,8 +11,7 @@ const SOUND_IDS = [
 interface SoundMeta {
   id: string;
   sourceFile: string;
-  compression: 'raw' | 'huffman' | 'unknown';
-  rateDivisor: number | null;
+  compression: 'raw' | 'huffman';
   sampleCount: number;
   sampleRateHz: number;
 }
@@ -45,13 +44,10 @@ export function SoundsPage() {
     <main className={styles.page}>
       <h1>Sounds</h1>
       <p className={styles.lede}>
-        35 `.snd` files extracted from <code>original/sound??.snd</code>. Format is a 4-byte
-        header + Huffman tree + bitstream of indices that map through a log-attenuation LUT to
-        amplitude values. See <code>docs/re/snd-format.md</code>. Each row shows the decoded
-        metadata; both columns play the same data — <strong>LUT</strong> applies the engine&apos;s
-        log-attenuation table (linear PCM amplitude — what you should hear),{' '}
-        <strong>raw</strong> plays the sample bytes directly (what we tried first; sounds like
-        noise because the bytes are log-quantized loudness indices, not waveform amplitudes).
+        35 `.snd` files extracted from <code>original/sound??.snd</code>. Format is a 2-byte
+        tree-size header + Huffman tree + 2-byte decoded-length prefix + MSB-first bitstream.
+        Decoded samples are 8-bit unsigned PCM at a single engine-derived rate (~10 kHz). See{' '}
+        <code>docs/re/snd-format.md</code>.
       </p>
       <table className={styles.table}>
         <thead>
@@ -59,11 +55,9 @@ export function SoundsPage() {
             <th>ID</th>
             <th>Source</th>
             <th>Compression</th>
-            <th>Rate</th>
             <th>Samples</th>
             <th>Duration</th>
-            <th>LUT (linear)</th>
-            <th>Raw bytes</th>
+            <th>Playback</th>
           </tr>
         </thead>
         <tbody>
@@ -71,15 +65,7 @@ export function SoundsPage() {
             <tr key={m.id}>
               <td className={styles.id}>{m.id}</td>
               <td className={styles.mono}>{m.sourceFile}</td>
-              <td className={m.compression === 'unknown' ? styles.warn : undefined}>
-                {m.compression}
-              </td>
-              <td className={styles.mono}>
-                {m.sampleRateHz} Hz{' '}
-                <span className={styles.dim}>
-                  ({m.rateDivisor === null ? 'default' : `div ${m.rateDivisor}`})
-                </span>
-              </td>
+              <td>{m.compression}</td>
               <td className={styles.num}>{m.sampleCount.toLocaleString()}</td>
               <td className={styles.num}>{(m.sampleCount / m.sampleRateHz).toFixed(2)}s</td>
               <td>
@@ -90,24 +76,10 @@ export function SoundsPage() {
                   className={styles.audio}
                 />
               </td>
-              <td>
-                <audio
-                  controls
-                  src={`/sounds/${m.id}.raw.wav`}
-                  preload="none"
-                  className={styles.audio}
-                />
-              </td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className={styles.note}>
-        4 files (sound28, 30, 32, 35) are flagged <strong>unknown</strong>: their headers have
-        tree_size=0 but rate_word values that aren&apos;t plausible PIT divisors (21183, 25469,
-        12605, 32896). The format spec wrongly called them &quot;raw PCM&quot;; their actual
-        encoding is TBD. Both columns play their raw bytes since LUT-mapping doesn&apos;t apply.
-      </p>
     </main>
   );
 }

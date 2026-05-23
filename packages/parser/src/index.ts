@@ -11,14 +11,7 @@ export {
 export { decodeNewgameDb, type DecodeNewgameDbOpts } from './formats/newgame-db.js';
 export { decodeScenarioDb, type DecodeScenarioDbOpts } from './formats/scenario-db.js';
 export { decodePic, type DecodePicOpts } from './formats/pic.js';
-export {
-  decodeSnd,
-  sndSampleRateHz,
-  sndApplyLut,
-  SND_LOG_LUT,
-  DEFAULT_SND_RATE_DIVISOR,
-  type DecodeSndOpts,
-} from './formats/snd.js';
+export { decodeSnd, SND_SAMPLE_RATE_HZ, type DecodeSndOpts } from './formats/snd.js';
 export {
   renderPicDescriptor,
   concatenatePicSegments,

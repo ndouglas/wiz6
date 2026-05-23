@@ -1,4 +1,4 @@
-import { decodeSnd, sndApplyLut, sndSampleRateHz } from '@wiz6/parser';
+import { decodeSnd, SND_SAMPLE_RATE_HZ } from '@wiz6/parser';
 
 /**
  * Web Audio playback for Wiz6 `.snd` files.
@@ -25,15 +25,10 @@ function maybeInitContext(): AudioContext | null {
   return audioContext;
 }
 
-/**
- * Install a one-shot listener that marks the audio system as unlocked on
- * the next user gesture anywhere on the page. Call once at module init.
- */
 export function installAudioUnlockListener(): () => void {
   if (typeof window === 'undefined') return () => {};
   const onGesture = () => {
     userHasGestured = true;
-    // Touch the context so future playback works without latency.
     const ctx = maybeInitContext();
     if (ctx && ctx.state === 'suspended') {
       ctx.resume().catch(() => {});
@@ -47,17 +42,11 @@ export function installAudioUnlockListener(): () => void {
   };
 }
 
-/** Marker for a decoded SND ready for Web Audio playback. */
 export interface PlayableSnd {
   samples: number[];
   sampleRateHz: number;
 }
 
-/**
- * Fetch a `.snd` file from the viewer's public dir, decode it, and return
- * a playable representation. Returns null on fetch/decode failure rather
- * than throwing — callers should treat missing audio as silent.
- */
 export async function loadSnd(url: string): Promise<PlayableSnd | null> {
   try {
     const res = await fetch(url);
@@ -65,30 +54,17 @@ export async function loadSnd(url: string): Promise<PlayableSnd | null> {
     const buf = await res.arrayBuffer();
     const bytes = new Uint8Array(buf);
     const decoded = decodeSnd(bytes, { id: 'load', sourceFile: url });
-    // Apply the engine's log-attenuation LUT — the sample bytes in .snd files
-    // are log-quantized loudness indices, not linear PCM amplitudes. Without
-    // the LUT they sound like noise. See `sndApplyLut` for the math.
-    const samples =
-      decoded.compression === 'unknown' ? decoded.samples : sndApplyLut(decoded.samples);
-    return {
-      samples,
-      sampleRateHz: sndSampleRateHz(decoded.rateDivisor),
-    };
+    return { samples: decoded.samples, sampleRateHz: SND_SAMPLE_RATE_HZ };
   } catch {
     return null;
   }
 }
 
-/**
- * Play a decoded sound. Silent no-op if the user hasn't gestured yet or
- * if Web Audio isn't available.
- */
 export function playSnd(snd: PlayableSnd): void {
   const ctx = maybeInitContext();
   if (!ctx) return;
   const float = new Float32Array(snd.samples.length);
   for (let i = 0; i < snd.samples.length; i++) {
-    // 8-bit unsigned PCM (silence = 128) → -1..1 float.
     float[i] = (snd.samples[i]! - 128) / 128;
   }
   const buffer = ctx.createBuffer(1, float.length, snd.sampleRateHz);
@@ -99,7 +75,6 @@ export function playSnd(snd: PlayableSnd): void {
   source.start();
 }
 
-/** True iff the user has gestured + an AudioContext is available + running. */
 export function isAudioReady(): boolean {
   if (!userHasGestured) return false;
   const ctx = maybeInitContext();
