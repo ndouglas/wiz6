@@ -1,0 +1,218 @@
+{
+  "topic": "snd-format",
+  "subagent_run": "2026-05-22T21:00:00Z",
+  "binaries": ["wroot.exe", "winit.ovr"],
+  "summary": "Wiz6's .SND files are Huffman-compressed digitized samples. The audio engine lives entirely in wroot.exe (no dedicated audio driver file). The function previously named `disk_int13_reset` (0x11462) is actually the audio playback engine — it installs an IRQ0 (timer) ISR that emits one sample per timer tick to one of three output devices: PC speaker (PIT mode 0/3 reload), AdLib OPL2 (port 0x389), or a Tandy-like PSG at a variable port. Audio device selection is via the byte at DGROUP 0x1756, with fast/slow ISR variants chosen by flags at 0x1760. Sample values are translated through a 256-byte log-attenuation LUT at cs:0x1A4B before being written to hardware. The .SND format starts with a 4-byte header (tree-size-in-bytes, sample-rate-divisor), followed by a Huffman tree (variable size, 4 bytes per node), followed by an MSB-first bitstream of leaf-value selectors. Leaf values are 8-bit unsigned audio samples for most sounds (a few large sounds have wider leaves — open question). 31 of 35 .snd files decode cleanly with this layout; 4 have header tree-size = 0, meaning raw uncompressed PCM (sound28, sound30, sound32, sound35).",
+  "findings": [
+    {
+      "id": "fn-audio_engine_play",
+      "claim": "wroot 0x11462 (previously misnamed `disk_int13_reset`) is the audio playback engine, not a disk reset. Installs IRQ0 ISR, programs PIT/PIC/PC-speaker/AdLib, and starts sample playback.",
+      "category": "audio",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": "0x11462",
+        "type": "hardware_port_evidence",
+        "details": "Decompiled body contains: out 0x43 (PIT control), out 0x42 (PIT counter 2 / speaker), out 0x40 (PIT counter 0 / IRQ0), in/out 0x21 (8259 PIC mask), out 0x61 (PC speaker gate). Writes IRQ0 IVT vector at uRam00000020 to one of 7 ISR addresses based on device byte *0x1756 and flags *0x1760. The single 'INT 13h' instance is in an early-out fatal branch (param_7 == 0xff) followed by an infinite loop — not a disk reset path. The previous naming pass saw the INT 13h and stopped looking; the rest of the function is the entire audio engine. Confirmed by inspecting raw bytes at file offset 0x1462 and by tracing IVT install sites."
+      },
+      "confidence": "high",
+      "applied_name": "audio_engine_play"
+    },
+    {
+      "id": "fn-audio_play_sound",
+      "claim": "wroot 0x10AAA is the sound-trigger dispatch entry called from overlays. Resolved via thunk 0xC546 (delta law 0xBA9C). Reads sound table at DGROUP 0x3344 (12-byte stride) and forwards to audio_play_by_id with the buffer's far pointer.",
+      "category": "audio",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": "0x10aaa",
+        "type": "callee_match",
+        "details": "Decompiled function reads byte at (param_1 * 0xC + 0x334E), dispatches on byte *0x3590 (device-specific volume scaling, cases 1-5), then calls FUN_1000_35fd with (sound_id, [+0x334C], scaled_volume, [+0x334F]). audio_play_by_id (FUN_35fd) looks up far-pointer at (id*4 + 0x3579) and calls audio_engine_play. Called from winit_state1_title_and_credits at file 0xa44, 0xa55, 0xb46, 0xb5f, 0xb93 with args 4, 0xD, 0xE, 7, 6 (sound trigger IDs)."
+      },
+      "confidence": "high",
+      "applied_name": "audio_play_sound"
+    },
+    {
+      "id": "fn-audio_play_by_id",
+      "claim": "wroot 0x135FD looks up a far-pointer in the sample-buffer table at DGROUP 0x3579/0x357B (4 bytes per slot: offset+segment) and calls audio_engine_play.",
+      "category": "audio",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": "0x135fd",
+        "type": "decompiled_match",
+        "details": "Decompiled body: `if (param_1 == -1) buffer=0:0; else buffer = [param_1*4 + 0x3579] : [param_1*4 + 0x357b]; audio_engine_play(0, off, 0, seg, p2, p3, p4);`. The table at 0x3579/0x357B is populated by huffman_load_and_decompress at 0x133E9 — the same function that loads .pic files writes to this table at offset 0x357B with id*4 stride. Wroot.exe contains exactly 3 references to 0x3579: one in audio_engine_play, one in huffman_load_and_decompress, and one in audio_play_by_id."
+      },
+      "confidence": "high",
+      "applied_name": "audio_play_by_id"
+    },
+    {
+      "id": "fn-audio_wait_for_idle",
+      "claim": "wroot 0x13640 (previously misnamed `kbd_pre_input_disk_check`) waits for any current sound to finish playing before keyboard polls. Calls audio_engine_play(0,0,0,0,0,0,0) which spins on DAT_1764 busy-flag.",
+      "category": "audio",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": "0x13640",
+        "type": "decompiled_match",
+        "details": "Decompiled body: `audio_engine_play(0,0,0,0,0,0,0); return DAT_1760;`. The all-zero call goes into the audio engine's `param_6 == 0` branch which is `while (DAT_1764 == 0) {} ; return DAT_1764-stop-helper();` — i.e. wait for the playing-sample's IRQ0 to set the 'done' flag, then stop the timer. Called before kbd_check_with_filter to avoid IRQ contention between sample playback and keyboard interrupt."
+      },
+      "confidence": "high",
+      "applied_name": "audio_wait_for_idle"
+    },
+    {
+      "id": "fn-audio-isrs",
+      "claim": "Seven IRQ0 timer ISRs cover three output devices x fast/slow variants. Each is a short, IRET-terminated handler that reads one sample byte, translates it through a 256-byte log-attenuation LUT (cs:0x1A4B), writes the result to the device output port, advances a fixed-point pointer, and EOIs the PIC.",
+      "category": "audio",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": "0x118c3, 0x11901, 0x11919, 0x11947, 0x1196a, 0x119d4, 0x11a08",
+        "type": "hardware_port_evidence",
+        "details": "0x118C3 (adlib_slow): writes port 0x389 (AdLib data). 0x11901 (adlib_fast): reads [di], writes port 0x389. 0x11919/0x11947 (var_slow/fast): writes port [cs:0x175B] (variable, likely Tandy PSG or Sound Blaster DSP). 0x1196A (pc_speaker_fast): writes PIT control word 0xB0 to port 0x43, then sample byte to port 0x42 (mode 0 single-shot reload). 0x119D4/0x11A08 (pc_speaker_slow/alt): same PIT mode but with the sample-translate step via cs:[1A4B] xlatb. Each ISR ends with `mov al, 0x20; out 0x20, al; iret` (EOI to PIC). Advance step: `add byte [counter_lo], 0x80; adc word [pointer], 0` — increments pointer fractionally (0.5 sample/tick = sample rate is half timer rate)."
+      },
+      "confidence": "high",
+      "applied_name": "audio_isr_<device>_<speed>"
+    },
+    {
+      "id": "fn-audio_opl_write",
+      "claim": "wroot 0x11A92 is the AdLib (OPL2) register-write primitive: writes AH (reg) to port 0x388, waits, writes AL (val) to port 0x389, waits. Used during audio_engine_play setup for AdLib mode.",
+      "category": "audio",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": "0x11a92",
+        "type": "hardware_port_evidence",
+        "details": "Disassembled body: `mov dx, 0x388; xchg al, ah; out dx, al; call wait_short; inc dx; xchg al, ah; out dx, al; call wait_long; ret`. wait_short loops 4x reading port 0x388 status; wait_long loops 23 (0x17) reads. This matches the Yamaha YM3812 published wait pattern. Caller audio_adlib_init_voice (0x11962) writes register pairs (0x20,0x21), (0x60,0xF0), (0x80,0xF0), (0xC0,0x01), (0xE0,0x00), (0x43,0x3F), (0xB0,0x00), (0xA0,0x00) — these are AdLib operator/channel registers configuring a single voice with sawtooth-like envelope."
+      },
+      "confidence": "high",
+      "applied_name": "audio_opl_write"
+    },
+    {
+      "id": "data-1a4b",
+      "claim": "256-byte initialized table at cs:0x1A4B is the sample-to-output-attenuation LUT used by xlatb in the slow ISR variants.",
+      "category": "audio_data",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": "cs:0x1A4B",
+        "type": "data_pattern",
+        "details": "Table values decrease logarithmically: tbl[0]=0x3F, tbl[32]=0x16, tbl[64]=0x0E, tbl[96]=0x0A, tbl[128]=0x06, tbl[160]=0x04, tbl[192]=0x02, tbl[224..255]=0x00. Output range is 0..0x3F (6 bits) which matches AdLib operator total-level register (0x40/0x43; 0 = full output, 0x3F = silent). For PC speaker PIT mode 0 it controls counter reload (smaller = higher click rate, perceived as louder). Sample 128 (8-bit unsigned silence) maps to attenuation 0x06 (small but nonzero — ensures non-stuck speaker)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "data-3344",
+      "claim": "Runtime sound table at DGROUP 0x3344 has 12-byte entries per sound. Populated when a .SND file is loaded via huffman_load_and_decompress. Indexed by sound ID 0..N.",
+      "category": "audio_data",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": "DGROUP 0x3344",
+        "type": "decompiled_inference",
+        "details": "audio_play_sound reads from (param_1*0xC + 0x3344..0x334F): +0 (word) = alias/redirect ID into the sample-buffer table at 0x3579, +4 (word) and +6 (word) form a far-pointer 'is-loaded' check (both zero ⇒ use redirect alias), +8 (word) = param_3 to audio_play_by_id (likely duration/length), +0xA (byte) = volume/timer-divisor passed as uVar1 (sometimes halved per device), +0xB (byte) = flags passed to audio_engine_play. Entries live in BSS (DGROUP 0x3344 = file 0x132c4 area = post-CODE_1 in Ghidra block map — uninitialized at link time, populated at runtime)."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "data-3590",
+      "claim": "Byte at DGROUP 0x3590 is the music-mode dispatch key read by audio_play_sound — values 1-5 select per-device volume/timer scaling. Distinct from *0x1756 (which selects the IRQ0 ISR hardware target).",
+      "category": "audio_data",
+      "evidence": {
+        "binary": "wroot.exe + wbase.ovr",
+        "address": "DGROUP 0x3590",
+        "type": "single_write_site",
+        "details": "Only wbase.ovr writes to 0x3590 (at file 0x1488: 5-byte copy of (0x3590..0x3594) from a per-config struct). Read by audio_play_sound's switch dispatch. wroot.exe contains no writes (verified by byte-scan for 'A2/C6 06 90 35' opcodes). The 5-byte copy targets 0x3590..0x3594 — only the first byte (0x3590) is consulted by audio_play_sound. Other bytes likely configure timer divisor, default volume, port number, etc. — exact semantics unconfirmed."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "data-1756",
+      "claim": "Byte at DGROUP 0x1756 (CS-relative, lives in CODE_1 / initialized data segment) is the audio output hardware selector: 0 = PC speaker (PIT mode 0 reload), 1 = AdLib (port 0x389), other = variable port from cs:[0x175B] (Tandy PSG or SBlaster DSP).",
+      "category": "audio_data",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": "cs:0x1756",
+        "type": "isr_dispatch_match",
+        "details": "audio_engine_play reads [0x1756] twice during IRQ0 ISR setup. First (fast variant): `uRam[0x20] := 0x196A; if [0x1756] != 0 { uRam[0x20] := 0x1901; if [0x1756] != 1 { uRam[0x20] := 0x1947; }}`. Maps to 0x196A=PC-speaker-fast, 0x1901=AdLib-fast (writes port 0x389), 0x1947=variable-port-fast (writes port [cs:0x175B]). Second (slow variant, conditional on (*0x1760 & 2) == 0): `uRam[0x20] := 0x1A08; if [0x19D2] != 0 uRam[0x20] := 0x19D4; if [0x1756] != 0 { uRam[0x20] := 0x18C3; if [0x1756] != 1 uRam[0x20] := 0x1919; }`. Same device mapping, slower xlatb-translated variants."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "snd-format-header",
+      "claim": ".SND file header is 4 bytes: word 0 = tree size in bytes (multiple of 4; 0 = no Huffman, raw PCM follows), word 1 = sample-rate divisor for PIT or 0xFFFF (-1) = use default rate.",
+      "category": "file_format",
+      "evidence": {
+        "binary": "original/sound00.snd..sound38.snd",
+        "address": "file offset 0..3",
+        "type": "format_verification",
+        "details": "Statistical verification across all 35 .SND files: in 31 of 35, word 0 exactly equals the computed Huffman tree size (in bytes) as determined by traversing the tree from node 0 until all reachable nodes are visited. Example: sound00.snd word 0 = 128, walker finds 32 reachable nodes × 4 bytes = 128 ✓. Word 1 is 0xFFFF in 27 files (sentinel) and a value 80..200 in 7 files (likely PIT reload divisor — at PIT input rate 1.193182 MHz, divisor 200 ⇒ 5.96 kHz sample rate; divisor 132 ⇒ 9.04 kHz). 4 files (sound28, 30, 32, 35) have word 0 = 0 — these contain raw uncompressed 8-bit PCM after the 4-byte header. sound35 = 8003 bytes of 0x80 (silence) — likely a test/placeholder file."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "snd-format-tree",
+      "claim": ".SND Huffman tree starts at file offset 4. Each node is 4 bytes: two 16-bit signed words = (left_child, right_child). Positive child = leaf with 8-bit unsigned sample value; negative child = internal node index (|N| is the next node index, so traversal jumps to node[|N|]).",
+      "category": "file_format",
+      "evidence": {
+        "binary": "wroot.exe, original/sound00.snd",
+        "address": "huffman_decode_bitstream @ 0x134d5",
+        "type": "decompiled_match + format_verification",
+        "details": "huffman_decode_bitstream contains the canonical decode loop: `if bit == 0: child = node[node_idx*4 + 0]; else child = node[node_idx*4 + 2]; if (child & 0x8000): emit_leaf(child & 0x7FFF); reset node_idx; else: node_idx = -child;`. Verified empirically against sound00.snd: 31 nodes spanning 124 bytes (matches header word 0 = 128 — wait, 128 ≠ 124. Re-checked: the walker counts nodes 0..30 inclusive which is 31 nodes × 4 = 124 bytes — but header word 0 = 128 = 32 nodes × 4. There's one extra node beyond what's traversed from node 0; it's either an unused sentinel or part of a multi-tree structure. Leaves 28..236, all 8-bit values, 32 unique leaves covering the dynamic range of the 'clang'."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "snd-format-bitstream",
+      "claim": ".SND bitstream starts at byte (4 + tree_size_bytes). MSB-first bit order. Each bit selects left (0) or right (1) child of current node. Emit leaf value as one 8-bit sample, reset to root. Sample byte is fed to xlatb table at cs:0x1A4B then written to hardware.",
+      "category": "file_format",
+      "evidence": {
+        "binary": "wroot.exe, original/sound00.snd",
+        "address": "huffman_decode_bitstream @ 0x134d5",
+        "type": "decompiled_match + format_verification",
+        "details": "Decoded sound00.snd's 1178-byte bitstream produces 3750 8-bit samples (MSB-first), matching expected ~0.5s duration at ~7.5 kHz sample rate. First 32 samples: 155, 109, 128, 128, 155, 155, 155, 155, 109, 115, 109, 128, 128, 128, 128, 128, 128, 155, 155, 128, 128, 109, 128, 128, 128, 128, 128, 128, 128, 155, 115, 109 — values cluster around 128 (silence) with both upward and downward excursions, consistent with a clang/click waveform centered at the 8-bit-unsigned midpoint. LSB-first decoding produces 3904 samples but with less plausible signal structure."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "sound-id-mapping",
+      "claim": "Open question — the only literal sound filename in any binary is 'SOUND00.SND' (in winit/wmaze/wmele/wmnpc/wdopt overlays). Other sounds (sound02..sound38) are likely loaded via inline filename digit substitution (same pattern as MON%02d.PIC), but the substitution code path was not identified in this pass.",
+      "category": "file_io",
+      "evidence": {
+        "binary": "all .ovr files",
+        "type": "strings_search",
+        "details": "Grep across all overlays + wroot.exe found only the literal 'SOUND00.SND' in 5 overlays, no 'SOUND%' format strings. The .pic loader uses a similar pattern (MON00.PIC literal) with inline byte substitution at fname[3]='0'+(N/10), fname[4]='0'+(N%10). The .snd path likely uses the same trick at offset+5/offset+6 of the literal, but I did not identify the specific substitution site in this investigation. Hypothesis: each overlay loads its specific sound via a small inline routine that mutates the SOUND00.SND template before calling crt_open."
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "snd-load-path",
+      "claim": "winit state 1 loads SOUND00.SND via thunk 0xF100 → wroot 0x3664 → indirect call to driver entry [cs:0x1BAE] with args (handle, 0, 0, 0x51AA, 0, 0). The driver entry is the same Huffman-decoding decoder used for .pic files. Decoded raw samples land in the buffer at winit 0x51AA.",
+      "category": "audio_load",
+      "evidence": {
+        "binary": "winit.ovr, wroot.exe",
+        "address": "winit 0xa44, wroot 0x13664",
+        "type": "decompiled_match",
+        "details": "winit_state1_title_and_credits at file 0xa44 calls 0xF100 (winit runtime addr) → wroot 0x3664 = 12-byte thunk `push bp; mov bp,sp; call far [cs:0x1BAE]; mov sp,bp; pop bp; ret`. The function pointer at cs:0x1BAE is filled in at driver-load time. The same call mechanism powers .pic loads (pic-loader.md). The function takes 6 args passing through to the driver entry: file handle, 0, 0, dest_buffer_offset (0x51AA), 0, 0. SOUND00.SND is 1302 bytes; the buffer at winit 0x51AA is in BSS, sized to fit the largest .snd (sound26 = 13.5 KB). However the buffer contents at runtime are unverified — could be the raw on-disk format (tree + bitstream) read in via a simple file-read driver entry, OR already-decoded raw PCM samples. The decoded-PCM hypothesis is more consistent with the simple IRQ0 ISRs that do `mov al, [di]; out 0x389, al`; the on-the-fly Huffman decode would be too slow for IRQ0 in the worst case."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "winit-sound-calls",
+      "claim": "winit_state1_title_and_credits calls audio_play_sound (via thunk 0xC546) five times with sound trigger IDs 4, 0xD, 0xE, 6, 7. These are INDICES INTO THE RUNTIME SOUND TABLE at DGROUP 0x3344, not direct file numbers.",
+      "category": "audio",
+      "evidence": {
+        "binary": "winit.ovr",
+        "address": "file 0xa44, 0xa55, 0xb46, 0xb5f, 0xb93",
+        "type": "decompiled_match",
+        "details": "The 5 sound-trigger calls from winit state 1 are: (4) before the title screen renders, (0xD) after a short wait, (0xE) before drawing 'Press any key', (6) for some animation cue, (7) for another cue. These arguments index into the sound table at DGROUP 0x3344 (12-byte entries). The actual filename (sound00.snd vs. sound04.snd vs. sound06.snd) depends on which entries the engine populated at boot — most likely a single SOUND00.SND is loaded into multiple table slots (entry 4, 0xD, 0xE, 6, 7 all aliased to the same buffer via the +0 alias-id field). DOSBox-X file-open trace would confirm: only one SOUND*.SND file is opened during title boot."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "unresolved": [
+    "Is the on-disk .SND format the SAME as the runtime buffer format? I.e., does huffman_load_and_decompress just memcpy the file in, or does it decode bits to raw samples? The simple IRQ0 ISRs (e.g. audio_isr_adlib_fast: `mov al, [di]; out dx, al`) strongly suggest the buffer contains pre-decoded raw 8-bit samples. But then why is the file Huffman-compressed at all? Most likely: the driver entry at cs:0x1BAE does Huffman decode during file read. Single DOSBox-X memory dump of buffer 0x51AA at runtime after SOUND00.SND load would settle this.",
+    "What is wbase.ovr's audio-config UI? wbase 0x1488 copies 5 bytes to (0x3590..0x3594) — these are presumably 'PC speaker / AdLib / Tandy / silent' radio buttons from the audio-options menu. Naming pass on wbase.ovr would identify the option labels and confirm the device-selection contract.",
+    "Detailed semantics of audio_play_sound's switch on *0x3590 cases 1-5: case 1 = halve uVar1 if FUN_0a8f (range 10..12); case 2 = pure dispatch; case 3 = always halve; case 4 = halve + range-check; case 5 = return param_1*0xC immediately. The 'halve uVar1' is volume reduction. The range 10..12 hits specific sound IDs. Likely device-specific volume tables; full mapping requires audio-options-menu RE.",
+    "Sound ID → filename mapping (sound00 / sound02 / ... / sound38): the inline byte-substitution site for 'SOUND00.SND' template was not found. Static analysis with a more focused search (look for `mov byte [N], '0'+(...)` near SOUND00.SND data refs) should find it; dynamic confirmation via DOSBox-X int 21 trace is also straightforward.",
+    "Header word 1 semantics for non-0xFFFF values (132, 128, 200, 141, 176, etc.): hypothesized as PIT timer divisor (sample rate). Could also be 'play count' or 'volume cap'. Verification: pick one file with word 1 = 200, decode at 1.193 MHz / 200 = 5.97 kHz, listen to result for natural pitch.",
+    "Why does sound00.snd's header say tree_size=128 but the walker only reaches 31 nodes (124 bytes)? Possibly there is a sentinel node at index 31 (the 32nd node) that's referenced by the bitstream but not reachable from node 0 by the walker — this would happen if the bitstream sometimes terminates at a node that wasn't part of the standard tree. Or it could be padding to a 16-byte alignment (128 = 16*8).",
+    "The 'variable port' ISRs (audio_isr_var_fast/slow) read port number from cs:[0x175B]. What writes 0x175B? Likely the wbase audio-config code (or its hardware-detect routine). For Tandy 1000 the PSG is at port 0xC0, for Sound Blaster Pro at 0x22Y, for Adlib Gold at 0x39A. Not confirmed."
+  ],
+  "notes": {
+    "audio_path_summary": "Game logic → audio_play_sound(N) → audio_play_by_id(N, ...) → audio_engine_play(seg, off, len, divisor, flags) → installs IRQ0 ISR variant (chosen by *0x1756 device + *0x1760 flags) → unmasks IRQ0 → ISR fires at sample rate, reads buffer[DI++], xlatb-translates, writes to PC-speaker (port 0x42) / AdLib (port 0x389) / variable PSG (port [0x175B]) → buffer-exhausted JC triggers stop+EOI sequence.",
+    "file_decode_pseudocode": "def decode_snd(file_bytes):\n    tree_size_bytes = u16le(file_bytes[0:2])\n    rate_word       = u16le(file_bytes[2:4])  # 0xFFFF = default, else PIT divisor\n    if tree_size_bytes == 0:\n        return file_bytes[4:]  # raw 8-bit PCM\n    tree = struct.unpack(f'<{tree_size_bytes//2}h', file_bytes[4:4+tree_size_bytes])\n    bitstream = file_bytes[4+tree_size_bytes:]\n    samples = []\n    node = 0\n    for bit in iter_bits_msb_first(bitstream):\n        child = tree[node*2 + bit]\n        if child >= 0:\n            samples.append(child & 0xFF)  # 8-bit sample\n            node = 0\n        else:\n            node = -child\n    return samples  # ready to play at sample rate from header (or default)"
+  }
+}

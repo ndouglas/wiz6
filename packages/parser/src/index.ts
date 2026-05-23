@@ -53,6 +53,15 @@ export {
   type VisibleEntry,
 } from './sim/intro-sequence.js';
 export {
+  MAIN_MENU_OPTIONS,
+  isOptionEnabled,
+  visibleMenuOptions,
+  type MainMenuSlot,
+  type MainMenuDestination,
+  type MainMenuOption,
+  type MainMenuContext,
+} from './sim/main-menu.js';
+export {
   CREDITS_SCROLL_ENTRIES,
   SCROLL_STEP_PER_FRAME,
   SCROLL_TERMINAL_POS,
