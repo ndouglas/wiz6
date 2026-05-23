@@ -45,6 +45,7 @@ export const PicSchema = z.object({
   segments: z.array(PicSegmentSchema),
   descriptors: z.array(PicDescriptorSchema),
   totalBytes: z.number().int().positive(),
+  palette: z.string().min(1).optional(),
 });
 
 export type PicLitOp = z.infer<typeof PicLitOpSchema>;

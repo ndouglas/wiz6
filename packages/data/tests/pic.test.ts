@@ -144,4 +144,28 @@ describe('PicSchema', () => {
       }),
     ).toThrow();
   });
+
+  it('accepts an optional palette name field', () => {
+    const pic = {
+      id: 'test',
+      sourceFile: 'test.pic',
+      segments: [],
+      descriptors: [],
+      totalBytes: 1,
+      palette: 'wiz6-dungeon',
+    };
+    const parsed = PicSchema.parse(pic);
+    expect(parsed.palette).toBe('wiz6-dungeon');
+  });
+
+  it('accepts a Pic without a palette field (backward compat)', () => {
+    const pic = {
+      id: 'test',
+      sourceFile: 'test.pic',
+      segments: [],
+      descriptors: [],
+      totalBytes: 1,
+    };
+    expect(() => PicSchema.parse(pic)).not.toThrow();
+  });
 });
