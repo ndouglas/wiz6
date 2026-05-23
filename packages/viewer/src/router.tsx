@@ -62,6 +62,12 @@ const CalibratePalette = lazy(() =>
 const EngineeringNotes = lazy(() =>
   import('./pages/EngineeringNotes.js').then((m) => ({ default: m.EngineeringNotes })),
 );
+const OverlaysIndex = lazy(() =>
+  import('./pages/overlays/OverlaysIndex.js').then((m) => ({ default: m.OverlaysIndex })),
+);
+const OverlayDetail = lazy(() =>
+  import('./pages/overlays/OverlayDetail.js').then((m) => ({ default: m.OverlayDetail })),
+);
 
 export const routes = (
   <>
@@ -91,6 +97,8 @@ export const routes = (
       <Route path="docs/*" element={<DocsPage />} />
       <Route path="calibrate" element={<CalibratePalette />} />
       <Route path="notes" element={<EngineeringNotes />} />
+      <Route path="overlays" element={<OverlaysIndex />} />
+      <Route path="overlays/:slug" element={<OverlayDetail />} />
     </Route>
   </>
 );
