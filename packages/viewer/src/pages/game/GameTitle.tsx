@@ -14,6 +14,7 @@ import {
 } from '@wiz6/parser';
 import { loadEgaScreen } from '../../data-loader.js';
 import { WIZ6_TITLE_PALETTE } from '../../palettes/index.js';
+import { loadSnd, playSnd, installAudioUnlockListener, type PlayableSnd } from '../../lib/audio.js';
 import styles from './GameTitle.module.css';
 
 const ENGINE_W = 320;
@@ -32,6 +33,23 @@ export function GameTitle() {
   const skipRef = useRef(false);
   const [spritesByDesc, setSpritesByDesc] = useState<RenderedSprite[] | null>(null);
   const [titlepagRgba, setTitlepagRgba] = useState<Uint8ClampedArray | null>(null);
+  const clangRef = useRef<PlayableSnd | null>(null);
+  const clangPlayedRef = useRef(false);
+
+  // Install one-shot listener so first user gesture unlocks Web Audio.
+  useEffect(() => installAudioUnlockListener(), []);
+
+  // Preload the title clang (sound00.snd, played at splash-display entry per
+  // winit state 1 step 6 — call 0xc546(4)). Silently no-ops if file missing.
+  useEffect(() => {
+    let cancelled = false;
+    loadSnd('/sounds/sound00.snd').then((snd) => {
+      if (!cancelled) clangRef.current = snd;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Load credits.pic once and render every descriptor into RGBA.
   useEffect(() => {
@@ -101,7 +119,21 @@ export function GameTitle() {
       if (shouldStep) {
         const skipPressed = skipRef.current;
         skipRef.current = false;
+        const prevPhase = stateRef.current.phase;
         stateRef.current = stepIntro(stateRef.current, 1, { skipPressed });
+        // Engine state 1 step 6: call 0xc546(4) plays the title clang at the
+        // moment the splash content first appears. We fire it on the
+        // pause-pre-sirtech → sirtech-splash transition. Silent if audio not
+        // yet unlocked (user hasn't clicked/keyed yet).
+        if (
+          !clangPlayedRef.current &&
+          prevPhase === 'pause-pre-sirtech' &&
+          stateRef.current.phase === 'sirtech-splash' &&
+          clangRef.current
+        ) {
+          playSnd(clangRef.current);
+          clangPlayedRef.current = true;
+        }
       }
 
       composeFrame(frameRgba, stateRef.current, spritesByDesc, titlepagRgba);
