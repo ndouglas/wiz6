@@ -25,11 +25,11 @@ const USAGE = `usage: wiz6 extract <type|--all> [flags]
 types:
   fonts        wfont0.ega (1bpp) + wfont1-4 (4bpp)
   portraits    wport1-3 (NPC portrait sets)
-  screens      titlepag, graveyrd, dragonsc EGA screens
+  screens      titlepag, graveyrd, dragonsc EGA screens (+ rendered .png)
   messages     msg.dbs (Huffman-decoded text)
   newgame      newgame.dbs (character creation templates)
   scenario     scenario.dbs (XP tables, items, monsters, quest data)
-  pics         mon00-mon58 + credits.pic (outer-envelope decoded; pixel rendering TBD)
+  pics         mon00-mon58 + credits.pic (full decode, per-descriptor PNGs + contact sheet)
   --all        extract all of the above
 
 flags:

@@ -20,14 +20,10 @@ const ENGINE_W = 320;
 const ENGINE_H = 200;
 const SCALE = 3;
 
-/**
- * Engine (col, y) values from the scroll entry table appear to be absolute
- * screen coordinates, not window-relative — entry 0 caps at y=3 (Wizardry
- * logo top) which puts it 3px below the top edge of the screen. No offset
- * needed; renderer just maps engine coords 1:1 to canvas coords.
- */
-const CREDIT_WINDOW_X = 0;
-const CREDIT_WINDOW_Y = 0;
+// Engine (col, y) values from the scroll entry table are absolute screen
+// coordinates, not window-relative — entry 0 caps at y=3 (Wizardry logo top),
+// which puts it 3px below the top edge of the screen. The renderer maps
+// engine coords 1:1 to canvas coords.
 
 export function GameTitle() {
   const navigate = useNavigate();
@@ -210,12 +206,7 @@ function composeFrame(
     case 'scroll':
     case 'post-scroll':
       for (const v of visibleScrollEntries(state.scrollPos)) {
-        blendSprite(
-          dest,
-          sprites[v.descriptorIndex],
-          v.col + CREDIT_WINDOW_X,
-          v.y + CREDIT_WINDOW_Y,
-        );
+        blendSprite(dest, sprites[v.descriptorIndex], v.col, v.y);
       }
       break;
   }
