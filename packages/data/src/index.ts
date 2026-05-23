@@ -70,3 +70,10 @@ export {
   type PicDescriptor,
 } from './schemas/pic.js';
 export { SndSchema, type Snd } from './schemas/snd.js';
+export {
+  PALETTE_CATALOG,
+  EGA_DEFAULT,
+  WIZ6_MAIN,
+  WIZ6_DUNGEON,
+} from './palettes/index.js';
+export type { PaletteName } from './palettes/index.js';
