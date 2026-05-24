@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "wiz6": {
+      "type": "stdio",
+      "command": "./packages/mcp/bin/wiz6-mcp.mjs",
+      "args": [],
+      "env": {}
+    }
+  }
+}
