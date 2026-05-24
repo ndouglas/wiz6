@@ -142,12 +142,6 @@ export function CastleScreen() {
     return () => cancelAnimationFrame(raf);
   }, [mon08Pic, mon08Decoded, dragonscRgba, wfont0, visible]);
 
-  const handleSelect = (opt: MainMenuOption) => {
-    const target = ROUTE_BY_SLOT[opt.slot];
-    if (!target) return;
-    navigate(target.route);
-  };
-
   // Keyboard navigation: ↑/↓ wrap-around through visible options; Enter activates.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -170,12 +164,13 @@ export function CastleScreen() {
     return () => window.removeEventListener('keydown', onKey);
   }, [visible, navigate]);
 
-  const leftCol = visible.slice(0, 4);
-  const rightCol = visible.slice(4);
-
   return (
     <main className={styles.page}>
       <h1 className={styles.srOnly}>Castle — Main Menu</h1>
+      <p className={styles.srOnly}>
+        Use arrow keys to navigate, Enter to select.
+        {visible[selectedIdx] ? ` Currently selected: ${visible[selectedIdx]!.label}.` : ''}
+      </p>
       <div className={styles.canvasWrap}>
         <canvas
           ref={canvasRef}
@@ -190,53 +185,7 @@ export function CastleScreen() {
           aria-label="Wizardry VI castle entrance"
         />
       </div>
-      <ul className={styles.menu}>
-        <div className={styles.menuCol}>
-          {leftCol.map((opt, i) => (
-            <MenuItem
-              key={opt.slot}
-              opt={opt}
-              selected={i === selectedIdx}
-              onClick={() => {
-                setSelectedIdx(i);
-                handleSelect(opt);
-              }}
-            />
-          ))}
-        </div>
-        <div className={styles.menuCol}>
-          {rightCol.map((opt, i) => {
-            const idx = leftCol.length + i;
-            return (
-              <MenuItem
-                key={opt.slot}
-                opt={opt}
-                selected={idx === selectedIdx}
-                onClick={() => {
-                  setSelectedIdx(idx);
-                  handleSelect(opt);
-                }}
-              />
-            );
-          })}
-        </div>
-      </ul>
     </main>
-  );
-}
-
-function MenuItem(props: { opt: MainMenuOption; selected: boolean; onClick: () => void }) {
-  return (
-    <li className={styles.menuItem}>
-      <button
-        type="button"
-        className={`${styles.menuButton} ${props.selected ? styles.menuButtonSelected : ''}`}
-        onClick={props.onClick}
-      >
-        {props.selected ? '▶ ' : '  '}
-        {props.opt.label}
-      </button>
-    </li>
   );
 }
 
@@ -278,22 +227,58 @@ function composeFrame(
     compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 125, [5], mon08Pic, mon08Decoded, EGA_DEFAULT);
   }
 
-  // Menu option text via wfont0 (the engine's ui_window_puts path). The
-  // engine packs options into a 22-cell-wide window at cell (9, 4)
-  // = screen (72, 32); we draw each option as one row inside it. Layout
-  // is by-eye for now — full RE of FUN_025c's grid is TODO.
-  // Selected option gets a brighter color + leading caret to mimic the
-  // engine's inverted-attribute redraw.
+  // Menu option text via wfont0. Layout derived from FUN_025c's grid math
+  // (wbase 0x028F..0x02AC), called from FUN_2b36 with args (2, 1, 0x13, 4):
+  //   cursor_X = (slot / 4) * 19 + 2  → col 0 at cell X=2; col 1 at X=21
+  //   cursor_Y = (slot % 4) + 1       → 4 rows per column at Y=1..4
+  // Cells are 8 px; menu window is at screen (72, 32). Col 1's cell X=21
+  // is at the far right of the 22-cell window — only 1 cell of room
+  // before the window edge, so the right-column labels are right-aligned
+  // to fit (the engine appears to truncate/clip text at the window
+  // border via ui_window_puts; we right-align as a visually-equivalent
+  // approximation).
+  //
+  // Also fills the menu text band with solid black behind the labels so
+  // they read clearly against the gate art that occupies the window.
   if (wfont0) {
-    const rowH = 12; // pixels per menu row (one font-height + gap)
-    const baseX = 80;
-    const baseY = 145;
+    const winX = 72;
+    const winY = 32;
+    const cellW = 8;
+    const cellH = 8;
+    const X_BASE = 2;
+    const Y_BASE = 1;
+    const X_STRIDE = 19;
+    const ROWS_PER_COL = 4;
+    const winW = 22;
+    const winRight = winX + winW * cellW;
+
+    // Background fill for the text band (rows Y=1..4 of window).
+    const fillTop = winY + Y_BASE * cellH;
+    const fillBottom = winY + (Y_BASE + ROWS_PER_COL) * cellH;
+    for (let py = fillTop; py < fillBottom && py < ENGINE_H; py++) {
+      for (let px = winX; px < winRight && px < ENGINE_W; px++) {
+        const idx = (py * ENGINE_W + px) * 4;
+        buf[idx] = 0;
+        buf[idx + 1] = 0;
+        buf[idx + 2] = 0;
+        buf[idx + 3] = 0xff;
+      }
+    }
+
     for (let i = 0; i < menuOptions.length; i++) {
       const opt = menuOptions[i]!;
+      const cursorX = Math.floor(i / ROWS_PER_COL) * X_STRIDE + X_BASE;
+      const cursorY = (i % ROWS_PER_COL) + Y_BASE;
       const isSel = i === selectedIdx;
       const fg = isSel ? 14 /* yellow */ : 7 /* light gray */;
-      const label = (isSel ? '» ' : '  ') + opt.label;
-      renderTextRun(buf, ENGINE_W, ENGINE_H, baseX, baseY + i * rowH, label, wfont0, fg, EGA_DEFAULT);
+      const textPxW = opt.label.length * 8;
+      let textX = winX + cursorX * cellW;
+      if (cursorX >= X_BASE + X_STRIDE) {
+        // Right column: right-align so labels fit inside the window.
+        textX = winRight - textPxW - 2;
+      }
+      const textY = winY + cursorY * cellH;
+      renderTextRun(buf, ENGINE_W, ENGINE_H, textX, textY, opt.label, wfont0, fg, EGA_DEFAULT);
     }
   }
 
