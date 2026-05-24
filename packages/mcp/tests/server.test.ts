@@ -111,29 +111,25 @@ describe('MCP server end-to-end', () => {
   });
 
   it.skipIf(!haveSaveState)(
-    'dosbox_inspect_save reports game_state=0 on 1.sav',
+    'dosbox_inspect_save honestly rejects 1.sav (no wroot loaded)',
     async () => {
+      // Investigation finding (2026-05-23): 1.sav is NOT from inside a
+      // running wroot.exe. SOUND00.SND appears in memory (probably a stale
+      // DOS disk buffer) but TITLEPAG.EGA does not — the two-anchor check
+      // in dgroup.ts catches this and refuses to fabricate a DGROUP base.
+      // Anyone capturing a fresh save during gameplay (game_state >= 1)
+      // should flip these expectations.
       const result = (await client.callTool({
         name: 'dosbox_inspect_save',
         arguments: { save: '1.sav' },
       })) as ToolCallResultLike;
-      expect(result.isError).not.toBe(true);
-      const payload = parseJsonContent(result) as {
-        game_state: number;
-        dgroup_base: number;
-        party_size: number;
-        party_names: string[];
-      };
-      expect(payload.game_state).toBe(0);
-      expect(payload.dgroup_base).toBeGreaterThan(0);
-      expect(payload.party_size).toBeGreaterThanOrEqual(0);
-      expect(Array.isArray(payload.party_names)).toBe(true);
-      expect(payload.party_names.length).toBe(6);
+      expect(result.isError).toBe(true);
+      expect(result.content[0]!.text).toMatch(/wroot\.exe DGROUP|TITLEPAG\.EGA/i);
     },
   );
 
   it.skipIf(!haveSaveState)(
-    'dosbox_read_struct decodes a sound_table_entry at DGROUP 0x3344',
+    'dosbox_read_struct rejects 1.sav with the same DGROUP-anchor error',
     async () => {
       const result = (await client.callTool({
         name: 'dosbox_read_struct',
@@ -143,23 +139,8 @@ describe('MCP server end-to-end', () => {
           address: 0x3344,
         },
       })) as ToolCallResultLike;
-      expect(result.isError).not.toBe(true);
-      const payload = parseJsonContent(result) as {
-        structName: string;
-        bytes: number;
-        decoded: Record<string, unknown>;
-      };
-      expect(payload.structName).toBe('sound_table_entry');
-      expect(payload.bytes).toBe(12);
-      // Sound table slot 0. The exact decoded values depend on engine state;
-      // the structural assertions (right field set, numeric types) are what
-      // we can pin without baking save-specific expectations.
-      expect(payload.decoded).toHaveProperty('alias_id');
-      expect(payload.decoded).toHaveProperty('buf_lo');
-      expect(payload.decoded).toHaveProperty('buf_hi');
-      expect(payload.decoded).toHaveProperty('duration');
-      expect(payload.decoded).toHaveProperty('rate_or_vol');
-      expect(payload.decoded).toHaveProperty('flags');
+      expect(result.isError).toBe(true);
+      expect(result.content[0]!.text).toMatch(/DGROUP/i);
     },
   );
 

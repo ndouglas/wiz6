@@ -75,5 +75,9 @@ Next free ID: **#018**
 
 - #Q-F — When does the engine actually load `wiz6-main` / `wiz6-dungeon`?
   - Phase 1 of #002 confirmed both palette tables are loaded via `INT 10h AX=1002h` at wroot 0x209B and 0x2105 respectively, but Phase 6 calibration showed the current asset-render scenes operate against the BIOS-default palette (the engine has not yet executed either load when those scenes draw). Gameplay states that exercise the two engine palettes haven't been identified.
-  - Method: DOSBox-X `int10 = debug` runtime trace through every game state.
+  - Method: capture save states during gameplay at each game-state boundary (main menu, dungeon, combat, character view) and call `dosbox_identify_palette` on each. The MCP tool runs the DAC-vs-catalog comparison automatically. Alternative: parse `tools/dosbox/dosbox.log` for `INT 10h AX=1002h` events under the `int10 = debug` config (already enabled in `tools/dosbox/wiz6.conf`).
   - Until resolved, both palettes ship in `@wiz6/data`'s catalog as RE artifacts but are not referenced by any extractor.
+
+- #Q-H — `tools/dosbox/save/1.sav` doesn't contain a running wroot.exe
+  - Investigation finding (2026-05-23): the MCP server's two-anchor DGROUP detection (SOUND00.SND + TITLEPAG.EGA at the expected 12-byte distance) fails on `1.sav` — `TITLEPAG.EGA` isn't in memory at all, and the lone `SOUND00.SND` match is probably DOS disk-buffer remnant from a previous wroot run. `dosbox_inspect_save` previously returned a fake DGROUP base + garbage decoded values; that's now fixed in `dgroup.ts` to throw a clear error.
+  - Action: capture a fresh save state from inside a running Wiz6 session (any point past `winit_state2_load_fonts` so DGROUP is fully populated) and drop it in `tools/dosbox/save/N.sav`. Once present, the existing MCP tools work against it and `#Q-F` and `#Q-G` both become answerable.
