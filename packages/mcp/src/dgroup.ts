@@ -30,8 +30,36 @@
 
 import { SaveStateBridge } from './debugger-console.js';
 
-/** DGROUP offset of the DISK.HDR string at the start of the anchor. */
-export const DISK_HDR_DGROUP_OFFSET = 0x1aee;
+/**
+ * Candidate DGROUP offsets for the DISK.HDR anchor string. Different
+ * overlays appear to give the same physical DISK.HDR location different
+ * DGROUP-relative offsets — overlays each have their own data segment,
+ * and the program's effective DGROUP shifts depending on which overlay
+ * is loaded. Validated empirically by saving at known game states and
+ * checking game_state at DGROUP+0x363A for each candidate; the right
+ * base is the one that yields a value in LEGAL_GAME_STATES.
+ *
+ * Known contexts:
+ *   - 0x1AEE: wbase.ovr (state 4 main menu, state 7 cleanup, state 0x18 config)
+ *   - 0x05D6: winit.ovr (state 0/1/2/8) AND wmaze.ovr (state 5/6/0x17)
+ *
+ * The two candidates differ by exactly 0x1518 — the same phantom shift
+ * we've seen elsewhere when comparing offsets across overlay contexts.
+ * Add more as new overlays get exercised.
+ */
+export const DISK_HDR_DGROUP_CANDIDATES = [0x05d6, 0x1aee] as const;
+
+/**
+ * Legal game_state values from CLAUDE.md's state-machine table. Used to
+ * validate which DGROUP candidate is correct for a given save.
+ */
+const LEGAL_GAME_STATES = new Set([
+  0, 1, 2, 4, 5, 6, 7, 8, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf,
+  0x11, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+]);
+
+/** DGROUP offset of the game_state global. */
+const GAME_STATE_DGROUP_OFFSET = 0x363a;
 
 /**
  * ASCII hex of "DISK.HDR\0MSG.DBS\0SCENARIO.DBS\0" — 30 bytes.
@@ -68,9 +96,27 @@ export function resolveDgroupBase(bridge: SaveStateBridge, savePath: string): nu
         'buffer from a previous wroot session).',
     );
   }
-  const base = phys - DISK_HDR_DGROUP_OFFSET;
-  dgroupCache.set(savePath, base);
-  return base;
+  // Try each candidate DGROUP offset; pick the one giving a legal game_state.
+  const tried: Array<{ base: number; gs: number }> = [];
+  for (const candidateOff of DISK_HDR_DGROUP_CANDIDATES) {
+    const base = phys - candidateOff;
+    if (base < 0) continue;
+    const gsPhys = base + GAME_STATE_DGROUP_OFFSET;
+    const gsBytes = bridge.readPhysical(gsPhys, 2);
+    const gs = gsBytes[0]! | (gsBytes[1]! << 8);
+    tried.push({ base, gs });
+    if (LEGAL_GAME_STATES.has(gs)) {
+      dgroupCache.set(savePath, base);
+      return base;
+    }
+  }
+  throw new Error(
+    `wroot.exe DGROUP anchor located in ${savePath} but no candidate offset ` +
+      `gave a legal game_state. Tried: ${tried
+        .map((t) => `base=0x${t.base.toString(16)} → gs=0x${t.gs.toString(16)}`)
+        .join('; ')}. ` +
+      'The save is probably from an overlay context not yet in DISK_HDR_DGROUP_CANDIDATES.',
+  );
 }
 
 /** Convert a DGROUP-relative offset to a physical-memory offset for `savePath`. */
