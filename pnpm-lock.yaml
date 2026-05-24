@@ -53,6 +53,18 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@20.19.41)(jsdom@25.0.1)
 
+  packages/mcp:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.41
+      typescript:
+        specifier: ^5.6.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.41)(jsdom@25.0.1)
+
   packages/parser:
     dependencies:
       '@wiz6/data':
