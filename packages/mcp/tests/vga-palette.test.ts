@@ -10,7 +10,9 @@ import {
 } from '../src/vga-palette.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
-const SAVE_STATE = join(REPO_ROOT, 'tools', 'dosbox', 'save', '1.sav');
+// 3.sav: autodrive-captured save from mid-intro, wroot loaded, DAC at BIOS
+// default. See README in tools/dosbox/save/ for full save-state inventory.
+const SAVE_STATE = join(REPO_ROOT, 'tools', 'dosbox', 'save', '3.sav');
 const haveSave = existsSync(SAVE_STATE);
 
 describe('vga-palette — signature DAC detection', () => {
@@ -45,7 +47,7 @@ describe('vga-palette — signature DAC detection', () => {
   });
 });
 
-describe.skipIf(!haveSave)('vga-palette — against tools/dosbox/save/1.sav', () => {
+describe.skipIf(!haveSave)('vga-palette — against tools/dosbox/save/3.sav', () => {
   it('extracts a 256-entry DAC', () => {
     const state = parseVgaPaletteFromSave(SAVE_STATE);
     expect(state).not.toBeNull();

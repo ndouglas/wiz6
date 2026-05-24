@@ -14,7 +14,11 @@ import {
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
 const EXTRACT_SCRIPT = join(REPO_ROOT, 'tools', 'parity', 'extract.py');
-const SAVE_STATE = join(REPO_ROOT, 'tools', 'dosbox', 'save', '1.sav');
+// 3.sav is from mid-intro (~9 s into the autodrive run); wroot.exe is loaded
+// and the SOUND00.SND filename-table anchor is present. 1.sav by contrast is
+// from very early boot (before wroot started) — used in server.test.ts for
+// the DGROUP-rejection path.
+const SAVE_STATE = join(REPO_ROOT, 'tools', 'dosbox', 'save', '3.sav');
 const WIZ6_CONF = join(REPO_ROOT, 'tools', 'dosbox', 'wiz6.conf');
 const DOSBOX_PATH =
   '/opt/homebrew/Caskroom/dosbox-x-app/2026.05.02/dosbox-x-sdl2/dosbox-x.app/Contents/MacOS/dosbox-x';

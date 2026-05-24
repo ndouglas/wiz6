@@ -173,23 +173,24 @@ describe('MCP server end-to-end', () => {
   });
 
   it.skipIf(!haveSaveState)(
-    'dosbox_identify_palette finds an exact ega-default match in the boot-state save',
+    'dosbox_identify_palette finds an exact ega-default match in 3.sav',
     async () => {
       const result = (await client.callTool({
         name: 'dosbox_identify_palette',
-        arguments: { save: '1.sav' },
+        arguments: { save: '3.sav' },
       })) as ToolCallResultLike;
       expect(result.isError).not.toBe(true);
       const payload = parseJsonContent(result) as {
         best_match: { name: string; distance: number; exact: boolean };
         all_candidates: { name: string; distance: number }[];
       };
-      // game_state=0 = boot before the engine has reprogrammed the DAC, so
-      // the BIOS ega-default palette should be active and the match exact.
+      // 3.sav: autodrive-captured mid-intro, wroot loaded, DAC still at the
+      // BIOS-EGA default (the engine doesn't reprogram the palette during
+      // state-1 — that happens later, in main-menu / dungeon scenes which
+      // the current autodrive doesn't reach).
       expect(payload.best_match.name).toBe('ega-default');
       expect(payload.best_match.distance).toBe(0);
       expect(payload.best_match.exact).toBe(true);
-      // wiz6-main / wiz6-dungeon should rank below with non-zero distance.
       const wiz6Main = payload.all_candidates.find((c) => c.name === 'wiz6-main');
       expect(wiz6Main?.distance).toBeGreaterThan(0);
     },
