@@ -236,8 +236,16 @@ Real tools that work today against `tools/dosbox/save/N.sav`:
 
 To wire into Claude Code, add to your MCP config:
 ```json
-{ "mcpServers": { "wiz6": { "command": "pnpm", "args": ["exec", "wiz6-mcp"], "cwd": "/path/to/wiz6" } } }
+{
+  "mcpServers": {
+    "wiz6": {
+      "command": "/Users/nathan/Projects/ndouglas/wiz6/packages/mcp/bin/wiz6-mcp.mjs",
+      "cwd": "/Users/nathan/Projects/ndouglas/wiz6"
+    }
+  }
+}
 ```
+(The bin script is a `tsx` shim so workspace TS source resolves cleanly without each package needing its own `dist/` build.)
 
 ## Known partial / in-progress issues
 

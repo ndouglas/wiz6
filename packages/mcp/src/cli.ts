@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 // `wiz6-mcp` — entry point for the Wiz6 DOSBox-X MCP server.
 //
-// Speaks MCP over stdio. Diagnostic logging goes to stderr as JSON lines
-// (the MCP protocol owns stdout). Add this to a Claude Code / Codex / Gemini
-// MCP config:
+// Speaks MCP over stdio; diagnostic logs to stderr as JSON lines. This file
+// is not invoked directly — see `packages/mcp/bin/wiz6-mcp.mjs` for the
+// tsx-launcher shim that resolves workspace TS sources. MCP client config:
 //
 //   {
 //     "mcpServers": {
 //       "wiz6": {
-//         "command": "pnpm",
-//         "args": ["--filter", "@wiz6/mcp", "exec", "wiz6-mcp"],
-//         "cwd": "/path/to/wiz6"
+//         "command": "/abs/path/to/wiz6/packages/mcp/bin/wiz6-mcp.mjs",
+//         "cwd": "/abs/path/to/wiz6"
 //       }
 //     }
 //   }

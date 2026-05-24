@@ -9,7 +9,7 @@
     ".": "./src/index.ts"
   },
   "bin": {
-    "wiz6-mcp": "./src/cli.ts"
+    "wiz6-mcp": "./bin/wiz6-mcp.mjs"
   },
   "scripts": {
     "test": "vitest run",
