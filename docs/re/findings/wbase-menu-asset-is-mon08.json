@@ -1,0 +1,71 @@
+{
+  "topic": "wbase-menu-decoration-asset-identification",
+  "subagent_run": "2026-05-24",
+  "binaries": ["wbase.ovr", "wroot.exe"],
+  "summary": "Confirmed via DOSBox-X file-open trace that the main-menu decoration asset loaded by `wbase_load_font_table_entry(8, 4)` is `C:MON08.PIC`. File-load sequence at state-4 entry: WBASE.ovr loads, then MON08.PIC. Mon08 holds 6 descriptors (0..5) and the parity-gated 'water' animation frames are descriptors 4 (red devil silhouette + water column, 5×10) and 5 (small water ripple, 5×1). PIC-renderer script convention is 1-based, so wbase's `FUN_0732(5, ...)` with script [5, 0] renders descriptor index 4 (0-based), and `FUN_0732(6, ...)` renders descriptor 5.",
+  "method": "Inspected `tools/dosbox/dosbox.log` for `FILES:file open command 0 file` events bracketing the WBASE.ovr load. The sequence shows MON08.PIC is the SINGLE asset file loaded between WBASE.ovr open and steady-state menu rendering. Cross-referenced with `extracted/pics/mon08.json` (6 descriptors, sizes 11×14, 11×14, 4×9, 4×9, 5×10, 5×1) and the rendered descriptor PNGs (`extracted/pics/mon08/desc-NN.png`). Desc-04 visibly shows the red devil silhouette on top of a blue water column. Desc-05 is a 5-pixel-wide water ripple texture.",
+  "findings": [
+    {
+      "id": "file-open-trace",
+      "claim": "WBASE.ovr loads exactly ONE asset file at state-4 entry: MON08.PIC. The full pre-menu sequence after the title scrolls off is: WINIT exits → re-opens WINIT.ovr → loads MON03/01/02/07/04/05/06.PIC (winit graveyard/etc assets) → DRAGONSC.EGA (the top decoration stripe) → WBASE.ovr → MON08.PIC.",
+      "category": "dynamic_trace",
+      "evidence": {
+        "type": "dosbox-x-file-log",
+        "details": "`grep 'file open command 0 file' tools/dosbox/dosbox.log | tail` (with the relevant window). Specifically: `WBASE.ovr` open is immediately followed by `C:MON08.PIC` open with no intervening asset loads. Confirmed across two full intro runs (the trace shows the sequence twice)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "mon08-descriptor-roles",
+      "claim": "Mon08 descriptor roles (per visual inspection of `extracted/pics/mon08/desc-NN.png`):\n  desc 0 — gate left half (11×14): the left arch panel\n  desc 1 — gate right half (11×14): the right arch panel + red devil silhouette\n  desc 2 — door panel L (4×9): texture\n  desc 3 — door panel R (4×9): texture\n  desc 4 — devil+water column (5×10): a small red devil figure over a blue water column. Used as parity-on animation frame A.\n  desc 5 — water ripple strip (5×1): a 5-pixel water ripple texture. Used as parity-on animation frame B.",
+      "category": "asset_structure",
+      "evidence": {
+        "type": "rendered-png-inspection",
+        "details": "Visually verified the PNGs at extracted/pics/mon08/desc-NN.png. desc-04 contains the iconic red figure + blue column; desc-05 is unmistakably a 5-pixel water ripple strip."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pic-script-indexing-is-1-based",
+      "claim": "The `f10c` PIC renderer's script array uses 1-based descriptor indices, terminated by 0x00. So wbase's `FUN_0732(5, ...)` constructs script [5, 0] which renders descriptor index 5 (1-based) = mon08 descriptor 4 (0-based). FUN_0732(6) renders descriptor 5 (0-based) = the ripple strip.",
+      "category": "renderer_calling_convention",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x0732" },
+        "type": "asm + pic.md cross-ref",
+        "details": "FUN_0732 disasm shows the script local at [bp-0xa] is populated with `[arg1, 0]` (arg1 stored at offset 0, 0 at offset 1). This 2-byte buffer is passed to f10c as the script ptr. pic.md documents the script as a 1-based descriptor-index list terminated by 0x00. So script bytes 5,0 → render desc index 5 (1-based) = desc 4 (0-based)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun_0732-position-tables-empty-at-save",
+      "claim": "The DGROUP position tables at +0x3bcc (FUN_0732 X) and +0x3bff (FUN_0732 Y) are completely zero in save 1 (game_state=4 main menu, DGROUP=0x16B30). This contradicts the assumption that wbase_load_font_table_entry(8, 4) populates them. The PIC renderer must source the X,Y for water draws from elsewhere — possibly the asset itself (a per-descriptor default position), or the tables are populated transiently per frame and zeroed between, or DS at the moment of save is a different segment than what wbase code uses at draw time.",
+      "category": "open_mystery",
+      "evidence": {
+        "type": "memory_dump",
+        "details": "phys 0x16B30 + 0x3bc0..0x3c40 reads all-zero. Verified across multiple DGROUP base candidates (anchor approach + predicate scan)."
+      },
+      "confidence": "high",
+      "caveat": "Don't blindly trust the earlier render-pipeline finding's claim that FUN_0732 sources from these tables — needs another look. The asm reads `[bx+0x3bcc]` with default DS; if wbase's DS at f10c-call-time differs from the DS at our save moment, the data could be elsewhere."
+    },
+    {
+      "id": "mon08-extraction-status",
+      "claim": "Mon08 is already extracted by our pipeline: `extracted/pics/mon08.json` has all 6 descriptors with pos/width/height/mask, plus the rendered PNGs at `extracted/pics/mon08/desc-NN.png` (single sprites) and `extracted/pics/mon08/sheet.png` (combined view). The current viewer renders descriptors 0..3 at hand-tuned positions for the gate — but those positions don't match the engine's composition. The engine uses the f10c PIC renderer to script-compose multiple descriptors into a larger scene; we'd need to port that renderer (or pre-render the scene to a static image) for pixel-accurate visual fidelity.",
+      "category": "implementation_status",
+      "evidence": {
+        "type": "file-listing",
+        "details": "ls extracted/pics/mon08/ → desc-00..desc-05.png + sheet.png. The sheet shows the gate composed from multiple descriptor placements — clearly the engine renders each desc many times across the gate area, not just once."
+      },
+      "confidence": "high"
+    }
+  ],
+  "next_steps": [
+    "Port the f10c PIC renderer to TypeScript (it walks a 1-based descriptor-index script and composes descriptors into a destination buffer). Without this, our CastleScreen renders only individual tiny descriptors at hand-tuned positions, not the composed gate.",
+    "Resolve the FUN_0732 position-tables mystery — either find where they're really populated (possibly part of mon08's own data, not DGROUP), or accept that hardcoded positions are the right move and document it.",
+    "Once both above are resolved, the parity-on water frame is just `compose_pic(buffer, mon08_descriptors, script=[5,0], x, y)` and `compose_pic(..., script=[6,0], ...)` overlaid on the parity-off frame."
+  ],
+  "unresolved": [
+    "Where the X,Y arguments to FUN_0732 calls actually come from. The asm reads from DGROUP offsets that are empty — needs dynamic verification (set a breakpoint on FUN_0732 and inspect DS, or capture a save during a water-animation frame).",
+    "Whether sprite IDs 0x15a..0x169 (FUN_0984 init draws) reference mon08 descriptors or a SECONDARY asset. Mon08 only has 6 descriptors, but sprite IDs go up to 0x169. The runtime sprite-records table (per `wbase-menu-runtime-tables.json`) shows atlas IDs differing across these sprite IDs, suggesting multiple atlases — maybe wfont* or a SECOND .pic the trace doesn't capture (preloaded into a sprite-table slot before wbase took over)."
+  ]
+}

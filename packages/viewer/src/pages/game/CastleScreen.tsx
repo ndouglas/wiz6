@@ -234,23 +234,22 @@ function composeFrame(
     blendSprite(buf, mon08Sprites[3], 96 + 32, 50);
   }
 
-  // Parity-gated overlay (water columns): FUN_0732 slots 5+6 fire when
-  // frame_parity != 0. Source positions/sprites are in wbase's per-asset
-  // BSS tables which we haven't fully RE'd yet. For now: a 1-px-wide
-  // vertical "shimmer" on the gate edges as a visible placeholder so we
-  // can confirm the parity-flip timer is alive. Replace with real
-  // wmon08-equivalent water sprites once the menu-asset table is mapped.
+  // Parity-gated overlay: per docs/re/findings/wbase-menu-asset-is-mon08.json,
+  // the engine fires FUN_0732(5,...) and FUN_0732(6,...) when frame_parity != 0,
+  // which render mon08 descriptors 4 (red devil + water column, 5×10) and 5
+  // (water ripple strip, 5×1) respectively. The exact destination positions
+  // depend on a wbase BSS table we haven't fully RE'd yet (the DGROUP+0x3bcc
+  // tables read empty at save time — possibly populated transiently per draw).
+  // Positions below are eye-tuned to the bottom-center of the gate area,
+  // mirroring the original game's "shimmering water at the gate base" effect.
   if (parity !== 0 && mon08Sprites) {
-    // Faint ripple on the gate's bottom edge.
-    const shimmerY = 174;
-    const shimmerColor = [80, 140, 200, 0xff] as const;
-    for (let x = 96; x < 224; x += 4) {
-      const i = (shimmerY * ENGINE_W + x) * 4;
-      buf[i] = shimmerColor[0];
-      buf[i + 1] = shimmerColor[1];
-      buf[i + 2] = shimmerColor[2];
-      buf[i + 3] = shimmerColor[3];
+    // Tile descriptor 5 (the ripple strip) across the gate base; overlay
+    // descriptor 4 (the devil+water column) at the right side of the arch.
+    const rippleY = 192;
+    for (let x = 96; x <= 220; x += 5) {
+      blendSprite(buf, mon08Sprites[5], x, rippleY);
     }
+    blendSprite(buf, mon08Sprites[4], 174, 130);
   }
 
   ctx.putImageData(new ImageData(buf, ENGINE_W, ENGINE_H), 0, 0);
