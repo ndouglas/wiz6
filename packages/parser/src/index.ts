@@ -20,6 +20,7 @@ export {
   type RenderedSprite,
 } from './formats/pic-render.js';
 export { renderTextRun, measureTextRun } from './formats/wfont-render.js';
+export { renderTextRun4bpp } from './formats/wfont-4bpp-render.js';
 export { renderEgaScreen } from './formats/ega-screen-render.js';
 export { EGA_FILE_INDEX_PERMUTATION } from './formats/ega-permutation.js';
 

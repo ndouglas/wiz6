@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PicSchema, EGA_DEFAULT, type Font, type Pic } from '@wiz6/data';
+import { PicSchema, EGA_DEFAULT, type Font4bpp, type Pic } from '@wiz6/data';
 import {
   renderEgaScreen,
   concatenatePicSegments,
   compositePicScript,
-  renderTextRun,
+  renderTextRun4bpp,
   visibleMenuOptions,
   type MainMenuOption,
   type MainMenuContext,
 } from '@wiz6/parser';
-import { loadEgaScreen, loadFont } from '../../data-loader.js';
+import { loadEgaScreen, loadFont4bpp } from '../../data-loader.js';
 import styles from './CastleScreen.module.css';
 
 const ENGINE_W = 320;
@@ -45,7 +45,7 @@ export function CastleScreen() {
   const [mon08Pic, setMon08Pic] = useState<Pic | null>(null);
   const [mon08Decoded, setMon08Decoded] = useState<number[] | null>(null);
   const [dragonscRgba, setDragonscRgba] = useState<Uint8ClampedArray | null>(null);
-  const [wfont0, setWfont0] = useState<Font | null>(null);
+  const [wfont3, setWfont3] = useState<Font4bpp | null>(null);
 
   const visible = useMemo(() => visibleMenuOptions(DEFAULT_CONTEXT), []);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -92,9 +92,9 @@ export function CastleScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    loadFont('/fonts/wfont0.json')
+    loadFont4bpp('/fonts/wfont3.json')
       .then((font) => {
-        if (!cancelled) setWfont0(font);
+        if (!cancelled) setWfont3(font);
       })
       .catch(() => {
         /* leave null */
@@ -132,7 +132,7 @@ export function CastleScreen() {
         dragonscRgba,
         mon08Pic,
         mon08Decoded,
-        wfont0,
+        wfont3,
         visible,
         selectedIdxRef.current,
       );
@@ -140,7 +140,7 @@ export function CastleScreen() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [mon08Pic, mon08Decoded, dragonscRgba, wfont0, visible]);
+  }, [mon08Pic, mon08Decoded, dragonscRgba, wfont3, visible]);
 
   // Keyboard navigation: ↑/↓ wrap-around through visible options; Enter activates.
   useEffect(() => {
@@ -195,7 +195,7 @@ function composeFrame(
   dragonscRgba: Uint8ClampedArray | null,
   mon08Pic: Pic | null,
   mon08Decoded: number[] | null,
-  wfont0: Font | null,
+  wfont3: Font4bpp | null,
   menuOptions: readonly MainMenuOption[],
   selectedIdx: number,
 ): void {
@@ -230,7 +230,7 @@ function composeFrame(
   // Menu UI bottom band — three stacked windows per the engine's heap walk
   // (docs/re/findings/wroot-window-heap-allocator.json):
   //   y=144..152 px : BANNER row, attr=0x0E (yellow). "MASTER OPTIONS" with
-  //                   bat glyphs (wfont0 char 0x7F) on either side; cursor
+  //                   bat glyphs (wfont3 char 0x7F) on either side; cursor
   //                   was at col 30 at save time = matches centered 18-char
   //                   layout "\x7F MASTER OPTIONS \x7F".
   //   y=152..192 px : LOWER PANE, attr=0x04 (red) background under attr=0x0F
@@ -242,27 +242,36 @@ function composeFrame(
   //   cursor_X = (slot / 4) * 19 + 2   → col 0 at cell X=2; col 1 at X=21
   //   cursor_Y = (slot % 4) + 1        → 4 rows per column at Y=1..4
   // Cells are 8 px relative to the lower pane's top-left.
-  if (wfont0) {
+  if (wfont3) {
     const cellW = 8;
     const cellH = 8;
+    // EGA color 8 = dark gray (the "neutral gray" background per user obs).
+    const GRAY = EGA_DEFAULT.colors[8] ?? [0x55, 0x55, 0x55];
+    const BLACK = EGA_DEFAULT.colors[0] ?? [0, 0, 0];
 
-    // ---- Banner row (y=144..152) ----
-    const BANNER_Y = 144;
-    const BANNER_H = 8;
-    // Yellow band background
-    fillRect(buf, 0, BANNER_Y, ENGINE_W, BANNER_H, EGA_DEFAULT.colors[14] ?? [0xff, 0xff, 0x55]);
-    // "\x7F MASTER OPTIONS \x7F" centered (18 chars, col 11 of 40)
-    const banner = '\x7f MASTER OPTIONS \x7f';
+    // ---- Banner row (y=144..152, 8 px tall) ----
+    // Gray background with 1-px black separator lines top + bottom; text
+    // " {bat} MASTER OPTIONS {bat} " centered. Bat glyph is wfont3 char
+    // 0x18 (dark-gray-bodied bat shape). Banner cursor was at col 30 at
+    // save time = 18 visible chars starting at col 11 → 13 (off-by-2
+    // here matches the 2 leading spaces).
+    fillRect(buf, 0, 144, ENGINE_W, 8, GRAY);
+    fillRect(buf, 0, 144, ENGINE_W, 1, BLACK); // top separator
+    fillRect(buf, 0, 151, ENGINE_W, 1, BLACK); // bottom separator
+    const banner = '\x18 MASTER OPTIONS \x18';
     const bannerX = ((40 - banner.length) >> 1) * cellW;
-    renderTextRun(buf, ENGINE_W, ENGINE_H, bannerX, BANNER_Y, banner, wfont0, 0, EGA_DEFAULT);
+    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, bannerX, 144, banner, wfont3, EGA_DEFAULT);
 
     // ---- Lower pane (y=152..192) ----
+    // Same neutral-gray fill so the banner reads as a stripe inside a
+    // unified gray panel.
     const PANE_X = 0;
     const PANE_Y = 152;
     const PANE_W = 320;
     const PANE_H = 40;
-    fillRect(buf, PANE_X, PANE_Y, PANE_W, PANE_H, EGA_DEFAULT.colors[4] ?? [0xaa, 0, 0]);
+    fillRect(buf, PANE_X, PANE_Y, PANE_W, PANE_H, GRAY);
 
+    // FUN_025c grid math: (slot/4)*19+2 = cursor X cell; (slot%4)+1 = Y cell.
     const X_BASE = 2;
     const Y_BASE = 1;
     const X_STRIDE = 19;
@@ -271,15 +280,19 @@ function composeFrame(
       const opt = menuOptions[i]!;
       const cursorX = Math.floor(i / ROWS_PER_COL) * X_STRIDE + X_BASE;
       const cursorY = (i % ROWS_PER_COL) + Y_BASE;
-      const isSel = i === selectedIdx;
-      const fg = isSel ? 14 /* yellow */ : 15 /* white */;
       const textX = PANE_X + cursorX * cellW;
       const textY = PANE_Y + cursorY * cellH;
-      renderTextRun(buf, ENGINE_W, ENGINE_H, textX, textY, opt.label, wfont0, fg, EGA_DEFAULT);
+      renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, textX, textY, opt.label, wfont3, EGA_DEFAULT);
+      // Selection highlight: invert the row band to a brighter bg so the
+      // user can see which option is active. Engine uses an inverted-
+      // attribute redraw; we approximate by drawing a light-gray bar
+      // behind the text and re-rendering the text on top.
+      if (i === selectedIdx) {
+        const lightGray = EGA_DEFAULT.colors[7] ?? [0xaa, 0xaa, 0xaa];
+        fillRect(buf, textX - 1, textY, opt.label.length * cellW + 2, cellH, lightGray);
+        renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, textX, textY, opt.label, wfont3, EGA_DEFAULT);
+      }
     }
-
-    // ---- Status row (y=192..200) ----
-    fillRect(buf, 0, 192, ENGINE_W, 8, EGA_DEFAULT.colors[3] ?? [0, 0xaa, 0xaa]);
   }
 
   ctx.putImageData(new ImageData(buf, ENGINE_W, ENGINE_H), 0, 0);
