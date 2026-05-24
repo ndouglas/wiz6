@@ -18,8 +18,10 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
+    "@types/adm-zip": "^0.5.8",
     "@wiz6/cli": "workspace:*",
     "@wiz6/data": "workspace:*",
+    "adm-zip": "^0.5.17",
     "zod": "^3.23.0"
   },
   "devDependencies": {

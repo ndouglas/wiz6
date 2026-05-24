@@ -18,6 +18,7 @@ import {
   safeHandler,
   type JsonToolResult,
 } from '../tool-result.js';
+import { parseVgaPaletteFromSave } from '../vga-palette.js';
 
 // ---------------------------------------------------------------------------
 // Game-state table — copied from CLAUDE.md "Engine architecture" section.
@@ -67,11 +68,6 @@ const MAX_PARTY_SLOTS = 6;
 // ---------------------------------------------------------------------------
 // Tool registration
 // ---------------------------------------------------------------------------
-
-const STUB_PALETTE_MESSAGE =
-  'Reading VGA Attribute-Controller palette registers from a DOSBox-X save state ' +
-  'requires decoding the Int10 / hardware-state blob (not the Memory blob). ' +
-  'That parser is not yet written. Tracked as a follow-up to #017 Phase 6.';
 
 const STUB_REGISTERS_MESSAGE =
   'CPU register decoding from DOSBox-X save states requires a parser for the ' +
@@ -367,14 +363,36 @@ export function registerInspectionTools(server: McpServer, ctx: McpContext): voi
     }),
   );
 
-  // -------- dosbox_read_palette_registers (STUB) --------------------------
+  // -------- dosbox_read_palette_registers --------------------------------
   server.registerTool(
     'dosbox_read_palette_registers',
     {
-      description: '[STUB] Read VGA palette registers from a save state. ' + STUB_PALETTE_MESSAGE,
+      description:
+        'Decode the VGA DAC palette from a DOSBox-X save-state Vga blob. Returns the ' +
+        '256-entry DAC as RGB triples (6-bit values, 0..63) plus an optional shadow DAC ' +
+        '(DOSBox-X stores two copies — stored + live). Used to answer "is wiz6-main / ' +
+        'wiz6-dungeon active in this save?" by comparing DAC entries against the known ' +
+        'palette tables in @wiz6/data.',
       inputSchema: { save: z.string() },
     },
-    () => errorResult('dosbox_read_palette_registers: not implemented. ' + STUB_PALETTE_MESSAGE),
+    safeHandler(({ save }): JsonToolResult => {
+      const savePath = ctx.resolveSavePath(save);
+      const state = parseVgaPaletteFromSave(savePath);
+      if (!state) {
+        return errorResult(
+          `dosbox_read_palette_registers: could not locate VGA DAC palette in ${savePath}. ` +
+            "The Vga blob layout may have shifted in a newer DOSBox-X build; update vga-palette.ts's signature scan.",
+        );
+      }
+      return jsonResult({
+        save: savePath,
+        dac_offset_in_vga_blob: state.dacOffset,
+        dac: state.dac,
+        note:
+          'DAC values are 6-bit (0..63). To convert to 8-bit RGB, use v8 = (v6 << 2) | (v6 >> 4). ' +
+          "Entries 0-15 are what wiz6-main / wiz6-dungeon palettes overwrite; compare against @wiz6/data's palette tables.",
+      });
+    }),
   );
 
   // -------- dosbox_get_registers (STUB) -----------------------------------
