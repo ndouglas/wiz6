@@ -224,33 +224,31 @@ function composeFrame(
   const buf = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
   for (let i = 0; i < buf.length; i += 4) buf[i + 3] = 0xff;
 
-  // Static background: dragonsc top strip + engine init draws (the 6
-  // FUN_0984 background panels) — currently approximated by mon08 sprites.
+  // Static background: dragonsc top strip + engine FUN_07b7 unconditional
+  // draws. Engine-derived screen positions from wbase save 1 (true DGROUP
+  // 0x18048, see docs/re/findings/wroot-window-heap-allocator.json):
+  //   slot 1: mon08 desc 0 (gate left)  at (72,  32)
+  //   slot 2: mon08 desc 1 (gate right) at (160, 32)
+  //   slot 3: mon08 desc 2 (door L)     at (128, 49)
+  //   slot 4: mon08 desc 3 (door R)     at (160, 49)
+  // Note: individual descriptors are tiny (11×14, 4×9); the engine
+  // composes them across the destination w×h via the f10c PIC renderer
+  // (NOT yet ported). We blit single sprites at the documented positions
+  // as a first-pass approximation.
   if (dragonscRgba) buf.set(dragonscRgba);
   if (mon08Sprites) {
-    blendSprite(buf, mon08Sprites[0], 72, 36);
-    blendSprite(buf, mon08Sprites[1], 72 + 88, 36);
-    blendSprite(buf, mon08Sprites[2], 96, 50);
-    blendSprite(buf, mon08Sprites[3], 96 + 32, 50);
+    blendSprite(buf, mon08Sprites[0], 72, 32);
+    blendSprite(buf, mon08Sprites[1], 160, 32);
+    blendSprite(buf, mon08Sprites[2], 128, 49);
+    blendSprite(buf, mon08Sprites[3], 160, 49);
   }
 
-  // Parity-gated overlay: per docs/re/findings/wbase-menu-asset-is-mon08.json
-  // and the engine state read from wbase.dgroup, FUN_0732(5) renders mon08
-  // descriptor 4 (devil+water column) at menu-window (0, 0), and FUN_0732(6)
-  // renders descriptor 5 (water ripple strip) at menu-window (0, 87). Both
-  // when frame_parity != 0. The menu window covers roughly the gate area
-  // (top-left ≈ screen (96, 36)), so we offset by that.
+  // Parity-gated water overlays from FUN_0732 slots 5 + 6:
+  //   slot 5: mon08 desc 4 (devil + water column) at (208, 52)
+  //   slot 6: mon08 desc 5 (water ripple strip)   at (72,  125)
   if (parity !== 0 && mon08Sprites) {
-    const menuWinX = 96;
-    const menuWinY = 36;
-    // FUN_0732(5, 0, 0x48, 0xf8): desc 4 at (0, 0) in menu window
-    blendSprite(buf, mon08Sprites[4], menuWinX, menuWinY);
-    // FUN_0732(6, 0, 0x48, 0xf8): desc 5 at (0, 87) in menu window
-    // Tile the 5×1 ripple across the width since the engine renders it
-    // into a 72-pixel-wide destination.
-    for (let dx = 0; dx < 72; dx += 5) {
-      blendSprite(buf, mon08Sprites[5], menuWinX + dx, menuWinY + 87);
-    }
+    blendSprite(buf, mon08Sprites[4], 208, 52);
+    blendSprite(buf, mon08Sprites[5], 72, 125);
   }
 
   ctx.putImageData(new ImageData(buf, ENGINE_W, ENGINE_H), 0, 0);

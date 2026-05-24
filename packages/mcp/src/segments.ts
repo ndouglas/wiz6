@@ -8,7 +8,6 @@ import {
 } from '@wiz6/data';
 import { SaveStateBridge } from './debugger-console.js';
 import { resolveDgroupBase } from './dgroup.js';
-import { resolveWbaseDgroupBase } from './overlay-dgroup.js';
 
 /**
  * Build a SegmentMap for a save state by reading every anchor binary
@@ -65,28 +64,19 @@ export function buildSegmentMap(
   const map = findSegmentsInMemory(mem, anchors);
 
   // Augment with wroot.dgroup if we have a bridge to validate against.
+  // wroot has ONE DGROUP, shared across all overlays — there are no per-
+  // overlay DGROUPs (the overlay-local DGROUP theory was a false positive
+  // from an earlier round of RE; see docs/re/findings/wroot-window-heap-
+  // allocator.json).
   if (opts.bridge) {
     try {
       const dgroupBase = resolveDgroupBase(opts.bridge, savePath);
       map['wroot.dgroup'] = {
         physBase: dgroupBase,
-        // For wroot.dgroup, "anchor" is the DISK.HDR string in the wroot
-        // overlay-name table; the resolver picks the right candidate
-        // offset (0x05D6 winit-context or 0x1AEE wbase-context) by
-        // checking game_state at +0x363A.
-        anchorPhys: dgroupBase, // not meaningfully different here
+        anchorPhys: dgroupBase,
       };
     } catch {
-      // wroot not loaded or game_state invalid; leave absent.
-    }
-
-    // Augment with wbase.dgroup (predicate scan; only succeeds when
-    // game_state is in wbase's handled set + menu_window is allocated).
-    try {
-      const wbaseDg = resolveWbaseDgroupBase(opts.bridge, savePath);
-      map['wbase.dgroup'] = { physBase: wbaseDg, anchorPhys: wbaseDg };
-    } catch {
-      // wbase not active or detection ambiguous; leave absent.
+      // wroot not loaded; leave absent.
     }
   }
 

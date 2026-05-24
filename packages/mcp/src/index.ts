@@ -20,7 +20,6 @@ export type { McpContextOptions, LaunchedSession } from './context.js';
 export {
   resolveDgroupBase,
   dgroupOffsetToPhysical,
-  DISK_HDR_DGROUP_CANDIDATES,
   DGROUP_ANCHOR_HEX,
 } from './dgroup.js';
 

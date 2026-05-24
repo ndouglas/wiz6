@@ -1,0 +1,88 @@
+{
+  "topic": "wroot-window-heap-allocator",
+  "subagent_run": "2026-05-24",
+  "binaries": ["wroot.exe"],
+  "summary": "Decoded the allocator at wroot image 0x3A22 (file 0x3C22) called by ui_window_create. It is a classic MS-C 5.x/6.x near-heap allocator: first-fit traversal of a singly-linked free list whose blocks live ENTIRELY INSIDE wroot.exe's DGROUP (the EXE's data segment), with heap-growth via DOS int 21h AH=4Ah (resize current PSP block) — NOT a fresh allocation in its own segment. The returned 16-bit value in AX is therefore a NEAR offset into wroot.dgroup, dereferenceable via DS:AX. The reported \"handle 0xB687\" stored at wbase.dgroup[0x4FBC] = 0xB687 turned out to be a red herring from a misdetected wbase.dgroup base — the actual menu_window handle is 0x73fa at wroot's TRUE DGROUP (phys 0x18048 in save 1, derived from MZ-header init_SS=0xFD8), and decodes to a perfect 22-cell × 14-cell window struct at cell (9, 4). Same wroot DGROUP base holds the full 40x25 background window (handle 0x6ff6), the heavy-border left portrait panel (0x71b2), the light-border right portrait panel (0x7270), and two 40x1 status lines (0x732e, 0x7394) — all in a clean heap walk that traces the free-list chain end-to-end.",
+  "method": "Disassembled wroot.exe at file 0x3C22 with `ndisasm -b 16 -k 0,0x3C22 original/wroot.exe`. Followed call to file 0x46A5 (heap-grow helper). Read MZ header to find init_SS = 0xFD8 paragraphs, computed true wroot DGROUP base in save 1 as 0x82C8 (EXE load segment) + 0xFD8*16 = 0x18048. Walked the live free-list from the heap-start cell ([DGROUP+0x6FF4]) using the on-disk byte layout the allocator implies, and dumped each payload as a 16-byte window struct (matching the layout from `wroot-ui-window-create-struct-layout` finding).",
+  "findings": [
+    {
+      "id": "allocator-signature",
+      "claim": "Function signature: `void* near alloc(uint16_t size)` (single arg at [bp+0x4], NEAR `ret`). Returns the payload offset in AX (NOT the block-header offset), or 0 on failure. The size is rounded up to even by `size = (size + 3) >> 1 << 1` (the `+3` accounts for the 2-byte block header word + 1 byte for even-rounding).",
+      "category": "function_signature",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0x3a22"},
+        "type": "raw_disasm",
+        "details": "Prologue at file 0x3C22..0x3C36:\n  3C22 55             push bp\n  3C23 8BEC           mov bp,sp\n  3C25 83C4FA         add sp,-6           ; locals: [bp-2]=cur, [bp-4]=size_local, [bp-6]=grow_attempts\n  3C28 57             push di\n  3C29 56             push si\n  3C2A 8B4604         mov ax,[bp+4]       ; arg = requested size\n  3C2D 40             inc ax              ; ax += 3 (block-hdr word + odd-round)\n  3C2E 40             inc ax\n  3C2F 40             inc ax\n  3C30 D1E8           shr ax,1            ; ndisasm shows 'shr ax,0' but byte D1 E8 = SHR r/m16 by 1\n  3C32 D1E0           shl ax,1            ; ditto SHL r/m16 by 1 — net: clears bit 0 → even\n  3C34 894604         mov [bp+4],ax       ; size_arg = aligned\nEnd of function at file 0x3C8A (NEAR `ret`)."
+      },
+      "confidence": "high",
+      "applied_name": "ui_window_heap_alloc"
+    },
+    {
+      "id": "allocator-data-structures",
+      "claim": "The allocator uses three DGROUP cells as global state:\n  [DGROUP+0x6C4] — free-list HEAD: word, points at the block-header word of the next free or in-use block to start search from. Acts as a 'rover' (next-fit cursor) in classic K&R-malloc style.\n  [DGROUP+0x6C6] — initial sentinel block-header word. Self-link with the in-use bit set: `[0x6C6] = 0x6C6 | 0x1 = 0x6C7`. Used as the wrap-around terminator when traversing the linked list.\n  [DGROUP+0x65A] — heap-end / wilderness pointer: address of the last block-header (highest in-use block). The next allocation triggers heap growth when this is reached.\n  [DGROUP+0x65E] — current break (heap top): in-use byte count from the C runtime's sbrk; bumped by the grow helper at file 0x46A5.\n  [DGROUP+0x668] — brkval / hard ceiling.\n  [DGROUP+0x66E] — PSP segment for the int 21h AH=4Ah resize call.\n  [DGROUP+0x69E] — stack base / heap-top safety limit.\n  [DGROUP+0x6BD] — start-of-heap pointer (passed as arg to the memcpy helper at 0x436E during initial heap-zone setup).\n\nBlock layout: each block is `[link_word]` followed by payload. `link_word` packs (next_block_header_addr | in_use_flag), with the low bit = 1 for in-use, 0 for free. To get the next block: `next = link_word & 0xFFFE`. Block size = `next - cur`. Payload begins at `cur + 2`.",
+      "category": "data_format",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0x3a37"},
+        "type": "raw_disasm",
+        "details": "Initial sentinel setup at file 0x3C37..0x3C4F (runs once when [0x6C4]==0):\n  3C37 833EC40600     cmp word [0x6C4],0\n  3C3C 7512           jnz .not_first       ; +0x12 to 0x3C50\n  3C3E C706C606C606   mov word [0x6C6],0x6C6   ; sentinel.link = own addr\n  3C44 810EC6060100   or word [0x6C6],1        ; ...with in-use bit set\n  3C4A C706C406C606   mov word [0x6C4],0x6C6   ; free-list head = sentinel\nLater code at 0x3CAD adds the wilderness terminator block:\n  3CAD C705C606       mov word [di],0x6C6     ; new wilderness link → sentinel\n  3CB1 810D0100       or word [di],1\n  3CB1 893E5A06       mov [0x65A],di          ; remember wilderness pos"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "allocator-algorithm",
+      "claim": "First-fit with rover cursor. On each call:\n  1. (lazy-init sentinel if needed; see above)\n  2. cur = [0x6C4] (rover); first_seen = cur\n  3. Walk free-list (cur = cur->link & ~1). At each block:\n     - If in_use bit set, skip.\n     - Else compute block size = next - cur. If size >= requested:\n         - If size > requested + 2, split: new free block at cur + requested; update cur->link to point at it; new_block->link = old cur->link; update [0x6C4] = new_block.\n         - Set in-use bit on cur->link.\n         - Return cur + 2 in AX.\n     - Else continue walking.\n  4. If walk wraps around (cur == [0x65A] wilderness): try to grow by calling 0x46A5(0x400) (allocate 1024 bytes via int 21h AH=4Ah resize). Retry. After 1 failed grow, return 0.\n\nThe grow helper at 0x46A5 calls 0x46D9 which: rounds size up to even, then issues `int 21h AH=4Ah` with ES=[DGROUP+0x66E] (PSP) and BX=new_size_paragraphs to RESIZE the EXE's memory block in place. On success, advances [0x65E] (heap break) and links the new region to the existing free-list. THE ALLOCATOR NEVER ISSUES INT 21H AH=48H — it does NOT allocate a fresh segment. All allocations live inside wroot.exe's existing DGROUP / EXE memory image.",
+      "category": "algorithm",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0x473b"},
+        "type": "single_instruction_match",
+        "details": "Heap-grow at file 0x46D9..0x4757:\n  46D9 55             push bp\n  46DA 8BEC           mov bp,sp\n  46DC 8B4604         mov ax,[bp+4]\n  46DF 40             inc ax\n  46E0 24FE           and al,0xFE        ; align up to even\n  46E2 3B066606       cmp ax,[0x666]\n  46E6 7270           jc .fail\n  ; check stack-vs-heap collision via [0x69E]\n  46E8 833EA20600     cmp word [0x6A2],0\n  46ED 7518           jnz .has_old_break\n  46EF 8BDC           mov bx,sp\n  46F1 2B1E9E06       sub bx,[0x69E]    ; available bytes below stack\n  46F5 3BC3           cmp ax,bx\n  46F7 735F           jnc .fail\n  46F9 A35E06         mov [0x65E],ax\n  ...\n  4731 8E066E06       mov es,[0x66E]    ; PSP segment\n  4735 2B1E6E06       sub bx,[0x66E]    ; new_size in paragraphs\n  4739 B44A           mov ah,0x4A\n  473B CD21           int 0x21          ; DOS Resize Memory Block (ES=segment)\nThe `mov ah, 4A` followed by `int 21h` is the *only* DOS int 21h call in this allocator chain — no AH=48 (allocate). The block being resized is the PSP-relative EXE block, so the heap lives in DGROUP."
+      },
+      "confidence": "high",
+      "applied_name": "heap_grow_via_dos_resize"
+    },
+    {
+      "id": "return-pointer-segment",
+      "claim": "The 16-bit value returned in AX is a NEAR offset into wroot.exe's DGROUP (the EXE's data segment). Callers can dereference it directly via `[bx+disp]` / `[si+disp]` with whatever DS happens to hold the wroot DGROUP at the time of the read — which is the default DS for the entire wroot.exe + loaded overlay execution context (MS-C compact/small-data model with one shared DGROUP).\n\nThe correct runtime segment-map entry name is **`wroot.dgroup`**. Adding a synonym like `wroot.window_heap` or `ui.heap` is unnecessary — these structs live in the same DGROUP as game_state, the sound table, the party block, etc. The handle just happens to be in the heap RANGE of that segment (block-header addresses ~0x6FF4..0x77F4 in save 1), but the segment register is the same.",
+      "category": "segment_identification",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0x3a22"},
+        "type": "asm_segment_register_analysis",
+        "details": "Allocator never sets ES, never issues int 21h AH=48 (which would have returned a fresh segment in AX). All loads/stores in the allocator use the default segment override (DS). The handle returned is the OFFSET of the payload word within the block, where the block lives in the linked list anchored at [DGROUP+0x6C4]. Callers (e.g. ui_window_create at wroot 0x11A, fill_rectangle at ega.drv f130) read struct fields via `[bx+disp]` with no segment override — confirming DS-relative dereference."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "save1-runtime-values",
+      "claim": "Save 1 runtime resolution (game_state was 4 = main menu at save time; allocator state captured mid-frame):\n\n  WROOT EXE LOAD SEGMENT = 0x082C  (phys 0x82C8)\n  INIT_SS (DGROUP paragraph offset) = 0x0FD8       — from MZ header\n  WROOT DGROUP BASE = (0x082C + 0x0FD8) * 16 = phys **0x18048**\n\n  ALLOCATOR CELLS (at DGROUP 0x18048):\n    [0x65A] heap_end     = 0x77F2\n    [0x65E] heap_break   = 0x77F4\n    [0x666] min_grow_sz  = 0x6FF0\n    [0x668] brkval       = 0x7FF4\n    [0x66E] psp_seg      = 0x0814\n    [0x69E] stack_limit  = 0x0800\n    [0x6C4] free_head    = 0x75CA\n    [0x6C6] sentinel.link = 0x6FF5  (= 0x6FF4 | in_use)\n\n  Live blocks walked from [0x6FF4] → 0x700A → 0x71B0 → 0x726E → 0x732C → 0x7392 → 0x73F8 → 0x740E → 0x7424 → 0x75CA → 0x77F2 (free, 552 bytes wilderness) → wraps to sentinel at 0x6C6.\n\n  WINDOW HANDLES STORED IN DGROUP (offsets confirmed against finding wroot-ui-window-struct):\n    [DGROUP+0x4FBA] = 0x71B2 → w=7,  h=12, x= 1, y= 5, attr=0x06, flags=0x00, heavy border [1b 1b 1c 1b 1c 1b 1b 1c] = LEFT  portrait panel\n    [DGROUP+0x4FBC] = 0x73FA → w=22, h=14, x= 9, y= 4, attr=0x02, flags=0x02, no border             = MAIN MENU window\n    [DGROUP+0x4FBE] = 0x6FF6 → w=40, h=25, x= 0, y= 0, attr=0x01, flags=0x02, no border             = full-screen BACKGROUND\n\n  Other live windows by handle:\n    0x7270 → w=7, h=12, x=32, y=5, attr=0x07, light border [1a 1b 1b 1a 1b 1a 1b 1b] = RIGHT portrait panel\n    0x732E → w=40, h=1, x=0, y=18, attr=0x0E                                          = status line row 18\n    0x7394 → w=40, h=1, x=0, y=24, attr=0x03                                          = status line row 24",
+      "category": "runtime_state",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.dgroup", "offset": "0x4fbc"},
+        "type": "save_state_dump",
+        "details": "Save state file: tools/dosbox/save/1.sav. All values dumped via `python3 tools/parity/extract.py dump tools/dosbox/save/1.sav --offset 0xNNNN --length N`. Computed wroot DGROUP base 0x18048 from MZ-header init_SS=0xFD8 and EXE load segment 0x082C (the EXE load segment was inferred from the project-known wroot.exe image base of phys 0x82C8). The 0x4FBC menu_window handle 0x73FA decodes via `+0x18048` to phys 0x1F442; reading 16 bytes there gives exactly the (w=22, h=14, x=9, y=4, attr=2, flags=2, ...) layout predicted by wroot-ui-window-create-struct-layout. Same DGROUP base produces equally-clean decodes for handles 0x71B2, 0x6FF6, 0x7270, 0x732E, 0x7394 — i.e. EVERY live window-pointer slot in the save reads as a valid struct when treated as a NEAR offset into wroot.dgroup at phys 0x18048."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wbase-dgroup-detection-bug",
+      "claim": "The MCP segment-map in use today gives WRONG bases for both `wroot.dgroup` (reported 0x16B30 for save 1) and `wbase.dgroup` (reported 0x2EC50 for save 1). The TRUE wroot DGROUP is at phys 0x18048 — verified by reading init_SS=0x0FD8 from the EXE MZ header and adding it to the EXE load segment (0x082C in save 1), and confirmed by the DISK.HDR string sitting exactly at +0x05D6 in that base (the byte-for-byte expected layout).\n\nWhy the bug is subtle: the existing `wroot.dgroup` resolver in packages/mcp/src/dgroup.ts anchors on the DISK.HDR string and tries two candidate DGROUP-relative offsets — 0x05D6 first, then 0x1AEE — accepting whichever puts a 'legal' game_state at +0x363A. In save 1, the TRUE DGROUP (0x18048) is rejected because game_state there is 0xFFFF (a transitional/uninitialized value, presumably a brief in-flight transition between menu sub-states at save time). The fallback candidate 0x1AEE then matches with game_state = 0x0004, but it's anchored 0x1518 bytes BELOW the true base — every window-handle slot, the heap-state cells, and most other DGROUP variables read garbage. The 0x1518 shift is exactly (0x1AEE - 0x05D6), confirming this is a single phantom-offset error rather than a 'different overlay has a different DGROUP' situation.\n\nThe `wbase.dgroup` value 0x2EC50 from the predicate-scan resolver is a false positive — the predicate set ({gs mirror, frame_parity ∈ {0,1}, poll_counter < 10, *0x4FBC != 0}) is too loose; a random memory region passes it. The value 0xB687 stored at 0x2EC50 + 0x4FBC is NOT a window handle.\n\nRecommended fix:\n1. Expand `LEGAL_GAME_STATES` to include 0xFFFF as a tentative 'in transition' value, OR\n2. Switch the resolver to use the EXE-MZ-header path: locate the EXE load segment in memory (search for a stable unique sequence near offset 0), then compute DGROUP = load_seg_phys + (init_SS << 4). init_SS = 0xFD8 is hardcoded in the MZ header — no search needed.\n3. REMOVE the `wbase.dgroup` segment-map entry entirely. wbase.ovr runs with the same DS as wroot — there is no separate per-overlay DGROUP. The window handles, game_state, frame_parity, etc. all live in the single wroot DGROUP and are visible to overlays via shared DS.",
+      "category": "tooling_bug",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.dgroup", "offset": "0x05d6"},
+        "type": "save_state_dump",
+        "details": "At save 1 phys 0x18048 + 0x05D6 = 0x1861E: bytes are the EXACT 30-byte 'DISK.HDR\\0MSG.DBS\\0SCENARIO.DBS\\0' string. At phys 0x18048 + 0x1AEE = 0x19B36: all zeros (no DISK.HDR string at that offset in the TRUE DGROUP). The MCP's resolver at 0x16B30 picks the 0x1AEE candidate which puts the DISK.HDR anchor at the correct PHYSICAL address (0x16B30 + 0x1AEE = 0x1861E) but with a 0x1518-byte phantom shift in the DGROUP base — every other variable gets a corrupted offset."
+      },
+      "confidence": "high"
+    }
+  ],
+  "unresolved": [
+    "The MCP segment-map for save 1 reports `wroot.dgroup @ 0x16B30` and `wbase.dgroup @ 0x2EC50`. Both are off — the true wroot DGROUP is at 0x18048 (derived from MZ-header init_SS), and there is no separate `wbase.dgroup` (the overlay reuses wroot's DS). The current `resolveDgroupBase` works in a 'lucky' sense — game_state at 0x363a still resolves to a legal value at 0x16B30 because the surrounding memory happens to be a similar DOS region — but window-handle dereferences (and many other DGROUP reads) are broken. Recommended next-step plan: (a) record the MZ-header-derived init_SS=0xFD8 as the canonical DGROUP-offset-from-EXE-load; (b) keep the DISK.HDR string scan but use it as a CONFIRMATION check, not the primary base computation; (c) drop the `wbase.dgroup` segment-map entry entirely. The parent agent should coordinate this with the MCP-segments owner since multiple downstream tools (dosbox_read_struct, dosbox_resolve_symbol with DGROUP-relative addresses) rely on the existing base values.",
+    "The `(n+3) >> 1 << 1` size-rounding produces (n+3) with bit 0 cleared. This pads odd sizes UP and even sizes UNCHANGED — confirmed empirically: a 22*14+0x14 = 0x148 window with flag-bit-1 set returns the bit-1 path (alloc 0x14 → (0x14+3)>>1<<1 = 0x16 = 22 bytes), and indeed the menu_window block in save 1 is 22 bytes. But ndisasm displayed `D1 E8` and `D1 E0` as `shr ax, 0x0` / `shl ax, 0x0` (the count operand `0` is a display bug — the D1 opcode means 'shift by 1'). Worth noting in any decompilation tooling we add downstream.",
+    "Heap initial-zone allocation (function at file 0x44A5) was only skimmed. It calls helper at 0x436E (a memcpy-style routine) and uses [0x6BD] as a buffer. The exact mechanism of how the initial heap_start cell gets populated is via a CRT init pathway that runs before main(); fully tracing it is unnecessary for the segment-identification goal but would help if we ever need to RE the C runtime's _setargv / _setenvp / _main startup."
+  ]
+}
