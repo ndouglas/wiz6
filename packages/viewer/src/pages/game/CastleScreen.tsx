@@ -227,40 +227,41 @@ function composeFrame(
     compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 125, [5], mon08Pic, mon08Decoded, EGA_DEFAULT);
   }
 
-  // Menu option text via wfont0. Layout derived from FUN_025c's grid math
-  // (wbase 0x028F..0x02AC), called from FUN_2b36 with args (2, 1, 0x13, 4):
+  // Menu option text is rendered in the LOWER PANE — a 40-cell × 5-row
+  // text window at screen (0, 152)..(320, 192), NOT the gate-art window.
+  // (The handle at *0x4FBC = 0x73FA we previously found is the gate-art
+  // window; the actual text window is a separately-allocated heap block
+  // at DGROUP+0x7426, w=40 h=5 x=0 y=19 attr=0x0F.)
+  //
+  // FUN_025c's grid math (wbase 0x028F..0x02AC, called from FUN_2b36
+  // with args (2, 1, 0x13, 4)):
   //   cursor_X = (slot / 4) * 19 + 2  → col 0 at cell X=2; col 1 at X=21
   //   cursor_Y = (slot % 4) + 1       → 4 rows per column at Y=1..4
-  // Cells are 8 px; menu window is at screen (72, 32). Col 1's cell X=21
-  // is at the far right of the 22-cell window — only 1 cell of room
-  // before the window edge, so the right-column labels are right-aligned
-  // to fit (the engine appears to truncate/clip text at the window
-  // border via ui_window_puts; we right-align as a visually-equivalent
-  // approximation).
-  //
-  // Also fills the menu text band with solid black behind the labels so
-  // they read clearly against the gate art that occupies the window.
+  // Cells are 8 px relative to the lower pane's top-left.
+  //   slot 0..3 → col 0: screen (16, 160..184)
+  //   slot 4..5 → col 1: screen (168, 160..168)
   if (wfont0) {
-    const winX = 72;
-    const winY = 32;
+    const PANE_X = 0;
+    const PANE_Y = 152;
+    const PANE_W = 320;
+    const PANE_H = 40;
     const cellW = 8;
     const cellH = 8;
     const X_BASE = 2;
     const Y_BASE = 1;
     const X_STRIDE = 19;
     const ROWS_PER_COL = 4;
-    const winW = 22;
-    const winRight = winX + winW * cellW;
 
-    // Background fill for the text band (rows Y=1..4 of window).
-    const fillTop = winY + Y_BASE * cellH;
-    const fillBottom = winY + (Y_BASE + ROWS_PER_COL) * cellH;
-    for (let py = fillTop; py < fillBottom && py < ENGINE_H; py++) {
-      for (let px = winX; px < winRight && px < ENGINE_W; px++) {
+    // Pane background — engine attr=0x0F = white, but engine pre-fills
+    // with attr 0x04 (red) on the underlying window. We render a dark
+    // band so the lower pane reads as a distinct region; tune later
+    // once we have the EGA palette overrides applied.
+    for (let py = PANE_Y; py < PANE_Y + PANE_H && py < ENGINE_H; py++) {
+      for (let px = PANE_X; px < PANE_X + PANE_W && px < ENGINE_W; px++) {
         const idx = (py * ENGINE_W + px) * 4;
-        buf[idx] = 0;
-        buf[idx + 1] = 0;
-        buf[idx + 2] = 0;
+        buf[idx] = 0x10;
+        buf[idx + 1] = 0x10;
+        buf[idx + 2] = 0x10;
         buf[idx + 3] = 0xff;
       }
     }
@@ -271,13 +272,8 @@ function composeFrame(
       const cursorY = (i % ROWS_PER_COL) + Y_BASE;
       const isSel = i === selectedIdx;
       const fg = isSel ? 14 /* yellow */ : 7 /* light gray */;
-      const textPxW = opt.label.length * 8;
-      let textX = winX + cursorX * cellW;
-      if (cursorX >= X_BASE + X_STRIDE) {
-        // Right column: right-align so labels fit inside the window.
-        textX = winRight - textPxW - 2;
-      }
-      const textY = winY + cursorY * cellH;
+      const textX = PANE_X + cursorX * cellW;
+      const textY = PANE_Y + cursorY * cellH;
       renderTextRun(buf, ENGINE_W, ENGINE_H, textX, textY, opt.label, wfont0, fg, EGA_DEFAULT);
     }
   }
