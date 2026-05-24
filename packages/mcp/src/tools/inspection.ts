@@ -5,13 +5,16 @@
 // because they need data DOSBox-X stores in its hardware-state blob that
 // we haven't decoded a parser for. They're documented inline.
 
+import { statSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { decodeBssStruct, PALETTE_CATALOG, resolveSegAddr, type SegmentSpace } from '@wiz6/data';
+import { decodeBssStruct, PALETTE_CATALOG, resolveSegAddr, SEGMENT_ANCHORS, type SegmentSpace } from '@wiz6/data';
 import { buildSegmentMap } from '../segments.js';
 
 import type { McpContext } from '../context.js';
 import { dgroupOffsetToPhysical, resolveDgroupBase } from '../dgroup.js';
+import { decodeCpuRegisters, identifyCsCode } from '../registers.js';
 import {
   bytesToHexPairs,
   errorResult,
@@ -69,11 +72,6 @@ const MAX_PARTY_SLOTS = 6;
 // ---------------------------------------------------------------------------
 // Tool registration
 // ---------------------------------------------------------------------------
-
-const STUB_REGISTERS_MESSAGE =
-  'CPU register decoding from DOSBox-X save states requires a parser for the ' +
-  'multi-MB CPU blob layout, which is version-sensitive and not yet written. ' +
-  'For live registers, the dynamic-driving backend (Phase 9) is the right path.';
 
 const STUB_CALL_CHAIN_MESSAGE =
   'Call-chain walking requires live CPU + stack memory, both of which need the ' +
@@ -575,14 +573,55 @@ export function registerInspectionTools(server: McpServer, ctx: McpContext): voi
     }),
   );
 
-  // -------- dosbox_get_registers (STUB) -----------------------------------
+  // -------- dosbox_get_registers ------------------------------------------
+  // Reads the CPU register snapshot from the save's `CPU` zip entry per
+  // the DOSBox-X 2026.05.02 64-bit layout. See
+  // docs/re/findings/dosbox-x-cpu-blob-layout.json for derivation +
+  // cross-save validation. The decoded CS register lets us identify
+  // which loaded binary is executing at save time (e.g. "wbase.ovr
+  // at file offset 0x13b" = in the input-poll loop).
   server.registerTool(
     'dosbox_get_registers',
     {
-      description: '[STUB] Read CPU registers. ' + STUB_REGISTERS_MESSAGE,
-      inputSchema: { save: z.string() },
+      description:
+        'Decode CPU registers from the save state. Returns EAX..EDI, EIP, ' +
+        'EFLAGS, segment selectors (CS/DS/ES/SS/FS/GS) + their cached linear ' +
+        'bases, CR0, IDT limit, and protected-mode flag. Also resolves CS:EIP ' +
+        'to a loaded binary + file offset (e.g. "wbase.ovr at 0x13b"). NOTE: ' +
+        "DS in the snapshot is the LIVE DS at save moment, NOT the engine's " +
+        'logical DGROUP (those often differ because Wiz6 swaps DS for overlay/ ' +
+        'driver code). Use `dosbox_inspect_save` for DGROUP.',
+      inputSchema: { save: z.string().describe('Save state path, filename, or slot number.') },
     },
-    () => errorResult('dosbox_get_registers: not implemented. ' + STUB_REGISTERS_MESSAGE),
+    safeHandler((args): JsonToolResult => {
+      const { absPath, bridge } = ctx.bridgeFor(args.save);
+      const regs = decodeCpuRegisters(absPath);
+
+      // Identify which loaded binary CS:EIP points into. We need both the
+      // segment map (load bases) and the on-disk file sizes (to bound the
+      // matching range so an early load address doesn't claim a CS:EIP
+      // that's actually in a later-loaded binary).
+      const map = buildSegmentMap(absPath, ctx.repoRoot, { bridge });
+      const segMap: Record<string, { physBase: number }> = {};
+      const segSizes: Record<string, number> = {};
+      for (const anchor of SEGMENT_ANCHORS) {
+        const entry = map[anchor.space];
+        if (!entry) continue;
+        segMap[anchor.space] = { physBase: entry.physBase };
+        try {
+          segSizes[anchor.space] = statSync(resolve(ctx.repoRoot, anchor.diskPath)).size;
+        } catch {
+          // Disk file missing — skip; identifyCsCode will ignore this segment.
+        }
+      }
+      const codeLocation = identifyCsCode(regs.CS_PHYS, regs.EIP, segMap, segSizes);
+
+      return jsonResult({
+        ...regs,
+        CS_EIP_linear: (regs.CS_PHYS + regs.EIP) >>> 0,
+        code_location: codeLocation,
+      });
+    }),
   );
 
   // -------- dosbox_get_call_chain (STUB) ----------------------------------

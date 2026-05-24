@@ -127,7 +127,7 @@ export function CastleScreen() {
 
   return (
     <main className={styles.page}>
-      <h1 className={styles.srOnly}>Castle — Master Options</h1>
+      <h1 className={styles.srOnly}>Castle — Main Menu</h1>
       <div className={styles.canvasWrap}>
         <canvas
           ref={canvasRef}
@@ -142,7 +142,6 @@ export function CastleScreen() {
           aria-label="Wizardry VI castle entrance"
         />
       </div>
-      <div className={styles.banner}>MASTER OPTIONS</div>
       <ul className={styles.menu}>
         <div className={styles.menuCol}>
           {leftCol.map((opt) => (

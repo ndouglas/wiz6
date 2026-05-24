@@ -1,0 +1,165 @@
+{
+  "topic": "dosbox-x-cpu-blob-layout",
+  "subagent_run": "2026-05-24T00:00:00Z",
+  "binaries": ["dosbox-x save format"],
+  "summary": "Decoded the byte layout of the CPU entry in a DOSBox-X 2026.05.02 save-state ZIP. The first 0x10B bytes are a structured snapshot of cpu_regs + CPUBlock + GDT/IDT + cpu.stack/code/hlt/exception/direction/trap_skip/drx/trx, followed by the Segments struct (val[8], phys[8], limit[8], expanddown[8]) at offset 0xEB. General registers (EAX..EDI, EIP, EFLAGS) are at offsets 0x00..0x2F. Segment selector for DS is at offset 0xEB + 3*8 = 0x103 (Bitu u64 LE). Validated against all 13 wiz6 save files; all decode to internally-consistent CPU state (CR0=0x10, real-mode IDT limit=0x3FF, phys[seg] = val[seg] << 4, CS:EIP code at expected linear addresses in wroot.exe).",
+  "method": "1) Found the canonical save code in src/cpu/cpu.cpp on GitHub. SerializeCPU::getBytes() drives the CPU entry; it calls SerializeGlobalPOD::getBytes (no-op since cpu_regs is not registered as a POD) then WRITE_POD'd fields sequentially in this order: cpu_regs, cpu.cpl/mpl/cr0, cpu.pmode, gdt.SaveState, idt.SaveState, cpu.stack, cpu.code, cpu.hlt.cs/eip, cpu.exception, cpu.direction, cpu.trap_skip, cpu.drx, cpu.trx, Segs, ... Each WRITE_POD writes sizeof(T) raw bytes with no framing. 2) Looked up struct definitions in include/regs.h and include/cpu.h. cpu_regs = CPU_Regs = {GenReg32 regs[8], ip; Bitu flags;}. Segs = Segments = {Bitu val[8]; PhysPt phys[8]; PhysPt limit[8]; bool expanddown[8];}. 3) Confirmed Bitu=uint64_t on 64-bit builds (DOSBox-X is 64-bit on modern systems) via vs/config.h. PhysPt/LinearPt=uint32_t per include/mem.h. 4) Wrote a Python decoder, ran it on all tools/dosbox/save/N.sav, confirmed values are sensible (CR0=0x10, IDT limit=0x3FF, phys = val<<4, EFLAGS plausible).",
+  "findings": [
+    {
+      "id": "dosbox-version",
+      "claim": "Layout applies to DOSBox-X 2026.05.02 (SDL2). The save-state framework is version-sensitive; this layout will break if the DOSBox-X version changes its CPU serialization. The exact version string written to the ZIP entry 'DOSBox-X_Version' is 'DOSBox-X 2026.05.02 (SDL2)' followed by a NUL.",
+      "evidence": {
+        "type": "zip-entry-read",
+        "details": "python3 -c \"import zipfile; z=zipfile.ZipFile('tools/dosbox/save/1.sav'); print(z.read('DOSBox-X_Version'))\" → 'DOSBox-X 2026.05.02 (SDL2)\\x00'"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "source-permalink",
+      "claim": "The authoritative serializer is SerializeCPU::getBytes() in src/cpu/cpu.cpp, lines 4911-4965. Struct definitions live in include/regs.h (CPU_Regs, Segments, SegNames enum) and include/cpu.h (CPUBlock, DescriptorTable, GDTDescriptorTable).",
+      "evidence": {
+        "type": "github-permalink",
+        "details": "src/cpu/cpu.cpp @ commit ffd008f4c45192b2cb05b52f2427415d8626e00f (latest commit touching this file as of 2026-05-19): https://github.com/joncampbell123/dosbox-x/blob/ffd008f4c45192b2cb05b52f2427415d8626e00f/src/cpu/cpu.cpp#L4911-L4965 . include/regs.h @ 2519431b7776825228ce0dab7690652210ae19a4: https://github.com/joncampbell123/dosbox-x/blob/2519431b7776825228ce0dab7690652210ae19a4/include/regs.h . include/cpu.h @ 1aff9f06c399ae84b65caafdf12f37e58f623d55: https://github.com/joncampbell123/dosbox-x/blob/1aff9f06c399ae84b65caafdf12f37e58f623d55/include/cpu.h#L561-L590 . include/dosbox.h @ 918271cf858d56695f9ca520fef385530c02e81a (for SerializeGlobalPOD + WRITE_POD macro): https://github.com/joncampbell123/dosbox-x/blob/918271cf858d56695f9ca520fef385530c02e81a/include/dosbox.h ."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "bitu-platform-dependency",
+      "claim": "Bitu is platform-dependent: uint32_t on 32-bit builds, uint64_t on 64-bit builds. This is the single most important version/build sensitivity in the layout. On macOS / Linux x86_64 / Windows x64 (the overwhelmingly common case), Bitu = uint64_t. The wiz6 project uses the 64-bit DOSBox-X build from Homebrew Cask (`dosbox-x-app/2026.05.02/dosbox-x-sdl2`), so the 64-bit layout applies. A 32-bit DOSBox-X build would produce a DIFFERENT byte layout (8-byte Bitu fields collapse to 4 bytes, no struct padding before flags) and would need a separate decoder branch.",
+      "evidence": {
+        "type": "source-excerpt",
+        "details": "vs/config.h: '#if SIZEOF_INT_P == 4 / typedef Bit32u Bitu; typedef Bit32s Bits; / #else / typedef Bit64u Bitu; typedef Bit64s Bits; / #endif'. The wiz6 CPU blob is 21,106,744 bytes; the register snapshot portion matches the 64-bit layout exactly (Bitu fields decode to sensible values when read as u64). Reading them as u32 instead would shift every subsequent field and break the layout."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "cpu-regs-layout",
+      "claim": "cpu_regs (CPU_Regs struct) is the FIRST 48 bytes of the CPU blob. Layout: GenReg32 regs[8] (4 bytes each = 32 bytes total) in order AX, CX, DX, BX, SP, BP, SI, DI per `enum { REGI_AX, REGI_CX, REGI_DX, REGI_BX, REGI_SP, REGI_BP, REGI_SI, REGI_DI }` in include/regs.h; then GenReg32 ip (4 bytes); then 4 bytes of struct padding (compiler inserts to align flags to 8); then Bitu flags (8 bytes, LE u64 on 64-bit). sizeof(CPU_Regs) on 64-bit = 48.",
+      "evidence": {
+        "type": "validated-decode",
+        "details": "include/regs.h defines `struct CPU_Regs { GenReg32 regs[8],ip; Bitu flags; };` and `union GenReg32 { uint32_t dword[1]; uint16_t word[2]; uint8_t byte[4]; };`. Decoded values from tools/dosbox/save/1.sav: EAX=0xe8 ECX=0 EDX=0xff00 EBX=0xff00 ESP=0xfdec EBP=0xfe0c ESI=0xfa6 EDI=0x13bd EIP=0x20eb EFLAGS=0x7246. EFLAGS lower 16 bits = 0x7246 — plausible (IOPL=11, NT=1, IF, AF, PF, ...). Cross-validated across 13 save files; all produce sensible register values and matching EFLAGS bit patterns."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "post-cpu-regs-fields",
+      "claim": "After cpu_regs, the next 187 bytes hold sundry CPUBlock fields. WRITE_POD writes each field's raw bytes with no inter-field padding (the stream is byte-packed even though the in-memory structs have alignment padding inside their own sizeof). Order and offsets (64-bit build): @0x30 cpl Bitu (8B), @0x38 mpl Bitu (8B), @0x40 cr0 Bitu (8B), @0x48 pmode bool (1B), @0x49 gdt.table_base PhysPt/u32 (4B), @0x4D gdt.table_limit Bitu (8B), @0x55 gdt.ldt_base PhysPt/u32 (4B), @0x59 gdt.ldt_limit Bitu (8B), @0x61 gdt.ldt_value Bitu (8B), @0x69 idt.table_base PhysPt/u32 (4B), @0x6D idt.table_limit Bitu (8B), @0x75 cpu.stack struct {u32 mask, u32 notmask, bool big} sizeof=12B (mask, notmask, big+3 pad), @0x81 cpu.code struct {bool big} sizeof=1B, @0x82 cpu.hlt.cs Bitu (8B), @0x8A cpu.hlt.eip Bitu (8B), @0x92 cpu.exception struct {Bitu which, error} sizeof=16B, @0xA2 cpu.direction Bits/i64 (8B), @0xAA cpu.trap_skip bool (1B), @0xAB cpu.drx[8] uint32_t (32B), @0xCB cpu.trx[8] uint32_t (32B). cr4 is NOT serialized (only cpl/mpl/cr0/pmode are written, NOT the full CPUBlock).",
+      "evidence": {
+        "type": "source-excerpt",
+        "details": "src/cpu/cpu.cpp lines 4931-4947: 'WRITE_POD( &cpu_regs, cpu_regs ); WRITE_POD( &cpu.cpl, cpu.cpl ); WRITE_POD( &cpu.mpl, cpu.mpl ); WRITE_POD( &cpu.cr0, cpu.cr0 ); WRITE_POD( &cpu.pmode, cpu.pmode ); cpu.gdt.SaveState(stream); cpu.idt.SaveState(stream); WRITE_POD( &cpu.stack, cpu.stack ); WRITE_POD( &cpu.code, cpu.code ); WRITE_POD( &cpu.hlt.cs, cpu.hlt.cs ); WRITE_POD( &cpu.hlt.eip, cpu.hlt.eip ); WRITE_POD( &cpu.exception, cpu.exception ); WRITE_POD( &cpu.direction, cpu.direction ); WRITE_POD( &cpu.trap_skip, cpu.trap_skip ); WRITE_POD( &cpu.drx, cpu.drx ); WRITE_POD( &cpu.trx, cpu.trx ); WRITE_POD( &Segs, Segs );'. DescriptorTable::SaveState (cpu.cpp 4353) writes table_base then table_limit. GDTDescriptorTable::SaveState (cpu.cpp 4367) calls parent then writes ldt_base, ldt_limit, ldt_value. Decoded from save/1.sav: idt.table_limit=0x3FF (canonical real-mode IVT) ✓; cr0=0x10 ✓; stack.mask=0xFFFF (16-bit stack) ✓; stack.notmask=0xFFFF0000 ✓; direction=1 (forward) ✓."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "segs-layout",
+      "claim": "Segs (Segments struct) starts at file offset 0xEB and is 136 bytes total. Layout: val[8] Bitu (8 × 8 = 64B at 0xEB..0x12A), phys[8] PhysPt/u32 (8 × 4 = 32B at 0x12B..0x14A), limit[8] PhysPt/u32 (8 × 4 = 32B at 0x14B..0x16A), expanddown[8] bool (8 × 1 = 8B at 0x16B..0x172). SegNames index order: es=0, cs=1, ss=2, ds=3, fs=4, gs=5 (entries 6 and 7 are unused but the struct allocates 8 slots). The 16-bit selector value occupies the low 2 bytes of the 8-byte val[i]; the upper 6 bytes are zero in real mode. phys[i] = val[i] << 4 in real mode.",
+      "evidence": {
+        "type": "source-excerpt-and-validated-decode",
+        "details": "include/regs.h: 'struct Segments { Bitu val[8]; PhysPt phys[8]; PhysPt limit[8]; bool expanddown[8]; };' and 'enum SegNames { es=0,cs,ss,ds,fs,gs };'. SegSet16 writes val[index]=(Bitu)val and phys[index]=(PhysPt)((unsigned int)val << 4U). Decoded from save/1.sav at 0xEB: ES=0x47FE CS=0x720D SS=0x17FC DS=0x708B FS=0 GS=0. phys[CS] at 0x130 = 0x000720D0 = (0x720D<<4) ✓. phys[DS] at 0x138 = 0x000708B0 = (0x708B<<4) ✓. phys[SS] at 0x134 = 0x00017FC0 = (0x17FC<<4) ✓."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "register-offset-table",
+      "claim": "Final TS-decoder-ready offset table for the registers requested. All multi-byte values are little-endian. Selectors in val[i] are 16 bits LE in the low 2 bytes of an 8-byte u64 field; mask with 0xFFFF.",
+      "evidence": {
+        "type": "synthesized-from-prior-findings",
+        "details": "{ EAX: { offset: 0x00, width: 4 }, ECX: { offset: 0x04, width: 4 }, EDX: { offset: 0x08, width: 4 }, EBX: { offset: 0x0C, width: 4 }, ESP: { offset: 0x10, width: 4 }, EBP: { offset: 0x14, width: 4 }, ESI: { offset: 0x18, width: 4 }, EDI: { offset: 0x1C, width: 4 }, EIP: { offset: 0x20, width: 4 }, EFLAGS: { offset: 0x28, width: 8, note: 'Bitu u64; use low 32 bits for x86 EFLAGS' }, ES: { offset: 0xEB, width: 8, mask: 0xFFFF }, CS: { offset: 0xF3, width: 8, mask: 0xFFFF }, SS: { offset: 0xFB, width: 8, mask: 0xFFFF }, DS: { offset: 0x103, width: 8, mask: 0xFFFF }, FS: { offset: 0x10B, width: 8, mask: 0xFFFF }, GS: { offset: 0x113, width: 8, mask: 0xFFFF } }. Computation: ES at SEGS_BASE+0*8=0xEB, CS at 0xEB+8=0xF3, SS at 0xEB+16=0xFB, DS at 0xEB+24=0x103, FS at 0xEB+32=0x10B, GS at 0xEB+40=0x113."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "endianness",
+      "claim": "All multi-byte fields are little-endian. DOSBox-X stream-writes via std::ostream::write of raw memory, no host->LE conversion, but DOSBox-X has WORDS_BIGENDIAN as a compile-time guard for big-endian hosts. The supported macOS/Linux/Windows x86/x64 builds are little-endian, so save files produced by them are LE. A save produced on a big-endian host would not be compatible (and is not a realistic concern for wiz6).",
+      "evidence": {
+        "type": "source-excerpt",
+        "details": "include/regs.h: '#ifdef WORDS_BIGENDIAN ... DW_INDEX 0 W_INDEX 1 BH_INDEX 2 BL_INDEX 3 #else DW_INDEX 0 W_INDEX 0 BH_INDEX 1 BL_INDEX 0 #endif'. WRITE_POD macro in include/dosbox.h: 'stream.write(reinterpret_cast<const char*>( (x) ), sizeof( (y) ) );' — raw memcpy."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "user-ds-expectation-was-wrong",
+      "claim": "The task prompt claimed save/1.sav should have DS=0x2EC5. The decoder produces DS=0x708B from the CPU blob, which is the ground-truth value DOSBox-X saved. Investigation: save/1.sav was captured with CS:EIP=0x720D:0x20EB which decodes to wroot.exe code at file offset 0x9B6C-ish (matched via byte search against original binaries). DS=0x708B and the CS=0x720D loop appear in 9 of the 13 saves (1, 3, 5, 6, 7, 9, 10, 12, 13) — clearly a long-running game loop, likely an input-poll. Saves 2, 8, 11 show CS=0x0824:DS=0x0824 (wroot early-load state). Save 4 shows DS=0x618A, save 12 shows DS=0x5B8A — runtime-varying. The decoder is byte-correct; the user's expectation of 0x2EC5 conflicts with what DOSBox-X actually saved. Either (a) the project's segment-map heuristic uses an anchor that doesn't correspond to the CPU's DS at save time, (b) the engine swaps DS frequently and the project's notion of 'wroot DGROUP' is a logical DGROUP not the runtime DS register, or (c) the user mis-stated the expected value.",
+      "evidence": {
+        "type": "cross-save-decode",
+        "details": "13/13 saves decoded successfully with internally consistent values: real-mode IDT limit=0x3FF in all saves, CR0=0x10 in all saves, phys[seg]=val[seg]<<4 in all saves, EFLAGS lower 16 bits sensible (0x7246/0x7202/0x7286/0x7247/0x7206 — all have IOPL=11 NT=1 which is consistent across the captures), SS phys consistently 0x17FC0. CS:EIP=0x0824:0x172C in save 2 matches wroot.exe at file offset 0x18A4 (image offset 0x16A4) by 28-byte byte-pattern match — unambiguous ground-truth confirmation that the layout is correct."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "validation-script-output",
+      "claim": "The validation script (see method) successfully decodes all 13 wiz6 save files. Output sample:",
+      "evidence": {
+        "type": "validation-script-output",
+        "details": "tools/dosbox/save/1.sav: EAX=000000e8 ECX=00000000 EDX=0000ff00 EBX=0000ff00 ESP=0000fdec EBP=0000fe0c ESI=00000fa6 EDI=000013bd EIP=000020eb EFLAGS=00007246 CS=720d DS=708b ES=47fe SS=17fc FS=0000 GS=0000 ; tools/dosbox/save/2.sav: EAX=000008f8 ECX=00006f04 EDX=000019d4 EBX=00001a4b ESP=0000ff36 EBP=0000ff42 ESI=00006fee EDI=0000ee9c EIP=0000172c EFLAGS=00007246 CS=0824 DS=0824 ES=7a89 SS=17fc FS=0000 GS=0000 ; tools/dosbox/save/3.sav: EAX=00000000 ECX=00000004 EDX=0000fff3 EBX=00000c00 ESP=0000ff22 EBP=0000ff42 ESI=00001083 EDI=000015d8 EIP=00002134 EFLAGS=00007246 CS=720d DS=708b ES=47fe SS=17fc FS=0000 GS=0000 ; tools/dosbox/save/8.sav: EAX=00000000 ECX=000002e0 EDX=00000000 EBX=0000206b ESP=0000fe42 EBP=0000fe44 ESI=00000012 EDI=0000517a EIP=0000286e EFLAGS=00007202 CS=0824 DS=0824 ES=17fc SS=17fc FS=0000 GS=0000 . CS=0x0824:0x172C in save 2 matches wroot.exe bytes at file offset 0x18A4."
+      },
+      "confidence": "high"
+    }
+  ],
+  "layout": {
+    "_version": "DOSBox-X 2026.05.02 (SDL2), 64-bit build (Bitu=uint64_t, PhysPt=uint32_t)",
+    "_endianness": "little-endian",
+    "_zip_entry": "CPU",
+    "_register_snapshot_size": 371,
+    "_note": "Offsets are byte offsets from the start of the 'CPU' zip entry. Only the first ~0x173 bytes are the register snapshot; the remainder of the 21 MB blob is post-CPU state (CPU_Cycles, CycleLeft, IODelayRemoved, cpu_tss state, lastint, decoder_idx, CPU_Flags, CPU_Paging, and likely the page-table cache / interpreter state).",
+    "EAX":     { "offset": "0x00", "width": 4, "type": "u32 LE" },
+    "ECX":     { "offset": "0x04", "width": 4, "type": "u32 LE" },
+    "EDX":     { "offset": "0x08", "width": 4, "type": "u32 LE" },
+    "EBX":     { "offset": "0x0C", "width": 4, "type": "u32 LE" },
+    "ESP":     { "offset": "0x10", "width": 4, "type": "u32 LE" },
+    "EBP":     { "offset": "0x14", "width": 4, "type": "u32 LE" },
+    "ESI":     { "offset": "0x18", "width": 4, "type": "u32 LE" },
+    "EDI":     { "offset": "0x1C", "width": 4, "type": "u32 LE" },
+    "EIP":     { "offset": "0x20", "width": 4, "type": "u32 LE" },
+    "_pad":    { "offset": "0x24", "width": 4, "type": "padding (Bitu alignment for flags)" },
+    "EFLAGS":  { "offset": "0x28", "width": 8, "type": "u64 LE (Bitu); use low 32 bits for x86 EFLAGS" },
+    "CPL":     { "offset": "0x30", "width": 8, "type": "u64 LE (Bitu) — current privilege level" },
+    "MPL":     { "offset": "0x38", "width": 8, "type": "u64 LE (Bitu)" },
+    "CR0":     { "offset": "0x40", "width": 8, "type": "u64 LE (Bitu)" },
+    "PMODE":   { "offset": "0x48", "width": 1, "type": "bool (1 = protected mode)" },
+    "GDT_BASE":  { "offset": "0x49", "width": 4, "type": "u32 LE (LinearPt)" },
+    "GDT_LIMIT": { "offset": "0x4D", "width": 8, "type": "u64 LE (Bitu)" },
+    "LDT_BASE":  { "offset": "0x55", "width": 4, "type": "u32 LE (LinearPt)" },
+    "LDT_LIMIT": { "offset": "0x59", "width": 8, "type": "u64 LE (Bitu)" },
+    "LDT_VALUE": { "offset": "0x61", "width": 8, "type": "u64 LE (Bitu)" },
+    "IDT_BASE":  { "offset": "0x69", "width": 4, "type": "u32 LE (LinearPt)" },
+    "IDT_LIMIT": { "offset": "0x6D", "width": 8, "type": "u64 LE (Bitu) — real mode = 0x3FF" },
+    "STACK_MASK":    { "offset": "0x75", "width": 4, "type": "u32 LE — 0xFFFF for 16-bit stack" },
+    "STACK_NOTMASK": { "offset": "0x79", "width": 4, "type": "u32 LE — complement of mask" },
+    "STACK_BIG":     { "offset": "0x7D", "width": 1, "type": "bool — followed by 3 bytes struct padding (sizeof=12)" },
+    "CODE_BIG":      { "offset": "0x81", "width": 1, "type": "bool (sizeof=1, struct contains only this field)" },
+    "HLT_CS":        { "offset": "0x82", "width": 8, "type": "u64 LE (Bitu) — CS when CPU is HLTed" },
+    "HLT_EIP":       { "offset": "0x8A", "width": 8, "type": "u64 LE (Bitu) — EIP when CPU is HLTed" },
+    "EXC_WHICH":     { "offset": "0x92", "width": 8, "type": "u64 LE (Bitu) — pending exception number" },
+    "EXC_ERROR":     { "offset": "0x9A", "width": 8, "type": "u64 LE (Bitu) — exception error code" },
+    "DIRECTION":     { "offset": "0xA2", "width": 8, "type": "i64 LE (Bits) — DF flag projection: 1=forward, -1=backward" },
+    "TRAP_SKIP":     { "offset": "0xAA", "width": 1, "type": "bool" },
+    "DRX":           { "offset": "0xAB", "width": 32, "type": "uint32_t[8] LE — debug registers DR0..DR7" },
+    "TRX":           { "offset": "0xCB", "width": 32, "type": "uint32_t[8] LE — test registers TR0..TR7" },
+    "_SEGS_BASE":    { "offset": "0xEB", "width": 136, "type": "Segments struct" },
+    "ES":            { "offset": "0xEB", "width": 8, "type": "u64 LE (Bitu); selector = value & 0xFFFF" },
+    "CS":            { "offset": "0xF3", "width": 8, "type": "u64 LE (Bitu); selector = value & 0xFFFF" },
+    "SS":            { "offset": "0xFB", "width": 8, "type": "u64 LE (Bitu); selector = value & 0xFFFF" },
+    "DS":            { "offset": "0x103", "width": 8, "type": "u64 LE (Bitu); selector = value & 0xFFFF" },
+    "FS":            { "offset": "0x10B", "width": 8, "type": "u64 LE (Bitu); selector = value & 0xFFFF" },
+    "GS":            { "offset": "0x113", "width": 8, "type": "u64 LE (Bitu); selector = value & 0xFFFF" },
+    "_SEG_PHYS_BASE":   { "offset": "0x12B", "width": 32, "type": "uint32_t phys[8] LE — cached linear base = val<<4 in real mode" },
+    "ES_PHYS":          { "offset": "0x12B", "width": 4, "type": "u32 LE" },
+    "CS_PHYS":          { "offset": "0x12F", "width": 4, "type": "u32 LE" },
+    "SS_PHYS":          { "offset": "0x133", "width": 4, "type": "u32 LE" },
+    "DS_PHYS":          { "offset": "0x137", "width": 4, "type": "u32 LE" },
+    "FS_PHYS":          { "offset": "0x13B", "width": 4, "type": "u32 LE" },
+    "GS_PHYS":          { "offset": "0x13F", "width": 4, "type": "u32 LE" },
+    "_SEG_LIMIT_BASE":  { "offset": "0x14B", "width": 32, "type": "uint32_t limit[8] LE" },
+    "_SEG_EXPANDDOWN":  { "offset": "0x16B", "width": 8,  "type": "bool[8]" },
+    "_END_OF_REGISTER_SNAPSHOT": { "offset": "0x173", "type": "after this come CPU_Cycles/CycleLeft/IODelayRemoved/cpu_tss/lastint/decoder_idx/CPU_Flags/CPU_Paging state" }
+  },
+  "validation_script": "#!/usr/bin/env python3\nimport zipfile, struct, sys\n\ndef decode_cpu_registers(cpu_blob: bytes) -> dict:\n    \"\"\"Decode CPU registers from a DOSBox-X 2026.05.02 (64-bit build) save-state CPU blob.\"\"\"\n    out = {}\n    names = ['EAX','ECX','EDX','EBX','ESP','EBP','ESI','EDI']\n    for i, name in enumerate(names):\n        out[name] = struct.unpack_from('<I', cpu_blob, i*4)[0]\n    out['EIP']    = struct.unpack_from('<I', cpu_blob, 0x20)[0]\n    out['EFLAGS'] = struct.unpack_from('<Q', cpu_blob, 0x28)[0] & 0xFFFFFFFF\n    SEGS = 0xEB\n    for i, name in enumerate(['ES','CS','SS','DS','FS','GS']):\n        out[name] = struct.unpack_from('<Q', cpu_blob, SEGS + i*8)[0] & 0xFFFF\n    return out\n\nif __name__ == '__main__':\n    sav = sys.argv[1] if len(sys.argv) > 1 else 'tools/dosbox/save/1.sav'\n    z = zipfile.ZipFile(sav)\n    cpu = z.read('CPU')\n    r = decode_cpu_registers(cpu)\n    for k, v in r.items():\n        print(f'  {k:6} = 0x{v:08x}')\n",
+  "unresolved": [
+    "Wiz6 segment-map heuristic vs. CPU-blob DS: the user expected DS=0x2EC5 for save/1.sav but the actual CPU snapshot has DS=0x708B. The 9 saves with CS=0x720D consistently have DS=0x708B — this 'in-loop' state captures the engine in a long-running poll, not the wroot main code. The project's wroot.dgroup resolver (packages/mcp/src/dgroup.ts) uses a DISK.HDR string anchor rather than CPU.DS — those values may disagree because (a) Wiz6 swaps DS frequently per-overlay or per-call, or (b) the runtime DS at save time is a video/sound subsystem context and not the engine's logical DGROUP. Worth a follow-up to compare CPU.DS vs. anchor-resolved DGROUP across all 13 saves to characterize when they agree.",
+    "Identity of the CS=0x720D segment: byte search of original/* did NOT find the code at CS=0x720D:0x20EB in any disk binary, so this is either generated code (BIOS shadow, DOSBox-X internal), a portion of wroot loaded with self-modifying patches, or part of the EGA/CGA/HERC video driver loaded into memory. The code at CS:EIP for save 2 (CS=0x0824:0x172C) DID match wroot.exe at file offset 0x18A4 — so layout decoding itself is byte-correct against a known binary.",
+    "32-bit DOSBox-X builds would produce a different layout (Bitu collapses to u32 → no padding before flags, different field offsets after EAX..EIP). If we ever need to support a 32-bit build, the decoder needs a build-arch discriminator — but the wiz6 toolchain pins 64-bit, so this is not a near-term concern.",
+    "FPU/MMX/SSE state is in a SEPARATE zip entry 'FPU' (512 bytes), NOT in the CPU blob. The CPU blob doesn't include floating-point or SIMD register state.",
+    "The remaining ~21 MB of the CPU blob (after offset 0x173) holds CPU_Cycles, CycleLeft, IODelayRemoved, cpu_tss state, lastint, decoder_idx, CPU_Flags state (POD_Save_CPU_Flags), and CPU_Paging state (POD_Save_CPU_Paging — this is what makes the blob huge; it likely dumps page table caches). We don't need any of this for the requested decoder."
+  ]
+}

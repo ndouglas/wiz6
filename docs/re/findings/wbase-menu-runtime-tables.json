@@ -1,0 +1,104 @@
+{
+  "topic": "wbase-menu-runtime-tables",
+  "subagent_run": "2026-05-24",
+  "binaries": ["ega.drv"],
+  "summary": "Dynamic verification of the runtime sprite-records and atlas-records tables in ega.drv from a state-4 (main menu) save state. Resolves the open question from `wbase-main-menu-render.json` about cs:0x190 (sprite-records pointer). Key correction: ega.drv is loaded COM-style at CS:0x100 (not CS:0x0), so the cs:0xNNNN offsets in code translate to file-offset (0xNNNN - 0x100). The runtime patch fills 27 bytes at file offsets 0x49..0x77 + 0x90..0x91 (which is cs:0x149..0x177 + cs:0x190..0x191). The runtime values found in state-4 save 1: DS-segment for tables = 0x27fd (linear 0x27fd0); sprite-records base = DS:0x0301 (phys 0x282d1); atlas-records base = DS:0x0004 (phys 0x27fd4). Sprite ID → atlas+offsets dumped for all wbase main-menu draw calls.",
+  "method": "Located ega.drv code in physical memory via the unique 20-byte signature `e9 00 00 e8 94 01 cb e8 30 04 cb e8 51 05 cb e8 9c 0e cb` at phys 0x72258. Diff'd the in-memory bytes against the on-disk ega.drv to find 27 patched bytes at file offsets 0x49..0x77 + 0x90..0x91. Realized the cs:0xNNNN offsets in the asm correspond to file offset (0xNNNN - 0x100), confirming COM-style load. Read [cs:0x149] (DS selector), [cs:0x18e] (atlas table offset), [cs:0x190] (sprite table offset). Computed table phys addresses and dumped 5-byte records for every sprite ID referenced by FUN_07b7 and FUN_0984.",
+  "findings": [
+    {
+      "id": "com-style-load",
+      "claim": "ega.drv is loaded COM-style with file offset 0 placed at CS:0x100. Reads in code from cs:0xNNNN read from file offset (0xNNNN - 0x100). This explains why the original wbase-main-menu-render finding's claim about cs:0x190 confused on-disk reads — the on-disk byte at 0x190 was unrelated to the cs:0x190 runtime location. Confirmed by: (a) the 27 runtime-patched bytes all fall in file range 0x49..0x91, corresponding to cs:0x149..0x191; (b) reading the actual patched value at file 0x90 yields a meaningful sprite-table offset (0x0301).",
+      "category": "load_model",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "memory_diff",
+        "details": "27 differences between on-disk ega.drv and in-memory copy at phys 0x72258, ALL within file range 0x49..0x91. Pattern: every 4 bytes from 0x49 = a 2-byte slot. These are the runtime-patched segment selectors and table-offset cells the driver dispatch code reads."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "runtime-table-pointers",
+      "claim": "Runtime values read from ega.drv state-4 save: [cs:0x149] = 0x27fd (DS segment for asset tables); [cs:0x14d] = 0x47fe (ES segment — likely video buffer); [cs:0x18e] = 0x0004 (atlas-records DS-relative offset); [cs:0x190] = 0x0301 (sprite-records DS-relative offset). Physical addresses: atlas-records = phys 0x27fd4, sprite-records = phys 0x282d1.",
+      "category": "runtime_state",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "runtime_memory_read",
+        "details": "Read from tools/dosbox/save/1.sav (game_state=4) at the 4 patched cs:offset locations. DS_phys = 0x27fd * 16 = 0x27fd0; sprite-records table at DS_phys + 0x0301 = 0x282d1; atlas-records at DS_phys + 0x0004 = 0x27fd4."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "sprite-record-format",
+      "claim": "Each sprite record is 5 bytes: [atlas_id, b1, b2, b3, h]. Per the asm at ega.drv 0xAD4..0xAEA: b1 (si[1]) is sign-extended and added to b3 (si[3]) → di_lo; b2 (si[2]) * 0x28 (= 40 = bytes-per-row in 320px planar mode) added to di_lo. So b1 + b3 = src x-byte offset, b2 = src row, h (si[4]) = height in rows. atlas_id (si[0]) indexes the atlas-records table to get a segment delta (added to DS) where the source pixels live.",
+      "category": "data_format",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0x0ad4"},
+        "type": "asm_analysis",
+        "details": "ndisasm: `8A 44 01` MOV AL,[si+1]; `98` CBW; `8A 5C 03` MOV BL,[si+3]; `32 FF` XOR BH,BH; `03 C3` ADD AX,BX; `8B F8` MOV DI,AX; `8A 44 02` MOV AL,[si+2]; `B1 28` MOV CL,0x28; `F6 E1` MUL CL; `03 F8` ADD DI,AX."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wbase-menu-sprite-table-dump",
+      "claim": "Sprite-record entries for the 22 sprite IDs FUN_07b7 + FUN_0984 reference, dumped from runtime state-4 memory. Format: [atlas, b1, b2, b3, h]. Glyph-like atlas-0x10 sequence (0x10..0x16, 0x19) at row 0x18, h=2 — these are the menu-text font glyphs (8-pixel wide chars in atlas 0x10). Atlas-0x03 entries (0x7b, 0x15a, 0x163, 0x169) are larger background panel sprites. Atlas-0x01 has 0x7c, 0x15d, 0x160. Atlas-0x04 has 0x22, 0x99, 0x166.",
+      "category": "asset_resolution",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "runtime_memory_dump",
+        "details": "phys 0x282d1, 5 bytes per ID."
+      },
+      "confidence": "high",
+      "data": {
+        "0x010": {"atlas": "0x10", "b1": "0xa1", "b2": "0x18", "b3": "0x0f", "h": "0x02"},
+        "0x011": {"atlas": "0x10", "b1": "0xa9", "b2": "0x18", "b3": "0x0f", "h": "0x02"},
+        "0x012": {"atlas": "0x10", "b1": "0xb1", "b2": "0x18", "b3": "0x0f", "h": "0x02"},
+        "0x014": {"atlas": "0x10", "b1": "0xc1", "b2": "0x18", "b3": "0x0f", "h": "0x02"},
+        "0x015": {"atlas": "0x10", "b1": "0xc9", "b2": "0x18", "b3": "0x0f", "h": "0x02"},
+        "0x016": {"atlas": "0x10", "b1": "0xd1", "b2": "0x18", "b3": "0x0f", "h": "0x02"},
+        "0x019": {"atlas": "0x10", "b1": "0xe9", "b2": "0x18", "b3": "0x0f", "h": "0x02"},
+        "0x01c": {"atlas": "0x0e", "b1": "0x01", "b2": "0x10", "b3": "0x34", "h": "0x00"},
+        "0x01f": {"atlas": "0x00", "b1": "0x01", "b2": "0x08", "b3": "0x34", "h": "0x01"},
+        "0x022": {"atlas": "0x04", "b1": "0x01", "b2": "0x08", "b3": "0x34", "h": "0x05"},
+        "0x07b": {"atlas": "0x03", "b1": "0x1f", "b2": "0x0f", "b3": "0x40", "h": "0x00"},
+        "0x07c": {"atlas": "0x01", "b1": "0x1d", "b2": "0x00", "b3": "0x08", "h": "0x00"},
+        "0x07d": {"atlas": "0x00", "b1": "0x1e", "b2": "0x0a", "b3": "0x3b", "h": "0x03"},
+        "0x097": {"atlas": "0x0e", "b1": "0x2e", "b2": "0x10", "b3": "0x33", "h": "0x00"},
+        "0x098": {"atlas": "0x08", "b1": "0x2f", "b2": "0x12", "b3": "0x3b", "h": "0x00"},
+        "0x099": {"atlas": "0x04", "b1": "0x30", "b2": "0x09", "b3": "0x20", "h": "0x00"},
+        "0x15a": {"atlas": "0x03", "b1": "0x7f", "b2": "0x0f", "b3": "0x44", "h": "0x00"},
+        "0x15d": {"atlas": "0x01", "b1": "0x7f", "b2": "0x0f", "b3": "0x44", "h": "0x01"},
+        "0x160": {"atlas": "0x01", "b1": "0x7f", "b2": "0x17", "b3": "0x44", "h": "0x00"},
+        "0x163": {"atlas": "0x03", "b1": "0x7f", "b2": "0x17", "b3": "0x44", "h": "0x01"},
+        "0x166": {"atlas": "0x04", "b1": "0x82", "b2": "0x13", "b3": "0x45", "h": "0x00"},
+        "0x169": {"atlas": "0x03", "b1": "0x82", "b2": "0x0f", "b3": "0x45", "h": "0x00"}
+      }
+    },
+    {
+      "id": "atlas-records-dump",
+      "claim": "Atlas-records (5 bytes each) for the 7 distinct atlases referenced by wbase menu sprite IDs. Atlas 0x10 = the font glyph atlas (seg_delta=0x0009, w=0xf2, h=0x6f). Atlas 0x03/0x01/0x00 = backgrounds. Atlas 0x04/0x08/0x0e = panels.",
+      "category": "asset_resolution",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "runtime_memory_dump",
+        "details": "phys 0x27fd4, 5 bytes per atlas."
+      },
+      "confidence": "high",
+      "data": {
+        "0x00": {"seg_delta": "0x0007", "w": "0x08", "h": "0x00", "z": "0x00"},
+        "0x01": {"seg_delta": "0x7a00", "w": "0x51", "h": "0xee", "z": "0x6f"},
+        "0x03": {"seg_delta": "0xa81b", "w": "0xff", "h": "0xc0", "z": "0x02"},
+        "0x04": {"seg_delta": "0x7426", "w": "0x06", "h": "0x00", "z": "0x09"},
+        "0x08": {"seg_delta": "0x0013", "w": "0x04", "h": "0x00", "z": "0x05"},
+        "0x0e": {"seg_delta": "0x4572", "w": "0xd2", "h": "0x39", "z": "0xee"},
+        "0x10": {"seg_delta": "0x0009", "w": "0xf2", "h": "0x6f", "z": "0x10"}
+      }
+    }
+  ],
+  "unresolved": [
+    "Mapping atlas_id → loaded .pic / .fnt file: the atlas records contain segment deltas relative to DS, but we don't yet know which on-disk file ended up at which segment. Each atlas's segment delta can be resolved to a physical address (DS_base + seg_delta*16) and then matched against a loaded .pic file by signature scanning. This is the next step to actually render these sprites in the React port.",
+    "The b1/b2/b3 fields in sprite records — verified the asm computes `di = (b1 + b3) + b2 * 40`, but the resulting di is an OFFSET INTO THE ATLAS (used as si in the rep movsb loop). The destination screen position is set by the window-handle context, not the sprite record itself. So the sprite record is purely SOURCE atlas geometry.",
+    "FUN_0732/FUN_0775 use a DIFFERENT path via `f10c` (the pic renderer) — those don't go through this sprite-records table; they use the DGROUP tables at 0x3958/0x398b/0x3bcc/0x3bff documented in wbase-main-menu-render.json. Need a separate dump pass for those tables (they hold the destination-window X/Y positions for the per-frame water and overlay draws).",
+    "Whether the water columns (FUN_0732 slots 5/6) actually map to mon08 descriptors or to a different loaded asset — depends on what wbase_load_font_table_entry(8, 4) loads. The atlas_id encoded in those sprites is at DGROUP 0x3bca + 0x6 (= 0x3bd0?) etc., not in the ega.drv runtime tables we just dumped."
+  ]
+}
