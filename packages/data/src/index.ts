@@ -99,3 +99,23 @@ export type {
   BssStruct,
   DecodedStruct,
 } from './structs/index.js';
+
+// Symbol resolver — name-↔-address index across wroot.exe + overlays.
+// Built from docs/re/findings/*-naming-pass.json by a Node-side loader
+// (see @wiz6/cli). Pure data + pure lookups here; no I/O.
+export {
+  WROOT_THUNK_DELTA,
+  buildSymbolIndex,
+  parseAllFindingsDocs,
+  parseFindingsDoc,
+  resolveThunkToWrootOffset,
+  wrootOffsetToThunkAddress,
+} from './symbols/index.js';
+export type {
+  Binary,
+  Confidence,
+  RawFinding,
+  RawFindingsDoc,
+  SymbolEntry,
+  SymbolIndex,
+} from './symbols/index.js';
