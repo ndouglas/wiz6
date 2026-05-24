@@ -269,7 +269,14 @@ used xlatb; reading the actual asm shows all seven do. Example:
     out <device-port>, al
 ```
 
-The 256-byte table at `cs:0x1A4B` is a **logarithmic-attenuation lookup**:
+The 256-byte table at `cs:0x1A4B` is a **logarithmic-attenuation lookup** —
+the contents shown below are an example snapshot from a typical play. The
+table is **NOT static**; it is **rebuilt at runtime by `audio_build_volume_lut_and_init_hw`**
+(image `0x117FE`, formerly `FUN_1000_17fe`) on every `audio_engine_play` invocation,
+based on the current volume setting and selected device mode. So the same
+sample byte can map to different output values across plays — this is how
+the engine's volume control works without per-sample re-encoding. Snapshot
+of one typical built table:
 
 | Input byte | Output byte (attenuation)       |
 | ---------: | ------------------------------- |
@@ -286,6 +293,10 @@ The 256-byte table at `cs:0x1A4B` is a **logarithmic-attenuation lookup**:
 The output range `0x00..0x3F` matches:
 - **AdLib operator total-level register** (0x40/0x43; 0 = full output, 0x3F = silent)
 - **PC speaker PIT counter reload** (smaller value = faster speaker toggle = perceived louder)
+
+(Correction history: prior revisions of this file claimed the LUT was a fixed
+hardcoded table. The 2026-05-24 AdLib driver deep-dive at
+`docs/re/findings/wroot-adlib-driver.json` showed it's runtime-built per call.)
 
 The Web Audio port does **not** need to apply this LUT — the on-disk bytes
 are already a usable 8-bit unsigned PCM signal centered at 128. The LUT is

@@ -1,16 +1,29 @@
 #!/usr/bin/env python3
 """Apply audio-path function names to wroot.exe in the Ghidra project.
 
-Audio path discovered during the .SND format investigation (2026-05-22). The
-prior naming pass mis-identified the audio engine entry at 0x11462 as
-`disk_int13_reset` (it has an INT 13h branch only for fatal aborts; the main
-body is PIT/PIC/PC-speaker/AdLib hardware programming). This script:
+Audio path discovered during the .SND format investigation (2026-05-22) and
+refined by the AdLib driver deep-dive (2026-05-24, see
+`docs/re/findings/wroot-adlib-driver.json`). The deep-dive established
+conclusively that Wiz6 has NO AdLib FM music — the "AdLib mode" path is
+just the OPL2 chip used as a 6-bit DAC for PCM playback. It also corrected
+three OPL-helper addresses in the prior pass that were off by 0x200 (file
+offset vs Ghidra image+segment-prefix convention).
 
-1. Renames the misnamed `disk_int13_reset` (0x11462) and `kbd_pre_input_disk_check`
-   (0x13640) to their accurate audio-engine names.
+This script:
+
+1. Renames the misnamed `disk_int13_reset` (0x11462) and
+   `kbd_pre_input_disk_check` (0x13640) to their accurate audio-engine names.
 2. Creates and names the IRQ0 ISR variants (no auto-created functions for them
    because they're installed via IVT writes, not called directly).
-3. Names the AdLib OPL helpers and other audio subsystem functions.
+3. Names the AdLib OPL helpers at their CORRECT addresses (0x11892/0x118A3/
+   0x118B3, not 0x11A92/0x11AA3/0x11AB3 as the prior pass had).
+4. Adds the real `adlib_chip_init_voice0` at 0x11765 (was unnamed) and the
+   volume-LUT builder at 0x117FE (replaces the bogus `audio_adlib_init_voice`
+   that was misnamed at 0x11962 — that address is just an IRQ-EOI IRET stub).
+5. Names three small helpers around the audio stop/cleanup path
+   (0x11734/0x11740/0x11741).
+6. Reverts the wrongly-located `audio_opl_*` names at 0x11A92/0x11AA3/0x11AB3
+   back to `FUN_1000_*` so they're not misleading.
 
 Re-runnable: functions already at the target name are no-ops.
 
@@ -45,6 +58,16 @@ RENAMES = [
     # which spins on DAT_1764 busy-flag and returns DAT_1760 flags). Called
     # before kbd polls to avoid IRQ contention.
     ("0x13640", "audio_wait_for_idle"),
+    # Revert wrongly-located audio_opl_* names installed by the prior pass —
+    # those addresses are 0x200 too high (file-offset vs image-offset confusion).
+    # The CORRECT addresses for the OPL helpers are in CREATES below.
+    ("0x11a92", "FUN_1000_1a92"),
+    ("0x11aa3", "FUN_1000_1aa3"),
+    ("0x11ab3", "FUN_1000_1ab3"),
+    # 0x11962 was previously misnamed `audio_adlib_init_voice`. It's actually
+    # just `mov al, 0x20; out 0x20, al; iret` — a no-op PIC-EOI IRET stub used
+    # as a placeholder ISR. Real AdLib chip init is at 0x11765 (see CREATES).
+    ("0x11962", "irq_eoi_iret_stub"),
 ]
 
 
@@ -60,15 +83,28 @@ CREATES = [
     ("0x1196a", "audio_isr_pc_speaker_fast"),  # *0x1756 == 0, PIT mode 0 reload
     ("0x119d4", "audio_isr_pc_speaker_slow"),  # *0x1756 == 0, slow PIT mode 0 reload
     ("0x11a08", "audio_isr_pc_speaker_alt"),   # alt PC speaker variant
-    # AdLib (OPL2) hardware helpers — internal calls from audio_engine_play
-    # and audio_adlib_init_voice.
-    ("0x11a92", "audio_opl_write"),
-    ("0x11aa3", "audio_opl_status_wait_long"),
-    ("0x11ab3", "audio_opl_status_wait_short"),
-    ("0x11962", "audio_adlib_init_voice"),
+    # AdLib (OPL2) hardware helpers at their CORRECT image+segment addresses.
+    # Decompile confirms: AH=reg, AL=val pattern with YM3812 spec-correct
+    # delays (~3.3us address-port wait, ~23us data-port wait).
+    ("0x11892", "adlib_write_register"),
+    ("0x118a3", "adlib_delay_long_23us"),
+    ("0x118b3", "adlib_delay_short_3us"),
     # Default tick handler (just increments tick counter + EOI; installed when
     # no sound is playing).
     ("0x11a88", "audio_isr_tick_no_sound"),
+    # Real AdLib chip init + DAC-mode entry. Called from FUN_1000_17FE when
+    # *0x1756 == 0x01 (pure AdLib mode). Programs OPL2 voice 0 as a single-op
+    # DAC so its 6-bit total-level register (0x40) acts as the sample output.
+    ("0x11765", "adlib_chip_init_voice0"),
+    # Per-call volume LUT builder + hardware-mode dispatcher. Builds the
+    # 256-byte attenuation table at cs:0x1A4B based on current volume + device
+    # mode (NOT static as previously documented in snd-format.md). Dispatches
+    # to adlib_chip_init_voice0 when in AdLib mode.
+    ("0x117fe", "audio_build_volume_lut_and_init_hw"),
+    # Stop-cleanup helpers around audio_stop_and_restore.
+    ("0x11734", "audio_stop_helper_stub"),       # 1-byte stub; cleanup hook
+    ("0x11740", "audio_short_delay_stub"),       # 1-byte stub; per-CPU delay slot
+    ("0x11741", "audio_stop_and_restore"),       # restore IVT + PIC mask if busy clear
 ]
 
 
