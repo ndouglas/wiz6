@@ -80,4 +80,9 @@ Next free ID: **#018**
 
 - #Q-H — `tools/dosbox/save/1.sav` doesn't contain a running wroot.exe
   - Investigation finding (2026-05-23): the MCP server's two-anchor DGROUP detection (SOUND00.SND + TITLEPAG.EGA at the expected 12-byte distance) fails on `1.sav` — `TITLEPAG.EGA` isn't in memory at all, and the lone `SOUND00.SND` match is probably DOS disk-buffer remnant from a previous wroot run. `dosbox_inspect_save` previously returned a fake DGROUP base + garbage decoded values; that's now fixed in `dgroup.ts` to throw a clear error.
-  - Action: capture a fresh save state from inside a running Wiz6 session (any point past `winit_state2_load_fonts` so DGROUP is fully populated) and drop it in `tools/dosbox/save/N.sav`. Once present, the existing MCP tools work against it and `#Q-F` and `#Q-G` both become answerable.
+  - **Partially resolved**: a 45-second autodrive run (`tools/dosbox/wiz6-autodrive.conf`) produces 11 save states, 4 of which (2.sav-5.sav) have wroot loaded during the intro. So we DO have wroot-loaded saves now, just not at the game states (#Q-F needs main menu / dungeon).
+
+- #Q-I — Autodrive AUTOTYPE sequence crashes wroot past intro
+  - Current `tools/dosbox/wiz6-autodrive.conf` reaches the title-page intro but the keystrokes after that exit wroot. Saves 6.sav-11.sav have no wroot loaded.
+  - Method: tune the AUTOTYPE sequence in `wiz6-autodrive.conf` to navigate intro → main menu → new party → dungeon → combat. Iterate one beat at a time; verify after each addition by inspecting the save state with `dosbox_inspect_save` to confirm game_state advanced. Closing this unblocks #Q-F (palette activation per game state) and #Q-G (sound aliasing).
+  - **Policy (per user)**: target keyboard mode only. Wiz6 is keyboard OR mouse, not both, and the user prefers keyboard. AUTOTYPE drives the keyboard buffer directly so this is the natural fit; mouse-mode would require screenshot decoding + click coordinates and is deferred.
