@@ -296,7 +296,14 @@ export function registerInspectionTools(server: McpServer, ctx: McpContext): voi
       if (args.address !== undefined) {
         entries = entries.filter((e) => e.address === args.address);
       }
-      return jsonResult({ count: entries.length, entries });
+      // Augment each entry with a `typed_addr` field — a {space, offset}
+      // pair feedable directly into dosbox_read_memory / dosbox_read_struct.
+      // Maps SymbolEntry.binary to the corresponding SegmentSpace.
+      const augmented = entries.map((e) => ({
+        ...e,
+        typed_addr: { space: e.binary, offset: `0x${e.address.toString(16)}` },
+      }));
+      return jsonResult({ count: augmented.length, entries: augmented });
     }),
   );
 

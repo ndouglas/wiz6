@@ -1,0 +1,45 @@
+{
+  "topic": "dosbox-x-cpu-blob-probe",
+  "subagent_run": "2026-05-24",
+  "binaries": ["dosbox-x save format"],
+  "summary": "Initial probe of the DOSBox-X save state CPU blob (21 MB) to assess feasibility of reading CPU registers (especially DS) directly instead of via byte-anchor heuristics. Header structure not yet fully decoded; deferred until a concrete use case (the existing segment-map abstraction handles common cases via signature anchoring).",
+  "method": "Hex-dumped the first 128 bytes of the CPU entry from `tools/dosbox/save/1.sav` (game_state=4 main menu). Cross-referenced with known runtime values (CS=0x1000 per CLAUDE.md; wbase DS implied by segment-map detection).",
+  "findings": [
+    {
+      "id": "blob-size",
+      "claim": "DOSBox-X CPU blob is 21,106,744 bytes (~20 MB). Most of that is likely CPU history/trace data (the actual register snapshot is small).",
+      "evidence": {
+        "type": "zip-listing",
+        "details": "unzip -l tools/dosbox/save/1.sav reports CPU entry at 21,106,744 bytes."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "header-shape-hypothesis",
+      "claim": "First 0x40 bytes look like a register block — 16 × u32 values, mostly small integers consistent with x86 register state. Specifically: bytes 0x40..0x43 = `10 00 00 00` = 0x10, which could be a segment register. The CS=0x1000 (LE 00 10) signature appears at file offset 0x3f-0x40 (unaligned).",
+      "evidence": {
+        "type": "hex-dump",
+        "details": "Header dump shows u32 values: [0x57f, 4, 14, 0x192, 0xfe0e, 0xfe2c, 0x4ff, 0x734f, 0xdbb, 0, 0x7216, 0, 0, 0, 0, 0]. Pattern unclear; could be (EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI, ...) or could be DOSBox-X-specific."
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "ds-not-found-at-expected-value",
+      "claim": "Searching the entire 21 MB CPU blob for the LE bytes `B3 16` (= DS=0x16B3, corresponding to wroot DGROUP base 0x16B30) returns ZERO matches.",
+      "evidence": {
+        "type": "byte-pattern-search",
+        "details": "Python: cpu.find(b'\\xb3\\x16') returns -1. Implication: DOSBox-X may store segment registers in a non-raw form (zero-extended to u32 selector? real-mode segment * 16 = linear base?), or the runtime DS at the moment of save was different from the value our anchor-based logic computed."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "next_steps": [
+    "Read DOSBox-X's source (src/cpu/cpu_general.cpp + Save/Load methods) to find the canonical CPU register-block layout. Github: https://github.com/joncampbell123/dosbox-x.",
+    "Once the register layout is known, add a `dosbox_get_registers(save)` MCP tool that decodes EAX/ECX/.../CS/DS/ES/FS/GS/SS/EFLAGS/EIP from the blob.",
+    "Cross-check DS against the segment-map's wroot.dgroup physBase — they should agree. If they don't, the anchor heuristic has a bug and the CPU-blob value is ground truth."
+  ],
+  "unresolved": [
+    "Whether the CPU blob stores real-mode 16-bit selectors or 32-bit protected-mode selectors. DOSBox-X emulates many CPU modes; the save format probably stores a discriminated union.",
+    "Why DS=0x16B3 isn't found anywhere in the blob despite the segment map clearly identifying that as wroot's DGROUP base."
+  ]
+}
