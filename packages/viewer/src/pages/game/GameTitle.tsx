@@ -153,8 +153,12 @@ export function GameTitle() {
         if (transition === 'pause-pre-sirtech->sirtech-splash' && !soundFiredRef.current.has(transition)) {
           if (sound04Ref.current) playSnd(sound04Ref.current);
           soundFiredRef.current.add(transition);
-        } else if (transition === 'pause-between->bradley-splash' && !soundFiredRef.current.has(transition)) {
-          // SOUND13 at slot-13 rate (6280 Hz). Engine fires N=0xD here.
+        } else if (transition === 'sirtech-splash->pause-between' && !soundFiredRef.current.has(transition)) {
+          // Fire SOUND13 at the start of pause-between (the black gap before
+          // bradley-splash). Engine plays N=0xD BEFORE rendering the bradley
+          // text tokens — sound leads visual. SOUND13 at slot-13 rate (6280
+          // Hz, ~0.52 s duration) plays through the 0.5 s pause-between phase
+          // and finishes ~as bradley becomes visible.
           if (sound13Ref.current) playSnd(sound13Ref.current);
           soundFiredRef.current.add(transition);
         } else if (transition === 'pause-pre-scroll->title-hold' && !soundFiredRef.current.has(transition)) {
