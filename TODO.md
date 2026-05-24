@@ -68,6 +68,11 @@ Next free ID: **#018**
 - #Q-E — Bogus `audio_adlib_init_voice` rename at image `0x11962`
   - Listed in findings file but the bytes there are just an EOI/IRET stub. Real AdLib init must be elsewhere — possibly `FUN_1000_17fe`. Not yet traced.
 
+- #Q-G — Sound-slot 13 alias + slot-14 PIC-scratch playback (DEFERRED to #017 MCP)
+  - `docs/re/findings/winit-state1-deep-dive.json` settled (high conf) that slot 14's descriptor at DGROUP `0x33EC` overlaps the PIC-loader scratch buffer — `audio_play_sound(0xE)` cannot play SOUND14.SND. Statically undetermined what it actually produces (PIC-bytes-as-PCM garbage, silence via rate_or_vol==0, or alias_id redirect).
+  - User-by-ear says slot 13 also doesn't play SOUND13.SND — likely a real `alias_id` redirect since slot 13 IS preloaded; master.hdr record 13 must have `buf_lo==buf_hi==0` triggering fallback. Slot 13 alias destination unknown.
+  - Method: DOSBox-X breakpoint at wroot `0x10AAA` (audio_play_sound entry), dump sound-table memory 0x3344..0x33F7 + sample-buffer pointer table 0x3579..0x35B5 + master.hdr kind=9 record 13 at each call. Needs the #017 MCP infrastructure for programmatic breakpoint control.
+
 - #Q-F — When does the engine actually load `wiz6-main` / `wiz6-dungeon`?
   - Phase 1 of #002 confirmed both palette tables are loaded via `INT 10h AX=1002h` at wroot 0x209B and 0x2105 respectively, but Phase 6 calibration showed the current asset-render scenes operate against the BIOS-default palette (the engine has not yet executed either load when those scenes draw). Gameplay states that exercise the two engine palettes haven't been identified.
   - Method: DOSBox-X `int10 = debug` runtime trace through every game state.
