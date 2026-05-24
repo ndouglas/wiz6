@@ -68,6 +68,12 @@ Next free ID: **#018**
 - #Q-E — Bogus `audio_adlib_init_voice` rename at image `0x11962`
   - Listed in findings file but the bytes there are just an EOI/IRET stub. Real AdLib init must be elsewhere — possibly `FUN_1000_17fe`. Not yet traced.
 
+- #Q-K — Runtime pitch modulation for context-dependent sounds
+  - User observation (2026-05-24): the same .snd file (e.g. the death-groan sound effect) plays at different pitches depending on character context — sex of the dying character, possibly other state. Our static per-slot rate snapshot (`@wiz6/data/sound-table.ts`) captures only the BASELINE rate; the engine clearly modulates pitch at call time for some events.
+  - Likely source: an additional parameter passed into `audio_play_by_id(N, duration_param, ?, flags_param)` at the call site. Or a runtime modifier byte in the sound-table flags field that the caller mutates before invocation.
+  - Method to close: identify a deterministic in-game event with pitch variation (death groan via cliff-fall TPK is a good candidate per user), capture saves immediately before AND after the event in DOSBox-X, diff the sound-table memory + relevant character fields. Or decompile the specific call site (e.g. wmaze's TPK handler) to see what it passes.
+  - Doesn't block any current work — intro/credits sounds are deterministic. Relevant when we get to dungeon/combat audio.
+
 - #Q-G — Sound-slot rates differ per slot (CLOSED 2026-05-24)
   - Closed via MCP-driven memory dump of the sound table at DGROUP 0x3344 in a wroot-loaded save (THESUS party, in-dungeon save). Findings:
     - **N=0xE plays SOUND05.SND** — slot 14's buf_lo (0xC90) is IDENTICAL to slot 5's buf_lo. Sample-buffer shared. The deep-dive's static "PIC scratch overlap" hypothesis was wrong; the buffer pointer was correctly populated. (Possibly via the alias_id=5 fallback at descriptor zero-init, or via a separate code path.)

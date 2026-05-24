@@ -19,6 +19,18 @@
 /** PIT input clock frequency. Wiz6's per-slot `duration` field divides it. */
 export const PIT_CLOCK_HZ = 1_193_182;
 
+/**
+ * IMPORTANT: the per-slot `duration` field is the DEFAULT playback rate when
+ * audio_play_sound(N) fires with no caller-supplied modifier. The engine
+ * also performs RUNTIME PITCH MODULATION on some events — e.g. the death-
+ * groan sound effect plays at different pitches for male vs female characters.
+ * That modulation isn't captured here; the caller (combat/dungeon code) passes
+ * an additional parameter into audio_play_by_id that adjusts the rate.
+ *
+ * Static slot rates are sufficient for deterministic events like the title-
+ * credits intro. For per-context playback variation, see TODO #Q-K.
+ */
+
 export interface SoundTableSlot {
   /** Slot index 0..13 (engine-side). */
   n: number;
