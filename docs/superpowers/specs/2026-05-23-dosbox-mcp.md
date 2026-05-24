@@ -227,11 +227,11 @@ The riskiest phase; do it early so we know if the whole approach is viable.
 
 **Status**: All 6 tools throw `NotImplementedError` with a clear pointer at the blocker. Re-enable when a dynamic-driving backend lands (node-pty+scraper, or DOSBox-X TCP patch).
 
-### Phase 6 — Inspection tools ✅ 7 real + 3 stubs (`899f790`)
+### Phase 6 — Inspection tools ✅ 9 real + 2 stubs (`899f790`, `d59277d`, `8d8d01f`)
 
 `read_memory`, `read_struct`, `read_palette_registers`, `get_state_machine`, `get_registers`, `get_call_chain`.
 
-**Status**: Real over save states — `read_memory`, `read_struct` (symbol-aware via Phase 2 SymbolIndex), `resolve_symbol`, `list_symbols`, `inspect_save`, `find_pattern`, `get_state_machine`. Stubbed pending VGA/CPU blob parsers — `read_palette_registers`, `get_registers`, `get_call_chain`. Per-save DGROUP base is located at runtime by anchoring on the `SOUND00.SND` template and cached per save path.
+**Status**: Real over save states — `read_memory`, `read_struct` (symbol-aware via Phase 2 SymbolIndex), `resolve_symbol`, `list_symbols`, `inspect_save`, `find_pattern`, `get_state_machine`, `read_palette_registers` (VGA blob parser in `vga-palette.ts` finds the 256-entry DAC by signature scan), `identify_palette` (compares DAC entries 0-15 against the `@wiz6/data` palette catalog and returns the best match). Stubbed pending CPU blob parser — `get_registers`, `get_call_chain`. Per-save DGROUP base is located at runtime by anchoring on the `SOUND00.SND` template and cached per save path.
 
 ### Phase 7 — Breakpoint tools ⏸ all stubs (blocked on Phase 9 backend)
 
@@ -245,11 +245,11 @@ The riskiest phase; do it early so we know if the whole approach is viable.
 
 **Status**: `list_saves` works (enumerates `tools/dosbox/save/*.sav`). The other three (`save_state`, `load_state`, `screenshot`) need dynamic driving or a VGA framebuffer parser — stubbed with documented blockers.
 
-### Phase 9 — First-payoff experiment ⏸ requires dynamic backend
+### Phase 9 — First-payoff experiment 🟡 tooling complete; awaiting save-state capture (`d59277d`, `8d8d01f`)
 
 Use the v1 server to answer `#Q-F` (when does the engine load `wiz6-main` / `wiz6-dungeon`?). Concrete experiment script — set breakpoints at wroot 0x209B and 0x2105 (the two AX=1002h sites), play through every game state, log every hit with surrounding context. Document the findings; close `#Q-F` or refine the question.
 
-**Status**: Blocked by the breakpoint-setting gap. v1 workaround that DOES work today: capture save states by hand at each game-state boundary, use `dosbox_inspect_save` + `dosbox_read_memory` to dump the VGA palette tables, and reason about activation from the deltas. Less elegant than breakpoints but answers the same question.
+**Status**: The breakpoint-driven path remains blocked, but a save-state-driven path is now armed. Capture saves at game-state boundaries (`/save N` in DOSBox-X) and call `dosbox_identify_palette` on each — the tool runs DAC-vs-catalog distance matching automatically and reports the active palette per save. Boot-state save 1.sav verified: distance=0 match against `ega-default`, confirming the engine has not yet reprogrammed the DAC at game_state=0. To close `#Q-F`: capture saves at game_state ∈ {4 (main menu), 5 (dungeon), 0xA (combat), 0x11 (character view)} and report the identified palette for each. The remaining work is human-pace gameplay, not engineering.
 
 ### Phase 10 — Tracing (deferred)
 
