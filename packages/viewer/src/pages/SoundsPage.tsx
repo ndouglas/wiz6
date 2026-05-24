@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { SOUND_TABLE, slotPlaybackRateHz, slotIsAliased, type SoundTableSlot } from '@wiz6/data';
 import { RECommentary } from '../components/RECommentary.js';
+import { loadSnd, playSnd, installAudioUnlockListener } from '../lib/audio.js';
 import styles from './SoundsPage.module.css';
 
 const SOUND_IDS = [
@@ -17,8 +19,17 @@ interface SoundMeta {
   sampleRateHz: number;
 }
 
+/** Look up the engine sound-table entry for a given file ID like "13". */
+function slotForId(id: string): SoundTableSlot | undefined {
+  const n = parseInt(id, 10);
+  if (!Number.isFinite(n)) return undefined;
+  return SOUND_TABLE.find((s) => s.n === n);
+}
+
 export function SoundsPage() {
   const [metas, setMetas] = useState<SoundMeta[]>([]);
+
+  useEffect(() => installAudioUnlockListener(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,14 +52,23 @@ export function SoundsPage() {
     };
   }, []);
 
+  const playAtEngineRate = useCallback(async (id: string) => {
+    const slotN = parseInt(id, 10);
+    const snd = await loadSnd(`/sounds/sound${id}.snd`, { slotN });
+    if (snd) playSnd(snd);
+  }, []);
+
   return (
     <main className={styles.page}>
       <h1>Sounds</h1>
       <p className={styles.lede}>
-        35 `.snd` files extracted from <code>original/sound??.snd</code>. Format is a 2-byte
+        35 <code>.snd</code> files extracted from <code>original/sound??.snd</code>. Format is a 2-byte
         tree-size header + Huffman tree + 2-byte decoded-length prefix + MSB-first bitstream.
-        Decoded samples are 8-bit unsigned PCM at a single engine-derived rate (~10 kHz). See{' '}
-        <code>docs/re/snd-format.md</code>.
+        Decoded samples are 8-bit unsigned PCM. The default Playback column plays at the global
+        sample rate (~10026 Hz); the engine plays each slot at its own rate, derived from the
+        runtime sound-table&apos;s <code>duration</code> field (PIT counter divisor) — captured live
+        from a running game state via the DOSBox-X MCP. Try the &quot;engine rate&quot; button to hear
+        the difference, most noticeable on slots 5, 13, 11, 12.
       </p>
       <RECommentary
         label="About the .snd format"
@@ -62,30 +82,72 @@ export function SoundsPage() {
             <th>Source</th>
             <th>Compression</th>
             <th>Samples</th>
-            <th>Duration</th>
+            <th>Duration (default)</th>
+            <th>Engine rate</th>
             <th>Playback</th>
           </tr>
         </thead>
         <tbody>
-          {metas.map((m) => (
-            <tr key={m.id}>
-              <td className={styles.id}>{m.id}</td>
-              <td className={styles.mono}>{m.sourceFile}</td>
-              <td>{m.compression}</td>
-              <td className={styles.num}>{m.sampleCount.toLocaleString()}</td>
-              <td className={styles.num}>{(m.sampleCount / m.sampleRateHz).toFixed(2)}s</td>
-              <td>
-                <audio
-                  controls
-                  src={`/sounds/${m.id}.wav`}
-                  preload="none"
-                  className={styles.audio}
-                />
-              </td>
-            </tr>
-          ))}
+          {metas.map((m) => {
+            const slot = slotForId(m.id);
+            const inTable = slot !== undefined;
+            const engineRate = inTable ? Math.round(slotPlaybackRateHz(slot.n)) : null;
+            const aliased = inTable && slotIsAliased(slot.n);
+            const engineDur = inTable && engineRate ? m.sampleCount / engineRate : null;
+            return (
+              <tr key={m.id}>
+                <td className={styles.id}>
+                  {m.id}
+                  {aliased && (
+                    <span className={styles.aliasTag} title={`Engine redirects slot ${slot.n} → slot ${slot.alias_id}`}>
+                      → {slot.alias_id}
+                    </span>
+                  )}
+                </td>
+                <td className={styles.mono}>{m.sourceFile}</td>
+                <td>{m.compression}</td>
+                <td className={styles.num}>{m.sampleCount.toLocaleString()}</td>
+                <td className={styles.num}>
+                  {(m.sampleCount / m.sampleRateHz).toFixed(2)}s
+                  {engineDur !== null && Math.abs(engineDur - m.sampleCount / m.sampleRateHz) > 0.05 && (
+                    <div className={styles.dim}>engine: {engineDur.toFixed(2)}s</div>
+                  )}
+                </td>
+                <td className={styles.num}>
+                  {engineRate !== null ? `${engineRate.toLocaleString()} Hz` : <span className={styles.dim}>—</span>}
+                </td>
+                <td>
+                  <div className={styles.playCell}>
+                    <audio
+                      controls
+                      src={`/sounds/${m.id}.wav`}
+                      preload="none"
+                      className={styles.audio}
+                    />
+                    {inTable && (
+                      <button
+                        type="button"
+                        className={styles.engineBtn}
+                        onClick={() => playAtEngineRate(m.id)}
+                        title={`Play at engine rate ${engineRate} Hz (slot duration=0x${slot.duration.toString(16)})`}
+                      >
+                        ▶ engine rate
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
+      <p className={styles.note}>
+        Engine rates come from <code>SOUND_TABLE</code> in <code>@wiz6/data/sound-table.ts</code>, a
+        snapshot of <code>DGROUP 0x3344</code> captured via the DOSBox-X MCP server. Slots 15+ are
+        not in the engine's table — they're files that ship with the game but get loaded via
+        different code paths. The orange <code>→ N</code> tag on a slot means the engine redirects
+        it to another slot's buffer via the <code>alias_id</code> field (e.g. slot 9 → slot 8).
+      </p>
     </main>
   );
 }

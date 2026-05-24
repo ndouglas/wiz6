@@ -119,3 +119,16 @@ export type {
   SymbolEntry,
   SymbolIndex,
 } from './symbols/index.js';
+
+// Engine sound-table snapshot (per-slot rate/volume/alias data).
+// Captured via DOSBox-X MCP server from a live save state — see file
+// header for provenance. Used by the viewer to play each .snd at the
+// engine's actual per-slot rate instead of the global default.
+export {
+  PIT_CLOCK_HZ,
+  SOUND_TABLE,
+  slotPlaybackRateHz,
+  slotIsAliased,
+  resolveSlot,
+} from './sound-table.js';
+export type { SoundTableSlot } from './sound-table.js';

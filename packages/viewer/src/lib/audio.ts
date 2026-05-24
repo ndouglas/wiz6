@@ -1,4 +1,5 @@
 import { decodeSnd, SND_SAMPLE_RATE_HZ } from '@wiz6/parser';
+import { slotPlaybackRateHz as slotRateFromData } from '@wiz6/data';
 
 /**
  * Web Audio playback for Wiz6 `.snd` files.
@@ -48,40 +49,18 @@ export interface PlayableSnd {
 }
 
 /**
- * Per-slot playback rates derived from a wroot-loaded save state's sound
- * table at DGROUP 0x3344. The engine's runtime sound table stores a
- * `duration` field per slot which acts as the PIT counter divisor for that
- * sound's playback (verified empirically against user's by-ear comparison
- * — slot 13 `duration=0xBE` plays at ~6280 Hz, much slower than the
- * default 10026 Hz, explaining "SOUND13 sounds too brief and too high-
- * pitched" at the global default rate).
- *
- * PIT clock frequency = 1.193182 MHz; playback rate = PIT_CLOCK / duration.
- *
- * Only slots whose rates differ meaningfully from the global default are
- * overridden here. Other slots fall back to SND_SAMPLE_RATE_HZ.
+ * Compute the engine-correct playback rate for a sound slot. Delegates to
+ * `@wiz6/data`'s SOUND_TABLE snapshot — see that file for provenance. Used
+ * here to pass the correct sampleRateHz into Web Audio when loading a
+ * .snd file for a known slot.
  */
-export const PIT_CLOCK_HZ = 1_193_182;
-
-/** Per-slot duration values, extracted from sound-table memory in a live save. */
-const SLOT_DURATIONS: Record<number, number> = {
-  4: 0x7e, // door click — default-ish
-  5: 0xa2, // "pow" — slower than default
-  6: 0x7e, // whoosh — default-ish
-  7: 0x7e, // clang — default-ish
-  13: 0xbe, // bradley credit — significantly slower
-};
-
-/** Compute playback rate for a sound slot. Falls back to default if unknown. */
 export function slotPlaybackRateHz(slotN: number): number {
-  const d = SLOT_DURATIONS[slotN];
-  if (d === undefined) return SND_SAMPLE_RATE_HZ;
-  return Math.round(PIT_CLOCK_HZ / d);
+  return Math.round(slotRateFromData(slotN));
 }
 
 export async function loadSnd(
   url: string,
-  opts: { slotN?: number } = {},
+  opts: { slotN?: number; rateHzOverride?: number } = {},
 ): Promise<PlayableSnd | null> {
   try {
     const res = await fetch(url);
@@ -89,8 +68,9 @@ export async function loadSnd(
     const buf = await res.arrayBuffer();
     const bytes = new Uint8Array(buf);
     const decoded = decodeSnd(bytes, { id: 'load', sourceFile: url });
-    const sampleRateHz =
-      opts.slotN !== undefined ? slotPlaybackRateHz(opts.slotN) : SND_SAMPLE_RATE_HZ;
+    let sampleRateHz = SND_SAMPLE_RATE_HZ;
+    if (opts.rateHzOverride !== undefined) sampleRateHz = opts.rateHzOverride;
+    else if (opts.slotN !== undefined) sampleRateHz = slotPlaybackRateHz(opts.slotN);
     return { samples: decoded.samples, sampleRateHz };
   } catch {
     return null;
