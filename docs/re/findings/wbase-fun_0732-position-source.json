@@ -1,0 +1,102 @@
+{
+  "topic": "wbase-fun_0732-position-source",
+  "subagent_run": "2026-05-24T22:00:00Z",
+  "binaries": ["wbase.ovr", "wroot.exe"],
+  "summary": "Located the population site for the X/Y position bytes that FUN_0732 reads at WBASE_DGROUP 0x3bcc (X) and 0x3bff (Y). The tables ARE in WBASE DGROUP (no DS-segment switching, no .pic-internal positions). They are populated as fields within a 0x13a-byte runtime struct loaded by `wbase_load_font_table_entry(8, 4)` (= wbase FUN_064e). That function calls the wroot resource-loader thunk `c31e` (= wroot image 0x882), which is a generic kind-indexed seek-and-read primitive that reads 0x13a bytes from the master scenario file into WBASE_DGROUP[0x36de + entry*0x13a]. For entry=4 the dest is 0x3bc6, and the FUN_0732 X-table sits at struct offset +6 (= 0x3bcc) and the Y-table at struct offset +0x39 (= 0x3bff). The earlier finding's hypothesis (`wbase-main-menu-render.json`) is CORRECT in framework — entries are 0x13a-stride struct records at base 0x36de — but had the wrong struct-internal offsets (claimed +2/+0x35; actual +6/+0x39). The empirical contradiction (data reads zero in save state 1) is resolved: save 1 was captured during state-4 transition BEFORE wbase_menu_init runs — the menu window handle at *0x4fbc is zero, the load-tracker byte at WBASE_DGROUP[0x4330] is zero, and the entire entry-4 struct region 0x3bc6..0x3d00 is zero. The whole wbase main-menu init had not yet executed when save 1 was taken. Possibilities #1 and #2 from the parent task confirmed; #3 and #4 ruled out.",
+  "method": "Static disassembly of wbase.ovr (ndisasm -b 16) over FUN_0732 (0x0732..0x0774), FUN_0775 (0x0775..0x07b6), FUN_064e (0x064e..0x072e), and FUN_2b36 (0x2b36..). Located the single caller of FUN_064e at wbase 0x2b52 (FUN_2b36 entry: arg pattern `FUN_064e(8, 4)`). Resolved the wroot c31e thunk via thunk-delta law: c31e - 0xBA9C = 0x882 (wroot image) = file 0xa82. Disassembled the wroot loader at file 0xa82..0xba2: confirmed as a kind-dispatched seek-and-read primitive reading the per-kind size from WROOT_DGROUP[0x3300 + kind*2] and the per-kind 32-bit file base from WROOT_DGROUP[0x3048 + kind*4]. Verified the empirical mismatch using save state 1 (`tools/dosbox/save/1.sav`): located the canonical DISK.HDR anchor at phys 0x1861e, resolving WBASE_DGROUP_base=0x16b30 (anchor at +0x1AEE) and WROOT_DGROUP_base=0x18048 (anchor at +0x05D6). Read kind=8 size from WROOT_DGROUP[0x3310] = 0x013a (confirmed 0x13a record stride), and kind=8 file base from WROOT_DGROUP[0x3068] = 0x000290b4. Read WBASE_DGROUP[0x3bc6..0x3cff] (entry-4 struct region) = all zeros. Verified menu-window-handle at WBASE_DGROUP[0x4fbc] = 0 (uninitialized) — proves the main-menu init in FUN_2b36 has not yet executed. Scanned FUN_07b7 + FUN_0732 byte-by-byte for DS-segment manipulation (0x1E PUSH DS / 0x1F POP DS / 0x8E .. MOV DS, reg) — none found; reads at file 0x754 and 0x75D use bare BX-relative addressing with no segment override prefix, confirming default DS = WBASE_DGROUP.",
+  "findings": [
+    {
+      "id": "population-site-fun_064e",
+      "claim": "The population site for the FUN_0732 X/Y position-source bytes is wbase FUN_064e (file 0x064e..0x072e), which is the wbase_load_font_table_entry function. It is called with args (8, 4) — kind=8 (the font-table asset kind), entry=4 — from a SINGLE call site at wbase 0x2b52 inside FUN_2b36 (the wbase state-4 main-menu entry point). FUN_064e first checks whether the entry is already loaded by reading the per-entry load-tracker byte at WBASE_DGROUP[0x432c + entry] (= 0x4330 for entry=4) and comparing it to the requested kind (8). If mismatched, it calls c31e (= wroot image 0x882) with args (kind=8, dest_ptr=0x36de+entry*0x13a, entry, 0) which seeks the master file and reads 0x13a (314) bytes into the destination buffer at WBASE_DGROUP[0x3bc6]. After the read, it calls the .pic decoder thunk f100 to decode the actual sprite atlas data (file offset stored within the just-loaded struct at field +4..+7). Finally it marks all per-entry trackers in a loop from WBASE_DGROUP[0x432c + entry .. 0x432c + entry + struct_count] with the loaded kind value and sets WBASE_DGROUP[0x4322 + entry + i] = 1.",
+      "category": "asset_loader",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x064e" },
+        "type": "raw_disasm + call_site_search",
+        "details": "FUN_064e prologue 0x064e: `55 8b ec 83 c4 ea`. Load-tracker check at 0x657-0x664: `8b 5e 06 8a 87 2c 43 2a e4 3b 46 04 75 03 e9 c6 00`. Generic-loader call at 0x668-0x67c: `b8 00 00 50 ff 76 04 b8 3a 01 f7 eb 05 de 36 50 b8 08 00 50 e8 9f bc` (= PUSH 0; PUSH [bp+4]; AX=0x13a; IMUL BX; ADD AX,0x36de; PUSH AX; PUSH 8; CALL c31e). Decode-pic call at 0x6d0-0x6ef: pushes (handle from *0x4fe8), high+low 32-bit offset from struct fields at WBASE_DGROUP[0x36e4 + entry*0x13a] and WBASE_DGROUP[0x36e2 + entry*0x13a], padding zeros, entry idx — then `e8 0e ea` = CALL f100 (decode_pic). Single call site found by exhaustive E8-displacement scan: 0x2b52 inside FUN_2b36 = `b8 04 00 50 b8 08 00 50 e8 f9 da` (PUSH 4; PUSH 8; CALL FUN_064e)."
+      },
+      "confidence": "high",
+      "applied_name": "wbase_load_font_table_entry"
+    },
+    {
+      "id": "c31e-resource-loader",
+      "claim": "The thunk c31e (overlay-visible address 0xc31e) resolves via the thunk-delta law (0xc31e - 0xBA9C = 0x0882) to wroot image offset 0x882 (= file offset 0xa82). This is a generic kind-dispatched seek-and-read primitive. Signature: `c31e(kind, dest_ptr, entry_idx, flags)`. Internal logic: (1) Dispatch on `kind - 2` via switch table at wroot image 0x8d4 (8 entries: 0x88e, 0x88e, 0x8b8, 0x89c, 0x8f2, 0x8aa, 0x8c6, 0x22d) — for kind=8 this hits the case-6 branch at 0x8c6 which reads WROOT_DGROUP[0x32c0 + entry] as a per-kind index translation. (2) Compute record_size = WROOT_DGROUP[0x3300 + kind*2]. For kind=8 this is 0x013a (314 bytes). (3) Compute file_offset = WROOT_DGROUP[0x3048 + kind*4] + translated_idx * record_size. For kind=8 the base is 0x000290b4. (4) Seek the master file (handle at WROOT_DGROUP[0x842]) to that offset and read `record_size` bytes into the supplied `dest_ptr`. So `c31e(8, 0x3bc6, 4, 0)` reads 0x13a bytes from master file at offset 0x290b4 + (idx_table[4] * 0x13a) into WBASE_DGROUP[0x3bc6].",
+      "category": "asset_loader",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": { "space": "wroot.exe", "offset": "0x0a82" },
+        "type": "raw_disasm + runtime_table_read",
+        "details": "Wroot image 0x882 function prologue at file 0xa82: `55 8b ec 81 c4 00 ff`. Dispatch at file 0xae2-0xaf1: `2d 02 00 3d 07 00 73 08 93 d1 e3 2e ff a7 d4 08` (SUB AX,2; CMP AX,7; JNB default; XCHG AX,BX; SHL BX,1; JMP CS:[BX+0x8d4]). Kind=8 case at file 0xac6-0xad2: `8b 5e 08 8a 87 c0 32 2a e4 89 46 08 eb 1e` (BX=[bp+8]; AX=[BX+0x32c0]; AH=0; [bp+8]=AX → translated_idx replaces original entry). Size lookup at file 0xb00: `8b 8f 00 33` (CX=[BX+0x3300] = WROOT_DGROUP[0x3300+kind*2]). 32-bit file offset assembly at 0xb14-0xb1e: `8b 8f 48 30; 8b 9f 4a 30; 03 c1; 13 d3` (CX=lo, BX=hi; AX += CX; DX += BX). Seek call at 0xb26 = wroot internal SEEK. Confirmed table values from save 1 runtime memory: WROOT_DGROUP[0x3310] = 0x013a; WROOT_DGROUP[0x3068] = 0x000290b4."
+      },
+      "confidence": "high",
+      "applied_name": "wroot_resource_seek_and_read"
+    },
+    {
+      "id": "struct-layout",
+      "claim": "The 0x13a-byte entry struct at WBASE_DGROUP[0x36de + entry*0x13a] has the following partial layout (verified from FUN_064e and FUN_0732 reads): byte +0..+1: misc header. bytes +2..+5: 32-bit file offset of the .pic asset to load (read by FUN_064e via `[bx+0x36e2]` and `[bx+0x36e4]` — file lo at +4, file hi at +6 relative to the FIRST entry, but these are FUN_064e-scoped accesses with bx pre-scaled by entry*0x13a, so within-struct they're at struct offsets that span byte 4..7). bytes +6, +8, +0xa, +0xc, +0xe, +0x10: X-position bytes for descriptor slots 1..6 (read by FUN_0732 via `byte[2*slot + 0x3bcc]` where 0x3bcc = struct_base + 6). bytes +0x39..+0x3f: Y-position bytes for descriptor slots 1..6 (read by FUN_0732 via `byte[slot + 0x3bff]`). The remaining bytes (~+0x40..+0x13a) presumably hold additional rendering metadata or are padding. The struct stride 0x13a matches the per-kind size read from WROOT_DGROUP[0x3310] in c31e, confirming consistency.",
+      "category": "data_format",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x0732, 0x06d0",
+        "type": "asm_table_reference",
+        "details": "FUN_0732 reads X at file 0x75d: `8a 87 cc 3b` (MOV AL, [BX+0x3bcc]) where BX = slot*2. Struct base is 0x3bc6 = 0x36de + 4*0x13a, so the X table starts at struct offset (0x3bcc - 0x3bc6) = 6, and slot N reads byte at offset 6+2*N. FUN_0732 reads Y at file 0x754: `8a 87 ff 3b` (MOV AL, [BX+0x3bff]) where BX = slot. Y table at struct offset (0x3bff - 0x3bc6) = 0x39, slot N reads byte at offset 0x39+N. FUN_064e reads the .pic file-offset field at file 0x6db-0x6e2: `ff b7 e4 36 ff b7 e2 36` (PUSH [BX+0x36e4]; PUSH [BX+0x36e2]) where BX = entry*0x13a, so within struct the file-offset hi is at offset (0x36e4 - 0x36de) = 6... wait this overlaps the X table base. Actually since FUN_064e's BX is entry*0x13a (no extra shift), and FUN_0732's BX is slot (shl 1 to get *2), they read DIFFERENT EFFECTIVE ADDRESSES even though they share the same 0x3bcc literal in the second case. CAVEAT: the file-offset hi at struct offset 6 IS the same byte as X-table slot 0. But FUN_0732's slot args are 1..6 (never 0), so it reads from struct offsets +8..+0x12 — entirely AFTER the file-offset field. The bytes at +6..+7 are the file-offset hi, while +8..+0x12 are the actual X table for slots 1..6. Same for Y: struct offset 0x39+0=0x39 is `slot=0` (unused), and slots 1..6 are at 0x3a..0x3f."
+      },
+      "confidence": "medium",
+      "caveat": "Struct offset assignments for slots 0 vs slots 1..6 are inferred from the asm — direct empirical verification (a save state captured AFTER the menu has rendered at least one frame, so the struct is populated) is needed to confirm specific byte values map to specific descriptor X/Y screen positions. The save state available (save 1) was captured before init completed."
+    },
+    {
+      "id": "ds-no-switching",
+      "claim": "There is NO DS-segment switching between FUN_07b7's entry and FUN_0732's BX-relative reads at file 0x754 and 0x75d. Both reads use the default segment (DS = WBASE_DGROUP) for `MOV AL, [BX+disp16]` mode. Exhaustive byte-pattern scan over FUN_07b7 (file 0x07b7..0x0983) and FUN_0732 (file 0x0732..0x0775) for the DS-manipulation opcodes (0x1E PUSH DS, 0x1F POP DS, 0x8E /3 MOV DS, r/m16) found NO real instances (one false-positive 0x1F inside a `MOV AX, 0x001F` immediate at file 0x8cc was checked and dismissed). The reads at file 0x754 (`8a 87 ff 3b`) and 0x75d (`8a 87 cc 3b`) have no segment-override prefix (0x2E CS:, 0x36 SS:, 0x26 ES:, 0x3E DS:), so they use the default DS for [BX+disp16] mode (which is DS, NOT SS — the 8086 default for BX-base modes is DS). Rules out parent-task possibility #4 (\"wbase code temporarily switches DS to a non-DGROUP segment when calling FUN_0732\").",
+      "category": "addressing_mode",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x0754, 0x075d",
+        "type": "negative_evidence",
+        "details": "Read instruction encoding at 0x754: `8a 87 ff 3b`. Decoded: 8A = MOV r8, r/m8; ModR/M 87 = [BX+disp16]; disp16 = 3bff. Default segment for BX-base in 16-bit 8086 = DS. No 2E/36/26/3E segment-override prefix byte precedes the instruction. Same analysis applies to file 0x75d (`8a 87 cc 3b`). FUN_07b7 prologue (file 0x07b7-0x07b9): `55 8b ec` (PUSH BP; MOV BP,SP); no DS push, no DS load. FUN_0732 prologue (file 0x0732-0x0735): `55 8b ec 83 c4 f6`; no DS manipulation. The exhaustive scan of 0x732..0x983 found no PUSH DS / POP DS / MOV DS,r instructions."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pic-asset-not-source",
+      "claim": "Rules out parent-task possibility #3 (\"X/Y come from the loaded mon08.pic itself\"). The .pic descriptor's `pos` field is a BYTE OFFSET into the decoded sprite-buffer (per pic.md: `pos = u16LE(rec[0..2]) # byte offset into the SAME buffer`), NOT a screen position. The renderer at f10c takes (dst_idx, dst_x, dst_y, w, h, ...) as its calling convention — the caller MUST supply the screen position. FUN_0732 supplies dst_x and dst_y from the WBASE_DGROUP tables at 0x3bcc and 0x3bff respectively. The asset content (which pixels) is fetched from the dst_idx=4 buffer based on the descriptor index in the script (the first arg byte = slot 1..6), but the screen position where it lands comes purely from the caller's args.",
+      "category": "render_pipeline",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": { "space": "ega.drv", "offset": "0x002b" },
+        "type": "cross_reference",
+        "details": "Cross-reference pic.md \"Calling convention\" section: f10c takes dst_idx, x, y, w, h, flags, &script. The descriptor `pos` field is documented as `byte offset into the SAME buffer` (the decoded sprite output buffer), NOT a screen coordinate. FUN_0732 reads X/Y from WBASE_DGROUP[0x3bcc..]/[0x3bff..] (per the population-site finding above), supplies them as the renderer's dst_x/dst_y. The asset itself stores no screen-position hints — those are provided by either the FUN_0732 tables (for entries managed by FUN_064e) or by direct constant args (for other render call sites)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "empirical-mismatch-resolved",
+      "claim": "The empirical contradiction flagged by the parent task (data reads zero in save state 1 despite the menu allegedly displaying) is explained: SAVE STATE 1 IS CAPTURED BEFORE wbase main-menu initialization completes. Evidence: (1) WBASE_DGROUP[0x4fbc] (menu window handle) = 0x0000 — the window has not been created. (2) WBASE_DGROUP[0x4330] (load-tracker byte for entry 4) = 0x00 — FUN_064e has not yet run. (3) WBASE_DGROUP[0x3bc6..0x3cff] (entire entry-4 struct region, 0x13a bytes) = all zeros — c31e has not yet populated the struct. (4) WBASE_DGROUP[0x5060] (input-poll counter) = 0x0000 — first input poll has not occurred. (5) WBASE_DGROUP[0x4322..0x4331] (status flags) = all zeros — no entry has been marked loaded. Together these prove that game_state=4 was just transitioned TO and the wbase entry dispatcher has not yet executed FUN_2b36's body (which starts with FUN_064e(8,4) at wbase file 0x2b4a-0x2b55). The visual menu the parent describes must have been from an earlier observation or a different save — save 1 freezes the moment of entering wbase state-4, not steady-state display. To dynamically verify the struct contents we need a save captured AFTER at least one full menu redraw — i.e., where WBASE_DGROUP[0x4fbc] is non-zero and WBASE_DGROUP[0x4330] = 0x08.",
+      "category": "save_state_analysis",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "various",
+        "type": "runtime_memory_dump",
+        "details": "All checks against tools/dosbox/save/1.sav with WBASE_DGROUP_base resolved to 0x16b30 via the DISK.HDR anchor at WBASE+0x1AEE (phys 0x1861e). Zero-state confirms all five indicators above."
+      },
+      "confidence": "high",
+      "needs": "A save state captured during steady-state menu display (e.g., after the menu has been visible for >= 1 second wall-clock). This would let us dump the actual X/Y byte values FUN_0732 reads and visually correlate with the rendered menu positions."
+    },
+    {
+      "id": "alternative-summary-by-possibility",
+      "claim": "Summary by parent-task possibility: (1) FOUND wbase_load_font_table_entry = wbase FUN_064e. Disassembled fully. Calls c31e (= wroot image 0x882) which writes the 0x13a-byte entry struct to WBASE_DGROUP[0x36de + entry*0x13a]. (2) FOUND the computed write: c31e's seek-and-read primitive writes via a DI-relative pointer (the dest_ptr arg passed at wbase 0x677). The actual byte-write loop is inside the wroot read-bytes subroutine called from c31e (visible at wroot file 0xb49 / 0xb69 / 0xb8b — three branches of the post-seek logic). (3) RULED OUT — X/Y are not in the .pic asset itself; .pic descriptors carry buffer-relative `pos` only, no screen coords. (4) RULED OUT — no DS-segment manipulation in the FUN_07b7 → FUN_0732 call chain; the reads use default DS = WBASE_DGROUP. Bottom line: the parent's earlier finding (wbase-main-menu-render.json item `bss-anim-helper-tables`, claiming the data comes from entry-4 of the font table at base 0x36de) is CORRECT in framework but had the wrong intra-struct offsets (claimed +2/+0x35; actual +6/+0x39).",
+      "category": "summary",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "type": "synthesis",
+        "details": "See preceding findings for individual evidence anchors."
+      },
+      "confidence": "high"
+    }
+  ],
+  "unresolved": [
+    "Need a save state captured AFTER FUN_064e(8, 4) has run (i.e., WBASE_DGROUP[0x4fbc] != 0 AND WBASE_DGROUP[0x4330] == 8) to read the actual X/Y byte values populated in the entry-4 struct. This would confirm (a) the exact struct layout, (b) which descriptor slots get non-zero positions vs the parity-gated slots 5/6 which presumably set X/Y to position the water sprites on either side of the menu. The viewer port should currently render FUN_0732 calls with X=0, Y=0 (since that's what save 1 says) and tune based on user observation — but a proper post-init save would let us byte-parity-check the layout. SURVEYED all 13 available saves: saves 1, 8, 9, 10, 11, 12, 13 all have game_state=4 but ALL ZERO menu window handles and load trackers — every state-4 save was captured at the same moment, just-entered transition. Saves 2..7 are state=0 (winit init). So this is task #32 (\"Get state-4 save for runtime sprite-records dump\") and remains the blocker on dynamic verification.",
+    "The wroot dispatch table at WROOT_DGROUP[0x32c0] (the kind=8 entry-index translation table) was not dumped. It would translate FUN_064e's `entry_idx=4` arg into a different internal index used to compute the file offset. Could be a no-op (idx_table[4] = 4) or it could re-map (idx_table[4] = N). Affects only WHICH 0x13a-byte record gets loaded from master, not where it lands or what fields it contains.",
+    "FUN_0775 uses a parallel pair of tables at 0x3958 (X, 2-byte stride) and 0x398b (Y, 1-byte stride). These do NOT correspond to a 0x13a-stride struct entry — 0x3958 - 0x36de = 0x27a > 0x13a (so it's not entry 0+0x27a or entry 1+0x140). FUN_0775 is called with args 0xf and 0xc in FUN_07b7. These are LARGER indices than the 6 slots FUN_0732 supports, suggesting FUN_0775 reads from a DIFFERENT struct entirely (or a different asset table). This is out-of-scope for the current task (which is specifically about FUN_0732) but should be tracked separately when the menu port needs to render those calls correctly.",
+    "The struct field at +4..+7 (file offset for .pic decoding) and the X table at +6..+0x10 OVERLAP at bytes +6 and +7 (the file-offset HIGH word). This is suspicious — it might be a coincidence of layout (the file-offset hi is typically 0x0000 for files < 64 KiB, and FUN_0732 only reads slots >= 1 which start at struct offset +8), or it might mean my reading of the layout is off-by-one. Direct empirical verification (post-init save) would resolve this."
+  ]
+}

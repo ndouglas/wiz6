@@ -8,6 +8,7 @@ import {
 } from '@wiz6/data';
 import { SaveStateBridge } from './debugger-console.js';
 import { resolveDgroupBase } from './dgroup.js';
+import { resolveWbaseDgroupBase } from './overlay-dgroup.js';
 
 /**
  * Build a SegmentMap for a save state by reading every anchor binary
@@ -77,6 +78,15 @@ export function buildSegmentMap(
       };
     } catch {
       // wroot not loaded or game_state invalid; leave absent.
+    }
+
+    // Augment with wbase.dgroup (predicate scan; only succeeds when
+    // game_state is in wbase's handled set + menu_window is allocated).
+    try {
+      const wbaseDg = resolveWbaseDgroupBase(opts.bridge, savePath);
+      map['wbase.dgroup'] = { physBase: wbaseDg, anchorPhys: wbaseDg };
+    } catch {
+      // wbase not active or detection ambiguous; leave absent.
     }
   }
 

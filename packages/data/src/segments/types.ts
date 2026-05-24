@@ -26,7 +26,23 @@
 export type SegmentSpace =
   // wroot.exe — always loaded; the host program.
   | 'wroot.exe' // synonym for the binary as a whole; same load base as wroot.dgroup
-  | 'wroot.dgroup' // the "real" data segment of wroot. Where game_state lives at +0x363A.
+  | 'wroot.dgroup' // wroot's data segment. Contains msg.dbs, fonts, sounds, game_state at +0x363A.
+  // Per-overlay data segments — each overlay has its own DS at runtime.
+  // Most overlay-local variables (e.g. wbase's menu_window, FUN_0732 X/Y
+  // tables) live in the overlay's own DGROUP, NOT wroot.dgroup. Currently
+  // only `wbase.dgroup` is detected (via predicate scan); add detection
+  // for the others as they become needed.
+  | 'winit.dgroup'
+  | 'wbase.dgroup'
+  | 'wmaze.dgroup'
+  | 'wmele.dgroup'
+  | 'wmnpc.dgroup'
+  | 'wpcvw.dgroup'
+  | 'wpcmk.dgroup'
+  | 'wpops.dgroup'
+  | 'wtrea.dgroup'
+  | 'wmexe.dgroup'
+  | 'wdopt.dgroup'
   // Overlays — at most one swapped in at a time, but their last-loaded
   // image stays in memory until another overlay overwrites it. Multiple
   // can coexist at known physical locations.
