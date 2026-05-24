@@ -95,18 +95,18 @@ export const PHASE_FRAMES_BRADLEY_SPLASH = 120; // 2.0s
 export const PHASE_FRAMES_PAUSE_PRE_SCROLL = 30; // 0.5s
 /**
  * Title visible, no scroll yet. The engine fires SOUND05 → SOUND06 → SOUND07
- * (~500 ms apart) right at the entry to this phase per the user-by-ear beat
- * mapping. SOUND07 lands ~1000 ms in, so this hold needs to span at least
- * that plus a beat of silence for the clang to ring out — 90 frames @
- * 60 fps = 1.5 s.
+ * at +0/+500/+1000 ms into this phase. The Wizardry-VI wordmark renders as
+ * scroll-table entries 0,1 with `appear_tick=0` — i.e. they appear at the
+ * very start of the scroll phase. Per user-by-ear recollection: "07 plays
+ * just as the wizardry logo appears." So title-hold should END exactly
+ * when SOUND07 lands so the clang and the wordmark coincide.
  *
- * Earlier value was 72 frames (1.2 s), which clipped the clang and made the
- * scroll start feel rushed. The engine's actual wait was
- * `winit_wait_ticks_or_enter(0x48)` ≈ several seconds on a 486DX/33; per
- * the wall-clock-parity caveat we don't aim for that, we aim for what
- * feels right + lets the wired audio land cleanly.
+ * SOUND07 at +1000 ms ≈ 60 frames @ 60 fps. The clang's tail keeps playing
+ * across the scroll start, which is what we want.
+ *
+ * Earlier values: 72 → 90 (clipped clang) → 60 (sync to user's beat).
  */
-export const PHASE_FRAMES_TITLE_HOLD = 90;
+export const PHASE_FRAMES_TITLE_HOLD = 60;
 export const PHASE_FRAMES_POST_SCROLL = 90; // 1.5s
 
 /**
