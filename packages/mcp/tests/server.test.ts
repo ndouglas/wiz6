@@ -51,6 +51,7 @@ const EXPECTED_TOOL_NAMES = [
   'dosbox_find_pattern',
   'dosbox_get_state_machine',
   'dosbox_read_palette_registers',
+  'dosbox_identify_palette',
   'dosbox_get_registers',
   'dosbox_get_call_chain',
   // breakpoints (all stubs)
@@ -189,6 +190,29 @@ describe('MCP server end-to-end', () => {
     };
     expect(payload.saves.some((s) => s.slot === 1)).toBe(true);
   });
+
+  it.skipIf(!haveSaveState)(
+    'dosbox_identify_palette finds an exact ega-default match in the boot-state save',
+    async () => {
+      const result = (await client.callTool({
+        name: 'dosbox_identify_palette',
+        arguments: { save: '1.sav' },
+      })) as ToolCallResultLike;
+      expect(result.isError).not.toBe(true);
+      const payload = parseJsonContent(result) as {
+        best_match: { name: string; distance: number; exact: boolean };
+        all_candidates: { name: string; distance: number }[];
+      };
+      // game_state=0 = boot before the engine has reprogrammed the DAC, so
+      // the BIOS ega-default palette should be active and the match exact.
+      expect(payload.best_match.name).toBe('ega-default');
+      expect(payload.best_match.distance).toBe(0);
+      expect(payload.best_match.exact).toBe(true);
+      // wiz6-main / wiz6-dungeon should rank below with non-zero distance.
+      const wiz6Main = payload.all_candidates.find((c) => c.name === 'wiz6-main');
+      expect(wiz6Main?.distance).toBeGreaterThan(0);
+    },
+  );
 
   it('stub tool surfaces isError:true with a clear message', async () => {
     const result = (await client.callTool({

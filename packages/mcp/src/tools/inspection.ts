@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { decodeBssStruct } from '@wiz6/data';
+import { decodeBssStruct, PALETTE_CATALOG } from '@wiz6/data';
 
 import type { McpContext } from '../context.js';
 import { dgroupOffsetToPhysical, resolveDgroupBase } from '../dgroup.js';
@@ -391,6 +391,50 @@ export function registerInspectionTools(server: McpServer, ctx: McpContext): voi
         note:
           'DAC values are 6-bit (0..63). To convert to 8-bit RGB, use v8 = (v6 << 2) | (v6 >> 4). ' +
           "Entries 0-15 are what wiz6-main / wiz6-dungeon palettes overwrite; compare against @wiz6/data's palette tables.",
+      });
+    }),
+  );
+
+  // -------- dosbox_identify_palette --------------------------------------
+  server.registerTool(
+    'dosbox_identify_palette',
+    {
+      description:
+        'Compare a save state\'s live DAC (entries 0-15) against the known palette ' +
+        'catalog in @wiz6/data (ega-default, wiz6-main, wiz6-dungeon). Returns the best ' +
+        'match plus its distance score (sum of per-channel absolute differences). ' +
+        'Distance 0 = exact match. Designed for the #Q-F investigation: feed save states ' +
+        'captured at each game-state boundary, see which palette is active where.',
+      inputSchema: { save: z.string() },
+    },
+    safeHandler(({ save }): JsonToolResult => {
+      const savePath = ctx.resolveSavePath(save);
+      const state = parseVgaPaletteFromSave(savePath);
+      if (!state) {
+        return errorResult(
+          `dosbox_identify_palette: could not locate VGA DAC in ${savePath}.`,
+        );
+      }
+      // VGA 6-bit → 8-bit via bit-replication.
+      const to8 = (v6: number): number => (v6 << 2) | (v6 >> 4);
+      const liveRgb8: Array<[number, number, number]> = state.dac
+        .slice(0, 16)
+        .map(([r, g, b]) => [to8(r), to8(g), to8(b)]);
+      const matches = Object.values(PALETTE_CATALOG).map((p) => {
+        let dist = 0;
+        for (let i = 0; i < 16; i++) {
+          const [pr, pg, pb] = p.colors[i]!;
+          const [lr, lg, lb] = liveRgb8[i]!;
+          dist += Math.abs(lr - pr) + Math.abs(lg - pg) + Math.abs(lb - pb);
+        }
+        return { name: p.name, distance: dist, exact: dist === 0 };
+      });
+      matches.sort((a, b) => a.distance - b.distance);
+      return jsonResult({
+        save: savePath,
+        best_match: matches[0],
+        all_candidates: matches,
+        live_rgb_8bit: liveRgb8,
       });
     }),
   );
