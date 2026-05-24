@@ -15,6 +15,8 @@ export interface ExtractEgaScreenOpts {
 }
 
 const HARDWARE_EGA_PALETTE: Palette = {
+  name: 'ega-hardware-default',
+  provenance: 'IBM EGA standard 16-color hardware default; used as fallback for PNG rendering when no palette is otherwise specified.',
   colors: [
     [0x00, 0x00, 0x00],
     [0x00, 0x00, 0xaa],
