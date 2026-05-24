@@ -234,22 +234,23 @@ function composeFrame(
     blendSprite(buf, mon08Sprites[3], 96 + 32, 50);
   }
 
-  // Parity-gated overlay: per docs/re/findings/wbase-menu-asset-is-mon08.json,
-  // the engine fires FUN_0732(5,...) and FUN_0732(6,...) when frame_parity != 0,
-  // which render mon08 descriptors 4 (red devil + water column, 5×10) and 5
-  // (water ripple strip, 5×1) respectively. The exact destination positions
-  // depend on a wbase BSS table we haven't fully RE'd yet (the DGROUP+0x3bcc
-  // tables read empty at save time — possibly populated transiently per draw).
-  // Positions below are eye-tuned to the bottom-center of the gate area,
-  // mirroring the original game's "shimmering water at the gate base" effect.
+  // Parity-gated overlay: per docs/re/findings/wbase-menu-asset-is-mon08.json
+  // and the engine state read from wbase.dgroup, FUN_0732(5) renders mon08
+  // descriptor 4 (devil+water column) at menu-window (0, 0), and FUN_0732(6)
+  // renders descriptor 5 (water ripple strip) at menu-window (0, 87). Both
+  // when frame_parity != 0. The menu window covers roughly the gate area
+  // (top-left ≈ screen (96, 36)), so we offset by that.
   if (parity !== 0 && mon08Sprites) {
-    // Tile descriptor 5 (the ripple strip) across the gate base; overlay
-    // descriptor 4 (the devil+water column) at the right side of the arch.
-    const rippleY = 192;
-    for (let x = 96; x <= 220; x += 5) {
-      blendSprite(buf, mon08Sprites[5], x, rippleY);
+    const menuWinX = 96;
+    const menuWinY = 36;
+    // FUN_0732(5, 0, 0x48, 0xf8): desc 4 at (0, 0) in menu window
+    blendSprite(buf, mon08Sprites[4], menuWinX, menuWinY);
+    // FUN_0732(6, 0, 0x48, 0xf8): desc 5 at (0, 87) in menu window
+    // Tile the 5×1 ripple across the width since the engine renders it
+    // into a 72-pixel-wide destination.
+    for (let dx = 0; dx < 72; dx += 5) {
+      blendSprite(buf, mon08Sprites[5], menuWinX + dx, menuWinY + 87);
     }
-    blendSprite(buf, mon08Sprites[4], 174, 130);
   }
 
   ctx.putImageData(new ImageData(buf, ENGINE_W, ENGINE_H), 0, 0);

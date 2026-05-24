@@ -1,0 +1,44 @@
+{
+  "topic": "wbase-water-sprite-positions-resolved",
+  "subagent_run": "2026-05-24",
+  "binaries": ["wbase.ovr"],
+  "summary": "Closes the open mystery from `wbase-menu-asset-is-mon08.json` — the FUN_0732 X/Y position tables ARE at offset 0x3BCC / 0x3BFF within the data segment, but it's WBASE.OVR's data segment (a separate runtime DGROUP from wroot's), not wroot.dgroup. With the new MCP `wbase.dgroup` detection (via predicate scan, see `packages/mcp/src/overlay-dgroup.ts`), we can now read the tables directly. State-4 save 1: only FUN_0732 slot 6 has a populated Y (=87); all X values are zero. So both water sprites render at x=0 within the menu window; slot 5 at y=0 (top), slot 6 at y=87 (middle).",
+  "method": "Implemented per-overlay DGROUP detection (`resolveWbaseDgroupBase` in MCP). For state-4 saves it converges on a unique base via the predicate (game_state matches wroot's AND parity ≤ 1 AND poll < 10 AND menu_window ≠ 0). For save 1: wbase.dgroup = 0x2EC50, wroot.dgroup = 0x16B30 (they're 100 KB apart — the heuristic anchor only finds wroot's). Read FUN_0732 X table at wbase.dgroup + 0x3BCC and Y table at wbase.dgroup + 0x3BFF directly.",
+  "findings": [
+    {
+      "id": "wbase-dgroup-is-separate-segment",
+      "claim": "wbase has its OWN data segment at runtime, separate from wroot's. Overlay-local variables (menu_window handle at +0x4FBC, FUN_0732 X/Y position tables at +0x3BCC/0x3BFF, FUN_0775 tables at +0x3958/0x398B, anim_x/y at +0x5064/+0x5062) all live in wbase.dgroup. The previous assumption that they were in wroot.dgroup was wrong — at wroot.dgroup those offsets land inside msg.dbs content or BSS that wroot doesn't touch.",
+      "category": "memory_layout",
+      "evidence": {
+        "type": "predicate_scan + cross_reference",
+        "details": "wbase.dgroup = 0x2EC50 (state-4 save 1, validated by the only-base satisfying gs=4 + parity≤1 + poll<10 + menu_w≠0). wroot.dgroup = 0x16B30. Both have game_state=4 at +0x363A (the variable is mirrored). But menu_window at +0x4FBC: wroot=0, wbase=0xB687. FUN_0732 Y table at +0x3BFF: wroot=all zeros, wbase=00 00 00 00 00 00 57 cf df."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun_0732-position-values",
+      "claim": "Engine-state values for the FUN_0732 X/Y tables read directly from wbase.dgroup in save 1 (state 4):\n  X table (byte ptr [bx*2 + 0x3BCC]):\n    slot 1: 0    slot 2: 0    slot 3: 0\n    slot 4: 0    slot 5: 0    slot 6: 0\n  Y table (byte ptr [bx + 0x3BFF]):\n    slot 1: 0    slot 2: 0    slot 3: 0\n    slot 4: 0    slot 5: 0    slot 6: 87 (0x57)\nAll X positions are zero — the descriptors render at x=0 within the destination window. Only slot 6 has a non-zero Y (=87, halfway down the 248-pixel destination). All other slots render at (0, 0).",
+      "category": "engine_state",
+      "evidence": {
+        "type": "memory_dump",
+        "details": "wbase.dgroup + 0x3BCC..0x3BD8 = 00 09 00 00 00 00 00 00 00 00 00 00 00. wbase.dgroup + 0x3BFF..0x3C08 = 00 00 00 00 00 00 57 cf df 76. The 0x09 byte at +0x3BCD is in a slot we don't use (the X-table has byte-stride 2 keyed by slot, so this is between slots)."
+      },
+      "confidence": "high",
+      "caveat": "anim_x and anim_y (wbase.dgroup + 0x5064 / +0x5062) are both 0 in this save — matches the prior finding that they only get set during the one-shot menu-exit transition."
+    },
+    {
+      "id": "interpretation-water-frames",
+      "claim": "The two parity-on FUN_0732 calls — FUN_0732(5) and FUN_0732(6) — produce the visible water animation:\n  Frame A (parity=1, slot 5): mon08 descriptor 4 (devil + water column) rendered at menu-window (0, 0), into a 72×248 destination.\n  Frame B (parity=1, slot 6): mon08 descriptor 5 (water ripple strip) rendered at menu-window (0, 87), into a 72×248 destination.\nThe slot-1..4 unconditional draws are at the same (0, 0) position — they're the persistent gate background composed via the PIC renderer's script behavior (likely tiling the small mon08 descriptors across the destination area).",
+      "category": "render_pipeline",
+      "evidence": {
+        "type": "wbase_asm + engine_state",
+        "details": "FUN_07b7's FUN_0732 calls: (1, 0, 0x48, 0xf8), (2, 0, 0x48, 0xf8), (3, anim_x, 0x80, 0xc0), (4, anim_y, 0x80, 0xc0), [parity!=0] (5, 0, 0x48, 0xf8), (6, 0, 0x48, 0xf8). With X table all-zero and anim_x/y=0, the X coordinate is always 0. Slot 6 alone has a non-zero Y."
+      },
+      "confidence": "high"
+    }
+  ],
+  "next_steps": [
+    "Implement the f10c PIC renderer port in @wiz6/parser so we can compose mon08 descriptors into the menu-window's 72×248 buffer the same way the engine does. Until that lands, the React port uses individual descriptor blits at engine-derived positions, which approximates but doesn't match exactly.",
+    "Determine the menu window's screen position by decoding its struct (handle = wbase.dgroup[0x4FBC] = 0xB687 — interpretation TBD; might be a near pointer within wbase.dgroup or a segment to a window-struct array elsewhere). Once decoded, the menu-window screen position replaces our eye-tuned (96, 36) approximation in CastleScreen."
+  ]
+}
