@@ -1,0 +1,53 @@
+#!/usr/bin/env node
+// `wiz6-mcp` — entry point for the Wiz6 DOSBox-X MCP server.
+//
+// Speaks MCP over stdio. Diagnostic logging goes to stderr as JSON lines
+// (the MCP protocol owns stdout). Add this to a Claude Code / Codex / Gemini
+// MCP config:
+//
+//   {
+//     "mcpServers": {
+//       "wiz6": {
+//         "command": "pnpm",
+//         "args": ["--filter", "@wiz6/mcp", "exec", "wiz6-mcp"],
+//         "cwd": "/path/to/wiz6"
+//       }
+//     }
+//   }
+
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { startServer } from './server.js';
+
+function logJson(event: Record<string, unknown>): void {
+  process.stderr.write(`${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`);
+}
+
+async function main(): Promise<void> {
+  const transport = new StdioServerTransport();
+  const { server } = await startServer(transport, { cwd: process.cwd() });
+  logJson({ level: 'info', msg: 'wiz6-mcp started', cwd: process.cwd() });
+
+  const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
+    logJson({ level: 'info', msg: 'shutting down', signal });
+    try {
+      await server.close();
+    } catch (err) {
+      logJson({ level: 'error', msg: 'shutdown error', err: String(err) });
+    }
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
+main().catch((err) => {
+  process.stderr.write(
+    `${JSON.stringify({
+      ts: new Date().toISOString(),
+      level: 'fatal',
+      msg: 'wiz6-mcp failed to start',
+      err: err instanceof Error ? err.message : String(err),
+    })}\n`,
+  );
+  process.exit(1);
+});

@@ -8,12 +8,23 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "bin": {
+    "wiz6-mcp": "./src/cli.ts"
+  },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@wiz6/cli": "workspace:*",
+    "@wiz6/data": "workspace:*",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.6.2",
     "vitest": "^2.1.0"
   }
