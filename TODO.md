@@ -55,12 +55,6 @@ Next free ID: **#018**
   - The sound-table snapshot in `@wiz6/data/sound-table.ts` exposes per-slot `rate_or_vol` values (e.g. slot 4 = 0x49, slot 7 = 0x34, slot 13 = 0x3C). The field is labelled "volume index" in the deep-dive findings but we haven't decoded the semantics — is the high nibble rate, low nibble volume? Is it scaled by music-mode at `*0x3590`? Affects in-game playback fidelity, not the intro (the intro currently uses `duration` for rate adjustment which is sufficient for SOUND04/05/06/07/13).
   - Method to close: decompile `audio_play_sound` at wroot image 0x10AAA and trace how rate_or_vol gets consumed. Or empirically vary playback rate while listening in DOSBox-X and our viewer.
 
-- #Q-L — AdLib FM channel layered with PCM during intro (and likely throughout)
-  - Found 2026-05-24: the DOSBox-X save state Mixer blob shows **"Adlib"** as the first channel and **"DBOPL"** (DOSBox-X's OPL3 FM emulator) state attached. The sirtech-splash moment isn't just SOUND04.SND — it's SOUND04 + an AdLib FM track playing in parallel. User's "layered chaos" perception of sirtech is real and structural.
-  - Our viewer only plays PCM .snd files. We're missing the entire AdLib music + effects channel for the intro AND probably for in-game (dungeon footsteps, combat impacts, etc.).
-  - Method to close: (a) RE the AdLib music/effects driver in wroot (#Q-E hints at this — `audio_adlib_init_voice` is mis-named, real driver elsewhere; possibly `FUN_1000_17fe`). (b) Identify where the AdLib register writes originate, what data format they read. (c) Either ship a JS OPL3 emulator (heavy) OR pre-render the AdLib tracks to PCM at extract time and layer them.
-  - Doesn't block any current work but is a substantial fidelity gap for the audio port. Likely the right time to tackle is after the rest of the intro/UI polish lands.
-
 - #Q-K — Runtime pitch modulation for context-dependent sounds
   - User observation (2026-05-24): the same .snd file (e.g. the death-groan sound effect) plays at different pitches depending on character context — sex of the dying character, possibly other state. Our static per-slot rate snapshot (`@wiz6/data/sound-table.ts`) captures only the BASELINE rate; the engine clearly modulates pitch at call time for some events.
   - Likely source: an additional parameter passed into `audio_play_by_id(N, duration_param, ?, flags_param)` at the call site. Or a runtime modifier byte in the sound-table flags field that the caller mutates before invocation.
