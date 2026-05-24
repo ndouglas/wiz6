@@ -57,6 +57,28 @@ There's no strict schema — findings vary too much. But aim for this shape:
 }
 ```
 
+## Address convention (segment-typed)
+
+**Required for new findings**: when citing a memory address, specify the segment space alongside the offset. We've been bitten multiple times by ambiguous "DGROUP 0xXXXX" references that turned out to mean different things depending on which overlay was loaded.
+
+Use this shape inside `evidence`:
+
+```json
+"address": {
+  "space": "wbase.ovr",
+  "offset": "0x2b36"
+}
+```
+
+Valid `space` values (also enumerated in `@wiz6/data`'s `SegmentSpace` type):
+
+- `wroot.exe` — the host binary; offset is a file offset (i.e. image offset + 0x200 MZ header skipped)
+- `wroot.dgroup` — wroot's data segment (legacy "DGROUP 0xXXXX" findings) — context-dependent base, resolved by `resolveDgroupBase`
+- `winit.ovr`, `wbase.ovr`, `wmaze.ovr`, `wmele.ovr`, `wmnpc.ovr`, `wpcvw.ovr`, `wpcmk.ovr`, `wpops.ovr`, `wtrea.ovr`, `wmexe.ovr`, `wdopt.ovr` — overlays; offset is file offset within the .ovr
+- `ega.drv`, `cga.drv`, `herc.drv` — video drivers; offset is file offset within the .drv
+
+The MCP server's `dosbox_read_memory` accepts `{ save, space, offset }` and uses the per-save segment map (`dosbox_map_segments`) to resolve to a physical-memory offset. Findings that pre-date this convention are grandfathered — but when promoting them to canonical docs in `docs/re/<format>.md`, add the explicit space.
+
 ## Confidence levels
 
 - **high** — Direct evidence: unique string match, single BIOS-int instance, byte-exact pattern match

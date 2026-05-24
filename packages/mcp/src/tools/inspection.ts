@@ -7,7 +7,8 @@
 
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { decodeBssStruct, PALETTE_CATALOG } from '@wiz6/data';
+import { decodeBssStruct, PALETTE_CATALOG, resolveSegAddr, type SegmentSpace } from '@wiz6/data';
+import { buildSegmentMap } from '../segments.js';
 
 import type { McpContext } from '../context.js';
 import { dgroupOffsetToPhysical, resolveDgroupBase } from '../dgroup.js';
@@ -85,20 +86,74 @@ export function registerInspectionTools(server: McpServer, ctx: McpContext): voi
     {
       description:
         'Read raw physical-memory bytes from a save state. Returns space-separated ' +
-        'lowercase hex pairs. Use `dosbox_read_struct` for typed reads.',
+        'lowercase hex pairs. Either pass a bare `offset` (physical address) OR ' +
+        'pass `space` + `offset` where `space` is a typed segment name (e.g. ' +
+        '"wbase.ovr", "ega.drv", "wroot.exe") — see `dosbox_map_segments` for the ' +
+        'full list of loaded segments. Use `dosbox_read_struct` for typed reads.',
       inputSchema: {
         save: z.string().describe('Save state path, filename, or slot number.'),
-        offset: z.number().int().nonnegative().describe('Physical-memory offset.'),
+        offset: z.number().int().nonnegative().describe(
+          'Offset — physical if `space` omitted; otherwise relative to that segment.',
+        ),
         len: z.number().int().positive().describe('Byte count.'),
+        space: z
+          .string()
+          .optional()
+          .describe(
+            'Optional segment name (wroot.exe, winit.ovr, wbase.ovr, wmaze.ovr, ' +
+              'ega.drv, etc.). When set, `offset` is interpreted relative to that segment.',
+          ),
       },
     },
     safeHandler((args): JsonToolResult => {
-      const { bridge } = ctx.bridgeFor(args.save);
-      const bytes = bridge.readPhysical(args.offset, args.len);
+      const { bridge, absPath } = ctx.bridgeFor(args.save);
+      let physOffset = args.offset;
+      let resolvedFrom: string | undefined;
+      if (args.space) {
+        const map = buildSegmentMap(absPath, ctx.repoRoot);
+        physOffset = resolveSegAddr(map, {
+          space: args.space as SegmentSpace,
+          offset: args.offset,
+        });
+        resolvedFrom = `${args.space} + 0x${args.offset.toString(16)}`;
+      }
+      const bytes = bridge.readPhysical(physOffset, args.len);
       return jsonResult({
-        offset: args.offset,
+        offset: physOffset,
+        ...(resolvedFrom ? { resolved_from: resolvedFrom } : {}),
         len: args.len,
         bytes_hex: bytesToHexPairs(bytes),
+      });
+    }),
+  );
+
+  // -------- dosbox_map_segments -------------------------------------------
+  server.registerTool(
+    'dosbox_map_segments',
+    {
+      description:
+        'Build the segment map for a save state — locate each loaded binary ' +
+        '(wroot.exe + overlays + drivers) by anchor signature and return their ' +
+        'physical load bases. Use this to understand which overlays are currently ' +
+        'in memory and to feed `space` arguments into `dosbox_read_memory`.',
+      inputSchema: {
+        save: z.string().describe('Save state path, filename, or slot number.'),
+      },
+    },
+    safeHandler((args): JsonToolResult => {
+      const { absPath } = ctx.bridgeFor(args.save);
+      const map = buildSegmentMap(absPath, ctx.repoRoot);
+      const entries = Object.entries(map).map(([space, e]) => ({
+        space,
+        phys_base: e!.physBase,
+        phys_base_hex: `0x${e!.physBase.toString(16)}`,
+        anchor_phys: e!.anchorPhys,
+        anchor_phys_hex: `0x${e!.anchorPhys.toString(16)}`,
+      }));
+      return jsonResult({
+        save: absPath,
+        loaded_segments: entries.length,
+        segments: entries,
       });
     }),
   );

@@ -132,3 +132,20 @@ export {
   resolveSlot,
 } from './sound-table.js';
 export type { SoundTableSlot } from './sound-table.js';
+
+// Segment-map abstraction — per-save typed address spaces. Use when an RE
+// finding refers to a binary's data without specifying the global address;
+// e.g. "wbase.ovr + 0x07b7" instead of "DGROUP 0xXXXX" (which has bitten
+// us multiple times across overlay-swap contexts).
+export {
+  SEGMENT_ANCHORS,
+  findSegmentsInMemory,
+  resolveSegAddr,
+} from './segments/index.js';
+export type {
+  SegAddr,
+  SegmentAnchor,
+  SegmentEntry,
+  SegmentMap,
+  SegmentSpace,
+} from './segments/index.js';

@@ -20,9 +20,11 @@ export type { McpContextOptions, LaunchedSession } from './context.js';
 export {
   resolveDgroupBase,
   dgroupOffsetToPhysical,
-  SOUND_TEMPLATE_DGROUP_OFFSET,
-  SOUND_TEMPLATE_HEX,
+  DISK_HDR_DGROUP_CANDIDATES,
+  DGROUP_ANCHOR_HEX,
 } from './dgroup.js';
+
+export { buildSegmentMap, _clearSegmentMapCacheForTests } from './segments.js';
 
 export { loadSymbolIndex, findFindingsDir, readNamingPassDocs } from './symbols-loader.js';
 export type { LoadSymbolsOpts } from './symbols-loader.js';
