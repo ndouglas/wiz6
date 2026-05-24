@@ -227,56 +227,80 @@ function composeFrame(
     compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 125, [5], mon08Pic, mon08Decoded, EGA_DEFAULT);
   }
 
-  // Menu option text is rendered in the LOWER PANE — a 40-cell × 5-row
-  // text window at screen (0, 152)..(320, 192), NOT the gate-art window.
-  // (The handle at *0x4FBC = 0x73FA we previously found is the gate-art
-  // window; the actual text window is a separately-allocated heap block
-  // at DGROUP+0x7426, w=40 h=5 x=0 y=19 attr=0x0F.)
+  // Menu UI bottom band — three stacked windows per the engine's heap walk
+  // (docs/re/findings/wroot-window-heap-allocator.json):
+  //   y=144..152 px : BANNER row, attr=0x0E (yellow). "MASTER OPTIONS" with
+  //                   bat glyphs (wfont0 char 0x7F) on either side; cursor
+  //                   was at col 30 at save time = matches centered 18-char
+  //                   layout "\x7F MASTER OPTIONS \x7F".
+  //   y=152..192 px : LOWER PANE, attr=0x04 (red) background under attr=0x0F
+  //                   (white) text overlay. The menu options live here.
+  //   y=192..200 px : STATUS row, attr=0x03 (cyan). Empty in this save.
   //
-  // FUN_025c's grid math (wbase 0x028F..0x02AC, called from FUN_2b36
-  // with args (2, 1, 0x13, 4)):
-  //   cursor_X = (slot / 4) * 19 + 2  → col 0 at cell X=2; col 1 at X=21
-  //   cursor_Y = (slot % 4) + 1       → 4 rows per column at Y=1..4
+  // FUN_025c's grid math (wbase 0x028F..0x02AC, called from FUN_2b36 with
+  // args (2, 1, 0x13, 4)) puts option text at:
+  //   cursor_X = (slot / 4) * 19 + 2   → col 0 at cell X=2; col 1 at X=21
+  //   cursor_Y = (slot % 4) + 1        → 4 rows per column at Y=1..4
   // Cells are 8 px relative to the lower pane's top-left.
-  //   slot 0..3 → col 0: screen (16, 160..184)
-  //   slot 4..5 → col 1: screen (168, 160..168)
   if (wfont0) {
+    const cellW = 8;
+    const cellH = 8;
+
+    // ---- Banner row (y=144..152) ----
+    const BANNER_Y = 144;
+    const BANNER_H = 8;
+    // Yellow band background
+    fillRect(buf, 0, BANNER_Y, ENGINE_W, BANNER_H, EGA_DEFAULT.colors[14] ?? [0xff, 0xff, 0x55]);
+    // "\x7F MASTER OPTIONS \x7F" centered (18 chars, col 11 of 40)
+    const banner = '\x7f MASTER OPTIONS \x7f';
+    const bannerX = ((40 - banner.length) >> 1) * cellW;
+    renderTextRun(buf, ENGINE_W, ENGINE_H, bannerX, BANNER_Y, banner, wfont0, 0, EGA_DEFAULT);
+
+    // ---- Lower pane (y=152..192) ----
     const PANE_X = 0;
     const PANE_Y = 152;
     const PANE_W = 320;
     const PANE_H = 40;
-    const cellW = 8;
-    const cellH = 8;
+    fillRect(buf, PANE_X, PANE_Y, PANE_W, PANE_H, EGA_DEFAULT.colors[4] ?? [0xaa, 0, 0]);
+
     const X_BASE = 2;
     const Y_BASE = 1;
     const X_STRIDE = 19;
     const ROWS_PER_COL = 4;
-
-    // Pane background — engine attr=0x0F = white, but engine pre-fills
-    // with attr 0x04 (red) on the underlying window. We render a dark
-    // band so the lower pane reads as a distinct region; tune later
-    // once we have the EGA palette overrides applied.
-    for (let py = PANE_Y; py < PANE_Y + PANE_H && py < ENGINE_H; py++) {
-      for (let px = PANE_X; px < PANE_X + PANE_W && px < ENGINE_W; px++) {
-        const idx = (py * ENGINE_W + px) * 4;
-        buf[idx] = 0x10;
-        buf[idx + 1] = 0x10;
-        buf[idx + 2] = 0x10;
-        buf[idx + 3] = 0xff;
-      }
-    }
-
     for (let i = 0; i < menuOptions.length; i++) {
       const opt = menuOptions[i]!;
       const cursorX = Math.floor(i / ROWS_PER_COL) * X_STRIDE + X_BASE;
       const cursorY = (i % ROWS_PER_COL) + Y_BASE;
       const isSel = i === selectedIdx;
-      const fg = isSel ? 14 /* yellow */ : 7 /* light gray */;
+      const fg = isSel ? 14 /* yellow */ : 15 /* white */;
       const textX = PANE_X + cursorX * cellW;
       const textY = PANE_Y + cursorY * cellH;
       renderTextRun(buf, ENGINE_W, ENGINE_H, textX, textY, opt.label, wfont0, fg, EGA_DEFAULT);
     }
+
+    // ---- Status row (y=192..200) ----
+    fillRect(buf, 0, 192, ENGINE_W, 8, EGA_DEFAULT.colors[3] ?? [0, 0xaa, 0xaa]);
   }
 
   ctx.putImageData(new ImageData(buf, ENGINE_W, ENGINE_H), 0, 0);
+}
+
+function fillRect(
+  buf: Uint8ClampedArray,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  color: readonly [number, number, number],
+): void {
+  const [r, g, b] = color;
+  for (let py = y; py < y + h && py < ENGINE_H; py++) {
+    for (let px = x; px < x + w && px < ENGINE_W; px++) {
+      const idx = (py * ENGINE_W + px) * 4;
+      buf[idx] = r;
+      buf[idx + 1] = g;
+      buf[idx + 2] = b;
+      buf[idx + 3] = 0xff;
+    }
+  }
 }
