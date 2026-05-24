@@ -111,25 +111,31 @@ describe('MCP server end-to-end', () => {
   });
 
   it.skipIf(!haveSaveState)(
-    'dosbox_inspect_save honestly rejects 1.sav (no wroot loaded)',
+    'dosbox_inspect_save reads main-menu state correctly from 1.sav',
     async () => {
-      // Investigation finding (2026-05-23): 1.sav is NOT from inside a
-      // running wroot.exe. SOUND00.SND appears in memory (probably a stale
-      // DOS disk buffer) but TITLEPAG.EGA does not — the two-anchor check
-      // in dgroup.ts catches this and refuses to fabricate a DGROUP base.
-      // Anyone capturing a fresh save during gameplay (game_state >= 1)
-      // should flip these expectations.
+      // 1.sav: user-captured manual save while at the Wiz6 main menu.
+      // game_state should be 0x4 (wbase.ovr main menu). DGROUP base is at
+      // phys 0x16B30 (paragraph-aligned, segment 0x16B3). Anchor is the
+      // wroot overlay-name table at DGROUP 0x1AEE which survives all
+      // overlay loads.
       const result = (await client.callTool({
         name: 'dosbox_inspect_save',
         arguments: { save: '1.sav' },
       })) as ToolCallResultLike;
-      expect(result.isError).toBe(true);
-      expect(result.content[0]!.text).toMatch(/wroot\.exe DGROUP|TITLEPAG\.EGA/i);
+      expect(result.isError).not.toBe(true);
+      const payload = parseJsonContent(result) as {
+        game_state: number;
+        dgroup_base: number;
+        party_size: number;
+      };
+      expect(payload.game_state).toBe(0x4);
+      expect(payload.dgroup_base).toBe(0x16b30);
+      expect(payload.party_size).toBe(0);
     },
   );
 
   it.skipIf(!haveSaveState)(
-    'dosbox_read_struct rejects 1.sav with the same DGROUP-anchor error',
+    'dosbox_read_struct decodes a sound_table_entry at DGROUP 0x3344 in 1.sav',
     async () => {
       const result = (await client.callTool({
         name: 'dosbox_read_struct',
@@ -139,8 +145,17 @@ describe('MCP server end-to-end', () => {
           address: 0x3344,
         },
       })) as ToolCallResultLike;
-      expect(result.isError).toBe(true);
-      expect(result.content[0]!.text).toMatch(/DGROUP/i);
+      expect(result.isError).not.toBe(true);
+      const payload = parseJsonContent(result) as {
+        structName: string;
+        bytes: number;
+        decoded: Record<string, unknown>;
+      };
+      expect(payload.structName).toBe('sound_table_entry');
+      expect(payload.bytes).toBe(12);
+      expect(payload.decoded).toHaveProperty('alias_id');
+      expect(payload.decoded).toHaveProperty('buf_lo');
+      expect(payload.decoded).toHaveProperty('buf_hi');
     },
   );
 
