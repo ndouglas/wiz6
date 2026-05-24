@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PicSchema, EGA_DEFAULT } from '@wiz6/data';
 import {
@@ -17,11 +17,11 @@ const ENGINE_W = 320;
 const ENGINE_H = 200;
 const SCALE = 3;
 
-/**
- * Default party context for first-launch (no party loaded, characters
- * available in PCFILE.DBS). Drives which menu options are visible.
- * Will become dynamic once save-load is implemented.
- */
+/** Period of the parity flip (ms). Engine cadence per FUN_013b is ~10 input
+ *  polls between flips; on a 486DX/33 that's roughly 400-600ms wall-clock.
+ *  Tunable by feel — we don't aim for byte-precise emulator timing. */
+const PARITY_FLIP_MS = 500;
+
 const DEFAULT_CONTEXT: MainMenuContext = {
   partySize: 0,
   pcFileHasUnloadedChars: true,
@@ -35,7 +35,7 @@ const ROUTE_BY_SLOT: Record<number, { route: string; replay?: boolean }> = {
   4: { route: '/castle/resume' },
   5: { route: '/castle/character-menu' },
   6: { route: '/castle/configuration' },
-  7: { route: '/', replay: true }, // SHOW TITLE PAGE — re-enter intro
+  7: { route: '/', replay: true },
   8: { route: '/castle/quit' },
 };
 
@@ -44,6 +44,9 @@ export function CastleScreen() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [mon08Sprites, setMon08Sprites] = useState<RenderedSprite[] | null>(null);
   const [dragonscRgba, setDragonscRgba] = useState<Uint8ClampedArray | null>(null);
+
+  const visible = useMemo(() => visibleMenuOptions(DEFAULT_CONTEXT), []);
+  const [selectedIdx, setSelectedIdx] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,8 +84,12 @@ export function CastleScreen() {
     };
   }, []);
 
-  // Compose the canvas scene whenever assets land. Re-renders are cheap (one
-  // frame) so we don't worry about RAF — main menu is static art.
+  // RAF loop that flips the parity bit every PARITY_FLIP_MS and recomposites
+  // the frame. Mirrors the engine's FUN_013b → FUN_07b7 cadence: parity==0
+  // draws everything except the slot-5/6 overlays (water); parity==1 adds
+  // them. Today the water-sprite positions aren't pinned down so the parity
+  // toggle is a structural placeholder — once `wbase_load_font_table_entry(8,4)`
+  // RE'd into our viewer assets, swap in the real overlay draw.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -90,30 +97,21 @@ export function CastleScreen() {
     if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
 
-    const buf = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
-    // Fill opaque black baseline.
-    for (let i = 0; i < buf.length; i += 4) buf[i + 3] = 0xff;
+    let raf = 0;
+    let lastFlip = performance.now();
+    let parity = 0;
 
-    // Background: dragonsc (which only paints the top strip; rest stays black).
-    if (dragonscRgba) buf.set(dragonscRgba);
-
-    // Composite mon08 sprites: arched gate (descs 0+1 side by side) centered,
-    // red devil (desc 4) on top of the gate's right side. Positions tuned by
-    // eye to match the user's screenshot reference; engine's exact x,y for
-    // these draws isn't pinned down yet (wbase_menu_draw_decoration_frame).
-    if (mon08Sprites) {
-      // Arched gate centered: total width 88*2=176, screen width 320, so left=72.
-      blendSprite(buf, mon08Sprites[0], 72, 36); // gate left
-      blendSprite(buf, mon08Sprites[1], 72 + 88, 36); // gate right with devil silhouette
-      // Door panels inside the arch (texture):
-      blendSprite(buf, mon08Sprites[2], 96, 50);
-      blendSprite(buf, mon08Sprites[3], 96 + 32, 50);
-    }
-
-    ctx.putImageData(new ImageData(buf, ENGINE_W, ENGINE_H), 0, 0);
+    const tick = (now: number) => {
+      if (now - lastFlip >= PARITY_FLIP_MS) {
+        parity = parity === 0 ? 1 : 0;
+        lastFlip = now;
+      }
+      composeFrame(ctx, parity, dragonscRgba, mon08Sprites);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [mon08Sprites, dragonscRgba]);
-
-  const visible = visibleMenuOptions(DEFAULT_CONTEXT);
 
   const handleSelect = (opt: MainMenuOption) => {
     const target = ROUTE_BY_SLOT[opt.slot];
@@ -121,7 +119,32 @@ export function CastleScreen() {
     navigate(target.route);
   };
 
-  // Layout: 4 left-column items, remaining on right column (matches screenshot).
+  // Keyboard navigation: ↑/↓ wrap-around through visible options; Enter activates.
+  // Track selectedIdx via ref so the listener doesn't need to re-bind on every
+  // arrow press — only `visible` matters for which options exist.
+  const selectedIdxRef = useRef(selectedIdx);
+  selectedIdxRef.current = selectedIdx;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        setSelectedIdx((i) => (i + 1) % visible.length);
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setSelectedIdx((i) => (i - 1 + visible.length) % visible.length);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const opt = visible[selectedIdxRef.current];
+        if (opt) {
+          const target = ROUTE_BY_SLOT[opt.slot];
+          if (target) navigate(target.route);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, navigate]);
+
   const leftCol = visible.slice(0, 4);
   const rightCol = visible.slice(4);
 
@@ -144,26 +167,93 @@ export function CastleScreen() {
       </div>
       <ul className={styles.menu}>
         <div className={styles.menuCol}>
-          {leftCol.map((opt) => (
-            <li key={opt.slot} className={styles.menuItem}>
-              <button type="button" className={styles.menuButton} onClick={() => handleSelect(opt)}>
-                {opt.label}
-              </button>
-            </li>
+          {leftCol.map((opt, i) => (
+            <MenuItem
+              key={opt.slot}
+              opt={opt}
+              selected={i === selectedIdx}
+              onClick={() => {
+                setSelectedIdx(i);
+                handleSelect(opt);
+              }}
+            />
           ))}
         </div>
         <div className={styles.menuCol}>
-          {rightCol.map((opt) => (
-            <li key={opt.slot} className={styles.menuItem}>
-              <button type="button" className={styles.menuButton} onClick={() => handleSelect(opt)}>
-                {opt.label}
-              </button>
-            </li>
-          ))}
+          {rightCol.map((opt, i) => {
+            const idx = leftCol.length + i;
+            return (
+              <MenuItem
+                key={opt.slot}
+                opt={opt}
+                selected={idx === selectedIdx}
+                onClick={() => {
+                  setSelectedIdx(idx);
+                  handleSelect(opt);
+                }}
+              />
+            );
+          })}
         </div>
       </ul>
     </main>
   );
+}
+
+function MenuItem(props: { opt: MainMenuOption; selected: boolean; onClick: () => void }) {
+  return (
+    <li className={styles.menuItem}>
+      <button
+        type="button"
+        className={`${styles.menuButton} ${props.selected ? styles.menuButtonSelected : ''}`}
+        onClick={props.onClick}
+      >
+        {props.selected ? '▶ ' : '  '}
+        {props.opt.label}
+      </button>
+    </li>
+  );
+}
+
+function composeFrame(
+  ctx: CanvasRenderingContext2D,
+  parity: 0 | 1 | number,
+  dragonscRgba: Uint8ClampedArray | null,
+  mon08Sprites: RenderedSprite[] | null,
+): void {
+  const buf = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
+  for (let i = 0; i < buf.length; i += 4) buf[i + 3] = 0xff;
+
+  // Static background: dragonsc top strip + engine init draws (the 6
+  // FUN_0984 background panels) — currently approximated by mon08 sprites.
+  if (dragonscRgba) buf.set(dragonscRgba);
+  if (mon08Sprites) {
+    blendSprite(buf, mon08Sprites[0], 72, 36);
+    blendSprite(buf, mon08Sprites[1], 72 + 88, 36);
+    blendSprite(buf, mon08Sprites[2], 96, 50);
+    blendSprite(buf, mon08Sprites[3], 96 + 32, 50);
+  }
+
+  // Parity-gated overlay (water columns): FUN_0732 slots 5+6 fire when
+  // frame_parity != 0. Source positions/sprites are in wbase's per-asset
+  // BSS tables which we haven't fully RE'd yet. For now: a 1-px-wide
+  // vertical "shimmer" on the gate edges as a visible placeholder so we
+  // can confirm the parity-flip timer is alive. Replace with real
+  // wmon08-equivalent water sprites once the menu-asset table is mapped.
+  if (parity !== 0 && mon08Sprites) {
+    // Faint ripple on the gate's bottom edge.
+    const shimmerY = 174;
+    const shimmerColor = [80, 140, 200, 0xff] as const;
+    for (let x = 96; x < 224; x += 4) {
+      const i = (shimmerY * ENGINE_W + x) * 4;
+      buf[i] = shimmerColor[0];
+      buf[i + 1] = shimmerColor[1];
+      buf[i + 2] = shimmerColor[2];
+      buf[i + 3] = shimmerColor[3];
+    }
+  }
+
+  ctx.putImageData(new ImageData(buf, ENGINE_W, ENGINE_H), 0, 0);
 }
 
 function blendSprite(

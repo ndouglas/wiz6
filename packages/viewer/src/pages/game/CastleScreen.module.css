@@ -77,3 +77,9 @@
   border-color: rgba(255, 217, 95, 0.3);
   outline: none;
 }
+
+.menuButtonSelected {
+  background: rgba(255, 217, 95, 0.18);
+  border-color: rgba(255, 217, 95, 0.6);
+  color: #ffd95f;
+}
