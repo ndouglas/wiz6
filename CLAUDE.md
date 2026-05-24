@@ -9,9 +9,10 @@ This file is auto-loaded into every session. Project background lives in auto-me
 ├── original/                       # Game binaries (Wiz6 DOS, 1990). Private repo, OK to commit.
 ├── extracted/                      # JSON outputs from extractors. Mostly gitignored.
 ├── packages/                       # pnpm monorepo
-│   ├── data/                       # zod schemas (no DOM/Node)
+│   ├── data/                       # zod schemas + BssStruct schemas + symbol resolver (no DOM/Node)
 │   ├── parser/                     # pure decoders (no I/O)
 │   ├── cli/                        # extractors + `wiz6 extract` subcommands
+│   ├── mcp/                        # DOSBox-X MCP server (`wiz6-mcp` bin)
 │   └── viewer/                     # React SPA (https://wiz6.goldentooth.net)
 ├── docs/
 │   ├── re/                         # Reverse-engineering notes — file-format specs
@@ -217,6 +218,26 @@ Sounds are minimal-fidelity effects: clicks, drags, clangs, the title-screen "cl
 **Play-sound entry** at wroot `0x10AAA` (target of overlays' `call 0xc546(N)` thunks). Parameter `N` indexes a runtime sound table at DGROUP `0x3344` (12-byte entries) which holds per-trigger settings (volume, etc.) backed by the same loaded `.snd` buffer.
 
 **Status**: decoder is byte-correct and audible for both raw (tree_size=0) and Huffman variants. Verified against asm and by listening. Open per-sound questions (native rate per slot, fast-mode trigger, variable-port hardware) are tracked as `#Q-*` items in [`TODO.md`](TODO.md).
+
+## MCP server — `packages/mcp/`
+
+DOSBox-X MCP server for AI-driven engine inspection (#017). Speaks JSON-RPC over stdio; bin entry `wiz6-mcp`.
+
+**v1 (current)** rides save-state snapshots — the dynamic-driving path (programmatic breakpoints, step/run-until) is blocked by DOSBox-X's ncurses debugger being unparseable from a piped stdio child. 11 tools real, 14 stubs throw with clear blocker pointers. See `docs/superpowers/specs/2026-05-23-dosbox-mcp.md` for the per-tool phase status.
+
+Real tools that work today against `tools/dosbox/save/N.sav`:
+- `dosbox_list_saves`, `dosbox_inspect_save` — what's in this save state, what game_state, DGROUP base
+- `dosbox_read_memory` — raw byte dump at a physical or DGROUP offset
+- `dosbox_read_struct` — symbol-aware decode using Phase-1 BssStruct schemas + Phase-2 SymbolIndex
+- `dosbox_resolve_symbol`, `dosbox_list_symbols` — name↔address across 10 binaries, 763 symbols
+- `dosbox_find_pattern` — byte-pattern search across save-state physical memory
+- `dosbox_get_state_machine` — game_state + likely active overlay
+- Lifecycle: `dosbox_launch`, `dosbox_kill`, `dosbox_status` (process management; no debugger driving)
+
+To wire into Claude Code, add to your MCP config:
+```json
+{ "mcpServers": { "wiz6": { "command": "pnpm", "args": ["exec", "wiz6-mcp"], "cwd": "/path/to/wiz6" } } }
+```
 
 ## Known partial / in-progress issues
 
