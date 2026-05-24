@@ -32,6 +32,10 @@ export function GameTitle() {
   const skipRef = useRef(false);
   const [spritesByDesc, setSpritesByDesc] = useState<RenderedSprite[] | null>(null);
   const [titlepagRgba, setTitlepagRgba] = useState<Uint8ClampedArray | null>(null);
+  // Browser Web Audio policy requires a user gesture before any AudioContext
+  // can produce sound. We hold the intro on frame 0 until that gesture lands,
+  // so the SOUND04 / SOUND13 / SOUND14 transitions are actually audible.
+  const [started, setStarted] = useState(false);
   // Engine state-1 fires five distinct sounds (verified via the winit-audio
   // RE pass — see docs/re/findings/winit-state1-audio.json):
   //
@@ -107,9 +111,11 @@ export function GameTitle() {
     };
   }, []);
 
-  // RAF loop.
+  // RAF loop. Held until `started` so the intro doesn't auto-play silently
+  // — Web Audio is gesture-locked until the user clicks/types.
   useEffect(() => {
     if (!spritesByDesc) return;
+    if (!started) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -166,9 +172,13 @@ export function GameTitle() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [spritesByDesc, titlepagRgba, navigate]);
+  }, [spritesByDesc, titlepagRgba, navigate, started]);
 
+  // Skip listener only after the intro has started — otherwise the click
+  // that starts the intro would also register as a skip and fast-forward
+  // through frame 0.
   useEffect(() => {
+    if (!started) return;
     const onSkip = () => {
       skipRef.current = true;
     };
@@ -178,7 +188,7 @@ export function GameTitle() {
       window.removeEventListener('keydown', onSkip);
       window.removeEventListener('mousedown', onSkip);
     };
-  }, []);
+  }, [started]);
 
   return (
     <main className={styles.page}>
@@ -196,6 +206,23 @@ export function GameTitle() {
           }}
           aria-label="Wizardry VI intro sequence"
         />
+        {!started && (
+          <button
+            type="button"
+            className={styles.startGate}
+            onClick={() => setStarted(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setStarted(true);
+              }
+            }}
+            aria-label="Begin Wizardry VI intro"
+          >
+            <span>Click to begin</span>
+            <kbd>browser audio requires a gesture before sound can play</kbd>
+          </button>
+        )}
       </div>
       <p className={styles.footer}>
         Click or press any key to skip ·
