@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PicSchema, EGA_DEFAULT, type Pic } from '@wiz6/data';
+import { PicSchema, EGA_DEFAULT, type Font, type Pic } from '@wiz6/data';
 import {
   renderEgaScreen,
   concatenatePicSegments,
   compositePicScript,
+  renderTextRun,
   visibleMenuOptions,
   type MainMenuOption,
   type MainMenuContext,
 } from '@wiz6/parser';
-import { loadEgaScreen } from '../../data-loader.js';
+import { loadEgaScreen, loadFont } from '../../data-loader.js';
 import styles from './CastleScreen.module.css';
 
 const ENGINE_W = 320;
@@ -44,9 +45,14 @@ export function CastleScreen() {
   const [mon08Pic, setMon08Pic] = useState<Pic | null>(null);
   const [mon08Decoded, setMon08Decoded] = useState<number[] | null>(null);
   const [dragonscRgba, setDragonscRgba] = useState<Uint8ClampedArray | null>(null);
+  const [wfont0, setWfont0] = useState<Font | null>(null);
 
   const visible = useMemo(() => visibleMenuOptions(DEFAULT_CONTEXT), []);
   const [selectedIdx, setSelectedIdx] = useState(0);
+  // Mirror to a ref so the RAF tick + keyboard listener can both read it
+  // without forcing the tick to re-bind on every cursor move.
+  const selectedIdxRef = useRef(selectedIdx);
+  selectedIdxRef.current = selectedIdx;
 
   useEffect(() => {
     let cancelled = false;
@@ -84,6 +90,20 @@ export function CastleScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    loadFont('/fonts/wfont0.json')
+      .then((font) => {
+        if (!cancelled) setWfont0(font);
+      })
+      .catch(() => {
+        /* leave null */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // RAF loop that flips the parity bit every PARITY_FLIP_MS and recomposites
   // the frame. Mirrors the engine's FUN_013b → FUN_07b7 cadence: parity==0
   // draws everything except the slot-5/6 overlays (water); parity==1 adds
@@ -106,12 +126,21 @@ export function CastleScreen() {
         parity = parity === 0 ? 1 : 0;
         lastFlip = now;
       }
-      composeFrame(ctx, parity, dragonscRgba, mon08Pic, mon08Decoded);
+      composeFrame(
+        ctx,
+        parity,
+        dragonscRgba,
+        mon08Pic,
+        mon08Decoded,
+        wfont0,
+        visible,
+        selectedIdxRef.current,
+      );
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [mon08Pic, mon08Decoded, dragonscRgba]);
+  }, [mon08Pic, mon08Decoded, dragonscRgba, wfont0, visible]);
 
   const handleSelect = (opt: MainMenuOption) => {
     const target = ROUTE_BY_SLOT[opt.slot];
@@ -120,10 +149,6 @@ export function CastleScreen() {
   };
 
   // Keyboard navigation: ↑/↓ wrap-around through visible options; Enter activates.
-  // Track selectedIdx via ref so the listener doesn't need to re-bind on every
-  // arrow press — only `visible` matters for which options exist.
-  const selectedIdxRef = useRef(selectedIdx);
-  selectedIdxRef.current = selectedIdx;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
@@ -221,6 +246,9 @@ function composeFrame(
   dragonscRgba: Uint8ClampedArray | null,
   mon08Pic: Pic | null,
   mon08Decoded: number[] | null,
+  wfont0: Font | null,
+  menuOptions: readonly MainMenuOption[],
+  selectedIdx: number,
 ): void {
   const buf = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
   for (let i = 0; i < buf.length; i += 4) buf[i + 3] = 0xff;
@@ -248,6 +276,25 @@ function composeFrame(
   if (parity !== 0 && mon08Pic && mon08Decoded) {
     compositePicScript(buf, ENGINE_W, ENGINE_H, 208, 52, [4], mon08Pic, mon08Decoded, EGA_DEFAULT);
     compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 125, [5], mon08Pic, mon08Decoded, EGA_DEFAULT);
+  }
+
+  // Menu option text via wfont0 (the engine's ui_window_puts path). The
+  // engine packs options into a 22-cell-wide window at cell (9, 4)
+  // = screen (72, 32); we draw each option as one row inside it. Layout
+  // is by-eye for now — full RE of FUN_025c's grid is TODO.
+  // Selected option gets a brighter color + leading caret to mimic the
+  // engine's inverted-attribute redraw.
+  if (wfont0) {
+    const rowH = 12; // pixels per menu row (one font-height + gap)
+    const baseX = 80;
+    const baseY = 145;
+    for (let i = 0; i < menuOptions.length; i++) {
+      const opt = menuOptions[i]!;
+      const isSel = i === selectedIdx;
+      const fg = isSel ? 14 /* yellow */ : 7 /* light gray */;
+      const label = (isSel ? '» ' : '  ') + opt.label;
+      renderTextRun(buf, ENGINE_W, ENGINE_H, baseX, baseY + i * rowH, label, wfont0, fg, EGA_DEFAULT);
+    }
   }
 
   ctx.putImageData(new ImageData(buf, ENGINE_W, ENGINE_H), 0, 0);
