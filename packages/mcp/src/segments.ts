@@ -6,16 +6,36 @@ import {
   findSegmentsInMemory,
   type SegmentMap,
 } from '@wiz6/data';
+import { SaveStateBridge } from './debugger-console.js';
+import { resolveDgroupBase } from './dgroup.js';
 
 /**
  * Build a SegmentMap for a save state by reading every anchor binary
  * from disk and searching for its signature in the save's Memory blob.
  *
+ * Includes a `wroot.dgroup` entry populated by the legacy game_state-
+ * validated resolver (see `dgroup.ts`) — its base is context-dependent
+ * (winit vs wbase vs wmaze) and can't be located by simple byte-anchor
+ * matching alone.
+ *
  * Cached per save-path so we only pay the lookup once.
  */
 const segmentMapCache = new Map<string, SegmentMap>();
 
-export function buildSegmentMap(savePath: string, repoRoot: string): SegmentMap {
+export interface BuildSegmentMapOpts {
+  /**
+   * Optional SaveStateBridge for resolving `wroot.dgroup` via the legacy
+   * game_state-legality validator. If omitted, `wroot.dgroup` is left
+   * absent from the returned map.
+   */
+  bridge?: SaveStateBridge;
+}
+
+export function buildSegmentMap(
+  savePath: string,
+  repoRoot: string,
+  opts: BuildSegmentMapOpts = {},
+): SegmentMap {
   const cached = segmentMapCache.get(savePath);
   if (cached) return cached;
 
@@ -42,6 +62,24 @@ export function buildSegmentMap(savePath: string, repoRoot: string): SegmentMap 
   }).filter((a) => a.signature.length > 0);
 
   const map = findSegmentsInMemory(mem, anchors);
+
+  // Augment with wroot.dgroup if we have a bridge to validate against.
+  if (opts.bridge) {
+    try {
+      const dgroupBase = resolveDgroupBase(opts.bridge, savePath);
+      map['wroot.dgroup'] = {
+        physBase: dgroupBase,
+        // For wroot.dgroup, "anchor" is the DISK.HDR string in the wroot
+        // overlay-name table; the resolver picks the right candidate
+        // offset (0x05D6 winit-context or 0x1AEE wbase-context) by
+        // checking game_state at +0x363A.
+        anchorPhys: dgroupBase, // not meaningfully different here
+      };
+    } catch {
+      // wroot not loaded or game_state invalid; leave absent.
+    }
+  }
+
   segmentMapCache.set(savePath, map);
   return map;
 }

@@ -1,7 +1,9 @@
 {
   "topic": "wpcmk-naming-pass",
   "subagent_run": "2026-05-23",
-  "binaries": ["wpcmk.ovr"],
+  "binaries": [
+    "wpcmk.ovr"
+  ],
   "summary": "Named 66 of 76 FUN_XXXX functions in wpcmk.ovr (PC-MK = player-character make: character creation, roster management, training). wpcmk has a 16-byte overlay header (longer than wbase's 14 or winit's 12); its dispatch entry at file offset 0x10 is a no-op handler that unconditionally writes *0x363a = 4 (return to wbase main menu) and returns ax=0 — i.e. wpcmk does NOT run an iterative state machine. Instead, the actual character-management UI is implemented entirely in wpcmk's top-level functions which are called as cross-overlay subroutines from wbase (slot 5 of the main menu jump-table). The top-level entry points are 0x50f2 (NEW char via empty roster slot, calls roller flow 0x4e47), 0x5337 (NEW char via name-prompt entry path), 0x56a0 (ROSTER picker — pick which char to act on), 0x545c (VIEW char), 0x5422 (CHANGE PORTRAIT), and 0x28d4/0x229c (TRAIN a skill). The flagship discovery is the bonus-point roller at 0x4e47 lines 0x4e83..0x4ec0: `bonus = (5..10) + 8*coinflip(1/20) + 8*coinflip(1/20)`. P(bonus ≥ 19) = 1/400 = 0.25%, mean ≈ 8.4 — empirically validated. Eligible values are {5..10, 13..18, 21..26}; you can never roll 11, 12, 19, 20 due to the +8 quantization. This is the math behind Wizardry VI's infamous reroll-for-hours character creation, and it took us decades to verify.",
   "method": "PyGhidra + DecompInterface for all 76 functions in wpcmk.ovr (BinaryLoader, so file_offset == Ghidra address). For each function: extracted (a) decompiled C, (b) outgoing CALL edges (intra-overlay + indirect via BSS thunks), (c) scalar operands and BSS field accesses. Thunks resolved via the thunk-delta law (bss_offset - 0xBA9C = wroot file offset); 47 distinct thunks across 213 call sites. Names applied when there was multi-signal evidence: distinctive BSS-field access patterns matching the char-record layout (0x559c..0x55a1 = 6 main attrs, 0x55a2..0x55a3 = personality+karma, 0x56ac = bonus pool, 0x560d..0x560f = race/alignment/class indices), clear loops over 6 attrs / 8 skill-pillar tables / 14 class slots / 42 portraits, and the dice/menu/text-input idioms reused from wmele/wbase. The bonus-point math was confirmed in raw asm at 0x4e83..0x4ec0 (mov ax,6; call rng; add ax,5; mov [0x56ac],ax; then two `mov ax,0x14; call rng; test ax; jnz; add [0x56ac],8` blocks) and simulated empirically over 10^7 trials.",
   "stats": {
@@ -25,7 +27,12 @@
   },
   "state_machine": {
     "states_handled": [
-      {"value": "0x10", "decimal": 16, "purpose": "WPCMK state — handler is a NO-OP that immediately transitions back to state 4 (wbase main menu). The actual character-creation/roster/train UI runs in wpcmk's top-level functions which are called directly from wbase's main-menu slot-5 handler as cross-overlay subroutines, BEFORE the state-machine sees state 0x10.", "handler": "file offset 0x10 (a 14-byte stub: `pop cx; mov word [0x363a], 4; mov ax, 0; ret`)"}
+      {
+        "value": "0x10",
+        "decimal": 16,
+        "purpose": "WPCMK state — handler is a NO-OP that immediately transitions back to state 4 (wbase main menu). The actual character-creation/roster/train UI runs in wpcmk's top-level functions which are called directly from wbase's main-menu slot-5 handler as cross-overlay subroutines, BEFORE the state-machine sees state 0x10.",
+        "handler": "file offset 0x10 (a 14-byte stub: `pop cx; mov word [0x363a], 4; mov ax, 0; ret`)"
+      }
     ],
     "dispatch_entry": "0x10",
     "header_size_bytes": 16,
@@ -59,47 +66,563 @@
     "Personality roller (0x3837) is a 'roll until ENTER' loop visible to the player: rng draws into *0x55a3, redraws, waits for mouse-click or RETURN — this is the in-place reroll loop that gave Wiz6 its iconic 'press space to reroll' feel during character creation. (Note: this is rolling personality at *0x55a3, NOT bonus points. Bonus points at *0x56ac are rolled ONCE in 0x4e47 — the player must commit at that point and then redistribute via 0x3405.)"
   ],
   "thunk_usage": [
-    {"thunk": "0xbb71", "wroot_offset": "0x00d5", "name": "abort_with_code", "callsites": 1, "callers": ["0x4a9a"]},
-    {"thunk": "0xbbb6", "wroot_offset": "0x011a", "name": "ui_window_create", "callsites": 1, "callers": ["0x229c"]},
-    {"thunk": "0xbda7", "wroot_offset": "0x030b", "name": "ui_window_set_cursor", "callsites": 18, "callers": ["0xf0", "0xa99", "0xabe", "0xb1b", "0xb44", "0xb6d", "0xc12", "0xd13", "0xd52", "0xdf7", "0x112d", "0x1158", "0x1cb2", "0x229c", "0x2b04", "0x308d", "0x31a6", "0x32e1", "0x3405", "0x3837", "0x4bad", "0x4e47", "0x50f2", "0x5337", "0x546d", "0x56a0"]},
-    {"thunk": "0xbddb", "wroot_offset": "0x033f", "name": "FUN_033f", "callsites": 3, "callers": ["0x1cb2", "0x229c", "0x50f2", "0x5337"], "note": "ui_window_box-draw or similar (used to draw input-prompt boxes)"},
-    {"thunk": "0xbfa3", "wroot_offset": "0x0507", "name": "FUN_0507", "callsites": 2, "callers": ["0xdf7"], "note": "Likely a 2-arg formatted-number printer"},
-    {"thunk": "0xc041", "wroot_offset": "0x05a5", "name": "FUN_05a5", "callsites": 16, "callers": ["0xb6d", "0xdf7", "0x112d", "0x2b04", "0x3405", "0x3837", "0x4e47"], "note": "Right-aligned numeric printer in window (val, width, color)"},
-    {"thunk": "0xc1f7", "wroot_offset": "0x075b", "name": "load_msg_into_buf", "callsites": 22, "callers": ["0x29c", "0xabe", "0xaf4", "0xd52", "0xdf7", "0x308d", "0x31a6", "0x32e1", "0x3837", "0x4e47", "0x546d", "0x56a0"], "note": "Named informally in wmaze/wmele passes; still FUN_xxxx in wroot Ghidra"},
-    {"thunk": "0xc2db", "wroot_offset": "0x083f", "name": "FUN_083f", "callsites": 18, "callers": ["0x1158", "0x1cb2", "0x21db", "0x229c", "0x2b04", "0x308d", "0x31a6", "0x32e1", "0x3405", "0x3837", "0x4bad", "0x4e47", "0x50f2", "0x5337", "0x56a0"], "note": "ui_window_write_msg_by_id — combination of load_msg_into_buf + write"},
-    {"thunk": "0xc31e", "wroot_offset": "0x0882", "name": "FUN_0882", "callsites": 1, "callers": ["0x3aec"], "note": "Generic 4-arg data-loader thunk: load (table_id, dest_ptr, idx, flag). Used here to load item records (table_id=1)."},
-    {"thunk": "0xc47e", "wroot_offset": "0x09e2", "name": "rng_next", "callsites": 8, "callers": ["0x15d7", "0x3837", "0x4222", "0x4589", "0x4e47"], "note": "Named informally in wmaze/wmele passes; still FUN_xxxx in wroot Ghidra. 3 calls in 0x4e47 are the bonus-point roller."},
-    {"thunk": "0xc546", "wroot_offset": "0x0aaa", "name": "play_sound", "callsites": 6, "callers": ["0xf0", "0x3405"], "note": "Named in wmele as ui_animation_helper / play-sound. Here 0xf0 plays beeps on bad text input; 0x3405 plays beeps on attribute-allocate bumps."},
-    {"thunk": "0xc674", "wroot_offset": "0x0bd8", "name": "FUN_0bd8", "callsites": 1, "callers": ["0x98"]},
-    {"thunk": "0xc6b2", "wroot_offset": "0x0c16", "name": "FUN_0c16", "callsites": 35, "callers": ["0x1158", "0x15d7", "0x1cb2", "0x229c", "0x3405", "0x4bad", "0x4e47", "0x56a0"], "note": "Likely a multi-arg menu-list-entry setup (5-arg) — sets up a single entry in a hover/select widget"},
-    {"thunk": "0xc6de", "wroot_offset": "0x0c42", "name": "mouse_read_state_or_zero", "callsites": 3, "callers": ["0x3837", "0x5214"]},
-    {"thunk": "0xc772", "wroot_offset": "0x0cd6", "name": "boot_build_prompt_message", "callsites": 2, "callers": ["0x1b", "0x4a9a"]},
-    {"thunk": "0xdcf2", "wroot_offset": "0x2256", "name": "FUN_2256", "callsites": 1, "callers": ["0x4a9a"]},
-    {"thunk": "0xdd53", "wroot_offset": "0x22b7", "name": "FUN_22b7", "callsites": 22, "callers": ["0xf0", "0xb6d", "0xc12", "0xd52", "0xdf7", "0x1158", "0x229c", "0x3405", "0x3837", "0x4bad", "0x4e47", "0x546d", "0x56a0", "0x5337"], "note": "ui_window_put_char_repeat (puts a char N times in window)"},
-    {"thunk": "0xde7f", "wroot_offset": "0x23e3", "name": "ui_window_putchar", "callsites": 12, "callers": ["0xb1b", "0xb44", "0xc12", "0x546d", "0x1cb2", "0x229c", "0x3405"]},
-    {"thunk": "0xdf85", "wroot_offset": "0x24e9", "name": "FUN_24e9", "callsites": 13, "callers": ["0x29c", "0xa99", "0xabe", "0xaf4", "0x1158", "0x15d7", "0x21db", "0x3405", "0x546d", "0x56a0"], "note": "Named informally as 'ui_window_write_chars' in wbase findings"},
-    {"thunk": "0xdfb9", "wroot_offset": "0x251d", "name": "ui_window_puts", "callsites": 10, "callers": ["0x29c", "0xd13", "0xdf7", "0x1158", "0x546d", "0x56a0"]},
-    {"thunk": "0xe0df", "wroot_offset": "0x2643", "name": "kbd_check_with_filter", "callsites": 3, "callers": ["0x98", "0x3837", "0x5214"]},
-    {"thunk": "0xe1c0", "wroot_offset": "0x2724", "name": "kbd_getkey_with_filter", "callsites": 3, "callers": ["0xf0", "0x98", "0x5214"]},
-    {"thunk": "0xe31d", "wroot_offset": "0x2881", "name": "FUN_2881", "callsites": 3, "callers": ["0x28d4"], "note": "setbit (sets a bit in a bitmap-style array)"},
-    {"thunk": "0xe34b", "wroot_offset": "0x28af", "name": "FUN_28af", "callsites": 3, "callers": ["0x28d4", "0x2186"], "note": "getbit_test (named in wmaze/wmele passes; reads a bit at index in a bitmap)"},
-    {"thunk": "0xe4ff", "wroot_offset": "0x2a63", "name": "ui_screen_refresh", "callsites": 2, "callers": ["0x5093", "0x56a0"]},
-    {"thunk": "0xe5b5", "wroot_offset": "0x2b19", "name": "FUN_2b19", "callsites": 20, "callers": ["0x21db", "0x229c", "0x308d", "0x31a6", "0x32e1", "0x3405", "0x3837", "0x4bad", "0x4e47", "0x546d", "0x56a0", "0x5214", "0x5337"], "note": "Likely ui_window_focus_or_refresh — paired with ui_window_clear (ed5a) in setup sequences"},
-    {"thunk": "0xebb4", "wroot_offset": "0x3118", "name": "ui_window_focus", "callsites": 8, "callers": ["0x1cb2", "0x21db", "0x229c", "0x28d4", "0x546d", "0x50f2", "0x5093", "0x56a0"]},
-    {"thunk": "0xec6d", "wroot_offset": "0x31d1", "name": "ui_window_unfocus", "callsites": 7, "callers": ["0xdf7", "0x1cb2", "0x21db", "0x229c", "0x28d4", "0x546d", "0x5093", "0x56a0"]},
-    {"thunk": "0xed5a", "wroot_offset": "0x32be", "name": "ui_window_clear", "callsites": 18, "callers": ["0x1158", "0x1cb2", "0x229c", "0x28d4", "0x308d", "0x31a6", "0x32e1", "0x3405", "0x3837", "0x4bad", "0x4e47", "0x5093", "0x5337", "0x56a0", "0x5214"]},
-    {"thunk": "0xedec", "wroot_offset": "0x3350", "name": "FUN_3350", "callsites": 1, "callers": ["0x98"], "note": "kbd validate/filter key — used inside the keyboard-poll loop"},
-    {"thunk": "0xf0dc", "wroot_offset": "0x3640", "name": "kbd_pre_input_disk_check", "callsites": 3, "callers": ["0x1b", "0x4a9a", "0x50f2"]},
-    {"thunk": "0xf34c", "wroot_offset": "0x38b0", "name": "FUN_38b0", "callsites": 3, "callers": ["0x15d7", "0x28d4", "0x3405", "0x4e47"], "note": "memset-like primitive (named in wmele as memset)"},
-    {"thunk": "0xf3aa", "wroot_offset": "0x390e", "name": "strcpy", "callsites": 6, "callers": ["0x4a9a", "0x4e47", "0x5337", "0x56a0"]},
-    {"thunk": "0xf924", "wroot_offset": "0x3e88", "name": "crt_open", "callsites": 2, "callers": ["0x1b", "0x4a9a"]},
-    {"thunk": "0xf9ba", "wroot_offset": "0x3f1e", "name": "FUN_3f1e", "callsites": 1, "callers": ["0xdf7"], "note": "Likely a small RNG-helper or coinflip — also seen in wmele/wbase"},
-    {"thunk": "0xfaab", "wroot_offset": "0x400f", "name": "strlen", "callsites": 7, "callers": ["0x29c", "0x638", "0xdf7", "0x1049", "0x56a0"]},
-    {"thunk": "0xfd6f", "wroot_offset": "0x42d3", "name": "FUN_42d3", "callsites": 2, "callers": ["0x1b", "0x4a9a"], "note": "crt_read (read N bytes from open file)"},
-    {"thunk": "0xfd76", "wroot_offset": "0x42da", "name": "FUN_42da", "callsites": 1, "callers": ["0x1b"], "note": "crt_write (write N bytes to open file)"},
-    {"thunk": "0xfda5", "wroot_offset": "0x4309", "name": "crt_dos_close", "callsites": 2, "callers": ["0x1b", "0x4a9a"]},
-    {"thunk": "0xfdbd", "wroot_offset": "0x4321", "name": "FUN_4321", "callsites": 2, "callers": ["0x1b", "0x4a9a"], "note": "crt_lseek (seek to byte offset in open file)"},
-    {"thunk": "0xfedc", "wroot_offset": "0x4440", "name": "crt_memmove", "callsites": 3, "callers": ["0x28d4"]}
+    {
+      "thunk": "0xbb71",
+      "wroot_offset": "0x00d5",
+      "name": "abort_with_code",
+      "callsites": 1,
+      "callers": [
+        "0x4a9a"
+      ]
+    },
+    {
+      "thunk": "0xbbb6",
+      "wroot_offset": "0x011a",
+      "name": "ui_window_create",
+      "callsites": 1,
+      "callers": [
+        "0x229c"
+      ]
+    },
+    {
+      "thunk": "0xbda7",
+      "wroot_offset": "0x030b",
+      "name": "ui_window_set_cursor",
+      "callsites": 18,
+      "callers": [
+        "0xf0",
+        "0xa99",
+        "0xabe",
+        "0xb1b",
+        "0xb44",
+        "0xb6d",
+        "0xc12",
+        "0xd13",
+        "0xd52",
+        "0xdf7",
+        "0x112d",
+        "0x1158",
+        "0x1cb2",
+        "0x229c",
+        "0x2b04",
+        "0x308d",
+        "0x31a6",
+        "0x32e1",
+        "0x3405",
+        "0x3837",
+        "0x4bad",
+        "0x4e47",
+        "0x50f2",
+        "0x5337",
+        "0x546d",
+        "0x56a0"
+      ]
+    },
+    {
+      "thunk": "0xbddb",
+      "wroot_offset": "0x033f",
+      "name": "FUN_033f",
+      "callsites": 3,
+      "callers": [
+        "0x1cb2",
+        "0x229c",
+        "0x50f2",
+        "0x5337"
+      ],
+      "note": "ui_window_box-draw or similar (used to draw input-prompt boxes)"
+    },
+    {
+      "thunk": "0xbfa3",
+      "wroot_offset": "0x0507",
+      "name": "FUN_0507",
+      "callsites": 2,
+      "callers": [
+        "0xdf7"
+      ],
+      "note": "Likely a 2-arg formatted-number printer"
+    },
+    {
+      "thunk": "0xc041",
+      "wroot_offset": "0x05a5",
+      "name": "FUN_05a5",
+      "callsites": 16,
+      "callers": [
+        "0xb6d",
+        "0xdf7",
+        "0x112d",
+        "0x2b04",
+        "0x3405",
+        "0x3837",
+        "0x4e47"
+      ],
+      "note": "Right-aligned numeric printer in window (val, width, color)"
+    },
+    {
+      "thunk": "0xc1f7",
+      "wroot_offset": "0x075b",
+      "name": "load_msg_into_buf",
+      "callsites": 22,
+      "callers": [
+        "0x29c",
+        "0xabe",
+        "0xaf4",
+        "0xd52",
+        "0xdf7",
+        "0x308d",
+        "0x31a6",
+        "0x32e1",
+        "0x3837",
+        "0x4e47",
+        "0x546d",
+        "0x56a0"
+      ],
+      "note": "Named informally in wmaze/wmele passes; still FUN_xxxx in wroot Ghidra"
+    },
+    {
+      "thunk": "0xc2db",
+      "wroot_offset": "0x083f",
+      "name": "FUN_083f",
+      "callsites": 18,
+      "callers": [
+        "0x1158",
+        "0x1cb2",
+        "0x21db",
+        "0x229c",
+        "0x2b04",
+        "0x308d",
+        "0x31a6",
+        "0x32e1",
+        "0x3405",
+        "0x3837",
+        "0x4bad",
+        "0x4e47",
+        "0x50f2",
+        "0x5337",
+        "0x56a0"
+      ],
+      "note": "ui_window_write_msg_by_id — combination of load_msg_into_buf + write"
+    },
+    {
+      "thunk": "0xc31e",
+      "wroot_offset": "0x0882",
+      "name": "FUN_0882",
+      "callsites": 1,
+      "callers": [
+        "0x3aec"
+      ],
+      "note": "Generic 4-arg data-loader thunk: load (table_id, dest_ptr, idx, flag). Used here to load item records (table_id=1)."
+    },
+    {
+      "thunk": "0xc47e",
+      "wroot_offset": "0x09e2",
+      "name": "rng_next",
+      "callsites": 8,
+      "callers": [
+        "0x15d7",
+        "0x3837",
+        "0x4222",
+        "0x4589",
+        "0x4e47"
+      ],
+      "note": "Named informally in wmaze/wmele passes; still FUN_xxxx in wroot Ghidra. 3 calls in 0x4e47 are the bonus-point roller."
+    },
+    {
+      "thunk": "0xc546",
+      "wroot_offset": "0x0aaa",
+      "name": "play_sound",
+      "callsites": 6,
+      "callers": [
+        "0xf0",
+        "0x3405"
+      ],
+      "note": "Named in wmele as ui_animation_helper / play-sound. Here 0xf0 plays beeps on bad text input; 0x3405 plays beeps on attribute-allocate bumps."
+    },
+    {
+      "thunk": "0xc674",
+      "wroot_offset": "0x0bd8",
+      "name": "FUN_0bd8",
+      "callsites": 1,
+      "callers": [
+        "0x98"
+      ]
+    },
+    {
+      "thunk": "0xc6b2",
+      "wroot_offset": "0x0c16",
+      "name": "FUN_0c16",
+      "callsites": 35,
+      "callers": [
+        "0x1158",
+        "0x15d7",
+        "0x1cb2",
+        "0x229c",
+        "0x3405",
+        "0x4bad",
+        "0x4e47",
+        "0x56a0"
+      ],
+      "note": "Likely a multi-arg menu-list-entry setup (5-arg) — sets up a single entry in a hover/select widget"
+    },
+    {
+      "thunk": "0xc6de",
+      "wroot_offset": "0x0c42",
+      "name": "mouse_read_state_or_zero",
+      "callsites": 3,
+      "callers": [
+        "0x3837",
+        "0x5214"
+      ]
+    },
+    {
+      "thunk": "0xc772",
+      "wroot_offset": "0x0cd6",
+      "name": "boot_build_prompt_message",
+      "callsites": 2,
+      "callers": [
+        "0x1b",
+        "0x4a9a"
+      ]
+    },
+    {
+      "thunk": "0xdcf2",
+      "wroot_offset": "0x2256",
+      "name": "FUN_2256",
+      "callsites": 1,
+      "callers": [
+        "0x4a9a"
+      ]
+    },
+    {
+      "thunk": "0xdd53",
+      "wroot_offset": "0x22b7",
+      "name": "FUN_22b7",
+      "callsites": 22,
+      "callers": [
+        "0xf0",
+        "0xb6d",
+        "0xc12",
+        "0xd52",
+        "0xdf7",
+        "0x1158",
+        "0x229c",
+        "0x3405",
+        "0x3837",
+        "0x4bad",
+        "0x4e47",
+        "0x546d",
+        "0x56a0",
+        "0x5337"
+      ],
+      "note": "ui_window_put_char_repeat (puts a char N times in window)"
+    },
+    {
+      "thunk": "0xde7f",
+      "wroot_offset": "0x23e3",
+      "name": "ui_window_putchar",
+      "callsites": 12,
+      "callers": [
+        "0xb1b",
+        "0xb44",
+        "0xc12",
+        "0x546d",
+        "0x1cb2",
+        "0x229c",
+        "0x3405"
+      ]
+    },
+    {
+      "thunk": "0xdf85",
+      "wroot_offset": "0x24e9",
+      "name": "FUN_24e9",
+      "callsites": 13,
+      "callers": [
+        "0x29c",
+        "0xa99",
+        "0xabe",
+        "0xaf4",
+        "0x1158",
+        "0x15d7",
+        "0x21db",
+        "0x3405",
+        "0x546d",
+        "0x56a0"
+      ],
+      "note": "Named informally as 'ui_window_write_chars' in wbase findings"
+    },
+    {
+      "thunk": "0xdfb9",
+      "wroot_offset": "0x251d",
+      "name": "ui_window_puts",
+      "callsites": 10,
+      "callers": [
+        "0x29c",
+        "0xd13",
+        "0xdf7",
+        "0x1158",
+        "0x546d",
+        "0x56a0"
+      ]
+    },
+    {
+      "thunk": "0xe0df",
+      "wroot_offset": "0x2643",
+      "name": "kbd_check_with_filter",
+      "callsites": 3,
+      "callers": [
+        "0x98",
+        "0x3837",
+        "0x5214"
+      ]
+    },
+    {
+      "thunk": "0xe1c0",
+      "wroot_offset": "0x2724",
+      "name": "kbd_getkey_with_filter",
+      "callsites": 3,
+      "callers": [
+        "0xf0",
+        "0x98",
+        "0x5214"
+      ]
+    },
+    {
+      "thunk": "0xe31d",
+      "wroot_offset": "0x2881",
+      "name": "FUN_2881",
+      "callsites": 3,
+      "callers": [
+        "0x28d4"
+      ],
+      "note": "setbit (sets a bit in a bitmap-style array)"
+    },
+    {
+      "thunk": "0xe34b",
+      "wroot_offset": "0x28af",
+      "name": "FUN_28af",
+      "callsites": 3,
+      "callers": [
+        "0x28d4",
+        "0x2186"
+      ],
+      "note": "getbit_test (named in wmaze/wmele passes; reads a bit at index in a bitmap)"
+    },
+    {
+      "thunk": "0xe4ff",
+      "wroot_offset": "0x2a63",
+      "name": "ui_screen_refresh",
+      "callsites": 2,
+      "callers": [
+        "0x5093",
+        "0x56a0"
+      ]
+    },
+    {
+      "thunk": "0xe5b5",
+      "wroot_offset": "0x2b19",
+      "name": "FUN_2b19",
+      "callsites": 20,
+      "callers": [
+        "0x21db",
+        "0x229c",
+        "0x308d",
+        "0x31a6",
+        "0x32e1",
+        "0x3405",
+        "0x3837",
+        "0x4bad",
+        "0x4e47",
+        "0x546d",
+        "0x56a0",
+        "0x5214",
+        "0x5337"
+      ],
+      "note": "Likely ui_window_focus_or_refresh — paired with ui_window_clear (ed5a) in setup sequences"
+    },
+    {
+      "thunk": "0xebb4",
+      "wroot_offset": "0x3118",
+      "name": "ui_window_focus",
+      "callsites": 8,
+      "callers": [
+        "0x1cb2",
+        "0x21db",
+        "0x229c",
+        "0x28d4",
+        "0x546d",
+        "0x50f2",
+        "0x5093",
+        "0x56a0"
+      ]
+    },
+    {
+      "thunk": "0xec6d",
+      "wroot_offset": "0x31d1",
+      "name": "ui_window_unfocus",
+      "callsites": 7,
+      "callers": [
+        "0xdf7",
+        "0x1cb2",
+        "0x21db",
+        "0x229c",
+        "0x28d4",
+        "0x546d",
+        "0x5093",
+        "0x56a0"
+      ]
+    },
+    {
+      "thunk": "0xed5a",
+      "wroot_offset": "0x32be",
+      "name": "ui_window_clear",
+      "callsites": 18,
+      "callers": [
+        "0x1158",
+        "0x1cb2",
+        "0x229c",
+        "0x28d4",
+        "0x308d",
+        "0x31a6",
+        "0x32e1",
+        "0x3405",
+        "0x3837",
+        "0x4bad",
+        "0x4e47",
+        "0x5093",
+        "0x5337",
+        "0x56a0",
+        "0x5214"
+      ]
+    },
+    {
+      "thunk": "0xedec",
+      "wroot_offset": "0x3350",
+      "name": "FUN_3350",
+      "callsites": 1,
+      "callers": [
+        "0x98"
+      ],
+      "note": "kbd validate/filter key — used inside the keyboard-poll loop"
+    },
+    {
+      "thunk": "0xf0dc",
+      "wroot_offset": "0x3640",
+      "name": "kbd_pre_input_disk_check",
+      "callsites": 3,
+      "callers": [
+        "0x1b",
+        "0x4a9a",
+        "0x50f2"
+      ]
+    },
+    {
+      "thunk": "0xf34c",
+      "wroot_offset": "0x38b0",
+      "name": "FUN_38b0",
+      "callsites": 3,
+      "callers": [
+        "0x15d7",
+        "0x28d4",
+        "0x3405",
+        "0x4e47"
+      ],
+      "note": "memset-like primitive (named in wmele as memset)"
+    },
+    {
+      "thunk": "0xf3aa",
+      "wroot_offset": "0x390e",
+      "name": "strcpy",
+      "callsites": 6,
+      "callers": [
+        "0x4a9a",
+        "0x4e47",
+        "0x5337",
+        "0x56a0"
+      ]
+    },
+    {
+      "thunk": "0xf924",
+      "wroot_offset": "0x3e88",
+      "name": "crt_open",
+      "callsites": 2,
+      "callers": [
+        "0x1b",
+        "0x4a9a"
+      ]
+    },
+    {
+      "thunk": "0xf9ba",
+      "wroot_offset": "0x3f1e",
+      "name": "FUN_3f1e",
+      "callsites": 1,
+      "callers": [
+        "0xdf7"
+      ],
+      "note": "Likely a small RNG-helper or coinflip — also seen in wmele/wbase"
+    },
+    {
+      "thunk": "0xfaab",
+      "wroot_offset": "0x400f",
+      "name": "strlen",
+      "callsites": 7,
+      "callers": [
+        "0x29c",
+        "0x638",
+        "0xdf7",
+        "0x1049",
+        "0x56a0"
+      ]
+    },
+    {
+      "thunk": "0xfd6f",
+      "wroot_offset": "0x42d3",
+      "name": "FUN_42d3",
+      "callsites": 2,
+      "callers": [
+        "0x1b",
+        "0x4a9a"
+      ],
+      "note": "crt_read (read N bytes from open file)"
+    },
+    {
+      "thunk": "0xfd76",
+      "wroot_offset": "0x42da",
+      "name": "FUN_42da",
+      "callsites": 1,
+      "callers": [
+        "0x1b"
+      ],
+      "note": "crt_write (write N bytes to open file)"
+    },
+    {
+      "thunk": "0xfda5",
+      "wroot_offset": "0x4309",
+      "name": "crt_dos_close",
+      "callsites": 2,
+      "callers": [
+        "0x1b",
+        "0x4a9a"
+      ]
+    },
+    {
+      "thunk": "0xfdbd",
+      "wroot_offset": "0x4321",
+      "name": "FUN_4321",
+      "callsites": 2,
+      "callers": [
+        "0x1b",
+        "0x4a9a"
+      ],
+      "note": "crt_lseek (seek to byte offset in open file)"
+    },
+    {
+      "thunk": "0xfedc",
+      "wroot_offset": "0x4440",
+      "name": "crt_memmove",
+      "callsites": 3,
+      "callers": [
+        "0x28d4"
+      ]
+    }
   ],
   "thunk_usage_summary": {
     "total_distinct_thunks": 41,
@@ -116,7 +639,10 @@
       "category": "state_machine",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "address": "0x10",
+        "address": {
+          "space": "wpcmk.ovr",
+          "offset": "0x10"
+        },
         "type": "instruction_pattern_match",
         "details": "Raw asm at file 0x10: `59 C7 06 3A 36 04 00 B8 00 00 C3` = `pop cx; mov word [0x363a], 4; mov ax, 0; ret`. Header bytes 0x00..0x0F: F2 00 72 45 9B 5C EE 4F 30 04 02 04 68 A1 E8 CF (16 bytes; the trailing `68 A1 E8 CF` = `push 0xE8A1; iret` looks like a thunked far-return setup, suggesting wpcmk uses iret rather than a direct ret for state-handler invocation). Confirmed wbase main-menu slot 5 transitions to state 0x10 (see docs/re/findings/wbase-main-menu.json), so wpcmk DOES own state 0x10, but the handler explicitly bounces back to state 4."
       },
@@ -128,7 +654,12 @@
       "category": "stat_roller",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "addresses": ["0x4e47", "0x4e83", "0x4e93", "0x4ea4"],
+        "addresses": [
+          "0x4e47",
+          "0x4e83",
+          "0x4e93",
+          "0x4ea4"
+        ],
         "type": "instruction_pattern_match",
         "details": "Raw asm at file 0x4e83: `B8 06 00 50 E8 F6 75 59 05 05 00 A3 AC 56` = `mov ax, 6; push ax; call 0xc480 (=rng_next thunk); pop cx; add ax, 5; mov [0x56ac], ax`. Then at 0x4e90: `B8 14 00 50 E8 E8 75 59 85 C0 75 05 83 06 AC 56 08` = `mov ax, 20; push ax; call rng; pop cx; test ax; jnz skip; add word [0x56ac], 8`. Identical block follows at 0x4ea4..0x4eb6 (second 1/20 bonus check). The override path at 0x4eb6: `83 3E CE 56 01 75 06 C7 06 AC 56 15 00` = `cmp word [0x56ce], 1; jnz skip; mov word [0x56ac], 0x15` — forces bonus=21 if the (debug?) flag is set. Empirically validated over 10^7 trials: bonus={5..10} 90.25%, {13..18} 9.5%, {21..26} 0.25%; mean=8.39; P(≥19)=0.2515% ≈ 1 in 400. This is THE Wizardry VI re-roll math: to qualify for elite classes (Samurai, Lord, Ninja, Bishop) you need 19+ bonus points after meeting raw attribute prerequisites, so an average run takes ~400 reroll attempts per character — and Wiz6 demands a 6-character party."
       },
@@ -140,7 +671,10 @@
       "category": "class_qualification",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "addresses": ["0x2cae", "0x2c7b"],
+        "addresses": [
+          "0x2cae",
+          "0x2c7b"
+        ],
         "details": "0x2cae body: `local_6 = *0x56ac` (snapshot pool); for i in 0..7: read `local_4 = attr[i] = *(0x559c+i)`; while local_4 < req_str[i] - 'A': local_4++; local_6--; if mode==1 also update actual attr and pool. After loop: `*(0x56ae+class_idx*2) = (local_6 >= 0)`. This means: 'check if you can afford to raise stats to class's minimum requirement.' The 'A'-based encoding lets the class table use string literals like 'KKHIJJII' (K=18,K=18,H=15,...) which is human-readable in a hexdump. 2c7b is the apply-without-check variant used for race bonuses (always succeeds since racial baselines never overflow)."
       },
       "confidence": "high"
@@ -151,7 +685,13 @@
       "category": "attribute_io",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "addresses": ["0x2b04", "0x3405", "0x2cae", "0x4222", "0x3837"],
+        "addresses": [
+          "0x2b04",
+          "0x3405",
+          "0x2cae",
+          "0x4222",
+          "0x3837"
+        ],
         "details": "0x2b04 (attr panel display) iterates `iVar2 = 0..7` and prints `*(0x559c + iVar2)`; msg-id `0xcc + iVar2` for label (so msgs 0xcc..0xd3 are the 8 attr labels). 0x3405 (allocator) navigates `local_6 = 0..6` (7 slots — only the 6 main attrs + personality) modifying `*(0x559c+local_6)`, drains/refunds *0x56ac. 0x4222 rolls into *0x55a3 + 10 (KARMA-like initial value). 0x55a3 cap at 18 (`< 0x12` check in 3405). The personality vs karma split is inferred from the way 0x55a2 is bumped in 0x306e (faerie penalty) — that's the +1 PERSONALITY adjustment from racial mod."
       },
       "confidence": "high"
@@ -162,7 +702,11 @@
       "category": "race_class_alignment",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "addresses": ["0x308d", "0x31a6", "0x32e1"],
+        "addresses": [
+          "0x308d",
+          "0x31a6",
+          "0x32e1"
+        ],
         "details": "All three follow the same skeleton: clear sub-window (*0x56cc), write title (msg 0x450/0x451/0x452 = 'RACE'/'ALIGNMENT'/'CLASS'), call FUN_0000_0638 (window-tagger) with menu-header msg 0x45c/0x45d/0x45e, then FUN_0000_029c (vertical-menu picker) with 10 options. After selection, store as low-byte: `*0x560d = (byte)result` (race), `*0x560e` (alignment), `*0x560f` (class). 32e1 differs by pre-populating its `local_2e[i] = (*0x56ae[i] == 1) ? 1 : 0` so only classes flagged available are selectable (these flags were set earlier by 0x2cae via the qualification check). The 0xb stride in argument 4 of 029c (entry-spacing) creates the visible menu layout. Race jump-tables in 0x3e8c, 0x4222, 0x4589, 0x48e3 dispatch via `((race) * 2 + cs:[delta])` confirming 11 races (bound-check `< 0xb`); class jump-tables via `((class) * 2 + cs:[delta])` confirming 14 classes (bound-check `< 0xe`)."
       },
       "confidence": "high"
@@ -173,7 +717,10 @@
       "category": "stat_roller",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "address": "0x3405",
+        "address": {
+          "space": "wpcmk.ovr",
+          "offset": "0x3405"
+        },
         "details": "Main loop body: reads key via FUN_0000_0098 (key-or-mouse), maps mouse-button to key 1..5 if *0x4fc4==1. key==1: if attr[local_6] > 0 decrement, refund 1 to pool. key==2: prev attr (with wrap to 6). key==3: if attr[local_6] < 18 and pool > 0 increment, drain 1. key==4: next attr (with wrap to 0). key==5: exit only if pool==0. local_16[] holds undo state. Each modification calls 0x2b04 to redraw the panel."
       },
       "confidence": "high"
@@ -184,7 +731,10 @@
       "category": "stat_roller",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "addresses": ["0x3837", "0x4222"],
+        "addresses": [
+          "0x3837",
+          "0x4222"
+        ],
         "details": "0x3837: clears window 0x56ca, writes title (msg 0x457), `iVar4=1; do { call rng → *0x55a3; if mouse → exit; if kbd → if RETURN exit; } while(iVar4)`; on exit calls 0x2b04 to redraw stats. 0x4222: rolls rng(9)+10 into *0x5618 (range 10..18, 9 values uniform), then if race < 14 calls `(race_handler_table)[race]` to do race-specific post-adjustment (race table at cs:-0x7557 inside wpcmk file)."
       },
       "confidence": "high"
@@ -195,7 +745,10 @@
       "category": "stat_roller",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "address": "0x4589",
+        "address": {
+          "space": "wpcmk.ovr",
+          "offset": "0x4589"
+        },
         "details": "Sets *0x5616=1, *0x5617=10 (likely level + level-cap), rolls rng(1000)+0x19aa, stores at *0x5478/*0x547a (32-bit). If race < 14: dispatch to race-handler (table at cs:-0x72e6). For 'default' code path: read *0x559c (STR) and *0x559f (VIT), compute `local_6 = (VIT*2 + STR) * 3` and `local_8 = (STR*2 + VIT) * 3`. Adjustments: STR<8 → -1; STR>=16 → +1, local_6+=STR; STR>=18 → +1 again. Similar mods for VIT into local_8. Store at *0x5488/*0x548a (encum_min), *0x548c/*0x548e (encum_max?), HP at *0x5492 = `local_8 * 15`. If race==5 (Faerie): HP = `local_8 * 30 / 3` = local_8 * 10."
       },
       "confidence": "high"
@@ -206,7 +759,10 @@
       "category": "portrait",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "addresses": ["0x4a9a", "0x4bad"],
+        "addresses": [
+          "0x4a9a",
+          "0x4bad"
+        ],
         "details": "0x4a9a: tests *0x4fc6 against bits 1/2/4/8, picks template 0x53d2/0x53dd/0x53e8/0x53f3 (4 short filename templates — likely 'EFACE??', 'VFACE??', 'CFACE??', 'HFACE??' format). Substitutes record idx via `param_1 / 0xe + '1'` so portrait_id 0..13 → file 1, 14..27 → file 2, 28..41 → file 3. Opens via crt_open (0xf924), seeks via crt_lseek (0xfdbd), reads via crt_read (0xfd6f), closes via crt_dos_close (0xfda5). 0x4bad cycles portrait via *0x560c modulo 42 in a mouse/key loop until user confirms."
       },
       "confidence": "high"
@@ -217,7 +773,11 @@
       "category": "skill_train",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "addresses": ["0x28d4", "0x229c", "0x2186"],
+        "addresses": [
+          "0x28d4",
+          "0x229c",
+          "0x2186"
+        ],
         "details": "0x28d4: param_3 maps to (local_c, local_e): 0→(8,0x1c), 1→(4,0x1a), 2→(1,0x19), 3→(2,0x1b). local_c is the 'pillar mask', local_e is the 'screen label msg id base'. Iterates 0..0x52 (82 entries) reading byte at `(idx*6 + 0xe3)` (governing-attribute or pillar mask byte), checks `local_c & that_byte != 0` AND `(idx*6 + 0xdf) <= 1` (some level gate), and if both: marks skill available in bitmap 0x55f8 via setbit. 0x229c is the 6-cell grid widget for skill selection. After selection: increments *(0x549a + skill*4) by 1 (clamped to byte at idx*6+0xe0 = max), and *(0x5498 + skill*4) (current level)."
       },
       "confidence": "high"
@@ -228,7 +788,14 @@
       "category": "roster_io",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "addresses": ["0x1b", "0x4ff4", "0x5011", "0x5c42", "0x56a0", "0x50f2"],
+        "addresses": [
+          "0x1b",
+          "0x4ff4",
+          "0x5011",
+          "0x5c42",
+          "0x56a0",
+          "0x50f2"
+        ],
         "details": "0x001b: opens file via template at *0x4fee (likely 'CHARROST.???'), seeks to `slot * *0x4fd0` (record size from boot config), reads or writes one record buffer (typically 0x1b0 bytes), closes. 0x4ff4: linear scan 0..*0x4fd2 of *(0x4fd8+i) for first 0 (empty slot), returns slot idx or -1. 0x5011: iterate all slots; if occupancy byte != 0, load record, byte-compare names via 0x5c42. 0x56a0: iterates all occupied slots, loads each via 0x001b, packs to display arrays (name @ 0x56d0+i*8, alignment @ 0x5750+i*2, race @ 0x5770+i*2, class @ 0x5790+i*2, source-slot @ 0x57b0+i*2), shows 4-row scrolling list, returns picked source-slot or -1."
       },
       "confidence": "high"
@@ -239,7 +806,11 @@
       "category": "creation_flow",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "addresses": ["0x3aec", "0x3bfb", "0x3e51"],
+        "addresses": [
+          "0x3aec",
+          "0x3bfb",
+          "0x3e51"
+        ],
         "details": "0x3aec calls 0xc31e (the wroot generic data-loader thunk; in wmele it loaded monster types from table-id 1) with table=1 and a 20-byte target buffer. Stores 8-byte item record at `0x54b0 + slot*8`: word at +0 = item id (param_1), word at +2 = some byte, byte at +4/+5, byte at +6 = display-icon-style. Maps source flag-bits (8,4,0x10,0x20,0x2) to target bits (4,8,0x10,0x20,0x40). Increments *0x561c (inventory count). Recomputes *0x5490 (total weight) = sum over inventory of (count * weight). 0x3bfb: do 5x calls if param_i > 0. 0x3e51: 14-iteration loop (0..13 spell schools) with `*(0x55c2+i)=0` clear + call to 3e17 with `param_1[i]*4 - 0x104` (a per-school msg-id base)."
       },
       "confidence": "high"
@@ -250,7 +821,10 @@
       "category": "creation_flow",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "address": "0x3e8c",
+        "address": {
+          "space": "wpcmk.ovr",
+          "offset": "0x3e8c"
+        },
         "details": "Dispatches: if class < 14 → class-handler-table[class] (cs:-0x7b9c); else if race < 11 → race-handler-table[race] (cs:-0x7a4b); else inline 'human-default' block. Inline block: stat caps DEX>=16 → boost FUN_3e17(6,5) (skill 6 levels up to 5) + FUN_3e17(11,5); INT>=16 → boost FUN_3e17(9,5); SPD>=16 → FUN_3e17(7,5) + FUN_3e17(4,5). Initializes 32-byte combat-stats array at *0x5560..*0x557f (HP, MP, AC, attack mods). DEX adjustments to *0x5563 (AC byte). VIT adjustments to *0x556e (HP byte). Race==5 (Faerie) adjustment to two unnamed bytes (HP penalty + something)."
       },
       "confidence": "medium"
@@ -261,7 +835,20 @@
       "category": "ui_widget",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "addresses": ["0x29c", "0xf0", "0x98", "0xa99", "0xabe", "0xaf4", "0xb1b", "0xb44", "0x6af", "0x1cb2", "0x689", "0x638"],
+        "addresses": [
+          "0x29c",
+          "0xf0",
+          "0x98",
+          "0xa99",
+          "0xabe",
+          "0xaf4",
+          "0xb1b",
+          "0xb44",
+          "0x6af",
+          "0x1cb2",
+          "0x689",
+          "0x638"
+        ],
         "details": "0x29c is a vertical-menu picker (matches wbase's FUN_025c and wmaze's FUN_1574 pattern: passes msg_id_base, option_flags[], stride/spacing, returns selected index or -1). 0x0f0 is a text-input loop: clears at param_2, accumulates chars on keypress, handles BS=0x08, CR=0x0d, validates 0x20<=c<0x80 (or 0x30<=c<0x3a for numeric mode 1). 0x098 is the poll loop used by all selection screens. 0x689 takes (window, x, y, style_id) and writes the style byte into the window's char-attribute grid at offset 0x10 + (x + y*40)*2 (40-wide grid). 0x6af paints the entire creation panel by 64 calls to 0x689. 0x1cb2 does the same for the 19-wide train panel."
       },
       "confidence": "high"
@@ -278,72 +865,402 @@
     }
   ],
   "renamed_full_list": [
-    {"addr": "0x1b", "old": "FUN_0000_001b", "new": "roster_io_one_record", "category": "roster_io"},
-    {"addr": "0x98", "old": "FUN_0000_0098", "new": "input_poll_key_or_mouse", "category": "ui_widget"},
-    {"addr": "0xf0", "old": "FUN_0000_00f0", "new": "ui_text_input_editor", "category": "ui_widget"},
-    {"addr": "0x25d", "old": "FUN_0000_025d", "new": "menu_count_enabled_entries", "category": "ui_widget"},
-    {"addr": "0x29c", "old": "FUN_0000_029c", "new": "ui_menu_picker_vertical", "category": "ui_widget"},
-    {"addr": "0x609", "old": "FUN_0000_0609", "new": "ui_clear_top_status_row", "category": "ui_widget"},
-    {"addr": "0x638", "old": "FUN_0000_0638", "new": "ui_write_centered_msg", "category": "ui_widget"},
-    {"addr": "0x689", "old": "FUN_0000_0689", "new": "ui_put_styled_char_at", "category": "ui_widget"},
-    {"addr": "0x6af", "old": "FUN_0000_06af", "new": "ui_draw_creation_screen_borders", "category": "ui_widget"},
-    {"addr": "0xa99", "old": "FUN_0000_0a99", "new": "ui_print_msg_at_xy", "category": "ui_widget"},
-    {"addr": "0xabe", "old": "FUN_0000_0abe", "new": "ui_load_and_print_msg_at_xy", "category": "ui_widget"},
-    {"addr": "0xaf4", "old": "FUN_0000_0af4", "new": "ui_print_msg_with_byte_arg", "category": "ui_widget"},
-    {"addr": "0xb1b", "old": "FUN_0000_0b1b", "new": "ui_putchar_at_style2", "category": "ui_widget"},
-    {"addr": "0xb44", "old": "FUN_0000_0b44", "new": "ui_putchar_at_style4", "category": "ui_widget"},
-    {"addr": "0xb6d", "old": "FUN_0000_0b6d", "new": "ui_print_six_attribute_labels", "category": "attribute_io"},
-    {"addr": "0xc12", "old": "FUN_0000_0c12", "new": "ui_draw_portrait_frame", "category": "portrait"},
-    {"addr": "0xd13", "old": "FUN_0000_0d13", "new": "ui_print_screen_title", "category": "ui_widget"},
-    {"addr": "0xd52", "old": "FUN_0000_0d52", "new": "ui_print_character_header", "category": "creation_ui"},
-    {"addr": "0xdf7", "old": "FUN_0000_0df7", "new": "ui_redraw_character_sheet", "category": "creation_ui"},
-    {"addr": "0x1049", "old": "FUN_0000_1049", "new": "skill_filter_by_class_strings", "category": "skill_train"},
-    {"addr": "0x112d", "old": "FUN_0000_112d", "new": "ui_print_msg_with_color", "category": "ui_widget"},
-    {"addr": "0x1158", "old": "FUN_0000_1158", "new": "ui_class_menu_with_qualification", "category": "race_class_alignment"},
-    {"addr": "0x15d7", "old": "FUN_0000_15d7", "new": "creation_stage_dispatcher_by_step", "category": "creation_flow"},
-    {"addr": "0x1ae9", "old": "FUN_0000_1ae9", "new": "ui_welcome_animation", "category": "creation_ui"},
-    {"addr": "0x1bb7", "old": "FUN_0000_1bb7", "new": "ui_highlight_grid_cell", "category": "ui_widget"},
-    {"addr": "0x1be0", "old": "FUN_0000_1be0", "new": "ui_unhighlight_grid_cell", "category": "ui_widget"},
-    {"addr": "0x1c37", "old": "FUN_0000_1c37", "new": "ui_set_window_cursor_for_grid", "category": "ui_widget"},
-    {"addr": "0x1cb2", "old": "FUN_0000_1cb2", "new": "ui_draw_train_screen_borders", "category": "skill_train"},
-    {"addr": "0x2186", "old": "FUN_0000_2186", "new": "skill_find_indices_by_attr", "category": "skill_train"},
-    {"addr": "0x21db", "old": "FUN_0000_21db", "new": "ui_render_skill_grid_entry", "category": "skill_train"},
-    {"addr": "0x229c", "old": "FUN_0000_229c", "new": "ui_train_attribute_picker_grid", "category": "skill_train"},
-    {"addr": "0x28d4", "old": "FUN_0000_28d4", "new": "wpcmk_train_skill_pillar", "category": "skill_train"},
-    {"addr": "0x2b04", "old": "FUN_0000_2b04", "new": "ui_render_stat_panel", "category": "attribute_io"},
-    {"addr": "0x2c7b", "old": "FUN_0000_2c7b", "new": "stats_bump_to_racial_minimums", "category": "class_qualification"},
-    {"addr": "0x2cae", "old": "FUN_0000_2cae", "new": "class_check_qualification_and_bump", "category": "class_qualification"},
-    {"addr": "0x306e", "old": "FUN_0000_306e", "new": "race_faerie_personality_mod", "category": "race_class_alignment"},
-    {"addr": "0x308d", "old": "FUN_0000_308d", "new": "wpcmk_pick_race_menu", "category": "race_class_alignment"},
-    {"addr": "0x31a6", "old": "FUN_0000_31a6", "new": "wpcmk_pick_alignment_menu", "category": "race_class_alignment"},
-    {"addr": "0x32e1", "old": "FUN_0000_32e1", "new": "wpcmk_pick_class_menu", "category": "race_class_alignment"},
-    {"addr": "0x3405", "old": "FUN_0000_3405", "new": "wpcmk_bonus_point_allocator_ui", "category": "stat_roller"},
-    {"addr": "0x3837", "old": "FUN_0000_3837", "new": "wpcmk_personality_reroll_loop", "category": "stat_roller"},
-    {"addr": "0x392e", "old": "FUN_0000_392e", "new": "skill_init_all_32_slots", "category": "skill_train"},
-    {"addr": "0x3aec", "old": "FUN_0000_3aec", "new": "inventory_load_one_item", "category": "creation_flow"},
-    {"addr": "0x3bfb", "old": "FUN_0000_3bfb", "new": "inventory_load_starter_items", "category": "creation_flow"},
-    {"addr": "0x3e51", "old": "FUN_0000_3e51", "new": "spell_init_per_class_books", "category": "creation_flow"},
-    {"addr": "0x3e8c", "old": "FUN_0000_3e8c", "new": "finalize_class_and_race_stats", "category": "creation_flow"},
-    {"addr": "0x4222", "old": "FUN_0000_4222", "new": "personality_roll_static_10_to_18", "category": "stat_roller"},
-    {"addr": "0x4589", "old": "FUN_0000_4589", "new": "age_encumbrance_and_hp_roll", "category": "stat_roller"},
-    {"addr": "0x487c", "old": "FUN_0000_487c", "new": "stats_set_attack_count_per_skill", "category": "creation_flow"},
-    {"addr": "0x48e3", "old": "FUN_0000_48e3", "new": "race_specific_init_handler_dispatch", "category": "race_class_alignment"},
-    {"addr": "0x4a9a", "old": "FUN_0000_4a9a", "new": "portrait_load_from_disk", "category": "portrait"},
-    {"addr": "0x4bad", "old": "FUN_0000_4bad", "new": "wpcmk_pick_portrait_loop", "category": "portrait"},
-    {"addr": "0x4ddd", "old": "FUN_0000_4ddd", "new": "creation_init_derived_stats", "category": "creation_flow"},
-    {"addr": "0x4e47", "old": "FUN_0000_4e47", "new": "wpcmk_create_character_master", "category": "creation_flow"},
-    {"addr": "0x4ff4", "old": "FUN_0000_4ff4", "new": "roster_find_first_empty_slot", "category": "roster_io"},
-    {"addr": "0x5011", "old": "FUN_0000_5011", "new": "roster_check_name_unique", "category": "roster_io"},
-    {"addr": "0x5093", "old": "FUN_0000_5093", "new": "ui_setup_creation_windows", "category": "creation_ui"},
-    {"addr": "0x50f2", "old": "FUN_0000_50f2", "new": "wpcmk_create_via_empty_slot", "category": "creation_flow"},
-    {"addr": "0x51c6", "old": "FUN_0000_51c6", "new": "wpcmk_load_and_draw_character", "category": "creation_ui"},
-    {"addr": "0x5214", "old": "FUN_0000_5214", "new": "ui_wait_for_enter_or_click", "category": "ui_widget"},
-    {"addr": "0x5337", "old": "FUN_0000_5337", "new": "wpcmk_create_via_name_prompt", "category": "creation_flow"},
-    {"addr": "0x5422", "old": "FUN_0000_5422", "new": "wpcmk_change_portrait", "category": "creation_flow"},
-    {"addr": "0x545c", "old": "FUN_0000_545c", "new": "wpcmk_view_character", "category": "creation_flow"},
-    {"addr": "0x5c42", "old": "FUN_0000_5c42", "new": "strcmp_2byte_step", "category": "data_util"},
-    {"addr": "0x56a0", "old": "FUN_0000_56a0", "new": "wpcmk_show_roster_picker", "category": "roster_io"},
-    {"addr": "0x546d", "old": "FUN_0000_546d", "new": "ui_render_roster_row", "category": "roster_io"}
+    {
+      "addr": "0x1b",
+      "old": "FUN_0000_001b",
+      "new": "roster_io_one_record",
+      "category": "roster_io"
+    },
+    {
+      "addr": "0x98",
+      "old": "FUN_0000_0098",
+      "new": "input_poll_key_or_mouse",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0xf0",
+      "old": "FUN_0000_00f0",
+      "new": "ui_text_input_editor",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x25d",
+      "old": "FUN_0000_025d",
+      "new": "menu_count_enabled_entries",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x29c",
+      "old": "FUN_0000_029c",
+      "new": "ui_menu_picker_vertical",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x609",
+      "old": "FUN_0000_0609",
+      "new": "ui_clear_top_status_row",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x638",
+      "old": "FUN_0000_0638",
+      "new": "ui_write_centered_msg",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x689",
+      "old": "FUN_0000_0689",
+      "new": "ui_put_styled_char_at",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x6af",
+      "old": "FUN_0000_06af",
+      "new": "ui_draw_creation_screen_borders",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0xa99",
+      "old": "FUN_0000_0a99",
+      "new": "ui_print_msg_at_xy",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0xabe",
+      "old": "FUN_0000_0abe",
+      "new": "ui_load_and_print_msg_at_xy",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0xaf4",
+      "old": "FUN_0000_0af4",
+      "new": "ui_print_msg_with_byte_arg",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0xb1b",
+      "old": "FUN_0000_0b1b",
+      "new": "ui_putchar_at_style2",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0xb44",
+      "old": "FUN_0000_0b44",
+      "new": "ui_putchar_at_style4",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0xb6d",
+      "old": "FUN_0000_0b6d",
+      "new": "ui_print_six_attribute_labels",
+      "category": "attribute_io"
+    },
+    {
+      "addr": "0xc12",
+      "old": "FUN_0000_0c12",
+      "new": "ui_draw_portrait_frame",
+      "category": "portrait"
+    },
+    {
+      "addr": "0xd13",
+      "old": "FUN_0000_0d13",
+      "new": "ui_print_screen_title",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0xd52",
+      "old": "FUN_0000_0d52",
+      "new": "ui_print_character_header",
+      "category": "creation_ui"
+    },
+    {
+      "addr": "0xdf7",
+      "old": "FUN_0000_0df7",
+      "new": "ui_redraw_character_sheet",
+      "category": "creation_ui"
+    },
+    {
+      "addr": "0x1049",
+      "old": "FUN_0000_1049",
+      "new": "skill_filter_by_class_strings",
+      "category": "skill_train"
+    },
+    {
+      "addr": "0x112d",
+      "old": "FUN_0000_112d",
+      "new": "ui_print_msg_with_color",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x1158",
+      "old": "FUN_0000_1158",
+      "new": "ui_class_menu_with_qualification",
+      "category": "race_class_alignment"
+    },
+    {
+      "addr": "0x15d7",
+      "old": "FUN_0000_15d7",
+      "new": "creation_stage_dispatcher_by_step",
+      "category": "creation_flow"
+    },
+    {
+      "addr": "0x1ae9",
+      "old": "FUN_0000_1ae9",
+      "new": "ui_welcome_animation",
+      "category": "creation_ui"
+    },
+    {
+      "addr": "0x1bb7",
+      "old": "FUN_0000_1bb7",
+      "new": "ui_highlight_grid_cell",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x1be0",
+      "old": "FUN_0000_1be0",
+      "new": "ui_unhighlight_grid_cell",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x1c37",
+      "old": "FUN_0000_1c37",
+      "new": "ui_set_window_cursor_for_grid",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x1cb2",
+      "old": "FUN_0000_1cb2",
+      "new": "ui_draw_train_screen_borders",
+      "category": "skill_train"
+    },
+    {
+      "addr": "0x2186",
+      "old": "FUN_0000_2186",
+      "new": "skill_find_indices_by_attr",
+      "category": "skill_train"
+    },
+    {
+      "addr": "0x21db",
+      "old": "FUN_0000_21db",
+      "new": "ui_render_skill_grid_entry",
+      "category": "skill_train"
+    },
+    {
+      "addr": "0x229c",
+      "old": "FUN_0000_229c",
+      "new": "ui_train_attribute_picker_grid",
+      "category": "skill_train"
+    },
+    {
+      "addr": "0x28d4",
+      "old": "FUN_0000_28d4",
+      "new": "wpcmk_train_skill_pillar",
+      "category": "skill_train"
+    },
+    {
+      "addr": "0x2b04",
+      "old": "FUN_0000_2b04",
+      "new": "ui_render_stat_panel",
+      "category": "attribute_io"
+    },
+    {
+      "addr": "0x2c7b",
+      "old": "FUN_0000_2c7b",
+      "new": "stats_bump_to_racial_minimums",
+      "category": "class_qualification"
+    },
+    {
+      "addr": "0x2cae",
+      "old": "FUN_0000_2cae",
+      "new": "class_check_qualification_and_bump",
+      "category": "class_qualification"
+    },
+    {
+      "addr": "0x306e",
+      "old": "FUN_0000_306e",
+      "new": "race_faerie_personality_mod",
+      "category": "race_class_alignment"
+    },
+    {
+      "addr": "0x308d",
+      "old": "FUN_0000_308d",
+      "new": "wpcmk_pick_race_menu",
+      "category": "race_class_alignment"
+    },
+    {
+      "addr": "0x31a6",
+      "old": "FUN_0000_31a6",
+      "new": "wpcmk_pick_alignment_menu",
+      "category": "race_class_alignment"
+    },
+    {
+      "addr": "0x32e1",
+      "old": "FUN_0000_32e1",
+      "new": "wpcmk_pick_class_menu",
+      "category": "race_class_alignment"
+    },
+    {
+      "addr": "0x3405",
+      "old": "FUN_0000_3405",
+      "new": "wpcmk_bonus_point_allocator_ui",
+      "category": "stat_roller"
+    },
+    {
+      "addr": "0x3837",
+      "old": "FUN_0000_3837",
+      "new": "wpcmk_personality_reroll_loop",
+      "category": "stat_roller"
+    },
+    {
+      "addr": "0x392e",
+      "old": "FUN_0000_392e",
+      "new": "skill_init_all_32_slots",
+      "category": "skill_train"
+    },
+    {
+      "addr": "0x3aec",
+      "old": "FUN_0000_3aec",
+      "new": "inventory_load_one_item",
+      "category": "creation_flow"
+    },
+    {
+      "addr": "0x3bfb",
+      "old": "FUN_0000_3bfb",
+      "new": "inventory_load_starter_items",
+      "category": "creation_flow"
+    },
+    {
+      "addr": "0x3e51",
+      "old": "FUN_0000_3e51",
+      "new": "spell_init_per_class_books",
+      "category": "creation_flow"
+    },
+    {
+      "addr": "0x3e8c",
+      "old": "FUN_0000_3e8c",
+      "new": "finalize_class_and_race_stats",
+      "category": "creation_flow"
+    },
+    {
+      "addr": "0x4222",
+      "old": "FUN_0000_4222",
+      "new": "personality_roll_static_10_to_18",
+      "category": "stat_roller"
+    },
+    {
+      "addr": "0x4589",
+      "old": "FUN_0000_4589",
+      "new": "age_encumbrance_and_hp_roll",
+      "category": "stat_roller"
+    },
+    {
+      "addr": "0x487c",
+      "old": "FUN_0000_487c",
+      "new": "stats_set_attack_count_per_skill",
+      "category": "creation_flow"
+    },
+    {
+      "addr": "0x48e3",
+      "old": "FUN_0000_48e3",
+      "new": "race_specific_init_handler_dispatch",
+      "category": "race_class_alignment"
+    },
+    {
+      "addr": "0x4a9a",
+      "old": "FUN_0000_4a9a",
+      "new": "portrait_load_from_disk",
+      "category": "portrait"
+    },
+    {
+      "addr": "0x4bad",
+      "old": "FUN_0000_4bad",
+      "new": "wpcmk_pick_portrait_loop",
+      "category": "portrait"
+    },
+    {
+      "addr": "0x4ddd",
+      "old": "FUN_0000_4ddd",
+      "new": "creation_init_derived_stats",
+      "category": "creation_flow"
+    },
+    {
+      "addr": "0x4e47",
+      "old": "FUN_0000_4e47",
+      "new": "wpcmk_create_character_master",
+      "category": "creation_flow"
+    },
+    {
+      "addr": "0x4ff4",
+      "old": "FUN_0000_4ff4",
+      "new": "roster_find_first_empty_slot",
+      "category": "roster_io"
+    },
+    {
+      "addr": "0x5011",
+      "old": "FUN_0000_5011",
+      "new": "roster_check_name_unique",
+      "category": "roster_io"
+    },
+    {
+      "addr": "0x5093",
+      "old": "FUN_0000_5093",
+      "new": "ui_setup_creation_windows",
+      "category": "creation_ui"
+    },
+    {
+      "addr": "0x50f2",
+      "old": "FUN_0000_50f2",
+      "new": "wpcmk_create_via_empty_slot",
+      "category": "creation_flow"
+    },
+    {
+      "addr": "0x51c6",
+      "old": "FUN_0000_51c6",
+      "new": "wpcmk_load_and_draw_character",
+      "category": "creation_ui"
+    },
+    {
+      "addr": "0x5214",
+      "old": "FUN_0000_5214",
+      "new": "ui_wait_for_enter_or_click",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x5337",
+      "old": "FUN_0000_5337",
+      "new": "wpcmk_create_via_name_prompt",
+      "category": "creation_flow"
+    },
+    {
+      "addr": "0x5422",
+      "old": "FUN_0000_5422",
+      "new": "wpcmk_change_portrait",
+      "category": "creation_flow"
+    },
+    {
+      "addr": "0x545c",
+      "old": "FUN_0000_545c",
+      "new": "wpcmk_view_character",
+      "category": "creation_flow"
+    },
+    {
+      "addr": "0x5c42",
+      "old": "FUN_0000_5c42",
+      "new": "strcmp_2byte_step",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x56a0",
+      "old": "FUN_0000_56a0",
+      "new": "wpcmk_show_roster_picker",
+      "category": "roster_io"
+    },
+    {
+      "addr": "0x546d",
+      "old": "FUN_0000_546d",
+      "new": "ui_render_roster_row",
+      "category": "roster_io"
+    }
   ],
   "unresolved": [
     "Eight functions left FUN_xxxx because of limited evidence: 0x2eeb (caseD_0, jump-table fragment), 0x2fbd/0x2fca/0x2fce (small jump-table cases), 0x38fb (single-skill init helper called 32 times by 0x392e but body is just a calculator), 0x3c49 (a 31-byte helper called once from 4e47, likely small status reset), 0x3e17 (skill-level setter helper called from multiple init paths, body has the skill-cap+level-bump math but the exact bit-layout into the spell array at 0x55c2 isn't clear from the fragmentary references). Plus the per-stage dispatchers in 0x15d7 case fragments. 505b (4-arg helper) is unnamed but plausibly a 'show error message + wait' modal.",

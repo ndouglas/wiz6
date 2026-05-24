@@ -1,7 +1,11 @@
 {
   "topic": "wbase-main-menu-render",
   "subagent_run": "2026-05-24T18:00:00Z",
-  "binaries": ["wbase.ovr", "wroot.exe", "ega.drv"],
+  "binaries": [
+    "wbase.ovr",
+    "wroot.exe",
+    "ega.drv"
+  ],
   "summary": "Deep RE of the main-menu rendering pipeline (state 4, wbase.ovr). Decoded FUN_07b7 (the per-frame decoration redraw) fully and identified what's drawn, how, and when. Key findings: (1) FUN_07b7 issues a fixed sequence of 16 `f148` sprite-by-id draw calls plus 6 `f10c` (renderer) draw calls via FUN_0775/FUN_0732 helpers; (2) the frame-parity arg gates only 2 of those calls — sprites at table slots 5 and 6 in BSS at 0x3bcc/0x3bff render ONLY when parity==1, giving 2-frame flicker animation — these are the WATER frames; (3) `*0x5064` (anim_x) and `*0x5062` (anim_y) are written ONLY by the one-shot 8-frame transition routine at FUN_0a15 (played when leaving the menu) and stay at 0 during steady-state menu; (4) the `f148` thunk (slot 15 in wroot's driver-fn table at image 0x1b8a + 4*15 = 0x1bc6) maps to ega.drv dispatch entry 15 (driver near-offset 0xA93), which is a `draw_sprite_by_id` primitive that takes (sprite_id, blend_mode, key) — it reads a 5-byte record from `cs:0x190 + 5*sprite_id` (a runtime-built sprite metadata table) to resolve (atlas_offset, w, h, descriptor_idx); (5) the `f10c` thunk (slot 10) is the PIC renderer per pic.md (entry index 10 in the driver, offset 0x2B); (6) FUN_0775/FUN_0732 are wrappers around `f10c` that pull (x, y) from BSS tables at runtime offsets 0x3958/0x398b and 0x3bcc/0x3bff respectively — these tables are populated when wbase_load_font_table_entry(8, 4) loads the mon08-style menu decoration asset. The 'banner-style' draw at the top of the menu uses sprite IDs 0x7b..0x7d (3-sprite composite), the mid section uses 0x10..0x12 and 0x14..0x16, the bottom uses 0x97..0x99, and a second-pass OR-blend overlay uses 0x19/0x1c/0x1f/0x22 (each 3 apart, likely a 3-cell-wide image strip). FUN_0984 init issues 6 first-time draws with sprite IDs 0x15a, 0x15d, 0x160, 0x169, 0x163, 0x166 (large background panels with OR-blend, NOT redrawn each frame). Animation cadence: input poll runs at the BIOS tick rate (kbd_check_with_filter inside FUN_013b loops on keyboard); every 10 polls (`*0x5060` mod 10) the parity flips and FUN_07b7 is redrawn. Wall-clock: on a 486DX/33 with the engine's calibrated busy-wait, this is approximately 1.5-2 seconds per parity flip (subject to the same wall-clock-parity caveats called out in CLAUDE.md).",
   "method": "PyGhidra disassembly of FUN_07b7 (0x07b7..0x0983) byte-by-byte plus its helpers FUN_0775 (0x0775..0x07b6) and FUN_0732 (0x0732..0x0774); decompile of FUN_0984 (init) and the alternate transition routine at FUN_0a15; cross-reference with FUN_013b (input poll, anim driver A) and FUN_00b3 (wait-with-ticks, anim driver B). Resolved driver thunks via the 0xBA9C delta law: thunk 0xf148 → wroot offset 0x36ac → driver fn-table slot 15 at image 0x1bc6 (delta 0x1bc6 - 0x1b8a = 0x3c = 60 = 15 slots × 4 bytes). Direct disassembly of ega.drv dispatch entries 13/14/15 (file offsets 0x735, 0x7B3, 0xA93) via ndisasm confirmed entry 15 is a sprite-by-id renderer with 5-byte-record lookup at `cs:0x190 + 5*id`. Verified the frame-parity gating by inspecting FUN_07b7 asm at 0x094e (`cmp word [bp+0x4], 0; jz 0x980`) and the conditional FUN_0732(5, ...) / FUN_0732(6, ...) calls. Scanned wbase.ovr exhaustively for write sites to *0x5060/*0x3646/*0x5062/*0x5064 using byte-pattern search to enumerate all four animation drivers. No save state at game_state=4 is available so dynamic verification (G) was skipped; all claims are static asm + decomp based.",
   "stats": {
@@ -21,7 +25,10 @@
       "category": "render_pipeline",
       "evidence": {
         "binary": "wbase.ovr",
-        "address": "0x07b7",
+        "address": {
+          "space": "wbase.ovr",
+          "offset": "0x07b7"
+        },
         "type": "raw_disasm",
         "details": "PUSH BP / MOV BP,SP at 0x07b7; first call is `f130(*0x4fbc, 0)` (entry 13 = fill rectangle, clears the menu window); then 16 `f148` calls each with 3 args; then FUN_0775(0xf), FUN_0775(0xc); then FUN_0732(1,_,0x48,0xf8), FUN_0732(2,_,0x48,0xf8), FUN_0732(3, [BP+0x6], 0x80, 0xc0), FUN_0732(4, [BP+0x8], 0x80, 0xc0); then `if [BP+0x4] != 0: FUN_0732(5, 0, 0x48, 0xf8) ; FUN_0732(6, 0, 0x48, 0xf8)`."
       },
@@ -144,7 +151,10 @@
       "category": "driver_dispatch",
       "evidence": {
         "binary": "ega.drv",
-        "address": "0x0a93",
+        "address": {
+          "space": "ega.drv",
+          "offset": "0x0a93"
+        },
         "type": "raw_disasm",
         "details": "Disassembled ega.drv at file offset 0xA93 via ndisasm. Prologue checks `[bp+0x10] == 0xffff` (alt-path branch). Computes `si = [bp+0xc]*5 + [cs:0x190]` (sprite record). Reads [si+4] as h-count, [si+1] as x-byte, [si+2] as y-byte, [si+3] as col-stride. Computes `bx = [si+0]*5 + [cs:0x18e]` (atlas record). Reads [bx+3], [bx+4], [bx+0] (segment delta), [bx+2]. Main blit loop walks 4 EGA planes at +0/+0x2000/+0x4000/+0x6000. Wroot side: driver-fn table at image 0x1b8a (file 0x1d8a) holds 18 4-byte slot entries; slot 15 at image 0x1bc6 — `f148` thunk near-call to slot 15 confirmed by thunk disasm at image 0x36ac (file 0x38ac): `55 8b ec 2e ff 1e c6 1b 8b e5 5d c3` = PUSH BP / MOV BP,SP / CALL far CS:[0x1bc6] / MOV SP,BP / POP BP / RET."
       },
@@ -156,7 +166,10 @@
       "category": "driver_dispatch",
       "evidence": {
         "binary": "ega.drv",
-        "address": "0x002b",
+        "address": {
+          "space": "ega.drv",
+          "offset": "0x002b"
+        },
         "type": "cross_reference",
         "details": "pic.md (already canonical) documents 'renderer is entry index 0x2B' at driver dispatch — that's a byte-offset in the driver's 4-byte-stride dispatch table; (0x2B - 3) / 4 = 10 = entry index 10. Wroot driver-fn slot 10 is at image 0x1bb2; f10c thunk at image 0x3670 calls cs:[0x1bb2]. FUN_0775's first push to f10c is `b8 02 00 50` = PUSH 2 (dst_idx) confirming slot 2. FUN_0732 pushes 4."
       },
@@ -168,7 +181,10 @@
       "category": "driver_dispatch",
       "evidence": {
         "binary": "ega.drv",
-        "address": "0x0735",
+        "address": {
+          "space": "ega.drv",
+          "offset": "0x0735"
+        },
         "type": "raw_disasm",
         "details": "Disassembled ega.drv at 0x735: 4 sequential rep-stosb blocks at di +0, +0x2000, +0x4000, +0x6000 (the 4 EGA bit planes). Uses [si] as height counter, [si+1] as cell width, [si+2] as col offset, [si+3] as row offset — all reads from a window-struct passed in [bp+0xc]."
       },
@@ -180,7 +196,10 @@
       "category": "driver_dispatch",
       "evidence": {
         "binary": "ega.drv",
-        "address": "0x07b3",
+        "address": {
+          "space": "ega.drv",
+          "offset": "0x07b3"
+        },
         "type": "raw_disasm",
         "details": "Disassembled ega.drv at 0x7B3: programs 0x3C4/0x3C5 plane mask, sets ES to 0xA000 (video memory), DS to back-store segment from cs:0x14d, rep-movsb's the back-buffer to video — repeats with mask values 1, 2, 4, 8 (planes 0..3). Called by FUN_013b/FUN_00b3 after every FUN_07b7 to commit the redraw."
       },
@@ -255,7 +274,10 @@
       "category": "animation",
       "evidence": {
         "binary": "wbase.ovr",
-        "address": "0x013b",
+        "address": {
+          "space": "wbase.ovr",
+          "offset": "0x013b"
+        },
         "type": "asm_loop_analysis",
         "details": "Inner loop body: kbd_check (~1 tick), if no key: c674 (mouse, ~1 tick), if *0x5060==0: flip + redraw + f13c (~3-5 ticks), else: delay_one_unit x 2 (~2 ticks), then increment mod 10. Mean iteration ~3 ticks (1 redraw iter + 9 delay iters / 10 = (5+18)/10 = ~2.3 ticks/iter). 10 iters per frame = ~23 ticks per frame ≈ 1.26 sec at 18.2 Hz."
       },
@@ -277,63 +299,292 @@
   ],
   "fun_07b7_draw_call_list": {
     "phase_1_clear": [
-      {"call": "f130", "args": ["*0x4fbc (menu window handle)", "0"], "purpose": "Clear/fill menu window background"}
+      {
+        "call": "f130",
+        "args": [
+          "*0x4fbc (menu window handle)",
+          "0"
+        ],
+        "purpose": "Clear/fill menu window background"
+      }
     ],
     "phase_2_opaque_sprites_batch_1": [
-      {"call": "f148", "args": ["0x7b", "1 (opaque)", "0x7b (key=id, fast path)"], "comment": "Top banner triplet"},
-      {"call": "f148", "args": ["0x7c", "1", "0x7c"]},
-      {"call": "f148", "args": ["0x7d", "1", "0x7d"]},
-      {"call": "f148", "args": ["0x14", "1", "0x10"], "comment": "Mid-area: id 0x10 rendered at slot key 0x14"},
-      {"call": "f148", "args": ["0x15", "1", "0x11"]},
-      {"call": "f148", "args": ["0x16", "1", "0x12"]},
-      {"call": "f148", "args": ["0x10", "1", "0x14"], "comment": "Same triplet swapped — possibly a left/right mirror or second column"},
-      {"call": "f148", "args": ["0x11", "1", "0x15"]},
-      {"call": "f148", "args": ["0x12", "1", "0x16"]},
-      {"call": "f148", "args": ["0x97", "1", "0x97"], "comment": "Lower-area triplet"},
-      {"call": "f148", "args": ["0x98", "1", "0x98"]},
-      {"call": "f148", "args": ["0x99", "1", "0x99"]}
+      {
+        "call": "f148",
+        "args": [
+          "0x7b",
+          "1 (opaque)",
+          "0x7b (key=id, fast path)"
+        ],
+        "comment": "Top banner triplet"
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x7c",
+          "1",
+          "0x7c"
+        ]
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x7d",
+          "1",
+          "0x7d"
+        ]
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x14",
+          "1",
+          "0x10"
+        ],
+        "comment": "Mid-area: id 0x10 rendered at slot key 0x14"
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x15",
+          "1",
+          "0x11"
+        ]
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x16",
+          "1",
+          "0x12"
+        ]
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x10",
+          "1",
+          "0x14"
+        ],
+        "comment": "Same triplet swapped — possibly a left/right mirror or second column"
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x11",
+          "1",
+          "0x15"
+        ]
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x12",
+          "1",
+          "0x16"
+        ]
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x97",
+          "1",
+          "0x97"
+        ],
+        "comment": "Lower-area triplet"
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x98",
+          "1",
+          "0x98"
+        ]
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x99",
+          "1",
+          "0x99"
+        ]
+      }
     ],
     "phase_3_orblend_overlay_batch_2": [
-      {"call": "f148", "args": ["0x19", "0 (OR-blend)", "0xffff (normal path)"], "comment": "Transparent overlay strip — 3-apart spacing"},
-      {"call": "f148", "args": ["0x1c", "0", "0xffff"]},
-      {"call": "f148", "args": ["0x1f", "0", "0xffff"]},
-      {"call": "f148", "args": ["0x22", "0", "0xffff"]}
+      {
+        "call": "f148",
+        "args": [
+          "0x19",
+          "0 (OR-blend)",
+          "0xffff (normal path)"
+        ],
+        "comment": "Transparent overlay strip — 3-apart spacing"
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x1c",
+          "0",
+          "0xffff"
+        ]
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x1f",
+          "0",
+          "0xffff"
+        ]
+      },
+      {
+        "call": "f148",
+        "args": [
+          "0x22",
+          "0",
+          "0xffff"
+        ]
+      }
     ],
     "phase_4_fun0775_renderer": [
-      {"call": "FUN_0775(0xf)", "expands_to": "f10c(dst_idx=2, x=byte[0xf*2+0x3958], y=byte[0xf+0x398b], w=0x48, h=0xf8, 0, 0, [0xf, 0])"},
-      {"call": "FUN_0775(0xc)", "expands_to": "f10c(dst_idx=2, x=byte[0xc*2+0x3958], y=byte[0xc+0x398b], w=0x48, h=0xf8, 0, 0, [0xc, 0])"}
+      {
+        "call": "FUN_0775(0xf)",
+        "expands_to": "f10c(dst_idx=2, x=byte[0xf*2+0x3958], y=byte[0xf+0x398b], w=0x48, h=0xf8, 0, 0, [0xf, 0])"
+      },
+      {
+        "call": "FUN_0775(0xc)",
+        "expands_to": "f10c(dst_idx=2, x=byte[0xc*2+0x3958], y=byte[0xc+0x398b], w=0x48, h=0xf8, 0, 0, [0xc, 0])"
+      }
     ],
     "phase_5_fun0732_renderer_unconditional": [
-      {"call": "FUN_0732(1, 0, 0x48, 0xf8)", "expands_to": "f10c(dst_idx=4, x=byte[2+0x3bcc]+0, y=byte[1+0x3bff], w=0x48, h=0xf8, 0, 0, [1, 0])"},
-      {"call": "FUN_0732(2, 0, 0x48, 0xf8)", "expands_to": "f10c(dst_idx=4, x=byte[4+0x3bcc]+0, y=byte[2+0x3bff], w=0x48, h=0xf8, 0, 0, [2, 0])"},
-      {"call": "FUN_0732(3, anim_x, 0x80, 0xc0)", "expands_to": "f10c(dst_idx=4, x=byte[6+0x3bcc]+anim_x, y=byte[3+0x3bff], w=0x80, h=0xc0, 0, 0, [3, 0])", "comment": "anim_x = 0 during steady-state"},
-      {"call": "FUN_0732(4, anim_y, 0x80, 0xc0)", "expands_to": "f10c(dst_idx=4, x=byte[8+0x3bcc]+anim_y, y=byte[4+0x3bff], w=0x80, h=0xc0, 0, 0, [4, 0])", "comment": "anim_y = 0 during steady-state. NOTE: anim_y is used as X-OFFSET here, not Y-OFFSET — naming is misleading."}
+      {
+        "call": "FUN_0732(1, 0, 0x48, 0xf8)",
+        "expands_to": "f10c(dst_idx=4, x=byte[2+0x3bcc]+0, y=byte[1+0x3bff], w=0x48, h=0xf8, 0, 0, [1, 0])"
+      },
+      {
+        "call": "FUN_0732(2, 0, 0x48, 0xf8)",
+        "expands_to": "f10c(dst_idx=4, x=byte[4+0x3bcc]+0, y=byte[2+0x3bff], w=0x48, h=0xf8, 0, 0, [2, 0])"
+      },
+      {
+        "call": "FUN_0732(3, anim_x, 0x80, 0xc0)",
+        "expands_to": "f10c(dst_idx=4, x=byte[6+0x3bcc]+anim_x, y=byte[3+0x3bff], w=0x80, h=0xc0, 0, 0, [3, 0])",
+        "comment": "anim_x = 0 during steady-state"
+      },
+      {
+        "call": "FUN_0732(4, anim_y, 0x80, 0xc0)",
+        "expands_to": "f10c(dst_idx=4, x=byte[8+0x3bcc]+anim_y, y=byte[4+0x3bff], w=0x80, h=0xc0, 0, 0, [4, 0])",
+        "comment": "anim_y = 0 during steady-state. NOTE: anim_y is used as X-OFFSET here, not Y-OFFSET — naming is misleading."
+      }
     ],
     "phase_6_fun0732_renderer_parity_gated": [
-      {"call": "FUN_0732(5, 0, 0x48, 0xf8)", "if": "frame_parity != 0", "comment": "WATER FRAME 1 (left water column?)"},
-      {"call": "FUN_0732(6, 0, 0x48, 0xf8)", "if": "frame_parity != 0", "comment": "WATER FRAME 2 (right water column?)"}
+      {
+        "call": "FUN_0732(5, 0, 0x48, 0xf8)",
+        "if": "frame_parity != 0",
+        "comment": "WATER FRAME 1 (left water column?)"
+      },
+      {
+        "call": "FUN_0732(6, 0, 0x48, 0xf8)",
+        "if": "frame_parity != 0",
+        "comment": "WATER FRAME 2 (right water column?)"
+      }
     ]
   },
   "init_call_list_fun_0984": [
-    {"call": "f148(0x15a, 0, 0xffff)", "comment": "Large background panel 1 (OR-blend, transparent compose)"},
-    {"call": "f148(0x15d, 0, 0xffff)", "comment": "Large background panel 2 (3-apart from 0x15a)"},
-    {"call": "f148(0x160, 0, 0xffff)", "comment": "Large background panel 3"},
-    {"call": "f148(0x169, 0, 0xffff)", "comment": "Large background panel 4 (note: out-of-order — 0x169 before 0x163)"},
-    {"call": "f148(0x163, 0, 0xffff)", "comment": "Large background panel 5"},
-    {"call": "f148(0x166, 0, 0xffff)", "comment": "Large background panel 6"},
-    {"action": "zero anim state", "writes": ["*0x3646 := 0", "*0x5064 := 0", "*0x5062 := 0"]},
-    {"call": "FUN_07b7(0, 0, 0)", "comment": "Initial frame paint (parity=0, no slot-5/6 water)"}
+    {
+      "call": "f148(0x15a, 0, 0xffff)",
+      "comment": "Large background panel 1 (OR-blend, transparent compose)"
+    },
+    {
+      "call": "f148(0x15d, 0, 0xffff)",
+      "comment": "Large background panel 2 (3-apart from 0x15a)"
+    },
+    {
+      "call": "f148(0x160, 0, 0xffff)",
+      "comment": "Large background panel 3"
+    },
+    {
+      "call": "f148(0x169, 0, 0xffff)",
+      "comment": "Large background panel 4 (note: out-of-order — 0x169 before 0x163)"
+    },
+    {
+      "call": "f148(0x163, 0, 0xffff)",
+      "comment": "Large background panel 5"
+    },
+    {
+      "call": "f148(0x166, 0, 0xffff)",
+      "comment": "Large background panel 6"
+    },
+    {
+      "action": "zero anim state",
+      "writes": [
+        "*0x3646 := 0",
+        "*0x5064 := 0",
+        "*0x5062 := 0"
+      ]
+    },
+    {
+      "call": "FUN_07b7(0, 0, 0)",
+      "comment": "Initial frame paint (parity=0, no slot-5/6 water)"
+    }
   ],
   "ega_drv_dispatch_summary": {
     "claim": "ega.drv dispatch table layout: 4-byte slot entries starting at file offset 0x03, each slot = `e8 LL HH cb` = call near +0xHHLL ; retf. So slot N has entry offset (3 + 4*N). Wroot's driver-fn table at image 0x1b8a (file 0x1d8a) holds the runtime far-pointers; offset stays static, segment is patched when the driver loads.",
     "relevant_entries": [
-      {"slot": 9, "driver_offset": "0x27 (entry 9)", "driver_call_target": "0x1C25", "purpose": "decode_pic (per pic.md)", "wroot_thunk": "0xf100", "wroot_fn_table_slot": 9},
-      {"slot": 10, "driver_offset": "0x2B (entry 10)", "driver_call_target": "0x1C94", "purpose": "render_pic_descriptor_script (per pic.md) — takes script of 1-based descriptor indices terminated by 0x00", "wroot_thunk": "0xf10c", "wroot_fn_table_slot": 10},
-      {"slot": 11, "driver_offset": "0x2F", "driver_call_target": "(not investigated)", "purpose": "unknown", "wroot_thunk": "0xf118", "wroot_fn_table_slot": 11},
-      {"slot": 12, "driver_offset": "0x33", "driver_call_target": "(not investigated)", "purpose": "unknown", "wroot_thunk": "0xf124", "wroot_fn_table_slot": 12},
-      {"slot": 13, "driver_offset": "0x37", "driver_call_target": "0x0735", "purpose": "fill_rectangle (4-plane rep stosb)", "wroot_thunk": "0xf130", "wroot_fn_table_slot": 13},
-      {"slot": 14, "driver_offset": "0x3B", "driver_call_target": "0x07B3", "purpose": "blit_window_to_screen (4-plane sequencer programming + rep movsb)", "wroot_thunk": "0xf13c", "wroot_fn_table_slot": 14},
-      {"slot": 15, "driver_offset": "0x3F", "driver_call_target": "0x0A93", "purpose": "draw_sprite_by_id (5-byte runtime table at cs:0x190 indexed by sprite_id; supports OR-blend and opaque modes)", "wroot_thunk": "0xf148", "wroot_fn_table_slot": 15}
+      {
+        "slot": 9,
+        "driver_offset": "0x27 (entry 9)",
+        "driver_call_target": "0x1C25",
+        "purpose": "decode_pic (per pic.md)",
+        "wroot_thunk": "0xf100",
+        "wroot_fn_table_slot": 9
+      },
+      {
+        "slot": 10,
+        "driver_offset": "0x2B (entry 10)",
+        "driver_call_target": "0x1C94",
+        "purpose": "render_pic_descriptor_script (per pic.md) — takes script of 1-based descriptor indices terminated by 0x00",
+        "wroot_thunk": "0xf10c",
+        "wroot_fn_table_slot": 10
+      },
+      {
+        "slot": 11,
+        "driver_offset": "0x2F",
+        "driver_call_target": "(not investigated)",
+        "purpose": "unknown",
+        "wroot_thunk": "0xf118",
+        "wroot_fn_table_slot": 11
+      },
+      {
+        "slot": 12,
+        "driver_offset": "0x33",
+        "driver_call_target": "(not investigated)",
+        "purpose": "unknown",
+        "wroot_thunk": "0xf124",
+        "wroot_fn_table_slot": 12
+      },
+      {
+        "slot": 13,
+        "driver_offset": "0x37",
+        "driver_call_target": "0x0735",
+        "purpose": "fill_rectangle (4-plane rep stosb)",
+        "wroot_thunk": "0xf130",
+        "wroot_fn_table_slot": 13
+      },
+      {
+        "slot": 14,
+        "driver_offset": "0x3B",
+        "driver_call_target": "0x07B3",
+        "purpose": "blit_window_to_screen (4-plane sequencer programming + rep movsb)",
+        "wroot_thunk": "0xf13c",
+        "wroot_fn_table_slot": 14
+      },
+      {
+        "slot": 15,
+        "driver_offset": "0x3F",
+        "driver_call_target": "0x0A93",
+        "purpose": "draw_sprite_by_id (5-byte runtime table at cs:0x190 indexed by sprite_id; supports OR-blend and opaque modes)",
+        "wroot_thunk": "0xf148",
+        "wroot_fn_table_slot": 15
+      }
     ],
     "confidence": "high"
   },

@@ -1,7 +1,9 @@
 {
   "topic": "wtrea-naming-pass",
   "subagent_run": "2026-05-23",
-  "binaries": ["wtrea.ovr"],
+  "binaries": [
+    "wtrea.ovr"
+  ],
   "summary": "Named 77 of 77 FUN_XXXX functions in wtrea.ovr (plus 1 dispatch entry at 0x0e that Ghidra missed, manually created and named — total 78 names applied) (TREA = treasure: post-combat loot rolls, chest-interaction UI, trap-identification + disarm, chest-spell casting, and the loot-distribution UI). wtrea.ovr is a TRUE state-machine handler (like wmele/wbase/wpcvw) covering states `0x0f` (post-combat treasure pickup) and `0x15` (in-dungeon chest encounter), both transitioning back to state `0x16` on return. The state handlers share `wtrea_run_loot_rolls` at 0x509d which executes 6 weighted die rolls against a per-encounter-difficulty loot-table indexed by `*0x43c4` (the treasure-class word set by combat/maze code). **Flagship discoveries**: (1) the LOOT-ROLL TABLE FORMAT at `wtrea_run_loot_rolls` — 6 entries × 6 bytes each (+0..+1 base, +2..+3 dice, +4 type, +5 drop_chance%); type-1 = gold pile (rng(max-min)+min, accumulated into 32-bit gold pool), type-2 = item drop (rng(dice)+base item-id into the slot array), type-4 = XP-bonus (dice × base added unmodified per character); gold is DIVIDED by party_size via FUN_3f1e but XP is given full to each alive member; (2) the TPK TREASURE TRIGGER — if zero alive party members when treasure rolls (because monsters wiped them just before this overlay loaded), wtrea writes `*0x363a=8` to force the graveyard-recovery state via winit.ovr (so the treasure is effectively forfeit); (3) the FAMOUS WIZ6 TRAP-DISARM FORMULA at `wtrea_action_disarm_trap` (0x2582): `score = thief_skill_byte/2 + dex/2 + level - chest_difficulty*2`, plus class bonus (Thief +dex*3, Ninja/Bard/class-13 +dex*2), clamped 5..0x5f (95 max), rolled against rng(100); 3-way outcome (clean disarm, miss, CRITICAL-FAIL where the trap auto-triggers) — and CRITICAL-FAIL is taken when `roll > 100 - (100-score)/3` OR when the player misidentifies the trap type, so misidentifying a high-DC trap is essentially always-fail; (4) the TRAP-NAME SELECTION ALGORITHM at `wtrea_select_trap_type` (0x214d): cycles a 16-bit `*0x5192` index 0..15 (wraps), decrementing a starting rng(100) count each time the per-chest-tier trap-bitmap (at loot_table+0x24) has bit `*0x5192` set, picking the bit position where the count zeroes out — so traps available in more chest tiers get rolled more often, with the per-cycle cap of 100 iterations guaranteeing termination; (5) the PROGRESSIVE TRAP REVEAL at `wtrea_progressive_trap_reveal` (0x21c9) — the 'Calfo / Inspect' identify mechanic; per call adds successful-reveal characters from the actual trap name (color 6 = white) and `rng(26) + 'A'` decoy characters (color 12 = dark/red) into a display buffer at *0x51bc, so multiple inspect attempts gradually reveal more of the trap's letters while seeding decoys to confuse; (6) the CHEST-SPELL-CAST UI at `wtrea_action_cast_chest_spell` (0x3406, 2687 bytes — largest in the overlay): two-stage menu where the player first picks 1 of 6 spell schools (filtered against the character's spell-known bitmap at +0x4570 via `wtrea_filter_known_spells_in_school` 0x32eb scanning 82 spells), then picks a specific spell + power level (1..6, capped at (caster_level - spell_base_level + 1)), with mana check at `+0x4410 + school*4` (6 schools × 4 bytes = 24-byte mana array), spell-cost = base_byte * power_level; (7) embeds a stripped-down 3D dungeon RENDERER at `wtrea_render_3d_view` (0x6c8f, 2192 bytes) so the dungeon view stays visible behind the chest dialog — same architecture as wmnpc's embedded renderer.",
   "method": "PyGhidra + DecompInterface for all 77 functions in wtrea.ovr (BinaryLoader, file_offset == Ghidra address). For each function: (a) decompiled C, (b) outgoing intra-overlay CALL edges, (c) cross-overlay thunk calls (any 'call_internal' target >= 0xB000 that isn't in our function set). 45 distinct thunks resolved via the thunk-delta law (bss_offset - 0xBA9C = wroot file offset); cross-referenced against wroot-naming-pass.json + informal names from wpcvw/wpcmk/wmele/wmaze/wbase/wmnpc passes (merged 91 informal thunk names). Names applied when multi-signal evidence converged: BSS field offsets (character record at +0x43e8 stride 0x1b0 reused from wpcvw — inventory slots at +0x4428 main + +0x442f flags including 0x40 cursed-on-equip, gold at +0x43fc, XP at +0x43f4, mana per-school at +0x4410+school*4, skill bytes at +0x451c+skill_idx, condition resistance at +0x453a+condition_idx, class at +0x4587), thunk-call vocabularies (window create/focus/clear/redraw, msg load+print, rng_next, play_sound, kbd polling, mouse, getbit_test), trap/disarm idiom recognition (skill/2 + dex/2 + level - difficulty*2 formula), loot-roll structure (6×6 table with type-byte dispatch matching the 1=gold/2=item/4=xp pattern), and indirect-call dispatcher patterns (the 5-entry chest-menu jumptable at CS:-0x6a1c in `wtrea_chest_menu_main`, the spell-action table at CS:0x7f62, the 14-entry wall-renderer dispatch in scene_visit_forward_cell). Dispatch entry at file 0x0e (14-byte header — same as wbase/wmele/wpcvw) was not auto-detected by Ghidra; we created it as part of this pass. Confirmed wtrea is a STATE-MACHINE HANDLER by grep showing `833e 3a36 0f` (cmp word [0x363a], 0xf) at 0x26 and `833e 3a36 15` at 0x38 — both write `*0x363a=0x16` and call their respective sub-handlers.",
   "stats": {
@@ -30,8 +32,18 @@
   },
   "state_machine": {
     "states_handled": [
-      {"value": "0x0f", "decimal": 15, "purpose": "Post-combat treasure pickup. Entered from wmele.ovr when combat ends with treasure pending (`*0x43c4` holding the treasure-class index). Opens windows, loads strings, calls `wtrea_run_loot_rolls`. On return, writes `*0x363a=0x16` (transition to wherever 0x16 leads — likely back to wmaze or to the next sub-state).", "handler": "wtrea_state_0f_post_combat_treasure"},
-      {"value": "0x15", "decimal": 21, "purpose": "In-dungeon chest encounter (player walked into a chest tile). Slightly different UI mode (`*0x50c8=1` vs `=2` for state 0xf) but shares `wtrea_run_loot_rolls`. Increments a per-encounter chest counter at *0x4ee8 (likely 'chests-opened-this-session' for stats). Sub-state in `*0x4fce` set to 0x15 for nested screen tracking.", "handler": "wtrea_state_15_dungeon_chest_treasure"}
+      {
+        "value": "0x0f",
+        "decimal": 15,
+        "purpose": "Post-combat treasure pickup. Entered from wmele.ovr when combat ends with treasure pending (`*0x43c4` holding the treasure-class index). Opens windows, loads strings, calls `wtrea_run_loot_rolls`. On return, writes `*0x363a=0x16` (transition to wherever 0x16 leads — likely back to wmaze or to the next sub-state).",
+        "handler": "wtrea_state_0f_post_combat_treasure"
+      },
+      {
+        "value": "0x15",
+        "decimal": 21,
+        "purpose": "In-dungeon chest encounter (player walked into a chest tile). Slightly different UI mode (`*0x50c8=1` vs `=2` for state 0xf) but shares `wtrea_run_loot_rolls`. Increments a per-encounter chest counter at *0x4ee8 (likely 'chests-opened-this-session' for stats). Sub-state in `*0x4fce` set to 0x15 for nested screen tracking.",
+        "handler": "wtrea_state_15_dungeon_chest_treasure"
+      }
     ],
     "dispatch_entry": "0x0e (14-byte overlay header; Ghidra did NOT auto-detect this function — we created it as part of this pass)",
     "header_size_bytes": 14,
@@ -63,51 +75,523 @@
     "**THE 32-BIT ARITHMETIC THUNK FUN_3f1e (wroot file 0x3f1e, thunk 0xf9ba) — used by GOLD-DIVIDE in 0x509d AND XP-BONUS-MULTIPLY in 0x5552**. Inspection of wroot's bytes shows it's a signed 32-bit operator with sign-twiddling (push di; sign-of-dx; negate ax/dx; xor sign-flag; recurse into unsigned core via 'call +0x39'; un-negate result). The wmnpc pass annotated this as 'likely 32-bit multiply'. wtrea uses it BOTH for: (a) GOLD = total_gold / party_size in 0x509d (input DX:AX = gold, BX:CX = party_size), implying it's actually 32-bit DIVIDE; AND (b) bonus calculation in 0x5552 (two consecutive calls — could be multiply chain or div+modulo). The function likely does BOTH multiply and divide depending on a flag input we haven't isolated. Promoted to wroot-naming-pass.json: `sdiv32_or_smul32_signed` (or split into two thunks if the recursive helper has a divide-vs-multiply selector)."
   ],
   "thunk_usage": [
-    {"thunk": "0xbda7", "wroot_offset": "0x0000030b", "name": "ui_window_set_cursor", "callsites": 54, "sample_callers": ["0xa48", "0xb14", "0x10e5", "0x175f"]},
-    {"thunk": "0xc1f7", "wroot_offset": "0x0000075b", "name": "load_msg_into_buf", "callsites": 25, "sample_callers": ["0x06cb", "0x10e5", "0x16ab", "0x175f"]},
-    {"thunk": "0xc6b2", "wroot_offset": "0x00000c16", "name": "mouse_status_set_field", "callsites": 24, "sample_callers": ["0x10e5", "0x21c9", "0x2582", "0x3406"]},
-    {"thunk": "0xebb4", "wroot_offset": "0x00003118", "name": "ui_window_focus", "callsites": 20, "sample_callers": ["0x21c9", "0x315c", "0x3346", "0x43ee"]},
-    {"thunk": "0xdf85", "wroot_offset": "0x000024e9", "name": "ui_window_write_chars", "callsites": 19, "sample_callers": ["0x06cb", "0x16ab", "0x21c9", "0x3406"]},
-    {"thunk": "0xc47e", "wroot_offset": "0x000009e2", "name": "rng_next", "callsites": 16, "sample_callers": ["0x0054", "0x14f2", "0x214d", "0x21c9"], "note": "Heavy RNG use confirms wtrea is the 'random outcomes' overlay — loot rolls, trap selection, disarm rolls, dice damage, skill train rolls"},
-    {"thunk": "0xdfb9", "wroot_offset": "0x0000251d", "name": "ui_window_puts", "callsites": 16, "sample_callers": ["0x0c05", "0x10e5", "0x43ee", "0x509d"]},
-    {"thunk": "0xfaab", "wroot_offset": "0x0000400f", "name": "strlen", "callsites": 16, "sample_callers": ["0x0c05", "0x10e5", "0x1592", "0x21c9"]},
-    {"thunk": "0xde7f", "wroot_offset": "0x000023e3", "name": "ui_window_putchar", "callsites": 14, "sample_callers": ["0x03ec", "0x0852", "0x2f69", "0x4345"]},
-    {"thunk": "0xe3c1", "wroot_offset": "0x00002925", "name": "getbit_chunk", "callsites": 14, "sample_callers": ["0x5895", "0x58fa", "0x5dc9", "0x5f86"], "note": "Used in 3D wall-bitmap testing"},
-    {"thunk": "0xec6d", "wroot_offset": "0x000031d1", "name": "ui_window_unfocus", "callsites": 14, "sample_callers": ["0x21c9", "0x315c", "0x3346", "0x43ee"]},
-    {"thunk": "0xf148", "wroot_offset": "0x000036ac", "name": "sprite_render_at_screen_pos", "callsites": 14, "sample_callers": ["0x6224", "0x695b", "0x6bcd", "0x6c8f"]},
-    {"thunk": "0xbddb", "wroot_offset": "0x0000033f", "name": "ui_window_box_draw", "callsites": 12, "sample_callers": ["0x3406", "0x4ba1", "0x509d", "0x43ee"]},
-    {"thunk": "0xc2db", "wroot_offset": "0x0000083f", "name": "ui_window_write_msg_by_id", "callsites": 12, "sample_callers": ["0x3406", "0x4ba1", "0x315c", "0x43ee"]},
-    {"thunk": "0xbd6e", "wroot_offset": "0x000002d2", "name": "ui_window_destroy", "callsites": 11, "sample_callers": ["0x3406", "0x4ba1", "0x05d2", "0x43ee"]},
-    {"thunk": "0xe5b5", "wroot_offset": "0x00002b19", "name": "ui_window_blit", "callsites": 10, "sample_callers": ["0x3346", "0x21c9", "0x43ee", "0x10e5"]},
-    {"thunk": "0xbbb6", "wroot_offset": "0x0000011a", "name": "ui_window_create", "callsites": 9, "sample_callers": ["0x3406", "0x10e5", "0x2582", "0x43ee"]},
-    {"thunk": "0xdd53", "wroot_offset": "0x000022b7", "name": "ui_window_put_char_repeat", "callsites": 9, "sample_callers": ["0x03ec", "0x0c05", "0x21c9", "0x3406"]},
-    {"thunk": "0xed5a", "wroot_offset": "0x000032be", "name": "ui_window_clear", "callsites": 9, "sample_callers": ["0x2fe5", "0x4ba1", "0x43ee", "0x10e5"]},
-    {"thunk": "0xc546", "wroot_offset": "0x00000aaa", "name": "play_sound", "callsites": 8, "sample_callers": ["0x0054", "0x175f", "0x43ee", "0x4b29"]},
-    {"thunk": "0xe34b", "wroot_offset": "0x000028af", "name": "getbit_test", "callsites": 8, "sample_callers": ["0x2582", "0x32eb", "0x59e0", "0x6c8f"], "note": "Used by trap-bitmap, spell-known bitmap, and wall bitmap"},
-    {"thunk": "0xc05d", "wroot_offset": "0x000005c1", "name": "string_substitute_char", "callsites": 7, "sample_callers": ["0x10e5", "0x509d", "0x5552", "0x43ee"]},
-    {"thunk": "0xf34c", "wroot_offset": "0x000038b0", "name": "memset", "callsites": 7, "sample_callers": ["0x6c8f", "0x0b33", "0x10e5"]},
-    {"thunk": "0xbd8c", "wroot_offset": "0x000002f0", "name": "ui_window_swap_focus", "callsites": 6, "sample_callers": ["0x19e5", "0x1592", "0x509d", "0x56c5"]},
-    {"thunk": "0xe4ff", "wroot_offset": "0x00002a63", "name": "ui_screen_refresh", "callsites": 6, "sample_callers": ["0x19e5", "0x561c", "0x4ba1", "0x10e5"]},
-    {"thunk": "0xc41f", "wroot_offset": "0x00000983", "name": "FUN_0983", "callsites": 5, "sample_callers": ["0x0852", "0x10e5", "0x4ba1"], "note": "Unknown wroot helper — possibly screen-clear or fill-rect"},
-    {"thunk": "0xe2a8", "wroot_offset": "0x0000280c", "name": "kbd_flush_buffer", "callsites": 5, "sample_callers": ["0x037b", "0x03ec", "0x561c", "0x56c5"]},
-    {"thunk": "0xf10c", "wroot_offset": "0x00003670", "name": "sprite_blit_short", "callsites": 5, "sample_callers": ["0x007a", "0x0131", "0x02ad"]},
-    {"thunk": "0xc041", "wroot_offset": "0x000005a5", "name": "ui_window_print_number", "callsites": 5, "sample_callers": ["0x315c", "0x3406", "0x43ee"]},
-    {"thunk": "0xc497", "wroot_offset": "0x000009fb", "name": "ui_window_redraw_focused", "callsites": 4, "sample_callers": ["0x0b33", "0x10e5", "0x4a1d"]},
-    {"thunk": "0xe2f4", "wroot_offset": "0x00002858", "name": "FUN_2858", "callsites": 4, "sample_callers": ["0x0054", "0x06cb", "0x03ec"], "note": "Sibling of kbd_flush_buffer — possibly mouse-flush or input-prep"},
-    {"thunk": "0xf130", "wroot_offset": "0x00003694", "name": "FUN_3694", "callsites": 4, "sample_callers": ["0x6c8f", "0x02ad"], "note": "Sprite-related (used by 3D renderer)"},
-    {"thunk": "0xe0df", "wroot_offset": "0x00002643", "name": "kbd_check_with_filter", "callsites": 3, "sample_callers": ["0x037b", "0x03ec", "0x06cb"]},
-    {"thunk": "0xe1c0", "wroot_offset": "0x00002724", "name": "kbd_getkey_with_filter", "callsites": 3, "sample_callers": ["0x03ec", "0x06cb"]},
-    {"thunk": "0xe31d", "wroot_offset": "0x00002881", "name": "setbit", "callsites": 3, "sample_callers": ["0x4a1d"]},
-    {"thunk": "0xe3fe", "wroot_offset": "0x00002962", "name": "FUN_2962", "callsites": 3, "sample_callers": ["0x4a1d"], "note": "Unknown getbit-variant (3-arg)"},
-    {"thunk": "0xedec", "wroot_offset": "0x00003350", "name": "memchr_or_index", "callsites": 3, "sample_callers": ["0x04cd", "0x06cb", "0x21c9"]},
-    {"thunk": "0xf3aa", "wroot_offset": "0x0000390e", "name": "strcpy", "callsites": 3, "sample_callers": ["0x214d", "0x3406", "0x436e"]},
-    {"thunk": "0xf13c", "wroot_offset": "0x000036a0", "name": "FUN_36a0", "callsites": 2, "sample_callers": ["0x02ad", "0x6bcd"], "note": "Sprite-blit sibling"},
-    {"thunk": "0xf9ba", "wroot_offset": "0x00003f1e", "name": "FUN_3f1e", "callsites": 2, "sample_callers": ["0x509d", "0x5552"], "note": "Signed 32-bit math (divide OR multiply with sign-handling) — used by gold-divide in 0x509d (gold/party_size) and by xp-bonus calc in 0x5552. Promote to wroot pass."},
-    {"thunk": "0xc6de", "wroot_offset": "0x00000c42", "name": "mouse_read_state_or_zero", "callsites": 2, "sample_callers": ["0x037b", "0x03ec"]},
-    {"thunk": "0xc674", "wroot_offset": "0x00000bd8", "name": "mouse_get_pos", "callsites": 2, "sample_callers": ["0x06cb", "0x07d4"]},
-    {"thunk": "0xc4de", "wroot_offset": "0x00000a42", "name": "FUN_0a42", "callsites": 2, "sample_callers": ["0x4ba1", "0x43ee"], "note": "Likely ui_window_print_msg_full or region-blit"},
-    {"thunk": "0xbeef", "wroot_offset": "0x00000453", "name": "FUN_0453", "callsites": 1, "sample_callers": ["0x509d"], "note": "Number-formatting helper for gold display"},
-    {"thunk": "0xbf8d", "wroot_offset": "0x000004f1", "name": "FUN_04f1", "callsites": 1, "sample_callers": ["0x175f"], "note": "Number-to-string converter"}
+    {
+      "thunk": "0xbda7",
+      "wroot_offset": "0x0000030b",
+      "name": "ui_window_set_cursor",
+      "callsites": 54,
+      "sample_callers": [
+        "0xa48",
+        "0xb14",
+        "0x10e5",
+        "0x175f"
+      ]
+    },
+    {
+      "thunk": "0xc1f7",
+      "wroot_offset": "0x0000075b",
+      "name": "load_msg_into_buf",
+      "callsites": 25,
+      "sample_callers": [
+        "0x06cb",
+        "0x10e5",
+        "0x16ab",
+        "0x175f"
+      ]
+    },
+    {
+      "thunk": "0xc6b2",
+      "wroot_offset": "0x00000c16",
+      "name": "mouse_status_set_field",
+      "callsites": 24,
+      "sample_callers": [
+        "0x10e5",
+        "0x21c9",
+        "0x2582",
+        "0x3406"
+      ]
+    },
+    {
+      "thunk": "0xebb4",
+      "wroot_offset": "0x00003118",
+      "name": "ui_window_focus",
+      "callsites": 20,
+      "sample_callers": [
+        "0x21c9",
+        "0x315c",
+        "0x3346",
+        "0x43ee"
+      ]
+    },
+    {
+      "thunk": "0xdf85",
+      "wroot_offset": "0x000024e9",
+      "name": "ui_window_write_chars",
+      "callsites": 19,
+      "sample_callers": [
+        "0x06cb",
+        "0x16ab",
+        "0x21c9",
+        "0x3406"
+      ]
+    },
+    {
+      "thunk": "0xc47e",
+      "wroot_offset": "0x000009e2",
+      "name": "rng_next",
+      "callsites": 16,
+      "sample_callers": [
+        "0x0054",
+        "0x14f2",
+        "0x214d",
+        "0x21c9"
+      ],
+      "note": "Heavy RNG use confirms wtrea is the 'random outcomes' overlay — loot rolls, trap selection, disarm rolls, dice damage, skill train rolls"
+    },
+    {
+      "thunk": "0xdfb9",
+      "wroot_offset": "0x0000251d",
+      "name": "ui_window_puts",
+      "callsites": 16,
+      "sample_callers": [
+        "0x0c05",
+        "0x10e5",
+        "0x43ee",
+        "0x509d"
+      ]
+    },
+    {
+      "thunk": "0xfaab",
+      "wroot_offset": "0x0000400f",
+      "name": "strlen",
+      "callsites": 16,
+      "sample_callers": [
+        "0x0c05",
+        "0x10e5",
+        "0x1592",
+        "0x21c9"
+      ]
+    },
+    {
+      "thunk": "0xde7f",
+      "wroot_offset": "0x000023e3",
+      "name": "ui_window_putchar",
+      "callsites": 14,
+      "sample_callers": [
+        "0x03ec",
+        "0x0852",
+        "0x2f69",
+        "0x4345"
+      ]
+    },
+    {
+      "thunk": "0xe3c1",
+      "wroot_offset": "0x00002925",
+      "name": "getbit_chunk",
+      "callsites": 14,
+      "sample_callers": [
+        "0x5895",
+        "0x58fa",
+        "0x5dc9",
+        "0x5f86"
+      ],
+      "note": "Used in 3D wall-bitmap testing"
+    },
+    {
+      "thunk": "0xec6d",
+      "wroot_offset": "0x000031d1",
+      "name": "ui_window_unfocus",
+      "callsites": 14,
+      "sample_callers": [
+        "0x21c9",
+        "0x315c",
+        "0x3346",
+        "0x43ee"
+      ]
+    },
+    {
+      "thunk": "0xf148",
+      "wroot_offset": "0x000036ac",
+      "name": "sprite_render_at_screen_pos",
+      "callsites": 14,
+      "sample_callers": [
+        "0x6224",
+        "0x695b",
+        "0x6bcd",
+        "0x6c8f"
+      ]
+    },
+    {
+      "thunk": "0xbddb",
+      "wroot_offset": "0x0000033f",
+      "name": "ui_window_box_draw",
+      "callsites": 12,
+      "sample_callers": [
+        "0x3406",
+        "0x4ba1",
+        "0x509d",
+        "0x43ee"
+      ]
+    },
+    {
+      "thunk": "0xc2db",
+      "wroot_offset": "0x0000083f",
+      "name": "ui_window_write_msg_by_id",
+      "callsites": 12,
+      "sample_callers": [
+        "0x3406",
+        "0x4ba1",
+        "0x315c",
+        "0x43ee"
+      ]
+    },
+    {
+      "thunk": "0xbd6e",
+      "wroot_offset": "0x000002d2",
+      "name": "ui_window_destroy",
+      "callsites": 11,
+      "sample_callers": [
+        "0x3406",
+        "0x4ba1",
+        "0x05d2",
+        "0x43ee"
+      ]
+    },
+    {
+      "thunk": "0xe5b5",
+      "wroot_offset": "0x00002b19",
+      "name": "ui_window_blit",
+      "callsites": 10,
+      "sample_callers": [
+        "0x3346",
+        "0x21c9",
+        "0x43ee",
+        "0x10e5"
+      ]
+    },
+    {
+      "thunk": "0xbbb6",
+      "wroot_offset": "0x0000011a",
+      "name": "ui_window_create",
+      "callsites": 9,
+      "sample_callers": [
+        "0x3406",
+        "0x10e5",
+        "0x2582",
+        "0x43ee"
+      ]
+    },
+    {
+      "thunk": "0xdd53",
+      "wroot_offset": "0x000022b7",
+      "name": "ui_window_put_char_repeat",
+      "callsites": 9,
+      "sample_callers": [
+        "0x03ec",
+        "0x0c05",
+        "0x21c9",
+        "0x3406"
+      ]
+    },
+    {
+      "thunk": "0xed5a",
+      "wroot_offset": "0x000032be",
+      "name": "ui_window_clear",
+      "callsites": 9,
+      "sample_callers": [
+        "0x2fe5",
+        "0x4ba1",
+        "0x43ee",
+        "0x10e5"
+      ]
+    },
+    {
+      "thunk": "0xc546",
+      "wroot_offset": "0x00000aaa",
+      "name": "play_sound",
+      "callsites": 8,
+      "sample_callers": [
+        "0x0054",
+        "0x175f",
+        "0x43ee",
+        "0x4b29"
+      ]
+    },
+    {
+      "thunk": "0xe34b",
+      "wroot_offset": "0x000028af",
+      "name": "getbit_test",
+      "callsites": 8,
+      "sample_callers": [
+        "0x2582",
+        "0x32eb",
+        "0x59e0",
+        "0x6c8f"
+      ],
+      "note": "Used by trap-bitmap, spell-known bitmap, and wall bitmap"
+    },
+    {
+      "thunk": "0xc05d",
+      "wroot_offset": "0x000005c1",
+      "name": "string_substitute_char",
+      "callsites": 7,
+      "sample_callers": [
+        "0x10e5",
+        "0x509d",
+        "0x5552",
+        "0x43ee"
+      ]
+    },
+    {
+      "thunk": "0xf34c",
+      "wroot_offset": "0x000038b0",
+      "name": "memset",
+      "callsites": 7,
+      "sample_callers": [
+        "0x6c8f",
+        "0x0b33",
+        "0x10e5"
+      ]
+    },
+    {
+      "thunk": "0xbd8c",
+      "wroot_offset": "0x000002f0",
+      "name": "ui_window_swap_focus",
+      "callsites": 6,
+      "sample_callers": [
+        "0x19e5",
+        "0x1592",
+        "0x509d",
+        "0x56c5"
+      ]
+    },
+    {
+      "thunk": "0xe4ff",
+      "wroot_offset": "0x00002a63",
+      "name": "ui_screen_refresh",
+      "callsites": 6,
+      "sample_callers": [
+        "0x19e5",
+        "0x561c",
+        "0x4ba1",
+        "0x10e5"
+      ]
+    },
+    {
+      "thunk": "0xc41f",
+      "wroot_offset": "0x00000983",
+      "name": "FUN_0983",
+      "callsites": 5,
+      "sample_callers": [
+        "0x0852",
+        "0x10e5",
+        "0x4ba1"
+      ],
+      "note": "Unknown wroot helper — possibly screen-clear or fill-rect"
+    },
+    {
+      "thunk": "0xe2a8",
+      "wroot_offset": "0x0000280c",
+      "name": "kbd_flush_buffer",
+      "callsites": 5,
+      "sample_callers": [
+        "0x037b",
+        "0x03ec",
+        "0x561c",
+        "0x56c5"
+      ]
+    },
+    {
+      "thunk": "0xf10c",
+      "wroot_offset": "0x00003670",
+      "name": "sprite_blit_short",
+      "callsites": 5,
+      "sample_callers": [
+        "0x007a",
+        "0x0131",
+        "0x02ad"
+      ]
+    },
+    {
+      "thunk": "0xc041",
+      "wroot_offset": "0x000005a5",
+      "name": "ui_window_print_number",
+      "callsites": 5,
+      "sample_callers": [
+        "0x315c",
+        "0x3406",
+        "0x43ee"
+      ]
+    },
+    {
+      "thunk": "0xc497",
+      "wroot_offset": "0x000009fb",
+      "name": "ui_window_redraw_focused",
+      "callsites": 4,
+      "sample_callers": [
+        "0x0b33",
+        "0x10e5",
+        "0x4a1d"
+      ]
+    },
+    {
+      "thunk": "0xe2f4",
+      "wroot_offset": "0x00002858",
+      "name": "FUN_2858",
+      "callsites": 4,
+      "sample_callers": [
+        "0x0054",
+        "0x06cb",
+        "0x03ec"
+      ],
+      "note": "Sibling of kbd_flush_buffer — possibly mouse-flush or input-prep"
+    },
+    {
+      "thunk": "0xf130",
+      "wroot_offset": "0x00003694",
+      "name": "FUN_3694",
+      "callsites": 4,
+      "sample_callers": [
+        "0x6c8f",
+        "0x02ad"
+      ],
+      "note": "Sprite-related (used by 3D renderer)"
+    },
+    {
+      "thunk": "0xe0df",
+      "wroot_offset": "0x00002643",
+      "name": "kbd_check_with_filter",
+      "callsites": 3,
+      "sample_callers": [
+        "0x037b",
+        "0x03ec",
+        "0x06cb"
+      ]
+    },
+    {
+      "thunk": "0xe1c0",
+      "wroot_offset": "0x00002724",
+      "name": "kbd_getkey_with_filter",
+      "callsites": 3,
+      "sample_callers": [
+        "0x03ec",
+        "0x06cb"
+      ]
+    },
+    {
+      "thunk": "0xe31d",
+      "wroot_offset": "0x00002881",
+      "name": "setbit",
+      "callsites": 3,
+      "sample_callers": [
+        "0x4a1d"
+      ]
+    },
+    {
+      "thunk": "0xe3fe",
+      "wroot_offset": "0x00002962",
+      "name": "FUN_2962",
+      "callsites": 3,
+      "sample_callers": [
+        "0x4a1d"
+      ],
+      "note": "Unknown getbit-variant (3-arg)"
+    },
+    {
+      "thunk": "0xedec",
+      "wroot_offset": "0x00003350",
+      "name": "memchr_or_index",
+      "callsites": 3,
+      "sample_callers": [
+        "0x04cd",
+        "0x06cb",
+        "0x21c9"
+      ]
+    },
+    {
+      "thunk": "0xf3aa",
+      "wroot_offset": "0x0000390e",
+      "name": "strcpy",
+      "callsites": 3,
+      "sample_callers": [
+        "0x214d",
+        "0x3406",
+        "0x436e"
+      ]
+    },
+    {
+      "thunk": "0xf13c",
+      "wroot_offset": "0x000036a0",
+      "name": "FUN_36a0",
+      "callsites": 2,
+      "sample_callers": [
+        "0x02ad",
+        "0x6bcd"
+      ],
+      "note": "Sprite-blit sibling"
+    },
+    {
+      "thunk": "0xf9ba",
+      "wroot_offset": "0x00003f1e",
+      "name": "FUN_3f1e",
+      "callsites": 2,
+      "sample_callers": [
+        "0x509d",
+        "0x5552"
+      ],
+      "note": "Signed 32-bit math (divide OR multiply with sign-handling) — used by gold-divide in 0x509d (gold/party_size) and by xp-bonus calc in 0x5552. Promote to wroot pass."
+    },
+    {
+      "thunk": "0xc6de",
+      "wroot_offset": "0x00000c42",
+      "name": "mouse_read_state_or_zero",
+      "callsites": 2,
+      "sample_callers": [
+        "0x037b",
+        "0x03ec"
+      ]
+    },
+    {
+      "thunk": "0xc674",
+      "wroot_offset": "0x00000bd8",
+      "name": "mouse_get_pos",
+      "callsites": 2,
+      "sample_callers": [
+        "0x06cb",
+        "0x07d4"
+      ]
+    },
+    {
+      "thunk": "0xc4de",
+      "wroot_offset": "0x00000a42",
+      "name": "FUN_0a42",
+      "callsites": 2,
+      "sample_callers": [
+        "0x4ba1",
+        "0x43ee"
+      ],
+      "note": "Likely ui_window_print_msg_full or region-blit"
+    },
+    {
+      "thunk": "0xbeef",
+      "wroot_offset": "0x00000453",
+      "name": "FUN_0453",
+      "callsites": 1,
+      "sample_callers": [
+        "0x509d"
+      ],
+      "note": "Number-formatting helper for gold display"
+    },
+    {
+      "thunk": "0xbf8d",
+      "wroot_offset": "0x000004f1",
+      "name": "FUN_04f1",
+      "callsites": 1,
+      "sample_callers": [
+        "0x175f"
+      ],
+      "note": "Number-to-string converter"
+    }
   ],
   "thunk_usage_summary": {
     "total_distinct_thunks": 45,
@@ -121,76 +605,401 @@
     "topic": "wtrea BSS layout — overlaps with wmaze/wmele state (the character record at 0x43e8 is shared with all overlays)",
     "note": "wtrea uses the same character record at 0x43e8 stride 0x1b0 used by wpcvw/wmnpc/wmele. Trap state lives in *0x5192 (trap_id), *0x50ca/0x50de (trap name buffer), *0x51bc..0x51d0 (the progressive-reveal display buffer + status flags). Loot pile lives in *0x51d6 (item-id array), *0x5266 (count), *0x51e2 (per-slot quantity), *0x51ee (per-slot name strings), and *0x5274/0x5276 (per-slot leave-behind flags). Chest sub-state in *0x363c (dungeon depth — read by disarm/open formulas).",
     "fields": [
-      {"addr": "0x363a", "size": 2, "name": "game_state_word", "note": "Read by wroot dispatch; wtrea handles values 0xf and 0x15. Writes 0x16 on exit, 8 on TPK."},
-      {"addr": "0x363c", "size": 2, "name": "dungeon_depth", "note": "Used as difficulty penalty in disarm (*-2) and open (*-1 to *-2 depending on class) score formulas."},
-      {"addr": "0x43c4", "size": 2, "name": "current_treasure_class", "note": "Set by combat/maze code; the lookup key for data_table_load(7) which returns the 36-byte loot table. Reset to 0xffff after consumption."},
-      {"addr": "0x43c6", "size": 2, "name": "treasure_chest_type_hint", "note": "Co-set with 0x43c8 by encounter code; checked by state-0f handler to decide whether to invoke chest UI."},
-      {"addr": "0x43c8", "size": 2, "name": "treasure_chest_type_hint_hi"},
-      {"addr": "0x43ce", "size": 2, "name": "party_size"},
-      {"addr": "0x4410", "size": "4 * 6 = 24", "name": "char.mana_by_school[6]", "note": "Per-character per-school mana — stride 4 bytes (32-bit). 6 schools. Read/decremented by chest-spell cast."},
-      {"addr": "0x4570", "size": "82 bits = ~11 bytes", "name": "char.known_spells_bitmap", "note": "82-bit bitmap. Read via getbit_test by wtrea_filter_known_spells_in_school (0x32eb). Spell-id range 0..81."},
-      {"addr": "0x4587", "size": 1, "name": "char.class_byte", "note": "Read for disarm/open class bonuses: class 3 (Thief) gets +dex*3, class 4/6/13 (Ninja/Bard/?) gets +dex*2"},
-      {"addr": "0x4589", "size": 1, "name": "char.status_byte", "note": "0 = alive, non-zero = dead/dying/etc. Used in alive-count and TPK check."},
-      {"addr": "0x4594", "size": 1, "name": "char.inventory_main_count", "note": "Number of items in main inventory (slots 0..9)"},
-      {"addr": "0x4595", "size": 1, "name": "char.inventory_overflow_count", "note": "Number of items in overflow inventory (slots 10..21)"},
-      {"addr": "0x43e8", "size": "0x1b0 * N", "name": "char_record_array", "note": "Stride 0x1b0 (432 bytes per character). Same layout as wpcvw."},
-      {"addr": "0x440c", "size": 2, "name": "char.level", "note": "Read for disarm/open scoring."},
-      {"addr": "0x4400", "size": 4, "name": "char.hp_or_buffer", "note": "32-bit field decremented by trap damage in wtrea_action_apply_trap_damage (0x175f). Likely HP."},
-      {"addr": "0x4408", "size": 2, "name": "char.inventory_weight_total", "note": "Recomputed after every insert by 0x401f."},
-      {"addr": "0x43f4", "size": 4, "name": "char.xp_32bit", "note": "32-bit experience points. Type-4 loot rolls add base*dice to each alive member's XP without dividing."},
-      {"addr": "0x43fc", "size": 4, "name": "char.gold_32bit", "note": "32-bit gold per character. Type-1 loot rolls accumulate gold, then divide by party_size and add to each alive member."},
-      {"addr": "0x4428", "size": "8 * 22", "name": "char.inventory_records", "note": "22 slots × 8 bytes. +0/+1 item_id, +2 pre-rolled-misc word, +4 type-byte, +5 id-mark, +6 quantity, +7 flags (0x01 cursed-identified, 0x02 cursed-unidentified, 0x04/0x08 var-cursed, 0x40 class-locked)."},
-      {"addr": "0x450c", "size": 1, "name": "char.asleep_byte"},
-      {"addr": "0x450d", "size": 1, "name": "char.paralyzed_or_silenced_byte"},
-      {"addr": "0x451c", "size": "1 * N", "name": "char.skill_bytes", "note": "Per-skill score 0..100. Trained by `skill_train_chance_increment` (0x14f2)."},
-      {"addr": "0x452b", "size": 1, "name": "char.disarm_skill_byte", "note": "Thief disarm/trap skill at offset +0xf within skill array. Read by 0x2582 and 0x23b5 for disarm/open formulas. Trained per use."},
-      {"addr": "0x453a", "size": "1 * N", "name": "char.condition_resistance", "note": "Per-condition saving-throw byte 0..100. Read by `wtrea_apply_status_or_death` (0x16ab) for trap status resistance."},
-      {"addr": "0x4eec", "size": "10 * N", "name": "dungeon_depth_chest_flags_table", "note": "Per-dungeon-level chest flags (10 bytes per level, ~13 levels). Written by `wtrea_consume_chest_tile_flags` (0x4a1d) to mark a chest tile as consumed."},
-      {"addr": "0x4faa", "size": 2, "name": "wall_bitmap_ptr", "note": "Pointer into the wall bitmap (same as wmaze/wmnpc). +0x43a/+0x49a/+0x60/+0x120/+0x1e0/+0x1ec hold wall presence + cell-x/cell-y."},
-      {"addr": "0x4f9a", "size": 2, "name": "party_facing", "note": "0..3 = N/E/S/W. Used by `scene_apply_facing_rotation`."},
-      {"addr": "0x4fce", "size": 2, "name": "wtrea_internal_sub_state", "note": "0x0f or 0x15 — distinguishes which state-handler invoked the loot rolls."},
-      {"addr": "0x4ee8", "size": 2, "name": "chests_opened_counter", "note": "Incremented by `wtrea_state_15_dungeon_chest_treasure` per chest opened. Probably persisted to save game."},
-      {"addr": "0x50c8", "size": 2, "name": "ui_mode_flag", "note": "1 or 2 — toggles message-load offsets and prompt UI styling between state-0f and state-15 paths."},
-      {"addr": "0x5018", "size": 2, "name": "dice_arg_lo", "note": "Used by `wtrea_pack_dice_args` (0x1563) to pass dice (base, count, size) by reference across functions"},
-      {"addr": "0x501a", "size": 2, "name": "dice_arg_hi"},
-      {"addr": "0x5024", "size": 2, "name": "chest_tier_byte", "note": "0xffff = no chest, 0 = type-A, 1 = type-B (set from loot-table +0x27)"},
-      {"addr": "0x501c", "size": 2, "name": "render_cursor_state", "note": "-1 or 1 — controls cursor-blink rendering in `wtrea_render_cursor_blink`"},
-      {"addr": "0x501e", "size": 2, "name": "play_idle_sound_flag"},
-      {"addr": "0x5020", "size": 2, "name": "active_animation_index_1"},
-      {"addr": "0x5022", "size": 2, "name": "active_animation_index_2"},
-      {"addr": "0x5026", "size": 2, "name": "sprite_frame_step"},
-      {"addr": "0x5028", "size": 2, "name": "sprite_y_pos"},
-      {"addr": "0x502a", "size": 2, "name": "sprite_x_pos"},
-      {"addr": "0x502c", "size": 2, "name": "idle_frame_counter"},
-      {"addr": "0x502e", "size": 2, "name": "modal_msg_window_handle", "note": "Set by `wtrea_paginated_msg_display` (0x05d2). Re-focused by 0x049f cleanup."},
-      {"addr": "0x5030", "size": 2, "name": "msg_page_counter"},
-      {"addr": "0x5032", "size": 2, "name": "msg_indent_x"},
-      {"addr": "0x5034", "size": 2, "name": "render_cursor_col"},
-      {"addr": "0x5036", "size": 2, "name": "render_cursor_row"},
-      {"addr": "0x5038", "size": 2, "name": "render_active_window"},
-      {"addr": "0x503a", "size": 2, "name": "render_text_length"},
-      {"addr": "0x503e", "size": "0x18 * 2", "name": "render_text_buffer", "note": "Two 24-byte buffers for blinking-text alternation in `wtrea_render_cursor_blink`"},
-      {"addr": "0x5056", "size": 2, "name": "render_text_color"},
-      {"addr": "0x506e", "size": "0x50", "name": "msg_buffer_a", "note": "Main message scratch buffer for the windows"},
-      {"addr": "0x50be", "size": "0x10", "name": "msg_buffer_b", "note": "Secondary scratch for menu key map"},
-      {"addr": "0x50ca", "size": "0x14", "name": "trap_name_raw_buffer", "note": "Loaded by `wtrea_select_trap_type` from msg index 0x14b4 + trap_id. Source for display name."},
-      {"addr": "0x50de", "size": "0x14", "name": "trap_name_display_buffer", "note": "Copy of 0x50ca used during progressive reveal — characters get replaced with '$' as they're revealed."},
-      {"addr": "0x5192", "size": 2, "name": "current_trap_id", "note": "0..15. Selected by `wtrea_select_trap_type` (0x214d). 0 = no trap (skipped by disarm). Read by `wtrea_action_disarm_trap` to check correct guess."},
-      {"addr": "0x5194", "size": "2 * 20", "name": "trap_reveal_letter_flags", "note": "Per-display-letter flag: 1 = real letter from trap name (color 6), 0 = decoy (color 12). Written by `wtrea_progressive_trap_reveal` (0x21c9)."},
-      {"addr": "0x51bc", "size": "1 * 20", "name": "trap_reveal_display_chars", "note": "The displayed characters (mix of real + decoy letters). Built up across multiple INSPECT calls."},
-      {"addr": "0x51d0", "size": 2, "name": "trap_reveal_count", "note": "How many characters in *0x51bc are currently shown."},
-      {"addr": "0x51d6", "size": "2 * 9", "name": "loot_item_id_array", "note": "Item-IDs rolled by the type-2 loot entries. Up to 9 distinct items per chest."},
-      {"addr": "0x51e2", "size": "2 * 9", "name": "loot_item_quantity_array", "note": "Pre-rolled quantities (for stackable items) — generated by `roll_dice_with_base` during loot roll."},
-      {"addr": "0x51ee", "size": "0x12 * 9", "name": "loot_item_name_strings", "note": "18-byte per slot — item name string buffer for the loot UI display."},
-      {"addr": "0x525a", "size": "2 * 9", "name": "loot_item_aux_a"},
-      {"addr": "0x5266", "size": 2, "name": "loot_item_count", "note": "Number of items in the chest after rolling. Iterated by `wtrea_loot_distribution_ui`."},
-      {"addr": "0x5268", "size": "2 * 9", "name": "loot_item_aux_b"},
-      {"addr": "0x5274", "size": "2 * 9", "name": "loot_item_leave_behind_flag", "note": "Per-slot: 1 = item was rejected (inventory full), 0 = taken. Checked at end of distribution to play 'leave-behind' sound."},
-      {"addr": "0x52cc", "size": "various", "name": "scene_visibility_grid", "note": "Used by the 3D wall renderer for fog-of-war / occlusion bytes. Cleared by 0x6a4a..0x6b6e."},
-      {"addr": "0x52d0", "size": "various", "name": "scene_visibility_grid_aux"},
-      {"addr": "0x545c", "size": 2, "name": "scene_parity_x"},
-      {"addr": "0x545e", "size": 2, "name": "scene_parity_y"},
-      {"addr": "0x5460", "size": 2, "name": "scene_max_cell_distance"}
+      {
+        "addr": "0x363a",
+        "size": 2,
+        "name": "game_state_word",
+        "note": "Read by wroot dispatch; wtrea handles values 0xf and 0x15. Writes 0x16 on exit, 8 on TPK."
+      },
+      {
+        "addr": "0x363c",
+        "size": 2,
+        "name": "dungeon_depth",
+        "note": "Used as difficulty penalty in disarm (*-2) and open (*-1 to *-2 depending on class) score formulas."
+      },
+      {
+        "addr": "0x43c4",
+        "size": 2,
+        "name": "current_treasure_class",
+        "note": "Set by combat/maze code; the lookup key for data_table_load(7) which returns the 36-byte loot table. Reset to 0xffff after consumption."
+      },
+      {
+        "addr": "0x43c6",
+        "size": 2,
+        "name": "treasure_chest_type_hint",
+        "note": "Co-set with 0x43c8 by encounter code; checked by state-0f handler to decide whether to invoke chest UI."
+      },
+      {
+        "addr": "0x43c8",
+        "size": 2,
+        "name": "treasure_chest_type_hint_hi"
+      },
+      {
+        "addr": "0x43ce",
+        "size": 2,
+        "name": "party_size"
+      },
+      {
+        "addr": "0x4410",
+        "size": "4 * 6 = 24",
+        "name": "char.mana_by_school[6]",
+        "note": "Per-character per-school mana — stride 4 bytes (32-bit). 6 schools. Read/decremented by chest-spell cast."
+      },
+      {
+        "addr": "0x4570",
+        "size": "82 bits = ~11 bytes",
+        "name": "char.known_spells_bitmap",
+        "note": "82-bit bitmap. Read via getbit_test by wtrea_filter_known_spells_in_school (0x32eb). Spell-id range 0..81."
+      },
+      {
+        "addr": "0x4587",
+        "size": 1,
+        "name": "char.class_byte",
+        "note": "Read for disarm/open class bonuses: class 3 (Thief) gets +dex*3, class 4/6/13 (Ninja/Bard/?) gets +dex*2"
+      },
+      {
+        "addr": "0x4589",
+        "size": 1,
+        "name": "char.status_byte",
+        "note": "0 = alive, non-zero = dead/dying/etc. Used in alive-count and TPK check."
+      },
+      {
+        "addr": "0x4594",
+        "size": 1,
+        "name": "char.inventory_main_count",
+        "note": "Number of items in main inventory (slots 0..9)"
+      },
+      {
+        "addr": "0x4595",
+        "size": 1,
+        "name": "char.inventory_overflow_count",
+        "note": "Number of items in overflow inventory (slots 10..21)"
+      },
+      {
+        "addr": "0x43e8",
+        "size": "0x1b0 * N",
+        "name": "char_record_array",
+        "note": "Stride 0x1b0 (432 bytes per character). Same layout as wpcvw."
+      },
+      {
+        "addr": "0x440c",
+        "size": 2,
+        "name": "char.level",
+        "note": "Read for disarm/open scoring."
+      },
+      {
+        "addr": "0x4400",
+        "size": 4,
+        "name": "char.hp_or_buffer",
+        "note": "32-bit field decremented by trap damage in wtrea_action_apply_trap_damage (0x175f). Likely HP."
+      },
+      {
+        "addr": "0x4408",
+        "size": 2,
+        "name": "char.inventory_weight_total",
+        "note": "Recomputed after every insert by 0x401f."
+      },
+      {
+        "addr": "0x43f4",
+        "size": 4,
+        "name": "char.xp_32bit",
+        "note": "32-bit experience points. Type-4 loot rolls add base*dice to each alive member's XP without dividing."
+      },
+      {
+        "addr": "0x43fc",
+        "size": 4,
+        "name": "char.gold_32bit",
+        "note": "32-bit gold per character. Type-1 loot rolls accumulate gold, then divide by party_size and add to each alive member."
+      },
+      {
+        "addr": "0x4428",
+        "size": "8 * 22",
+        "name": "char.inventory_records",
+        "note": "22 slots × 8 bytes. +0/+1 item_id, +2 pre-rolled-misc word, +4 type-byte, +5 id-mark, +6 quantity, +7 flags (0x01 cursed-identified, 0x02 cursed-unidentified, 0x04/0x08 var-cursed, 0x40 class-locked)."
+      },
+      {
+        "addr": "0x450c",
+        "size": 1,
+        "name": "char.asleep_byte"
+      },
+      {
+        "addr": "0x450d",
+        "size": 1,
+        "name": "char.paralyzed_or_silenced_byte"
+      },
+      {
+        "addr": "0x451c",
+        "size": "1 * N",
+        "name": "char.skill_bytes",
+        "note": "Per-skill score 0..100. Trained by `skill_train_chance_increment` (0x14f2)."
+      },
+      {
+        "addr": "0x452b",
+        "size": 1,
+        "name": "char.disarm_skill_byte",
+        "note": "Thief disarm/trap skill at offset +0xf within skill array. Read by 0x2582 and 0x23b5 for disarm/open formulas. Trained per use."
+      },
+      {
+        "addr": "0x453a",
+        "size": "1 * N",
+        "name": "char.condition_resistance",
+        "note": "Per-condition saving-throw byte 0..100. Read by `wtrea_apply_status_or_death` (0x16ab) for trap status resistance."
+      },
+      {
+        "addr": "0x4eec",
+        "size": "10 * N",
+        "name": "dungeon_depth_chest_flags_table",
+        "note": "Per-dungeon-level chest flags (10 bytes per level, ~13 levels). Written by `wtrea_consume_chest_tile_flags` (0x4a1d) to mark a chest tile as consumed."
+      },
+      {
+        "addr": "0x4faa",
+        "size": 2,
+        "name": "wall_bitmap_ptr",
+        "note": "Pointer into the wall bitmap (same as wmaze/wmnpc). +0x43a/+0x49a/+0x60/+0x120/+0x1e0/+0x1ec hold wall presence + cell-x/cell-y."
+      },
+      {
+        "addr": "0x4f9a",
+        "size": 2,
+        "name": "party_facing",
+        "note": "0..3 = N/E/S/W. Used by `scene_apply_facing_rotation`."
+      },
+      {
+        "addr": "0x4fce",
+        "size": 2,
+        "name": "wtrea_internal_sub_state",
+        "note": "0x0f or 0x15 — distinguishes which state-handler invoked the loot rolls."
+      },
+      {
+        "addr": "0x4ee8",
+        "size": 2,
+        "name": "chests_opened_counter",
+        "note": "Incremented by `wtrea_state_15_dungeon_chest_treasure` per chest opened. Probably persisted to save game."
+      },
+      {
+        "addr": "0x50c8",
+        "size": 2,
+        "name": "ui_mode_flag",
+        "note": "1 or 2 — toggles message-load offsets and prompt UI styling between state-0f and state-15 paths."
+      },
+      {
+        "addr": "0x5018",
+        "size": 2,
+        "name": "dice_arg_lo",
+        "note": "Used by `wtrea_pack_dice_args` (0x1563) to pass dice (base, count, size) by reference across functions"
+      },
+      {
+        "addr": "0x501a",
+        "size": 2,
+        "name": "dice_arg_hi"
+      },
+      {
+        "addr": "0x5024",
+        "size": 2,
+        "name": "chest_tier_byte",
+        "note": "0xffff = no chest, 0 = type-A, 1 = type-B (set from loot-table +0x27)"
+      },
+      {
+        "addr": "0x501c",
+        "size": 2,
+        "name": "render_cursor_state",
+        "note": "-1 or 1 — controls cursor-blink rendering in `wtrea_render_cursor_blink`"
+      },
+      {
+        "addr": "0x501e",
+        "size": 2,
+        "name": "play_idle_sound_flag"
+      },
+      {
+        "addr": "0x5020",
+        "size": 2,
+        "name": "active_animation_index_1"
+      },
+      {
+        "addr": "0x5022",
+        "size": 2,
+        "name": "active_animation_index_2"
+      },
+      {
+        "addr": "0x5026",
+        "size": 2,
+        "name": "sprite_frame_step"
+      },
+      {
+        "addr": "0x5028",
+        "size": 2,
+        "name": "sprite_y_pos"
+      },
+      {
+        "addr": "0x502a",
+        "size": 2,
+        "name": "sprite_x_pos"
+      },
+      {
+        "addr": "0x502c",
+        "size": 2,
+        "name": "idle_frame_counter"
+      },
+      {
+        "addr": "0x502e",
+        "size": 2,
+        "name": "modal_msg_window_handle",
+        "note": "Set by `wtrea_paginated_msg_display` (0x05d2). Re-focused by 0x049f cleanup."
+      },
+      {
+        "addr": "0x5030",
+        "size": 2,
+        "name": "msg_page_counter"
+      },
+      {
+        "addr": "0x5032",
+        "size": 2,
+        "name": "msg_indent_x"
+      },
+      {
+        "addr": "0x5034",
+        "size": 2,
+        "name": "render_cursor_col"
+      },
+      {
+        "addr": "0x5036",
+        "size": 2,
+        "name": "render_cursor_row"
+      },
+      {
+        "addr": "0x5038",
+        "size": 2,
+        "name": "render_active_window"
+      },
+      {
+        "addr": "0x503a",
+        "size": 2,
+        "name": "render_text_length"
+      },
+      {
+        "addr": "0x503e",
+        "size": "0x18 * 2",
+        "name": "render_text_buffer",
+        "note": "Two 24-byte buffers for blinking-text alternation in `wtrea_render_cursor_blink`"
+      },
+      {
+        "addr": "0x5056",
+        "size": 2,
+        "name": "render_text_color"
+      },
+      {
+        "addr": "0x506e",
+        "size": "0x50",
+        "name": "msg_buffer_a",
+        "note": "Main message scratch buffer for the windows"
+      },
+      {
+        "addr": "0x50be",
+        "size": "0x10",
+        "name": "msg_buffer_b",
+        "note": "Secondary scratch for menu key map"
+      },
+      {
+        "addr": "0x50ca",
+        "size": "0x14",
+        "name": "trap_name_raw_buffer",
+        "note": "Loaded by `wtrea_select_trap_type` from msg index 0x14b4 + trap_id. Source for display name."
+      },
+      {
+        "addr": "0x50de",
+        "size": "0x14",
+        "name": "trap_name_display_buffer",
+        "note": "Copy of 0x50ca used during progressive reveal — characters get replaced with '$' as they're revealed."
+      },
+      {
+        "addr": "0x5192",
+        "size": 2,
+        "name": "current_trap_id",
+        "note": "0..15. Selected by `wtrea_select_trap_type` (0x214d). 0 = no trap (skipped by disarm). Read by `wtrea_action_disarm_trap` to check correct guess."
+      },
+      {
+        "addr": "0x5194",
+        "size": "2 * 20",
+        "name": "trap_reveal_letter_flags",
+        "note": "Per-display-letter flag: 1 = real letter from trap name (color 6), 0 = decoy (color 12). Written by `wtrea_progressive_trap_reveal` (0x21c9)."
+      },
+      {
+        "addr": "0x51bc",
+        "size": "1 * 20",
+        "name": "trap_reveal_display_chars",
+        "note": "The displayed characters (mix of real + decoy letters). Built up across multiple INSPECT calls."
+      },
+      {
+        "addr": "0x51d0",
+        "size": 2,
+        "name": "trap_reveal_count",
+        "note": "How many characters in *0x51bc are currently shown."
+      },
+      {
+        "addr": "0x51d6",
+        "size": "2 * 9",
+        "name": "loot_item_id_array",
+        "note": "Item-IDs rolled by the type-2 loot entries. Up to 9 distinct items per chest."
+      },
+      {
+        "addr": "0x51e2",
+        "size": "2 * 9",
+        "name": "loot_item_quantity_array",
+        "note": "Pre-rolled quantities (for stackable items) — generated by `roll_dice_with_base` during loot roll."
+      },
+      {
+        "addr": "0x51ee",
+        "size": "0x12 * 9",
+        "name": "loot_item_name_strings",
+        "note": "18-byte per slot — item name string buffer for the loot UI display."
+      },
+      {
+        "addr": "0x525a",
+        "size": "2 * 9",
+        "name": "loot_item_aux_a"
+      },
+      {
+        "addr": "0x5266",
+        "size": 2,
+        "name": "loot_item_count",
+        "note": "Number of items in the chest after rolling. Iterated by `wtrea_loot_distribution_ui`."
+      },
+      {
+        "addr": "0x5268",
+        "size": "2 * 9",
+        "name": "loot_item_aux_b"
+      },
+      {
+        "addr": "0x5274",
+        "size": "2 * 9",
+        "name": "loot_item_leave_behind_flag",
+        "note": "Per-slot: 1 = item was rejected (inventory full), 0 = taken. Checked at end of distribution to play 'leave-behind' sound."
+      },
+      {
+        "addr": "0x52cc",
+        "size": "various",
+        "name": "scene_visibility_grid",
+        "note": "Used by the 3D wall renderer for fog-of-war / occlusion bytes. Cleared by 0x6a4a..0x6b6e."
+      },
+      {
+        "addr": "0x52d0",
+        "size": "various",
+        "name": "scene_visibility_grid_aux"
+      },
+      {
+        "addr": "0x545c",
+        "size": 2,
+        "name": "scene_parity_x"
+      },
+      {
+        "addr": "0x545e",
+        "size": 2,
+        "name": "scene_parity_y"
+      },
+      {
+        "addr": "0x5460",
+        "size": 2,
+        "name": "scene_max_cell_distance"
+      }
     ]
   },
   "findings": [
@@ -200,7 +1009,11 @@
       "category": "dispatch_entry",
       "evidence": {
         "binary": "wtrea.ovr",
-        "addresses": ["0x0e", "0x26", "0x38"],
+        "addresses": [
+          "0x0e",
+          "0x26",
+          "0x38"
+        ],
         "type": "instruction_pattern_match",
         "details": "Raw bytes at 0x26: `83 3e 3a 36 0f` (cmp word [0x363a],0xf), 0x2b: `75 0b` (jnz +0xb), 0x2d: `c7 06 3a 36 16 00` (mov word [0x363a],0x16), 0x33: `e8 e6 55` (call rel16 0x55e6 → after-IP 0x36 + 0x55e6 wrap = 0x561c). Same pattern at 0x38..0x4e for state 0x15 → calls 0x56c5. Then default `c7 06 3a 36 16 00 b8 00 00 c3` at 0x44..0x4d (mov state=0x16, mov ax,0, ret). Confirmed wtrea is a TRUE state-machine handler (unlike wmnpc/wpcmk which are library overlays)."
       },
@@ -212,7 +1025,10 @@
       "category": "loot_rolls",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x509d",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x509d"
+        },
         "details": "Decompiled inner loop: `for local_4 in 0..6: roll = rng(100); if roll < drop_chance_byte: type = type_byte_of_entry; if type==1: gold_roll = rng(max-min)+min; CARRY into 32-bit local_7e; if type==2: item_id = rng(dice)+base; *(local_4*2 + 0x51d6) = item_id; if id>0: *0x5266++; if type==4: local_82 += base * dice (long)`. After loop: count alive (slot+0x4589 == 0) → local_7a; if 0: *0x363a=8 (TPK→graveyard); else: `local_7e = FUN_3f1e(local_7e, party_size)` (the 32-bit math thunk); for each item slot, look up name via `data_table_load(1, namebuf, item_id, 0)`, store at *0x51ee+slot*0x12, set quantity via `roll_dice_with_base` if stackable; then for each alive character: `*(slot*0x1b0+0x43f4) += local_82 (xp, with carry); *(slot*0x1b0+0x43fc) += local_7e (gold-per-member, with carry)`; if *0x5266 > 0, call wtrea_loot_distribution_ui (0x43ee). Confirmed by the consistent 32-bit add-with-carry pattern + the 4-byte stride access at +0x43f4 (xp) and +0x43fc (gold). The 6-iteration cap is hardcoded as `do { ... } while (local_4 < 6)`."
       },
       "confidence": "high"
@@ -223,7 +1039,10 @@
       "category": "loot_rolls",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x509d",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x509d"
+        },
         "details": "Post-roll alive-count: `local_7a = 0; for local_4 in 0..party_size: if *(local_4*0x1b0 + 0x4589) == 0: local_7a++`. Then: `if (local_7a == 0) { *0x363a = 8; } else { /* divide gold, distribute */ }`. The state-8 write bypasses every per-character accumulation. The match for state 8 is from `wroot-functions.md` / state-table — handled by winit.ovr 0xdf6 (graveyard). Confirmed by tracing the state-machine dispatch table."
       },
       "confidence": "high"
@@ -234,7 +1053,10 @@
       "category": "chest_action",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x2582",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x2582"
+        },
         "details": "Function body after candidate match: `if (local_2e[local_c] == *0x5192) { iVar3 = param_1 * 0x1b0; local_a = *(byte*)(iVar3+0x452b)/2 + *(byte*)(iVar3+0x4518)/2 + *(int*)(iVar3+0x440c) + *0x363c * -2; if (*(char*)(iVar3+0x4587) == 3) { local_a += dex*3; call wtrea_skill_train(...); } else if (class in {4,6,13}) { local_a += dex*2; call wtrea_skill_train(...); }; clamp(local_a, 5, 0x5f); iVar3 = rng(100); if (iVar3 < local_a) return 1; else if (100 - (100-local_a)/3 < iVar3) return -1; else return 0; } else return -1;`. The +0x452b offset = skill index 0xf within +0x451c skill array. Class 3 = Thief (per wpcvw findings). Skill-train calls 0x14f2 with skill index = 0xf, multiplier = 3 (Thief) or 2 (other)."
       },
       "confidence": "high"
@@ -245,7 +1067,10 @@
       "category": "trap",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x214d",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x214d"
+        },
         "details": "Function body: `*0x5192 = 0; iVar1 = rng(100); iVar1 = iVar1 + 1; iVar3 = 0; while (iVar1 > 0 && iVar3 < 100) { *0x5192 = *0x5192 + 1; if (*0x5192 > 0xf) *0x5192 = 0; iVar3 = *0x5192; iVar2 = getbit_test(param_1+0x24, *0x5192); if (iVar2 == 1) iVar1 = iVar1 - 1; } load_msg_into_buf(*0x5192 + 0x14b4, 0x50ca); strcpy(0x50de, 0x50ca);`. The 100-iter cap + initial randomization gives roughly-uniform distribution over present bits, with small bias toward earlier-indexed traps due to the deterministic walk."
       },
       "confidence": "high"
@@ -256,7 +1081,10 @@
       "category": "trap",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x21c9",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x21c9"
+        },
         "details": "Body iterates: `while (iVar4 < *0x51d0 && param_3 > 0)` for the reveal phase; then `for (; param_3 > 0; param_3--)` for the augment phase. Inside: rng(100) gate checks, `*(local_4 + 0x51bc) = char` writes, `*(local_4 * 2 + 0x5194) = 1 or 0` for the real-vs-decoy flag, and `*(local_4 + 0x50de) = 0x24 ('$')` to mark a revealed character in the source. After updates: `ui_window_box_draw + ui_window_set_cursor(param_1, 1, 2)`; if *0x5192 == 0 (no trap), just print 0x50ca; else iterate display showing each char colored by its flag (6 for real, 12 for decoy)."
       },
       "confidence": "high"
@@ -267,7 +1095,10 @@
       "category": "chest_action",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x3406",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x3406"
+        },
         "details": "Two-window setup: `local_4 = ui_window_create(0, 0x12, 0x17, 7, 0x19, ..., 0)`; `local_6 = ui_window_create(0x16, 0x13, 0x12, 6, 0x1a, 0xfffb, 0, 0)`. Stage 1 loop: `do { ... show 6 cells (uVar6 = 0..5); local_8 = wmnpc_pick_dialogue_keyword(...); dispatch on cursor; on select (local_8=5 and local_c != 0): break; } while (uVar6 != 0xffff);` where local_c = wtrea_filter_known_spells_in_school(param_2, uVar6, local_34). Stage 2 (inside outer if): caps `iVar3 = min(6, level - spell.base_level + 1)` and lets player pick power level via similar cursor menu; checks mana `*(param_2 * 0x1b0 + iVar7 * 4 + 0x4410) >= mana_cost`. Final: if requires target, calls `wtrea_pick_party_member_target(0x7ee)`. Returns power<<8 | spell_id packed in iVar1."
       },
       "confidence": "high"
@@ -278,7 +1109,10 @@
       "category": "spell",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x32eb",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x32eb"
+        },
         "details": "`local_4 = 0; for iVar2 in 0..0x52: if (*(byte*)(iVar2*6 + 0xde) == param_2): iVar1 = getbit_test(param_1*0x1b0 + 0x4570, iVar2); if (iVar1 == 1): *(int*)(param_3 + local_4*2) = iVar2; local_4++; return local_4;`. The 6-byte spell record per entry: +0..+1 likely name-msg-id, +2 likely category/school byte (the +0xde offset suggests a base of 0xde for spell-name table, with school filtering via masking), +3..+4 likely level/mana, +5 likely effect-type. With 82 spells the bitmap needs 82 bits = at least 11 bytes."
       },
       "confidence": "high"
@@ -289,7 +1123,10 @@
       "category": "chest_menu",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x4ba1",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x4ba1"
+        },
         "details": "Body: `cVar1 = *(char*)(param_1 + 0x27); if (cVar1 == 0) *0x5024 = 0xffff; else if (cVar1 == 1) *0x5024 = 0; else if (cVar1 == 2) *0x5024 = 1; wtrea_select_trap_type(param_1); ... open windows ... draw menu cells ... do { local_a = wtrea_grid_menu_picker(local_c, 0x1451, local_22, 2, 1, 10, 3, 5, 0, 0x4e05); } while (4 < local_a); (*(code*)*(undefined2*)(local_a*2 + -0x6a1c))()`. The `-0x6a1c` is signed (= 0x95e4 unsigned 16-bit) — CS-relative jumptable address. The 5 actions are dispatched by index 0..4. Functions called only via this dispatch (no intra-overlay direct callers): 0x175f, 0x19e5, 0x23b5, 0x2582, 0x3406."
       },
       "confidence": "high"
@@ -300,7 +1137,10 @@
       "category": "inventory_action",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x401f",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x401f"
+        },
         "details": "After main+overflow scan with stackable-merge: `*(iVar5+0x4428) = item_id; *(iVar5+0x442c) = item_type; *(iVar5+0x442d) = id_mark; *(iVar5+0x442a) = misc_word; *(iVar5+0x442e) += quantity_rolled; *(iVar5+0x442f) = 0; if (local_15 & 8) *(iVar5+0x442f) |= 4; if (local_15 & 4) *(iVar5+0x442f) |= 8; if (local_15 & 0x10) *(iVar5+0x442f) |= 0x10; if (local_15 & 0x20) *(iVar5+0x442f) |= 0x20; if (local_15 & 2) *(iVar5+0x442f) |= 0x40;`. Total inventory weight recomputed via `inventory_item_weight_lookup` (0x3fc0) on each slot. Cursed-flag bit translation matches wpcvw's findings — chest items can be cursed by class (0x40 = class-locked = unequippable without remove-curse) or by default 'identified-cursed' (0x01) etc."
       },
       "confidence": "high"
@@ -311,7 +1151,10 @@
       "category": "loot_distribution",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x43ee",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x43ee"
+        },
         "details": "Body: opens local_e + local_1e windows (item-list + detail); paints UI grid via `wtrea_putchar_at_with_attr` (0x4345) calls; main loop `do { for local_4 in 0..*0x5266: render item row; cursor input via wtrea_grid_menu_picker; if ENTER: call wtrea_pick_party_member_target (FUN_10e5) with msg 0x13f1; if target chosen and item still available: call wtrea_inventory_insert (FUN_401f); on -1 (inventory full): play sound 0x4970; else FUN_436e (wtrea_loot_pile_pop_item); } while (*0x5266 > 0);`. The final 'any-items-left-behind' check: `for local_4 in 0..*0x5266: if *(local_4*2 + 0x5274) == 1: iVar2 = 1; if (iVar2 == 1): play sound 0x49cd ('leave-behind' tone)`. Confirmed by the modal-msg structure and ENTER/ESC handling identical to wpcvw's drop UI."
       },
       "confidence": "high"
@@ -322,7 +1165,16 @@
       "category": "render_3d",
       "evidence": {
         "binary": "wtrea.ovr",
-        "addresses": ["0x6c8f", "0x595f", "0x59e0", "0x5dc9", "0x5f86", "0x6224", "0x676c", "0x695b"],
+        "addresses": [
+          "0x6c8f",
+          "0x595f",
+          "0x59e0",
+          "0x5dc9",
+          "0x5f86",
+          "0x6224",
+          "0x676c",
+          "0x695b"
+        ],
         "details": "0x6c8f body: reads `local_4 = *0x4fa4; local_6 = *0x4fa2; local_8 = *0x4fa0; local_a = *0x4f9e; local_c = *0x4f9c;` (5 wall-state params); calls `FUN_f130 (a sprite-render thunk)` to initialize; `getbit_test(*0x4faa + 0x43a, ...)` for wall check; switch on *0x363c (0/4/5/10/12 ≡ wmnpc's set); else: memsets multiple visibility-grids at 0x52cc, 0x5284, 0x52ec; calls `scene_apply_facing_rotation` (0x595f) to step forward; loop `while (*0x5282 < *0x5460)` with `scene_visit_forward_cell` (0x59e0). All wall constants are HARDCODED inline — same set as wmnpc and wmaze."
       },
       "confidence": "high"
@@ -333,7 +1185,10 @@
       "category": "data_util",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x14f2",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x14f2"
+        },
         "details": "`iVar2 = param_1*0x1b0 + param_2; if (*(byte*)(iVar2+0x451c) < 100) { iVar2 = rng(*(byte*)(iVar2+0x451c)); if (iVar2 <= *(int*)(param_1*0x1b0+0x440c) * param_3) { *(char*)(iVar2_recomputed+0x451c) += 1; } }`. The +0x451c offset is the skill array base; param_2 selects which skill (e.g., 0xf for disarm). The level multiplier in param_3 makes high-level characters train faster, and the skill < 100 cap means skills max out at 100. The rng(current_skill) check makes early progression rapid but late progression slow (a 90-skill needs roll <= level*mul on rng(90))."
       },
       "confidence": "high"
@@ -344,7 +1199,10 @@
       "category": "chest_action",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x23b5",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x23b5"
+        },
         "details": "Body: `iVar3 = *(int*)(param_2*0x1b0+0x440c)/5; if (6 < iVar3) iVar3 = 6; if (class == 3) { local_4 = (skill/10 + iVar3) - depth + 5; local_6 = skill/2 + iVar3 + 0x32 + depth*-2; } else if (class in {4,6,13}) { local_4 = (skill/10 + iVar3) - depth + 3; local_6 = (skill/2 + iVar3 + 0x23) - (depth * 3) / 2; } else { local_4 = (skill/10 + iVar3) - depth + 1; local_6 = (skill/2 + iVar3 + 0xf) - depth; } clamp(local_4, min=1); clamp(local_6, 5..0x5f); wtrea_progressive_trap_reveal(param_1, param_2, local_4, local_6);`. So OPEN doesn't directly disarm — it calls into the same reveal mechanic as INSPECT, but with more aggressive parameters."
       },
       "confidence": "high"
@@ -355,7 +1213,10 @@
       "category": "chest_action",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x175f",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x175f"
+        },
         "details": "Body: `puVar3 = (undefined2*)wtrea_pack_dice_args(param_2, param_3, 0); local_4 = roll_dice_with_base(*puVar3, puVar3[1]); if (local_4 != 0 && *(byte*)(param_1*0x1b0 + 0x4589) < 3) { ... iVar2 = *(int*)(param_1*0x1b0+0x4400); if (iVar2 < local_4) local_4 = iVar2; *(int*)(param_1*0x1b0+0x4400) -= local_4; ... show 'damage' message ... if (HP < 1) { wtrea_apply_status_or_death(param_1, msg=0x1490, status=0); } else { play_sound; wtrea_wait_for_enter_with_anim; } }`. The +0x4589 check (status_byte) bails if character is already dead (>=3) — preventing damage to dead characters."
       },
       "confidence": "high"
@@ -366,7 +1227,10 @@
       "category": "trap",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x16ab",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x16ab"
+        },
         "details": "Body: `if ((param_3 == 0) || (iVar1 = rng(100), *(byte*)(param_1*0x1b0+param_3+0x453a) < iVar1)) && (*(byte*)(param_1*0x1b0+0x4589) < param_4) { *(char*)(...+0x4589) = (char)param_4; if (param_4 > 2) { *(undefined2*)(...+0x4400) = 0; *(undefined2*)(...+0x4404) = 0; play_sound(*(byte*)(...+0x4586) + 8); } load_msg_into_buf(param_2, local_52); wtrea_render_action_result_msg(param_1, local_52, local_57, local_5c, 1, 6, 0); wtrea_render_party_member_card; wtrea_wait_for_enter_with_anim; }`. param_3 = status condition index (0 = bypass save, 1..N = condition with saving throw), param_4 = severity (1 = mild, 2 = moderate, 3+ = death/incapacitating)."
       },
       "confidence": "high"
@@ -377,7 +1241,10 @@
       "category": "inventory_action",
       "evidence": {
         "binary": "wtrea.ovr",
-        "address": "0x10e5",
+        "address": {
+          "space": "wtrea.ovr",
+          "offset": "0x10e5"
+        },
         "details": "Body: `if (party_size < 2) return 0;` (auto-pick). Else: open window 0x13x13 at (5,0x19); render each party member in 2-col grid via `wtrea_render_party_member_short` (0x10a0); show prompt msg from local_12 / local_1c; loop input via wtrea_input_poll_with_anim; on cursor: redraw selected; on ENTER: return slot; on ESC: return -1. Uses standard FUN_0c05 (wtrea_grid_menu_picker) NOT directly — has its own inline cursor logic because party size is variable and layout is 2-column."
       },
       "confidence": "high"
@@ -396,84 +1263,474 @@
     }
   ],
   "renamed_full_list": [
-    {"addr": "0xe", "old": "FUN_0000_000e", "new": "wtrea_dispatch_entry", "category": "dispatch_entry"},
-    {"addr": "0x54", "old": "FUN_0000_0054", "new": "wtrea_play_random_clink", "category": "audio"},
-    {"addr": "0x7a", "old": "FUN_0000_007a", "new": "wtrea_advance_sprite_frame", "category": "render_sprite"},
-    {"addr": "0x131", "old": "FUN_0000_0131", "new": "wtrea_render_combat_sprite", "category": "render_sprite"},
-    {"addr": "0x2ad", "old": "FUN_0000_02ad", "new": "wtrea_render_screen_frame", "category": "render_main"},
-    {"addr": "0x37b", "old": "FUN_0000_037b", "new": "wtrea_wait_for_enter_with_anim", "category": "ui_widget"},
-    {"addr": "0x3ec", "old": "FUN_0000_03ec", "new": "wtrea_wait_for_enter_message", "category": "ui_widget"},
-    {"addr": "0x49f", "old": "FUN_0000_049f", "new": "wtrea_modal_msg_cleanup", "category": "ui_widget"},
-    {"addr": "0x4cd", "old": "FUN_0000_04cd", "new": "wtrea_word_wrap_print_loop", "category": "ui_widget"},
-    {"addr": "0x5d2", "old": "FUN_0000_05d2", "new": "wtrea_paginated_msg_display", "category": "ui_widget"},
-    {"addr": "0x651", "old": "FUN_0000_0651", "new": "wtrea_render_cursor_blink", "category": "ui_widget"},
-    {"addr": "0x6cb", "old": "FUN_0000_06cb", "new": "wtrea_input_poll_with_anim", "category": "ui_widget"},
-    {"addr": "0x771", "old": "FUN_0000_0771", "new": "wtrea_print_number_formatted", "category": "ui_widget"},
-    {"addr": "0x852", "old": "FUN_0000_0852", "new": "wtrea_render_party_member_card", "category": "render_party"},
-    {"addr": "0xb33", "old": "FUN_0000_0b33", "new": "wtrea_status_message_box", "category": "ui_widget"},
-    {"addr": "0xbca", "old": "FUN_0000_0bca", "new": "wtrea_redraw_menu_cell", "category": "ui_widget"},
-    {"addr": "0xc05", "old": "FUN_0000_0c05", "new": "wtrea_grid_menu_picker", "category": "ui_widget"},
-    {"addr": "0x10a0", "old": "FUN_0000_10a0", "new": "wtrea_render_party_member_short", "category": "ui_widget"},
-    {"addr": "0x10e5", "old": "FUN_0000_10e5", "new": "wtrea_pick_party_member_target", "category": "inventory_action"},
-    {"addr": "0x1485", "old": "FUN_0000_1485", "new": "wtrea_modal_msg_center_box", "category": "ui_widget"},
-    {"addr": "0x14f2", "old": "FUN_0000_14f2", "new": "skill_train_chance_increment", "category": "data_util"},
-    {"addr": "0x1534", "old": "FUN_0000_1534", "new": "roll_dice_with_base", "category": "data_util"},
-    {"addr": "0x1563", "old": "FUN_0000_1563", "new": "wtrea_pack_dice_args", "category": "data_util"},
-    {"addr": "0x1592", "old": "FUN_0000_1592", "new": "wtrea_render_action_result_msg", "category": "ui_widget"},
-    {"addr": "0x16ab", "old": "FUN_0000_16ab", "new": "wtrea_apply_status_or_death", "category": "trap"},
-    {"addr": "0x175f", "old": "FUN_0000_175f", "new": "wtrea_action_apply_trap_damage", "category": "chest_action"},
-    {"addr": "0x19e5", "old": "FUN_0000_19e5", "new": "wtrea_action_leave_or_force", "category": "chest_action"},
-    {"addr": "0x214d", "old": "FUN_0000_214d", "new": "wtrea_select_trap_type", "category": "trap"},
-    {"addr": "0x21c9", "old": "FUN_0000_21c9", "new": "wtrea_progressive_trap_reveal", "category": "trap"},
-    {"addr": "0x23b5", "old": "FUN_0000_23b5", "new": "wtrea_action_open_or_inspect", "category": "chest_action"},
-    {"addr": "0x24dc", "old": "FUN_0000_24dc", "new": "wtrea_render_trap_picker_window", "category": "ui_widget"},
-    {"addr": "0x2582", "old": "FUN_0000_2582", "new": "wtrea_action_disarm_trap", "category": "chest_action"},
-    {"addr": "0x2949", "old": "FUN_0000_2949", "new": "clamp_delta_signed", "category": "data_util"},
-    {"addr": "0x2999", "old": "FUN_0000_2999", "new": "wtrea_inline_jumptable_dispatch", "category": "data_util"},
-    {"addr": "0x2f40", "old": "FUN_0000_2f40", "new": "wtrea_draw_spell_grid_cell", "category": "spell"},
-    {"addr": "0x2f69", "old": "FUN_0000_2f69", "new": "wtrea_put_centered_char_at", "category": "spell"},
-    {"addr": "0x2f92", "old": "FUN_0000_2f92", "new": "wtrea_redraw_spell_cell", "category": "spell"},
-    {"addr": "0x2fe5", "old": "FUN_0000_2fe5", "new": "wtrea_clear_and_decorate_menu", "category": "spell"},
-    {"addr": "0x3063", "old": "FUN_0000_3063", "new": "wtrea_set_chest_decoration_byte", "category": "spell"},
-    {"addr": "0x3089", "old": "FUN_0000_3089", "new": "wtrea_init_chest_decoration_grid", "category": "spell"},
-    {"addr": "0x315c", "old": "FUN_0000_315c", "new": "wtrea_render_spell_menu_window", "category": "spell"},
-    {"addr": "0x32eb", "old": "FUN_0000_32eb", "new": "wtrea_filter_known_spells_in_school", "category": "spell"},
-    {"addr": "0x3346", "old": "FUN_0000_3346", "new": "wtrea_render_spell_picker_window", "category": "spell"},
-    {"addr": "0x3406", "old": "FUN_0000_3406", "new": "wtrea_action_cast_chest_spell", "category": "chest_action"},
-    {"addr": "0x3fc0", "old": "FUN_0000_3fc0", "new": "inventory_item_weight_lookup", "category": "inventory_action"},
-    {"addr": "0x401f", "old": "FUN_0000_401f", "new": "wtrea_inventory_insert", "category": "inventory_action"},
-    {"addr": "0x42e4", "old": "FUN_0000_42e4", "new": "wtrea_redraw_item_row", "category": "ui_widget"},
-    {"addr": "0x4345", "old": "FUN_0000_4345", "new": "wtrea_putchar_at_with_attr", "category": "ui_widget"},
-    {"addr": "0x436e", "old": "FUN_0000_436e", "new": "wtrea_loot_pile_pop_item", "category": "loot_distribution"},
-    {"addr": "0x43ee", "old": "FUN_0000_43ee", "new": "wtrea_loot_distribution_ui", "category": "loot_distribution"},
-    {"addr": "0x4a1d", "old": "FUN_0000_4a1d", "new": "wtrea_consume_chest_tile_flags", "category": "chest_menu"},
-    {"addr": "0x4b29", "old": "FUN_0000_4b29", "new": "is_character_ready_to_act", "category": "data_util"},
-    {"addr": "0x4b70", "old": "FUN_0000_4b70", "new": "wtrea_destroy_two_windows", "category": "ui_widget"},
-    {"addr": "0x4ba1", "old": "FUN_0000_4ba1", "new": "wtrea_chest_menu_main", "category": "chest_menu"},
-    {"addr": "0x509d", "old": "FUN_0000_509d", "new": "wtrea_run_loot_rolls", "category": "loot_rolls"},
-    {"addr": "0x5552", "old": "FUN_0000_5552", "new": "wtrea_distribute_xp_bonus", "category": "loot_rolls"},
-    {"addr": "0x561c", "old": "FUN_0000_561c", "new": "wtrea_state_0f_post_combat_treasure", "category": "state_handler"},
-    {"addr": "0x56c5", "old": "FUN_0000_56c5", "new": "wtrea_state_15_dungeon_chest_treasure", "category": "state_handler"},
-    {"addr": "0x5732", "old": "FUN_0000_5732", "new": "scene_cell_contains_point", "category": "render_3d"},
-    {"addr": "0x576f", "old": "FUN_0000_576f", "new": "scene_resolve_neighbor_cell", "category": "render_3d"},
-    {"addr": "0x5895", "old": "FUN_0000_5895", "new": "scene_right_neighbor_walls", "category": "render_3d"},
-    {"addr": "0x58fa", "old": "FUN_0000_58fa", "new": "scene_left_neighbor_walls", "category": "render_3d"},
-    {"addr": "0x595f", "old": "FUN_0000_595f", "new": "scene_apply_facing_rotation", "category": "render_3d"},
-    {"addr": "0x59e0", "old": "FUN_0000_59e0", "new": "scene_visit_forward_cell", "category": "render_3d"},
-    {"addr": "0x5dc9", "old": "FUN_0000_5dc9", "new": "scene_visit_left_neighbor", "category": "render_3d"},
-    {"addr": "0x5f86", "old": "FUN_0000_5f86", "new": "scene_visit_right_neighbor", "category": "render_3d"},
-    {"addr": "0x6224", "old": "FUN_0000_6224", "new": "scene_draw_directional_wall", "category": "render_3d"},
-    {"addr": "0x676c", "old": "FUN_0000_676c", "new": "scene_draw_directional_wall_alt", "category": "render_3d"},
-    {"addr": "0x695b", "old": "FUN_0000_695b", "new": "scene_draw_near_wall_pair", "category": "render_3d"},
-    {"addr": "0x6a4a", "old": "FUN_0000_6a4a", "new": "scene_clear_center_visibility", "category": "render_3d"},
-    {"addr": "0x6aad", "old": "FUN_0000_6aad", "new": "scene_clear_left_block", "category": "render_3d"},
-    {"addr": "0x6ade", "old": "FUN_0000_6ade", "new": "scene_clear_right_block", "category": "render_3d"},
-    {"addr": "0x6b0f", "old": "FUN_0000_6b0f", "new": "scene_clear_left_byte", "category": "render_3d"},
-    {"addr": "0x6b3c", "old": "FUN_0000_6b3c", "new": "scene_clear_left_pair_byte", "category": "render_3d"},
-    {"addr": "0x6b6e", "old": "FUN_0000_6b6e", "new": "scene_clear_right_corner_byte", "category": "render_3d"},
-    {"addr": "0x6ba0", "old": "FUN_0000_6ba0", "new": "scene_clear_floor_byte", "category": "render_3d"},
-    {"addr": "0x6bcd", "old": "FUN_0000_6bcd", "new": "wtrea_render_chest_pre_pass", "category": "render_3d"},
-    {"addr": "0x6c8f", "old": "FUN_0000_6c8f", "new": "wtrea_render_3d_view", "category": "render_3d"}
+    {
+      "addr": "0xe",
+      "old": "FUN_0000_000e",
+      "new": "wtrea_dispatch_entry",
+      "category": "dispatch_entry"
+    },
+    {
+      "addr": "0x54",
+      "old": "FUN_0000_0054",
+      "new": "wtrea_play_random_clink",
+      "category": "audio"
+    },
+    {
+      "addr": "0x7a",
+      "old": "FUN_0000_007a",
+      "new": "wtrea_advance_sprite_frame",
+      "category": "render_sprite"
+    },
+    {
+      "addr": "0x131",
+      "old": "FUN_0000_0131",
+      "new": "wtrea_render_combat_sprite",
+      "category": "render_sprite"
+    },
+    {
+      "addr": "0x2ad",
+      "old": "FUN_0000_02ad",
+      "new": "wtrea_render_screen_frame",
+      "category": "render_main"
+    },
+    {
+      "addr": "0x37b",
+      "old": "FUN_0000_037b",
+      "new": "wtrea_wait_for_enter_with_anim",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x3ec",
+      "old": "FUN_0000_03ec",
+      "new": "wtrea_wait_for_enter_message",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x49f",
+      "old": "FUN_0000_049f",
+      "new": "wtrea_modal_msg_cleanup",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x4cd",
+      "old": "FUN_0000_04cd",
+      "new": "wtrea_word_wrap_print_loop",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x5d2",
+      "old": "FUN_0000_05d2",
+      "new": "wtrea_paginated_msg_display",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x651",
+      "old": "FUN_0000_0651",
+      "new": "wtrea_render_cursor_blink",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x6cb",
+      "old": "FUN_0000_06cb",
+      "new": "wtrea_input_poll_with_anim",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x771",
+      "old": "FUN_0000_0771",
+      "new": "wtrea_print_number_formatted",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x852",
+      "old": "FUN_0000_0852",
+      "new": "wtrea_render_party_member_card",
+      "category": "render_party"
+    },
+    {
+      "addr": "0xb33",
+      "old": "FUN_0000_0b33",
+      "new": "wtrea_status_message_box",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0xbca",
+      "old": "FUN_0000_0bca",
+      "new": "wtrea_redraw_menu_cell",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0xc05",
+      "old": "FUN_0000_0c05",
+      "new": "wtrea_grid_menu_picker",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x10a0",
+      "old": "FUN_0000_10a0",
+      "new": "wtrea_render_party_member_short",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x10e5",
+      "old": "FUN_0000_10e5",
+      "new": "wtrea_pick_party_member_target",
+      "category": "inventory_action"
+    },
+    {
+      "addr": "0x1485",
+      "old": "FUN_0000_1485",
+      "new": "wtrea_modal_msg_center_box",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x14f2",
+      "old": "FUN_0000_14f2",
+      "new": "skill_train_chance_increment",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x1534",
+      "old": "FUN_0000_1534",
+      "new": "roll_dice_with_base",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x1563",
+      "old": "FUN_0000_1563",
+      "new": "wtrea_pack_dice_args",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x1592",
+      "old": "FUN_0000_1592",
+      "new": "wtrea_render_action_result_msg",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x16ab",
+      "old": "FUN_0000_16ab",
+      "new": "wtrea_apply_status_or_death",
+      "category": "trap"
+    },
+    {
+      "addr": "0x175f",
+      "old": "FUN_0000_175f",
+      "new": "wtrea_action_apply_trap_damage",
+      "category": "chest_action"
+    },
+    {
+      "addr": "0x19e5",
+      "old": "FUN_0000_19e5",
+      "new": "wtrea_action_leave_or_force",
+      "category": "chest_action"
+    },
+    {
+      "addr": "0x214d",
+      "old": "FUN_0000_214d",
+      "new": "wtrea_select_trap_type",
+      "category": "trap"
+    },
+    {
+      "addr": "0x21c9",
+      "old": "FUN_0000_21c9",
+      "new": "wtrea_progressive_trap_reveal",
+      "category": "trap"
+    },
+    {
+      "addr": "0x23b5",
+      "old": "FUN_0000_23b5",
+      "new": "wtrea_action_open_or_inspect",
+      "category": "chest_action"
+    },
+    {
+      "addr": "0x24dc",
+      "old": "FUN_0000_24dc",
+      "new": "wtrea_render_trap_picker_window",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x2582",
+      "old": "FUN_0000_2582",
+      "new": "wtrea_action_disarm_trap",
+      "category": "chest_action"
+    },
+    {
+      "addr": "0x2949",
+      "old": "FUN_0000_2949",
+      "new": "clamp_delta_signed",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x2999",
+      "old": "FUN_0000_2999",
+      "new": "wtrea_inline_jumptable_dispatch",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x2f40",
+      "old": "FUN_0000_2f40",
+      "new": "wtrea_draw_spell_grid_cell",
+      "category": "spell"
+    },
+    {
+      "addr": "0x2f69",
+      "old": "FUN_0000_2f69",
+      "new": "wtrea_put_centered_char_at",
+      "category": "spell"
+    },
+    {
+      "addr": "0x2f92",
+      "old": "FUN_0000_2f92",
+      "new": "wtrea_redraw_spell_cell",
+      "category": "spell"
+    },
+    {
+      "addr": "0x2fe5",
+      "old": "FUN_0000_2fe5",
+      "new": "wtrea_clear_and_decorate_menu",
+      "category": "spell"
+    },
+    {
+      "addr": "0x3063",
+      "old": "FUN_0000_3063",
+      "new": "wtrea_set_chest_decoration_byte",
+      "category": "spell"
+    },
+    {
+      "addr": "0x3089",
+      "old": "FUN_0000_3089",
+      "new": "wtrea_init_chest_decoration_grid",
+      "category": "spell"
+    },
+    {
+      "addr": "0x315c",
+      "old": "FUN_0000_315c",
+      "new": "wtrea_render_spell_menu_window",
+      "category": "spell"
+    },
+    {
+      "addr": "0x32eb",
+      "old": "FUN_0000_32eb",
+      "new": "wtrea_filter_known_spells_in_school",
+      "category": "spell"
+    },
+    {
+      "addr": "0x3346",
+      "old": "FUN_0000_3346",
+      "new": "wtrea_render_spell_picker_window",
+      "category": "spell"
+    },
+    {
+      "addr": "0x3406",
+      "old": "FUN_0000_3406",
+      "new": "wtrea_action_cast_chest_spell",
+      "category": "chest_action"
+    },
+    {
+      "addr": "0x3fc0",
+      "old": "FUN_0000_3fc0",
+      "new": "inventory_item_weight_lookup",
+      "category": "inventory_action"
+    },
+    {
+      "addr": "0x401f",
+      "old": "FUN_0000_401f",
+      "new": "wtrea_inventory_insert",
+      "category": "inventory_action"
+    },
+    {
+      "addr": "0x42e4",
+      "old": "FUN_0000_42e4",
+      "new": "wtrea_redraw_item_row",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x4345",
+      "old": "FUN_0000_4345",
+      "new": "wtrea_putchar_at_with_attr",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x436e",
+      "old": "FUN_0000_436e",
+      "new": "wtrea_loot_pile_pop_item",
+      "category": "loot_distribution"
+    },
+    {
+      "addr": "0x43ee",
+      "old": "FUN_0000_43ee",
+      "new": "wtrea_loot_distribution_ui",
+      "category": "loot_distribution"
+    },
+    {
+      "addr": "0x4a1d",
+      "old": "FUN_0000_4a1d",
+      "new": "wtrea_consume_chest_tile_flags",
+      "category": "chest_menu"
+    },
+    {
+      "addr": "0x4b29",
+      "old": "FUN_0000_4b29",
+      "new": "is_character_ready_to_act",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x4b70",
+      "old": "FUN_0000_4b70",
+      "new": "wtrea_destroy_two_windows",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x4ba1",
+      "old": "FUN_0000_4ba1",
+      "new": "wtrea_chest_menu_main",
+      "category": "chest_menu"
+    },
+    {
+      "addr": "0x509d",
+      "old": "FUN_0000_509d",
+      "new": "wtrea_run_loot_rolls",
+      "category": "loot_rolls"
+    },
+    {
+      "addr": "0x5552",
+      "old": "FUN_0000_5552",
+      "new": "wtrea_distribute_xp_bonus",
+      "category": "loot_rolls"
+    },
+    {
+      "addr": "0x561c",
+      "old": "FUN_0000_561c",
+      "new": "wtrea_state_0f_post_combat_treasure",
+      "category": "state_handler"
+    },
+    {
+      "addr": "0x56c5",
+      "old": "FUN_0000_56c5",
+      "new": "wtrea_state_15_dungeon_chest_treasure",
+      "category": "state_handler"
+    },
+    {
+      "addr": "0x5732",
+      "old": "FUN_0000_5732",
+      "new": "scene_cell_contains_point",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x576f",
+      "old": "FUN_0000_576f",
+      "new": "scene_resolve_neighbor_cell",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x5895",
+      "old": "FUN_0000_5895",
+      "new": "scene_right_neighbor_walls",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x58fa",
+      "old": "FUN_0000_58fa",
+      "new": "scene_left_neighbor_walls",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x595f",
+      "old": "FUN_0000_595f",
+      "new": "scene_apply_facing_rotation",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x59e0",
+      "old": "FUN_0000_59e0",
+      "new": "scene_visit_forward_cell",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x5dc9",
+      "old": "FUN_0000_5dc9",
+      "new": "scene_visit_left_neighbor",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x5f86",
+      "old": "FUN_0000_5f86",
+      "new": "scene_visit_right_neighbor",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x6224",
+      "old": "FUN_0000_6224",
+      "new": "scene_draw_directional_wall",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x676c",
+      "old": "FUN_0000_676c",
+      "new": "scene_draw_directional_wall_alt",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x695b",
+      "old": "FUN_0000_695b",
+      "new": "scene_draw_near_wall_pair",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x6a4a",
+      "old": "FUN_0000_6a4a",
+      "new": "scene_clear_center_visibility",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x6aad",
+      "old": "FUN_0000_6aad",
+      "new": "scene_clear_left_block",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x6ade",
+      "old": "FUN_0000_6ade",
+      "new": "scene_clear_right_block",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x6b0f",
+      "old": "FUN_0000_6b0f",
+      "new": "scene_clear_left_byte",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x6b3c",
+      "old": "FUN_0000_6b3c",
+      "new": "scene_clear_left_pair_byte",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x6b6e",
+      "old": "FUN_0000_6b6e",
+      "new": "scene_clear_right_corner_byte",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x6ba0",
+      "old": "FUN_0000_6ba0",
+      "new": "scene_clear_floor_byte",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x6bcd",
+      "old": "FUN_0000_6bcd",
+      "new": "wtrea_render_chest_pre_pass",
+      "category": "render_3d"
+    },
+    {
+      "addr": "0x6c8f",
+      "old": "FUN_0000_6c8f",
+      "new": "wtrea_render_3d_view",
+      "category": "render_3d"
+    }
   ],
   "unresolved": [
     "The 5-entry chest-menu jumptable at CS-relative `-0x6a1c` inside `wtrea_chest_menu_main` (0x4ba1). 10 bytes of inline function pointers. We have the 5 candidate functions (0x175f, 0x19e5, 0x23b5, 0x2582, 0x3406) but the index-to-function mapping is not 1:1 confirmed without dumping the CS:offset bytes at runtime. Confirmed via behavior: 0x2582 = DISARM, 0x3406 = SPELL, 0x23b5 = OPEN (computes trap-reveal stats), but INSPECT and LEAVE are ambiguous (0x175f does damage display, 0x19e5 has bad disassembly making it hard to confirm as LEAVE).",

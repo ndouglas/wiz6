@@ -1,7 +1,10 @@
 {
   "topic": "winit-state1-audio",
   "subagent_run": "2026-05-23T19:30:00Z",
-  "binaries": ["winit.ovr", "wroot.exe"],
+  "binaries": [
+    "winit.ovr",
+    "wroot.exe"
+  ],
   "summary": "Enumerated the 5 audio_play_sound calls inside winit_state1_title_and_credits (file 0x9f3 in winit.ovr) and identified the runtime sound-table populator. State 1 uses N = {4, 0xD, 0xE, 6, 7} which map directly to SOUND04/13/14/06/07.SND respectively, because the runtime sound-table populator at winit 0x291 (mis-named 'winit_preload_monster_sprites' in earlier passes — it is actually the SOUND preload) iterates i = 0..N-1 and opens 'SOUND<i:02>.SND' for each entry whose buffer offsets in MASTER.HDR are non-zero. The five state-1 calls map onto the three user-visible intro transitions as: N=4 → Sir-Tech splash sound (SOUND04.SND), N=0xD → Bradley splash sound (SOUND13.SND), N=0xE → Scroll-page transition (SOUND14.SND), with N=6 and N=7 firing as internal beats during the post-clear / pre-scroll static-header reveal (SOUND06.SND, SOUND07.SND).",
   "method": "PyGhidra decompile of winit_state1_title_and_credits (0x9f3). Raw byte scan to enumerate every CALL 0xC546 (audio_play_sound thunk) in winit.ovr (the thunk-delta law gives 0xC546 - 0xBA9C = 0xAAA = wroot audio_play_sound). PyGhidra disassembly of winit 0x291 to identify the sound-table populator. Decompile of wroot 0x10AAA (audio_play_sound) to verify the 12-byte-per-slot layout. Decompile of wroot 0x10882 (file-table-resolver, kind=9) to confirm how sound descriptors flow from MASTER.HDR to DGROUP 0x3344.",
   "stats": {
@@ -11,7 +14,6 @@
     "sound_table_slots_preloaded": 14,
     "sound_files_referenced_by_state1": 5
   },
-
   "state1_audio_calls": {
     "summary": "Five CALL 0xC546 (= audio_play_sound thunk) sites inside winit_state1_title_and_credits, in execution order. Each pushes a single byte argument N immediately before the call (pattern: B8 0X 00 50 E8 lo hi). N indexes the runtime sound table at DGROUP 0x3344 + N*0xC.",
     "thunk_target": {
@@ -77,7 +79,6 @@
     },
     "confidence": "high"
   },
-
   "sound_table_population": {
     "summary": "The runtime sound table at DGROUP 0x3344 (12 bytes per entry × 14 entries = 168 bytes) is populated by a preload loop at winit.ovr file offset 0x291. The function is currently named 'winit_preload_monster_sprites' in the Ghidra project — that name is WRONG. It is the SOUND preload, not the monster-sprite preload. The Ghidra rename was carried over from an earlier doc (docs/re/pic-loader.md line 23) that incorrectly attributed file offset 0x33A to a 'mon00..monNN' loop. Inspecting the actual assembly: the file name template at DGROUP 0x4ff8 is 'SOUND%02d.SND' (digits patched at template[5] and template[6], not template[3] and template[4] as a MON??.PIC template would do), and the descriptor table populated is 0x3344 (the sound table), not the monster-sprite table.",
     "populator_function": {
@@ -141,27 +142,73 @@
     "sound_id_to_filename_mapping": {
       "rule": "For slot N preloaded by winit_preload_sounds(N>=N+1), the engine opens 'SOUND<N:02>.SND' (digits substituted into template[5] and template[6] of the 11-char template at DGROUP 0x4ff8). The N in audio_play_sound(N) is the table index, and unless the entry is aliased (buf_lo+buf_hi == 0 ⇒ use the alias_id field at offset 0 to redirect), the file is exactly SOUND0N.SND.",
       "slots_referenced_by_state1": [
-        {"N": 4, "N_hex": "0x4", "filename": "SOUND04.SND", "file_exists": true, "tree_size_bytes": 16, "file_size_bytes": 340},
-        {"N": 6, "N_hex": "0x6", "filename": "SOUND06.SND", "file_exists": true, "tree_size_bytes": 160, "file_size_bytes": 1486},
-        {"N": 7, "N_hex": "0x7", "filename": "SOUND07.SND", "file_exists": true, "tree_size_bytes": 252, "file_size_bytes": 2185},
-        {"N": 13, "N_hex": "0xD", "filename": "SOUND13.SND", "file_exists": true, "tree_size_bytes": 140, "file_size_bytes": 1712},
-        {"N": 14, "N_hex": "0xE", "filename": "SOUND14.SND", "file_exists": true, "tree_size_bytes": 152, "file_size_bytes": 5506}
+        {
+          "N": 4,
+          "N_hex": "0x4",
+          "filename": "SOUND04.SND",
+          "file_exists": true,
+          "tree_size_bytes": 16,
+          "file_size_bytes": 340
+        },
+        {
+          "N": 6,
+          "N_hex": "0x6",
+          "filename": "SOUND06.SND",
+          "file_exists": true,
+          "tree_size_bytes": 160,
+          "file_size_bytes": 1486
+        },
+        {
+          "N": 7,
+          "N_hex": "0x7",
+          "filename": "SOUND07.SND",
+          "file_exists": true,
+          "tree_size_bytes": 252,
+          "file_size_bytes": 2185
+        },
+        {
+          "N": 13,
+          "N_hex": "0xD",
+          "filename": "SOUND13.SND",
+          "file_exists": true,
+          "tree_size_bytes": 140,
+          "file_size_bytes": 1712
+        },
+        {
+          "N": 14,
+          "N_hex": "0xE",
+          "filename": "SOUND14.SND",
+          "file_exists": true,
+          "tree_size_bytes": 152,
+          "file_size_bytes": 5506
+        }
       ],
       "full_preloaded_table_0_to_13": {
         "note": "winit_preload_sounds(14) preloads slots 0..13. Slot N → filename SOUND<N:02>.SND if MASTER.HDR's record for slot N has non-zero buf_lo/buf_hi; otherwise the slot stays unloaded and falls back to the alias_id at offset 0 of its 12-byte descriptor.",
         "files_present_in_range_0_13": [
-          "SOUND00.SND", "SOUND02.SND", "SOUND03.SND", "SOUND04.SND", "SOUND05.SND",
-          "SOUND06.SND", "SOUND07.SND", "SOUND08.SND", "SOUND10.SND", "SOUND11.SND",
-          "SOUND12.SND", "SOUND13.SND"
+          "SOUND00.SND",
+          "SOUND02.SND",
+          "SOUND03.SND",
+          "SOUND04.SND",
+          "SOUND05.SND",
+          "SOUND06.SND",
+          "SOUND07.SND",
+          "SOUND08.SND",
+          "SOUND10.SND",
+          "SOUND11.SND",
+          "SOUND12.SND",
+          "SOUND13.SND"
         ],
-        "files_missing_in_range_0_13": ["SOUND01.SND", "SOUND09.SND"],
+        "files_missing_in_range_0_13": [
+          "SOUND01.SND",
+          "SOUND09.SND"
+        ],
         "interpretation": "The missing SOUND01.SND and SOUND09.SND suggest those slots are aliased (their MASTER.HDR record has buf_lo==buf_hi==0 so the preload skips them) — at playback time audio_play_sound(1 or 9) reads the alias_id field and redirects to another slot's loaded buffer. SOUND14.SND is preloaded by slot 14 = 0xE (which IS within the preload range since the loop iterates i=0..n_slots-1 with n_slots=0xE=14, so i goes 0..13 — meaning slot 14 itself is NOT preloaded by this call). However, audio_play_sound(0xE) at 0xb43 expects slot 14's table entry to be populated. This means either (a) the preload count is intentionally one too small and slot 0xE is loaded by a different code path, (b) the bound is i<=n_slots not i<n_slots and Ghidra mis-decoded the JGE at 0x381, or (c) the table descriptors at 0x3344 + 14*12 are populated separately. NEEDS VERIFICATION."
       },
       "confidence": "medium-high",
       "verification_needed": "Confirm via DOSBox-X file-open trace at engine startup that SOUND00..SOUND13 (12 files) and SOUND14.SND get opened during winit_state0/winit_state1 — and in what order. Also confirm whether the loop bound at winit 0x381 (JGE) is i<n_slots or i<=n_slots."
     }
   },
-
   "transition_mapping": {
     "user_visible_transitions": 3,
     "audio_calls": 5,
@@ -207,22 +254,23 @@
         "note_for_todo_007": "Same transition (scroll-start) but at the very end of the static-header reveal. Could be wired as the literal 'scroll starts moving' cue if a separate beat from the page-clear is desired."
       }
     },
-
     "final_block": {
       "sirtech-splash": "SOUND04.SND  (call site winit 0xac2, N=4)",
       "bradley-splash": "SOUND13.SND  (call site winit 0xadb, N=0xD)",
-      "scroll-start":   "SOUND14.SND  (call site winit 0xb43, N=0xE)",
+      "scroll-start": "SOUND14.SND  (call site winit 0xb43, N=0xE)",
       "internal-beats": "SOUND06.SND  (call site winit 0xb5c, N=6) + SOUND07.SND (call site winit 0xb90, N=7) — these fire during the scroll-start transition; SOUND06.SND coincides with the 'Wizardry VI' header reveal, SOUND07.SND coincides with the scroll-motion start"
     }
   },
-
   "findings": [
     {
       "id": "winit-preload-mis-naming",
       "claim": "The function at winit.ovr file 0x291, currently named 'winit_preload_monster_sprites' (per docs/re/findings/startup-sequence.json and the active Ghidra project), is actually the SOUND preload loop, not the monster-sprite preload. The mis-naming was carried over from docs/re/pic-loader.md line 23 which incorrectly attributed the 'startup MON??.PIC preload' to file offset 0x33A (which is actually a literal abort_with_code(10) call inside this function's error path).",
       "evidence": {
         "binary": "winit.ovr",
-        "address": "0x291",
+        "address": {
+          "space": "winit.ovr",
+          "offset": "0x291"
+        },
         "type": "disasm",
         "details": "At file 0x2fa..0x308: AX=i; CWD; IDIV CX(=0xa); ADD AX,0x30; MOV [BP-0xF],AL; ADD DX,0x30; MOV [BP-0xE],AL. This patches digits at template[5] and template[6] of an 11-byte string at [BP-0x14]. The 11-byte template located via copy from DGROUP 0x4ff8 has positions [5][6] = '0''0' — meaning the source template is 'SOUND00.SND' (S-O-U-N-D-0-0-.-S-N-D), NOT 'MON00.PIC' (which would patch positions [3][4]). The descriptor table populated is 0x3344 (sound table), confirmed by the index expression 'i*12 + 0x3344' at file 0x2b6, and by the buf-not-zero check at 0x2d3 against [BX+0x334a] (offset 6 of a sound-table entry — the high-half buffer pointer)."
       },
@@ -264,20 +312,17 @@
       "needs": "DOSBox-X file-open trace at startup to count how many SOUND<N>.SND files are opened (12-14 would discriminate the hypotheses) AND a breakpoint at audio_play_sound(0xE) to inspect the [BX+0x3344+0xE*12+0..0xb] table entry."
     }
   ],
-
   "unresolved": [
     "Why winit_preload_sounds is called with 14 but audio_play_sound(0xE) targets slot 14 — see finding 'loop-bound-question'. Likely answered by DOSBox-X file-open trace + memory snapshot at audio_play_sound(0xE) entry.",
     "The two 'internal beat' sounds (N=6 SOUND06.SND, N=7 SOUND07.SND) fire during the scroll-start transition but in close succession. Without listening to them in-engine, we can't tell if they are intended as a single multi-beat fanfare or as two distinct UI cues. The TS reimplementation may choose either approach.",
     "The semantic content of tokens 0xd, 9, 7, 8 (as text-token IDs in the title page) hasn't been ground-truth verified. Per startup-sequence.json this is in the 'unresolved' list. For TODO #007 the audio mapping doesn't depend on token semantics — the per-call user-visible phase is identifiable from the screen-clear/refresh pattern alone.",
     "The state-0 call to winit_preload_sounds at file 0x873 lives inside the un-disassembled gap 0x617..0x8f6 in Ghidra. State-0 (winit_state0_load_master_hdr) is much longer than the 125 bytes Ghidra reports — its body extends past 0x8ed (where *0x363a := 1 is written). A future RE pass could force-disassemble that range and define the rest of state-0 properly."
   ],
-
   "next_steps": [
     "Run DOSBox-X with file-open logging (tools/dosbox/run-with-logging.sh) from cold boot through the credit scroll. Count and order the SOUND<N>.SND opens. Verify the SOUND14.SND open against the 'loop-bound-question' finding.",
     "Implement TODO #007 in the viewer/parser by wiring the three visible transitions to the correct .snd assets: SOUND04.SND for sirtech-splash, SOUND13.SND for bradley-splash, SOUND14.SND for scroll-start. Optionally layer SOUND06.SND and SOUND07.SND as the scroll-start reveal/motion beats.",
     "Rename winit 0x291 from 'winit_preload_monster_sprites' to 'winit_preload_sounds' (via apply_winit_names.py or a follow-up rename pass). Fix docs/re/pic-loader.md line 23 (the 'winit.ovr 0x033A startup pre-load loop' row is wrong on both the address and the file kind)."
   ],
-
   "operational_notes": {
     "ghidra_install": "/opt/homebrew/Cellar/ghidra/12.1/libexec",
     "pyghidra_version": "3.1.0",

@@ -4,10 +4,21 @@
   "method": "byte-pattern scan + manual disassembly of every INT 10h site in every binary (wroot.exe + 10 overlays + 4 drivers)",
   "binaries_scanned": [
     "wroot.exe",
-    "wbase.ovr", "wdopt.ovr", "winit.ovr", "wmaze.ovr",
-    "wmele.ovr", "wmexe.ovr", "wmnpc.ovr", "wpcmk.ovr",
-    "wpcvw.ovr", "wpops.ovr", "wtrea.ovr",
-    "cga.drv", "ega.drv", "herc.drv", "tandy.drv"
+    "wbase.ovr",
+    "wdopt.ovr",
+    "winit.ovr",
+    "wmaze.ovr",
+    "wmele.ovr",
+    "wmexe.ovr",
+    "wmnpc.ovr",
+    "wpcmk.ovr",
+    "wpcvw.ovr",
+    "wpops.ovr",
+    "wtrea.ovr",
+    "cga.drv",
+    "ega.drv",
+    "herc.drv",
+    "tandy.drv"
   ],
   "summary": "Exactly 2 EGA-palette-write sites total, both in wroot.exe at file offsets 0x209B and 0x2105. Zero AX=1000h (set-one-register), zero AX=1001h (set-overscan), zero AX=1003h (blink toggle). Zero direct EGA Attribute Controller port writes (no `MOV DX, 0x3C0`, no `MOV DX, 0x3DA`, no short-form `OUT 0xC0, AL`) across any binary. The engine has exactly two EGA palettes: wiz6-main (loaded at 0x209B) and wiz6-dungeon (loaded at 0x2105). The empirically-extracted `wiz6-title` palette in packages/viewer/src/palettes/wiz6-title.ts is therefore NOT a third engine palette — it must be either the BIOS-default EGA palette accessed through a permuted index mapping in the .ega screen decoder, or one of the two known palettes with a similar decoder-side permutation. See unresolved item below.",
   "findings": [
@@ -17,27 +28,94 @@
       "category": "int10-set-all",
       "evidence": {
         "binary": "wroot.exe",
-        "address": "0x209B",
+        "address": {
+          "space": "wroot.exe",
+          "offset": "0x209B"
+        },
         "byte_pattern": "B8 02 10 CD 10 (MOV AX, 1002h; INT 10h)",
         "table_offset": "0x2043 (CS-relative 0x1E43)",
         "table_bytes": "00 17 11 15 14 16 12 13 10 07 01 05 04 06 02 03 00",
         "decoded_rgb": [
-          [0, 0, 0],
-          [170, 255, 170],
-          [0, 85, 170],
-          [170, 85, 170],
-          [170, 85, 0],
-          [170, 255, 0],
-          [0, 255, 0],
-          [0, 255, 170],
-          [0, 85, 0],
-          [170, 170, 170],
-          [0, 0, 170],
-          [170, 0, 170],
-          [170, 0, 0],
-          [170, 170, 0],
-          [0, 170, 0],
-          [0, 170, 170]
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            170,
+            255,
+            170
+          ],
+          [
+            0,
+            85,
+            170
+          ],
+          [
+            170,
+            85,
+            170
+          ],
+          [
+            170,
+            85,
+            0
+          ],
+          [
+            170,
+            255,
+            0
+          ],
+          [
+            0,
+            255,
+            0
+          ],
+          [
+            0,
+            255,
+            170
+          ],
+          [
+            0,
+            85,
+            0
+          ],
+          [
+            170,
+            170,
+            170
+          ],
+          [
+            0,
+            0,
+            170
+          ],
+          [
+            170,
+            0,
+            170
+          ],
+          [
+            170,
+            0,
+            0
+          ],
+          [
+            170,
+            170,
+            0
+          ],
+          [
+            0,
+            170,
+            0
+          ],
+          [
+            0,
+            170,
+            170
+          ]
         ],
         "caller_context": "verified in docs/re/palette-discovery.md; loaded once at startup; presumed to be the default for the main game UI and character creation"
       },
@@ -50,27 +128,94 @@
       "category": "int10-set-all",
       "evidence": {
         "binary": "wroot.exe",
-        "address": "0x2105",
+        "address": {
+          "space": "wroot.exe",
+          "offset": "0x2105"
+        },
         "byte_pattern": "B8 02 10 CD 10 (MOV AX, 1002h; INT 10h)",
         "table_offset": "0x2054 (CS-relative 0x1E54)",
         "table_bytes": "00 0F 09 0D 0C 0E 0A 0B 08 07 01 05 04 06 02 03 00",
         "decoded_rgb": [
-          [0, 0, 0],
-          [170, 170, 255],
-          [0, 0, 255],
-          [170, 0, 255],
-          [170, 0, 85],
-          [170, 170, 85],
-          [0, 170, 85],
-          [0, 170, 255],
-          [0, 0, 85],
-          [170, 170, 170],
-          [0, 0, 170],
-          [170, 0, 170],
-          [170, 0, 0],
-          [170, 170, 0],
-          [0, 170, 0],
-          [0, 170, 170]
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            170,
+            170,
+            255
+          ],
+          [
+            0,
+            0,
+            255
+          ],
+          [
+            170,
+            0,
+            255
+          ],
+          [
+            170,
+            0,
+            85
+          ],
+          [
+            170,
+            170,
+            85
+          ],
+          [
+            0,
+            170,
+            85
+          ],
+          [
+            0,
+            170,
+            255
+          ],
+          [
+            0,
+            0,
+            85
+          ],
+          [
+            170,
+            170,
+            170
+          ],
+          [
+            0,
+            0,
+            170
+          ],
+          [
+            170,
+            0,
+            170
+          ],
+          [
+            170,
+            0,
+            0
+          ],
+          [
+            170,
+            170,
+            0
+          ],
+          [
+            0,
+            170,
+            0
+          ],
+          [
+            0,
+            170,
+            170
+          ]
         ],
         "caller_context": "verified in docs/re/palette-discovery.md; presumed to be the dungeon palette (blue-leaning); indices 9-15 identical to wiz6-main"
       },
@@ -114,13 +259,41 @@
       "evidence": {
         "binary": "wroot.exe",
         "sites_decoded": [
-          {"address": "0x1E77", "function": "AH=00h (set video mode); mode loaded from cs:0x1B4C", "palette_relevant": false},
-          {"address": "0x1E84", "function": "AH=02h (set cursor position); cursor to (0,0) on page 0", "palette_relevant": false},
-          {"address": "0x1F58", "function": "AH=0Fh (get current video mode); read-only", "palette_relevant": false},
-          {"address": "0x1FEC", "function": "AX=0004h (set CGA video mode 4)", "palette_relevant": false},
-          {"address": "0x1FF4", "function": "AH=0Bh, BX=0101h (CGA palette select; CGA-only function, does not touch EGA palette registers)", "palette_relevant": false},
-          {"address": "0x2092", "function": "AX=000Dh (set EGA video mode 0Dh)", "palette_relevant": false},
-          {"address": "0x20FB", "function": "AX=0009h (set Tandy video mode 9)", "palette_relevant": false}
+          {
+            "address": "0x1E77",
+            "function": "AH=00h (set video mode); mode loaded from cs:0x1B4C",
+            "palette_relevant": false
+          },
+          {
+            "address": "0x1E84",
+            "function": "AH=02h (set cursor position); cursor to (0,0) on page 0",
+            "palette_relevant": false
+          },
+          {
+            "address": "0x1F58",
+            "function": "AH=0Fh (get current video mode); read-only",
+            "palette_relevant": false
+          },
+          {
+            "address": "0x1FEC",
+            "function": "AX=0004h (set CGA video mode 4)",
+            "palette_relevant": false
+          },
+          {
+            "address": "0x1FF4",
+            "function": "AH=0Bh, BX=0101h (CGA palette select; CGA-only function, does not touch EGA palette registers)",
+            "palette_relevant": false
+          },
+          {
+            "address": "0x2092",
+            "function": "AX=000Dh (set EGA video mode 0Dh)",
+            "palette_relevant": false
+          },
+          {
+            "address": "0x20FB",
+            "function": "AX=0009h (set Tandy video mode 9)",
+            "palette_relevant": false
+          }
         ]
       },
       "confidence": "high"

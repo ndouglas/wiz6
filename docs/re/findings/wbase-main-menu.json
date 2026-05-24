@@ -1,7 +1,10 @@
 {
   "topic": "wbase-main-menu",
   "subagent_run": "2026-05-22T20:45:00Z",
-  "binaries": ["wbase.ovr", "wroot.exe"],
+  "binaries": [
+    "wbase.ovr",
+    "wroot.exe"
+  ],
   "summary": "Mapped the wbase.ovr overlay's state machine and the main-menu state (state 4). wbase handles three master-state values: 4 (main menu), 7 (post-gameplay cleanup → back to menu), and 0x18=24 (configuration submenu). Entry dispatch is at file offset 0x0e (NOT 0x0c — header is 14 bytes, two more than winit's). The dispatch differs structurally from winit: states 4 and 7 use a *0x4fce 'pending next state' cache that the entry dispatcher copies into *0x363a after the handler returns; state 0x18 manages its own *0x363a write. The main menu (state 4 / FUN_2b36) is a 9-slot menu using the same generic FUN_025c selection-loop widget that wmaze uses (FUN_1574 in wmaze). Each enabled option's selected index is looked up via a CS-relative jump table at runtime address 0x731f which is actually stored inline in the overlay file at file offset 0x2dbb (delta 0x4564). The 9 handler addresses, the slot-enable rules, and the per-slot state transition are all extracted. Asset usage: FUN_064e(8, 4) loads font-table entry 4 with asset kind 8 — this is the MON08.PIC-equivalent decoration (gates + figure art). The dragonsc.scr top-stripe is NOT redrawn by wbase — it's persistent from winit state-2's draw and survives because wbase doesn't clear that region. Named 16 wbase.ovr functions including all 9 main-menu option handlers.",
   "method": "PyGhidra + capstone. Decoded the 14-byte overlay header (vs. winit's 12-byte header) and the 3-way state dispatch at file offset 0x0e by raw disasm. Then identified state-4 (main menu) at 0x2b36 by tracing the dispatch CALL targets. The menu loop was readable in decompiled C but its dispatch terminator JMP cs:[bx+0x731f] referenced an address beyond the file. Discovered the jump table is INLINE in the file at 0x2dbb, with the runtime BSS offset 0x731f mapping to file offset via a constant delta of 0x4564 (consistent runtime-image vs. file mapping for this overlay's data segment). Verified by disassembling at each computed handler address — every one is a coherent option-handler with a clear state transition. State-transition behavior was confirmed by exhaustively scanning the file for writes to *0x363a (game_state) and *0x4fce (next-state cache).",
   "stats": {
@@ -26,12 +29,18 @@
   },
   "state_machine": {
     "state_var": {
-      "address": "0x363a",
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x363a"
+      },
       "type": "word",
       "scope": "shared DGROUP (set by wroot's ovl_install_table at wroot 0x132d and read by all overlays)"
     },
     "next_state_cache": {
-      "address": "0x4fce",
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x4fce"
+      },
       "type": "word",
       "claim": "Per-call cache used by wbase's entry dispatcher. After state-4 or state-7 handler returns, the dispatcher copies *0x4fce into *0x363a (effectively a deferred state transition). State 0x18 manages its own *0x363a write and the dispatcher skips the copy. State-4 itself does NOT write to *0x363a directly inside handlers EXCEPT to break the loop — instead handlers either set *0x4fce for a deferred transition or *0x363a directly to a non-negative value to exit the loop (and rely on the dispatcher's *0x4fce copy AT a later point). This is structurally different from winit (where handlers write *0x363a directly).",
       "confidence": "high"
@@ -78,7 +87,10 @@
   },
   "main_menu": {
     "entry_function": {
-      "address": "0x2b36",
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x2b36"
+      },
       "applied_name": "wbase_state4_main_menu",
       "prologue_actions": [
         "func_c1f7(0x3e8, 0x5066) — load msg #1000 into the filename-style buffer at DGROUP 0x5066 (preparation for some load)",
@@ -109,30 +121,122 @@
         ]
       },
       "options_enable_rules": [
-        {"slot": 0, "default": 1, "rules": ["always-disable slot[0] := 0", "if any byte at *0x4fd8+i==1 for i in 0..*0x4fd2 then slot[0] := 1 (scan finds unloaded scenario characters)", "if party_size >= 6 then slot[0] := 0"]},
-        {"slot": 1, "default": 1, "rules": ["if party_size < 1 then slot[1] := 0"]},
-        {"slot": 2, "default": 1, "rules": ["if party_size < 1 then slot[2] := 0"]},
-        {"slot": 3, "default": 1, "rules": ["if party_size < 2 then slot[3] := 0"]},
-        {"slot": 4, "default": 1, "rules": ["if party_size >= 1 then slot[4] := 0"]},
-        {"slot": 5, "default": 1, "rules": ["always enabled"]},
-        {"slot": 6, "default": 1, "rules": ["always enabled"]},
-        {"slot": 7, "default": 1, "rules": ["always enabled"]},
-        {"slot": 8, "default": 1, "rules": ["always enabled"]}
+        {
+          "slot": 0,
+          "default": 1,
+          "rules": [
+            "always-disable slot[0] := 0",
+            "if any byte at *0x4fd8+i==1 for i in 0..*0x4fd2 then slot[0] := 1 (scan finds unloaded scenario characters)",
+            "if party_size >= 6 then slot[0] := 0"
+          ]
+        },
+        {
+          "slot": 1,
+          "default": 1,
+          "rules": [
+            "if party_size < 1 then slot[1] := 0"
+          ]
+        },
+        {
+          "slot": 2,
+          "default": 1,
+          "rules": [
+            "if party_size < 1 then slot[2] := 0"
+          ]
+        },
+        {
+          "slot": 3,
+          "default": 1,
+          "rules": [
+            "if party_size < 2 then slot[3] := 0"
+          ]
+        },
+        {
+          "slot": 4,
+          "default": 1,
+          "rules": [
+            "if party_size >= 1 then slot[4] := 0"
+          ]
+        },
+        {
+          "slot": 5,
+          "default": 1,
+          "rules": [
+            "always enabled"
+          ]
+        },
+        {
+          "slot": 6,
+          "default": 1,
+          "rules": [
+            "always enabled"
+          ]
+        },
+        {
+          "slot": 7,
+          "default": 1,
+          "rules": [
+            "always enabled"
+          ]
+        },
+        {
+          "slot": 8,
+          "default": 1,
+          "rules": [
+            "always enabled"
+          ]
+        }
       ],
       "dispatch_jump_table": {
         "runtime_addr": "0x731f",
         "file_addr": "0x2dbb",
         "delta": "0x4564",
         "entries": [
-          {"slot": 0, "runtime_value": "0x725b", "file_offset": "0x2cf7"},
-          {"slot": 1, "runtime_value": "0x726d", "file_offset": "0x2d09"},
-          {"slot": 2, "runtime_value": "0x7291", "file_offset": "0x2d2d"},
-          {"slot": 3, "runtime_value": "0x72c1", "file_offset": "0x2d5d"},
-          {"slot": 4, "runtime_value": "0x72ee", "file_offset": "0x2d8a"},
-          {"slot": 5, "runtime_value": "0x72b5", "file_offset": "0x2d51"},
-          {"slot": 6, "runtime_value": "0x72f8", "file_offset": "0x2d94"},
-          {"slot": 7, "runtime_value": "0x7303", "file_offset": "0x2d9f"},
-          {"slot": 8, "runtime_value": "0x7311", "file_offset": "0x2dad"}
+          {
+            "slot": 0,
+            "runtime_value": "0x725b",
+            "file_offset": "0x2cf7"
+          },
+          {
+            "slot": 1,
+            "runtime_value": "0x726d",
+            "file_offset": "0x2d09"
+          },
+          {
+            "slot": 2,
+            "runtime_value": "0x7291",
+            "file_offset": "0x2d2d"
+          },
+          {
+            "slot": 3,
+            "runtime_value": "0x72c1",
+            "file_offset": "0x2d5d"
+          },
+          {
+            "slot": 4,
+            "runtime_value": "0x72ee",
+            "file_offset": "0x2d8a"
+          },
+          {
+            "slot": 5,
+            "runtime_value": "0x72b5",
+            "file_offset": "0x2d51"
+          },
+          {
+            "slot": 6,
+            "runtime_value": "0x72f8",
+            "file_offset": "0x2d94"
+          },
+          {
+            "slot": 7,
+            "runtime_value": "0x7303",
+            "file_offset": "0x2d9f"
+          },
+          {
+            "slot": 8,
+            "runtime_value": "0x7311",
+            "file_offset": "0x2dad"
+          }
         ]
       },
       "post_dispatch": "Each handler ends with `jmp 0x2dda` which is `jmp 0x2bc1` (loop top). The loop body re-checks *0x363a — if still < 0, iterates; otherwise exits to function epilogue (mov sp,bp; pop bp; ret).",
@@ -324,142 +428,735 @@
       "needs": "Direct screen-region trace in DOSBox-X to confirm which pixels are repainted when transitioning state 2 → state 4."
     },
     "msg_ids_used": [
-      {"id": "0x3e8", "decimal": 1000, "usage": "func_c1f7(0x3e8, 0x5066) at state-4 prelude — builds buffer, possibly filename"},
-      {"id": "0x3e9", "decimal": 1001, "usage": "FUN_01d6(0x3e9) — banner label, likely 'MASTER OPTIONS'"},
-      {"id": "0x3ea..0x3f2", "decimal": "1002..1010", "usage": "Menu option labels (slot 0..8 = msg base 0x3ea + slot index)"},
-      {"id": "0x4b2", "decimal": 1202, "usage": "FUN_26c7(0x4b2) — character-picker title for slot 1 (CHOOSE LEADER?)"},
-      {"id": "0x4b3", "decimal": 1203, "usage": "FUN_26c7(0x4b3) — character-picker title for slot 2 (EDIT CHARACTER?)"}
+      {
+        "id": "0x3e8",
+        "decimal": 1000,
+        "usage": "func_c1f7(0x3e8, 0x5066) at state-4 prelude — builds buffer, possibly filename"
+      },
+      {
+        "id": "0x3e9",
+        "decimal": 1001,
+        "usage": "FUN_01d6(0x3e9) — banner label, likely 'MASTER OPTIONS'"
+      },
+      {
+        "id": "0x3ea..0x3f2",
+        "decimal": "1002..1010",
+        "usage": "Menu option labels (slot 0..8 = msg base 0x3ea + slot index)"
+      },
+      {
+        "id": "0x4b2",
+        "decimal": 1202,
+        "usage": "FUN_26c7(0x4b2) — character-picker title for slot 1 (CHOOSE LEADER?)"
+      },
+      {
+        "id": "0x4b3",
+        "decimal": 1203,
+        "usage": "FUN_26c7(0x4b3) — character-picker title for slot 2 (EDIT CHARACTER?)"
+      }
     ]
   },
   "dgroup_state_variables": [
-    {"address": "0x363a", "name": "game_state", "purpose": "master state machine (shared with wroot, winit, wmaze)"},
-    {"address": "0x4fce", "name": "next_state_cache", "purpose": "wbase-only: deferred next-state value. After state-4 or state-7 handler returns, the entry dispatcher copies *0x4fce → *0x363a (transitioning to a new overlay). State 0x18 bypasses this copy."},
-    {"address": "0x43ce", "name": "party_size", "purpose": "Number of party members (0..6). Drives most menu-option enable rules."},
-    {"address": "0x43cc", "name": "last_picked_char_idx", "purpose": "Stores the result of the character-picker (FUN_26c7) for slot 1 and slot 2."},
-    {"address": "0x43dc", "name": "party_member_pcfile_idx_array", "type": "word[6]", "purpose": "Maps party slot index (0..5) to PCFILE.DBS character index. Read by slot-3 handler to unload chars, written by slot-0 (add) handler."},
-    {"address": "0x43e8", "name": "party_member_data_array", "type": "byte[6][0x1b0]", "purpose": "Full character data per party slot (432 bytes each). Written by FUN_253a's memcpy at slot-0 add."},
-    {"address": "0x43d0", "name": "party_portrait_id_array", "type": "word[6]", "purpose": "Per-party portrait IDs generated by FUN_0c2c at add-time."},
-    {"address": "0x4fd2", "name": "scenario_pcfile_count", "purpose": "Number of character slots in PCFILE.DBS. Used as bound by slot-0's enable-scan over *0x4fd8."},
-    {"address": "0x4fd8", "name": "pcfile_char_status_array", "type": "byte[]", "purpose": "Per-character availability flag. 0 = unavailable, 1 = available (not in party), 2 = used (in party). Slot-0 enables itself if any byte == 1 here. Slot-3 sets back to 1 for each party member."},
-    {"address": "0x5060", "name": "menu_animation_tick", "purpose": "Counter incremented per input poll; modulo 10 controls animation frame timing."},
-    {"address": "0x3646", "name": "menu_animation_frame_parity", "purpose": "0/1 frame-parity for the animated decoration draw."},
-    {"address": "0x5062", "name": "menu_anim_y", "purpose": "Animation Y offset (used by FUN_07b7)."},
-    {"address": "0x5064", "name": "menu_anim_x", "purpose": "Animation X offset."},
-    {"address": "0x5066", "name": "menu_filename_buffer", "purpose": "Buffer for msg-text loaded by func_c1f7(0x3e8, 0x5066) at state-4 prelude. Possibly a filename string."},
-    {"address": "0x4fa8", "name": "buffer_ptr_a (from winit findings)", "purpose": "Freed in state-7 cleanup, same pattern as winit state-8."},
-    {"address": "0x4faa", "name": "maze_data_ptr (from wmaze findings)", "purpose": "Freed in state-7 cleanup."},
-    {"address": "0x4fb0/b2/b6/b8/ba/bc", "name": "ui_window_handles (from winit findings)", "purpose": "Status bar, message window, party panels. Cleared/destroyed by state-4 prelude and state-7 cleanup."},
-    {"address": "0x4fc4", "name": "mouse_select_flag", "purpose": "Set by FUN_013b to 1 when mouse click selected a menu item; read by FUN_025c to interpret return as ENTER."},
-    {"address": "0x3596", "name": "mouse_click_state", "purpose": "Read inside FUN_013b for mouse-click detection."},
-    {"address": "0x846", "name": "menu_skip_redraw_flag", "purpose": "If non-zero, FUN_025c skips per-frame cursor redraw. Likely an 'edit mode' or 'no-cursor' flag."}
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x363a"
+      },
+      "name": "game_state",
+      "purpose": "master state machine (shared with wroot, winit, wmaze)"
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x4fce"
+      },
+      "name": "next_state_cache",
+      "purpose": "wbase-only: deferred next-state value. After state-4 or state-7 handler returns, the entry dispatcher copies *0x4fce → *0x363a (transitioning to a new overlay). State 0x18 bypasses this copy."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x43ce"
+      },
+      "name": "party_size",
+      "purpose": "Number of party members (0..6). Drives most menu-option enable rules."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x43cc"
+      },
+      "name": "last_picked_char_idx",
+      "purpose": "Stores the result of the character-picker (FUN_26c7) for slot 1 and slot 2."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x43dc"
+      },
+      "name": "party_member_pcfile_idx_array",
+      "type": "word[6]",
+      "purpose": "Maps party slot index (0..5) to PCFILE.DBS character index. Read by slot-3 handler to unload chars, written by slot-0 (add) handler."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x43e8"
+      },
+      "name": "party_member_data_array",
+      "type": "byte[6][0x1b0]",
+      "purpose": "Full character data per party slot (432 bytes each). Written by FUN_253a's memcpy at slot-0 add."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x43d0"
+      },
+      "name": "party_portrait_id_array",
+      "type": "word[6]",
+      "purpose": "Per-party portrait IDs generated by FUN_0c2c at add-time."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x4fd2"
+      },
+      "name": "scenario_pcfile_count",
+      "purpose": "Number of character slots in PCFILE.DBS. Used as bound by slot-0's enable-scan over *0x4fd8."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x4fd8"
+      },
+      "name": "pcfile_char_status_array",
+      "type": "byte[]",
+      "purpose": "Per-character availability flag. 0 = unavailable, 1 = available (not in party), 2 = used (in party). Slot-0 enables itself if any byte == 1 here. Slot-3 sets back to 1 for each party member."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x5060"
+      },
+      "name": "menu_animation_tick",
+      "purpose": "Counter incremented per input poll; modulo 10 controls animation frame timing."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x3646"
+      },
+      "name": "menu_animation_frame_parity",
+      "purpose": "0/1 frame-parity for the animated decoration draw."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x5062"
+      },
+      "name": "menu_anim_y",
+      "purpose": "Animation Y offset (used by FUN_07b7)."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x5064"
+      },
+      "name": "menu_anim_x",
+      "purpose": "Animation X offset."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x5066"
+      },
+      "name": "menu_filename_buffer",
+      "purpose": "Buffer for msg-text loaded by func_c1f7(0x3e8, 0x5066) at state-4 prelude. Possibly a filename string."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x4fa8"
+      },
+      "name": "buffer_ptr_a (from winit findings)",
+      "purpose": "Freed in state-7 cleanup, same pattern as winit state-8."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x4faa"
+      },
+      "name": "maze_data_ptr (from wmaze findings)",
+      "purpose": "Freed in state-7 cleanup."
+    },
+    {
+      "address": "0x4fb0/b2/b6/b8/ba/bc",
+      "name": "ui_window_handles (from winit findings)",
+      "purpose": "Status bar, message window, party panels. Cleared/destroyed by state-4 prelude and state-7 cleanup."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x4fc4"
+      },
+      "name": "mouse_select_flag",
+      "purpose": "Set by FUN_013b to 1 when mouse click selected a menu item; read by FUN_025c to interpret return as ENTER."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x3596"
+      },
+      "name": "mouse_click_state",
+      "purpose": "Read inside FUN_013b for mouse-click detection."
+    },
+    {
+      "address": {
+        "space": "wbase.ovr",
+        "offset": "0x846"
+      },
+      "name": "menu_skip_redraw_flag",
+      "purpose": "If non-zero, FUN_025c skips per-frame cursor redraw. Likely an 'edit mode' or 'no-cursor' flag."
+    }
   ],
   "thunks_used_by_wbase": [
-    {"thunk": "0xbb71", "wroot_offset": "0x0d5", "name": "abort_with_code"},
-    {"thunk": "0xbbb6", "wroot_offset": "0x11a", "name": "ui_window_create"},
-    {"thunk": "0xbd6e", "wroot_offset": "0x2d2", "name": "ui_window_destroy"},
-    {"thunk": "0xbda7", "wroot_offset": "0x30b", "name": "ui_window_set_cursor"},
-    {"thunk": "0xbddb", "wroot_offset": "0x33f", "name": "(small ui helper — unnamed)"},
-    {"thunk": "0xc1f7", "wroot_offset": "0x75b", "name": "load_msg_into_buf"},
-    {"thunk": "0xc497", "wroot_offset": "0x9fb", "name": "ui_window_redraw_focused"},
-    {"thunk": "0xc4de", "wroot_offset": "0xa42", "name": "(ui helper)"},
-    {"thunk": "0xc546", "wroot_offset": "0xaaa", "name": "ui_animation_helper"},
-    {"thunk": "0xc674", "wroot_offset": "0xbd8", "name": "mouse_get_pos"},
-    {"thunk": "0xc6b2", "wroot_offset": "0xc16", "name": "mouse_status_set_field"},
-    {"thunk": "0xc772", "wroot_offset": "0xcd6", "name": "boot_build_prompt_message"},
-    {"thunk": "0xcbc0", "wroot_offset": "0x1124", "name": "boot_select_disk_for_content"},
-    {"thunk": "0xdf85", "wroot_offset": "0x24e9", "name": "(ui write helper)"},
-    {"thunk": "0xdfb9", "wroot_offset": "0x251d", "name": "ui_window_puts"},
-    {"thunk": "0xe0df", "wroot_offset": "0x2643", "name": "kbd_check_with_filter"},
-    {"thunk": "0xe1c0", "wroot_offset": "0x2724", "name": "kbd_getkey_with_filter"},
-    {"thunk": "0xe2a8", "wroot_offset": "0x280c", "name": "kbd_flush_buffer"},
-    {"thunk": "0xe2f4", "wroot_offset": "0x2858", "name": "delay_one_unit"},
-    {"thunk": "0xe4ff", "wroot_offset": "0x2a63", "name": "ui_screen_refresh"},
-    {"thunk": "0xebb4", "wroot_offset": "0x3118", "name": "ui_window_focus"},
-    {"thunk": "0xec6d", "wroot_offset": "0x31d1", "name": "ui_window_unfocus"},
-    {"thunk": "0xed5a", "wroot_offset": "0x32be", "name": "ui_window_clear"},
-    {"thunk": "0xedec", "wroot_offset": "0x3350", "name": "(input helper)"},
-    {"thunk": "0xf0dc", "wroot_offset": "0x3640", "name": "kbd_pre_input_disk_check"},
-    {"thunk": "0xf100", "wroot_offset": "0x3664", "name": "video_driver_thunk_0"},
-    {"thunk": "0xf130", "wroot_offset": "0x3694", "name": "video_driver_thunk_3"},
-    {"thunk": "0xf13c", "wroot_offset": "0x36a0", "name": "video_driver_thunk_4 (post-frame refresh)"},
-    {"thunk": "0xf148", "wroot_offset": "0x36ac", "name": "video_driver_descriptor_render (PIC sprite blit)"},
-    {"thunk": "0xf5bc", "wroot_offset": "0x3b20", "name": "ui_window_free_struct"},
-    {"thunk": "0xf924", "wroot_offset": "0x3e88", "name": "crt_open"},
-    {"thunk": "0xfaab", "wroot_offset": "0x400f", "name": "strlen"},
-    {"thunk": "0xfda5", "wroot_offset": "0x4309", "name": "crt_dos_close"},
-    {"thunk": "0xfdbd", "wroot_offset": "0x4321", "name": "crt_dos_lseek"}
+    {
+      "thunk": "0xbb71",
+      "wroot_offset": "0x0d5",
+      "name": "abort_with_code"
+    },
+    {
+      "thunk": "0xbbb6",
+      "wroot_offset": "0x11a",
+      "name": "ui_window_create"
+    },
+    {
+      "thunk": "0xbd6e",
+      "wroot_offset": "0x2d2",
+      "name": "ui_window_destroy"
+    },
+    {
+      "thunk": "0xbda7",
+      "wroot_offset": "0x30b",
+      "name": "ui_window_set_cursor"
+    },
+    {
+      "thunk": "0xbddb",
+      "wroot_offset": "0x33f",
+      "name": "(small ui helper — unnamed)"
+    },
+    {
+      "thunk": "0xc1f7",
+      "wroot_offset": "0x75b",
+      "name": "load_msg_into_buf"
+    },
+    {
+      "thunk": "0xc497",
+      "wroot_offset": "0x9fb",
+      "name": "ui_window_redraw_focused"
+    },
+    {
+      "thunk": "0xc4de",
+      "wroot_offset": "0xa42",
+      "name": "(ui helper)"
+    },
+    {
+      "thunk": "0xc546",
+      "wroot_offset": "0xaaa",
+      "name": "ui_animation_helper"
+    },
+    {
+      "thunk": "0xc674",
+      "wroot_offset": "0xbd8",
+      "name": "mouse_get_pos"
+    },
+    {
+      "thunk": "0xc6b2",
+      "wroot_offset": "0xc16",
+      "name": "mouse_status_set_field"
+    },
+    {
+      "thunk": "0xc772",
+      "wroot_offset": "0xcd6",
+      "name": "boot_build_prompt_message"
+    },
+    {
+      "thunk": "0xcbc0",
+      "wroot_offset": "0x1124",
+      "name": "boot_select_disk_for_content"
+    },
+    {
+      "thunk": "0xdf85",
+      "wroot_offset": "0x24e9",
+      "name": "(ui write helper)"
+    },
+    {
+      "thunk": "0xdfb9",
+      "wroot_offset": "0x251d",
+      "name": "ui_window_puts"
+    },
+    {
+      "thunk": "0xe0df",
+      "wroot_offset": "0x2643",
+      "name": "kbd_check_with_filter"
+    },
+    {
+      "thunk": "0xe1c0",
+      "wroot_offset": "0x2724",
+      "name": "kbd_getkey_with_filter"
+    },
+    {
+      "thunk": "0xe2a8",
+      "wroot_offset": "0x280c",
+      "name": "kbd_flush_buffer"
+    },
+    {
+      "thunk": "0xe2f4",
+      "wroot_offset": "0x2858",
+      "name": "delay_one_unit"
+    },
+    {
+      "thunk": "0xe4ff",
+      "wroot_offset": "0x2a63",
+      "name": "ui_screen_refresh"
+    },
+    {
+      "thunk": "0xebb4",
+      "wroot_offset": "0x3118",
+      "name": "ui_window_focus"
+    },
+    {
+      "thunk": "0xec6d",
+      "wroot_offset": "0x31d1",
+      "name": "ui_window_unfocus"
+    },
+    {
+      "thunk": "0xed5a",
+      "wroot_offset": "0x32be",
+      "name": "ui_window_clear"
+    },
+    {
+      "thunk": "0xedec",
+      "wroot_offset": "0x3350",
+      "name": "(input helper)"
+    },
+    {
+      "thunk": "0xf0dc",
+      "wroot_offset": "0x3640",
+      "name": "kbd_pre_input_disk_check"
+    },
+    {
+      "thunk": "0xf100",
+      "wroot_offset": "0x3664",
+      "name": "video_driver_thunk_0"
+    },
+    {
+      "thunk": "0xf130",
+      "wroot_offset": "0x3694",
+      "name": "video_driver_thunk_3"
+    },
+    {
+      "thunk": "0xf13c",
+      "wroot_offset": "0x36a0",
+      "name": "video_driver_thunk_4 (post-frame refresh)"
+    },
+    {
+      "thunk": "0xf148",
+      "wroot_offset": "0x36ac",
+      "name": "video_driver_descriptor_render (PIC sprite blit)"
+    },
+    {
+      "thunk": "0xf5bc",
+      "wroot_offset": "0x3b20",
+      "name": "ui_window_free_struct"
+    },
+    {
+      "thunk": "0xf924",
+      "wroot_offset": "0x3e88",
+      "name": "crt_open"
+    },
+    {
+      "thunk": "0xfaab",
+      "wroot_offset": "0x400f",
+      "name": "strlen"
+    },
+    {
+      "thunk": "0xfda5",
+      "wroot_offset": "0x4309",
+      "name": "crt_dos_close"
+    },
+    {
+      "thunk": "0xfdbd",
+      "wroot_offset": "0x4321",
+      "name": "crt_dos_lseek"
+    }
   ],
   "renamed_full_list": [
-    {"addr": "0x0c", "old": "FUN_0000_000c", "new": "wbase_overlay_entry", "category": "dispatcher"},
-    {"addr": "0x2b36", "old": "FUN_0000_2b36", "new": "wbase_state4_main_menu", "category": "menu"},
-    {"addr": "0x2de1", "old": "FUN_0000_2de1", "new": "wbase_state7_post_gameplay_cleanup", "category": "state_machine"},
-    {"addr": "0x3151", "old": "FUN_0000_3151", "new": "wbase_state18_config_submenu", "category": "state_machine"},
-    {"addr": "0x25c", "old": "FUN_0000_025c", "new": "wbase_menu_select_loop", "category": "menu"},
-    {"addr": "0x13b", "old": "FUN_0000_013b", "new": "wbase_menu_poll_input", "category": "menu"},
-    {"addr": "0x1d6", "old": "FUN_0000_01d6", "new": "wbase_render_banner_label", "category": "menu"},
-    {"addr": "0x221", "old": "FUN_0000_0221", "new": "wbase_menu_redraw_item_unhighlighted", "category": "menu"},
-    {"addr": "0x2af7", "old": "FUN_0000_2af7", "new": "wbase_menu_count_enabled_options", "category": "menu"},
-    {"addr": "0x64e", "old": "FUN_0000_064e", "new": "wbase_load_font_table_entry", "category": "asset_loading"},
-    {"addr": "0x984", "old": "FUN_0000_0984", "new": "wbase_menu_init_decoration", "category": "menu"},
-    {"addr": "0x7b7", "old": "FUN_0000_07b7", "new": "wbase_menu_draw_decoration_frame", "category": "menu"},
-    {"addr": "0xb3", "old": "FUN_0000_00b3", "new": "wbase_wait_ticks_or_input", "category": "timing"},
-    {"addr": "0x1a0d", "old": "FUN_0000_1a0d", "new": "wbase_load_or_quit", "category": "save_load"},
-    {"addr": "0x253a", "old": "FUN_0000_253a", "new": "wbase_add_party_member_action", "category": "menu_action"},
-    {"addr": "0x26c7", "old": "FUN_0000_26c7", "new": "wbase_pick_party_member", "category": "menu_action"},
-    {"addr": "0x25cc", "old": "FUN_0000_25cc", "new": "wbase_character_submenu", "category": "menu_action"},
-    {"addr": "0x2a70", "old": "FUN_0000_2a70", "new": "wbase_unload_all_party_members", "category": "menu_action"},
-    {"addr": "0x2cf7", "old": "FUN_0000_2cf7", "new": "wbase_option0_add_party_member", "category": "menu_handler"},
-    {"addr": "0x2d09", "old": "FUN_0000_2d09", "new": "wbase_option1_choose_leader", "category": "menu_handler"},
-    {"addr": "0x2d2d", "old": "FUN_0000_2d2d", "new": "wbase_option2_character_menu", "category": "menu_handler"},
-    {"addr": "0x2d5d", "old": "FUN_0000_2d5d", "new": "wbase_option3_unload_then_load", "category": "menu_handler"},
-    {"addr": "0x2d8a", "old": "FUN_0000_2d8a", "new": "wbase_option4_resume_saved_game", "category": "menu_handler"},
-    {"addr": "0x2d51", "old": "FUN_0000_2d51", "new": "wbase_option5_make_character", "category": "menu_handler"},
-    {"addr": "0x2d94", "old": "FUN_0000_2d94", "new": "wbase_option6_game_configuration", "category": "menu_handler"},
-    {"addr": "0x2d9f", "old": "FUN_0000_2d9f", "new": "wbase_option7_show_title_page", "category": "menu_handler"},
-    {"addr": "0x2dad", "old": "FUN_0000_2dad", "new": "wbase_option8_quit_game", "category": "menu_handler"}
+    {
+      "addr": "0x0c",
+      "old": "FUN_0000_000c",
+      "new": "wbase_overlay_entry",
+      "category": "dispatcher"
+    },
+    {
+      "addr": "0x2b36",
+      "old": "FUN_0000_2b36",
+      "new": "wbase_state4_main_menu",
+      "category": "menu"
+    },
+    {
+      "addr": "0x2de1",
+      "old": "FUN_0000_2de1",
+      "new": "wbase_state7_post_gameplay_cleanup",
+      "category": "state_machine"
+    },
+    {
+      "addr": "0x3151",
+      "old": "FUN_0000_3151",
+      "new": "wbase_state18_config_submenu",
+      "category": "state_machine"
+    },
+    {
+      "addr": "0x25c",
+      "old": "FUN_0000_025c",
+      "new": "wbase_menu_select_loop",
+      "category": "menu"
+    },
+    {
+      "addr": "0x13b",
+      "old": "FUN_0000_013b",
+      "new": "wbase_menu_poll_input",
+      "category": "menu"
+    },
+    {
+      "addr": "0x1d6",
+      "old": "FUN_0000_01d6",
+      "new": "wbase_render_banner_label",
+      "category": "menu"
+    },
+    {
+      "addr": "0x221",
+      "old": "FUN_0000_0221",
+      "new": "wbase_menu_redraw_item_unhighlighted",
+      "category": "menu"
+    },
+    {
+      "addr": "0x2af7",
+      "old": "FUN_0000_2af7",
+      "new": "wbase_menu_count_enabled_options",
+      "category": "menu"
+    },
+    {
+      "addr": "0x64e",
+      "old": "FUN_0000_064e",
+      "new": "wbase_load_font_table_entry",
+      "category": "asset_loading"
+    },
+    {
+      "addr": "0x984",
+      "old": "FUN_0000_0984",
+      "new": "wbase_menu_init_decoration",
+      "category": "menu"
+    },
+    {
+      "addr": "0x7b7",
+      "old": "FUN_0000_07b7",
+      "new": "wbase_menu_draw_decoration_frame",
+      "category": "menu"
+    },
+    {
+      "addr": "0xb3",
+      "old": "FUN_0000_00b3",
+      "new": "wbase_wait_ticks_or_input",
+      "category": "timing"
+    },
+    {
+      "addr": "0x1a0d",
+      "old": "FUN_0000_1a0d",
+      "new": "wbase_load_or_quit",
+      "category": "save_load"
+    },
+    {
+      "addr": "0x253a",
+      "old": "FUN_0000_253a",
+      "new": "wbase_add_party_member_action",
+      "category": "menu_action"
+    },
+    {
+      "addr": "0x26c7",
+      "old": "FUN_0000_26c7",
+      "new": "wbase_pick_party_member",
+      "category": "menu_action"
+    },
+    {
+      "addr": "0x25cc",
+      "old": "FUN_0000_25cc",
+      "new": "wbase_character_submenu",
+      "category": "menu_action"
+    },
+    {
+      "addr": "0x2a70",
+      "old": "FUN_0000_2a70",
+      "new": "wbase_unload_all_party_members",
+      "category": "menu_action"
+    },
+    {
+      "addr": "0x2cf7",
+      "old": "FUN_0000_2cf7",
+      "new": "wbase_option0_add_party_member",
+      "category": "menu_handler"
+    },
+    {
+      "addr": "0x2d09",
+      "old": "FUN_0000_2d09",
+      "new": "wbase_option1_choose_leader",
+      "category": "menu_handler"
+    },
+    {
+      "addr": "0x2d2d",
+      "old": "FUN_0000_2d2d",
+      "new": "wbase_option2_character_menu",
+      "category": "menu_handler"
+    },
+    {
+      "addr": "0x2d5d",
+      "old": "FUN_0000_2d5d",
+      "new": "wbase_option3_unload_then_load",
+      "category": "menu_handler"
+    },
+    {
+      "addr": "0x2d8a",
+      "old": "FUN_0000_2d8a",
+      "new": "wbase_option4_resume_saved_game",
+      "category": "menu_handler"
+    },
+    {
+      "addr": "0x2d51",
+      "old": "FUN_0000_2d51",
+      "new": "wbase_option5_make_character",
+      "category": "menu_handler"
+    },
+    {
+      "addr": "0x2d94",
+      "old": "FUN_0000_2d94",
+      "new": "wbase_option6_game_configuration",
+      "category": "menu_handler"
+    },
+    {
+      "addr": "0x2d9f",
+      "old": "FUN_0000_2d9f",
+      "new": "wbase_option7_show_title_page",
+      "category": "menu_handler"
+    },
+    {
+      "addr": "0x2dad",
+      "old": "FUN_0000_2dad",
+      "new": "wbase_option8_quit_game",
+      "category": "menu_handler"
+    }
   ],
   "new_functions_to_create": [
-    {"addr": "0x0c", "new": "wbase_overlay_entry"},
-    {"addr": "0x2cf7", "new": "wbase_option0_add_party_member"},
-    {"addr": "0x2d09", "new": "wbase_option1_choose_leader"},
-    {"addr": "0x2d2d", "new": "wbase_option2_character_menu"},
-    {"addr": "0x2d5d", "new": "wbase_option3_unload_then_load"},
-    {"addr": "0x2d8a", "new": "wbase_option4_resume_saved_game"},
-    {"addr": "0x2d51", "new": "wbase_option5_make_character"},
-    {"addr": "0x2d94", "new": "wbase_option6_game_configuration"},
-    {"addr": "0x2d9f", "new": "wbase_option7_show_title_page"},
-    {"addr": "0x2dad", "new": "wbase_option8_quit_game"},
-    {"addr": "0x2a70", "new": "wbase_unload_all_party_members"},
-    {"addr": "0x253a", "new": "wbase_add_party_member_action"}
+    {
+      "addr": "0x0c",
+      "new": "wbase_overlay_entry"
+    },
+    {
+      "addr": "0x2cf7",
+      "new": "wbase_option0_add_party_member"
+    },
+    {
+      "addr": "0x2d09",
+      "new": "wbase_option1_choose_leader"
+    },
+    {
+      "addr": "0x2d2d",
+      "new": "wbase_option2_character_menu"
+    },
+    {
+      "addr": "0x2d5d",
+      "new": "wbase_option3_unload_then_load"
+    },
+    {
+      "addr": "0x2d8a",
+      "new": "wbase_option4_resume_saved_game"
+    },
+    {
+      "addr": "0x2d51",
+      "new": "wbase_option5_make_character"
+    },
+    {
+      "addr": "0x2d94",
+      "new": "wbase_option6_game_configuration"
+    },
+    {
+      "addr": "0x2d9f",
+      "new": "wbase_option7_show_title_page"
+    },
+    {
+      "addr": "0x2dad",
+      "new": "wbase_option8_quit_game"
+    },
+    {
+      "addr": "0x2a70",
+      "new": "wbase_unload_all_party_members"
+    },
+    {
+      "addr": "0x253a",
+      "new": "wbase_add_party_member_action"
+    }
   ],
   "wroot_state_to_overlay_map": {
     "claim": "Confirmed wroot's ovl_install_table (wroot 0x132d) maps game_state values to overlay loads. The decompile of FUN_36dc(arg) shows arg is a wroot DGROUP offset to a 6-byte overlay-filename entry. Verified mapping (state → arg → overlay):",
     "table": [
-      {"state": 0, "load_arg": "0x5f4", "overlay": "WINIT.OVR", "purpose": "boot/init"},
-      {"state": 1, "load_arg": "0x5f4", "overlay": "WINIT.OVR", "purpose": "title page + credits"},
-      {"state": 2, "load_arg": "0x5f4", "overlay": "WINIT.OVR", "purpose": "load fonts + create windows"},
-      {"state": 3, "load_arg": null, "overlay": null, "purpose": "QUIT — abort_cleanup_dispatch(0); crt_run_atexit_and_exit(0)"},
-      {"state": 4, "load_arg": "0x5fa", "overlay": "WBASE.OVR", "purpose": "main menu (this finding)"},
-      {"state": 5, "load_arg": "0x600", "overlay": "WMAZE.OVR", "purpose": "dungeon (entry A)"},
-      {"state": 6, "load_arg": "0x600", "overlay": "WMAZE.OVR", "purpose": "dungeon (entry B — from load-zone)"},
-      {"state": 7, "load_arg": "0x5fa", "overlay": "WBASE.OVR", "purpose": "post-gameplay cleanup (this finding) — preceded by boot_select_disk_for_content(1,0)"},
-      {"state": 8, "load_arg": "0x5f4", "overlay": "WINIT.OVR", "purpose": "graveyard (party-dead) — preceded by boot_select_disk_for_content(3,0)"},
-      {"state": "10 (0xa)", "load_arg": "0x606", "overlay": "WMELE.OVR", "purpose": "melee combat"},
-      {"state": "11 (0xb)", "load_arg": "0x606", "overlay": "WMELE.OVR", "purpose": "combat (variant)"},
-      {"state": "12 (0xc)", "load_arg": "0x60c", "overlay": "WPOPS.OVR", "purpose": "(probably popup / merchant)"},
-      {"state": "13 (0xd)", "load_arg": "0x612", "overlay": "WMEXE.OVR", "purpose": "(maze-exec?)"},
-      {"state": "14 (0xe)", "load_arg": "0x606", "overlay": "WMELE.OVR", "purpose": "combat (variant)"},
-      {"state": "15 (0xf)", "load_arg": "0x618", "overlay": "WTREA.OVR", "purpose": "treasure"},
-      {"state": "16 (0x10)", "load_arg": "0x61e", "overlay": "WPCMK.OVR", "purpose": "make player character — TARGET OF MAIN-MENU SLOT 5"},
-      {"state": "17 (0x11)", "load_arg": "0x624", "overlay": "WPCVW.OVR", "purpose": "view player character — TARGET OF MAIN-MENU SLOT 1"},
-      {"state": "18 (0x12)", "load_arg": "0x62a", "overlay": "WMNPC.OVR", "purpose": "NPC dialogue"},
-      {"state": "19 (0x13)", "load_arg": "0x630", "overlay": "WDOPT.OVR", "purpose": "options"},
-      {"state": "20 (0x14)", "load_arg": "0x630", "overlay": "WDOPT.OVR", "purpose": "options (variant)"},
-      {"state": "21 (0x15)", "load_arg": "0x618", "overlay": "WTREA.OVR", "purpose": "treasure (variant)"},
-      {"state": "22 (0x16)", "load_arg": "0x624", "overlay": "WPCVW.OVR", "purpose": "view player character (variant)"},
-      {"state": "23 (0x17)", "load_arg": "0x600", "overlay": "WMAZE.OVR", "purpose": "dungeon (variant)"},
-      {"state": "24 (0x18)", "load_arg": "0x5fa", "overlay": "WBASE.OVR", "purpose": "config submenu (this finding) — preceded by boot_select_disk_for_content(1,0)"},
-      {"state": "25 (0x19)", "load_arg": "0x600 (via fallthrough)", "overlay": "WMAZE.OVR", "purpose": "load-zone-then-dungeon — preceded by boot_select_disk_for_content(2, *0x363c)"}
+      {
+        "state": 0,
+        "load_arg": "0x5f4",
+        "overlay": "WINIT.OVR",
+        "purpose": "boot/init"
+      },
+      {
+        "state": 1,
+        "load_arg": "0x5f4",
+        "overlay": "WINIT.OVR",
+        "purpose": "title page + credits"
+      },
+      {
+        "state": 2,
+        "load_arg": "0x5f4",
+        "overlay": "WINIT.OVR",
+        "purpose": "load fonts + create windows"
+      },
+      {
+        "state": 3,
+        "load_arg": null,
+        "overlay": null,
+        "purpose": "QUIT — abort_cleanup_dispatch(0); crt_run_atexit_and_exit(0)"
+      },
+      {
+        "state": 4,
+        "load_arg": "0x5fa",
+        "overlay": "WBASE.OVR",
+        "purpose": "main menu (this finding)"
+      },
+      {
+        "state": 5,
+        "load_arg": "0x600",
+        "overlay": "WMAZE.OVR",
+        "purpose": "dungeon (entry A)"
+      },
+      {
+        "state": 6,
+        "load_arg": "0x600",
+        "overlay": "WMAZE.OVR",
+        "purpose": "dungeon (entry B — from load-zone)"
+      },
+      {
+        "state": 7,
+        "load_arg": "0x5fa",
+        "overlay": "WBASE.OVR",
+        "purpose": "post-gameplay cleanup (this finding) — preceded by boot_select_disk_for_content(1,0)"
+      },
+      {
+        "state": 8,
+        "load_arg": "0x5f4",
+        "overlay": "WINIT.OVR",
+        "purpose": "graveyard (party-dead) — preceded by boot_select_disk_for_content(3,0)"
+      },
+      {
+        "state": "10 (0xa)",
+        "load_arg": "0x606",
+        "overlay": "WMELE.OVR",
+        "purpose": "melee combat"
+      },
+      {
+        "state": "11 (0xb)",
+        "load_arg": "0x606",
+        "overlay": "WMELE.OVR",
+        "purpose": "combat (variant)"
+      },
+      {
+        "state": "12 (0xc)",
+        "load_arg": "0x60c",
+        "overlay": "WPOPS.OVR",
+        "purpose": "(probably popup / merchant)"
+      },
+      {
+        "state": "13 (0xd)",
+        "load_arg": "0x612",
+        "overlay": "WMEXE.OVR",
+        "purpose": "(maze-exec?)"
+      },
+      {
+        "state": "14 (0xe)",
+        "load_arg": "0x606",
+        "overlay": "WMELE.OVR",
+        "purpose": "combat (variant)"
+      },
+      {
+        "state": "15 (0xf)",
+        "load_arg": "0x618",
+        "overlay": "WTREA.OVR",
+        "purpose": "treasure"
+      },
+      {
+        "state": "16 (0x10)",
+        "load_arg": "0x61e",
+        "overlay": "WPCMK.OVR",
+        "purpose": "make player character — TARGET OF MAIN-MENU SLOT 5"
+      },
+      {
+        "state": "17 (0x11)",
+        "load_arg": "0x624",
+        "overlay": "WPCVW.OVR",
+        "purpose": "view player character — TARGET OF MAIN-MENU SLOT 1"
+      },
+      {
+        "state": "18 (0x12)",
+        "load_arg": "0x62a",
+        "overlay": "WMNPC.OVR",
+        "purpose": "NPC dialogue"
+      },
+      {
+        "state": "19 (0x13)",
+        "load_arg": "0x630",
+        "overlay": "WDOPT.OVR",
+        "purpose": "options"
+      },
+      {
+        "state": "20 (0x14)",
+        "load_arg": "0x630",
+        "overlay": "WDOPT.OVR",
+        "purpose": "options (variant)"
+      },
+      {
+        "state": "21 (0x15)",
+        "load_arg": "0x618",
+        "overlay": "WTREA.OVR",
+        "purpose": "treasure (variant)"
+      },
+      {
+        "state": "22 (0x16)",
+        "load_arg": "0x624",
+        "overlay": "WPCVW.OVR",
+        "purpose": "view player character (variant)"
+      },
+      {
+        "state": "23 (0x17)",
+        "load_arg": "0x600",
+        "overlay": "WMAZE.OVR",
+        "purpose": "dungeon (variant)"
+      },
+      {
+        "state": "24 (0x18)",
+        "load_arg": "0x5fa",
+        "overlay": "WBASE.OVR",
+        "purpose": "config submenu (this finding) — preceded by boot_select_disk_for_content(1,0)"
+      },
+      {
+        "state": "25 (0x19)",
+        "load_arg": "0x600 (via fallthrough)",
+        "overlay": "WMAZE.OVR",
+        "purpose": "load-zone-then-dungeon — preceded by boot_select_disk_for_content(2, *0x363c)"
+      }
     ],
     "confidence": "high (mapping derived from wroot's ovl_install_table decompile)",
     "correction_to_winit_findings": "The earlier startup-sequence.json claimed states 5, 6, 17 all load wmaze. State 17 is actually 0x11 which maps to WPCVW (view player character), not wmaze. The wmaze states are 5, 6, 0x17 (=23) — 0x17, not 17. This was a hex/decimal confusion in the earlier finding."

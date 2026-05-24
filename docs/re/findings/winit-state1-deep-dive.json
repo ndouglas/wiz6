@@ -1,7 +1,10 @@
 {
   "topic": "winit-state1-deep-dive",
   "subagent_run": "2026-05-23T20:30:00Z",
-  "binaries": ["winit.ovr", "wroot.exe"],
+  "binaries": [
+    "winit.ovr",
+    "wroot.exe"
+  ],
   "supersedes": "docs/re/findings/winit-state1-audio.json (audio.json's slot-14 hypothesis is REFUTED; see finding `slot-14-pic-scratch-aliasing`)",
   "summary": "Comprehensive walk of winit_state1_title_and_credits (winit.ovr 0x9f3..0xdc4) covering audio, visual, and timing. KEY FINDING: `audio_play_sound(0xE)` at file 0xb43 does NOT play SOUND14.SND. The 'sound table slot 14' at DGROUP 0x33EC physically overlaps the PIC-loader scratch buffer that `winit_load_pic_by_index(0x27)` writes to at the very start of state-1. By the time the audio call fires, slot 14's '12-byte descriptor' is actually PIC #0x27's kind=9 record, and the sample-buffer pointer at 0x3579+14*4 points to the decoded PIC image bytes (not a .snd buffer). So `audio_play_sound(0xE)` either plays GARBAGE (PIC bytes as samples) if the rate_or_vol byte happens to be non-zero, or is SILENT if it's zero. Either way, it is NOT SOUND14.SND. This explains the user's by-ear observation that 'SOUND14 is not what I hear during the intro.' The prior pass got the call sites right but mis-mapped N=0xE to SOUND14.SND. The same hazard does NOT apply to slot 13 by static analysis — slot 13 IS preloaded with SOUND13.SND — but the user reports SOUND13 also doesn't sound right, which means slot 13's master.hdr record likely has buf_lo==buf_hi==0 (aliased slot) or buf_hi<0 (skip-load), and at playback the alias_id field redirects to a different slot. This cannot be definitively resolved without dumping the actual master archive contents or breaking in DOSBox-X.",
   "method": "PyGhidra decomp of winit state-1, winit_preload_sounds (winit 0x291), winit_load_pic_by_index (winit 0x38a), winit_show_pic_in_window (winit 0x8f7), winit_wait_ticks_or_enter (winit 0x9ae), wroot audio_play_sound (image 0x10AAA), wroot audio_play_by_id (image 0x135FD), wroot audio_engine_play (image 0x11462), wroot file_table_resolver (image 0x10882), wroot huffman_load_and_decompress (image 0x133E9), wroot busy_wait (image 0x12858). Raw byte scan of winit state-1 0x9f3..0xdc4 enumerated every 0xE8 (CALL rel16) and 0xE8 with target 0xC546 = audio_play_sound thunk. Static decoding of state-1 string addresses via the winit DGROUP delta 0x3DB7 (verified: rt addr 0x4ff8 = file 0x1241 = 'SOUND00.SND' template).",
@@ -13,63 +16,369 @@
     "window_creates_in_state1": 1,
     "window_destroys_in_state1": 1
   },
-
   "execution_walk": {
     "description": "Every observable event in winit_state1_title_and_credits in execution order. Each entry has file_offset (winit.ovr), event_type, target (function called or address read/written), context_args, and a one-line description.",
     "events": [
-      {"step":  1, "winit_file": "0x9f6", "event": "stack_frame", "details": "PUSH BP; MOV BP,SP; ADD SP,-0x72 — 0x72 bytes of local stack: 14-entry credit-scroll arrays (4 × 14-byte tables: appear_tick, field_b, cap, col, token) + scroll_pos + skip_flag + tmp_y + tmp_i + iVar3 + iStack_6 (file handle)."},
-      {"step":  2, "winit_file": "0x9f9", "event": "kbd_flush_buffer", "thunk": "0xe2a8", "wroot_target": "0x10208", "details": "func_0x0000e2a8() — flushes any keystrokes buffered before state-1 starts (so user's earlier keypresses don't immediately skip the title)."},
-      {"step":  3, "winit_file": "0x9fc", "event": "pic_load_by_index", "function": "winit_load_pic_by_index(0x27)", "target_register": "0x33EC = sound_table[14] alias_id field", "details": "Loads kind=9 record 0x27 from master archive into DGROUP 0x33EC..0x33F7 (12 bytes) via file_table_resolver. Then opens 'SOUND%02d.SND' template patched to '0' '%' — wait, actually this builds the filename in local stack buffer (NOT 0x33EC), opens the file, and calls huffman_load_and_decompress(handle, 0, 0, *0x33F0=pic_offset_lo, *0x33F2=pic_offset_hi, 0xE). The huffman_load writes the decoded buffer pointer to *(0x3579 + 0xE*4) = *(0x35B1). PIC 0x27 is almost certainly CREDITS.PIC (the credit-scroll text glyphs). NOTE: this call mutates DGROUP 0x33EC..0x33F7 AND DGROUP 0x35B1..0x35B4 — both of which alias to 'sound table slot 14'. After this call slot 14 contains PIC 0x27's record (NOT SOUND14.SND's record).", "confidence": "high"},
-      {"step":  4, "winit_file": "0xa04..0xa1d", "event": "file_open_and_read", "function": "boot_build_prompt_message(0x513a, 1, 0)", "thunk_args": "addr 0x513a = file 'CREDITS.PIC' (resolved via DGROUP delta 0x3DB7)", "details": "Builds prompt string in 0x35EA, then crt_open via thunk 0xf924 → handle in iStack_6. If -1, abort(9). Then func_0x0000f100(handle, 0, 0, 0x51aa, 0, 0) — video-driver call into *(0x1bae). The 0x51aa address resolves to file 0x13f3 = 'T16' (the bytes 'T16' is the suffix; in context this is likely a 4KB buffer or scratch). Then crt_dos_close. This opens CREDITS.PIC again and reads bytes via the video driver — probably loads the font glyphs into 0x51aa (a scratch buffer)."},
-      {"step":  5, "winit_file": "0xa1d..0xab8", "event": "vmode_dispatch", "details": "Reads *(uint*)0x4FC6 (video_mode_flags). Per startup-sequence.json, bit 0=EGA, bit 1=CGA, bit 2=T16, bit 3=Hercules. Branches to winit_show_pic_in_window(filename) for the matching mode, OR to abort_with_code(0xc) if no bits set. Filenames (resolved via winit DGROUP delta 0x3DB7): EGA→0x5146='TITLEPAG.EGA', CGA→0x5153='TITLEPAG.CGA', T16→0x5160='TITLEPAG.CGA' (T16 reuses CGA art), Hercules→0x516d='TITLEPAG.T16' (Hercules reuses T16 art).", "side_effects": "winit_show_pic_in_window(filename) creates a 40x25 window at (0,0), stores handle in *0x4FBE (win_handle_titlescreen). Calls audio_wait_for_idle (f0dc → wroot 0x3640). Opens the file, calls f130 (video-driver PIC-decode), f118 (video-driver pre-frame), closes file, calls f13c (video-driver refresh) — title page is now visible on screen."},
-      {"step":  6, "winit_file": "0xabe..0xac4", "event": "AUDIO_CALL_1", "function": "audio_play_sound(4)", "thunk": "0xc546 → wroot 0x10AAA", "byte_pattern": "b8 04 00 50 e8 81 ba", "expected_file": "SOUND04.SND (slot 4 preloaded normally)", "screen_state": "Title page (Sir-Tech logo + Wizardry wordmark + dragon art) is fully visible.", "user_phase": "sirtech-splash", "confidence_file": "high"},
-      {"step":  7, "winit_file": "0xac6..0xad6", "event": "wait_or_skip", "function": "winit_wait_ticks_or_enter(2)", "details": "if (skip_flag == 0) wait for 2 × 10 = 20 delay-units OR until ENTER pressed. Wall-clock: 20 calls to busy-wait primitive (wroot 0x12858) which reads *(CS:0x1FE2) inner-count + *(CS:0x1FE4) outer-count. Calibrated on 486DX/33 to ~1 delay-unit ≈ 16-50 ms (uncertain — see TIMING section). Approx wall time: 0.3-1.0 sec.", "skip_behavior": "ENTER aborts wait immediately; sets skip_flag=1 which gates all subsequent wait calls.", "confidence": "high"},
-      {"step":  8, "winit_file": "0xad7..0xade", "event": "AUDIO_CALL_2", "function": "audio_play_sound(0xD)", "thunk": "0xc546 → wroot 0x10AAA", "byte_pattern": "b8 0d 00 50 e8 68 ba", "expected_file_if_no_aliasing": "SOUND13.SND (slot 13 IS preloaded by winit_preload_sounds at loop i=13)", "user_observation_says": "User by-ear reports this is NOT SOUND13.SND — likely SOUND05 or similar.", "static_analysis_conclusion": "By static analysis slot 13 is preloaded with SOUND13.SND (preload loops i=0..13). Without dumping master.hdr's kind=9 record 13 dynamically we cannot verify what buf_lo/buf_hi/alias_id values it has. If record 13 has buf_lo==buf_hi==0 (or buf_hi<0), preload SKIPS the file load, the sample buffer pointer for slot 13 stays uninitialized, and at playback the alias_id field at *0x33A0 is used to redirect to another slot's loaded buffer. User's ear is the spec — therefore slot 13 IS aliased.", "confidence_file": "low"},
-      {"step":  9, "winit_file": "0xadf..0xaec", "event": "video_pre_frame", "function": "f130_thunk(*0x4FBE, 0) → wroot 0x3694 → *(0x1bbe) video-driver indirect", "details": "Video driver's 'pre-frame' / 'prepare to draw text into PIC window' call on the title window handle. Doesn't change pixels yet."},
-      {"step": 10, "winit_file": "0xaed..0xafc", "event": "TEXT_TOKEN_RENDER", "function": "winit_render_text_token(token=0xD, col=0x5B, row=0x34)", "thunk_used": "f10c → wroot 0x3670 → *(0x1bb2) video-driver text routine", "details": "Renders text-token 0xD at screen column 0x5B=91, row 0x34=52. Token 0xD's semantic content (probably a MSG.DBS string-ID or font-glyph ID) is uncertain without runtime verification, but is consistent with the FIRST LINE of the Bradley credit: 'Fantasy Role-Playing Simulation by'.", "confidence_semantic": "medium"},
-      {"step": 11, "winit_file": "0xafd..0xb0e", "event": "TEXT_TOKEN_RENDER", "function": "winit_render_text_token(token=9, col=0x6B, row=0x52)", "details": "Renders text-token 9 at column 0x6B=107, row 0x52=82. Likely the SECOND LINE of the Bradley credit: 'D.W. Bradley' (centered, lower than the first line).", "confidence_semantic": "medium"},
-      {"step": 12, "winit_file": "0xb11..0xb18", "event": "video_refresh", "function": "f13c_thunk(*0x4FBE) → wroot 0x36a0 → *(0x1bc2)", "details": "Video driver's refresh-window-from-backbuffer call. The Bradley text becomes visible on screen NOW."},
-      {"step": 13, "winit_file": "0xb19..0xb29", "event": "wait_or_skip", "function": "winit_wait_ticks_or_enter(0x48)", "details": "if (skip_flag == 0) wait for 0x48 × 10 = 720 delay-units OR until ENTER. Approx wall time on calibrated CPU: ~10-30 sec (large uncertainty). This is the LONG title-hold — user has time to read the Bradley credit + admire the title art. ENTER bails immediately."},
-      {"step": 14, "winit_file": "0xb2a..0xb36", "event": "window_clear", "function": "f118_thunk(0xFFFF) → wroot 0x367c → *(0x1bb6)", "details": "Video driver's window-clear / fill-with-color-0xFFFF (or arg passed-through). Wipes the title window's content (but window stays open)."},
-      {"step": 15, "winit_file": "0xb37..0xb3e", "event": "video_refresh", "function": "f13c_thunk(*0x4FBE)", "details": "Screen is now blank inside the title window (Sir-Tech and Bradley credits are gone)."},
-      {"step": 16, "winit_file": "0xb3f..0xb46", "event": "AUDIO_CALL_3", "function": "audio_play_sound(0xE)", "thunk": "0xc546 → wroot 0x10AAA", "byte_pattern": "b8 0e 00 50 e8 00 ba", "expected_file": "(does NOT play SOUND14.SND — see slot-14-pic-scratch-aliasing finding)", "user_observation_says": "User hears SOUND06 ('whoosh').", "static_analysis_conclusion": "Slot 14's 12-byte descriptor at DGROUP 0x33EC was OVERWRITTEN by step 3's winit_load_pic_by_index(0x27) — it now holds PIC 0x27's kind=9 record, not slot 14 of the sound table. The sample buffer pointer at 0x3579+14*4 points to the decoded CREDITS.PIC bytes. audio_play_sound(0xE) reads *0x33F6 (= the rate_or_vol byte of the PIC record). If non-zero, audio_engine_play plays the decoded PIC bytes as audio samples (garbage / brief noise). If zero, audio_engine_play takes its 'stop-current-sound' path (blocks on *0x1764 then returns). Either way it is NOT SOUND14.SND. User's by-ear report of SOUND06 suggests the descriptor's alias_id at *0x33EC happens to point to slot 6 (SOUND06.SND), OR something else routed via PIC record contents. Definitive verification requires DOSBox-X breakpoint + memory dump.", "confidence_file": "high (slot 14 is NOT SOUND14)"},
-      {"step": 17, "winit_file": "0xb47..0xb57", "event": "wait_or_skip", "function": "winit_wait_ticks_or_enter(10)", "details": "if (skip_flag == 0) wait 10 × 10 = 100 delay-units OR ENTER. Approx wall time: 1.5-5 sec. Gives the page-clear transition time to register before the next reveal."},
-      {"step": 18, "winit_file": "0xb58..0xb5f", "event": "AUDIO_CALL_4", "function": "audio_play_sound(6)", "thunk": "0xc546 → wroot 0x10AAA", "byte_pattern": "b8 06 00 50 e8 e7 b9", "expected_file": "SOUND06.SND (slot 6 preloaded normally — by static analysis)", "user_observation_says": "User by-ear reports SOUND07 (the clang).", "static_analysis_conclusion": "Slot 6 is in the i=0..13 preload range; if master.hdr record 6 has valid buf_lo/buf_hi, slot 6 loads SOUND06.SND. User's report that this fires AS the clang lands suggests either (a) slot 6's master.hdr record is aliased to slot 7 (SOUND07.SND), OR (b) the user is conflating this with the next call (audio_play_sound(7) at step 23), OR (c) the timing of the previous N=0xE call is bleeding through. Requires dynamic verification.", "confidence_file": "low"},
-      {"step": 19, "winit_file": "0xb60..0xb6f", "event": "TEXT_TOKEN_RENDER", "function": "winit_render_text_token(token=7, col=0x4C, row=0x43)", "details": "Renders token 7 at col 0x4C=76, row 0x43=67. Token 7 is the STATIC HEADER text — almost certainly 'Wizardry VI' (per prior pass)."},
-      {"step": 20, "winit_file": "0xb70..0xb81", "event": "TEXT_TOKEN_RENDER", "function": "winit_render_text_token(token=8, col=0x4C, row=0x63)", "details": "Renders token 8 at col 0x4C=76, row 0x63=99. Token 8 is the SECONDARY HEADER text — almost certainly 'Bane of the Cosmic Forge'."},
-      {"step": 21, "winit_file": "0xb84..0xb8b", "event": "video_refresh", "function": "f13c_thunk(*0x4FBE)", "details": "Header text 'Wizardry VI / Bane of the Cosmic Forge' is now on-screen above the (empty) scroll area."},
-      {"step": 22, "winit_file": "0xb8c..0xb93", "event": "AUDIO_CALL_5", "function": "audio_play_sound(7)", "thunk": "0xc546 → wroot 0x10AAA", "byte_pattern": "b8 07 00 50 e8 b3 b9", "expected_file": "SOUND07.SND (slot 7 preloaded normally — by static analysis)", "user_observation_says": "User by-ear reports this is the final beat (likely 'clang') aligning with scroll-start.", "static_analysis_conclusion": "By static analysis slot 7 plays SOUND07.SND directly. The user's by-ear mapping is consistent with this if the previous step (audio_play_sound(6)) was actually playing SOUND06 'whoosh' just before. So the user's beat sequence might be: SOUND06=whoosh (call N=6), SOUND07=clang (call N=7). Reconciled this way, only calls N=0xD and N=0xE need alias-explanations.", "confidence_file": "medium"},
-      {"step": 23, "winit_file": "0xb94..0xba4", "event": "wait_or_skip", "function": "winit_wait_ticks_or_enter(10)", "details": "if (skip_flag == 0) wait 10 × 10 = 100 delay-units OR ENTER. Gives the user time to register the 'Wizardry VI' header before scroll motion starts."},
-      {"step": 24, "winit_file": "0xba5..0xc85", "event": "scroll_table_init", "details": "Initializes 9-entry credit-scroll table on local stack: 4 parallel arrays (cap[9], col[9], appear_tick[9], field_b[9]) plus token[9]. Pre-init values: tokens [7,8,0xC,1,2,3,4,5,6], cols [0x4C,0x4C,8,0x14,0x14,0x14,0x14,0x14,0xE], appear_tick [0,0,0,4,0x24,0x3C,0x58,0x78,0x98], field_b [3,0x23,0xD,0x90,0x90,0x90,0x90,0x90,0x50], cap [3,0x23,0xD,0xD,0xD,0xD,0xD,0xD,0x50]. Entries 0,1,2 are static (appear=0); entries 3..8 scroll in at staggered ticks. Per prior pass."},
-      {"step": 25, "winit_file": "0xc86..0xd6f", "event": "scroll_loop", "details": "Main credit-scroll loop. Per frame: f118(-1) clear; for i=8..0: if appear_tick[i] <= scroll_pos compute y; if y >= cap (or i<3 or i==8 clamping rule), render_text_token(token[i], col[i], y); end-for; f13c refresh; mouse_check; if mouse_moved → set skip_flag=0 (continue_flag); kbd_check; if any key → getkey, set skip_flag=0; scroll_pos += 2. Loop exits when scroll_pos > (entry[7].appear + entry[7].field_b - entry[7].cap) = (0x78 + 0x90 - 0xD) = 0xFB = 251 (so ~126 frames at +2/frame), OR when skip_flag is cleared. Each frame includes (1) the clear-frame, (2) up to 9 text-token renders, (3) refresh, (4) input poll. NO per-frame WAIT — frame rate is determined by raw render+poll speed. Per prior pass."},
-      {"step": 26, "winit_file": "0xd70..0xd77", "event": "post_scroll_clear", "function": "f118_thunk(0xFFFF)", "details": "Clear the scroll window."},
-      {"step": 27, "winit_file": "0xd78..0xd87", "event": "TEXT_TOKEN_RENDER", "function": "winit_render_text_token(token=7, col=0x4C, row=3)", "details": "Re-renders header token 7 at col 76, row 3 (top of window)."},
-      {"step": 28, "winit_file": "0xd8a..0xd99", "event": "TEXT_TOKEN_RENDER", "function": "winit_render_text_token(token=8, col=0x4C, row=0x23)", "details": "Re-renders header token 8 at col 76, row 0x23=35."},
-      {"step": 29, "winit_file": "0xd9c..0xdab", "event": "TEXT_TOKEN_RENDER", "function": "winit_render_text_token(token=6, col=0xE, row=0x50)", "details": "Renders token 6 at col 14, row 80. This is the LAST credit-scroll item from the scrolling — fixed at its resting position. Per prior pass, this is likely the 'press any key' or copyright line."},
-      {"step": 30, "winit_file": "0xdae..0xdb5", "event": "video_refresh", "function": "f13c_thunk(*0x4FBE)", "details": "Final post-scroll page is on-screen: Wizardry VI / Bane of the Cosmic Forge / (last item)."},
-      {"step": 31, "winit_file": "0xdb6..0xdc1", "event": "window_destroy", "function": "ui_window_destroy_thunk(0, *0x4FBE)", "thunk": "0xbd6e → wroot 0x12D2", "details": "Destroys the title window. Subsequent state-2 will recreate it."},
-      {"step": 32, "winit_file": "0xdc2..0xdc4", "event": "state_transition", "function": "*0x363a := 2", "details": "Set game_state to 2 — when state-1 returns, wroot's main loop reads game_state and loads winit again (state 2 = init fonts/windows)."},
-      {"step": 33, "winit_file": "0xdc5..0xdee", "event": "post_state_wait", "details": "if (skip_flag == 0) wait_n_ticks_or_enter(0x1c) — short timed wait (28 delay-units × winit_wait_ticks*10? — actually c43f is the wroot 0x9a3 variant which doesn't *10; total wait is 0x1c=28 ticks ~0.5-2 sec). Else loop polling kbd+mouse until ANY input (indefinite wait). The 'if skip THEN timed wait, else indefinite wait' inversion is intentional: a skipping user already wants to advance; a non-skipping user needs to be given time to read the final post-scroll page. So actually it's INVERSE of what feels intuitive — re-read carefully:  uVar4 starts as 1 if skip_flag==0 (no skip yet); inside the scroll loop uVar4 gets cleared to 0 on mouse/kbd. After the loop, `if (uVar4 == 0)` means skip happened (or pre-scroll skip happened) → timed short wait. `else` (uVar4 == 1) means scroll completed naturally without skip → indefinite wait until user presses any key. This makes UX sense: scroll completed without interruption means user is intentionally watching, so let them stay; scroll was interrupted means user wants to advance, so absorb the input + brief beat to settle."},
-      {"step": 34, "winit_file": "0xdf2", "event": "kbd_flush_buffer", "thunk": "0xe2a8", "details": "Final flush of any buffered keystrokes before state 2 runs."}
+      {
+        "step": 1,
+        "winit_file": "0x9f6",
+        "event": "stack_frame",
+        "details": "PUSH BP; MOV BP,SP; ADD SP,-0x72 — 0x72 bytes of local stack: 14-entry credit-scroll arrays (4 × 14-byte tables: appear_tick, field_b, cap, col, token) + scroll_pos + skip_flag + tmp_y + tmp_i + iVar3 + iStack_6 (file handle)."
+      },
+      {
+        "step": 2,
+        "winit_file": "0x9f9",
+        "event": "kbd_flush_buffer",
+        "thunk": "0xe2a8",
+        "wroot_target": "0x10208",
+        "details": "func_0x0000e2a8() — flushes any keystrokes buffered before state-1 starts (so user's earlier keypresses don't immediately skip the title)."
+      },
+      {
+        "step": 3,
+        "winit_file": "0x9fc",
+        "event": "pic_load_by_index",
+        "function": "winit_load_pic_by_index(0x27)",
+        "target_register": "0x33EC = sound_table[14] alias_id field",
+        "details": "Loads kind=9 record 0x27 from master archive into DGROUP 0x33EC..0x33F7 (12 bytes) via file_table_resolver. Then opens 'SOUND%02d.SND' template patched to '0' '%' — wait, actually this builds the filename in local stack buffer (NOT 0x33EC), opens the file, and calls huffman_load_and_decompress(handle, 0, 0, *0x33F0=pic_offset_lo, *0x33F2=pic_offset_hi, 0xE). The huffman_load writes the decoded buffer pointer to *(0x3579 + 0xE*4) = *(0x35B1). PIC 0x27 is almost certainly CREDITS.PIC (the credit-scroll text glyphs). NOTE: this call mutates DGROUP 0x33EC..0x33F7 AND DGROUP 0x35B1..0x35B4 — both of which alias to 'sound table slot 14'. After this call slot 14 contains PIC 0x27's record (NOT SOUND14.SND's record).",
+        "confidence": "high"
+      },
+      {
+        "step": 4,
+        "winit_file": "0xa04..0xa1d",
+        "event": "file_open_and_read",
+        "function": "boot_build_prompt_message(0x513a, 1, 0)",
+        "thunk_args": "addr 0x513a = file 'CREDITS.PIC' (resolved via DGROUP delta 0x3DB7)",
+        "details": "Builds prompt string in 0x35EA, then crt_open via thunk 0xf924 → handle in iStack_6. If -1, abort(9). Then func_0x0000f100(handle, 0, 0, 0x51aa, 0, 0) — video-driver call into *(0x1bae). The 0x51aa address resolves to file 0x13f3 = 'T16' (the bytes 'T16' is the suffix; in context this is likely a 4KB buffer or scratch). Then crt_dos_close. This opens CREDITS.PIC again and reads bytes via the video driver — probably loads the font glyphs into 0x51aa (a scratch buffer)."
+      },
+      {
+        "step": 5,
+        "winit_file": "0xa1d..0xab8",
+        "event": "vmode_dispatch",
+        "details": "Reads *(uint*)0x4FC6 (video_mode_flags). Per startup-sequence.json, bit 0=EGA, bit 1=CGA, bit 2=T16, bit 3=Hercules. Branches to winit_show_pic_in_window(filename) for the matching mode, OR to abort_with_code(0xc) if no bits set. Filenames (resolved via winit DGROUP delta 0x3DB7): EGA→0x5146='TITLEPAG.EGA', CGA→0x5153='TITLEPAG.CGA', T16→0x5160='TITLEPAG.CGA' (T16 reuses CGA art), Hercules→0x516d='TITLEPAG.T16' (Hercules reuses T16 art).",
+        "side_effects": "winit_show_pic_in_window(filename) creates a 40x25 window at (0,0), stores handle in *0x4FBE (win_handle_titlescreen). Calls audio_wait_for_idle (f0dc → wroot 0x3640). Opens the file, calls f130 (video-driver PIC-decode), f118 (video-driver pre-frame), closes file, calls f13c (video-driver refresh) — title page is now visible on screen."
+      },
+      {
+        "step": 6,
+        "winit_file": "0xabe..0xac4",
+        "event": "AUDIO_CALL_1",
+        "function": "audio_play_sound(4)",
+        "thunk": "0xc546 → wroot 0x10AAA",
+        "byte_pattern": "b8 04 00 50 e8 81 ba",
+        "expected_file": "SOUND04.SND (slot 4 preloaded normally)",
+        "screen_state": "Title page (Sir-Tech logo + Wizardry wordmark + dragon art) is fully visible.",
+        "user_phase": "sirtech-splash",
+        "confidence_file": "high"
+      },
+      {
+        "step": 7,
+        "winit_file": "0xac6..0xad6",
+        "event": "wait_or_skip",
+        "function": "winit_wait_ticks_or_enter(2)",
+        "details": "if (skip_flag == 0) wait for 2 × 10 = 20 delay-units OR until ENTER pressed. Wall-clock: 20 calls to busy-wait primitive (wroot 0x12858) which reads *(CS:0x1FE2) inner-count + *(CS:0x1FE4) outer-count. Calibrated on 486DX/33 to ~1 delay-unit ≈ 16-50 ms (uncertain — see TIMING section). Approx wall time: 0.3-1.0 sec.",
+        "skip_behavior": "ENTER aborts wait immediately; sets skip_flag=1 which gates all subsequent wait calls.",
+        "confidence": "high"
+      },
+      {
+        "step": 8,
+        "winit_file": "0xad7..0xade",
+        "event": "AUDIO_CALL_2",
+        "function": "audio_play_sound(0xD)",
+        "thunk": "0xc546 → wroot 0x10AAA",
+        "byte_pattern": "b8 0d 00 50 e8 68 ba",
+        "expected_file_if_no_aliasing": "SOUND13.SND (slot 13 IS preloaded by winit_preload_sounds at loop i=13)",
+        "user_observation_says": "User by-ear reports this is NOT SOUND13.SND — likely SOUND05 or similar.",
+        "static_analysis_conclusion": "By static analysis slot 13 is preloaded with SOUND13.SND (preload loops i=0..13). Without dumping master.hdr's kind=9 record 13 dynamically we cannot verify what buf_lo/buf_hi/alias_id values it has. If record 13 has buf_lo==buf_hi==0 (or buf_hi<0), preload SKIPS the file load, the sample buffer pointer for slot 13 stays uninitialized, and at playback the alias_id field at *0x33A0 is used to redirect to another slot's loaded buffer. User's ear is the spec — therefore slot 13 IS aliased.",
+        "confidence_file": "low"
+      },
+      {
+        "step": 9,
+        "winit_file": "0xadf..0xaec",
+        "event": "video_pre_frame",
+        "function": "f130_thunk(*0x4FBE, 0) → wroot 0x3694 → *(0x1bbe) video-driver indirect",
+        "details": "Video driver's 'pre-frame' / 'prepare to draw text into PIC window' call on the title window handle. Doesn't change pixels yet."
+      },
+      {
+        "step": 10,
+        "winit_file": "0xaed..0xafc",
+        "event": "TEXT_TOKEN_RENDER",
+        "function": "winit_render_text_token(token=0xD, col=0x5B, row=0x34)",
+        "thunk_used": "f10c → wroot 0x3670 → *(0x1bb2) video-driver text routine",
+        "details": "Renders text-token 0xD at screen column 0x5B=91, row 0x34=52. Token 0xD's semantic content (probably a MSG.DBS string-ID or font-glyph ID) is uncertain without runtime verification, but is consistent with the FIRST LINE of the Bradley credit: 'Fantasy Role-Playing Simulation by'.",
+        "confidence_semantic": "medium"
+      },
+      {
+        "step": 11,
+        "winit_file": "0xafd..0xb0e",
+        "event": "TEXT_TOKEN_RENDER",
+        "function": "winit_render_text_token(token=9, col=0x6B, row=0x52)",
+        "details": "Renders text-token 9 at column 0x6B=107, row 0x52=82. Likely the SECOND LINE of the Bradley credit: 'D.W. Bradley' (centered, lower than the first line).",
+        "confidence_semantic": "medium"
+      },
+      {
+        "step": 12,
+        "winit_file": "0xb11..0xb18",
+        "event": "video_refresh",
+        "function": "f13c_thunk(*0x4FBE) → wroot 0x36a0 → *(0x1bc2)",
+        "details": "Video driver's refresh-window-from-backbuffer call. The Bradley text becomes visible on screen NOW."
+      },
+      {
+        "step": 13,
+        "winit_file": "0xb19..0xb29",
+        "event": "wait_or_skip",
+        "function": "winit_wait_ticks_or_enter(0x48)",
+        "details": "if (skip_flag == 0) wait for 0x48 × 10 = 720 delay-units OR until ENTER. Approx wall time on calibrated CPU: ~10-30 sec (large uncertainty). This is the LONG title-hold — user has time to read the Bradley credit + admire the title art. ENTER bails immediately."
+      },
+      {
+        "step": 14,
+        "winit_file": "0xb2a..0xb36",
+        "event": "window_clear",
+        "function": "f118_thunk(0xFFFF) → wroot 0x367c → *(0x1bb6)",
+        "details": "Video driver's window-clear / fill-with-color-0xFFFF (or arg passed-through). Wipes the title window's content (but window stays open)."
+      },
+      {
+        "step": 15,
+        "winit_file": "0xb37..0xb3e",
+        "event": "video_refresh",
+        "function": "f13c_thunk(*0x4FBE)",
+        "details": "Screen is now blank inside the title window (Sir-Tech and Bradley credits are gone)."
+      },
+      {
+        "step": 16,
+        "winit_file": "0xb3f..0xb46",
+        "event": "AUDIO_CALL_3",
+        "function": "audio_play_sound(0xE)",
+        "thunk": "0xc546 → wroot 0x10AAA",
+        "byte_pattern": "b8 0e 00 50 e8 00 ba",
+        "expected_file": "(does NOT play SOUND14.SND — see slot-14-pic-scratch-aliasing finding)",
+        "user_observation_says": "User hears SOUND06 ('whoosh').",
+        "static_analysis_conclusion": "Slot 14's 12-byte descriptor at DGROUP 0x33EC was OVERWRITTEN by step 3's winit_load_pic_by_index(0x27) — it now holds PIC 0x27's kind=9 record, not slot 14 of the sound table. The sample buffer pointer at 0x3579+14*4 points to the decoded CREDITS.PIC bytes. audio_play_sound(0xE) reads *0x33F6 (= the rate_or_vol byte of the PIC record). If non-zero, audio_engine_play plays the decoded PIC bytes as audio samples (garbage / brief noise). If zero, audio_engine_play takes its 'stop-current-sound' path (blocks on *0x1764 then returns). Either way it is NOT SOUND14.SND. User's by-ear report of SOUND06 suggests the descriptor's alias_id at *0x33EC happens to point to slot 6 (SOUND06.SND), OR something else routed via PIC record contents. Definitive verification requires DOSBox-X breakpoint + memory dump.",
+        "confidence_file": "high (slot 14 is NOT SOUND14)"
+      },
+      {
+        "step": 17,
+        "winit_file": "0xb47..0xb57",
+        "event": "wait_or_skip",
+        "function": "winit_wait_ticks_or_enter(10)",
+        "details": "if (skip_flag == 0) wait 10 × 10 = 100 delay-units OR ENTER. Approx wall time: 1.5-5 sec. Gives the page-clear transition time to register before the next reveal."
+      },
+      {
+        "step": 18,
+        "winit_file": "0xb58..0xb5f",
+        "event": "AUDIO_CALL_4",
+        "function": "audio_play_sound(6)",
+        "thunk": "0xc546 → wroot 0x10AAA",
+        "byte_pattern": "b8 06 00 50 e8 e7 b9",
+        "expected_file": "SOUND06.SND (slot 6 preloaded normally — by static analysis)",
+        "user_observation_says": "User by-ear reports SOUND07 (the clang).",
+        "static_analysis_conclusion": "Slot 6 is in the i=0..13 preload range; if master.hdr record 6 has valid buf_lo/buf_hi, slot 6 loads SOUND06.SND. User's report that this fires AS the clang lands suggests either (a) slot 6's master.hdr record is aliased to slot 7 (SOUND07.SND), OR (b) the user is conflating this with the next call (audio_play_sound(7) at step 23), OR (c) the timing of the previous N=0xE call is bleeding through. Requires dynamic verification.",
+        "confidence_file": "low"
+      },
+      {
+        "step": 19,
+        "winit_file": "0xb60..0xb6f",
+        "event": "TEXT_TOKEN_RENDER",
+        "function": "winit_render_text_token(token=7, col=0x4C, row=0x43)",
+        "details": "Renders token 7 at col 0x4C=76, row 0x43=67. Token 7 is the STATIC HEADER text — almost certainly 'Wizardry VI' (per prior pass)."
+      },
+      {
+        "step": 20,
+        "winit_file": "0xb70..0xb81",
+        "event": "TEXT_TOKEN_RENDER",
+        "function": "winit_render_text_token(token=8, col=0x4C, row=0x63)",
+        "details": "Renders token 8 at col 0x4C=76, row 0x63=99. Token 8 is the SECONDARY HEADER text — almost certainly 'Bane of the Cosmic Forge'."
+      },
+      {
+        "step": 21,
+        "winit_file": "0xb84..0xb8b",
+        "event": "video_refresh",
+        "function": "f13c_thunk(*0x4FBE)",
+        "details": "Header text 'Wizardry VI / Bane of the Cosmic Forge' is now on-screen above the (empty) scroll area."
+      },
+      {
+        "step": 22,
+        "winit_file": "0xb8c..0xb93",
+        "event": "AUDIO_CALL_5",
+        "function": "audio_play_sound(7)",
+        "thunk": "0xc546 → wroot 0x10AAA",
+        "byte_pattern": "b8 07 00 50 e8 b3 b9",
+        "expected_file": "SOUND07.SND (slot 7 preloaded normally — by static analysis)",
+        "user_observation_says": "User by-ear reports this is the final beat (likely 'clang') aligning with scroll-start.",
+        "static_analysis_conclusion": "By static analysis slot 7 plays SOUND07.SND directly. The user's by-ear mapping is consistent with this if the previous step (audio_play_sound(6)) was actually playing SOUND06 'whoosh' just before. So the user's beat sequence might be: SOUND06=whoosh (call N=6), SOUND07=clang (call N=7). Reconciled this way, only calls N=0xD and N=0xE need alias-explanations.",
+        "confidence_file": "medium"
+      },
+      {
+        "step": 23,
+        "winit_file": "0xb94..0xba4",
+        "event": "wait_or_skip",
+        "function": "winit_wait_ticks_or_enter(10)",
+        "details": "if (skip_flag == 0) wait 10 × 10 = 100 delay-units OR ENTER. Gives the user time to register the 'Wizardry VI' header before scroll motion starts."
+      },
+      {
+        "step": 24,
+        "winit_file": "0xba5..0xc85",
+        "event": "scroll_table_init",
+        "details": "Initializes 9-entry credit-scroll table on local stack: 4 parallel arrays (cap[9], col[9], appear_tick[9], field_b[9]) plus token[9]. Pre-init values: tokens [7,8,0xC,1,2,3,4,5,6], cols [0x4C,0x4C,8,0x14,0x14,0x14,0x14,0x14,0xE], appear_tick [0,0,0,4,0x24,0x3C,0x58,0x78,0x98], field_b [3,0x23,0xD,0x90,0x90,0x90,0x90,0x90,0x50], cap [3,0x23,0xD,0xD,0xD,0xD,0xD,0xD,0x50]. Entries 0,1,2 are static (appear=0); entries 3..8 scroll in at staggered ticks. Per prior pass."
+      },
+      {
+        "step": 25,
+        "winit_file": "0xc86..0xd6f",
+        "event": "scroll_loop",
+        "details": "Main credit-scroll loop. Per frame: f118(-1) clear; for i=8..0: if appear_tick[i] <= scroll_pos compute y; if y >= cap (or i<3 or i==8 clamping rule), render_text_token(token[i], col[i], y); end-for; f13c refresh; mouse_check; if mouse_moved → set skip_flag=0 (continue_flag); kbd_check; if any key → getkey, set skip_flag=0; scroll_pos += 2. Loop exits when scroll_pos > (entry[7].appear + entry[7].field_b - entry[7].cap) = (0x78 + 0x90 - 0xD) = 0xFB = 251 (so ~126 frames at +2/frame), OR when skip_flag is cleared. Each frame includes (1) the clear-frame, (2) up to 9 text-token renders, (3) refresh, (4) input poll. NO per-frame WAIT — frame rate is determined by raw render+poll speed. Per prior pass."
+      },
+      {
+        "step": 26,
+        "winit_file": "0xd70..0xd77",
+        "event": "post_scroll_clear",
+        "function": "f118_thunk(0xFFFF)",
+        "details": "Clear the scroll window."
+      },
+      {
+        "step": 27,
+        "winit_file": "0xd78..0xd87",
+        "event": "TEXT_TOKEN_RENDER",
+        "function": "winit_render_text_token(token=7, col=0x4C, row=3)",
+        "details": "Re-renders header token 7 at col 76, row 3 (top of window)."
+      },
+      {
+        "step": 28,
+        "winit_file": "0xd8a..0xd99",
+        "event": "TEXT_TOKEN_RENDER",
+        "function": "winit_render_text_token(token=8, col=0x4C, row=0x23)",
+        "details": "Re-renders header token 8 at col 76, row 0x23=35."
+      },
+      {
+        "step": 29,
+        "winit_file": "0xd9c..0xdab",
+        "event": "TEXT_TOKEN_RENDER",
+        "function": "winit_render_text_token(token=6, col=0xE, row=0x50)",
+        "details": "Renders token 6 at col 14, row 80. This is the LAST credit-scroll item from the scrolling — fixed at its resting position. Per prior pass, this is likely the 'press any key' or copyright line."
+      },
+      {
+        "step": 30,
+        "winit_file": "0xdae..0xdb5",
+        "event": "video_refresh",
+        "function": "f13c_thunk(*0x4FBE)",
+        "details": "Final post-scroll page is on-screen: Wizardry VI / Bane of the Cosmic Forge / (last item)."
+      },
+      {
+        "step": 31,
+        "winit_file": "0xdb6..0xdc1",
+        "event": "window_destroy",
+        "function": "ui_window_destroy_thunk(0, *0x4FBE)",
+        "thunk": "0xbd6e → wroot 0x12D2",
+        "details": "Destroys the title window. Subsequent state-2 will recreate it."
+      },
+      {
+        "step": 32,
+        "winit_file": "0xdc2..0xdc4",
+        "event": "state_transition",
+        "function": "*0x363a := 2",
+        "details": "Set game_state to 2 — when state-1 returns, wroot's main loop reads game_state and loads winit again (state 2 = init fonts/windows)."
+      },
+      {
+        "step": 33,
+        "winit_file": "0xdc5..0xdee",
+        "event": "post_state_wait",
+        "details": "if (skip_flag == 0) wait_n_ticks_or_enter(0x1c) — short timed wait (28 delay-units × winit_wait_ticks*10? — actually c43f is the wroot 0x9a3 variant which doesn't *10; total wait is 0x1c=28 ticks ~0.5-2 sec). Else loop polling kbd+mouse until ANY input (indefinite wait). The 'if skip THEN timed wait, else indefinite wait' inversion is intentional: a skipping user already wants to advance; a non-skipping user needs to be given time to read the final post-scroll page. So actually it's INVERSE of what feels intuitive — re-read carefully:  uVar4 starts as 1 if skip_flag==0 (no skip yet); inside the scroll loop uVar4 gets cleared to 0 on mouse/kbd. After the loop, `if (uVar4 == 0)` means skip happened (or pre-scroll skip happened) → timed short wait. `else` (uVar4 == 1) means scroll completed naturally without skip → indefinite wait until user presses any key. This makes UX sense: scroll completed without interruption means user is intentionally watching, so let them stay; scroll was interrupted means user wants to advance, so absorb the input + brief beat to settle."
+      },
+      {
+        "step": 34,
+        "winit_file": "0xdf2",
+        "event": "kbd_flush_buffer",
+        "thunk": "0xe2a8",
+        "details": "Final flush of any buffered keystrokes before state 2 runs."
+      }
     ]
   },
-
   "audio_calls_consolidated": [
-    {"step": 6,  "N": 4,    "winit_file": "0xac2", "static_file": "SOUND04.SND", "user_ear": "SOUND04 (door click)", "confidence": "high — direct map, slot preloaded"},
-    {"step": 8,  "N": 13,   "winit_file": "0xadb", "static_file": "SOUND13.SND (if not aliased)", "user_ear": "Likely SOUND05 ('pow') — user reports NOT SOUND13", "confidence": "low — needs DOSBox dump of master.hdr record 13 OR breakpoint dump of slot 13 BSS"},
-    {"step": 16, "N": 14,   "winit_file": "0xb43", "static_file": "DEFINITELY NOT SOUND14.SND (slot 14 = PIC scratch overlap)", "user_ear": "Likely SOUND06 ('whoosh')", "confidence": "high (NOT SOUND14); medium (alias target unverified)"},
-    {"step": 18, "N": 6,    "winit_file": "0xb5c", "static_file": "SOUND06.SND (if not aliased)", "user_ear": "Likely SOUND06 or SOUND07 — user's beat sequence suggests SOUND07", "confidence": "medium"},
-    {"step": 22, "N": 7,    "winit_file": "0xb90", "static_file": "SOUND07.SND (if not aliased)", "user_ear": "Final beat (clang)", "confidence": "medium"}
+    {
+      "step": 6,
+      "N": 4,
+      "winit_file": "0xac2",
+      "static_file": "SOUND04.SND",
+      "user_ear": "SOUND04 (door click)",
+      "confidence": "high — direct map, slot preloaded"
+    },
+    {
+      "step": 8,
+      "N": 13,
+      "winit_file": "0xadb",
+      "static_file": "SOUND13.SND (if not aliased)",
+      "user_ear": "Likely SOUND05 ('pow') — user reports NOT SOUND13",
+      "confidence": "low — needs DOSBox dump of master.hdr record 13 OR breakpoint dump of slot 13 BSS"
+    },
+    {
+      "step": 16,
+      "N": 14,
+      "winit_file": "0xb43",
+      "static_file": "DEFINITELY NOT SOUND14.SND (slot 14 = PIC scratch overlap)",
+      "user_ear": "Likely SOUND06 ('whoosh')",
+      "confidence": "high (NOT SOUND14); medium (alias target unverified)"
+    },
+    {
+      "step": 18,
+      "N": 6,
+      "winit_file": "0xb5c",
+      "static_file": "SOUND06.SND (if not aliased)",
+      "user_ear": "Likely SOUND06 or SOUND07 — user's beat sequence suggests SOUND07",
+      "confidence": "medium"
+    },
+    {
+      "step": 22,
+      "N": 7,
+      "winit_file": "0xb90",
+      "static_file": "SOUND07.SND (if not aliased)",
+      "user_ear": "Final beat (clang)",
+      "confidence": "medium"
+    }
   ],
-
   "wait_calls_consolidated": [
-    {"step": 7,  "winit_file": "0xacc", "n_arg": 2,     "delay_units": 20,  "approx_wall_seconds": "0.3-1.0", "skip_via": "ENTER", "context": "Between Sirtech splash sound and Bradley credit"},
-    {"step": 13, "winit_file": "0xb1f", "n_arg": "0x48", "delay_units": 720, "approx_wall_seconds": "10-30",  "skip_via": "ENTER", "context": "Long title-hold; user reads Bradley credit"},
-    {"step": 17, "winit_file": "0xb50", "n_arg": 10,    "delay_units": 100, "approx_wall_seconds": "1.5-5",   "skip_via": "ENTER", "context": "Between page-clear and Wizardry header reveal"},
-    {"step": 23, "winit_file": "0xb9c", "n_arg": 10,    "delay_units": 100, "approx_wall_seconds": "1.5-5",   "skip_via": "ENTER", "context": "Between header reveal and scroll-start"},
-    {"step": 33, "winit_file": "0xdee", "n_arg": "0x1c", "delay_units": "(c43f variant, no *10)", "approx_wall_seconds": "0.5-2", "skip_via": "any input", "context": "Post-scroll dwell on final page (only if user SKIPPED during scroll); else indefinite wait for any input"}
+    {
+      "step": 7,
+      "winit_file": "0xacc",
+      "n_arg": 2,
+      "delay_units": 20,
+      "approx_wall_seconds": "0.3-1.0",
+      "skip_via": "ENTER",
+      "context": "Between Sirtech splash sound and Bradley credit"
+    },
+    {
+      "step": 13,
+      "winit_file": "0xb1f",
+      "n_arg": "0x48",
+      "delay_units": 720,
+      "approx_wall_seconds": "10-30",
+      "skip_via": "ENTER",
+      "context": "Long title-hold; user reads Bradley credit"
+    },
+    {
+      "step": 17,
+      "winit_file": "0xb50",
+      "n_arg": 10,
+      "delay_units": 100,
+      "approx_wall_seconds": "1.5-5",
+      "skip_via": "ENTER",
+      "context": "Between page-clear and Wizardry header reveal"
+    },
+    {
+      "step": 23,
+      "winit_file": "0xb9c",
+      "n_arg": 10,
+      "delay_units": 100,
+      "approx_wall_seconds": "1.5-5",
+      "skip_via": "ENTER",
+      "context": "Between header reveal and scroll-start"
+    },
+    {
+      "step": 33,
+      "winit_file": "0xdee",
+      "n_arg": "0x1c",
+      "delay_units": "(c43f variant, no *10)",
+      "approx_wall_seconds": "0.5-2",
+      "skip_via": "any input",
+      "context": "Post-scroll dwell on final page (only if user SKIPPED during scroll); else indefinite wait for any input"
+    }
   ],
-
   "findings": [
     {
       "id": "slot-14-pic-scratch-aliasing",
@@ -145,7 +454,10 @@
       "claim": "If audio_play_sound's computed uVar1 (= rate_or_vol byte at slot+0xA) is zero, audio_engine_play takes its 'stop-current-sound' path: blocks on *0x1764 until non-zero, then calls FUN_1000_1741 (cleanup) and returns without playing anything. This is a silent path — relevant to the slot 14 scenario where the rate_or_vol byte (= PIC record byte at +0xA) happens to be zero, in which case audio_play_sound(0xE) is completely silent.",
       "evidence": {
         "binary": "wroot.exe",
-        "address": "0x11462",
+        "address": {
+          "space": "wroot.exe",
+          "offset": "0x11462"
+        },
         "type": "decomp",
         "details": "audio_engine_play decomp lines 39-44: `if (param_6 == '\\0') { do {} while (DAT_1000_1764 == '\\0'); FUN_1000_1741(); return; }` — where param_6 is the volume arg passed from audio_play_sound. So vol=0 ⇒ stop, no playback."
       },
@@ -172,7 +484,6 @@
       "confidence": "high"
     }
   ],
-
   "timing_notes": {
     "delay_primitive": {
       "name": "delay_primitive_busy_wait",
@@ -192,7 +503,6 @@
       "needs": "Decomp wroot 0x9a3 to confirm whether it has the ×10 multiplier."
     }
   },
-
   "user_visible_sequence": [
     "1. State-1 entry: kbd_flush, load CREDITS.PIC glyphs (PIC #0x27) into slot-14 sample buffer (writes 12 bytes to 0x33EC), open + read CREDITS.PIC again via video driver.",
     "2. Vmode dispatch → winit_show_pic_in_window(TITLEPAG.{EGA|CGA|T16|HRC}) — title window 0x4FBE is created (40×25 fullscreen overlay), title art rendered.",
@@ -215,7 +525,6 @@
     "19. Post-state-wait: if user skipped → c43f(0x1c) brief absorb-input wait; else loop polling kbd+mouse indefinitely until any input.",
     "20. kbd_flush_buffer. Return — wroot reloads winit for state 2."
   ],
-
   "unresolved": [
     "DEFINITIVE alias mapping for slots 13, 14 (and possibly 6 if user's report indicates aliasing there too). Requires DOSBox-X to: (a) set breakpoint at wroot 0x10AAA (audio_play_sound entry), (b) dump 0x33EC..0x33F7 (slot 14) and 0x33A0..0x33AB (slot 13) at the moments audio_play_sound(0xE) and audio_play_sound(0xD) are called, (c) inspect 0x35B1/0x35B3 (slot 14 sample buffer) and 0x35AD/0x35AF (slot 13 sample buffer) to see what FILE the sample data is from. Until this is done, the N→file mapping for aliased slots is speculative.",
     "Whether c43f (wroot 0x9a3 wait-or-enter variant) has the same ×10 multiplier as winit's 0x9ae variant. Affects estimated wall-clock duration of the post-scroll wait.",
@@ -225,14 +534,12 @@
     "Whether the f100 video-driver thunk (called inside winit_show_pic_in_window AND the inline PIC-read inside state-1) uses 0x33EC or other shared scratch buffers. Not currently auditable without RE-ing the loaded driver (ega.drv/cga.drv/tandy.drv/herc.drv).",
     "Whether audio_play_sound's switch on *0x3590 (music-mode byte) affects the slot-14-corruption outcome. The audio config defaults likely make case 0 (no halving, no range-check) the runtime behavior, but if wbase audio-config has been set, the result might differ."
   ],
-
   "next_steps_for_user": [
     "1. Run DOSBox-X with breakpoints at wroot file_offset 0xAAA (= image 0x10AAA = audio_play_sound entry). At each break, dump BX register and memory at DGROUP 0x33EC..0x33F7 (for slot 14 access) or 0x33A0..0x33AB (slot 13), plus 0x35AD..0x35B5 (sample-buffer ptrs slots 11-14). This will definitively settle which file plays for each N value in state-1.",
     "2. Alternatively: use the DOSBox-X file-open logging (tools/dosbox/run-with-logging.sh) to count how many SOUND<NN>.SND files are opened during state-0 + state-1. If only 8-10 are opened (instead of all 12 present 00-13 files), the missing slots are aliases.",
     "3. Once verified, update docs/re/findings/winit-state1-audio.json's alias-table OR replace it with this finding's data. Promote the corrected SOUND-file mapping to docs/re/snd-format.md.",
     "4. In the TS port: for the title-screen audio wiring, EITHER (a) follow user's by-ear mapping (SOUND04 for sirtech, SOUND05+06+07 for title-reveal beats), OR (b) faithfully emulate the slot-14-corruption behavior (read PIC bytes interpreted as samples — produces a brief noise). Option (a) is simpler and matches user's expectation; option (b) is byte-accurate but plays garbage."
   ],
-
   "operational_notes": {
     "ghidra_install": "/opt/homebrew/Cellar/ghidra/12.1/libexec",
     "pyghidra_version": "3.1.0 (DeprecationWarning on open_program — use open_project + program_context)",

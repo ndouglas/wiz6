@@ -2,7 +2,10 @@
   "topic": "snd-format",
   "subagent_run": "2026-05-22T21:00:00Z",
   "corrigendum_2026_05_22b": "The on-disk-format claims in this file were partially wrong. The corrected format: bytes 0..1 = tree_size (u16); tree at bytes 2..1+tree_size (NOT bytes 4..); bytes 2+tree_size..3+tree_size = decoded_length prefix (u16, used as decode-loop counter and INT 21h/48h alloc size); bitstream at byte 4+tree_size onward. There is no `rate_word` in the file — bytes 2..3 we previously labelled that are actually the first word of the tree, which happens to look rate-like for some files. All 7 ISR variants use xlatb (not just slow). The 'large-leaf' anomalies (sound25 etc. with leaves > 255) were an artefact of the 2-byte tree-offset bug and vanish when the format is parsed correctly. The `audio_adlib_init_voice @ 0x11962` claim below is also wrong — bytes at that address are an EOI/IRET stub, not OPL register writes. See docs/re/snd-format.md for the corrected spec.",
-  "binaries": ["wroot.exe", "winit.ovr"],
+  "binaries": [
+    "wroot.exe",
+    "winit.ovr"
+  ],
   "summary": "Wiz6's .SND files are Huffman-compressed digitized samples. The audio engine lives entirely in wroot.exe (no dedicated audio driver file). The function previously named `disk_int13_reset` (0x11462) is actually the audio playback engine — it installs an IRQ0 (timer) ISR that emits one sample per timer tick to one of three output devices: PC speaker (PIT mode 0/3 reload), AdLib OPL2 (port 0x389), or a Tandy-like PSG at a variable port. Audio device selection is via the byte at DGROUP 0x1756, with fast/slow ISR variants chosen by flags at 0x1760. Sample values are translated through a 256-byte log-attenuation LUT at cs:0x1A4B before being written to hardware. The on-disk format is corrected in the corrigendum above (2-byte header + tree + length prefix + bitstream).",
   "findings": [
     {
@@ -11,7 +14,10 @@
       "category": "audio",
       "evidence": {
         "binary": "wroot.exe",
-        "address": "0x11462",
+        "address": {
+          "space": "wroot.exe",
+          "offset": "0x11462"
+        },
         "type": "hardware_port_evidence",
         "details": "Decompiled body contains: out 0x43 (PIT control), out 0x42 (PIT counter 2 / speaker), out 0x40 (PIT counter 0 / IRQ0), in/out 0x21 (8259 PIC mask), out 0x61 (PC speaker gate). Writes IRQ0 IVT vector at uRam00000020 to one of 7 ISR addresses based on device byte *0x1756 and flags *0x1760. The single 'INT 13h' instance is in an early-out fatal branch (param_7 == 0xff) followed by an infinite loop — not a disk reset path. The previous naming pass saw the INT 13h and stopped looking; the rest of the function is the entire audio engine. Confirmed by inspecting raw bytes at file offset 0x1462 and by tracing IVT install sites."
       },
@@ -24,7 +30,10 @@
       "category": "audio",
       "evidence": {
         "binary": "wroot.exe",
-        "address": "0x10aaa",
+        "address": {
+          "space": "wroot.exe",
+          "offset": "0x10aaa"
+        },
         "type": "callee_match",
         "details": "Decompiled function reads byte at (param_1 * 0xC + 0x334E), dispatches on byte *0x3590 (device-specific volume scaling, cases 1-5), then calls FUN_1000_35fd with (sound_id, [+0x334C], scaled_volume, [+0x334F]). audio_play_by_id (FUN_35fd) looks up far-pointer at (id*4 + 0x3579) and calls audio_engine_play. Called from winit_state1_title_and_credits at file 0xa44, 0xa55, 0xb46, 0xb5f, 0xb93 with args 4, 0xD, 0xE, 7, 6 (sound trigger IDs)."
       },
@@ -37,7 +46,10 @@
       "category": "audio",
       "evidence": {
         "binary": "wroot.exe",
-        "address": "0x135fd",
+        "address": {
+          "space": "wroot.exe",
+          "offset": "0x135fd"
+        },
         "type": "decompiled_match",
         "details": "Decompiled body: `if (param_1 == -1) buffer=0:0; else buffer = [param_1*4 + 0x3579] : [param_1*4 + 0x357b]; audio_engine_play(0, off, 0, seg, p2, p3, p4);`. The table at 0x3579/0x357B is populated by huffman_load_and_decompress at 0x133E9 — the same function that loads .pic files writes to this table at offset 0x357B with id*4 stride. Wroot.exe contains exactly 3 references to 0x3579: one in audio_engine_play, one in huffman_load_and_decompress, and one in audio_play_by_id."
       },
@@ -50,7 +62,10 @@
       "category": "audio",
       "evidence": {
         "binary": "wroot.exe",
-        "address": "0x13640",
+        "address": {
+          "space": "wroot.exe",
+          "offset": "0x13640"
+        },
         "type": "decompiled_match",
         "details": "Decompiled body: `audio_engine_play(0,0,0,0,0,0,0); return DAT_1760;`. The all-zero call goes into the audio engine's `param_6 == 0` branch which is `while (DAT_1764 == 0) {} ; return DAT_1764-stop-helper();` — i.e. wait for the playing-sample's IRQ0 to set the 'done' flag, then stop the timer. Called before kbd_check_with_filter to avoid IRQ contention between sample playback and keyboard interrupt."
       },
@@ -76,7 +91,10 @@
       "category": "audio",
       "evidence": {
         "binary": "wroot.exe",
-        "address": "0x11a92",
+        "address": {
+          "space": "wroot.exe",
+          "offset": "0x11a92"
+        },
         "type": "hardware_port_evidence",
         "details": "Disassembled body: `mov dx, 0x388; xchg al, ah; out dx, al; call wait_short; inc dx; xchg al, ah; out dx, al; call wait_long; ret`. wait_short loops 4x reading port 0x388 status; wait_long loops 23 (0x17) reads. This matches the Yamaha YM3812 published wait pattern. Caller audio_adlib_init_voice (0x11962) writes register pairs (0x20,0x21), (0x60,0xF0), (0x80,0xF0), (0xC0,0x01), (0xE0,0x00), (0x43,0x3F), (0xB0,0x00), (0xA0,0x00) — these are AdLib operator/channel registers configuring a single voice with sawtooth-like envelope."
       },

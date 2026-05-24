@@ -738,7 +738,10 @@
       "category": "state_handler",
       "evidence": {
         "binary": "wpops.ovr",
-        "address": "0x4586",
+        "address": {
+          "space": "wpops.ovr",
+          "offset": "0x4586"
+        },
         "details": "Full decompiled function shows: ec6d unfocus *0x3342, *0x4fb2; FUN_00bf(*0x438c, 0); ec6d *0x438a; c4de (FUN_0a42) twice for divider; if (*0x43b4 + 0x19d != 0) { bd6e destroy; bbb6 create new windows 0x4fbc / 0x4fae; FUN_022b(); } FUN_3185(); if (*0x4fae != 0) { bd6e destroy; bbb6 recreate; *0x4358 = 0xfffe; do FUN_0bb8 while *0x4358 != -3; } ebb4 focus; c497 redraw; bd8c swap; FUN_44e1(); ebb4 focus; *0x363a = 0xd; return. The write to 0x363a is at file offset 0x46fe (`c7 06 3a 36 0d 00`)."
       },
       "confidence": "high"
@@ -749,7 +752,10 @@
       "category": "action_picker",
       "evidence": {
         "binary": "wpops.ovr",
-        "address": "0x3185",
+        "address": {
+          "space": "wpops.ovr",
+          "offset": "0x3185"
+        },
         "details": "Decompiled head: `for (local_8 = 0; local_8 < *0x43ce; local_8++) { local_b6 = *0x43a8 + local_8*0x2c; local_b0 = rng(10) + char[local_8].+0x4593 + slot.+0x29; if (local_b0 < 1) local_b0 = 1; local_b2 = local_b0 / char.+0x4592; ... } local_b4 = char.+0x4592 + slot.+0x29 / 10; if (local_b4 < 1) local_b4=1; if (4 < local_b4) local_b4=4;`. The 11-entry array fill: `for (i=0; i<0xb; i++) local_2a[i] = 1; local_2a[0xb] = 0xffff;` then conditional gating. The picker call: `local_a = FUN_0cfc(param_1, 3000, local_2a, 1, 1, 6, uVar6, 5);` (uVar6=3 if local_4a<10 else 4 cols). The dispatch: `if (local_a < 0xb) { (*(code*)*(int*)(local_a*2 + 0x7fc3))(); return; }`. The back-stack: `apuStack_cc[local_c0] = local_8; local_c0++;` on enter; `local_8 = apuStack_cc[--local_c0]` on BACK; `local_c0 = 0; local_8 = 0` on RESET."
       },
       "confidence": "high"
@@ -760,7 +766,10 @@
       "category": "ui_picker",
       "evidence": {
         "binary": "wpops.ovr",
-        "address": "0xcfc",
+        "address": {
+          "space": "wpops.ovr",
+          "offset": "0xcfc"
+        },
         "details": "The loop scans param_3[] until -1 terminator. Per active entry, computes `(local_6/param_7)*param_6 + param_4` (row) and `local_6%param_7 + param_5` (col), positions cursor, loads msg at `param_2 + local_4`, then writes inverted (`-param_8` color) if focused, plain (color 3) if not. Records `aiStack_24[local_6] = local_4` to map display-position back to original-index. The input loop calls `FUN_0c75(0x4376, 0x3598)` (kbd-with-filter) and updates `param_9` (cursor position) on arrow keys, breaks on `iVar1 == 5` (ENTER). Returns `aiStack_24[param_9]`."
       },
       "confidence": "high"
@@ -771,7 +780,10 @@
       "category": "action_picker",
       "evidence": {
         "binary": "wpops.ovr",
-        "address": "0x1ee6",
+        "address": {
+          "space": "wpops.ovr",
+          "offset": "0x1ee6"
+        },
         "details": "Window create: `local_4 = ui_window_create(0, 0x12, 0x17, 7, 0x19, 0xffff, 0, 0); local_6 = ui_window_create(0x16, 0x13, 0x12, 6, 0x1a, 0xfffb, 0, 0);`. The 7-slot school grid (`do { ... } while (local_8 < 6);` + center) is rendered with `mouse_status_set_field` per slot. The spell-display branch: `uVar2 = (uint)*(byte*)(local_34[iVar1]*6 + 0xe0); if (*(int*)(param_2*0x1b0 + uVar7*4 + 0x4410) < (int)uVar2) { ui_window_write_chars(local_4, 0x4ffe, *(undefined2*)(uVar7*2 + 4)); } else { ui_window_print_number(local_4, uVar2, 3, *(undefined2*)(uVar7*2+4)); }`. The 0x4ffe gray color = visible-but-uncastable; color 3 = castable."
       },
       "confidence": "high"
@@ -782,7 +794,10 @@
       "category": "action_picker",
       "evidence": {
         "binary": "wpops.ovr",
-        "address": "0x2c5a",
+        "address": {
+          "space": "wpops.ovr",
+          "offset": "0x2c5a"
+        },
         "details": "Inventory iteration: `for (local_a = 0; local_a < *(byte*)(param_2*0x1b0 + 0x4594); local_a++) { data_table_load(local_56, 1, *(undefined2*)(param_2*0x1b0 + local_a*8 + 0x4428)); strcpy(local_56, local_f6 + local_a*8); if (*(char*)(item_type + 0xcc) == 1) (&local_10a)[local_a] = *(byte*)(item.+0x442e); else (&local_10a)[local_a] = 0; }`. The grid navigation uses ↑/↓ to scroll the visible window of 3 items; ENTER returns the selected slot."
       },
       "confidence": "high"
@@ -793,7 +808,10 @@
       "category": "action_picker",
       "evidence": {
         "binary": "wpops.ovr",
-        "address": "0x1069",
+        "address": {
+          "space": "wpops.ovr",
+          "offset": "0x1069"
+        },
         "details": "Range-gating: `if (param_3 == 0 || param_3 == 1) range = 2; else if (param_3 == 2) range = 3; else if (param_3 == 3) range = 5; else range = 5; if (*0x4360 < range) range = *0x4360;`. The for-loop renders `range` group entries at successive y-positions inside `*0x438c` window."
       },
       "confidence": "high"
@@ -804,7 +822,10 @@
       "category": "action_picker",
       "evidence": {
         "binary": "wpops.ovr",
-        "address": "0x14cf",
+        "address": {
+          "space": "wpops.ovr",
+          "offset": "0x14cf"
+        },
         "details": "Early-out: `if (*0x43ce < 2) { local_8 = 0; } else { ... grid render + navigate ... }`. The grid is rendered via `for (iVar5 = 0; iVar5 < *0x43ce; iVar5++) { x = (iVar5%2)*9 + 2; y = iVar5/2 + 1; set_cursor(local_6, x, y); ui_window_puts(local_6, char[iVar5]+0x43e8, 3); }`."
       },
       "confidence": "high"
@@ -815,7 +836,10 @@
       "category": "monster_ai",
       "evidence": {
         "binary": "wpops.ovr",
-        "address": "0x44e1",
+        "address": {
+          "space": "wpops.ovr",
+          "offset": "0x44e1"
+        },
         "details": "`*(undefined1 *)(*(int *)0x43a8 + 0x19d) = *(undefined1 *)0x43ce; for (local_4 = 1; local_4 <= *0x4360; local_4++) { if (*(char*)(*0x43b4 + 0x19d) == 0) { FUN_3f1c(local_4, 0); } else { iVar1 = rng(4); if (iVar1 != 1 || *(char*)(*(int*)(local_4*2+0x43b6) + 0xd0) == 0x16) FUN_3f1c(local_4, 0); else FUN_3f1c(local_4, 6); } } if (*(char*)(*0x43b4+0x19d) != 0) { for (local_4=1; local_4<*0x4360; local_4++) { iVar1 = rng(3); if (iVar1 != 0) break; } FUN_3f1c(6, local_4); }`. The 25%-skip + +0xd0 == 0x16 check is the 'is this monster too pacifistic / merchant-type to attack overflow group' rule. The second loop drives the overflow group's own actions."
       },
       "confidence": "high"
@@ -826,7 +850,10 @@
       "category": "monster_ai",
       "evidence": {
         "binary": "wpops.ovr",
-        "address": "0x3f1c",
+        "address": {
+          "space": "wpops.ovr",
+          "offset": "0x3f1c"
+        },
         "details": "Per-member init: `iVar5 = rng(10); local_c = iVar5 + slot.+0x29 + monster_type.+0xd3; if (local_c < 1) local_c = 1; iVar5 = local_c / monster_type.+0xd5;` (sub-action stride). Spell-pick threshold: `iVar7 = rng(100); if (iVar7 < monster_type.+0xa8) { ... spell path ... }`. The weighted-bucket walk uses thresholds 5/10/15/55+ with step 5/10/15 — the same morale/init bucket pattern as wmexe (0x000e). The 5-byte weights at +0x8a..+0x8e are per-spell-school weights for the monster's preferred school."
       },
       "confidence": "high"
@@ -852,7 +879,10 @@
       "category": "monster_ai",
       "evidence": {
         "binary": "wpops.ovr",
-        "address": "0x1857",
+        "address": {
+          "space": "wpops.ovr",
+          "offset": "0x1857"
+        },
         "details": "Main loop: `local_c = 0; do { if (9 < local_c) { do { play_sound(0); } while (true); } local_c++; ... rank-file scan ... } while (loop_breaks_via_return)`. The +0x5043 visited bitmap is shared across the round and reset on round-end or RESET button."
       },
       "confidence": "high"
@@ -879,7 +909,10 @@
       "category": "render_3d",
       "evidence": {
         "binary": "wpops.ovr",
-        "address": "0x5c65",
+        "address": {
+          "space": "wpops.ovr",
+          "offset": "0x5c65"
+        },
         "details": "Reads `*0x4fa0..0x4fa6` (camera position); calls `getbit_test(*0x4faa+0x43a, ...)` (wall-bitmap probe — SAME 0x43a offset as wmexe/wmaze/wmele/wmnpc/wtrea); has the per-direction cell-state memsets `*0x507c..0x50dc`; calls FUN_4935 (the wall-bitmap evaluator). The `*0x4f9a` is `party_facing` (0..3). The 5 satellite helpers (FUN_5a20, 5a83, 5ab4, 5ae5, 5b12, 5b44, 5b76) clear different per-direction flag-byte arrays — same shape as wmexe's BSS layout. The renderer dispatches via jump table at -0x6f46 (in wroot data) for `*0x363c` variant selection (0..0xd)."
       },
       "confidence": "high"

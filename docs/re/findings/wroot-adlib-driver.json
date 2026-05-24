@@ -1,10 +1,11 @@
 {
   "topic": "wroot-adlib-driver",
   "subagent_run": "2026-05-24T01:00:00Z",
-  "binaries": ["wroot.exe"],
+  "binaries": [
+    "wroot.exe"
+  ],
   "summary": "DEFINITIVE conclusion: Wizardry 6's 'AdLib driver' is NOT an FM-music driver. There is no FM music in the game and no music data anywhere on disk. What the engine calls 'AdLib mode' is a sample-playback path that drives the AdLib OPL2 chip as a crude 6-bit DAC by writing PCM sample values to a single operator's total-level register (the classic 'AdLib-DAC' technique used by Origin/Sierra circa 1989-1991). All audio in Wiz6 is .SND-file PCM (Huffman-compressed digitized samples), routed through one of 7 IRQ0-driven ISRs at sample rate ~9-10 kHz. The 'AdLib channel active during sirtech-splash' that the parent reported observing via DOSBox-X save state is SOUND04.SND being emitted byte-by-byte through OPL2 register 0x40 — not FM music in parallel. This finding closes #Q-L (the parent task) by REJECTING the premise: there are no AdLib music notes to inventory, no music tables to extract, no tracker data to port. The 'layered chaos' perception of the sirtech-splash is the .SND playback's natural raspy character on a 6-bit DAC at sub-Nyquist rates, not parallel layered tracks.",
   "method": "PyGhidra decompilation of the audio cluster in wroot.exe (image 0x10AAA, 0x11462, 0x11765, 0x117FE, 0x11892, 0x118A3, 0x118B3 + the 7 ISR entry points 0x118C3, 0x11901, 0x11919, 0x11947, 0x1196A, 0x119D4, 0x11A08, 0x11A88). Raw ndisasm of FUN_1000_1765 (real AdLib init), of audio_engine_play, and of the AdLib-mode SB-DSP path at file 0x151F. Byte-pattern scan of all 12 binaries (wroot + 11 overlays) for AdLib port references (MOV DX, 0x388 / 0x389 / 0x38A / 0x38B, and the false-positive variants SHL/OUT). DOSBox-X save state 1.sav opened as ZIP, Mixer blob examined for channel/chip section structure.",
-
   "deliverable_A_driver_primitives": {
     "summary": "Three core primitives at image 0x11892..0x118C2 plus a real AdLib chip-init at 0x11765. The previously-named `audio_adlib_init_voice @ 0x11962` is BOGUS — that address contains only `mov al, 0x20; out 0x20, al; iret`, an IRQ-EOI stub used as a no-op ISR. The real chip init lives at FUN_1000_1765 (formerly unnamed). All AdLib port references in the engine cluster in this small region; no overlay has AdLib I/O.",
     "primitives": [
@@ -52,24 +53,75 @@
         },
         "confidence": "high",
         "register_decode_table": [
-          {"reg": "0x20", "val": "0x21", "meaning": "Op0 of voice 0: AM=on, VIB=off, EG=on, KSR=off, multiplier=1"},
-          {"reg": "0x60", "val": "0xF0", "meaning": "Op0 attack-rate=15 (fastest), decay-rate=0"},
-          {"reg": "0x80", "val": "0xF0", "meaning": "Op0 sustain-level=15 (lowest, =loudest), release=0"},
-          {"reg": "0xC0", "val": "0x01", "meaning": "Voice 0: feedback=0, connection=AM (additive — op0 reaches output)"},
-          {"reg": "0xE0", "val": "0x00", "meaning": "Op0 waveform=sine (irrelevant in DAC mode)"},
-          {"reg": "0x43", "val": "0x3F", "meaning": "Op1 carrier: KSL=0, total-level=0x3F (silent — op1 contributes nothing)"},
-          {"reg": "0xB0", "val": "0x00", "meaning": "Voice 0 freq-high, key-off, block=0"},
-          {"reg": "0xA0", "val": "0x00", "meaning": "Voice 0 freq-low = 0"},
-          {"reg": "0xA0", "val": "freq_lo_from_param", "meaning": "Set voice 0 frequency LSB from BP+0xE arg"},
-          {"reg": "0xB0", "val": "0x2C + freq_hi", "meaning": "Voice 0 freq-high, KEY-ON (bit 5), block=5 (0x2C bits: 0010_1100 = key-on + block 5 + freq bits)"},
-          {"reg": "0xB0", "val": "0x20", "meaning": "(after calibration loop) key-off voice 0 — note now decays naturally"},
-          {"reg": "0xA0", "val": "0x00", "meaning": "Zero freq"},
-          {"reg": "0x40", "val": "0x00", "meaning": "Op0 KSL=0, total-level=0 = FULL output. THIS IS THE DAC SETUP — sample bytes are now written via OUT 0x389 to land in op0's TL field every ISR tick."}
+          {
+            "reg": "0x20",
+            "val": "0x21",
+            "meaning": "Op0 of voice 0: AM=on, VIB=off, EG=on, KSR=off, multiplier=1"
+          },
+          {
+            "reg": "0x60",
+            "val": "0xF0",
+            "meaning": "Op0 attack-rate=15 (fastest), decay-rate=0"
+          },
+          {
+            "reg": "0x80",
+            "val": "0xF0",
+            "meaning": "Op0 sustain-level=15 (lowest, =loudest), release=0"
+          },
+          {
+            "reg": "0xC0",
+            "val": "0x01",
+            "meaning": "Voice 0: feedback=0, connection=AM (additive — op0 reaches output)"
+          },
+          {
+            "reg": "0xE0",
+            "val": "0x00",
+            "meaning": "Op0 waveform=sine (irrelevant in DAC mode)"
+          },
+          {
+            "reg": "0x43",
+            "val": "0x3F",
+            "meaning": "Op1 carrier: KSL=0, total-level=0x3F (silent — op1 contributes nothing)"
+          },
+          {
+            "reg": "0xB0",
+            "val": "0x00",
+            "meaning": "Voice 0 freq-high, key-off, block=0"
+          },
+          {
+            "reg": "0xA0",
+            "val": "0x00",
+            "meaning": "Voice 0 freq-low = 0"
+          },
+          {
+            "reg": "0xA0",
+            "val": "freq_lo_from_param",
+            "meaning": "Set voice 0 frequency LSB from BP+0xE arg"
+          },
+          {
+            "reg": "0xB0",
+            "val": "0x2C + freq_hi",
+            "meaning": "Voice 0 freq-high, KEY-ON (bit 5), block=5 (0x2C bits: 0010_1100 = key-on + block 5 + freq bits)"
+          },
+          {
+            "reg": "0xB0",
+            "val": "0x20",
+            "meaning": "(after calibration loop) key-off voice 0 — note now decays naturally"
+          },
+          {
+            "reg": "0xA0",
+            "val": "0x00",
+            "meaning": "Zero freq"
+          },
+          {
+            "reg": "0x40",
+            "val": "0x00",
+            "meaning": "Op0 KSL=0, total-level=0 = FULL output. THIS IS THE DAC SETUP — sample bytes are now written via OUT 0x389 to land in op0's TL field every ISR tick."
+          }
         ]
       }
     ]
   },
-
   "deliverable_B_music_data": {
     "summary": "There is no music data. Confirmed by THREE independent methods.",
     "evidence": [
@@ -102,7 +154,6 @@
       }
     ]
   },
-
   "deliverable_C_startup_audio_timeline": {
     "summary": "What plays during state-0 and state-1 is ENTIRELY documented in docs/re/findings/winit-state1-deep-dive.json. There is NO parallel music track. The 'Adlib' channel that the save state at tools/dosbox/save/1.sav shows as active is the PCM sample output from one of the 5 calls in state-1, routed through OPL2 register 0x40 because *0x1756 was set to 0x01 by the user's audio configuration.",
     "evidence": {
@@ -110,15 +161,40 @@
       "details": "DOSBox-X save state is a ZIP archive. Mixer entry (157000 bytes) contains channel blocks 'Adlib' (with embedded 'DBOPL' chip state), 'PCSpeaker', 'SBlaster', 'MPU401' all serialized in fixed order. The 'Adlib' channel being present and enabled means the engine has installed the AdLib-PCM ISR variant (one of audio_isr_adlib_fast at 0x11901 or audio_isr_adlib_slow at 0x118C3) and is using it as its sample output sink. Per winit-state1-deep-dive.json, save state 1.sav was captured during the sirtech-splash window (between AUDIO_CALL_1 audio_play_sound(4) and AUDIO_CALL_2 audio_play_sound(0xD)) — the 'Adlib activity' is SOUND04.SND being played through the AdLib DAC. There is no second concurrent audio source in the engine's design — the ISR is one-sample-at-a-time, single-output, single-source. The Mixer's `SBlaster` and `MPU401` channels being present is a DOSBox-X artifact (those subsystems exist in the emulator regardless of game use); their actual state will show no activity because Wiz6 doesn't drive SB DSP playback or MPU401 MIDI."
     },
     "per_call_disposition_in_state_1": [
-      {"step": "AUDIO_CALL_1", "winit_file": "0xac2", "N": "4", "what_plays": "SOUND04.SND via the AdLib DAC (or PCspk / SBlaster path depending on *0x1756). No music in parallel.", "perceived_layering": "The 'layered chaos' the user reports is the raspy timbre of 8-bit PCM sample at ~10 kHz passed through a 6-bit DAC stair-step — there are no concurrent tracks."},
-      {"step": "AUDIO_CALL_2", "winit_file": "0xadb", "N": "0xD", "what_plays": "SOUND<aliased>.SND via the same single-source path. See winit-state1-deep-dive.json for the slot-13 aliasing question."},
-      {"step": "AUDIO_CALL_3", "winit_file": "0xb43", "N": "0xE", "what_plays": "Garbage or silent — slot 14 is the PIC-scratch-aliased corrupt entry. See winit-state1-deep-dive.json finding `slot-14-pic-scratch-aliasing`."},
-      {"step": "AUDIO_CALL_4", "winit_file": "0xb5c", "N": "6", "what_plays": "SOUND06.SND (or aliased) via the same single-source path."},
-      {"step": "AUDIO_CALL_5", "winit_file": "0xb90", "N": "7", "what_plays": "SOUND07.SND (or aliased) via the same single-source path."}
+      {
+        "step": "AUDIO_CALL_1",
+        "winit_file": "0xac2",
+        "N": "4",
+        "what_plays": "SOUND04.SND via the AdLib DAC (or PCspk / SBlaster path depending on *0x1756). No music in parallel.",
+        "perceived_layering": "The 'layered chaos' the user reports is the raspy timbre of 8-bit PCM sample at ~10 kHz passed through a 6-bit DAC stair-step — there are no concurrent tracks."
+      },
+      {
+        "step": "AUDIO_CALL_2",
+        "winit_file": "0xadb",
+        "N": "0xD",
+        "what_plays": "SOUND<aliased>.SND via the same single-source path. See winit-state1-deep-dive.json for the slot-13 aliasing question."
+      },
+      {
+        "step": "AUDIO_CALL_3",
+        "winit_file": "0xb43",
+        "N": "0xE",
+        "what_plays": "Garbage or silent — slot 14 is the PIC-scratch-aliased corrupt entry. See winit-state1-deep-dive.json finding `slot-14-pic-scratch-aliasing`."
+      },
+      {
+        "step": "AUDIO_CALL_4",
+        "winit_file": "0xb5c",
+        "N": "6",
+        "what_plays": "SOUND06.SND (or aliased) via the same single-source path."
+      },
+      {
+        "step": "AUDIO_CALL_5",
+        "winit_file": "0xb90",
+        "N": "7",
+        "what_plays": "SOUND07.SND (or aliased) via the same single-source path."
+      }
     ],
     "confidence": "high"
   },
-
   "deliverable_D_timer_mechanism": {
     "summary": "The IRQ0 (PIT channel 0) timer is the per-sample tick generator, NOT a music ticker. There is no music-rate tick.",
     "details": {
@@ -130,7 +206,6 @@
     },
     "confidence": "high"
   },
-
   "deliverable_E_porting_recommendation": {
     "summary": "Recommend STRATEGY 1 (no FM emulation needed). The TS/JS port has no music to reproduce; it only needs to reproduce the 35 .SND PCM samples — which the existing parser+player path already does (Web Audio AudioBuffer with raw 8-bit PCM at ~10kHz works correctly). The save-state-derived 'Adlib FM signal' the parent observed was actually PCM through the AdLib DAC, indistinguishable from PCM through PCSpeaker or PCM through SBlaster DAC.",
     "recommendations": [
@@ -151,7 +226,6 @@
       }
     ]
   },
-
   "findings": [
     {
       "id": "no-adlib-music-in-game",
@@ -184,7 +258,10 @@
       "category": "audio",
       "evidence": {
         "binary": "wroot.exe",
-        "address": "0x117FE",
+        "address": {
+          "space": "wroot.exe",
+          "offset": "0x117FE"
+        },
         "type": "decompile",
         "details": "Body: switch on [bp+0x11] (the device mode = *0x1756 copy): if device is 2 or 3 (SB DSP variants), build a simple linear volume LUT at cs:0x1A4B (256 bytes, tbl[i] = (vol * i) >> 8). If device is 1 (AdLib), recursively call FUN_1000_1765 (adlib_chip_init_voice0) which does the chip init AND falls through to its own DAC setup. Otherwise (device 0 = PCSpeaker, device 4 = other), build a more elaborate scaled LUT with attenuation floor (DAT_1000_1763 set to (vol+0xB7)/2 when vol > 0x48). The 256-byte table at cs:0x1A4B is therefore REBUILT each time audio_engine_play is invoked with the current vol/device — it's the per-call volume map, not a fixed log-attenuation table as the prior snd-format finding implied."
       },
@@ -256,7 +333,10 @@
       "category": "audio",
       "evidence": {
         "binary": "wroot.exe",
-        "address": "0x11462",
+        "address": {
+          "space": "wroot.exe",
+          "offset": "0x11462"
+        },
         "type": "decompile_match",
         "details": "audio_engine_play's main path always sets DAT_1000_1764 = 0 (busy flag) before installing a new IVT vector and unmasking IRQ0. It saves the OLD vector to DAT_1000_19CE/19CC. When the sample ends (ISR's JC branch taken), it calls FUN_1000_1990 which restores the old IVT and sets DAT_1000_1764 = 0xFF (idle). Any new audio_engine_play call while DAT_1000_1764 == 0 (still playing) either spins on the busy flag (param_6==0 wait-for-idle case) or interrupts the current playback (param_6!=0). There's no buffer queuing, no double-buffering, no parallel-channel mixing. ONE sample plays at a time."
       },
@@ -264,7 +344,6 @@
       "implication": "Rules out 'sirtech-splash is layered PCM + parallel music' as an architectural possibility. The 'layered chaos' the user perceives must be either (a) artifacts of the single-source DAC reconstruction (stair-step, aliasing), (b) the sequence of 5 calls in state-1 firing in rapid succession (which can sound 'layered' due to short waits between them), or (c) auditory memory mismatch."
     }
   ],
-
   "answers_to_parent_questions": {
     "A_driver_primitives": "Located. 4 primitives: adlib_write_register at 0x11892, adlib_delay_short at 0x118B3, adlib_delay_long at 0x118A3, adlib_chip_init_voice0 at 0x11765. The 0x11962 'audio_adlib_init_voice' is misnamed; it's just an IRQ EOI stub. See deliverable_A_driver_primitives above.",
     "B_music_data": "There is no music data, anywhere. Proved three ways. See deliverable_B_music_data.",
@@ -272,7 +351,6 @@
     "D_timer_mechanism": "IRQ0 (PIT channel 0) tick at ~16.5 or ~33 kHz drives sample output (with fractional-advance step → effective sample rate ~10 kHz). NOT a music tick. See deliverable_D_timer_mechanism.",
     "E_porting_recommendation": "Strategy 1: do nothing additional. The existing .snd PCM playback at ~10 kHz in the viewer is the complete audio reproduction. DO NOT embed OPL3 emulation. See deliverable_E_porting_recommendation."
   },
-
   "unresolved": [
     "Identify the boot caller that invokes audio_engine_play with param_7=0xFF (the audio init sentinel) so we can fully document the *0x1756 write path. Likely a far call from the main() startup or the OVR loader; the 2 near callers found in wroot are not it.",
     "Confirm the *0x3590 audio-mode byte's per-case semantics (cases 1-5 in audio_play_sound). The general shape is 'halve volume in specific ID ranges' but the exact per-case device-volume mapping needs the wbase audio-options-menu RE pass (#Q-A from prior findings).",
@@ -280,19 +358,62 @@
     "Mode 4 (the 'fallback' that overwrites *0x1756 to 0x01 then jumps to play): when is it reached? Possibly a hardware-detection failure case in the boot init.",
     "Full register dump of DOSBox-X DBOPL state during sirtech-splash to CONFIRM that registers other than 0x40 are unchanged from chip init (i.e., really no FM activity). The save-state Mixer blob's DBOPL section was inspected but the exact register layout in dosbox-x's POD serialization needs the dosbox-x source to fully decode. The high-level smoking gun (zero AdLib I/O outside the cluster, no music data anywhere) makes this confirmation cosmetic."
   ],
-
   "rename_proposals": [
-    {"image_addr": "0x11765", "old": "FUN_1000_1765", "new": "adlib_chip_init_voice0", "reason": "Real AdLib chip init + DAC-mode entry"},
-    {"image_addr": "0x117FE", "old": "FUN_1000_17fe", "new": "audio_build_volume_lut_and_init_hw", "reason": "Per-call volume LUT builder + hw-mode dispatcher (calls adlib_chip_init when AdLib mode)"},
-    {"image_addr": "0x11892", "old": "FUN_1000_1892 / audio_opl_write", "new": "adlib_write_register", "reason": "More precise: AH=reg, AL=val"},
-    {"image_addr": "0x118A3", "old": "FUN_1000_18a3 / audio_opl_status_wait_long", "new": "adlib_delay_long_23us", "reason": "Y3812 data-port wait (~23us)"},
-    {"image_addr": "0x118B3", "old": "FUN_1000_18b3 / audio_opl_status_wait_short", "new": "adlib_delay_short_3us", "reason": "YM3812 address-port wait (~3.3us)"},
-    {"image_addr": "0x11962", "old": "audio_adlib_init_voice", "new": "irq_eoi_iret_stub", "reason": "Was NEVER an AdLib init; it's a 3-instruction PIC-EOI IRET stub. Misnaming acknowledged in snd-format corrigendum but apply_audio_names.py still applies the bogus name."},
-    {"image_addr": "0x11734", "old": "FUN_1000_1734", "new": "audio_stop_helper_stub", "reason": "Empty 1-byte function; called from audio_engine_play and FUN_1000_1741 as a stop-cleanup hook"},
-    {"image_addr": "0x11740", "old": "FUN_1000_1740", "new": "audio_short_delay_stub", "reason": "Empty 1-byte function; called via thunk_FUN_1000_1740 between PIT/PIC ops as a per-CPU delay slot"},
-    {"image_addr": "0x11741", "old": "FUN_1000_1741", "new": "audio_stop_and_restore", "reason": "If busy flag clear, restore IVT + restore PIC mask + clean up"}
+    {
+      "image_addr": "0x11765",
+      "old": "FUN_1000_1765",
+      "new": "adlib_chip_init_voice0",
+      "reason": "Real AdLib chip init + DAC-mode entry"
+    },
+    {
+      "image_addr": "0x117FE",
+      "old": "FUN_1000_17fe",
+      "new": "audio_build_volume_lut_and_init_hw",
+      "reason": "Per-call volume LUT builder + hw-mode dispatcher (calls adlib_chip_init when AdLib mode)"
+    },
+    {
+      "image_addr": "0x11892",
+      "old": "FUN_1000_1892 / audio_opl_write",
+      "new": "adlib_write_register",
+      "reason": "More precise: AH=reg, AL=val"
+    },
+    {
+      "image_addr": "0x118A3",
+      "old": "FUN_1000_18a3 / audio_opl_status_wait_long",
+      "new": "adlib_delay_long_23us",
+      "reason": "Y3812 data-port wait (~23us)"
+    },
+    {
+      "image_addr": "0x118B3",
+      "old": "FUN_1000_18b3 / audio_opl_status_wait_short",
+      "new": "adlib_delay_short_3us",
+      "reason": "YM3812 address-port wait (~3.3us)"
+    },
+    {
+      "image_addr": "0x11962",
+      "old": "audio_adlib_init_voice",
+      "new": "irq_eoi_iret_stub",
+      "reason": "Was NEVER an AdLib init; it's a 3-instruction PIC-EOI IRET stub. Misnaming acknowledged in snd-format corrigendum but apply_audio_names.py still applies the bogus name."
+    },
+    {
+      "image_addr": "0x11734",
+      "old": "FUN_1000_1734",
+      "new": "audio_stop_helper_stub",
+      "reason": "Empty 1-byte function; called from audio_engine_play and FUN_1000_1741 as a stop-cleanup hook"
+    },
+    {
+      "image_addr": "0x11740",
+      "old": "FUN_1000_1740",
+      "new": "audio_short_delay_stub",
+      "reason": "Empty 1-byte function; called via thunk_FUN_1000_1740 between PIT/PIC ops as a per-CPU delay slot"
+    },
+    {
+      "image_addr": "0x11741",
+      "old": "FUN_1000_1741",
+      "new": "audio_stop_and_restore",
+      "reason": "If busy flag clear, restore IVT + restore PIC mask + clean up"
+    }
   ],
-
   "operational_notes": {
     "ghidra_project": "tools/ghidra/wiz6.gpr",
     "pyghidra_invocation_pattern": "pyghidra.open_project + program_context (NOT open_program which is deprecated)",

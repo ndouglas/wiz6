@@ -1,7 +1,9 @@
 {
   "topic": "wmnpc-naming-pass",
   "subagent_run": "2026-05-23",
-  "binaries": ["wmnpc.ovr"],
+  "binaries": [
+    "wmnpc.ovr"
+  ],
   "summary": "Named 115 of 120 FUN_XXXX functions in wmnpc.ovr (plus 1 dispatch entry at 0x0e that Ghidra missed, manually created and named — total 116 names applied) (MNPC = Maze NPC: in-dungeon NPC encounters, fixed-encounter scripts, and the dialogue NLP engine — also the home of the per-frame sprite renderer and the 3D-perspective view for encounter scenes). Unlike wbase/wmele/wpcvw which are TRUE state-machine handlers, **wmnpc is a callable library overlay** (like wpcmk) — it does NOT compare `*0x363a` against any value; the dispatch entry at file 0x0e is in fact `monster_per_frame_update`, the helper that wmaze calls every frame for each visible sprite (including NPCs). Other named entry points called externally by wmaze are scattered through the file: `wmnpc_load_npc_sprite` at 0x88b (huffman-decoded portrait into BSS), `wmnpc_load_npc_record` at 0xfa4 (raw 314-byte NPC stat block into BSS at +0x36de), `wmnpc_encounter_init` at 0x737a (clears sprite queue + 'cumulative-gold-given-to-this-NPC' counters and writes `*0x363a=5` to keep wmaze active), `wmnpc_encounter_cleanup` at 0x749c (frees sprite slots), `wmnpc_dialogue_main_loop` at 0x6de0 (the keyword-prompt loop with 8 dialogue actions dispatched via jumptable), and `wmnpc_input_typein_loop` at 0x8fd6 (the free-text input prompt). **Flagship discoveries**: (1) the SYNONYM-EXPANSION keyword parser at 0x7d5b with 38-entry table at runtime BSS 0x6316, each entry 50 bytes holding slash-delimited synonyms — so 'GET'/'TAKE'/'GRAB' all canonicalize to the same keyword; (2) the PERSISTENT cumulative-gold accumulator at *0x52cc/*0x52ce — a 32-bit running total of all gold the party has given THIS NPC, checked against thresholds in the 7-entry trigger table at *0x5156 to UNLOCK new dialogue branches when total bribery crosses a threshold; (3) the persuasion / charisma check at 0x6ae3 (`charm_score = (level - npc_threshold)*5 + skill[18]/2 + class_bonus[STR or DEX] + CHA + reaction/4 - 10`, clamped 0..0x5f, rolled against rng(100)) with a CRITICAL FAILURE branch that knocks reaction at +0x4550 down by rng(25)+25 and writes `*0x363a=10` to FORCE INTO COMBAT; (4) the dialogue verb scanner at 0x7f65 that funnels player input through a 10-verb classifier (ATTACK, TAKE, GIVE, SHOW, BUY, PAY, LEAVE, plus 3 others) and produces a structured event with subject + object + modifiers at *0x5894..*0x58d4; (5) the NPC RESPONSE STRING FORMATTER at 0x8275 with embedded control characters `!` (paragraph), `%` (interpolate player name), `@` (insert NPC name + double-newline), confirmed by the literal `!%#&]@` string at end-of-file 0xb2da; (6) the 22-slot inventory cap reproduced — `wmnpc_inventory_insert` at 0x251c uses the same 10-main + 12-overflow layout as wpcvw's `wpcvw_give_to_party_member`. wmnpc also EMBEDS a stripped-down 3D dungeon renderer (0xa8ca, 2192 bytes) that draws walls during dialogue so the encounter view shows the corridor behind the NPC.",
   "method": "PyGhidra + DecompInterface for all 120 functions in wmnpc.ovr (BinaryLoader, file_offset == Ghidra address). For each function: (a) decompiled C, (b) outgoing intra-overlay CALL edges, (c) cross-overlay thunk calls (any 'call_internal' target >= 0xB000 that isn't in our function set). 56 distinct thunks resolved via the thunk-delta law (bss_offset - 0xBA9C = wroot file offset); cross-referenced against wroot-naming-pass.json + informal names from wpcvw/wpcmk/wmele/wmaze/wbase passes. Header size determined by manual disassembly of bytes 0..0x40 (14 bytes — same as wbase/wmele/wpcvw); dispatch entry at 0x0e is `monster_per_frame_update` (param: monster slot index) which Ghidra failed to create as a function. Names applied when multi-signal evidence converged: BSS field offsets (character record at +0x43e8 stride 0x1b0 reused from wpcvw; monster record at +0x36de stride 0x13a; sprite queue at +0x4390 with 12 slots × 24 bytes; dialogue keyword table at +0x6316 with 38 × 50 bytes), thunk-call vocabularies (window create/focus/clear/redraw, msg load+print, huffman-load-pic, rng, sound, key/mouse polling), keyword/text-parser idioms (loops with FUN_b27b memcmp + 0x2f '/' synonym delimiter), and end-of-file string literals (`SOUND00.SND`, `MON00.PIC`, `!%#&]@`).",
   "stats": {
@@ -29,7 +31,12 @@
   },
   "state_machine": {
     "states_handled": [
-      {"value": "(library)", "decimal": "(library)", "purpose": "wmnpc.ovr is a CALLABLE LIBRARY OVERLAY (no `cmp word [0x363a], N` patterns anywhere in the file). It is loaded ON DEMAND by wmaze when the player enters an NPC encounter tile, and exposes several entry points: `monster_per_frame_update` at 0x0e (called once per visible monster per frame to advance its animation), `wmnpc_load_npc_sprite` at 0x88b (loads MONxx.PIC), `wmnpc_load_npc_record` at 0xfa4 (loads NPC stat block), `wmnpc_encounter_init` at 0x737a (resets per-encounter state), `wmnpc_encounter_cleanup` at 0x749c, `wmnpc_dialogue_main_loop` at 0x6de0, `wmnpc_render_encounter_3d_view` at 0x1078 (per-frame 3D dungeon view in the background of the dialogue UI). Internally wmnpc DOES read+write `*0x363a` (to force state 10 = combat when the player attacks an NPC or fails a charisma check) and `*0x363c` (a sub-state used by the embedded 3D renderer to distinguish corridor / room / dialog modes 0/4/5/10/12).", "handler": "library"}
+      {
+        "value": "(library)",
+        "decimal": "(library)",
+        "purpose": "wmnpc.ovr is a CALLABLE LIBRARY OVERLAY (no `cmp word [0x363a], N` patterns anywhere in the file). It is loaded ON DEMAND by wmaze when the player enters an NPC encounter tile, and exposes several entry points: `monster_per_frame_update` at 0x0e (called once per visible monster per frame to advance its animation), `wmnpc_load_npc_sprite` at 0x88b (loads MONxx.PIC), `wmnpc_load_npc_record` at 0xfa4 (loads NPC stat block), `wmnpc_encounter_init` at 0x737a (resets per-encounter state), `wmnpc_encounter_cleanup` at 0x749c, `wmnpc_dialogue_main_loop` at 0x6de0, `wmnpc_render_encounter_3d_view` at 0x1078 (per-frame 3D dungeon view in the background of the dialogue UI). Internally wmnpc DOES read+write `*0x363a` (to force state 10 = combat when the player attacks an NPC or fails a charisma check) and `*0x363c` (a sub-state used by the embedded 3D renderer to distinguish corridor / room / dialog modes 0/4/5/10/12).",
+        "handler": "library"
+      }
     ],
     "dispatch_entry": "0x0e (this is NOT a state-machine handler — it's monster_per_frame_update, the per-frame advance for one monster/NPC sprite identified by `[bp+4]` index)",
     "header_size_bytes": 14,
@@ -65,62 +72,633 @@
     "**THE NPC-SHOP PRICING & TRADE RECORD at *0x54b2..*0x57e0** — Several functions reference a parallel inventory at *0x54b2 (count) / *0x54b4 (slot-index array, 2 bytes each) / *0x54f0 (16 bytes per item, including item-id+misc data + +0x56d0 type-byte / +0x56ee 32-bit price word — gold price per unit). This is the NPC's TRADE INVENTORY — items the NPC offers for sale (or wants from the party). `wmnpc_buy_or_show_item` at 0x6137 implements the BUY flow: check party gold (32-bit at +0x43fc) >= item-price (32-bit at +0x56ee+*16), if so deduct gold w/ borrow, transfer item via 0x251c, set inventory slot to 0, fire dialogue-trigger via 0x3a12 (so NPC can comment on the purchase). 0x5a6b is the LIST renderer (showing prices). 0x5e14 / 0x5ce3 / 0x52c3 cover the catalog browse / per-item display / pricing format paths."
   ],
   "thunk_usage": [
-    {"thunk": "0xbda7", "wroot_offset": "0x0000030b", "name": "ui_window_set_cursor", "callsites": 28, "sample_callers": ["0x967", "0xa0f", "0xa48", "0xb14"]},
-    {"thunk": "0xc1f7", "wroot_offset": "0x0000075b", "name": "load_msg_into_buf", "callsites": 23, "sample_callers": ["0x113d", "0x16fd", "0x1837", "0x18a8"]},
-    {"thunk": "0xfaab", "wroot_offset": "0x0000400f", "name": "strlen", "callsites": 18, "sample_callers": ["0xb14", "0xeb6", "0x15bd", "0x18a8"]},
-    {"thunk": "0xebb4", "wroot_offset": "0x00003118", "name": "ui_window_focus", "callsites": 15, "sample_callers": ["0x967", "0xe81", "0xeb6", "0xf24"]},
-    {"thunk": "0xec6d", "wroot_offset": "0x000031d1", "name": "ui_window_unfocus", "callsites": 15, "sample_callers": ["0x967", "0xe81", "0xeb6", "0xf24"]},
-    {"thunk": "0xdf85", "wroot_offset": "0x000024e9", "name": "ui_window_write_chars", "callsites": 13, "sample_callers": ["0xf24", "0x13b6", "0x15bd", "0x18a8"]},
-    {"thunk": "0xdfb9", "wroot_offset": "0x0000251d", "name": "ui_window_puts", "callsites": 12, "sample_callers": ["0xb14", "0xeb6", "0x13b6", "0x186d"]},
-    {"thunk": "0xf3aa", "wroot_offset": "0x0000390e", "name": "strcpy", "callsites": 11, "sample_callers": ["0x387", "0x88b", "0xfa4", "0x4784"]},
-    {"thunk": "0xc47e", "wroot_offset": "0x000009e2", "name": "rng_next", "callsites": 9, "sample_callers": ["0x154", "0x477", "0x113d", "0x216b"]},
-    {"thunk": "0xe5b5", "wroot_offset": "0x00002b19", "name": "ui_window_blit", "callsites": 9, "sample_callers": ["0x967", "0x4363", "0x44da", "0x46c4"]},
-    {"thunk": "0xc31e", "wroot_offset": "0x00000882", "name": "data_table_load", "callsites": 8, "sample_callers": ["0x88b", "0xfa4", "0x251c", "0x2ad4"]},
-    {"thunk": "0xde7f", "wroot_offset": "0x000023e3", "name": "ui_window_putchar", "callsites": 8, "sample_callers": ["0xa48", "0xb14", "0x1505", "0x291a"]},
-    {"thunk": "0xdd53", "wroot_offset": "0x000022b7", "name": "ui_window_put_char_repeat", "callsites": 8, "sample_callers": ["0xf24", "0x1248", "0x1505", "0x291a"]},
-    {"thunk": "0xbbb6", "wroot_offset": "0x0000011a", "name": "ui_window_create", "callsites": 8, "sample_callers": ["0x16fd", "0x17a8", "0x1d8a", "0x2839"]},
-    {"thunk": "0xedec", "wroot_offset": "0x00003350", "name": "memchr_or_index", "callsites": 7, "sample_callers": ["0x1430", "0x15bd", "0x7696", "0x7788"]},
-    {"thunk": "0xbd6e", "wroot_offset": "0x000002d2", "name": "ui_window_destroy", "callsites": 7, "sample_callers": ["0x16fd", "0x17a8", "0x1d8a", "0x2885"]},
-    {"thunk": "0xc05d", "wroot_offset": "0x000005c1", "name": "string_substitute_char", "callsites": 7, "sample_callers": ["0x1837", "0x54de", "0x62a1", "0x6ae3"]},
-    {"thunk": "0xed5a", "wroot_offset": "0x000032be", "name": "ui_window_clear", "callsites": 7, "sample_callers": ["0x1d8a", "0x4363", "0x44da", "0x54de"]},
-    {"thunk": "0xc2db", "wroot_offset": "0x0000083f", "name": "ui_window_write_msg_by_id", "callsites": 6, "sample_callers": ["0xe81", "0x44da", "0x46c4", "0x4784"]},
-    {"thunk": "0xe34b", "wroot_offset": "0x000028af", "name": "getbit_test", "callsites": 6, "sample_callers": ["0x4669", "0x5a6b", "0x961b", "0x9a04"]},
-    {"thunk": "0xc497", "wroot_offset": "0x000009fb", "name": "ui_window_redraw_focused", "callsites": 5, "sample_callers": ["0xeb6", "0x113d", "0x1d8a", "0x5e14"]},
-    {"thunk": "0xc546", "wroot_offset": "0x00000aaa", "name": "play_sound", "callsites": 5, "sample_callers": ["0x113d", "0x1248", "0x17a8", "0x60e1"]},
-    {"thunk": "0xe0df", "wroot_offset": "0x00002643", "name": "kbd_check_with_filter", "callsites": 5, "sample_callers": ["0x1228", "0x1430", "0x14ba", "0x1505"]},
-    {"thunk": "0xe1c0", "wroot_offset": "0x00002724", "name": "kbd_getkey_with_filter", "callsites": 5, "sample_callers": ["0x1228", "0x1430", "0x14ba", "0x1505"]},
-    {"thunk": "0xe2a8", "wroot_offset": "0x0000280c", "name": "kbd_flush_buffer", "callsites": 5, "sample_callers": ["0x1248", "0x1430", "0x14ba", "0x1505"]},
-    {"thunk": "0xc6b2", "wroot_offset": "0x00000c16", "name": "mouse_status_set_field", "callsites": 5, "sample_callers": ["0x18a8", "0x1d8a", "0x4784", "0x54de"]},
-    {"thunk": "0xe3c1", "wroot_offset": "0x00002925", "name": "getbit_chunk", "callsites": 5, "sample_callers": ["0x94d0", "0x9535", "0x961b", "0x9a04"]},
-    {"thunk": "0xf148", "wroot_offset": "0x000036ac", "name": "sprite_render_at_screen_pos", "callsites": 5, "sample_callers": ["0x9e5f", "0xa3a7", "0xa596", "0xa808"]},
-    {"thunk": "0xe4ff", "wroot_offset": "0x00002a63", "name": "ui_screen_refresh", "callsites": 4, "sample_callers": ["0x1d8a", "0x4784", "0x54de", "0x6de0"]},
-    {"thunk": "0xc041", "wroot_offset": "0x000005a5", "name": "ui_window_print_number", "callsites": 4, "sample_callers": ["0x44da", "0x4784", "0x52c3", "0x5a6b"]},
-    {"thunk": "0xf9ba", "wroot_offset": "0x00003f1e", "name": "FUN_3f1e", "callsites": 3, "sample_callers": ["0xa48", "0x5ce3", "0x62a1"], "note": "Likely the 32-bit multiplier helper (used in shop price math)"},
-    {"thunk": "0xc4de", "wroot_offset": "0x00000a42", "name": "FUN_0a42", "callsites": 3, "sample_callers": ["0xeb6", "0x1d8a", "0x54de"], "note": "Likely ui_window_print_msg_full or a region-blit"},
-    {"thunk": "0xc61a", "wroot_offset": "0x00000b7e", "name": "FUN_0b7e", "callsites": 3, "sample_callers": ["0x113d", "0x17a8", "0x60e1"], "note": "Likely mouse-related"},
-    {"thunk": "0xc6de", "wroot_offset": "0x00000c42", "name": "mouse_read_state_or_zero", "callsites": 3, "sample_callers": ["0x14ba", "0x1505", "0x291a"]},
-    {"thunk": "0xe2f4", "wroot_offset": "0x00002858", "name": "FUN_2858", "callsites": 2, "sample_callers": ["0x6a5", "0x291a"], "note": "Inside the key-poll / input mainloop"},
-    {"thunk": "0xf10c", "wroot_offset": "0x00003670", "name": "FUN_3670", "callsites": 2, "sample_callers": ["0x6a5", "0xa8ca"], "note": "Likely sprite-blit (used by 0x6a5 sprite renderer AND the 3D view)"},
-    {"thunk": "0xbb71", "wroot_offset": "0x000000d5", "name": "abort_with_code", "callsites": 2, "sample_callers": ["0x88b", "0xfa4"]},
-    {"thunk": "0xc772", "wroot_offset": "0x00000cd6", "name": "boot_build_prompt_message", "callsites": 2, "sample_callers": ["0x88b", "0xfa4"]},
-    {"thunk": "0xf0dc", "wroot_offset": "0x00003640", "name": "kbd_pre_input_disk_check", "callsites": 2, "sample_callers": ["0x88b", "0xfa4"]},
-    {"thunk": "0xf924", "wroot_offset": "0x00003e88", "name": "crt_open", "callsites": 2, "sample_callers": ["0x88b", "0xfa4"]},
-    {"thunk": "0xfda5", "wroot_offset": "0x00004309", "name": "crt_dos_close", "callsites": 2, "sample_callers": ["0x88b", "0xfa4"]},
-    {"thunk": "0xbddb", "wroot_offset": "0x0000033f", "name": "FUN_033f", "callsites": 2, "sample_callers": ["0x967", "0x4784"], "note": "ui_window_box_draw"},
-    {"thunk": "0xfedc", "wroot_offset": "0x00004440", "name": "crt_memmove", "callsites": 2, "sample_callers": ["0x967", "0x737a"]},
-    {"thunk": "0xbfa3", "wroot_offset": "0x00000507", "name": "FUN_0507", "callsites": 2, "sample_callers": ["0xb14", "0x5a6b"], "note": "2-arg formatted-number printer"},
-    {"thunk": "0xbd8c", "wroot_offset": "0x000002f0", "name": "FUN_02f0", "callsites": 2, "sample_callers": ["0xf24", "0x158f"]},
-    {"thunk": "0xf13c", "wroot_offset": "0x000036a0", "name": "FUN_36a0", "callsites": 2, "sample_callers": ["0x1078", "0xa808"], "note": "Sprite-blit sibling — used by per-frame update and 3D-view"},
-    {"thunk": "0xbe32", "wroot_offset": "0x00000396", "name": "ui_window_putchar_with_attr", "callsites": 2, "sample_callers": ["0x52c3", "0x5a6b"]},
-    {"thunk": "0xee85", "wroot_offset": "0x000033e9", "name": "huffman_load_and_decompress", "callsites": 1, "sample_callers": ["0x88b"], "note": "The .pic decoder thunk — loads NPC portrait (MONxx.PIC)"},
-    {"thunk": "0xf100", "wroot_offset": "0x00003664", "name": "FUN_3664", "callsites": 1, "sample_callers": ["0xfa4"], "note": "Likely the raw-file-read primitive used to load NPC record"},
-    {"thunk": "0xc674", "wroot_offset": "0x00000bd8", "name": "mouse_get_pos", "callsites": 1, "sample_callers": ["0x1430"]},
-    {"thunk": "0xe31d", "wroot_offset": "0x00002881", "name": "setbit", "callsites": 1, "sample_callers": ["0x291a"]},
-    {"thunk": "0xbeef", "wroot_offset": "0x00000453", "name": "FUN_0453", "callsites": 1, "sample_callers": ["0x62a1"]},
-    {"thunk": "0xf4be", "wroot_offset": "0x00003a22", "name": "ui_window_alloc_struct", "callsites": 1, "sample_callers": ["0x737a"], "note": "12 sprite slots allocated at encounter init"},
-    {"thunk": "0xf5bc", "wroot_offset": "0x00003b20", "name": "ui_window_free_struct", "callsites": 1, "sample_callers": ["0x749c"], "note": "Frees those 12 sprite slots at cleanup"},
-    {"thunk": "0xf130", "wroot_offset": "0x00003694", "name": "FUN_3694", "callsites": 1, "sample_callers": ["0xa8ca"]},
-    {"thunk": "0xf34c", "wroot_offset": "0x000038b0", "name": "memset", "callsites": 1, "sample_callers": ["0xa8ca"]}
+    {
+      "thunk": "0xbda7",
+      "wroot_offset": "0x0000030b",
+      "name": "ui_window_set_cursor",
+      "callsites": 28,
+      "sample_callers": [
+        "0x967",
+        "0xa0f",
+        "0xa48",
+        "0xb14"
+      ]
+    },
+    {
+      "thunk": "0xc1f7",
+      "wroot_offset": "0x0000075b",
+      "name": "load_msg_into_buf",
+      "callsites": 23,
+      "sample_callers": [
+        "0x113d",
+        "0x16fd",
+        "0x1837",
+        "0x18a8"
+      ]
+    },
+    {
+      "thunk": "0xfaab",
+      "wroot_offset": "0x0000400f",
+      "name": "strlen",
+      "callsites": 18,
+      "sample_callers": [
+        "0xb14",
+        "0xeb6",
+        "0x15bd",
+        "0x18a8"
+      ]
+    },
+    {
+      "thunk": "0xebb4",
+      "wroot_offset": "0x00003118",
+      "name": "ui_window_focus",
+      "callsites": 15,
+      "sample_callers": [
+        "0x967",
+        "0xe81",
+        "0xeb6",
+        "0xf24"
+      ]
+    },
+    {
+      "thunk": "0xec6d",
+      "wroot_offset": "0x000031d1",
+      "name": "ui_window_unfocus",
+      "callsites": 15,
+      "sample_callers": [
+        "0x967",
+        "0xe81",
+        "0xeb6",
+        "0xf24"
+      ]
+    },
+    {
+      "thunk": "0xdf85",
+      "wroot_offset": "0x000024e9",
+      "name": "ui_window_write_chars",
+      "callsites": 13,
+      "sample_callers": [
+        "0xf24",
+        "0x13b6",
+        "0x15bd",
+        "0x18a8"
+      ]
+    },
+    {
+      "thunk": "0xdfb9",
+      "wroot_offset": "0x0000251d",
+      "name": "ui_window_puts",
+      "callsites": 12,
+      "sample_callers": [
+        "0xb14",
+        "0xeb6",
+        "0x13b6",
+        "0x186d"
+      ]
+    },
+    {
+      "thunk": "0xf3aa",
+      "wroot_offset": "0x0000390e",
+      "name": "strcpy",
+      "callsites": 11,
+      "sample_callers": [
+        "0x387",
+        "0x88b",
+        "0xfa4",
+        "0x4784"
+      ]
+    },
+    {
+      "thunk": "0xc47e",
+      "wroot_offset": "0x000009e2",
+      "name": "rng_next",
+      "callsites": 9,
+      "sample_callers": [
+        "0x154",
+        "0x477",
+        "0x113d",
+        "0x216b"
+      ]
+    },
+    {
+      "thunk": "0xe5b5",
+      "wroot_offset": "0x00002b19",
+      "name": "ui_window_blit",
+      "callsites": 9,
+      "sample_callers": [
+        "0x967",
+        "0x4363",
+        "0x44da",
+        "0x46c4"
+      ]
+    },
+    {
+      "thunk": "0xc31e",
+      "wroot_offset": "0x00000882",
+      "name": "data_table_load",
+      "callsites": 8,
+      "sample_callers": [
+        "0x88b",
+        "0xfa4",
+        "0x251c",
+        "0x2ad4"
+      ]
+    },
+    {
+      "thunk": "0xde7f",
+      "wroot_offset": "0x000023e3",
+      "name": "ui_window_putchar",
+      "callsites": 8,
+      "sample_callers": [
+        "0xa48",
+        "0xb14",
+        "0x1505",
+        "0x291a"
+      ]
+    },
+    {
+      "thunk": "0xdd53",
+      "wroot_offset": "0x000022b7",
+      "name": "ui_window_put_char_repeat",
+      "callsites": 8,
+      "sample_callers": [
+        "0xf24",
+        "0x1248",
+        "0x1505",
+        "0x291a"
+      ]
+    },
+    {
+      "thunk": "0xbbb6",
+      "wroot_offset": "0x0000011a",
+      "name": "ui_window_create",
+      "callsites": 8,
+      "sample_callers": [
+        "0x16fd",
+        "0x17a8",
+        "0x1d8a",
+        "0x2839"
+      ]
+    },
+    {
+      "thunk": "0xedec",
+      "wroot_offset": "0x00003350",
+      "name": "memchr_or_index",
+      "callsites": 7,
+      "sample_callers": [
+        "0x1430",
+        "0x15bd",
+        "0x7696",
+        "0x7788"
+      ]
+    },
+    {
+      "thunk": "0xbd6e",
+      "wroot_offset": "0x000002d2",
+      "name": "ui_window_destroy",
+      "callsites": 7,
+      "sample_callers": [
+        "0x16fd",
+        "0x17a8",
+        "0x1d8a",
+        "0x2885"
+      ]
+    },
+    {
+      "thunk": "0xc05d",
+      "wroot_offset": "0x000005c1",
+      "name": "string_substitute_char",
+      "callsites": 7,
+      "sample_callers": [
+        "0x1837",
+        "0x54de",
+        "0x62a1",
+        "0x6ae3"
+      ]
+    },
+    {
+      "thunk": "0xed5a",
+      "wroot_offset": "0x000032be",
+      "name": "ui_window_clear",
+      "callsites": 7,
+      "sample_callers": [
+        "0x1d8a",
+        "0x4363",
+        "0x44da",
+        "0x54de"
+      ]
+    },
+    {
+      "thunk": "0xc2db",
+      "wroot_offset": "0x0000083f",
+      "name": "ui_window_write_msg_by_id",
+      "callsites": 6,
+      "sample_callers": [
+        "0xe81",
+        "0x44da",
+        "0x46c4",
+        "0x4784"
+      ]
+    },
+    {
+      "thunk": "0xe34b",
+      "wroot_offset": "0x000028af",
+      "name": "getbit_test",
+      "callsites": 6,
+      "sample_callers": [
+        "0x4669",
+        "0x5a6b",
+        "0x961b",
+        "0x9a04"
+      ]
+    },
+    {
+      "thunk": "0xc497",
+      "wroot_offset": "0x000009fb",
+      "name": "ui_window_redraw_focused",
+      "callsites": 5,
+      "sample_callers": [
+        "0xeb6",
+        "0x113d",
+        "0x1d8a",
+        "0x5e14"
+      ]
+    },
+    {
+      "thunk": "0xc546",
+      "wroot_offset": "0x00000aaa",
+      "name": "play_sound",
+      "callsites": 5,
+      "sample_callers": [
+        "0x113d",
+        "0x1248",
+        "0x17a8",
+        "0x60e1"
+      ]
+    },
+    {
+      "thunk": "0xe0df",
+      "wroot_offset": "0x00002643",
+      "name": "kbd_check_with_filter",
+      "callsites": 5,
+      "sample_callers": [
+        "0x1228",
+        "0x1430",
+        "0x14ba",
+        "0x1505"
+      ]
+    },
+    {
+      "thunk": "0xe1c0",
+      "wroot_offset": "0x00002724",
+      "name": "kbd_getkey_with_filter",
+      "callsites": 5,
+      "sample_callers": [
+        "0x1228",
+        "0x1430",
+        "0x14ba",
+        "0x1505"
+      ]
+    },
+    {
+      "thunk": "0xe2a8",
+      "wroot_offset": "0x0000280c",
+      "name": "kbd_flush_buffer",
+      "callsites": 5,
+      "sample_callers": [
+        "0x1248",
+        "0x1430",
+        "0x14ba",
+        "0x1505"
+      ]
+    },
+    {
+      "thunk": "0xc6b2",
+      "wroot_offset": "0x00000c16",
+      "name": "mouse_status_set_field",
+      "callsites": 5,
+      "sample_callers": [
+        "0x18a8",
+        "0x1d8a",
+        "0x4784",
+        "0x54de"
+      ]
+    },
+    {
+      "thunk": "0xe3c1",
+      "wroot_offset": "0x00002925",
+      "name": "getbit_chunk",
+      "callsites": 5,
+      "sample_callers": [
+        "0x94d0",
+        "0x9535",
+        "0x961b",
+        "0x9a04"
+      ]
+    },
+    {
+      "thunk": "0xf148",
+      "wroot_offset": "0x000036ac",
+      "name": "sprite_render_at_screen_pos",
+      "callsites": 5,
+      "sample_callers": [
+        "0x9e5f",
+        "0xa3a7",
+        "0xa596",
+        "0xa808"
+      ]
+    },
+    {
+      "thunk": "0xe4ff",
+      "wroot_offset": "0x00002a63",
+      "name": "ui_screen_refresh",
+      "callsites": 4,
+      "sample_callers": [
+        "0x1d8a",
+        "0x4784",
+        "0x54de",
+        "0x6de0"
+      ]
+    },
+    {
+      "thunk": "0xc041",
+      "wroot_offset": "0x000005a5",
+      "name": "ui_window_print_number",
+      "callsites": 4,
+      "sample_callers": [
+        "0x44da",
+        "0x4784",
+        "0x52c3",
+        "0x5a6b"
+      ]
+    },
+    {
+      "thunk": "0xf9ba",
+      "wroot_offset": "0x00003f1e",
+      "name": "FUN_3f1e",
+      "callsites": 3,
+      "sample_callers": [
+        "0xa48",
+        "0x5ce3",
+        "0x62a1"
+      ],
+      "note": "Likely the 32-bit multiplier helper (used in shop price math)"
+    },
+    {
+      "thunk": "0xc4de",
+      "wroot_offset": "0x00000a42",
+      "name": "FUN_0a42",
+      "callsites": 3,
+      "sample_callers": [
+        "0xeb6",
+        "0x1d8a",
+        "0x54de"
+      ],
+      "note": "Likely ui_window_print_msg_full or a region-blit"
+    },
+    {
+      "thunk": "0xc61a",
+      "wroot_offset": "0x00000b7e",
+      "name": "FUN_0b7e",
+      "callsites": 3,
+      "sample_callers": [
+        "0x113d",
+        "0x17a8",
+        "0x60e1"
+      ],
+      "note": "Likely mouse-related"
+    },
+    {
+      "thunk": "0xc6de",
+      "wroot_offset": "0x00000c42",
+      "name": "mouse_read_state_or_zero",
+      "callsites": 3,
+      "sample_callers": [
+        "0x14ba",
+        "0x1505",
+        "0x291a"
+      ]
+    },
+    {
+      "thunk": "0xe2f4",
+      "wroot_offset": "0x00002858",
+      "name": "FUN_2858",
+      "callsites": 2,
+      "sample_callers": [
+        "0x6a5",
+        "0x291a"
+      ],
+      "note": "Inside the key-poll / input mainloop"
+    },
+    {
+      "thunk": "0xf10c",
+      "wroot_offset": "0x00003670",
+      "name": "FUN_3670",
+      "callsites": 2,
+      "sample_callers": [
+        "0x6a5",
+        "0xa8ca"
+      ],
+      "note": "Likely sprite-blit (used by 0x6a5 sprite renderer AND the 3D view)"
+    },
+    {
+      "thunk": "0xbb71",
+      "wroot_offset": "0x000000d5",
+      "name": "abort_with_code",
+      "callsites": 2,
+      "sample_callers": [
+        "0x88b",
+        "0xfa4"
+      ]
+    },
+    {
+      "thunk": "0xc772",
+      "wroot_offset": "0x00000cd6",
+      "name": "boot_build_prompt_message",
+      "callsites": 2,
+      "sample_callers": [
+        "0x88b",
+        "0xfa4"
+      ]
+    },
+    {
+      "thunk": "0xf0dc",
+      "wroot_offset": "0x00003640",
+      "name": "kbd_pre_input_disk_check",
+      "callsites": 2,
+      "sample_callers": [
+        "0x88b",
+        "0xfa4"
+      ]
+    },
+    {
+      "thunk": "0xf924",
+      "wroot_offset": "0x00003e88",
+      "name": "crt_open",
+      "callsites": 2,
+      "sample_callers": [
+        "0x88b",
+        "0xfa4"
+      ]
+    },
+    {
+      "thunk": "0xfda5",
+      "wroot_offset": "0x00004309",
+      "name": "crt_dos_close",
+      "callsites": 2,
+      "sample_callers": [
+        "0x88b",
+        "0xfa4"
+      ]
+    },
+    {
+      "thunk": "0xbddb",
+      "wroot_offset": "0x0000033f",
+      "name": "FUN_033f",
+      "callsites": 2,
+      "sample_callers": [
+        "0x967",
+        "0x4784"
+      ],
+      "note": "ui_window_box_draw"
+    },
+    {
+      "thunk": "0xfedc",
+      "wroot_offset": "0x00004440",
+      "name": "crt_memmove",
+      "callsites": 2,
+      "sample_callers": [
+        "0x967",
+        "0x737a"
+      ]
+    },
+    {
+      "thunk": "0xbfa3",
+      "wroot_offset": "0x00000507",
+      "name": "FUN_0507",
+      "callsites": 2,
+      "sample_callers": [
+        "0xb14",
+        "0x5a6b"
+      ],
+      "note": "2-arg formatted-number printer"
+    },
+    {
+      "thunk": "0xbd8c",
+      "wroot_offset": "0x000002f0",
+      "name": "FUN_02f0",
+      "callsites": 2,
+      "sample_callers": [
+        "0xf24",
+        "0x158f"
+      ]
+    },
+    {
+      "thunk": "0xf13c",
+      "wroot_offset": "0x000036a0",
+      "name": "FUN_36a0",
+      "callsites": 2,
+      "sample_callers": [
+        "0x1078",
+        "0xa808"
+      ],
+      "note": "Sprite-blit sibling — used by per-frame update and 3D-view"
+    },
+    {
+      "thunk": "0xbe32",
+      "wroot_offset": "0x00000396",
+      "name": "ui_window_putchar_with_attr",
+      "callsites": 2,
+      "sample_callers": [
+        "0x52c3",
+        "0x5a6b"
+      ]
+    },
+    {
+      "thunk": "0xee85",
+      "wroot_offset": "0x000033e9",
+      "name": "huffman_load_and_decompress",
+      "callsites": 1,
+      "sample_callers": [
+        "0x88b"
+      ],
+      "note": "The .pic decoder thunk — loads NPC portrait (MONxx.PIC)"
+    },
+    {
+      "thunk": "0xf100",
+      "wroot_offset": "0x00003664",
+      "name": "FUN_3664",
+      "callsites": 1,
+      "sample_callers": [
+        "0xfa4"
+      ],
+      "note": "Likely the raw-file-read primitive used to load NPC record"
+    },
+    {
+      "thunk": "0xc674",
+      "wroot_offset": "0x00000bd8",
+      "name": "mouse_get_pos",
+      "callsites": 1,
+      "sample_callers": [
+        "0x1430"
+      ]
+    },
+    {
+      "thunk": "0xe31d",
+      "wroot_offset": "0x00002881",
+      "name": "setbit",
+      "callsites": 1,
+      "sample_callers": [
+        "0x291a"
+      ]
+    },
+    {
+      "thunk": "0xbeef",
+      "wroot_offset": "0x00000453",
+      "name": "FUN_0453",
+      "callsites": 1,
+      "sample_callers": [
+        "0x62a1"
+      ]
+    },
+    {
+      "thunk": "0xf4be",
+      "wroot_offset": "0x00003a22",
+      "name": "ui_window_alloc_struct",
+      "callsites": 1,
+      "sample_callers": [
+        "0x737a"
+      ],
+      "note": "12 sprite slots allocated at encounter init"
+    },
+    {
+      "thunk": "0xf5bc",
+      "wroot_offset": "0x00003b20",
+      "name": "ui_window_free_struct",
+      "callsites": 1,
+      "sample_callers": [
+        "0x749c"
+      ],
+      "note": "Frees those 12 sprite slots at cleanup"
+    },
+    {
+      "thunk": "0xf130",
+      "wroot_offset": "0x00003694",
+      "name": "FUN_3694",
+      "callsites": 1,
+      "sample_callers": [
+        "0xa8ca"
+      ]
+    },
+    {
+      "thunk": "0xf34c",
+      "wroot_offset": "0x000038b0",
+      "name": "memset",
+      "callsites": 1,
+      "sample_callers": [
+        "0xa8ca"
+      ]
+    }
   ],
   "thunk_usage_summary": {
     "total_distinct_thunks": 56,
@@ -134,74 +712,356 @@
     "topic": "wmnpc BSS layout — distinct from but overlapping with wpcvw/wpcmk character record at 0x43e8",
     "note": "wmnpc's BSS uses the wpcvw character record at 0x43e8 stride 0x1b0 for party members AND a parallel NPC stat record array at 0x36de stride 0x13a for the monster/NPC data table. The sprite-render queue at 0x4390..0x43a8 holds 12 dynamic descriptor pointers. Many of the small-range fields between 0x5000..0x5400 are per-encounter scratch (text buffers, kbd input, picker grids).",
     "fields": [
-      {"addr": "0x36de", "size": "0x13a * N", "name": "npc_record_array", "note": "NPC/monster stat records, stride 0x13a (314 bytes). Loaded by 0xfa4 wmnpc_load_npc_record."},
-      {"addr": "+0x36e2", "name": "npc.sprite_id_lo", "note": "Per-NPC, used to compose MONxx.PIC filename"},
-      {"addr": "+0x36e4", "name": "npc.sprite_id_hi"},
-      {"addr": "+0x3717", "name": "npc.frame_x_delta[]", "note": "Animation X-step per frame"},
-      {"addr": "+0x3732", "name": "npc.hp_base"},
-      {"addr": "+0x373c", "name": "npc.hp_dice", "note": "rng(this) added to base for HP"},
-      {"addr": "+0x3746", "name": "npc.xp_base"},
-      {"addr": "+0x3750", "name": "npc.xp_dice"},
-      {"addr": "+0x375a", "name": "npc.attack_record[4]"},
-      {"addr": "+0x37fa", "name": "npc.frame_step_byte"},
-      {"addr": "+0x3810", "name": "npc.sound_id", "note": "Composes SOUNDxx.SND"},
-      {"addr": "+0x3812", "name": "npc.max_actions"},
-      {"addr": "+0x3813", "name": "npc.type_flag", "note": "0xff = dead/invalid (skipped by entry func at 0x0e)"},
-      {"addr": "+0x3814", "name": "npc.rng_x_delta"},
-      {"addr": "+0x3815", "name": "npc.rng_y_delta"},
-      {"addr": "+0x432c", "name": "npc_runtime.name_byte", "note": "Special-case ASCII tag — values '6'=0x36, '('=0x28, '#'=0x23, '9'=0x39, 0x14 trigger scripted behaviors in 0x06a5/0x0154/entry-func."},
-      {"addr": "0x363a", "size": 2, "name": "game_state_word", "note": "Read by wmaze; wmnpc writes 10 to force combat, 5 to keep wmaze active."},
-      {"addr": "0x363c", "size": 2, "name": "wmnpc_substate", "note": "Internal sub-state for the 3D renderer in 0xa8ca (0/4/5/10/12 select wall-rendering modes)"},
-      {"addr": "0x4358", "size": 2, "name": "frame_counter_tag", "note": "Per-frame state for sprite render: -3 = pre-render setup, -2 = full redraw, -1 = clear pass, 0..11 = normal frame advance"},
-      {"addr": "0x438e", "size": 2, "name": "sprite_queue_count", "note": "Number of active sprite-descriptor slots used in 0x4390"},
-      {"addr": "0x4390", "size": "12 * 2", "name": "sprite_descriptor_ptrs[12]", "note": "Pointers to 24-byte sprite descriptors allocated by FUN_f4be in wmnpc_encounter_init. Sorted by Y-coord (depth)."},
-      {"addr": "0x43cc", "size": 2, "name": "current_leader_slot"},
-      {"addr": "0x43ce", "size": 2, "name": "party_size"},
-      {"addr": "0x43fc", "size": 4, "name": "party_gold_32bit", "note": "Same as wpcvw — 32-bit gold per slot, accessed at slot*0x1b0+0x43fc"},
-      {"addr": "0x4550", "size": 1, "name": "npc.reaction_value", "note": "Per-character byte for NPC's reaction to that party member; decremented by 0x6ae3 on charm failure, etc. Used in charm-check math."},
-      {"addr": "0x51b0", "size": 2, "name": "starting_sound_id", "note": "If > 0, played by wmnpc_dialogue_main_loop on entry."},
-      {"addr": "0x51c0", "size": 4, "name": "npc.gold_pool_32bit", "note": "NPC's own gold pool — drained by successful charm checks"},
-      {"addr": "0x51c4", "size": 8, "name": "npc.keyword_table[8]", "note": "8 bytes of keyword-trigger IDs — passed to 0x2ad4 in the dialogue loop"},
-      {"addr": "0x5156", "size": "6 * 7", "name": "npc.trigger_table[7]", "note": "7 entries × 6 bytes: +0..+3 (32-bit threshold), +4 (type: 1=int 2=cumulative-gold), +5 (response-keyword-byte). Used by 0x3a12 wmnpc_dialogue_trigger_check."},
-      {"addr": "0x5274", "size": 2, "name": "npc_slot_or_data_idx"},
-      {"addr": "0x5276", "size": 2, "name": "npc_leave_flag", "note": "When set by 0x6de0 charm-failure branch, causes dialogue to exit on next iteration"},
-      {"addr": "0x52cc", "size": 4, "name": "cumulative_gold_given_this_encounter_32bit", "note": "Persistent across dialogue iterations within an encounter — reset by wmnpc_encounter_init. Drives the bribery / threshold mechanic."},
-      {"addr": "0x5324", "size": 2, "name": "inventory_browser_count", "note": "Number of items shown in the SHOW/GIVE inventory picker"},
-      {"addr": "0x5326", "size": "20 * 16", "name": "inventory_browser_msg_ids[]"},
-      {"addr": "0x54b2", "size": 2, "name": "npc_trade_inventory_count"},
-      {"addr": "0x54b4", "size": "2 * N", "name": "npc_trade_inventory_idx_array"},
-      {"addr": "0x54f0", "size": "16 * N", "name": "npc_trade_items", "note": "16 bytes/entry, NPC's trade catalog"},
-      {"addr": "+0x56d0", "name": "trade_item.type_byte"},
-      {"addr": "+0x56ee", "name": "trade_item.price_32bit"},
-      {"addr": "0x5892", "size": 2, "name": "charm_attempt_penalty_accumulator", "note": "Running modifier added to charm check rolls — penalty for repeated charm attempts in a single encounter"},
-      {"addr": "0x5894", "size": 2, "name": "parsed_input.subject_verb"},
-      {"addr": "0x5896", "size": 2, "name": "parsed_input.subject_modifier"},
-      {"addr": "0x5898", "size": 2, "name": "parsed_input.direct_object"},
-      {"addr": "0x589a", "size": 2, "name": "parsed_input.alt_verb"},
-      {"addr": "0x589c", "size": 2, "name": "parsed_input.saved_subject_verb"},
-      {"addr": "0x589e", "size": 2, "name": "parsed_input.saved_subject_modifier"},
-      {"addr": "0x58a0", "size": 2, "name": "parsed_input.alias_used_flag"},
-      {"addr": "0x58a2", "size": 2, "name": "parsed_input.subject_idx"},
-      {"addr": "0x58a6", "size": 2, "name": "parsed_input.subject_assumed_flag"},
-      {"addr": "0x58b2", "size": 2, "name": "parsed_input.flag_this"},
-      {"addr": "0x58b4", "size": 2, "name": "parsed_input.flag_first"},
-      {"addr": "0x58b6", "size": 2, "name": "parsed_input.flag_no"},
-      {"addr": "0x58b8", "size": 2, "name": "parsed_input.flag_yes"},
-      {"addr": "0x58ca", "size": 2, "name": "parsed_input.aux_obj_a"},
-      {"addr": "0x58cc", "size": 2, "name": "parsed_input.aux_obj_b"},
-      {"addr": "0x58ce", "size": 2, "name": "parsed_input.aux_obj_c"},
-      {"addr": "0x58d0", "size": 2, "name": "parsed_input.indirect_obj"},
-      {"addr": "0x58d2", "size": 2, "name": "parsed_input.indirect_obj_modifier"},
-      {"addr": "0x58d4", "size": 2, "name": "parsed_input.indirect_obj_alias"},
-      {"addr": "0x58d8", "size": 2, "name": "keyword_table_count_or_id"},
-      {"addr": "0x58da", "size": "0x14 * N", "name": "keyword_string_table", "note": "Each entry 20 bytes; loaded by 0x8d6f from msg-DB"},
-      {"addr": "0x60a8", "size": 2, "name": "noun_keyword_count"},
-      {"addr": "0x60aa", "size": "10 * N", "name": "noun_keyword_array"},
-      {"addr": "0x61fe", "size": "20 * 5", "name": "global_synonym_table", "note": "5 entries × 20 bytes. Used by 0x7bb1 for article/pronoun normalization (THE/A/AN → empty)."},
-      {"addr": "0x6316", "size": "50 * 38", "name": "verb_synonym_table", "note": "38 entries × 50 bytes — slash-delimited synonyms. Used by 0x7d5b wmnpc_keyword_normalize."},
-      {"addr": "0x6a82", "size": 2, "name": "current_verb_classification", "note": "Set by 0x7f65 (the verb scanner). Read by 0x8473 (response compositor) to choose msg-ID."},
-      {"addr": "0x6a9e", "size": 2, "name": "verb_keyword_count"},
-      {"addr": "0x6a9c", "size": 2, "name": "current_speaker_slot"}
+      {
+        "addr": "0x36de",
+        "size": "0x13a * N",
+        "name": "npc_record_array",
+        "note": "NPC/monster stat records, stride 0x13a (314 bytes). Loaded by 0xfa4 wmnpc_load_npc_record."
+      },
+      {
+        "addr": "+0x36e2",
+        "name": "npc.sprite_id_lo",
+        "note": "Per-NPC, used to compose MONxx.PIC filename"
+      },
+      {
+        "addr": "+0x36e4",
+        "name": "npc.sprite_id_hi"
+      },
+      {
+        "addr": "+0x3717",
+        "name": "npc.frame_x_delta[]",
+        "note": "Animation X-step per frame"
+      },
+      {
+        "addr": "+0x3732",
+        "name": "npc.hp_base"
+      },
+      {
+        "addr": "+0x373c",
+        "name": "npc.hp_dice",
+        "note": "rng(this) added to base for HP"
+      },
+      {
+        "addr": "+0x3746",
+        "name": "npc.xp_base"
+      },
+      {
+        "addr": "+0x3750",
+        "name": "npc.xp_dice"
+      },
+      {
+        "addr": "+0x375a",
+        "name": "npc.attack_record[4]"
+      },
+      {
+        "addr": "+0x37fa",
+        "name": "npc.frame_step_byte"
+      },
+      {
+        "addr": "+0x3810",
+        "name": "npc.sound_id",
+        "note": "Composes SOUNDxx.SND"
+      },
+      {
+        "addr": "+0x3812",
+        "name": "npc.max_actions"
+      },
+      {
+        "addr": "+0x3813",
+        "name": "npc.type_flag",
+        "note": "0xff = dead/invalid (skipped by entry func at 0x0e)"
+      },
+      {
+        "addr": "+0x3814",
+        "name": "npc.rng_x_delta"
+      },
+      {
+        "addr": "+0x3815",
+        "name": "npc.rng_y_delta"
+      },
+      {
+        "addr": "+0x432c",
+        "name": "npc_runtime.name_byte",
+        "note": "Special-case ASCII tag — values '6'=0x36, '('=0x28, '#'=0x23, '9'=0x39, 0x14 trigger scripted behaviors in 0x06a5/0x0154/entry-func."
+      },
+      {
+        "addr": "0x363a",
+        "size": 2,
+        "name": "game_state_word",
+        "note": "Read by wmaze; wmnpc writes 10 to force combat, 5 to keep wmaze active."
+      },
+      {
+        "addr": "0x363c",
+        "size": 2,
+        "name": "wmnpc_substate",
+        "note": "Internal sub-state for the 3D renderer in 0xa8ca (0/4/5/10/12 select wall-rendering modes)"
+      },
+      {
+        "addr": "0x4358",
+        "size": 2,
+        "name": "frame_counter_tag",
+        "note": "Per-frame state for sprite render: -3 = pre-render setup, -2 = full redraw, -1 = clear pass, 0..11 = normal frame advance"
+      },
+      {
+        "addr": "0x438e",
+        "size": 2,
+        "name": "sprite_queue_count",
+        "note": "Number of active sprite-descriptor slots used in 0x4390"
+      },
+      {
+        "addr": "0x4390",
+        "size": "12 * 2",
+        "name": "sprite_descriptor_ptrs[12]",
+        "note": "Pointers to 24-byte sprite descriptors allocated by FUN_f4be in wmnpc_encounter_init. Sorted by Y-coord (depth)."
+      },
+      {
+        "addr": "0x43cc",
+        "size": 2,
+        "name": "current_leader_slot"
+      },
+      {
+        "addr": "0x43ce",
+        "size": 2,
+        "name": "party_size"
+      },
+      {
+        "addr": "0x43fc",
+        "size": 4,
+        "name": "party_gold_32bit",
+        "note": "Same as wpcvw — 32-bit gold per slot, accessed at slot*0x1b0+0x43fc"
+      },
+      {
+        "addr": "0x4550",
+        "size": 1,
+        "name": "npc.reaction_value",
+        "note": "Per-character byte for NPC's reaction to that party member; decremented by 0x6ae3 on charm failure, etc. Used in charm-check math."
+      },
+      {
+        "addr": "0x51b0",
+        "size": 2,
+        "name": "starting_sound_id",
+        "note": "If > 0, played by wmnpc_dialogue_main_loop on entry."
+      },
+      {
+        "addr": "0x51c0",
+        "size": 4,
+        "name": "npc.gold_pool_32bit",
+        "note": "NPC's own gold pool — drained by successful charm checks"
+      },
+      {
+        "addr": "0x51c4",
+        "size": 8,
+        "name": "npc.keyword_table[8]",
+        "note": "8 bytes of keyword-trigger IDs — passed to 0x2ad4 in the dialogue loop"
+      },
+      {
+        "addr": "0x5156",
+        "size": "6 * 7",
+        "name": "npc.trigger_table[7]",
+        "note": "7 entries × 6 bytes: +0..+3 (32-bit threshold), +4 (type: 1=int 2=cumulative-gold), +5 (response-keyword-byte). Used by 0x3a12 wmnpc_dialogue_trigger_check."
+      },
+      {
+        "addr": "0x5274",
+        "size": 2,
+        "name": "npc_slot_or_data_idx"
+      },
+      {
+        "addr": "0x5276",
+        "size": 2,
+        "name": "npc_leave_flag",
+        "note": "When set by 0x6de0 charm-failure branch, causes dialogue to exit on next iteration"
+      },
+      {
+        "addr": "0x52cc",
+        "size": 4,
+        "name": "cumulative_gold_given_this_encounter_32bit",
+        "note": "Persistent across dialogue iterations within an encounter — reset by wmnpc_encounter_init. Drives the bribery / threshold mechanic."
+      },
+      {
+        "addr": "0x5324",
+        "size": 2,
+        "name": "inventory_browser_count",
+        "note": "Number of items shown in the SHOW/GIVE inventory picker"
+      },
+      {
+        "addr": "0x5326",
+        "size": "20 * 16",
+        "name": "inventory_browser_msg_ids[]"
+      },
+      {
+        "addr": "0x54b2",
+        "size": 2,
+        "name": "npc_trade_inventory_count"
+      },
+      {
+        "addr": "0x54b4",
+        "size": "2 * N",
+        "name": "npc_trade_inventory_idx_array"
+      },
+      {
+        "addr": "0x54f0",
+        "size": "16 * N",
+        "name": "npc_trade_items",
+        "note": "16 bytes/entry, NPC's trade catalog"
+      },
+      {
+        "addr": "+0x56d0",
+        "name": "trade_item.type_byte"
+      },
+      {
+        "addr": "+0x56ee",
+        "name": "trade_item.price_32bit"
+      },
+      {
+        "addr": "0x5892",
+        "size": 2,
+        "name": "charm_attempt_penalty_accumulator",
+        "note": "Running modifier added to charm check rolls — penalty for repeated charm attempts in a single encounter"
+      },
+      {
+        "addr": "0x5894",
+        "size": 2,
+        "name": "parsed_input.subject_verb"
+      },
+      {
+        "addr": "0x5896",
+        "size": 2,
+        "name": "parsed_input.subject_modifier"
+      },
+      {
+        "addr": "0x5898",
+        "size": 2,
+        "name": "parsed_input.direct_object"
+      },
+      {
+        "addr": "0x589a",
+        "size": 2,
+        "name": "parsed_input.alt_verb"
+      },
+      {
+        "addr": "0x589c",
+        "size": 2,
+        "name": "parsed_input.saved_subject_verb"
+      },
+      {
+        "addr": "0x589e",
+        "size": 2,
+        "name": "parsed_input.saved_subject_modifier"
+      },
+      {
+        "addr": "0x58a0",
+        "size": 2,
+        "name": "parsed_input.alias_used_flag"
+      },
+      {
+        "addr": "0x58a2",
+        "size": 2,
+        "name": "parsed_input.subject_idx"
+      },
+      {
+        "addr": "0x58a6",
+        "size": 2,
+        "name": "parsed_input.subject_assumed_flag"
+      },
+      {
+        "addr": "0x58b2",
+        "size": 2,
+        "name": "parsed_input.flag_this"
+      },
+      {
+        "addr": "0x58b4",
+        "size": 2,
+        "name": "parsed_input.flag_first"
+      },
+      {
+        "addr": "0x58b6",
+        "size": 2,
+        "name": "parsed_input.flag_no"
+      },
+      {
+        "addr": "0x58b8",
+        "size": 2,
+        "name": "parsed_input.flag_yes"
+      },
+      {
+        "addr": "0x58ca",
+        "size": 2,
+        "name": "parsed_input.aux_obj_a"
+      },
+      {
+        "addr": "0x58cc",
+        "size": 2,
+        "name": "parsed_input.aux_obj_b"
+      },
+      {
+        "addr": "0x58ce",
+        "size": 2,
+        "name": "parsed_input.aux_obj_c"
+      },
+      {
+        "addr": "0x58d0",
+        "size": 2,
+        "name": "parsed_input.indirect_obj"
+      },
+      {
+        "addr": "0x58d2",
+        "size": 2,
+        "name": "parsed_input.indirect_obj_modifier"
+      },
+      {
+        "addr": "0x58d4",
+        "size": 2,
+        "name": "parsed_input.indirect_obj_alias"
+      },
+      {
+        "addr": "0x58d8",
+        "size": 2,
+        "name": "keyword_table_count_or_id"
+      },
+      {
+        "addr": "0x58da",
+        "size": "0x14 * N",
+        "name": "keyword_string_table",
+        "note": "Each entry 20 bytes; loaded by 0x8d6f from msg-DB"
+      },
+      {
+        "addr": "0x60a8",
+        "size": 2,
+        "name": "noun_keyword_count"
+      },
+      {
+        "addr": "0x60aa",
+        "size": "10 * N",
+        "name": "noun_keyword_array"
+      },
+      {
+        "addr": "0x61fe",
+        "size": "20 * 5",
+        "name": "global_synonym_table",
+        "note": "5 entries × 20 bytes. Used by 0x7bb1 for article/pronoun normalization (THE/A/AN → empty)."
+      },
+      {
+        "addr": "0x6316",
+        "size": "50 * 38",
+        "name": "verb_synonym_table",
+        "note": "38 entries × 50 bytes — slash-delimited synonyms. Used by 0x7d5b wmnpc_keyword_normalize."
+      },
+      {
+        "addr": "0x6a82",
+        "size": 2,
+        "name": "current_verb_classification",
+        "note": "Set by 0x7f65 (the verb scanner). Read by 0x8473 (response compositor) to choose msg-ID."
+      },
+      {
+        "addr": "0x6a9e",
+        "size": 2,
+        "name": "verb_keyword_count"
+      },
+      {
+        "addr": "0x6a9c",
+        "size": 2,
+        "name": "current_speaker_slot"
+      }
     ]
   },
   "findings": [
@@ -211,7 +1071,15 @@
       "category": "dispatch_entry",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "addresses": ["0x0e", "0x88b", "0xfa4", "0x737a", "0x749c", "0x6de0", "0x8fd6"],
+        "addresses": [
+          "0x0e",
+          "0x88b",
+          "0xfa4",
+          "0x737a",
+          "0x749c",
+          "0x6de0",
+          "0x8fd6"
+        ],
         "type": "instruction_pattern_match",
         "details": "Raw asm at 0x0e: `55 8b ec 83 c4 fe 57 56 be 00 00 e9 1d 01` — standard prologue, `mov si,0`, then `jmp 0x139`. The jmp target 0x139 begins the actual NPC-update loop. Grep for `83 3e 3a 36` (cmp word [0x363a]) in the entire file: 0 matches. wmnpc is therefore a LIBRARY OVERLAY (similar to wpcmk), exposing multiple entry points that wmaze calls when needed (per-frame sprite update, NPC-data loading, encounter init/cleanup, dialogue main loop)."
       },
@@ -223,7 +1091,10 @@
       "category": "keyword_match",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "address": "0x7d5b",
+        "address": {
+          "space": "wmnpc.ovr",
+          "offset": "0x7d5b"
+        },
         "details": "0x7d5b body: outer `for local_4 in 0..0x26` (38 entries); offset into the entry, extract slash-delimited word into local_58, append space; compare via FUN_b27b (wmnpc_strncmp_word); on match: extract last word in entry as canonical, strcpy over param_1, RETURN. The `/` delimiter is hex 0x2f passed to FUN_edec (memchr). Combined with `wmnpc_load_keyword_tables` at 0x8d6f which populates both verb table (0x6a9e count) and noun table (0x60a8 count) at BSS 0x58da from MSG.DBS, this explains how Wiz6's NPC dialogue accepts up to 38×N synonyms (where N is the average synonyms-per-entry, probably 3-5)."
       },
       "confidence": "high"
@@ -234,7 +1105,10 @@
       "category": "dialogue_actions",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "addresses": ["0x3a12", "0x737a"],
+        "addresses": [
+          "0x3a12",
+          "0x737a"
+        ],
         "details": "0x3a12 case 2 takes param_3 (uint16 low) and param_4 (uint8 high) as a 24-bit amount; shifts to 32-bit (bit-rotate 8 then add param_4); adds with carry to *0x52cc/*0x52ce. Then iterates *0x5156 entries: each entry has a 32-bit threshold (at offset +0/+1/+2/+3), a type byte (+4) and a response-keyword (+5). On type==2, compares cumulative against threshold; on cross, calls 0x2ad4 with the keyword. 0x737a at end: `*0x52ce = 0; *0x52cc = 0`. The 24-bit width of the input matches a single GIVE-gold transaction (max ~16M gold), well within 32-bit cumulative bounds."
       },
       "confidence": "high"
@@ -245,7 +1119,10 @@
       "category": "dialogue_actions",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "address": "0x6ae3",
+        "address": {
+          "space": "wmnpc.ovr",
+          "offset": "0x6ae3"
+        },
         "details": "0x6ae3 body line-by-line: `iVar6 = (*(slot+0x440c) - *0x51cf)*5 + *(slot+0x452a)/2` — base level-vs-threshold + a skill byte (skill[18]=skill index 0x452a-0x451c=14? no, 0x452a-0x451c = 0xe = 14). Then class dispatch: `if class==3: iVar6 += *(slot+0x4518)*2; else if class in {4,6,13}: iVar6 += *(slot+0x4518)`. Then `iVar6 = *(slot+0x451a) + (*(slot+*0x5274+0x4550) + *0x52d0)/4 + iVar6 - 10`. Clamp to 0..0x5f. `iVar5 = rng(100) + *0x5892; *0x5892 += rng(10) + 5`. Three branches: if `iVar5 < iVar6` → success (give item via FUN_251c or gold from 0x51c0); else if `iVar5 >= iVar6 * 2 || iVar5 > 0x5e` → critical fail (reaction -=rng(25)+25, set state=10, transition to combat); else marginal fail (print 'unimpressed' msg). The persistent +rng(10)+5 to *0x5892 is the SAVE-SCUM DEFENSE — charm gets ~5 harder each attempt within an encounter."
       },
       "confidence": "high"
@@ -256,7 +1133,10 @@
       "category": "dialogue_main",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "address": "0x6de0",
+        "address": {
+          "space": "wmnpc.ovr",
+          "offset": "0x6de0"
+        },
         "details": "Body: `local_1e = ui_window_create(0, 19, 19, 5, 18, 0xfffc, 0, 0)` — opens dialogue window. If `*0x51b0 > 0`, plays starting sound via FUN_16fd. Outer do-loop iterates until *0x6de0_local_8 (player choice) == 7. Inner: for kw in 0..8: `if *(0x51c4+kw) != 0 && wmnpc_dialogue_trigger_check(iVar3, *(0x51c4+kw)) == 1: cleanup; return;`. Then ui_window_clear, FUN_0eb6 (paint dialogue text), ui_screen_refresh, `local_8 = wmnpc_pick_dialogue_keyword(local_1e, 0x5fa, local_1c, 1,1,6,3,5,0,0)`. If local_8 < 8: `(*(0x4971 - local_8 * 2))()` — indirect jump through 8-entry table. Reaction roll: `iVar1 = *(slot*0x1b0 + *0x5274 + 0x4550) + *(slot*0x1b0 + 0x451a)` (reaction + CHA); compared against *0x52d0; if rng(100) + iVar1 + cumulative-gold > threshold: trigger ATTACK transition (`*0x363a=10; *0x4fce=0x12`); else just set leave flag *0x5276=1."
       },
       "confidence": "high"
@@ -267,7 +1147,10 @@
       "category": "dialogue_parser",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "address": "0x7f65",
+        "address": {
+          "space": "wmnpc.ovr",
+          "offset": "0x7f65"
+        },
         "details": "Nested if-else chain of FUN_7a1b calls: verb_id=2 (returns -1 if no match) → if matched, return 2; verb_id=3 → if matched, set *0x5894/0x5896, return 0; verb_id=8 → if matched, set *0x58b4=1, *0x58a2=index, force *0x5898=-1, return 8; verb_id=4 → if matched, set *0x58b6 + *0x58ce, return 4; FUN_7b75 with *0x6a84 → if matched, set *0x58b8=1, return 5; verb_id=1 → if matched, set *0x5898=index, return 1; FUN_7b75 with *0x6a8e → if matched, return 6; verb_id=9 → if matched, return 1 (leave); FUN_793d → if matched, set *0x5894/0x5896 as saved-subject and return 0; finally verb_id=7 (the question-mark catch) → if matched, return 7. Final fallback: return 10 (unknown). The case-7 branch (final question) also sets *0x5898=-1 to clear any partial direct-object state. The exact verb-ID-to-keyword mapping table is at MSG.DBS not in wmnpc, but functional analysis shows: ID 2 = ATTACK, ID 3 = GIVE, ID 4 = BUY/TAKE, ID 1 = PAY/SHOW-MONEY, ID 7 = WHAT/QUESTION, ID 8 = SHOW, ID 9 = LEAVE."
       },
       "confidence": "high"
@@ -278,7 +1161,10 @@
       "category": "dialogue_parser",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "address": "0x8473",
+        "address": {
+          "space": "wmnpc.ovr",
+          "offset": "0x8473"
+        },
         "details": "0x8473 dispatches on combinations of (*0x5898 == -1) (no direct object), (*0x589a == -1) (no alt verb), (*0x5894 == -1) (no subject), (*0x58d0 == -1) (no indirect object), (*0x58d4 == -1) (no indirect alias). Picks msg-ID 0x643/0x644 (random via rng(2)) for fully-empty cases ('confused' / 'pardon?'); 0x642 + *0x5898*10 + 0x60aa offset for object-only ('the X'); 0x645 for subject+object ('your X is interesting'); 0x646 for the alias path; 0x647 for subject without object ('TAKE WHAT?'); 0x640/0x641 chained for two-object ('the X AND the Y'). Each path runs the chosen msg through 0x8275 which interpolates %=player_name, @=NPC_name, !=paragraph-break."
       },
       "confidence": "high"
@@ -289,7 +1175,10 @@
       "category": "dialogue_parser",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "address": "0x8275",
+        "address": {
+          "space": "wmnpc.ovr",
+          "offset": "0x8275"
+        },
         "details": "Outer while-loop processes control chars: if param_1[0] == '!' (0x21) → call FUN_0a0f(*0x5264); ++param_1; if '%' (0x25) → call FUN_14ba(*0x4fca) which renders the speaker's name at the current cursor; if '@' (0x40) → save cursor (FUN_1505), reposition to (col=0x27, row=4), put char 0x20 (space) repeated, restore cursor, call FUN_0a0f twice (double newline); default → break out, switch to text-wrap mode. Text wrap: copy param_1 to local_56[80], iterate calling FUN_edec(buffer, 0x20=space) to find next space, output up-to-space via ui_window_write_chars (FUN_df85), advance past space. The literal string at end-of-file 0xb2da: '!%#&]@' enumerates the control characters — `#` and `&` and `]` are listed but NOT handled by this function (likely handled by a sibling text formatter, e.g. for shop/combat text). The string is null-terminated after '@', confirming the alphabet."
       },
       "confidence": "high"
@@ -300,7 +1189,15 @@
       "category": "encounter_render_3d",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "addresses": ["0x1078", "0xa8ca", "0x959a", "0x961b", "0x9a04", "0x9bc1", "0x9e5f"],
+        "addresses": [
+          "0x1078",
+          "0xa8ca",
+          "0x959a",
+          "0x961b",
+          "0x9a04",
+          "0x9bc1",
+          "0x9e5f"
+        ],
         "details": "0x1078: switch on *0x4358 — case -3: FUN_f130 (clear), increment frame counter; case -2: 0xa8ca (full 3D redraw) + iterate 12 sprite slots setting their bytes; case -1: scratch loop calling FUN_0477 (sprite placement); default: FUN_06a5 (per-sprite render). 0xa8ca body: iterates 4 forward cells via FUN_959a (rotates dx/dy by *0x4f9a facing 0..3); for each cell, getbit_test on wall-bitmaps via FUN_e34b; dispatches to wall-renderers FUN_9e5f (small-distance walls with hardcoded pixel rects like 0x48/0xf8/0x7a), FUN_961b (medium walls with state-dispatch to jumptables at -0x22e1 and -0x228b), FUN_9a04, FUN_9bc1, FUN_9535/FUN_94d0 (rotation helpers per direction). The pixel constants are HARDCODED and DUPLICATE wmaze's wall-render constants — if either is changed, gameplay vs encounter views will mismatch."
       },
       "confidence": "high"
@@ -311,7 +1208,10 @@
       "category": "npc_data_load",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "addresses": ["0x88b", "0xfa4"],
+        "addresses": [
+          "0x88b",
+          "0xfa4"
+        ],
         "details": "0x88b: `*0x4336 = param_1` (sprite index?); `kbd_pre_input_disk_check()`; `data_table_load(9, 0x33ec, param_1, 0)` — table 9 likely the 'sprite catalogue'; if no error, build filename via boot_build_prompt_message at strcpy(*0x4fee = 'MON00.PIC') + substitute (param_1/10+'0')(param_1%10+'0') for the digits; crt_open; **huffman_load_and_decompress** to *0x33f2/*0x33f0 target buffer; crt_dos_close. 0xfa4: `kbd_pre_input_disk_check; data_table_load(8, param_2*0x13a+0x36de, param_1)` — loads NPC's raw stats; build filename from *0x4ffa template; crt_open; FUN_3664 (likely lseek); crt_dos_close; then for byte in 0..*(0x3812+param_2*0x13a)+1 (max_actions): write *(param_2 + i + 0x432c) = param_1 (NPC name-byte) and *(param_2 + i + 0x4322) = 1 (active flag). So *0x432c is the NAME-BYTE seeded from the load param — what gets read by all the special-case-NPC scripts."
       },
       "confidence": "high"
@@ -322,7 +1222,10 @@
       "category": "encounter_state",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "addresses": ["0x737a", "0x749c"],
+        "addresses": [
+          "0x737a",
+          "0x749c"
+        ],
         "details": "0x737a: load_msg_into_buf(0x5dc, 0x526a) → likely 'preparing encounter' msg; `*0x363a = 5`; `for i in 0..12: *(0x4390 + i*2) = FUN_f4be(0x18); *(slot+0x14) = 0xff` (slot inactive marker); `*0x438e = 0` (sprite count); `*0x4358 = 0xfffe` (frame tag = -2 = full-redraw); 2x5 zero-clear of *0x4362; 3-byte clear of *0x4330; 10x5 zero-clear of *0x50de; `*0x5142 = 0` (special-frame flag); `data_table_load(5, 0x5146, *0x5274, 0)`; `crt_memmove(*0x5274*2 + 0x34a0, 0x5278, 2)`; `*0x52ce = *0x52cc = 0` (accumulator reset). 0x749c: simple cleanup — free each *0x4390[i] via ui_window_free_struct (FUN_f5bc), clear *0x4326..*0x4329 (3 bytes), 2x5 zero-clear of *0x4362 again."
       },
       "confidence": "high"
@@ -333,7 +1236,10 @@
       "category": "dialogue_actions",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "address": "0x62a1",
+        "address": {
+          "space": "wmnpc.ovr",
+          "offset": "0x62a1"
+        },
         "details": "0x62a1 body: extract item via data_table_load(1, &item_data, item_id, 0); compute base_price = byte_qty*byte_dice + word_base; if quantity==0, force qty=1; if item-type-byte (at +0xcc table) == 1 (stackable): mult by qty via 32-bit math (CONCAT22 + multiply with high/low carry); else: FUN_3f1e for base price; FUN_3f1e for scale factor; final lVar6 = result. Branch on item-special-status: if cursed flag (& 2) set AND not in special-items list (*0x51bc, *0x51be): print 'I won't take cursed' msg 0x5f9 via 0x60e1. Else if price < 1 AND not *0x51bc special: print 'I have no use for that' msg 0x5ee. Else if cursed-undefined flag (& 1): print 'too sacred' msg 0x5f8. Else: ask YES/NO via 0x18a8 (1-row menu, 2 entries, 'Yes'/'No' at offsets 0x5f6/+1); on YES (code 0): transfer via FUN_22d1, add gold to *(party*0x1b0+0x43fc) with carry, render via 0xb14, dialogue-trigger 0x3a12(party, 3, item_id, 0, 0)."
       },
       "confidence": "high"
@@ -344,7 +1250,10 @@
       "category": "dialogue_actions",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "address": "0x6137",
+        "address": {
+          "space": "wmnpc.ovr",
+          "offset": "0x6137"
+        },
         "details": "0x6137: `iVar4 = *0x54b4[param_2*2]; uVar5 = *0x5856[iVar4*2] (item_id)`; check party_gold (32-bit hi/lo at +0x43fe/+0x43fc) >= price (32-bit at +0x57e0[iVar4*4]/+0x57de): if YES: `inventory_insert(party, item_id, price_lo)` via FUN_251c; if returns -1: 'inventory full' msg 0x5e1 via 0x60e1; else: deduct gold with subtract-with-borrow, zero the catalog slot, render party via 0xb14, fire dialogue-trigger 0x3a12 case 4 (item-bought ack). Else: 'not enough gold' msg 0x5df."
       },
       "confidence": "high"
@@ -355,7 +1264,10 @@
       "category": "inventory_action",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "address": "0x251c",
+        "address": {
+          "space": "wmnpc.ovr",
+          "offset": "0x251c"
+        },
         "details": "0x251c: load item-data via data_table_load(1, local_4e, param_2, 0); compute stack-target qty via param_3; for main inventory `for local_4 in 0..*0x4594: if existing slot.id == new.id AND stackable AND qty+existing < 0xfb: select that slot, mark iVar9=0`; if not in main, try overflow `for local_4 in 0..*0x4595: same check on slot at +(local_4+9)*8`; if neither matched and count < cap: allocate new slot in main (+0x4594++) or overflow (+0x4595++); set slot fields: +0..+1 = item_id, +0x442c = type_byte, +0x442d = id_mark, +0x442a = misc word, +0x442e += quantity, +0x442f = 0 (clear flags then set 0x04 from src flag 0x08, 0x08 from 0x04, 0x10/0x20 unchanged, 0x40 from 0x02). On full (slot >= 0x16): return -1 with high-byte 0xffff. Final loop: recompute total inventory weight (slot+0x4408) by FUN_24aa called on each of *0x4594 main + *0x4595 overflow slots."
       },
       "confidence": "high"
@@ -366,7 +1278,11 @@
       "category": "encounter_render_sprite",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "addresses": ["0x0e", "0x154", "0x06a5"],
+        "addresses": [
+          "0x0e",
+          "0x154",
+          "0x06a5"
+        ],
         "details": "Entry-func @ 0x0e: bytes 0x44..0x4f: `8b 5e 04 80 bf 2c 43 36 75 0c 85 f6 75 08 bf 00 00 c7 46 fe 00 00 eb 57` — `cmp byte [bx+0x432c],0x36 ('6'); jnz +0xc; test si,si; jnz +8; mov di,0; mov word [bp-2],0; jmp +0x57`. 0x0154: `if (*(param_1 + 0x432c) == '(' AND local_4 == 4 AND *0x5142==1) <special>; else if (*(param_1 + 0x432c) == '6' AND local_4 == 0 AND *0x5142==1) result=0`. 0x06a5: `if (name_byte == 0x14 OR 0x23 OR 0x36 OR 0x39): use multi-frame animation loop; else: use single-frame display`. The combinations suggest a behavior-class taxonomy: 0x14 = encounter-type-A, 0x23/'#' = type-B, 0x36/'6' = type-C, 0x39/'9' = type-D, 0x28/'(' = type-E. A dynamic trace of specific in-game NPCs would map these codes to character names. This is the kind of HARDCODED INDIRECTION that's hard to maintain — adding a new scripted NPC requires editing 3+ functions."
       },
       "confidence": "high"
@@ -377,7 +1293,12 @@
       "category": "data_util",
       "evidence": {
         "binary": "wmnpc.ovr",
-        "addresses": ["0xb2b6", "0xb2d0", "0xb2da", "0xb2f0"],
+        "addresses": [
+          "0xb2b6",
+          "0xb2d0",
+          "0xb2da",
+          "0xb2f0"
+        ],
         "type": "string_extraction",
         "details": "Raw bytes 0xb2b6..0xb2c2: `53 4f 55 4e 44 30 30 2e 53 4e 44 00` = 'SOUND00.SND\\0'. 0xb2d0..0xb2d9: `4d 4f 4e 30 30 2e 50 49 43 00` = 'MON00.PIC\\0'. 0xb2da..0xb2e0: `21 25 23 26 5d 40 00` = '!%#&]@\\0'. 0xb2f0..0xb2f4: `2a 2a 2a 00` = '***\\0' (twice, at 0xb2f0 and 0xb2f4). The 'MON' prefix matches the existing PIC sprite numbering used by wmaze's monster portraits; same naming convention as the dynamic-trace findings on portrait loading. SOUND template confirms wmnpc plays per-NPC sound effects (from sound00.snd..sound38.snd file range)."
       },
@@ -385,122 +1306,702 @@
     }
   ],
   "renamed_full_list": [
-    {"addr": "0x0e", "old": "FUN_0000_000e", "new": "monster_per_frame_update", "category": "dispatch_entry"},
-    {"addr": "0x154", "old": "FUN_0000_0154", "new": "sprite_animation_step", "category": "encounter_render_sprite"},
-    {"addr": "0x387", "old": "FUN_0000_0387", "new": "sprite_queue_insert_sorted", "category": "encounter_render_sprite"},
-    {"addr": "0x477", "old": "FUN_0000_0477", "new": "sprite_position_compute", "category": "encounter_render_sprite"},
-    {"addr": "0x6a5", "old": "FUN_0000_06a5", "new": "sprite_render_one", "category": "encounter_render_sprite"},
-    {"addr": "0x88b", "old": "FUN_0000_088b", "new": "wmnpc_load_npc_sprite", "category": "npc_data_load"},
-    {"addr": "0x967", "old": "FUN_0000_0967", "new": "ui_window_scroll_up_one", "category": "ui_widget"},
-    {"addr": "0xa0f", "old": "FUN_0000_0a0f", "new": "ui_newline_or_scroll", "category": "ui_widget"},
-    {"addr": "0xa48", "old": "FUN_0000_0a48", "new": "ui_draw_three_char_strip", "category": "ui_widget"},
-    {"addr": "0xb14", "old": "FUN_0000_0b14", "new": "wmnpc_party_member_render", "category": "ui_render"},
-    {"addr": "0xe1e", "old": "FUN_0000_0e1e", "new": "party_pool_all_gold_to_leader", "category": "data_util"},
-    {"addr": "0xe81", "old": "FUN_0000_0e81", "new": "ui_dialogue_corner_decor", "category": "ui_render"},
-    {"addr": "0xeb6", "old": "FUN_0000_0eb6", "new": "ui_dialogue_window_draw_title", "category": "ui_render"},
-    {"addr": "0xf24", "old": "FUN_0000_0f24", "new": "ui_dialogue_window_draw_border", "category": "ui_render"},
-    {"addr": "0xfa4", "old": "FUN_0000_0fa4", "new": "wmnpc_load_npc_record", "category": "npc_data_load"},
-    {"addr": "0x1078", "old": "FUN_0000_1078", "new": "wmnpc_render_encounter_3d_view", "category": "encounter_render_3d"},
-    {"addr": "0x113d", "old": "FUN_0000_113d", "new": "wmnpc_animate_npc_emote", "category": "encounter_render_sprite"},
-    {"addr": "0x1228", "old": "FUN_0000_1228", "new": "input_kbd_wait_with_frame", "category": "ui_widget"},
-    {"addr": "0x1248", "old": "FUN_0000_1248", "new": "ui_text_input_editor", "category": "ui_widget"},
-    {"addr": "0x13b6", "old": "FUN_0000_13b6", "new": "ui_window_redraw_centered_text", "category": "ui_render"},
-    {"addr": "0x1430", "old": "FUN_0000_1430", "new": "input_poll_action_key", "category": "ui_widget"},
-    {"addr": "0x14ba", "old": "FUN_0000_14ba", "new": "ui_render_party_member_name", "category": "ui_render"},
-    {"addr": "0x1505", "old": "FUN_0000_1505", "new": "ui_save_cursor_and_position", "category": "ui_widget"},
-    {"addr": "0x158f", "old": "FUN_0000_158f", "new": "ui_window_reset_state", "category": "ui_widget"},
-    {"addr": "0x15bd", "old": "FUN_0000_15bd", "new": "ui_scroll_text_page", "category": "ui_widget"},
-    {"addr": "0x16fd", "old": "FUN_0000_16fd", "new": "wmnpc_play_npc_intro_sound", "category": "dialogue_main"},
-    {"addr": "0x17a8", "old": "FUN_0000_17a8", "new": "ui_modal_npc_message_box", "category": "ui_widget"},
-    {"addr": "0x1837", "old": "FUN_0000_1837", "new": "ui_modal_msg_with_arg", "category": "ui_widget"},
-    {"addr": "0x186d", "old": "FUN_0000_186d", "new": "ui_clear_menu_item_highlight", "category": "ui_widget"},
-    {"addr": "0x18a8", "old": "FUN_0000_18a8", "new": "wmnpc_pick_dialogue_keyword", "category": "dialogue_parser"},
-    {"addr": "0x1d45", "old": "FUN_0000_1d45", "new": "ui_render_menu_arrow", "category": "ui_widget"},
-    {"addr": "0x1d8a", "old": "FUN_0000_1d8a", "new": "wmnpc_show_inventory_picker", "category": "inventory_action"},
-    {"addr": "0x216b", "old": "FUN_0000_216b", "new": "rng_one_to_n_packed", "category": "data_util"},
-    {"addr": "0x219a", "old": "FUN_0000_219a", "new": "char_record_init_equipment_slot", "category": "data_util"},
-    {"addr": "0x22d1", "old": "FUN_0000_22d1", "new": "wmnpc_pop_inventory_item", "category": "inventory_action"},
-    {"addr": "0x2477", "old": "FUN_0000_2477", "new": "char_record_post_item_load_setup", "category": "data_util"},
-    {"addr": "0x24aa", "old": "FUN_0000_24aa", "new": "inventory_item_weight_lookup", "category": "inventory_action"},
-    {"addr": "0x251c", "old": "FUN_0000_251c", "new": "wmnpc_inventory_insert", "category": "inventory_action"},
-    {"addr": "0x2839", "old": "FUN_0000_2839", "new": "ui_window_create_centered_helper", "category": "ui_widget"},
-    {"addr": "0x2885", "old": "FUN_0000_2885", "new": "ui_window_destroy_pair", "category": "ui_widget"},
-    {"addr": "0x28aa", "old": "FUN_0000_28aa", "new": "ui_window_compute_extents", "category": "ui_widget"},
-    {"addr": "0x291a", "old": "FUN_0000_291a", "new": "ui_text_input_with_validation", "category": "ui_widget"},
-    {"addr": "0x2ad4", "old": "FUN_0000_2ad4", "new": "wmnpc_keyword_dispatch_switch", "category": "dialogue_actions"},
-    {"addr": "0x3a12", "old": "FUN_0000_3a12", "new": "wmnpc_dialogue_trigger_check", "category": "dialogue_actions"},
-    {"addr": "0x3b6e", "old": "FUN_0000_3b6e", "new": "string_concat_with_separator", "category": "string_util"},
-    {"addr": "0x3b9b", "old": "FUN_0000_3b9b", "new": "data_pack_byte_triple", "category": "data_util"},
-    {"addr": "0x3bca", "old": "FUN_0000_3bca", "new": "data_clip_int_to_range", "category": "data_util"},
-    {"addr": "0x3c1a", "old": "FUN_0000_3c1a", "new": "char_record_apply_damage", "category": "encounter_action"},
-    {"addr": "0x42be", "old": "FUN_0000_42be", "new": "ui_window_put_repeat", "category": "ui_widget"},
-    {"addr": "0x42e7", "old": "FUN_0000_42e7", "new": "ui_window_put_char_at_pos", "category": "ui_widget"},
-    {"addr": "0x4310", "old": "FUN_0000_4310", "new": "ui_select_party_member_at", "category": "ui_widget"},
-    {"addr": "0x4363", "old": "FUN_0000_4363", "new": "ui_draw_window_corners", "category": "ui_render"},
-    {"addr": "0x43e1", "old": "FUN_0000_43e1", "new": "ui_putchar_window_x", "category": "ui_widget"},
-    {"addr": "0x4407", "old": "FUN_0000_4407", "new": "ui_draw_window_pattern_overlay", "category": "ui_render"},
-    {"addr": "0x44da", "old": "FUN_0000_44da", "new": "ui_draw_party_picker_grid", "category": "ui_render"},
-    {"addr": "0x4669", "old": "FUN_0000_4669", "new": "ui_party_picker_status_check", "category": "ui_widget"},
-    {"addr": "0x46c4", "old": "FUN_0000_46c4", "new": "ui_render_picker_options", "category": "ui_render"},
-    {"addr": "0x4784", "old": "FUN_0000_4784", "new": "wmnpc_pick_party_target", "category": "encounter_action"},
-    {"addr": "0x52c3", "old": "FUN_0000_52c3", "new": "ui_render_item_list_paginated", "category": "ui_render"},
-    {"addr": "0x5482", "old": "FUN_0000_5482", "new": "ui_browser_add_inventory_entry", "category": "ui_widget"},
-    {"addr": "0x54de", "old": "FUN_0000_54de", "new": "wmnpc_show_party_inventory_browser", "category": "inventory_action"},
-    {"addr": "0x5977", "old": "FUN_0000_5977", "new": "wmnpc_apply_npc_attack_to_party", "category": "encounter_action"},
-    {"addr": "0x5a6b", "old": "FUN_0000_5a6b", "new": "wmnpc_show_npc_trade_catalog", "category": "ui_render"},
-    {"addr": "0x5ca2", "old": "FUN_0000_5ca2", "new": "wmnpc_pick_gold_or_item_gift", "category": "dialogue_actions"},
-    {"addr": "0x5ce3", "old": "FUN_0000_5ce3", "new": "wmnpc_init_trade_catalog_prices", "category": "encounter_state"},
-    {"addr": "0x5e14", "old": "FUN_0000_5e14", "new": "wmnpc_npc_inventory_browse_loop", "category": "ui_render"},
-    {"addr": "0x60e1", "old": "FUN_0000_60e1", "new": "wmnpc_npc_response_message_modal", "category": "dialogue_actions"},
-    {"addr": "0x6137", "old": "FUN_0000_6137", "new": "wmnpc_buy_item_from_npc", "category": "dialogue_actions"},
-    {"addr": "0x62a1", "old": "FUN_0000_62a1", "new": "wmnpc_sell_item_to_npc", "category": "dialogue_actions"},
-    {"addr": "0x6ae3", "old": "FUN_0000_6ae3", "new": "wmnpc_charm_npc_attempt", "category": "dialogue_actions"},
-    {"addr": "0x6de0", "old": "FUN_0000_6de0", "new": "wmnpc_dialogue_main_loop", "category": "dialogue_main"},
-    {"addr": "0x737a", "old": "FUN_0000_737a", "new": "wmnpc_encounter_init", "category": "encounter_state"},
-    {"addr": "0x749c", "old": "FUN_0000_749c", "new": "wmnpc_encounter_cleanup", "category": "encounter_state"},
-    {"addr": "0x759d", "old": "FUN_0000_759d", "new": "string_truncate_at_offset", "category": "string_util"},
-    {"addr": "0x75c4", "old": "FUN_0000_75c4", "new": "wmnpc_parsed_input_resolve_alias", "category": "dialogue_parser"},
-    {"addr": "0x7636", "old": "FUN_0000_7636", "new": "wmnpc_save_unknown_input", "category": "dialogue_parser"},
-    {"addr": "0x7696", "old": "FUN_0000_7696", "new": "wmnpc_keyword_extract_first", "category": "dialogue_parser"},
-    {"addr": "0x7788", "old": "FUN_0000_7788", "new": "wmnpc_keyword_substitute_canonical", "category": "dialogue_parser"},
-    {"addr": "0x7916", "old": "FUN_0000_7916", "new": "wmnpc_keyword_extract_or_substitute", "category": "dialogue_parser"},
-    {"addr": "0x793d", "old": "FUN_0000_793d", "new": "wmnpc_subject_name_match", "category": "dialogue_parser"},
-    {"addr": "0x7a1b", "old": "FUN_0000_7a1b", "new": "wmnpc_verb_match", "category": "keyword_match"},
-    {"addr": "0x7b75", "old": "FUN_0000_7b75", "new": "wmnpc_noun_check_or_save", "category": "keyword_match"},
-    {"addr": "0x7bb1", "old": "FUN_0000_7bb1", "new": "wmnpc_global_synonym_lookup", "category": "keyword_match"},
-    {"addr": "0x7d1e", "old": "FUN_0000_7d1e", "new": "string_find_word_end", "category": "string_util"},
-    {"addr": "0x7d5b", "old": "FUN_0000_7d5b", "new": "wmnpc_keyword_normalize", "category": "keyword_match"},
-    {"addr": "0x7e87", "old": "FUN_0000_7e87", "new": "wmnpc_word_by_word_normalize", "category": "dialogue_parser"},
-    {"addr": "0x7f65", "old": "FUN_0000_7f65", "new": "wmnpc_classify_player_input", "category": "dialogue_parser"},
-    {"addr": "0x8275", "old": "FUN_0000_8275", "new": "wmnpc_format_npc_response", "category": "dialogue_main"},
-    {"addr": "0x83f7", "old": "FUN_0000_83f7", "new": "wmnpc_response_with_object", "category": "dialogue_main"},
-    {"addr": "0x8435", "old": "FUN_0000_8435", "new": "ui_text_input_post_key", "category": "ui_widget"},
-    {"addr": "0x8473", "old": "FUN_0000_8473", "new": "wmnpc_response_compositor", "category": "dialogue_parser"},
-    {"addr": "0x87df", "old": "FUN_0000_87df", "new": "ui_render_npc_portrait_window", "category": "ui_render"},
-    {"addr": "0x884c", "old": "FUN_0000_884c", "new": "keyword_table_lookup_index", "category": "keyword_match"},
-    {"addr": "0x8d6f", "old": "FUN_0000_8d6f", "new": "wmnpc_load_keyword_tables", "category": "dialogue_parser"},
-    {"addr": "0x8e2e", "old": "FUN_0000_8e2e", "new": "ui_party_picker_subtitle", "category": "ui_widget"},
-    {"addr": "0x8e8f", "old": "FUN_0000_8e8f", "new": "char_record_field_byte_set", "category": "data_util"},
-    {"addr": "0x8ecd", "old": "FUN_0000_8ecd", "new": "char_record_field_byte_set_alt", "category": "data_util"},
-    {"addr": "0x8fd6", "old": "FUN_0000_8fd6", "new": "wmnpc_input_typein_loop", "category": "dialogue_main"},
-    {"addr": "0x936d", "old": "FUN_0000_936d", "new": "scene_compute_y_for_distance", "category": "encounter_render_3d"},
-    {"addr": "0x93aa", "old": "FUN_0000_93aa", "new": "scene_render_floor_tile", "category": "encounter_render_3d"},
-    {"addr": "0x94d0", "old": "FUN_0000_94d0", "new": "scene_rotate_left_xz_pair", "category": "encounter_render_3d"},
-    {"addr": "0x9535", "old": "FUN_0000_9535", "new": "scene_rotate_right_xz_pair", "category": "encounter_render_3d"},
-    {"addr": "0x959a", "old": "FUN_0000_959a", "new": "scene_apply_facing_rotation", "category": "encounter_render_3d"},
-    {"addr": "0x961b", "old": "FUN_0000_961b", "new": "scene_draw_medium_wall_block", "category": "encounter_render_3d"},
-    {"addr": "0x9a04", "old": "FUN_0000_9a04", "new": "scene_draw_left_corner_wall", "category": "encounter_render_3d"},
-    {"addr": "0x9bc1", "old": "FUN_0000_9bc1", "new": "scene_draw_right_corner_wall", "category": "encounter_render_3d"},
-    {"addr": "0x9e5f", "old": "FUN_0000_9e5f", "new": "scene_draw_close_wall_segment", "category": "encounter_render_3d"},
-    {"addr": "0xa3a7", "old": "FUN_0000_a3a7", "new": "scene_draw_close_side_wall", "category": "encounter_render_3d"},
-    {"addr": "0xa596", "old": "FUN_0000_a596", "new": "scene_draw_floor_decal", "category": "encounter_render_3d"},
-    {"addr": "0xa685", "old": "FUN_0000_a685", "new": "scene_left_wall_continuation", "category": "encounter_render_3d"},
-    {"addr": "0xa6e8", "old": "FUN_0000_a6e8", "new": "scene_right_wall_continuation", "category": "encounter_render_3d"},
-    {"addr": "0xa808", "old": "FUN_0000_a808", "new": "scene_draw_door_special", "category": "encounter_render_3d"},
-    {"addr": "0xa8ca", "old": "FUN_0000_a8ca", "new": "wmnpc_render_3d_walls", "category": "encounter_render_3d"},
-    {"addr": "0xb235", "old": "FUN_0000_b235", "new": "memcpy_padded", "category": "string_util"},
-    {"addr": "0xb25d", "old": "FUN_0000_b25d", "new": "strcmp_word_pair", "category": "string_util"},
-    {"addr": "0xb27b", "old": "FUN_0000_b27b", "new": "strncmp_word", "category": "string_util"}
+    {
+      "addr": "0x0e",
+      "old": "FUN_0000_000e",
+      "new": "monster_per_frame_update",
+      "category": "dispatch_entry"
+    },
+    {
+      "addr": "0x154",
+      "old": "FUN_0000_0154",
+      "new": "sprite_animation_step",
+      "category": "encounter_render_sprite"
+    },
+    {
+      "addr": "0x387",
+      "old": "FUN_0000_0387",
+      "new": "sprite_queue_insert_sorted",
+      "category": "encounter_render_sprite"
+    },
+    {
+      "addr": "0x477",
+      "old": "FUN_0000_0477",
+      "new": "sprite_position_compute",
+      "category": "encounter_render_sprite"
+    },
+    {
+      "addr": "0x6a5",
+      "old": "FUN_0000_06a5",
+      "new": "sprite_render_one",
+      "category": "encounter_render_sprite"
+    },
+    {
+      "addr": "0x88b",
+      "old": "FUN_0000_088b",
+      "new": "wmnpc_load_npc_sprite",
+      "category": "npc_data_load"
+    },
+    {
+      "addr": "0x967",
+      "old": "FUN_0000_0967",
+      "new": "ui_window_scroll_up_one",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0xa0f",
+      "old": "FUN_0000_0a0f",
+      "new": "ui_newline_or_scroll",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0xa48",
+      "old": "FUN_0000_0a48",
+      "new": "ui_draw_three_char_strip",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0xb14",
+      "old": "FUN_0000_0b14",
+      "new": "wmnpc_party_member_render",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0xe1e",
+      "old": "FUN_0000_0e1e",
+      "new": "party_pool_all_gold_to_leader",
+      "category": "data_util"
+    },
+    {
+      "addr": "0xe81",
+      "old": "FUN_0000_0e81",
+      "new": "ui_dialogue_corner_decor",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0xeb6",
+      "old": "FUN_0000_0eb6",
+      "new": "ui_dialogue_window_draw_title",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0xf24",
+      "old": "FUN_0000_0f24",
+      "new": "ui_dialogue_window_draw_border",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0xfa4",
+      "old": "FUN_0000_0fa4",
+      "new": "wmnpc_load_npc_record",
+      "category": "npc_data_load"
+    },
+    {
+      "addr": "0x1078",
+      "old": "FUN_0000_1078",
+      "new": "wmnpc_render_encounter_3d_view",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0x113d",
+      "old": "FUN_0000_113d",
+      "new": "wmnpc_animate_npc_emote",
+      "category": "encounter_render_sprite"
+    },
+    {
+      "addr": "0x1228",
+      "old": "FUN_0000_1228",
+      "new": "input_kbd_wait_with_frame",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x1248",
+      "old": "FUN_0000_1248",
+      "new": "ui_text_input_editor",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x13b6",
+      "old": "FUN_0000_13b6",
+      "new": "ui_window_redraw_centered_text",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0x1430",
+      "old": "FUN_0000_1430",
+      "new": "input_poll_action_key",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x14ba",
+      "old": "FUN_0000_14ba",
+      "new": "ui_render_party_member_name",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0x1505",
+      "old": "FUN_0000_1505",
+      "new": "ui_save_cursor_and_position",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x158f",
+      "old": "FUN_0000_158f",
+      "new": "ui_window_reset_state",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x15bd",
+      "old": "FUN_0000_15bd",
+      "new": "ui_scroll_text_page",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x16fd",
+      "old": "FUN_0000_16fd",
+      "new": "wmnpc_play_npc_intro_sound",
+      "category": "dialogue_main"
+    },
+    {
+      "addr": "0x17a8",
+      "old": "FUN_0000_17a8",
+      "new": "ui_modal_npc_message_box",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x1837",
+      "old": "FUN_0000_1837",
+      "new": "ui_modal_msg_with_arg",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x186d",
+      "old": "FUN_0000_186d",
+      "new": "ui_clear_menu_item_highlight",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x18a8",
+      "old": "FUN_0000_18a8",
+      "new": "wmnpc_pick_dialogue_keyword",
+      "category": "dialogue_parser"
+    },
+    {
+      "addr": "0x1d45",
+      "old": "FUN_0000_1d45",
+      "new": "ui_render_menu_arrow",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x1d8a",
+      "old": "FUN_0000_1d8a",
+      "new": "wmnpc_show_inventory_picker",
+      "category": "inventory_action"
+    },
+    {
+      "addr": "0x216b",
+      "old": "FUN_0000_216b",
+      "new": "rng_one_to_n_packed",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x219a",
+      "old": "FUN_0000_219a",
+      "new": "char_record_init_equipment_slot",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x22d1",
+      "old": "FUN_0000_22d1",
+      "new": "wmnpc_pop_inventory_item",
+      "category": "inventory_action"
+    },
+    {
+      "addr": "0x2477",
+      "old": "FUN_0000_2477",
+      "new": "char_record_post_item_load_setup",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x24aa",
+      "old": "FUN_0000_24aa",
+      "new": "inventory_item_weight_lookup",
+      "category": "inventory_action"
+    },
+    {
+      "addr": "0x251c",
+      "old": "FUN_0000_251c",
+      "new": "wmnpc_inventory_insert",
+      "category": "inventory_action"
+    },
+    {
+      "addr": "0x2839",
+      "old": "FUN_0000_2839",
+      "new": "ui_window_create_centered_helper",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x2885",
+      "old": "FUN_0000_2885",
+      "new": "ui_window_destroy_pair",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x28aa",
+      "old": "FUN_0000_28aa",
+      "new": "ui_window_compute_extents",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x291a",
+      "old": "FUN_0000_291a",
+      "new": "ui_text_input_with_validation",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x2ad4",
+      "old": "FUN_0000_2ad4",
+      "new": "wmnpc_keyword_dispatch_switch",
+      "category": "dialogue_actions"
+    },
+    {
+      "addr": "0x3a12",
+      "old": "FUN_0000_3a12",
+      "new": "wmnpc_dialogue_trigger_check",
+      "category": "dialogue_actions"
+    },
+    {
+      "addr": "0x3b6e",
+      "old": "FUN_0000_3b6e",
+      "new": "string_concat_with_separator",
+      "category": "string_util"
+    },
+    {
+      "addr": "0x3b9b",
+      "old": "FUN_0000_3b9b",
+      "new": "data_pack_byte_triple",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x3bca",
+      "old": "FUN_0000_3bca",
+      "new": "data_clip_int_to_range",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x3c1a",
+      "old": "FUN_0000_3c1a",
+      "new": "char_record_apply_damage",
+      "category": "encounter_action"
+    },
+    {
+      "addr": "0x42be",
+      "old": "FUN_0000_42be",
+      "new": "ui_window_put_repeat",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x42e7",
+      "old": "FUN_0000_42e7",
+      "new": "ui_window_put_char_at_pos",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x4310",
+      "old": "FUN_0000_4310",
+      "new": "ui_select_party_member_at",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x4363",
+      "old": "FUN_0000_4363",
+      "new": "ui_draw_window_corners",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0x43e1",
+      "old": "FUN_0000_43e1",
+      "new": "ui_putchar_window_x",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x4407",
+      "old": "FUN_0000_4407",
+      "new": "ui_draw_window_pattern_overlay",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0x44da",
+      "old": "FUN_0000_44da",
+      "new": "ui_draw_party_picker_grid",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0x4669",
+      "old": "FUN_0000_4669",
+      "new": "ui_party_picker_status_check",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x46c4",
+      "old": "FUN_0000_46c4",
+      "new": "ui_render_picker_options",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0x4784",
+      "old": "FUN_0000_4784",
+      "new": "wmnpc_pick_party_target",
+      "category": "encounter_action"
+    },
+    {
+      "addr": "0x52c3",
+      "old": "FUN_0000_52c3",
+      "new": "ui_render_item_list_paginated",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0x5482",
+      "old": "FUN_0000_5482",
+      "new": "ui_browser_add_inventory_entry",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x54de",
+      "old": "FUN_0000_54de",
+      "new": "wmnpc_show_party_inventory_browser",
+      "category": "inventory_action"
+    },
+    {
+      "addr": "0x5977",
+      "old": "FUN_0000_5977",
+      "new": "wmnpc_apply_npc_attack_to_party",
+      "category": "encounter_action"
+    },
+    {
+      "addr": "0x5a6b",
+      "old": "FUN_0000_5a6b",
+      "new": "wmnpc_show_npc_trade_catalog",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0x5ca2",
+      "old": "FUN_0000_5ca2",
+      "new": "wmnpc_pick_gold_or_item_gift",
+      "category": "dialogue_actions"
+    },
+    {
+      "addr": "0x5ce3",
+      "old": "FUN_0000_5ce3",
+      "new": "wmnpc_init_trade_catalog_prices",
+      "category": "encounter_state"
+    },
+    {
+      "addr": "0x5e14",
+      "old": "FUN_0000_5e14",
+      "new": "wmnpc_npc_inventory_browse_loop",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0x60e1",
+      "old": "FUN_0000_60e1",
+      "new": "wmnpc_npc_response_message_modal",
+      "category": "dialogue_actions"
+    },
+    {
+      "addr": "0x6137",
+      "old": "FUN_0000_6137",
+      "new": "wmnpc_buy_item_from_npc",
+      "category": "dialogue_actions"
+    },
+    {
+      "addr": "0x62a1",
+      "old": "FUN_0000_62a1",
+      "new": "wmnpc_sell_item_to_npc",
+      "category": "dialogue_actions"
+    },
+    {
+      "addr": "0x6ae3",
+      "old": "FUN_0000_6ae3",
+      "new": "wmnpc_charm_npc_attempt",
+      "category": "dialogue_actions"
+    },
+    {
+      "addr": "0x6de0",
+      "old": "FUN_0000_6de0",
+      "new": "wmnpc_dialogue_main_loop",
+      "category": "dialogue_main"
+    },
+    {
+      "addr": "0x737a",
+      "old": "FUN_0000_737a",
+      "new": "wmnpc_encounter_init",
+      "category": "encounter_state"
+    },
+    {
+      "addr": "0x749c",
+      "old": "FUN_0000_749c",
+      "new": "wmnpc_encounter_cleanup",
+      "category": "encounter_state"
+    },
+    {
+      "addr": "0x759d",
+      "old": "FUN_0000_759d",
+      "new": "string_truncate_at_offset",
+      "category": "string_util"
+    },
+    {
+      "addr": "0x75c4",
+      "old": "FUN_0000_75c4",
+      "new": "wmnpc_parsed_input_resolve_alias",
+      "category": "dialogue_parser"
+    },
+    {
+      "addr": "0x7636",
+      "old": "FUN_0000_7636",
+      "new": "wmnpc_save_unknown_input",
+      "category": "dialogue_parser"
+    },
+    {
+      "addr": "0x7696",
+      "old": "FUN_0000_7696",
+      "new": "wmnpc_keyword_extract_first",
+      "category": "dialogue_parser"
+    },
+    {
+      "addr": "0x7788",
+      "old": "FUN_0000_7788",
+      "new": "wmnpc_keyword_substitute_canonical",
+      "category": "dialogue_parser"
+    },
+    {
+      "addr": "0x7916",
+      "old": "FUN_0000_7916",
+      "new": "wmnpc_keyword_extract_or_substitute",
+      "category": "dialogue_parser"
+    },
+    {
+      "addr": "0x793d",
+      "old": "FUN_0000_793d",
+      "new": "wmnpc_subject_name_match",
+      "category": "dialogue_parser"
+    },
+    {
+      "addr": "0x7a1b",
+      "old": "FUN_0000_7a1b",
+      "new": "wmnpc_verb_match",
+      "category": "keyword_match"
+    },
+    {
+      "addr": "0x7b75",
+      "old": "FUN_0000_7b75",
+      "new": "wmnpc_noun_check_or_save",
+      "category": "keyword_match"
+    },
+    {
+      "addr": "0x7bb1",
+      "old": "FUN_0000_7bb1",
+      "new": "wmnpc_global_synonym_lookup",
+      "category": "keyword_match"
+    },
+    {
+      "addr": "0x7d1e",
+      "old": "FUN_0000_7d1e",
+      "new": "string_find_word_end",
+      "category": "string_util"
+    },
+    {
+      "addr": "0x7d5b",
+      "old": "FUN_0000_7d5b",
+      "new": "wmnpc_keyword_normalize",
+      "category": "keyword_match"
+    },
+    {
+      "addr": "0x7e87",
+      "old": "FUN_0000_7e87",
+      "new": "wmnpc_word_by_word_normalize",
+      "category": "dialogue_parser"
+    },
+    {
+      "addr": "0x7f65",
+      "old": "FUN_0000_7f65",
+      "new": "wmnpc_classify_player_input",
+      "category": "dialogue_parser"
+    },
+    {
+      "addr": "0x8275",
+      "old": "FUN_0000_8275",
+      "new": "wmnpc_format_npc_response",
+      "category": "dialogue_main"
+    },
+    {
+      "addr": "0x83f7",
+      "old": "FUN_0000_83f7",
+      "new": "wmnpc_response_with_object",
+      "category": "dialogue_main"
+    },
+    {
+      "addr": "0x8435",
+      "old": "FUN_0000_8435",
+      "new": "ui_text_input_post_key",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x8473",
+      "old": "FUN_0000_8473",
+      "new": "wmnpc_response_compositor",
+      "category": "dialogue_parser"
+    },
+    {
+      "addr": "0x87df",
+      "old": "FUN_0000_87df",
+      "new": "ui_render_npc_portrait_window",
+      "category": "ui_render"
+    },
+    {
+      "addr": "0x884c",
+      "old": "FUN_0000_884c",
+      "new": "keyword_table_lookup_index",
+      "category": "keyword_match"
+    },
+    {
+      "addr": "0x8d6f",
+      "old": "FUN_0000_8d6f",
+      "new": "wmnpc_load_keyword_tables",
+      "category": "dialogue_parser"
+    },
+    {
+      "addr": "0x8e2e",
+      "old": "FUN_0000_8e2e",
+      "new": "ui_party_picker_subtitle",
+      "category": "ui_widget"
+    },
+    {
+      "addr": "0x8e8f",
+      "old": "FUN_0000_8e8f",
+      "new": "char_record_field_byte_set",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x8ecd",
+      "old": "FUN_0000_8ecd",
+      "new": "char_record_field_byte_set_alt",
+      "category": "data_util"
+    },
+    {
+      "addr": "0x8fd6",
+      "old": "FUN_0000_8fd6",
+      "new": "wmnpc_input_typein_loop",
+      "category": "dialogue_main"
+    },
+    {
+      "addr": "0x936d",
+      "old": "FUN_0000_936d",
+      "new": "scene_compute_y_for_distance",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0x93aa",
+      "old": "FUN_0000_93aa",
+      "new": "scene_render_floor_tile",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0x94d0",
+      "old": "FUN_0000_94d0",
+      "new": "scene_rotate_left_xz_pair",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0x9535",
+      "old": "FUN_0000_9535",
+      "new": "scene_rotate_right_xz_pair",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0x959a",
+      "old": "FUN_0000_959a",
+      "new": "scene_apply_facing_rotation",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0x961b",
+      "old": "FUN_0000_961b",
+      "new": "scene_draw_medium_wall_block",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0x9a04",
+      "old": "FUN_0000_9a04",
+      "new": "scene_draw_left_corner_wall",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0x9bc1",
+      "old": "FUN_0000_9bc1",
+      "new": "scene_draw_right_corner_wall",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0x9e5f",
+      "old": "FUN_0000_9e5f",
+      "new": "scene_draw_close_wall_segment",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0xa3a7",
+      "old": "FUN_0000_a3a7",
+      "new": "scene_draw_close_side_wall",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0xa596",
+      "old": "FUN_0000_a596",
+      "new": "scene_draw_floor_decal",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0xa685",
+      "old": "FUN_0000_a685",
+      "new": "scene_left_wall_continuation",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0xa6e8",
+      "old": "FUN_0000_a6e8",
+      "new": "scene_right_wall_continuation",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0xa808",
+      "old": "FUN_0000_a808",
+      "new": "scene_draw_door_special",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0xa8ca",
+      "old": "FUN_0000_a8ca",
+      "new": "wmnpc_render_3d_walls",
+      "category": "encounter_render_3d"
+    },
+    {
+      "addr": "0xb235",
+      "old": "FUN_0000_b235",
+      "new": "memcpy_padded",
+      "category": "string_util"
+    },
+    {
+      "addr": "0xb25d",
+      "old": "FUN_0000_b25d",
+      "new": "strcmp_word_pair",
+      "category": "string_util"
+    },
+    {
+      "addr": "0xb27b",
+      "old": "FUN_0000_b27b",
+      "new": "strncmp_word",
+      "category": "string_util"
+    }
   ],
   "unresolved": [
     "5 functions remain FUN_xxxx — all are 45-50 byte 3D-render micro-stubs in the 0xa700 range (0xa719, 0xa74a, 0xa777, 0xa7a9, 0xa7db) called only from within wmnpc_render_3d_walls (0xa8ca). They appear to be per-direction wall-sprite drawers (likely 4 cardinal directions + 1 'far' variant), each setting up specific pixel coordinate pushes then falling into the shared FUN_f148 sprite_render_at_screen_pos thunk. Their bodies look near-identical except for byte constants; renaming them individually requires either a dynamic trace mapping each to a visible wall-segment or a careful manual diff of the 4-5 constants per function. Low priority — they don't get called outside the 3D renderer and the renderer itself is named.",

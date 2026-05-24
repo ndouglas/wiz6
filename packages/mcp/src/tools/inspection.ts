@@ -110,7 +110,7 @@ export function registerInspectionTools(server: McpServer, ctx: McpContext): voi
       let physOffset = args.offset;
       let resolvedFrom: string | undefined;
       if (args.space) {
-        const map = buildSegmentMap(absPath, ctx.repoRoot);
+        const map = buildSegmentMap(absPath, ctx.repoRoot, { bridge });
         physOffset = resolveSegAddr(map, {
           space: args.space as SegmentSpace,
           offset: args.offset,
@@ -141,8 +141,8 @@ export function registerInspectionTools(server: McpServer, ctx: McpContext): voi
       },
     },
     safeHandler((args): JsonToolResult => {
-      const { absPath } = ctx.bridgeFor(args.save);
-      const map = buildSegmentMap(absPath, ctx.repoRoot);
+      const { bridge, absPath } = ctx.bridgeFor(args.save);
+      const map = buildSegmentMap(absPath, ctx.repoRoot, { bridge });
       const entries = Object.entries(map).map(([space, e]) => ({
         space,
         phys_base: e!.physBase,
@@ -163,24 +163,38 @@ export function registerInspectionTools(server: McpServer, ctx: McpContext): voi
     'dosbox_read_struct',
     {
       description:
-        'Decode a BssStruct from save-state memory. Address may be given as a ' +
-        'DGROUP-relative offset (`address`) or resolved via `symbolName` ' +
-        '(looked up in the SymbolIndex). Returns the decoded fields + source provenance.',
+        'Decode a BssStruct from save-state memory. Address resolution (priority): ' +
+        '(a) `space` + `offset` typed segment address (recommended for new findings — ' +
+        'see dosbox_map_segments for valid spaces); (b) `symbolName` via the SymbolIndex; ' +
+        '(c) `address` as a wroot DGROUP-relative offset (legacy convention). ' +
+        'Returns the decoded fields + source provenance.',
       inputSchema: {
         save: z.string().describe('Save state path, filename, or slot number.'),
         structName: z
           .string()
           .describe('BssStruct name, e.g. "character_record", "sound_table_entry".'),
+        space: z
+          .string()
+          .optional()
+          .describe(
+            'Segment name (wroot.dgroup, wbase.ovr, etc.). Pair with `offset` for typed read.',
+          ),
+        offset: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .describe('Offset within `space` (when `space` is set).'),
         address: z
           .number()
           .int()
           .nonnegative()
           .optional()
-          .describe('DGROUP-relative offset (preferred when known).'),
+          .describe('LEGACY: wroot DGROUP-relative offset. Prefer `space` + `offset`.'),
         symbolName: z
           .string()
           .optional()
-          .describe('Symbol name to resolve via the SymbolIndex (alternative to `address`).'),
+          .describe('Symbol name to resolve via the SymbolIndex (alternative to address).'),
         binary: z
           .string()
           .optional()
@@ -196,11 +210,14 @@ export function registerInspectionTools(server: McpServer, ctx: McpContext): voi
       }
       const { bridge, absPath } = ctx.bridgeFor(args.save);
 
-      let dgroupOffset: number;
+      let physical: number;
       let source: string;
-      if (args.address !== undefined) {
-        dgroupOffset = args.address;
-        source = `explicit address 0x${args.address.toString(16)}`;
+
+      if (args.space !== undefined) {
+        const offset = args.offset ?? 0;
+        const map = buildSegmentMap(absPath, ctx.repoRoot, { bridge });
+        physical = resolveSegAddr(map, { space: args.space as SegmentSpace, offset });
+        source = `typed ${args.space} + 0x${offset.toString(16)}`;
       } else if (args.symbolName !== undefined) {
         const matches = ctx.symbols.allByName(args.symbolName);
         if (matches.length === 0) {
@@ -215,18 +232,33 @@ export function registerInspectionTools(server: McpServer, ctx: McpContext): voi
           );
         }
         const sym = filtered[0]!;
-        dgroupOffset = sym.address;
-        source = `symbol ${sym.name} (${sym.binary} @ 0x${sym.address.toString(16)})`;
+        // Symbol addresses are within the symbol's binary's image. Resolve
+        // via segment map if possible; fall back to legacy DGROUP behaviour
+        // for wroot.dgroup-style symbols.
+        const map = buildSegmentMap(absPath, ctx.repoRoot, { bridge });
+        const segEntry = map[sym.binary as SegmentSpace];
+        if (segEntry) {
+          physical = segEntry.physBase + sym.address;
+          source = `symbol ${sym.name} (${sym.binary} @ 0x${sym.address.toString(16)} → typed)`;
+        } else {
+          // Fall back to legacy DGROUP resolution (wroot symbols treated
+          // as DGROUP-relative when the binary isn't in the segment map).
+          physical = dgroupOffsetToPhysical(bridge, absPath, sym.address);
+          source = `symbol ${sym.name} (${sym.binary} @ 0x${sym.address.toString(16)} → DGROUP legacy)`;
+        }
+      } else if (args.address !== undefined) {
+        physical = dgroupOffsetToPhysical(bridge, absPath, args.address);
+        source = `legacy DGROUP address 0x${args.address.toString(16)}`;
       } else {
-        return errorResult('must provide either `address` or `symbolName`');
+        return errorResult(
+          'must provide one of: (`space`+`offset`), `symbolName`, or `address`',
+        );
       }
 
-      const physical = dgroupOffsetToPhysical(bridge, absPath, dgroupOffset);
       const bytes = bridge.readPhysical(physical, struct.bytes);
       const decoded = decodeBssStruct(struct, bytes, 0, ctx.structs);
       return jsonResult({
         structName: struct.name,
-        dgroupOffset,
         physicalOffset: physical,
         bytes: struct.bytes,
         source,
@@ -369,17 +401,59 @@ export function registerInspectionTools(server: McpServer, ctx: McpContext): voi
     'dosbox_find_pattern',
     {
       description:
-        'Locate a byte pattern in save-state physical memory. Returns the first ' +
-        'match offset or -1. Use for anchoring on known templates / strings.',
+        'Locate a byte pattern in save-state memory. By default scans the whole ' +
+        'physical memory blob. When `space` is set, restricts the scan to just that ' +
+        "segment's loaded extent (using the segment map). Returns the first match " +
+        'offset in physical memory, or -1 if absent. When scoped to a segment, also ' +
+        'returns the segment-relative offset for direct use in typed reads.',
       inputSchema: {
         save: z.string(),
         hex: z
           .string()
           .describe('Hex pattern, e.g. "53 4f 55 4e 44 30 30 2e 53 4e 44 00".'),
+        space: z
+          .string()
+          .optional()
+          .describe(
+            'Optional segment to restrict the scan to (e.g. "wbase.ovr"). When set, ' +
+              'finds matches only within that segment.',
+          ),
       },
     },
     safeHandler((args): JsonToolResult => {
-      const { bridge } = ctx.bridgeFor(args.save);
+      const { bridge, absPath } = ctx.bridgeFor(args.save);
+      if (args.space) {
+        const map = buildSegmentMap(absPath, ctx.repoRoot, { bridge });
+        const seg = map[args.space as SegmentSpace];
+        if (!seg) {
+          return errorResult(
+            `segment "${args.space}" not loaded in this save (no matching anchor)`,
+          );
+        }
+        // Search the whole physical memory and filter to results within the
+        // segment's bounds. We bound by a conservative size: 64 KB (1 DOS
+        // segment) above the load base. Most overlays are smaller; using a
+        // bounded window prevents matching pattern bytes that bled into the
+        // overlay region from neighbouring memory.
+        const SEGMENT_WINDOW = 0x10000;
+        const pos = bridge.findPattern(args.hex);
+        if (pos < 0 || pos < seg.physBase || pos >= seg.physBase + SEGMENT_WINDOW) {
+          return jsonResult({
+            offset: -1,
+            found: false,
+            scope: args.space,
+            scope_phys_base: seg.physBase,
+          });
+        }
+        return jsonResult({
+          offset: pos,
+          found: true,
+          scope: args.space,
+          scope_phys_base: seg.physBase,
+          segment_offset: pos - seg.physBase,
+          segment_offset_hex: `0x${(pos - seg.physBase).toString(16)}`,
+        });
+      }
       const offset = bridge.findPattern(args.hex);
       return jsonResult({ offset, found: offset >= 0 });
     }),
