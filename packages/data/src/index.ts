@@ -77,3 +77,25 @@ export {
   WIZ6_DUNGEON,
 } from './palettes/index.js';
 export type { PaletteName } from './palettes/index.js';
+
+// BSS struct schemas (Wiz6 engine memory layouts) — pure declarative data
+// used by the eventual DOSBox-X MCP server (#017), the save-state viewer,
+// and the TS port's runtime introspection. See packages/data/src/structs/.
+export {
+  ALL_STRUCTS,
+  CHARACTER_RECORD,
+  COMBAT_SLOT,
+  MONSTER_PREJUDICE,
+  POSITION_STATE,
+  SOUND_TABLE_ENTRY,
+  decodeBssStruct,
+  sizeOfType,
+  buildStructRegistry,
+} from './structs/index.js';
+export type {
+  BssField,
+  BssFieldType,
+  BssScalarType,
+  BssStruct,
+  DecodedStruct,
+} from './structs/index.js';
