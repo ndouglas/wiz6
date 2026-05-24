@@ -1,0 +1,61 @@
+{
+  "topic": "wroot-ui-window-create-struct-layout",
+  "subagent_run": "2026-05-24",
+  "binaries": ["wroot.exe"],
+  "summary": "Decoded the byte layout of the window struct that `ui_window_create` (wroot.exe @ image 0x11A) allocates and initializes. Each struct has at least 16 bytes; the first 6 hold the window's geometry (w_cells, h_cells, x_byte, y_byte, attribute, flags) and the next 8 (offsets +8..+0xF) hold per-edge border-character glyphs selected by the function's arg 6 (a border-style discriminator). Return value is a 16-bit NEAR pointer to the struct; the heap segment where these structs live wasn't identified — left as open question for further RE.",
+  "method": "Found `ui_window_create` via the project's existing wroot symbol map (image offset 0x11A = file offset 0x31A after the 0x200-byte MZ header). Disassembled with ndisasm; cross-referenced the field writes with sample call sites in wbase.ovr. The function takes 8 args; arg 6 controls which border-character byte block gets written to struct +8..+0xF.",
+  "findings": [
+    {
+      "id": "ui-window-create-signature",
+      "claim": "Function signature (right-to-left stack push, 16-bit ABI):\n  ui_window_create(\n    int x_byte,         // [bp+0x04]\n    int y_byte,         // [bp+0x06]\n    int w_cells,        // [bp+0x08]\n    int h_cells,        // [bp+0x0A]\n    int attribute,      // [bp+0x0C]\n    int border_style,   // [bp+0x0E] — 0xFFFF=plain, 0xFFFE=heavy, 0xFFFD=light, ...\n    int arg7,           // [bp+0x10] — flag bit 1 controls a +0x14 add to alloc size\n    int arg8,           // [bp+0x12] — unused in the prologue we read\n  ) -> u16 near_pointer\n\nReturn value in AX is the 16-bit near pointer to the allocated struct (allocator at wroot 0x3A22).",
+      "category": "function_signature",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0x011a"},
+        "type": "raw_disasm",
+        "details": "Function prologue at file 0x31A (image 0x11A): PUSH BP / MOV BP,SP / ADD SP,-4 / PUSH SI / TEST [bp+0x10],2 (flag check) / size = (w_cells * h_cells + 0x14) OR (0x14) → allocator call. Then memcpy-style writes of args 1..5 + 7 into struct offsets 2, 3, 0, 1, 4, 5 (in that source order). Initialization of struct offsets 6 and 7 to 0. Border-character block selected by [bp+0xE]."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "window-struct-layout",
+      "claim": "Window struct layout (first 16 bytes):\n  +0x00 : u8  w_cells          // ui_window_create arg 3\n  +0x01 : u8  h_cells          // arg 4\n  +0x02 : u8  x_byte           // arg 1 — top-left column in 8-pixel cells\n  +0x03 : u8  y_byte           // arg 2 — top-left row in 8-pixel cells (= screen y / 8)\n  +0x04 : u8  attribute        // arg 5 — text/fill color/attribute\n  +0x05 : u8  flags            // arg 7 — passed flag bits\n  +0x06 : u8  reserved = 0     // zero-initialized\n  +0x07 : u8  reserved = 0\n  +0x08..+0x0F : u8[8] border_chars  // 8 glyph codes selected by arg 6 (border-style)\n\nThis matches the field reads ega.drv f130 (fill_rectangle) does at offsets +0/+1/+2/+3 (see existing pic-loader.md notes on the EGA driver's window-context reads).",
+      "category": "data_format",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0x0151"},
+        "type": "asm_field_writes",
+        "details": "Struct writes at wroot image 0x151..0x192. Each write uses [bx+disp8] with bx = struct base; the disp8 values trace cleanly to the offsets listed above."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "border-style-glyph-blocks",
+      "claim": "Arg 6 (border_style) is a discriminator. Decoded values:\n  0xFFFF → struct +8..+0xF = 8, 8, 8, 8, 8, 8, 8, 8       (plain — 8 = ' ' or thin space)\n  0xFFFE → struct +8..+0xF = 0x1B, 0x1B, 0x1C, 0x1B, 0x1C, 0x1B, 0x1B, 0x1C  (heavy)\n  0xFFFD → struct +8 = 0x1A, ... (light, prefix shown; remaining bytes follow same pattern as heavy with different glyphs)\n  Other 0xFFFx values: not yet decoded.\nThe glyph codes are font-table indices in wfont0..wfont4. wbase usually passes 0xFFFF (plain windows).",
+      "category": "data_format",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0x019A"},
+        "type": "raw_disasm",
+        "details": "ndisasm at image 0x194 onwards: chain of `cmp [bp+0xE], 0xFFFF/0xFFFE/0xFFFD/...` followed by per-style blocks that mov-byte each of +0x8..+0xF in turn."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wbase-window-create-callsites",
+      "claim": "wbase.ovr makes 8 distinct ui_window_create calls (call file offsets: 0x0aa8, 0x0f1a, 0x185d, 0x21ee, 0x2229, 0x26f7, 0x2bfe, 0x3187). Each pushes a different (x_byte, y_byte, w_cells, h_cells, attribute, ...) tuple. The state-4 entry FUN_2b36 issues exactly ONE bbb6 call at file 0x2bfe with args (x=0, y=0x13, w=0x28, h=5, attr=0xF, border=0xFFFF, 0, 0). This window is 40 cells wide × 5 cells tall, top-left (0, 19) in cell coords = (0, 152) in pixels (cells are 8 px). The return is stored at [bp-0x2] (local) and immediately passed to subsequent UI calls — likely the menu's PROMPT/text window.",
+      "category": "window_provenance",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x2bfe"},
+        "type": "asm_arg_extraction",
+        "details": "Args pushed in order 0, 0x13, 0x28, 5, 0xF, 0xFFFF, 0, 0 (right-to-left → struct(x=0, y=0x13, w=0x28, h=5)). The width is 40 cells = full screen (40×8 = 320 px), height 5 cells = 40 px. Position y=0x13=19 cells = 152 px (below the top dragonsc strip)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "unresolved": [
+    "**Where do window structs live?** ui_window_create returns a 16-bit NEAR pointer to the allocated struct. To read the struct from memory we need to know which segment that near pointer is relative to. The allocator at wroot 0x3A22 has not been RE'd yet — finding its segment register setup would close this.\n\nEmpirically: menu_window handle stored at wbase.dgroup[0x4FBC] = 0xB687 in save 1. Reading at wbase.dgroup+0xB687 does NOT give a sensible window struct (expected small w/h cells; observed 0x3c, 0xF7). Reading at linear 0xB6870 = all 0xFF (uninitialized). So 0xB687 is a near pointer into a segment OTHER than wbase.dgroup and other than its own segment*16 expansion. The heap segment is the missing piece.",
+    "**Which wbase variable is the main menu's display window?** *0x4FBC is referenced as a window handle by FUN_07b7 (the per-frame menu decoration redraw — its very first call is `f130(*0x4FBC, 0)` to clear the window). But the assignment of 0xB687 to *0x4FBC isn't visible in either wroot.exe or wbase.ovr as a direct `MOV [0x4FBC], reg` instruction — meaning it gets written through an indirect/computed pointer that we haven't traced.\n\nSeparately: wbase.dgroup also holds *0x4FBA, *0x4FB8, *0x4FB2 (all non-zero window handles), referenced as ALREADY-LIVE windows during FUN_2b36's entry. These are likely the wfont/UI windows created during state-2 init (winit.ovr). Identifying which of these correspond to the main-menu *display* region vs scratch UI windows requires further RE of state-2's window-creation sequence."
+  ]
+}
