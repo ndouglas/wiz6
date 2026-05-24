@@ -3,9 +3,12 @@
 **Status:** state machine mapped + cross-verified against working TS
 reimplementation (`packages/parser/src/sim/intro-sequence.ts`). State
 transitions, table layout, token mapping, scroll math, wall-clock pacing
-all confirmed. DOSBox-X dynamic confirmation still pending for the comparator
-direction at `winit.ovr 0xCFB` — the port's behavior matches user lived
-recollection, which is the inverse of the agent's first-pass reading.
+all confirmed. DOSBox-X dynamic confirmation still pending for (a) the
+comparator direction at `winit.ovr 0xCFB`, (b) sound-slot 13's alias_id
+resolution, and (c) what `audio_play_sound(0xE)` actually produces given
+the PIC-scratch overlap documented below. The state-1 deep-dive pass
+(2026-05-23) is in [`findings/winit-state1-deep-dive.json`](findings/winit-state1-deep-dive.json)
+and supersedes the earlier [`findings/winit-state1-audio.json`](findings/winit-state1-audio.json).
 
 The startup → title → credits → main-menu flow lives in `winit.ovr`. It is
 driven by a global state variable at wroot DGROUP **`0x363a`** (`game_state`)
@@ -131,54 +134,65 @@ mapped).
 The big one — the title page and scrolling credits.
 
 1. `kbd_flush_buffer` (thunk `0xe2a8` → wroot `0x280c`).
-2. `winit_load_pic_by_index(0x27)` (call to FUN at `0x38a` → `huffman_load_and_decompress` thunk `0xee85` → `ega.drv` decoder dispatch entry 9). File index `0x27` resolves to TITLEPAG.PIC or CREDITS.PIC (needs DOSBox-X trace to disambiguate; mechanism is fully understood).
-3. Open `SOUND00.SND` via filename pointer at `0x513A`; read into buffer `0x51AA`; close. Pre-loads the title music/sound effect.
+2. `winit_load_pic_by_index(0x27)` (PIC index 39 — almost certainly **CREDITS.PIC**, the credit-scroll glyphs, not TITLEPAG). The huffman-decompress call inside this routine is invoked with `slot=0xE`, writing the decoded byte stream to `*(0x3579+14*4) = *(0x35B1)` AND writing the 12-byte kind=9 master-archive record to DGROUP `0x33EC`. Both addresses overlap the sound system's slot-14 storage — see § "The slot-14 PIC-scratch overlap" below.
+3. Open `SOUND00.SND` via filename pointer at `0x513A`; read into buffer `0x51AA`; close. (This is a one-off pre-load distinct from the slot-table preload that ran in state 0.)
 4. Video-mode dispatch on flag word `*0x4FC6`:
-   - bit 0 → render text token `0x5146` (EGA)
-   - bit 1 → `0x5153` (CGA)
-   - bit 2 → `0x5160` (T16)
-   - bit 3 → `0x516D` (Hercules)
+   - bit 0 → render PIC `TITLEPAG.EGA` at winit DGROUP `0x5146`
+   - bit 1 → `TITLEPAG.CGA` at `0x5153`
+   - bit 2 → `TITLEPAG.T16` at `0x5160`
+   - bit 3 → `TITLEPAG.HRC` at `0x516D`
    - else `abort(0xC)`
 5. Initialize local skip-flag (`[BP-0x72]` = 0).
-6. `audio_play_sound(4)` at file `0xac2` — fires as Sir-Tech splash becomes visible. **SOUND04.SND**.
+6. `audio_play_sound(4)` at file `0xac2` — fires as Sir-Tech splash becomes visible.
 7. `if (!skip) skip += winit_wait_ticks_or_enter(2)`: short wait.
-8. `audio_play_sound(0xD)` at file `0xadb` — fires before "D.W. Bradley" credit renders. **SOUND13.SND**.
+8. `audio_play_sound(0xD)` at file `0xadb` — fires before "D.W. Bradley" credit renders.
 9. Open the title-screen UI window (`*0x4FBE`), draw two text tokens (positions hard-coded), refresh.
 10. `if (!skip) skip += winit_wait_ticks_or_enter(0x48)`: long wait (~720 delay units). Title page holds visible.
-11. Page clear: `f118(-1)` clears window, `f13c` refreshes (screen blanks). `audio_play_sound(0xE)` at file `0xb43` — **SOUND14.SND**.
+11. Page clear: `f118(-1)` clears window, `f13c` refreshes (screen blanks). `audio_play_sound(0xE)` at file `0xb43`.
 12. `wait(10)`.
-13. `audio_play_sound(6)` at file `0xb5c` — **SOUND06.SND** (pre-header reveal, interstitial).
+13. `audio_play_sound(6)` at file `0xb5c`.
 14. Render the "Wizardry VI" / "Bane of the Cosmic Forge" header tokens.
 15. Refresh.
-16. `audio_play_sound(7)` at file `0xb90` — **SOUND07.SND** (pre-scroll motion, interstitial).
+16. `audio_play_sound(7)` at file `0xb90`.
 17. `wait(10)`.
 18. Initialize the credit-scroll entry array (9 entries × 5 fields each, stored on stack).
 19. Enter scroll loop (file `0xC9D..0xD6D`) — see below.
 20. After scroll: draw the "PRESS ANY KEY" / final text tokens, destroy the overlay window.
 21. **Transition:** writes `*0x363a := 2` at file offset `0xDC4`.
-22. Wait one more time (mouse + keyboard poll until key or skip-driven completion).
+22. Post-scroll wait with **inverted semantics**: if the user skipped earlier, do a brief timed wait (~28 delay units) absorbing any buffered input; if the user watched to completion, poll mouse+keyboard *indefinitely* until any input. UX-correct — a skipper has signaled "advance now" and shouldn't be made to wait; a watcher gets to admire the final scroll-page state for as long as they like.
 23. `kbd_flush_buffer` and return.
 
-### Audio mapping (verified 2026-05-23 — see [`findings/winit-state1-audio.json`](findings/winit-state1-audio.json))
+### Audio mapping — RE-pass call sites vs what actually plays
 
-The five `audio_play_sound` calls in state 1 fire at these moments, indexed by their N argument into the runtime sound table at DGROUP `0x3344`:
+Two reverse-engineering passes converged on the five `audio_play_sound` call sites and their N arguments (file offsets + byte patterns verified across both). What's audibly produced for three of those calls turned out to *not* be the SOUND&lt;NN&gt;.SND file that matches N — see [`findings/winit-state1-deep-dive.json`](findings/winit-state1-deep-dive.json):
 
-| Step | File offset | N      | .snd file    | Moment                                |
-| ---- | ----------- | ------ | ------------ | ------------------------------------- |
-| 6    | `0xac2`     | `0x04` | SOUND04.SND  | Sir-Tech splash becomes visible       |
-| 8    | `0xadb`     | `0x0D` | SOUND13.SND  | Bradley credit about to render        |
-| 11   | `0xb43`     | `0x0E` | SOUND14.SND  | Title page clears (end of title-hold) |
-| 13   | `0xb5c`     | `0x06` | SOUND06.SND  | Pre-"Wizardry VI" header reveal       |
-| 16   | `0xb90`     | `0x07` | SOUND07.SND  | Pre-scroll motion                     |
+| Step | File offset | N      | Nominal file | What actually plays                                                                          |
+| ---- | ----------- | ------ | ------------ | --------------------------------------------------------------------------------------------- |
+| 6    | `0xac2`     | `0x04` | SOUND04.SND  | SOUND04.SND ✓ (slot 4 preloaded; user-confirmed "door click")                                 |
+| 8    | `0xadb`     | `0x0D` | SOUND13.SND  | Almost certainly **aliased**. Slot 13 is preloaded, but the user reports SOUND13 is wrong — most likely master.hdr record 13 has `buf_lo == buf_hi == 0` triggering the `alias_id` redirect to a different slot. Hypothesis: aliases to slot 5 → **SOUND05.SND** ("pow"). Dynamic verification pending. |
+| 11   | `0xb43`     | `0x0E` | SOUND14.SND  | **NOT SOUND14.SND** — settled. Slot 14's descriptor at DGROUP `0x33EC` is the same memory as the PIC-loader scratch buffer (step 2 above). At the moment this call fires, slot 14's "descriptor" is PIC #0x27's master-archive record, and the sample-buffer pointer points to decoded CREDITS.PIC bytes. Audio engine plays garbage PCM-from-PIC, or hits the "rate_or_vol == 0" silence path. User-reported it sounds like a "whoosh" — could be PIC bytes interpreted as audio, or an inadvertent alias to slot 6. |
+| 13   | `0xb5c`     | `0x06` | SOUND06.SND  | SOUND06.SND (likely direct, slot 6 preloaded; user-confirmed "whoosh")                        |
+| 16   | `0xb90`     | `0x07` | SOUND07.SND  | SOUND07.SND (likely direct, slot 7 preloaded; user-confirmed "clang" landing with logo)       |
 
-The sound-table population happens via `winit_preload_sounds(14)` at winit `0x291` (loop bound `i < 14` per JGE at `0x381`) — preloading slots 0..13. SOUND01 and SOUND09 are absent on disk; those slots presumably alias via the table's `alias_id` field at offset 0 in each 12-byte entry. SOUND14 (used as slot 14 by call 3 above) lies outside the preload loop's bound — needs verification whether it's separately loaded, aliased, or covered by an off-by-one in the loop bound. Tracked under #017's first-payoff experiment (the DOSBox-X MCP server).
+`winit_preload_sounds(14)` at winit `0x291` was confirmed to use a `JGE` comparator at `0x381` (loop bound `i < 14`, exclusive). Slots 0..13 are preloaded; slot 14 is intentionally outside the loop. The original engine designers either treated slot 14 as scratch space (which the PIC loader then reused) or this was an unintentional collision that just-happened-to-work because the resulting playback is short and inoffensive. Either way it's been like this since 1990.
 
-**Port wiring** (`packages/viewer/src/pages/game/GameTitle.tsx`): three of the five sounds are wired to phase transitions:
-- `pause-pre-sirtech → sirtech-splash` plays SOUND04.
-- `pause-between → bradley-splash` plays SOUND13.
-- `title-hold → scroll` plays SOUND14.
+### The slot-14 PIC-scratch overlap
 
-SOUND06 and SOUND07 fire between page-clear and scroll-start in the engine — that interval is collapsed into our `title-hold → scroll` transition. Modeling them faithfully would require sub-phases (a `page-clear` → `header-reveal` → `pre-scroll` sequence between `title-hold` and `scroll`). Deferred.
+`docs/re/findings/winit-state1-deep-dive.json#slot-14-pic-scratch-aliasing` (confidence: high).
+
+The sound table at DGROUP `0x3344` is exactly 14 slots × 12 bytes = 168 bytes, ending at `0x33EC`. The PIC-loader scratch buffer starts at `0x33EC`. There is no defensive bound in `audio_play_sound` (wroot image `0x10AAA`) that detects this — when called with N=0xE it reads the 12 bytes at `0x33EC` as a sound descriptor and follows the buffer pointer at `0x3579+14*4` into whatever PIC bytes are currently decoded there. This is not designed aliasing through the `alias_id` field; it's a hard memory collision that produces undefined audio output.
+
+The user reports the audible result sounds like a "whoosh" between the page-clear and the SOUND06 "whoosh" they identified as the next beat — possibly the same sound aliased twice, possibly different garbage that's incidentally similar. Without dynamic verification it's impossible to say from static analysis alone.
+
+### Port wiring (`packages/viewer/src/pages/game/GameTitle.tsx`)
+
+After the deep-dive findings, the viewer was rewired to match user-by-ear playback rather than the original RE-pass mapping:
+
+- `pause-pre-sirtech → sirtech-splash` plays **SOUND04** (door click). ✓ matches engine.
+- `pause-between → bradley-splash` is **unwired** — no confirmed sound for this transition. Engine fires `audio_play_sound(0xD)` which likely aliases; once dynamic verification settles what it plays we'll wire that.
+- `pause-pre-scroll → title-hold` plays **SOUND05 → SOUND06 → SOUND07** in rapid succession (180 ms intervals via `setTimeout`), so the clang lands approximately as the Wizardry wordmark visually appears. This is the three-beat reveal sequence the user identified by ear; it corresponds to engine calls N=0xE, N=6, N=7 fired close together in the page-clear → header-reveal → scroll-start window.
+
+The audible result matches the user's recollection of the original DOS game. The byte-faithful path (firing exactly what `audio_play_sound(0xE)` produces from PIC-scratch garbage) was rejected as cosmetic-fidelity-not-mechanical-fidelity.
 
 ### The credit scroll
 

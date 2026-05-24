@@ -36,23 +36,17 @@ export function GameTitle() {
   // can produce sound. We hold the intro on frame 0 until that gesture lands,
   // so the SOUND04 / SOUND13 / SOUND14 transitions are actually audible.
   const [started, setStarted] = useState(false);
-  // Engine state-1 fires five distinct sounds (verified via the winit-audio
-  // RE pass — see docs/re/findings/winit-state1-audio.json):
-  //
-  //   1. SOUND04.SND at winit 0xac2 (N=4)   — Sir-Tech splash becomes visible
-  //   2. SOUND13.SND at winit 0xadb (N=0xD) — Bradley credit about to render
-  //   3. SOUND14.SND at winit 0xb43 (N=0xE) — title-page clear (end of title-hold)
-  //   4. SOUND06.SND at winit 0xb5c (N=6)   — pre-header reveal (interstitial)
-  //   5. SOUND07.SND at winit 0xb90 (N=7)   — pre-scroll motion (interstitial)
-  //
-  // Our state machine has three user-visible transitions (sirtech-splash,
-  // bradley-splash, title-hold → scroll). We wire 1 / 2 / 3 to those. Sounds
-  // 4 and 5 (the "pre-header" and "pre-scroll" interstitials) fire between
-  // our title-hold end and our scroll start in the engine; modeling them
-  // would require sub-phases. Deferred — TODO note in startup-sequence.md.
-  const sound04Ref = useRef<PlayableSnd | null>(null); // sirtech
-  const sound13Ref = useRef<PlayableSnd | null>(null); // bradley
-  const sound14Ref = useRef<PlayableSnd | null>(null); // page-clear / scroll-start
+  // User-by-ear playback in DOSBox (overrides the RE-pass mapping, which the
+  // "loop-bound-question" finding already flagged as alias-suspect):
+  //   - sirtech splash starts with SOUND04 ("door click") + likely composite
+  //   - title page appears with SOUND05 ("pow"), then SOUND06 ("whoosh"),
+  //     then SOUND07 ("clang") in rapid succession; the Wizardry wordmark
+  //     visually lands as the clang sounds
+  //   - bradley credit: no clear ground truth yet, leaving unwired
+  const sound04Ref = useRef<PlayableSnd | null>(null);
+  const sound05Ref = useRef<PlayableSnd | null>(null);
+  const sound06Ref = useRef<PlayableSnd | null>(null);
+  const sound07Ref = useRef<PlayableSnd | null>(null);
   // Track which phase transitions have already triggered a sound so a single
   // phase doesn't fire repeatedly during its hold frames.
   const soundFiredRef = useRef<Set<string>>(new Set());
@@ -60,13 +54,14 @@ export function GameTitle() {
   // Install one-shot listener so first user gesture unlocks Web Audio.
   useEffect(() => installAudioUnlockListener(), []);
 
-  // Preload the three transition sounds in parallel. Silently no-ops if files
+  // Preload the four transition sounds in parallel. Silently no-ops if files
   // missing (Web Audio remains locked or `pnpm wiz6 extract --all` not run).
   useEffect(() => {
     let cancelled = false;
     loadSnd('/sounds/sound04.snd').then((s) => { if (!cancelled) sound04Ref.current = s; });
-    loadSnd('/sounds/sound13.snd').then((s) => { if (!cancelled) sound13Ref.current = s; });
-    loadSnd('/sounds/sound14.snd').then((s) => { if (!cancelled) sound14Ref.current = s; });
+    loadSnd('/sounds/sound05.snd').then((s) => { if (!cancelled) sound05Ref.current = s; });
+    loadSnd('/sounds/sound06.snd').then((s) => { if (!cancelled) sound06Ref.current = s; });
+    loadSnd('/sounds/sound07.snd').then((s) => { if (!cancelled) sound07Ref.current = s; });
     return () => {
       cancelled = true;
     };
@@ -144,19 +139,21 @@ export function GameTitle() {
         skipRef.current = false;
         const prevPhase = stateRef.current.phase;
         stateRef.current = stepIntro(stateRef.current, 1, { skipPressed });
-        // Engine-faithful sound mapping per the winit-audio RE pass.
-        // Sounds 6 and 7 (interstitial beats between page-clear and scroll
-        // start in the engine) are not yet wired — they'd need sub-phase
-        // modeling. See docs/re/findings/winit-state1-audio.json.
         const transition = `${prevPhase}->${stateRef.current.phase}`;
-        const TRANSITION_SOUND: Record<string, React.MutableRefObject<PlayableSnd | null>> = {
-          'pause-pre-sirtech->sirtech-splash': sound04Ref, // SOUND04 (N=4)
-          'pause-between->bradley-splash':     sound13Ref, // SOUND13 (N=0xD)
-          'title-hold->scroll':                sound14Ref, // SOUND14 (N=0xE)
-        };
-        const ref = TRANSITION_SOUND[transition];
-        if (ref?.current && !soundFiredRef.current.has(transition)) {
-          playSnd(ref.current);
+        // User-by-ear mapping (see ref declarations above for context):
+        //   sirtech-splash entry: SOUND04 ("door click")
+        //   title-hold entry:     SOUND05 → SOUND06 → SOUND07 in rapid
+        //                         succession; clang lands ~as the Wizardry
+        //                         wordmark appears
+        if (transition === 'pause-pre-sirtech->sirtech-splash' && !soundFiredRef.current.has(transition)) {
+          if (sound04Ref.current) playSnd(sound04Ref.current);
+          soundFiredRef.current.add(transition);
+        } else if (transition === 'pause-pre-scroll->title-hold' && !soundFiredRef.current.has(transition)) {
+          if (sound05Ref.current) playSnd(sound05Ref.current);
+          const s6 = sound06Ref.current;
+          const s7 = sound07Ref.current;
+          if (s6) window.setTimeout(() => playSnd(s6), 180);
+          if (s7) window.setTimeout(() => playSnd(s7), 360);
           soundFiredRef.current.add(transition);
         }
       }
