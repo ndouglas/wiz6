@@ -36,17 +36,21 @@ export function GameTitle() {
   // can produce sound. We hold the intro on frame 0 until that gesture lands,
   // so the SOUND04 / SOUND13 / SOUND14 transitions are actually audible.
   const [started, setStarted] = useState(false);
-  // User-by-ear playback in DOSBox (overrides the RE-pass mapping, which the
-  // "loop-bound-question" finding already flagged as alias-suspect):
-  //   - sirtech splash starts with SOUND04 ("door click") + likely composite
-  //   - title page appears with SOUND05 ("pow"), then SOUND06 ("whoosh"),
-  //     then SOUND07 ("clang") in rapid succession; the Wizardry wordmark
-  //     visually lands as the clang sounds
-  //   - bradley credit: no clear ground truth yet, leaving unwired
+  // Engine sound-table dump (MCP, 2026-05-24 — see TODO #Q-G) reveals
+  // each sound's playback rate via the per-slot `duration` field at
+  // DGROUP 0x3344+N*12+8. The loadSnd(url, {slotN}) call uses that to
+  // pick the correct playback rate so each sound matches the engine's
+  // pitch + duration:
+  //   - SOUND04 (slot 4, door click): near-default rate
+  //   - SOUND05 (slot 5, "pow"):       7365 Hz (slower than default 10026)
+  //   - SOUND06 (slot 6, whoosh):     near-default rate
+  //   - SOUND07 (slot 7, clang):       near-default rate
+  //   - SOUND13 (slot 13, bradley):    6280 Hz (much slower than default)
   const sound04Ref = useRef<PlayableSnd | null>(null);
   const sound05Ref = useRef<PlayableSnd | null>(null);
   const sound06Ref = useRef<PlayableSnd | null>(null);
   const sound07Ref = useRef<PlayableSnd | null>(null);
+  const sound13Ref = useRef<PlayableSnd | null>(null);
   // Track which phase transitions have already triggered a sound so a single
   // phase doesn't fire repeatedly during its hold frames.
   const soundFiredRef = useRef<Set<string>>(new Set());
@@ -58,10 +62,11 @@ export function GameTitle() {
   // missing (Web Audio remains locked or `pnpm wiz6 extract --all` not run).
   useEffect(() => {
     let cancelled = false;
-    loadSnd('/sounds/sound04.snd').then((s) => { if (!cancelled) sound04Ref.current = s; });
-    loadSnd('/sounds/sound05.snd').then((s) => { if (!cancelled) sound05Ref.current = s; });
-    loadSnd('/sounds/sound06.snd').then((s) => { if (!cancelled) sound06Ref.current = s; });
-    loadSnd('/sounds/sound07.snd').then((s) => { if (!cancelled) sound07Ref.current = s; });
+    loadSnd('/sounds/sound04.snd', { slotN: 4 }).then((s) => { if (!cancelled) sound04Ref.current = s; });
+    loadSnd('/sounds/sound05.snd', { slotN: 5 }).then((s) => { if (!cancelled) sound05Ref.current = s; });
+    loadSnd('/sounds/sound06.snd', { slotN: 6 }).then((s) => { if (!cancelled) sound06Ref.current = s; });
+    loadSnd('/sounds/sound07.snd', { slotN: 7 }).then((s) => { if (!cancelled) sound07Ref.current = s; });
+    loadSnd('/sounds/sound13.snd', { slotN: 13 }).then((s) => { if (!cancelled) sound13Ref.current = s; });
     return () => {
       cancelled = true;
     };
@@ -148,12 +153,21 @@ export function GameTitle() {
         if (transition === 'pause-pre-sirtech->sirtech-splash' && !soundFiredRef.current.has(transition)) {
           if (sound04Ref.current) playSnd(sound04Ref.current);
           soundFiredRef.current.add(transition);
+        } else if (transition === 'pause-between->bradley-splash' && !soundFiredRef.current.has(transition)) {
+          // SOUND13 at slot-13 rate (6280 Hz). Engine fires N=0xD here.
+          if (sound13Ref.current) playSnd(sound13Ref.current);
+          soundFiredRef.current.add(transition);
         } else if (transition === 'pause-pre-scroll->title-hold' && !soundFiredRef.current.has(transition)) {
+          // User-by-ear sequence: SOUND05 immediately, ~brief pause, then
+          // SOUND06 (whoosh), then SOUND07 (clang lands with Wizardry logo).
+          // Per the engine's wait(10)/wait(10) between the three sounds we
+          // stretch the gap from 180→500ms (engine ticks at ~20Hz on a 486
+          // so wait(10) ≈ 500ms).
           if (sound05Ref.current) playSnd(sound05Ref.current);
           const s6 = sound06Ref.current;
           const s7 = sound07Ref.current;
-          if (s6) window.setTimeout(() => playSnd(s6), 180);
-          if (s7) window.setTimeout(() => playSnd(s7), 360);
+          if (s6) window.setTimeout(() => playSnd(s6), 500);
+          if (s7) window.setTimeout(() => playSnd(s7), 1000);
           soundFiredRef.current.add(transition);
         }
       }

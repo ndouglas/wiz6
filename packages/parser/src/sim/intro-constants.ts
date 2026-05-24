@@ -94,15 +94,19 @@ export const PHASE_FRAMES_PAUSE_BETWEEN_SPLASHES = 30; // 0.5s
 export const PHASE_FRAMES_BRADLEY_SPLASH = 120; // 2.0s
 export const PHASE_FRAMES_PAUSE_PRE_SCROLL = 30; // 0.5s
 /**
- * Title visible, no scroll yet. Engine value: `winit_wait_ticks_or_enter(0x48)`
- * at step 10 of `winit_state1_title_and_credits` (see
- * `docs/re/startup-sequence.md` § "Wall-clock pacing"). Per the wall-clock-
- * parity caveat in `CLAUDE.md`, we target the engine's frame count (72)
- * rather than its wall-clock duration (which varied wildly with CPU speed).
- * The titlepag backdrop + Wizardry wordmark holds visible for this window
- * before credits begin scrolling underneath.
+ * Title visible, no scroll yet. The engine fires SOUND05 → SOUND06 → SOUND07
+ * (~500 ms apart) right at the entry to this phase per the user-by-ear beat
+ * mapping. SOUND07 lands ~1000 ms in, so this hold needs to span at least
+ * that plus a beat of silence for the clang to ring out — 90 frames @
+ * 60 fps = 1.5 s.
+ *
+ * Earlier value was 72 frames (1.2 s), which clipped the clang and made the
+ * scroll start feel rushed. The engine's actual wait was
+ * `winit_wait_ticks_or_enter(0x48)` ≈ several seconds on a 486DX/33; per
+ * the wall-clock-parity caveat we don't aim for that, we aim for what
+ * feels right + lets the wired audio land cleanly.
  */
-export const PHASE_FRAMES_TITLE_HOLD = 72;
+export const PHASE_FRAMES_TITLE_HOLD = 90;
 export const PHASE_FRAMES_POST_SCROLL = 90; // 1.5s
 
 /**
