@@ -103,3 +103,113 @@ export function concatenatePicSegments(segments: ReadonlyArray<{ decodedBytes: R
   }
   return out;
 }
+
+/**
+ * Composite a single PIC descriptor onto an RGBA destination buffer at
+ * (dstX, dstY). This is the per-descriptor primitive used by the engine's
+ * f10c PIC renderer (ega.drv 0x1C94..0x20FF) — for each cell in the
+ * descriptor's W×H grid, if the cell's mask bit is set, blit the 8×8
+ * cell from the decoded buffer at (dstX + cx*8, dstY + cy*8), with
+ * color-15 treated as transparent (no write — preserving whatever's
+ * already at that pixel).
+ *
+ * The destination is clipped to (destW, destH); off-canvas pixels are
+ * silently dropped.
+ */
+export function compositePicDescriptor(
+  destRgba: Uint8ClampedArray,
+  destW: number,
+  destH: number,
+  dstX: number,
+  dstY: number,
+  descriptor: PicDescriptor,
+  decodedBuffer: readonly number[],
+  palette: Palette,
+): void {
+  let atlasOffset = descriptor.pos;
+  for (let cy = 0; cy < descriptor.height; cy++) {
+    for (let cx = 0; cx < descriptor.width; cx++) {
+      const bitIdx = cy * descriptor.width + cx;
+      const byteIdx = bitIdx >> 3;
+      const bitInByte = bitIdx & 7;
+      const populated =
+        byteIdx < descriptor.mask.length &&
+        ((descriptor.mask[byteIdx] ?? 0) & (1 << bitInByte)) !== 0;
+      if (!populated) continue;
+      if (atlasOffset + 32 > decodedBuffer.length) {
+        // Atlas exhausted but mask says draw — skip the cell but keep the
+        // source cursor aligned with subsequent mask bits.
+        atlasOffset += 32;
+        continue;
+      }
+      for (let row = 0; row < 8; row++) {
+        const py = dstY + cy * 8 + row;
+        if (py < 0 || py >= destH) continue;
+        const planeB = decodedBuffer[atlasOffset + row] ?? 0;
+        const planeG = decodedBuffer[atlasOffset + 8 + row] ?? 0;
+        const planeR = decodedBuffer[atlasOffset + 16 + row] ?? 0;
+        const planeI = decodedBuffer[atlasOffset + 24 + row] ?? 0;
+        for (let col = 0; col < 8; col++) {
+          const bit = 7 - col;
+          const fileIdx =
+            ((planeB >> bit) & 1) |
+            (((planeG >> bit) & 1) << 1) |
+            (((planeR >> bit) & 1) << 2) |
+            (((planeI >> bit) & 1) << 3);
+          if (fileIdx === 15) continue; // transparent — preserve dest
+          const px = dstX + cx * 8 + col;
+          if (px < 0 || px >= destW) continue;
+          const egaIdx = EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
+          const [r, g, b] = palette.colors[egaIdx]!;
+          const idx = (py * destW + px) * 4;
+          destRgba[idx] = r;
+          destRgba[idx + 1] = g;
+          destRgba[idx + 2] = b;
+          destRgba[idx + 3] = 0xff;
+        }
+      }
+      atlasOffset += 32;
+    }
+  }
+}
+
+/**
+ * Run the engine's f10c PIC renderer: walk a 1-based descriptor-index
+ * script (terminated by 0, or in our TS API by end-of-array) and
+ * composite each named descriptor onto the destination buffer at
+ * (dstX, dstY). Later descriptors overpaint earlier ones — color-15
+ * transparency means earlier paint can show through later draws.
+ *
+ * Engine reference: ega.drv 0x1CEE..0x1D00 (dispatch loop) + 0x210C..
+ * 0x225E (per-descriptor blit). Docs at `docs/re/pic.md` §Renderer.
+ *
+ * TS convention: pass 0-based descriptor indices (the engine's script
+ * uses 1-based indices since 0 is the terminator). The terminator is
+ * not part of `descIndices`.
+ */
+export function compositePicScript(
+  destRgba: Uint8ClampedArray,
+  destW: number,
+  destH: number,
+  dstX: number,
+  dstY: number,
+  descIndices: readonly number[],
+  pic: { descriptors: readonly PicDescriptor[] },
+  decodedBuffer: readonly number[],
+  palette: Palette,
+): void {
+  for (const idx of descIndices) {
+    const descriptor = pic.descriptors[idx];
+    if (!descriptor) continue;
+    compositePicDescriptor(
+      destRgba,
+      destW,
+      destH,
+      dstX,
+      dstY,
+      descriptor,
+      decodedBuffer,
+      palette,
+    );
+  }
+}

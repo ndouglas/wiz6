@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PicSchema, EGA_DEFAULT } from '@wiz6/data';
+import { PicSchema, EGA_DEFAULT, type Pic } from '@wiz6/data';
 import {
-  renderPicDescriptor,
   renderEgaScreen,
   concatenatePicSegments,
+  compositePicScript,
   visibleMenuOptions,
   type MainMenuOption,
   type MainMenuContext,
-  type RenderedSprite,
 } from '@wiz6/parser';
 import { loadEgaScreen } from '../../data-loader.js';
 import styles from './CastleScreen.module.css';
@@ -42,7 +41,8 @@ const ROUTE_BY_SLOT: Record<number, { route: string; replay?: boolean }> = {
 export function CastleScreen() {
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [mon08Sprites, setMon08Sprites] = useState<RenderedSprite[] | null>(null);
+  const [mon08Pic, setMon08Pic] = useState<Pic | null>(null);
+  const [mon08Decoded, setMon08Decoded] = useState<number[] | null>(null);
   const [dragonscRgba, setDragonscRgba] = useState<Uint8ClampedArray | null>(null);
 
   const visible = useMemo(() => visibleMenuOptions(DEFAULT_CONTEXT), []);
@@ -57,9 +57,9 @@ export function CastleScreen() {
         const text = await res.text();
         if (text.trimStart().startsWith('<')) return;
         const pic = PicSchema.parse(JSON.parse(text));
-        const decoded = concatenatePicSegments(pic.segments);
-        const rendered = pic.descriptors.map((d) => renderPicDescriptor(d, decoded, EGA_DEFAULT));
-        if (!cancelled) setMon08Sprites(rendered);
+        if (cancelled) return;
+        setMon08Pic(pic);
+        setMon08Decoded(concatenatePicSegments(pic.segments));
       } catch {
         /* leave null */
       }
@@ -106,12 +106,12 @@ export function CastleScreen() {
         parity = parity === 0 ? 1 : 0;
         lastFlip = now;
       }
-      composeFrame(ctx, parity, dragonscRgba, mon08Sprites);
+      composeFrame(ctx, parity, dragonscRgba, mon08Pic, mon08Decoded);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [mon08Sprites, dragonscRgba]);
+  }, [mon08Pic, mon08Decoded, dragonscRgba]);
 
   const handleSelect = (opt: MainMenuOption) => {
     const target = ROUTE_BY_SLOT[opt.slot];
@@ -219,62 +219,36 @@ function composeFrame(
   ctx: CanvasRenderingContext2D,
   parity: 0 | 1 | number,
   dragonscRgba: Uint8ClampedArray | null,
-  mon08Sprites: RenderedSprite[] | null,
+  mon08Pic: Pic | null,
+  mon08Decoded: number[] | null,
 ): void {
   const buf = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
   for (let i = 0; i < buf.length; i += 4) buf[i + 3] = 0xff;
 
   // Static background: dragonsc top strip + engine FUN_07b7 unconditional
-  // draws. Engine-derived screen positions from wbase save 1 (true DGROUP
-  // 0x18048, see docs/re/findings/wroot-window-heap-allocator.json):
-  //   slot 1: mon08 desc 0 (gate left)  at (72,  32)
-  //   slot 2: mon08 desc 1 (gate right) at (160, 32)
-  //   slot 3: mon08 desc 2 (door L)     at (128, 49)
-  //   slot 4: mon08 desc 3 (door R)     at (160, 49)
-  // Note: individual descriptors are tiny (11×14, 4×9); the engine
-  // composes them across the destination w×h via the f10c PIC renderer
-  // (NOT yet ported). We blit single sprites at the documented positions
-  // as a first-pass approximation.
+  // draws. Each f10c call in the engine renders a 1-element script [desc, 0]
+  // at the documented screen position; ported via compositePicScript.
+  // Engine-derived positions from wbase save 1 (true DGROUP 0x18048, see
+  // docs/re/findings/wroot-window-heap-allocator.json):
+  //   slot 1: desc 0 (gate left)  at (72,  32)
+  //   slot 2: desc 1 (gate right) at (160, 32)
+  //   slot 3: desc 2 (door L)     at (128, 49)
+  //   slot 4: desc 3 (door R)     at (160, 49)
   if (dragonscRgba) buf.set(dragonscRgba);
-  if (mon08Sprites) {
-    blendSprite(buf, mon08Sprites[0], 72, 32);
-    blendSprite(buf, mon08Sprites[1], 160, 32);
-    blendSprite(buf, mon08Sprites[2], 128, 49);
-    blendSprite(buf, mon08Sprites[3], 160, 49);
+  if (mon08Pic && mon08Decoded) {
+    compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 32, [0], mon08Pic, mon08Decoded, EGA_DEFAULT);
+    compositePicScript(buf, ENGINE_W, ENGINE_H, 160, 32, [1], mon08Pic, mon08Decoded, EGA_DEFAULT);
+    compositePicScript(buf, ENGINE_W, ENGINE_H, 128, 49, [2], mon08Pic, mon08Decoded, EGA_DEFAULT);
+    compositePicScript(buf, ENGINE_W, ENGINE_H, 160, 49, [3], mon08Pic, mon08Decoded, EGA_DEFAULT);
   }
 
   // Parity-gated water overlays from FUN_0732 slots 5 + 6:
-  //   slot 5: mon08 desc 4 (devil + water column) at (208, 52)
-  //   slot 6: mon08 desc 5 (water ripple strip)   at (72,  125)
-  if (parity !== 0 && mon08Sprites) {
-    blendSprite(buf, mon08Sprites[4], 208, 52);
-    blendSprite(buf, mon08Sprites[5], 72, 125);
+  //   slot 5: desc 4 (devil + water column) at (208, 52)
+  //   slot 6: desc 5 (water ripple strip)   at (72,  125)
+  if (parity !== 0 && mon08Pic && mon08Decoded) {
+    compositePicScript(buf, ENGINE_W, ENGINE_H, 208, 52, [4], mon08Pic, mon08Decoded, EGA_DEFAULT);
+    compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 125, [5], mon08Pic, mon08Decoded, EGA_DEFAULT);
   }
 
   ctx.putImageData(new ImageData(buf, ENGINE_W, ENGINE_H), 0, 0);
-}
-
-function blendSprite(
-  dest: Uint8ClampedArray,
-  sprite: RenderedSprite | undefined,
-  dx: number,
-  dy: number,
-): void {
-  if (!sprite) return;
-  const { width: sw, height: sh, rgba } = sprite;
-  for (let y = 0; y < sh; y++) {
-    const dstY = dy + y;
-    if (dstY < 0 || dstY >= ENGINE_H) continue;
-    for (let x = 0; x < sw; x++) {
-      const srcIdx = (y * sw + x) * 4;
-      if (rgba[srcIdx + 3] === 0) continue;
-      const dstX = dx + x;
-      if (dstX < 0 || dstX >= ENGINE_W) continue;
-      const dstIdx = (dstY * ENGINE_W + dstX) * 4;
-      dest[dstIdx] = rgba[srcIdx]!;
-      dest[dstIdx + 1] = rgba[srcIdx + 1]!;
-      dest[dstIdx + 2] = rgba[srcIdx + 2]!;
-      dest[dstIdx + 3] = 0xff;
-    }
-  }
 }
