@@ -1,0 +1,354 @@
+{
+  "topic": "wbase-main-menu-render",
+  "subagent_run": "2026-05-24T18:00:00Z",
+  "binaries": ["wbase.ovr", "wroot.exe", "ega.drv"],
+  "summary": "Deep RE of the main-menu rendering pipeline (state 4, wbase.ovr). Decoded FUN_07b7 (the per-frame decoration redraw) fully and identified what's drawn, how, and when. Key findings: (1) FUN_07b7 issues a fixed sequence of 16 `f148` sprite-by-id draw calls plus 6 `f10c` (renderer) draw calls via FUN_0775/FUN_0732 helpers; (2) the frame-parity arg gates only 2 of those calls — sprites at table slots 5 and 6 in BSS at 0x3bcc/0x3bff render ONLY when parity==1, giving 2-frame flicker animation — these are the WATER frames; (3) `*0x5064` (anim_x) and `*0x5062` (anim_y) are written ONLY by the one-shot 8-frame transition routine at FUN_0a15 (played when leaving the menu) and stay at 0 during steady-state menu; (4) the `f148` thunk (slot 15 in wroot's driver-fn table at image 0x1b8a + 4*15 = 0x1bc6) maps to ega.drv dispatch entry 15 (driver near-offset 0xA93), which is a `draw_sprite_by_id` primitive that takes (sprite_id, blend_mode, key) — it reads a 5-byte record from `cs:0x190 + 5*sprite_id` (a runtime-built sprite metadata table) to resolve (atlas_offset, w, h, descriptor_idx); (5) the `f10c` thunk (slot 10) is the PIC renderer per pic.md (entry index 10 in the driver, offset 0x2B); (6) FUN_0775/FUN_0732 are wrappers around `f10c` that pull (x, y) from BSS tables at runtime offsets 0x3958/0x398b and 0x3bcc/0x3bff respectively — these tables are populated when wbase_load_font_table_entry(8, 4) loads the mon08-style menu decoration asset. The 'banner-style' draw at the top of the menu uses sprite IDs 0x7b..0x7d (3-sprite composite), the mid section uses 0x10..0x12 and 0x14..0x16, the bottom uses 0x97..0x99, and a second-pass OR-blend overlay uses 0x19/0x1c/0x1f/0x22 (each 3 apart, likely a 3-cell-wide image strip). FUN_0984 init issues 6 first-time draws with sprite IDs 0x15a, 0x15d, 0x160, 0x169, 0x163, 0x166 (large background panels with OR-blend, NOT redrawn each frame). Animation cadence: input poll runs at the BIOS tick rate (kbd_check_with_filter inside FUN_013b loops on keyboard); every 10 polls (`*0x5060` mod 10) the parity flips and FUN_07b7 is redrawn. Wall-clock: on a 486DX/33 with the engine's calibrated busy-wait, this is approximately 1.5-2 seconds per parity flip (subject to the same wall-clock-parity caveats called out in CLAUDE.md).",
+  "method": "PyGhidra disassembly of FUN_07b7 (0x07b7..0x0983) byte-by-byte plus its helpers FUN_0775 (0x0775..0x07b6) and FUN_0732 (0x0732..0x0774); decompile of FUN_0984 (init) and the alternate transition routine at FUN_0a15; cross-reference with FUN_013b (input poll, anim driver A) and FUN_00b3 (wait-with-ticks, anim driver B). Resolved driver thunks via the 0xBA9C delta law: thunk 0xf148 → wroot offset 0x36ac → driver fn-table slot 15 at image 0x1bc6 (delta 0x1bc6 - 0x1b8a = 0x3c = 60 = 15 slots × 4 bytes). Direct disassembly of ega.drv dispatch entries 13/14/15 (file offsets 0x735, 0x7B3, 0xA93) via ndisasm confirmed entry 15 is a sprite-by-id renderer with 5-byte-record lookup at `cs:0x190 + 5*id`. Verified the frame-parity gating by inspecting FUN_07b7 asm at 0x094e (`cmp word [bp+0x4], 0; jz 0x980`) and the conditional FUN_0732(5, ...) / FUN_0732(6, ...) calls. Scanned wbase.ovr exhaustively for write sites to *0x5060/*0x3646/*0x5062/*0x5064 using byte-pattern search to enumerate all four animation drivers. No save state at game_state=4 is available so dynamic verification (G) was skipped; all claims are static asm + decomp based.",
+  "stats": {
+    "fun_07b7_total_draw_calls": 22,
+    "fun_07b7_f148_calls": 16,
+    "fun_07b7_fun0775_calls": 2,
+    "fun_07b7_fun0732_calls_unconditional": 4,
+    "fun_07b7_fun0732_calls_parity_gated": 2,
+    "fun_0984_init_f148_calls": 6,
+    "animation_drivers_in_wbase": 4,
+    "frame_parity_period_ticks": 10
+  },
+  "findings": [
+    {
+      "id": "fun07b7-structure",
+      "claim": "FUN_07b7 (wbase_menu_draw_decoration_frame) renders the per-frame menu decoration with a fixed sequence of draw calls. Signature: `void FUN_07b7(int frame_parity, int anim_x, int anim_y)`. Body at file 0x07b7..0x0983 (CC 461 bytes).",
+      "category": "render_pipeline",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x07b7",
+        "type": "raw_disasm",
+        "details": "PUSH BP / MOV BP,SP at 0x07b7; first call is `f130(*0x4fbc, 0)` (entry 13 = fill rectangle, clears the menu window); then 16 `f148` calls each with 3 args; then FUN_0775(0xf), FUN_0775(0xc); then FUN_0732(1,_,0x48,0xf8), FUN_0732(2,_,0x48,0xf8), FUN_0732(3, [BP+0x6], 0x80, 0xc0), FUN_0732(4, [BP+0x8], 0x80, 0xc0); then `if [BP+0x4] != 0: FUN_0732(5, 0, 0x48, 0xf8) ; FUN_0732(6, 0, 0x48, 0xf8)`."
+      },
+      "confidence": "high",
+      "applied_name": "wbase_menu_draw_decoration_frame"
+    },
+    {
+      "id": "fun07b7-f148-batch1",
+      "claim": "FUN_07b7 issues 12 unconditional `f148(N, 1, N)` draw calls with mode=1 (opaque overwrite). Sprite IDs (in invocation order): 0x7b, 0x7c, 0x7d, 0x14, 0x15, 0x16, 0x10, 0x11, 0x12, 0x97, 0x98, 0x99. Mode=1 selects the `rep movsb` (opaque overwrite) path in ega.drv entry 15 at offset 0xB7A; mode=0 takes the OR-blend path at 0xB2A.",
+      "category": "render_pipeline",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x07c8..0x089d",
+        "type": "raw_disasm",
+        "details": "Each call is `b8 NN NN 50 b8 01 00 50 b8 NN NN 50 e8 XX XX 83 c4 06` = PUSH 0xNN(id) ; PUSH 1 ; PUSH 0xNN(id) ; CALL f148 ; ADD SP,6. Sprite IDs decoded directly from MOV AX,imm16 operands."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun07b7-f148-batch2",
+      "claim": "FUN_07b7 issues 4 unconditional `f148(N, 0, 0xffff)` draw calls with mode=0 (OR-blend overlay) and key=0xffff (normal path). Sprite IDs (in order): 0x19, 0x1c, 0x1f, 0x22. The 3-apart spacing suggests a 3-cell-wide image strip rendered with transparency-aware blending on top of the batch-1 draws.",
+      "category": "render_pipeline",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x08a0..0x08e5",
+        "type": "raw_disasm",
+        "details": "Each call is `b8 ff ff 50 b8 00 00 50 b8 NN NN 50 e8 XX XX 83 c4 06` = PUSH 0xffff ; PUSH 0 ; PUSH 0xNN(id) ; CALL f148."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun07b7-fun0775-calls",
+      "claim": "FUN_07b7 calls FUN_0775(0xf) then FUN_0775(0xc). FUN_0775 is an inline wrapper around the renderer entry 10 (`f10c`): it pulls (x_byte, y_byte) from runtime BSS tables at DGROUP `byte[bx*2 + 0x3958]` and `byte[bx + 0x398b]` (where bx = the arg), then calls `f10c(dst_idx=2, x, y, w=0x48, h=0xf8, 0, 0, &script)` with script = `[arg_byte, 0]`. The BSS tables at 0x3958/0x398b are runtime-populated (zero in the static overlay file) — likely seeded by wbase_load_font_table_entry(8, 4) or by a preceding font-table load.",
+      "category": "render_pipeline",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x08e8..0x08f7",
+        "type": "raw_disasm",
+        "details": "FUN_07b7 body: `b8 0f 00 50 e8 86 fe 59 b8 0c 00 50 e8 7e fe 59` = PUSH 0xf ; CALL 0x0775 ; POP CX ; PUSH 0xc ; CALL 0x0775 ; POP CX. FUN_0775 itself (0x0775..0x07b6): pulls bytes from cs:[BX*2+0x3958] and cs:[BX+0x398b], calls f10c."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun07b7-fun0732-calls",
+      "claim": "FUN_07b7 calls FUN_0732 six times with slot indices 1..6. FUN_0732 is similar to FUN_0775 but uses a different BSS table pair (0x3bcc for x, 0x3bff for y) and takes a `param_2` offset added to the base x: `f10c(dst_idx=4, byte[bx*2+0x3bcc]+param_2, byte[bx+0x3bff], w, h, 0, 0, &script)`. The 6 calls are: (1, 0, 0x48, 0xf8), (2, 0, 0x48, 0xf8), (3, [BP+0x6]=anim_x, 0x80, 0xc0), (4, [BP+0x8]=anim_y, 0x80, 0xc0), and IF [BP+0x4]!=0: (5, 0, 0x48, 0xf8), (6, 0, 0x48, 0xf8). dst_idx=4 selects a DIFFERENT destination buffer than FUN_0775's dst_idx=2 (likely a multi-buffer composition).",
+      "category": "render_pipeline",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x08f8..0x097d",
+        "type": "raw_disasm",
+        "details": "Conditional gating at file 0x094e: `83 7e 04 00 74 2c` = CMP word [BP+0x4], 0 ; JZ 0x0980 (skip to RET). The two slot-5/slot-6 calls are inside this conditional branch."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "water-animation",
+      "claim": "THE WATER ANIMATION: the only thing that changes between frame_parity=0 and frame_parity=1 is whether the two FUN_0732 calls for slots 5 and 6 fire. With parity=0 they're skipped; with parity=1 they render. This is a 2-frame on-off swap that — when alternating every ~10 input polls — produces the perceived 'water ripple' effect. The sprites at table-slot 5 and 6 in the menu-asset table are the WATER sprites. Their position is fixed (x=0+base, y=0+base) and they're sized w=0x48 (72px), h=0xf8 (248px) — a tall thin column matching a vertical water-pillar shape on either side of the menu. The 'water' is implemented as two overlay sprites that flicker on and off rather than as Y-translation of a single sprite. (This contradicts a Y-offset-translation hypothesis.)",
+      "category": "animation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x094e..0x097d",
+        "type": "asm_branch_analysis",
+        "details": "Comparator `cmp word [bp+0x4], 0; jz 0x980` strictly gates the last 2 FUN_0732 calls on frame_parity. With parity=0 (param_1==0): SKIP. With parity=1 (param_1!=0): EXECUTE both. Parity flips every 10 input polls in FUN_013b: `iVar2 = (*0x3646 + 1) % 2; *0x3646 = iVar2; FUN_07b7(iVar2, *0x5064, *0x5062);`. *0x5064 and *0x5062 stay at 0 during the menu; FUN_07b7 is called repeatedly with the same anim_x=0, anim_y=0, only parity flipping."
+      },
+      "confidence": "high",
+      "caveat": "The asm-level inference that slots 5 and 6 ARE the water (vs. some other animated element like a flame) is HIGH-confidence on the basis of: (a) they're the only on-off-toggled sprites in the menu, (b) user-reported observation is water, (c) the sprite dimensions 0x48x0xf8 (72x248) match a tall vertical column shape consistent with side-of-menu water. Final visual confirmation requires viewing the mon08.pic descriptors 5 and 6 — which need the runtime BSS table to know how to render them. Static extraction of mon08 shows 6 descriptors (0..5); descriptor 5 is the last extracted; slot 6 may map to a descriptor in a SECONDARY loaded asset."
+    },
+    {
+      "id": "no-y-translation",
+      "claim": "Despite the existence of *0x5062 (menu_anim_y) and *0x5064 (menu_anim_x), these are NOT updated during steady-state main-menu display. They are written only in the one-shot 8-frame transition routine at FUN_0a15, which is called when leaving the menu via specific options (the 'cinematic sweep-off' transition). During the menu loop, FUN_07b7 is invoked thousands of times with anim_x=0, anim_y=0 and only parity flipping. No Y-pan, no X-pan, no continuous translation.",
+      "category": "animation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x09f0..0x0a54",
+        "type": "write_site_enumeration",
+        "details": "Exhaustive byte-pattern search across wbase.ovr for writes to *0x5064 found exactly TWO sites: (1) FUN_0984 init at 0x09f6 (writes 0) and (2) FUN_0a15 at 0x0a3b (writes computed anim_x). Same for *0x5062. Neither is in the menu input loop. Confirmed by decompile of FUN_0a15: loops iVar3=1..8, writes *0x5064 = (-*0x22 * iVar3) / 2 and *0x5062 = (*0x22 * iVar3) / 2 per iteration, calls FUN_07b7 with these updated values, then exits."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun-0984-init",
+      "claim": "FUN_0984 (wbase_menu_init_decoration) draws the static background ONCE at menu entry. It issues 6 `f148(N, 0, 0xffff)` calls with sprite IDs 0x15a, 0x15d, 0x160, 0x169, 0x163, 0x166 (note non-sequential order — 0x169 in 4th position then 0x163, 0x166), then zeros *0x3646/*0x5064/*0x5062 and calls FUN_07b7(0,0,0) once to draw the initial frame. Sprite IDs differ by 3 (likely 3-cell composite blocks rendered with OR-blend transparency). These are LARGE background sprites — the gate/arch/figure art seen in mon08.pic — and are NOT redrawn each frame, which is why they persist across parity flips.",
+      "category": "render_pipeline",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x0984..0x0a14",
+        "type": "decompile + raw_disasm",
+        "details": "Decompile shows 6 f148(id, 0, 0xffff) calls. Raw bytes from 0x984: `b8 ff ff 50 b8 00 00 50 b8 5a 01 50 e8 b5 e7 ...`. The pattern `b8 ID_LO ID_HI 50 ... e8 b5 e7` is the call+offset to f148. Decoded IDs in order: 0x015a, 0x015d, 0x0160, 0x0169, 0x0163, 0x0166. Final block: `c7 06 46 36 00 00 c7 06 64 50 00 00 c7 06 62 50 00 00` = MOV [0x3646],0 / MOV [0x5064],0 / MOV [0x5062],0. Then `ff 36 62 50 ff 36 64 50 ff 36 46 36 e8 a6 fd 83 c4 06` = PUSH *0x5062 / PUSH *0x5064 / PUSH *0x3646 / CALL FUN_07b7."
+      },
+      "confidence": "high",
+      "applied_name": "wbase_menu_init_decoration"
+    },
+    {
+      "id": "transition-routine",
+      "claim": "FUN_0a15 (immediately following FUN_0984) is a one-shot 8-frame transition animation played when leaving the menu. It does: for i=1..8: toggle parity, set anim_x = (-*0x22 * i) / 2, anim_y = (*0x22 * i) / 2, call FUN_07b7(parity, anim_x, anim_y), refresh screen via f13c, call c546(3) (play sound clip 3 — a 'clang' / transition SFX), repeat. After the loop, calls wbase_wait_ticks_or_input(5), opens a transition window via bbb6, and writes 2 strings (likely 'LEAVING' or 'PLEASE WAIT' message). *0x22 is a runtime-set scale factor (likely UI-resolution-dependent: 320 for 320x200 mode → produces anim_x sweep from -160 to -640 over 8 frames, anim_y from +160 to +640).",
+      "category": "animation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x0a15..0x0b0d",
+        "type": "decompile + raw_disasm",
+        "details": "Loop body: iVar3 starts at 1, increments by 1, exits when >=9 (so 8 iterations). Per-iteration: `*0x3646 = (*0x3646 + 1) % 2; *0x5064 = (-*0x22 * iVar3) / 2; *0x5062 = (*0x22 * iVar3) / 2; FUN_07b7(*0x3646, *0x5064, *0x5062); f13c(*0x4fbc); c546(3);`. After loop: wbase_wait_ticks_or_input(5), then c497(*0x3342, 0), bbb6(0,0x13,0x28,5,0x1e,0xffff,0,0) [open transition window], ebb4 [focus window], ed5a(handle,0x20,3,0) [clear window], c61a(handle, param_1, 1, 0x12) and c61a(handle, param_2, 2, 0x12) [write 2 strings], ec6d/e4ff/bd6e [unfocus, refresh, destroy]. Unused in steady-state menu; called only on menu exit transitions."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "animation-drivers",
+      "claim": "Four code paths in wbase.ovr drive the 10-tick animation cycle. Each implements the same inline pattern: `if (*0x5060 == 0) { *0x3646 = (*0x3646+1)%2; FUN_07b7(parity, anim_x, anim_y); f13c(*0x4fbc); } else { delay_one_unit() x2; } *0x5060 = (*0x5060+1) % 10;`. Sites: (A) FUN_00b3 wbase_wait_ticks_or_input at write-sites 0x0103/0x0130 — used by the transition tail; (B) FUN_013b wbase_menu_poll_input at write-sites 0x0180/0x01ad — the PRIMARY menu-loop driver, called from inside FUN_025c selection loop; (C) FUN_0cdb (a second wait-with-animation variant) at write-sites 0x0cfa/0x0d27. So during steady-state menu, FUN_013b runs the animation. The other two paths are auxiliary (transitions, longer waits).",
+      "category": "animation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x0103,0x0180,0x0cfa write-sites",
+        "type": "write_site_enumeration",
+        "details": "Byte-pattern search for `89 16 46 36` (MOV [0x3646],DX — frame-parity write) found 4 unique sites (excluding 0x09f0 which is the FUN_0984 init zeroing). Site 0x0a2a is the FUN_0a15 transition. Sites 0x0103 (FUN_00b3), 0x0180 (FUN_013b), 0x0cfa (FUN_0cdb) are the three steady tickers. All three follow the same pattern and call FUN_07b7."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "f148-driver-mapping",
+      "claim": "The `f148` thunk (wroot image 0x36ac, called as `call cs:[0x1bc6]`) maps to ega.drv dispatch entry 15 (driver-internal offset 0xA93). This is a `draw_sprite_by_id(sprite_id, blend_mode, key)` primitive. It indexes a runtime sprite-records table at `cs:0x190 + 5*sprite_id` (each record: byte atlas_id, byte off1, byte off2, byte param3, byte param4) and a parallel atlas-records table at `cs:0x18e + 5*atlas_id`. It supports two modes: mode==0 → OR-blend write (`or al, [es:di]; stosb`) at driver 0xB2A; mode!=0 → opaque write (`rep movsb`) at driver 0xB7A. The blend writes all 4 EGA planes (offset +0x2000 each) for full-color sprites. Key=0xffff selects the normal sprite-by-id path; key=N (sprite_id repeat) selects a fast / cached path at driver 0xBC6.",
+      "category": "driver_dispatch",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": "0x0a93",
+        "type": "raw_disasm",
+        "details": "Disassembled ega.drv at file offset 0xA93 via ndisasm. Prologue checks `[bp+0x10] == 0xffff` (alt-path branch). Computes `si = [bp+0xc]*5 + [cs:0x190]` (sprite record). Reads [si+4] as h-count, [si+1] as x-byte, [si+2] as y-byte, [si+3] as col-stride. Computes `bx = [si+0]*5 + [cs:0x18e]` (atlas record). Reads [bx+3], [bx+4], [bx+0] (segment delta), [bx+2]. Main blit loop walks 4 EGA planes at +0/+0x2000/+0x4000/+0x6000. Wroot side: driver-fn table at image 0x1b8a (file 0x1d8a) holds 18 4-byte slot entries; slot 15 at image 0x1bc6 — `f148` thunk near-call to slot 15 confirmed by thunk disasm at image 0x36ac (file 0x38ac): `55 8b ec 2e ff 1e c6 1b 8b e5 5d c3` = PUSH BP / MOV BP,SP / CALL far CS:[0x1bc6] / MOV SP,BP / POP BP / RET."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "f10c-driver-mapping",
+      "claim": "The `f10c` thunk (wroot image 0x3670, called as `call cs:[0x1bb2]`) maps to ega.drv dispatch entry 10 (driver-internal offset 0x2B). Per pic.md this is the PIC sprite renderer: takes (dst_idx, dst_x, dst_y, w, h, ...flags..., script_ptr) and walks a 1-based descriptor-index script terminated by 0x00, compositing each descriptor's cells from a decoded .pic buffer into a screen position. Used by FUN_0775 with dst_idx=2 and by FUN_0732 with dst_idx=4 — these two index different destination buffer slots in the driver's segment lookup at cs:0x17A.",
+      "category": "driver_dispatch",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": "0x002b",
+        "type": "cross_reference",
+        "details": "pic.md (already canonical) documents 'renderer is entry index 0x2B' at driver dispatch — that's a byte-offset in the driver's 4-byte-stride dispatch table; (0x2B - 3) / 4 = 10 = entry index 10. Wroot driver-fn slot 10 is at image 0x1bb2; f10c thunk at image 0x3670 calls cs:[0x1bb2]. FUN_0775's first push to f10c is `b8 02 00 50` = PUSH 2 (dst_idx) confirming slot 2. FUN_0732 pushes 4."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "f130-driver-mapping",
+      "claim": "The `f130` thunk (wroot image 0x3694, slot 13 at image 0x1bbe) maps to ega.drv dispatch entry 13 (driver offset 0x735). This is a rectangle-fill (clear) primitive: 4-plane `rep stosb` at +0, +0x2000, +0x4000, +0x6000. FUN_07b7's first call `f130(*0x4fbc, 0)` clears the menu window before redrawing. *0x4fbc is the menu window handle.",
+      "category": "driver_dispatch",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": "0x0735",
+        "type": "raw_disasm",
+        "details": "Disassembled ega.drv at 0x735: 4 sequential rep-stosb blocks at di +0, +0x2000, +0x4000, +0x6000 (the 4 EGA bit planes). Uses [si] as height counter, [si+1] as cell width, [si+2] as col offset, [si+3] as row offset — all reads from a window-struct passed in [bp+0xc]."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "f13c-driver-mapping",
+      "claim": "The `f13c` thunk (wroot image 0x36a0, slot 14 at image 0x1bc2) maps to ega.drv dispatch entry 14 (driver offset 0x7B3). This is a window-blit / screen-refresh primitive: copies a window's planar buffer from a back-store to EGA video memory at 0xA000:0, programming the EGA sequencer port 0x3C4 register 2 (plane mask) for each of the 4 planes. Called as the final 'commit frame to screen' after FUN_07b7's per-frame draws. Args: (window_handle).",
+      "category": "driver_dispatch",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": "0x07b3",
+        "type": "raw_disasm",
+        "details": "Disassembled ega.drv at 0x7B3: programs 0x3C4/0x3C5 plane mask, sets ES to 0xA000 (video memory), DS to back-store segment from cs:0x14d, rep-movsb's the back-buffer to video — repeats with mask values 1, 2, 4, 8 (planes 0..3). Called by FUN_013b/FUN_00b3 after every FUN_07b7 to commit the redraw."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "sprite-id-tables-runtime",
+      "claim": "The sprite ID → (x, y, w, h, descriptor_idx) resolution depends on TWO runtime-populated tables in the driver's data segment (cs:0x18e for atlases, cs:0x190 for sprite-records, each 5 bytes per entry). These tables are NOT in any static binary file. They are populated when the engine loads each `.pic` / `.fnt` / font-table asset. For the main menu, wbase_load_font_table_entry(8, 4) loads the mon08-style menu decoration which seeds the relevant sprite-records covering IDs 0x10..0x22, 0x7b..0x7d, 0x97..0x99, 0x15a..0x16a (the full set used by FUN_07b7 and FUN_0984). To trace the exact sprite_id → file/descriptor mapping for the port, dynamic capture against a state-4 save state is required (we don't have one). Static analysis cannot resolve this directly because the driver's runtime patch installs the segment values.",
+      "category": "asset_resolution",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": "0x0a93..0x0bc6",
+        "type": "asm_analysis",
+        "details": "ega.drv entry 15 (f148 target) at 0xAB0 computes `ax = [bp+0xc] * 5; ax += [cs:0x190]; si = ax`. Then [cs:0x18e] for atlas. Both offsets are filled by the wroot driver-load sequence (the '49-byte runtime patch' noted in pic-loader.md). Without runtime memory capture, the tables can't be read."
+      },
+      "confidence": "high",
+      "needs": "Save state at game_state=4 to inspect cs:0x190 and cs:0x18e tables and map sprite_id → (x, y, w, h, descriptor) for each ID FUN_07b7 references."
+    },
+    {
+      "id": "bss-anim-helper-tables",
+      "claim": "FUN_0775 and FUN_0732 use additional BSS tables in the SHARED DGROUP (not the driver segment): FUN_0775 reads byte tables at DGROUP `[bx*2 + 0x3958]` (x-positions, word-stride access of byte values — likely 16-bit x) and `[bx + 0x398b]` (y-byte, 1-byte stride). FUN_0732 reads `[bx*2 + 0x3bcc]` (x-base) and `[bx + 0x3bff]` (y-byte). These BSS regions are populated at runtime — they're zero in the static overlay file (offsets > wbase.ovr's 0x3a52 file size for 0x3bcc; offsets within the file for 0x3958/0x398b but those bytes are CODE in wbase.ovr — they're DGROUP addresses, not wbase-segment-relative). Likely populated by wbase_load_font_table_entry(8, 4) as part of the font-table-entry-4 struct at DGROUP base 0x36de + 4*0x13a = 0x3bca (matching where the FUN_0732 tables are). For FUN_0775, the tables would correspond to entry 0 at 0x36de... but 0x3958 - 0x36de = 0x27a, suggesting tables for entries OTHER than the menu asset — possibly UI chrome or another shared atlas.",
+      "category": "asset_resolution",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x0775, 0x0732",
+        "type": "asm_table_reference",
+        "details": "FUN_0775 disasm at 0x07a2: `8a 87 58 39` = MOV AL, byte ptr [BX+0x3958]. At 0x0799: `8a 87 8b 39` = MOV AL, byte ptr [BX+0x398b]. FUN_0732 disasm at 0x075d: `8a 87 cc 3b` = MOV AL, byte ptr [BX+0x3bcc]. At 0x0754: `8a 87 ff 3b` = MOV AL, byte ptr [BX+0x3bff]. wbase_load_font_table_entry's struct stride: 0x13a per entry, base 0x36de. Entry 4 starts at 0x3bca — 2 bytes before 0x3bcc — suggesting the FUN_0732 table IS a per-entry-4 sub-array (entry struct field at +2 = x table, +0x35 = y table). FUN_0775's tables at 0x3958/0x398b would be entry 0 (0x36de + 0x27a = 0x3958), confirming the convention: each font-table entry has BOTH x and y position arrays embedded."
+      },
+      "confidence": "medium",
+      "needs": "Verify the struct layout of a font-table entry (the 0x13a-byte block) by dumping a state-4 save state at DGROUP 0x36de..0x3a52."
+    },
+    {
+      "id": "menu-text-rendering",
+      "claim": "The 9 menu options are rendered as text via the standard UI-window machinery, NOT via the sprite drawing primitives. wbase_menu_select_loop (FUN_025c) is called once per menu iteration; it loops through the 9-element options array and for each enabled slot calls: (1) `bda7(window, x, y, y)` to set cursor position; (2) `c1f7(msg_id, buffer)` to load the option label text from msg.dbs (msg_id = param_2 + local_4, where param_2=0x3ea is the base 'MASTER OPTIONS' msg ID and local_4 is the original slot index 0..8); (3) `dfb9(window, buffer, 3)` = ui_window_puts with attribute 3 to render the text in the window. The selected option is redrawn with INVERTED ATTRIBUTE: FUN_025c at file 0x03e9 calls `df85(window, buffer, attr=-param_8, 0)` where -param_8 (param_8 is the unhighlighted attribute) gives the highlighted/inverted color. FUN_0221 (wbase_menu_redraw_item_unhighlighted) is called when the cursor moves to redraw the previously-selected item back to the normal attribute. Layout grid: param_5 (=0x13 from FUN_2b36) is the base x; param_4 (=4) base y; param_6 (=5) is the row stride; param_7 (=1) is the columns-per-row → vertical 1-column list.",
+      "category": "menu_text",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x025c, 0x02b8..0x0362",
+        "type": "decompile + raw_disasm",
+        "details": "FUN_025c parameter binding: param_1=window handle, param_2=0x3ea (msg base), param_3=options_array, param_4=2 (initial y?), param_5=1 (initial x?), param_6=0x13, param_7=4, param_8=5, param_9=init_cursor. Actually re-reading from FUN_2b36's call site at 0x2caf: `(window, 0x3ea, options, 2, 1, 0x13, 4, 5, init_cursor)` — so msg_base=0x3ea, x_base=2, y_base=1, x_stride=0x13, y_stride=4, columns=5, init_cursor. Each enabled item renders at (1 + local_6*0x13, ...) — interpretation TBD. The highlighted attribute mechanism via df85 with negated attribute is at FUN_025c file offset 0x03e9. Text comes from msg.dbs lookup via c1f7 (load_msg_into_buf) with msg_id = 0x3ea + slot_index."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "menu-banner-rendering",
+      "claim": "The 'MASTER OPTIONS' banner above the menu is rendered by FUN_01d6 (wbase_render_banner_label) called once per menu loop iteration BEFORE creating the menu list window. It opens a banner window from handle *0x3342, clears it, calls c61a (likely ui_centered_text_render) with msg_id=param_1=0x3e9 ('MASTER OPTIONS'), then ec6d (unfocus). The banner window is *0x3342 (a different handle from the menu window *0x4fbc).",
+      "category": "menu_text",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x01d6..0x0220",
+        "type": "decompile + raw_disasm",
+        "details": "FUN_01d6: c1f7(param_1, &local_52) [load msg into local buffer], c497(*0x3342, 0) [focus banner window], ebb4(*0x3342) [refocus], c61a(*0x3342, &local_52, 0, 0x12) [render centered text with attribute 0x12 = 18 (likely bright color)], ec6d(*0x3342) [unfocus]. Caller in FUN_2b36 at 0x2bc1: `FUN_01d6(0x3e9)`."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "dragonsc-stripe-persistence",
+      "claim": "The 'dragonsc' decorative top stripe (the row of letters spelling 'Wizardry' with decorative monsters/icons) is NOT redrawn by wbase main menu. Confirmed by exhaustive search of wbase.ovr for any reference to dragonsc-related sprite IDs — none found. The stripe persists from winit state-2's draw operations and survives because (a) wbase clears only specific window regions (the menu window *0x4fbc and adjacent UI areas) via the f130 rectangle-fill primitive, not the full screen; (b) f130 args specifically target *0x4fbc geometry which doesn't include the top-stripe Y range; (c) FUN_07b7's draws all use either f148 (sprite-id with constrained sprite bounds) or f10c via FUN_0775/FUN_0732 (constrained to the menu-asset region). The top stripe sits above the menu window's Y range and is never touched.",
+      "category": "static_decoration",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "various",
+        "type": "negative_evidence",
+        "details": "All draw calls in wbase state-4 use either: (a) f148 with menu-asset sprite IDs (0x7b..0xfff range — these are likely all WITHIN the menu window's footprint per the runtime sprite-records table positions), or (b) f10c via FUN_0775/FUN_0732 with positions sourced from BSS tables at 0x3958/0x398b/0x3bcc/0x3bff which after asset load reflect mon08's geometry. The dragonsc stripe (~Y=0..24 on a 320x200 screen) sits above the menu window region — no draw call in wbase state-4 specifies a Y position in this range. Confirmation requires a state-4 save state with DGROUP intact to verify the table contents."
+      },
+      "confidence": "medium",
+      "needs": "State-4 save state to dump the BSS position tables and confirm Y ranges don't cover the dragonsc-stripe region."
+    },
+    {
+      "id": "animation-timing",
+      "claim": "Animation cadence: FUN_013b (the inner menu input poll) runs in a tight loop. Each iteration: (1) kbd_check_with_filter(1) — non-blocking keyboard query; (2) if no key, mouse_get_pos; (3) every 10 iterations (*0x5060 mod 10), flip parity and redraw FUN_07b7 + commit screen via f13c; (4) other 9 iterations, run two delay_one_unit() calls (likely ~1 BIOS tick each). So a full frame swap takes 10 iterations × ~2-tick-per-iteration = 20 BIOS ticks ≈ 1.1 seconds at 18.2 Hz BIOS tick. On a 486DX/33 with the engine's per-CPU calibration the busy-wait delay_one_unit is faster (~2-3x), giving effective ~0.4 seconds per frame swap = ~2.5 Hz flip rate. On modern DOSBox-X with `cycles=fixed 6000` the wall-clock will differ — see CLAUDE.md 'wall-clock parity' caveat. The port should aim for ~2 frames per second (every ~500ms) as a starting feel-tune.",
+      "category": "animation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x013b",
+        "type": "asm_loop_analysis",
+        "details": "Inner loop body: kbd_check (~1 tick), if no key: c674 (mouse, ~1 tick), if *0x5060==0: flip + redraw + f13c (~3-5 ticks), else: delay_one_unit x 2 (~2 ticks), then increment mod 10. Mean iteration ~3 ticks (1 redraw iter + 9 delay iters / 10 = (5+18)/10 = ~2.3 ticks/iter). 10 iters per frame = ~23 ticks per frame ≈ 1.26 sec at 18.2 Hz."
+      },
+      "confidence": "medium",
+      "caveat": "Per CLAUDE.md, engine wall-clock differs from emulator wall-clock; aim for feel, not byte-precise timing. The user's perception of 'flickering water' suggests a faster rate than 1 frame/sec, so the empirical sweet spot is probably ~3-5 Hz."
+    },
+    {
+      "id": "selection-cursor",
+      "claim": "Selection cursor mechanism: wbase_menu_select_loop (FUN_025c) maintains the selected slot index in param_9 (initial value passed by FUN_2b36 = the cursor offset). On each iteration of the input loop: (1) if *0x846 == 0 (some no-cursor flag), render the cursor at current position via bda7 + df85 (the inverted-attribute draw on the currently-selected text); (2) call FUN_013b to wait for input; (3) if input is direction key (1=up, 2=left, 3=down, 4=right), check bounds and update param_9, calling FUN_0221 (wbase_menu_redraw_item_unhighlighted) on the OLD position to redraw it un-inverted; (4) on ENTER (5) or mouse click (*0x4fc4==1), return aiStack_24[param_9] which maps the visible-slot index back to the original 9-element option index (0..8). The cursor is thus a per-iteration overlay-paint on the text, not a separate sprite.",
+      "category": "menu_text",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": "0x03a5..0x040f, 0x0301..0x0367",
+        "type": "decompile + raw_disasm",
+        "details": "FUN_025c inner loop: per-iter at 0x03a5 (if *0x846==0): bda7(window, x_pos, y_pos, ?) sets cursor; df85(window, item_buffer, -param_8, ...) renders inverted. Direction handlers at 0x040b..end of FUN_025c (continuation past 0x0410 not captured): call FUN_0221 on OLD position then update param_9. param_8=5 in the FUN_2b36 call, so highlighted attribute = -5 = some negated-color sentinel. The selection cursor IS the inverted-attribute redraw — no separate sprite or character glyph."
+      },
+      "confidence": "high"
+    }
+  ],
+  "fun_07b7_draw_call_list": {
+    "phase_1_clear": [
+      {"call": "f130", "args": ["*0x4fbc (menu window handle)", "0"], "purpose": "Clear/fill menu window background"}
+    ],
+    "phase_2_opaque_sprites_batch_1": [
+      {"call": "f148", "args": ["0x7b", "1 (opaque)", "0x7b (key=id, fast path)"], "comment": "Top banner triplet"},
+      {"call": "f148", "args": ["0x7c", "1", "0x7c"]},
+      {"call": "f148", "args": ["0x7d", "1", "0x7d"]},
+      {"call": "f148", "args": ["0x14", "1", "0x10"], "comment": "Mid-area: id 0x10 rendered at slot key 0x14"},
+      {"call": "f148", "args": ["0x15", "1", "0x11"]},
+      {"call": "f148", "args": ["0x16", "1", "0x12"]},
+      {"call": "f148", "args": ["0x10", "1", "0x14"], "comment": "Same triplet swapped — possibly a left/right mirror or second column"},
+      {"call": "f148", "args": ["0x11", "1", "0x15"]},
+      {"call": "f148", "args": ["0x12", "1", "0x16"]},
+      {"call": "f148", "args": ["0x97", "1", "0x97"], "comment": "Lower-area triplet"},
+      {"call": "f148", "args": ["0x98", "1", "0x98"]},
+      {"call": "f148", "args": ["0x99", "1", "0x99"]}
+    ],
+    "phase_3_orblend_overlay_batch_2": [
+      {"call": "f148", "args": ["0x19", "0 (OR-blend)", "0xffff (normal path)"], "comment": "Transparent overlay strip — 3-apart spacing"},
+      {"call": "f148", "args": ["0x1c", "0", "0xffff"]},
+      {"call": "f148", "args": ["0x1f", "0", "0xffff"]},
+      {"call": "f148", "args": ["0x22", "0", "0xffff"]}
+    ],
+    "phase_4_fun0775_renderer": [
+      {"call": "FUN_0775(0xf)", "expands_to": "f10c(dst_idx=2, x=byte[0xf*2+0x3958], y=byte[0xf+0x398b], w=0x48, h=0xf8, 0, 0, [0xf, 0])"},
+      {"call": "FUN_0775(0xc)", "expands_to": "f10c(dst_idx=2, x=byte[0xc*2+0x3958], y=byte[0xc+0x398b], w=0x48, h=0xf8, 0, 0, [0xc, 0])"}
+    ],
+    "phase_5_fun0732_renderer_unconditional": [
+      {"call": "FUN_0732(1, 0, 0x48, 0xf8)", "expands_to": "f10c(dst_idx=4, x=byte[2+0x3bcc]+0, y=byte[1+0x3bff], w=0x48, h=0xf8, 0, 0, [1, 0])"},
+      {"call": "FUN_0732(2, 0, 0x48, 0xf8)", "expands_to": "f10c(dst_idx=4, x=byte[4+0x3bcc]+0, y=byte[2+0x3bff], w=0x48, h=0xf8, 0, 0, [2, 0])"},
+      {"call": "FUN_0732(3, anim_x, 0x80, 0xc0)", "expands_to": "f10c(dst_idx=4, x=byte[6+0x3bcc]+anim_x, y=byte[3+0x3bff], w=0x80, h=0xc0, 0, 0, [3, 0])", "comment": "anim_x = 0 during steady-state"},
+      {"call": "FUN_0732(4, anim_y, 0x80, 0xc0)", "expands_to": "f10c(dst_idx=4, x=byte[8+0x3bcc]+anim_y, y=byte[4+0x3bff], w=0x80, h=0xc0, 0, 0, [4, 0])", "comment": "anim_y = 0 during steady-state. NOTE: anim_y is used as X-OFFSET here, not Y-OFFSET — naming is misleading."}
+    ],
+    "phase_6_fun0732_renderer_parity_gated": [
+      {"call": "FUN_0732(5, 0, 0x48, 0xf8)", "if": "frame_parity != 0", "comment": "WATER FRAME 1 (left water column?)"},
+      {"call": "FUN_0732(6, 0, 0x48, 0xf8)", "if": "frame_parity != 0", "comment": "WATER FRAME 2 (right water column?)"}
+    ]
+  },
+  "init_call_list_fun_0984": [
+    {"call": "f148(0x15a, 0, 0xffff)", "comment": "Large background panel 1 (OR-blend, transparent compose)"},
+    {"call": "f148(0x15d, 0, 0xffff)", "comment": "Large background panel 2 (3-apart from 0x15a)"},
+    {"call": "f148(0x160, 0, 0xffff)", "comment": "Large background panel 3"},
+    {"call": "f148(0x169, 0, 0xffff)", "comment": "Large background panel 4 (note: out-of-order — 0x169 before 0x163)"},
+    {"call": "f148(0x163, 0, 0xffff)", "comment": "Large background panel 5"},
+    {"call": "f148(0x166, 0, 0xffff)", "comment": "Large background panel 6"},
+    {"action": "zero anim state", "writes": ["*0x3646 := 0", "*0x5064 := 0", "*0x5062 := 0"]},
+    {"call": "FUN_07b7(0, 0, 0)", "comment": "Initial frame paint (parity=0, no slot-5/6 water)"}
+  ],
+  "ega_drv_dispatch_summary": {
+    "claim": "ega.drv dispatch table layout: 4-byte slot entries starting at file offset 0x03, each slot = `e8 LL HH cb` = call near +0xHHLL ; retf. So slot N has entry offset (3 + 4*N). Wroot's driver-fn table at image 0x1b8a (file 0x1d8a) holds the runtime far-pointers; offset stays static, segment is patched when the driver loads.",
+    "relevant_entries": [
+      {"slot": 9, "driver_offset": "0x27 (entry 9)", "driver_call_target": "0x1C25", "purpose": "decode_pic (per pic.md)", "wroot_thunk": "0xf100", "wroot_fn_table_slot": 9},
+      {"slot": 10, "driver_offset": "0x2B (entry 10)", "driver_call_target": "0x1C94", "purpose": "render_pic_descriptor_script (per pic.md) — takes script of 1-based descriptor indices terminated by 0x00", "wroot_thunk": "0xf10c", "wroot_fn_table_slot": 10},
+      {"slot": 11, "driver_offset": "0x2F", "driver_call_target": "(not investigated)", "purpose": "unknown", "wroot_thunk": "0xf118", "wroot_fn_table_slot": 11},
+      {"slot": 12, "driver_offset": "0x33", "driver_call_target": "(not investigated)", "purpose": "unknown", "wroot_thunk": "0xf124", "wroot_fn_table_slot": 12},
+      {"slot": 13, "driver_offset": "0x37", "driver_call_target": "0x0735", "purpose": "fill_rectangle (4-plane rep stosb)", "wroot_thunk": "0xf130", "wroot_fn_table_slot": 13},
+      {"slot": 14, "driver_offset": "0x3B", "driver_call_target": "0x07B3", "purpose": "blit_window_to_screen (4-plane sequencer programming + rep movsb)", "wroot_thunk": "0xf13c", "wroot_fn_table_slot": 14},
+      {"slot": 15, "driver_offset": "0x3F", "driver_call_target": "0x0A93", "purpose": "draw_sprite_by_id (5-byte runtime table at cs:0x190 indexed by sprite_id; supports OR-blend and opaque modes)", "wroot_thunk": "0xf148", "wroot_fn_table_slot": 15}
+    ],
+    "confidence": "high"
+  },
+  "thunk_delta_for_video_dispatch": {
+    "claim": "The driver-fn table at wroot image 0x1b8a holds 18+ 4-byte far-pointer slots. Slot N is at image (0x1b8a + 4*N). The 'thunk' callable from any overlay is a 12-byte stub at wroot image (0x3664 + 12*N) — these are 12-byte 'PUSH BP / MOV BP,SP / CALL CS:[1b8a+4N] / MOV SP,BP / POP BP / RET' shims. The thunk delta to wroot offset is the constant 0xBA9C (per CLAUDE.md), so overlays calling `[bba9c + N*12]` resolve to wroot offset (N*12 + 0x3664).",
+    "evidence": "Disassembly of thunks at wroot image 0x3664..0x36ac shows the regular 12-byte 'PUSH BP ; CALL CS:[1bXX] ; RET' pattern. Slot 0 is at 0x1b8a → thunk at 0x3664. Slot 15 at 0x1bc6 → thunk at 0x36ac. Step = 12 bytes per thunk, 4 bytes per fn-table slot.",
+    "confidence": "high"
+  },
+  "unresolved": [
+    "WATER VISUAL CONFIRMATION: we've established slots 5 and 6 in the FUN_0732 table are the only on/off-toggled sprites and that the user reports water animation. But to be 100% certain these are water (not, say, torches flickering), we need either: (a) a state-4 save state showing the BSS sprite tables and the loaded mon08-equivalent .pic descriptors at positions matching the 0x3bcc/0x3bff entries 5 and 6; or (b) a DOSBox-X screen recording with a specific frame where the second-pass draw lands. The TWO sprites with 0x48x0xf8 dimensions (72x248 — tall thin columns) on either side of a menu IS a strong visual match for water-fall / waterfall columns flanking the menu.",
+    "Sprite-id → mon08 descriptor mapping: the 16 f148 IDs (0x7b..0x7d, 0x10..0x16, 0x97..0x99, 0x19..0x22, 0x15a..0x16a) all need the runtime sprite-records table at cs:0x190 to resolve to (atlas, descriptor). This table is built by wbase_load_font_table_entry(8, 4) which loads the menu .pic asset. Without a state-4 save we can't read it. Recommendation: capture a save state at game_state=4 (after the menu's been displayed at least once) and use the MCP server to dump cs:0x190+5*id for each ID.",
+    "FUN_0775 BSS tables at 0x3958/0x398b: their entry-0 association needs verification. The struct stride of 0x13a per font-table entry at base 0x36de places entry 0 at 0x36de, and 0x3958 - 0x36de = 0x27a — i.e., FUN_0775 references field offset 0x27a within entry 0. The struct layout (what's at +0..0x13a) needs decoding.",
+    "FUN_0732 BSS tables at 0x3bcc/0x3bff: 0x3bcc - 0x36de = 0x4ee, and 4*0x13a = 0x4e8 ≈ 0x4ee. This suggests entry 4 of the font-table is the source — confirming FUN_064e(8, 4) loads ENTRY 4 and FUN_0732 reads field +6 (x table) and +0x39 (y table) of that entry. The 0x6 offset within entry 4 suggests a small per-entry header followed by the position arrays.",
+    "Entry 11 and 12 of the ega.drv dispatch table (slots 11/12 at wroot image 0x1bb6 / 0x1bba, thunks 0xf118 / 0xf124) — these are unmapped. They're likely additional render primitives (text-render? pixel-set? line-draw?) but FUN_07b7 doesn't use them. The menu-text path uses dfb9 / df85 / c61a which are NOT the f1xx thunks — they're wroot-internal UI text helpers, not video-driver dispatch.",
+    "The exact wall-clock cadence: per CLAUDE.md, the engine's delay_one_unit calibrates against CPU at boot (via writes to *(CS:0x1FE2)/(CS:0x1FE4)). Without measuring on the user's specific DOSBox-X cycles setting we can't compute exact ms-per-frame. The port should make the flip rate tunable (start ~2-3 Hz, adjust by feel).",
+    "Whether wbase_load_font_table_entry(8, 4) loads MON08.PIC SPECIFICALLY: pic-loader.md says sprite-id N maps to MON{N:02}.PIC, but that's the COMBAT loader. The wbase main menu loader (FUN_064e) goes through a different path — kind 8 asset table indexed by entry 4 — and may load a DIFFERENT file (possibly menu-specific decoration, not mon08). The wbase-main-menu.json finding hypothesized mon08; this would benefit from a DOSBox-X file-open trace at state-4 transition to confirm."
+  ]
+}
