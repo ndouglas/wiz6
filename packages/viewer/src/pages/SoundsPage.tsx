@@ -19,9 +19,12 @@ interface SoundMeta {
   sampleRateHz: number;
 }
 
-/** Look up the engine sound-table entry for a given file ID like "13". */
+/** Look up the engine sound-table entry for a given file ID. Handles both
+ *  "13" and "sound13" forms — the extractor emits `id: "sound13"`. */
 function slotForId(id: string): SoundTableSlot | undefined {
-  const n = parseInt(id, 10);
+  const digits = id.replace(/\D+/g, '');
+  if (!digits) return undefined;
+  const n = parseInt(digits, 10);
   if (!Number.isFinite(n)) return undefined;
   return SOUND_TABLE.find((s) => s.n === n);
 }
@@ -53,8 +56,12 @@ export function SoundsPage() {
   }, []);
 
   const playAtEngineRate = useCallback(async (id: string) => {
-    const slotN = parseInt(id, 10);
-    const snd = await loadSnd(`/sounds/sound${id}.snd`, { slotN });
+    // `id` from JSON is "sound04" or similar — strip the prefix to get just
+    // the digits, then build the URL with the bare digit form the files use.
+    const digits = id.replace(/\D+/g, '');
+    if (!digits) return;
+    const slotN = parseInt(digits, 10);
+    const snd = await loadSnd(`/sounds/sound${digits}.snd`, { slotN });
     if (snd) playSnd(snd);
   }, []);
 
