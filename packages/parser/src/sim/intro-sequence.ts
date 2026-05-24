@@ -24,6 +24,7 @@ import {
   PHASE_FRAMES_PAUSE_PRE_SCROLL,
   PHASE_FRAMES_PAUSE_PRE_SIRTECH,
   PHASE_FRAMES_POST_SCROLL,
+  PHASE_FRAMES_WIZARDRY_HANG,
   PHASE_FRAMES_SIRTECH_SPLASH,
   PHASE_FRAMES_TITLE_HOLD,
   SCROLL_STEP_PER_FRAME,
@@ -38,6 +39,7 @@ export type IntroPhase =
   | 'bradley-splash' // "Fantasy R-P Sim by" + Bradley signature on black
   | 'pause-pre-scroll' // black before titlepag loads
   | 'title-hold' // titlepag + Wizardry wordmark visible; no scroll yet
+  | 'wizardry-hang' // Wizardry tokens at fieldB rendered atop titlepag; pre-scroll wait
   | 'scroll' // titlepag background + credits sliding up
   | 'post-scroll' // final frame held briefly
   | 'done'; // navigate to /castle
@@ -49,6 +51,7 @@ const PHASE_ORDER: readonly IntroPhase[] = [
   'bradley-splash',
   'pause-pre-scroll',
   'title-hold',
+  'wizardry-hang',
   'scroll',
   'post-scroll',
   'done',
@@ -61,6 +64,7 @@ const PHASE_DURATION_FRAMES: Record<Exclude<IntroPhase, 'scroll' | 'done'>, numb
   'bradley-splash': PHASE_FRAMES_BRADLEY_SPLASH,
   'pause-pre-scroll': PHASE_FRAMES_PAUSE_PRE_SCROLL,
   'title-hold': PHASE_FRAMES_TITLE_HOLD,
+  'wizardry-hang': PHASE_FRAMES_WIZARDRY_HANG,
   'post-scroll': PHASE_FRAMES_POST_SCROLL,
 };
 

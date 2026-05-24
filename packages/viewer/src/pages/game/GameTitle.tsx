@@ -151,15 +151,14 @@ export function GameTitle() {
         //                         succession; clang lands ~as the Wizardry
         //                         wordmark appears
         if (transition === 'pause-pre-sirtech->sirtech-splash' && !soundFiredRef.current.has(transition)) {
+          // Engine sequence: SOUND04 → wait(2) ≈ 100 ms → SOUND13. Both
+          // play during the sirtech-splash visual; SOUND13 is the "bradley
+          // is about to render" cue but it fires while sirtech is still
+          // alone on screen. Fire SOUND13 via setTimeout so it follows
+          // SOUND04 by the engine-matched 100 ms gap.
           if (sound04Ref.current) playSnd(sound04Ref.current);
-          soundFiredRef.current.add(transition);
-        } else if (transition === 'sirtech-splash->pause-between' && !soundFiredRef.current.has(transition)) {
-          // Fire SOUND13 at the start of pause-between (the black gap before
-          // bradley-splash). Engine plays N=0xD BEFORE rendering the bradley
-          // text tokens — sound leads visual. SOUND13 at slot-13 rate (6280
-          // Hz, ~0.52 s duration) plays through the 0.5 s pause-between phase
-          // and finishes ~as bradley becomes visible.
-          if (sound13Ref.current) playSnd(sound13Ref.current);
+          const s13 = sound13Ref.current;
+          if (s13) window.setTimeout(() => playSnd(s13), 100);
           soundFiredRef.current.add(transition);
         } else if (transition === 'pause-pre-scroll->title-hold' && !soundFiredRef.current.has(transition)) {
           // User-by-ear sequence: SOUND05 immediately, ~brief pause, then
@@ -262,10 +261,14 @@ function composeFrame(
 ): void {
   fillBlack(dest);
 
-  // Background per phase. titlepag shows during the new title-hold phase too
-  // (Wizardry wordmark + scene visible before credits start scrolling).
+  // Background per phase. titlepag shows during title-hold + wizardry-hang +
+  // scroll + post-scroll (Wizardry wordmark + scene visible from when SOUND07
+  // lands until the post-scroll fadeout).
   if (
-    (state.phase === 'title-hold' || state.phase === 'scroll' || state.phase === 'post-scroll') &&
+    (state.phase === 'title-hold' ||
+      state.phase === 'wizardry-hang' ||
+      state.phase === 'scroll' ||
+      state.phase === 'post-scroll') &&
     titlepagRgba
   ) {
     dest.set(titlepagRgba);
@@ -299,6 +302,17 @@ function composeFrame(
     case 'bradley-splash':
       blendSprite(dest, sprites[12], cxBradleyLine, bradleyLineY);
       blendSprite(dest, sprites[8], cxBradleySig, bradleySigY);
+      break;
+
+    case 'wizardry-hang':
+      // Render the Wizardry-VI top + bottom sprites at their fieldB positions
+      // (matches what the engine draws via winit_render_text_token between
+      // SOUND07 firing and the scroll loop initialisation). Coords come from
+      // CREDITS_SCROLL_ENTRIES[0] and [1] (col=0x4c, fieldB=0x43 and 0x63).
+      // sprites[6] = entry 0's descriptor (Wizardry top, token=7 → desc=6),
+      // sprites[7] = entry 1's descriptor (Wizardry bottom, token=8 → desc=7).
+      blendSprite(dest, sprites[6], 0x4c, 0x43);
+      blendSprite(dest, sprites[7], 0x4c, 0x63);
       break;
 
     case 'scroll':

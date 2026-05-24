@@ -107,6 +107,23 @@ export const PHASE_FRAMES_PAUSE_PRE_SCROLL = 30; // 0.5s
  * Earlier values: 72 → 90 (clipped clang) → 60 (sync to user's beat).
  */
 export const PHASE_FRAMES_TITLE_HOLD = 60;
+
+/**
+ * After SOUND07 (clang) lands and the Wizardry-VI wordmark renders, the
+ * engine runs `winit_wait_ticks_or_enter(10)` ≈ 0.5 s at ~20 Hz tick — a
+ * brief hang with the Wizardry tokens visible at their fieldB positions
+ * before the scroll loop initialises and credits begin moving. Per user-
+ * by-ear: "there's a 0.5 second hang in the original game with the
+ * Wizardry logo on screen." Matched here as 30 frames @ 60 fps.
+ *
+ * During this phase, the viewer renders titlepag + the two Wizardry
+ * descriptors (sprites[6] + sprites[7]) at their scroll-table fieldB
+ * positions (col=0x4c, y=0x43 and 0x63), NOT their cap positions.
+ * When scroll begins, those entries continue rendering as scroll items
+ * and slide up to their cap (so the slide-in motion comes after the hang).
+ */
+export const PHASE_FRAMES_WIZARDRY_HANG = 30;
+
 export const PHASE_FRAMES_POST_SCROLL = 90; // 1.5s
 
 /**
