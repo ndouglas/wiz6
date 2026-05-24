@@ -68,10 +68,13 @@ Next free ID: **#018**
 - #Q-E — Bogus `audio_adlib_init_voice` rename at image `0x11962`
   - Listed in findings file but the bytes there are just an EOI/IRET stub. Real AdLib init must be elsewhere — possibly `FUN_1000_17fe`. Not yet traced.
 
-- #Q-G — Sound-slot 13 alias + slot-14 PIC-scratch playback (DEFERRED to #017 MCP)
-  - `docs/re/findings/winit-state1-deep-dive.json` settled (high conf) that slot 14's descriptor at DGROUP `0x33EC` overlaps the PIC-loader scratch buffer — `audio_play_sound(0xE)` cannot play SOUND14.SND. Statically undetermined what it actually produces (PIC-bytes-as-PCM garbage, silence via rate_or_vol==0, or alias_id redirect).
-  - User-by-ear says slot 13 also doesn't play SOUND13.SND — likely a real `alias_id` redirect since slot 13 IS preloaded; master.hdr record 13 must have `buf_lo==buf_hi==0` triggering fallback. Slot 13 alias destination unknown.
-  - Method: DOSBox-X breakpoint at wroot `0x10AAA` (audio_play_sound entry), dump sound-table memory 0x3344..0x33F7 + sample-buffer pointer table 0x3579..0x35B5 + master.hdr kind=9 record 13 at each call. Needs the #017 MCP infrastructure for programmatic breakpoint control.
+- #Q-G — Sound-slot rates differ per slot (CLOSED 2026-05-24)
+  - Closed via MCP-driven memory dump of the sound table at DGROUP 0x3344 in a wroot-loaded save (THESUS party, in-dungeon save). Findings:
+    - **N=0xE plays SOUND05.SND** — slot 14's buf_lo (0xC90) is IDENTICAL to slot 5's buf_lo. Sample-buffer shared. The deep-dive's static "PIC scratch overlap" hypothesis was wrong; the buffer pointer was correctly populated. (Possibly via the alias_id=5 fallback at descriptor zero-init, or via a separate code path.)
+    - **N=0xD plays SOUND13.SND directly** (not aliased). But at rate_or_vol=0x3C and duration=0xBE, both distinct from the default 0x49/0x7E that most slots use.
+    - **Slot 9 is aliased to slot 8** — `alias_id=8, buf_lo=buf_hi=0`. Explains why SOUND09.SND missing on disk doesn't break anything.
+    - rate_or_vol semantics (PIT divisor? volume? multiplier?) not fully decoded — needs decompile of wroot 0x10AAA `audio_play_sound`. But the existence of per-slot rates is now confirmed.
+  - **Open follow-up #Q-J**: decode rate_or_vol semantics and plumb per-slot playback rate into `packages/viewer/src/lib/audio.ts` so the title-credits sounds match the engine's pitch + duration. User-reported: our SOUND13 sounds "too brief and too high-pitched" at the default rate.
 
 - #Q-F — When does the engine actually load `wiz6-main` / `wiz6-dungeon`?
   - **Effectively answered (2026-05-23)**: `dosbox_identify_palette` was run against captured saves at every reachable game state — intro, main menu, character creation, in-dungeon — and every single one shows `ega-default` at distance 0. The wiz6-main and wiz6-dungeon palettes (at distances ~4845-5015 throughout) are NEVER activated in normal play with EGA-mode + keyboard-config. Per the user: portraits, sprites, combat, NPC, treasure all look correct only with ega-default — confirming visually that the engine never switches palette during gameplay.
