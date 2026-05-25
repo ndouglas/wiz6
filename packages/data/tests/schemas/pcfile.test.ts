@@ -13,6 +13,10 @@ const validHeader = {
   status: [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 };
 
+const EMPTY_INV_ITEM = {
+  itemId: 0, weight: 0, pad: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0,
+};
+
 function emptySlot(slot: number): PcfileSlot {
   return {
     slot, populated: false, name: null,
@@ -30,6 +34,10 @@ function emptySlot(slot: number): PcfileSlot {
     skills: new Array(14).fill(0),
     reaction: 0,
     savedOldLevel: 0,
+    // Inventory: 22 empty slots. inventory_count in raw = 0; all item_ids = 0.
+    inventory: new Array(22).fill(EMPTY_INV_ITEM),
+    // Equipment: 8 slots all 0xFF = unequipped.
+    equipment: new Array(8).fill(0xFF),
     raw: new Array(432).fill(0),
   };
 }
@@ -78,6 +86,18 @@ describe('PcfileSlotSchema', () => {
       reaction: 20,
       // savedOldLevel: 0 (never changed class).
       savedOldLevel: 0,
+      // Inventory: THESUS has 5 starting items (LONGSWORD/LEATHER CUIRASS/FUR LEGGING/SANDALS/BUCKLER).
+      // Confirmed by pcfile.dbs decode + 100% scenario.dbs cross-check on weight/equipSlot/spriteIdx.
+      inventory: [
+        { itemId: 8,   weight: 50,  pad: 0, equipSlot: 0,  spriteIdx: 1,  quantity: 0, flags: 0 }, // LONGSWORD
+        { itemId: 135, weight: 140, pad: 0, equipSlot: 7,  spriteIdx: 41, quantity: 0, flags: 0 }, // LEATHER CUIRASS
+        { itemId: 132, weight: 50,  pad: 0, equipSlot: 8,  spriteIdx: 44, quantity: 0, flags: 0 }, // FUR LEGGING
+        { itemId: 130, weight: 15,  pad: 0, equipSlot: 10, spriteIdx: 46, quantity: 0, flags: 0 }, // SANDALS
+        { itemId: 141, weight: 40,  pad: 0, equipSlot: 11, spriteIdx: 38, quantity: 0, flags: 0 }, // BUCKLER SHIELD
+        ...new Array(17).fill(EMPTY_INV_ITEM),
+      ],
+      // Equipment: all 0xFF (items in inventory but not pre-equipped).
+      equipment: new Array(8).fill(0xFF),
     };
     expect(() => PcfileSlotSchema.parse(populated)).not.toThrow();
   });

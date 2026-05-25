@@ -143,6 +143,57 @@ describe('decodePcfile', () => {
     }
   });
 
+  it('decodes THESUS inventory: 5 items starting with LONGSWORD (id=8), slots 5..21 empty', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const thesus = slots.find((s) => s.name === 'THESUS')!;
+    // Inventory at +0x40 (abs 0x4428). 22 slots x 8 bytes.
+    // Slot layout: [0-1]=item_id(u16), [2]=weight(cached), [3]=0, [4]=equip_slot(cached),
+    //              [5]=sprite_idx(cached), [6]=quantity, [7]=flags.
+    // 100% cross-verified: weight/equip_slot/sprite_idx match scenario.dbs exactly.
+    expect(thesus.inventory.length).toBe(22);
+    // Slot 0: LONGSWORD (id=8), weight=50, equip_slot=0 (1H weapon), sprite=1
+    expect(thesus.inventory[0]).toMatchObject({ itemId: 8, weight: 50, equipSlot: 0, spriteIdx: 1, quantity: 0, flags: 0 });
+    // Slot 1: LEATHER CUIRASS (id=135), weight=140, equip_slot=7 (body), sprite=41
+    expect(thesus.inventory[1]).toMatchObject({ itemId: 135, weight: 140, equipSlot: 7, spriteIdx: 41, quantity: 0, flags: 0 });
+    // Slot 2: FUR LEGGING (id=132), weight=50, equip_slot=8 (legs), sprite=44
+    expect(thesus.inventory[2]).toMatchObject({ itemId: 132, weight: 50, equipSlot: 8, spriteIdx: 44, quantity: 0, flags: 0 });
+    // Slot 3: SANDALS (id=130), weight=15, equip_slot=10 (feet), sprite=46
+    expect(thesus.inventory[3]).toMatchObject({ itemId: 130, weight: 15, equipSlot: 10, spriteIdx: 46, quantity: 0, flags: 0 });
+    // Slot 4: BUCKLER SHIELD (id=141), weight=40, equip_slot=11 (shield), sprite=38
+    expect(thesus.inventory[4]).toMatchObject({ itemId: 141, weight: 40, equipSlot: 11, spriteIdx: 38, quantity: 0, flags: 0 });
+    // Slots 5..21: empty (item_id=0, all fields 0)
+    for (let i = 5; i < 22; i++) {
+      expect(thesus.inventory[i]!.itemId).toBe(0);
+    }
+  });
+
+  it('decodes LYSANDR inventory: DIRK with quantity=9, flags=0x04 (thrown/stackable)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const lysandr = slots.find((s) => s.name === 'LYSANDR')!;
+    // DIRK (id=27): thrown weapon. equip_slot=2 (thrown), sprite=0, qty=9, flags=0x04.
+    expect(lysandr.inventory[4]).toMatchObject({ itemId: 27, weight: 10, equipSlot: 2, spriteIdx: 0, quantity: 9, flags: 0x04 });
+  });
+
+  it('decodes NOBAL inventory: QUARTERSTAFF with flags=0x08 (2-handed), LT.HEAL x3 with flags=0x04', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const nobal = slots.find((s) => s.name === 'NOBAL')!;
+    // QUARTERSTAFF (id=24): 2-handed pole. equip_slot=1 (2H staff), flags=0x08.
+    expect(nobal.inventory[0]).toMatchObject({ itemId: 24, weight: 45, equipSlot: 1, spriteIdx: 10, quantity: 0, flags: 0x08 });
+    // LT.HEAL scroll (id=316): consumable. equip_slot=12, qty=3, flags=0x04.
+    expect(nobal.inventory[4]).toMatchObject({ itemId: 316, weight: 2, equipSlot: 12, spriteIdx: 32, quantity: 3, flags: 0x04 });
+  });
+
+  it('decodes all stock chars with equipment array all 0xFF (nothing pre-equipped)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const populated = slots.filter((s) => s.populated);
+    for (const s of populated) {
+      // Equipment at +0x110 (abs 0x44f8). 8 bytes: each = inv index (0..21) or 0xFF=empty.
+      // All stock chars have not equipped anything on file load.
+      expect(s.equipment).toHaveLength(8);
+      expect(s.equipment.every((b) => b === 0xFF)).toBe(true);
+    }
+  });
+
   it('throws on truncated input', () => {
     expect(() => decodePcfile(new Uint8Array([0xb0, 0x01]))).toThrow();
   });

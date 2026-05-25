@@ -1,6 +1,7 @@
 import {
   DecodedPcfileSchema,
   type DecodedPcfile,
+  type PcfileInventoryItem,
   type PcfileSlot,
 } from '@wiz6/data';
 
@@ -84,6 +85,37 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       skills.push(rec[0x134 + sk]!);
     }
 
+    // Inventory: 22 slots x 8 bytes at +0x40 (abs 0x4428..0x44ef).
+    // Per-slot: [0-1]=item_id(u16), [2]=weight, [3]=0, [4]=equip_slot, [5]=sprite_idx,
+    //           [6]=quantity, [7]=flags.
+    // wpcvw.ovr file+0x18DC/0x23D8: add ax, 0x4428 (inventory base).
+    // file+0x207E/0x210A/0x20BC/0x22DC: reads bytes 4/5/6/7 of first slot.
+    // 100% cross-check: byte2==item.weight, byte4==item.equipSlot, byte5==item.spriteIdx.
+    const inventory: PcfileInventoryItem[] = [];
+    for (let inv = 0; inv < 22; inv++) {
+      const slotOff = 0x40 + inv * 8;
+      inventory.push({
+        itemId: view.getUint16(recStart + slotOff, true),
+        weight: rec[slotOff + 2]!,
+        pad: rec[slotOff + 3]!,
+        equipSlot: rec[slotOff + 4]!,
+        spriteIdx: rec[slotOff + 5]!,
+        quantity: rec[slotOff + 6]!,
+        flags: rec[slotOff + 7]!,
+      });
+    }
+
+    // Equipment: 8-byte body-slot array at +0x110 (abs 0x44f8..0x44ff).
+    // Each byte = inventory index (0..21) of equipped item, or 0xFF = empty.
+    // Slots: [0]=weapon [1]=shield [2]=head [3]=body [4]=legs [5]=hands [6]=feet [7]=cloak.
+    // wpcvw.ovr file+0x81E8: mov al,[bx+0x44f8] (read weapon slot).
+    // file+0x8327: mov [bx+0x44f8], al (write on equip).
+    // All stock chars = [0xFF x8] (items in inventory but not pre-equipped).
+    const equipment: number[] = [];
+    for (let eq = 0; eq < 8; eq++) {
+      equipment.push(rec[0x110 + eq]!);
+    }
+
     slots.push({
       slot: i,
       populated,
@@ -129,6 +161,8 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       // savedOldLevel at +0x1af (abs 0x4597). MEDIUM confidence.
       // class_change_apply (wpcvw 0x6054): writes *0x4597 = old_level.
       savedOldLevel: rec[0x1af]!,
+      inventory,
+      equipment,
       raw: Array.from(rec),
     });
   }
