@@ -26,13 +26,17 @@ describe('decodePcfile', () => {
     ]);
   });
 
-  it('decodes THESUS xp = 6590 and level = 8 and hpCurrent = 126', () => {
+  it('decodes THESUS xp = 6590, level = 1, hpCurrent = 8, spCurrent = 126', () => {
     const { slots } = decodePcfile(new Uint8Array(PCFILE));
     const thesus = slots.find((s) => s.name === 'THESUS')!;
     expect(thesus.xp).toBe(6590);
-    expect(thesus.level).toBe(8);
-    expect(thesus.hpCurrent).toBe(126);
-    expect(thesus.hpMax).toBe(126);
+    // Level is at record +0x24 (abs BSS 0x440c). All stock chars start at level 1.
+    // The prior value 8 was hp_cur (abs 0x4400 = +0x18), not level.
+    expect(thesus.level).toBe(1);
+    expect(thesus.hpCurrent).toBe(8);
+    expect(thesus.hpMax).toBe(8);
+    expect(thesus.spCurrent).toBe(126);
+    expect(thesus.spMax).toBe(126);
   });
 
   it('empty slots have populated=false, name=null, and an all-zero raw', () => {

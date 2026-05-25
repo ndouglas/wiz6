@@ -1,0 +1,102 @@
+{
+  "topic": "character-level-field",
+  "subagent_run": "2026-05-25",
+  "binaries": ["original/wpcvw.ovr", "original/wbase.ovr", "original/pcfile.dbs"],
+  "summary": "Definitive resolution of the character record 'level' field offset. Confirmed level is at record +0x24 (BSS abs 0x440c), NOT +0x18. The values [8,9,5,4,4,2] previously labeled 'level' are hp_cur at +0x18 (BSS abs 0x4400). All 6 stock party members start at level 1.",
+  "findings": [
+    {
+      "id": "level-offset-display",
+      "claim": "Level field is at record offset +0x24 (BSS abs 0x440c). The stats panel renderer pushes this value to display_number.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "image 0x117b (file 0x1189 = image + 0x0e header)",
+        "type": "asm_instruction",
+        "details": "FFB70C44  push word [bx+0x440c] — pushed as argument to display_number (call 0xc041) in the character view stats panel renderer. bx = slot_num * 0x1b0; abs 0x440c = BSS base 0x43e8 + +0x24."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "level-offset-increment",
+      "claim": "Level field is at record offset +0x24. level_up_apply increments it with INC WORD.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "image 0xb22e (file 0xb23c)",
+        "type": "asm_instruction",
+        "details": "FF070C44  inc word [bx+0x440c] — level increment on level-up. Preceded at 0xb226 by: mov ax, 0x1b0; imul [bp+0x8] (slot * stride), confirming bx = slot_num * 0x1b0."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "level-offset-reset",
+      "claim": "Level field is at record offset +0x24. class_change_apply resets it to 1.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "image 0x61c8 (file 0x61d6)",
+        "type": "asm_instruction",
+        "details": "C7070C44 0100  mov word [bx+0x440c], 0x1 — level reset to 1 on class change. Same function (class_change_apply, image 0x6054) also writes saved_old_level at [bx+0x4597] (+0x1af)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "hp-cur-offset",
+      "claim": "hp_cur is at record offset +0x18 (BSS abs 0x4400), NOT the level field. Stock values are [8,9,5,4,4,2].",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "fn-party-row-render",
+        "type": "function_argument",
+        "details": "fn-party-row-render passes abs 0x4400 (BSS +0x18) to the HP-bar draw function. The party-row HP bar draws from [bx+0x4400]/[bx+0x4402]. Values in pcfile.dbs at record +0x18 are 08 00 (THESUS), 09 00 (TEMPEST), 05 00 (LYSANDR), 04 00 (NOBAL), 04 00 (TREON), 02 00 (PENTAG) — consistent with level-1 HP, not with expected levels 8/9/5/4/4/2."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "sp-cur-offset",
+      "claim": "sp_cur is at record offset +0x1c (BSS abs 0x4404). Stock values are 126/123/87/75/102/90.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "fn-party-row-render",
+        "type": "function_argument",
+        "details": "fn-party-row-render passes abs 0x4404 (BSS +0x1c) to the SP-bar draw function. These are the values previously labeled hp_cur at the wrong offset +0x1c."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "disk-bss-identity",
+      "claim": "pcfile.dbs on-disk record bytes are copied 1:1 to BSS at the same relative offsets. No transformation.",
+      "category": "loader",
+      "evidence": {
+        "binary": "original/wbase.ovr",
+        "address": "image 0x1759 (file 0x1767)",
+        "type": "asm_instruction",
+        "details": "F3A5  rep movsw — 0xd8 words (432 bytes) straight from file buffer [bp-0x1f8] to BSS at 0x43e8 + slot_index * 0x1b0. si = start of record buffer (no offset added), di = BSS slot base. Therefore disk[+N] == BSS[+N] for all N."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "stock-levels",
+      "claim": "All 6 stock party members (THESUS..PENTAG) are level 1 in pcfile.dbs.",
+      "category": "data_value",
+      "evidence": {
+        "binary": "original/pcfile.dbs",
+        "address": "record+0x24 for slots 0-5",
+        "type": "file_bytes",
+        "details": "After 24-byte file header, bytes at offset 24+N*432+0x24 for N=0..5: all read as 0x0001 (u16 LE). Previously decoded as levels [8,9,5,4,4,2] because the decoder was reading from +0x18 instead of +0x24."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "prior-error-root-cause",
+      "claim": "The previous 'empirical correction' in character-record.ts that moved level to +0x18 was based on misidentified HP data.",
+      "category": "correction",
+      "evidence": {
+        "type": "analysis",
+        "details": "The wpcvw-naming-pass.json bss_layout (built with a 12-byte name assumption) originally claimed level at +0x24 (abs 0x440c). A subsequent 'empirical correction' moved it to +0x18 after observing values [8,9,5,4,4,2] there and interpreting them as plausible levels. Those values are actually hp_cur — small HP values for brand-new level-1 characters with ~8-9 max HP (STR+VIT-based). The engine ASM unambiguously confirms +0x24 is the level field via three independent sites."
+      },
+      "confidence": "high"
+    }
+  ]
+}

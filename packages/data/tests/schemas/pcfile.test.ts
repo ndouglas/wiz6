@@ -16,8 +16,11 @@ const validHeader = {
 function emptySlot(slot: number): PcfileSlot {
   return {
     slot, populated: false, name: null,
-    xp: 0, level: 0, levelSecondary: 0,
-    hpCurrent: 0, hpMax: 0, spCurrent: 0, gold: 0,
+    xp: 0,
+    hpCurrent: 0, hpMax: 0,
+    spCurrent: 0, spMax: 0,
+    gold: 0,
+    level: 0, levelSecondary: 0,
     raw: new Array(432).fill(0),
   };
 }
@@ -44,9 +47,10 @@ describe('PcfileSlotSchema', () => {
       populated: true,
       name: 'THESUS',
       xp: 6590,
-      level: 8, levelSecondary: 8,
-      hpCurrent: 126, hpMax: 126,
-      spCurrent: 295, gold: 2700,
+      hpCurrent: 8, hpMax: 8,
+      spCurrent: 126, spMax: 126,
+      gold: 2700,
+      level: 1, levelSecondary: 1,
     };
     expect(() => PcfileSlotSchema.parse(populated)).not.toThrow();
   });

@@ -13,30 +13,33 @@ export const PcfileHeaderSchema = z.object({
 
 /**
  * One pcfile slot. Decodes a small set of high-confidence fields per
- * `docs/re/pcfile-dbs.md`; the full 432-byte raw record is preserved as
- * `raw` so callers can recover any field we haven't decoded yet.
+ * `docs/re/pcfile-dbs.md` and `docs/re/findings/character-level-field.json`;
+ * the full 432-byte raw record is preserved as `raw` so callers can recover
+ * any field we haven't decoded yet.
  *
- * Field offsets (record-relative, from the Task A RE pass):
- * - name      @ +0x00, 8 bytes ASCII null-terminated
- * - xp        @ +0x08, u32 LE
- * - level     @ +0x18, u16 LE
- * - levelSecondary @ +0x1A, u16 LE (medium confidence)
- * - hpCurrent @ +0x1C, u16 LE
- * - hpMax     @ +0x1E, u16 LE
- * - spCurrent @ +0x20, u16 LE (medium confidence)
- * - gold      @ +0x22, u16 LE (medium confidence)
+ * Field offsets (record-relative, verified by wpcvw.ovr ASM traces):
+ * - name       @ +0x00, 8 bytes ASCII null-terminated
+ * - xp         @ +0x08, u32 LE
+ * - hpCurrent  @ +0x18, u16 LE  (fn-party-row-render: abs 0x4400)
+ * - hpMax      @ +0x1A, u16 LE  (fn-party-row-render: abs 0x4402)
+ * - spCurrent  @ +0x1C, u16 LE  (fn-party-row-render: abs 0x4404)
+ * - spMax      @ +0x1E, u16 LE  (fn-party-row-render: abs 0x4406)
+ * - gold       @ +0x22, u16 LE  (medium confidence)
+ * - level      @ +0x24, u16 LE  (stats panel image 0x117b: push [bx+0x440c])
+ * - levelSecondary @ +0x26, u16 LE (medium confidence)
  */
 export const PcfileSlotSchema = z.object({
   slot: U8,
   populated: z.boolean(),
   name: z.string().nullable(),
   xp: U32,
-  level: U16,
-  levelSecondary: U16,
   hpCurrent: U16,
   hpMax: U16,
   spCurrent: U16,
+  spMax: U16,
   gold: U16,
+  level: U16,
+  levelSecondary: U16,
   raw: z.array(U8).length(432),
 });
 

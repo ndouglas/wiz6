@@ -6,14 +6,14 @@ import type { BssStruct } from './bss-types.js';
  * layouts are IDENTICAL — wbase.ovr's add_party_member uses a straight
  * rep-movsw memcpy from the pcfile.dbs record into the BSS slot.
  *
- * Source: `docs/re/pcfile-dbs.md` (2026-05-25 empirical pass against the
- * 6 stock characters in original/pcfile.dbs + wbase.ovr disasm).
+ * Source: `docs/re/pcfile-dbs.md` + `docs/re/findings/character-level-field.json`
  *
- * ⚠️  CORRECTION: The prior wpcvw-naming-pass.json bss_layout had several
- * wrong offsets in the first 0x30 bytes of the record because it claimed
- * name=char[12] (actual: char[8]). Fields from +0x12c onward (attributes,
- * skills, conditions, inventory) were correct in that document. The fields
- * below reflect the corrected, empirically-verified offsets.
+ * Field offsets verified by two independent wpcvw.ovr ASM traces:
+ *   - Stats panel renderer (image 0x117b): `push word [bx+0x440c]` → level display
+ *   - level_up_apply (image 0xb22e): `inc word [bx+0x440c]` → level increment
+ *   - fn-party-row-render: HP bar at abs 0x4400/0x4402; SP bar at 0x4404/0x4406
+ *   - class_change_apply (image 0x6054): `mov word [bx+0x440c], 1` → level reset
+ * All absolute BSS addresses relative to base 0x43e8: offset = abs − 0x43e8.
  */
 export const CHARACTER_RECORD: BssStruct = {
   name: 'character_record',
@@ -24,63 +24,86 @@ export const CHARACTER_RECORD: BssStruct = {
     {
       name: 'name',
       offset: 0x00,
-      // Engine name field is 8 bytes (7 chars max + null).
-      // Prior bss_layout claimed 12 bytes — that was wrong; empirically
-      // confirmed by pcfile.dbs RE pass (TEMPEST fills +0x00..+0x07 exactly,
-      // XP starts at +0x08).
+      // 8 bytes: 7 chars max + null terminator. Empirically confirmed by
+      // pcfile.dbs RE pass (TEMPEST fills +0x00..+0x07 exactly, XP starts +0x08).
       type: { kind: 'string', length: 8, encoding: 'ascii' },
       description: 'ASCII character name. Null-terminated; max 7 chars. 8-byte field.',
     },
     {
       name: 'xp',
       offset: 0x08,
-      // Prior bss_layout claimed xp at +0x0c — wrong. Empirically confirmed:
-      // THESUS bytes +0x08..+0x0b = BE 19 00 00 = 6590.
+      // Empirically confirmed: THESUS bytes +0x08..+0x0b = BE 19 00 00 = 6590.
+      // wpcvw stats panel reads XP from [bx+0x43f0] = BSS +0x08. HIGH confidence.
       type: { kind: 'scalar', scalar: 'u32_le' },
-      description: 'Experience points (32-bit). At +0x08, NOT +0x0c.',
+      description: 'Experience points (32-bit LE). At +0x08.',
     },
-    // +0x0c..+0x17: unknown 12 bytes, all 0 in stock data.
-    // Possibly gold u32 + padding, or reserved. Not decoded.
-    {
-      name: 'level',
-      offset: 0x18,
-      // Prior bss_layout claimed level at +0x24 (abs 0x440c) — wrong.
-      // Empirically confirmed: +0x18 = [8,9,5,4,4,2] for stock chars.
-      type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Current character level (1-based). At +0x18, NOT +0x24.',
-    },
-    {
-      name: 'level_secondary',
-      offset: 0x1a,
-      type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Equals level in stock data; possibly max_level or saved_class_change_level.',
-    },
+    // +0x0c..+0x17: 12 bytes unknown / unconfirmed. All zero in stock data.
+    // class_change_apply zeros [bx+0x43f4] and [bx+0x43f6] (BSS +0x0c and +0x0e);
+    // possibly a secondary XP register or reserved field.
     {
       name: 'hp_cur',
-      offset: 0x1c,
-      // Prior bss_layout claimed hp_cur at +0x18 — wrong.
-      // Empirically confirmed: +0x1c = [126,123,87,75,102,90] for stock chars.
+      offset: 0x18,
+      // fn-party-row-render passes abs 0x4400 (BSS +0x18) to the HP-bar draw
+      // function. Stock chars have hp_cur = [8,9,5,4,4,2] — small values
+      // consistent with level 1.
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Current HP. At +0x1c, NOT +0x18.',
+      description: 'Current HP. At +0x18. Stock values 8/9/5/4/4/2 (level-1 party).',
     },
     {
       name: 'hp_max',
-      offset: 0x1e,
-      // Prior bss_layout claimed hp_max at +0x1a — wrong.
+      offset: 0x1a,
+      // fn-party-row-render: abs 0x4402 (BSS +0x1a). Equals hp_cur for
+      // fully-healed stock chars.
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Maximum HP. Equals hp_cur for fully-healed stock chars.',
+      description: 'Maximum HP. At +0x1a. Equals hp_cur for fully-healed stock chars.',
     },
     {
       name: 'sp_cur',
+      offset: 0x1c,
+      // fn-party-row-render: abs 0x4404 (BSS +0x1c). Stock values 126/123/87/75/102/90.
+      type: { kind: 'scalar', scalar: 'u16_le' },
+      description: 'Spirit points, current. At +0x1c. Stock values 126–295.',
+    },
+    {
+      name: 'sp_max',
+      offset: 0x1e,
+      // fn-party-row-render: abs 0x4406 (BSS +0x1e). Equals sp_cur for
+      // fully-healed stock chars.
+      type: { kind: 'scalar', scalar: 'u16_le' },
+      description: 'Spirit points, maximum. At +0x1e. Equals sp_cur for fully-healed stock chars.',
+    },
+    {
+      name: 'unknown_0x20',
       offset: 0x20,
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Spirit points, current (medium confidence). Values 128-295 for stock chars.',
+      description: 'Unknown u16 at +0x20. Stock values 0x0127 (295) .. 0x0080 (128). Medium confidence: secondary SP or mana register.',
     },
     {
       name: 'gold',
       offset: 0x22,
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Gold pieces (medium confidence; u16 is sufficient for stock amounts 1035-2700).',
+      description: 'Gold pieces (medium confidence; u16 covers stock amounts 1035–2700).',
+    },
+    {
+      name: 'level',
+      offset: 0x24,
+      // HIGH CONFIDENCE — two independent ASM traces:
+      //   (1) wpcvw stats panel (image 0x117b): `push word [bx+0x440c]`
+      //       → pushed as the level value for display_number call.
+      //   (2) level_up_apply (image 0xb22e): `inc word [bx+0x440c]`
+      //       → incremented on level-up.
+      //   (3) class_change_apply (image 0x61c8): `mov word [bx+0x440c], 1`
+      //       → reset to 1 on class change.
+      // abs 0x440c = BSS base 0x43e8 + +0x24. disk == BSS (straight memcpy).
+      // Stock chars all have value 1 at disk +0x24 → starting at level 1.
+      type: { kind: 'scalar', scalar: 'u16_le' },
+      description: 'Current character level (1-based). At +0x24. Stock chars are all level 1.',
+    },
+    {
+      name: 'level_secondary',
+      offset: 0x26,
+      type: { kind: 'scalar', scalar: 'u16_le' },
+      description: 'Equals level in stock data; possibly max_level or saved_class_change_level.',
     },
     {
       name: 'inventory_records',

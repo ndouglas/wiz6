@@ -63,12 +63,13 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       populated,
       name,
       xp: view.getUint32(recStart + 0x08, true),
-      level: view.getUint16(recStart + 0x18, true),
-      levelSecondary: view.getUint16(recStart + 0x1A, true),
-      hpCurrent: view.getUint16(recStart + 0x1C, true),
-      hpMax: view.getUint16(recStart + 0x1E, true),
-      spCurrent: view.getUint16(recStart + 0x20, true),
+      hpCurrent: view.getUint16(recStart + 0x18, true),
+      hpMax: view.getUint16(recStart + 0x1A, true),
+      spCurrent: view.getUint16(recStart + 0x1C, true),
+      spMax: view.getUint16(recStart + 0x1E, true),
       gold: view.getUint16(recStart + 0x22, true),
+      level: view.getUint16(recStart + 0x24, true),
+      levelSecondary: view.getUint16(recStart + 0x26, true),
       raw: Array.from(rec),
     });
   }
