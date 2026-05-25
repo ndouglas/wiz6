@@ -258,37 +258,46 @@ function composeFrame(
   if (wfont3) {
     const cellW = 8;
 
-    // Color overrides per usage:
-    //   BANNER_TEXT: file 1 (letter strokes) → EGA 7 (light gray) — the
-    //     MASTER OPTIONS title reads in light gray on the dark-gray ground.
-    //   BAT: file 8 (the bat body / glyph "background") → EGA 0 (black)
-    //     so the bat shape is visible against the gray ground. file 4
-    //     (eye pixels) keeps the default permutation = EGA 12 (light red).
-    //   SELECTED: file 1 → EGA 0 (black) and file 8 → EGA 14 (yellow) —
-    //     selected menu option renders as black text on yellow ground.
-    //   (Unselected menu options take no override → default permutation
-    //    → file 1 = EGA 15 (white). MASTER OPTIONS uses BANNER_TEXT.)
-    const BANNER_TEXT: Record<number, number> = { 1: 7 };
-    const BAT: Record<number, number> = { 8: 0 };
+    // wfont3 is a SPRITESHEET, not a generic font. Each "glyph" slot is a
+    // pre-baked 8x8 tile with its own colors. The same shape ("A") can
+    // appear at multiple slots, each carrying a different color scheme:
+    //
+    //   - Slots 0x41..0x5A : letters in WHITE on dark-gray bg with gray
+    //                       top+bottom rows. For use INSIDE solid-gray
+    //                       panels (e.g. the menu pane).
+    //   - Slots 0x61..0x7A : letters in LIGHT GRAY on dark-gray bg with
+    //                       TRANSPARENT top+bottom rows. For the banner,
+    //                       where the underlying black shows through as
+    //                       the 1-px separator lines top + bottom.
+    //   - Slot  0x5F       : banner-variant "space" — dark-gray rows 1-6,
+    //                       transparent top+bottom. Use for padding in
+    //                       the banner instead of slot 0x20 (which is a
+    //                       solid-gray 8x8 with no transparent edges).
+    //   - Slot  0x7F       : banner-variant bat (red eyes + gray body
+    //                       with transparent top+bottom). DOESN'T need a
+    //                       color override.
+    //
+    // The slot numbers happen to align with ASCII (the engine's stored
+    // text presumably uses these as byte values) but conceptually they
+    // are just arbitrary tile indices.
+    //
+    // Only the SELECTED menu option needs a color override: file 1
+    // (letter strokes in 0x41..0x5A variant) → EGA 0 (black), file 8
+    // (bg pixels) → EGA 14 (yellow). Yields black-on-yellow.
     const SELECTED: Record<number, number> = { 1: 0, 8: 14 };
 
     // ---- Banner row (y=144..152, 8 px tall) ----
-    // Layout: 20-char run centered → "\x7f  MASTER OPTIONS  \x7f" starts
-    // at col 10 (= screen x=80) and ends at col 29 (= screen x=232).
-    //   col 10  : left bat
-    //   col 11..12 : padding (2 spaces of gray; wfont3 space is a
-    //                solid-gray 8x8 cell so this just IS the background)
-    //   col 13..26 : "MASTER OPTIONS" (14 chars)
-    //   col 27..28 : 2 padding spaces
-    //   col 29  : right bat
-    // We render each piece with its own color override so the bat body
-    // remaps file-color 8 to black while the title text remaps file-color
-    // 1 to light gray. Black 1-px separator lines on y=144 and y=151
-    // are drawn AFTER text so they overlay any per-glyph gray top/bottom
-    // pixels and stay continuous across the whole row.
-    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 80, 144, '\x18', wfont3, EGA_DEFAULT, BAT);
-    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 88, 144, '  MASTER OPTIONS  ', wfont3, EGA_DEFAULT, BANNER_TEXT);
-    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 232, 144, '\x18', wfont3, EGA_DEFAULT, BAT);
+    // Fill the banner band with BLACK first so the transparent top+bottom
+    // rows of the banner-variant glyphs show through as 1-px black lines.
+    fillRect(buf, 0, 144, ENGINE_W, 8, EGA_DEFAULT.colors[0] ?? [0, 0, 0]);
+    // Banner literal: "\x7F\x5F\x5Fmaster options\x5F\x5F\x7F"
+    //   bat + 2 banner-spaces + "master options" + 2 banner-spaces + bat
+    // = 20 cells centered in the 40-cell banner row (start col 10, end
+    // col 29, cursor advances to col 30 — matches the cursor-saved-at-30
+    // empirical we read from the live menu_window struct).
+    const banner = '\x7f\x5f\x5fmaster options\x5f\x5f\x7f';
+    const bannerX = ((40 - banner.length) >> 1) * cellW;
+    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, bannerX, 144, banner, wfont3, EGA_DEFAULT);
 
     // ---- Lower pane (y=152..192) ----
     // No fill needed — the canvas-level gray fill at the top of
