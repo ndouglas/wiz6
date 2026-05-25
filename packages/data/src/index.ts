@@ -80,6 +80,18 @@ export {
 } from './schemas/character.js';
 export { RosterSchema, type Roster } from './schemas/roster.js';
 export {
+  SaveSchema,
+  SaveMetadataSchema,
+  PositionSchema,
+  MazeStateSchema,
+  ScenarioFlagsSchema,
+  type Save,
+  type SaveMetadata,
+  type Position,
+  type MazeState,
+  type ScenarioFlags,
+} from './schemas/save.js';
+export {
   PALETTE_CATALOG,
   EGA_DEFAULT,
   WIZ6_MAIN,
