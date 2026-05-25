@@ -121,17 +121,17 @@ describe('decodeBssStruct — combat_slot', () => {
 describe('decodeBssStruct — character_record name + xp/gold', () => {
   it('decodes ASCII name with trailing-null trim', () => {
     const buf = new Uint8Array(CHARACTER_RECORD.bytes);
-    // "Bishop\0\0..."
+    // "Bishop\0\0..." (6 chars, fits in 8-byte name field)
     const name = 'Bishop';
     for (let i = 0; i < name.length; i++) buf[i] = name.charCodeAt(i);
-    // XP = 12345 (32-bit LE) at 0x0c
-    buf[0x0c] = 0x39; buf[0x0d] = 0x30; buf[0x0e] = 0; buf[0x0f] = 0;
-    // Gold = 0x10000 (65536) at 0x10
-    buf[0x10] = 0; buf[0x11] = 0; buf[0x12] = 1; buf[0x13] = 0;
+    // XP = 12345 (32-bit LE) at +0x08 (corrected from old wrong offset 0x0c)
+    buf[0x08] = 0x39; buf[0x09] = 0x30; buf[0x0a] = 0; buf[0x0b] = 0;
+    // Gold = 1234 (u16 LE) at +0x22 (corrected from old wrong offset 0x10)
+    buf[0x22] = 0xd2; buf[0x23] = 0x04;
     const decoded = decodeBssStruct(CHARACTER_RECORD, buf);
     expect(decoded.name).toBe('Bishop');
     expect(decoded.xp).toBe(12345);
-    expect(decoded.gold).toBe(0x10000);
+    expect(decoded.gold).toBe(1234);
   });
 });
 

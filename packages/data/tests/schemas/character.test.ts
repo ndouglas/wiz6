@@ -3,7 +3,7 @@ import { CharacterSchema, PartyMemberSchema, type Character, type PartyMember } 
 
 const VALID: Character = {
   id: '550e8400-e29b-41d4-a716-446655440000',
-  name: 'Hawkwind',
+  name: 'Thesus',
   race: 0,
   class: 0,
   level: 1,

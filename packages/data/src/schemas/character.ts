@@ -40,8 +40,12 @@ export const AttributesSchema = z.object({
 export const CharacterSchema = z.object({
   /** Stable UUID. Primary key in the roster, optional back-ref in saves. */
   id: z.string().uuid(),
-  /** ASCII character name. 1..12 chars (engine name field is 12 bytes). */
-  name: z.string().min(1).max(12),
+  /**
+   * ASCII character name. 1..7 chars. The on-disk name field is 8 bytes
+   * (7 chars max + null terminator), confirmed by pcfile.dbs RE pass
+   * (docs/re/pcfile-dbs.md). The prior claim of 12 bytes was wrong.
+   */
+  name: z.string().min(1).max(7),
   /** Race index. 5 = Faerie (hard-coded penalties; see wpcvw-character-view.md). */
   race: U8,
   /** Class index. 3 = Thief, 12 = Monk, 13 = Ninja (AC + skill scaling). */

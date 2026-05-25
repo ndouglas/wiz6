@@ -34,25 +34,25 @@ describe('roster-store', () => {
   });
 
   it('writeRoster persists, readRoster round-trips', () => {
-    const r: Roster = { schemaVersion: 1, characters: [makeCharacter(ID_A, 'Hawkwind')] };
+    const r: Roster = { schemaVersion: 1, characters: [makeCharacter(ID_A, 'Thesus')] };
     writeRoster(r);
     expect(readRoster()).toEqual(r);
   });
 
   it('addCharacter appends to the roster', () => {
-    addCharacter(makeCharacter(ID_A, 'Hawkwind'));
+    addCharacter(makeCharacter(ID_A, 'Thesus'));
     addCharacter(makeCharacter(ID_B, 'Loras'));
     const r = readRoster();
     expect(r.characters.map((c) => c.id)).toEqual([ID_A, ID_B]);
   });
 
   it('addCharacter rejects a duplicate id', () => {
-    addCharacter(makeCharacter(ID_A, 'Hawkwind'));
+    addCharacter(makeCharacter(ID_A, 'Thesus'));
     expect(() => addCharacter(makeCharacter(ID_A, 'Imposter'))).toThrow();
   });
 
   it('removeCharacter drops the entry by id; no-op if missing', () => {
-    addCharacter(makeCharacter(ID_A, 'Hawkwind'));
+    addCharacter(makeCharacter(ID_A, 'Thesus'));
     addCharacter(makeCharacter(ID_B, 'Loras'));
     removeCharacter(ID_A);
     expect(readRoster().characters.map((c) => c.id)).toEqual([ID_B]);
@@ -61,20 +61,20 @@ describe('roster-store', () => {
   });
 
   it('updateCharacter replaces the matching entry by id', () => {
-    addCharacter(makeCharacter(ID_A, 'Hawkwind', 1));
-    updateCharacter(makeCharacter(ID_A, 'Hawkwind', 5));
+    addCharacter(makeCharacter(ID_A, 'Thesus', 1));
+    updateCharacter(makeCharacter(ID_A, 'Thesus', 5));
     expect(readRoster().characters[0]!.level).toBe(5);
   });
 
   it('syncFromSave updates roster entries whose ids match save party-member rosterCharacterId', () => {
-    addCharacter(makeCharacter(ID_A, 'Hawkwind', 1));
+    addCharacter(makeCharacter(ID_A, 'Thesus', 1));
     addCharacter(makeCharacter(ID_B, 'Loras', 1));
 
     const save: Save = {
       schemaVersion: 1,
       metadata: { slotName: 's', timestamp: '2026-05-25T12:00:00.000Z', portVersion: '0.0.0' },
       party: [
-        { ...makeCharacter(ID_A, 'Hawkwind', 7), rosterCharacterId: ID_A },
+        { ...makeCharacter(ID_A, 'Thesus', 7), rosterCharacterId: ID_A },
         // Member B has no rosterCharacterId — should NOT sync back
         { ...makeCharacter(ID_B, 'Loras', 9) },
       ],

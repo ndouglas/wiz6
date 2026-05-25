@@ -9,7 +9,7 @@ const FAKE_GALLERY = {
   characters: [
     {
       id: '00000000-0000-4000-8000-000000000001',
-      name: 'Hawkwind',
+      name: 'Thesus',
       race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 0, gold: 100,
       conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       dead: false, paralyzed: false,
@@ -35,14 +35,14 @@ describe('RosterView', () => {
     render(<MemoryRouter><RosterView /></MemoryRouter>);
     expect(screen.getByRole('heading', { level: 1, name: /roster/i })).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText('Hawkwind')).toBeInTheDocument();
+      expect(screen.getByText('Thesus')).toBeInTheDocument();
     });
   });
 
   it('renders existing roster characters (no re-seed needed)', async () => {
     render(<MemoryRouter><RosterView /></MemoryRouter>);
     await waitFor(() => {
-      expect(screen.getByText('Hawkwind')).toBeInTheDocument();
+      expect(screen.getByText('Thesus')).toBeInTheDocument();
     });
   });
 });
@@ -51,7 +51,7 @@ describe('RosterView gallery badge', () => {
   it('renders a "from gallery" badge on seed-imported characters', async () => {
     render(<MemoryRouter><RosterView /></MemoryRouter>);
     await waitFor(() => {
-      expect(screen.getByText('Hawkwind')).toBeInTheDocument();
+      expect(screen.getByText('Thesus')).toBeInTheDocument();
       expect(screen.getByText(/from gallery/i)).toBeInTheDocument();
     });
   });
@@ -61,7 +61,7 @@ describe('RosterView character download', () => {
   it('renders a Download button on each character card', async () => {
     render(<MemoryRouter><RosterView /></MemoryRouter>);
     await waitFor(() => {
-      expect(screen.getByText('Hawkwind')).toBeInTheDocument();
+      expect(screen.getByText('Thesus')).toBeInTheDocument();
     });
     const downloadBtns = screen.getAllByRole('button', { name: /download/i });
     expect(downloadBtns.length).toBeGreaterThan(0);
@@ -78,7 +78,7 @@ describe('RosterView character upload', () => {
 
   it('adds the uploaded character to the roster under a new uuid', async () => {
     render(<MemoryRouter><RosterView /></MemoryRouter>);
-    await waitFor(() => screen.getByText('Hawkwind'));
+    await waitFor(() => screen.getByText('Thesus'));
 
     const upload = screen.getByLabelText(/upload character/i) as HTMLInputElement;
     const payload = JSON.stringify({

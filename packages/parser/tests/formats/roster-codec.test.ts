@@ -12,7 +12,7 @@ const ROSTER: Roster = {
   characters: [
     {
       id: '550e8400-e29b-41d4-a716-446655440000',
-      name: 'Hawkwind',
+      name: 'Thesus',
       race: 0, class: 0, level: 1, xp: 0, gold: 0,
       conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       dead: false, paralyzed: false,

@@ -7,7 +7,7 @@ const FAKE_GALLERY = {
   characters: [
     {
       id: '00000000-0000-4000-8000-000000000001',
-      name: 'Hawkwind',
+      name: 'Thesus',
       race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 0, gold: 100,
       conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       dead: false, paralyzed: false,
@@ -32,7 +32,7 @@ describe('gallery', () => {
   it('loadGallery returns the parsed gallery roster', async () => {
     const g = await loadGallery();
     expect(g.characters).toHaveLength(1);
-    expect(g.characters[0]!.name).toBe('Hawkwind');
+    expect(g.characters[0]!.name).toBe('Thesus');
   });
 
   it('isGalleryCharacter returns true for IDs that came from the gallery', async () => {
@@ -51,7 +51,7 @@ describe('gallery', () => {
     const r = readRoster();
     expect(r.characters).toHaveLength(1);
     expect(r.characters[0]!.id).toBe(newId);
-    expect(r.characters[0]!.name).toBe('Hawkwind');
+    expect(r.characters[0]!.name).toBe('Thesus');
   });
 
   it('importToRoster throws on unknown gallery id', async () => {
@@ -65,7 +65,7 @@ describe('seedRosterIfEmpty', () => {
     await seedRosterIfEmpty();
     const r = readRoster();
     expect(r.characters).toHaveLength(FAKE_GALLERY.characters.length);
-    expect(r.characters[0]!.name).toBe('Hawkwind');
+    expect(r.characters[0]!.name).toBe('Thesus');
   });
 
   it('is a no-op when the roster already has characters', async () => {
