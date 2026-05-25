@@ -47,6 +47,8 @@ export {
   decodeRosterBase64,
 } from './formats/roster-codec.js';
 
+export { decodePcfile } from './formats/pcfile.js';
+
 export {
   slugify,
 } from './queries/slug.js';
