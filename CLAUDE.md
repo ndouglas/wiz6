@@ -255,7 +255,7 @@ To wire into Claude Code, add to your MCP config:
 
 **Inbox: [`INBOX.md`](INBOX.md)** — Nate's freeform jot pad. Read it on session start; if non-empty, clarify items with him then process in a single batch commit that adds TODO entries and clears INBOX.
 
-- **Overlay naming passes** (#003): `wmele.ovr`, `wpcmk.ovr`, `wpcvw.ovr`, `wmnpc.ovr`, `wtrea.ovr` still on `FUN_XXXX` names.
+(See `TODO.md` for current open work.)
 
 ## Where to look when stuck
 
