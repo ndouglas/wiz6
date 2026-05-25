@@ -214,11 +214,14 @@ function composeFrame(
 
   // Top strip + gate art (FUN_07b7 calls — see wroot-window-heap-allocator
   // finding for the engine-derived positions).
-  // dragonsc.ega is a full 320×200 image but has content only in rows
-  // 0..44; rows 45..199 are all-zero (black) which would overwrite the
-  // canvas-level gray fill. Only copy the content-bearing top strip.
+  // dragonsc.ega is a full 320×200 image but has visible content from
+  // rows 4..38. Per user reference, the gray ground starts at the TOP
+  // edge of the dungeon viewport (y=32), so we crop dragonsc to rows
+  // 0..31 only — the dragon-shape decorations dragonsc has at rows
+  // 32..44 are covered by other windows in the engine's render and
+  // shouldn't bleed into the gray sides.
   if (dragonscRgba) {
-    const DRAGONSC_TOP_ROWS = 45;
+    const DRAGONSC_TOP_ROWS = 32;
     const bytes = ENGINE_W * DRAGONSC_TOP_ROWS * 4;
     buf.set(dragonscRgba.subarray(0, bytes));
   }
