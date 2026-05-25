@@ -214,7 +214,14 @@ function composeFrame(
 
   // Top strip + gate art (FUN_07b7 calls — see wroot-window-heap-allocator
   // finding for the engine-derived positions).
-  if (dragonscRgba) buf.set(dragonscRgba);
+  // dragonsc.ega is a full 320×200 image but has content only in rows
+  // 0..44; rows 45..199 are all-zero (black) which would overwrite the
+  // canvas-level gray fill. Only copy the content-bearing top strip.
+  if (dragonscRgba) {
+    const DRAGONSC_TOP_ROWS = 45;
+    const bytes = ENGINE_W * DRAGONSC_TOP_ROWS * 4;
+    buf.set(dragonscRgba.subarray(0, bytes));
+  }
   if (mon08Pic && mon08Decoded) {
     compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 32, [0], mon08Pic, mon08Decoded, EGA_DEFAULT);
     compositePicScript(buf, ENGINE_W, ENGINE_H, 160, 32, [1], mon08Pic, mon08Decoded, EGA_DEFAULT);
