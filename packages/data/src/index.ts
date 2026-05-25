@@ -73,8 +73,10 @@ export { SndSchema, type Snd } from './schemas/snd.js';
 export {
   CharacterSchema,
   AttributesSchema,
+  PartyMemberSchema,
   type Character,
   type Attributes,
+  type PartyMember,
 } from './schemas/character.js';
 export {
   PALETTE_CATALOG,

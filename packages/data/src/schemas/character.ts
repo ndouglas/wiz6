@@ -70,5 +70,16 @@ export const CharacterSchema = z.object({
   reaction: U8,
 });
 
+export const PartyMemberSchema = CharacterSchema.extend({
+  /**
+   * If present, the engine should sync state changes (level-up, death,
+   * class-change, etc.) back to this roster entry on save / end-of-game.
+   * Absent when a save was imported from another visitor without their
+   * roster — the party member is treated as a one-off snapshot.
+   */
+  rosterCharacterId: z.string().uuid().optional(),
+});
+
 export type Attributes = z.infer<typeof AttributesSchema>;
 export type Character = z.infer<typeof CharacterSchema>;
+export type PartyMember = z.infer<typeof PartyMemberSchema>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CharacterSchema, type Character } from '../../src/schemas/character.js';
+import { CharacterSchema, PartyMemberSchema, type Character, type PartyMember } from '../../src/schemas/character.js';
 
 const VALID: Character = {
   id: '550e8400-e29b-41d4-a716-446655440000',
@@ -56,5 +56,25 @@ describe('CharacterSchema', () => {
 
   it('rejects negative xp', () => {
     expect(() => CharacterSchema.parse({ ...VALID, xp: -1 })).toThrow();
+  });
+});
+
+describe('PartyMemberSchema', () => {
+  const BASE: PartyMember = { ...VALID };
+
+  it('accepts a party member without rosterCharacterId (one-off snapshot)', () => {
+    expect(() => PartyMemberSchema.parse(BASE)).not.toThrow();
+  });
+
+  it('accepts a party member with a UUID rosterCharacterId', () => {
+    const withRef: PartyMember = {
+      ...BASE,
+      rosterCharacterId: '550e8400-e29b-41d4-a716-446655440000',
+    };
+    expect(() => PartyMemberSchema.parse(withRef)).not.toThrow();
+  });
+
+  it('rejects a non-UUID rosterCharacterId', () => {
+    expect(() => PartyMemberSchema.parse({ ...BASE, rosterCharacterId: 'nope' })).toThrow();
   });
 });
