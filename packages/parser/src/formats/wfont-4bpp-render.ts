@@ -27,6 +27,11 @@ export function renderTextRun4bpp(
   text: string,
   font: Font4bpp,
   palette: Palette,
+  /** Optional per-file-color override map. Keys are file-pixel values
+   *  (0..15); values are palette indices to use INSTEAD of the
+   *  default EGA permutation result. Used to remap wfont3's baked-in
+   *  letter color (file 1) to e.g. light gray instead of white. */
+  fileColorOverride: Readonly<Partial<Record<number, number>>> = {},
 ): void {
   let cursorX = dstX;
   for (let i = 0; i < text.length; i++) {
@@ -50,10 +55,11 @@ export function renderTextRun4bpp(
           (((pB >> bit) & 1) << 1) |
           (((pR >> bit) & 1) << 2) |
           (((pI >> bit) & 1) << 3);
-        if (fileIdx === 0) continue; // transparent (no glyph pixel here)
+        if (fileIdx === 0 && !(0 in fileColorOverride)) continue; // transparent
         const px = cursorX + col;
         if (px < 0 || px >= destW) continue;
-        const egaIdx = EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
+        const overrideIdx = fileColorOverride[fileIdx];
+        const egaIdx = overrideIdx !== undefined ? overrideIdx : EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
         const color = palette.colors[egaIdx];
         if (!color) continue;
         const idx = (py * destW + px) * 4;

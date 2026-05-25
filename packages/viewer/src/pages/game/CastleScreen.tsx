@@ -245,26 +245,36 @@ function composeFrame(
   if (wfont3) {
     const cellW = 8;
     const cellH = 8;
-    // EGA color 8 = dark gray (the "neutral gray" background per user obs).
     const GRAY = EGA_DEFAULT.colors[8] ?? [0x55, 0x55, 0x55];
     const BLACK = EGA_DEFAULT.colors[0] ?? [0, 0, 0];
 
+    // wfont3 bakes the letter color (file pixel 1) as white and the
+    // background (file pixel 8) as dark gray. Remap file 1 → EGA 7
+    // (light gray) so MASTER OPTIONS + menu labels read as light-gray
+    // text on dark-gray ground per the reference. file 8 stays at the
+    // permutation default (EGA 8 dark gray).
+    const NORMAL_OVERRIDE: Record<number, number> = { 1: 7 };
+    // Selected option: black text on yellow background. file 1 (the
+    // letter pixels) → EGA 0 (black); file 8 (the glyph background) →
+    // EGA 14 (yellow).
+    const SELECTED_OVERRIDE: Record<number, number> = { 1: 0, 8: 14 };
+
     // ---- Banner row (y=144..152, 8 px tall) ----
-    // Gray background with 1-px black separator lines top + bottom; text
-    // " {bat} MASTER OPTIONS {bat} " centered. Bat glyph is wfont3 char
-    // 0x18 (dark-gray-bodied bat shape). Banner cursor was at col 30 at
-    // save time = 18 visible chars starting at col 11 → 13 (off-by-2
-    // here matches the 2 leading spaces).
+    // Gray background, " {bat} {sp} MASTER OPTIONS {sp} {bat} " centered
+    // (22 chars). Two spaces between bat and text on each side.
+    // Black 1-pixel lines on top and bottom drawn AFTER text so they
+    // sit on top of the glyph cells' built-in gray top/bottom rows.
     fillRect(buf, 0, 144, ENGINE_W, 8, GRAY);
-    fillRect(buf, 0, 144, ENGINE_W, 1, BLACK); // top separator
-    fillRect(buf, 0, 151, ENGINE_W, 1, BLACK); // bottom separator
-    const banner = '\x18 MASTER OPTIONS \x18';
+    const banner = '\x18  MASTER OPTIONS  \x18';
     const bannerX = ((40 - banner.length) >> 1) * cellW;
-    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, bannerX, 144, banner, wfont3, EGA_DEFAULT);
+    renderTextRun4bpp(
+      buf, ENGINE_W, ENGINE_H, bannerX, 144,
+      banner, wfont3, EGA_DEFAULT, NORMAL_OVERRIDE,
+    );
+    fillRect(buf, 0, 144, ENGINE_W, 1, BLACK);
+    fillRect(buf, 0, 151, ENGINE_W, 1, BLACK);
 
     // ---- Lower pane (y=152..192) ----
-    // Same neutral-gray fill so the banner reads as a stripe inside a
-    // unified gray panel.
     const PANE_X = 0;
     const PANE_Y = 152;
     const PANE_W = 320;
@@ -282,16 +292,12 @@ function composeFrame(
       const cursorY = (i % ROWS_PER_COL) + Y_BASE;
       const textX = PANE_X + cursorX * cellW;
       const textY = PANE_Y + cursorY * cellH;
-      renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, textX, textY, opt.label, wfont3, EGA_DEFAULT);
-      // Selection highlight: invert the row band to a brighter bg so the
-      // user can see which option is active. Engine uses an inverted-
-      // attribute redraw; we approximate by drawing a light-gray bar
-      // behind the text and re-rendering the text on top.
-      if (i === selectedIdx) {
-        const lightGray = EGA_DEFAULT.colors[7] ?? [0xaa, 0xaa, 0xaa];
-        fillRect(buf, textX - 1, textY, opt.label.length * cellW + 2, cellH, lightGray);
-        renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, textX, textY, opt.label, wfont3, EGA_DEFAULT);
-      }
+      const isSel = i === selectedIdx;
+      renderTextRun4bpp(
+        buf, ENGINE_W, ENGINE_H, textX, textY,
+        opt.label, wfont3, EGA_DEFAULT,
+        isSel ? SELECTED_OVERRIDE : NORMAL_OVERRIDE,
+      );
     }
   }
 
