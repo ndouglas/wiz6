@@ -1,16 +1,50 @@
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import type { Character } from '@wiz6/data';
+import { readRoster } from '../../lib/roster-store.js';
+import { seedRosterIfEmpty } from '../../lib/gallery.js';
+import { RosterCharacterCard } from './RosterCharacterCard.js';
 import styles from './RosterView.module.css';
 
 export function RosterView() {
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await seedRosterIfEmpty();
+      } catch (e) {
+        console.warn('[RosterView] gallery seed failed', e);
+      }
+      if (cancelled) return;
+      setCharacters(readRoster().characters);
+      setLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <main className={styles.page}>
       <h1 className={styles.heading}>Roster</h1>
       <p className={styles.lede}>
-        Character data lives in <code>newgame.dbs</code> — 779 templates. A live roster will plug
-        in once the character schema is fully decoded and a save-file model is in place.
+        Your characters live in this browser's storage. Pre-seeded from the curated
+        <Link to="#"> gallery</Link> on first visit.
       </p>
-      <div className={styles.stub}>
-        <p>Roster view placeholder.</p>
-      </div>
+      {!loaded ? (
+        <p>Loading…</p>
+      ) : characters.length === 0 ? (
+        <p>No characters yet.</p>
+      ) : (
+        <ul className={styles.grid}>
+          {characters.map((c) => (
+            <li key={c.id}>
+              <RosterCharacterCard character={c} />
+            </li>
+          ))}
+        </ul>
+      )}
     </main>
   );
 }
