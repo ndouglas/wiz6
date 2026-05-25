@@ -274,7 +274,7 @@ function composeFrame(
     const SELECTED: Record<number, number> = { 1: 0, 8: 14 };
 
     // ---- Banner row (y=144..152, 8 px tall) ----
-    // Layout: 20-char run centered → "\x18  MASTER OPTIONS  \x18" starts
+    // Layout: 20-char run centered → "\x7f  MASTER OPTIONS  \x7f" starts
     // at col 10 (= screen x=80) and ends at col 29 (= screen x=232).
     //   col 10  : left bat
     //   col 11..12 : padding (2 spaces of gray; wfont3 space is a
@@ -287,9 +287,9 @@ function composeFrame(
     // 1 to light gray. Black 1-px separator lines on y=144 and y=151
     // are drawn AFTER text so they overlay any per-glyph gray top/bottom
     // pixels and stay continuous across the whole row.
-    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 80, 144, '\x18', wfont3, EGA_DEFAULT, BAT);
+    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 80, 144, '\x7f', wfont3, EGA_DEFAULT, BAT);
     renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 88, 144, '  MASTER OPTIONS  ', wfont3, EGA_DEFAULT, BANNER_TEXT);
-    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 232, 144, '\x18', wfont3, EGA_DEFAULT, BAT);
+    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 232, 144, '\x7f', wfont3, EGA_DEFAULT, BAT);
     fillRect(buf, 0, 144, ENGINE_W, 1, BLACK);
     fillRect(buf, 0, 151, ENGINE_W, 1, BLACK);
 
