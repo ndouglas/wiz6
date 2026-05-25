@@ -41,6 +41,13 @@ export {
 } from './formats/save-codec.js';
 
 export {
+  encodeRoster,
+  decodeRoster,
+  encodeRosterBase64,
+  decodeRosterBase64,
+} from './formats/roster-codec.js';
+
+export {
   slugify,
 } from './queries/slug.js';
 
