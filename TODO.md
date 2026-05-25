@@ -32,10 +32,13 @@ Next free ID: **#018**
   - Compare mode (`/monsters/compare`), family-grouped index, copy-bytes/JSON header buttons.
   - `.pic` monster sprites are still blocked on prior stage; cross-references with #004.
 
-- #009 [open] — Savegame + Roster management strategy for the web port (design done, implementation pending)
-  - **Design settled**: see [`docs/superpowers/specs/2026-05-23-savegame-strategy.md`](docs/superpowers/specs/2026-05-23-savegame-strategy.md).
-  - **TL;DR**: three persistence layers (per-visitor roster + 6 save slots + curated static gallery). Our own zod schemas (`CharacterSchema`, `PartyMemberSchema`, `SaveSchema`, `RosterSchema`) in `@wiz6/data`. localStorage primary, manual download/upload for portability. RNG seed advisory. DOS `SAVEGAME.DBS` interop deferred to a bridge module (needs separate RE pass). Saves are character snapshots with optional roster back-references; saves remain loadable without the roster. Curated gallery (static `/public/gallery/characters.json`) seeds new visitors' rosters on first visit. Savegame + roster editors in the data explorer deferred.
-  - **Implementation phases** (none on the critical path yet): schemas → encoder/decoder → save+roster storage → gallery seed → roster page → saves page. Phase 7 (DOS interop) + Phase 8 (editors) wait until the core ships.
+- #009 [open] — Savegame + Roster: Phase 6 (Saves page UX) + Phase 7-8 (DOS interop, savegame editor) remain
+  - Design: [`docs/superpowers/specs/2026-05-23-savegame-strategy.md`](docs/superpowers/specs/2026-05-23-savegame-strategy.md).
+  - Plan: [`docs/superpowers/plans/2026-05-25-savegame-roster-phases-1-5.md`](docs/superpowers/plans/2026-05-25-savegame-roster-phases-1-5.md).
+  - **Phases 1-5 shipped 2026-05-25**: schemas (`CharacterSchema` / `PartyMemberSchema` / `RosterSchema` / `SaveSchema` in `@wiz6/data`), gzip+base64 codecs in `@wiz6/parser`, localStorage stores (`wiz6:save:0..5`, `wiz6:roster`, `wiz6:gallery-origins`), curated `/gallery/characters.json` seed + auto-seed-on-first-visit, and a working `/roster` page (list + gallery badge + character download/upload).
+  - **Phase 6 (`/saves` page UX)** is the natural next step — slot grid, per-slot download/upload buttons, "form party" picker pulling from the roster.
+  - **Phase 7 (DOS interop)** waits on a separate `SAVEGAME.DBS` RE pass.
+  - **Phase 8 (savegame editor)** builds on Phase 6 + the per-field engineering tooltips.
 
 ---
 
