@@ -287,17 +287,18 @@ function composeFrame(
     const SELECTED: Record<number, number> = { 1: 0, 8: 14 };
 
     // ---- Banner row (y=144..152, 8 px tall) ----
-    // Fill the banner band with BLACK first so the transparent top+bottom
-    // rows of the banner-variant glyphs show through as 1-px black lines.
-    fillRect(buf, 0, 144, ENGINE_W, 8, EGA_DEFAULT.colors[0] ?? [0, 0, 0]);
-    // Banner literal: "\x7F\x5F\x5Fmaster options\x5F\x5F\x7F"
-    //   bat + 2 banner-spaces + "master options" + 2 banner-spaces + bat
-    // = 20 cells centered in the 40-cell banner row (start col 10, end
-    // col 29, cursor advances to col 30 — matches the cursor-saved-at-30
-    // empirical we read from the live menu_window struct).
-    const banner = '\x7f\x5f\x5fmaster options\x5f\x5f\x7f';
-    const bannerX = ((40 - banner.length) >> 1) * cellW;
-    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, bannerX, 144, banner, wfont3, EGA_DEFAULT);
+    // Pure tile placement — 40 banner-variant tiles laid edge-to-edge.
+    // Each tile is 8x8 and carries its OWN colors: black top+bottom rows
+    // baked in (so the 1-px lines top + bottom appear naturally across
+    // the full row width) + gray middle + optional letter/bat content.
+    // No separate fill operation, no compositing, no transparency.
+    const PAD = '\x5f'; // banner-variant space (gray middle, black edges)
+    const BAT = '\x7f'; // banner-variant bat
+    const centered = `${BAT}${PAD}${PAD}master options${PAD}${PAD}${BAT}`; // 20 cells
+    const leftPad = PAD.repeat((40 - centered.length) / 2);
+    const rightPad = PAD.repeat(40 - centered.length - leftPad.length);
+    const banner = leftPad + centered + rightPad;
+    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 0, 144, banner, wfont3, EGA_DEFAULT);
 
     // ---- Lower pane (y=152..192) ----
     // No fill needed — the canvas-level gray fill at the top of

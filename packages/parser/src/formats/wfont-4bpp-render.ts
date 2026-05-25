@@ -2,21 +2,33 @@ import type { Font4bpp, Palette } from '@wiz6/data';
 import { EGA_FILE_INDEX_PERMUTATION } from './ega-permutation.js';
 
 /**
- * Render an ASCII string using a 4bpp 8×8 EGA-planar font (wfont1..4)
+ * Render a tile sequence using a 4bpp 8×8 EGA-planar font (wfont1..4)
  * into an existing RGBA destination buffer.
  *
- * Each glyph is 32 bytes — 8 bytes per row × 4 EGA planes (G, B, R, I),
- * MSB-first within each plane byte. This is the same encoding as a
- * single `.pic` cell, so the per-pixel color decode mirrors
- * `compositePicDescriptor`.
+ * IMPORTANT: wfont files are TILE SPRITESHEETS, not glyph fonts with a
+ * separable color attribute. Every pixel in each 8×8 tile is FULLY
+ * DEFINED — there is no transparency, no separate "fg" or "bg" color
+ * attribute. Each tile slot is a complete picture. To render text in
+ * a different color scheme, the engine uses a DIFFERENT slot
+ * containing the same letter shape with different baked-in colors.
+ * E.g. wfont3 0x41 ('A') is white-on-gray; wfont3 0x61 (same shape)
+ * is light-gray-on-gray-with-black-top-and-bottom-rows.
  *
- * File pixel value 0 (no plane bits set) is treated as transparent —
- * the destination is left untouched. All other file values get
- * permuted via `EGA_FILE_INDEX_PERMUTATION` (the same convention
- * `.pic` and `.ega` use) and rendered through the supplied palette.
+ * Each tile is 32 bytes — 8 bytes per row × 4 EGA planes (G, B, R, I),
+ * MSB-first within each plane byte. Same encoding as a `.pic` cell.
  *
- * Cursor advances 8 pixels per character — no kerning or proportional
- * spacing, matching the engine's fixed-width text layout.
+ * File pixel values are permuted via `EGA_FILE_INDEX_PERMUTATION` (the
+ * same convention `.pic` and `.ega` use) and rendered through the
+ * supplied palette. File value 0 → palette[0] (typically black), NOT
+ * transparent. All 64 pixels of the tile are written.
+ *
+ * Cursor advances 8 pixels per tile — no kerning or proportional
+ * spacing, matching the engine's fixed-cell text layout.
+ *
+ * `fileColorOverride` is a per-tile escape hatch for the rare cases
+ * where the port needs to remap a specific file-color to a different
+ * palette index (e.g. for "selected option" highlight). Most callers
+ * should pass `{}` and let the tile's baked-in colors render as-is.
  */
 export function renderTextRun4bpp(
   destRgba: Uint8ClampedArray,
@@ -55,7 +67,6 @@ export function renderTextRun4bpp(
           (((pB >> bit) & 1) << 1) |
           (((pR >> bit) & 1) << 2) |
           (((pI >> bit) & 1) << 3);
-        if (fileIdx === 0 && !(0 in fileColorOverride)) continue; // transparent
         const px = cursorX + col;
         if (px < 0 || px >= destW) continue;
         const overrideIdx = fileColorOverride[fileIdx];
