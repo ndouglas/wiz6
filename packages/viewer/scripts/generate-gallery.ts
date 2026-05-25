@@ -30,6 +30,8 @@ const characters: Character[] = decoded.slots
     // wpcvw.ovr ASM traces; see docs/re/findings/character-record-extended-map.json).
     level: s.level,
     xp: s.xp,
+    // mks (Monster Kill Statistic) at +0x10 (abs 0x43f8). Manual p. 23. Stock chars all 0.
+    mks: s.mks,
     // Race at +0x19d (abs 0x4585): stats panel mov al,[bx+0x4585]; add ax,0x64 -> msg lookup.
     race: s.race,
     // Class at +0x19f (abs 0x4587): stats panel mov al,[bx+0x4587]; add ax,0x78 -> msg lookup.
@@ -39,6 +41,10 @@ const characters: Character[] = decoded.slots
     savedOldLevel: s.savedOldLevel,
     // Gold at +0x14 (abs 0x43fc/0x43fe): 32-bit field, 0 for all stock chars.
     gold: s.gold,
+    // encumbranceCurrent at +0x20: current load in tenths of a pound. martydill cross-ref.
+    encumbranceCurrent: s.encumbranceCurrent,
+    // encumbranceMax at +0x22: max carry capacity in tenths of a pound. martydill cross-ref.
+    encumbranceMax: s.encumbranceMax,
     // conditions[10] at +0x122 (abs 0x450a). conditions[2]=dead, [3]=paralyzed.
     // All stock chars healthy → all zeros. HIGH confidence.
     conditions: s.conditions,
@@ -46,6 +52,7 @@ const characters: Character[] = decoded.slots
     paralyzed: s.conditions[3] !== 0,
     // Attributes at +0x12c..+0x133 (abs 0x4514..0x451b).
     // Stats panel loop: [bx+0x4514+i] for i=0..7, msgs 0xcc..0xd3 = STR/INT/PIE/VIT/DEX/SPD/PER/KAR.
+    // PER=Personality, KAR=Karma — confirmed distinct named stats per manual p. 11.
     attributes: {
       str: s.str,
       int: s.int,
@@ -53,18 +60,19 @@ const characters: Character[] = decoded.slots
       vit: s.vit,
       dex: s.dex,
       spd: s.spd,
-      // PER/KAR are the 7th and 8th bytes in the 8-byte attribute block.
-      // Labeled in wpcmk stat_panel as msg 0xd2 (PER) and 0xd3 (KAR).
-      personality: s.per,
-      karma: s.kar,
+      per: s.per,
+      kar: s.kar,
     },
     // School mana: 6 schools (Fire/Water/Air/Earth/Mental/Divine).
     // Interleaved (cur u16, max u16) pairs at +0x28+i*4 and +0x2a+i*4.
     // Stats panel loop (file+0x0e55+0x4c): for i=0..5; [bx+0x4410] cur; [bx+0x4412] max.
     schoolMana: s.schoolManaCur,
     schoolManaMax: s.schoolManaMax,
-    // skills[14] at +0x134 (abs 0x451c). Cap = 50 (0x32). HIGH confidence.
+    // skills[30] at +0x134..+0x151 (abs 0x451c). Cap = 50 (0x32). HIGH confidence.
+    // EXTENDED from 14 to 30 bytes. Index map: 0=Sword,1=Axe,...15=Skulduggery,...28=Thaumaturgy.
     skills: s.skills,
+    // bodyAc[7] at +0x161..+0x167. Manual p. 25: AC sub-components. Stock=[0,0,10,10,10,10,10].
+    bodyAc: s.bodyAc,
     // reaction at +0x168 (abs 0x4550). Range 0..100. HIGH confidence.
     // Stock chars: THESUS=20, TEMPEST=12, LYSANDR=16, NOBAL=20, TREON=16, PENTAG=40.
     reaction: s.reaction,
