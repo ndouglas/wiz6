@@ -200,17 +200,20 @@ function composeFrame(
   selectedIdx: number,
 ): void {
   const buf = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
-  for (let i = 0; i < buf.length; i += 4) buf[i + 3] = 0xff;
+  // Start with the canvas filled in the neutral dark-gray that wraps the
+  // gate / dungeon viewport on every side AND fills the bottom of the
+  // screen down to y=200. The gate art + dragonsc strip + banner are
+  // overlaid on top.
+  const GRAY = EGA_DEFAULT.colors[8] ?? [0x55, 0x55, 0x55];
+  for (let i = 0; i < buf.length; i += 4) {
+    buf[i] = GRAY[0]!;
+    buf[i + 1] = GRAY[1]!;
+    buf[i + 2] = GRAY[2]!;
+    buf[i + 3] = 0xff;
+  }
 
-  // Static background: dragonsc top strip + engine FUN_07b7 unconditional
-  // draws. Each f10c call in the engine renders a 1-element script [desc, 0]
-  // at the documented screen position; ported via compositePicScript.
-  // Engine-derived positions from wbase save 1 (true DGROUP 0x18048, see
-  // docs/re/findings/wroot-window-heap-allocator.json):
-  //   slot 1: desc 0 (gate left)  at (72,  32)
-  //   slot 2: desc 1 (gate right) at (160, 32)
-  //   slot 3: desc 2 (door L)     at (128, 49)
-  //   slot 4: desc 3 (door R)     at (160, 49)
+  // Top strip + gate art (FUN_07b7 calls — see wroot-window-heap-allocator
+  // finding for the engine-derived positions).
   if (dragonscRgba) buf.set(dragonscRgba);
   if (mon08Pic && mon08Decoded) {
     compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 32, [0], mon08Pic, mon08Decoded, EGA_DEFAULT);
@@ -244,44 +247,50 @@ function composeFrame(
   // Cells are 8 px relative to the lower pane's top-left.
   if (wfont3) {
     const cellW = 8;
-    const cellH = 8;
-    const GRAY = EGA_DEFAULT.colors[8] ?? [0x55, 0x55, 0x55];
     const BLACK = EGA_DEFAULT.colors[0] ?? [0, 0, 0];
 
-    // wfont3 bakes the letter color (file pixel 1) as white and the
-    // background (file pixel 8) as dark gray. Remap file 1 → EGA 7
-    // (light gray) so MASTER OPTIONS + menu labels read as light-gray
-    // text on dark-gray ground per the reference. file 8 stays at the
-    // permutation default (EGA 8 dark gray).
-    const NORMAL_OVERRIDE: Record<number, number> = { 1: 7 };
-    // Selected option: black text on yellow background. file 1 (the
-    // letter pixels) → EGA 0 (black); file 8 (the glyph background) →
-    // EGA 14 (yellow).
-    const SELECTED_OVERRIDE: Record<number, number> = { 1: 0, 8: 14 };
+    // Color overrides per usage:
+    //   BANNER_TEXT: file 1 (letter strokes) → EGA 7 (light gray) — the
+    //     MASTER OPTIONS title reads in light gray on the dark-gray ground.
+    //   BAT: file 8 (the bat body / glyph "background") → EGA 0 (black)
+    //     so the bat shape is visible against the gray ground. file 4
+    //     (eye pixels) keeps the default permutation = EGA 12 (light red).
+    //   SELECTED: file 1 → EGA 0 (black) and file 8 → EGA 14 (yellow) —
+    //     selected menu option renders as black text on yellow ground.
+    //   (Unselected menu options take no override → default permutation
+    //    → file 1 = EGA 15 (white). MASTER OPTIONS uses BANNER_TEXT.)
+    const BANNER_TEXT: Record<number, number> = { 1: 7 };
+    const BAT: Record<number, number> = { 8: 0 };
+    const SELECTED: Record<number, number> = { 1: 0, 8: 14 };
 
     // ---- Banner row (y=144..152, 8 px tall) ----
-    // Gray background, " {bat} {sp} MASTER OPTIONS {sp} {bat} " centered
-    // (22 chars). Two spaces between bat and text on each side.
-    // Black 1-pixel lines on top and bottom drawn AFTER text so they
-    // sit on top of the glyph cells' built-in gray top/bottom rows.
-    fillRect(buf, 0, 144, ENGINE_W, 8, GRAY);
-    const banner = '\x18  MASTER OPTIONS  \x18';
-    const bannerX = ((40 - banner.length) >> 1) * cellW;
-    renderTextRun4bpp(
-      buf, ENGINE_W, ENGINE_H, bannerX, 144,
-      banner, wfont3, EGA_DEFAULT, NORMAL_OVERRIDE,
-    );
+    // Layout: 20-char run centered → "\x18  MASTER OPTIONS  \x18" starts
+    // at col 10 (= screen x=80) and ends at col 29 (= screen x=232).
+    //   col 10  : left bat
+    //   col 11..12 : padding (2 spaces of gray; wfont3 space is a
+    //                solid-gray 8x8 cell so this just IS the background)
+    //   col 13..26 : "MASTER OPTIONS" (14 chars)
+    //   col 27..28 : 2 padding spaces
+    //   col 29  : right bat
+    // We render each piece with its own color override so the bat body
+    // remaps file-color 8 to black while the title text remaps file-color
+    // 1 to light gray. Black 1-px separator lines on y=144 and y=151
+    // are drawn AFTER text so they overlay any per-glyph gray top/bottom
+    // pixels and stay continuous across the whole row.
+    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 80, 144, '\x18', wfont3, EGA_DEFAULT, BAT);
+    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 88, 144, '  MASTER OPTIONS  ', wfont3, EGA_DEFAULT, BANNER_TEXT);
+    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 232, 144, '\x18', wfont3, EGA_DEFAULT, BAT);
     fillRect(buf, 0, 144, ENGINE_W, 1, BLACK);
     fillRect(buf, 0, 151, ENGINE_W, 1, BLACK);
 
     // ---- Lower pane (y=152..192) ----
+    // No fill needed — the canvas-level gray fill at the top of
+    // composeFrame already covers this region. Just render the menu
+    // option labels at the engine-derived cell positions.
+    //   FUN_025c grid math: cursor_X cell = (slot/4)*19 + 2
+    //                       cursor_Y cell = (slot%4) + 1
     const PANE_X = 0;
     const PANE_Y = 152;
-    const PANE_W = 320;
-    const PANE_H = 40;
-    fillRect(buf, PANE_X, PANE_Y, PANE_W, PANE_H, GRAY);
-
-    // FUN_025c grid math: (slot/4)*19+2 = cursor X cell; (slot%4)+1 = Y cell.
     const X_BASE = 2;
     const Y_BASE = 1;
     const X_STRIDE = 19;
@@ -291,12 +300,12 @@ function composeFrame(
       const cursorX = Math.floor(i / ROWS_PER_COL) * X_STRIDE + X_BASE;
       const cursorY = (i % ROWS_PER_COL) + Y_BASE;
       const textX = PANE_X + cursorX * cellW;
-      const textY = PANE_Y + cursorY * cellH;
+      const textY = PANE_Y + cursorY * 8;
       const isSel = i === selectedIdx;
       renderTextRun4bpp(
         buf, ENGINE_W, ENGINE_H, textX, textY,
         opt.label, wfont3, EGA_DEFAULT,
-        isSel ? SELECTED_OVERRIDE : NORMAL_OVERRIDE,
+        isSel ? SELECTED : {},
       );
     }
   }
