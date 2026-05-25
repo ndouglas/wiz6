@@ -57,11 +57,15 @@ export function CastleScreen() {
   const [wfont3, setWfont3] = useState<Font4bpp | null>(null);
   const [wfont0, setWfont0] = useState<Font | null>(null);
 
-  // Drop slot 6 (GAME CONFIGURATION) from the web port — the original game's
-  // config menu existed for DOS-era audio-device selection. Web Audio handles
-  // output; the only user-facing audio control is the MuteToggle in chrome.
+  // Web-port menu filtering:
+  //  - slot 6 (GAME CONFIGURATION): the original config menu existed for
+  //    DOS-era audio-device selection. Web Audio handles output; the only
+  //    user-facing audio control is the MuteToggle in chrome.
+  //  - slot 8 (QUIT GAME): there's no "quit to DOS" in a browser. The user
+  //    closes the tab or navigates away. We keep both slots in the engine-
+  //    model MAIN_MENU_OPTIONS for engine-faithfulness, just hide them here.
   const visible = useMemo(
-    () => visibleMenuOptions(DEFAULT_CONTEXT).filter((opt) => opt.slot !== 6),
+    () => visibleMenuOptions(DEFAULT_CONTEXT).filter((opt) => opt.slot !== 6 && opt.slot !== 8),
     [],
   );
   const [selectedIdx, setSelectedIdx] = useState(0);
