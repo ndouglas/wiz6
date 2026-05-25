@@ -26,16 +26,12 @@ const characters: Character[] = decoded.slots
   .map((s, i) => ({
     id: slotUuid(i),
     name: s.name!,
-    // Decoded from pcfile:
+    // Decoded from pcfile (field offsets confirmed by wpcvw.ovr ASM traces):
     level: s.level,
-    // Override XP to 0 for the gallery. The +0x08 field in pcfile.dbs reads
-    // as `s.xp` here (6,590 for THESUS etc.), but per the user's in-game
-    // observation, fresh characters start at 0 XP. The decoded value at
-    // +0x08 is preserved by the decoder but its semantics are uncertain —
-    // possibly XP banked for a "pre-built" starter, possibly a different
-    // field entirely. See docs/re/findings/character-level-field.json.
-    // The gallery represents the clean factory starting state.
-    xp: 0,
+    // XP is at record +0x0c (BSS abs 0x43f4/0x43f6). The prior +0x08 field is
+    // ageCounter (a game-day age counter). All 6 stock chars have xp=0 at +0x0c,
+    // consistent with "everyone starts at 0 XP". See character-xp-field.json.
+    xp: s.xp,
     // Sensible defaults for fields we couldn't confidently decode.
     // A future RE refinement pass can replace these with the real values
     // by enriching the pcfile decoder (see docs/re/pcfile-dbs.md's

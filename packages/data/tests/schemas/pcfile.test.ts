@@ -16,6 +16,7 @@ const validHeader = {
 function emptySlot(slot: number): PcfileSlot {
   return {
     slot, populated: false, name: null,
+    ageCounter: 0,
     xp: 0,
     hpCurrent: 0, hpMax: 0,
     spCurrent: 0, spMax: 0,
@@ -46,7 +47,8 @@ describe('PcfileSlotSchema', () => {
       ...emptySlot(0),
       populated: true,
       name: 'THESUS',
-      xp: 6590,
+      ageCounter: 6590,
+      xp: 0,
       hpCurrent: 8, hpMax: 8,
       spCurrent: 126, spMax: 126,
       gold: 2700,

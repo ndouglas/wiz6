@@ -7,12 +7,17 @@ import type { BssStruct } from './bss-types.js';
  * rep-movsw memcpy from the pcfile.dbs record into the BSS slot.
  *
  * Source: `docs/re/pcfile-dbs.md` + `docs/re/findings/character-level-field.json`
+ *        + `docs/re/findings/character-xp-field.json`
  *
- * Field offsets verified by two independent wpcvw.ovr ASM traces:
+ * Field offsets verified by independent wpcvw.ovr ASM traces:
  *   - Stats panel renderer (image 0x117b): `push word [bx+0x440c]` → level display
  *   - level_up_apply (image 0xb22e): `inc word [bx+0x440c]` → level increment
  *   - fn-party-row-render: HP bar at abs 0x4400/0x4402; SP bar at 0x4404/0x4406
  *   - class_change_apply (image 0x6054): `mov word [bx+0x440c], 1` → level reset
+ *   - Stats panel (image 0x1077): reads [bx+0x43f0]/[bx+0x43f2] ÷ 365 → age display
+ *   - Stats panel (image 0x123e/0x1242): pushes [bx+0x43f6]/[bx+0x43f4] → XP display
+ *   - level_up_check (image 0xb470/0xb474): reads [bx+0x43f4]/[bx+0x43f6] → XP threshold
+ *   - class_change_apply (image 0x61e7): clears [bx+0x43f6]/[bx+0x43f4] → XP wipe
  * All absolute BSS addresses relative to base 0x43e8: offset = abs − 0x43e8.
  */
 export const CHARACTER_RECORD: BssStruct = {
@@ -25,21 +30,55 @@ export const CHARACTER_RECORD: BssStruct = {
       name: 'name',
       offset: 0x00,
       // 8 bytes: 7 chars max + null terminator. Empirically confirmed by
-      // pcfile.dbs RE pass (TEMPEST fills +0x00..+0x07 exactly, XP starts +0x08).
+      // pcfile.dbs RE pass (TEMPEST fills +0x00..+0x07 exactly, age_counter starts
+      // at +0x08). The prior claim of "XP starts at +0x08" was wrong; see
+      // docs/re/findings/character-xp-field.json.
       type: { kind: 'string', length: 8, encoding: 'ascii' },
       description: 'ASCII character name. Null-terminated; max 7 chars. 8-byte field.',
     },
     {
-      name: 'xp',
+      name: 'age_counter',
       offset: 0x08,
-      // Empirically confirmed: THESUS bytes +0x08..+0x0b = BE 19 00 00 = 6590.
-      // wpcvw stats panel reads XP from [bx+0x43f0] = BSS +0x08. HIGH confidence.
+      // HIGH CONFIDENCE: 32-bit age counter in game-days.
+      // (1) Stats panel renderer (wpcvw.ovr image 0x1077):
+      //     mov ax,[bx+0x43f0] / mov dx,[bx+0x43f2]; cx=0x16d=365; call 0xf9c8
+      //     → divides field by 365, passes result to display_number (age in years).
+      // (2) Aging mechanic (wpcvw.ovr image 0x977d):
+      //     reads same field, divides by 365; if quotient > 18:
+      //     subtracts 365 from field AND increments VIT (+0x4517) — aging tax.
+      // abs 0x43f0/0x43f2 = BSS base 0x43e8 + +0x08/+0x0a.
+      // Stock chars: THESUS=6590, TEMPEST=7405, LYSANDR=7265, NOBAL=7057,
+      // TREON=6603, PENTAG=6698 days (≈18–20 years).
+      // Previously mislabeled 'xp' because of its u32 shape — corrected 2026-05-25.
       type: { kind: 'scalar', scalar: 'u32_le' },
-      description: 'Experience points (32-bit LE). At +0x08.',
+      description: '32-bit age counter in game-days. Displayed as age÷365 (years) in stats panel. Aging mechanic decrements VIT when age÷365 > 18. Stock chars ≈18–20 years.',
     },
-    // +0x0c..+0x17: 12 bytes unknown / unconfirmed. All zero in stock data.
-    // class_change_apply zeros [bx+0x43f4] and [bx+0x43f6] (BSS +0x0c and +0x0e);
-    // possibly a secondary XP register or reserved field.
+    {
+      name: 'xp',
+      offset: 0x0c,
+      // HIGH CONFIDENCE — three converging traces from wpcvw.ovr:
+      //   (1) class_change_apply (image 0x61e7): clears both XP words:
+      //       C787F6430000  mov word [bx+0x43f6], 0x0
+      //       C787F4430000  mov word [bx+0x43f4], 0x0
+      //       abs 0x43f4 = BSS base 0x43e8 + +0x0c (xp low word)
+      //       abs 0x43f6 = BSS base 0x43e8 + +0x0e (xp high word)
+      //   (2) Stats panel renderer (image 0x123e/0x1242):
+      //       FFB7F643  push word [bx+0x43f6] (high)
+      //       FFB7F443  push word [bx+0x43f4] (low)
+      //       → call display_u32 to show XP on character sheet
+      //   (3) level_up_check (image 0xb470/0xb474):
+      //       8B87F443  mov ax, [bx+0x43f4] (low)
+      //       8B97F643  mov dx, [bx+0x43f6] (high)
+      //       → 32-bit compare against next-level threshold → call level_up_apply
+      // All 6 stock chars have xp=0 at +0x0c in pcfile.dbs — consistent with
+      // user observation "everyone starts with 0 XP".
+      type: { kind: 'scalar', scalar: 'u32_le' },
+      description: 'Experience points (32-bit LE). At +0x0c. Stock chars all start at 0.',
+    },
+    // +0x10..+0x17: 8 bytes — two 32-bit fields, both zero in stock data.
+    // Stats panel displays [bx+0x43fa]/[bx+0x43f8] (record +0x12/+0x10) as a
+    // second u32 adjacent to XP (likely a bonus-XP or XP-pool register). The
+    // naming pass bss_layout incorrectly labeled this as gold (+0x14/+0x16).
     {
       name: 'hp_cur',
       offset: 0x18,

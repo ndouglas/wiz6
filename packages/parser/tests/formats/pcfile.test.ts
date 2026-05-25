@@ -26,12 +26,15 @@ describe('decodePcfile', () => {
     ]);
   });
 
-  it('decodes THESUS xp = 6590, level = 1, hpCurrent = 8, spCurrent = 126', () => {
+  it('decodes THESUS xp = 0, ageCounter = 6590, level = 1, hpCurrent = 8, spCurrent = 126', () => {
     const { slots } = decodePcfile(new Uint8Array(PCFILE));
     const thesus = slots.find((s) => s.name === 'THESUS')!;
-    expect(thesus.xp).toBe(6590);
+    // XP is at record +0x0c (abs BSS 0x43f4/0x43f6). All stock chars start at 0 XP.
+    // The prior value 6590 was ageCounter at +0x08 (BSS 0x43f0/0x43f2) — a game-day
+    // age counter. 6590 days ≈ 18 years (÷365). See docs/re/findings/character-xp-field.json.
+    expect(thesus.xp).toBe(0);
+    expect(thesus.ageCounter).toBe(6590);
     // Level is at record +0x24 (abs BSS 0x440c). All stock chars start at level 1.
-    // The prior value 8 was hp_cur (abs 0x4400 = +0x18), not level.
     expect(thesus.level).toBe(1);
     expect(thesus.hpCurrent).toBe(8);
     expect(thesus.hpMax).toBe(8);

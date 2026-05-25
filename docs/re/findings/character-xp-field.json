@@ -1,0 +1,80 @@
+{
+  "topic": "character-xp-field",
+  "subagent_run": "2026-05-25",
+  "binaries": ["original/wpcvw.ovr", "original/pcfile.dbs"],
+  "summary": "Definitive resolution of the character record 'xp' field offset. XP is at record +0x0c (BSS abs 0x43f4/0x43f6), NOT +0x08. The field at +0x08 (BSS abs 0x43f0/0x43f2) is a 32-bit game-day age counter — the engine displays age÷365 as the character's age in years and decrements VIT when the quotient exceeds 18 (the aging-tax mechanic). All 6 stock chars have xp=0 at +0x0c, consistent with the user's observation that 'everyone starts with 0 XP'. Their age_counter values (6590–7405 game-days ≈ 18–20 years) are the values previously mislabeled 'xp'.",
+  "case": "A",
+  "correction": "Field at +0x08 is age_counter (u32 LE, game-days), NOT xp. XP is at +0x0c (u32 LE). Decoder, struct, schema, and gallery generator updated 2026-05-25.",
+  "findings": [
+    {
+      "id": "xp-offset-display",
+      "claim": "XP field is at record +0x0c (BSS abs 0x43f4 low word, 0x43f6 high word). Stats panel renderer pushes both words to display_u32.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "image 0x123e and 0x1242 (file 0x124c and 0x1250)",
+        "type": "asm_instruction",
+        "details": "FFB7F643  push word [bx+0x43f6] (high word) at image 0x123e; FFB7F443  push word [bx+0x43f4] (low word) at image 0x1242 — both pushed as args to call 0xbfb1 (display_u32). bx = slot_num * 0x1b0; abs 0x43f4 = BSS base 0x43e8 + +0x0c; abs 0x43f6 = +0x0e."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "xp-offset-level-up-check",
+      "claim": "XP field is at record +0x0c (BSS abs 0x43f4/0x43f6). level_up_check reads both words for 32-bit threshold compare.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "image 0xb470 and 0xb474",
+        "type": "asm_instruction",
+        "details": "8B87F443  mov ax, [bx+0x43f4] (XP low) at image 0xb470; 8B97F643  mov dx, [bx+0x43f6] (XP high) at image 0xb474 — followed by 32-bit comparison against next-level threshold value stored in [bp-0x2]/[bp-0x4]. If XP >= threshold, calls level_up_apply at image 0xb22e."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "xp-offset-class-change-wipe",
+      "claim": "XP field is at record +0x0c/+0x0e (BSS abs 0x43f4/0x43f6). class_change_apply zeros both words (XP wipe on class change).",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "image 0x61e1 and 0x61e7",
+        "type": "asm_instruction",
+        "details": "C787F6430000  mov word [bx+0x43f6], 0x0 at image 0x61e1; C787F4430000  mov word [bx+0x43f4], 0x0 at image 0x61e7 — both words explicitly zeroed on class change, consistent with 'XP wiped on class change' game mechanic."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "age-counter-offset",
+      "claim": "The 32-bit field at record +0x08 (BSS abs 0x43f0/0x43f2) is an age counter in game-days, NOT XP. Previously mislabeled 'xp'.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "image 0x1077 (display) and 0x977d (aging mechanic)",
+        "type": "asm_instruction",
+        "details": "DISPLAY (image 0x1077): mov ax,[bx+0x43f0] / mov dx,[bx+0x43f2] (32-bit load); mov cx,0x16d (=365); mov bx,0x0; call 0xf9c8 (32-bit divide by 365 → quotient in ax:dx); result passed to display_number (call 0xc04f) — displays age in years on the character sheet. AGING MECHANIC (image 0x977d): same 32-bit load + divide by 365; if quotient > 18 (0x12): add word [bx+0x43f0], 0xfe93 / adc word [bx+0x43f2], -1 (subtract 365 from field) AND inc byte [bx+0x4517] (increment VIT at +0x12f). Interpeted as: subtract 1 year from accumulated counter, decrease VIT — the character aging penalty. Stock chars: THESUS=6590, TEMPEST=7405, LYSANDR=7265, NOBAL=7057, TREON=6603, PENTAG=6698 game-days (≈18–20 years)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "stock-xp-values",
+      "claim": "All 6 stock party members have xp=0 at record +0x0c in pcfile.dbs.",
+      "category": "data_value",
+      "evidence": {
+        "binary": "original/pcfile.dbs",
+        "address": "record+0x0c for slots 0-5",
+        "type": "file_bytes",
+        "details": "After 24-byte file header, bytes at offset 24+N*432+0x0c for N=0..5: all read as 0x00000000 (u32 LE). Consistent with user observation 'everyone starts with 0 XP'. The non-zero values previously labeled 'xp' (6590..7405) were at +0x08, which is the age_counter field."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "prior-error-root-cause",
+      "claim": "The field at +0x08 was mislabeled 'xp' because its u32 shape resembled a reasonable XP value range for level-1 characters, and the naming pass bss_layout incorrectly listed the name field as 12 bytes (absorbing the age_counter bytes into the name field silently).",
+      "category": "correction",
+      "evidence": {
+        "type": "analysis",
+        "details": "The wpcvw-naming-pass.json bss_layout lists name as char[12] (12 bytes, abs 0x43e8), then directly xp_low at +0x0c (abs 0x43f4). This implies the name field was assumed to span +0x00..+0x0b (12 bytes), covering the age_counter bytes. The actual pcfile.dbs data shows names end at +0x07 at the latest (TEMPEST = 7 chars + null at +0x07), so the name field is only 8 bytes. Bytes +0x08..+0x0b are a separate field (age_counter), not part of the name buffer. The decoder inherited this confusion and read the age_counter as 'xp'."
+      },
+      "confidence": "high"
+    }
+  ]
+}
