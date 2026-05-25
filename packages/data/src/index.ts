@@ -78,6 +78,7 @@ export {
   type Attributes,
   type PartyMember,
 } from './schemas/character.js';
+export { RosterSchema, type Roster } from './schemas/roster.js';
 export {
   PALETTE_CATALOG,
   EGA_DEFAULT,
