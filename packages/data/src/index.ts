@@ -104,6 +104,14 @@ export {
   type DecodedPcfile,
 } from './schemas/pcfile.js';
 export {
+  HouseRulesSchema,
+  STOCK_HOUSE_RULES,
+  DEFAULT_HOUSE_RULES,
+  HOUSE_RULES_META,
+  type HouseRules,
+  type HouseRuleMeta,
+} from './schemas/house-rules.js';
+export {
   PALETTE_CATALOG,
   EGA_DEFAULT,
   WIZ6_MAIN,
