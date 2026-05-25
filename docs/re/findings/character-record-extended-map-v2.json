@@ -1,0 +1,148 @@
+{
+  "topic": "character-record-extended-map-v2",
+  "subagent_run": "2026-05-25",
+  "binaries": [
+    "original/wpcvw.ovr",
+    "original/wmnpc.ovr",
+    "original/wpcmk.ovr",
+    "original/pcfile.dbs"
+  ],
+  "summary": "Round-2 extension of the character record field map. Confirmed: conditions[10] at +0x122..+0x12b (abs 0x450a..0x4513), skills[14] at +0x134..+0x141 (abs 0x451c..0x4529), reaction at +0x168 (abs 0x4550), and school mana interleaved as 12 u16s at +0x28..+0x3f (abs 0x4410..0x441f). Dead and paralyzed are conditions[2] and conditions[3] respectively, NOT separate flag bytes outside the conditions array. savedOldLevel at +0x1af (abs 0x4597) is already in the struct; confirmed via class_change_apply ASM. The bss_layout claim that dead_flag=+0x124 and paralyzed_flag=+0x125 are SEPARATE from conditions was WRONG — they are the same bytes (conditions[2] and conditions[3]).",
+  "corrections": [
+    {
+      "field": "dead / paralyzed",
+      "prior_claim": "wpcvw-naming-pass.json listed is_dead @ +0x124 and is_paralyzed_or_stone @ +0x125 as SEPARATE from conditions[10] at +0x122",
+      "correction": "They ARE part of the conditions[10] array. The priority loop at wpcvw file+0x05c6 iterates si=0..9 with bx = slot*0x1b0 + si + [check at bx+0x450a], iterating all 10 bytes +0x122..+0x12b. conditions[2]=(+0x124) is the DEAD override (portrait icon 1), conditions[3]=(+0x125) is the PARALYZED/STONE override (portrait icon 2). Evidence: wpcvw file+0x05b9 cmp [bx+0x450c] for dead, file+0x05d8 cmp [bx+0x450d] for paralyzed.",
+      "confidence": "high"
+    },
+    {
+      "field": "school_mana",
+      "prior_claim": "wpcvw-naming-pass.json bss_layout claimed school_mana @ +0x28 as 6 u32s",
+      "correction": "Actually 12 interleaved u16s: (cur, max) per school, 6 schools. schoolManaCur[i] at +0x28+i*4, schoolManaMax[i] at +0x2a+i*4. Loop iterates i=0..5, bx=slot*0x1b0+i*4, push [bx+0x4410] (cur), push [bx+0x4412] (max). Evidence: wpcvw stats panel renderer (file+0x0e55), ndisasm at +0x4c..+0xee.",
+      "confidence": "high"
+    }
+  ],
+  "findings": [
+    {
+      "id": "conditions-offset",
+      "claim": "conditions[10] at record +0x122..+0x12b (abs 0x450a..0x4513). 10 consecutive bytes. conditions[2] = dead override (portrait icon 1). conditions[3] = paralyzed/stone override (portrait icon 2).",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "addresses": [
+          "file+0x05c6: condition priority loop: for si=0..9: bx=slot*0x1b0+si; cmp [bx+0x450a],0 -- iterates ALL 10 conditions for 'worst-priority to display'",
+          "file+0x0e55+0x5b9 (=file+0x1468): cmp byte [bx+0x450c],0 -- conditions[2]=DEAD, if nonzero use portrait icon 1",
+          "file+0x0e55+0x5d8 (=file+0x1487): cmp byte [bx+0x450d],0 -- conditions[3]=PARALYZED, if nonzero use portrait icon 2"
+        ],
+        "byte_evidence": "abs 0x450a - base 0x43e8 = 0x122. Loop uses [bx+0x450a] where bx=slot*0x1b0+si, covering si=0..9 sequentially.",
+        "stock_values": "All 6 stock chars have conditions = [0,0,0,0,0,0,0,0,0,0] -- no conditions active."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skills-offset",
+      "claim": "skills[14] at record +0x134..+0x141 (abs 0x451c..0x4529). 14 bytes. Cap = 0x32 = 50.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "addresses": [
+          "file+0xa4c1 (skill_roll_check): add bx,[bp+0xc] (skill_index); cmp byte [bx+0x451c], 0x32 -- skill cap check",
+          "file+0xa4c1+0x54: mov al,[bx+0x451c] -- read skill level",
+          "file+0xa4c1+0x5d: mov [bx+0x451c],al -- write skill level",
+          "file+0x86d2 (skill_apply_growth): iterates [bp-2] from 0 to 0x0d (14 iterations total)"
+        ],
+        "byte_evidence": "abs 0x451c - base 0x43e8 = 0x134. Skill cap 0x32=50 (not 100). 14 skills indexed by [bx+skill_index+0x451c].",
+        "stock_values": {
+          "THESUS": "[0,10,0,0,0,0,0,0,2,0,0,0,0,0]",
+          "TEMPEST": "[0,16,0,0,0,0,0,0,0,0,0,0,0,0]",
+          "LYSANDR": "[1,3,0,0,0,0,0,0,0,0,0,0,0,0]",
+          "NOBAL": "[0,0,0,0,2,0,0,0,2,0,0,0,0,0]",
+          "TREON": "[0,0,0,0,7,0,0,0,0,0,0,0,0,0]",
+          "PENTAG": "[5,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "school-mana-offset",
+      "claim": "School mana stored as 12 interleaved u16s at +0x28..+0x3f. For school i (0..5): schoolManaCur[i] at +0x28+i*4, schoolManaMax[i] at +0x2a+i*4. Schools: 0=Fire, 1=Water, 2=Air, 3=Earth, 4=Mental, 5=Divine.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "addresses": [
+          "file+0x0e55 ndisasm +0x4c..+0xee: loop for si=0..5; bx=slot*0x1b0+si*4; push word [bx+0x4410] (cur); push word [bx+0x4412] (max); render both; si++; cmp si,6",
+          "abs 0x4410 = base 0x43e8 + 0x28 (school 0 current); abs 0x4412 = +0x2a (school 0 max)",
+          "abs 0x4414 = +0x2c (school 1 cur); abs 0x4416 = +0x2e (school 1 max); etc."
+        ],
+        "byte_evidence": "Loop stride is 4 (cx<<2 = shl cx,1 twice): bx = slot*0x1b0 + i*4, accessing [bx+0x4410] and [bx+0x4412].",
+        "stock_values": {
+          "THESUS": "all 0 (Fighter)",
+          "TEMPEST": "all 0 (Fighter)",
+          "LYSANDR": "all 0 (Thief)",
+          "NOBAL": "school[4]Mental: cur=5 max=5; school[5]Divine: cur=4 max=4 (Priest)",
+          "TREON": "school[0]Fire: cur=3 max=3; school[4]Mental: cur=3 max=3 (Mage)",
+          "PENTAG": "school[1]Water: cur=3 max=3; school[3]Earth: cur=3 max=3 (Mage)"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "reaction-offset",
+      "claim": "Reaction byte at record +0x168 (abs 0x4550). Range 0..100. Updated by NPC encounter outcomes in wmnpc.ovr. Stock chars have values 20-40.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wmnpc.ovr",
+        "addresses": [
+          "file+0x671d: mov al,[bx+0x4550]; cbw; cwd; push dx/ax; (compute delta); add to reaction; cmp ax,0x64; jng; clamp to 100; mov [bx+0x4550],al",
+          "file+0x687d, 0x6b55, 0x6d31, 0x6f4c, 0x6faa, 0x70a5, 0x70cf, 0x717a, 0x71d2, 0x71e1, 0x86f6, 0x8792: additional reads",
+          "file+0x676f, 0x68cf, 0x6d48, 0x70b0, 0x70e6, 0x86fd, 0x87b7: additional writes"
+        ],
+        "byte_evidence": "abs 0x4550 - base 0x43e8 = 0x168. Code caps value at 0x64=100. High reference count in NPC overlay confirms this is the primary reaction stat.",
+        "stock_values": {
+          "THESUS": 20,
+          "TEMPEST": 12,
+          "LYSANDR": 16,
+          "NOBAL": 20,
+          "TREON": 16,
+          "PENTAG": 40
+        },
+        "note": "Stock chars have 20-40, NOT 50 as initially predicted. These are the values from the designers' stock party file. A freshly-created char may start differently."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "saved-old-level-offset",
+      "claim": "savedOldLevel at record +0x1af (abs 0x4597). Set by class_change_apply when changing class; throttles growth until level catches up.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "addresses": [
+          "file+0x6054 (class_change_apply): mov [bx+0x4597], al -- stores old level on class change",
+          "file+0x86d2 (skill_apply_growth): mov al,[bx+0x4597]; cmp ax,[bx+0x440c] (level) -- throttle check",
+          "file+0xa4c1 (skill_roll_check): cmp byte [bx+0x4597],0x10 -- used in skill cap math"
+        ],
+        "byte_evidence": "abs 0x4597 - base 0x43e8 = 0x1af. Already present in struct. All stock chars = 0 (never changed class).",
+        "stock_values": "All 6 stock chars = 0"
+      },
+      "confidence": "high"
+    }
+  ],
+  "stock_character_skills": {
+    "note": "Skill indices not fully named yet. Pattern: fighters have skill[1] (likely sword), thief has skill[0]+skill[1], mages have skill[4] (likely spellcasting school). Requires wpcmk skill_train 4-pillar table for full mapping.",
+    "THESUS": [0,10,0,0,0,0,0,0,2,0,0,0,0,0],
+    "TEMPEST": [0,16,0,0,0,0,0,0,0,0,0,0,0,0],
+    "LYSANDR": [1,3,0,0,0,0,0,0,0,0,0,0,0,0],
+    "NOBAL": [0,0,0,0,2,0,0,0,2,0,0,0,0,0],
+    "TREON": [0,0,0,0,7,0,0,0,0,0,0,0,0,0],
+    "PENTAG": [5,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  },
+  "still_tbd": [
+    "inventory records (+0x40..+0x10f, 22 x 8 bytes): item_id, quantity, flags — partial layout known from bss_layout",
+    "condition names: which condition[i] = which affliction (AFRAID/ASLEEP/SILENCED/POISONED/DISEASED etc.)",
+    "skill names: full 14-skill mapping from wpcmk 4-pillar skill_train table",
+    "school mana school names: confirmed order Fire/Water/Air/Earth/Mental/Divine needs game-text cross-check",
+    "+0x142..+0x167 region: spell-known bitmaps, saved skill bumps — partially mapped by bss_layout",
+    "+0x19c (one byte before race): small computed value from wpcmk (modulo result)",
+    "+0x1a8..+0x1ae: several bytes with known init values (spells_to_learn, magic_power, inventory counts, ac_extra_byte) — not yet fully decoded"
+  ]
+}
