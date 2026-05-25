@@ -6,14 +6,69 @@ const FAKE_GALLERY = {
   schemaVersion: 1,
   characters: [
     {
-      id: '00000000-0000-4000-8000-000000000001',
-      name: 'Thesus',
-      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 0, gold: 100,
+      id: '00000000-0000-4000-8000-000000000000',
+      name: 'THESUS',
+      race: 0, class: 0, level: 8, savedOldLevel: 0, xp: 6590, gold: 0,
       conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       dead: false, paralyzed: false,
-      attributes: { str: 14, int: 9, pie: 8, vit: 13, dex: 11, spd: 12, personality: 60, karma: 50 },
+      attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
       schoolMana: [0, 0, 0, 0, 0, 0],
-      skills: [10, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      skills: new Array(14).fill(0),
+      reaction: 50,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000001',
+      name: 'TEMPEST',
+      race: 0, class: 0, level: 9, savedOldLevel: 0, xp: 7405, gold: 0,
+      conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      dead: false, paralyzed: false,
+      attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
+      schoolMana: [0, 0, 0, 0, 0, 0],
+      skills: new Array(14).fill(0),
+      reaction: 50,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000002',
+      name: 'LYSANDR',
+      race: 0, class: 0, level: 5, savedOldLevel: 0, xp: 7265, gold: 0,
+      conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      dead: false, paralyzed: false,
+      attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
+      schoolMana: [0, 0, 0, 0, 0, 0],
+      skills: new Array(14).fill(0),
+      reaction: 50,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000003',
+      name: 'NOBAL',
+      race: 0, class: 0, level: 4, savedOldLevel: 0, xp: 7057, gold: 0,
+      conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      dead: false, paralyzed: false,
+      attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
+      schoolMana: [0, 0, 0, 0, 0, 0],
+      skills: new Array(14).fill(0),
+      reaction: 50,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000004',
+      name: 'TREON',
+      race: 0, class: 0, level: 4, savedOldLevel: 0, xp: 6603, gold: 0,
+      conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      dead: false, paralyzed: false,
+      attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
+      schoolMana: [0, 0, 0, 0, 0, 0],
+      skills: new Array(14).fill(0),
+      reaction: 50,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000005',
+      name: 'PENTAG',
+      race: 0, class: 0, level: 2, savedOldLevel: 0, xp: 6698, gold: 0,
+      conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      dead: false, paralyzed: false,
+      attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
+      schoolMana: [0, 0, 0, 0, 0, 0],
+      skills: new Array(14).fill(0),
       reaction: 50,
     },
   ],
@@ -31,8 +86,8 @@ beforeEach(() => {
 describe('gallery', () => {
   it('loadGallery returns the parsed gallery roster', async () => {
     const g = await loadGallery();
-    expect(g.characters).toHaveLength(1);
-    expect(g.characters[0]!.name).toBe('Thesus');
+    expect(g.characters).toHaveLength(6);
+    expect(g.characters[0]!.name).toBe('THESUS');
   });
 
   it('isGalleryCharacter returns true for IDs that came from the gallery', async () => {
@@ -51,7 +106,7 @@ describe('gallery', () => {
     const r = readRoster();
     expect(r.characters).toHaveLength(1);
     expect(r.characters[0]!.id).toBe(newId);
-    expect(r.characters[0]!.name).toBe('Thesus');
+    expect(r.characters[0]!.name).toBe('THESUS');
   });
 
   it('importToRoster throws on unknown gallery id', async () => {
@@ -64,8 +119,10 @@ describe('seedRosterIfEmpty', () => {
     const { seedRosterIfEmpty } = await import('../../src/lib/gallery.js');
     await seedRosterIfEmpty();
     const r = readRoster();
-    expect(r.characters).toHaveLength(FAKE_GALLERY.characters.length);
-    expect(r.characters[0]!.name).toBe('Thesus');
+    expect(r.characters).toHaveLength(6);
+    expect(r.characters.map((c) => c.name)).toEqual([
+      'THESUS', 'TEMPEST', 'LYSANDR', 'NOBAL', 'TREON', 'PENTAG',
+    ]);
   });
 
   it('is a no-op when the roster already has characters', async () => {

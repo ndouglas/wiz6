@@ -8,14 +8,69 @@ const FAKE_GALLERY = {
   schemaVersion: 1,
   characters: [
     {
-      id: '00000000-0000-4000-8000-000000000001',
-      name: 'Thesus',
-      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 0, gold: 100,
+      id: '00000000-0000-4000-8000-000000000000',
+      name: 'THESUS',
+      race: 0, class: 0, level: 8, savedOldLevel: 0, xp: 6590, gold: 0,
       conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       dead: false, paralyzed: false,
-      attributes: { str: 14, int: 9, pie: 8, vit: 13, dex: 11, spd: 12, personality: 60, karma: 50 },
+      attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
       schoolMana: [0, 0, 0, 0, 0, 0],
-      skills: [10, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      skills: new Array(14).fill(0),
+      reaction: 50,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000001',
+      name: 'TEMPEST',
+      race: 0, class: 0, level: 9, savedOldLevel: 0, xp: 7405, gold: 0,
+      conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      dead: false, paralyzed: false,
+      attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
+      schoolMana: [0, 0, 0, 0, 0, 0],
+      skills: new Array(14).fill(0),
+      reaction: 50,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000002',
+      name: 'LYSANDR',
+      race: 0, class: 0, level: 5, savedOldLevel: 0, xp: 7265, gold: 0,
+      conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      dead: false, paralyzed: false,
+      attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
+      schoolMana: [0, 0, 0, 0, 0, 0],
+      skills: new Array(14).fill(0),
+      reaction: 50,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000003',
+      name: 'NOBAL',
+      race: 0, class: 0, level: 4, savedOldLevel: 0, xp: 7057, gold: 0,
+      conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      dead: false, paralyzed: false,
+      attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
+      schoolMana: [0, 0, 0, 0, 0, 0],
+      skills: new Array(14).fill(0),
+      reaction: 50,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000004',
+      name: 'TREON',
+      race: 0, class: 0, level: 4, savedOldLevel: 0, xp: 6603, gold: 0,
+      conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      dead: false, paralyzed: false,
+      attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
+      schoolMana: [0, 0, 0, 0, 0, 0],
+      skills: new Array(14).fill(0),
+      reaction: 50,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000005',
+      name: 'PENTAG',
+      race: 0, class: 0, level: 2, savedOldLevel: 0, xp: 6698, gold: 0,
+      conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      dead: false, paralyzed: false,
+      attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
+      schoolMana: [0, 0, 0, 0, 0, 0],
+      skills: new Array(14).fill(0),
       reaction: 50,
     },
   ],
@@ -35,14 +90,14 @@ describe('RosterView', () => {
     render(<MemoryRouter><RosterView /></MemoryRouter>);
     expect(screen.getByRole('heading', { level: 1, name: /roster/i })).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText('Thesus')).toBeInTheDocument();
+      expect(screen.getByText('THESUS')).toBeInTheDocument();
     });
   });
 
   it('renders existing roster characters (no re-seed needed)', async () => {
     render(<MemoryRouter><RosterView /></MemoryRouter>);
     await waitFor(() => {
-      expect(screen.getByText('Thesus')).toBeInTheDocument();
+      expect(screen.getByText('THESUS')).toBeInTheDocument();
     });
   });
 });
@@ -51,8 +106,8 @@ describe('RosterView gallery badge', () => {
   it('renders a "from gallery" badge on seed-imported characters', async () => {
     render(<MemoryRouter><RosterView /></MemoryRouter>);
     await waitFor(() => {
-      expect(screen.getByText('Thesus')).toBeInTheDocument();
-      expect(screen.getByText(/from gallery/i)).toBeInTheDocument();
+      expect(screen.getByText('THESUS')).toBeInTheDocument();
+      expect(screen.getAllByText(/from gallery/i).length).toBeGreaterThan(0);
     });
   });
 });
@@ -61,7 +116,7 @@ describe('RosterView character download', () => {
   it('renders a Download button on each character card', async () => {
     render(<MemoryRouter><RosterView /></MemoryRouter>);
     await waitFor(() => {
-      expect(screen.getByText('Thesus')).toBeInTheDocument();
+      expect(screen.getByText('THESUS')).toBeInTheDocument();
     });
     const downloadBtns = screen.getAllByRole('button', { name: /download/i });
     expect(downloadBtns.length).toBeGreaterThan(0);
@@ -78,7 +133,7 @@ describe('RosterView character upload', () => {
 
   it('adds the uploaded character to the roster under a new uuid', async () => {
     render(<MemoryRouter><RosterView /></MemoryRouter>);
-    await waitFor(() => screen.getByText('Thesus'));
+    await waitFor(() => screen.getByText('THESUS'));
 
     const upload = screen.getByLabelText(/upload character/i) as HTMLInputElement;
     const payload = JSON.stringify({
