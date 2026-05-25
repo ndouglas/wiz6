@@ -68,6 +68,17 @@ const characters: Character[] = decoded.slots
     // reaction at +0x168 (abs 0x4550). Range 0..100. HIGH confidence.
     // Stock chars: THESUS=20, TEMPEST=12, LYSANDR=16, NOBAL=20, TREON=16, PENTAG=40.
     reaction: s.reaction,
+    // npcRaceReaction: 31 bytes at +0x169 (abs 0x4551). HIGH confidence.
+    // Per-NPC-race reaction scores; initialized to base reaction.
+    npcRaceReaction: s.npcRaceReaction,
+    // spellSlotsKnown: 20 bytes at +0x188. LOW confidence. Casters only.
+    spellSlotsKnown: s.spellSlotsKnown,
+    // portraitIndex at +0x1ab (abs 0x4593). MEDIUM confidence.
+    portraitIndex: s.portraitIndex,
+    // derivedAc at +0x160 (abs 0x4548). HIGH confidence.
+    derivedAc: s.derivedAc,
+    // schoolRankThresholds at +0x152 (abs 0x453a). MEDIUM confidence.
+    schoolRankThresholds: s.schoolRankThresholds,
     // inventory: 22 slots x 8 bytes at +0x40 (abs 0x4428). HIGH confidence.
     // item_id=0 means empty slot. Stock chars have 5 items each (slots 5..21 zero).
     inventory: s.inventory.map(({ itemId, weight, equipSlot, spriteIdx, quantity, flags }) => ({

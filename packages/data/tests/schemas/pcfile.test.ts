@@ -32,7 +32,13 @@ function emptySlot(slot: number): PcfileSlot {
     race: 0, alignment: 0, class: 0,
     str: 0, int: 0, pie: 0, vit: 0, dex: 0, spd: 0, per: 0, kar: 0,
     skills: new Array(14).fill(0),
+    schoolRankThresholds: new Array(14).fill(0),
+    derivedAc: 10,
     reaction: 0,
+    npcRaceReaction: new Array(31).fill(0),
+    spellSlotsKnown: new Array(20).fill(0),
+    portraitIndex: 0,
+    inventoryCount: 0,
     savedOldLevel: 0,
     // Inventory: 22 empty slots. inventory_count in raw = 0; all item_ids = 0.
     inventory: new Array(22).fill(EMPTY_INV_ITEM),
@@ -82,8 +88,20 @@ describe('PcfileSlotSchema', () => {
       str: 18, int: 8, pie: 8, vit: 12, dex: 10, spd: 9, per: 8, kar: 14,
       // Skills: fighter primary skill[1]=10, skill[8]=2.
       skills: [0, 10, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0],
+      // schoolRankThresholds: class-derived values at +0x152. MEDIUM confidence.
+      schoolRankThresholds: [0, 8, 4, 8, 4, 8, 8, 8, 8, 28, 8, 48, 4, 0],
+      // derivedAc: base 10 at +0x160. No SPD bonus, not Faerie, not Monk/Ninja.
+      derivedAc: 10,
       // Reaction: 20 for THESUS (stock starting value per pcfile.dbs).
       reaction: 20,
+      // npcRaceReaction: 31 entries all = 20 (no prior NPC encounters).
+      npcRaceReaction: new Array(31).fill(20),
+      // spellSlotsKnown: all zero for fighters (no spell schools).
+      spellSlotsKnown: new Array(20).fill(0),
+      // portraitIndex: 10 for THESUS.
+      portraitIndex: 10,
+      // inventoryCount: 5 starting items.
+      inventoryCount: 5,
       // savedOldLevel: 0 (never changed class).
       savedOldLevel: 0,
       // Inventory: THESUS has 5 starting items (LONGSWORD/LEATHER CUIRASS/FUR LEGGING/SANDALS/BUCKLER).

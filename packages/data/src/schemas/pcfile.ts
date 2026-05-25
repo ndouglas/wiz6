@@ -159,12 +159,50 @@ export const PcfileSlotSchema = z.object({
    */
   reaction: U8,
   /**
+   * Per-NPC-race reaction array: 31 bytes at +0x169..+0x187 (abs 0x4551..0x456f). HIGH confidence.
+   * Entry [i] = reaction score for encounters with NPC race index i.
+   * Initialized to base reaction score. Updated by wmnpc.ovr after encounters.
+   * Stock chars: all 31 entries equal their base reaction score.
+   */
+  npcRaceReaction: z.array(U8).length(31),
+  /**
+   * Sparse caster-data region: 20 bytes at +0x188..+0x19b (abs 0x4570..0x4583). LOW confidence.
+   * All zeros for fighters/thief. Casters have sparse nonzero values at school-aligned positions.
+   * Likely spell-known counts or spell-slot tracking per school.
+   * Stock: TREON=[1,0,0,0,0,0,1,0,0..0], NOBAL=[0,0,0,0,0,0,4,0,1,0..0],
+   *        PENTAG=[0,2,0,0,32,0,0..0].
+   */
+  spellSlotsKnown: z.array(U8).length(20),
+  /**
+   * Portrait index (0..13). At +0x1ab (abs 0x4593). MEDIUM confidence.
+   * 14 portraits available; selected at character creation.
+   * Stock: THESUS=10, TEMPEST=8, LYSANDR=13, NOBAL=10, TREON=9, PENTAG=7.
+   */
+  portraitIndex: U8,
+  /**
+   * Count of items in inventory (0..22). At +0x1ac (abs 0x4594). HIGH confidence.
+   * Stock chars all = 5 (5 starting items).
+   */
+  inventoryCount: U8,
+  /**
+   * Derived AC byte. At +0x160 (abs 0x4548). HIGH confidence.
+   * Base 10. wpcvw derived_ac (file+0xaa94): SPD>=16 -1, SPD>=18 -1, Faerie -2, Monk/Ninja -(level/2).
+   * Stock chars all = 10.
+   */
+  derivedAc: U8,
+  /**
    * Level before most recent class change (0..255). At +0x1af (abs 0x4597). MEDIUM confidence.
    * class_change_apply (wpcvw 0x6054): writes *0x4597 = old_level.
    * Six functions throttle gains until current_level >= savedOldLevel.
    * Stock chars all 0 (never changed class).
    */
   savedOldLevel: U8,
+  /**
+   * 14-byte per-school class rank threshold array. At +0x152..+0x15f (abs 0x453a). MEDIUM confidence.
+   * Initialized by wpcmk creation init (file+0x3e51) using class-formula.
+   * School 0 and 13 always 0. Stock: fighters=[0,8,4,8,4,8,8,8,8,28,8,48,4,0].
+   */
+  schoolRankThresholds: z.array(U8).length(14),
   /**
    * Inventory grid: 22 item slots x 8 bytes at record +0x40 (abs 0x4428).
    * Item slot layout: itemId(u16)+weight(u8)+pad(u8)+equipSlot(u8)+spriteIdx(u8)+quantity(u8)+flags(u8).

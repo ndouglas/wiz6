@@ -1,0 +1,259 @@
+{
+  "topic": "character-record-spells-and-gaps",
+  "subagent_run": "2026-05-25",
+  "binaries": [
+    "original/wpcvw.ovr",
+    "original/wpcmk.ovr",
+    "original/wmnpc.ovr",
+    "original/pcfile.dbs"
+  ],
+  "summary": "Round-4 extension of the character record field map. Key findings: (1) THERE ARE NO SPELL BITMAPS — the suspected +0x142..+0x167 'bitmap' region is actually derived stats + school thresholds + derived AC bytes. (2) Per-NPC reaction array: 31 bytes at +0x169..+0x187, each initialized to the base reaction score. (3) +0x142..+0x151 (16 bytes): flags/derived stats, mostly zero, a few class-dependent nonzero values. (4) +0x152..+0x15f (14 bytes): per-school class-rank thresholds derived by wpcmk creation init. (5) +0x160..+0x167 (8 bytes): derived AC at +0x160 (always 10 for stock chars), two zeros at +0x161..+0x162, then 5 bytes all 10. (6) +0x188..+0x19b: 20-byte sparse region — nonzero only for casters (spell-level counters or similar). (7) +0x1a0..+0x1a5: all zero. (8) +0x1a6 = 1 (all); +0x1a7 = 10 (all); +0x1a9 = 1 (all); +0x1aa = 1 (all); +0x1ab varies per character (7..13); +0x1ae = 100 (all). (9) +0x24..+0x27: 4 bytes overlapping with level/level_secondary — bytes +0x24..+0x25 = level (u16), +0x26..+0x27 = level_secondary (u16).",
+  "corrections": [
+    {
+      "field": "spell_bitmap / spell_known region",
+      "prior_claim": "wpcvw-naming-pass.json listed +0x142..+0x167 as possible spell-known bitmaps (38 bytes, 6 packed bits per byte for 6 schools).",
+      "correction": "NO SPELL BITMAPS EXIST in this region. The bytes at +0x142..+0x167 are: (a) 16 derived-stats/flags bytes at +0x142..+0x151, (b) 14 class-rank threshold bytes at +0x152..+0x15f written by wpcmk creation init, (c) derived AC byte at +0x160 (value 10 for all stock), (d) 2 zero bytes at +0x161..+0x162, (e) 5 bytes all value 10 at +0x163..+0x167. Evidence: wpcvw 0x982f checks individual bytes per-spell (not packed bits), and the whole region contents match class-specific derived-stat patterns rather than spell-access bitmask patterns.",
+      "confidence": "high"
+    },
+    {
+      "field": "unknown_0x24 region",
+      "prior_claim": "Struct had unknown_0x10 u32 and unknown_0x20/unknown_0x22 as u16s, with level at +0x24 and level_secondary at +0x26. The gap +0x24..+0x27 was covered by those fields.",
+      "correction": "Confirmed: level at +0x24 (u16 LE, abs 0x440c) and level_secondary at +0x26 (u16 LE, abs 0x440e) are correct. +0x24..+0x27 is fully accounted for.",
+      "confidence": "high"
+    }
+  ],
+  "findings": [
+    {
+      "id": "no-spell-bitmaps",
+      "claim": "Wiz6 does NOT store spell-known data as packed bitmaps. Spell knowledge is stored as per-byte values: 0 = not known/learnable, nonzero = rank/level of knowledge. The bytes in +0x142..+0x167 are derived stats and class thresholds, NOT spell access flags.",
+      "category": "character_record_architecture",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "addresses": [
+          "wpcvw file+0x982f: spell_list_render loop — loads individual bytes, checks each for nonzero; no bit-shift/and operations consistent with packed bitmaps",
+          "wpcmk.ovr file+0x3e51: school init loop for 14 schools — clears *(scratch+0x152+school) then writes class-formula value; single-byte writes, not bit operations"
+        ],
+        "byte_evidence": "pcfile.dbs chars: Fighters (THESUS/TEMPEST) have all-zero +0x142..+0x151, variable non-zero +0x152..+0x15f matching class formula. Casters (TREON/PENTAG) have nonzero +0x142..+0x151 values consistent with spell-level data, not bitmap patterns."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "derived-stats-block-offset",
+      "claim": "16-byte derived stats/flags block at record +0x142..+0x151 (abs 0x452a..0x4539). Mostly zero for fighters. Casters have class-specific nonzero values: LYSANDR(Thief) +0x143=10, NOBAL(Priest) +0x14e=7, TREON(Mage) +0x150=10, PENTAG(Mage) +0x150=7.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "addresses": [
+          "wpcvw file+0x8d0e: various writes to abs 0x452a..0x4539 region during character creation and level-up",
+          "wtrea.ovr: reads abs 0x4545 (record+0x15d = gap[27] within +0x142 region) for trap damage susceptibility check; lower = more susceptible (LYSANDR Thief=8, THESUS Fighter=48)"
+        ],
+        "stock_values": {
+          "THESUS":  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+          "TEMPEST": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+          "LYSANDR": [0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+          "NOBAL":   [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0],
+          "TREON":   [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0],
+          "PENTAG":  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0]
+        }
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "school-rank-thresholds-offset",
+      "claim": "14-byte per-school class rank threshold array at record +0x152..+0x15f (abs 0x453a..0x4547). Initialized by wpcmk.ovr creation code at file+0x3e51: for school 0..13, writes max(0, min(125, class_table[school]*4-260)) to *(scratch+0x152+school). School 0 always 0, school 1 always 8 (const offset), school 13 (=14th) always 0. Other values are class-dependent.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "addresses": [
+          "wpcmk.ovr file+0x3e51: school init loop — 'for si=0..13: mov byte [scratch+0x152+si], computed_threshold' where scratch base = 0x5470 and scratch+0x152 corresponds to pcfile record +0x152",
+          "wpcmk.ovr: class_school_table lookup at creation gives fighter school[1]=8 for all non-caster classes"
+        ],
+        "stock_values": {
+          "THESUS (Fighter)":  [0, 8, 4, 8, 4, 8, 8, 8, 8, 28, 8, 48, 4, 0],
+          "TEMPEST (Fighter)": [0, 8, 4, 23, 4, 8, 8, 8, 8, 28, 8, 28, 29, 0],
+          "LYSANDR (Thief)":   [0, 8, 28, 28, 48, 28, 24, 23, 8, 8, 16, 8, 28, 0],
+          "NOBAL (Priest)":    [0, 8, 16, 8, 8, 16, 24, 8, 8, 52, 20, 40, 20, 0],
+          "TREON (Mage)":      [0, 8, 4, 0, 8, 12, 16, 8, 18, 16, 41, 16, 24, 0],
+          "PENTAG (Mage)":     [0, 8, 4, 8, 8, 12, 16, 8, 8, 16, 16, 16, 34, 0]
+        },
+        "note": "These are class-derived thresholds, NOT current spell levels or access flags. The first school (index 0) is always 0, last school (index 13) always 0. School 1 = 8 is constant for fighter/non-caster classes."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "derived-ac-offset",
+      "claim": "Derived AC byte at record +0x160 (abs 0x4548). Base AC=10 for all stock chars. Two zero bytes at +0x161..+0x162 (abs 0x4549..0x454a). Formula: base 10, SPD>=16: -1, SPD>=18: -1 additional, race=5(Faerie): -2, class=12(Monk)/13(Ninja): -level/2.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "addresses": [
+          "wpcvw file+0x8d32: mov byte [bx+0x4548], 0xa — initializes AC to 10 at creation",
+          "wpcvw file+0xaa94 (derived_ac): reads [bx+0x4519] (SPD), compares to 16 and 18; reads [bx+0x4585] (race) for Faerie check; reads [bx+0x4587] (class) for Monk/Ninja check; writes result to [bx+0x4548]"
+        ],
+        "stock_values": {
+          "THESUS": 10, "TEMPEST": 10, "LYSANDR": 10,
+          "NOBAL": 10, "TREON": 10, "PENTAG": 10
+        },
+        "note": "abs 0x4548 - base 0x43e8 = +0x160. All stock chars = 10 (no SPD bonus, no Faerie, no Monk/Ninja)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "five-constant-10-bytes",
+      "claim": "5 bytes at record +0x163..+0x167 (abs 0x454b..0x454f) = 10 (0x0a) for all 6 stock characters. Purpose unknown, but the constant value 10 across all chars (regardless of class/race) suggests these are engine defaults reset at creation.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/pcfile.dbs",
+        "addresses": [],
+        "stock_values": {
+          "THESUS": [10, 10, 10, 10, 10],
+          "TEMPEST": [10, 10, 10, 10, 10],
+          "LYSANDR": [10, 10, 10, 10, 10],
+          "NOBAL": [10, 10, 10, 10, 10],
+          "TREON": [10, 10, 10, 10, 10],
+          "PENTAG": [10, 10, 10, 10, 10]
+        },
+        "note": "No overlay ASM references found for these specific offsets in this pass. Constant value 10 across all chars regardless of class or race."
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "npc-race-reaction-array-offset",
+      "claim": "31-byte per-NPC-race reaction array at record +0x169..+0x187 (abs 0x4551..0x456f). Each byte is the reaction score for encounters with that NPC race index. Initialized at creation to the base reaction score (same as +0x168). wmnpc.ovr updates per-race entries independently as NPC encounters are resolved.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wmnpc.ovr",
+        "addresses": [
+          "wmnpc.ovr file+0x671d: reads [bx+0x4550] for base reaction, then reads/writes [bx+0x4551..0x456f] for per-race adjustments",
+          "wmnpc.ovr: 12+ references to abs range 0x4551..0x456f for per-encounter reaction tracking"
+        ],
+        "stock_values": {
+          "THESUS": "all 31 bytes = 20",
+          "TEMPEST": "all 31 bytes = 12",
+          "LYSANDR": "all 31 bytes = 16",
+          "NOBAL": "all 31 bytes = 20",
+          "TREON": "all 31 bytes = 16",
+          "PENTAG": "all 31 bytes = 40"
+        },
+        "note": "31 entries = 31 possible NPC race indices. All equal base reaction at stock (no prior NPC encounters)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "sparse-caster-data-offset",
+      "claim": "20-byte sparse region at record +0x188..+0x19b (abs 0x4570..0x4583). All zeros for fighters and thief. Nonzero values for casters: NOBAL(Priest): [0,0,0,0,0,0,4,0,1,0,...zeros], TREON(Mage): [1,0,0,0,0,0,1,0,...zeros], PENTAG(Mage): [0,2,0,0,32,0,...zeros]. Values are small (1, 2, 4, 32) and sparse, consistent with level-1 spell-known counters or similar per-school tracking.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/pcfile.dbs",
+        "addresses": [],
+        "stock_values": {
+          "THESUS":  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+          "TEMPEST": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+          "LYSANDR": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+          "NOBAL":   [0,0,0,0,0,0,4,0,1,0,0,0,0,0,0,0,0,0,0,0],
+          "TREON":   [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0],
+          "PENTAG":  [0,2,0,0,32,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        },
+        "note": "Fighter/Thief = all zero. Casters have sparse nonzero values. The pattern (nonzero at offsets matching active spell schools) is consistent with spell-slots-known or spell-access counters but ASM evidence not captured in this pass."
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "gap-0x118-region",
+      "claim": "10 bytes at +0x118..+0x121 (abs 0x4500..0x4509). Bytes 0..3 (+0x118..+0x11b) = 0 for all. Bytes 4..9 (+0x11c..+0x121) are class-dependent: fighters=all 1, priest=[2,2,3,3,2,3], mages=[3,3,2,2,2,3]. These appear to be per-school capacity or access flags.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/pcfile.dbs",
+        "addresses": [
+          "wpcvw: abs 0x4500 (record+0x118) used as counter incremented/decremented per school in loop",
+          "wpcvw: abs 0x4504 (record+0x11c) used as per-school parameter in mana computations"
+        ],
+        "stock_values": {
+          "THESUS":  [0,0,0,0,1,1,1,1,1,1],
+          "TEMPEST": [0,0,0,0,1,1,1,1,1,1],
+          "LYSANDR": [0,0,0,0,1,1,1,1,1,1],
+          "NOBAL":   [0,0,0,0,2,2,3,3,2,3],
+          "TREON":   [0,0,0,0,3,3,2,2,2,3],
+          "PENTAG":  [0,0,0,0,3,3,2,2,2,3]
+        }
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "gap-0x1a0-region",
+      "claim": "6 bytes at record +0x1a0..+0x1a5 (abs 0x4588..0x458d) = all zero for all 6 stock characters. high_water_level is at +0x1a0; sex is at +0x1a1. Bytes +0x1a2..+0x1a5 are also all zero.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/pcfile.dbs",
+        "stock_values": "All 6 chars: [0,0,0,0,0,0] at +0x1a0..+0x1a5"
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "gap-0x1a6-constants",
+      "claim": "Bytes +0x1a6 = 1, +0x1a7 = 10 (0x0a) for all 6 stock characters. Purpose unknown. +0x1a8 = spells_to_learn (already mapped, =0 for stock). +0x1a9 = 1 (all), +0x1aa = 1 (all). These may be initialization flags or engine constants.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/pcfile.dbs",
+        "stock_values": {
+          "+0x1a6": "1 for all",
+          "+0x1a7": "10 for all",
+          "+0x1a9": "1 for all",
+          "+0x1aa": "1 for all"
+        }
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "portrait-index-offset",
+      "claim": "Byte at record +0x1ab (abs 0x4593) varies per character: THESUS=10, TEMPEST=8, LYSANDR=13, NOBAL=10, TREON=9, PENTAG=7. These values align with character portrait indices — Wiz6 has 14 portraits (0-13) selectable at character creation. The stock party uses distinct portraits.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/pcfile.dbs",
+        "stock_values": {
+          "THESUS": 10,
+          "TEMPEST": 8,
+          "LYSANDR": 13,
+          "NOBAL": 10,
+          "TREON": 9,
+          "PENTAG": 7
+        },
+        "note": "Range 7..13 for stock chars. All distinct except THESUS and NOBAL both = 10. Portrait selection code in wpcmk.ovr accesses this offset. abs 0x4593 = base 0x43e8 + 0x1ab."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "constant-100-offset",
+      "claim": "Byte at record +0x1ae (abs 0x4596) = 100 (0x64) for all 6 stock characters. May be a 'max reaction' constant or initial spell points total or another per-character cap. Follows inventory_count (+0x1ac=5) and equip count (+0x1ad=0).",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/pcfile.dbs",
+        "stock_values": "All 6 chars = 100 (0x64)"
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "gap-0x24-to-0x27-school-mana-interleave",
+      "claim": "The school_mana arrays (school_mana_cur and school_mana_max) are 6 u16 pairs interleaved at stride 4 starting from +0x28. The bytes at +0x24..+0x27 are level (u16) and level_secondary (u16), already correctly mapped. The layout from +0x24 to +0x3f is: [+0x24 level u16][+0x26 level_secondary u16][+0x28 mana_cur[0] u16][+0x2a mana_max[0] u16]...[+0x3c mana_cur[5] u16][+0x3e mana_max[5] u16]. No gap between +0x27 and +0x28.",
+      "category": "character_record_architecture",
+      "evidence": {
+        "binary": "original/pcfile.dbs + original/wpcvw.ovr",
+        "note": "Verified: abs 0x440c (=+0x24) = level, abs 0x440e (=+0x26) = level_secondary, abs 0x4410 (=+0x28) = school_mana_cur[0]. No bytes unaccounted for in +0x24..+0x3f."
+      },
+      "confidence": "high"
+    }
+  ],
+  "still_tbd": [
+    "+0x142..+0x151: exact semantics of the 16 derived-stats bytes (only 'trap damage susceptibility at +0x15d' confirmed from wtrea.ovr)",
+    "+0x152..+0x15f: exact formula mapping — wpcmk class_school_table structure not fully decoded",
+    "+0x161..+0x162: two zero bytes just after AC — possible AC modifiers (bonuses/penalties)?",
+    "+0x163..+0x167: five constant-10 bytes — no ASM references found",
+    "+0x188..+0x19b: 20 sparse bytes for casters — likely spell-known counters but ASM not traced",
+    "+0x1a2..+0x1a5: four zero bytes — no purpose identified",
+    "+0x1a6, +0x1a7: constant 1 and 10 bytes — possibly portait set index + max portrait index?",
+    "+0x1a9, +0x1aa: constant 1 bytes — unknown",
+    "+0x1ae: constant 100 — could be max NPC reaction score mirror or some other cap",
+    "Condition names: which condition[i] maps to AFRAID/ASLEEP/SILENCED/POISONED/DISEASED etc.",
+    "Skill names: full 14-skill mapping from wpcmk 4-pillar skill_train table"
+  ]
+}

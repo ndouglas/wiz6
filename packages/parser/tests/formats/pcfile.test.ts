@@ -194,6 +194,91 @@ describe('decodePcfile', () => {
     }
   });
 
+  it('decodes THESUS npcRaceReaction: all 31 entries = 20 (base reaction, no prior encounters)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const thesus = slots.find((s) => s.name === 'THESUS')!;
+    // npcRaceReaction at +0x169..+0x187 (abs 0x4551..0x456f). 31 bytes.
+    // Initialized to base reaction score; each entry updated independently by wmnpc.ovr.
+    expect(thesus.npcRaceReaction).toHaveLength(31);
+    expect(thesus.npcRaceReaction.every((v) => v === 20)).toBe(true);
+    expect(thesus.reaction).toBe(20); // base reaction matches
+  });
+
+  it('decodes PENTAG npcRaceReaction: all 31 entries = 40 (Gnome Mage higher base reaction)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const pentag = slots.find((s) => s.name === 'PENTAG')!;
+    expect(pentag.npcRaceReaction).toHaveLength(31);
+    expect(pentag.npcRaceReaction.every((v) => v === 40)).toBe(true);
+    expect(pentag.reaction).toBe(40);
+  });
+
+  it('decodes spellSlotsKnown: fighters all-zero, casters have nonzero entries', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const thesus = slots.find((s) => s.name === 'THESUS')!;
+    const nobal = slots.find((s) => s.name === 'NOBAL')!;
+    const treon = slots.find((s) => s.name === 'TREON')!;
+    const pentag = slots.find((s) => s.name === 'PENTAG')!;
+    // spellSlotsKnown at +0x188..+0x19b (abs 0x4570). 20 bytes.
+    // Fighters = all zero. Casters have sparse nonzero values.
+    expect(thesus.spellSlotsKnown).toHaveLength(20);
+    expect(thesus.spellSlotsKnown.every((v) => v === 0)).toBe(true);
+    // Casters have some nonzero entries
+    expect(nobal.spellSlotsKnown.some((v) => v !== 0)).toBe(true);
+    expect(treon.spellSlotsKnown.some((v) => v !== 0)).toBe(true);
+    expect(pentag.spellSlotsKnown.some((v) => v !== 0)).toBe(true);
+    // Verify specific known values
+    expect(treon.spellSlotsKnown[0]).toBe(1);   // Fire school
+    expect(treon.spellSlotsKnown[6]).toBe(1);   // Mental school
+    expect(nobal.spellSlotsKnown[6]).toBe(4);   // Divine school cur
+    expect(nobal.spellSlotsKnown[8]).toBe(1);
+    expect(pentag.spellSlotsKnown[1]).toBe(2);  // Water school
+    expect(pentag.spellSlotsKnown[4]).toBe(32); // Earth school
+  });
+
+  it('decodes derivedAc = 10 for all stock characters (base AC, no bonuses at level 1)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const populated = slots.filter((s) => s.populated);
+    // derivedAc at +0x160 (abs 0x4548). Base 10 for all stock (no SPD>16, no Faerie, no Monk/Ninja).
+    // wpcvw file+0x8d32: mov byte [bx+0x4548], 0xa
+    for (const s of populated) {
+      expect(s.derivedAc).toBe(10);
+    }
+  });
+
+  it('decodes schoolRankThresholds: Fighters have [0,8,4,8,...], school[0]=0 always', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const thesus = slots.find((s) => s.name === 'THESUS')!;
+    const nobal = slots.find((s) => s.name === 'NOBAL')!;
+    // schoolRankThresholds at +0x152..+0x15f (abs 0x453a). 14 bytes.
+    // Initialized by wpcmk creation init at file+0x3e51.
+    // School 0 always 0; school 1 always 8 for non-caster classes.
+    expect(thesus.schoolRankThresholds).toHaveLength(14);
+    expect(thesus.schoolRankThresholds[0]).toBe(0);   // school 0 always 0
+    expect(thesus.schoolRankThresholds[1]).toBe(8);   // school 1 = 8 for Fighter
+    expect(nobal.schoolRankThresholds[0]).toBe(0);    // school 0 always 0
+    expect(thesus.schoolRankThresholds).toEqual([0, 8, 4, 8, 4, 8, 8, 8, 8, 28, 8, 48, 4, 0]);
+  });
+
+  it('decodes portraitIndex: distinct values for each stock character', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const populated = slots.filter((s) => s.populated);
+    // portraitIndex at +0x1ab (abs 0x4593). 14 portraits (0..13).
+    const portraits = populated.map((s) => s.portraitIndex);
+    expect(portraits).toEqual([10, 8, 13, 10, 9, 7]);
+    // THESUS=10, TEMPEST=8, LYSANDR=13, NOBAL=10, TREON=9, PENTAG=7
+    // All values in valid portrait range
+    expect(portraits.every((v) => v >= 0 && v <= 13)).toBe(true);
+  });
+
+  it('decodes inventoryCount = 5 for all stock characters', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const populated = slots.filter((s) => s.populated);
+    // inventoryCount at +0x1ac (abs 0x4594). Count of items in the inventory grid.
+    for (const s of populated) {
+      expect(s.inventoryCount).toBe(5);
+    }
+  });
+
   it('throws on truncated input', () => {
     expect(() => decodePcfile(new Uint8Array([0xb0, 0x01]))).toThrow();
   });

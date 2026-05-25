@@ -279,6 +279,18 @@ export const CHARACTER_RECORD: BssStruct = {
       description: 'Equipment body-slot array at +0x110 (abs 0x44f8..0x44ff). Each byte = inventory index (0..21) of equipped item, or 0xFF=empty. Slots: [0]=weapon [1]=shield [2]=head [3]=body [4]=legs [5]=hands [6]=feet [7]=cloak. Stock chars all 0xFF.',
     },
     {
+      name: 'unknown_0x118',
+      offset: 0x118,
+      // MEDIUM CONFIDENCE: 4-byte header + 6-byte per-school capacity array at abs 0x4500..0x4509.
+      // Bytes +0x118..+0x11b (abs 0x4500..0x4503) = 0 for all stock chars.
+      // Bytes +0x11c..+0x121 (abs 0x4504..0x4509) are class-dependent:
+      //   Fighters: [1,1,1,1,1,1]; Priest(NOBAL): [2,2,3,3,2,3]; Mages: [3,3,2,2,2,3].
+      // wpcvw: abs 0x4500 (record+0x118) used as counter in school loop.
+      // wpcvw: abs 0x4504 (record+0x11c) used as per-school parameter.
+      type: { kind: 'bytes', length: 10 },
+      description: '10-byte region at +0x118 (abs 0x4500). First 4 bytes always 0. Last 6 bytes are class-dependent school capacity/access values: fighters=[1,1,1,1,1,1], priest=[2,2,3,3,2,3], mages=[3,3,2,2,2,3].',
+    },
+    {
       name: 'conditions',
       offset: 0x122,
       // HIGH CONFIDENCE: 10 condition bytes at abs 0x450a = base 0x43e8 + +0x122.
@@ -337,6 +349,66 @@ export const CHARACTER_RECORD: BssStruct = {
       description: '14 skill levels (0..50). At +0x134 (abs 0x451c). Cap is 0x32=50. skill_roll_check (0xa4c1): [bx+0x451c+skill_idx]. skill_apply_growth (0x86d2) iterates 14 entries.',
     },
     {
+      name: 'derived_stats_block',
+      offset: 0x142,
+      // MEDIUM CONFIDENCE: 16-byte derived stats/flags block at abs 0x452a..0x4539.
+      // Mostly zero for fighters. Casters have class-specific nonzero values.
+      // Confirmed: wtrea.ovr reads abs 0x4545 (=record+0x15d, in the school_rank_thresholds
+      // array below) for trap damage susceptibility. Lower = more susceptible.
+      // Stock: THESUS=[0..0], LYSANDR=[0,10,0..0], NOBAL=[0..0,7,0,0,0], TREON=[0..0,10,0], PENTAG=[0..0,7,0].
+      type: { kind: 'bytes', length: 16 },
+      description: '16-byte derived stats block at +0x142 (abs 0x452a). Mostly zero for fighters; class-specific nonzero values for casters/thieves. Exact semantics TBD.',
+    },
+    {
+      name: 'school_rank_thresholds',
+      offset: 0x152,
+      // MEDIUM CONFIDENCE: 14 bytes at abs 0x453a..0x4547.
+      // Initialized by wpcmk.ovr creation init at file+0x3e51:
+      //   for school 0..13: *(scratch+0x152+school) = max(0, min(125, class_table[school]*4-260))
+      //   where scratch base = 0x5470, so scratch+0x152 = pcfile+0x152.
+      // School 0 always 0; school 13 always 0. School 1 = 8 for all non-caster classes.
+      // These are class-derived rank thresholds, NOT current spell levels.
+      // Stock: THESUS/Fighter=[0,8,4,8,4,8,8,8,8,28,8,48,4,0]
+      //        NOBAL/Priest=[0,8,16,8,8,16,24,8,8,52,20,40,20,0]
+      //        TREON/Mage=[0,8,4,0,8,12,16,8,18,16,41,16,24,0]
+      type: {
+        kind: 'array',
+        length: 14,
+        element: { kind: 'scalar', scalar: 'u8' },
+      },
+      description: '14-byte per-school class rank threshold array at +0x152 (abs 0x453a). Written by wpcmk creation init using class-formula. School 0 and 13 always 0. Schools 1..12 class-dependent.',
+    },
+    {
+      name: 'derived_ac',
+      offset: 0x160,
+      // HIGH CONFIDENCE: abs 0x4548 = base 0x43e8 + +0x160.
+      // wpcvw file+0x8d32: mov byte [bx+0x4548], 0xa — initializes AC to 10 at creation.
+      // derived_ac (wpcvw file+0xaa94): reads SPD for +/-1 at 16/18; reads race for Faerie -2;
+      //   reads class for Monk/Ninja -(level/2); writes result to [bx+0x4548].
+      // Base AC = 10. SPD>=16: -1. SPD>=18: -1 additional. Race=5(Faerie): -2.
+      //   Class=12(Monk) or 13(Ninja): -(level/2). No DEX bonus (SPD carries agility).
+      // All 6 stock chars = 10 (no bonuses apply at level 1).
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: 'Derived AC at +0x160 (abs 0x4548). Base 10, reduced by SPD bonuses, Faerie race, Monk/Ninja class. All stock chars = 10.',
+    },
+    {
+      name: 'unknown_0x161',
+      offset: 0x161,
+      // UNKNOWN: 2 bytes, both = 0 for all stock chars.
+      // Adjacent to derived_ac. Possibly AC modifier components (bonus/penalty split).
+      type: { kind: 'bytes', length: 2 },
+      description: '2 unknown bytes at +0x161 (abs 0x4549..0x454a). Zero for all stock chars. Possibly AC sub-components.',
+    },
+    {
+      name: 'unknown_0x163',
+      offset: 0x163,
+      // UNKNOWN: 5 bytes, all = 10 (0x0a) for all 6 stock characters.
+      // No overlay ASM references found for these specific offsets in this pass.
+      // Constant value 10 across all chars regardless of class or race.
+      type: { kind: 'bytes', length: 5 },
+      description: '5 unknown bytes at +0x163 (abs 0x454b..0x454f). All = 10 (0x0a) for all stock chars regardless of class/race. Purpose unknown.',
+    },
+    {
       name: 'reaction',
       offset: 0x168,
       // HIGH CONFIDENCE: abs 0x4550 = base 0x43e8 + +0x168.
@@ -349,6 +421,46 @@ export const CHARACTER_RECORD: BssStruct = {
       // NOT 50 as neutral — stock chars have 12-40 range.
       type: { kind: 'scalar', scalar: 'u8' },
       description: 'NPC reaction score (0..100). At +0x168 (abs 0x4550). Updated by wmnpc.ovr after encounters. Capped at 100. Stock chars range 12-40.',
+    },
+    {
+      name: 'npc_race_reaction',
+      offset: 0x169,
+      // HIGH CONFIDENCE: 31 bytes at abs 0x4551..0x456f = base 0x43e8 + +0x169..+0x187.
+      // 31 entries = 31 possible NPC race indices. Each byte is the reaction score for
+      // encounters with that NPC race.
+      // Initialized to the base reaction score (+0x168) at character creation.
+      // wmnpc.ovr reads/writes [bx+0x4551..0x456f] for per-race reaction adjustments
+      // after each NPC encounter (12+ read refs + 7+ write refs in wmnpc.ovr).
+      // Stock chars: all 31 bytes equal base reaction (no prior NPC encounters).
+      //   THESUS: all=20, TEMPEST: all=12, LYSANDR: all=16, NOBAL: all=20, TREON: all=16, PENTAG: all=40.
+      type: {
+        kind: 'array',
+        length: 31,
+        element: { kind: 'scalar', scalar: 'u8' },
+      },
+      description: '31-byte per-NPC-race reaction array at +0x169 (abs 0x4551..0x456f). Each entry = reaction score for encounters with NPC race [i]. Initialized to base reaction. Updated by wmnpc.ovr after encounters.',
+    },
+    {
+      name: 'spell_slots_known',
+      offset: 0x188,
+      // LOW CONFIDENCE: 20-byte sparse region at abs 0x4570..0x4583 = base 0x43e8 + +0x188..+0x19b.
+      // All zeros for fighters and thief. Casters have sparse nonzero values:
+      //   NOBAL(Priest): [0,0,0,0,0,0,4,0,1,0,0..0]
+      //   TREON(Mage):   [1,0,0,0,0,0,1,0,0..0]
+      //   PENTAG(Mage):  [0,2,0,0,32,0,0..0]
+      // Values are small and sparse. Pattern of nonzero indices consistent with
+      // which spell schools the character can access. Possibly spell-known counters
+      // or spell-slot tracking per school. ASM evidence not traced in this pass.
+      type: { kind: 'bytes', length: 20 },
+      description: '20-byte sparse region at +0x188 (abs 0x4570). All-zero for non-casters. Casters have sparse nonzero values at school-aligned positions. Likely spell-known counts or spell-slot tracking.',
+    },
+    {
+      name: 'unknown_0x19c',
+      offset: 0x19c,
+      // UNKNOWN: 1 byte at abs 0x4584. All stock chars = 0.
+      // One byte gap between spell_slots_known (+0x188..+0x19b) and race (+0x19d).
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: '1 unknown byte at +0x19c (abs 0x4584). Zero for all stock chars.',
     },
     {
       name: 'race',
@@ -408,11 +520,59 @@ export const CHARACTER_RECORD: BssStruct = {
       description: 'Sex/gender byte at +0x1a1 (abs 0x4589). Portrait-table index via cs:0x526[sex*2]. All stock chars = 0.',
     },
     {
+      name: 'unknown_0x1a2',
+      offset: 0x1a2,
+      // UNKNOWN: 4 bytes at abs 0x458a..0x458d. All stock chars = 0.
+      type: { kind: 'bytes', length: 4 },
+      description: '4 unknown bytes at +0x1a2 (abs 0x458a..0x458d). Zero for all stock chars.',
+    },
+    {
+      name: 'unknown_0x1a6',
+      offset: 0x1a6,
+      // UNKNOWN: 1 byte at abs 0x458e. All stock chars = 1.
+      // Constant 1 across all 6 chars. May be a boolean flag or 1-based index.
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: '1 unknown byte at +0x1a6 (abs 0x458e). Value = 1 for all stock chars.',
+    },
+    {
+      name: 'unknown_0x1a7',
+      offset: 0x1a7,
+      // UNKNOWN: 1 byte at abs 0x458f. All stock chars = 10 (0x0a).
+      // Constant 10 across all 6 chars regardless of class/race.
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: '1 unknown byte at +0x1a7 (abs 0x458f). Value = 10 for all stock chars.',
+    },
+    {
       name: 'spells_to_learn',
       offset: 0x1a8,
       // abs 0x4590 = base 0x43e8 + 0x1a8.
       type: { kind: 'scalar', scalar: 'u8' },
       description: 'Spells to learn this level. Set to rng(6)+5 on level-up. At +0x1a8 (abs 0x4590). 0 in stock data.',
+    },
+    {
+      name: 'unknown_0x1a9',
+      offset: 0x1a9,
+      // UNKNOWN: 1 byte at abs 0x4591. All stock chars = 1.
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: '1 unknown byte at +0x1a9 (abs 0x4591). Value = 1 for all stock chars.',
+    },
+    {
+      name: 'unknown_0x1aa',
+      offset: 0x1aa,
+      // UNKNOWN: 1 byte at abs 0x4592. All stock chars = 1.
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: '1 unknown byte at +0x1aa (abs 0x4592). Value = 1 for all stock chars.',
+    },
+    {
+      name: 'portrait_index',
+      offset: 0x1ab,
+      // MEDIUM CONFIDENCE: abs 0x4593 = base 0x43e8 + +0x1ab.
+      // Values vary per character and align with portrait indices 0-13 (14 available portraits).
+      // Stock: THESUS=10, TEMPEST=8, LYSANDR=13, NOBAL=10, TREON=9, PENTAG=7.
+      // Portrait selection code in wpcmk.ovr accesses this offset.
+      // Range 7..13 for stock chars; THESUS and NOBAL share portrait 10.
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: 'Portrait index (0..13). At +0x1ab (abs 0x4593). Selected at character creation; 14 portraits available. Stock: THESUS=10,TEMPEST=8,LYSANDR=13,NOBAL=10,TREON=9,PENTAG=7.',
     },
     {
       name: 'inventory_count',
@@ -421,6 +581,23 @@ export const CHARACTER_RECORD: BssStruct = {
       // Stock chars all = 5 (matching 5 starting items visible in inventory_records).
       type: { kind: 'scalar', scalar: 'u8' },
       description: 'Count of items in inventory (0..22). At +0x1ac (abs 0x4594). Stock chars all = 5.',
+    },
+    {
+      name: 'unknown_0x1ad',
+      offset: 0x1ad,
+      // UNKNOWN: 1 byte at abs 0x4595. All stock chars = 0.
+      // Adjacent to inventory_count (+0x1ac) and unknown_0x1ae.
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: '1 unknown byte at +0x1ad (abs 0x4595). Zero for all stock chars.',
+    },
+    {
+      name: 'unknown_0x1ae',
+      offset: 0x1ae,
+      // UNKNOWN: 1 byte at abs 0x4596. All stock chars = 100 (0x64).
+      // Constant 100 across all 6 chars. May mirror max reaction score or be some other cap.
+      // Position just before saved_old_level (+0x1af=0x4597).
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: '1 unknown byte at +0x1ae (abs 0x4596). Value = 100 for all stock chars. Purpose unknown; may be a max-value cap.',
     },
     {
       name: 'saved_old_level',

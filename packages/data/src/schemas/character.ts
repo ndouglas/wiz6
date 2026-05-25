@@ -6,8 +6,11 @@ import { z } from 'zod';
  * Source: `packages/data/src/structs/character-record.ts` — the engine's
  * 432-byte record at BSS `0x43e8` stride `0x1b0`. The schema covers every
  * documented field; many of the record's 432 bytes are still unmapped at
- * the per-byte level (spell-school known bitmaps, +0x142..+0x167 region).
- * Inventory + equipment were decoded in round 3 (2026-05-25).
+ * the per-byte level (see docs/re/findings/character-record-spells-and-gaps.json).
+ * NOTE: there are NO spell bitmaps — +0x142..+0x167 contains derived stats and
+ * class rank thresholds, not packed spell-access bitmasks.
+ * Inventory + equipment were decoded in round 3; round 4 added npcRaceReaction,
+ * spellSlotsKnown, portraitIndex, derivedAc, schoolRankThresholds.
  *
  * Each character has a stable UUID `id`. Rosters key on it; saves use the
  * `PartyMemberSchema` (extends this) to carry an optional `rosterCharacterId`
@@ -135,6 +138,39 @@ export const CharacterSchema = z.object({
    * At record +0x110 (abs 0x44f8). Optional for backwards-compatibility.
    */
   equipment: z.array(U8).length(8).optional(),
+  /**
+   * Per-NPC-race reaction array: 31 entries, each 0..100.
+   * Entry [i] = reaction score for encounters with NPC race i.
+   * At record +0x169..+0x187 (abs 0x4551..0x456f). HIGH confidence.
+   * Initialized to base reaction. Updated independently by wmnpc.ovr.
+   * Optional for backwards-compatibility.
+   */
+  npcRaceReaction: z.array(U8).length(31).optional(),
+  /**
+   * Sparse caster-data: 20 bytes at +0x188..+0x19b.
+   * All zero for fighters/thief; casters have sparse nonzero values.
+   * Likely spell-known counts or spell-slot tracking per school. LOW confidence.
+   * Optional for backwards-compatibility.
+   */
+  spellSlotsKnown: z.array(U8).length(20).optional(),
+  /**
+   * Portrait index (0..13). 14 portraits available; selected at character creation.
+   * At record +0x1ab (abs 0x4593). MEDIUM confidence.
+   * Optional for backwards-compatibility.
+   */
+  portraitIndex: U8.optional(),
+  /**
+   * Derived AC byte. Base 10. At record +0x160 (abs 0x4548). HIGH confidence.
+   * wpcvw derived_ac: SPD>=16 -1, SPD>=18 -1, Faerie -2, Monk/Ninja -(level/2).
+   * Optional for backwards-compatibility.
+   */
+  derivedAc: U8.optional(),
+  /**
+   * 14-byte per-school class rank threshold array. At record +0x152..+0x15f.
+   * Written by wpcmk creation init (class-formula). MEDIUM confidence.
+   * Optional for backwards-compatibility.
+   */
+  schoolRankThresholds: z.array(U8).length(14).optional(),
 });
 
 export const PartyMemberSchema = CharacterSchema.extend({

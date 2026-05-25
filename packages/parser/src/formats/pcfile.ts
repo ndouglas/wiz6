@@ -116,6 +116,29 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       equipment.push(rec[0x110 + eq]!);
     }
 
+    // Per-NPC-race reaction array: 31 bytes at +0x169 (abs 0x4551..0x456f).
+    // Initialized to base reaction; updated per-race by wmnpc.ovr after encounters.
+    // HIGH confidence.
+    const npcRaceReaction: number[] = [];
+    for (let r = 0; r < 31; r++) {
+      npcRaceReaction.push(rec[0x169 + r]!);
+    }
+
+    // Sparse caster-data region: 20 bytes at +0x188 (abs 0x4570..0x4583).
+    // All zeros for fighters/thief; casters have sparse nonzero values.
+    // Likely spell-known counts or spell-slot tracking. LOW confidence.
+    const spellSlotsKnown: number[] = [];
+    for (let sp = 0; sp < 20; sp++) {
+      spellSlotsKnown.push(rec[0x188 + sp]!);
+    }
+
+    // School rank thresholds: 14 bytes at +0x152 (abs 0x453a..0x4547).
+    // Written by wpcmk creation init via class-formula. MEDIUM confidence.
+    const schoolRankThresholds: number[] = [];
+    for (let s = 0; s < 14; s++) {
+      schoolRankThresholds.push(rec[0x152 + s]!);
+    }
+
     slots.push({
       slot: i,
       populated,
@@ -147,9 +170,15 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       per: rec[0x132]!,
       kar: rec[0x133]!,
       skills,
+      schoolRankThresholds,
+      // Derived AC at +0x160 (abs 0x4548). HIGH confidence.
+      // wpcvw derived_ac (file+0xaa94): base 10; SPD>=16 -1, SPD>=18 -1, Faerie -2, Monk/Ninja -(level/2).
+      derivedAc: rec[0x160]!,
       // Reaction at +0x168 (abs 0x4550). HIGH confidence.
       // wmnpc.ovr file+0x671d: reads, computes delta, clamps to 100, writes back.
       reaction: rec[0x168]!,
+      npcRaceReaction,
+      spellSlotsKnown,
       // Race at +0x19d (abs 0x4585). Stats panel: mov al,[bx+0x4585]; add ax,0x64 -> msg lookup.
       // NOTE: prior bss_layout "+0x19c" was wrong by 1 byte.
       race: rec[0x19d]!,
@@ -158,6 +187,12 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       // Class at +0x19f (abs 0x4587). Stats panel: mov al,[bx+0x4587]; add ax,0x78 -> msg lookup.
       // NOTE: prior bss_layout "+0x19e" was wrong by 1 byte.
       class: rec[0x19f]!,
+      // portraitIndex at +0x1ab (abs 0x4593). MEDIUM confidence.
+      // Values align with portrait indices 0-13 (14 portraits available).
+      // Stock: THESUS=10, TEMPEST=8, LYSANDR=13, NOBAL=10, TREON=9, PENTAG=7.
+      portraitIndex: rec[0x1ab]!,
+      // inventoryCount at +0x1ac (abs 0x4594). HIGH confidence.
+      inventoryCount: rec[0x1ac]!,
       // savedOldLevel at +0x1af (abs 0x4597). MEDIUM confidence.
       // class_change_apply (wpcvw 0x6054): writes *0x4597 = old_level.
       savedOldLevel: rec[0x1af]!,
