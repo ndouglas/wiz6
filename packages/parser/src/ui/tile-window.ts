@@ -28,8 +28,9 @@
  * they composite via the PIC + sprite primitives in pic-render.ts.
  */
 
-import type { Font4bpp, Palette } from '@wiz6/data';
+import type { Font, Font4bpp, Palette } from '@wiz6/data';
 import { renderTextRun4bpp } from '../formats/wfont-4bpp-render.js';
+import { renderTextRun } from '../formats/wfont-render.js';
 
 export interface TileWindow {
   /** Screen position of the window's top-left corner, in pixels. */
@@ -48,8 +49,14 @@ export interface TileWindow {
   cursorY: number;
 }
 
-/** Wfont file lookup keyed by the attribute byte's low nibble (1..4). */
+/** Wfont file lookup. attr's low nibble selects font1..font4 (4bpp tiles)
+ *  for the normal text path. font0 (1bpp) is used by the HIGHLIGHT path
+ *  (cells stored by `df85`, characterized by attr_low_nibble==0 and
+ *  attr!=0); the cell's high-nibble attr is the background palette index
+ *  and stroke is always palette[0] (black). */
 export interface FontSet {
+  /** 1bpp text mask used by the highlight path. */
+  font0?: Font | null;
   /** attr_lo=1 → wfont1. */
   font1?: Font4bpp | null;
   /** attr_lo=2 → wfont2. */
@@ -162,13 +169,35 @@ export function renderTileWindow(
       const idx = (cy * win.widthCells + cx) * 2;
       const char = win.cells[idx]!;
       const attr = win.cells[idx + 1]!;
-      const fontIdx = attr & 0x0f;
-      const font = pickFont(fontIdx, fonts);
-      if (!font) continue;
       const dx = win.screenX + cx * 8;
       const dy = win.screenY + cy * 8;
-      // Render one tile using the existing 4bpp text primitive
-      // (a single char = one 8x8 tile blit).
+      const fontIdx = attr & 0x0f;
+
+      if (fontIdx === 0 && attr !== 0) {
+        // HIGHLIGHT path — `df85` stored this cell as (char, original_attr<<4).
+        // Engine dispatches to ega.drv slot 1 (1bpp text), which reads wfont0
+        // and writes per-pixel: stroke -> palette[0] (black), bg -> palette[attr>>4].
+        // Confirmed in docs/re/findings/wfont-highlight-render.json.
+        if (!fonts.font0) continue;
+        const bgIdx = (attr >> 4) & 0x0f;
+        renderTextRun(
+          destRgba,
+          destW,
+          destH,
+          dx,
+          dy,
+          String.fromCharCode(char),
+          fonts.font0,
+          0, // stroke = palette[0] (black)
+          palette,
+          bgIdx, // bg = palette[attr_high_nibble]
+        );
+        continue;
+      }
+
+      // NORMAL path — 4bpp tile blit from the attr-selected font.
+      const font = pickFont(fontIdx, fonts);
+      if (!font) continue;
       renderTextRun4bpp(
         destRgba,
         destW,

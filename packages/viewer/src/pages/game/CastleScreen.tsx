@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PicSchema, EGA_DEFAULT, type Font4bpp, type Pic } from '@wiz6/data';
+import { PicSchema, EGA_DEFAULT, type Font, type Font4bpp, type Pic } from '@wiz6/data';
 import {
   renderEgaScreen,
   concatenatePicSegments,
   compositePicScript,
-  renderTextRun4bpp,
   createTileWindow,
   clearWindow,
   setCursor,
@@ -16,7 +15,7 @@ import {
   type MainMenuOption,
   type MainMenuContext,
 } from '@wiz6/parser';
-import { loadEgaScreen, loadFont4bpp } from '../../data-loader.js';
+import { loadEgaScreen, loadFont, loadFont4bpp } from '../../data-loader.js';
 import styles from './CastleScreen.module.css';
 
 const ENGINE_W = 320;
@@ -52,6 +51,7 @@ export function CastleScreen() {
   const [mon08Decoded, setMon08Decoded] = useState<number[] | null>(null);
   const [dragonscRgba, setDragonscRgba] = useState<Uint8ClampedArray | null>(null);
   const [wfont3, setWfont3] = useState<Font4bpp | null>(null);
+  const [wfont0, setWfont0] = useState<Font | null>(null);
 
   const visible = useMemo(() => visibleMenuOptions(DEFAULT_CONTEXT), []);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -110,6 +110,20 @@ export function CastleScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    loadFont('/fonts/wfont0.json')
+      .then((font) => {
+        if (!cancelled) setWfont0(font);
+      })
+      .catch(() => {
+        /* leave null */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // RAF loop that flips the parity bit every PARITY_FLIP_MS and recomposites
   // the frame. Mirrors the engine's FUN_013b → FUN_07b7 cadence: parity==0
   // draws everything except the slot-5/6 overlays (water); parity==1 adds
@@ -139,6 +153,7 @@ export function CastleScreen() {
         mon08Pic,
         mon08Decoded,
         wfont3,
+        wfont0,
         visible,
         selectedIdxRef.current,
       );
@@ -146,7 +161,7 @@ export function CastleScreen() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [mon08Pic, mon08Decoded, dragonscRgba, wfont3, visible]);
+  }, [mon08Pic, mon08Decoded, dragonscRgba, wfont3, wfont0, visible]);
 
   // Keyboard navigation: ↑/↓ wrap-around through visible options; Enter activates.
   useEffect(() => {
@@ -202,6 +217,7 @@ function composeFrame(
   mon08Pic: Pic | null,
   mon08Decoded: number[] | null,
   wfont3: Font4bpp | null,
+  wfont0: Font | null,
   menuOptions: readonly MainMenuOption[],
   selectedIdx: number,
 ): void {
@@ -276,20 +292,18 @@ function composeFrame(
     //   c61a translates attr ≥ 0x10 by subtracting 0xF, so the underlying
     //   puts attr is 3 → wfont3. The string is centered with padding
     //   character 0x5F (banner-variant space).
+    const fontSet = { font0: wfont0, font3: wfont3 };
+
     const banner = createTileWindow({ screenX: 0, screenY: 144, widthCells: 40, heightCells: 1 });
     clearWindow(banner, 0x5f, 0x03); // banner-variant space, wfont3
-    // Use 0x5F (banner-space) for the separator between "master" and
-    // "options" — NOT 0x20 (which is the solid-dark-gray panel-variant
-    // space with no transparent top/bottom rows, used in the menu pane).
-    // The engine's stored banner string must use 0x5F too; otherwise the
-    // black 1-px lines top/bottom would break for that one cell.
-    // Banner string is 20 chars total — bat + 2 banner-spaces + "master" +
+    // Banner string is 20 cells total: bat + 2 banner-spaces + "master" +
     // 1 banner-space + "options" + 2 banner-spaces + bat. Centered in 40
-    // cells starts at col 10 and ends at col 29; cursor advances to 30,
-    // which matches the live banner_window cursor value (30) we read from
-    // wbase.dgroup at save time.
+    // cells starts at col 10 and ends at col 29 — cursor advances to 30,
+    // matching the live banner_window cursor we read from wbase.dgroup
+    // at save time. (0x5F is the banner-variant space; 0x7F the banner-
+    // variant bat icon.)
     centeredPuts(banner, '\x7f\x5f\x5fmaster\x5foptions\x5f\x5f\x7f', 0x12, 0x5f);
-    renderTileWindow(banner, buf, ENGINE_W, ENGINE_H, { font3: wfont3 }, EGA_DEFAULT);
+    renderTileWindow(banner, buf, ENGINE_W, ENGINE_H, fontSet, EGA_DEFAULT);
 
     // ---- Lower pane at cell (0, 19) = screen (0, 152), 40×5 cells ----
     // Engine call: ed5a(menu_text_window, 0x20, 3, 0) — clear with
@@ -309,28 +323,17 @@ function composeFrame(
       const cx = Math.floor(i / ROWS_PER_COL) * X_STRIDE + X_BASE;
       const cy = (i % ROWS_PER_COL) + Y_BASE;
       setCursor(pane, cx, cy);
-      // Engine's dfb9 writes at attr=3. Selected option uses df85 with
-      // attr=-5 (= 0xFB) which is a different ega.drv slot — for now we
-      // approximate selected by post-rendering with the override path.
-      puts(pane, opt.label, 0x03);
+      // Selected option uses df85 — engine stores cell as (char, attr<<4)
+      // with original attr in the high nibble + 0 in the low nibble (the
+      // dispatch signal to ega.drv slot 1 = wfont0 1bpp text). The
+      // engine's `attr=-5` becomes |attr|=5, cell.attr=0x50. At render
+      // time: stroke → palette[0] (black), bg → palette[5]. Non-selected
+      // options use the normal `dfb9` path at attr=3 → wfont3 4bpp tiles.
+      // See docs/re/findings/wfont-highlight-render.json.
+      const attr = i === selectedIdx ? 0x50 : 0x03;
+      puts(pane, opt.label, attr);
     }
-    renderTileWindow(pane, buf, ENGINE_W, ENGINE_H, { font3: wfont3 }, EGA_DEFAULT);
-
-    // Selected-option highlight: re-render the selected option's row
-    // with a color override (black-on-yellow). Until df85's exact tile
-    // dispatch is RE'd this is the closest visual equivalent.
-    const sel = menuOptions[selectedIdx];
-    if (sel) {
-      const cx = Math.floor(selectedIdx / ROWS_PER_COL) * X_STRIDE + X_BASE;
-      const cy = (selectedIdx % ROWS_PER_COL) + Y_BASE;
-      const textX = cx * 8;
-      const textY = 152 + cy * 8;
-      renderTextRun4bpp(
-        buf, ENGINE_W, ENGINE_H, textX, textY,
-        sel.label, wfont3, EGA_DEFAULT,
-        { 1: 0, 8: 14 }, // file 1 → black, file 8 → yellow
-      );
-    }
+    renderTileWindow(pane, buf, ENGINE_W, ENGINE_H, fontSet, EGA_DEFAULT);
   }
 
   ctx.putImageData(new ImageData(buf, ENGINE_W, ENGINE_H), 0, 0);

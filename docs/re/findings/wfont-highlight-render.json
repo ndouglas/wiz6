@@ -1,0 +1,229 @@
+{
+  "topic": "wfont-highlight-render-path",
+  "subagent_run": "2026-05-24",
+  "binaries": ["wroot.exe", "ega.drv", "wfont0.ega", "wbase.ovr"],
+  "summary": "Decoded the engine's text-highlight path (df85 = wroot file offset 0x22B7 = 'ui_window_putchar_highlight'). The highlight encoding is: cell stores (char, attr<<4) — original attr in HIGH nibble, low nibble = 0. The blit-time dispatch at wroot 0x2C20 sees attr_low==0 and routes to ega.drv slot 1 (the '1bpp text' slot at file 0x19A, runtime 0x29A). Slot 1 is a per-plane bit-selector that uses wfont0 (1bpp font, 1024 bytes total, 8 bytes/glyph, indexed by char code) as the only glyph source. For each EGA plane P (0..3), it tests bit (4+P) of ah; if SET, writes NOT(wfont0[char][row]) to that plane; if CLEAR, writes 0 (from a fixed all-zero buffer at runtime cs:0x292) to that plane. Bits 4..7 of ah hold the original attr value. Net per-pixel color: foreground (wfont0_bit=1) -> palette index 0 (black); background (wfont0_bit=0) -> palette index = attr_low_nibble. For attr=5 (the menu-selected case after negation of -5), this gives black-on-palette5 which in WIZ6_MAIN is (170,255,0) — the 'yellow' the user sees. The 'negated' flag derived from sign of input attr is stored as a per-cell marker bit (0x80 in the dirty map at [cs:0x1b60]) but does NOT affect the rendered color — the NOT-invert in slot 1 is gated on the second pushed arg [bp+0x8] (the dirty-map cell byte) being non-zero, which it always is after the window-index match test. So df85 with positive attr=3 and df85 with negative attr=-3 produce IDENTICAL pixels. The sign is purely a 'mark this cell as highlighted in the dirty map' signal for upstream code (probably the cursor-tracking logic).",
+  "key_insight": "wfont0 (1bpp) is the highlight renderer's ONLY glyph source. wfont1..wfont4 are NOT consulted on the highlight path, despite tile-mode windows storing arbitrary char codes. The engine renders the SAME 1bpp glyph shapes for highlight as for any other 1bpp-text-mode primitive. The 'tile mode' assumption from the prior wfont-tile-system finding — that all text in tile-mode windows uses wfont1..wfont4 — is wrong for highlight cells; those use wfont0.",
+  "method": "Static ndisasm of (1) df85 at wroot file 0x22B7 (=image 0x22B7 after stripping 0x200 MZ header), (2) ega.drv slot 1 at file 0x19A, (3) wroot blit dispatch at file 0x2C20-2C6E showing where [cs:0x1b8a] is reached (cell.attr.low_nibble==0 path), (4) wroot driver-init at file 0x1F40-1FA6 showing ega.drv loads at offset 0x100 of its runtime segment and the slot-table fixup at wroot 0x1B86-1BCC. Cross-checked against the call site in FUN_025c (wbase_menu_select_loop, wbase 0x025C+0x3CC..0x3E9) which pushes attr=-param_8=-5 for the selected option. Palette mapping verified against packages/data/src/palettes/wiz6-main.ts (palette index 5 = (170,255,0)).",
+  "df85_function": {
+    "name": "ui_window_putchar_highlight",
+    "address": { "space": "wroot.exe", "file_offset": "0x22B7", "image_offset": "0x22B7" },
+    "thunk": "wroot 0xDF85 (the wroot-internal thunk: cross-overlay callers reach df85 via this thunk, which is wroot file offset 0x22B7 + 0xBA9C - 0xBA9C = 0x22B7 — note for cross-overlay calls the thunk lookup is bss_offset - 0xBA9C = wroot file offset; from an overlay, calling 0xdf85 means dispatching to wroot's 0x22B7)",
+    "signature": "df85(window: handle, buffer_or_charsrc: ptr, attr: i16) — third arg is signed 16-bit (e.g. 0xFFFB = -5 in the menu case)",
+    "asm_annotated": [
+      "0x22B7  push bp; mov bp,sp; sub sp,6           ; locals: [bp-2]=cell_word, [bp-4]=row_offset, [bp-6]=negated_flag",
+      "0x22BD  push ds; push es; push di; push si",
+      "0x22C1  call far [cs:0x1ba2]                   ; lock_video / begin_render thunk",
+      "0x22C6  mov [bp-6], 0                          ; negated_flag = 0",
+      "0x22CB  mov ax, [bp+8]                         ; ax = attr arg",
+      "0x22CE  test ah, 0x80                          ; sign bit?",
+      "0x22D1  jz 0x22DD                              ; if positive, skip negation",
+      "0x22D3  mov [bp-6], 1                          ; negated_flag = 1",
+      "0x22D8  neg ax                                 ; ax = -ax (= |attr|)",
+      "0x22DA  mov [bp+8], ax                         ; store back",
+      "0x22DD  ; ... window-list walk to find dl=window_index (1-based) ...",
+      "0x2311  mov ah, al                             ; ah = attr (low byte)",
+      "0x2313  shl ah, 4                              ; ah = attr<<4 (move attr into HIGH nibble)",
+      "0x2317  mov al, [bp+6]                         ; al = char arg",
+      "0x231A  mov [bx+si+0x10], ax                   ; CELL STORE: (char in al, attr<<4 in ah)",
+      "0x231D  mov [bp-2], ax                         ; save cell word for later",
+      "0x2329  ; ... compute video buffer offset ...",
+      "0x234A  mov al, [di]                           ; load dirty-map byte at [cs:0x1b60]:offset",
+      "0x234C  and al, 0x3f                           ; mask to 6 bits",
+      "0x234E  cmp al, dl                             ; matches our window index?",
+      "0x2350  jnz 0x23B8                             ; if not, skip render",
+      "0x2352  cmp word [bp-6], 0                     ; negated?",
+      "0x2356  jz 0x235A",
+      "0x2358  or al, 0x80                            ; set bit 7 in dirty byte (highlight marker)",
+      "0x235A  mov ah, [di]                           ; ah = old dirty byte",
+      "0x235C  push ax                                ; pushed as arg [bp+8] in slot 1 callee — al has window_idx, bit 7 if negated",
+      "0x235D  mov [di], al                           ; update dirty-map byte",
+      "0x23A8  mov di, ax                             ; di = back-buffer destination offset",
+      "0x23AA  mov ax, [bp-2]                         ; ax = cell word (al=char, ah=attr<<4)",
+      "0x23AD  push word [bp-6]                       ; push negated_flag (slot 1 IGNORES this — never reads [bp+6])",
+      "0x23B0  call far [cs:0x1b8a]                   ; CALL: ega.drv slot 1 (the highlight renderer)",
+      "0x23B5  add sp, 4"
+    ],
+    "attribute_transform": "If sign bit of incoming attr word is set, negate to get |attr| and set negated_flag = 1. Cell-write stores char in low byte, |attr|<<4 in high byte (low nibble of attr byte = 0, which is the blit-time signal to dispatch to slot 1 instead of slot 2). Negated_flag is also OR'd as bit 7 into the cell's dirty-map byte at [cs:0x1b60]:row*0x28+col.",
+    "dispatched_to": "ega.drv slot 1 via far call [cs:0x1b8a]. Slot table at wroot file 0x1B86; slot 1's entry is at 0x1B8A (4 bytes = offset 0x0103 + segment placeholder). The segment is patched at startup by the driver loader (wroot 0x1F76-1F86) with [cs:0x1b84] = driver_segment. Inside ega.drv, the slot's body is at file offset 0x19A (= runtime offset 0x29A, since the driver image is read into its segment at offset 0x100)."
+  },
+  "blit_dispatch": {
+    "address": { "space": "wroot.exe", "file_offset": "0x2C20" },
+    "summary": "The per-cell blit loop at 0x2C20 also reaches slot 1 for any cell whose attr-byte low nibble is zero. So even cells df85 wrote earlier get re-rendered via slot 1 on subsequent dirty-cell sweeps (with the SAME inputs: ax = cell_word, [bp+8] = dirty-map byte which is non-zero because the cell's window index just matched).",
+    "asm_annotated": [
+      "0x2C20  mov al, [es:si]              ; dirty-map byte",
+      "0x2C23  and al, 0xbf                 ; clear bit 6",
+      "0x2C25  cmp dl, al                   ; matches current window index?",
+      "0x2C27  jnz skip",
+      "0x2C29  mov ah, [es:si]              ; ah = same byte (kept for push)",
+      "0x2C2C  push ax                      ; goes to [bp+8] in callee",
+      "0x2C2D  and byte [es:si], 0x3f       ; clear dirty bits 6-7",
+      "0x2C31  mov ax, [bx]                 ; (char, attr_byte) from cell",
+      "0x2C33  test ah, 0x0f                ; low nibble == 0?",
+      "0x2C36  jz 0x2C66                    ; HIGHLIGHT path",
+      "0x2C38..0x2C4A  cmp ah, 1..4         ; NORMAL path: dispatch wfont1..wfont4",
+      "0x2C5C  call far [cs:0x1b8e]         ; slot 2 (normal 4bpp text putchar)",
+      "0x2C66  push word [bp-0x12]          ; pushed as third arg (segment-like)",
+      "0x2C69  call far [cs:0x1b8a]         ; slot 1 (HIGHLIGHT 1bpp renderer)"
+    ]
+  },
+  "highlight_renderer": {
+    "name": "ega_drv_slot1_text_1bpp_per_plane_selector",
+    "address": { "space": "ega.drv", "file_offset": "0x19A", "runtime_offset": "0x29A" },
+    "args": {
+      "al": "char code (0..127, used to index wfont0 at char*8)",
+      "ah": "attr-byte from cell: original attr in HIGH nibble (bits 4-7), low nibble must be 0 for slot dispatch to reach here",
+      "di": "back-buffer destination byte offset (caller-set)",
+      "stack_bp+6": "ignored (df85 pushes the negated flag here; slot never reads it)",
+      "stack_bp+8": "WORD: when non-zero, plane writes are NOT-inverted. This is the dirty-map byte from the caller; always non-zero in practice because a window-index test just passed. Effectively means: 'always NOT-invert under df85/blit dispatch'.",
+      "stack_bp+0xA": "segment-like word. dh & 0x40 -> alt branch at 0x380 (not used on normal call paths)."
+    },
+    "asm_annotated": [
+      "0x19A   push bp; mov bp,sp; sub sp,8",
+      "0x1A0   push ds; push es; push si; push di; push dx; push cx; push bx",
+      "0x1A7   mov bl, al                   ; bl = char",
+      "0x1A9   xor bh, bh; shl bx, 3        ; bx = char*8 (offset into wfont0)",
+      "0x1AF   mov dx, [cs:0x155]           ; dx = wfont0 segment (set at font-load time)",
+      "0x1B4   mov [bp-2], dx               ; [bp-2] = unused?",
+      "0x1B7   mov [bp-4], bx               ; [bp-4] = char*8 (offset half of source-B far ptr)",
+      "0x1BA   mov dx, cs; mov [bp-6], dx   ; [bp-6] = cs (unused?)",
+      "0x1BF   lea dx, [0x292]; mov [bp-8], dx  ; [bp-8] = 0x292 (offset half of source-A far ptr)",
+      "      ; NOTE source-A and source-B far-pointer pairs are actually [bp-8]:[bp-6] and [bp-4]:[bp-2]",
+      "      ; (lds reads OFFSET first then SEGMENT from the dword at the ea)",
+      "0x1C6   mov dx, 0xa000; mov es, dx   ; es = EGA video segment",
+      "0x1CB   mov dx, [bp+0xA]             ; load third arg (segment-ish)",
+      "0x1CE   and dh, 0x40                 ; test bit 14",
+      "0x1D1   jnz 0x380                    ; alt path (not exercised here)",
+      "0x1D6   ; PLANE 0 (Blue, EGA seq reg2 mask 0x01) — tests ah & 0x10",
+      "0x1D7   push di; mov dx, 0x3C4; mov al, 2; out dx, al  ; SEQ index 2",
+      "0x1DE   inc dx; mov al, 1; out dx, al                 ; map_mask = 0x01",
+      "0x1E1   mov cx, 0x27                                  ; stride = 39 bytes between scanlines",
+      "0x1E4   test ah, 0x10                                 ; attr bit 0",
+      "0x1E7   jnz 0x1EE                                     ; bit SET -> use wfont0",
+      "0x1E9   lds si, [bp-8]                                ; bit CLEAR -> read source A (8 zeros)",
+      "0x1EC   jmp 0x1F7",
+      "0x1EE   lds si, [bp-4]                                ; ds:si = wfont0_seg : char*8",
+      "0x1F1   cmp word [bp+8], 0",
+      "0x1F5   jnz 0x20F                                     ; non-zero -> NOT-invert branch",
+      "0x1F7   ; ZERO branch: 8 x movsb with di += cx between (8 scanlines of wfont0 byte direct)",
+      "0x20F   ; NOT branch: 8 x { lodsb; not al; stosb; add di,cx } (8 scanlines of NOT(wfont0))",
+      "0x23D   pop di; push di              ; reset di for next plane",
+      "0x23F   ; PLANE 1 (Green, mask 0x02) — tests ah & 0x20  — same structure",
+      "0x2A3   pop di; push di",
+      "0x2A4   ; PLANE 2 (Red, mask 0x04) — tests ah & 0x40    — same structure",
+      "0x307   pop di",
+      "0x308   ; PLANE 3 (Intensity, mask 0x08) — tests ah & 0x80 — same structure",
+      "0x36B+  pop registers; ret"
+    ],
+    "color_transform": "Per-pixel per-plane formula. Let attr = (ah >> 4) & 0x0F (the original attr value held in the high nibble of cell.attr by df85). Let w = wfont0[char][row][col_bit] (1bpp, 1 if foreground stroke at this pixel, 0 if background). Let inv = ([bp+8] != 0) which is ALWAYS TRUE under df85/blit dispatch. Then for each plane P in 0..3: plane_bit = (attr & (1<<P)) ? (inv ? !w : w) : 0. Output palette index = sum(plane_bit_P << P) for P in 0..3.\n\nWith inv=1 (the only case observed in real call paths): plane_bit = (attr & (1<<P)) ? !w : 0. So:\n  - If w=1 (foreground stroke): all plane_bits = 0 -> output = 0 (BLACK).\n  - If w=0 (background): plane_bit = (attr_bit_P) ? 1 : 0 -> output = attr.\n\nNet: highlight cells render as 'wfont0 glyph in palette-0 (black) on a palette-attr background'.",
+    "source_a_is_zero": "The 'bit clear' branch's source is cs:0x292 (a 'fixed 8-byte pattern'). At runtime, ega.drv is loaded at offset 0x100 of its segment, so cs:0x292 corresponds to ega.drv file offset 0x192. Confirmed by xxd: bytes 0x192..0x199 are all 0x00. This is an uninitialized buffer the code uses as a 'plane all-zero' source.",
+    "negated_flag_is_color_irrelevant": "The negated_flag set by df85 (when called with negative attr) is pushed at bp+6 in the slot 1 callee. Slot 1 never reads [bp+6]. The NOT-invert is gated on [bp+8] (the dirty-map byte), which is always non-zero on real call paths. So passing -3 vs +3 to df85 produces identical pixels. The flag IS recorded as bit 7 of the dirty-map byte for upstream tracking (probably cursor/selection state), just not consulted by the renderer."
+  },
+  "ts_implementation": {
+    "summary": "Given (char, attr_byte_in_cell) and the wfont0 1bpp font, produce per-pixel palette indices for an 8x8 cell.",
+    "pseudocode": [
+      "// Cell format produced by df85:",
+      "//   char_byte = char (0..127)",
+      "//   attr_byte = (original_attr_lo_nibble) << 4   // low nibble is 0",
+      "//",
+      "// Detection: if (cell.attr_byte & 0x0F) === 0 && cell.attr_byte !== 0, this is a highlight cell.",
+      "// (attr_byte === 0 is a normal empty/no-render cell, separately handled.)",
+      "",
+      "function renderHighlightCell(char: number, attrByte: number, wfont0: Uint8Array): number[] /* 64 palette indices, row-major */ {",
+      "  const attr = (attrByte >> 4) & 0x0F;   // recover original attr value (0..15)",
+      "  const out = new Array<number>(64);",
+      "  for (let y = 0; y < 8; y++) {",
+      "    const glyphByte = wfont0[char * 8 + y];   // 1bpp scanline, bit 7 = leftmost pixel",
+      "    for (let x = 0; x < 8; x++) {",
+      "      const w = (glyphByte >> (7 - x)) & 1;   // foreground bit",
+      "      // Engine ALWAYS NOT-inverts on df85 path:",
+      "      out[y * 8 + x] = w ? 0 : attr;",
+      "    }",
+      "  }",
+      "  return out;",
+      "}",
+      "",
+      "// Equivalent simpler form of the color override the task description proposed:",
+      "// highlightColorOverride does not exist as a (file_color -> palette_index) table here, because the highlight",
+      "// renderer does NOT read wfont1..wfont4 (which have 4bpp 'file colors'). It reads wfont0 (1bpp) and emits",
+      "// {0, attr} only. If the calling code wants to layer the 4bpp wfontN glyph back in, the closest emulation",
+      "// is: ignore the 4bpp glyph entirely, look up wfont0[char] as a 1bpp mask, and emit (1 -> 0, 0 -> attr).",
+      "",
+      "// For the menu case attr=5 -> attr_byte_in_cell = 0x50:",
+      "//   wfont0 stroke (1) -> 0 -> WIZ6_MAIN[0] = (0,0,0)  BLACK",
+      "//   wfont0 background (0) -> 5 -> WIZ6_MAIN[5] = (170,255,0)  YELLOW-GREEN",
+      "// This matches the user's observed 'black on yellow' for the selected menu option."
+    ],
+    "viewer_port_note": "The current port hardcodes `{ 1: 0, 8: 14 }` as a file-color->palette-index override on top of the 4bpp wfont3 panel-variant glyph. That approximation works visually only because file color 1 happens to be the stroke color and file color 8 the background color of the wfont3 panel-uppercase glyphs, and palette 14 in the port's palette happens to land near palette 5 in WIZ6_MAIN. The ENGINE-correct behavior is to discard the wfont3 glyph entirely on highlight cells and rasterize wfont0[char] as a 1bpp mask producing (0 if stroke, attr if background). The wfont3 4bpp glyph is conceptually irrelevant on highlight cells — df85 doesn't care which 4bpp font the cell originally referenced."
+  },
+  "validation": {
+    "menu_selected_case": {
+      "input": "df85(menu_text_window, 'C', attr = -5)  // 'C' from 'CHARACTER MENU' selected option",
+      "trace": [
+        "attr arg = 0xFFFB (signed -5)",
+        "df85 detects sign bit, negates -> 0x0005, sets negated_flag = 1",
+        "stores cell = (char='C'=0x43, attr_byte = 5<<4 = 0x50)",
+        "ax for slot 1 call = 0x5043 (ah=0x50, al=0x43)",
+        "slot 1 plane tests: ah & 0x10=1 (P0 set), ah & 0x20=0 (P1 clear), ah & 0x40=1 (P2 set), ah & 0x80=0 (P3 clear)",
+        "[bp+8] = pushed dirty-byte (non-zero, =1|0x80=0x81), so NOT-invert branch taken on all SET planes",
+        "for each pixel (w = wfont0['C'][y][x]):",
+        "  P0 = NOT(w), P1 = 0, P2 = NOT(w), P3 = 0",
+        "  output = P0 | (P2<<2) = (w ? 0 : 1) | (w ? 0 : 4) = w ? 0 : 5",
+        "  -> stroke pixels: 0 (BLACK in WIZ6_MAIN), background pixels: 5 (YELLOW-GREEN (170,255,0))"
+      ],
+      "result": "MATCHES the user's observed 'black on yellow' visual. Note that 'yellow' here is palette-index-5 = (170,255,0), which is a yellow-green / chartreuse, not the warm yellow at palette index 14 = (170,170,0). The viewer's hardcoded `{1:0, 8:14}` override should be replaced with `{1:0, 8:5}` if patching the current 4bpp approximation, OR replaced entirely with a wfont0-based 1bpp mask render for engine-correct behavior."
+    },
+    "other_attr_examples": [
+      {
+        "call_site": "wbase 0x2002 — df85(_, _, attr=6)",
+        "input_attr": 6,
+        "result": "attr stays positive (no neg), cell_attr_byte = 0x60, ah & 0x10=0, ah & 0x20=1 (P1), ah & 0x40=1 (P2), ah & 0x80=0. Bg pixels -> palette index 6 = (0,255,0) bright green. Stroke -> black. So: black-on-green."
+      },
+      {
+        "call_site": "wbase 0x2043 — df85(_, _, attr=3)",
+        "input_attr": 3,
+        "result": "cell_attr_byte = 0x30, plane tests give P0=1, P1=1, P2=0, P3=0. Bg -> palette 3 = (170,85,170) magenta/light-purple. Stroke -> black. So: black-on-magenta."
+      },
+      {
+        "call_site": "wbase 0x23E0 (also 0x27BD etc) — df85(_, _, attr=-5)",
+        "input_attr_signed": -5,
+        "result": "Same as the main-menu selection visual: black-on-(170,255,0). The negated_flag is set in the dirty-map (bit 7) but doesn't change pixels."
+      }
+    ],
+    "negation_does_not_affect_color": "Confirmed by static analysis. df85 with positive attr=N and df85 with attr=-N produce identical cell.attr_byte (= N<<4) and the slot 1 dispatch sees [bp+8]!=0 in both cases (because the dirty-map byte is always non-zero post-window-match), so the NOT branch is always taken. The 'negated' encoding is a marker for the cell-tracking logic upstream (probably menu cursor/selection state), not a render-time flag."
+  },
+  "open_questions": [
+    {
+      "id": "Q-bp10-third-arg-alt-path",
+      "claim": "Slot 1 has an alternate path entered when ([bp+0xA] high byte & 0x40) is non-zero, jumping to 0x380. This path is not exercised by df85 (which pushes ds = ordinary heap segment). Possibly a 'render to non-EGA target' or 'render to back-buffer-only' variant. Not investigated further as it's irrelevant to the highlight visual.",
+      "confidence": "speculative"
+    },
+    {
+      "id": "Q-negated-flag-consumer",
+      "claim": "The negated_flag bit (0x80) df85 OR's into the dirty-map byte at [cs:0x1b60]:offset has SOME consumer (otherwise df85 wouldn't bother setting it). Candidates: (a) cursor blink toggle logic — re-render the highlighted cell each tick; (b) selection-state read-back when user presses Enter; (c) a 'restore prior cell' undo. Not investigated.",
+      "confidence": "speculative"
+    },
+    {
+      "id": "Q-other-callers-of-slot-1-bypass-df85",
+      "claim": "wroot 0x2C66 also calls slot 1 (from the blit loop). The blit pushes [bp-0x12] as the third arg and the dirty-map byte (kept in [es:si]) as the second arg. Both arguments are 'arbitrary but typically non-zero', so the rendered output is the same as df85's output for the same cell. Conclusion: slot 1 has effectively one observable behavior in this codebase: 'wfont0 NOT-mask producing {0 if stroke, attr if bg}'.",
+      "confidence": "high"
+    },
+    {
+      "id": "Q-attr-zero-cell",
+      "claim": "A cell with attr_byte = 0x00 (low nibble 0 AND high nibble 0) takes the highlight path but renders with attr=0 -> output = 0 for BOTH stroke and bg = all black. This is consistent with 'empty cell = blank black tile'. Empty cells in the cell array are stored as attr=0, and the blit at 0x2C33 jumps to the highlight call regardless. In practice the wbase code uses ed5a (ui_window_clear) with attr=3 to pre-fill cells (giving the gray wfont3 0x20 tile), so attr=0 is rare except for genuinely-empty regions.",
+      "confidence": "medium"
+    }
+  ],
+  "implications_for_port": [
+    "TileWindow rendering of highlight cells should ignore the 4bpp wfont3 glyph (or whichever wfont the original char/attr resolved to before df85) and instead render a 1bpp wfont0[char] mask: stroke -> palette[0], background -> palette[attr_low_nibble_of_high_nibble].",
+    "The cell encoding for highlight cells is (char, attr<<4). The viewer's tile-renderer can detect highlight cells by `(cell.attr & 0x0F) === 0 && cell.attr !== 0`.",
+    "Replacing the current hardcoded `{ 1: 0, 8: 14 }` override: the engine-correct color is `{ stroke: 0, background: 5 }` for the WIZ6_MAIN palette in attr=5 highlights — note that's palette index 5 = (170,255,0), NOT palette index 14 = (170,170,0). The current viewer's palette-14 yellow is visually close but slightly off; the engine renders the yellow-GREEN (170,255,0) for menu highlights.",
+    "wfont0.ega is 1024 bytes / 128 glyphs / 8 bytes each. The viewer probably already extracts this somewhere; if not, decoding is trivial (no compression).",
+    "Generalize to other df85 attrs: any (char, attr) where attr is 1..15 produces a black-on-palette[attr] highlight. The full table is just `palette[0..15]` for backgrounds, always with black strokes.",
+    "Negation of input attr is a 'mark dirty' signal, not a color signal. Port should treat df85(_, _, attr) and df85(_, _, -attr) identically for rendering. If the port needs the marker bit for cursor blink or interaction logic, store it separately in the TileWindow cell metadata."
+  ],
+  "cross_references": {
+    "wfont_tile_system_finding": "docs/re/findings/wfont-tile-system.json — its claim 'highlight_path_attr_minus_5: df85 shifts attr to high nibble, blit takes [cs:0x1b8a] empty-cell path' is CORRECT in the shift-and-dispatch step, but its characterization of the renderer as 'a DIFFERENT rendering primitive that uses the HIGH nibble for inverse-video / XOR-fill' is incomplete — the renderer is the wfont0 1bpp per-plane selector described here, not an XOR-fill.",
+    "wbase_state4_draw_trace_finding": "docs/re/findings/wbase-state4-draw-trace.json — describes the state-4 menu loop. The df85 call for the selected option happens inside FUN_025c (wbase_menu_select_loop), invoked from FUN_2b36 (state-4 entry) at wbase 0x2CCB with the 8th arg = 5 = the highlight attr."
+  }
+}
