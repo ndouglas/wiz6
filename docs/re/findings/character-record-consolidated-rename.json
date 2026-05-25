@@ -1,0 +1,186 @@
+{
+  "$schema": "https://raw.githubusercontent.com/ndouglas/wiz6/main/docs/re/findings/README.md#schema",
+  "topic": "character-record-consolidated-rename",
+  "date": "2026-05-25",
+  "sources": [
+    {
+      "id": "manual",
+      "description": "Official Wizardry VI Playmaster's Guide (Sir-Tech, 1990). Pages cited as 'manual p. N'."
+    },
+    {
+      "id": "martydill",
+      "description": "martydill/Wizardry-6-reverse-engineering open-source RE repo. Specifically: pcfile_editor.py field docstrings and bane/data/character_parser.py SKILL_INDEX_MAP."
+    },
+    {
+      "id": "asm",
+      "description": "Our own wpcvw.ovr / wmexe.ovr / wpcmk.ovr disassembly traces, documented in earlier finding JSON files."
+    }
+  ],
+
+  "renames": [
+    {
+      "field": "unknown_0x10 (u32 at record +0x10)",
+      "new_name": "mks",
+      "meaning": "Monster Kill Statistic — count of monsters killed",
+      "confidence": "HIGH",
+      "source": "manual p. 23 (defines 'Monster Kill Statistic (MKS)' as kill counter displayed on Additional Character Statistics screen); asm evidence in wmexe.ovr: u32 incremented per combat kill at abs 0x43f8/0x43fa",
+      "stock_values": "all 6 stock chars = 0 (no kills before game start)",
+      "notes": "Replaces prior label 'unknown_0x10'. 'combats_won' hypothesis is NOT supported — the manual documents only MKS (kills), not a combats-won counter."
+    },
+    {
+      "field": "per (u8 at record +0x132)",
+      "new_name": "per",
+      "meaning": "Personality — NPC friendliness/interaction stat (PER)",
+      "confidence": "HIGH",
+      "source": "manual p. 11 ('Personality (PER)' listed as distinct primary stat); asm: stats panel msg 0xd2 = PER, 8th in 0xcc-0xd3 sequence for STR/INT/PIE/VIT/DEX/SPD/PER/KAR",
+      "notes": "Was previously called 'personality' in character.ts AttributesSchema with a comment about uncertainty. Now confirmed as short abbrev 'per'."
+    },
+    {
+      "field": "kar (u8 at record +0x133)",
+      "new_name": "kar",
+      "meaning": "Karma — ethical meter stat (KAR)",
+      "confidence": "HIGH",
+      "source": "manual p. 11 ('Karma (KAR)' listed as distinct primary stat; manual p. 17: 'Rolling Karma' during creation); asm: stats panel msg 0xd3 = KAR",
+      "notes": "Was previously called 'karma' in character.ts with uncertainty. KAR starts at 0 for all races per Appendix A — rolled entirely during creation. Now confirmed as short abbrev 'kar'."
+    },
+    {
+      "field": "unknown_0x161 + unknown_0x163 (7 bytes at record +0x161..+0x167)",
+      "new_name": "bodyAc (7-element u8 array)",
+      "meaning": "Per-body-slot Armor Class values. 7 slots: [0]=Magical [1]=Head [2]=Chest [3]=Legs [4]=Hands [5]=Feet [6]=Encumbrance/Shield",
+      "confidence": "MEDIUM-HIGH",
+      "source": "manual p. 25-26 (AC sub-components diagram shows exactly 6 body-part AC slots + Magical AC + Encumbrance penalty/Shield bonus = 7 distinct sub-values); empirical: all 6 stock chars have these 7 bytes = [0,0, 10,10,10,10,10] i.e. +0x161=0, +0x162=0, +0x163..+0x167 = 10,10,10,10,10",
+      "stock_values": "For stock chars (no armor): THESUS +0x161=0,+0x162=0,+0x163..+0x167=10x5. Base 10 matches manual 'virtually naked=10' AC.",
+      "notes": "Our struct previously split as unknown_0x161 (2 bytes) + unknown_0x163 (5 bytes). Merging into 7-element bodyAc array. The first 2 bytes are likely acMagical and acEncumbrance (both 0 for unarmored stock chars)."
+    }
+  ],
+
+  "new_fields": [
+    {
+      "field": "encumbranceCurrent (u16 LE at record +0x20)",
+      "source": "martydill/pcfile_editor.py: 'current load in tenths of a pound'",
+      "confidence": "HIGH",
+      "stock_values": {
+        "THESUS": 295,
+        "TEMPEST": 295,
+        "LYSANDR": 225,
+        "NOBAL": 136,
+        "TREON": 128,
+        "PENTAG": 128
+      },
+      "notes": "Was previously 'unknown_0x20'. The values are perfectly consistent with carrying capacity loads: THESUS (STR=18, Fighter) and TEMPEST (STR=13, Fighter) are the heaviest carriers. Weights in tenths of a pound: 295 = 29.5 lbs, 128 = 12.8 lbs. REFUTES the 'Rebirths counter at +0x20' hypothesis."
+    },
+    {
+      "field": "encumbranceMax (u16 LE at record +0x22)",
+      "source": "martydill/pcfile_editor.py: same field family as encumbranceCurrent — max carry capacity",
+      "confidence": "HIGH",
+      "stock_values": {
+        "THESUS": 2700,
+        "TEMPEST": 1800,
+        "LYSANDR": 1125,
+        "NOBAL": 1035,
+        "TREON": 1440,
+        "PENTAG": 1350
+      },
+      "notes": "Was previously 'unknown_0x22' (previously misidentified as gold). Max capacity in tenths of a pound: THESUS=270 lbs, LYSANDR=112.5 lbs. THESUS (STR=18 Fighter) has highest capacity. ASM trace: wpcvw file+0x0e3d/0x0e78: add [bx+0x4408],ax (accumulates into +0x20 from inventory items)."
+    },
+    {
+      "field": "inventoryCountPage2 (u8 at record +0x1AD)",
+      "source": "martydill/pcfile_editor.py: companion to inventory_count (+0x1AC) for page-2 items",
+      "confidence": "MEDIUM",
+      "stock_values": "all 6 stock chars = 0 (no page-2 items)",
+      "notes": "Was previously 'unknown_0x1ad'. The inventory is documented as 2 pages of 10 items each per martydill's model. Our 22-slot model is compatible: first 10 slots = page 1 (inventory_count tracks these), next 10 = page 2 (inventoryCountPage2 tracks these), last 2 slots = vestigial/padding. Since stock chars only have 5 items (all on page 1), this is 0."
+    }
+  ],
+
+  "skills_expansion": {
+    "previous_length": 14,
+    "new_length": 30,
+    "evidence": "The 14-byte 'derived_stats_block' at +0x142..+0x151 is actually skill continuation bytes. Empirically confirmed: LYSANDR(Thief) skill[15]=10 (Skulduggery), NOBAL(Priest) skill[26]=7 (Theology), TREON(Mage) skill[28]=10 (Thaumaturgy), PENTAG(Mage) skill[28]=7 (Thaumaturgy). These skill indices align perfectly with class archetypes per martydill's SKILL_INDEX_MAP.",
+    "skill_index_map": {
+      "0": "Sword",
+      "1": "Axe",
+      "2": "Polearm",
+      "3": "Mace & Flail",
+      "4": "Dagger",
+      "5": "Staff & Wand",
+      "6": "Shield",
+      "7": "Modern Weapons",
+      "8": "Bow",
+      "9": "Thrown Weapons",
+      "10": "(hole)",
+      "11": "Sling",
+      "12": "Whip",
+      "13": "Music",
+      "14": "Legerdemain",
+      "15": "Skulduggery",
+      "16": "Ninjutsu",
+      "17": "(hole)",
+      "18": "(hole)",
+      "19": "(hole)",
+      "20": "(hole)",
+      "21": "(hole)",
+      "22": "Scouting",
+      "23": "Mythology",
+      "24": "Scribe",
+      "25": "Alchemy",
+      "26": "Theology",
+      "27": "Theosophy",
+      "28": "Thaumaturgy",
+      "29": "Kirijutsu"
+    },
+    "weaponry_order_caveat": "The academic/physical skill slots (13+) are confirmed by class archetypes. The weaponry slots 0-12 order matches martydill but differs from manual ordering (manual: Wand&Dagger=0, Sword=1, Axe=2, ...). THESUS(Fighter) has skill[1]=10; martydill says slot1=Axe (THESUS carries LONGSWORD, so Sword would be more expected). Mark weaponry slot ordering as MEDIUM confidence pending asm read of skill-name lookup table.",
+    "source": "martydill/bane/data/character_parser.py SKILL_INDEX_MAP"
+  },
+
+  "inventory_investigation": {
+    "martydill_claim": "20 slots (2 pages of 10)",
+    "our_model": "22 slots",
+    "empirical_result": "Bytes +0xE0..+0xEF (which would be slots 20-21 in our 22-slot model) are ALL ZEROS for all 6 stock chars. Not distinguishable from an empty extra slot vs. a different field.",
+    "gap_finding": "Bytes +0xF0..+0x10F (32 bytes between inventory end at +0xEF and equipment at +0x110) are NON-ZERO: repeating pattern [XX 00 02 02 00 00 00 00 00 00 00 00 00 00 00 20] x2. These are NOT part of any current struct field. They do NOT look like item slots (item_id would be 0 but weight bytes are non-zero).",
+    "decision": "Keep 22-slot inventory model. Add JSDoc comment noting martydill says 20 effective slots per page-count; last 2 slots vestigial/padding. The unmapped gap +0xF0..+0x10F is a separate open question.",
+    "inventory_count_page2": "Added at +0x1AD (all stock = 0, consistent with page-1-only data)"
+  },
+
+  "conflict_resolutions": [
+    {
+      "field": "portrait at +0x1AB",
+      "ours": "+0x1AB = portrait_index (HIGH confidence from ASM portrait-table access)",
+      "theirs": "martydill says +0x19C is also a portrait byte",
+      "resolution": "Keep our +0x1AB. The +0x19C byte is 0 for all stock chars; could be a variant or an error in their map. Not changing until asm evidence supports dual-portrait interpretation.",
+      "verdict": "OUR EVIDENCE WINS"
+    },
+    {
+      "field": "alignment at +0x19E",
+      "ours": "+0x19E = alignment (ASM: stats panel mov al,[bx+0x4586]; add ax,0x8c -> msg lookup)",
+      "theirs": "martydill says +0x19E = gender",
+      "resolution": "Trust our ASM. The stats panel explicitly uses +0x19E as an alignment message lookup. Gender/sex is at +0x1A1 (our ASM: portrait-table lookup via cs:0x526[sex*2]).",
+      "verdict": "OUR EVIDENCE WINS"
+    },
+    {
+      "field": "level at +0x24",
+      "ours": "+0x24 = level (HIGH confidence from inc-on-level-up ASM in wpcvw 0xb22e)",
+      "theirs": "martydill says 'rank at +0x24, level at +0x26'",
+      "resolution": "Trust our ASM. level_up_apply (0xb22e): inc word [bx+0x440c] is +0x24. class_change_apply resets it to 1. labeledOldLevel at +0x1af stores previous level. What martydill calls 'rank' is our 'level', and what they call 'level at +0x26' is our 'levelSecondary' which we tentatively interpret as 'max level ever reached'.",
+      "verdict": "OUR EVIDENCE WINS"
+    }
+  ],
+
+  "still_tbd": [
+    {
+      "item": "Rebirths counter",
+      "notes": "Manual p. 22 documents 'Rebirths' as a displayed stat. The martydill encumbrance interpretation at +0x20..+0x23 refutes our 'Rebirths at +0x20' hypothesis. Rebirths counter is now unlocated. Likely in the +0x1A2..+0x1A5 block (currently 'unknown_0x1a2'). Needs ASM verification via character review screen draw code."
+    },
+    {
+      "item": "32-byte gap at +0xF0..+0x10F",
+      "notes": "Non-zero repeating data between inventory end (+0xEF) and equipment (+0x110). Pattern [XX 00 02 02 ... 00 00 00 20] x2. Does not decode as item slots (item_id=0 but non-zero weight bytes). Possibly page-count headers or second-page inventory metadata."
+    },
+    {
+      "item": "Weaponry skill slot order",
+      "notes": "Slots 0-12 in skill array: martydill order (Sword=0,Axe=1,...) vs manual order (Wand&Dagger=0,Sword=1,Axe=2,...). THESUS carries LONGSWORD and has skill[1]=10; martydill says slot1=Axe which is unexpected for a longsword user. Verify via ASM skill-name lookup table (likely in wpcvw or wpcmk)."
+    },
+    {
+      "item": "AC sub-component byte ordering",
+      "notes": "bodyAc[7] at +0x161..+0x167. First 2 bytes (at +0x161..+0x162) are 0 for stock chars; bytes +0x163..+0x167 are 10. Exact ordering within the 7 slots (Magical, Head, Chest, Legs, Hands, Feet, Encumbrance) needs ASM verification from the AC update routines."
+    }
+  ]
+}
