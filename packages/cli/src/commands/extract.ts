@@ -8,6 +8,7 @@ import { extractEgaScreen } from '../extractors/extract-ega-screen.js';
 import { extractMessageDb } from '../extractors/extract-message-db.js';
 import { extractNewgameDb } from '../extractors/extract-newgame-db.js';
 import { extractScenarioDb } from '../extractors/extract-scenario-db.js';
+import { extractPcfile } from '../extractors/extract-pcfile.js';
 import { extractPic } from '../extractors/extract-pic.js';
 import { extractSnd } from '../extractors/extract-snd.js';
 import { extractDocs } from '../extractors/extract-docs.js';
@@ -26,6 +27,7 @@ type TypeName =
   | 'messages'
   | 'newgame'
   | 'scenario'
+  | 'pcfile'
   | 'pics'
   | 'sounds'
   | 'docs';
@@ -36,6 +38,7 @@ const ALL_TYPES: TypeName[] = [
   'messages',
   'newgame',
   'scenario',
+  'pcfile',
   'pics',
   'sounds',
   'docs',
@@ -50,6 +53,7 @@ types:
   messages     msg.dbs (Huffman-decoded text)
   newgame      newgame.dbs (character creation templates)
   scenario     scenario.dbs (XP tables, items, monsters, quest data)
+  pcfile       pcfile.dbs (character save slots)
   pics         mon00-mon58 + credits.pic (full decode, per-descriptor PNGs + contact sheet)
   sounds       sound00-sound38.snd (raw bytes + decoded metadata JSON)
   docs         copy docs/**/*.md into extracted/docs/ with a manifest
@@ -140,6 +144,17 @@ function extractOneType(
       const nonemptyItems = s.items.filter((it) => !it.empty).length;
       io.write(
         `wrote ${extractedDir}/scenario/scenario.json (${s.xpTables.length} XP tables, ${s.itemCount} item slots [${nonemptyItems} non-empty], ${s.unknownTail.length}-byte tail)\n`,
+      );
+      return;
+    }
+    case 'pcfile': {
+      const pc = extractPcfile({
+        originalPath: join(originalDir, 'pcfile.dbs'),
+        outputPath: join(extractedDir, 'pcfile', 'pcfile.json'),
+      });
+      const populated = pc.slots.filter((s) => s.populated).length;
+      io.write(
+        `wrote ${extractedDir}/pcfile/pcfile.json (${populated} populated slots of ${pc.header.slotCount})\n`,
       );
       return;
     }
