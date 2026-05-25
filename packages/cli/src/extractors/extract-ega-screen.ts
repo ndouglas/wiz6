@@ -43,7 +43,7 @@ export function extractEgaScreen(opts: ExtractEgaScreenOpts): EgaScreen {
     id: opts.id,
     sourceFile: basename(opts.originalPath),
   });
-  const screen: EgaScreen = { ...decoded, palette: 'ega-default' };
+  const screen: EgaScreen = { ...decoded, palette: 'wiz6-main' };
   mkdirSync(dirname(opts.outputPath), { recursive: true });
   writeFileSync(opts.outputPath, JSON.stringify(screen, null, 2));
 

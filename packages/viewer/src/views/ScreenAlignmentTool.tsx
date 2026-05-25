@@ -202,7 +202,7 @@ export function ScreenAlignmentTool({ url }: Props) {
           render:{' '}
           <select value={renderMode} onChange={(e) => setRenderMode(e.target.value as RenderMode)}>
             <option value="layers">discrete layers</option>
-            <option value="composite">composite (ega-default + permutation)</option>
+            <option value="composite">composite (wiz6-main palette)</option>
           </select>
         </label>{' '}
         <label style={{ marginLeft: '1em' }}>

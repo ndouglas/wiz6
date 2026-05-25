@@ -15,7 +15,7 @@ export function extractWport(opts: ExtractWportOpts): PortraitSet {
     id: opts.id,
     sourceFile: basename(opts.originalPath),
   });
-  const set: PortraitSet = { ...decoded, palette: 'ega-default' };
+  const set: PortraitSet = { ...decoded, palette: 'wiz6-main' };
   mkdirSync(dirname(opts.outputPath), { recursive: true });
   writeFileSync(opts.outputPath, JSON.stringify(set, null, 2));
   return set;

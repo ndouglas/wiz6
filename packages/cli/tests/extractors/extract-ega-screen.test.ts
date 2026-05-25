@@ -35,7 +35,7 @@ describe('extractEgaScreen', () => {
     expect(written.trailer).toHaveLength(768);
   });
 
-  it("emits palette: 'ega-default' in the extracted JSON", () => {
+  it("emits palette: 'wiz6-main' in the extracted JSON", () => {
     const dir = mkdtempSync(join(tmpdir(), 'wiz6-ega-screen-palette-'));
     const inputPath = join(dir, 'titlepag.ega');
     const outputPath = join(dir, 'titlepag.json');
@@ -48,8 +48,8 @@ describe('extractEgaScreen', () => {
       emitPng: false,
     });
 
-    expect((screen as { palette?: string }).palette).toBe('ega-default');
+    expect((screen as { palette?: string }).palette).toBe('wiz6-main');
     const written = JSON.parse(readFileSync(outputPath, 'utf-8'));
-    expect(written.palette).toBe('ega-default');
+    expect(written.palette).toBe('wiz6-main');
   });
 });
