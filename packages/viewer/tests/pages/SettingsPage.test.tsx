@@ -47,4 +47,11 @@ describe('SettingsPage', () => {
     // default state has pinMaxBonusRoll=true, which is the QoL (not stock).
     expect(screen.getByText(/^QoL$/i)).toBeInTheDocument();
   });
+
+  it('renders a "Learn more" link for rules that have a learnMoreUrl', () => {
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>);
+    const link = screen.getByRole('link', { name: /learn more/i });
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute('href')).toContain('/explore/notes#bonus-point-lottery');
+  });
 });

@@ -61,6 +61,9 @@ export interface HouseRuleMeta {
   stockValue: boolean | number | string;
   /** Control type the settings UI should render. */
   control: 'boolean';
+  /** Optional in-app URL pointing at an engineering note or RE doc with
+   *  more context. Rendered as a "Learn more" link in the settings UI. */
+  learnMoreUrl?: string;
 }
 
 export const HOUSE_RULES_META: readonly HouseRuleMeta[] = [
@@ -68,9 +71,10 @@ export const HOUSE_RULES_META: readonly HouseRuleMeta[] = [
     key: 'pinMaxBonusRoll',
     label: 'Pin bonus points to max',
     description:
-      "During character creation, Wiz6 rolls a small random bonus-point pool you can distribute across attributes. The stock UX is 'reroll until you get a big number' — fast and grindy. When this is ON, the bonus pool is pinned to the maximum rollable value (no reroll needed). Turn OFF for the stock random-roll experience.",
+      'During character creation, Wiz6 rolls a small random bonus-point pool you distribute across attributes. There is no reroll button. To try for a higher roll, you must abandon the entire character and start the creation flow over — re-enter the name, re-pick race, re-allocate the new pool, re-pick class, re-distribute skill points, re-pick spells (for casters), re-pick portrait. Every attempt is a 2-3 minute click marathon. The rolls needed to qualify for the elite classes (Samurai, Monk, Ninja, Lord, Bishop) appear roughly 1 in 400 attempts — that works out to ~10-20 hours of grinding to roll into one of those classes. An absolute dogshit gaming experience even by 1990 standards. When this is ON, the bonus pool is pinned to its maximum rollable value on the first try, so you can pick any class without grinding. (The developers themselves had a buried debug switch for this very purpose — see the linked note.) Turn OFF only if you really want the original UX (recommended: do not).',
     category: 'creation',
     stockValue: false,
     control: 'boolean',
+    learnMoreUrl: '/explore/notes#bonus-point-lottery',
   },
 ];

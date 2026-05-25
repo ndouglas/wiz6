@@ -106,6 +106,11 @@ function RuleRow({ meta, rules }: { meta: HouseRuleMeta; rules: HouseRules }) {
         </span>
       </label>
       <p className={styles.ruleDescription}>{meta.description}</p>
+      {meta.learnMoreUrl ? (
+        <p className={styles.learnMore}>
+          <Link to={meta.learnMoreUrl}>Learn more →</Link>
+        </p>
+      ) : null}
     </li>
   );
 }
