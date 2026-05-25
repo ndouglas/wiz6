@@ -1,0 +1,464 @@
+{
+  "topic": "pcfile-dbs",
+  "subagent_run": "2026-05-25T00:00:00Z",
+  "binaries": ["original/pcfile.dbs", "original/wbase.ovr"],
+  "summary": "pcfile.dbs on-disk character record layout. 24-byte file header + 16 × 432-byte records. The on-disk record is identical to the in-memory layout (confirmed via straight rep-movsw memcpy in wbase.ovr's add_party_member handler). The wpcvw-naming-pass.json bss_layout had several wrong offsets in the first 0x30 bytes of the record; this pass corrects them with empirical evidence.",
+
+  "file_header": {
+    "size": 24,
+    "note": "First 24 bytes of pcfile.dbs",
+    "fields": [
+      {
+        "offset": "+0x00",
+        "field": "record_size",
+        "type": "u16_le",
+        "value": "0x01b0",
+        "note": "432 bytes per record, matching the in-memory character slot stride"
+      },
+      {
+        "offset": "+0x02",
+        "field": "slot_count",
+        "type": "u16_le",
+        "value": "0x0010",
+        "note": "16 slots maximum"
+      },
+      {
+        "offset": "+0x04",
+        "field": "header_size",
+        "type": "u32_le",
+        "value": "0x00000018",
+        "note": "24 bytes; records start immediately after"
+      },
+      {
+        "offset": "+0x08",
+        "field": "slot_status[16]",
+        "type": "u8[16]",
+        "note": "Per-slot: 0=empty, 1=available (not in party), 2=in party. Stock file has first 6 bytes = 1, rest 0."
+      }
+    ]
+  },
+
+  "load_path": {
+    "description": "How pcfile.dbs records reach in-memory character slots",
+    "evidence": {
+      "binary": "wbase.ovr",
+      "function_read_char": {
+        "address": { "space": "wbase.ovr", "offset": "0x0036" },
+        "description": "read_char_from_pcfile — called with args (char_index, dst_buf, mode=0). Seeks to header_size + char_index * record_size, then reads exactly record_size (0x1b0) bytes into dst_buf. Straight file read, no field translation."
+      },
+      "function_add_party_member": {
+        "address": { "space": "wbase.ovr", "offset": "0x253a" },
+        "key_instructions": [
+          "25a3: lea si, [bp-0x1b2]   ; source = disk buffer",
+          "25af: mov di, 0x43e8 + slot*0x1b0  ; destination = BSS char slot",
+          "25b5: mov cx, 0xd8          ; 216 words = 432 bytes",
+          "25b8: rep movsw             ; straight memcpy"
+        ],
+        "conclusion": "The disk buffer is memcpy'd verbatim into the BSS slot. ON-DISK LAYOUT == IN-MEMORY LAYOUT."
+      }
+    }
+  },
+
+  "record_layout": {
+    "stride": "0x1b0",
+    "base_slot_0": "0x43e8",
+    "note": "Slot N at file offset 0x18 + N*0x1b0; in-memory at BSS 0x43e8 + N*0x1b0",
+    "fields": [
+      {
+        "id": "name",
+        "offset": "+0x00",
+        "type": "char[8]",
+        "confidence": "high",
+        "note": "ASCIIZ name, 7 chars max + null terminator. NOT 12 bytes as wpcvw bss_layout claimed.",
+        "evidence": {
+          "type": "byte_pattern",
+          "details": "TEMPEST fills 7 chars + null in bytes 0..7; XP starts at +0x08 (verified). Max observed name length = 7 (TEMPEST, LYSANDR). The bss_layout claiming char[12] is wrong — that would put XP at +0x0c, but we see XP = 6590 at +0x08 and 0 at +0x0c."
+        },
+        "values": {
+          "THESUS": "54 48 45 53 55 53 00 00",
+          "TEMPEST": "54 45 4d 50 45 53 54 00",
+          "LYSANDR": "4c 59 53 41 4e 44 52 00",
+          "NOBAL": "4e 4f 42 41 4c 00 00 00",
+          "TREON": "54 52 45 4f 4e 00 00 00",
+          "PENTAG": "50 45 4e 54 41 47 00 00"
+        }
+      },
+      {
+        "id": "xp",
+        "offset": "+0x08",
+        "type": "u32_le",
+        "confidence": "high",
+        "note": "Experience points. NOT at +0x0c as wpcvw bss_layout claimed.",
+        "evidence": {
+          "type": "byte_pattern",
+          "details": "Values 6590/7405/7265/7057/6603/6698 are specific, distinct, plausible Wiz6 XP amounts. +0x0c is 0 for all 6 stock chars."
+        },
+        "values": {
+          "THESUS": 6590,
+          "TEMPEST": 7405,
+          "LYSANDR": 7265,
+          "NOBAL": 7057,
+          "TREON": 6603,
+          "PENTAG": 6698
+        }
+      },
+      {
+        "id": "unknown_0x0c",
+        "offset": "+0x0c",
+        "size": 12,
+        "type": "u8[12]",
+        "confidence": "low",
+        "note": "All zeros for all 6 stock characters. May be gold_u32 + padding, or reserved fields. wpcvw bss_layout claimed xp_low+xp_high at +0x0c/+0x0e and gold at +0x14/+0x16 — those are incorrect based on empirical evidence; the actual content here is unknown.",
+        "values": "00 00 00 00 00 00 00 00 00 00 00 00 (all stock chars)"
+      },
+      {
+        "id": "level",
+        "offset": "+0x18",
+        "type": "u16_le",
+        "confidence": "high",
+        "note": "Current character level (1-based). NOT at +0x24 as wpcvw bss_layout claimed (which was wrong). The bss_layout had 'hp_cur' at this offset — empirically that's wrong.",
+        "evidence": {
+          "type": "byte_pattern",
+          "details": "Values 8/9/5/4/4/2 match the pre-discovered facts exactly. Distinct plausible levels for stock chars."
+        },
+        "values": {
+          "THESUS": 8,
+          "TEMPEST": 9,
+          "LYSANDR": 5,
+          "NOBAL": 4,
+          "TREON": 4,
+          "PENTAG": 2
+        }
+      },
+      {
+        "id": "level_secondary",
+        "offset": "+0x1a",
+        "type": "u16_le",
+        "confidence": "medium",
+        "note": "Always equals level in stock data. Likely max_level (for class-change throttle) or saved_old_level. wpcvw bss_layout called this 'hp_max' — incorrect.",
+        "values": {
+          "THESUS": 8,
+          "TEMPEST": 9,
+          "LYSANDR": 5,
+          "NOBAL": 4,
+          "TREON": 4,
+          "PENTAG": 2
+        }
+      },
+      {
+        "id": "hp_cur",
+        "offset": "+0x1c",
+        "type": "u16_le",
+        "confidence": "high",
+        "note": "Current hit points. wpcvw bss_layout had this at +0x18 (wrong) and called it 'hp_cur'. Empirically, HP is here at +0x1c.",
+        "evidence": {
+          "type": "byte_pattern",
+          "details": "Fully-varying column, values 75-126 are plausible HP for levels 2-9."
+        },
+        "values": {
+          "THESUS": 126,
+          "TEMPEST": 123,
+          "LYSANDR": 87,
+          "NOBAL": 75,
+          "TREON": 102,
+          "PENTAG": 90
+        }
+      },
+      {
+        "id": "hp_max",
+        "offset": "+0x1e",
+        "type": "u16_le",
+        "confidence": "high",
+        "note": "Maximum hit points. Equals hp_cur for stock chars (fully healed). wpcvw bss_layout had this at +0x1a (wrong).",
+        "values": {
+          "THESUS": 126,
+          "TEMPEST": 123,
+          "LYSANDR": 87,
+          "NOBAL": 75,
+          "TREON": 102,
+          "PENTAG": 90
+        }
+      },
+      {
+        "id": "sp_cur",
+        "offset": "+0x20",
+        "type": "u16_le",
+        "confidence": "medium",
+        "note": "Spirit points (mana), current pool. Values 128-295 are plausible for mid-level chars. Fighters (THESUS, TEMPEST) have highest SP which is unexpected — may be combined/total pool.",
+        "values": {
+          "THESUS": 295,
+          "TEMPEST": 295,
+          "LYSANDR": 225,
+          "NOBAL": 136,
+          "TREON": 128,
+          "PENTAG": 128
+        }
+      },
+      {
+        "id": "gold",
+        "offset": "+0x22",
+        "type": "u16_le",
+        "confidence": "medium",
+        "note": "Gold pieces. Values 1035-2700 are plausible starting amounts for stock characters. May be low word of a u32 with the high word at +0x24 (constant=1), but +0x24=1 seems more likely to be a different field.",
+        "values": {
+          "THESUS": 2700,
+          "TEMPEST": 1800,
+          "LYSANDR": 1125,
+          "NOBAL": 1035,
+          "TREON": 1440,
+          "PENTAG": 1350
+        }
+      },
+      {
+        "id": "unknown_0x24",
+        "offset": "+0x24",
+        "size": 4,
+        "type": "u16_le × 2",
+        "confidence": "low",
+        "note": "Constant 01 00 01 00 across all 6 stock chars. wpcvw bss_layout claimed 'level' at +0x24 (abs 0x440c) — that is wrong; the actual level is at +0x18. This field may be 'initialized flag', 'base_level_1', or stock-char-creation metadata."
+      },
+      {
+        "id": "per_school_sp_pairs",
+        "offset": "+0x28",
+        "size": 24,
+        "type": "struct { sp_cur u16; sp_max u16; }[6]",
+        "confidence": "low",
+        "note": "6 school × (cur+max) u16 pairs = 24 bytes. Mostly zero for fighters; partial values for NOBAL (Priest) and TREON/PENTAG (Ninja). Could be per-school mana allocation rather than sp_cur/sp_max totals.",
+        "values_note": "NOBAL: school[4]=(5,5), school[5]=(4,4). TREON: school[0]=(3,3), school[4]=(3,3). PENTAG: school[1]=(3,3), school[3]=(3,3)."
+      },
+      {
+        "id": "inventory_records",
+        "offset": "+0x40",
+        "size": "22 × 8 = 176 bytes",
+        "type": "item_record[22]",
+        "confidence": "medium",
+        "note": "22 item slots, 8 bytes each. Layout per item: +0 item_id u16, +2 u16 (field2), +4 u8 (type?), +5 u8 (flags?), +6 u8, +7 u8. Matches wpcvw bss_layout. Stock chars have 5 non-zero items each.",
+        "evidence": {
+          "type": "byte_pattern",
+          "details": "Item 0 IDs: THESUS=8, TEMPEST=8 (same weapon class), LYSANDR=6, NOBAL=24, TREON=18, PENTAG=18. Each pair sharing the same items supports consistent stock character setup."
+        }
+      },
+      {
+        "id": "equipment_slots",
+        "offset": "+0x110",
+        "size": 8,
+        "type": "u8[8]",
+        "confidence": "medium",
+        "note": "8 equipment slots, each holding inventory-index of equipped item. 0xFF = empty. All stock chars have all 0xFF (nothing equipped on load from pcfile). Matches wpcvw bss_layout.",
+        "values": "ff ff ff ff ff ff ff ff (all 6 stock chars)"
+      },
+      {
+        "id": "unknown_0x118",
+        "offset": "+0x118",
+        "size": 10,
+        "confidence": "low",
+        "note": "Range +0x118..+0x121. Contains values like [1,1,0,0,0,0,...] at +0x120/+0x121. Possibly conditions[10] per wpcvw bss_layout (which claimed +0x122) — off by 2 bytes, or this is a different field."
+      },
+      {
+        "id": "conditions",
+        "offset": "+0x122",
+        "size": 10,
+        "type": "u8[10]",
+        "confidence": "medium",
+        "note": "10-condition tracker per wpcvw bss_layout. Values at +0x120/+0x121 are [1,1,1,2,2,2] / [1,1,1,3,3,3] which could be level-tier conditions or bitmaps. The exact condition byte mapping needs verification.",
+        "values_note": "THESUS/TEMPEST/LYSANDR: +0x120=1, +0x121=1. NOBAL/TREON: +0x120=2, +0x121=3."
+      },
+      {
+        "id": "attributes",
+        "offset": "+0x12c",
+        "size": 6,
+        "type": "u8[6]",
+        "confidence": "high",
+        "note": "STR/INT/PIE/VIT/DEX/SPD in that order. Matches wpcvw bss_layout. THESUS (Fighter) has STR=18, LYSANDR (Mage) has high DEX/SPD (14/12), NOBAL (Priest type) has high PIE=13. All values in plausible 6-18 range.",
+        "evidence": {
+          "type": "byte_pattern",
+          "details": "THESUS: 18,8,8,12,10,9. TEMPEST: 13,10,6,14,7,7. LYSANDR: 7,10,7,11,14,12. NOBAL: 7,10,13,9,9,9. TREON: 10,12,6,12,10,8. PENTAG: 10,12,13,10,8,6."
+        },
+        "values": {
+          "THESUS":  { "STR": 18, "INT": 8, "PIE": 8,  "VIT": 12, "DEX": 10, "SPD": 9  },
+          "TEMPEST": { "STR": 13, "INT": 10, "PIE": 6, "VIT": 14, "DEX": 7,  "SPD": 7  },
+          "LYSANDR": { "STR": 7,  "INT": 10, "PIE": 7, "VIT": 11, "DEX": 14, "SPD": 12 },
+          "NOBAL":   { "STR": 7,  "INT": 10, "PIE": 13,"VIT": 9,  "DEX": 9,  "SPD": 9  },
+          "TREON":   { "STR": 10, "INT": 12, "PIE": 6, "VIT": 12, "DEX": 10, "SPD": 8  },
+          "PENTAG":  { "STR": 10, "INT": 12, "PIE": 13,"VIT": 10, "DEX": 8,  "SPD": 6  }
+        }
+      },
+      {
+        "id": "skill_levels",
+        "offset": "+0x134",
+        "size": 14,
+        "type": "u8[14]",
+        "confidence": "medium",
+        "note": "14 skill levels (0..100). Matches wpcvw bss_layout. Values are low (0-16) which is plausible for mid-level characters.",
+        "values": {
+          "THESUS":  [0,10,0,0,0,0,0,0,2,0,0,0,0,0],
+          "TEMPEST": [0,16,0,0,0,0,0,0,0,0,0,0,0,0],
+          "LYSANDR": [1,3,0,0,0,0,0,0,0,0,0,0,0,10],
+          "NOBAL":   [0,0,0,0,2,0,0,0,2,0,0,0,0,0],
+          "TREON":   [0,0,0,0,7,0,0,0,0,0,0,0,0,0],
+          "PENTAG":  [5,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        }
+      },
+      {
+        "id": "spell_bitmaps_and_school_data",
+        "offset": "+0x142",
+        "size": 90,
+        "confidence": "low",
+        "note": "Range +0x142..+0x19b. Contains spell known/available bitmaps and per-school progress. Not decoded in this pass; partially-varying bytes suggest school-specific data."
+      },
+      {
+        "id": "inventory_count",
+        "offset": "+0x1ac",
+        "type": "u8",
+        "confidence": "high",
+        "note": "Count of items in inventory (0..22). Matches actual non-zero item count in inventory_records.",
+        "evidence": {
+          "type": "byte_pattern",
+          "details": "All 6 stock chars have +0x1ac=5, which exactly matches counting non-zero item IDs in +0x40..+0xef. wpcvw bss_layout claims abs 0x4594=inventory_count which = slot0+0x1ac — this one is CORRECT."
+        },
+        "values": {
+          "THESUS": 5, "TEMPEST": 5, "LYSANDR": 5, "NOBAL": 5, "TREON": 5, "PENTAG": 5
+        }
+      },
+      {
+        "id": "late_fields_0x1a0_to_0x1ab",
+        "offset": "+0x1a0",
+        "size": 11,
+        "confidence": "low",
+        "note": "Range +0x1a0..+0x1aa. wpcvw bss_layout says sex at +0x1a0 (abs 0x4589), selected_weapon_hand at +0x1a2/+0x1a3, spells_to_learn at +0x1a8, magic_power at +0x1a9/+0x1aa. These claims need DOSBox verification to confirm. magic_power_hi at +0x1ab (abs 0x4593) has distinct values [10,8,13,10,9,7] — plausible."
+      },
+      {
+        "id": "race_class_region",
+        "offset": "+0x19c",
+        "size": 8,
+        "confidence": "low",
+        "note": "Range +0x19c..+0x1a3. wpcvw bss_layout claims: race at +0x19c (abs 0x4585), class at +0x19e (abs 0x4587), high_water_level at +0x19f (abs 0x4588). The values at +0x19c are [0,22,20,3,8,18] — NOT plausible race indices (too high for 10-race system). The values at +0x19f are [0,0,3,2,1,1] which ARE plausible race indices (Human=0, Elf=1, Dwarf=2, Gnome=3). wpcvw bss_layout likely has a 1-byte offset error in this region. Best guess: race at +0x19f, class somewhere nearby, but unconfirmed without DOSBox."
+      },
+      {
+        "id": "saved_old_level_and_tail",
+        "offset": "+0x1ad",
+        "size": 3,
+        "confidence": "low",
+        "note": "Range +0x1ad..+0x1af. wpcvw bss_layout says: equipped_count at +0x1ad, ac_extra_byte at +0x1ae, saved_old_level at +0x1af. All three are 0/100/0 in constant rows. +0x1ae=100 for all stocks could be starting AC value (100 = default before adjustment?). Not verified."
+      }
+    ]
+  },
+
+  "discrepancy_with_in_memory_layout": {
+    "conclusion": "SAME LAYOUT (direct memcpy confirmed), but wpcvw-naming-pass.json bss_layout has wrong offsets for several early fields.",
+    "root_cause": "The wpcvw subagent's bss_layout analysis incorrectly claimed name=char[12] (actual: char[8]). This shifted XP from +0x08 to claimed +0x0c, then caused a chain of misidentifications for hp/level in the +0x18..+0x27 region. Fields from +0x12c onward (attributes, skills, inventory) appear correct in the bss_layout.",
+    "specific_corrections": [
+      { "field": "name", "wpcvw_offset": "+0x00 char[12]", "actual_offset": "+0x00 char[8]", "impact": "Caused 4-byte shift for xp claim" },
+      { "field": "xp", "wpcvw_offset": "+0x0c (abs 0x43f4)", "actual_offset": "+0x08 (abs 0x43f0)", "evidence": "6590 at +0x08, 0 at +0x0c" },
+      { "field": "level", "wpcvw_offset": "+0x24 (abs 0x440c)", "actual_offset": "+0x18 (abs 0x4400)", "evidence": "8/9/5/4/4/2 at +0x18, 1/1/1/1/1/1 at +0x24" },
+      { "field": "hp_cur", "wpcvw_offset": "+0x18 (abs 0x4400)", "actual_offset": "+0x1c (abs 0x4404)", "evidence": "126/123/87/75/102/90 at +0x1c, level-values at +0x18" },
+      { "field": "hp_max", "wpcvw_offset": "+0x1a (abs 0x4402)", "actual_offset": "+0x1e (abs 0x4406)", "evidence": "same values as hp_cur at +0x1e" },
+      { "field": "race_region", "wpcvw_offset": "+0x19c (abs 0x4585)", "actual_offset": "probably +0x19f or nearby", "evidence": "+0x19c values [0,22,20,3,8,18] out of race-index range; +0x19f values [0,0,3,2,1,1] look like race indices" }
+    ]
+  },
+
+  "unmapped_regions": [
+    { "range": "+0x0c..+0x17", "size": 12, "note": "All 0 in stock data. Could be gold u32 + padding, or reserved fields." },
+    { "range": "+0x24..+0x27", "size": 4, "note": "Constant 01 00 01 00. Possibly 'initialized' or stock-creation metadata." },
+    { "range": "+0x28..+0x3f", "size": 24, "note": "Per-school SP pairs or similar. Mostly 0 for fighters, small values for priest/ninja." },
+    { "range": "+0x118..+0x12b", "size": 20, "note": "Conditions + surrounding bytes. wpcvw claims +0x122..+0x12b = conditions[10], but the actual byte content suggests off-by-a-few alignment." },
+    { "range": "+0x132..+0x133", "size": 2, "note": "After SPD, before skill_levels. Constant or near-constant." },
+    { "range": "+0x142..+0x19b", "size": 90, "note": "Spell bitmaps, school data, assorted flags. Large TBD region." },
+    { "range": "+0x19c..+0x1ab", "size": 16, "note": "Race/class/sex/alignment region. wpcvw offsets may be off by 1-3 bytes. DOSBox verification needed." },
+    { "range": "+0x1ad..+0x1af", "size": 3, "note": "Tail fields (equipped_count, ac_extra, saved_old_level per wpcvw). Near-constant in stock data." }
+  ],
+
+  "unresolved": [
+    "Gold field exact offset: +0x22 as u16 is medium-confidence; the region +0x0c..+0x17 is all-zeros and might hold a u32 gold that's not exercised in stock chars.",
+    "Race offset exact byte: wpcvw claims +0x19c, empirical suggests +0x19f. Neither is definitively confirmed — stock chars may have very specific race values that alias with non-race data.",
+    "Class byte location: could be in the +0x19c..+0x1a3 region but exact byte unconfirmed without DOSBox live-read verification.",
+    "Sex byte: wpcvw claims +0x1a0 (abs 0x4589), all stock chars show 0 there — either 0=male in Wiz6, or the field is at a different offset.",
+    "+0x1a: level_dup vs max_level vs secondary_class_level — same as level for stock chars, can't distinguish without a char that has undergone class change.",
+    "sp_cur at +0x20: fighter THESUS has 295 SP which seems high — may be a different stat (total_mana_pool vs per-school distribution at +0x28)."
+  ],
+
+  "findings": [
+    {
+      "id": "pcfile-dbs-header",
+      "claim": "pcfile.dbs has a 24-byte header: record_size(u16), slot_count(u16), header_size(u32), status[16](u8 each)",
+      "category": "file_format",
+      "evidence": {
+        "type": "byte_exact_parse",
+        "details": "First 24 bytes: b0 01 10 00 18 00 00 00 01 01 01 01 01 01 00 ... File size = 24 + 16*432 = 6936 bytes, matches actual file size exactly."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pcfile-dbs-memcpy",
+      "claim": "Record data is read from disk verbatim into the BSS character slot with no field-by-field translation. On-disk layout == in-memory layout.",
+      "category": "load_path",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x25b8" },
+        "type": "disassembly",
+        "details": "rep movsw at 0x25b8 with cx=0xd8=216 words=432 bytes copies from stack buffer (loaded by read_char_from_pcfile at 0x0036) to BSS slot 0x43e8+N*0x1b0. No intermediate translation."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pcfile-dbs-name-8bytes",
+      "claim": "Name field is 8 bytes (7 chars max + null), not 12 bytes as the wpcvw bss_layout claimed.",
+      "category": "record_layout",
+      "evidence": {
+        "type": "byte_exact_parse",
+        "details": "TEMPEST fills bytes 0..7 exactly (7 chars + null). XP = 6590 at +0x08 (u32le). If name were 12 bytes, XP would start at +0x0c, but +0x0c is 0 for all chars."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pcfile-dbs-xp-offset",
+      "claim": "XP is at on-disk/in-memory +0x08 (u32le), not at +0x0c as wpcvw bss_layout claimed.",
+      "category": "record_layout",
+      "evidence": {
+        "type": "byte_exact_parse",
+        "details": "THESUS: bytes 8..11 = BE 19 00 00 = 6590 decimal = plausible XP for level-8 character. Bytes 12..15 = 00 00 00 00."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pcfile-dbs-level-offset",
+      "claim": "Level is at +0x18 (u16le), not at +0x24 as wpcvw bss_layout claimed.",
+      "category": "record_layout",
+      "evidence": {
+        "type": "byte_exact_parse",
+        "details": "Values at +0x18: [8,9,5,4,4,2] match exactly the expected levels for the stock 6 characters. Values at +0x24 are all 1 — NOT level values."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pcfile-dbs-hp-offset",
+      "claim": "hp_cur is at +0x1c (u16le), not at +0x18 as wpcvw bss_layout claimed.",
+      "category": "record_layout",
+      "evidence": {
+        "type": "byte_exact_parse",
+        "details": "Fully-varying column at +0x1c with values 75-126 (plausible HP). The column at +0x18 holds level values 2-9, not HP."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pcfile-dbs-attributes-correct",
+      "claim": "wpcvw bss_layout attributes at +0x12c (STR,INT,PIE,VIT,DEX,SPD) are CORRECT.",
+      "category": "record_layout",
+      "evidence": {
+        "type": "byte_pattern",
+        "details": "THESUS STR=18 (max), LYSANDR DEX=14/SPD=12 (mage-appropriate), NOBAL PIE=13 (priest-appropriate). Values 6-18 across all chars = plausible Wiz6 attribute range."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pcfile-dbs-inventory-count-correct",
+      "claim": "wpcvw bss_layout inventory_count at +0x1ac (abs 0x4594) is CORRECT; value 5 matches actual item count.",
+      "category": "record_layout",
+      "evidence": {
+        "type": "cross_reference",
+        "details": "Counting non-zero item IDs in +0x40..+0xef gives exactly 5 for all 6 stock chars. +0x1ac = 5 for all. Match is exact."
+      },
+      "confidence": "high"
+    }
+  ]
+}
