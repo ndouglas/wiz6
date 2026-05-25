@@ -26,26 +26,33 @@ const characters: Character[] = decoded.slots
   .map((s, i) => ({
     id: slotUuid(i),
     name: s.name!,
-    // Decoded from pcfile (field offsets confirmed by wpcvw.ovr ASM traces):
+    // All fields below decoded from pcfile.dbs (field offsets confirmed by
+    // wpcvw.ovr ASM traces; see docs/re/findings/character-record-extended-map.json).
     level: s.level,
-    // XP is at record +0x0c (BSS abs 0x43f4/0x43f6). The prior +0x08 field is
-    // ageCounter (a game-day age counter). All 6 stock chars have xp=0 at +0x0c,
-    // consistent with "everyone starts at 0 XP". See character-xp-field.json.
     xp: s.xp,
-    // Sensible defaults for fields we couldn't confidently decode.
-    // A future RE refinement pass can replace these with the real values
-    // by enriching the pcfile decoder (see docs/re/pcfile-dbs.md's
-    // unmapped regions).
-    race: 0,
-    class: 0,
-    savedOldLevel: 0,
-    gold: 0,
+    // Race at +0x19d (abs 0x4585): stats panel mov al,[bx+0x4585]; add ax,0x64 -> msg lookup.
+    race: s.race,
+    // Class at +0x19f (abs 0x4587): stats panel mov al,[bx+0x4587]; add ax,0x78 -> msg lookup.
+    class: s.class,
+    savedOldLevel: 0, // At +0x1af; 0 for all stock chars (no class changes).
+    // Gold at +0x14 (abs 0x43fc/0x43fe): 32-bit field, 0 for all stock chars.
+    gold: s.gold,
     conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     dead: false,
     paralyzed: false,
+    // Attributes at +0x12c..+0x133 (abs 0x4514..0x451b).
+    // Stats panel loop: [bx+0x4514+i] for i=0..7, msgs 0xcc..0xd3 = STR/INT/PIE/VIT/DEX/SPD/PER/KAR.
     attributes: {
-      str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12,
-      personality: 50, karma: 50,
+      str: s.str,
+      int: s.int,
+      pie: s.pie,
+      vit: s.vit,
+      dex: s.dex,
+      spd: s.spd,
+      // PER/KAR are the 7th and 8th bytes in the 8-byte attribute block.
+      // Labeled in wpcmk stat_panel as msg 0xd2 (PER) and 0xd3 (KAR).
+      personality: s.per,
+      karma: s.kar,
     },
     schoolMana: [0, 0, 0, 0, 0, 0],
     skills: new Array(14).fill(0),

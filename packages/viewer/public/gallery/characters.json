@@ -25,14 +25,14 @@
       "dead": false,
       "paralyzed": false,
       "attributes": {
-        "str": 12,
-        "int": 12,
-        "pie": 12,
+        "str": 18,
+        "int": 8,
+        "pie": 8,
         "vit": 12,
-        "dex": 12,
-        "spd": 12,
-        "personality": 50,
-        "karma": 50
+        "dex": 10,
+        "spd": 9,
+        "personality": 8,
+        "karma": 14
       },
       "schoolMana": [
         0,
@@ -65,7 +65,7 @@
       "name": "TEMPEST",
       "level": 1,
       "xp": 0,
-      "race": 0,
+      "race": 10,
       "class": 0,
       "savedOldLevel": 0,
       "gold": 0,
@@ -84,14 +84,14 @@
       "dead": false,
       "paralyzed": false,
       "attributes": {
-        "str": 12,
-        "int": 12,
-        "pie": 12,
-        "vit": 12,
-        "dex": 12,
-        "spd": 12,
-        "personality": 50,
-        "karma": 50
+        "str": 13,
+        "int": 10,
+        "pie": 6,
+        "vit": 14,
+        "dex": 7,
+        "spd": 7,
+        "personality": 10,
+        "karma": 16
       },
       "schoolMana": [
         0,
@@ -124,8 +124,8 @@
       "name": "LYSANDR",
       "level": 1,
       "xp": 0,
-      "race": 0,
-      "class": 0,
+      "race": 8,
+      "class": 3,
       "savedOldLevel": 0,
       "gold": 0,
       "conditions": [
@@ -143,14 +143,14 @@
       "dead": false,
       "paralyzed": false,
       "attributes": {
-        "str": 12,
-        "int": 12,
-        "pie": 12,
-        "vit": 12,
-        "dex": 12,
+        "str": 7,
+        "int": 10,
+        "pie": 7,
+        "vit": 11,
+        "dex": 14,
         "spd": 12,
-        "personality": 50,
-        "karma": 50
+        "personality": 10,
+        "karma": 15
       },
       "schoolMana": [
         0,
@@ -183,8 +183,8 @@
       "name": "NOBAL",
       "level": 1,
       "xp": 0,
-      "race": 0,
-      "class": 0,
+      "race": 1,
+      "class": 2,
       "savedOldLevel": 0,
       "gold": 0,
       "conditions": [
@@ -202,14 +202,14 @@
       "dead": false,
       "paralyzed": false,
       "attributes": {
-        "str": 12,
-        "int": 12,
-        "pie": 12,
-        "vit": 12,
-        "dex": 12,
-        "spd": 12,
-        "personality": 50,
-        "karma": 50
+        "str": 7,
+        "int": 10,
+        "pie": 13,
+        "vit": 9,
+        "dex": 9,
+        "spd": 9,
+        "personality": 8,
+        "karma": 4
       },
       "schoolMana": [
         0,
@@ -242,8 +242,8 @@
       "name": "TREON",
       "level": 1,
       "xp": 0,
-      "race": 0,
-      "class": 0,
+      "race": 7,
+      "class": 1,
       "savedOldLevel": 0,
       "gold": 0,
       "conditions": [
@@ -261,14 +261,14 @@
       "dead": false,
       "paralyzed": false,
       "attributes": {
-        "str": 12,
+        "str": 10,
         "int": 12,
-        "pie": 12,
+        "pie": 6,
         "vit": 12,
-        "dex": 12,
-        "spd": 12,
-        "personality": 50,
-        "karma": 50
+        "dex": 10,
+        "spd": 8,
+        "personality": 6,
+        "karma": 3
       },
       "schoolMana": [
         0,
@@ -301,8 +301,8 @@
       "name": "PENTAG",
       "level": 1,
       "xp": 0,
-      "race": 0,
-      "class": 0,
+      "race": 3,
+      "class": 1,
       "savedOldLevel": 0,
       "gold": 0,
       "conditions": [
@@ -320,14 +320,14 @@
       "dead": false,
       "paralyzed": false,
       "attributes": {
-        "str": 12,
+        "str": 10,
         "int": 12,
-        "pie": 12,
-        "vit": 12,
-        "dex": 12,
-        "spd": 12,
-        "personality": 50,
-        "karma": 50
+        "pie": 13,
+        "vit": 10,
+        "dex": 8,
+        "spd": 6,
+        "personality": 6,
+        "karma": 9
       },
       "schoolMana": [
         0,
