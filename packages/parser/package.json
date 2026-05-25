@@ -14,10 +14,12 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@wiz6/data": "workspace:*"
+    "@wiz6/data": "workspace:*",
+    "pako": "^2.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/pako": "^2.0.4",
     "vitest": "^2.1.0"
   }
 }

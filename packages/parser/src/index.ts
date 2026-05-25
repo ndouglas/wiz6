@@ -33,6 +33,12 @@ export {
 } from './ui/tile-window.js';
 export { renderEgaScreen } from './formats/ega-screen-render.js';
 export { EGA_FILE_INDEX_PERMUTATION } from './formats/ega-permutation.js';
+export {
+  encodeSave,
+  decodeSave,
+  encodeSaveBase64,
+  decodeSaveBase64,
+} from './formats/save-codec.js';
 
 export {
   slugify,
