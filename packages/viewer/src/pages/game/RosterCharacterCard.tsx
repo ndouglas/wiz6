@@ -3,11 +3,11 @@ import styles from './RosterView.module.css';
 
 interface Props {
   character: Character;
-  /** When true, render a "from gallery" badge. */
   fromGallery?: boolean;
+  onDownload?: () => void;
 }
 
-export function RosterCharacterCard({ character: c, fromGallery }: Props) {
+export function RosterCharacterCard({ character: c, fromGallery, onDownload }: Props) {
   return (
     <article className={styles.card} data-from-gallery={fromGallery || undefined}>
       <header className={styles.cardHeader}>
@@ -21,6 +21,11 @@ export function RosterCharacterCard({ character: c, fromGallery }: Props) {
         <div><dt>XP</dt><dd>{c.xp}</dd></div>
         <div><dt>Gold</dt><dd>{c.gold}</dd></div>
       </dl>
+      {onDownload ? (
+        <div className={styles.cardActions}>
+          <button type="button" onClick={onDownload}>Download</button>
+        </div>
+      ) : null}
     </article>
   );
 }
