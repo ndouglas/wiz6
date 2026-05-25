@@ -278,7 +278,12 @@ function composeFrame(
     //   character 0x5F (banner-variant space).
     const banner = createTileWindow({ screenX: 0, screenY: 144, widthCells: 40, heightCells: 1 });
     clearWindow(banner, 0x5f, 0x03); // banner-variant space, wfont3
-    centeredPuts(banner, '\x7fmaster options\x7f', 0x12, 0x5f);
+    // Use 0x5F (banner-space) for the separator between "master" and
+    // "options" — NOT 0x20 (which is the solid-dark-gray panel-variant
+    // space with no transparent top/bottom rows, used in the menu pane).
+    // The engine's stored banner string must use 0x5F too; otherwise the
+    // black 1-px lines top/bottom would break for that one cell.
+    centeredPuts(banner, '\x7fmaster\x5foptions\x7f', 0x12, 0x5f);
     renderTileWindow(banner, buf, ENGINE_W, ENGINE_H, { font3: wfont3 }, EGA_DEFAULT);
 
     // ---- Lower pane at cell (0, 19) = screen (0, 152), 40×5 cells ----
