@@ -71,6 +71,12 @@ export {
 } from './schemas/pic.js';
 export { SndSchema, type Snd } from './schemas/snd.js';
 export {
+  CharacterSchema,
+  AttributesSchema,
+  type Character,
+  type Attributes,
+} from './schemas/character.js';
+export {
   PALETTE_CATALOG,
   EGA_DEFAULT,
   WIZ6_MAIN,
