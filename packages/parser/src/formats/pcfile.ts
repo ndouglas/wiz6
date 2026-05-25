@@ -64,13 +64,35 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       name,
       ageCounter: view.getUint32(recStart + 0x08, true),
       xp: view.getUint32(recStart + 0x0c, true),
+      // Gold is a 32-bit field at +0x14 (abs 0x43fc/0x43fe).
+      // Corrected from prior +0x22 u16 which was an unidentified field.
+      // give_gold (wpcvw 0x513e) uses 32-bit carry math on abs 0x43fc/0x43fe.
+      gold: view.getUint32(recStart + 0x14, true),
       hpCurrent: view.getUint16(recStart + 0x18, true),
       hpMax: view.getUint16(recStart + 0x1A, true),
       spCurrent: view.getUint16(recStart + 0x1C, true),
       spMax: view.getUint16(recStart + 0x1E, true),
-      gold: view.getUint16(recStart + 0x22, true),
       level: view.getUint16(recStart + 0x24, true),
       levelSecondary: view.getUint16(recStart + 0x26, true),
+      // Attributes: 8-byte block at +0x12c (abs 0x4514).
+      // Stats panel loop (wpcvw ndisasm 0x0e55+0x464): reads [bx+0x4514+i] for i=0..7
+      // with msgs 0xcc..0xd3 = STR/INT/PIE/VIT/DEX/SPD/PER/KAR.
+      str: rec[0x12c]!,
+      int: rec[0x12d]!,
+      pie: rec[0x12e]!,
+      vit: rec[0x12f]!,
+      dex: rec[0x130]!,
+      spd: rec[0x131]!,
+      per: rec[0x132]!,
+      kar: rec[0x133]!,
+      // Race at +0x19d (abs 0x4585). Stats panel: mov al,[bx+0x4585]; add ax,0x64 -> msg lookup.
+      // NOTE: prior bss_layout "+0x19c" was wrong by 1 byte.
+      race: rec[0x19d]!,
+      // Alignment at +0x19e (abs 0x4586). Stats panel: mov al,[bx+0x4586]; add ax,0x8c -> msg.
+      alignment: rec[0x19e]!,
+      // Class at +0x19f (abs 0x4587). Stats panel: mov al,[bx+0x4587]; add ax,0x78 -> msg lookup.
+      // NOTE: prior bss_layout "+0x19e" was wrong by 1 byte.
+      class: rec[0x19f]!,
       raw: Array.from(rec),
     });
   }

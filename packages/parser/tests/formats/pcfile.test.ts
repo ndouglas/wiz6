@@ -40,6 +40,36 @@ describe('decodePcfile', () => {
     expect(thesus.hpMax).toBe(8);
     expect(thesus.spCurrent).toBe(126);
     expect(thesus.spMax).toBe(126);
+    // Gold at +0x14 (abs 0x43fc/0x43fe) is 0 for all stock chars.
+    // CORRECTED from prior +0x22 u16 which was a misidentified field.
+    expect(thesus.gold).toBe(0);
+  });
+
+  it('decodes THESUS race=0(Human), class=0(Fighter), attributes STR=18', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const thesus = slots.find((s) => s.name === 'THESUS')!;
+    // Race at +0x19d (abs 0x4585). Stats panel: mov al,[bx+0x4585]; add ax,0x64 -> msg lookup.
+    expect(thesus.race).toBe(0);    // Human
+    // Class at +0x19f (abs 0x4587). Stats panel: mov al,[bx+0x4587]; add ax,0x78 -> msg lookup.
+    expect(thesus.class).toBe(0);   // Fighter
+    // Attributes at +0x12c..+0x133 (abs 0x4514..0x451b).
+    // Stats panel loop: [bx+0x4514+i] for i=0..7 with msgs STR/INT/PIE/VIT/DEX/SPD/PER/KAR.
+    expect(thesus.str).toBe(18);
+    expect(thesus.int).toBe(8);
+    expect(thesus.pie).toBe(8);
+    expect(thesus.vit).toBe(12);
+    expect(thesus.dex).toBe(10);
+    expect(thesus.spd).toBe(9);
+  });
+
+  it('decodes all 6 stock characters with correct race and class', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const populated = slots.filter((s) => s.populated);
+    expect(populated.map((s) => s.race)).toEqual([0, 10, 8, 1, 7, 3]);
+    // 0=Human(THESUS), 10=Mook(TEMPEST), 8=Felpurr(LYSANDR),
+    // 1=Elf(NOBAL), 7=Dracon(TREON), 3=Gnome(PENTAG)
+    expect(populated.map((s) => s.class)).toEqual([0, 0, 3, 2, 1, 1]);
+    // 0=Fighter, 0=Fighter, 3=Thief, 2=Priest, 1=Mage, 1=Mage
   });
 
   it('empty slots have populated=false, name=null, and an all-zero raw', () => {
