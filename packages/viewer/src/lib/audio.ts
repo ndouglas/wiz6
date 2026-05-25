@@ -14,6 +14,38 @@ import { slotPlaybackRateHz as slotRateFromData } from '@wiz6/data';
 let audioContext: AudioContext | null = null;
 let userHasGestured = false;
 
+const MUTE_LS_KEY = 'wiz6:mute';
+let muted: boolean = (() => {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(MUTE_LS_KEY) === '1';
+  } catch {
+    return false;
+  }
+})();
+const muteListeners = new Set<(m: boolean) => void>();
+
+export function isMuted(): boolean {
+  return muted;
+}
+
+export function setMuted(next: boolean): void {
+  muted = next;
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem(MUTE_LS_KEY, next ? '1' : '0');
+    } catch {
+      /* localStorage may be unavailable (private browsing) */
+    }
+  }
+  for (const fn of muteListeners) fn(muted);
+}
+
+export function subscribeMuted(fn: (m: boolean) => void): () => void {
+  muteListeners.add(fn);
+  return () => muteListeners.delete(fn);
+}
+
 function maybeInitContext(): AudioContext | null {
   if (!userHasGestured) return null;
   if (audioContext) return audioContext;
@@ -78,6 +110,7 @@ export async function loadSnd(
 }
 
 export function playSnd(snd: PlayableSnd): void {
+  if (muted) return;
   const ctx = maybeInitContext();
   if (!ctx) return;
   const float = new Float32Array(snd.samples.length);

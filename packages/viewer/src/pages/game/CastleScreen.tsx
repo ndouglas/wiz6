@@ -57,7 +57,13 @@ export function CastleScreen() {
   const [wfont3, setWfont3] = useState<Font4bpp | null>(null);
   const [wfont0, setWfont0] = useState<Font | null>(null);
 
-  const visible = useMemo(() => visibleMenuOptions(DEFAULT_CONTEXT), []);
+  // Drop slot 6 (GAME CONFIGURATION) from the web port — the original game's
+  // config menu existed for DOS-era audio-device selection. Web Audio handles
+  // output; the only user-facing audio control is the MuteToggle in chrome.
+  const visible = useMemo(
+    () => visibleMenuOptions(DEFAULT_CONTEXT).filter((opt) => opt.slot !== 6),
+    [],
+  );
   const [selectedIdx, setSelectedIdx] = useState(0);
   // Mirror to a ref so the RAF tick + keyboard listener can both read it
   // without forcing the tick to re-bind on every cursor move.
