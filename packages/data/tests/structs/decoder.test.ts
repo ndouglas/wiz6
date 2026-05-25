@@ -118,23 +118,41 @@ describe('decodeBssStruct — combat_slot', () => {
   });
 });
 
-describe('decodeBssStruct — character_record name + age_counter + xp/gold', () => {
-  it('decodes ASCII name with trailing-null trim, age_counter at +0x08, xp at +0x0c', () => {
+describe('decodeBssStruct — character_record name + age_counter + xp/gold/attrs', () => {
+  it('decodes ASCII name, age_counter at +0x08, xp at +0x0c, gold at +0x14', () => {
     const buf = new Uint8Array(CHARACTER_RECORD.bytes);
     // "Bishop\0\0..." (6 chars, fits in 8-byte name field)
     const name = 'Bishop';
     for (let i = 0; i < name.length; i++) buf[i] = name.charCodeAt(i);
     // age_counter = 6586 (32-bit LE) at +0x08 — game-day age counter (~18 years)
     buf[0x08] = 0xba; buf[0x09] = 0x19; buf[0x0a] = 0; buf[0x0b] = 0;
-    // XP = 12345 (32-bit LE) at +0x0c (corrected from prior wrong offset +0x08)
+    // XP = 12345 (32-bit LE) at +0x0c (abs 0x43f4/0x43f6)
     buf[0x0c] = 0x39; buf[0x0d] = 0x30; buf[0x0e] = 0; buf[0x0f] = 0;
-    // Gold = 1234 (u16 LE) at +0x22
-    buf[0x22] = 0xd2; buf[0x23] = 0x04;
+    // Gold = 9999 (32-bit LE) at +0x14 (abs 0x43fc/0x43fe).
+    // CORRECTED: prior test had gold at +0x22 (u16) which was wrong.
+    // give_gold (wpcvw 0x513e) uses 32-bit carry math on abs 0x43fc/0x43fe.
+    buf[0x14] = 0x0f; buf[0x15] = 0x27; buf[0x16] = 0; buf[0x17] = 0;
     const decoded = decodeBssStruct(CHARACTER_RECORD, buf);
     expect(decoded.name).toBe('Bishop');
     expect(decoded.age_counter).toBe(6586);
     expect(decoded.xp).toBe(12345);
-    expect(decoded.gold).toBe(1234);
+    expect(decoded.gold).toBe(9999);
+  });
+
+  it('decodes attributes at +0x12c and race/class at +0x19d/+0x19f', () => {
+    const buf = new Uint8Array(CHARACTER_RECORD.bytes);
+    // Attributes: STR=18, INT=8, PIE=8, VIT=12, DEX=10, SPD=9, PER=8, KAR=14
+    // at +0x12c..+0x133 (abs 0x4514..0x451b).
+    buf[0x12c] = 18; buf[0x12d] = 8; buf[0x12e] = 8; buf[0x12f] = 12;
+    buf[0x130] = 10; buf[0x131] = 9; buf[0x132] = 8; buf[0x133] = 14;
+    // Race=0 (Human) at +0x19d (abs 0x4585). NOTE: prior bss_layout +0x19c was wrong.
+    buf[0x19d] = 0;
+    // Class=0 (Fighter) at +0x19f (abs 0x4587). NOTE: prior bss_layout +0x19e was wrong.
+    buf[0x19f] = 0;
+    const decoded = decodeBssStruct(CHARACTER_RECORD, buf);
+    expect(decoded.attributes).toEqual([18, 8, 8, 12, 10, 9, 8, 14]);
+    expect(decoded.race).toBe(0);
+    expect(decoded.class).toBe(0);
   });
 });
 

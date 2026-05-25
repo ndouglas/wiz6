@@ -1,0 +1,99 @@
+{
+  "topic": "character-record-extended-map",
+  "subagent_run": "2026-05-25",
+  "binaries": ["original/wpcvw.ovr", "original/pcfile.dbs"],
+  "summary": "Extended character record field map. Confirmed race (+0x19d), class (+0x19f), alignment (+0x19e), 8 attributes (+0x12c..+0x133 = STR/INT/PIE/VIT/DEX/SPD/PER/KAR), and corrected gold to 32-bit at +0x14 (was wrongly at +0x22 u16). Discovered systematic off-by-one error in wpcvw-naming-pass.json bss_layout for the +0x19c region: all offsets there were listed 1 too low (the JSON listed +0x19c for race but abs 0x4585 - base 0x43e8 = 0x19d). Method: ndisasm wpcvw.ovr stats panel renderer (starts at file offset 0x0e55) + pcfile.dbs byte-pattern cross-check.",
+  "method": "ndisasm -b 16 -e 0x0e55 wpcvw.ovr to disassemble the stats panel renderer region. Identified BSS field accesses by pattern `mov al,[bx+0x4585]`, `mov al,[bx+0x4586]`, `mov al,[bx+0x4587]`, and the attribute loop `mov al,[bx+0x4514+si]` for si=0..7. Cross-checked every offset by computing record_rel = abs_bss - 0x43e8 and verifying the byte values at those offsets in pcfile.dbs against expected race/class/attribute values for THESUS (Human Fighter STR=18) and the other 5 stock chars.",
+  "correction": "wpcvw-naming-pass.json bss_layout had systematic off-by-one: listed '+0x19c' for race (abs 0x4585) but 0x4585 - 0x43e8 = 0x19d. Listed '+0x19e' for class (abs 0x4587) but 0x4587 - 0x43e8 = 0x19f. All corrected in the findings below.",
+  "stock_character_values": {
+    "THESUS":  {"race": 0,  "race_name": "Human",   "class": 0, "class_name": "Fighter", "alignment": 0, "STR": 18, "INT": 8,  "PIE": 8,  "VIT": 12, "DEX": 10, "SPD": 9,  "PER": 8,  "KAR": 14},
+    "TEMPEST": {"race": 10, "race_name": "Mook",    "class": 0, "class_name": "Fighter", "alignment": 1, "STR": 13, "INT": 10, "PIE": 6,  "VIT": 14, "DEX": 7,  "SPD": 7,  "PER": 10, "KAR": 16},
+    "LYSANDR": {"race": 8,  "race_name": "Felpurr", "class": 3, "class_name": "Thief",   "alignment": 0, "STR": 7,  "INT": 10, "PIE": 7,  "VIT": 11, "DEX": 14, "SPD": 12, "PER": 10, "KAR": 15},
+    "NOBAL":   {"race": 1,  "race_name": "Elf",     "class": 2, "class_name": "Priest",  "alignment": 0, "STR": 7,  "INT": 10, "PIE": 13, "VIT": 9,  "DEX": 9,  "SPD": 9,  "PER": 8,  "KAR": 4},
+    "TREON":   {"race": 7,  "race_name": "Dracon",  "class": 1, "class_name": "Mage",    "alignment": 0, "STR": 10, "INT": 12, "PIE": 6,  "VIT": 12, "DEX": 10, "SPD": 8,  "PER": 6,  "KAR": 3},
+    "PENTAG":  {"race": 3,  "race_name": "Gnome",   "class": 1, "class_name": "Mage",    "alignment": 0, "STR": 10, "INT": 12, "PIE": 13, "VIT": 10, "DEX": 8,  "SPD": 6,  "PER": 6,  "KAR": 9}
+  },
+  "findings": [
+    {
+      "id": "race-offset",
+      "claim": "Race field is at record offset +0x19d (abs 0x4585). NOT +0x19c as prior bss_layout claimed.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "ndisasm file offset 0x0e55 + 0x1d2 = file 0x1027",
+        "type": "asm_instruction",
+        "details": "8A878545 mov al,[bx+0x4585]; 2AE4 sub ah,ah; 056400 add ax,0x64; 50 push ax; E87DFB call 0xfd5c (msg lookup) -> msg 0x64+race = race name string. abs 0x4585 - base 0x43e8 = 0x19d (not 0x19c as bss_layout stated). Also referenced in: AC formula (0xaa94: race==5=Faerie -> AC-2), HP regen (0xa7bd), level-cap check."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "alignment-offset",
+      "claim": "Alignment field is at record offset +0x19e (abs 0x4586). Between race (+0x19d) and class (+0x19f).",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "ndisasm file offset 0x0e55 + 0x18f = file 0x0fe4",
+        "type": "asm_instruction",
+        "details": "8A878645 mov al,[bx+0x4586]; 2AE4 sub ah,ah; 058C00 add ax,0x8c; 50 push ax; E806B2 call 0xb3a2 (string lookup) -> msg 0x8c+alignment = alignment name. abs 0x4586 - base 0x43e8 = 0x19e. Stock values: THESUS=0, TEMPEST=1, rest=0. Likely 0=Good, 1=Neutral, 2=Evil."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "class-offset",
+      "claim": "Class field is at record offset +0x19f (abs 0x4587). NOT +0x19e as prior bss_layout claimed.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "ndisasm file offset 0x0e55 + 0x2a8 = file 0x10fd",
+        "type": "asm_instruction",
+        "details": "8A878745 mov al,[bx+0x4587]; 2AE4 sub ah,ah; 057800 add ax,0x78; 50 push ax; E871FA call 0xfd26 (msg display) -> msg 0x78+class = class name. abs 0x4587 - base 0x43e8 = 0x19f (not 0x19e as bss_layout stated). class_change_apply (0x6054): *0x4587 := new_class - 1. 14 class-dispatch jump tables key on this byte. Also read again at ndisasm+0x358 for class-title display."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "attributes-offset",
+      "claim": "8-byte attribute block STR/INT/PIE/VIT/DEX/SPD/PER/KAR at record offsets +0x12c..+0x133 (abs 0x4514..0x451b).",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "ndisasm file offset 0x0e55 + 0x464 = file 0x12b9",
+        "type": "asm_instruction",
+        "details": "Stats panel renderer loop: for si=0..7 { B8B001 mov ax,0x1b0; F76E06 imul [bp+0x6] (slot*stride); 03C6 add ax,si; 8BD8 mov bx,ax; 8A871445 mov al,[bx+0x4514]; display with msg_id = 0xcc+si }. msg 0xcc+0=STR, 0xcc+1=INT, 0xcc+2=PIE, 0xcc+3=VIT, 0xcc+4=DEX, 0xcc+5=SPD, 0xcc+6=PER, 0xcc+7=KAR (per wpcmk stat_panel 0x2b04 which iterates 8 attrs at 0x559c..0x55a3 with msg 0xcc). VIT at abs 0x4517=+0x12f also incremented by aging mechanic. DEX at abs 0x4518=+0x130 used in AC formula. SPD at abs 0x4519=+0x131 in Faerie level-cap check. Loop exits at cmp si,0x8; jl -> 8 iterations."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "gold-offset-correction",
+      "claim": "Gold is at record offset +0x14 (abs 0x43fc low / 0x43fe high), as 32-bit LE. NOT +0x22 u16 as prior decoder had.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "address": "wpcvw image 0x513e (give_gold function)",
+        "type": "asm_instruction",
+        "details": "give_gold reads abs 0x43fc/0x43fe with proper 32-bit subtract-with-borrow / add-with-carry math (noted in wpcvw-naming-pass.json key_discoveries). abs 0x43fc = base 0x43e8 + +0x14. abs 0x43fe = +0x16. All 6 stock chars have 0 gold at +0x14/+0x16. The values 2700/1800/1125/1035/1440/1350 previously labeled 'gold' (at +0x22) are from an unknown field (possibly encumbrance weight limit)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "bss-layout-offbyone",
+      "claim": "The wpcvw-naming-pass.json bss_layout has systematic off-by-one errors in the +0x19c region. All offsets listed there are 1 too low.",
+      "category": "correction",
+      "evidence": {
+        "type": "analysis",
+        "details": "The bss_layout entry for race lists abs_slot_0='0x4585' and offset='+0x19c'. But 0x4585 - 0x43e8 = 0x19d, not 0x19c. Similarly: class abs=0x4587 listed as +0x19e but should be +0x19f; sex abs=0x4589 listed as +0x1a0 but should be +0x1a1; high_water_level abs=0x4588 listed as +0x19f but should be +0x1a0. The error likely occurred because the bss_layout construction subtracted from 0x43e7 instead of 0x43e8. All corrected in character-record.ts and pcfile.ts."
+      },
+      "confidence": "high"
+    }
+  ],
+  "still_tbd": [
+    "unknown_0x10 (u32 at +0x10): shown in stats panel alongside XP. Likely bonus-XP pool.",
+    "unknown_0x20 (u16 at +0x20): values 295/225/136/128 for stock chars. Possibly encumbrance capacity.",
+    "unknown_0x22 (u16 at +0x22): values 2700/1800/1125/1035/1440/1350. Possibly encumbrance weight limit.",
+    "level_secondary (u16 at +0x26): equals level in stock data. May be max-level-ever.",
+    "Equipment slots (+0x110, 8 bytes): inventory indices of equipped items.",
+    "Condition slot names (+0x122..+0x12b): which byte maps to which condition.",
+    "Skills table (+0x134..+0x141, 14 bytes): which skill maps to which offset.",
+    "Spell-known bitmaps (multiple regions): per-school spell knowledge.",
+    "Portrait index (+0x?): character portrait selection."
+  ]
+}

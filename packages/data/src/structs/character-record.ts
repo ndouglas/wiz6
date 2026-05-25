@@ -8,17 +8,27 @@ import type { BssStruct } from './bss-types.js';
  *
  * Source: `docs/re/pcfile-dbs.md` + `docs/re/findings/character-level-field.json`
  *        + `docs/re/findings/character-xp-field.json`
+ *        + `docs/re/findings/character-record-extended-map.json`
  *
  * Field offsets verified by independent wpcvw.ovr ASM traces:
- *   - Stats panel renderer (image 0x117b): `push word [bx+0x440c]` → level display
- *   - level_up_apply (image 0xb22e): `inc word [bx+0x440c]` → level increment
+ *   - Stats panel renderer (image 0x117b): push word [bx+0x440c] -> level display
+ *   - level_up_apply (image 0xb22e): inc word [bx+0x440c] -> level increment
  *   - fn-party-row-render: HP bar at abs 0x4400/0x4402; SP bar at 0x4404/0x4406
- *   - class_change_apply (image 0x6054): `mov word [bx+0x440c], 1` → level reset
- *   - Stats panel (image 0x1077): reads [bx+0x43f0]/[bx+0x43f2] ÷ 365 → age display
- *   - Stats panel (image 0x123e/0x1242): pushes [bx+0x43f6]/[bx+0x43f4] → XP display
- *   - level_up_check (image 0xb470/0xb474): reads [bx+0x43f4]/[bx+0x43f6] → XP threshold
- *   - class_change_apply (image 0x61e7): clears [bx+0x43f6]/[bx+0x43f4] → XP wipe
- * All absolute BSS addresses relative to base 0x43e8: offset = abs − 0x43e8.
+ *   - class_change_apply (image 0x6054): mov word [bx+0x440c], 1 -> level reset
+ *   - Stats panel (image 0x1077): reads [bx+0x43f0]/[bx+0x43f2] div 365 -> age display
+ *   - Stats panel (image 0x123e/0x1242): pushes [bx+0x43f6]/[bx+0x43f4] -> XP display
+ *   - level_up_check (image 0xb470/0xb474): reads [bx+0x43f4]/[bx+0x43f6] -> XP threshold
+ *   - class_change_apply (image 0x61e7): clears [bx+0x43f6]/[bx+0x43f4] -> XP wipe
+ *   - give_gold (image 0x513e): reads [bx+0x43fc]/[bx+0x43fe] -> gold (32-bit)
+ *   - Stats panel (ndisasm file+0x0e55+0x1d2): mov al,[bx+0x4585] -> race
+ *   - Stats panel (ndisasm file+0x0e55+0x18f): mov al,[bx+0x4586] -> alignment
+ *   - Stats panel (ndisasm file+0x0e55+0x2a8): mov al,[bx+0x4587] -> class
+ *   - Stats panel loop (ndisasm file+0x0e55+0x464): [bx+0x4514+i] i=0..7 -> 8 attrs
+ * All absolute BSS addresses relative to base 0x43e8: offset = abs minus 0x43e8.
+ *
+ * NOTE: The wpcvw-naming-pass.json bss_layout has a systematic off-by-one
+ * error in the +0x19c region: it lists "+0x19c" for race but abs 0x4585
+ * = 0x43e8 + 0x19d. Corrected here with direct ASM evidence.
  */
 export const CHARACTER_RECORD: BssStruct = {
   name: 'character_record',
@@ -29,10 +39,6 @@ export const CHARACTER_RECORD: BssStruct = {
     {
       name: 'name',
       offset: 0x00,
-      // 8 bytes: 7 chars max + null terminator. Empirically confirmed by
-      // pcfile.dbs RE pass (TEMPEST fills +0x00..+0x07 exactly, age_counter starts
-      // at +0x08). The prior claim of "XP starts at +0x08" was wrong; see
-      // docs/re/findings/character-xp-field.json.
       type: { kind: 'string', length: 8, encoding: 'ascii' },
       description: 'ASCII character name. Null-terminated; max 7 chars. 8-byte field.',
     },
@@ -40,109 +46,106 @@ export const CHARACTER_RECORD: BssStruct = {
       name: 'age_counter',
       offset: 0x08,
       // HIGH CONFIDENCE: 32-bit age counter in game-days.
-      // (1) Stats panel renderer (wpcvw.ovr image 0x1077):
-      //     mov ax,[bx+0x43f0] / mov dx,[bx+0x43f2]; cx=0x16d=365; call 0xf9c8
-      //     → divides field by 365, passes result to display_number (age in years).
-      // (2) Aging mechanic (wpcvw.ovr image 0x977d):
-      //     reads same field, divides by 365; if quotient > 18:
-      //     subtracts 365 from field AND increments VIT (+0x4517) — aging tax.
-      // abs 0x43f0/0x43f2 = BSS base 0x43e8 + +0x08/+0x0a.
-      // Stock chars: THESUS=6590, TEMPEST=7405, LYSANDR=7265, NOBAL=7057,
-      // TREON=6603, PENTAG=6698 days (≈18–20 years).
-      // Previously mislabeled 'xp' because of its u32 shape — corrected 2026-05-25.
+      // Stats panel (wpcvw.ovr image 0x1077): mov ax,[bx+0x43f0]/mov dx,[bx+0x43f2];
+      //   cx=0x16d=365; call 0xf9c8 -> divides by 365, displays age in years.
+      // Aging mechanic (image 0x977d): same read; if quotient>18: subtract 365,
+      //   increment VIT at abs 0x4517 -- the aging tax.
+      // abs 0x43f0/0x43f2 = base 0x43e8 + +0x08/+0x0a.
+      // Stock: THESUS=6590, TEMPEST=7405, LYSANDR=7265, NOBAL=7057, TREON=6603, PENTAG=6698 days.
       type: { kind: 'scalar', scalar: 'u32_le' },
-      description: '32-bit age counter in game-days. Displayed as age÷365 (years) in stats panel. Aging mechanic decrements VIT when age÷365 > 18. Stock chars ≈18–20 years.',
+      description: '32-bit age counter in game-days. Displayed as age/365 years. Aging mechanic VIT-decrements when age/365 > 18. Stock chars 18-20 years.',
     },
     {
       name: 'xp',
       offset: 0x0c,
-      // HIGH CONFIDENCE — three converging traces from wpcvw.ovr:
-      //   (1) class_change_apply (image 0x61e7): clears both XP words:
-      //       C787F6430000  mov word [bx+0x43f6], 0x0
-      //       C787F4430000  mov word [bx+0x43f4], 0x0
-      //       abs 0x43f4 = BSS base 0x43e8 + +0x0c (xp low word)
-      //       abs 0x43f6 = BSS base 0x43e8 + +0x0e (xp high word)
-      //   (2) Stats panel renderer (image 0x123e/0x1242):
-      //       FFB7F643  push word [bx+0x43f6] (high)
-      //       FFB7F443  push word [bx+0x43f4] (low)
-      //       → call display_u32 to show XP on character sheet
-      //   (3) level_up_check (image 0xb470/0xb474):
-      //       8B87F443  mov ax, [bx+0x43f4] (low)
-      //       8B97F643  mov dx, [bx+0x43f6] (high)
-      //       → 32-bit compare against next-level threshold → call level_up_apply
-      // All 6 stock chars have xp=0 at +0x0c in pcfile.dbs — consistent with
-      // user observation "everyone starts with 0 XP".
+      // HIGH CONFIDENCE: abs 0x43f4 (low) / 0x43f6 (high) = base 0x43e8 + +0x0c/+0x0e.
+      // class_change_apply (0x61e7): zeros both words; stats panel (0x123e/0x1242): pushes both;
+      // level_up_check (0xb470/0xb474): reads for threshold compare.
+      // All 6 stock chars have xp=0 in pcfile.dbs.
       type: { kind: 'scalar', scalar: 'u32_le' },
-      description: 'Experience points (32-bit LE). At +0x0c. Stock chars all start at 0.',
+      description: 'Experience points (32-bit LE). At +0x0c (abs 0x43f4/0x43f6). Stock chars all 0.',
     },
-    // +0x10..+0x17: 8 bytes — two 32-bit fields, both zero in stock data.
-    // Stats panel displays [bx+0x43fa]/[bx+0x43f8] (record +0x12/+0x10) as a
-    // second u32 adjacent to XP (likely a bonus-XP or XP-pool register). The
-    // naming pass bss_layout incorrectly labeled this as gold (+0x14/+0x16).
+    {
+      name: 'unknown_0x10',
+      offset: 0x10,
+      // UNKNOWN: stats panel pushes [bx+0x43fa]/[bx+0x43f8] as second u32.
+      // abs 0x43f8/0x43fa = base 0x43e8 + +0x10/+0x12.
+      // All 6 stock chars = 0.
+      type: { kind: 'scalar', scalar: 'u32_le' },
+      description: 'Unknown u32 at +0x10 (abs 0x43f8/0x43fa). Displayed adjacent to XP. All stock chars = 0.',
+    },
+    {
+      name: 'gold',
+      offset: 0x14,
+      // HIGH CONFIDENCE: 32-bit gold at abs 0x43fc/0x43fe = base 0x43e8 + +0x14/+0x16.
+      // give_gold (wpcvw image 0x513e): 32-bit subtract-with-borrow / add-with-carry on this field.
+      // All 6 stock chars have gold=0.
+      // CORRECTION: prior decoder read u16 at +0x22 as "gold" -- that field is unknown.
+      type: { kind: 'scalar', scalar: 'u32_le' },
+      description: 'Gold pieces (32-bit LE). At +0x14 (abs 0x43fc/0x43fe). give_gold uses 32-bit carry math. Stock chars all 0.',
+    },
     {
       name: 'hp_cur',
       offset: 0x18,
-      // fn-party-row-render passes abs 0x4400 (BSS +0x18) to the HP-bar draw
-      // function. Stock chars have hp_cur = [8,9,5,4,4,2] — small values
-      // consistent with level 1.
+      // fn-party-row-render passes abs 0x4400 (base 0x43e8 + +0x18) to HP-bar draw.
+      // Stock: THESUS=8, TEMPEST=9, LYSANDR=5, NOBAL=4, TREON=4, PENTAG=2.
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Current HP. At +0x18. Stock values 8/9/5/4/4/2 (level-1 party).',
+      description: 'Current HP. At +0x18 (abs 0x4400). Stock values 8/9/5/4/4/2.',
     },
     {
       name: 'hp_max',
       offset: 0x1a,
-      // fn-party-row-render: abs 0x4402 (BSS +0x1a). Equals hp_cur for
-      // fully-healed stock chars.
+      // abs 0x4402 = base 0x43e8 + +0x1a. Equals hp_cur for fully-healed stock chars.
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Maximum HP. At +0x1a. Equals hp_cur for fully-healed stock chars.',
+      description: 'Maximum HP. At +0x1a (abs 0x4402). Equals hp_cur in stock data.',
     },
     {
       name: 'sp_cur',
       offset: 0x1c,
-      // fn-party-row-render: abs 0x4404 (BSS +0x1c). Stock values 126/123/87/75/102/90.
+      // abs 0x4404 = base 0x43e8 + +0x1c.
+      // Stock: THESUS=126, TEMPEST=123, LYSANDR=87, NOBAL=75, TREON=102, PENTAG=90.
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Spirit points, current. At +0x1c. Stock values 126–295.',
+      description: 'Spirit points, current. At +0x1c (abs 0x4404). Stock values 126/123/87/75/102/90.',
     },
     {
       name: 'sp_max',
       offset: 0x1e,
-      // fn-party-row-render: abs 0x4406 (BSS +0x1e). Equals sp_cur for
-      // fully-healed stock chars.
+      // abs 0x4406 = base 0x43e8 + +0x1e. Equals sp_cur for fully-healed stock chars.
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Spirit points, maximum. At +0x1e. Equals sp_cur for fully-healed stock chars.',
+      description: 'Spirit points, maximum. At +0x1e (abs 0x4406). Equals sp_cur in stock data.',
     },
     {
       name: 'unknown_0x20',
       offset: 0x20,
+      // UNKNOWN. Stock values: 295, 295, 225, 136, 128, 128.
+      // May be encumbrance capacity computed from STR/VIT.
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Unknown u16 at +0x20. Stock values 0x0127 (295) .. 0x0080 (128). Medium confidence: secondary SP or mana register.',
+      description: 'Unknown u16 at +0x20. Stock values 295/225/136/128. Possibly encumbrance capacity.',
     },
     {
-      name: 'gold',
+      name: 'unknown_0x22',
       offset: 0x22,
+      // UNKNOWN. Stock values: 2700, 1800, 1125, 1035, 1440, 1350.
+      // Previously misidentified as gold. Gold is confirmed at +0x14.
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Gold pieces (medium confidence; u16 covers stock amounts 1035–2700).',
+      description: 'Unknown u16 at +0x22. Stock values 2700/1800/1125. NOT gold (gold at +0x14).',
     },
     {
       name: 'level',
       offset: 0x24,
-      // HIGH CONFIDENCE — two independent ASM traces:
-      //   (1) wpcvw stats panel (image 0x117b): `push word [bx+0x440c]`
-      //       → pushed as the level value for display_number call.
-      //   (2) level_up_apply (image 0xb22e): `inc word [bx+0x440c]`
-      //       → incremented on level-up.
-      //   (3) class_change_apply (image 0x61c8): `mov word [bx+0x440c], 1`
-      //       → reset to 1 on class change.
-      // abs 0x440c = BSS base 0x43e8 + +0x24. disk == BSS (straight memcpy).
-      // Stock chars all have value 1 at disk +0x24 → starting at level 1.
+      // HIGH CONFIDENCE. abs 0x440c = base 0x43e8 + +0x24.
+      // (1) Stats panel (0x117b): push word [bx+0x440c]; (2) level_up_apply (0xb22e): inc word [bx+0x440c];
+      // (3) class_change_apply (0x61c8): mov word [bx+0x440c], 1. Stock chars all level 1.
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Current character level (1-based). At +0x24. Stock chars are all level 1.',
+      description: 'Current character level (1-based). At +0x24 (abs 0x440c). Stock chars all level 1.',
     },
     {
       name: 'level_secondary',
       offset: 0x26,
+      // MEDIUM CONFIDENCE. abs 0x440e = base 0x43e8 + +0x26.
+      // Displayed in stats panel. Equals level in stock data.
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Equals level in stock data; possibly max_level or saved_class_change_level.',
+      description: 'Secondary level register at +0x26. Equals level in stock data. Possibly max-level-ever.',
     },
     {
       name: 'inventory_records',
@@ -152,51 +155,134 @@ export const CHARACTER_RECORD: BssStruct = {
         length: 22,
         element: { kind: 'bytes', length: 8 },
       },
-      description: 'Item slots. Each item: +0 item_id(u16), +2 u16, +4 u8, +5 u8, +6 u8, +7 u8. 5 items in stock chars.',
+      description: 'Item slots (22 x 8 bytes). +0=item_id(u16), +5=quantity, +7=flags(cursed/locked). 5 items in stock chars.',
     },
     {
       name: 'equipment_slots',
       offset: 0x110,
       type: { kind: 'bytes', length: 8 },
-      description: '8 equipment slots; each byte = inventory-index of equipped item (0xFF=empty).',
+      description: '8 equipment slots; each byte = inventory-index of equipped item (0xFF=empty). At +0x110 (abs 0x44f8).',
     },
     {
       name: 'conditions',
       offset: 0x122,
+      // HIGH CONFIDENCE: 10 condition bytes at abs 0x450a = base 0x43e8 + +0x122.
+      // Party-row renderer (0x465) iterates 10 bytes from abs 0x450a.
+      // Bytes +0x124/+0x125 = dead/paralyzed overrides, also checked by is-character-active (0x5b11).
       type: { kind: 'bytes', length: 10 },
-      description: '10-condition tracker (poisoned, paralyzed, etc.). Per wpcvw bss_layout — offset confirmed.',
+      description: '10-condition tracker at +0x122 (abs 0x450a). Non-zero = active condition. Bytes +0x124/+0x125 = dead/paralyzed overrides. Stock all 0.',
     },
     {
       name: 'attributes',
       offset: 0x12c,
+      // HIGH CONFIDENCE: 8-byte attribute block at abs 0x4514 = base 0x43e8 + +0x12c.
+      // Stats panel loop (ndisasm 0x0e55+0x464): for si=0..7: bx=slot*0x1b0+si;
+      //   mov al,[bx+0x4514]; call display with msg 0xcc+si
+      //   -> msgs 0xcc..0xd3 = STR/INT/PIE/VIT/DEX/SPD/PER/KAR (per wpcmk stat_panel 0x2b04).
+      // VIT at abs 0x4517 = +0x12f incremented by aging mechanic.
+      // DEX at abs 0x4518 = +0x130 used in AC formula.
+      // SPD at abs 0x4519 = +0x131 used in Faerie level-cap check.
+      // Stock THESUS: [18,8,8,12,10,9,8,14]; TEMPEST: [13,10,6,14,7,7,10,16]
+      // LYSANDR: [7,10,7,11,14,12,10,15]; NOBAL: [7,10,13,9,9,9,8,4]
+      // TREON: [10,12,6,12,10,8,6,3]; PENTAG: [10,12,13,10,8,6,6,9]
       type: {
         kind: 'array',
-        length: 6,
+        length: 8,
         element: { kind: 'scalar', scalar: 'u8' },
       },
-      description: 'STR / INT / PIE / VIT / DEX / SPD in order. HIGH confidence: THESUS STR=18, LYSANDR DEX=14.',
+      description: 'STR/INT/PIE/VIT/DEX/SPD/PER/KAR (8 bytes, range 0..18). At +0x12c (abs 0x4514). Stats panel msgs 0xcc..0xd3.',
     },
     {
       name: 'skills',
       offset: 0x134,
+      // MEDIUM CONFIDENCE: abs 0x451c = base 0x43e8 + +0x134 per wpcvw bss_layout.
       type: {
         kind: 'array',
         length: 14,
         element: { kind: 'scalar', scalar: 'u8' },
       },
-      description: '14 skill levels (0..100). Per wpcvw bss_layout — offset confirmed.',
+      description: '14 skill levels (0..100). At +0x134 (abs 0x451c).',
+    },
+    {
+      name: 'race',
+      offset: 0x19d,
+      // HIGH CONFIDENCE: abs 0x4585 = base 0x43e8 + 0x19d.
+      // Stats panel ndisasm (file 0x0e55+0x1d2):
+      //   8A878545 mov al,[bx+0x4585]; 056400 add ax,0x64; call 0xfd5c (msg lookup)
+      //   -> msg 0x64+race = race name string.
+      // Also Faerie (race==5) has AC-2, HP-penalty, level-cap-1 hard-coded.
+      // NOTE: prior bss_layout "+0x19c" was wrong; correct is abs 0x4585-base = 0x19d.
+      // Stock: THESUS=0(Human), TEMPEST=10(Mook), LYSANDR=8(Felpurr),
+      //        NOBAL=1(Elf), TREON=7(Dracon), PENTAG=3(Gnome)
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: 'Race index 0..10. 0=Human,1=Elf,2=Dwarf,3=Gnome,4=Hobbit,5=Faerie,6=Lizardman,7=Dracon,8=Felpurr,9=Rawulf,10=Mook. At +0x19d (abs 0x4585).',
+    },
+    {
+      name: 'alignment',
+      offset: 0x19e,
+      // MEDIUM CONFIDENCE: abs 0x4586 = base 0x43e8 + 0x19e.
+      // Stats panel (file 0x0e55+0x18f): mov al,[bx+0x4586]; add ax,0x8c -> msg lookup.
+      // Stock: THESUS=0, TEMPEST=1, LYSANDR=0, NOBAL=0, TREON=0, PENTAG=0.
+      // Likely 0=Good, 1=Neutral, 2=Evil.
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: 'Alignment index at +0x19e (abs 0x4586). Used as msg table index (+0x8c). Likely 0=Good,1=Neutral,2=Evil.',
+    },
+    {
+      name: 'class',
+      offset: 0x19f,
+      // HIGH CONFIDENCE: abs 0x4587 = base 0x43e8 + 0x19f.
+      // Stats panel (file 0x0e55+0x2a8): mov al,[bx+0x4587]; add ax,0x78 -> msg lookup.
+      // class_change_apply (0x6054): *0x4587 := new_class - 1 (0-indexed stored).
+      // 14 class-dispatch jump tables key on this byte.
+      // NOTE: prior bss_layout "+0x19e" was wrong; correct is abs 0x4587-base = 0x19f.
+      // Stock: THESUS=0(Fighter), TEMPEST=0(Fighter), LYSANDR=3(Thief),
+      //        NOBAL=2(Priest), TREON=1(Mage), PENTAG=1(Mage)
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: 'Class index 0..13. 0=Fighter,1=Mage,2=Priest,3=Thief,4=Bard,5=Ranger,6=Alchemist,7=Psionic,8=Valkyrie,9=Lord,10=Samurai,11=Ninja,12=Monk,13=Bishop. At +0x19f (abs 0x4587).',
+    },
+    {
+      name: 'high_water_level',
+      offset: 0x1a0,
+      // MEDIUM CONFIDENCE: abs 0x4588 = base 0x43e8 + 0x1a0.
+      // Updated by 0xb182 counting how many of 7 level-thresholds are met.
+      // Used with class index to look up class title string.
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: 'Level high-water mark (count of 7 threshold levels reached). Used for class title display. At +0x1a0 (abs 0x4588).',
+    },
+    {
+      name: 'sex',
+      offset: 0x1a1,
+      // MEDIUM CONFIDENCE: abs 0x4589 = base 0x43e8 + 0x1a1.
+      // Party-row renderer (ndisasm 0x0e55+0x59a):
+      //   8A878945 mov al,[bx+0x4589]; D1E0 shl ax; 8BD8 mov bx,ax;
+      //   8B872605 mov ax,[bx+0x526] -> portrait table lookup (sex*2).
+      // All 6 stock chars = 0.
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: 'Sex/gender byte at +0x1a1 (abs 0x4589). Portrait-table index via cs:0x526[sex*2]. All stock chars = 0.',
+    },
+    {
+      name: 'spells_to_learn',
+      offset: 0x1a8,
+      // abs 0x4590 = base 0x43e8 + 0x1a8.
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: 'Spells to learn this level. Set to rng(6)+5 on level-up. At +0x1a8 (abs 0x4590). 0 in stock data.',
     },
     {
       name: 'inventory_count',
       offset: 0x1ac,
+      // HIGH CONFIDENCE: abs 0x4594 = base 0x43e8 + 0x1ac.
+      // Stock chars all = 5 (matching 5 starting items visible in inventory_records).
       type: { kind: 'scalar', scalar: 'u8' },
-      description: 'Count of items in inventory (0..22). HIGH confidence: value 5 matches actual item count for all stock chars.',
+      description: 'Count of items in inventory (0..22). At +0x1ac (abs 0x4594). Stock chars all = 5.',
     },
     {
       name: 'saved_old_level',
       offset: 0x1af,
+      // MEDIUM CONFIDENCE: abs 0x4597 = base 0x43e8 + 0x1af.
+      // Set by class_change_apply: *0x4597 := *0x440c (capped at 250).
+      // Six functions throttle gains until current_level >= saved_old_level.
       type: { kind: 'scalar', scalar: 'u8' },
-      description: 'Level before most recent class change. Six stat/HP/skill functions consult this to throttle gains. Per wpcvw bss_layout — LOW confidence without live verification.',
+      description: 'Level before most recent class change. Functions throttle growth until level catches up. At +0x1af (abs 0x4597). 0 in stock data.',
     },
   ],
 };

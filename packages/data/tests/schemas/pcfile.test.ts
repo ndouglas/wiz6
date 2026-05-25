@@ -18,10 +18,12 @@ function emptySlot(slot: number): PcfileSlot {
     slot, populated: false, name: null,
     ageCounter: 0,
     xp: 0,
+    gold: 0,
     hpCurrent: 0, hpMax: 0,
     spCurrent: 0, spMax: 0,
-    gold: 0,
     level: 0, levelSecondary: 0,
+    race: 0, alignment: 0, class: 0,
+    str: 0, int: 0, pie: 0, vit: 0, dex: 0, spd: 0, per: 0, kar: 0,
     raw: new Array(432).fill(0),
   };
 }
@@ -42,17 +44,23 @@ describe('PcfileSlotSchema', () => {
   it('accepts a valid empty slot', () => {
     expect(() => PcfileSlotSchema.parse(emptySlot(0))).not.toThrow();
   });
-  it('accepts a valid populated slot', () => {
+  it('accepts a valid populated slot (THESUS with real decoded values)', () => {
     const populated: PcfileSlot = {
       ...emptySlot(0),
       populated: true,
       name: 'THESUS',
       ageCounter: 6590,
       xp: 0,
+      // Gold at +0x14: 0 for all stock chars. CORRECTED from prior +0x22 u16 = 2700.
+      gold: 0,
       hpCurrent: 8, hpMax: 8,
       spCurrent: 126, spMax: 126,
-      gold: 2700,
       level: 1, levelSecondary: 1,
+      // Race/class/attributes confirmed by wpcvw stats panel ASM traces.
+      race: 0,       // Human
+      alignment: 0,  // Good (tentative)
+      class: 0,      // Fighter
+      str: 18, int: 8, pie: 8, vit: 12, dex: 10, spd: 9, per: 8, kar: 14,
     };
     expect(() => PcfileSlotSchema.parse(populated)).not.toThrow();
   });
