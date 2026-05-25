@@ -1,5 +1,5 @@
 import { RosterSchema, type Character, type Roster } from '@wiz6/data';
-import { addCharacter } from './roster-store.js';
+import { addCharacter, readRoster } from './roster-store.js';
 
 const GALLERY_URL = '/gallery/characters.json';
 
@@ -51,4 +51,18 @@ export async function importToRoster(galleryCharId: string): Promise<string> {
 /** True if `id` matches a character in the loaded gallery. */
 export function isGalleryCharacter(id: string, gallery: Roster): boolean {
   return gallery.characters.some((c) => c.id === id);
+}
+
+/**
+ * If the visitor's roster is empty, import every gallery character.
+ * Safe to call on every page load — does nothing once the roster has
+ * any content.
+ */
+export async function seedRosterIfEmpty(): Promise<void> {
+  const r = readRoster();
+  if (r.characters.length > 0) return;
+  const gallery = await loadGallery();
+  for (const c of gallery.characters) {
+    await importToRoster(c.id);
+  }
 }

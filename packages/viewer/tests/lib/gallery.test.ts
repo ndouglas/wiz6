@@ -58,3 +58,23 @@ describe('gallery', () => {
     await expect(importToRoster('00000000-0000-4000-8000-999999999999')).rejects.toThrow();
   });
 });
+
+describe('seedRosterIfEmpty', () => {
+  it('imports every gallery character when the roster is empty', async () => {
+    const { seedRosterIfEmpty } = await import('../../src/lib/gallery.js');
+    await seedRosterIfEmpty();
+    const r = readRoster();
+    expect(r.characters).toHaveLength(FAKE_GALLERY.characters.length);
+    expect(r.characters[0]!.name).toBe('Hawkwind');
+  });
+
+  it('is a no-op when the roster already has characters', async () => {
+    const { seedRosterIfEmpty } = await import('../../src/lib/gallery.js');
+    const g = await loadGallery();
+    await importToRoster(g.characters[0]!.id);
+    const before = readRoster().characters.length;
+    await seedRosterIfEmpty();
+    const after = readRoster().characters.length;
+    expect(after).toBe(before);
+  });
+});
