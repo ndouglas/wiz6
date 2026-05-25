@@ -8,7 +8,7 @@ const FAKE_GALLERY = {
     {
       id: '00000000-0000-4000-8000-000000000000',
       name: 'THESUS',
-      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 6590, gold: 0,
+      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 0, gold: 0,
       conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       dead: false, paralyzed: false,
       attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
@@ -19,7 +19,7 @@ const FAKE_GALLERY = {
     {
       id: '00000000-0000-4000-8000-000000000001',
       name: 'TEMPEST',
-      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 7405, gold: 0,
+      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 0, gold: 0,
       conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       dead: false, paralyzed: false,
       attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
@@ -30,7 +30,7 @@ const FAKE_GALLERY = {
     {
       id: '00000000-0000-4000-8000-000000000002',
       name: 'LYSANDR',
-      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 7265, gold: 0,
+      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 0, gold: 0,
       conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       dead: false, paralyzed: false,
       attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
@@ -41,7 +41,7 @@ const FAKE_GALLERY = {
     {
       id: '00000000-0000-4000-8000-000000000003',
       name: 'NOBAL',
-      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 7057, gold: 0,
+      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 0, gold: 0,
       conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       dead: false, paralyzed: false,
       attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
@@ -52,7 +52,7 @@ const FAKE_GALLERY = {
     {
       id: '00000000-0000-4000-8000-000000000004',
       name: 'TREON',
-      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 6603, gold: 0,
+      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 0, gold: 0,
       conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       dead: false, paralyzed: false,
       attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
@@ -63,7 +63,7 @@ const FAKE_GALLERY = {
     {
       id: '00000000-0000-4000-8000-000000000005',
       name: 'PENTAG',
-      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 6698, gold: 0,
+      race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 0, gold: 0,
       conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       dead: false, paralyzed: false,
       attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },

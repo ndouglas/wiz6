@@ -3,6 +3,9 @@
   "subagent_run": "2026-05-25",
   "binaries": ["original/wpcvw.ovr", "original/wbase.ovr", "original/pcfile.dbs"],
   "summary": "Definitive resolution of the character record 'level' field offset. Confirmed level is at record +0x24 (BSS abs 0x440c), NOT +0x18. The values [8,9,5,4,4,2] previously labeled 'level' are hp_cur at +0x18 (BSS abs 0x4400). All 6 stock party members start at level 1.",
+  "open_questions_2026-05-25": [
+    "The field at +0x08 (u32 LE) was labeled 'xp' based on byte-pattern shape (small varying integer). Decoded values for the 6 stock chars: THESUS 6590, TEMPEST 7405, LYSANDR 7265, NOBAL 7057, TREON 6603, PENTAG 6698. Per user observation ('In the game, everyone starts with 0 XP'), these values are NOT consistent with starting XP for level-1 characters. Possible interpretations: (a) +0x08 is not XP at all — could be gold, signup bonus, or a different field; (b) the stock characters in pcfile.dbs ship 'pre-leveled' with banked XP for some reason — but the level decode at +0x24 says they're level 1, which contradicts pre-leveling; (c) this is a field that was never zeroed in the master pcfile.dbs that shipped. The decoder still reads +0x08 as 'xp' (no positive evidence it's something else), but the gallery generator overrides to xp:0 for the clean factory state. A future RE pass on the engine's XP-display / XP-gain routines (in wmexe.ovr combat-resolution or wpcvw level-up driver) could pin down the real XP field offset."
+  ],
   "findings": [
     {
       "id": "level-offset-display",

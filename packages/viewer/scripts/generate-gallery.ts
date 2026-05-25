@@ -27,8 +27,15 @@ const characters: Character[] = decoded.slots
     id: slotUuid(i),
     name: s.name!,
     // Decoded from pcfile:
-    xp: s.xp,
     level: s.level,
+    // Override XP to 0 for the gallery. The +0x08 field in pcfile.dbs reads
+    // as `s.xp` here (6,590 for THESUS etc.), but per the user's in-game
+    // observation, fresh characters start at 0 XP. The decoded value at
+    // +0x08 is preserved by the decoder but its semantics are uncertain —
+    // possibly XP banked for a "pre-built" starter, possibly a different
+    // field entirely. See docs/re/findings/character-level-field.json.
+    // The gallery represents the clean factory starting state.
+    xp: 0,
     // Sensible defaults for fields we couldn't confidently decode.
     // A future RE refinement pass can replace these with the real values
     // by enriching the pcfile decoder (see docs/re/pcfile-dbs.md's

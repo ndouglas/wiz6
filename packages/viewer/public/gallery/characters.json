@@ -4,8 +4,8 @@
     {
       "id": "00000000-0000-4000-8000-000000000000",
       "name": "THESUS",
-      "xp": 6590,
       "level": 1,
+      "xp": 0,
       "race": 0,
       "class": 0,
       "savedOldLevel": 0,
@@ -63,8 +63,8 @@
     {
       "id": "00000000-0000-4000-8000-000000000001",
       "name": "TEMPEST",
-      "xp": 7405,
       "level": 1,
+      "xp": 0,
       "race": 0,
       "class": 0,
       "savedOldLevel": 0,
@@ -122,8 +122,8 @@
     {
       "id": "00000000-0000-4000-8000-000000000002",
       "name": "LYSANDR",
-      "xp": 7265,
       "level": 1,
+      "xp": 0,
       "race": 0,
       "class": 0,
       "savedOldLevel": 0,
@@ -181,8 +181,8 @@
     {
       "id": "00000000-0000-4000-8000-000000000003",
       "name": "NOBAL",
-      "xp": 7057,
       "level": 1,
+      "xp": 0,
       "race": 0,
       "class": 0,
       "savedOldLevel": 0,
@@ -240,8 +240,8 @@
     {
       "id": "00000000-0000-4000-8000-000000000004",
       "name": "TREON",
-      "xp": 6603,
       "level": 1,
+      "xp": 0,
       "race": 0,
       "class": 0,
       "savedOldLevel": 0,
@@ -299,8 +299,8 @@
     {
       "id": "00000000-0000-4000-8000-000000000005",
       "name": "PENTAG",
-      "xp": 6698,
       "level": 1,
+      "xp": 0,
       "race": 0,
       "class": 0,
       "savedOldLevel": 0,
