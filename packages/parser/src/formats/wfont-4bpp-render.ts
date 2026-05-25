@@ -1,5 +1,4 @@
 import type { Font4bpp, Palette } from '@wiz6/data';
-import { EGA_FILE_INDEX_PERMUTATION } from './ega-permutation.js';
 
 /**
  * Render a tile sequence using a 4bpp 8×8 EGA-planar font (wfont1..4)
@@ -8,27 +7,26 @@ import { EGA_FILE_INDEX_PERMUTATION } from './ega-permutation.js';
  * IMPORTANT: wfont files are TILE SPRITESHEETS, not glyph fonts with a
  * separable color attribute. Every pixel in each 8×8 tile is FULLY
  * DEFINED — there is no transparency, no separate "fg" or "bg" color
- * attribute. Each tile slot is a complete picture. To render text in
- * a different color scheme, the engine uses a DIFFERENT slot
- * containing the same letter shape with different baked-in colors.
- * E.g. wfont3 0x41 ('A') is white-on-gray; wfont3 0x61 (same shape)
- * is light-gray-on-gray-with-black-top-and-bottom-rows.
+ * attribute. Each tile slot is a complete picture.
  *
  * Each tile is 32 bytes — 8 bytes per row × 4 EGA planes (G, B, R, I),
  * MSB-first within each plane byte. Same encoding as a `.pic` cell.
  *
- * File pixel values are permuted via `EGA_FILE_INDEX_PERMUTATION` (the
- * same convention `.pic` and `.ega` use) and rendered through the
- * supplied palette. File value 0 → palette[0] (typically black), NOT
- * transparent. All 64 pixels of the tile are written.
+ * The 4-bit file pixel value IS the framebuffer color attribute the
+ * engine writes to VRAM. Under the active AC palette + DAC chain, that
+ * attribute resolves to a final RGB triple. Pass a `palette` whose
+ * `colors[i]` is the AC->DAC result for color attribute i (i.e.
+ * `WIZ6_MAIN`); we look up `palette.colors[fileIdx]` directly. File
+ * value 0 → palette[0] (typically black), NOT transparent. All 64
+ * pixels of the tile are written.
  *
  * Cursor advances 8 pixels per tile — no kerning or proportional
  * spacing, matching the engine's fixed-cell text layout.
  *
  * `fileColorOverride` is a per-tile escape hatch for the rare cases
  * where the port needs to remap a specific file-color to a different
- * palette index (e.g. for "selected option" highlight). Most callers
- * should pass `{}` and let the tile's baked-in colors render as-is.
+ * palette index. Most callers should pass `{}` and let the tile's
+ * baked-in colors render as-is.
  */
 export function renderTextRun4bpp(
   destRgba: Uint8ClampedArray,
@@ -70,8 +68,8 @@ export function renderTextRun4bpp(
         const px = cursorX + col;
         if (px < 0 || px >= destW) continue;
         const overrideIdx = fileColorOverride[fileIdx];
-        const egaIdx = overrideIdx !== undefined ? overrideIdx : EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
-        const color = palette.colors[egaIdx];
+        const paletteIdx = overrideIdx !== undefined ? overrideIdx : fileIdx;
+        const color = palette.colors[paletteIdx];
         if (!color) continue;
         const idx = (py * destW + px) * 4;
         destRgba[idx] = color[0]!;

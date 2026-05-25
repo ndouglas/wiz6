@@ -1,0 +1,401 @@
+{
+  "topic": "menu-cursor-render-path",
+  "subagent_run": "2026-05-24",
+  "binaries": ["wbase.ovr", "wroot.exe", "ega.drv", "wfont0.ega"],
+  "supersedes_in_part": [
+    "docs/re/findings/wfont-highlight-render.json",
+    "docs/re/findings/state4-runtime-palette.json"
+  ],
+  "summary": "Fully resolved the menu-cursor highlight render path. Starting from wbase 0x27BD (and ~95 sibling call sites across all overlays), the thunk 0xDF85 resolves to wroot IMAGE offset 0x24E9 = wroot FILE offset 0x26E9 = a string-printer wrapper. The wrapper loops over the null-terminated string and per-character calls wroot file 0x24B7 (= image 0x22B7) — the per-char HIGHLIGHT renderer. That function stores the cell as (char_byte, attr<<4) and dispatches via [cs:0x1b8a] (ega.drv slot 1) for the 1bpp wfont0-based per-plane-selector blit. Slot 1 is at ega.drv file 0x19A. Its per-pixel formula yields foreground=palette_index_0, background=palette_index_attr_low_nibble. For the menu-cursor case (df85 called with attr=-5; absolute value 5 stored), the rendered pixels are (color_attr_0) for stroke and (color_attr_5) for background.\n\nThe KEY CORRECTION over the prior findings: the live VGA AC palette (NOT the DAC) IS programmed to WIZ6_MAIN in every captured save. WIZ6_MAIN at wroot file 0x2043 is a 16-byte AC palette register table (+1 overscan byte), not a DAC table. It remaps color_attr -> DAC_index as: [0x00, 0x17, 0x11, 0x15, 0x14, 0x16, 0x12, 0x13, 0x10, 0x07, 0x01, 0x05, 0x04, 0x06, 0x02, 0x03]. The DAC itself stays in BIOS default shape (entries 0-15 = standard EGA, 16-23 = high-intensity variants of 0-7). For attr=5: AC[5] = 0x16 -> DAC[22] = (255, 255, 85) = YELLOW. For attr=0: AC[0] = 0x00 -> DAC[0] = (0, 0, 0) = BLACK. The menu cursor renders BLACK ON YELLOW — matching the user's empirical observation exactly.\n\nThe prior finding wfont-highlight-render.json had the call path, cell encoding, and per-pixel slot-1 formula correct. It got TWO things wrong: (1) it labeled the per-char function offset as 0x22B7 'file_offset' when 0x22B7 is the IMAGE offset (file offset is 0x24B7); (2) it interpreted WIZ6_MAIN.ts as direct RGB values for the DAC instead of as AC palette register indices, leading to the wrong final color claim of (170, 255, 0) yellow-green. The wfont-highlight-render.json also missed that the actual thunk target 0xDF85 is a string-printer WRAPPER at image 0x24E9 above the per-char function. The prior finding state4-runtime-palette.json incorrectly concluded that WIZ6_MAIN is 'never the active DAC in any captured save' — that's true but trivially so because WIZ6_MAIN writes to the AC palette, not the DAC. WIZ6_MAIN is in fact active in every save state.",
+  "verified_call_sites": [
+    {
+      "site": "wbase.ovr 0x27BD",
+      "bytes": "b8 fb ff 50 8d 46 96 50 ff 36 42 33 e8 c5 b7",
+      "decoded": [
+        "0x27B1  b8 fb ff      mov ax, 0xfffb   (-5 signed)",
+        "0x27B4  50            push ax          (attr = -5)",
+        "0x27B5  8d 46 96      lea ax, [bp-0x6a] (label buffer ptr)",
+        "0x27B8  50            push ax",
+        "0x27B9  ff 36 42 33   push word [0x3342] (window handle from DGROUP[0x3342])",
+        "0x27BD  e8 c5 b7      call rel16 -> 0xDF85 (= thunk for wroot image 0x24E9)"
+      ],
+      "thunk_resolution": "0xDF85 - 0xBA9C = 0x24E9 IMAGE offset = 0x26E9 FILE offset",
+      "context": "Sibling site to 0x27B1+12 inside FUN_2702 (an alternate wbase main-menu-style loop). One of two main-menu cursor render sites in wbase.",
+      "confidence": "high"
+    },
+    {
+      "site": "wbase.ovr 0x03E9",
+      "bytes": "b8 00 00 2b 46 12 50 ... e8 99 db",
+      "decoded": [
+        "0x03C9  b8 00 00     mov ax, 0",
+        "0x03CC  2b 46 12     sub ax, [bp+0x12]  ; ax = 0 - param_8 = -5 when called from 0x2CCB",
+        "0x03CF  50           push ax            ; attr arg",
+        "0x03D0  8b 46 14 ... ; lea label buffer",
+        "0x03E5  50           push ax            ; label buffer ptr",
+        "0x03E6  ff 76 04     push word [bp+4]   ; handle = menu_text_window",
+        "0x03E9  e8 99 db     call rel16 -> 0xDF85"
+      ],
+      "thunk_resolution": "Same target 0xDF85 -> wroot image 0x24E9 / file 0x26E9",
+      "context": "Inside FUN_025c (wbase_menu_select_loop) at wbase 0x025C. Called from FUN_2b36 (state-4 main-menu entry) at wbase 0x2CCB with the 8th arg (param_8) = 5. Negated in 0x03CC to give attr=-5.",
+      "confidence": "high"
+    },
+    {
+      "site": "all-overlay-sweep",
+      "summary": "Scanned every .ovr for E8 near-calls landing on thunks 0xDF81 / 0xDF85 / 0xDF89. Found 0 calls to 0xDF81 or 0xDF89. Found 95+ calls to 0xDF85 across wbase (11), wdopt (8), wmaze (15), wmele (5), wmexe (3), wmnpc (22), wpcmk (11), wpcvw (56), wpops (15), wtrea (19). EVERY overlay call is to 0xDF85. The 0xDF81 hypothesis in the task description was wrong — there is no near-by sibling thunk; all sites use the SAME thunk.",
+      "confidence": "high"
+    }
+  ],
+  "thunk_delta_law_clarification": {
+    "claim": "The thunk-delta law as stated in CLAUDE.md ('thunk_address = wroot_file_offset + 0xBA9C') is misleading. It is actually 'thunk_address = wroot_IMAGE_offset + 0xBA9C'. To get the wroot FILE offset, add 0x200 (the MZ header size). The prior wfont-highlight-render.json finding labeled image offsets as 'file_offset' which is the source of the apparent 0x232 discrepancy.",
+    "verification": "ui_window_create example from CLAUDE.md: thunk 0xBBB6 - 0xBA9C = 0x011A. At file 0x011A in wroot.exe we find all-zero bytes (the MZ header). At file 0x031A (= 0x011A + 0x200) we find a function prologue 55 8b ec - that IS ui_window_create. So the thunk-delta-law result is an IMAGE offset, not a file offset.",
+    "rule_of_thumb": "When citing wroot offsets from the thunk-delta law, BE EXPLICIT: thunk - 0xBA9C is the IMAGE offset. To grep bytes in original/wroot.exe, add 0x200.",
+    "confidence": "high"
+  },
+  "df85_target_resolution": {
+    "thunk": "0xDF85",
+    "wroot_image_offset": "0x24E9",
+    "wroot_file_offset": "0x26E9",
+    "function_name_proposed": "ui_window_puts_highlight (renders a null-terminated string into a window's cells with per-cell highlight attr; wraps per-char fn at wroot image 0x22B7)",
+    "asm": [
+      "0x26E9  55             push bp",
+      "0x26EA  8b ec          mov bp, sp",
+      "0x26EC  83 ec 04       sub sp, 4",
+      "0x26EF  56             push si",
+      "0x26F0  06             push es",
+      "0x26F1  1e             push ds",
+      "0x26F2  8b 76 06       mov si, [bp+6]      ; si = char-string ptr",
+      "0x26F5  89 76 fe       mov [bp-2], si      ; save ptr for loop",
+      "0x26F8  8b 76 04       mov si, [bp+4]      ; si = window handle",
+      "loop:",
+      "0x26FB  8b 5e fe       mov bx, [bp-2]      ; bx = current char ptr",
+      "0x26FE  ff 46 fe       inc word [bp-2]     ; advance ptr",
+      "0x2701  8a 07          mov al, [bx]        ; al = next char",
+      "0x2703  32 e4          xor ah, ah          ; zero-extend",
+      "0x2705  0a c0          or al, al           ; test for null",
+      "0x2707  74 0d          jz 0x2716           ; done if null",
+      "0x2709  ff 76 08       push word [bp+8]    ; push attr (signed; -5 from caller)",
+      "0x270C  50             push ax             ; push char (zero-ext)",
+      "0x270D  56             push si             ; push window handle",
+      "0x270E  e8 a6 fd       call 0x24b7         ; per-char highlight render",
+      "0x2711  83 c4 06       add sp, 6",
+      "0x2714  eb e5          jmp 0x26fb          ; loop",
+      "0x2716  1f             pop ds",
+      "...                    epilogue"
+    ],
+    "signature": "void render_highlight_string(uint16_t window_handle, char* str, int16_t attr)",
+    "confidence": "high"
+  },
+  "per_char_function": {
+    "name": "ui_window_putchar_highlight",
+    "wroot_image_offset": "0x22B7",
+    "wroot_file_offset": "0x24B7",
+    "signature": "void render_highlight_char(uint16_t window_handle, uint16_t char_word, int16_t attr)",
+    "behavior": "Walks the window list at cs:0x1bd2 to find a matching handle; if found, computes (char, attr_byte) cell where attr_byte = (|attr| & 0x0F) << 4. Stores into the window's cell array at [bx+si+0x10]. Reads/updates the dirty-map byte at [cs:0x1b60]:cell_offset. If the dirty-map byte's low 6 bits match the window index, calls ega.drv slot 1 via [cs:0x1b8a] to render the cell pixels. The 'negated_flag' (= sign-bit of input attr) is OR'd as bit 7 into the dirty-map byte but does NOT affect rendered pixels — it's a marker bit consumed by upstream cursor-tracking logic.",
+    "asm_excerpts": [
+      "0x24B7  55 8b ec       prologue",
+      "0x24BA  83 ec 06       sub sp, 6           ; locals: [bp-2]=cell_word, [bp-4]=row_offset, [bp-6]=negated_flag",
+      "0x24C1  2e ff 1e a2 1b  call far [cs:0x1ba2]  ; lock_video",
+      "0x24C6  c7 46 fa 00 00  mov word [bp-6], 0   ; negated_flag = 0",
+      "0x24CB  8b 46 08       mov ax, [bp+8]       ; ax = attr arg",
+      "0x24CE  f6 c4 80       test ah, 0x80        ; sign bit?",
+      "0x24D1  74 0a          jz 0x24DD",
+      "0x24D3  c7 46 fa 01 00  mov word [bp-6], 1   ; negated_flag = 1",
+      "0x24D8  f7 d8          neg ax               ; ax = |attr|",
+      "0x24DA  89 46 08       mov [bp+8], ax       ; store back",
+      "0x24DD..0x24FE  ; walk window list to find matching handle, dl = window_index",
+      "0x250E  8b 46 08       mov ax, [bp+8]       ; ax = |attr|",
+      "0x2511  8a e0          mov ah, al           ; ah = low byte of attr",
+      "0x2513  b1 04 d2 e4    mov cl, 4; shl ah, cl ; ah = (attr & 0xFF) << 4",
+      "0x2517  8a 46 06       mov al, [bp+6]       ; al = char",
+      "0x251A  89 40 10       mov [bx+si+0x10], ax ; cell = (char, attr<<4)",
+      "0x251D  89 46 fe       mov [bp-2], ax       ; save cell word",
+      "...",
+      "0x254A  8a 05          mov al, [di]         ; dirty-map byte",
+      "0x254C  24 3f          and al, 0x3f         ; mask to 6-bit window index",
+      "0x254E  3a c2          cmp al, dl           ; matches our window?",
+      "0x2550  75 66          jnz 0x25B8           ; no -> skip render",
+      "0x2552  83 7e fa 00    cmp word [bp-6], 0   ; negated?",
+      "0x2556  74 02          jz 0x255A",
+      "0x2558  0c 80          or al, 0x80          ; set bit 7 if negated",
+      "0x255A  8a 25          mov ah, [di]         ; ah = original dirty byte",
+      "0x255C  50             push ax              ; -> slot-1 [bp+8]",
+      "0x255D  88 05          mov [di], al         ; write modified dirty byte back",
+      "...",
+      "0x25A8  8b f8          mov di, ax           ; di = back-buffer dest offset",
+      "0x25AA  8b 46 fe       mov ax, [bp-2]       ; ax = cell word",
+      "0x25AD  ff 76 fa       push word [bp-6]     ; -> slot-1 [bp+6] (negated_flag, unused by slot 1)",
+      "0x25B0  2e ff 1e 8a 1b  call far [cs:0x1b8a] ; slot 1",
+      "0x25B5  83 c4 04       add sp, 4"
+    ],
+    "cell_encoding": "Each visible window cell stores 2 bytes: low byte = char code (0..127), high byte = (|attr| & 0x0F) << 4. The fact that the low nibble of the high byte is 0 is the blit-time signal to route the cell to slot 1 (highlight) instead of slot 2 (normal text). See blit_dispatch below.",
+    "confidence": "high"
+  },
+  "slot_dispatch_table": {
+    "address_wroot_image": "0x1b86 (image) = 0x1d86 (file)",
+    "structure": "Slot table is N 4-byte entries (offset:segment far pointers). Loaded by driver loader (wroot image 0x1F76+) which patches each entry's segment word at startup.",
+    "known_slots": [
+      {
+        "index": 1,
+        "table_offset": "[cs:0x1b8a]",
+        "purpose": "1bpp text + highlight render (per-plane bit selector). Called by per-char highlight fn (0x24B7) and by the per-cell blit loop (wroot image 0x2A20-area) for any cell whose attr_byte low nibble is 0.",
+        "ega_drv_file_offset": "0x19A",
+        "ega_drv_runtime_offset": "0x29A (loaded at +0x100 into driver segment)"
+      },
+      {
+        "index": 2,
+        "table_offset": "[cs:0x1b8e]",
+        "purpose": "4bpp text render (normal text). Called by per-char normal fn (wroot image 0x23E3 = file 0x25E3) and by the per-cell blit loop for cells with attr_byte low nibble in 1..4 (font selector 1..4).",
+        "ega_drv_file_offset": "not traced in this pass"
+      }
+    ],
+    "confidence": "high"
+  },
+  "ega_drv_slot_1": {
+    "name": "ega_drv_slot1_text_1bpp_per_plane_selector",
+    "ega_drv_file_offset": "0x19A",
+    "purpose": "Renders one 8x8 cell using wfont0 as a 1bpp glyph mask, OR all-zeros, on a per-plane basis. The 4 EGA planes are written independently. For each plane P in 0..3, the plane's source is selected by bit (4+P) of ah: if set, source is wfont0[char*8] (the 1bpp glyph); if clear, source is a fixed 8-byte zero buffer at ega.drv file 0x192. After source selection, the plane writes are OPTIONALLY NOT-inverted based on word [bp+8] (the dirty-map byte from the caller — always non-zero on real call paths).",
+    "args": {
+      "al": "char code (used to index wfont0 at char*8)",
+      "ah": "attr-byte from cell: original attr in HIGH nibble (bits 4-7), low nibble = 0",
+      "di": "back-buffer destination byte offset (caller-set)",
+      "[bp+6]": "ignored (the per-char fn pushes the negated_flag here; slot 1 never reads it)",
+      "[bp+8]": "WORD: when non-zero, plane writes are NOT-inverted; when zero, plain copy. In practice ALWAYS non-zero (it's the dirty-map byte with low 6 bits = window index that just matched).",
+      "[bp+0xA]": "segment-like word. (dh & 0x40) -> alt branch at 0x380 (not used on normal call paths)."
+    },
+    "per_plane_loop_template": [
+      "; Plane P (P in 0..3):",
+      "mov dx, 0x3C4; mov al, 2; out dx, al    ; SEQ index 2 (map mask)",
+      "inc dx; mov al, 1<<P; out dx, al        ; map_mask = bit-P-only",
+      "mov cx, 0x27                             ; stride = 39",
+      "test ah, 0x10<<P                         ; attr's plane-P bit set?",
+      "jnz USE_FONT                             ; SET: use wfont0[char]",
+      "  lds si, [bp-8]                         ; CLEAR: use 8-byte zero buffer",
+      "  jmp PLAIN_COPY                         ;        (zero buffer, NO inversion check)",
+      "USE_FONT:",
+      "  lds si, [bp-4]                         ; ds:si = wfont0_seg : char*8",
+      "  cmp word [bp+8], 0",
+      "  jnz NOT_COPY                           ; non-zero -> invert",
+      "PLAIN_COPY:",
+      "  movsb; add di, cx                      ; 8x: raw byte to plane",
+      "  ...                                     ; (8 times for 8 scanlines)",
+      "  jmp NEXT_PLANE",
+      "NOT_COPY:",
+      "  lodsb; not al; stosb; add di, cx       ; 8x: NOT byte to plane",
+      "  ..."
+    ],
+    "color_formula": "Let attr_lo = (cell_attr_byte >> 4) & 0x0F = the original |attr| value held in the high nibble. Let w(x,y) = wfont0[char*8 + y] bit (7-x), the 1bpp glyph mask. Let invert = ([bp+8] != 0) which is ALWAYS true on real call paths.\n\nFor each pixel (x, y) in 0..7:\n  plane_bit_P = (attr_lo & (1<<P)) ? (invert ? !w(x,y) : w(x,y)) : 0\n  color_attr_at_pixel = sum(plane_bit_P << P for P in 0..3)\n\nWith invert=true (the only observed case):\n  if w(x,y) == 1 (stroke):     color_attr = 0\n  if w(x,y) == 0 (background): color_attr = attr_lo\n\nFinal rendered RGB = DAC[AC[color_attr]] where AC is the live attribute-controller palette and DAC is the VGA DAC.",
+    "confidence": "high"
+  },
+  "runtime_palette_state": {
+    "claim": "The WIZ6_MAIN palette IS active in every captured save state — it is loaded as the AC palette (attribute controller registers 0..15), NOT as the DAC (digital-to-analog converter entries 0..255). The DAC stays in BIOS default shape with entries 0-15 = standard EGA colors and entries 16-23 = high-intensity variants.",
+    "wroot_palette_table": {
+      "address": {"space": "wroot.exe", "file_offset": "0x2043", "image_offset": "0x1E43"},
+      "bytes": "00 17 11 15 14 16 12 13 10 07 01 05 04 06 02 03 00",
+      "format": "17 bytes: 16 AC palette registers (attr 0..15 -> DAC index 0..63) + 1 overscan/border byte",
+      "loaded_by": "INT 10h AX=1002h at wroot image 0x209B (file 0x229B)"
+    },
+    "ac_palette_in_saves": {
+      "discovery_offset_in_Vga_blob": "0x82FC1",
+      "all_saves_match": "Across all 13 save states in tools/dosbox/save/*.sav, the AC palette at this offset matches wroot.exe's table at file 0x2043 BYTE-EXACT.",
+      "method": "python3 + zipfile to extract 'Vga' member from each .sav; bytes.find(wroot_table) returns 0x82FC1 for all 13."
+    },
+    "live_dac": {
+      "entries_0_to_15": "Standard BIOS EGA palette (matches the EGA_DEFAULT table in @wiz6/data)",
+      "entries_16_to_23": "High-intensity row used by WIZ6_MAIN AC remap: (85,85,85), (85,85,255), (85,255,85), (85,255,255), (255,85,85), (255,85,255), (255,255,85)=YELLOW, (255,255,255)=WHITE",
+      "verified_via": "mcp__wiz6__dosbox_read_palette_registers + raw blob inspection across saves 1, 2, 5"
+    },
+    "effective_color_table_attr_to_RGB": [
+      {"attr": 0,  "ac_value": "0x00", "dac_index": 0,  "rgb": [0, 0, 0],       "name": "BLACK"},
+      {"attr": 1,  "ac_value": "0x17", "dac_index": 23, "rgb": [255, 255, 255], "name": "WHITE"},
+      {"attr": 2,  "ac_value": "0x11", "dac_index": 17, "rgb": [85, 85, 255],   "name": "LIGHT_BLUE"},
+      {"attr": 3,  "ac_value": "0x15", "dac_index": 21, "rgb": [255, 85, 255],  "name": "LIGHT_MAGENTA"},
+      {"attr": 4,  "ac_value": "0x14", "dac_index": 20, "rgb": [255, 85, 85],   "name": "LIGHT_RED"},
+      {"attr": 5,  "ac_value": "0x16", "dac_index": 22, "rgb": [255, 255, 85],  "name": "YELLOW  <- MENU HIGHLIGHT BG"},
+      {"attr": 6,  "ac_value": "0x12", "dac_index": 18, "rgb": [85, 255, 85],   "name": "LIGHT_GREEN"},
+      {"attr": 7,  "ac_value": "0x13", "dac_index": 19, "rgb": [85, 255, 255],  "name": "LIGHT_CYAN"},
+      {"attr": 8,  "ac_value": "0x10", "dac_index": 16, "rgb": [85, 85, 85],    "name": "DARK_GRAY"},
+      {"attr": 9,  "ac_value": "0x07", "dac_index": 7,  "rgb": [170, 170, 170], "name": "LIGHT_GRAY"},
+      {"attr": 10, "ac_value": "0x01", "dac_index": 1,  "rgb": [0, 0, 170],     "name": "BLUE"},
+      {"attr": 11, "ac_value": "0x05", "dac_index": 5,  "rgb": [170, 0, 170],   "name": "MAGENTA"},
+      {"attr": 12, "ac_value": "0x04", "dac_index": 4,  "rgb": [170, 0, 0],     "name": "RED"},
+      {"attr": 13, "ac_value": "0x06", "dac_index": 6,  "rgb": [170, 85, 0],    "name": "BROWN"},
+      {"attr": 14, "ac_value": "0x02", "dac_index": 2,  "rgb": [0, 170, 0],     "name": "GREEN"},
+      {"attr": 15, "ac_value": "0x03", "dac_index": 3,  "rgb": [0, 170, 170],   "name": "CYAN"}
+    ],
+    "confidence": "high"
+  },
+  "endpoint_pixel_color_for_menu_cursor": {
+    "input": "df85(window=*0x3342, str=cursor_label, attr=-5)",
+    "trace": [
+      "1. df85 = thunk 0xDF85 -> wroot image 0x24E9 / file 0x26E9 (string wrapper).",
+      "2. Wrapper loops over str, per-char calls wroot image 0x22B7 / file 0x24B7 with (window, char_byte, attr=-5).",
+      "3. Per-char fn detects sign bit of attr; sets negated_flag=1; negates ax -> |attr|=5.",
+      "4. Stores cell = (char, 5<<4 = 0x50). Low nibble of attr_byte is 0 -> blit-time dispatch routes via [cs:0x1b8a] = ega.drv slot 1.",
+      "5. Slot 1 receives ax=cell_word (ah=0x50, al=char), [bp+8]=dirty_byte (non-zero), [bp+6]=negated_flag (unused).",
+      "6. Per-plane test: ah & 0x10 -> P0 = NOT(wfont0); ah & 0x20 = 0 -> P1 = zero; ah & 0x40 -> P2 = NOT(wfont0); ah & 0x80 = 0 -> P3 = zero.",
+      "7. Pixel where wfont0_bit = 1: all planes = NOT(1) = 0 -> color_attr 0.",
+      "8. Pixel where wfont0_bit = 0: P0 = NOT(0) = 1, P1 = 0, P2 = NOT(0) = 1, P3 = 0 -> color_attr = 0b0101 = 5.",
+      "9. color_attr 0 -> AC[0] = 0x00 -> DAC[0] = (0, 0, 0) BLACK.",
+      "10. color_attr 5 -> AC[5] = 0x16 -> DAC[22] = (255, 255, 85) YELLOW."
+    ],
+    "result": {
+      "stroke_color": [0, 0, 0],
+      "stroke_name": "BLACK",
+      "background_color": [255, 255, 85],
+      "background_name": "YELLOW",
+      "visual": "Black-on-yellow — MATCHES user's empirical observation of selected menu rows."
+    },
+    "confidence": "high"
+  },
+  "other_attr_examples": [
+    {
+      "call_site": "wbase 0x2002 — render_highlight_string(_, _, attr=6)",
+      "input_attr_signed": 6,
+      "cell_attr_byte": "0x60",
+      "ah_plane_bits": "0x60 -> P0=0, P1=1, P2=1, P3=0 -> color_attr 6 on bg",
+      "bg_color": [85, 255, 85],
+      "bg_name": "LIGHT_GREEN",
+      "stroke_color": [0, 0, 0],
+      "visual": "black-on-light-green",
+      "confidence": "high"
+    },
+    {
+      "call_site": "wbase 0x2043 — render_highlight_string(_, _, attr=3)",
+      "input_attr_signed": 3,
+      "cell_attr_byte": "0x30",
+      "ah_plane_bits": "0x30 -> P0=1, P1=1, P2=0, P3=0 -> color_attr 3 on bg",
+      "bg_color": [255, 85, 255],
+      "bg_name": "LIGHT_MAGENTA",
+      "stroke_color": [0, 0, 0],
+      "visual": "black-on-light-magenta",
+      "confidence": "high"
+    },
+    {
+      "call_site": "wbase 0x27BD / 0x03E9 — render_highlight_string(_, _, attr=-5)",
+      "input_attr_signed": -5,
+      "input_attr_absolute": 5,
+      "cell_attr_byte": "0x50",
+      "ah_plane_bits": "0x50 -> P0=1, P1=0, P2=1, P3=0 -> color_attr 5 on bg",
+      "bg_color": [255, 255, 85],
+      "bg_name": "YELLOW",
+      "stroke_color": [0, 0, 0],
+      "visual": "black-on-yellow (= the main menu cursor)",
+      "confidence": "high"
+    }
+  ],
+  "errors_in_prior_findings": {
+    "wfont_highlight_render_json": [
+      {
+        "what_it_said": "df85 = wroot file offset 0x22B7",
+        "actual_truth": "0x22B7 is the IMAGE offset (= file 0x24B7). The thunk 0xDF85 actually resolves to wroot IMAGE 0x24E9 / FILE 0x26E9, which is a string-printer WRAPPER. The wrapper calls the per-char fn at image 0x22B7 / file 0x24B7 in a loop. So the prior finding documented the per-char function correctly but missed the wrapper above it, and confused image vs. file offsets throughout.",
+        "severity": "moderate — fix the offsets and re-label as image-not-file; the asm trace itself is correct"
+      },
+      {
+        "what_it_said": "palette[5] = (170, 255, 0) yellow-green via WIZ6_MAIN matches the user's observation",
+        "actual_truth": "WIZ6_MAIN.ts mis-encodes the palette: it stored AC palette register VALUES as if they were direct RGB triples. The actual semantics: WIZ6_MAIN[5] = AC register value 0x16 = DAC index 22. Under the live VGA default DAC, DAC[22] = (255, 255, 85) = YELLOW (not yellow-green). The TS file's claim of (170, 255, 0) yellow-green is wrong; (255, 255, 85) yellow is correct.",
+        "severity": "high — produces visually wrong output if used as-is"
+      },
+      {
+        "what_it_said": "highlight cells render as 'wfont0 glyph in palette-0 (black) on a palette-attr background'",
+        "actual_truth": "Correct in structure. The stroke is color_attr 0 and the background is color_attr |input_attr|. Looking those up through the live AC and DAC: stroke=DAC[AC[0]]=DAC[0]=BLACK; background=DAC[AC[attr]]. This part of the prior finding is RIGHT — it was just the WIZ6_MAIN.ts data file that was wrong.",
+        "severity": "none — logic correct"
+      }
+    ],
+    "state4_runtime_palette_json": [
+      {
+        "what_it_said": "WIZ6_MAIN is never the active DAC in any captured save",
+        "actual_truth": "Technically true (WIZ6_MAIN doesn't write to the DAC), but MISLEADING. WIZ6_MAIN is loaded into the AC palette registers — those ARE active in every save. The finding's conclusion 'render against EGA_DEFAULT and the colors will match' is WRONG: the colors won't match because the AC palette remaps every attribute index 0..15 to different DAC indices, including indices 16..23 which produce high-intensity colors not in the EGA_DEFAULT table.",
+        "severity": "high — the finding's recommended action (use EGA_DEFAULT for rendering) produces visually wrong output"
+      },
+      {
+        "what_it_said": "attr=5 background = (170, 0, 170) MAGENTA under EGA_DEFAULT",
+        "actual_truth": "Under EGA_DEFAULT it would be magenta, but the live AC palette is WIZ6_MAIN. With AC active, attr=5 -> AC[5]=0x16 -> DAC[22] = (255, 255, 85) YELLOW. The 'user's actual reference image' the finding's open_questions mentioned has now been pixel-matched: user sees YELLOW because the AC palette is doing its job.",
+        "severity": "high"
+      }
+    ]
+  },
+  "viewer_port_pseudocode": {
+    "summary": "Render a highlight cell using wfont0 as a 1bpp mask and the WIZ6_MAIN AC remap layered on top of the VGA default DAC.",
+    "code": [
+      "// AC palette as loaded by wroot.exe at INT 10h AX=1002h.",
+      "// Index = color attribute 0..15. Value = DAC index 0..63.",
+      "const WIZ6_MAIN_AC: number[] = [",
+      "  0x00, 0x17, 0x11, 0x15, 0x14, 0x16, 0x12, 0x13,",
+      "  0x10, 0x07, 0x01, 0x05, 0x04, 0x06, 0x02, 0x03,",
+      "];",
+      "",
+      "// VGA default DAC entries 0..23 (entries 16..23 are bright variants of 0..7).",
+      "const VGA_DEFAULT_DAC: Array<[number, number, number]> = [",
+      "  [  0,   0,   0], [  0,   0, 170], [  0, 170,   0], [  0, 170, 170],",
+      "  [170,   0,   0], [170,   0, 170], [170,  85,   0], [170, 170, 170],",
+      "  [ 85,  85,  85], [ 85,  85, 255], [ 85, 255,  85], [ 85, 255, 255],",
+      "  [255,  85,  85], [255,  85, 255], [255, 255,  85], [255, 255, 255],",
+      "  [ 85,  85,  85], [ 85,  85, 255], [ 85, 255,  85], [ 85, 255, 255],",
+      "  [255,  85,  85], [255,  85, 255], [255, 255,  85], [255, 255, 255],",
+      "];",
+      "",
+      "// Resolve a color attribute (0..15) to its on-screen RGB through WIZ6_MAIN.",
+      "function attrToRgb(attr: number): [number, number, number] {",
+      "  const dacIndex = WIZ6_MAIN_AC[attr & 0x0F];",
+      "  return VGA_DEFAULT_DAC[dacIndex];",
+      "}",
+      "",
+      "// Render an 8x8 highlight cell.",
+      "// 'char' = 0..127 indexing wfont0 (1 bpp, 8 bytes/glyph).",
+      "// 'attr' = signed; sign is a marker bit that does NOT affect color; |attr| in 1..15 selects bg.",
+      "function renderHighlightCell(",
+      "  char: number,",
+      "  attr: number,",
+      "  wfont0: Uint8Array, // 1024 bytes, 128 glyphs",
+      "): Array<[number, number, number]> /* 64 RGB pixels, row-major */ {",
+      "  const absAttr = Math.abs(attr) & 0x0F;",
+      "  const strokeRgb = attrToRgb(0);   // always black",
+      "  const bgRgb = attrToRgb(absAttr); // attr=5 -> yellow",
+      "  const out: Array<[number, number, number]> = new Array(64);",
+      "  for (let y = 0; y < 8; y++) {",
+      "    const glyphByte = wfont0[char * 8 + y]; // bit 7 = leftmost pixel",
+      "    for (let x = 0; x < 8; x++) {",
+      "      const w = (glyphByte >> (7 - x)) & 1;",
+      "      out[y * 8 + x] = w ? strokeRgb : bgRgb;",
+      "    }",
+      "  }",
+      "  return out;",
+      "}"
+    ],
+    "data_package_fix_needed": "packages/data/src/palettes/wiz6-main.ts currently stores RGB triples that are wrong. Replace its `colors` field with a derived computation: for each attr 0..15, look up WIZ6_MAIN_AC[attr] in VGA_DEFAULT_DAC. This produces the effective_color_table_attr_to_RGB above. Provenance comment should be updated to: '16-byte AC palette register table at wroot file 0x2043 / image 0x1E43, loaded by INT 10h AX=1002h at wroot file 0x229B / image 0x209B. RGB values are computed as DAC[AC[attr]] using the VGA default DAC.'",
+    "confidence": "high"
+  },
+  "open_questions": [
+    {
+      "id": "Q-other-saves-AC-fingerprint",
+      "claim": "All 13 captured saves have the SAME AC palette = WIZ6_MAIN. Saves cover game_state 1 (title) and 0xFFFF (unknown). State 4 (main menu) was not captured but the AC palette state would carry over from state 2 (winit) where it's loaded once and never reprogrammed. No state-4 save needed for AC palette confirmation.",
+      "confidence": "high"
+    },
+    {
+      "id": "Q-dungeon-palette",
+      "claim": "WIZ6_DUNGEON load site exists at wroot image 0x2105 / file 0x2305 with a similar AC palette table; it may be loaded on state transitions to dungeon (states 5/6/0x17). No dungeon-state saves captured; can't verify.",
+      "confidence": "medium"
+    },
+    {
+      "id": "Q-negated-flag-consumer",
+      "claim": "The negated_flag bit (bit 7) df85 OR's into the dirty-map byte at [cs:0x1b60]:cell_offset has SOME consumer (otherwise df85 wouldn't bother). Candidates: (a) cursor-blink toggle that re-renders the highlighted cell each tick; (b) selection-state read-back when user presses Enter; (c) a 'restore prior cell' undo on cursor-move. Not investigated.",
+      "confidence": "speculative"
+    },
+    {
+      "id": "Q-slot-1-alt-branch",
+      "claim": "Slot 1 has an alt path at ega.drv 0x380 entered when ([bp+0xA] high byte & 0x40) != 0. Not exercised by df85. May be a 'render to non-EGA target' variant.",
+      "confidence": "speculative"
+    }
+  ],
+  "implications_for_port": [
+    "The viewer's font-rendering for highlight cells should use this color formula. Stroke = palette-attr-0; background = palette-attr-|input_attr|. The current `{1:0, 8:14}` override in CastleScreen is an approximation that happens to land on yellow because EGA_DEFAULT[14] also = (255,255,85), but it's brittle: it only works because the 4bpp wfont3 glyphs use file colors 1 and 8, and our viewer's palette[14] happens to be the same color as DAC[22]. The engine-correct implementation: discard the 4bpp wfont3 glyph and use a 1bpp wfont0 mask producing stroke-at-attr-0 vs bg-at-attr-|input_attr|.",
+    "packages/data/src/palettes/wiz6-main.ts MUST be corrected. The current RGB triples are wrong. Replace with computed values from WIZ6_MAIN_AC table applied to VGA_DEFAULT_DAC[0..23].",
+    "The CastleScreen menu cursor color override should be `{ stroke: attrToRgb(0), background: attrToRgb(5) }` = `{ stroke: [0,0,0], background: [255,255,85] }` (black-on-yellow). NOT EGA_DEFAULT[5] (magenta) and NOT WIZ6_MAIN's incorrectly-encoded palette[5] (yellow-green).",
+    "Audit any OTHER findings or code that interpret WIZ6_MAIN.ts as direct RGB triples. The error there is systemic — anywhere we look up WIZ6_MAIN[k] expecting an RGB, we get a small integer (the AC register value). Worth a grep across packages/.",
+    "For arbitrary highlight attrs (other overlays use a wide range), the effective_color_table_attr_to_RGB above gives the engine-correct background color. Strokes are always black."
+  ],
+  "cross_references": {
+    "wbase_state4_draw_trace": "docs/re/findings/wbase-state4-draw-trace.json — correctly identified the call site at wbase 0x2CCB calling FUN_025c with the 8th arg = 5 = highlight attr. The 'WIZ6_PALETTE_1' references in that finding are the SAME WIZ6_MAIN palette but treated as a direct-color table, which is also wrong.",
+    "palette_loads": "docs/re/findings/palette-loads.json — should be checked for consistency with this finding's AC-palette interpretation."
+  }
+}

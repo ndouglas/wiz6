@@ -16,7 +16,10 @@ describe('WIZ6_MAIN', () => {
     expect(WIZ6_MAIN.provenance).toMatch(/wroot\.exe.*0x2043/);
   });
 
-  it('matches the discovered RGB values exactly (snapshot)', () => {
+  it('chains AC -> DAC to the 16 RGB triples the framebuffer actually displays', () => {
+    // AC[i] -> DAC[AC[i]] under VGA_DEFAULT_DAC. The "selected menu row"
+    // highlight pushes attr=5; AC[5]=0x16 -> DAC[22] = (255,255,85) yellow,
+    // matching what the original game renders.
     expect(WIZ6_MAIN.colors).toMatchInlineSnapshot(`
       [
         [
@@ -25,44 +28,44 @@ describe('WIZ6_MAIN', () => {
           0,
         ],
         [
-          170,
           255,
-          170,
-        ],
-        [
-          0,
-          85,
-          170,
-        ],
-        [
-          170,
-          85,
-          170,
-        ],
-        [
-          170,
-          85,
-          0,
-        ],
-        [
-          170,
           255,
-          0,
-        ],
-        [
-          0,
           255,
-          0,
         ],
         [
-          0,
-          255,
-          170,
-        ],
-        [
-          0,
           85,
-          0,
+          85,
+          255,
+        ],
+        [
+          255,
+          85,
+          255,
+        ],
+        [
+          255,
+          85,
+          85,
+        ],
+        [
+          255,
+          255,
+          85,
+        ],
+        [
+          85,
+          255,
+          85,
+        ],
+        [
+          85,
+          255,
+          255,
+        ],
+        [
+          85,
+          85,
+          85,
         ],
         [
           170,
@@ -86,7 +89,7 @@ describe('WIZ6_MAIN', () => {
         ],
         [
           170,
-          170,
+          85,
           0,
         ],
         [

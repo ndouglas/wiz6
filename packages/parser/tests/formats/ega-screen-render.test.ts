@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderEgaScreen } from '../../src/formats/ega-screen-render.js';
-import { EGA_DEFAULT } from '@wiz6/data';
+import { WIZ6_MAIN } from '@wiz6/data';
 import type { EgaScreen } from '@wiz6/data';
 
 // Build a screen where the only plane bit set is at (planeIdx, srcByte, srcBit).
@@ -29,30 +29,28 @@ function makeScreen(planes: number[][]): EgaScreen {
 //   srcX   = ((x - shiftX) % width + width) % width
 // For p=0:  shiftX=0, yDrop=0, srcY=5, srcX=0       — byte 5*40+0=200, MSB
 // For p=1:  shiftX=64, yDrop=1, srcY=5+5-1=9, srcX=320-64=256 — byte 9*40+32=392, MSB
-// For p=2:  shiftX=128, yDrop=1, srcY=5+10-1=14, srcX=320-128=192 — byte 14*40+24=584, MSB
-// For p=3:  shiftX=192, yDrop=1, srcY=5+15-1=19, srcX=320-192=128 — byte 19*40+16=776, MSB
 
-describe('renderEgaScreen — bit-pattern permutation', () => {
-  it('renders file bit-pattern 0x1 as EGA index 15 (white) when using EGA_DEFAULT', () => {
+describe('renderEgaScreen — file pixel value is framebuffer color attribute', () => {
+  it('renders file bit-pattern 0x1 as WIZ6_MAIN.colors[1] = white', () => {
     // Set only plane 0 at the source coord that maps to display (0, 5).
     const p0 = emptyPlane();
     p0[200] = 0x80;
     const screen = makeScreen([p0, emptyPlane(), emptyPlane(), emptyPlane()]);
-    const out = renderEgaScreen(screen, EGA_DEFAULT);
+    const out = renderEgaScreen(screen, WIZ6_MAIN);
     // Display pixel (0, 5) → byte offset (5 * 320 + 0) * 4 = 6400
     const off = (5 * 320 + 0) * 4;
-    // With permutation, file index 0x1 → EGA index 15 → white
+    // File pixel value 1 → palette.colors[1] = WIZ6_MAIN[1] = (255,255,255) white
     expect(Array.from(out.rgba.subarray(off, off + 4))).toEqual([255, 255, 255, 255]);
   });
 
-  it('renders file bit-pattern 0x2 as EGA index 9 (light blue) when using EGA_DEFAULT', () => {
+  it('renders file bit-pattern 0x2 as WIZ6_MAIN.colors[2] = light blue', () => {
     // Set only plane 1 at the source coord that maps to display (0, 5).
     const p1 = emptyPlane();
     p1[392] = 0x80;
     const screen = makeScreen([emptyPlane(), p1, emptyPlane(), emptyPlane()]);
-    const out = renderEgaScreen(screen, EGA_DEFAULT);
+    const out = renderEgaScreen(screen, WIZ6_MAIN);
     const off = (5 * 320 + 0) * 4;
-    // With permutation, file index 0x2 → EGA index 9 → light blue (85,85,255)
+    // File pixel 2 → WIZ6_MAIN[2] = (85, 85, 255) light blue
     expect(Array.from(out.rgba.subarray(off, off + 4))).toEqual([85, 85, 255, 255]);
   });
 });

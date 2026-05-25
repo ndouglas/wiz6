@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ScenarioMonster } from '@wiz6/data';
-import { PicSchema, EGA_DEFAULT } from '@wiz6/data';
+import { PicSchema, WIZ6_MAIN } from '@wiz6/data';
 import { renderPicDescriptor, concatenatePicSegments, monsterSlug, monsterDisplayName } from '@wiz6/parser';
 import { PicCanvas } from '../../../components/PicCanvas.js';
 
@@ -33,7 +33,7 @@ function usePicDescriptors(picId: number): RenderedSprite[] | null {
         if (text.trimStart().startsWith('<')) return;
         const pic = PicSchema.parse(JSON.parse(text));
         const decoded = concatenatePicSegments(pic.segments);
-        const rendered = pic.descriptors.map((d) => renderPicDescriptor(d, decoded, EGA_DEFAULT));
+        const rendered = pic.descriptors.map((d) => renderPicDescriptor(d, decoded, WIZ6_MAIN));
         if (!cancelled) setSprites(rendered);
       } catch {
         // Swallow — leave sprites null; page still renders.

@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { EgaScreen } from '@wiz6/data';
 import { loadEgaScreen } from '../data-loader.js';
-import { EGA_DEFAULT } from '@wiz6/data';
-import { EGA_FILE_INDEX_PERMUTATION } from '@wiz6/parser';
+import { WIZ6_MAIN } from '@wiz6/data';
 
 const ZOOM = 2;
 type RenderMode = 'layers' | 'composite';
@@ -121,9 +120,9 @@ export function ScreenAlignmentTool({ url }: Props) {
 
     if (renderMode === 'composite') {
       // For each displayed pixel, sample all 4 planes at their (split) source
-      // coords and combine to a 4-bit file index. Wiz6 .ega files permute the
-      // file bit-pattern → standard EGA index (see ega-permutation.ts); we
-      // apply that permutation before looking up RGB in EGA_DEFAULT.
+      // coords and combine to a 4-bit file index. The file value IS the
+      // framebuffer color attribute; we look up palette.colors[fileIdx] in
+      // WIZ6_MAIN (the AC->DAC chain result).
       for (let y = 0; y < screen.height; y++) {
         for (let x = 0; x < screen.width; x++) {
           let fileIdx = 0;
@@ -138,8 +137,7 @@ export function ScreenAlignmentTool({ url }: Props) {
             fileIdx |= bit << p;
           }
           if (fileIdx === 0) continue;
-          const egaIdx = EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
-          const rgb = EGA_DEFAULT.colors[egaIdx];
+          const rgb = WIZ6_MAIN.colors[fileIdx];
           if (!rgb) continue;
           ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
           ctx.fillRect(x * ZOOM, y * ZOOM, ZOOM, ZOOM);

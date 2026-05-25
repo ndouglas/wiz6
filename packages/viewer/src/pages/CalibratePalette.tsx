@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Palette } from '@wiz6/data';
-import { PALETTE_CATALOG, EGA_DEFAULT } from '@wiz6/data';
-import { renderPicDescriptor, concatenatePicSegments, EGA_FILE_INDEX_PERMUTATION } from '@wiz6/parser';
+import { PALETTE_CATALOG, WIZ6_MAIN } from '@wiz6/data';
+import { renderPicDescriptor, concatenatePicSegments } from '@wiz6/parser';
 import { PicCanvas } from '../components/PicCanvas.js';
 import { RECommentary } from '../components/RECommentary.js';
 import { usePic } from '../lib/hooks/usePic.js';
 import styles from './CalibratePalette.module.css';
 
-// Empirically-extracted "title" palette — removed from @wiz6/data catalog in
-// Phase 1 (it's not a real engine palette, just EGA_DEFAULT under a permuted
-// .ega bit-pattern). Kept here as a calibration preset since the values are
-// historically useful for comparison.
+// Empirically-extracted "title" palette — the pre-AC-fix calibration that
+// matched the original engine at most indices, off-by-shade at 3 and 11
+// (dim vs light magenta swap). Kept as a calibration preset for comparison
+// against the correct WIZ6_MAIN.
 const WIZ6_TITLE_PRESET: Array<[number, number, number]> = [
   [0, 0, 0],
   [255, 255, 255],
@@ -201,7 +201,7 @@ export function CalibratePalette() {
   const [picId, setPicId] = useState<string>('mon57');
   const [descIdx, setDescIdx] = useState<number>(0);
   const [colors, setColors] = useState<Array<[number, number, number]>>(() =>
-    clonePaletteColors(EGA_DEFAULT),
+    clonePaletteColors(WIZ6_MAIN),
   );
   const [activeIndex, setActiveIndex] = useState<number>(2);
   const [spriteScale, setSpriteScale] = useState<number>(3);
@@ -270,11 +270,10 @@ export function CalibratePalette() {
               (((pG >> bit) & 1) << 1) |
               (((pR >> bit) & 1) << 2) |
               (((pI >> bit) & 1) << 3);
-            // Wiz6 .pic files permute file bit-pattern → standard EGA palette
-            // index. Track the *palette* index (post-permutation) so swatches
-            // labelled N correspond to palette.colors[N] — clicking a body
-            // pixel selects the swatch that actually controls it.
-            const paletteIdx = fileIdx === 15 ? -1 : EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
+            // File pixel value IS the palette index — under the new
+            // WIZ6_MAIN-based pipeline, palette.colors[N] is the AC->DAC
+            // chain result for color attribute N.
+            const paletteIdx = fileIdx === 15 ? -1 : fileIdx;
             const px = cx * 8 + col;
             const py = cy * 8 + row;
             map[py * pxW + px] = paletteIdx;

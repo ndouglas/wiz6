@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PicSchema, EGA_DEFAULT, type Font, type Font4bpp, type Pic } from '@wiz6/data';
+import { PicSchema, WIZ6_MAIN, type Font, type Font4bpp, type Pic } from '@wiz6/data';
+// NOTE: was EGA_DEFAULT before the per-scene AC->DAC palette fix.
+// WIZ6_MAIN.colors[i] is the AC->DAC chain result for color attribute i
+// under the engine's main-game AC palette. See
+// docs/re/findings/menu-cursor-render-path.json.
 import {
   renderEgaScreen,
   concatenatePicSegments,
@@ -86,7 +90,7 @@ export function CastleScreen() {
     loadEgaScreen('/screens/dragonsc.json')
       .then((screen) => {
         if (cancelled) return;
-        setDragonscRgba(renderEgaScreen(screen, EGA_DEFAULT).rgba);
+        setDragonscRgba(renderEgaScreen(screen, WIZ6_MAIN).rgba);
       })
       .catch(() => {
         /* leave null */
@@ -226,7 +230,9 @@ function composeFrame(
   // gate / dungeon viewport on every side AND fills the bottom of the
   // screen down to y=200. The gate art + dragonsc strip + banner are
   // overlaid on top.
-  const GRAY = EGA_DEFAULT.colors[8] ?? [0x55, 0x55, 0x55];
+  // Engine writes color attribute 8 to the bordering pixels around the
+  // dungeon viewport. Under WIZ6_MAIN AC, that's DAC[16] = dim gray.
+  const GRAY = WIZ6_MAIN.colors[8] ?? [0x55, 0x55, 0x55];
   for (let i = 0; i < buf.length; i += 4) {
     buf[i] = GRAY[0]!;
     buf[i + 1] = GRAY[1]!;
@@ -248,18 +254,18 @@ function composeFrame(
     buf.set(dragonscRgba.subarray(0, bytes));
   }
   if (mon08Pic && mon08Decoded) {
-    compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 32, [0], mon08Pic, mon08Decoded, EGA_DEFAULT);
-    compositePicScript(buf, ENGINE_W, ENGINE_H, 160, 32, [1], mon08Pic, mon08Decoded, EGA_DEFAULT);
-    compositePicScript(buf, ENGINE_W, ENGINE_H, 128, 49, [2], mon08Pic, mon08Decoded, EGA_DEFAULT);
-    compositePicScript(buf, ENGINE_W, ENGINE_H, 160, 49, [3], mon08Pic, mon08Decoded, EGA_DEFAULT);
+    compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 32, [0], mon08Pic, mon08Decoded, WIZ6_MAIN);
+    compositePicScript(buf, ENGINE_W, ENGINE_H, 160, 32, [1], mon08Pic, mon08Decoded, WIZ6_MAIN);
+    compositePicScript(buf, ENGINE_W, ENGINE_H, 128, 49, [2], mon08Pic, mon08Decoded, WIZ6_MAIN);
+    compositePicScript(buf, ENGINE_W, ENGINE_H, 160, 49, [3], mon08Pic, mon08Decoded, WIZ6_MAIN);
   }
 
   // Parity-gated water overlays from FUN_0732 slots 5 + 6:
   //   slot 5: desc 4 (devil + water column) at (208, 52)
   //   slot 6: desc 5 (water ripple strip)   at (72,  125)
   if (parity !== 0 && mon08Pic && mon08Decoded) {
-    compositePicScript(buf, ENGINE_W, ENGINE_H, 208, 52, [4], mon08Pic, mon08Decoded, EGA_DEFAULT);
-    compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 125, [5], mon08Pic, mon08Decoded, EGA_DEFAULT);
+    compositePicScript(buf, ENGINE_W, ENGINE_H, 208, 52, [4], mon08Pic, mon08Decoded, WIZ6_MAIN);
+    compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 125, [5], mon08Pic, mon08Decoded, WIZ6_MAIN);
   }
 
   // Menu UI bottom band — three stacked windows per the engine's heap walk
@@ -303,7 +309,7 @@ function composeFrame(
     // at save time. (0x5F is the banner-variant space; 0x7F the banner-
     // variant bat icon.)
     centeredPuts(banner, '\x7f\x5f\x5fmaster\x5foptions\x5f\x5f\x7f', 0x12, 0x5f);
-    renderTileWindow(banner, buf, ENGINE_W, ENGINE_H, fontSet, EGA_DEFAULT);
+    renderTileWindow(banner, buf, ENGINE_W, ENGINE_H, fontSet, WIZ6_MAIN);
 
     // ---- Lower pane at cell (0, 19) = screen (0, 152), 40×5 cells ----
     // Engine call: ed5a(menu_text_window, 0x20, 3, 0) — clear with
@@ -323,17 +329,17 @@ function composeFrame(
       const cx = Math.floor(i / ROWS_PER_COL) * X_STRIDE + X_BASE;
       const cy = (i % ROWS_PER_COL) + Y_BASE;
       setCursor(pane, cx, cy);
-      // Selected option uses df85 — engine stores cell as (char, attr<<4)
-      // with original attr in the high nibble + 0 in the low nibble (the
-      // dispatch signal to ega.drv slot 1 = wfont0 1bpp text). The
-      // engine's `attr=-5` becomes |attr|=5, cell.attr=0x50. At render
-      // time: stroke → palette[0] (black), bg → palette[5]. Non-selected
-      // options use the normal `dfb9` path at attr=3 → wfont3 4bpp tiles.
-      // See docs/re/findings/wfont-highlight-render.json.
+      // Selected option uses the highlight putchar (wbase pushes attr=-5).
+      // Cell stores (char, 0x50): attr<<4 in the high nibble, 0 in the low
+      // nibble dispatches the blit to ega.drv slot 1 (1bpp wfont0 text).
+      // At render time: stroke → palette[0] (black), bg → palette[5]. Under
+      // WIZ6_MAIN AC, AC[5]=0x16 → DAC[22] = (255, 255, 85) bright yellow.
+      // Non-selected options use the normal text path at attr=3 → wfont3.
+      // See docs/re/findings/menu-cursor-render-path.json.
       const attr = i === selectedIdx ? 0x50 : 0x03;
       puts(pane, opt.label, attr);
     }
-    renderTileWindow(pane, buf, ENGINE_W, ENGINE_H, fontSet, EGA_DEFAULT);
+    renderTileWindow(pane, buf, ENGINE_W, ENGINE_H, fontSet, WIZ6_MAIN);
   }
 
   ctx.putImageData(new ImageData(buf, ENGINE_W, ENGINE_H), 0, 0);

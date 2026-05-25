@@ -1,7 +1,7 @@
 # Per-scene Palette Switching — Design Spec
 
 **Date:** 2026-05-23
-**Status:** Design approved; ready for implementation planning.
+**Status:** Implementation shipped, then partially superseded 2026-05-25. The spec treats `wiz6-main` / `wiz6-dungeon` as direct RGB tables and per-scene palette switching as the key payoff. The 2026-05-25 RE pass found that both tables are **AC palette register values**, not RGB triples; the DAC stays at BIOS default. Under VGA emulation of EGA mode 0Dh, both AC tables produce byte-identical final RGB (BIOS DAC has `DAC[8..15] == DAC[16..23]`), so "per-scene palette switching" is a no-op for the colors we currently render — `WIZ6_MAIN` covers every captured save state. The structural payoff of the work (catalog in `@wiz6/data`, per-asset `palette:` field) remains valid; the value-level interpretation is corrected in `packages/data/src/palettes/{wiz6-main,wiz6-dungeon}.ts`. See `docs/re/findings/menu-cursor-render-path.json` and `docs/re/palette-discovery.md`.
 **Tracker:** [`TODO.md`](../../TODO.md) #002.
 **Scope:** Replace the empirical sprite-rendering palette + scattered viewer-side palette files with a single RE-grounded catalog of palettes housed in `@wiz6/data`. Drive sprite rendering off whichever palette the engine actually has loaded at the moment that asset is drawn, sourced from a comprehensive reverse-engineering pass over every palette-touching site in the binaries.
 

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Palette, PaletteName, PortraitSet } from '@wiz6/data';
-import { PALETTE_CATALOG, EGA_DEFAULT } from '@wiz6/data';
-import { EGA_FILE_INDEX_PERMUTATION } from '@wiz6/parser';
+import { PALETTE_CATALOG, WIZ6_MAIN } from '@wiz6/data';
 import { loadPortraitSet } from '../data-loader.js';
 
 const TILE_PX = 8;
@@ -24,14 +23,14 @@ interface Props {
   palette?: PaletteName | Palette;
 }
 
-export function PortraitGallery({ url, palette = EGA_DEFAULT }: Props) {
+export function PortraitGallery({ url, palette = WIZ6_MAIN }: Props) {
   const [set, setSet] = useState<PortraitSet | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const resolvedPalette: Palette =
     typeof palette === 'string'
-      ? (PALETTE_CATALOG[palette] ?? PALETTE_CATALOG['ega-default']!)
+      ? (PALETTE_CATALOG[palette] ?? PALETTE_CATALOG['wiz6-main']!)
       : palette;
 
   useEffect(() => {
@@ -72,8 +71,7 @@ export function PortraitGallery({ url, palette = EGA_DEFAULT }: Props) {
           for (let r = 0; r < TILE_PX; r++) {
             for (let c = 0; c < TILE_PX; c++) {
               const fileIdx = pixelColor(tile, r, c);
-              const egaIdx = EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
-              const rgb = resolvedPalette.colors[egaIdx];
+              const rgb = resolvedPalette.colors[fileIdx];
               if (!rgb) continue;
               const screenX = (px + tx * TILE_PX + c) * ZOOM;
               const screenY = (py + ty * TILE_PX + r) * ZOOM;

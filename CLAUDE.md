@@ -167,15 +167,17 @@ To transition, a handler writes the new state value to `*0x363a` (or to `*0x4fce
 ### Cross-overlay calls: the thunk-delta law (HIGH CONFIDENCE)
 
 ```
-thunk_address = wroot_file_offset + 0xBA9C
+thunk_address = wroot_image_offset + 0xBA9C
+wroot_file_offset = wroot_image_offset + 0x200   (MZ header)
 ```
 
-Every cross-overlay call goes through a BSS function-pointer thunk at this offset. To resolve any `call [bss_offset]` indirect call in an overlay, subtract `0xBA9C` to get the wroot file offset, then look up the named function in `docs/re/wroot-functions.md` or `docs/re/findings/wroot-naming-pass.json`. Verified across `winit.ovr`, `wmaze.ovr`, and (transitively) `wbase.ovr`. **Tell every overlay-RE subagent about this.**
+Every cross-overlay call from an overlay reaches wroot via an `E8 rel16` near-call landing in a BSS thunk. Subtract `0xBA9C` from the thunk address to get the wroot **image** offset, then add `0x200` for the file offset (MZ header). **The delta is over image offsets, not file offsets.** Verified across `winit.ovr`, `wmaze.ovr`, `wbase.ovr`. Look up named functions in `docs/re/wroot-functions.md` or `docs/re/findings/wroot-naming-pass.json`. **Tell every overlay-RE subagent about this.**
 
-Known sampled mappings (illustrative):
+Known sampled mappings (image offsets):
 - `0xbbb6` − `0xBA9C` = `0x11a` → `ui_window_create`
 - `0xe0df` − `0xBA9C` = `0x2643` → `kbd_check_with_filter`
 - `0xee85` − `0xBA9C` = `0x33e9` → `huffman_load_and_decompress` (the .pic decoder thunk)
+- `0xDF85` − `0xBA9C` = `0x24E9` → `ui_window_putstring_highlight` (the per-string highlight wrapper; per-char fn at image `0x22B7`)
 
 ## RE caveats — common bug patterns
 

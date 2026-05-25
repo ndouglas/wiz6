@@ -1,7 +1,9 @@
 import type { Palette } from '../schemas/palette.js';
 import { EGA_DEFAULT } from './ega-default.js';
-import { WIZ6_MAIN } from './wiz6-main.js';
-import { WIZ6_DUNGEON } from './wiz6-dungeon.js';
+import { WIZ6_MAIN, WIZ6_MAIN_AC } from './wiz6-main.js';
+import { WIZ6_DUNGEON, WIZ6_DUNGEON_AC } from './wiz6-dungeon.js';
+import { VGA_DEFAULT_DAC } from './vga-default-dac.js';
+import { applyAcPalette } from './ac-to-rgb.js';
 
 /**
  * Single source of truth for all named EGA palettes used by Wizardry VI
@@ -9,14 +11,15 @@ import { WIZ6_DUNGEON } from './wiz6-dungeon.js';
  * Keyed by the palette's `name` field; `PALETTE_CATALOG[name].name === name`
  * is invariant (enforced by tests).
  *
- * **Active usage in current asset-render path:** only `ega-default`. The two
- * engine-loaded palettes (`wiz6-main` at wroot 0x209B, `wiz6-dungeon` at
- * 0x2105) are RE-confirmed via `INT 10h AX=1002h` calls in `wroot.exe` but
- * are not exercised by the gameplay states we currently render — the
- * EGA hardware is at BIOS default when sprites and screens draw. Both
- * palettes remain in the catalog for future use; the gameplay state(s) in
- * which they activate are tracked as `#Q-F` in `TODO.md`. See
- * `docs/re/palette-discovery.md` for the full RE picture.
+ * **Active usage:** the live VGA DAC is BIOS default in every captured save
+ * (entries 0..23 cover the 16 unique EGA colors, with 8..15 duplicated at
+ * 16..23). The live AC is `wiz6-main` (verified across saves 1, 2, 5, 10, 13
+ * via Vga-blob byte match). Each `Palette.colors` array is the chained
+ * AC -> DAC result — the final RGB triples the framebuffer's 4-bit color
+ * attributes 0..15 actually display as. See
+ * `docs/re/findings/menu-cursor-render-path.json` for the RE chain and
+ * `docs/re/palette-discovery.md` for the original (now-superseded) catalog
+ * narrative.
  */
 export const PALETTE_CATALOG: Record<string, Palette> = {
   [EGA_DEFAULT.name]: EGA_DEFAULT,
@@ -27,4 +30,12 @@ export const PALETTE_CATALOG: Record<string, Palette> = {
 /** String-literal union of all catalog keys for type-safe lookup. */
 export type PaletteName = keyof typeof PALETTE_CATALOG;
 
-export { EGA_DEFAULT, WIZ6_MAIN, WIZ6_DUNGEON };
+export {
+  EGA_DEFAULT,
+  WIZ6_MAIN,
+  WIZ6_MAIN_AC,
+  WIZ6_DUNGEON,
+  WIZ6_DUNGEON_AC,
+  VGA_DEFAULT_DAC,
+  applyAcPalette,
+};

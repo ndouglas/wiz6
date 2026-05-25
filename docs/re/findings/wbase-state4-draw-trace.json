@@ -1,0 +1,421 @@
+{
+  "topic": "wbase-state-4-draw-trace",
+  "subagent_run": "2026-05-24",
+  "binaries": ["wbase.ovr", "wroot.exe", "ega.drv"],
+  "summary": "Complete per-frame draw sequence for the main menu (game_state=4). The state-4 init creates NO new screen rectangles — it just runs FUN_0984 to compose mon08 sprites on top of the gate window (0x73FA) and reuses pre-existing winit-allocated windows for top_title (0x7410), banner (0x732E), party panels (0x71B2 / 0x7270), full-screen background (0x6FF6), lower pane background (0x700C), and status row (0x7394). Each loop iteration creates a temporary menu-text window (0x7426, attr=0x0F) on top of the lower pane, writes the option labels via dfb9 with attr=3, then destroys it. The gate area is redrawn each animation tick (~10 input polls) by FUN_07b7 which calls f130(*0x4fbc, 0) to blacken the back-buffer rect, then layers sprites on top. KEY: ega.drv f130 writes the SAME raw byte to all 4 EGA planes — it does NOT use the window's attr byte. So f130(window, 0) gives palette index 0 = black in default EGA, and f130(window, 0xFF) would give palette index 15 = white. The menu pane's perceived 'neutral gray' is the EGA palette index reproduced when the 0x7426 attr=0x0F clear (ed5a) writes space glyphs with attribute 3 — and the engine uses the WIZ6_PALETTE_1 runtime palette (not standard EGA), where the relevant indices skew to UI grays/greens.",
+  "method": "Static disassembly with ndisasm of (1) wbase.ovr functions FUN_2b36 (state-4 entry), FUN_07b7 (per-frame redraw of gate area), FUN_0984 (one-shot menu init), FUN_01d6 (banner render), FUN_025c (menu select loop), (2) ega.drv dispatch slots 13 (f130 fill_rectangle at 0x735), 14 (f13c blit_window_to_screen at 0x7b3), 15 (f148 sprite_by_id at 0xa93). Window-handle / DGROUP-base verification via dumping save 1 Memory blob at wroot.dgroup base 0x18048 (derived from MZ-header init_SS=0xFD8), confirmed all 9 live heap blocks decode as valid window structs. Used WIZ6_PALETTE_1 (wiz6-main) from docs/re/wfont-4bpp.md as the assumed runtime palette for state 4.",
+  "stats": {
+    "live_windows_state4": 9,
+    "fun_07b7_draw_calls": 22,
+    "fun_0984_init_calls": 6,
+    "per_iter_text_writes_max": 9,
+    "f130_calls_per_animation_tick": 1,
+    "f13c_calls_per_animation_tick": 1,
+    "f13c_calls_per_loop_iteration": 2
+  },
+  "live_windows_in_save_1": [
+    {
+      "handle": "0x6FF6",
+      "name": "full_bg",
+      "stored_at": "DGROUP+0x4FBE",
+      "geometry": {"w_cells": 40, "h_cells": 25, "x_byte": 0, "y_cell": 0, "px_x": 0, "px_y": 0, "px_w": 320, "px_h": 200},
+      "attr": "0x01",
+      "flags": "0x02",
+      "border": "00 00 00 00 00 00 00 00",
+      "created_by": "winit state 2",
+      "purpose": "covers entire 320x200 screen; flagged 0x02 means f130-style fill semantics"
+    },
+    {
+      "handle": "0x700C",
+      "name": "lower_pane_bg",
+      "stored_at": "DGROUP+0x4FB6",
+      "geometry": {"w_cells": 40, "h_cells": 5, "x_byte": 0, "y_cell": 19, "px_x": 0, "px_y": 152, "px_w": 320, "px_h": 40},
+      "attr": "0x04",
+      "flags": "0x00",
+      "created_by": "winit state 2",
+      "purpose": "background rectangle for the menu pane area; pre-existing back-buffer that the per-iter 0x7426 menu_text window overdraws"
+    },
+    {
+      "handle": "0x71B2",
+      "name": "party_left",
+      "stored_at": "DGROUP+0x4FBA",
+      "geometry": {"w_cells": 7, "h_cells": 12, "x_byte": 1, "y_cell": 5, "px_x": 8, "px_y": 40, "px_w": 56, "px_h": 96},
+      "attr": "0x06",
+      "flags": "0x00",
+      "border": "1B 1B 1C 1B 1C 1B 1B 1C (heavy)",
+      "created_by": "winit state 2",
+      "purpose": "left-side party panel; heavy border style"
+    },
+    {
+      "handle": "0x7270",
+      "name": "party_right",
+      "stored_at": "DGROUP+0x4FB8",
+      "geometry": {"w_cells": 7, "h_cells": 12, "x_byte": 32, "y_cell": 5, "px_x": 256, "px_y": 40, "px_w": 56, "px_h": 96},
+      "attr": "0x07",
+      "flags": "0x00",
+      "border": "1A 1B 1B 1A 1B 1A 1B 1B (light)",
+      "created_by": "winit state 2",
+      "purpose": "right-side party panel; light border style"
+    },
+    {
+      "handle": "0x732E",
+      "name": "banner",
+      "stored_at": "DGROUP+0x3342",
+      "geometry": {"w_cells": 40, "h_cells": 1, "x_byte": 0, "y_cell": 18, "px_x": 0, "px_y": 144, "px_w": 320, "px_h": 8},
+      "attr": "0x0E",
+      "flags": "0x00",
+      "created_by": "winit state 2",
+      "purpose": "MASTER OPTIONS banner row above the menu pane; renders msg 0x3e9 centered via c61a with attr=0x12"
+    },
+    {
+      "handle": "0x7394",
+      "name": "status_row",
+      "stored_at": "DGROUP+0x4FB2",
+      "geometry": {"w_cells": 40, "h_cells": 1, "x_byte": 0, "y_cell": 24, "px_x": 0, "px_y": 192, "px_w": 320, "px_h": 8},
+      "attr": "0x03",
+      "flags": "0x00",
+      "created_by": "winit state 2",
+      "purpose": "bottom status/message row at y=192-200"
+    },
+    {
+      "handle": "0x73FA",
+      "name": "gate",
+      "stored_at": "DGROUP+0x4FBC",
+      "geometry": {"w_cells": 22, "h_cells": 14, "x_byte": 9, "y_cell": 4, "px_x": 72, "px_y": 32, "px_w": 176, "px_h": 112},
+      "attr": "0x02",
+      "flags": "0x02",
+      "created_by": "winit state 2",
+      "purpose": "the central gate-art area; FUN_07b7 fills with f130 byte=0 then layers mon08 sprites; flags=0x02 indicates extended-state window that owns its own pixel back-buffer"
+    },
+    {
+      "handle": "0x7410",
+      "name": "top_title",
+      "stored_at": "DGROUP+0x4FAC",
+      "geometry": {"w_cells": 36, "h_cells": 3, "x_byte": 2, "y_cell": 0, "px_x": 16, "px_y": 0, "px_w": 288, "px_h": 24},
+      "attr": "0x05",
+      "flags": "0x02",
+      "created_by": "winit state 2",
+      "purpose": "the dragonsc.ega 'Wizardry' decorative top stripe; flags=0x02 = pixel-back-buffer window. NOT redrawn by wbase but f13c-refreshed every menu iteration by FUN_025c"
+    },
+    {
+      "handle": "0x7426",
+      "name": "menu_text_window",
+      "stored_at": "[bp-0x2] local in FUN_2b36",
+      "geometry": {"w_cells": 40, "h_cells": 5, "x_byte": 0, "y_cell": 19, "px_x": 0, "px_y": 152, "px_w": 320, "px_h": 40},
+      "attr": "0x0F",
+      "flags": "0x00",
+      "created_by": "FUN_2b36 each loop iter via bbb6(0, 0x13, 0x28, 5, 0xF, 0xFFFF, 0, 0)",
+      "purpose": "TRANSIENT window holding the menu-option list. Overlays the lower_pane_bg 0x700C exactly. Cleared with ed5a(handle, 0x20=space, 3, 0). Option labels written with dfb9(handle, buf, 3). Destroyed at iter end via bd6e."
+    }
+  ],
+  "draw_pipeline": [
+    {
+      "step": 1,
+      "phase": "state_4_entry_one_shot",
+      "where": "wbase.ovr:0x2B36 (FUN_2b36 entry)",
+      "call": "c1f7(0x3e8, &DGROUP+0x5066)",
+      "draws": "nothing on screen — loads msg #1000 (a filename buffer) into DGROUP[0x5066]"
+    },
+    {
+      "step": 2,
+      "phase": "state_4_entry_one_shot",
+      "where": "wbase.ovr:0x2B50",
+      "call": "FUN_064e(8, 4)",
+      "draws": "nothing on screen — loads mon08.pic-equivalent decoration asset into font_table entry 4; populates sprite-id atlas table at cs:0x190 in the EGA driver and the per-entry BSS position tables at DGROUP 0x3958/0x398b/0x3bcc/0x3bff"
+    },
+    {
+      "step": 3,
+      "phase": "state_4_entry_one_shot",
+      "where": "wbase.ovr:0x2B58..0x2B5E",
+      "call": "*0x5060 = 0; *0x3646 = 0",
+      "draws": "nothing — zero anim_tick and frame_parity"
+    },
+    {
+      "step": 4,
+      "phase": "state_4_entry_one_shot",
+      "where": "wbase.ovr:0x2B64",
+      "call": "ebb4(*0x4fba) [focus party_left] ; ebb4(*0x4fb8) [focus party_right]",
+      "draws": "nothing visible — these calls mark the two party-panel windows as focused (focus-ring/redraw flag, not pixels)"
+    },
+    {
+      "step": 5,
+      "phase": "state_4_entry_one_shot",
+      "where": "wbase.ovr:0x2B74..0x2B96",
+      "call": "for i in 0..party_size-1: FUN_1b2d(i)",
+      "draws": "renders each existing party member's portrait into the appropriate party panel (left/right). For party_size=0 this loop runs ZERO times. (FUN_1b2d not RE'd here; relevant only when restoring saved party state.)"
+    },
+    {
+      "step": 6,
+      "phase": "state_4_entry_one_shot",
+      "where": "wbase.ovr:0x2B98..0x2BA7",
+      "call": "ec6d(*0x4fba) ; ec6d(*0x4fb8)",
+      "draws": "nothing visible — unfocus the party panels (focus-flag toggle)"
+    },
+    {
+      "step": 7,
+      "phase": "state_4_entry_one_shot",
+      "where": "wbase.ovr:0x2BA8",
+      "call": "FUN_0984() = wbase_menu_init_decoration",
+      "expands_to": [
+        "f148(0x15A, 0, 0xFFFF)  // mon08 background panel 1, OR-blend",
+        "f148(0x15D, 0, 0xFFFF)  // mon08 background panel 2",
+        "f148(0x160, 0, 0xFFFF)  // mon08 background panel 3",
+        "f148(0x169, 0, 0xFFFF)  // mon08 background panel 4 (out-of-sequence)",
+        "f148(0x163, 0, 0xFFFF)  // mon08 background panel 5",
+        "f148(0x166, 0, 0xFFFF)  // mon08 background panel 6",
+        "*0x3646 = 0; *0x5064 = 0; *0x5062 = 0",
+        "FUN_07b7(0, 0, 0)  // initial frame paint (sequence below)"
+      ],
+      "draws": "the six static background panels of mon08 (the large gate/figure art behind the menu) are composed via OR-blend into the back-buffer at positions determined by their sprite-id records in cs:0x190. These ID positions are runtime-loaded; per prior finding wbase-water-positions-resolved.json they cover the (72, 32)-(248, 144) gate region. Then FUN_07b7 draws the first frame on top."
+    },
+    {
+      "step": 8,
+      "phase": "fun_07b7_per_animation_tick",
+      "where": "wbase.ovr:0x07B7 (entry)",
+      "call": "f130(*0x4fbc=0x73FA, 0)",
+      "purpose": "Clear the gate window's back-buffer rect to byte 0 in all 4 EGA planes = palette index 0",
+      "draws": "GATE WINDOW BACK-BUFFER region (px 72..248, 32..144) filled with palette index 0. In WIZ6_PALETTE_1 index 0 = (0, 0, 0) BLACK. ega.drv 0x735 reads window struct +0 (w_cells=22), +1 (h_cells=14), +2 (x_byte=9), +3 (y_cell=4); computes linear offset = y_cell*8*0x28 + x_byte = 4*8*40+9 = 1289; loops h_cells*8=112 scanlines; per-scanline writes 22 bytes of value 0 (the fill_byte arg = 0) to plane 0 (offset +0), then plane 1 (+0x2000), plane 2 (+0x4000), plane 3 (+0x6000); then di += 0x28."
+    },
+    {
+      "step": 9,
+      "phase": "fun_07b7_per_animation_tick",
+      "where": "wbase.ovr:0x07C8..0x089D",
+      "call": "12x f148(id, 1, key) opaque draws",
+      "args_list": [
+        "f148(0x7B, 1, 0x7B)", "f148(0x7C, 1, 0x7C)", "f148(0x7D, 1, 0x7D)",
+        "f148(0x14, 1, 0x10)", "f148(0x15, 1, 0x11)", "f148(0x16, 1, 0x12)",
+        "f148(0x10, 1, 0x14)", "f148(0x11, 1, 0x15)", "f148(0x12, 1, 0x16)",
+        "f148(0x97, 1, 0x97)", "f148(0x98, 1, 0x98)", "f148(0x99, 1, 0x99)"
+      ],
+      "draws": "12 opaque sprite blits (rep movsb) layered into the gate area back-buffer. Mode=1 (param at [bp+0xe] != 0) selects opaque path at ega.drv 0xB7A. Each sprite ID's (atlas, x, y, w, h, glyph_idx) is resolved via the 5-byte record at cs:0x190 + 5*id. Per prior finding wbase-water-positions-resolved.json: 0x7B..0x7D = top banner triplet; 0x14..0x16 + 0x10..0x12 = mid-area paired triplets (left and right walls / columns); 0x97..0x99 = lower-area triplet (gate floor)."
+    },
+    {
+      "step": 10,
+      "phase": "fun_07b7_per_animation_tick",
+      "where": "wbase.ovr:0x08A0..0x08E5",
+      "call": "4x f148(id, 0, 0xFFFF) OR-blend overlays",
+      "args_list": ["f148(0x19, 0, 0xFFFF)", "f148(0x1C, 0, 0xFFFF)", "f148(0x1F, 0, 0xFFFF)", "f148(0x22, 0, 0xFFFF)"],
+      "draws": "4 transparent OR-blend overlays (lodsb/or al,[es:di]/stosb path at ega.drv 0xB2A). The 3-apart spacing (0x19, 0x1C, 0x1F, 0x22) suggests a 3-cell-wide image strip rendered as 4 vertical segments. Likely decorative torch/figure overlays where 0 bits remain transparent and 1 bits OR with the underlying gate art."
+    },
+    {
+      "step": 11,
+      "phase": "fun_07b7_per_animation_tick",
+      "where": "wbase.ovr:0x08E8..0x08F7",
+      "call": "FUN_0775(0xF) ; FUN_0775(0xC)",
+      "expands_to": [
+        "f10c(dst_idx=2, x=byte[2*0xF+0x3958], y=byte[0xF+0x398B], w=0x48, h=0xF8, 0, 0, &[0xF, 0])",
+        "f10c(dst_idx=2, x=byte[2*0xC+0x3958], y=byte[0xC+0x398B], w=0x48, h=0xF8, 0, 0, &[0xC, 0])"
+      ],
+      "draws": "Two pic-descriptor renders (slot 10 in ega.drv = render_pic_descriptor_script) into destination buffer index 2. Width 0x48=72, height 0xF8=248. Per wbase-water-positions-resolved.json these are decorative arch/column elements positioned via the per-entry-0 BSS position table at DGROUP 0x3958/0x398B."
+    },
+    {
+      "step": 12,
+      "phase": "fun_07b7_per_animation_tick",
+      "where": "wbase.ovr:0x08F8..0x094B",
+      "call": "FUN_0732(1, 0, 0x48, 0xF8) ; FUN_0732(2, 0, 0x48, 0xF8) ; FUN_0732(3, anim_x, 0x80, 0xC0) ; FUN_0732(4, anim_y, 0x80, 0xC0)",
+      "draws": "Four pic-descriptor renders into destination buffer index 4. Slots 1 & 2 are 72x248 tall columns; slots 3 & 4 are 128x192 (0x80x0xC0) larger panels. anim_x/anim_y = 0 in steady-state main menu (only nonzero during the FUN_0a15 menu-exit cinematic). Positions come from the per-entry-4 BSS table at DGROUP 0x3BCC/0x3BFF (populated by FUN_064e(8, 4))."
+    },
+    {
+      "step": 13,
+      "phase": "fun_07b7_per_animation_tick_parity_gated",
+      "where": "wbase.ovr:0x094E..0x097D",
+      "call": "if (frame_parity != 0): FUN_0732(5, 0, 0x48, 0xF8) ; FUN_0732(6, 0, 0x48, 0xF8)",
+      "draws": "WATER ANIMATION. Two 72x248 sprites that ONLY render when frame_parity == 1. Skipped when frame_parity == 0. This is the 'water ripple' two-frame swap: the water columns flicker on (parity=1) and off (parity=0). Frame parity flips every 10 input polls per the animation drivers (FUN_013b etc.)."
+    },
+    {
+      "step": 14,
+      "phase": "after_fun_07b7",
+      "where": "FUN_013b (or FUN_00b3 / FUN_0cdb) after FUN_07b7 returns",
+      "call": "f13c(*0x4fbc=0x73FA)",
+      "draws": "Commits the GATE window's back-buffer to A000:0000 video memory. ega.drv 0x7B3 programs EGA sequencer port 0x3C4 reg 2 (plane mask) for each of 4 planes (mask=1,2,4,8) and rep-movsb's the back-store at [cs:0x14d]:offset to a000:offset. Only the gate window's rect is committed (computed via the same struct +0/+1/+2/+3 fields). Top-title, banner, lower-pane, etc. are NOT re-committed by this f13c."
+    },
+    {
+      "step": 15,
+      "phase": "fun_2b36_per_loop_iteration",
+      "where": "wbase.ovr:0x2BC1 (loop top), called after FUN_0984 init",
+      "call": "FUN_01d6(0x3E9) = wbase_render_banner_label",
+      "expands_to": [
+        "c1f7(0x3E9, &local_buf)  // load 'MASTER OPTIONS' text from msg id 0x3E9 into local stack buffer",
+        "c497(*0x3342, 0)         // 'redraw focused' on banner window",
+        "ebb4(*0x3342)            // focus banner window 0x732E",
+        "c61a(*0x3342, &local_buf, 0, 0x12)  // render centered text",
+        "ec6d(*0x3342)            // unfocus banner window"
+      ],
+      "draws": "Renders 'MASTER OPTIONS' centered in the banner window 0x732E (row y=144..152, x=0..320). The attr=0x12 (=18) arg to c61a is the FONT/STYLE selector, not a CGA-style color attribute. Per ega.drv slot 1 analysis (text rendering primitive), the font selector indexes one of 4 font segments at cs:0x159/0x15D/0x161/0x165. Each font glyph is 4bpp planar (32 bytes per 8x8 cell), so the COLOR of the character is encoded in the font file itself — the engine does NOT recolor glyphs at draw time. The bat icon 0x18 in wfont3 (the font selected by attr=0x12) is encoded in whatever color the artist drew (likely black-bodied gray-edged based on user observation). The banner window's attr=0x0E is NOT used for the text fill — it's metadata that some other primitives consult (e.g. ed5a default attr, focus-rect color)."
+    },
+    {
+      "step": 16,
+      "phase": "fun_2b36_per_loop_iteration",
+      "where": "wbase.ovr:0x2BD3",
+      "call": "c497(*0x4FB2=0x7394, 0)",
+      "draws": "Refresh the status row window 0x7394 at y=192..200. c497 is 'ui_window_redraw_focused' — it triggers a re-render of the window's content (no new fill, just commits any pending dirty state)."
+    },
+    {
+      "step": 17,
+      "phase": "fun_2b36_per_loop_iteration",
+      "where": "wbase.ovr:0x2BFE",
+      "call": "bbb6(0, 0x13, 0x28, 5, 0xF, 0xFFFF, 0, 0)  // ui_window_create",
+      "draws": "Allocates a NEW window struct (handle 0x7426 in save 1) for the menu text. Geometry: (0, 19) cell coords = (0, 152) pixels, 40x5 cells = 320x40 pixels. attr=0x0F, border=0xFFFF (plain, no border glyphs), flags=0. Stored at [bp-0x2] local. The window's pixel back-buffer is uninitialized at this point — whatever's in memory shows until the next draw or refresh."
+    },
+    {
+      "step": 18,
+      "phase": "fun_2b36_per_loop_iteration",
+      "where": "wbase.ovr:0x2C16",
+      "call": "ed5a(menu_text_handle=0x7426, 0x20=space, 3, 0)  // ui_window_clear",
+      "draws": "Fills the menu text window 0x7426 (px 0,152 - 320,192) with SPACE glyph (0x20) at attribute 3. This is the actual MENU PANE BACKGROUND. The space glyph's pixel pattern depends on which font is selected by attr=3 — likely wfont0 (the 1bpp text font) where space is all-zero pixels in plane 0 ONLY. If the engine uses the slot-1 text primitive (ah=3 → font segment cs:0x161), the 8x8 space glyph gets blitted to all 4 planes (each plane gets the same monochrome byte). For glyph 0x20 = space (all-zero bytes in plane 0; in 4bpp fonts the other 3 planes may have data setting the background color), the resulting pixels depend on the per-glyph plane bytes. CRITICAL: this is NOT a simple 'fill with attr 3' — it's 'render space character at attr 3' which paints whatever colored pixels make up the space glyph in the selected font. For the menu pane to look 'neutral gray', the font's space glyph at the attr=3 selection slot must encode pixels with a 4bpp palette index that maps to gray in the active runtime palette."
+    },
+    {
+      "step": 19,
+      "phase": "fun_2b36_per_loop_iteration",
+      "where": "wbase.ovr:0x2C21..0x2CC8 — option-array build",
+      "call": "build options[9] array on stack: all=1 (enabled) initially; apply enable rules from wbase-main-menu.json; cursor = FUN_2af7(options, uStack_c)",
+      "draws": "nothing on screen — pure CPU work"
+    },
+    {
+      "step": 20,
+      "phase": "fun_2b36_per_loop_iteration",
+      "where": "wbase.ovr:0x2CCB",
+      "call": "FUN_025c(menu_text_handle, 0x3EA, &options, 2, 1, 0x13, 4, 5, cursor) = wbase_menu_select_loop",
+      "expands_to": [
+        "ebb4(handle)  // focus menu_text_window",
+        "FOR each enabled option i in 0..8:",
+        "  bda7(handle, x_cell, y_cell)  // set cursor position within window",
+        "  c1f7(0x3EA+i, &option_label_buf)  // load option text from msg id base+i",
+        "  dfb9(handle, &option_label_buf, 3)  // ui_window_puts with attr=3",
+        "ec6d(handle)  // unfocus menu_text_window",
+        "e4ff()         // ui_screen_refresh — global commit of all dirty windows to A000:0 video memory (THIS is when the menu text actually appears on screen)",
+        "f13c(*0x4FAC=0x7410)  // commit top_title window 0x7410 to video memory",
+        "f13c(*0x4FBC=0x73FA)  // commit gate window 0x73FA to video memory",
+        "// Highlight current cursor item (if *0x846 == 0)",
+        "bda7(handle, cursor_x, cursor_y)",
+        "df85(handle, cursor_buf, -5=0xFFFB)  // ui_window_puts_attr with HIGHLIGHTED attr (negated param_8=5)",
+        "// Input poll via FUN_013b (animation driver) — runs FUN_07b7 periodically"
+      ],
+      "draws": "Writes each menu option label into the menu_text_window 0x7426 at computed cell positions (3-column grid: column = i / 4, row = i % 4, x_cell = (i/4)*0x13 + 1 (cells 1, 20, 39), y_cell = (i%4) + 2 = rows 2..5). Each dfb9(handle, buf, 3) calls slot-1 of ega.drv per character with font selector 3 → font segment cs:0x161 (likely wfont2.ega). The menu LIST is then visible. The highlighted (selected) item is RE-RENDERED with attr=-5=0xFFFB which is interpreted as a 'negated attribute' = 'inverted color scheme' selector. The exact font segment for attr=0xFFFB is computed by the dfb9 wrapper from the high byte of attr — likely picks a contrasting font (font 1, 2, 3, or 4) per the dec ah chain in ega.drv 0x453."
+    },
+    {
+      "step": 21,
+      "phase": "fun_2b36_per_loop_iteration",
+      "where": "wbase.ovr:0x2CDB",
+      "call": "bd6e(menu_text_handle, 0)  // ui_window_destroy",
+      "draws": "Destroys the per-iter menu text window 0x7426. Its back-buffer is freed (returned to the heap). The underlying lower_pane_bg 0x700C is now the active window in that screen region until the next loop iteration creates a new one."
+    },
+    {
+      "step": 22,
+      "phase": "fun_2b36_post_dispatch",
+      "where": "wbase.ovr:0x2DD5",
+      "call": "jmp cs:[bx+0x731F]  // dispatch to the selected option handler",
+      "draws": "varies by handler — typically navigates to a different screen (character view, configuration submenu, etc.) which loads a different overlay. If the handler stays in state 4, jumps back to loop top (0x2BC1) for another iteration."
+    }
+  ],
+  "color_model": {
+    "f130_fill_semantics": {
+      "claim": "ega.drv slot 13 (f130 at 0x735) writes the SAME raw byte argument to all 4 EGA planes for every scanline of the target window. It does NOT consult the window's attr field. The fill byte is the SECOND argument to f130 (i.e. f130(window_ptr, fill_byte_in_al)). Writing the same byte to all 4 planes produces pixels with a 4-bit value of either 0 (when bit=0 in all planes) or 0xF (when bit=1 in all planes) — only the palette indices 0 and 15 are reachable. So f130(window, 0) gives a 320x200-style rectangle of palette index 0 (BLACK in default EGA, BLACK in WIZ6_PALETTE_1); f130(window, 0xFF) would give palette index 15 (WHITE). No other colors are possible via f130 alone.",
+      "evidence": "ega.drv disassembly at 0x735..0x7B2. The al register (= [bp+0xE], the second function arg after window ptr at [bp+0xC]) is stored once and used for all 4 plane writes. The window struct's +4 attr byte is read NOWHERE in this function."
+    },
+    "f130_call_in_fun_07b7": {
+      "claim": "FUN_07b7's first call is f130(*0x4FBC=0x73FA gate window, 0) — fills the gate window (px 72..248, 32..144) with palette index 0 = BLACK. This is the back-buffer clear before sprite composition. The sprites overdraw, so the final visible color of the gate area is determined entirely by the f148 sprite blits, not by the f130 clear.",
+      "evidence": "FUN_07b7 disassembly at 0x07BA-0x07C5: 'push 0 / push word [0x4fbc] / call 0xf130 / add sp,4'."
+    },
+    "ed5a_clear_semantics": {
+      "claim": "ed5a is NOT the f130 fill primitive — it is a higher-level 'ui_window_clear' that writes a CHARACTER GLYPH (with attribute) to every cell of the window. Args: ed5a(window_handle, char_code, attr, ?). For ed5a(0x7426, 0x20, 3, 0), it writes glyph 0x20 (space) at font-selector 3 to all 5*40 = 200 cells. The actual pixels drawn depend on what the SPACE glyph looks like in the wfont selected by attr=3 (likely wfont0 or wfont2). For a typical 1bpp text font, glyph 0x20 is 8 rows of all-zero bytes = blank with palette-index-0 (black) pixels everywhere; for a 4bpp font where the space glyph has non-zero bytes in planes 1-3, the space pixels could carry color. Without dumping the runtime font files at state 4 and reading the actual glyph 0x20 bytes for font 3, we can't say definitively what color the menu pane background ends up.",
+      "evidence": "wbase-main-menu.json describes ed5a as 'ui_window_clear' with signature (handle, char, attr, ...). dfb9 (ui_window_puts) signature confirms attribute is the second arg from the right.",
+      "confidence": "medium",
+      "needs": "Inspect wfont0..wfont4.ega at glyph 0x20 (offset 0x100..0x11F = 32 bytes per glyph) to see what bytes are in each plane for the space character."
+    },
+    "banner_text_color": {
+      "claim": "The banner 'MASTER OPTIONS' text at attr=0x12 (=18) is rendered as 4bpp planar 8x8 glyphs from one of the wfont*.ega files. The COLOR of each pixel is encoded directly in the font glyph (4 bits per pixel = one of 16 palette indices). The engine does NOT recolor at draw time. The bat glyph 0x18, the letters, the separator chars — all carry their colors in the font file. The window's attr=0x0E is NOT used as a foreground color override.",
+      "evidence": "ega.drv slot 1 (text render primitive) at 0x43A: reads font glyph bytes 32 bytes per char, writes to all 4 planes with plane mask 1,2,4,8 sequentially — purely a font-to-planes blit. No XOR/AND with attr field."
+    },
+    "bat_glyph_color": {
+      "claim": "The bat icon 0x18 in the wfont selected by banner attr=0x12 renders in whatever color the artist drew. Per user observation it's black-bodied — meaning the font glyph at index 0x18 in the chosen font has its center pixels as palette index 0 (or similar low-luminance color) and edge pixels in a contrasting color. The standard .ega/.pic permutation is NOT applied because wfont rendering uses the slot-1 primitive which is plane-direct (not the f10c PIC descriptor renderer that applies permutation).",
+      "evidence": "ega.drv slot 1 disassembly doesn't reference any permutation table; it's plain plane-by-plane rep-movsb from font segment to back-buffer."
+    },
+    "permutation_application": {
+      "claim": "The standard .ega/.pic permutation (4-bit-shuffle that PIC files use) is APPLIED ONLY to PIC sprite renders (slots 10/15 = f10c/f148). It is NOT applied to text/font renders (slot 1). So mon08 sprites layered onto the gate area DO go through permutation, but banner/menu text glyphs do NOT.",
+      "evidence": "ega.drv slot 1 (text) at 0x43A does not contain any byte-permutation lookup. Slot 15 (sprite-by-id) at 0xA93 reads atlas records and applies the standard PIC-style 4-plane interleaved write."
+    },
+    "active_palette": {
+      "claim": "State 4 uses WIZ6_PALETTE_1 (per palette-discovery.md baked into wroot.exe at 0x209B INT 10h call). Index 0 = (0,0,0) BLACK; indices 9-15 are standard EGA primaries (red, green, blue, magenta, cyan, yellow, light gray, white); indices 1-8 are green-leaning UI accents.",
+      "evidence": "docs/re/wfont-4bpp.md / palette-discovery.md (canonical findings)"
+    }
+  },
+  "screen_regions_after_full_draw": [
+    {
+      "region": "y=0..24, x=16..304",
+      "drawn_by": "top_title window 0x7410 (created in winit state 2, content = dragonsc.ega 'Wizardry' decorative stripe). Persisted in window 0x7410's pixel back-buffer. f13c-refreshed every menu iteration by FUN_025c.",
+      "color": "Multi-colored dragonsc.ega artwork (the 'Wizardry' stripe with monsters/icons). Not touched by state 4 — it's whatever winit state 2 painted."
+    },
+    {
+      "region": "y=0..24, x=0..16 and x=304..320",
+      "drawn_by": "full_bg window 0x6FF6 (40x25, attr=0x01, flags=0x02). Default content from winit state 2 — probably black or whatever the initial back-buffer was.",
+      "color": "Almost certainly BLACK (palette index 0). The full_bg window is created with flag 0x02 (pixel-back-buffer) but is never explicitly filled in state 4."
+    },
+    {
+      "region": "y=24..32, x=0..320",
+      "drawn_by": "full_bg window 0x6FF6 (covers entire screen; the gate window 0x73FA only starts at y=32). Possibly painted by winit state 2.",
+      "color": "Likely BLACK (default back-buffer) or whatever winit state 2 chose."
+    },
+    {
+      "region": "y=32..144, x=72..248",
+      "drawn_by": "gate window 0x73FA via FUN_07b7. Sequence: (a) f130 clear to BLACK; (b) 12 opaque mon08 sprite blits (top, mid, bottom bands); (c) 4 OR-blend overlay sprites; (d) 2 FUN_0775 pic-descriptor renders into dst_buf 2; (e) 4 FUN_0732 pic-descriptor renders into dst_buf 4; (f) +2 more parity-gated water sprites when frame_parity=1.",
+      "color": "Multi-colored mon08 art: gates + figures + water columns. The static composition is set; only the water columns flicker on/off."
+    },
+    {
+      "region": "y=32..144, x=0..72 (left of gate, excluding party panel)",
+      "drawn_by": "Not directly drawn by state 4. The party_left window 0x71B2 covers x=8..64, y=40..136 (with a heavy border 1B 1B 1C 1B 1C 1B 1B 1C). Outside the party panel, this region is the full_bg back-buffer.",
+      "color": "Party panel inner content (if party_size > 0, drawn by FUN_1b2d; else blank back-buffer in same color as bg). Heavy border glyphs around the edges."
+    },
+    {
+      "region": "y=32..144, x=248..320 (right of gate, excluding party panel)",
+      "drawn_by": "Symmetric to the left. party_right window 0x7270 covers x=256..312, y=40..136 with light border 1A 1B 1B 1A 1B 1A 1B 1B.",
+      "color": "Party panel inner content + light border glyphs."
+    },
+    {
+      "region": "y=144..152, x=0..320",
+      "drawn_by": "banner window 0x732E (40x1 at y=18 cells = y=144 px). Content = 'MASTER OPTIONS' centered text rendered via FUN_01d6 → c61a(handle, str, 0, 0x12) per iteration.",
+      "color": "Text-glyph colors from wfont (selected by attr=0x12 = font index 1 → wfont1.ega or similar). The text appears in whatever color the font artist chose. The 1-pixel black separator lines (per user observation) are likely the topmost/bottommost rows of the 8x8 cells in this window — they're part of the FONT glyphs themselves, not separate drawn lines. (The banner window is exactly 8 px tall = 1 cell, so 'separator lines' would have to be encoded within the glyph itself, e.g. row 0 and row 7 of each character being black.)"
+    },
+    {
+      "region": "y=152..192, x=0..320",
+      "drawn_by": "PER ITERATION: lower_pane_bg 0x700C provides the underlying back-buffer. Then menu_text_window 0x7426 is created (attr=0x0F) and ed5a(handle, 0x20=space, 3, 0) writes space glyphs everywhere. Then FUN_025c writes the visible option labels in a 3-column 4-row grid (cells at x=1,2,...|x=20,21,...|x=39 with rows y=2..5) via dfb9(handle, buf, 3). The currently-selected item is overpainted with df85(handle, buf, -5=0xFFFB) for highlight inversion.",
+      "color": "The 'pane background' is the result of writing SPACE glyphs from the font at attr=3. For text fonts where space is monochrome blank (all-zero plane bytes), the background ends up palette index 0 = BLACK. If the font has colored space glyphs the background would be that color. The visible 'neutral gray' the user reports may actually be the active runtime palette's interpretation of the rendered text + spaces (e.g. WIZ6_PALETTE_1 may map index 0 or index 8 to gray instead of black). The menu option labels render in their font-encoded colors. The selected-item highlight uses an alternate font (attr=0xFFFB) — likely showing inverted/contrasting colors (light text on dark vs dark text on light)."
+    },
+    {
+      "region": "y=192..200, x=0..320",
+      "drawn_by": "status_row window 0x7394 (40x1 at y=24 cells = y=192). c497-refreshed per iter but no text written by FUN_2b36 directly. Content depends on what winit state 2 left, or what other helpers wrote.",
+      "color": "Whatever's in the status row back-buffer — likely blank or pre-rendered status text from winit."
+    }
+  ],
+  "ega_driver_dispatch_summary": {
+    "f130_slot_13_at_0x735": {
+      "purpose": "fill_rectangle(window_ptr, fill_byte)",
+      "details": "Reads window struct +0 (w_cells), +1 (h_cells), +2 (x_byte), +3 (y_cell). Computes linear offset = y_cell*8*0x28 + x_byte. Writes fill_byte to all 4 planes (offsets +0, +0x2000, +0x4000, +0x6000) for each of h_cells*8 scanlines. Window attr NOT consulted.",
+      "color_outcome": "Always palette index 0 (when fill_byte=0) or 0xF (when fill_byte=0xFF). Cannot produce intermediate colors."
+    },
+    "f13c_slot_14_at_0x7B3": {
+      "purpose": "blit_window_to_screen(window_ptr)",
+      "details": "Programs EGA sequencer (port 0x3C4 reg 2) for each of 4 plane masks (1, 2, 4, 8). For each mask, rep-movsb from back-store at [cs:0x14d]:linear_offset to A000:linear_offset, h_cells*8 scanlines, w_cells bytes wide. Linear offset = y_cell*0x140 + x_byte. The 0x140 = 320 = 40 bytes * 8 rows (one cell row = 320 bytes of planar data)."
+    },
+    "f148_slot_15_at_0xA93": {
+      "purpose": "draw_sprite_by_id(sprite_id, blend_mode, key)",
+      "details": "Resolves sprite_id via cs:0x190 + 5*id → (atlas_id, x_off, y_off, ?, h). Then cs:0x18e + 5*atlas_id → (seg_delta, ?, x_off2, w, ?). Blits sprite glyph from atlas to back-buffer. blend_mode=0 → OR-blend; blend_mode!=0 → opaque rep-movsb. key=0xFFFF → normal path; key=other → fast/cached path."
+    }
+  },
+  "next_actions_for_port": [
+    "1. The CastleScreen.tsx port should model the screen as a STACK of layered windows, not a single canvas. Order from bottom to top: full_bg (320x200 black) → top_title (16,0)-(304,24) with dragonsc.ega content → lower_pane_bg (0,152)-(320,192) (the pre-existing back-buffer the menu text window overlays) → gate sprites at (72,32)-(248,144) (mon08 composition via FUN_0984+FUN_07b7) → party_left (8,40)-(64,136) with heavy border → party_right (256,40)-(312,136) with light border → banner (0,144)-(320,152) with 'MASTER OPTIONS' centered text → status_row (0,192)-(320,200) → menu_text_window (0,152)-(320,192) with 3-column menu grid.",
+    "2. The menu text background is NOT a flat color fill. It is the result of writing the space glyph (0x20) from the font selected by attr=3 at every cell position. To reproduce the 'gray' pane, render the space glyph from wfont0 or wfont2 (whichever attr=3 selects) at every 8x8 cell of the lower pane. The space glyph in the font likely has all-zero pixels in some planes but non-zero in others, producing a colored fill.",
+    "3. The banner ('MASTER OPTIONS') is rendered with font selector 0x12 (likely a 'banner/header' font). The bat glyph 0x18, the letters, and the 1-px black separator lines (rows 0 and 7 of each cell) are ALL part of the font glyph data itself. Use the wfont file at the attr=0x12 selection slot and read glyph 0x18 + the letter glyphs to get the exact pixel patterns.",
+    "4. The gate area f130(*0x4fbc, 0) clear is a true black rectangle (palette index 0). After clear, the 22 sprite blits (16 f148 + 2 FUN_0775 + 4 FUN_0732 + 2 parity-gated water) compose the visible gate art. The port should fetch the runtime sprite positions from the sprite-records table (cs:0x190 + 5*id) — already documented in wbase-water-positions-resolved.json.",
+    "5. f13c (commit-to-video) only refreshes ONE window per call. FUN_07b7 → f13c(*0x4fbc) commits ONLY the gate. FUN_025c → f13c(*0x4fac) + f13c(*0x4fbc) commits top_title + gate. The lower-pane menu text gets to screen via the global e4ff (ui_screen_refresh) which iterates dirty windows. The port can simplify by re-rendering the full screen each frame.",
+    "6. Use WIZ6_PALETTE_1 (per palette-discovery.md) for state 4 rendering. The 'neutral gray' the user perceives in the menu pane is likely the result of how this palette maps the font's space-glyph pixel bytes — verify by reading wfont3 (or whichever font attr=3 selects) glyph 0x20 and mapping through WIZ6_PALETTE_1."
+  ],
+  "unresolved": [
+    "EXACT FONT INDEX FOR attr=0x12: ega.drv slot 1 selects font via 'dec ah / jz' chain (attr=1 → cs:0x159, attr=2 → cs:0x15D, attr=3 → cs:0x161, attr=4 → cs:0x165). But the high-level c61a/dfb9 wrappers may transform the user-supplied attr before passing to slot 1. The bare value 0x12=18 is OUT OF RANGE for the slot-1 1..4 select. It's possible: (a) high nibble = font select (0x1=font 0), low nibble = something else (color override?, layer?); (b) the wrapper masks attr&0x07 to get 1..4; (c) attr=0x12 is interpreted via a lookup table. Resolution requires disassembling c61a (wroot internal — accessible via overlay runtime patching, not directly visible in static wroot.exe at offset 0x17e which is inside ui_window_create).",
+    "EXACT SPACE GLYPH PIXEL PATTERN for the font that ed5a selects with attr=3 — need to read 32 bytes from wfont*.ega at offset 0x20*32 = 0x400 and decode plane-by-plane to see what color the space character actually paints. Could be all-zero (transparent → keeps underlying lower_pane_bg color) or actively colored.",
+    "WHETHER lower_pane_bg 0x700C IS PRE-FILLED in winit state 2: the window has attr=0x04 (RED), but the pre-fill mechanism (if any) isn't traced. If winit issued f130(0x700C, X) at state-2 init, the back-buffer would be palette index 0 or 0xF. If no fill was issued, the back-buffer is uninitialized memory — likely zeros from the allocator's initial state.",
+    "TOP_TITLE WINDOW 0x7410 CONTENT — confirmed it's created in winit state 2 (per heap walk) but the trace of its actual sprite/PIC composition would require RE'ing winit state 2's window setup. Currently treated as 'opaque content' that survives state transitions.",
+    "PER-ITERATION TIMING — the menu loop iterates 'as fast as input arrives' interleaved with the 10-poll animation tick. Wall-clock parity with the original game varies per the engine's calibrated busy-wait. The port should NOT chase byte-exact timing; aim for ~2-3 Hz parity flip rate by feel.",
+    "FLAGS BYTE +5 SEMANTICS — windows with flags=0x02 (full_bg 0x6FF6, gate 0x73FA, top_title 0x7410) seem to have a different back-buffer behavior than flags=0x00 windows. The struct allocation size differs (ui_window_create at wroot 0x11a: 'if flags&2: size=0x14; else size=w*h+0x14'). flags=0x02 windows have ONLY the 0x14-byte struct header (no per-cell back-buffer) — they're 'overlay regions' that compose directly into a shared pixel back-buffer at [cs:0x14d]. flags=0x00 windows allocate w*h cells of glyph storage. This explains why ed5a (which writes glyphs per-cell) is used on the menu_text_window 0x7426 (flags=0) but f130 (raw pixel fill) is used on the gate window 0x73FA (flags=2)."
+  ]
+}

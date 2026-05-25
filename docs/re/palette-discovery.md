@@ -1,24 +1,29 @@
 # Wizardry VI EGA Palettes
 
-**Status:** Final after #002 (per-scene palette switching). The engine has two RE-confirmed `INT 10h AX=1002h` palette-load sites in `wroot.exe`, but the actual on-screen rendering for every asset we currently decode (`.pic` sprites, `.ega` screens, portraits, fonts) operates against the **BIOS-default EGA palette** under a file-format bit-pattern permutation. The two engine-loaded palettes remain catalog entries (real RE artifacts) but are not used by the current render path; the gameplay state(s) in which they're active have not been pinned down.
+**Status (2026-05-25, supersedes 2026-05-22 narrative below):** the engine's color system is a two-stage AC→DAC chain, not a single palette. The DAC stays at BIOS default in every captured save state (entries 0..7 = dim colors, 16..23 = bright colors, 8..15 = a duplicate of 16..23 under VGA-emulating-EGA). The 16-byte tables at `wroot.exe` 0x2043 (`wiz6-main`) and 0x2054 (`wiz6-dungeon`) are **AC palette registers**, not RGB triples — they're DAC INDICES that the EGA Attribute Controller uses to remap 4-bit color attributes to DAC entries. `wiz6-main` is the AC active across every captured save (verified by Vga-blob byte match in saves 1, 2, 5, 10, 13).
 
-## The render path
+This corrects two earlier mistakes:
+
+1. `packages/data/src/palettes/wiz6-main.ts` and `wiz6-dungeon.ts` previously shipped the 16 AC bytes 6-bit-expanded as if they were direct RGB triples. They've been corrected to chain `palette.colors[i] = VGA_DEFAULT_DAC[AC[i]]`.
+
+2. `EGA_FILE_INDEX_PERMUTATION` was an empirical workaround that approximated the AC→DAC chain through a DAC index permutation over `EGA_DEFAULT`. It's correct at 14 of 16 file colors and off-by-shade at colors 3 and 11 (where `EGA_FILE_INDEX_PERMUTATION` swaps dim and bright magenta). The renderers (`wfont-4bpp-render`, `ega-screen-render`, `pic-render`) no longer use it — they look up `palette.colors[fileIdx]` directly with `WIZ6_MAIN` as the palette.
+
+See `docs/re/findings/menu-cursor-render-path.json` for the end-to-end chain and `docs/re/findings/state4-runtime-palette.json` for the DAC verification methodology.
+
+## The render path (current, post-fix)
 
 ```
-.pic / .ega / portrait / font on-disk bit-pattern (4 bits)
-  ── EGA_FILE_INDEX_PERMUTATION[fileIdx] ─→  standard EGA index (0..15)
-  ── EGA_DEFAULT.colors[egaIdx]           ─→  RGB
+.pic / .ega / portrait / font 4-bit file value
+  ── (= framebuffer color attribute, written directly by the engine)
+  ── WIZ6_MAIN.colors[fileIdx]   (= VGA_DEFAULT_DAC[WIZ6_MAIN_AC[fileIdx]])
+  ─→ RGB
 ```
 
-`EGA_FILE_INDEX_PERMUTATION` (in `packages/parser/src/formats/ega-permutation.ts`):
+`.pic` file bit-pattern `15` (all planes set) is still a transparency marker — `ega.drv`'s sprite-blit code special-cases it before the lookup.
 
-```
-[0, 15, 9, 5, 12, 14, 10, 11, 8, 7, 1, 13, 4, 6, 2, 3]
-```
+## Historical narrative (now superseded)
 
-The permutation was originally discovered via Stage 1f.2 empirical extraction from a DOSBox-X title-screen capture. The #002 calibration tool (`/explore/calibrate`) re-confirmed it applies symmetrically to `.pic` sprites; both formats use the same encoding convention.
-
-`.pic` file bit-pattern `15` (= all four planes set, the inverse of the per-pixel mask) is reserved as a transparency marker by `ega.drv`'s sprite-blit code, applied **before** the permutation lookup.
+The text below dates from #002 and described what we thought was happening before the AC→DAC chain was understood. Retained for context.
 
 ## Engine palette-load sites (RE-confirmed, not active in current render path)
 

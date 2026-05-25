@@ -1,16 +1,22 @@
 /**
- * Wiz6 stores pixel indices in `.ega` and `.pic` files with a permuted
- * bit-pattern ordering. The engine relies on the BIOS-default EGA palette
- * being active when these assets render; the on-disk bit pattern decodes
- * to a *standard EGA palette index* via the table below.
+ * @deprecated
  *
- * Discovered in Stage 1f.2 by capturing the title sequence in DOSBox-X and
- * inverting the pixel-to-bit-pattern mapping. The Phase 1 RE pass for #002
- * (per-scene palette switching) confirmed it applies symmetrically to both
- * `.ega` screens and `.pic` sprites — the same encoding convention is used
- * across the asset toolchain.
+ * Historical artifact. This table was an empirical calibration to make
+ * `.pic` and `.ega` assets render approximately correctly when looked up
+ * through `EGA_DEFAULT`. It is essentially an attempt to reconstruct the
+ * engine's runtime AC->DAC chain through a permutation over BIOS-default
+ * DAC indices. The reconstruction is correct at 14 of the 16 file colors
+ * and off-by-shade at colors 3 and 11.
  *
- * Table: file bit-pattern 0x0..0xF → standard EGA palette index.
+ * The current renderers (wfont-4bpp-render, ega-screen-render, pic-render)
+ * no longer use this table. They look up `palette.colors[fileIdx]`
+ * directly, requiring callers to pass a palette whose `colors[i]` is the
+ * final RGB the framebuffer's color attribute `i` displays as — i.e.
+ * `WIZ6_MAIN` (the AC->DAC chain for the engine's main-game scenes).
+ *
+ * Retained as an export only for backwards compatibility with any external
+ * consumer that may still depend on it. See
+ * `docs/re/findings/menu-cursor-render-path.json` for the full story.
  */
 export const EGA_FILE_INDEX_PERMUTATION = [
   0, 15, 9, 5, 12, 14, 10, 11, 8, 7, 1, 13, 4, 6, 2, 3,

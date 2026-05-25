@@ -1,6 +1,5 @@
 import type { EgaScreen, Palette } from '@wiz6/data';
 import type { RenderedSprite } from './pic-render.js';
-import { EGA_FILE_INDEX_PERMUTATION } from './ega-permutation.js';
 
 /**
  * Per-plane source-coordinate transform for the 32 KB EGA screen files.
@@ -57,13 +56,14 @@ export function renderEgaScreen(screen: EgaScreen, palette: Palette): RenderedSp
         if (!src) continue;
         fileIdx |= bitAt(plane, width, src.srcX, src.srcY) << p;
       }
-      // Permute file bit-pattern → standard EGA palette index, then look up RGB.
-      const idx = EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
+      // File pixel value IS the framebuffer color attribute. Pass a
+      // WIZ6_MAIN-shaped palette so palette.colors[fileIdx] is the
+      // AC->DAC result the engine actually displays.
       const offset = (y * width + x) * 4;
       if (fileIdx === 0) {
         rgba[offset + 3] = 0;
       } else {
-        const rgb = palette.colors[idx] ?? [0, 0, 0];
+        const rgb = palette.colors[fileIdx] ?? [0, 0, 0];
         rgba[offset] = rgb[0]!;
         rgba[offset + 1] = rgb[1]!;
         rgba[offset + 2] = rgb[2]!;

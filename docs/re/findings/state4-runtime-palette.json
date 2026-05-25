@@ -1,0 +1,64 @@
+{
+  "topic": "state4-runtime-palette",
+  "date": "2026-05-24",
+  "summary": "The live VGA DAC across every captured save state in tools/dosbox/save/ matches BIOS-default EGA exactly (distance 0). WIZ6_MAIN (catalog entry from the INT 10h AX=1002h site at wroot 0x209B) and WIZ6_DUNGEON (wroot 0x2105) are nonzero distance from every observed DAC (4845 and 5015 respectively, identical across all saves) — i.e. neither has ever been programmed in any state we've captured. This directly contradicts a claim in docs/re/findings/wfont-highlight-render.json that 'palette[5] in WIZ6_MAIN = (170,255,0) yellow-green' is what the user sees on the highlighted menu row; under the actual runtime DAC, palette[5] = EGA_DEFAULT[5] = (170,0,170) MAGENTA. The current render path's choice to use EGA_DEFAULT as the lookup table for index→RGB is therefore CORRECT — it matches the hardware. The error is in the prior finding's color narrative, not in our rendering.",
+  "key_insight": "The two engine palette-load sites (wroot 0x209B, 0x2105) exist in code but are not actually reached in any gameplay state we've captured. Either they're guarded by an unmet condition (video-mode flag, hardware capability detection) or they're reached only during transitions we haven't snapshotted. Either way: render against EGA_DEFAULT and the colors will match the engine's framebuffer.",
+  "method": "Used mcp__wiz6__dosbox_identify_palette across save states 1, 2, 5, 10 (covering game_state=0xffff and game_state=1). All four reported exact match to ega-default (distance 0), wiz6-main at 4845, wiz6-dungeon at 5015. The decoded live DAC RGB triples are byte-identical to the EGA_DEFAULT table in @wiz6/data.",
+  "findings": [
+    {
+      "id": "dac-is-ega-default",
+      "claim": "Live VGA DAC across all captured saves = BIOS-default EGA palette, distance 0.",
+      "category": "behavioral",
+      "evidence": {
+        "tool": "mcp__wiz6__dosbox_identify_palette",
+        "saves_tested": ["1.sav", "2.sav", "5.sav", "10.sav"],
+        "best_match_all": "ega-default (distance 0, exact: true)",
+        "live_rgb": [
+          [0, 0, 0], [0, 0, 170], [0, 170, 0], [0, 170, 170],
+          [170, 0, 0], [170, 0, 170], [170, 85, 0], [170, 170, 170],
+          [85, 85, 85], [85, 85, 255], [85, 255, 85], [85, 255, 255],
+          [255, 85, 85], [255, 85, 255], [255, 255, 85], [255, 255, 255]
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wiz6-main-not-observed",
+      "claim": "WIZ6_MAIN (the catalog entry from wroot 0x209B's AX=1002h load) is never the active DAC in any captured save.",
+      "category": "behavioral",
+      "evidence": {
+        "distance_to_wiz6_main": 4845,
+        "note": "Distance is identical across all four saves, suggesting WIZ6_MAIN is loaded ZERO times during the captured paths — not loaded then overwritten, but never programmed at all. (If it were overwritten back to default, distances could plausibly vary.)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "attr5-bg-is-magenta",
+      "claim": "The 'menu-selected' highlight cell with original attr=5, written by df85 as cell.attr_byte=0x50, renders as black-on-MAGENTA (170, 0, 170), not black-on-yellow-green. The prior finding's '(170, 255, 0) yellow' is a WIZ6_MAIN palette claim and WIZ6_MAIN is not the live DAC.",
+      "category": "color-correction",
+      "evidence": {
+        "supersedes": "docs/re/findings/wfont-highlight-render.json claim that palette[5] = (170,255,0) yellow-green",
+        "ega_default_index_5": [170, 0, 170],
+        "user_visual_expectation": "UNVERIFIED — the prior chain of reasoning assumed yellow; user's actual reference image of the original game has not been pixel-sampled at the highlighted cell"
+      },
+      "confidence": "high"
+    }
+  ],
+  "implications": [
+    "USER OBSERVATION: the original game renders selected menu rows as yellow-on-black (or black-on-yellow). Under live DAC = EGA_DEFAULT, that's palette[14] = (255, 255, 85). NOT palette[5] = (170, 0, 170) magenta.",
+    "wfont-highlight-render.json's claim that the menu highlight resolves to 'palette index 5 = yellow-green via WIZ6_MAIN' is wrong on TWO counts: (1) the function it identifies as df85 at wroot 0x22B7 isn't what wbase actually calls — the wbase E8-call-target math at 0x23DC and 0x27BD lands on thunk 0xDF85, which per the thunk-delta law resolves to wroot ~0x24E9 (off by ~0x232 bytes); (2) the live DAC is EGA_DEFAULT, not WIZ6_MAIN, so a palette[5] background would be magenta, not yellow-green.",
+    "The 1bpp wfont0 sheet is reused across multiple engine render primitives. The user reports seeing it used for both 'black-on-color' highlights and 'color-on-black' text in different UI contexts. The prior subagent traced ONE such call path and assumed it was the menu-cursor path; that mapping is unverified.",
+    "Pragmatic state: the current viewer's '{1:0, 8:14}' override on the 4bpp wfont3 panel-variant glyph produces yellow-on-black that visually matches the engine. It is NOT engine-call-path-faithful, but the OUTPUT pixel-grid is approximately correct under EGA_DEFAULT.",
+    "Per-scene-palette switching (TODO #002) should treat EGA_DEFAULT as the actual baseline. WIZ6_MAIN and WIZ6_DUNGEON catalog entries should be retained as RE artifacts but flagged 'not observed as active DAC in any captured save'."
+  ],
+  "open_questions": [
+    {
+      "id": "Q-where-wiz6-main-loads",
+      "claim": "When (which call path) does INT 10h AX=1002h at wroot 0x209B actually run, given we never see WIZ6_MAIN in a save? Possibly gated on a hardware-detect flag (e.g. only on real EGA, not VGA) or only reached during a state we haven't captured (e.g. mid-cutscene, total party kill graveyard transition)."
+    },
+    {
+      "id": "Q-user-reference-color",
+      "claim": "What color does the actual game reference image show at the highlighted menu row? Need a pixel sample of an authoritative screenshot."
+    }
+  ]
+}

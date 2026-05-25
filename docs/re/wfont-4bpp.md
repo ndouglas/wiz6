@@ -46,34 +46,29 @@ The color is a 4-bit palette index (0–15).
 
 ## Palette
 
-Wizardry VI reprograms the EGA palette registers at runtime — the file format does not carry its own palette. The two runtime palettes baked into `wroot.exe` were discovered in Stage 1d; see `palette-discovery.md` for the methodology, raw bytes, and decoded RGB tables.
+The 4-bit file pixel value IS the framebuffer color attribute the engine writes to VRAM. Under the active AC palette + DAC chain, that attribute resolves to RGB. See `palette-discovery.md` for the AC→DAC chain.
 
-- `WIZ6_PALETTE_1` ("wiz6-main") — applied at the `INT 10h AX=1002h` call site at file offset 0x209B. Indices 9–15 are the standard EGA primaries (red, green, blue, magenta, cyan, yellow, light gray); indices 1–8 are green-leaning UI accents. This is the default palette used by the Stage 1d viewer.
-- `WIZ6_PALETTE_2` ("wiz6-dungeon") — applied at 0x2105. Indices 9–15 are identical to palette 1; indices 1–8 are blue/purple variants for dungeon scenes.
+`wroot.exe` 0x2043 holds the main-game AC palette (`wiz6-main`); 0x2054 holds the dungeon AC palette (`wiz6-dungeon`). Under VGA emulation of EGA mode 0Dh the BIOS DAC has `DAC[8..15] == DAC[16..23]`, so the two AC palettes produce byte-identical final RGB. The renderer uses `WIZ6_MAIN` by default.
 
-The Stage 1d viewer's palette picker switches between these two and the default EGA palette for side-by-side comparison.
-
-**Per-screen palette switching** is documented but not yet handled beyond the two known palettes — if the game programs additional palettes from other call sites (besides 0x209B and 0x2105), they have not yet been catalogued.
-
-## Standard EGA palette (used for rendering)
+## Final RGB (under wiz6-main AC + BIOS-default DAC)
 
 ```text
  0 (0,   0,   0)    black
- 1 (0,   0,   170)  blue
- 2 (0,   170, 0)    green
- 3 (0,   170, 170)  cyan
- 4 (170, 0,   0)    red
- 5 (170, 0,   170)  magenta
- 6 (170, 85,  0)    brown
- 7 (170, 170, 170)  light gray
- 8 (85,  85,  85)   dark gray
- 9 (85,  85,  255)  light blue
-10 (85,  255, 85)   light green
-11 (85,  255, 255)  light cyan
-12 (255, 85,  85)   light red
-13 (255, 85,  255)  light magenta
-14 (255, 255, 85)   yellow
-15 (255, 255, 255)  white
+ 1 (255, 255, 255)  white
+ 2 (85,  85,  255)  light blue
+ 3 (255, 85,  255)  light magenta
+ 4 (255, 85,  85)   light red
+ 5 (255, 255, 85)   bright yellow
+ 6 (85,  255, 85)   light green
+ 7 (85,  255, 255)  light cyan
+ 8 (85,  85,  85)   dim gray
+ 9 (170, 170, 170)  light gray
+10 (0,   0,   170)  blue
+11 (170, 0,   170)  magenta
+12 (170, 0,   0)    red
+13 (170, 85,  0)    brown
+14 (0,   170, 0)    green
+15 (0,   170, 170)  cyan
 ```
 
 ## Glyph index mapping

@@ -951,8 +951,7 @@ while true:
           knowledge choice over the UI-cleanliness choice.
         </ProseRow>
         <Aside title="A note on the underlying bug">
-          The cast-time mana check has{' '}
-          <a href="#two-palettes-never-used">an underflow bug</a> (no
+          The cast-time mana check has an underflow bug (no
           clamp; can go negative). But the picker's display layer is
           innocent of that bug — it just lets you select. The mana
           accounting that breaks is downstream, in <Code>wmexe</Code>.
@@ -1024,46 +1023,61 @@ else:
 
   // -------------------------------------------------------------------
   {
-    id: 'two-palettes-never-used',
-    title: 'The Two Engine Palettes That Are Never Active',
-    tags: ['palette', 'undocumented', 'quirk'],
+    id: 'two-palettes-actually-used',
+    title: 'Those Two Engine Palettes ARE Used — We Just Misread Them',
+    tags: ['palette', 'resolved-2026-05-25'],
     pitch:
-      'wroot.exe carefully constructs two custom EGA palettes via INT 10h AX=1002h. We found both. Neither is active when the game actually draws anything we’ve looked at.',
+      'For weeks we thought wroot.exe built two custom EGA palettes that nobody loaded. Wrong. They load fine — we were treating Attribute Controller register values as if they were RGB triples, so the runtime DAC looked unchanged and we assumed nothing happened.',
     body: (
       <>
         <ProseRow>
           The Wiz6 binary contains two 17-byte palette tables at file offsets{' '}
           <Code>0x2043</Code> and <Code>0x2054</Code>, loaded into the EGA Attribute
-          Controller by <Code>INT 10h AX=1002h</Code> calls at <Code>0x209B</Code> and{' '}
-          <Code>0x2105</Code>. The first is mostly greens (we named it{' '}
-          <Code>wiz6-main</Code>); the second is blue-leaning (<Code>wiz6-dungeon</Code>).
-          Both look like deliberate custom palettes — they're not BIOS defaults.
+          Controller by <Code>INT 10h AX=1002h</Code> at <Code>0x209B</Code> and{' '}
+          <Code>0x2105</Code>. The naming convention was right (<Code>wiz6-main</Code>
+          and <Code>wiz6-dungeon</Code>) — the interpretation was wrong.
         </ProseRow>
         <ProseRow>
-          Calibration against in-game DOSBox-X captures says: when sprites and screens
-          actually draw, the EGA hardware is still at its BIOS default palette. Neither
-          custom palette is loaded yet — the engine sets them up, then doesn't seem to
-          activate them during any gameplay scene we can currently render.
+          The EGA color system is a two-stage chain. The framebuffer stores a 4-bit
+          color attribute per pixel. That attribute is mapped through the AC palette
+          registers (16 entries, each a 6-bit DAC index) to a DAC entry. The DAC then
+          holds the actual RGB. <em>Wiz6's 17-byte tables are AC values, not DAC
+          values.</em>{' '}
+          <Code>wiz6-main</Code> remaps attribute 5 to DAC index <Code>0x16</Code> = 22,
+          and BIOS DAC[22] is <Code>(255, 255, 85)</Code> bright yellow — which is
+          exactly what the original engine renders as the selected-menu-row highlight.
         </ProseRow>
         <ProseRow>
-          What asset rendering <em>does</em> use is a permuted bit-pattern in the file
-          format (the four EGA planes recombine into a four-bit index that's then
-          shuffled through a 16-entry permutation table before palette lookup). The
-          permutation handles the colour mapping; the custom palettes appear to be
-          dead loaded weight in the boot path.
+          We were sampling the DAC and comparing it against{' '}
+          <Code>EGA_DEFAULT</Code>'s RGB triples. The DAC <em>is</em> at BIOS default
+          in every captured save (we verified). What changed was the AC, which we
+          weren't checking. Vga-blob byte-grep across saves confirmed{' '}
+          <Code>wiz6-main</Code>'s AC bytes are programmed across every captured state
+          — title sequence, menu, post-character-creation, everything.
         </ProseRow>
-        <Aside title="Open question">
-          Which gameplay state actually exercises <Code>wiz6-main</Code> or{' '}
-          <Code>wiz6-dungeon</Code>? A DOSBox-X runtime trace with{' '}
-          <Code>int10 = debug</Code> walked through every menu, dungeon, combat, and
-          NPC scene would resolve it. Tracked as <Code>#Q-F</Code> in{' '}
-          <Code>TODO.md</Code>.
+        <ProseRow>
+          As a side-effect, the <Code>EGA_FILE_INDEX_PERMUTATION</Code> we'd been
+          using to render <Code>.pic</Code> and <Code>.ega</Code> assets turned out
+          to be an empirical reconstruction of the AC→DAC chain through a permutation
+          over <Code>EGA_DEFAULT</Code>. It's right at 14 of 16 file colors and
+          off-by-shade (dim vs light magenta swap) at indices 3 and 11. The renderers
+          now look up <Code>palette.colors[fileIdx]</Code> directly against{' '}
+          <Code>WIZ6_MAIN</Code>; the permutation table is retained as deprecated.
+        </ProseRow>
+        <Aside title="Lessons">
+          (1) "Programmed into the EGA Attribute Controller" doesn't mean what we
+          assumed it meant. Read the BIOS docs before naming things.
+          (2) A working empirical calibration can hide a structural misunderstanding for
+          weeks. If two different theoretical models produce nearly-identical output,
+          you might not notice the model is wrong until something with no calibration
+          slack (the menu cursor highlight, here) forces the issue.
         </Aside>
       </>
     ),
     seeAlso: [
       { label: 'palette-discovery.md', href: '/explore/docs/palette-discovery.md' },
-      { label: 'palette-loads.json', href: '/explore/docs/findings/palette-loads.json' },
+      { label: 'menu-cursor-render-path.json', href: '/explore/docs/findings/menu-cursor-render-path.json' },
+      { label: 'state4-runtime-palette.json', href: '/explore/docs/findings/state4-runtime-palette.json' },
       { label: 'palette calibration tool', href: '/explore/calibrate' },
     ],
   },

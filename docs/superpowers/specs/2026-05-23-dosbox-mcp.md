@@ -245,47 +245,19 @@ The riskiest phase; do it early so we know if the whole approach is viable.
 
 **Status**: `list_saves` works (enumerates `tools/dosbox/save/*.sav`). The other three (`save_state`, `load_state`, `screenshot`) need dynamic driving or a VGA framebuffer parser — stubbed with documented blockers.
 
-### Phase 9 — First-payoff experiment 🟡 tooling complete; awaiting save-state capture (`d59277d`, `8d8d01f`)
+### Phase 9 — First-payoff experiment ✅ resolved 2026-05-25
 
-Use the v1 server to answer `#Q-F` (when does the engine load `wiz6-main` / `wiz6-dungeon`?). Concrete experiment script — set breakpoints at wroot 0x209B and 0x2105 (the two AX=1002h sites), play through every game state, log every hit with surrounding context. Document the findings; close `#Q-F` or refine the question.
-
-**Status**: The breakpoint-driven path remains blocked, but a save-state-driven path is now armed. Capture saves at game-state boundaries (`/save N` in DOSBox-X) and call `dosbox_identify_palette` on each — the tool runs DAC-vs-catalog distance matching automatically and reports the active palette per save. Boot-state save 1.sav verified: distance=0 match against `ega-default`, confirming the engine has not yet reprogrammed the DAC at game_state=0. To close `#Q-F`: capture saves at game_state ∈ {4 (main menu), 5 (dungeon), 0xA (combat), 0x11 (character view)} and report the identified palette for each. The remaining work is human-pace gameplay, not engineering.
+`#Q-F` ("when does the engine load `wiz6-main` / `wiz6-dungeon`?") is closed. The answer required reframing the question: the two engine palette tables are **AC register values, not DAC entries**. The DAC stays at BIOS default in every captured save; the AC is programmed to `wiz6-main` early at boot and stays active across every captured game state. Save-state Vga-blob inspection across slots 1, 2, 5, 10, 13 confirmed the AC bytes byte-for-byte match the wroot.exe table at 0x2043. See `docs/re/findings/menu-cursor-render-path.json` for the end-to-end chain and `docs/re/palette-discovery.md` for the corrected architectural understanding.
 
 ### Phase 10 — Tracing (deferred)
 
 `trace_log` + `get_trace` for streaming event capture. v2 of the server.
 
-## First-payoff target: `#Q-F` (palette activation)
+## First-payoff target: `#Q-F` (palette activation) — RESOLVED 2026-05-25
 
-Concrete v1 experiment using the spec'd tools:
+`#Q-F` was closed by a save-state-driven path, not the breakpoint-driven experiment originally spec'd here. The breakthrough was reframing the question: WIZ6_MAIN is an AC palette (register table 0..15 → DAC index), not an RGB table. `dosbox_identify_palette` checks the DAC and reports a clean `ega-default` match because the DAC is at BIOS default; the engine reprograms the **AC**, which `identify_palette` didn't sample. Vga-blob byte-grep across saves confirmed the AC table is `wiz6-main` everywhere.
 
-```typescript
-// pseudocode for the agent-driven experiment
-await dosbox_launch({ savestate: 'fresh-boot' });
-await dosbox_set_breakpoint('0x209b');   // wiz6-main load
-await dosbox_set_breakpoint('0x2105');   // wiz6-dungeon load
-await dosbox_resume();
-
-// Drive through scenes:
-const scenes = [
-  { name: 'title',   inputs: 'wait 5000' },
-  { name: 'menu',    inputs: 'return' },
-  { name: 'roster',  inputs: 'arrow_down return' },
-  { name: 'dungeon', inputs: 'return wait 3000' },
-  // ...
-];
-
-for (const scene of scenes) {
-  await dosbox_send_input(scene.inputs);
-  const status = await dosbox_status();
-  if (status.last_breakpoint_hit) {
-    console.log(`${scene.name}: hit ${status.last_breakpoint_hit.name}`);
-    await dosbox_resume();
-  }
-}
-```
-
-A few iterations of this would close `#Q-F` definitively. The same pattern generalizes — set breakpoints at the boundaries of any RE question, play through, record what fires when.
+The breakpoint-driven workflow described in the original "Concrete v1 experiment" pseudocode is still useful for other RE questions; the pattern generalizes — set breakpoints at the boundaries of any RE question, play through, record what fires when.
 
 ## Setup ergonomics
 

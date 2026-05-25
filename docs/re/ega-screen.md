@@ -64,30 +64,9 @@ The 768 bytes at offset 0x7D00..0x7FFF are preserved verbatim in the extracted J
 
 ## Palette
 
-The engine renders the title sequence (titlepag, graveyrd, dragonsc) using a **custom 16-entry palette permutation** of the standard EGA defaults, NOT the `wiz6-main` palette used during gameplay. Stage 1f.2 discovered this palette by capturing the title screen in DOSBox-X and inverting the per-pixel bit-pattern → color mapping. The resulting table:
+**Status (2026-05-25, resolves the previous open question):** the title sequence (and every other captured game state) renders against the `wiz6-main` AC palette + BIOS-default DAC, NOT a separate "title" palette. The Stage 1f.2 empirical table previously thought to be a unique title palette was an approximation that mis-permuted the AC→DAC chain at file colors 3 and 11. See `docs/re/palette-discovery.md` and `docs/re/findings/menu-cursor-render-path.json` for the full story.
 
-| file pattern | EGA color | label                          |
-| ------------ | --------- | ------------------------------ |
-| 0x0          | 0         | black (background)             |
-| 0x1          | 15        | white (title text, highlights) |
-| 0x2          | 9         | light blue                     |
-| 0x3          | 5         | magenta                        |
-| 0x4          | 12        | bright red                     |
-| 0x5          | 14        | yellow                         |
-| 0x6          | 10        | bright green                   |
-| 0x7          | 11        | bright cyan                    |
-| 0x8          | 8         | dark gray (stone walls)        |
-| 0x9          | 7         | light gray (wall highlights)   |
-| 0xa          | 1         | blue                           |
-| 0xb          | 13        | bright magenta                 |
-| 0xc          | 4         | red (wizard cape)              |
-| 0xd          | 6         | brown (dwarf beard, leather)   |
-| 0xe          | 2         | green (dwarf tunic)            |
-| 0xf          | 3         | cyan                           |
-
-This palette is stored as `WIZ6_TITLE_PALETTE` in `packages/viewer/src/palettes/wiz6-title.ts` and is auto-applied to all `<ScreenGallery>` instances regardless of the picker selection. The picker still offers `wiz6-title` as a fourth option for inspecting fonts/portraits under this palette.
-
-**Where the engine sets these palette registers is not yet known.** There is no `INT 10h AX=1002h` site in `wroot.exe` that loads this table, and no direct attribute-controller port writes anywhere in the binaries. The setup must happen via code reached through `winit.ovr`'s overlay thunks (likely `func_0xf130` or `func_0xf118`, called from `FUN_08f7`), or through individual `INT 10h AH=10h AL=0h` register writes we haven't matched. Tracing this requires either single-stepping in DOSBox-X's integrated debugger or resolving the MS-C overlay thunk table in `wroot.exe`. For now, the empirically-derived palette is what the renderer uses.
+The renderer in `packages/parser/src/formats/ega-screen-render.ts` looks up `palette.colors[fileIdx]` directly with `WIZ6_MAIN` as the default palette. File pixel value 15 is reserved as a transparency marker by `ega.drv`'s sprite-blit code and is special-cased before the lookup.
 
 ## File summary
 

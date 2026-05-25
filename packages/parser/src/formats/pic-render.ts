@@ -1,5 +1,4 @@
 import type { PicDescriptor, Palette } from '@wiz6/data';
-import { EGA_FILE_INDEX_PERMUTATION } from './ega-permutation.js';
 
 export interface RenderedSprite {
   /** Sprite width in pixels (descriptor.width * 8). */
@@ -18,16 +17,14 @@ export interface RenderedSprite {
  * 8..15 = plane G, 16..23 = plane R, 24..31 = plane I. Bit assignment in the
  * raw on-disk 4-bit pattern: bit 0 = B, bit 1 = G, bit 2 = R, bit 3 = I.
  *
- * The on-disk bit pattern is NOT a direct palette index — Wiz6 stores sprite
- * indices under the same permutation used by `.ega` screen files. We map the
- * bit pattern through `EGA_FILE_INDEX_PERMUTATION` to obtain a standard EGA
- * palette index, then look up RGB in the supplied palette. The default
- * palette for sprite rendering is `EGA_DEFAULT` (the BIOS-default state the
- * engine runs against for the asset-rendering scenes we currently support).
+ * The 4-bit file value IS the framebuffer color attribute the engine writes
+ * to VRAM. Under the active AC palette + DAC chain that attribute resolves
+ * to RGB; pass a `palette` whose `colors[i]` is the chained result (i.e.
+ * `WIZ6_MAIN`). We look up `palette.colors[fileIdx]` directly.
  *
- * Color 15 (file bit-pattern, before permutation) is treated as transparent
- * (alpha=0) — matches what ega.drv's sprite-blit code does when compositing
- * sprites onto a scene.
+ * Color 15 (all planes set) is treated as transparent (alpha=0) — matches
+ * what ega.drv's sprite-blit code does when compositing sprites onto a
+ * scene.
  *
  * Skipped cells (mask bit unset) produce transparent regions and do NOT
  * advance the atlas pointer.
@@ -77,8 +74,7 @@ export function renderPicDescriptor(
             rgba[idx + 2] = 0;
             rgba[idx + 3] = 0;
           } else {
-            const egaIdx = EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
-            const [r, g, b] = palette.colors[egaIdx]!;
+            const [r, g, b] = palette.colors[fileIdx]!;
             rgba[idx] = r;
             rgba[idx + 1] = g;
             rgba[idx + 2] = b;
@@ -159,8 +155,7 @@ export function compositePicDescriptor(
           if (fileIdx === 15) continue; // transparent — preserve dest
           const px = dstX + cx * 8 + col;
           if (px < 0 || px >= destW) continue;
-          const egaIdx = EGA_FILE_INDEX_PERMUTATION[fileIdx]!;
-          const [r, g, b] = palette.colors[egaIdx]!;
+          const [r, g, b] = palette.colors[fileIdx]!;
           const idx = (py * destW + px) * 4;
           destRgba[idx] = r;
           destRgba[idx + 1] = g;

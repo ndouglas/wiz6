@@ -7,7 +7,7 @@ import {
   centeredPuts,
   renderTileWindow,
 } from '../../src/ui/tile-window.js';
-import { EGA_DEFAULT, type Font4bpp } from '@wiz6/data';
+import { WIZ6_MAIN, type Font4bpp } from '@wiz6/data';
 
 /** Make a fake 4bpp font where every char's first plane row 0 has only
  *  the leftmost pixel set (file color 1), so we can detect that a tile
@@ -119,21 +119,21 @@ describe('renderTileWindow', () => {
     const w = createTileWindow({ screenX: 16, screenY: 24, widthCells: 2, heightCells: 1 });
     puts(w, 'AB', 0x03); // attr_lo=3 → use font3
     const buf = new Uint8ClampedArray(40 * 32 * 4);
-    renderTileWindow(w, buf, 40, 32, { font3: font }, EGA_DEFAULT);
+    renderTileWindow(w, buf, 40, 32, { font3: font }, WIZ6_MAIN);
     const getPx = (x: number, y: number) => {
       const i = (y * 40 + x) * 4;
       return [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]];
     };
-    // Leftmost pixel of row 0 of each glyph has file color 1 (permuted
-    // to EGA 15 = white). So (16, 24) and (16+8, 24) should be white.
+    // Leftmost pixel of row 0 of each glyph has file color 1.
+    // WIZ6_MAIN.colors[1] = white. So (16, 24) and (16+8, 24) should be white.
     expect(getPx(16, 24)).toEqual([0xff, 0xff, 0xff, 0xff]);
     expect(getPx(24, 24)).toEqual([0xff, 0xff, 0xff, 0xff]);
     // Outside the rendered tiles: buffer untouched (alpha 0).
     expect(getPx(15, 24)).toEqual([0, 0, 0, 0]);
     // Inside a tile but on a row where every plane is zero → file color
-    // 0 → EGA 0 (black) → palette[0] = (0,0,0). Tiles are OPAQUE so this
-    // gets written as (0,0,0,0xff), not skipped. This is the key
-    // behavior of the tile model.
+    // 0 → palette[0] = (0,0,0) black. Tiles are OPAQUE so this gets
+    // written as (0,0,0,0xff), not skipped. This is the key behavior of
+    // the tile model.
     expect(getPx(16, 25)).toEqual([0, 0, 0, 0xff]);
   });
 
@@ -141,7 +141,7 @@ describe('renderTileWindow', () => {
     const w = createTileWindow({ screenX: 0, screenY: 0, widthCells: 1, heightCells: 1 });
     puts(w, 'A', 0x03); // wants font3 but we'll provide none
     const buf = new Uint8ClampedArray(8 * 8 * 4);
-    renderTileWindow(w, buf, 8, 8, {}, EGA_DEFAULT);
+    renderTileWindow(w, buf, 8, 8, {}, WIZ6_MAIN);
     // Buffer should be untouched (still all zero)
     expect(buf.every((b) => b === 0)).toBe(true);
   });
