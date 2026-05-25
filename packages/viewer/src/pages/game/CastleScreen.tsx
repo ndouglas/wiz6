@@ -43,7 +43,10 @@ const ROUTE_BY_SLOT: Record<number, { route: string; replay?: boolean }> = {
   3: { route: '/castle/remove-party' },
   4: { route: '/castle/resume' },
   5: { route: '/castle/character-menu' },
-  6: { route: '/castle/configuration' },
+  // Slot 6 (GAME CONFIGURATION) in stock Wiz6 picked PC Speaker / AdLib / etc.
+  // For the web port we repurpose it to mean "house rules / QoL toggles" and
+  // route to /settings (modern web UI; outside the EGA viewport).
+  6: { route: '/settings' },
   7: { route: '/', replay: true },
   8: { route: '/castle/quit' },
 };
@@ -58,14 +61,14 @@ export function CastleScreen() {
   const [wfont0, setWfont0] = useState<Font | null>(null);
 
   // Web-port menu filtering:
-  //  - slot 6 (GAME CONFIGURATION): the original config menu existed for
-  //    DOS-era audio-device selection. Web Audio handles output; the only
-  //    user-facing audio control is the MuteToggle in chrome.
+  //  - slot 6 (GAME CONFIGURATION): kept visible; repurposed to navigate to
+  //    /settings (house rules + QoL toggles) instead of the original audio-
+  //    device picker. See ROUTE_BY_SLOT above.
   //  - slot 8 (QUIT GAME): there's no "quit to DOS" in a browser. The user
-  //    closes the tab or navigates away. We keep both slots in the engine-
-  //    model MAIN_MENU_OPTIONS for engine-faithfulness, just hide them here.
+  //    closes the tab or navigates away. We keep slot 8 in the engine-model
+  //    MAIN_MENU_OPTIONS for engine-faithfulness, just hide it here.
   const visible = useMemo(
-    () => visibleMenuOptions(DEFAULT_CONTEXT).filter((opt) => opt.slot !== 6 && opt.slot !== 8),
+    () => visibleMenuOptions(DEFAULT_CONTEXT).filter((opt) => opt.slot !== 8),
     [],
   );
   const [selectedIdx, setSelectedIdx] = useState(0);
