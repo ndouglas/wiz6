@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Character } from '@wiz6/data';
 import { readRoster } from '../../lib/roster-store.js';
-import { seedRosterIfEmpty } from '../../lib/gallery.js';
+import { seedRosterIfEmpty, getGalleryOriginIds } from '../../lib/gallery.js';
 import { RosterCharacterCard } from './RosterCharacterCard.js';
 import styles from './RosterView.module.css';
 
 export function RosterView() {
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [galleryIds, setGalleryIds] = useState<Set<string>>(new Set());
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -20,6 +21,7 @@ export function RosterView() {
       }
       if (cancelled) return;
       setCharacters(readRoster().characters);
+      setGalleryIds(new Set(getGalleryOriginIds()));
       setLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -40,7 +42,7 @@ export function RosterView() {
         <ul className={styles.grid}>
           {characters.map((c) => (
             <li key={c.id}>
-              <RosterCharacterCard character={c} />
+              <RosterCharacterCard character={c} fromGallery={galleryIds.has(c.id)} />
             </li>
           ))}
         </ul>

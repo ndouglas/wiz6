@@ -45,3 +45,13 @@ describe('RosterView', () => {
     });
   });
 });
+
+describe('RosterView gallery badge', () => {
+  it('renders a "from gallery" badge on seed-imported characters', async () => {
+    render(<MemoryRouter><RosterView /></MemoryRouter>);
+    await waitFor(() => {
+      expect(screen.getByText('Hawkwind')).toBeInTheDocument();
+      expect(screen.getByText(/from gallery/i)).toBeInTheDocument();
+    });
+  });
+});

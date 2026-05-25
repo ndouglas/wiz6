@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { loadGallery, importToRoster, isGalleryCharacter } from '../../src/lib/gallery.js';
+import { loadGallery, importToRoster, isGalleryCharacter, getGalleryOriginIds, isFromGallery } from '../../src/lib/gallery.js';
 import { readRoster } from '../../src/lib/roster-store.js';
 
 const FAKE_GALLERY = {
@@ -76,5 +76,15 @@ describe('seedRosterIfEmpty', () => {
     await seedRosterIfEmpty();
     const after = readRoster().characters.length;
     expect(after).toBe(before);
+  });
+});
+
+describe('gallery-origin tracking', () => {
+  it('importToRoster records the new roster id as gallery-originated', async () => {
+    const g = await loadGallery();
+    const newId = await importToRoster(g.characters[0]!.id);
+    expect(getGalleryOriginIds()).toContain(newId);
+    expect(isFromGallery(newId)).toBe(true);
+    expect(isFromGallery('00000000-0000-4000-8000-999999999999')).toBe(false);
   });
 });

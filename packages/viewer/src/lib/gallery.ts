@@ -34,6 +34,32 @@ function newUuid(): string {
   });
 }
 
+const ORIGINS_KEY = 'wiz6:gallery-origins';
+
+function readOrigins(): string[] {
+  try {
+    const raw = window.localStorage.getItem(ORIGINS_KEY);
+    if (raw === null) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x): x is string => typeof x === 'string');
+  } catch {
+    return [];
+  }
+}
+
+function writeOrigins(ids: string[]): void {
+  window.localStorage.setItem(ORIGINS_KEY, JSON.stringify(ids));
+}
+
+export function getGalleryOriginIds(): string[] {
+  return readOrigins();
+}
+
+export function isFromGallery(rosterCharacterId: string): boolean {
+  return readOrigins().includes(rosterCharacterId);
+}
+
 /**
  * Copy a gallery character into the visitor's roster under a NEW UUID.
  * Returns the new id (so callers can highlight / select the freshly-added
@@ -45,6 +71,11 @@ export async function importToRoster(galleryCharId: string): Promise<string> {
   if (!source) throw new Error(`gallery has no character with id ${galleryCharId}`);
   const fresh: Character = { ...source, id: newUuid() };
   addCharacter(fresh);
+  // Record that this new roster id originated in the gallery.
+  const origins = readOrigins();
+  if (!origins.includes(fresh.id)) {
+    writeOrigins([...origins, fresh.id]);
+  }
   return fresh.id;
 }
 
