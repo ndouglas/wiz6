@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "characters": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "Hawkwind",
+      "race": 0,
+      "class": 0,
+      "level": 1,
+      "savedOldLevel": 0,
+      "xp": 0,
+      "gold": 100,
+      "conditions": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "dead": false,
+      "paralyzed": false,
+      "attributes": {
+        "str": 14,
+        "int": 9,
+        "pie": 8,
+        "vit": 13,
+        "dex": 11,
+        "spd": 12,
+        "personality": 60,
+        "karma": 50
+      },
+      "schoolMana": [0, 0, 0, 0, 0, 0],
+      "skills": [10, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "reaction": 50
+    }
+  ]
+}
