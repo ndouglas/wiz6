@@ -4,6 +4,31 @@ const U8 = z.number().int().min(0).max(255);
 const U16 = z.number().int().min(0).max(0xffff);
 const U32 = z.number().int().min(0).max(0xffffffff);
 
+/**
+ * One 8-byte inventory item slot.
+ *
+ * Layout (wpcvw.ovr ASM + pcfile.dbs/scenario.dbs 100% cross-check, see
+ * `docs/re/findings/character-record-inventory-equipment.json`):
+ * - itemId       @ +0, u16 LE — scenario.dbs index (0 = empty slot)
+ * - weight       @ +2, u8    — cached from scenario.dbs item byte 30
+ * - pad          @ +3, u8    — always 0 (high byte of weight word)
+ * - equipSlot    @ +4, u8    — cached from scenario.dbs item byte 60
+ * - spriteIdx    @ +5, u8    — cached from scenario.dbs item byte 61
+ * - quantity     @ +6, u8    — charge/stack count (0 for non-stackable)
+ * - flags        @ +7, u8    — 0x01/0x02=CURSED, 0x04=stackable/thrown, 0x08=2H, 0x40=CLASS_LOCKED
+ */
+export const PcfileInventoryItemSchema = z.object({
+  itemId: U16,
+  weight: U8,
+  pad: U8,
+  equipSlot: U8,
+  spriteIdx: U8,
+  quantity: U8,
+  flags: U8,
+});
+
+export type PcfileInventoryItem = z.infer<typeof PcfileInventoryItemSchema>;
+
 export const PcfileHeaderSchema = z.object({
   recordSize: U16,
   slotCount: U16,
@@ -140,6 +165,21 @@ export const PcfileSlotSchema = z.object({
    * Stock chars all 0 (never changed class).
    */
   savedOldLevel: U8,
+  /**
+   * Inventory grid: 22 item slots x 8 bytes at record +0x40 (abs 0x4428).
+   * Item slot layout: itemId(u16)+weight(u8)+pad(u8)+equipSlot(u8)+spriteIdx(u8)+quantity(u8)+flags(u8).
+   * itemId = 0 means empty slot. Stock chars have 5 items each (inv_count=5, slots 5..21 empty).
+   * See `docs/re/findings/character-record-inventory-equipment.json`. HIGH confidence.
+   */
+  inventory: z.array(PcfileInventoryItemSchema).length(22),
+  /**
+   * Equipment body-slot array: 8 bytes at record +0x110 (abs 0x44f8).
+   * Each byte = inventory index (0..21) of equipped item, or 0xFF = empty.
+   * Slots: [0]=weapon [1]=shield [2]=head [3]=body [4]=legs [5]=hands [6]=feet [7]=cloak.
+   * Stock chars all 0xFF (items in inventory but not pre-equipped). HIGH confidence.
+   * wpcvw.ovr file+0x81E8: mov al,[bx+0x44f8]; file+0x8327: mov [bx+0x44f8],al (write).
+   */
+  equipment: z.array(U8).length(8),
   raw: z.array(U8).length(432),
 });
 

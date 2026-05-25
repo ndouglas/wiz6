@@ -1,4 +1,69 @@
-import type { BssStruct } from './bss-types.js';
+import type { BssStruct, BssField } from './bss-types.js';
+
+/**
+ * One 8-byte item slot within the inventory grid.
+ *
+ * Layout (verified by wpcvw.ovr ASM + 100% pcfile.dbs/scenario.dbs cross-check):
+ *   bytes 0..1: item_id   (u16 LE) — index into scenario.dbs 0-based item table (500 items)
+ *   byte  2:    weight    (u8)     — cached from scenario.dbs item byte 30 at pick-up time
+ *   byte  3:    pad       (u8)     — always 0 (high byte of weight; weight < 256)
+ *   byte  4:    equip_slot (u8)    — cached from scenario.dbs item byte 60 (body slot category)
+ *   byte  5:    sprite_idx (u8)    — cached from scenario.dbs item byte 61
+ *   byte  6:    quantity  (u8)     — per-instance charge/stack count (0 for non-stackable)
+ *   byte  7:    flags     (u8)     — 0x01/0x02=CURSED, 0x04=stackable/thrown, 0x08=2-handed, 0x40=CLASS_LOCKED
+ *
+ * Evidence:
+ *   wpcvw.ovr file+0x207E: mov al,[bx+0x442c] — reads byte 4 (equip_slot)
+ *   wpcvw.ovr file+0x210A: mov al,[bx+0x442d] — reads byte 5 (sprite_idx)
+ *   wpcvw.ovr file+0x20BC: mov al,[bx+0x442e] — reads byte 6 (quantity)
+ *   wpcvw.ovr file+0x22DC: mov al,[bx+0x442f]; and al,0x03; jnz — CURSED check
+ *   wpcvw.ovr file+0x2B25: mov al,[bx+0x442f]; and al,0x40; jnz — CLASS_LOCKED check
+ *   wpcvw.ovr file+0x82F9..8311: writes item_id/weight+pad/equip_slot+sprite/qty+flags on equip
+ */
+export const INVENTORY_ITEM_SLOT_FIELDS: BssField[] = [
+  {
+    name: 'item_id',
+    offset: 0,
+    type: { kind: 'scalar', scalar: 'u16_le' },
+    description: 'Item index into scenario.dbs (0-based, 0 = empty slot). u16 LE.',
+  },
+  {
+    name: 'weight',
+    offset: 2,
+    type: { kind: 'scalar', scalar: 'u8' },
+    description: 'Item weight cached from scenario.dbs byte 30 at pick-up. u8.',
+  },
+  {
+    name: 'pad',
+    offset: 3,
+    type: { kind: 'scalar', scalar: 'u8' },
+    description: 'Always 0 (high byte of weight word). u8.',
+  },
+  {
+    name: 'equip_slot',
+    offset: 4,
+    type: { kind: 'scalar', scalar: 'u8' },
+    description: 'Body-slot category cached from scenario.dbs byte 60. 0=1H_weapon, 1=2H_staff, 2=thrown, 3=ranged, 5=cloak, 6=head, 7=body, 8=legs, 9=hands, 10=feet, 11=shield, 12=scroll/spell, 13=spell_scroll. u8.',
+  },
+  {
+    name: 'sprite_idx',
+    offset: 5,
+    type: { kind: 'scalar', scalar: 'u8' },
+    description: 'Sprite index cached from scenario.dbs byte 61. u8.',
+  },
+  {
+    name: 'quantity',
+    offset: 6,
+    type: { kind: 'scalar', scalar: 'u8' },
+    description: 'Per-instance charge/stack count. 0 for non-stackable items. u8.',
+  },
+  {
+    name: 'flags',
+    offset: 7,
+    type: { kind: 'scalar', scalar: 'u8' },
+    description: 'Item flags: 0x01/0x02=CURSED (blocks unequip), 0x04=stackable/thrown/consumable, 0x08=two-handed weapon, 0x40=CLASS_LOCKED (class/alignment restriction). u8.',
+  },
+];
 
 /**
  * Per-character record. Stored in a 6-slot party array at DGROUP `0x43e8`
@@ -182,20 +247,36 @@ export const CHARACTER_RECORD: BssStruct = {
       description: 'Secondary level register at +0x26. Equals level in stock data. Possibly max-level-ever.',
     },
     {
-      name: 'inventory_records',
+      name: 'inventory',
       offset: 0x40,
+      // HIGH CONFIDENCE: 22 item slots x 8 bytes = 176 bytes at abs 0x4428..0x44ef.
+      // wpcvw.ovr file+0x18DC/0x23D8/0x19AA/0x2401: add ax, 0x4428 (inventory base pointer).
+      // file+0x189F: mov word [bx+0x4428], 0x0 (zero slot on remove).
+      // Each slot: [0-1]=item_id(u16), [2]=weight, [3]=0, [4]=equip_slot, [5]=sprite_idx,
+      //            [6]=quantity, [7]=flags.
+      // 100% cross-checked: slot.byte2==item.weight, slot.byte4==item.equipSlot,
+      //                     slot.byte5==item.spriteIdx for all 30 stock item-slot pairs.
+      // Stock chars all have 5 populated slots (inv_count=5); slots 5..21 are zero.
       type: {
         kind: 'array',
         length: 22,
         element: { kind: 'bytes', length: 8 },
       },
-      description: 'Item slots (22 x 8 bytes). +0=item_id(u16), +5=quantity, +7=flags(cursed/locked). 5 items in stock chars.',
+      description: 'Inventory grid: 22 item slots x 8 bytes at +0x40 (abs 0x4428..0x44ef). Per-slot layout: [0-1]=item_id(u16 LE), [2]=weight(cached), [3]=0, [4]=equip_slot(cached), [5]=sprite_idx(cached), [6]=quantity, [7]=flags(0x01/0x02=CURSED,0x04=stackable,0x08=2H,0x40=CLASS_LOCKED). item_id=0 means empty slot. Stock chars have 5 items each.',
     },
     {
-      name: 'equipment_slots',
+      name: 'equipment',
       offset: 0x110,
+      // HIGH CONFIDENCE: 8-byte body-slot array at abs 0x44f8..0x44ff.
+      // wpcvw.ovr file+0x81E8: mov al,[bx+0x44f8] (read slot 0 = weapon).
+      // file+0x1879: mov byte [bx+0x44f8], 0xff (unequip weapon).
+      // file+0x8327: mov [bx+0x44f8], al (write inv index to equip slot).
+      // file+0x17F7: remove_item_from_equip_slot loops 8 slots writing 0xFF.
+      // Body slot mapping: [0]=weapon, [1]=shield, [2]=head, [3]=body,
+      //                    [4]=legs, [5]=hands, [6]=feet, [7]=cloak.
+      // Stock chars all 0xFF (items carried but not equipped on load).
       type: { kind: 'bytes', length: 8 },
-      description: '8 equipment slots; each byte = inventory-index of equipped item (0xFF=empty). At +0x110 (abs 0x44f8).',
+      description: 'Equipment body-slot array at +0x110 (abs 0x44f8..0x44ff). Each byte = inventory index (0..21) of equipped item, or 0xFF=empty. Slots: [0]=weapon [1]=shield [2]=head [3]=body [4]=legs [5]=hands [6]=feet [7]=cloak. Stock chars all 0xFF.',
     },
     {
       name: 'conditions',

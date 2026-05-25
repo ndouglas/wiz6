@@ -6,8 +6,8 @@ import { z } from 'zod';
  * Source: `packages/data/src/structs/character-record.ts` — the engine's
  * 432-byte record at BSS `0x43e8` stride `0x1b0`. The schema covers every
  * documented field; many of the record's 432 bytes are still unmapped at
- * the per-byte level (equipped item indices, full status flag layout,
- * spell-school known bitmaps). Those will be added as the RE pass refines.
+ * the per-byte level (spell-school known bitmaps, +0x142..+0x167 region).
+ * Inventory + equipment were decoded in round 3 (2026-05-25).
  *
  * Each character has a stable UUID `id`. Rosters key on it; saves use the
  * `PartyMemberSchema` (extends this) to carry an optional `rosterCharacterId`
@@ -17,6 +17,34 @@ import { z } from 'zod';
 const U8 = z.number().int().min(0).max(255);
 const U16 = z.number().int().min(0).max(0xffff);
 const U32 = z.number().int().min(0).max(0xffffffff);
+
+/**
+ * One inventory item as stored in the 8-byte item slot.
+ *
+ * Layout (wpcvw.ovr ASM + 100% pcfile.dbs/scenario.dbs cross-check):
+ * - itemId     — scenario.dbs index (0 = empty slot)
+ * - weight     — cached from scenario.dbs at pick-up time
+ * - equipSlot  — body-slot category cached from scenario.dbs
+ * - spriteIdx  — sprite index cached from scenario.dbs
+ * - quantity   — charge/stack count (0 for non-stackable items)
+ * - flags      — 0x01/0x02=CURSED, 0x04=stackable/thrown, 0x08=2-handed, 0x40=CLASS_LOCKED
+ *
+ * The `pad` byte (always 0) is omitted from this TS-facing schema.
+ */
+export const InventoryItemSchema = z.object({
+  /** scenario.dbs item index (0-based). 0 = empty slot. */
+  itemId: U16,
+  /** Weight in encumbrance units. Cached from scenario.dbs at pick-up. */
+  weight: U8,
+  /** Body-slot category. 0=1H_weapon, 1=2H_staff, 2=thrown, 3=ranged, 5=cloak, 6=head, 7=body, 8=legs, 9=hands, 10=feet, 11=shield, 12=scroll, 13=spell_scroll. Cached from scenario.dbs. */
+  equipSlot: U8,
+  /** Sprite sheet index. Cached from scenario.dbs. */
+  spriteIdx: U8,
+  /** Charge/stack count. 0 for non-stackable. Non-zero for thrown weapons, scrolls, potions. */
+  quantity: U8,
+  /** Flags: 0x01/0x02=CURSED (blocks unequip), 0x04=stackable/thrown/consumable, 0x08=two-handed, 0x40=CLASS_LOCKED. */
+  flags: U8,
+});
 
 export const AttributesSchema = z.object({
   /** STR — Strength. */
@@ -94,6 +122,19 @@ export const CharacterSchema = z.object({
    * Engine record: +0x168 (abs 0x4550). HIGH confidence.
    */
   reaction: U8,
+  /**
+   * Inventory grid: 22 item slots (itemId=0 means empty). At record +0x40.
+   * See `docs/re/findings/character-record-inventory-equipment.json`.
+   * Optional for backwards-compatibility with pre-round-3 saves/rosters.
+   * When absent, callers should treat as 22 empty slots.
+   */
+  inventory: z.array(InventoryItemSchema).length(22).optional(),
+  /**
+   * Equipment body-slot array: 8 inventory indices or 255=empty.
+   * Slots: [0]=weapon [1]=shield [2]=head [3]=body [4]=legs [5]=hands [6]=feet [7]=cloak.
+   * At record +0x110 (abs 0x44f8). Optional for backwards-compatibility.
+   */
+  equipment: z.array(U8).length(8).optional(),
 });
 
 export const PartyMemberSchema = CharacterSchema.extend({
@@ -107,5 +148,6 @@ export const PartyMemberSchema = CharacterSchema.extend({
 });
 
 export type Attributes = z.infer<typeof AttributesSchema>;
+export type InventoryItem = z.infer<typeof InventoryItemSchema>;
 export type Character = z.infer<typeof CharacterSchema>;
 export type PartyMember = z.infer<typeof PartyMemberSchema>;

@@ -1,0 +1,234 @@
+{
+  "topic": "character-record-inventory-equipment",
+  "subagent_run": "2026-05-25",
+  "binaries": [
+    "original/wpcvw.ovr",
+    "original/pcfile.dbs",
+    "original/scenario.dbs"
+  ],
+  "summary": "Round-3 character record RE. Confirms: inventory grid at +0x40 (abs 0x4428), 22 slots x 8 bytes each. 8-byte item slot layout fully decoded: bytes 0-1 = item_id (u16 LE), byte 2 = weight cached from scenario.dbs, byte 3 = 0 (pad), byte 4 = equip_slot cached from scenario.dbs, byte 5 = sprite_idx cached from scenario.dbs, byte 6 = quantity/charges, byte 7 = flags (0x01/0x02=CURSED, 0x04=stackable/thrown, 0x08=2-handed, 0x40=CLASS_LOCKED). Equipment array at +0x110 (abs 0x44f8), 8 bytes, each byte = inventory index (0..21) or 0xFF=empty. 8 equipment body slots: [0]=weapon, [1]=shield, [2]=head, [3]=body armor, [4]=legs, [5]=hands, [6]=feet, [7]=cloak. All 6 stock characters have 5 items in inventory, equipment array all 0xFF (not pre-equipped).",
+  "findings": [
+    {
+      "id": "inventory-base-offset",
+      "claim": "Inventory grid at record +0x40 (abs 0x4428). 22 item slots x 8 bytes = 176 bytes total (+0x40..+0x10f).",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "addresses": [
+          "file+0x18DC: add ax, 0x4428 — compute pointer to first inventory slot (inv_slot_ptr = slot*0x1b0 + 0x4428)",
+          "file+0x23D8: add ax, 0x4428 — same computation in separate code path (equip handler)",
+          "file+0x19AA: add ax, 0x4428 — inventory base in remove/reorganize path",
+          "file+0x2401: add ax, 0x4428 — inventory base in display loop",
+          "file+0x189F: mov word [bx+0x4428], 0x0 — zeros first word of inventory slot when item removed",
+          "file+0x18AD: dec byte [bx+0x4594] — decrements inv_count after item removal (confirms abs 0x4594 = inv_count)",
+          "file+0x199B: add ax, 0x4430 — second slot pointer (0x4430 = 0x4428 + 8 = slot[1] start)"
+        ],
+        "byte_evidence": "abs 0x4428 - base 0x43e8 = 0x40. Each slot is 8 bytes: slot[i] starts at abs 0x4428 + i*8. 22 slots: 0x4428..0x44ef (176 bytes).",
+        "stock_values": {
+          "THESUS": "5 items in slots 0..4, slots 5..21 empty (item_id=0)",
+          "TEMPEST": "5 items in slots 0..4, slots 5..21 empty",
+          "LYSANDR": "5 items in slots 0..4, slots 5..21 empty",
+          "NOBAL": "5 items in slots 0..4, slots 5..21 empty",
+          "TREON": "5 items in slots 0..4, slots 5..21 empty",
+          "PENTAG": "5 items in slots 0..4, slots 5..21 empty"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "item-slot-layout",
+      "claim": "8-byte item slot layout: bytes 0-1 = item_id (u16 LE, index into scenario.dbs 0-based), byte 2 = weight (u8, cached from scenario.dbs byte 30), byte 3 = 0 (pad/high byte of weight), byte 4 = equip_slot (u8, cached from scenario.dbs byte 60), byte 5 = sprite_idx (u8, cached from scenario.dbs byte 61), byte 6 = quantity/charges (u8), byte 7 = flags (u8).",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "addresses": [
+          "file+0x207E: mov al,[bx+0x442c] — reads byte 4 of slot[0] = equip_slot category (0x442c = 0x4428 + 4)",
+          "file+0x210A: mov al,[bx+0x442d] — reads byte 5 = sprite_idx (0x442d = 0x4428 + 5)",
+          "file+0x20BC: mov al,[bx+0x442e] — reads byte 6 = quantity/charges (0x442e = 0x4428 + 6)",
+          "file+0x22DC: mov al,[bx+0x442f] — reads byte 7 = flags (0x442f = 0x4428 + 7)",
+          "file+0x82F9: mov [bx+0x4428], ax — writes item_id (u16) to bytes 0-1",
+          "file+0x8303: mov [bx+0x442a], ax — writes bytes 2-3 (weight + pad, fetched from scenario.dbs)",
+          "file+0x830A: mov [bx+0x442c], ax — writes bytes 4-5 (equip_slot + sprite_idx, from scenario.dbs)",
+          "file+0x8311: mov [bx+0x442e], ax — writes bytes 6-7 (quantity + flags)",
+          "file+0x8327: mov [bx+0x44f8], al — writes inventory index to equipment slot (the equip write)"
+        ],
+        "cross_verification": {
+          "method": "Compared all non-empty stock char inventory slots against scenario.dbs item table (74 bytes/record, base 0x0380). For each item: slot.byte2 == item.byte30 (weight) for 100% of 30 item-slot pairs. slot.byte4 == item.byte60 (equipSlot), slot.byte5 == item.byte61 (spriteIdx) — 100% match.",
+          "sample_items": {
+            "LONGSWORD_id8": "item.byte30=50(wt), item.byte60=0(slot), item.byte61=1(sprite); slot bytes: [08,00,32,00,00,01,00,00] — MATCH",
+            "LEATHER_CUIRASS_id135": "item.byte30=140(wt), item.byte60=7(slot), item.byte61=41(sprite); slot bytes: [87,00,8c,00,07,29,00,00] — MATCH",
+            "QUARTERSTAFF_id24": "item.byte30=45(wt), item.byte60=1(slot), item.byte61=10(sprite); slot bytes: [18,00,2d,00,01,0a,00,08] — flags=0x08 (2-handed)",
+            "DIRK_id27_thrown": "item.byte30=10(wt), item.byte60=2(slot), item.byte61=0(sprite); slot bytes: [1b,00,0a,00,02,00,09,04] — qty=9, flags=0x04 (thrown/stackable)",
+            "LT_HEAL_id316_scroll": "item.byte30=2(wt), item.byte60=12(slot), item.byte61=32(sprite); slot bytes: [3c,01,02,00,0c,20,03,04] — qty=3, flags=0x04 (consumable)"
+          }
+        },
+        "confidence_note": "byte 3 (pad) is always 0 in all stock items; weight < 256 so high byte is always 0."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "item-flags-byte",
+      "claim": "Item flags byte (slot +7, abs first slot 0x442f): 0x01=CURSED_bit0, 0x02=CURSED_bit1 (both set = fully cursed, blocks unequip), 0x04=stackable/thrown/consumable, 0x08=two-handed weapon, 0x40=CLASS_LOCKED (class or alignment restriction).",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "addresses": [
+          "file+0x22DC: mov al,[bx+0x442f]; and al,0x03; jnz — test bits 0+1 together for CURSED check",
+          "file+0x2494: mov al,[bx+0x442f]; and al,0x03; jnz — second CURSED check path",
+          "file+0x2B25: mov al,[bx+0x442f]; and al,0x40; jnz — CLASS_LOCKED check",
+          "wpcvw-character-view.md: 'item flag 0x40 = class/alignment locked', 'item flag 0x01|0x02 = CURSED block unequip'"
+        ],
+        "stock_observations": {
+          "flags_0x00": "All non-consumable non-2H non-cursed items (LONGSWORD, CUIRASS, SANDALS, BUCKLER, etc.)",
+          "flags_0x04": "DIRK (qty=9 thrown daggers), LT.HEAL scrolls (qty=3 consumable) — stackable/consumable items",
+          "flags_0x08": "QUARTERSTAFF (2-handed pole arm) — uses equip_slot=1 (weapon) but occupies both hands"
+        },
+        "note": "0x04 and 0x08 meanings inferred from stock item types. No cursed or class-locked items in stock party; those bits unverified from data (confirmed from ASM code paths)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "equipment-array-offset",
+      "claim": "Equipment body-slot array at record +0x110 (abs 0x44f8). 8 bytes; each byte = index into inventory grid (0..21) of the currently equipped item, or 0xFF = empty. The 8 body slots map to: [0]=main weapon, [1]=shield/off-hand, [2]=head, [3]=body armor, [4]=legs, [5]=hands/gloves, [6]=feet/boots, [7]=cloak/accessory.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "addresses": [
+          "file+0x81E8: mov al,[bx+0x44f8] — read equipment slot 0 value (weapon)",
+          "file+0x1879: mov byte [bx+0x44f8], 0xff — clear equipment slot 0 (unequip weapon)",
+          "file+0x8327: mov [bx+0x44f8], al — write inventory index to equipment slot (equip action)",
+          "file+0x17F7: remove_item_from_equip_slot — loops 8 equip slots, writes 0xFF to clear each"
+        ],
+        "byte_evidence": "abs 0x44f8 - base 0x43e8 = 0x110. Equipment array is 8 consecutive bytes: 0x44f8..0x44ff.",
+        "body_slot_mapping": {
+          "source": "wpcvw.ovr ASM equip dispatch at file+0x835E; equip_slot values from scenario.dbs byte 60",
+          "mapping": {
+            "0": "main weapon (equip_slot 0=1H_any, 1=2H_staff, 2=thrown, 3=ranged)",
+            "1": "shield/off-hand (equip_slot 11=shield)",
+            "2": "head (equip_slot 6=helm)",
+            "3": "body armor (equip_slot 7=chest)",
+            "4": "legs (equip_slot 8=legs)",
+            "5": "hands/gloves (equip_slot 9=gloves)",
+            "6": "feet/boots (equip_slot 10=boots)",
+            "7": "cloak/accessory (equip_slot 5=cloak)"
+          },
+          "confidence": "medium — inferred from ASM dispatch table; 2 slots at 0x44f8/0x44f9 documented as 'the two-hand weapon slots' in wpcvw-character-view.md"
+        },
+        "stock_values": "All 6 stock chars have equipment = [255,255,255,255,255,255,255,255] — all items unequipped at file load."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "inventory-count-offset",
+      "claim": "Inventory count at record +0x1ac (abs 0x4594). u8. Tracks number of occupied inventory slots. All stock chars = 5.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "addresses": [
+          "file+0x18AD: dec byte [bx+0x4594] — decrement on item removal",
+          "GIVE flow (wpcvw-character-view.md): 'while recipient.inv_count + recipient.equip_count < 22' — confirms 22-slot hard cap"
+        ],
+        "byte_evidence": "abs 0x4594 - base 0x43e8 = 0x1ac.",
+        "stock_values": "All 6 stock chars = 5"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "equip-pool-count-offset",
+      "claim": "Equip/pool count at record +0x1ad (abs 0x4595). u8. Likely tracks equipment slots in use (separate count from inventory_count). All stock chars = 0.",
+      "category": "character_record_field",
+      "evidence": {
+        "binary": "original/wpcvw.ovr",
+        "addresses": [
+          "file+0x1973: dec byte [bx+0x4595] — equip_reorganize_loop decrements this on item shift",
+          "GIVE flow check: used together with inv_count for the 22-slot cap"
+        ],
+        "byte_evidence": "abs 0x4595 - base 0x43e8 = 0x1ad.",
+        "stock_values": "All 6 stock chars = 0 (no equipped items)"
+      },
+      "confidence": "medium"
+    }
+  ],
+  "stock_character_inventory": {
+    "THESUS": {
+      "inv_count": 5,
+      "equip_count": 0,
+      "equipment_slots": [255, 255, 255, 255, 255, 255, 255, 255],
+      "items": [
+        {"slot": 0, "item_id": 8,   "weight": 50,  "equip_slot": 0,  "sprite_idx": 1,  "quantity": 0, "flags": 0, "name": "LONGSWORD"},
+        {"slot": 1, "item_id": 135, "weight": 140, "equip_slot": 7,  "sprite_idx": 41, "quantity": 0, "flags": 0, "name": "LEATHER CUIRASS"},
+        {"slot": 2, "item_id": 132, "weight": 50,  "equip_slot": 8,  "sprite_idx": 44, "quantity": 0, "flags": 0, "name": "FUR LEGGING"},
+        {"slot": 3, "item_id": 130, "weight": 15,  "equip_slot": 10, "sprite_idx": 46, "quantity": 0, "flags": 0, "name": "SANDALS"},
+        {"slot": 4, "item_id": 141, "weight": 40,  "equip_slot": 11, "sprite_idx": 38, "quantity": 0, "flags": 0, "name": "BUCKLER SHIELD"}
+      ]
+    },
+    "TEMPEST": {
+      "inv_count": 5,
+      "equip_count": 0,
+      "equipment_slots": [255, 255, 255, 255, 255, 255, 255, 255],
+      "items": [
+        {"slot": 0, "item_id": 8,   "weight": 50,  "equip_slot": 0,  "sprite_idx": 1,  "quantity": 0, "flags": 0, "name": "LONGSWORD"},
+        {"slot": 1, "item_id": 135, "weight": 140, "equip_slot": 7,  "sprite_idx": 41, "quantity": 0, "flags": 0, "name": "LEATHER CUIRASS"},
+        {"slot": 2, "item_id": 132, "weight": 50,  "equip_slot": 8,  "sprite_idx": 44, "quantity": 0, "flags": 0, "name": "FUR LEGGING"},
+        {"slot": 3, "item_id": 130, "weight": 15,  "equip_slot": 10, "sprite_idx": 46, "quantity": 0, "flags": 0, "name": "SANDALS"},
+        {"slot": 4, "item_id": 141, "weight": 40,  "equip_slot": 11, "sprite_idx": 38, "quantity": 0, "flags": 0, "name": "BUCKLER SHIELD"}
+      ]
+    },
+    "LYSANDR": {
+      "inv_count": 5,
+      "equip_count": 0,
+      "equipment_slots": [255, 255, 255, 255, 255, 255, 255, 255],
+      "items": [
+        {"slot": 0, "item_id": 6,   "weight": 45,  "equip_slot": 0,  "sprite_idx": 15, "quantity": 0, "flags": 0,    "name": "CUTLASS"},
+        {"slot": 1, "item_id": 120, "weight": 25,  "equip_slot": 7,  "sprite_idx": 42, "quantity": 0, "flags": 0,    "name": "CLOTH SHIRT"},
+        {"slot": 2, "item_id": 121, "weight": 35,  "equip_slot": 8,  "sprite_idx": 44, "quantity": 0, "flags": 0,    "name": "CLOTH PANTS"},
+        {"slot": 3, "item_id": 131, "weight": 30,  "equip_slot": 10, "sprite_idx": 47, "quantity": 0, "flags": 0,    "name": "BUSKINS"},
+        {"slot": 4, "item_id": 27,  "weight": 10,  "equip_slot": 2,  "sprite_idx": 0,  "quantity": 9, "flags": 4,    "name": "DIRK (x9, thrown)"}
+      ]
+    },
+    "NOBAL": {
+      "inv_count": 5,
+      "equip_count": 0,
+      "equipment_slots": [255, 255, 255, 255, 255, 255, 255, 255],
+      "items": [
+        {"slot": 0, "item_id": 24,  "weight": 45,  "equip_slot": 1,  "sprite_idx": 10, "quantity": 0, "flags": 8,    "name": "QUARTERSTAFF (2-handed)"},
+        {"slot": 1, "item_id": 122, "weight": 30,  "equip_slot": 7,  "sprite_idx": 60, "quantity": 0, "flags": 0,    "name": "ROBES (U)"},
+        {"slot": 2, "item_id": 123, "weight": 40,  "equip_slot": 8,  "sprite_idx": 61, "quantity": 0, "flags": 0,    "name": "ROBES (L)"},
+        {"slot": 3, "item_id": 130, "weight": 15,  "equip_slot": 10, "sprite_idx": 46, "quantity": 0, "flags": 0,    "name": "SANDALS"},
+        {"slot": 4, "item_id": 316, "weight": 2,   "equip_slot": 12, "sprite_idx": 32, "quantity": 3, "flags": 4,    "name": "LT. HEAL (x3, consumable)"}
+      ]
+    },
+    "TREON": {
+      "inv_count": 5,
+      "equip_count": 0,
+      "equipment_slots": [255, 255, 255, 255, 255, 255, 255, 255],
+      "items": [
+        {"slot": 0, "item_id": 18,  "weight": 40,  "equip_slot": 0,  "sprite_idx": 7,  "quantity": 0, "flags": 0, "name": "STAFF"},
+        {"slot": 1, "item_id": 122, "weight": 30,  "equip_slot": 7,  "sprite_idx": 60, "quantity": 0, "flags": 0, "name": "ROBES (U)"},
+        {"slot": 2, "item_id": 123, "weight": 40,  "equip_slot": 8,  "sprite_idx": 61, "quantity": 0, "flags": 0, "name": "ROBES (L)"},
+        {"slot": 3, "item_id": 130, "weight": 15,  "equip_slot": 10, "sprite_idx": 46, "quantity": 0, "flags": 0, "name": "SANDALS"},
+        {"slot": 4, "item_id": 335, "weight": 3,   "equip_slot": 13, "sprite_idx": 33, "quantity": 1, "flags": 0, "name": "MAGIC MISSILE (scroll)"}
+      ]
+    },
+    "PENTAG": {
+      "inv_count": 5,
+      "equip_count": 0,
+      "equipment_slots": [255, 255, 255, 255, 255, 255, 255, 255],
+      "items": [
+        {"slot": 0, "item_id": 18,  "weight": 40,  "equip_slot": 0,  "sprite_idx": 7,  "quantity": 0, "flags": 0, "name": "STAFF"},
+        {"slot": 1, "item_id": 122, "weight": 30,  "equip_slot": 7,  "sprite_idx": 60, "quantity": 0, "flags": 0, "name": "ROBES (U)"},
+        {"slot": 2, "item_id": 123, "weight": 40,  "equip_slot": 8,  "sprite_idx": 61, "quantity": 0, "flags": 0, "name": "ROBES (L)"},
+        {"slot": 3, "item_id": 130, "weight": 15,  "equip_slot": 10, "sprite_idx": 46, "quantity": 0, "flags": 0, "name": "SANDALS"},
+        {"slot": 4, "item_id": 335, "weight": 3,   "equip_slot": 13, "sprite_idx": 33, "quantity": 1, "flags": 0, "name": "MAGIC MISSILE (scroll)"}
+      ]
+    }
+  },
+  "still_tbd": [
+    "+0xF0..+0x10F (32 bytes before equipment): partly mapped in bss_layout as spell-known bitmaps or skill bumps; not decoded this round",
+    "+0x118..+0x121 (10 bytes after equipment, before conditions): unknown; all 0 in stock data",
+    "equipment body_slot mapping [0..7] confidence is medium — ASM dispatch at 0x835E not fully traced for all 8 slots",
+    "flags bit 0x04 meaning: 'stackable/thrown/consumable' is inferred from DIRK(thrown)+SCROLL(consumable) both having it; no counter-examples in stock data",
+    "flags bit 0x08 meaning: 'two-handed' is inferred from QUARTERSTAFF having it; no counter-examples in stock data",
+    "+0x142..+0x167 region: spell-known bitmaps, saved skill bumps — partially mapped by bss_layout, not addressed this round"
+  ]
+}

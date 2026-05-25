@@ -73,9 +73,11 @@ export { SndSchema, type Snd } from './schemas/snd.js';
 export {
   CharacterSchema,
   AttributesSchema,
+  InventoryItemSchema,
   PartyMemberSchema,
   type Character,
   type Attributes,
+  type InventoryItem,
   type PartyMember,
 } from './schemas/character.js';
 export { RosterSchema, type Roster } from './schemas/roster.js';
@@ -93,9 +95,11 @@ export {
 } from './schemas/save.js';
 export {
   PcfileHeaderSchema,
+  PcfileInventoryItemSchema,
   PcfileSlotSchema,
   DecodedPcfileSchema,
   type PcfileHeader,
+  type PcfileInventoryItem,
   type PcfileSlot,
   type DecodedPcfile,
 } from './schemas/pcfile.js';
