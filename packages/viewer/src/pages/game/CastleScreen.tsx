@@ -257,7 +257,6 @@ function composeFrame(
   // Cells are 8 px relative to the lower pane's top-left.
   if (wfont3) {
     const cellW = 8;
-    const BLACK = EGA_DEFAULT.colors[0] ?? [0, 0, 0];
 
     // Color overrides per usage:
     //   BANNER_TEXT: file 1 (letter strokes) → EGA 7 (light gray) — the
@@ -287,11 +286,9 @@ function composeFrame(
     // 1 to light gray. Black 1-px separator lines on y=144 and y=151
     // are drawn AFTER text so they overlay any per-glyph gray top/bottom
     // pixels and stay continuous across the whole row.
-    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 80, 144, '\x7f', wfont3, EGA_DEFAULT, BAT);
+    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 80, 144, '\x18', wfont3, EGA_DEFAULT, BAT);
     renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 88, 144, '  MASTER OPTIONS  ', wfont3, EGA_DEFAULT, BANNER_TEXT);
-    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 232, 144, '\x7f', wfont3, EGA_DEFAULT, BAT);
-    fillRect(buf, 0, 144, ENGINE_W, 1, BLACK);
-    fillRect(buf, 0, 151, ENGINE_W, 1, BLACK);
+    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 232, 144, '\x18', wfont3, EGA_DEFAULT, BAT);
 
     // ---- Lower pane (y=152..192) ----
     // No fill needed — the canvas-level gray fill at the top of
