@@ -92,6 +92,14 @@ export {
   type ScenarioFlags,
 } from './schemas/save.js';
 export {
+  PcfileHeaderSchema,
+  PcfileSlotSchema,
+  DecodedPcfileSchema,
+  type PcfileHeader,
+  type PcfileSlot,
+  type DecodedPcfile,
+} from './schemas/pcfile.js';
+export {
   PALETTE_CATALOG,
   EGA_DEFAULT,
   WIZ6_MAIN,
