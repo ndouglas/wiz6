@@ -6,6 +6,12 @@ import {
   concatenatePicSegments,
   compositePicScript,
   renderTextRun4bpp,
+  createTileWindow,
+  clearWindow,
+  setCursor,
+  puts,
+  centeredPuts,
+  renderTileWindow,
   visibleMenuOptions,
   type MainMenuOption,
   type MainMenuContext,
@@ -256,96 +262,66 @@ function composeFrame(
   //   cursor_Y = (slot % 4) + 1        → 4 rows per column at Y=1..4
   // Cells are 8 px relative to the lower pane's top-left.
   if (wfont3) {
-    const cellW = 8;
-
-    // wfont3 is a SPRITESHEET, not a generic font. Each "glyph" slot is a
-    // pre-baked 8x8 tile with its own colors. The same shape ("A") can
-    // appear at multiple slots, each carrying a different color scheme:
+    // wfont3 is a SPRITESHEET — every glyph slot is a complete 8×8 tile
+    // with baked-in colors. Same shape appears at multiple slots with
+    // different color schemes. See docs/re/findings/wfont-tile-system.json.
     //
-    //   - Slots 0x41..0x5A : letters in WHITE on dark-gray bg with gray
-    //                       top+bottom rows. For use INSIDE solid-gray
-    //                       panels (e.g. the menu pane).
-    //   - Slots 0x61..0x7A : letters in LIGHT GRAY on dark-gray bg with
-    //                       TRANSPARENT top+bottom rows. For the banner,
-    //                       where the underlying black shows through as
-    //                       the 1-px separator lines top + bottom.
-    //   - Slot  0x5F       : banner-variant "space" — dark-gray rows 1-6,
-    //                       transparent top+bottom. Use for padding in
-    //                       the banner instead of slot 0x20 (which is a
-    //                       solid-gray 8x8 with no transparent edges).
-    //   - Slot  0x7F       : banner-variant bat (red eyes + gray body
-    //                       with transparent top+bottom). DOESN'T need a
-    //                       color override.
-    //
-    // The slot numbers happen to align with ASCII (the engine's stored
-    // text presumably uses these as byte values) but conceptually they
-    // are just arbitrary tile indices.
-    //
-    // Only the SELECTED menu option needs a color override: file 1
-    // (letter strokes in 0x41..0x5A variant) → EGA 0 (black), file 8
-    // (bg pixels) → EGA 14 (yellow). Yields black-on-yellow.
-    const SELECTED: Record<number, number> = { 1: 0, 8: 14 };
+    // The UI rendering uses an engine-faithful (char, attr) tile-window
+    // model: tiles are placed via clearWindow / puts / centeredPuts and
+    // then renderTileWindow blits each cell using the wfont selected by
+    // the attribute byte's low nibble (attr_lo=3 → wfont3).
 
-    // ---- Banner row (y=144..152, 8 px tall) ----
-    // Pure tile placement — 40 banner-variant tiles laid edge-to-edge.
-    // Each tile is 8x8 and carries its OWN colors: black top+bottom rows
-    // baked in (so the 1-px lines top + bottom appear naturally across
-    // the full row width) + gray middle + optional letter/bat content.
-    // No separate fill operation, no compositing, no transparency.
-    const PAD = '\x5f'; // banner-variant space (gray middle, black edges)
-    const BAT = '\x7f'; // banner-variant bat
-    const centered = `${BAT}${PAD}${PAD}master options${PAD}${PAD}${BAT}`; // 20 cells
-    const leftPad = PAD.repeat((40 - centered.length) / 2);
-    const rightPad = PAD.repeat(40 - centered.length - leftPad.length);
-    const banner = leftPad + centered + rightPad;
-    renderTextRun4bpp(buf, ENGINE_W, ENGINE_H, 0, 144, banner, wfont3, EGA_DEFAULT);
+    // ---- Banner row at cell (0, 18) = screen (0, 144), 40×1 cells ----
+    // Engine call: c61a(banner_window, "master options", 0, 0x12)
+    //   c61a translates attr ≥ 0x10 by subtracting 0xF, so the underlying
+    //   puts attr is 3 → wfont3. The string is centered with padding
+    //   character 0x5F (banner-variant space).
+    const banner = createTileWindow({ screenX: 0, screenY: 144, widthCells: 40, heightCells: 1 });
+    clearWindow(banner, 0x5f, 0x03); // banner-variant space, wfont3
+    centeredPuts(banner, '\x7fmaster options\x7f', 0x12, 0x5f);
+    renderTileWindow(banner, buf, ENGINE_W, ENGINE_H, { font3: wfont3 }, EGA_DEFAULT);
 
-    // ---- Lower pane (y=152..192) ----
-    // No fill needed — the canvas-level gray fill at the top of
-    // composeFrame already covers this region. Just render the menu
-    // option labels at the engine-derived cell positions.
-    //   FUN_025c grid math: cursor_X cell = (slot/4)*19 + 2
-    //                       cursor_Y cell = (slot%4) + 1
-    const PANE_X = 0;
-    const PANE_Y = 152;
+    // ---- Lower pane at cell (0, 19) = screen (0, 152), 40×5 cells ----
+    // Engine call: ed5a(menu_text_window, 0x20, 3, 0) — clear with
+    //   tile 0x20 (uniform dark-gray fill) at attr=3 (wfont3). Then for
+    //   each visible menu option, set cursor + puts.
+    // FUN_025c grid math (called from FUN_2b36 args 2, 1, 0x13, 4):
+    //   cursor_X = (slot / 4) * 19 + 2  → col 0 at cell X=2; col 1 at X=21
+    //   cursor_Y = (slot % 4) + 1       → 4 rows per column at Y=1..4
+    const pane = createTileWindow({ screenX: 0, screenY: 152, widthCells: 40, heightCells: 5 });
+    clearWindow(pane, 0x20, 0x03);
     const X_BASE = 2;
     const Y_BASE = 1;
     const X_STRIDE = 19;
     const ROWS_PER_COL = 4;
     for (let i = 0; i < menuOptions.length; i++) {
       const opt = menuOptions[i]!;
-      const cursorX = Math.floor(i / ROWS_PER_COL) * X_STRIDE + X_BASE;
-      const cursorY = (i % ROWS_PER_COL) + Y_BASE;
-      const textX = PANE_X + cursorX * cellW;
-      const textY = PANE_Y + cursorY * 8;
-      const isSel = i === selectedIdx;
+      const cx = Math.floor(i / ROWS_PER_COL) * X_STRIDE + X_BASE;
+      const cy = (i % ROWS_PER_COL) + Y_BASE;
+      setCursor(pane, cx, cy);
+      // Engine's dfb9 writes at attr=3. Selected option uses df85 with
+      // attr=-5 (= 0xFB) which is a different ega.drv slot — for now we
+      // approximate selected by post-rendering with the override path.
+      puts(pane, opt.label, 0x03);
+    }
+    renderTileWindow(pane, buf, ENGINE_W, ENGINE_H, { font3: wfont3 }, EGA_DEFAULT);
+
+    // Selected-option highlight: re-render the selected option's row
+    // with a color override (black-on-yellow). Until df85's exact tile
+    // dispatch is RE'd this is the closest visual equivalent.
+    const sel = menuOptions[selectedIdx];
+    if (sel) {
+      const cx = Math.floor(selectedIdx / ROWS_PER_COL) * X_STRIDE + X_BASE;
+      const cy = (selectedIdx % ROWS_PER_COL) + Y_BASE;
+      const textX = cx * 8;
+      const textY = 152 + cy * 8;
       renderTextRun4bpp(
         buf, ENGINE_W, ENGINE_H, textX, textY,
-        opt.label, wfont3, EGA_DEFAULT,
-        isSel ? SELECTED : {},
+        sel.label, wfont3, EGA_DEFAULT,
+        { 1: 0, 8: 14 }, // file 1 → black, file 8 → yellow
       );
     }
   }
 
   ctx.putImageData(new ImageData(buf, ENGINE_W, ENGINE_H), 0, 0);
-}
-
-function fillRect(
-  buf: Uint8ClampedArray,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  color: readonly [number, number, number],
-): void {
-  const [r, g, b] = color;
-  for (let py = y; py < y + h && py < ENGINE_H; py++) {
-    for (let px = x; px < x + w && px < ENGINE_W; px++) {
-      const idx = (py * ENGINE_W + px) * 4;
-      buf[idx] = r;
-      buf[idx + 1] = g;
-      buf[idx + 2] = b;
-      buf[idx + 3] = 0xff;
-    }
-  }
 }

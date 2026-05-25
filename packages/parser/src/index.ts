@@ -21,6 +21,16 @@ export {
 } from './formats/pic-render.js';
 export { renderTextRun, measureTextRun } from './formats/wfont-render.js';
 export { renderTextRun4bpp } from './formats/wfont-4bpp-render.js';
+export {
+  createTileWindow,
+  clearWindow,
+  setCursor,
+  puts,
+  centeredPuts,
+  renderTileWindow,
+  type TileWindow,
+  type FontSet,
+} from './ui/tile-window.js';
 export { renderEgaScreen } from './formats/ega-screen-render.js';
 export { EGA_FILE_INDEX_PERMUTATION } from './formats/ega-permutation.js';
 
