@@ -34,12 +34,16 @@ const characters: Character[] = decoded.slots
     race: s.race,
     // Class at +0x19f (abs 0x4587): stats panel mov al,[bx+0x4587]; add ax,0x78 -> msg lookup.
     class: s.class,
-    savedOldLevel: 0, // At +0x1af; 0 for all stock chars (no class changes).
+    // savedOldLevel at +0x1af (abs 0x4597): class_change_apply writes old level here.
+    // 0 for all stock chars (never changed class). HIGH confidence.
+    savedOldLevel: s.savedOldLevel,
     // Gold at +0x14 (abs 0x43fc/0x43fe): 32-bit field, 0 for all stock chars.
     gold: s.gold,
-    conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    dead: false,
-    paralyzed: false,
+    // conditions[10] at +0x122 (abs 0x450a). conditions[2]=dead, [3]=paralyzed.
+    // All stock chars healthy → all zeros. HIGH confidence.
+    conditions: s.conditions,
+    dead: s.conditions[2] !== 0,
+    paralyzed: s.conditions[3] !== 0,
     // Attributes at +0x12c..+0x133 (abs 0x4514..0x451b).
     // Stats panel loop: [bx+0x4514+i] for i=0..7, msgs 0xcc..0xd3 = STR/INT/PIE/VIT/DEX/SPD/PER/KAR.
     attributes: {
@@ -54,9 +58,16 @@ const characters: Character[] = decoded.slots
       personality: s.per,
       karma: s.kar,
     },
-    schoolMana: [0, 0, 0, 0, 0, 0],
-    skills: new Array(14).fill(0),
-    reaction: 50,
+    // School mana: 6 schools (Fire/Water/Air/Earth/Mental/Divine).
+    // Interleaved (cur u16, max u16) pairs at +0x28+i*4 and +0x2a+i*4.
+    // Stats panel loop (file+0x0e55+0x4c): for i=0..5; [bx+0x4410] cur; [bx+0x4412] max.
+    schoolMana: s.schoolManaCur,
+    schoolManaMax: s.schoolManaMax,
+    // skills[14] at +0x134 (abs 0x451c). Cap = 50 (0x32). HIGH confidence.
+    skills: s.skills,
+    // reaction at +0x168 (abs 0x4550). Range 0..100. HIGH confidence.
+    // Stock chars: THESUS=20, TEMPEST=12, LYSANDR=16, NOBAL=20, TREON=16, PENTAG=40.
+    reaction: s.reaction,
   }));
 
 const roster: Roster = { schemaVersion: 1, characters };
