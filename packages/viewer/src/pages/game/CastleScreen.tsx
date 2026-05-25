@@ -283,7 +283,12 @@ function composeFrame(
     // space with no transparent top/bottom rows, used in the menu pane).
     // The engine's stored banner string must use 0x5F too; otherwise the
     // black 1-px lines top/bottom would break for that one cell.
-    centeredPuts(banner, '\x7fmaster\x5foptions\x7f', 0x12, 0x5f);
+    // Banner string is 20 chars total — bat + 2 banner-spaces + "master" +
+    // 1 banner-space + "options" + 2 banner-spaces + bat. Centered in 40
+    // cells starts at col 10 and ends at col 29; cursor advances to 30,
+    // which matches the live banner_window cursor value (30) we read from
+    // wbase.dgroup at save time.
+    centeredPuts(banner, '\x7f\x5f\x5fmaster\x5foptions\x5f\x5f\x7f', 0x12, 0x5f);
     renderTileWindow(banner, buf, ENGINE_W, ENGINE_H, { font3: wfont3 }, EGA_DEFAULT);
 
     // ---- Lower pane at cell (0, 19) = screen (0, 152), 40×5 cells ----
