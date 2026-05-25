@@ -68,6 +68,19 @@ const characters: Character[] = decoded.slots
     // reaction at +0x168 (abs 0x4550). Range 0..100. HIGH confidence.
     // Stock chars: THESUS=20, TEMPEST=12, LYSANDR=16, NOBAL=20, TREON=16, PENTAG=40.
     reaction: s.reaction,
+    // inventory: 22 slots x 8 bytes at +0x40 (abs 0x4428). HIGH confidence.
+    // item_id=0 means empty slot. Stock chars have 5 items each (slots 5..21 zero).
+    inventory: s.inventory.map(({ itemId, weight, equipSlot, spriteIdx, quantity, flags }) => ({
+      itemId,
+      weight,
+      equipSlot,
+      spriteIdx,
+      quantity,
+      flags,
+    })),
+    // equipment: 8-byte body-slot array at +0x110 (abs 0x44f8).
+    // Each byte = inventory index (0..21) or 255=empty. Stock chars all 255.
+    equipment: s.equipment,
   }));
 
 const roster: Roster = { schemaVersion: 1, characters };
