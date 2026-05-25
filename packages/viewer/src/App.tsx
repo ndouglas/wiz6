@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { Routes } from 'react-router-dom';
 import { routes } from './router.js';
 import { MuteToggle } from './components/MuteToggle.js';
+import { SettingsLink } from './components/SettingsLink.js';
 import './theme/theme.css';
 
 export function AppShell() {
@@ -10,6 +11,7 @@ export function AppShell() {
       <Suspense fallback={<p style={{ padding: 'var(--space-5)' }}>loading…</p>}>
         <Routes>{routes}</Routes>
       </Suspense>
+      <SettingsLink />
       <MuteToggle />
     </>
   );

@@ -68,6 +68,9 @@ const OverlaysIndex = lazy(() =>
 const OverlayDetail = lazy(() =>
   import('./pages/overlays/OverlayDetail.js').then((m) => ({ default: m.OverlayDetail })),
 );
+const SettingsPage = lazy(() =>
+  import('./pages/SettingsPage.js').then((m) => ({ default: m.SettingsPage })),
+);
 
 export const routes = (
   <>
@@ -77,6 +80,7 @@ export const routes = (
       <Route path="/castle/:stub" element={<CastleStub />} />
       <Route path="/roster" element={<RosterView />} />
     </Route>
+    <Route path="/settings" element={<SettingsPage />} />
     <Route path="/explore" element={<ExploreLayout />}>
       <Route index element={<Landing />} />
       <Route path="monsters" element={<MonstersPage />} />
