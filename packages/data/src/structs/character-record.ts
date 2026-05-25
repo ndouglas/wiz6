@@ -131,13 +131,19 @@ export const CHARACTER_RECORD: BssStruct = {
       description: 'Experience points (32-bit LE). At +0x0c (abs 0x43f4/0x43f6). Stock chars all 0.',
     },
     {
-      name: 'unknown_0x10',
+      name: 'mks',
       offset: 0x10,
-      // UNKNOWN: stats panel pushes [bx+0x43fa]/[bx+0x43f8] as second u32.
+      // HIGH CONFIDENCE: Monster Kill Statistic (MKS).
+      // Manual p. 23: "Monster Kill Statistic (MKS)" — kill counter displayed on Additional
+      // Character Statistics screen. "Number of monsters you have, in one way or another,
+      // sent to the Grim Reaper."
+      // asm: stats panel (wpcvw) pushes [bx+0x43fa]/[bx+0x43f8] as second u32 adjacent to XP;
+      // wmexe.ovr increments this u32 per combat kill.
       // abs 0x43f8/0x43fa = base 0x43e8 + +0x10/+0x12.
-      // All 6 stock chars = 0.
+      // All 6 stock chars = 0 (no kills before game start).
+      // There is NO "combats_won" stat in the manual — MKS (kills) is the only combat counter.
       type: { kind: 'scalar', scalar: 'u32_le' },
-      description: 'Unknown u32 at +0x10 (abs 0x43f8/0x43fa). Displayed adjacent to XP. All stock chars = 0.',
+      description: 'Monster Kill Statistic (MKS). Manual p. 23: kill counter. u32 at +0x10 (abs 0x43f8/0x43fa). Incremented by wmexe per kill. All stock chars = 0.',
     },
     {
       name: 'gold',
@@ -180,21 +186,28 @@ export const CHARACTER_RECORD: BssStruct = {
       description: 'Spirit points, maximum. At +0x1e (abs 0x4406). Equals sp_cur in stock data.',
     },
     {
-      name: 'unknown_0x20',
+      name: 'encumbrance_current',
       offset: 0x20,
-      // UNKNOWN. Stock values: 295, 295, 225, 136, 128, 128.
-      // May be encumbrance capacity computed from STR/VIT.
-      // wpcvw file+0x0e3d/0x0e78: add [bx+0x4408],ax (accumulates into +0x20 from inventory).
+      // HIGH CONFIDENCE: current encumbrance load in tenths of a pound.
+      // Source: martydill/pcfile_editor.py docstring.
+      // wpcvw file+0x0e3d/0x0e78: add [bx+0x4408],ax — accumulates into +0x20 from inventory items.
+      // abs 0x4408 = base 0x43e8 + +0x20.
+      // Stock values: THESUS=295(29.5lbs), TEMPEST=295, LYSANDR=225, NOBAL=136, TREON=128, PENTAG=128.
+      // REFUTES prior 'Rebirths counter at +0x20' hypothesis.
+      // Rebirths counter is now unlocated (see character-record-consolidated-rename.json).
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Unknown u16 at +0x20. Stock values 295/225/136/128. Possibly total encumbrance weight (accumulated from inventory).',
+      description: 'Current encumbrance load in tenths of a pound. At +0x20 (abs 0x4408). wpcvw accumulates item weights here. Stock: THESUS=295, TEMPEST=295, LYSANDR=225, NOBAL=136, TREON=128, PENTAG=128.',
     },
     {
-      name: 'unknown_0x22',
+      name: 'encumbrance_max',
       offset: 0x22,
-      // UNKNOWN. Stock values: 2700, 1800, 1125, 1035, 1440, 1350.
-      // Previously misidentified as gold. Gold is confirmed at +0x14.
+      // HIGH CONFIDENCE: maximum carry capacity in tenths of a pound.
+      // Source: martydill/pcfile_editor.py docstring (same field family as encumbrance_current).
+      // Previously misidentified as gold — gold is confirmed at +0x14.
+      // Stock: THESUS=2700(270lbs), TEMPEST=1800, LYSANDR=1125, NOBAL=1035, TREON=1440, PENTAG=1350.
+      // Higher STR yields higher capacity. THESUS(STR=18) has max capacity.
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Unknown u16 at +0x22. Stock values 2700/1800/1125. NOT gold (gold at +0x14).',
+      description: 'Max carry capacity in tenths of a pound. At +0x22. martydill cross-ref. Stock: THESUS=2700(270lbs), TEMPEST=1800, LYSANDR=1125, NOBAL=1035, TREON=1440, PENTAG=1350.',
     },
     {
       name: 'school_mana_cur',
@@ -262,7 +275,7 @@ export const CHARACTER_RECORD: BssStruct = {
         length: 22,
         element: { kind: 'bytes', length: 8 },
       },
-      description: 'Inventory grid: 22 item slots x 8 bytes at +0x40 (abs 0x4428..0x44ef). Per-slot layout: [0-1]=item_id(u16 LE), [2]=weight(cached), [3]=0, [4]=equip_slot(cached), [5]=sprite_idx(cached), [6]=quantity, [7]=flags(0x01/0x02=CURSED,0x04=stackable,0x08=2H,0x40=CLASS_LOCKED). item_id=0 means empty slot. Stock chars have 5 items each.',
+      description: 'Inventory grid: 22 item slots x 8 bytes at +0x40 (abs 0x4428..0x44ef). Per-slot layout: [0-1]=item_id(u16 LE), [2]=weight(cached), [3]=0, [4]=equip_slot(cached), [5]=sprite_idx(cached), [6]=quantity, [7]=flags(0x01/0x02=CURSED,0x04=stackable,0x08=2H,0x40=CLASS_LOCKED). item_id=0 means empty slot. Stock chars have 5 items each. NOTE: martydill cross-ref says 20 effective slots (2 pages x 10); last 2 slots (20-21) are vestigial/padding. Slots 20-21 are all-zero in stock data, consistent with both interpretations.',
     },
     {
       name: 'equipment',
@@ -328,7 +341,7 @@ export const CHARACTER_RECORD: BssStruct = {
         length: 8,
         element: { kind: 'scalar', scalar: 'u8' },
       },
-      description: 'STR/INT/PIE/VIT/DEX/SPD/PER/KAR (8 bytes, range 0..18). At +0x12c (abs 0x4514). Stats panel msgs 0xcc..0xd3.',
+      description: 'STR/INT/PIE/VIT/DEX/SPD/PER/KAR (8 bytes, range 0..18). At +0x12c (abs 0x4514). Stats panel msgs 0xcc..0xd3. PER=Personality, KAR=Karma — confirmed as distinct named primary stats per manual p. 11.',
     },
     {
       name: 'skills',
@@ -339,25 +352,36 @@ export const CHARACTER_RECORD: BssStruct = {
       //   mov al,[bx+0x451c]; add ax,[bp-0x2]; mov [bx+0x451c],al (write back)
       // skill_apply_growth (wpcvw file+0x86d2): iterates [bp-2] from 0 to 0x0d (14 total).
       // Cap = 0x32 = 50 (NOT 100).
-      // Stock: THESUS [0,10,0,0,0,0,0,0,2,...], TEMPEST [0,16,...], LYSANDR [1,3,...],
-      //        NOBAL [0,0,0,0,2,0,0,0,2,...], TREON [0,0,0,0,7,...], PENTAG [5,...]
+      //
+      // EXTENDED TO 30 BYTES (+0x134..+0x151):
+      // The prior 'derived_stats_block' at +0x142..+0x151 is skill continuation.
+      // Empirically confirmed from stock char data (docs/re/findings/character-record-consolidated-rename.json):
+      //   LYSANDR(Thief): skills[15]=10 (Skulduggery — per martydill SKILL_INDEX_MAP)
+      //   NOBAL(Priest): skills[26]=7 (Theology)
+      //   TREON(Mage): skills[28]=10 (Thaumaturgy)
+      //   PENTAG(Mage): skills[28]=7 (Thaumaturgy)
+      // All match class archetypes perfectly.
+      //
+      // SKILL_INDEX_MAP (martydill/bane/data/character_parser.py):
+      // 0=Sword, 1=Axe, 2=Polearm, 3=Mace&Flail, 4=Dagger, 5=Staff&Wand, 6=Shield,
+      // 7=ModernWeapons, 8=Bow, 9=ThrownWeapons, 10=(hole), 11=Sling, 12=Whip,
+      // 13=Music, 14=Legerdemain, 15=Skulduggery, 16=Ninjutsu, 17-21=(holes),
+      // 22=Scouting, 23=Mythology, 24=Scribe, 25=Alchemy, 26=Theology, 27=Theosophy,
+      // 28=Thaumaturgy, 29=Kirijutsu
+      // NOTE: Weaponry slot order (0-12) matches martydill but differs from manual ordering.
+      // Mark MEDIUM confidence for slots 0-12; HIGH for slots 13-29 (class-confirmed).
+      //
+      // Stock: THESUS [0,10,0,0,0,0,0,0,2,0,...zeros...], TEMPEST [0,16,...zeros...],
+      //        LYSANDR [1,3,0,...,0,10,...zeros...] (skill[15]=Skulduggery=10),
+      //        NOBAL [0,0,0,0,2,0,0,0,2,...zeros...,7,0,0] (skill[26]=Theology=7),
+      //        TREON [0,0,0,0,7,...zeros...,10,0] (skill[28]=Thaumaturgy=10),
+      //        PENTAG [5,0,...zeros...,7,0] (skill[28]=Thaumaturgy=7)
       type: {
         kind: 'array',
-        length: 14,
+        length: 30,
         element: { kind: 'scalar', scalar: 'u8' },
       },
-      description: '14 skill levels (0..50). At +0x134 (abs 0x451c). Cap is 0x32=50. skill_roll_check (0xa4c1): [bx+0x451c+skill_idx]. skill_apply_growth (0x86d2) iterates 14 entries.',
-    },
-    {
-      name: 'derived_stats_block',
-      offset: 0x142,
-      // MEDIUM CONFIDENCE: 16-byte derived stats/flags block at abs 0x452a..0x4539.
-      // Mostly zero for fighters. Casters have class-specific nonzero values.
-      // Confirmed: wtrea.ovr reads abs 0x4545 (=record+0x15d, in the school_rank_thresholds
-      // array below) for trap damage susceptibility. Lower = more susceptible.
-      // Stock: THESUS=[0..0], LYSANDR=[0,10,0..0], NOBAL=[0..0,7,0,0,0], TREON=[0..0,10,0], PENTAG=[0..0,7,0].
-      type: { kind: 'bytes', length: 16 },
-      description: '16-byte derived stats block at +0x142 (abs 0x452a). Mostly zero for fighters; class-specific nonzero values for casters/thieves. Exact semantics TBD.',
+      description: '30 skill levels (0..50) at +0x134..+0x151 (abs 0x451c..0x4539). Cap is 0x32=50. skill_roll_check: [bx+0x451c+skill_idx]. 30-byte extent confirmed by class-archetype skills: Skulduggery(slot 15), Theology(slot 26), Thaumaturgy(slot 28). Index map from martydill SKILL_INDEX_MAP.',
     },
     {
       name: 'school_rank_thresholds',
@@ -392,21 +416,23 @@ export const CHARACTER_RECORD: BssStruct = {
       description: 'Derived AC at +0x160 (abs 0x4548). Base 10, reduced by SPD bonuses, Faerie race, Monk/Ninja class. All stock chars = 10.',
     },
     {
-      name: 'unknown_0x161',
+      name: 'body_ac',
       offset: 0x161,
-      // UNKNOWN: 2 bytes, both = 0 for all stock chars.
-      // Adjacent to derived_ac. Possibly AC modifier components (bonus/penalty split).
-      type: { kind: 'bytes', length: 2 },
-      description: '2 unknown bytes at +0x161 (abs 0x4549..0x454a). Zero for all stock chars. Possibly AC sub-components.',
-    },
-    {
-      name: 'unknown_0x163',
-      offset: 0x163,
-      // UNKNOWN: 5 bytes, all = 10 (0x0a) for all 6 stock characters.
-      // No overlay ASM references found for these specific offsets in this pass.
-      // Constant value 10 across all chars regardless of class or race.
-      type: { kind: 'bytes', length: 5 },
-      description: '5 unknown bytes at +0x163 (abs 0x454b..0x454f). All = 10 (0x0a) for all stock chars regardless of class/race. Purpose unknown.',
+      // MEDIUM-HIGH CONFIDENCE: 7-byte per-body-part AC array at abs 0x4549..0x454f.
+      // Manual p. 25-26 AC sub-components diagram shows exactly 7 values:
+      //   Magical AC (covers entire body), Head, Chest, Legs, Hands, Feet, Encumbrance/Shield.
+      // Stock chars (unarmored): +0x161=0, +0x162=0, +0x163..+0x167=10,10,10,10,10.
+      //   First 2 bytes (Magical=0, Encumbrance_penalty=0) are zero for unarmored stock chars.
+      //   Bytes +0x163..+0x167 = 10 = "virtually naked" base AC (manual p. 25).
+      // Slot ordering (best guess, needs ASM verify):
+      //   [0]=Magical, [1]=Encumbrance/Shield, [2]=Head, [3]=Chest, [4]=Legs, [5]=Hands, [6]=Feet
+      // NOTE: Exact slot ordering within the 7 values is MEDIUM confidence pending AC-update ASM trace.
+      type: {
+        kind: 'array',
+        length: 7,
+        element: { kind: 'scalar', scalar: 'u8' },
+      },
+      description: '7-byte per-body-slot AC array at +0x161 (abs 0x4549..0x454f). Manual p. 25: AC sub-components = Magical+Head+Chest+Legs+Hands+Feet+Encumbrance/Shield. Base 10 = unarmored. Stock chars: first 2 bytes = 0, remaining 5 = 10.',
     },
     {
       name: 'reaction',
@@ -583,12 +609,15 @@ export const CHARACTER_RECORD: BssStruct = {
       description: 'Count of items in inventory (0..22). At +0x1ac (abs 0x4594). Stock chars all = 5.',
     },
     {
-      name: 'unknown_0x1ad',
+      name: 'inventory_count_page2',
       offset: 0x1ad,
-      // UNKNOWN: 1 byte at abs 0x4595. All stock chars = 0.
-      // Adjacent to inventory_count (+0x1ac) and unknown_0x1ae.
+      // MEDIUM CONFIDENCE: page-2 inventory count.
+      // Source: martydill/pcfile_editor.py companion to inventory_count (+0x1ac) for page-2.
+      // Inventory is documented as 2 pages of 10 items each; page-1 count at +0x1ac,
+      // page-2 count at +0x1ad. Stock chars only have 5 items (all on page 1) so this = 0.
+      // abs 0x4595 = base 0x43e8 + 0x1ad.
       type: { kind: 'scalar', scalar: 'u8' },
-      description: '1 unknown byte at +0x1ad (abs 0x4595). Zero for all stock chars.',
+      description: 'Count of items on inventory page 2 (0..10). At +0x1ad (abs 0x4595). martydill cross-ref. Stock chars all = 0 (5 items total on page 1 only).',
     },
     {
       name: 'unknown_0x1ae',

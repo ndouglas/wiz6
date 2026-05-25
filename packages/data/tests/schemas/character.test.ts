@@ -14,11 +14,11 @@ const VALID: Character = {
   paralyzed: false,
   attributes: {
     str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12,
-    personality: 50, karma: 50,
+    per: 50, kar: 50,
   },
   schoolMana: [0, 0, 0, 0, 0, 0],
   schoolManaMax: [0, 0, 0, 0, 0, 0],
-  skills: new Array(14).fill(0),
+  skills: new Array(30).fill(0),
   savedOldLevel: 0,
   reaction: 0,
 };

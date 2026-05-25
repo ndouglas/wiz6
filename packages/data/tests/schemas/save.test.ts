@@ -8,10 +8,10 @@ const PM: PartyMember = {
   race: 0, class: 0, level: 1, xp: 0, gold: 0,
   conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   dead: false, paralyzed: false,
-  attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, personality: 50, karma: 50 },
+  attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, per: 50, kar: 50 },
   schoolMana: [0, 0, 0, 0, 0, 0],
   schoolManaMax: [0, 0, 0, 0, 0, 0],
-  skills: new Array(14).fill(0),
+  skills: new Array(30).fill(0),
   savedOldLevel: 0, reaction: 0,
 };
 

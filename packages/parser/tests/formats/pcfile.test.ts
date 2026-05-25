@@ -73,15 +73,89 @@ describe('decodePcfile', () => {
     expect(thesus.conditions[3]).toBe(0); // paralyzed = false
   });
 
-  it('decodes THESUS skills (Fighter: skill[1]=10, skill[8]=2)', () => {
+  it('decodes THESUS skills (Fighter: 30 bytes, skill[1]=10, skill[8]=2)', () => {
     const { slots } = decodePcfile(new Uint8Array(PCFILE));
     const thesus = slots.find((s) => s.name === 'THESUS')!;
-    // skills[14] at +0x134 (abs 0x451c). Cap = 50.
+    // skills[30] at +0x134..+0x151 (abs 0x451c..0x4539). Cap = 50.
+    // EXTENDED from 14 to 30: prior 'derived_stats_block' was skill continuation.
     // skill_roll_check (wpcvw file+0xa4c1): cmp [bx+0x451c], 0x32.
-    expect(thesus.skills.length).toBe(14);
-    expect(thesus.skills[1]).toBe(10); // weapon skill (fighter primary)
-    expect(thesus.skills[8]).toBe(2);  // secondary skill
+    expect(thesus.skills.length).toBe(30);
+    expect(thesus.skills[1]).toBe(10); // weapon skill (fighter primary, slot 1=Axe per martydill)
+    expect(thesus.skills[8]).toBe(2);  // secondary skill (Bow per martydill)
     expect(thesus.skills.every((v) => v <= 50)).toBe(true); // cap check
+  });
+
+  it('decodes LYSANDR skills: skill[15]=10 (Skulduggery, Thief)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const lysandr = slots.find((s) => s.name === 'LYSANDR')!;
+    // Thief: Skulduggery at slot 15 per martydill SKILL_INDEX_MAP. Confirms 30-byte extent.
+    expect(lysandr.skills.length).toBe(30);
+    expect(lysandr.skills[15]).toBe(10); // Skulduggery
+  });
+
+  it('decodes NOBAL skills: skill[26]=7 (Theology, Priest)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const nobal = slots.find((s) => s.name === 'NOBAL')!;
+    // Priest: Theology at slot 26 per martydill SKILL_INDEX_MAP.
+    expect(nobal.skills.length).toBe(30);
+    expect(nobal.skills[26]).toBe(7); // Theology
+  });
+
+  it('decodes TREON skills: skill[28]=10 (Thaumaturgy, Mage)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const treon = slots.find((s) => s.name === 'TREON')!;
+    // Mage: Thaumaturgy at slot 28 per martydill SKILL_INDEX_MAP.
+    expect(treon.skills.length).toBe(30);
+    expect(treon.skills[28]).toBe(10); // Thaumaturgy
+  });
+
+  it('decodes encumbranceCurrent and encumbranceMax for all stock chars', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const populated = slots.filter((s) => s.populated);
+    const names = populated.map((s) => s.name);
+    expect(names).toEqual(['THESUS', 'TEMPEST', 'LYSANDR', 'NOBAL', 'TREON', 'PENTAG']);
+    // encumbranceCurrent: current load in tenths of a pound. martydill cross-ref.
+    expect(populated[0]!.encumbranceCurrent).toBe(295); // THESUS (STR=18)
+    expect(populated[1]!.encumbranceCurrent).toBe(295); // TEMPEST
+    expect(populated[2]!.encumbranceCurrent).toBe(225); // LYSANDR
+    // encumbranceMax: max capacity in tenths of a pound. Scales with STR.
+    expect(populated[0]!.encumbranceMax).toBe(2700); // THESUS (270 lbs)
+    expect(populated[3]!.encumbranceMax).toBe(1035); // NOBAL
+    // All max > current (not over-encumbered)
+    for (const s of populated) {
+      expect(s.encumbranceCurrent).toBeGreaterThan(0);
+      expect(s.encumbranceMax).toBeGreaterThan(s.encumbranceCurrent);
+    }
+  });
+
+  it('decodes mks = 0 for all stock chars (no kills before game start)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const populated = slots.filter((s) => s.populated);
+    // mks (Monster Kill Statistic) at +0x10. Manual p. 23: kill counter.
+    for (const s of populated) {
+      expect(s.mks).toBe(0);
+    }
+  });
+
+  it('decodes bodyAc = [0,0,10,10,10,10,10] for all stock chars (unarmored base)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const populated = slots.filter((s) => s.populated);
+    // bodyAc[7] at +0x161. Manual p. 25: AC sub-components.
+    // Stock chars unarmored: first 2 bytes 0, remaining 5 = 10 (base AC).
+    for (const s of populated) {
+      expect(s.bodyAc).toHaveLength(7);
+      // Bytes 2-6 should all be 10 (base unarmored AC)
+      expect(s.bodyAc.slice(2)).toEqual([10, 10, 10, 10, 10]);
+    }
+  });
+
+  it('decodes inventoryCountPage2 = 0 for all stock chars (page-1 only)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const populated = slots.filter((s) => s.populated);
+    // inventoryCountPage2 at +0x1ad. martydill cross-ref. 0 = no page-2 items.
+    for (const s of populated) {
+      expect(s.inventoryCountPage2).toBe(0);
+    }
   });
 
   it('decodes THESUS savedOldLevel=0 (never changed class)', () => {

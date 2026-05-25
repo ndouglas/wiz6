@@ -62,10 +62,18 @@ export const AttributesSchema = z.object({
   dex: U8,
   /** SPD — Speed. */
   spd: U8,
-  /** Personality (engine offset +0x4598; exact name order vs Karma unverified). */
-  personality: U8,
-  /** Karma (engine offset +0x4599; exact name order vs Personality unverified). */
-  karma: U8,
+  /**
+   * PER — Personality. Engine offset +0x451a (record +0x132). Manual p. 11: "Personality (PER)"
+   * distinct primary stat. Governs NPC friendliness/interaction; extroverted=high, shy=low.
+   * HIGH confidence. Renamed from 'personality'.
+   */
+  per: U8,
+  /**
+   * KAR — Karma. Engine offset +0x451b (record +0x133). Manual p. 11: "Karma (KAR)"
+   * distinct primary stat. "Ethical meter" — affects everything. Starts 0 for all races; rolled at creation.
+   * HIGH confidence. Renamed from 'karma'.
+   */
+  kar: U8,
 });
 
 export const CharacterSchema = z.object({
@@ -105,7 +113,7 @@ export const CharacterSchema = z.object({
    * Derived from conditions[3] (paralyzed/stone override byte). True if conditions[3] != 0.
    */
   paralyzed: z.boolean(),
-  /** Six base attributes + 2 personality bytes. */
+  /** Eight primary attributes: STR/INT/PIE/VIT/DEX/SPD/PER/KAR. */
   attributes: AttributesSchema,
   /**
    * Per-school mana current values (6 schools: Fire/Water/Air/Earth/Mental/Divine).
@@ -118,8 +126,15 @@ export const CharacterSchema = z.object({
    * Engine record: +0x2a+i*4 for school i. HIGH confidence.
    */
   schoolManaMax: z.array(U16).length(6),
-  /** 14 skill levels (0..50). Cap is 50 (engine: 0x32). Bumped by wmaze + wmele on action attempts. */
-  skills: z.array(U8).length(14),
+  /**
+   * 30 skill levels (0..50). Cap is 50 (engine: 0x32). Bumped by wmaze + wmele on action attempts.
+   * EXTENDED from 14 to 30: empirically confirmed via class-archetype skills in pcfile.dbs.
+   * Index map (martydill SKILL_INDEX_MAP): 0=Sword,1=Axe,2=Polearm,3=Mace&Flail,4=Dagger,
+   * 5=Staff&Wand,6=Shield,7=ModernWeapons,8=Bow,9=ThrownWeapons,11=Sling,12=Whip,13=Music,
+   * 14=Legerdemain,15=Skulduggery,16=Ninjutsu,22=Scouting,23=Mythology,24=Scribe,25=Alchemy,
+   * 26=Theology,27=Theosophy,28=Thaumaturgy,29=Kirijutsu. Slots 10,17-21 are holes (always 0).
+   */
+  skills: z.array(U8).length(30),
   /**
    * NPC reaction score (0..100). Updated by wmnpc.ovr after encounters.
    * Engine record: +0x168 (abs 0x4550). HIGH confidence.
@@ -171,6 +186,31 @@ export const CharacterSchema = z.object({
    * Optional for backwards-compatibility.
    */
   schoolRankThresholds: z.array(U8).length(14).optional(),
+  /**
+   * Monster Kill Statistic (MKS). Manual p. 23. u32. At record +0x10.
+   * wmexe.ovr increments per kill. Stock chars all 0.
+   * Optional for backwards-compatibility.
+   */
+  mks: U32.optional(),
+  /**
+   * Current encumbrance load in tenths of a pound. u16 at record +0x20.
+   * martydill cross-ref. wpcvw accumulates item weights here.
+   * Optional for backwards-compatibility.
+   */
+  encumbranceCurrent: U16.optional(),
+  /**
+   * Max carry capacity in tenths of a pound. u16 at record +0x22.
+   * martydill cross-ref. Scales with STR.
+   * Optional for backwards-compatibility.
+   */
+  encumbranceMax: U16.optional(),
+  /**
+   * Per-body-slot Armor Class values: 7 bytes at record +0x161..+0x167.
+   * Manual p. 25: AC sub-components = Magical+Head+Chest+Legs+Hands+Feet+Encumbrance/Shield.
+   * Base 10 = unarmored. Stock: [0,0,10,10,10,10,10].
+   * Optional for backwards-compatibility.
+   */
+  bodyAc: z.array(U8).length(7).optional(),
 });
 
 export const PartyMemberSchema = CharacterSchema.extend({

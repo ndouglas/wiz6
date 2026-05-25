@@ -22,16 +22,25 @@ function emptySlot(slot: number): PcfileSlot {
     slot, populated: false, name: null,
     ageCounter: 0,
     xp: 0,
+    // mks (Monster Kill Statistic). Manual p. 23: kill counter. 0 for stock chars.
+    mks: 0,
     gold: 0,
     hpCurrent: 0, hpMax: 0,
     spCurrent: 0, spMax: 0,
+    // encumbranceCurrent: current load in tenths of a pound. martydill cross-ref.
+    encumbranceCurrent: 0,
+    // encumbranceMax: max carry capacity in tenths of a pound. martydill cross-ref.
+    encumbranceMax: 0,
     schoolManaCur: [0, 0, 0, 0, 0, 0],
     schoolManaMax: [0, 0, 0, 0, 0, 0],
     level: 0, levelSecondary: 0,
     conditions: new Array(10).fill(0),
     race: 0, alignment: 0, class: 0,
     str: 0, int: 0, pie: 0, vit: 0, dex: 0, spd: 0, per: 0, kar: 0,
-    skills: new Array(14).fill(0),
+    // skills: 30 bytes (EXTENDED from 14). Prior 'derived_stats_block' was skill continuation.
+    skills: new Array(30).fill(0),
+    // bodyAc: 7-byte per-body-slot AC. Manual p. 25. Stock unarmored = [0,0,10,10,10,10,10].
+    bodyAc: [0, 0, 10, 10, 10, 10, 10],
     schoolRankThresholds: new Array(14).fill(0),
     derivedAc: 10,
     reaction: 0,
@@ -39,6 +48,8 @@ function emptySlot(slot: number): PcfileSlot {
     spellSlotsKnown: new Array(20).fill(0),
     portraitIndex: 0,
     inventoryCount: 0,
+    // inventoryCountPage2: page-2 item count. martydill cross-ref. 0 for stock chars.
+    inventoryCountPage2: 0,
     savedOldLevel: 0,
     // Inventory: 22 empty slots. inventory_count in raw = 0; all item_ids = 0.
     inventory: new Array(22).fill(EMPTY_INV_ITEM),
@@ -71,8 +82,14 @@ describe('PcfileSlotSchema', () => {
       name: 'THESUS',
       ageCounter: 6590,
       xp: 0,
+      // mks (Monster Kill Statistic): 0 for stock chars (no kills yet).
+      mks: 0,
       // Gold at +0x14: 0 for all stock chars. CORRECTED from prior +0x22 u16 = 2700.
       gold: 0,
+      // encumbranceCurrent: 295 (29.5 lbs). THESUS carries 5 items. martydill cross-ref.
+      encumbranceCurrent: 295,
+      // encumbranceMax: 2700 (270 lbs). THESUS has STR=18 (max strength). martydill cross-ref.
+      encumbranceMax: 2700,
       hpCurrent: 8, hpMax: 8,
       spCurrent: 126, spMax: 126,
       // School mana: all 0 for fighters (no spell schools).
@@ -86,8 +103,11 @@ describe('PcfileSlotSchema', () => {
       alignment: 0,  // Good (tentative)
       class: 0,      // Fighter
       str: 18, int: 8, pie: 8, vit: 12, dex: 10, spd: 9, per: 8, kar: 14,
-      // Skills: fighter primary skill[1]=10, skill[8]=2.
-      skills: [0, 10, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0],
+      // Skills (30 bytes): fighter primary skill[1]=10(Axe per martydill), skill[8]=2(Bow).
+      // Remaining 16 bytes (the old 'derived_stats_block') now decoded as skills 14-29.
+      skills: [0, 10, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      // bodyAc[7] at +0x161. Manual p. 25: AC sub-components. Stock unarmored = [0,0,10,10,10,10,10].
+      bodyAc: [0, 0, 10, 10, 10, 10, 10],
       // schoolRankThresholds: class-derived values at +0x152. MEDIUM confidence.
       schoolRankThresholds: [0, 8, 4, 8, 4, 8, 8, 8, 8, 28, 8, 48, 4, 0],
       // derivedAc: base 10 at +0x160. No SPD bonus, not Faerie, not Monk/Ninja.

@@ -45,35 +45,43 @@ export const PcfileHeaderSchema = z.object({
  * The full 432-byte raw record is preserved as `raw`.
  *
  * Field offsets (record-relative, verified by wpcvw.ovr ASM traces):
- * - name           @ +0x00, 8 bytes ASCII null-terminated
- * - ageCounter     @ +0x08, u32 LE  (stats panel image 0x1077: [bx+0x43f0] / 365 -> age in years)
- * - xp             @ +0x0c, u32 LE  (class_change_apply image 0x61e7 clears)
- * - gold           @ +0x14, u32 LE  (give_gold 0x513e: 32-bit carry math on abs 0x43fc/0x43fe)
- *                                    CORRECTED: prior schema had gold@+0x22 u16 -- that was wrong.
- * - hpCurrent      @ +0x18, u16 LE  (abs 0x4400)
- * - hpMax          @ +0x1A, u16 LE  (abs 0x4402)
- * - spCurrent      @ +0x1C, u16 LE  (abs 0x4404)
- * - spMax          @ +0x1E, u16 LE  (abs 0x4406)
- * - schoolManaCur  @ +0x28+i*4, u16[6] interleaved with schoolManaMax
- *                                    (stats panel loop file+0x0e55+0x4c: [bx+0x4410+i*4])
- * - schoolManaMax  @ +0x2a+i*4, u16[6] interleaved with schoolManaCur
- *                                    (stats panel loop file+0x0e55+0x4c: [bx+0x4412+i*4])
- * - level          @ +0x24, u16 LE  (stats panel 0x117b: push [bx+0x440c])
- * - levelSecondary @ +0x26, u16 LE  (stats panel displays, equals level in stock data)
- * - conditions     @ +0x122..+0x12b, u8[10]
- *                                    (priority loop file+0x05c6: for si=0..9 [bx+0x450a+si])
- *                                    conditions[2]=dead, conditions[3]=paralyzed (portrait overrides)
+ * - name                  @ +0x00, 8 bytes ASCII null-terminated
+ * - ageCounter            @ +0x08, u32 LE  (stats panel image 0x1077: [bx+0x43f0] / 365 -> age in years)
+ * - xp                    @ +0x0c, u32 LE  (class_change_apply image 0x61e7 clears)
+ * - mks                   @ +0x10, u32 LE  Monster Kill Statistic (MKS). Manual p. 23. wmexe increments per kill.
+ * - gold                  @ +0x14, u32 LE  (give_gold 0x513e: 32-bit carry math on abs 0x43fc/0x43fe)
+ *                                           CORRECTED: prior schema had gold@+0x22 u16 -- that was wrong.
+ * - hpCurrent             @ +0x18, u16 LE  (abs 0x4400)
+ * - hpMax                 @ +0x1A, u16 LE  (abs 0x4402)
+ * - spCurrent             @ +0x1C, u16 LE  (abs 0x4404)
+ * - spMax                 @ +0x1E, u16 LE  (abs 0x4406)
+ * - encumbranceCurrent    @ +0x20, u16 LE  (martydill: current load tenths-of-pound; wpcvw+0x0e3d adds inv weights)
+ * - encumbranceMax        @ +0x22, u16 LE  (martydill: max carry capacity tenths-of-pound; scales with STR)
+ * - schoolManaCur         @ +0x28+i*4, u16[6] interleaved with schoolManaMax
+ *                                           (stats panel loop file+0x0e55+0x4c: [bx+0x4410+i*4])
+ * - schoolManaMax         @ +0x2a+i*4, u16[6] interleaved with schoolManaCur
+ *                                           (stats panel loop file+0x0e55+0x4c: [bx+0x4412+i*4])
+ * - level                 @ +0x24, u16 LE  (stats panel 0x117b: push [bx+0x440c])
+ * - levelSecondary        @ +0x26, u16 LE  (stats panel displays, equals level in stock data)
+ * - conditions            @ +0x122..+0x12b, u8[10]
+ *                                           (priority loop file+0x05c6: for si=0..9 [bx+0x450a+si])
+ *                                           conditions[2]=dead, conditions[3]=paralyzed (portrait overrides)
  * - str/int/pie/vit/dex/spd/per/kar @ +0x12c..+0x133, u8[8]
- *                                    (stats panel loop: [bx+0x4514+i] i=0..7, msgs 0xcc..0xd3)
- * - skills         @ +0x134..+0x141, u8[14]  cap=50
- *                                    (skill_roll_check file+0xa4c1: cmp [bx+0x451c], 0x32)
- * - reaction       @ +0x168, u8     (wmnpc.ovr file+0x671d: read/write [bx+0x4550]; capped 100)
- * - race           @ +0x19d, u8     (stats panel: mov al,[bx+0x4585]; add ax,0x64 -> msg lookup)
- *                                    NOTE: bss_layout "+0x19c" was wrong; correct is 0x19d.
- * - alignment      @ +0x19e, u8     (stats panel: mov al,[bx+0x4586]; add ax,0x8c -> msg lookup)
- * - class          @ +0x19f, u8     (stats panel: mov al,[bx+0x4587]; add ax,0x78 -> msg lookup)
- *                                    NOTE: bss_layout "+0x19e" was wrong; correct is 0x19f.
- * - savedOldLevel  @ +0x1af, u8     (class_change_apply 0x6054: stores old level; throttle ref)
+ *                                           (stats panel loop: [bx+0x4514+i] i=0..7, msgs 0xcc..0xd3)
+ *                                           per=Personality, kar=Karma (manual p. 11, distinct named stats)
+ * - skills                @ +0x134..+0x151, u8[30]  cap=50
+ *                                           EXTENDED from 14 to 30 bytes. Prior +0x142..+0x151
+ *                                           'derived_stats_block' is skill continuation.
+ *                                           (skill_roll_check file+0xa4c1: cmp [bx+0x451c], 0x32)
+ * - bodyAc                @ +0x161..+0x167, u8[7]  per-body-slot AC (manual p. 25: 7 sub-components)
+ * - reaction              @ +0x168, u8     (wmnpc.ovr file+0x671d: read/write [bx+0x4550]; capped 100)
+ * - race                  @ +0x19d, u8     (stats panel: mov al,[bx+0x4585]; add ax,0x64 -> msg lookup)
+ *                                           NOTE: bss_layout "+0x19c" was wrong; correct is 0x19d.
+ * - alignment             @ +0x19e, u8     (stats panel: mov al,[bx+0x4586]; add ax,0x8c -> msg lookup)
+ * - class                 @ +0x19f, u8     (stats panel: mov al,[bx+0x4587]; add ax,0x78 -> msg lookup)
+ *                                           NOTE: bss_layout "+0x19e" was wrong; correct is 0x19f.
+ * - savedOldLevel         @ +0x1af, u8     (class_change_apply 0x6054: stores old level; throttle ref)
+ * - inventoryCountPage2   @ +0x1ad, u8     (martydill: page-2 item count; stock chars all 0)
  */
 export const PcfileSlotSchema = z.object({
   slot: U8,
@@ -81,12 +89,33 @@ export const PcfileSlotSchema = z.object({
   name: z.string().nullable(),
   ageCounter: U32,
   xp: U32,
+  /**
+   * Monster Kill Statistic (MKS). At +0x10 (abs 0x43f8/0x43fa). u32 LE.
+   * Manual p. 23: "number of monsters you have, in one way or another, sent to the Grim Reaper."
+   * wmexe.ovr increments this per kill. All stock chars = 0.
+   * HIGH confidence. Renamed from 'unknown_0x10'.
+   */
+  mks: U32,
   /** Gold pieces (32-bit). At +0x14 (abs 0x43fc/0x43fe). Stock chars all 0. */
   gold: U32,
   hpCurrent: U16,
   hpMax: U16,
   spCurrent: U16,
   spMax: U16,
+  /**
+   * Current encumbrance load in tenths of a pound. At +0x20 (abs 0x4408). u16 LE.
+   * martydill/pcfile_editor.py cross-ref. wpcvw accumulates item weights here.
+   * Stock: THESUS=295, TEMPEST=295, LYSANDR=225, NOBAL=136, TREON=128, PENTAG=128.
+   * HIGH confidence. Renamed from 'unknown_0x20'. Refutes 'Rebirths at +0x20' hypothesis.
+   */
+  encumbranceCurrent: U16,
+  /**
+   * Max carry capacity in tenths of a pound. At +0x22. u16 LE.
+   * martydill/pcfile_editor.py cross-ref. Scales with STR.
+   * Stock: THESUS=2700 (270 lbs), TEMPEST=1800, LYSANDR=1125, NOBAL=1035, TREON=1440, PENTAG=1350.
+   * HIGH confidence. Renamed from 'unknown_0x22' (was previously misidentified as gold).
+   */
+  encumbranceMax: U16,
   /**
    * Per-school mana current values (6 schools: Fire/Water/Air/Earth/Mental/Divine).
    * At +0x28+i*4 for school i. Interleaved with schoolManaMax (+0x2a+i*4).
@@ -147,11 +176,25 @@ export const PcfileSlotSchema = z.object({
   /** Karma attribute. At +0x133 (abs 0x451b). HIGH confidence (8th attr in 8-byte block). */
   kar: U8,
   /**
-   * 14 skill levels (0..50). At +0x134..+0x141 (abs 0x451c..0x4529). HIGH confidence.
+   * 30 skill levels (0..50). At +0x134..+0x151 (abs 0x451c..0x4539). HIGH confidence.
    * skill_roll_check (wpcvw file+0xa4c1): cmp [bx+0x451c+skill_idx], 0x32 (cap at 50).
-   * skill_apply_growth (file+0x86d2): iterates 14 entries.
+   * EXTENDED from 14 to 30: prior 'derived_stats_block' at +0x142..+0x151 is skill continuation.
+   * Empirically confirmed: LYSANDR skills[15]=Skulduggery=10, NOBAL skills[26]=Theology=7,
+   * TREON skills[28]=Thaumaturgy=10, PENTAG skills[28]=Thaumaturgy=7.
+   * Index map (martydill SKILL_INDEX_MAP): 0=Sword,1=Axe,2=Polearm,3=Mace&Flail,4=Dagger,
+   * 5=Staff&Wand,6=Shield,7=ModernWeapons,8=Bow,9=ThrownWeapons,11=Sling,12=Whip,13=Music,
+   * 14=Legerdemain,15=Skulduggery,16=Ninjutsu,22=Scouting,23=Mythology,24=Scribe,25=Alchemy,
+   * 26=Theology,27=Theosophy,28=Thaumaturgy,29=Kirijutsu. Slots 10,17-21 are holes.
    */
-  skills: z.array(U8).length(14),
+  skills: z.array(U8).length(30),
+  /**
+   * Per-body-slot Armor Class values: 7 bytes at +0x161..+0x167 (abs 0x4549..0x454f).
+   * Manual p. 25-26: AC sub-components = Magical + Head + Chest + Legs + Hands + Feet + Encumbrance/Shield.
+   * Stock chars (unarmored): bodyAc=[0,0,10,10,10,10,10]. First 2 bytes 0 (no Magical AC / no encumbrance),
+   * remaining 5 bytes = 10 (manual: base AC 10 = "virtually naked").
+   * MEDIUM-HIGH confidence. Exact slot ordering needs ASM verification.
+   */
+  bodyAc: z.array(U8).length(7),
   /**
    * NPC reaction score (0..100). At +0x168 (abs 0x4550). HIGH confidence.
    * wmnpc.ovr file+0x671d: reads, updates via combat delta/10, clamps to 100, writes back.
@@ -181,9 +224,15 @@ export const PcfileSlotSchema = z.object({
   portraitIndex: U8,
   /**
    * Count of items in inventory (0..22). At +0x1ac (abs 0x4594). HIGH confidence.
-   * Stock chars all = 5 (5 starting items).
+   * Stock chars all = 5 (5 starting items on page 1).
    */
   inventoryCount: U8,
+  /**
+   * Page-2 item count (0..10). At +0x1ad (abs 0x4595). MEDIUM confidence.
+   * martydill cross-ref: companion to inventoryCount for the second inventory page (slots 10-19).
+   * Stock chars all = 0 (only 5 items, all on page 1).
+   */
+  inventoryCountPage2: U8,
   /**
    * Derived AC byte. At +0x160 (abs 0x4548). HIGH confidence.
    * Base 10. wpcvw derived_ac (file+0xaa94): SPD>=16 -1, SPD>=18 -1, Faerie -2, Monk/Ninja -(level/2).

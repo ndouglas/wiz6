@@ -78,10 +78,13 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       conditions.push(rec[0x122 + c]!);
     }
 
-    // Skills: 14-byte array at +0x134 (abs 0x451c). Cap = 0x32 = 50.
+    // Skills: 30-byte array at +0x134..+0x151 (abs 0x451c..0x4539). Cap = 0x32 = 50.
+    // EXTENDED from 14 to 30: prior 'derived_stats_block' at +0x142..+0x151 is skill continuation.
+    // Empirically confirmed: LYSANDR skills[15]=10(Skulduggery), NOBAL skills[26]=7(Theology),
+    // TREON skills[28]=10(Thaumaturgy), PENTAG skills[28]=7(Thaumaturgy).
     // skill_roll_check (wpcvw file+0xa4c1): [bx+0x451c+skill_idx]; cmp with 0x32.
     const skills: number[] = [];
-    for (let sk = 0; sk < 14; sk++) {
+    for (let sk = 0; sk < 30; sk++) {
       skills.push(rec[0x134 + sk]!);
     }
 
@@ -139,12 +142,23 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       schoolRankThresholds.push(rec[0x152 + s]!);
     }
 
+    // bodyAc: 7-byte per-body-slot AC array at +0x161..+0x167 (abs 0x4549..0x454f).
+    // Manual p. 25: AC sub-components = Magical+Head+Chest+Legs+Hands+Feet+Encumbrance/Shield.
+    // Stock chars (unarmored): first 2 bytes = 0, bytes 3-7 = 10.
+    const bodyAc: number[] = [];
+    for (let ba = 0; ba < 7; ba++) {
+      bodyAc.push(rec[0x161 + ba]!);
+    }
+
     slots.push({
       slot: i,
       populated,
       name,
       ageCounter: view.getUint32(recStart + 0x08, true),
       xp: view.getUint32(recStart + 0x0c, true),
+      // Monster Kill Statistic (MKS). Manual p. 23: kill counter. At +0x10 (abs 0x43f8/0x43fa).
+      // wmexe.ovr increments per kill. All stock chars = 0.
+      mks: view.getUint32(recStart + 0x10, true),
       // Gold is a 32-bit field at +0x14 (abs 0x43fc/0x43fe).
       // Corrected from prior +0x22 u16 which was an unidentified field.
       // give_gold (wpcvw 0x513e) uses 32-bit carry math on abs 0x43fc/0x43fe.
@@ -153,6 +167,13 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       hpMax: view.getUint16(recStart + 0x1A, true),
       spCurrent: view.getUint16(recStart + 0x1C, true),
       spMax: view.getUint16(recStart + 0x1E, true),
+      // encumbranceCurrent: current load in tenths of a pound. At +0x20 (abs 0x4408).
+      // martydill/pcfile_editor.py cross-ref. wpcvw accumulates inventory item weights here.
+      // Stock: THESUS=295, TEMPEST=295, LYSANDR=225, NOBAL=136, TREON=128, PENTAG=128.
+      encumbranceCurrent: view.getUint16(recStart + 0x20, true),
+      // encumbranceMax: max carry capacity in tenths of a pound. At +0x22.
+      // martydill cross-ref. Scales with STR: THESUS(STR=18)=2700, LYSANDR(STR=7)=1125.
+      encumbranceMax: view.getUint16(recStart + 0x22, true),
       schoolManaCur,
       schoolManaMax,
       level: view.getUint16(recStart + 0x24, true),
@@ -161,6 +182,7 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       // Attributes: 8-byte block at +0x12c (abs 0x4514).
       // Stats panel loop (wpcvw ndisasm 0x0e55+0x464): reads [bx+0x4514+i] for i=0..7
       // with msgs 0xcc..0xd3 = STR/INT/PIE/VIT/DEX/SPD/PER/KAR.
+      // PER=Personality, KAR=Karma (manual p. 11: distinct named primary stats).
       str: rec[0x12c]!,
       int: rec[0x12d]!,
       pie: rec[0x12e]!,
@@ -170,6 +192,7 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       per: rec[0x132]!,
       kar: rec[0x133]!,
       skills,
+      bodyAc,
       schoolRankThresholds,
       // Derived AC at +0x160 (abs 0x4548). HIGH confidence.
       // wpcvw derived_ac (file+0xaa94): base 10; SPD>=16 -1, SPD>=18 -1, Faerie -2, Monk/Ninja -(level/2).
@@ -193,6 +216,9 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       portraitIndex: rec[0x1ab]!,
       // inventoryCount at +0x1ac (abs 0x4594). HIGH confidence.
       inventoryCount: rec[0x1ac]!,
+      // inventoryCountPage2 at +0x1ad (abs 0x4595). MEDIUM confidence.
+      // martydill: page-2 item count. Stock chars all = 0.
+      inventoryCountPage2: rec[0x1ad]!,
       // savedOldLevel at +0x1af (abs 0x4597). MEDIUM confidence.
       // class_change_apply (wpcvw 0x6054): writes *0x4597 = old_level.
       savedOldLevel: rec[0x1af]!,
