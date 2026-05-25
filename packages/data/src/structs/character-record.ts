@@ -119,8 +119,9 @@ export const CHARACTER_RECORD: BssStruct = {
       offset: 0x20,
       // UNKNOWN. Stock values: 295, 295, 225, 136, 128, 128.
       // May be encumbrance capacity computed from STR/VIT.
+      // wpcvw file+0x0e3d/0x0e78: add [bx+0x4408],ax (accumulates into +0x20 from inventory).
       type: { kind: 'scalar', scalar: 'u16_le' },
-      description: 'Unknown u16 at +0x20. Stock values 295/225/136/128. Possibly encumbrance capacity.',
+      description: 'Unknown u16 at +0x20. Stock values 295/225/136/128. Possibly total encumbrance weight (accumulated from inventory).',
     },
     {
       name: 'unknown_0x22',
@@ -129,6 +130,39 @@ export const CHARACTER_RECORD: BssStruct = {
       // Previously misidentified as gold. Gold is confirmed at +0x14.
       type: { kind: 'scalar', scalar: 'u16_le' },
       description: 'Unknown u16 at +0x22. Stock values 2700/1800/1125. NOT gold (gold at +0x14).',
+    },
+    {
+      name: 'school_mana_cur',
+      offset: 0x28,
+      // HIGH CONFIDENCE: 6 u16s at abs 0x4410..0x4419 (even offsets), interleaved with max.
+      // Stats panel renderer (wpcvw file+0x0e55, ndisasm +0x4c..+0xee):
+      //   loop si=0..5; bx = slot*0x1b0 + si*4;
+      //   push word [bx+0x4410] (= cur for school si); render;
+      //   push word [bx+0x4412] (= max for school si); render.
+      // abs 0x4410 = base 0x43e8 + +0x28 = school_mana_cur[0].
+      // Stride: each school takes 4 bytes (2 bytes cur + 2 bytes max).
+      // Schools: 0=Fire, 1=Water, 2=Air, 3=Earth, 4=Mental, 5=Divine.
+      // Stock: TREON(Mage) has Fire=3, Mental=3; NOBAL(Priest) has Mental=5, Divine=4;
+      //        PENTAG(Mage) has Water=3, Earth=3. Fighters/Thief all 0.
+      type: {
+        kind: 'array',
+        length: 6,
+        element: { kind: 'scalar', scalar: 'u16_le' },
+      },
+      description: '6 per-school mana current values. Schools: [0]Fire [1]Water [2]Air [3]Earth [4]Mental [5]Divine. Layout: +0x28+i*4 = cur[i], +0x2a+i*4 = max[i]. Interleaved with school_mana_max.',
+    },
+    {
+      name: 'school_mana_max',
+      offset: 0x2a,
+      // HIGH CONFIDENCE: 6 u16s at abs 0x4412..0x441b (even offsets), interleaved with cur.
+      // See school_mana_cur above for evidence.
+      // Stock: TREON max = [3,0,0,0,3,0]; NOBAL max = [0,0,0,0,5,4]; PENTAG max = [0,3,0,3,0,0].
+      type: {
+        kind: 'array',
+        length: 6,
+        element: { kind: 'scalar', scalar: 'u16_le' },
+      },
+      description: '6 per-school mana max values (same school order as school_mana_cur). At +0x2a+i*4 for school i.',
     },
     {
       name: 'level',
@@ -167,10 +201,21 @@ export const CHARACTER_RECORD: BssStruct = {
       name: 'conditions',
       offset: 0x122,
       // HIGH CONFIDENCE: 10 condition bytes at abs 0x450a = base 0x43e8 + +0x122.
-      // Party-row renderer (0x465) iterates 10 bytes from abs 0x450a.
-      // Bytes +0x124/+0x125 = dead/paralyzed overrides, also checked by is-character-active (0x5b11).
-      type: { kind: 'bytes', length: 10 },
-      description: '10-condition tracker at +0x122 (abs 0x450a). Non-zero = active condition. Bytes +0x124/+0x125 = dead/paralyzed overrides. Stock all 0.',
+      // Priority loop (wpcvw file+0x05c6): for si=0..9: bx=slot*0x1b0+si;
+      //   cmp byte [bx+0x450a], 0 — iterates ALL 10 conditions for 'worst priority to display'.
+      // conditions[2] = +0x124 (abs 0x450c) = DEAD override (portrait icon 1):
+      //   wpcvw file+0x1468: cmp byte [bx+0x450c],0; if nonzero -> portrait 1.
+      // conditions[3] = +0x125 (abs 0x450d) = PARALYZED/STONE override (portrait icon 2):
+      //   wpcvw file+0x1487: cmp byte [bx+0x450d],0; if nonzero -> portrait 2.
+      // NOTE: dead and paralyzed are NOT separate bytes outside this array;
+      // they are conditions[2] and conditions[3] within it.
+      // All 6 stock chars have conditions = all zeros (no active conditions).
+      type: {
+        kind: 'array',
+        length: 10,
+        element: { kind: 'scalar', scalar: 'u8' },
+      },
+      description: '10-condition tracker at +0x122 (abs 0x450a..0x4513). Non-zero = active. conditions[2]=dead, conditions[3]=paralyzed/stone (both are portrait overrides). Stock all 0.',
     },
     {
       name: 'attributes',
@@ -195,13 +240,34 @@ export const CHARACTER_RECORD: BssStruct = {
     {
       name: 'skills',
       offset: 0x134,
-      // MEDIUM CONFIDENCE: abs 0x451c = base 0x43e8 + +0x134 per wpcvw bss_layout.
+      // HIGH CONFIDENCE: abs 0x451c = base 0x43e8 + +0x134.
+      // skill_roll_check (wpcvw file+0xa4c1):
+      //   add bx,[bp+0xc] (skill_index); cmp byte [bx+0x451c], 0x32 (cap check)
+      //   mov al,[bx+0x451c]; add ax,[bp-0x2]; mov [bx+0x451c],al (write back)
+      // skill_apply_growth (wpcvw file+0x86d2): iterates [bp-2] from 0 to 0x0d (14 total).
+      // Cap = 0x32 = 50 (NOT 100).
+      // Stock: THESUS [0,10,0,0,0,0,0,0,2,...], TEMPEST [0,16,...], LYSANDR [1,3,...],
+      //        NOBAL [0,0,0,0,2,0,0,0,2,...], TREON [0,0,0,0,7,...], PENTAG [5,...]
       type: {
         kind: 'array',
         length: 14,
         element: { kind: 'scalar', scalar: 'u8' },
       },
-      description: '14 skill levels (0..100). At +0x134 (abs 0x451c).',
+      description: '14 skill levels (0..50). At +0x134 (abs 0x451c). Cap is 0x32=50. skill_roll_check (0xa4c1): [bx+0x451c+skill_idx]. skill_apply_growth (0x86d2) iterates 14 entries.',
+    },
+    {
+      name: 'reaction',
+      offset: 0x168,
+      // HIGH CONFIDENCE: abs 0x4550 = base 0x43e8 + +0x168.
+      // wmnpc.ovr file+0x671d: mov al,[bx+0x4550]; cbw; cwd;
+      //   compute delta/10; add to reaction; cmp ax,0x64; clamp to 100;
+      //   mov [bx+0x4550],al (write back).
+      // Very high ref count in wmnpc.ovr: 15 reads + 7 writes — this is the
+      // primary NPC encounter reaction stat.
+      // Stock: THESUS=20, TEMPEST=12, LYSANDR=16, NOBAL=20, TREON=16, PENTAG=40.
+      // NOT 50 as neutral — stock chars have 12-40 range.
+      type: { kind: 'scalar', scalar: 'u8' },
+      description: 'NPC reaction score (0..100). At +0x168 (abs 0x4550). Updated by wmnpc.ovr after encounters. Capped at 100. Stock chars range 12-40.',
     },
     {
       name: 'race',

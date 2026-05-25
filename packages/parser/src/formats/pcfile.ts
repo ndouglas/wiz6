@@ -58,6 +58,32 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       name = decoder.decode(rec.subarray(0, nameEnd));
     }
 
+    // School mana: 6 schools interleaved as (cur u16, max u16) pairs.
+    // Stats panel loop (wpcvw file+0x0e55+0x4c): for i=0..5:
+    //   bx = slot*0x1b0 + i*4; push [bx+0x4410] (cur); push [bx+0x4412] (max).
+    // abs 0x4410 = base 0x43e8 + +0x28. Stride = 4 bytes per school.
+    const schoolManaCur: number[] = [];
+    const schoolManaMax: number[] = [];
+    for (let s = 0; s < 6; s++) {
+      schoolManaCur.push(view.getUint16(recStart + 0x28 + s * 4, true));
+      schoolManaMax.push(view.getUint16(recStart + 0x2a + s * 4, true));
+    }
+
+    // Conditions: 10-byte array at +0x122 (abs 0x450a).
+    // Priority loop (wpcvw file+0x05c6): for si=0..9: bx=slot*0x1b0+si; [bx+0x450a].
+    // conditions[2]=dead, conditions[3]=paralyzed (portrait overrides).
+    const conditions: number[] = [];
+    for (let c = 0; c < 10; c++) {
+      conditions.push(rec[0x122 + c]!);
+    }
+
+    // Skills: 14-byte array at +0x134 (abs 0x451c). Cap = 0x32 = 50.
+    // skill_roll_check (wpcvw file+0xa4c1): [bx+0x451c+skill_idx]; cmp with 0x32.
+    const skills: number[] = [];
+    for (let sk = 0; sk < 14; sk++) {
+      skills.push(rec[0x134 + sk]!);
+    }
+
     slots.push({
       slot: i,
       populated,
@@ -72,8 +98,11 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       hpMax: view.getUint16(recStart + 0x1A, true),
       spCurrent: view.getUint16(recStart + 0x1C, true),
       spMax: view.getUint16(recStart + 0x1E, true),
+      schoolManaCur,
+      schoolManaMax,
       level: view.getUint16(recStart + 0x24, true),
       levelSecondary: view.getUint16(recStart + 0x26, true),
+      conditions,
       // Attributes: 8-byte block at +0x12c (abs 0x4514).
       // Stats panel loop (wpcvw ndisasm 0x0e55+0x464): reads [bx+0x4514+i] for i=0..7
       // with msgs 0xcc..0xd3 = STR/INT/PIE/VIT/DEX/SPD/PER/KAR.
@@ -85,6 +114,10 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       spd: rec[0x131]!,
       per: rec[0x132]!,
       kar: rec[0x133]!,
+      skills,
+      // Reaction at +0x168 (abs 0x4550). HIGH confidence.
+      // wmnpc.ovr file+0x671d: reads, computes delta, clamps to 100, writes back.
+      reaction: rec[0x168]!,
       // Race at +0x19d (abs 0x4585). Stats panel: mov al,[bx+0x4585]; add ax,0x64 -> msg lookup.
       // NOTE: prior bss_layout "+0x19c" was wrong by 1 byte.
       race: rec[0x19d]!,
@@ -93,6 +126,9 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       // Class at +0x19f (abs 0x4587). Stats panel: mov al,[bx+0x4587]; add ax,0x78 -> msg lookup.
       // NOTE: prior bss_layout "+0x19e" was wrong by 1 byte.
       class: rec[0x19f]!,
+      // savedOldLevel at +0x1af (abs 0x4597). MEDIUM confidence.
+      // class_change_apply (wpcvw 0x6054): writes *0x4597 = old_level.
+      savedOldLevel: rec[0x1af]!,
       raw: Array.from(rec),
     });
   }

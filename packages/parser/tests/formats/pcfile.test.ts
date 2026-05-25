@@ -62,6 +62,67 @@ describe('decodePcfile', () => {
     expect(thesus.spd).toBe(9);
   });
 
+  it('decodes THESUS conditions = all zeros (no afflictions)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const thesus = slots.find((s) => s.name === 'THESUS')!;
+    // conditions[10] at +0x122 (abs 0x450a). All stock chars have no active conditions.
+    // conditions[2]=dead, conditions[3]=paralyzed/stone (portrait overrides).
+    // wpcvw file+0x05c6: priority loop iterates all 10 bytes from abs 0x450a.
+    expect(thesus.conditions).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(thesus.conditions[2]).toBe(0); // dead = false
+    expect(thesus.conditions[3]).toBe(0); // paralyzed = false
+  });
+
+  it('decodes THESUS skills (Fighter: skill[1]=10, skill[8]=2)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const thesus = slots.find((s) => s.name === 'THESUS')!;
+    // skills[14] at +0x134 (abs 0x451c). Cap = 50.
+    // skill_roll_check (wpcvw file+0xa4c1): cmp [bx+0x451c], 0x32.
+    expect(thesus.skills.length).toBe(14);
+    expect(thesus.skills[1]).toBe(10); // weapon skill (fighter primary)
+    expect(thesus.skills[8]).toBe(2);  // secondary skill
+    expect(thesus.skills.every((v) => v <= 50)).toBe(true); // cap check
+  });
+
+  it('decodes THESUS savedOldLevel=0 (never changed class)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const thesus = slots.find((s) => s.name === 'THESUS')!;
+    // savedOldLevel at +0x1af (abs 0x4597). Stock chars never changed class.
+    expect(thesus.savedOldLevel).toBe(0);
+  });
+
+  it('decodes THESUS reaction=20 (stock Fighter starting reaction)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const thesus = slots.find((s) => s.name === 'THESUS')!;
+    // reaction at +0x168 (abs 0x4550). Range 0..100.
+    // wmnpc.ovr file+0x671d: reads, adjusts via combat delta/10, clamps to 100, writes.
+    expect(thesus.reaction).toBe(20);
+  });
+
+  it('decodes school mana for TREON (Mage: Fire=3, Mental=3)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const treon = slots.find((s) => s.name === 'TREON')!;
+    // schoolManaCur at +0x28+i*4, schoolManaMax at +0x2a+i*4 (i=0..5).
+    // Stats panel loop (file+0x0e55+0x4c): bx=slot*0x1b0+i*4; push [bx+0x4410]; push [bx+0x4412].
+    // Schools: [0]=Fire [1]=Water [2]=Air [3]=Earth [4]=Mental [5]=Divine.
+    expect(treon.schoolManaCur).toEqual([3, 0, 0, 0, 3, 0]); // Fire + Mental
+    expect(treon.schoolManaMax).toEqual([3, 0, 0, 0, 3, 0]);
+  });
+
+  it('decodes school mana for NOBAL (Priest: Mental=5, Divine=4)', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const nobal = slots.find((s) => s.name === 'NOBAL')!;
+    expect(nobal.schoolManaCur).toEqual([0, 0, 0, 0, 5, 4]); // Mental + Divine
+    expect(nobal.schoolManaMax).toEqual([0, 0, 0, 0, 5, 4]);
+  });
+
+  it('decodes school mana for Fighters as all zeros', () => {
+    const { slots } = decodePcfile(new Uint8Array(PCFILE));
+    const thesus = slots.find((s) => s.name === 'THESUS')!;
+    expect(thesus.schoolManaCur).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(thesus.schoolManaMax).toEqual([0, 0, 0, 0, 0, 0]);
+  });
+
   it('decodes all 6 stock characters with correct race and class', () => {
     const { slots } = decodePcfile(new Uint8Array(PCFILE));
     const populated = slots.filter((s) => s.populated);

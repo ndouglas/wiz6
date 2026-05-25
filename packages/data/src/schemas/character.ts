@@ -58,19 +58,41 @@ export const CharacterSchema = z.object({
   xp: U32,
   /** Gold (engine field is u32; engine has 64-bit-safe add/subtract path). */
   gold: U32,
-  /** 10-condition tracker bytes (poisoned, paralyzed, etc.). */
+  /**
+   * 10-condition tracker bytes. Non-zero = active condition.
+   * conditions[2] = dead override (portrait icon 1).
+   * conditions[3] = paralyzed/stone override (portrait icon 2).
+   * Engine record: +0x122..+0x12b (abs 0x450a..0x4513). HIGH confidence.
+   */
   conditions: z.array(U8).length(10),
-  /** Hard dead flag. */
+  /**
+   * Derived from conditions[2] (dead override byte). True if conditions[2] != 0.
+   * Dead characters show a special portrait and are excluded from all actions.
+   */
   dead: z.boolean(),
-  /** Paralyzed flag (separate from `conditions` per engine layout). */
+  /**
+   * Derived from conditions[3] (paralyzed/stone override byte). True if conditions[3] != 0.
+   */
   paralyzed: z.boolean(),
   /** Six base attributes + 2 personality bytes. */
   attributes: AttributesSchema,
-  /** Per-school MP pools (6 schools, each u32 in the engine). */
-  schoolMana: z.array(U32).length(6),
-  /** 14 skill levels (0..100). Bumped by wmaze + wmele on action attempts. */
+  /**
+   * Per-school mana current values (6 schools: Fire/Water/Air/Earth/Mental/Divine).
+   * Engine stores interleaved (cur, max) u16 pairs at +0x28+i*4 and +0x2a+i*4.
+   * Each value is u16. HIGH confidence.
+   */
+  schoolMana: z.array(U16).length(6),
+  /**
+   * Per-school mana max values (same school order as schoolMana cur).
+   * Engine record: +0x2a+i*4 for school i. HIGH confidence.
+   */
+  schoolManaMax: z.array(U16).length(6),
+  /** 14 skill levels (0..50). Cap is 50 (engine: 0x32). Bumped by wmaze + wmele on action attempts. */
   skills: z.array(U8).length(14),
-  /** NPC reaction value (used by charm + dialogue paths). */
+  /**
+   * NPC reaction score (0..100). Updated by wmnpc.ovr after encounters.
+   * Engine record: +0x168 (abs 0x4550). HIGH confidence.
+   */
   reaction: U8,
 });
 

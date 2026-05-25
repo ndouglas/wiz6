@@ -17,6 +17,7 @@ const VALID: Character = {
     personality: 50, karma: 50,
   },
   schoolMana: [0, 0, 0, 0, 0, 0],
+  schoolManaMax: [0, 0, 0, 0, 0, 0],
   skills: new Array(14).fill(0),
   savedOldLevel: 0,
   reaction: 0,
