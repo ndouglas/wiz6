@@ -1,0 +1,84 @@
+{
+  "topic": "race-base-stats-table",
+  "date": "2026-05-26",
+  "summary": "Decoded the 11 × 9-byte race base-stat table at DGROUP+0x52D9. Each race row is 8 ASCII-encoded attribute minimums + 1 null terminator. Decoder formula: byte - 0x41 ('A') = minimum stat value. KAR is 0 for every race (karma is purely earned, never granted at creation). Data is loaded transiently into DGROUP when wpcmk_create_character_master runs (game_state=0x10); it is NOT populated at boot. Captured from save state with game_state=0x10 at the race-selection menu.",
+  "method": "MCP dosbox_read_memory at physical offset 0x18048+0x52D9 = 0x1D321 (length 99 bytes), against a save state captured at the race-selection menu (game_state=0x10). The 11 race-table-base immediates pushed by stats_bump_to_racial_minimums callers (wpcmk file 0x2fdb..0x3041) confirmed the table base + 9-byte stride.",
+  "findings": [
+    {
+      "id": "race-table-location",
+      "claim": "The 11-race attribute-floor table lives at DGROUP 0x52D9..0x5333+8, transiently populated during wpcmk character creation (game_state=0x10). Empty in any save captured before character creation runs.",
+      "category": "data-location",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": [
+          "file 0x2fdb: mov ax, 0x52d9; push ax; call stats_bump (race 0 / Human)",
+          "file 0x2fe6: mov ax, 0x52e2 (race 1 / Elf, +9 stride)",
+          "file 0x3041: mov ax, 0x5333 (race 10 / Mook, last entry)"
+        ],
+        "save_states_with_data": ["1.sav at game_state=0x10"],
+        "save_states_without_data": ["1.sav at game_state=0xffff (earlier)", "2.sav at game_state=1", "5.sav at game_state=1", "10.sav at game_state=0xffff"]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "record-layout",
+      "claim": "Each race record is 9 bytes: 8 ASCII-encoded attribute-minimum bytes (STR, INT, PIE, VIT, DEX, SPD, PER, KAR) followed by 1 null terminator. Decoder: byte - 0x41 ('A') = minimum stat value. Confirmed by stats_bump_to_racial_minimums at wpcmk file 0x2c7b: instruction `add ax, 0xffbf` (= subtract 65) at file 0x2c91.",
+      "category": "record-encoding",
+      "evidence": {
+        "asm_address": "wpcmk.ovr file 0x2c91",
+        "asm_pattern": "05 bf ff = add ax, 0xffbf (signed -65 = subtract 'A')",
+        "stride": 9
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "race-base-stats-decoded",
+      "claim": "Decoded race base-stat table (race index, name, STR/INT/PIE/VIT/DEX/SPD/PER/KAR minimums).",
+      "category": "decoded-data",
+      "table": [
+        { "index": 0, "name": "Human", "stats": [9, 8, 8, 9, 9, 8, 8, 0] },
+        { "index": 1, "name": "Elf", "stats": [7, 10, 10, 7, 9, 9, 8, 0] },
+        { "index": 2, "name": "Dwarf", "stats": [11, 6, 10, 12, 7, 7, 7, 0] },
+        { "index": 3, "name": "Gnome", "stats": [10, 7, 13, 10, 8, 6, 6, 0] },
+        { "index": 4, "name": "Hobbit", "stats": [8, 7, 6, 9, 10, 7, 13, 0] },
+        { "index": 5, "name": "Faerie", "stats": [5, 11, 6, 6, 10, 14, 12, 0] },
+        { "index": 6, "name": "Lizardman", "stats": [12, 5, 5, 14, 8, 10, 3, 0] },
+        { "index": 7, "name": "Dracon", "stats": [10, 7, 6, 12, 10, 8, 6, 0] },
+        { "index": 8, "name": "Felpurr", "stats": [7, 10, 7, 7, 10, 12, 10, 0] },
+        { "index": 9, "name": "Rawulf", "stats": [8, 6, 12, 10, 8, 8, 10, 0] },
+        { "index": 10, "name": "Mook", "stats": [10, 10, 6, 10, 7, 7, 9, 0] }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "karma-always-zero",
+      "claim": "KAR (Karma) attribute minimum is 0 for every race. Karma is purely earned through gameplay, never granted as a racial floor. Matches the manual's Appendix A note that all races start with Karma = 0.",
+      "category": "derived-observation",
+      "confidence": "high"
+    },
+    {
+      "id": "cross-validation",
+      "claim": "Race base-stat decode is cross-validated against the 6 stock characters in pcfile.dbs. For each stock char, decoded character attributes = race base + class-favored bonus allocation.",
+      "category": "cross-validation",
+      "verifications": [
+        "THESUS race 0 Human, decoded char STR=18 vs Human STR base=9 → +9 bonus into STR (fighter optimization)",
+        "NOBAL race 1 Elf, decoded char PIE=13 vs Elf PIE base=10 → +3 into PIE (priest optimization)",
+        "NOBAL race 1 Elf, decoded char KAR=4 vs Elf KAR base=0 → +4 into KAR (karma-favoring priest)",
+        "PENTAG race 3 Gnome, decoded char INT=12 vs Gnome INT base=7 → +5 into INT (mage optimization)",
+        "PENTAG race 3 Gnome, decoded char KAR=9 vs Gnome KAR base=0 → +9 into KAR"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "loader-still-tbd",
+      "claim": "The routine that LOADS this data into DGROUP at the start of character creation has not been identified. We know it's not winit state 0 (saves at later boot states have the region zeroed). Likely candidates: a wpcmk init routine, or a wroot helper called when wbase dispatches to game_state=0x10.",
+      "category": "open-question",
+      "confidence": "high"
+    }
+  ],
+  "implications": [
+    "An engine-faithful character-creation port can ship the decoded race base-stat table as a constant in @wiz6/data — no need to read from disk at runtime. The table is the engine's source of truth (cross-validated).",
+    "Future passes can apply the same MCP-read-memory technique to other transiently-populated wpcmk data: class skill bitmaps at wpcmk file 0x5cb8..0x5e93 (also DS-relative), class attribute requirements at 0x5e98.",
+    "The 'subtract 65' / ASCII-encoded-minimum representation generalizes — wpcmk's class requirement table likely uses the same encoding (already noted in docs/re/findings/wpcmk-state-machine-trace.json)."
+  ]
+}

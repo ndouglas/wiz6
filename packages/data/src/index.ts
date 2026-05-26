@@ -112,6 +112,11 @@ export {
   type HouseRuleMeta,
 } from './schemas/house-rules.js';
 export {
+  RACE_BASE_STATS,
+  getRaceBaseStats,
+  type RaceBaseStats,
+} from './character-creation/race-base-stats.js';
+export {
   PALETTE_CATALOG,
   EGA_DEFAULT,
   WIZ6_MAIN,
