@@ -1,0 +1,517 @@
+{
+  "topic": "wpcmk-window-layouts",
+  "subagent_run": "2026-05-26",
+  "binaries": ["original/wpcmk.ovr"],
+  "summary": "Decoded all 6 calls to the ui_window_create thunk (file offset 0xbbb6) in wpcmk.ovr. Three calls are in the top-level wpcmk entry function (FUN_59e0, called from wbase) and create PERSISTENT windows used by all 17 screens. Two calls are in ui_train_attribute_picker_grid (0x229c, screen-14). One call is in ui_welcome_animation (0x1ae9, screen-13). Screens 00-12, 15, 16 exclusively reuse the 3 persistent windows; screen-13 adds 1 overlay window; screen-14 adds 2 overlay windows. The task description's claim that 'creation_ui_init is at 0x0d13' is correct — 0x0d13 is a real function called from master at 0x4e6c — but 0x0d13 does NOT create windows; it only initializes UI content within the already-existing persistent windows. The actual window creation happens in FUN_59e0 before the master is ever called.",
+  "method": "Exhaustive search for E8 (near-call) bytes whose relative offset resolves to target 0xbbb6 via `(file_offset + 3 + signed_rel16) & 0xffff == 0xbbb6`. Found exactly 6 call sites. For each site, traced the 8 push instructions immediately before the call using raw byte inspection. Call argument order: right-to-left push means last pushed = x_byte ([bp+0x04]), first pushed = arg8 ([bp+0x12]). Also checked which window handles ([0x546e], [0x56ca], [0x56cc]) are referenced in key screen driver functions via pattern matching for push-word-ptr-XXXX byte sequences.",
+  "ui_window_create_thunk": "0xbbb6 (wpcmk file offset) -> ui_window_create @ wroot image 0x011a",
+  "persistent_windows_creating_function": {
+    "file_offset": "0x59e0",
+    "name": "FUN_59e0 (unnamed in naming pass; top-level wpcmk entry called from wbase)",
+    "note": "This function creates all 3 persistent windows, then calls ui_setup_creation_windows (0x5093), then shows the roster management menu. It is NOT called from within wpcmk.ovr itself. The only apparent call from within the overlay file is a false positive: the byte 0xE8 at file offset 0x000e is the HIGH BYTE of a 'push word 0xE8A1' operand in the 16-byte overlay header, not an executed CALL opcode."
+  },
+  "findings": [
+    {
+      "id": "screen-00-pre-entry",
+      "claim": "Name entry uses [0x56ca] (the bottom status bar window) for the text input prompt. wpcmk_create_via_empty_slot (0x50f2) first calls ui_setup_creation_windows(0x546e, 0x56ca), displays msg 0x44c in [0x56ca], reads window metadata from [0x56ca]+6/+7 for cursor position, then calls ui_text_input_editor with [0x56ca] as the window arg. No new windows are created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x50f2"},
+        "type": "raw_disasm",
+        "details": "50F8: FF 36 CA 56 = push word [0x56ca]; 50FC: FF 36 6E 54 = push word [0x546e]; 5100: E8 90 FF = call 0x5093 (ui_setup_creation_windows). Then 511A: FF 36 CA 56 = push [0x56ca] for 0xbda7. Then 5179: FF 36 CA 56 = push [0x56ca] for call to 0xf0 (ui_text_input_editor). No E8 xx xx resolving to 0xbbb6 anywhere in 0x50f2..0x51c6."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": "0x56ca",
+          "role": "text input prompt area",
+          "x": 0, "y": 20, "w": 40, "h": 5,
+          "x_px": 0, "y_px": 160, "w_px": 320, "h_px": 40,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x13",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a31 (in FUN_59e0)"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "screen-01-init",
+      "claim": "wpcmk_create_character_master (0x4e47) at init: calls creation_ui_init (0x0d13) at 0x4e6c and ui_redraw_character_sheet (0x0df7) at 0x4e6f. Both functions use the persistent windows [0x546e] and [0x56ca]. No new windows are created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4e47"},
+        "type": "raw_disasm",
+        "details": "4E6C: E8 A4 BE = call 0x0D13 (creation_ui_init). 4E6F: E8 85 BF = call 0x0DF7 (ui_redraw_character_sheet). 0x0d13 body: loops 3 iterations, calls 0xbda7 and 0xdfb9 with push [0x546e]. 0x0df7 body: calls 0xa99, 0xbda7, 0xdd53, etc., all using [0x546e]. No E8 xx xx resolving to 0xbbb6 in either function."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": "0x546e",
+          "role": "main creation area / stat display",
+          "x": 0, "y": 0, "w": 40, "h": 20,
+          "x_px": 0, "y_px": 0, "w_px": 320, "h_px": 160,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x14",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a0b (in FUN_59e0)"
+        },
+        {
+          "handle_dgroup_addr": "0x56ca",
+          "role": "bottom status bar",
+          "x": 0, "y": 20, "w": 40, "h": 5,
+          "x_px": 0, "y_px": 160, "w_px": 320, "h_px": 40,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x13",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a31 (in FUN_59e0)"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "screen-02-race",
+      "claim": "Race picker (wpcmk_pick_race_menu, 0x308d) uses both [0x56ca] and [0x56cc]. [0x56ca] is cleared and used for title/header display (msg 0x450 shown at col 1, row 9 of the status bar). [0x56cc] is cleared and used for the vertical menu list (11 race options). No new windows created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x308d"},
+        "type": "raw_disasm",
+        "details": "30C2: FF 36 CA 56 = push [0x56ca]; 30C6: call 0xed5a (clear). 30CC: FF 36 CA 56 = push [0x56ca]; 30D0: call 0xe5b5. 30DC: FF 36 CA 56 = push [0x56ca]; 30E0: call 0xbda7 (cursor pos). 30EA: FF 36 CA 56 = push [0x56ca]; 30EE: push 0x450 (msg); 30F2: call 0xc2db (print msg). Then: 3104: FF 36 CC 56 = push [0x56cc]; 3108: call 0xed5a (clear). 310E: FF 36 CC 56 = push [0x56cc] for menu. No 0xbbb6 calls in this function."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": "0x56ca",
+          "role": "screen title / header (bottom bar)",
+          "x": 0, "y": 20, "w": 40, "h": 5,
+          "x_px": 0, "y_px": 160, "w_px": 320, "h_px": 40,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x13",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a31 (in FUN_59e0)"
+        },
+        {
+          "handle_dgroup_addr": "0x56cc",
+          "role": "race menu list (right panel)",
+          "x": 21, "y": 7, "w": 19, "h": 13,
+          "x_px": 168, "y_px": 56, "w_px": 152, "h_px": 104,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x15",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a57 (in FUN_59e0)"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "screen-03-alignment",
+      "claim": "Alignment picker (wpcmk_pick_alignment_menu, 0x31a6) uses both [0x56ca] and [0x56cc]. Pattern identical to race picker: [0x56ca] for header text (msg 0x451 at col 1, row 10), [0x56cc] for 2-entry menu. No new windows created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x31a6"},
+        "type": "raw_disasm",
+        "details": "31DB: FF 36 CA 56; 31DF: call 0xed5a. 31E5: FF 36 CA 56; 31E9: call 0xe5b5. 31F5: FF 36 CA 56; 31F9: call 0xbda7. 3203: FF 36 CA 56; 3207: push 0x451. 321D: FF 36 CC 56; 3221: call 0xed5a. 3227: FF 36 CC 56; 322B: call 0xe5b5. Then menu via [0x56cc]. No 0xbbb6 calls."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": "0x56ca",
+          "role": "screen title / header (bottom bar)",
+          "x": 0, "y": 20, "w": 40, "h": 5,
+          "x_px": 0, "y_px": 160, "w_px": 320, "h_px": 40,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x13",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a31 (in FUN_59e0)"
+        },
+        {
+          "handle_dgroup_addr": "0x56cc",
+          "role": "alignment menu list (right panel)",
+          "x": 21, "y": 7, "w": 19, "h": 13,
+          "x_px": 168, "y_px": 56, "w_px": 152, "h_px": 104,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x15",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a57 (in FUN_59e0)"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "screen-04-bonus-roller",
+      "claim": "Bonus roller is non-interactive inline code in wpcmk_create_character_master at 0x4e81. After running, calls ui_render_stat_panel (0x2b04) which uses [0x546e] exclusively. No new windows created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4e81"},
+        "type": "raw_disasm",
+        "details": "0x4ebe: E8 43 DC = call 0x2b04 (ui_render_stat_panel). ui_render_stat_panel at 0x2b04: all 10 push-word refs use [0x546e] (verified 0x2b16, 0x2b3c, 0x2b5b, 0x2b69, 0x2b8a, 0x2ba0, 0x2bc1, 0x2bd3, 0x2be5, 0x2bfb). No 0xbbb6 calls in roller inline code."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": "0x546e",
+          "role": "stat display area (stat panel update after bonus roll)",
+          "x": 0, "y": 0, "w": 40, "h": 20,
+          "x_px": 0, "y_px": 0, "w_px": 320, "h_px": 160,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x14",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a0b (in FUN_59e0)"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "screen-05-class",
+      "claim": "Class picker (wpcmk_pick_class_menu, 0x32e1) uses [0x56ca] and [0x56cc] via the same pattern as race/alignment pickers. [0x56cc] holds the 14-class menu (only qualified classes enabled). No new windows created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x32e1"},
+        "type": "raw_disasm",
+        "details": "Pattern inferred from sibling screen structure (race at 0x308d, alignment at 0x31a6 both use [0x56ca] + [0x56cc] identically). wpcmk_pick_class_menu also calls ui_menu_picker_vertical(window_0x56cc, 0x78, entries) per screen-flow.json Task 2 findings. No 0xbbb6 calls found in 0x32e1..0x33ff range."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": "0x56ca",
+          "role": "screen title / header (bottom bar)",
+          "x": 0, "y": 20, "w": 40, "h": 5,
+          "x_px": 0, "y_px": 160, "w_px": 320, "h_px": 40,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x13",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a31 (in FUN_59e0)"
+        },
+        {
+          "handle_dgroup_addr": "0x56cc",
+          "role": "class menu list (right panel)",
+          "x": 21, "y": 7, "w": 19, "h": 13,
+          "x_px": 168, "y_px": 56, "w_px": 152, "h_px": 104,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x15",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a57 (in FUN_59e0)"
+        }
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": "screen-06-bonus-allocator",
+      "claim": "Bonus allocator (wpcmk_bonus_point_allocator_ui, 0x3405) uses [0x56ca] for all display. Clears and redraws [0x56ca] with header (msg 0x460 at col 1, row 7), then uses it for attribute labels (msg 0x454 at col 1, row 0x12), cursor positioning, and live updates. No [0x56cc] or [0x546e] accesses in this function. No new windows created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3405"},
+        "type": "raw_disasm",
+        "details": "3417: FF 36 CA 56; 341B: call 0xed5a. 3421: FF 36 CA 56; 3425: call 0xe5b5. 3431: FF 36 CA 56; 3435: call 0xbda7. 343F: FF 36 CA 56; 3443: push 0x460; 3447: call 0xc2db. 344F-3459: further [0x56ca] uses. No push [0x56cc] or push [0x546e] found. No 0xbbb6 calls."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": "0x56ca",
+          "role": "bonus point allocator display (bottom bar used as main UI panel here)",
+          "x": 0, "y": 20, "w": 40, "h": 5,
+          "x_px": 0, "y_px": 160, "w_px": 320, "h_px": 40,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x13",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a31 (in FUN_59e0)"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "screen-07-derived-stats",
+      "claim": "Derived stats init (creation_init_derived_stats, 0x4ddd) is non-interactive. Function body at 0x4ddd..0x4e46 contains no push-word-[window] references — no window I/O at all. After this function returns, the master calls ui_render_stat_panel which uses [0x546e]. No new windows created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4ddd"},
+        "type": "raw_disasm",
+        "details": "Byte-scan of 0x4ddd..0x4e46: no occurrences of FF 36 6E 54 / FF 36 CA 56 / FF 36 CC 56. The function makes internal calls (age_encumbrance_and_hp_roll, race_specific_init_handler_dispatch, finalize_class_and_race_stats) and writes directly to DGROUP data fields with no window interaction. After return to master, ui_render_stat_panel at 0x4ebe uses [0x546e]."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": "0x546e",
+          "role": "stat display area (refreshed after derived-stat computation)",
+          "x": 0, "y": 0, "w": 40, "h": 20,
+          "x_px": 0, "y_px": 0, "w_px": 320, "h_px": 160,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x14",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a0b (in FUN_59e0)"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "screen-08-personality",
+      "claim": "Personality reroll (wpcmk_personality_reroll_loop, 0x3837) uses [0x56ca] exclusively. Clears it (call 0xed5a), refreshes it (call 0xe5b5), positions cursor at row 9 (call 0xbda7), then displays msg 0x457 (PERSONALITY header) in it. KAR dice roll display and redraw are all within [0x56ca]. No new windows created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3837"},
+        "type": "raw_disasm",
+        "details": "3849: FF 36 CA 56; 384D: call 0xed5a. 3853: FF 36 CA 56; 3857: call 0xe5b5. 3863: FF 36 CA 56; 3867: call 0xbda7 (row=9). 3871: FF 36 CA 56; 3875: push 0x457. No [0x56cc] or [0x546e] refs. No 0xbbb6 calls."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": "0x56ca",
+          "role": "personality (KAR) dice-roll animation area",
+          "x": 0, "y": 20, "w": 40, "h": 5,
+          "x_px": 0, "y_px": 160, "w_px": 320, "h_px": 40,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x13",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a31 (in FUN_59e0)"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "screen-09-skill-init",
+      "claim": "Skill init (skill_init_all_32_slots, 0x392e) is non-interactive. Byte-scan of 0x392e..0x3c48 finds no push-word-[window] references. No window interaction. No new windows created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x392e"},
+        "type": "raw_disasm",
+        "details": "Exhaustive scan of 0x392e..0x3c48: no FF 36 6E 54 / FF 36 CA 56 / FF 36 CC 56 byte patterns. Function issues 32 calls to FUN_38fb(idx, 9) which writes to skill data arrays in DGROUP — pure data initialization, no UI."
+      },
+      "windows": [],
+      "note": "This screen has no window interaction of its own. The persistent windows remain on-screen but are not updated during this step.",
+      "confidence": "high"
+    },
+    {
+      "id": "screen-10-portrait",
+      "claim": "Portrait picker (wpcmk_pick_portrait_loop, 0x4bad) uses both [0x56cc] and [0x56ca]. First clears [0x56cc] (call 0xed5a) then refreshes it; then clears [0x56ca] and refreshes it. [0x56ca] shows the portrait navigation header (msg 0x458 at row 9). [0x56cc] holds the portrait frame display. No new windows created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4bad"},
+        "type": "raw_disasm",
+        "details": "4BBF: FF 36 CC 56; 4BC3: call 0xed5a. 4BC9: FF 36 CC 56; 4BCD: call 0xe5b5. 4BDD: FF 36 CA 56; 4BE1: call 0xed5a. 4BE7: FF 36 CA 56; 4BEB: call 0xe5b5. 4BF7: FF 36 CA 56; 4BFB: call 0xbda7 (row=9). 4C05: FF 36 CA 56; 4C09: push 0x458 (msg). No 0xbbb6 calls."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": "0x56cc",
+          "role": "portrait frame display area (right panel)",
+          "x": 21, "y": 7, "w": 19, "h": 13,
+          "x_px": 168, "y_px": 56, "w_px": 152, "h_px": 104,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x15",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a57 (in FUN_59e0)"
+        },
+        {
+          "handle_dgroup_addr": "0x56ca",
+          "role": "portrait navigation instructions (bottom bar)",
+          "x": 0, "y": 20, "w": 40, "h": 5,
+          "x_px": 0, "y_px": 160, "w_px": 320, "h_px": 40,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x13",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a31 (in FUN_59e0)"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "screen-11-class-starter-items",
+      "claim": "Starter item loader (FUN_3c49, 0x3c49) is non-interactive. Byte-scan of 0x3c49..0x3e8b finds no push-word-[window] references. After FUN_3c49 returns, the master calls ui_redraw_character_sheet (0x0df7) which uses [0x546e]. No new windows created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3c49"},
+        "type": "raw_disasm",
+        "details": "Exhaustive scan of 0x3c49..0x3e8b: no FF 36 6E 54 / FF 36 CA 56 / FF 36 CC 56 patterns. Pure data init (inventory_load_one_item calls). ui_redraw_character_sheet at 0x0df7 uses [0x546e] confirmed from 0x0e0e: FF 36 6E 54."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": "0x546e",
+          "role": "stat display area (updated after inventory load)",
+          "x": 0, "y": 0, "w": 40, "h": 20,
+          "x_px": 0, "y_px": 0, "w_px": 320, "h_px": 160,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x14",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a0b (in FUN_59e0)"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "screen-12-char-sheet-redraw",
+      "claim": "Character sheet redraw (ui_redraw_character_sheet, 0x0df7) uses [0x546e] exclusively. All character data labels, stat values, level/XP, and portrait frame characters are rendered into [0x546e]. No new windows created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x0df7"},
+        "type": "raw_disasm",
+        "details": "0e0e: FF 36 6E 54; 0e12: call 0xa99 (print name at col 4, row 1). Multiple subsequent [0x546e] references at 0x0e20, 0x0e24, 0x0e28, 0x0e67, 0x0e6b, 0x0e79, etc. for dashes, XP, level, class-race string, portrait chars, attribute labels. No [0x56ca] or [0x56cc] refs. No 0xbbb6 calls."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": "0x546e",
+          "role": "complete character sheet display",
+          "x": 0, "y": 0, "w": 40, "h": 20,
+          "x_px": 0, "y_px": 0, "w_px": 320, "h_px": 160,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x14",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a0b (in FUN_59e0)"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "screen-13-spell-school-init",
+      "claim": "Spell school animation (ui_welcome_animation, 0x1ae9) creates ONE new temporary window for the animation overlay. Call at file offset 0x1b28: x=20, y=4, w=20, h=16, attr=0x19, border=0xffff (plain). Handle stored at [bp-0x4] (local stack var). This window sits in the right half of the main creation area (x=20..40, y=4..20 = pixels 160..320, 32..160). The persistent window [0x56ca] is passed as an arg to ui_welcome_animation but window creation happens inside. After the animation completes, the temporary window is discarded (not stored in a DGROUP handle).",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x1b28"},
+        "type": "raw_disasm",
+        "details": "Push sequence before call at 0x1b28 (read last-push-first = x_byte): 1B0B: mov ax,0x0; 1B0F/1B0F: push ax TWICE = arg8=0, arg7=0. 1B10: mov ax,0xffff; 1B13: push = border_style=0xffff. 1B14: mov ax,0x19; 1B17: push = attribute=0x19. 1B18: mov ax,0x10; 1B1B: push = h_cells=16. 1B1C: mov ax,0x14; 1B1F: push = w_cells=20. 1B20: mov ax,0x4; 1B23: push = y_byte=4. 1B24: mov ax,0x14; 1B27: push = x_byte=20. Return value: 1B2E: mov [bp-0x4], ax. Used by creation_stage_dispatcher_by_step(0x15d7) and ui_class_menu_with_qualification(0x1158)."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": null,
+          "local_var": "[bp-0x4] (stack local in ui_welcome_animation 0x1ae9)",
+          "role": "spell school animation overlay (temporary)",
+          "x": 20, "y": 4, "w": 20, "h": 16,
+          "x_px": 160, "y_px": 32, "w_px": 160, "h_px": 128,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x19",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "screen-13-spell-school-init",
+          "wpcmk_call_site": "0x1b28"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "screen-14-skill-training",
+      "claim": "Skill training (ui_train_attribute_picker_grid, 0x229c) creates TWO new temporary windows per call. Window 1 (call at 0x22bf): x=20, y=4, w=20, h=16, attr=0x16, plain. Window 2 (call at 0x22e5): x=21, y=7, w=19, h=8, attr=0x17, plain. The outer window (call at 0x22bf) occupies the same pixel area (160x128) as the spell-school animation window from screen-13. The inner sub-window (call at 0x22e5) overlaps with [0x56cc] but is taller by 5 cells. wpcmk_train_skill_pillar (0x28d4) calls ui_train_attribute_picker_grid; the function runs up to 4 times (one per pillar). Both handles stored in stack locals [bp-0x2] and [bp-0x4] and discarded after the function returns.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x229c"},
+        "type": "raw_disasm",
+        "details": "Call at 0x22bf — pushes from 0x22a2: 22A5+22A6: push 0x0 TWICE (arg8=0, arg7=0); 22A7: push 0xffff (border_style); 22AB: push 0x16 (attr); 22AF: push 0x10 = 16 (h_cells); 22B3: push 0x14 = 20 (w_cells); 22B7: push 0x4 (y_byte); 22BB: push 0x14 = 20 (x_byte). Return -> [bp-0x2]. Call at 0x22e5 — pushes from 0x22c8: 22CB+22CC: push 0x0 TWICE; 22CD: push 0xffff; 22D1: push 0x17 (attr); 22D5: push 0x8 = 8 (h_cells); 22D9: push 0x13 = 19 (w_cells); 22DD: push 0x7 (y_byte); 22E1: push 0x15 = 21 (x_byte). Return -> [bp-0x4]. After both creates: calls 0xed5a (clear [bp-4]), 0x1cb2 ([bp-2]), 0x1c37 ([bp-4]), then 0xe5b5 for [bp+6] (caller's arg). 6-cell grid loop at 0x2328 computes positions using [bp-0x4a] / [bp-0x4c] relative to window metadata."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": null,
+          "local_var": "[bp-0x2] (stack local in ui_train_attribute_picker_grid 0x229c)",
+          "role": "skill training outer panel (temporary)",
+          "x": 20, "y": 4, "w": 20, "h": 16,
+          "x_px": 160, "y_px": 32, "w_px": 160, "h_px": 128,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x16",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "screen-14-skill-training",
+          "wpcmk_call_site": "0x22bf"
+        },
+        {
+          "handle_dgroup_addr": null,
+          "local_var": "[bp-0x4] (stack local in ui_train_attribute_picker_grid 0x229c)",
+          "role": "skill training 6-cell grid sub-panel (temporary)",
+          "x": 21, "y": 7, "w": 19, "h": 8,
+          "x_px": 168, "y_px": 56, "w_px": 152, "h_px": 64,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x17",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "screen-14-skill-training",
+          "wpcmk_call_site": "0x22e5"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "screen-15-confirm",
+      "claim": "Confirmation menu (inline in wpcmk_create_character_master at ~0x4f20). Uses [0x56ca] and [0x56cc] inferred from the screen-flow: calls func_0x0000ed5a (clear), func_0x0000e5b5 (refresh), func_0x0000bda7 (cursor), func_0x0000c2db (print msg 0x44f) — these same call patterns are used with [0x56ca] in all other menu screens; then ui_menu_picker_vertical uses [0x56cc] per the Task 2 decompile text: 'ui_menu_picker_vertical(*(int *)0x56ca, ..., 0x45a, ...)'. Note: The Task 2 finding cites '*(int *)0x56ca' not '*(int *)0x56cc' for the menu — this MAY indicate the confirm menu uses [0x56ca] directly for both label and picker, differing from race/class/alignment which use both. Confidence lowered to medium due to this ambiguity. No new windows created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4f20"},
+        "type": "decompile_inference",
+        "details": "From screen-flow.json Task 2 findings: 'func_0x0000c2db(0x44f, window)' and 'local_6 = ui_menu_picker_vertical(*(int *)0x56ca, ..., 0x45a, ...)'. The first arg to ui_menu_picker_vertical is the window handle; here it is '*(int *)0x56ca' = the CONTENTS of address 0x56ca = [0x56ca] window handle. This is consistent with [0x56ca] being used as the picker window. Disasm verification of 0x4f20..0x4fae was not performed in this pass due to tooling constraint (ndisasm would confirm)."
+      },
+      "windows": [
+        {
+          "handle_dgroup_addr": "0x56ca",
+          "role": "confirmation menu picker area",
+          "x": 0, "y": 20, "w": 40, "h": 5,
+          "x_px": 0, "y_px": 160, "w_px": 320, "h_px": 40,
+          "frame_style": "0xffff (plain)",
+          "attr": "0x13",
+          "coord_system": "screen_abs",
+          "opens_in_screen": "reused-from-persistent",
+          "wpcmk_call_site": "0x5a31 (in FUN_59e0)"
+        }
+      ],
+      "confidence": "medium"
+    },
+    {
+      "id": "screen-16-save",
+      "claim": "Roster save (roster_io_one_record + roster_save_all inline in master at ~0x4fae) is non-interactive disk I/O. No window interaction — no push-word-[window] references in the save code path. No new windows created.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4fae"},
+        "type": "raw_disasm",
+        "details": "From master window-ref scan of 0x4e47..0x5010: refs at 0x4ee5, 0x4efd, 0x4f01, 0x4f24, 0x4f2e, 0x4f4d, 0x4f5b — all at addresses BEFORE the 0x4f20 confirm menu region. After 0x4f5b there are no more window refs in the master. The save code starting ~0x4fae calls roster_io_one_record (0x1b), f0dc thunk, c772, f924, fdbd, fd76, fda5 — these are I/O primitives with no window args."
+      },
+      "windows": [],
+      "note": "No window updates during save. The screen display remains whatever was last shown by the confirmation menu.",
+      "confidence": "high"
+    }
+  ],
+  "persistent_windows": {
+    "summary": "Three windows created in FUN_59e0 (the top-level wpcmk entry function called from wbase) persist for the entire wpcmk session. All 17 screens reuse at least one of these.",
+    "windows": [
+      {
+        "handle_dgroup_addr": "0x546e",
+        "role": "main creation area / character stat display",
+        "x": 0, "y": 0, "w": 40, "h": 20,
+        "x_px": 0, "y_px": 0, "w_px": 320, "h_px": 160,
+        "frame_style": "0xffff (plain)",
+        "attr": "0x14",
+        "wpcmk_call_site": "0x5a0b",
+        "stored_at": "mov [0x546e], ax at 0x5a11",
+        "typical_usage": "ui_render_stat_panel, ui_redraw_character_sheet, creation_ui_init"
+      },
+      {
+        "handle_dgroup_addr": "0x56ca",
+        "role": "bottom status bar (5 rows)",
+        "x": 0, "y": 20, "w": 40, "h": 5,
+        "x_px": 0, "y_px": 160, "w_px": 320, "h_px": 40,
+        "frame_style": "0xffff (plain)",
+        "attr": "0x13",
+        "wpcmk_call_site": "0x5a31",
+        "stored_at": "mov [0x56ca], ax at 0x5a37",
+        "typical_usage": "Screen headers, msg labels, text input, personality animation, confirm menu"
+      },
+      {
+        "handle_dgroup_addr": "0x56cc",
+        "role": "right-side menu panel (19 cells wide, 13 rows tall)",
+        "x": 21, "y": 7, "w": 19, "h": 13,
+        "x_px": 168, "y_px": 56, "w_px": 152, "h_px": 104,
+        "frame_style": "0xffff (plain)",
+        "attr": "0x15",
+        "wpcmk_call_site": "0x5a57",
+        "stored_at": "mov [0x56cc], ax at 0x5a5d",
+        "typical_usage": "ui_menu_picker_vertical (race/alignment/class lists), portrait picker"
+      }
+    ]
+  },
+  "open_questions": [
+    "attribute interpretation: The attr field values (0x13, 0x14, 0x15, 0x16, 0x17, 0x19) are raw bytes. In text-mode these would be (bg_nibble << 4 | fg_nibble) with EGA palette indices. In EGA graphics mode D (320x200), the interpretation may differ — likely still a packed color pair. Not cross-validated against live palette data in this pass.",
+    "screen-15-confirm window usage: The task 2 decompile text says 'ui_menu_picker_vertical(*(int *)0x56ca, ...)' which would make [0x56ca] (the bottom bar) the picker window — but this is a 5-row bottom bar, not the 13-row [0x56cc]. Possible interpretation: the confirm screen uses the bottom bar for both the prompt label AND the 2-choice menu, which would fit a 2-entry list inside 5 rows. Recommend verifying by disassembling 0x4f20..0x4fae.",
+    "FUN_59e0 formal name: This function is not in the naming pass (docs/re/findings/wpcmk-naming-pass.json). Suggested name: 'wpcmk_session_init_and_roster_ui'. It is the true top-level entry for wpcmk, called from wbase, and creates the 3 persistent windows before entering the roster management loop.",
+    "Does FUN_59e0 receive the window handles as args or return them to wbase? The function stores window handles in DGROUP at [0x546e], [0x56ca], [0x56cc] — so no arg passing is needed. The window handles live in the shared wroot DGROUP and are accessible to all overlays via the same DS.",
+    "Temporary windows in screen-13 and screen-14 are not stored in DGROUP — they live only in stack locals and are destroyed when the function returns. Confirm that the game engine actually destroys/frees these windows, or if they leak into the heap free list.",
+    "screen-14 inner window attr=0x17 vs [0x56cc] attr=0x15: The skill training grid sub-panel (0x17) has a slightly different attribute than the persistent right panel (0x15). These may appear in different colors if the attribute byte drives display properties.",
+    "Cell-to-pixel factor: The analysis assumes 8px per cell throughout (EGA mode D, 320x200 with 40-column text). The wroot-ui-window-struct.json confirms 'x_byte = top-left column in 8-pixel cells' and 'y_byte = top-left row in 8-pixel cells'. This should be cross-validated against a live DOSBox-X screenshot for one of the known windows."
+  ]
+}
