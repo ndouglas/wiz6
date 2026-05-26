@@ -71,6 +71,25 @@ export function rollKarma(
 }
 
 /**
+ * Simulate one karma roll using a WichmannHill RNG, as the engine performs it.
+ *
+ * Adapter over rollKarma that uses `rng.uniform(19)` instead of a float-based
+ * RNG function. This matches the engine's direct call to the bounded RNG.
+ *
+ * @param rng  A WichmannHill instance that will be advanced once.
+ * @param personalityConfirmed  Whether the player actively confirmed the
+ *        personality roll (sets the +1 flag).  Defaults to `false`.
+ * @returns Karma value in 0..18 (or 1..19 if personalityConfirmed).
+ */
+export function rollKarmaWith(
+  rng: any, // WichmannHill, but avoid circular import
+  personalityConfirmed = false,
+): number {
+  const base = rng.uniform(KARMA_ROLL.base_range); // uniform 0..18
+  return base + (personalityConfirmed ? KARMA_ROLL.personality_bonus : 0);
+}
+
+/**
  * Minimum karma from a normal roll (without personality confirm bonus).
  * Matches: min = 0.
  */

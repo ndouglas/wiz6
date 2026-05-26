@@ -142,6 +142,7 @@ export type { PaletteName } from './palettes/index.js';
 export {
   KARMA_ROLL,
   rollKarma,
+  rollKarmaWith,
   KARMA_MIN,
   KARMA_MAX,
   KARMA_MAX_WITH_BONUS,
