@@ -8,9 +8,9 @@ Human-readable index of function names applied to `wpcvw.ovr` in the Ghidra proj
 
 Unlike `wpcmk.ovr` (which is a callable library), `wpcvw.ovr` is a real state-machine handler. It owns two `*0x363a` states:
 
-| State | Decimal | Handler                                  | Purpose                                       |
-| ----- | ------- | ---------------------------------------- | --------------------------------------------- |
-| 0x11  | 17      | `wpcvw_state_11_view` (0x6804)           | Interactive character view; called with the leader slot pushed from `*0x43cc` |
+| State | Decimal | Handler                                       | Purpose                                                                                        |
+| ----- | ------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| 0x11  | 17      | `wpcvw_state_11_view` (0x6804)                | Interactive character view; called with the leader slot pushed from `*0x43cc`                  |
 | 0x16  | 22      | `wpcvw_state_16_post_combat_levelup` (0xb4ba) | Bulk level-up loop after combat; iterates all party members and applies XP/level/stat/HP gains |
 
 Header layout: 14-byte overlay-link header, plus extra leading bytes before the actual code-dispatch region (the first executable instruction is at file `0x1c`, preceded by an additional 8-byte sub-header that the simpler wbase/wmele dispatch shape doesn't have). The dispatch logic itself matches the standard pattern — back-to-back `cmp word [0x363a], <N>; jnz; call <handler>` blocks.
@@ -19,19 +19,19 @@ State 0x11 is unusual in pushing a parameter (`*0x43cc`, the current leader slot
 
 ## Subsystem prefixes
 
-| Prefix                 | Subsystem |
-| ---------------------- | --------- |
-| `wpcvw_state_*`        | The two state-handler entry points |
-| `panel_*`              | Character-sheet UI panels (header, stats, inventory grid, spells, conditions) |
-| `inventory_*`          | Equip/unequip, drop, give, identify, use, item-type USE-dispatch table |
-| `spell_*`              | Per-realm spell-list rendering; known-vs-learnable distinction |
-| `level_*`              | Level-up flow: XP threshold, HP/SP regen, stat increase, spell learn, class-specific bonuses |
-| `class_change_*`       | The class-change tax — XP wipe, level reset, saved-old-level cap |
-| `derived_*`            | AC computation, HP/SP regen formula, level cap, skill bumps |
-| `party_member_ui_*`    | Mini-portrait row at the bottom (10-condition tracker, HP/SP bars, equipment icons) |
-| `name_edit_*`          | In-place name editor (used for both creation and rename) |
-| `ui_widget_*`          | Reused widgets (yes/no confirm, scrolling list, putchar wrappers) |
-| `data_util_*`          | strcmp variants, small helpers |
+| Prefix              | Subsystem                                                                                    |
+| ------------------- | -------------------------------------------------------------------------------------------- |
+| `wpcvw_state_*`     | The two state-handler entry points                                                           |
+| `panel_*`           | Character-sheet UI panels (header, stats, inventory grid, spells, conditions)                |
+| `inventory_*`       | Equip/unequip, drop, give, identify, use, item-type USE-dispatch table                       |
+| `spell_*`           | Per-realm spell-list rendering; known-vs-learnable distinction                               |
+| `level_*`           | Level-up flow: XP threshold, HP/SP regen, stat increase, spell learn, class-specific bonuses |
+| `class_change_*`    | The class-change tax — XP wipe, level reset, saved-old-level cap                             |
+| `derived_*`         | AC computation, HP/SP regen formula, level cap, skill bumps                                  |
+| `party_member_ui_*` | Mini-portrait row at the bottom (10-condition tracker, HP/SP bars, equipment icons)          |
+| `name_edit_*`       | In-place name editor (used for both creation and rename)                                     |
+| `ui_widget_*`       | Reused widgets (yes/no confirm, scrolling list, putchar wrappers)                            |
+| `data_util_*`       | strcmp variants, small helpers                                                               |
 
 ## The class-change tax (`class_change_apply` at 0x6054)
 

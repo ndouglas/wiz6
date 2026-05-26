@@ -8,28 +8,28 @@ This is the human-readable index of function names applied to `wmele.ovr` in the
 
 wmele.ovr is dispatched by wroot's `ovl_install_table` for three `*0x363a` game-state values:
 
-| State | Decimal | Handler                          | Purpose                                   |
-| ----- | ------- | -------------------------------- | ----------------------------------------- |
+| State | Decimal | Handler                               | Purpose                                                                                                              |
+| ----- | ------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | 0x0a  | 10      | `wmele_state_0a_init_combat` (0x2d6d) | Allocate buffers, create combat windows, spawn monster groups, load party into combat slots, then transition to 0x0b |
-| 0x0b  | 11      | `wmele_state_0b_run_round` (0x2b6a)   | Per-round redraw + monster attacks; transitions to 0x0c (or stays in 0x0b)             |
-| 0x0e  | 14      | `wmele_state_0e_end_round` (0x2ceb)   | End-of-round cleanup; transitions to 0x0b (continue) or `*0x4fce` (escape)             |
+| 0x0b  | 11      | `wmele_state_0b_run_round` (0x2b6a)   | Per-round redraw + monster attacks; transitions to 0x0c (or stays in 0x0b)                                           |
+| 0x0e  | 14      | `wmele_state_0e_end_round` (0x2ceb)   | End-of-round cleanup; transitions to 0x0b (continue) or `*0x4fce` (escape)                                           |
 
 Header size is 14 bytes (matches wbase.ovr; differs from winit's 12). Dispatch entry at file offset `0x0e`.
 
 ## Subsystem prefixes
 
-| Prefix | Subsystem |
-| ------ | --------- |
-| `wmele_state_*`        | The three state-handler entry points listed above |
-| `encounter_*`          | One-time encounter setup: zone selection, leader-monster scripting, party→combat-slot copy |
-| `monster_*`            | Recursive monster-group spawn, monster-type data load, per-slot HP/SP/status rolls |
-| `combat_resolve_*`     | End-of-round damage resolution, bubble-sort by status level, XP/treasure award |
-| `combat_try_*`         | Flee attempts (msg IDs 0xdb6/0xdb7/0xdb8) |
-| `combat_attack_*`      | Depth-sorted attack animation queue, target picker, dice rolling |
-| `combat_view_*`        | 3D combat-scene viewport renderer (reuses maze position state) |
-| `combat_msg_*`         | Combat-message window dispatch (status-level sorted) |
-| `slot_tick_*`          | Per-combat-slot HP/SP/status decay tick |
-| `dice_roll_*`          | Classic XdY+Z dice rolling utility (used everywhere) |
+| Prefix             | Subsystem                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| `wmele_state_*`    | The three state-handler entry points listed above                                          |
+| `encounter_*`      | One-time encounter setup: zone selection, leader-monster scripting, party→combat-slot copy |
+| `monster_*`        | Recursive monster-group spawn, monster-type data load, per-slot HP/SP/status rolls         |
+| `combat_resolve_*` | End-of-round damage resolution, bubble-sort by status level, XP/treasure award             |
+| `combat_try_*`     | Flee attempts (msg IDs 0xdb6/0xdb7/0xdb8)                                                  |
+| `combat_attack_*`  | Depth-sorted attack animation queue, target picker, dice rolling                           |
+| `combat_view_*`    | 3D combat-scene viewport renderer (reuses maze position state)                             |
+| `combat_msg_*`     | Combat-message window dispatch (status-level sorted)                                       |
+| `slot_tick_*`      | Per-combat-slot HP/SP/status decay tick                                                    |
+| `dice_roll_*`      | Classic XdY+Z dice rolling utility (used everywhere)                                       |
 
 ## Key BSS globals
 

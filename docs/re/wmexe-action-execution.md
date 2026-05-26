@@ -26,15 +26,15 @@ Each round, the engine cycles through these four state handlers in order. The pr
 
 ## Subsystem prefixes
 
-| Prefix                  | Subsystem |
-| ----------------------- | --------- |
-| `wmexe_state_*`         | The state-0x0d entry + main initiative loop |
-| `wmexe_action_*`        | Per-action resolvers (33 functions; melee, spells, items, flee, etc.) |
-| `wmexe_resolve_*`       | Sub-resolvers for damage / status / hit-or-miss math |
-| `wmexe_render_3d_*`     | Embedded copy of wmaze's 3D wall renderer (**fifth** overlay carrying this) |
-| `wmexe_animation_*`     | The 12-slot animation queue (and its overflow-crash bug) |
-| `wmexe_spell_*`         | Spell-effect dispatch (per-school mana bookkeeping, range-of-effect rolls) |
-| `ui_*` / `data_util_*`  | Reused widgets and small helpers |
+| Prefix                 | Subsystem                                                                   |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `wmexe_state_*`        | The state-0x0d entry + main initiative loop                                 |
+| `wmexe_action_*`       | Per-action resolvers (33 functions; melee, spells, items, flee, etc.)       |
+| `wmexe_resolve_*`      | Sub-resolvers for damage / status / hit-or-miss math                        |
+| `wmexe_render_3d_*`    | Embedded copy of wmaze's 3D wall renderer (**fifth** overlay carrying this) |
+| `wmexe_animation_*`    | The 12-slot animation queue (and its overflow-crash bug)                    |
+| `wmexe_spell_*`        | Spell-effect dispatch (per-school mana bookkeeping, range-of-effect rolls)  |
+| `ui_*` / `data_util_*` | Reused widgets and small helpers                                            |
 
 ## The initiative tick loop (`wmexe_state_0d_initiative_round_loop` at 0x8ba5)
 
@@ -65,11 +65,11 @@ Morale rolls return a value from one of two tables:
 
 | Roll result | Party gets | Monster gets |
 | ----------- | ---------- | ------------ |
-| Common       | 0          | 0           |
-| Less common  | 5          | 0           |
-| Rare         | 10         | 1           |
-| Rarer        | 20         | 2           |
-| Rarest       | 40         | 4           |
+| Common      | 0          | 0            |
+| Less common | 5          | 0            |
+| Rare        | 10         | 1            |
+| Rarer       | 20         | 2            |
+| Rarest      | 40         | 4            |
 
 On the same underlying roll, the party gets up to **10x** the morale boost a monster gets. Combined with the combat pacing, this is a structural party-favoring bias baked into the engine. Monsters never get the morale spikes that turn fights around; PCs do.
 
@@ -91,13 +91,13 @@ There's no `if (mana[school] >= cost) before` and no `mana[school] = max(0, ...)
 
 wmexe ships **its own** 2192-byte copy of the 3D dungeon-corridor renderer — the fifth confirmed copy in the codebase. Same wall-bitmap accesses at `*0x4faa + 0x43a` and `+0x49a`, same hardcoded pixel constants, same facing-rotation math. Full inventory now:
 
-| Overlay        | Function                                  |
-| -------------- | ----------------------------------------- |
-| `wmaze.ovr`    | The original — corridor view during dungeon traversal |
-| `wmnpc.ovr`    | Mirror — used when NPC dialogue overlays the corridor |
-| `wtrea.ovr`    | Mirror — used when a chest UI overlays the corridor |
-| `wmele.ovr`    | Mirror — combat backdrop |
-| `wmexe.ovr`    | Mirror — combat-action-execution view |
+| Overlay     | Function                                              |
+| ----------- | ----------------------------------------------------- |
+| `wmaze.ovr` | The original — corridor view during dungeon traversal |
+| `wmnpc.ovr` | Mirror — used when NPC dialogue overlays the corridor |
+| `wtrea.ovr` | Mirror — used when a chest UI overlays the corridor   |
+| `wmele.ovr` | Mirror — combat backdrop                              |
+| `wmexe.ovr` | Mirror — combat-action-execution view                 |
 
 Five identical copies. Tweaking wmaze without touching the other four silently desyncs combat / chest / NPC views.
 

@@ -8,10 +8,10 @@ Human-readable index of function names applied to `wdopt.ovr` in the Ghidra proj
 
 The wmexe pass's speculation that wdopt was a "two-stage options or save/load dialog" was **wrong**. wdopt is actually the **out-of-combat cast-spell / use-item handler** — the per-character action menu the player invokes between fights, from inside the dungeon. It owns two `*0x363a` states:
 
-| State | Decimal | Handler                              | Purpose                                              |
-| ----- | ------- | ------------------------------------ | ---------------------------------------------------- |
-| 0x13  | 19      | `wdopt_state_13_cast_spell` (0x39cc) | Cast a spell in the dungeon (not in combat)          |
-| 0x14  | 20      | `wdopt_state_14_use_item` (0x32fc)   | Use an item in the dungeon (potions, scrolls, keys)  |
+| State | Decimal | Handler                              | Purpose                                             |
+| ----- | ------- | ------------------------------------ | --------------------------------------------------- |
+| 0x13  | 19      | `wdopt_state_13_cast_spell` (0x39cc) | Cast a spell in the dungeon (not in combat)         |
+| 0x14  | 20      | `wdopt_state_14_use_item` (0x32fc)   | Use an item in the dungeon (potions, scrolls, keys) |
 
 Invoked from `wmaze` at file offsets `0x28f7` and `0x293d` with the selected character index in `*0x43cc`. Both handlers transition back to `wmaze` (state `0x05`) on completion.
 
@@ -19,16 +19,16 @@ This means **all combat-vs-dungeon caster logic forks**: in combat, the picker l
 
 ## Subsystem prefixes
 
-| Prefix                  | Subsystem |
-| ----------------------- | --------- |
-| `wdopt_state_*`         | The two state-handler entries |
-| `wdopt_dungeon_*`       | Cell trigger validators (the items-as-keys mechanic) |
-| `wdopt_spell_effect_*`  | Per-spell effect dispatch + 20-entry jumptable at 0x64f6 |
-| `wdopt_cell_effect_*`   | Per-cell scripted-event dispatch (via 14-handler jumptables) |
-| `wdopt_render_3d_*`     | **Seventh** embedded copy of the 3D wall renderer |
-| `wdopt_char_state_*`    | Per-character HP/SP/status mutation during cast/use |
-| `wdopt_ui_*`            | Spell-school picker, item picker, target-selection cursor |
-| `disk_io_*`             | Asset load for spell-effect / item-icon graphics (NOT save-game) |
+| Prefix                 | Subsystem                                                        |
+| ---------------------- | ---------------------------------------------------------------- |
+| `wdopt_state_*`        | The two state-handler entries                                    |
+| `wdopt_dungeon_*`      | Cell trigger validators (the items-as-keys mechanic)             |
+| `wdopt_spell_effect_*` | Per-spell effect dispatch + 20-entry jumptable at 0x64f6         |
+| `wdopt_cell_effect_*`  | Per-cell scripted-event dispatch (via 14-handler jumptables)     |
+| `wdopt_render_3d_*`    | **Seventh** embedded copy of the 3D wall renderer                |
+| `wdopt_char_state_*`   | Per-character HP/SP/status mutation during cast/use              |
+| `wdopt_ui_*`           | Spell-school picker, item picker, target-selection cursor        |
+| `disk_io_*`            | Asset load for spell-effect / item-icon graphics (NOT save-game) |
 
 ## The silver-key mechanic (`wdopt_dungeon_item_trigger_check` at 0x1ffd)
 
@@ -92,15 +92,15 @@ Yes, **another copy**. 2192 bytes identical to wpops's `0x5c65`. Same camera sta
 
 Full inventory of duplicated wall renderers, now seven copies:
 
-| Overlay        | Purpose                                          |
-| -------------- | ------------------------------------------------ |
-| `wmaze.ovr`    | The original — dungeon corridor                  |
-| `wmnpc.ovr`    | NPC dialogue backdrop                            |
-| `wtrea.ovr`    | Chest UI backdrop                                |
-| `wmele.ovr`    | Combat-round backdrop                            |
-| `wmexe.ovr`    | Combat-action-execution backdrop                 |
-| `wpops.ovr`    | Combat-action-selection backdrop                 |
-| **`wdopt.ovr`** | **Dungeon cast-spell / use-item backdrop**       |
+| Overlay         | Purpose                                    |
+| --------------- | ------------------------------------------ |
+| `wmaze.ovr`     | The original — dungeon corridor            |
+| `wmnpc.ovr`     | NPC dialogue backdrop                      |
+| `wtrea.ovr`     | Chest UI backdrop                          |
+| `wmele.ovr`     | Combat-round backdrop                      |
+| `wmexe.ovr`     | Combat-action-execution backdrop           |
+| `wpops.ovr`     | Combat-action-selection backdrop           |
+| **`wdopt.ovr`** | **Dungeon cast-spell / use-item backdrop** |
 
 Seven hand-synchronized copies. The port can collapse them all into one.
 

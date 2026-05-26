@@ -29,15 +29,15 @@ wpops is structurally the dual of wmexe: where wmexe runs the deterministic reso
 
 ## Subsystem prefixes
 
-| Prefix                  | Subsystem |
-| ----------------------- | --------- |
+| Prefix                  | Subsystem                                                             |
+| ----------------------- | --------------------------------------------------------------------- |
 | `wpops_action_picker_*` | Per-character action menu (ATTACK / SPELL / USE / PARRY / RUN / etc.) |
-| `wpops_ui_picker_*`     | Sub-pickers (spell-school grid, item list, target-group selector) |
-| `wpops_ui_panel_*`      | Combat-pane composition (party row, monster row, status badges) |
-| `wpops_monster_ai_*`    | Deterministic monster-side action + target choice |
-| `wpops_render_3d_*`     | Embedded 3D wall renderer (**sixth** copy — see Notes) |
-| `wpops_animation_*`     | Action-confirmation animations (cursor flicker, target highlight) |
-| `data_util_*`           | Small helpers (strncmp, putchar, etc.) |
+| `wpops_ui_picker_*`     | Sub-pickers (spell-school grid, item list, target-group selector)     |
+| `wpops_ui_panel_*`      | Combat-pane composition (party row, monster row, status badges)       |
+| `wpops_monster_ai_*`    | Deterministic monster-side action + target choice                     |
+| `wpops_render_3d_*`     | Embedded 3D wall renderer (**sixth** copy — see Notes)                |
+| `wpops_animation_*`     | Action-confirmation animations (cursor flicker, target highlight)     |
+| `data_util_*`           | Small helpers (strncmp, putchar, etc.)                                |
 
 ## The BACK / RESET action navigator (`wpops_action_picker_main` at 0x???)
 
@@ -70,14 +70,14 @@ Consequences:
 
 wpops ships its own **2192-byte copy** of the dungeon-corridor renderer. Sixth confirmed copy. Full inventory:
 
-| Overlay        | Function                                  |
-| -------------- | ----------------------------------------- |
-| `wmaze.ovr`    | The original — dungeon traversal corridor |
-| `wmnpc.ovr`    | Mirror — NPC dialogue backdrop            |
-| `wtrea.ovr`    | Mirror — chest UI backdrop                |
-| `wmele.ovr`    | Mirror — combat round backdrop            |
-| `wmexe.ovr`    | Mirror — combat action-execution backdrop |
-| `wpops.ovr`    | Mirror — combat action-selection backdrop |
+| Overlay     | Function                                  |
+| ----------- | ----------------------------------------- |
+| `wmaze.ovr` | The original — dungeon traversal corridor |
+| `wmnpc.ovr` | Mirror — NPC dialogue backdrop            |
+| `wtrea.ovr` | Mirror — chest UI backdrop                |
+| `wmele.ovr` | Mirror — combat round backdrop            |
+| `wmexe.ovr` | Mirror — combat action-execution backdrop |
+| `wpops.ovr` | Mirror — combat action-selection backdrop |
 
 Six identical copies, all reading the same wall-bitmap memory, all using the same hardcoded pixel constants, all hand-copied. The port can collapse all six into a single function in `@wiz6/parser`.
 

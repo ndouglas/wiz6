@@ -10,29 +10,29 @@ Unlike wmaze / wmele / winit, **wpcmk does not own any game-state value**. Its d
 
 This makes wpcmk a *callable library* rather than a state handler. Header-size families so far:
 
-| Overlay     | Header bytes | Dispatch at | Pattern                            |
-| ----------- | ------------ | ----------- | ---------------------------------- |
-| winit.ovr   | 12           | 0x0c        | State handler; writes `*0x363a` directly |
-| wbase.ovr   | 14           | 0x0e        | State handler; uses `*0x4fce` deferred-transition cache |
-| wmele.ovr   | 14           | 0x0e        | State handler; same `*0x4fce` pattern |
-| **wpcmk.ovr** | **16**     | **0x10**    | **Library; dispatch stub is a no-op that returns to state 4** |
+| Overlay       | Header bytes | Dispatch at | Pattern                                                       |
+| ------------- | ------------ | ----------- | ------------------------------------------------------------- |
+| winit.ovr     | 12           | 0x0c        | State handler; writes `*0x363a` directly                      |
+| wbase.ovr     | 14           | 0x0e        | State handler; uses `*0x4fce` deferred-transition cache       |
+| wmele.ovr     | 14           | 0x0e        | State handler; same `*0x4fce` pattern                         |
+| **wpcmk.ovr** | **16**       | **0x10**    | **Library; dispatch stub is a no-op that returns to state 4** |
 
 ## Subsystem prefixes
 
-| Prefix                  | Subsystem                                                          |
-| ----------------------- | ------------------------------------------------------------------ |
-| `creation_*`            | Master orchestrator + flow stages (init, finalize, commit)         |
-| `stat_roller_*`         | **Attribute roll, bonus-point roll**, personality roll, age/HP    |
-| `bonus_allocator_*`     | UI loop where player distributes bonus points across attributes    |
-| `class_qualification_*` | Required-attribute checks; raises stats from pool to meet thresholds |
-| `race_*` / `class_*` / `alignment_*` | Race/class/alignment menu pickers, race-specific dispatch tables |
-| `attribute_*`           | Per-attribute stat panel render, six-attr label table              |
-| `portrait_*`            | Portrait file loader + picker loop                                 |
-| `roster_*`              | Disk I/O, slot picker, occupancy check, find-empty-slot            |
-| `skill_train_*`         | 4-pillar (MAGIC/FAITH/PHYSICAL/MENTAL) → 82-entry skill table mapper |
-| `creation_ui_*`         | Window setup, char-sheet redraw, welcome animation                 |
-| `ui_widget_*`           | Reused widgets (menu picker, text input editor, putchar wrappers)  |
-| `data_util_*`           | strcmp variants, small helpers                                     |
+| Prefix                               | Subsystem                                                            |
+| ------------------------------------ | -------------------------------------------------------------------- |
+| `creation_*`                         | Master orchestrator + flow stages (init, finalize, commit)           |
+| `stat_roller_*`                      | **Attribute roll, bonus-point roll**, personality roll, age/HP       |
+| `bonus_allocator_*`                  | UI loop where player distributes bonus points across attributes      |
+| `class_qualification_*`              | Required-attribute checks; raises stats from pool to meet thresholds |
+| `race_*` / `class_*` / `alignment_*` | Race/class/alignment menu pickers, race-specific dispatch tables     |
+| `attribute_*`                        | Per-attribute stat panel render, six-attr label table                |
+| `portrait_*`                         | Portrait file loader + picker loop                                   |
+| `roster_*`                           | Disk I/O, slot picker, occupancy check, find-empty-slot              |
+| `skill_train_*`                      | 4-pillar (MAGIC/FAITH/PHYSICAL/MENTAL) → 82-entry skill table mapper |
+| `creation_ui_*`                      | Window setup, char-sheet redraw, welcome animation                   |
+| `ui_widget_*`                        | Reused widgets (menu picker, text input editor, putchar wrappers)    |
+| `data_util_*`                        | strcmp variants, small helpers                                       |
 
 ## The infamous bonus-point roller (`stat_roller_bonus`)
 
@@ -48,11 +48,11 @@ stored at DGROUP `*0x56ac`.
 
 **Distribution** (empirically verified over 10⁷ trials, matches the theoretical math exactly):
 
-| Outcome                  | Range         | Probability     |
-| ------------------------ | ------------- | --------------- |
-| No bonus (most common)   | 5..10 uniform | (19/20)² = **90.25%** |
-| One +8 bonus             | 13..18 uniform | 2·(1/20)·(19/20) = **9.50%** |
-| Both +8 bonuses (jackpot)| 21..26 uniform | (1/20)² = **0.25%** |
+| Outcome                   | Range          | Probability                  |
+| ------------------------- | -------------- | ---------------------------- |
+| No bonus (most common)    | 5..10 uniform  | (19/20)² = **90.25%**        |
+| One +8 bonus              | 13..18 uniform | 2·(1/20)·(19/20) = **9.50%** |
+| Both +8 bonuses (jackpot) | 21..26 uniform | (1/20)² = **0.25%**          |
 
 **P(bonus ≥ 19) = 1/400 ≈ 0.25%** — i.e. ~400 re-roll attempts on average to qualify for the elite classes (Samurai / Lord / Ninja / Bishop). And Wiz6 wants a 6-character party. Combined with raw-attribute prerequisites, this is the math behind the famously cursed grind.
 
@@ -86,22 +86,22 @@ This is how 19+ bonus points unlocks elite classes: it lets you cover larger req
 
 **Requirement table** (file `0x5e98`, 14 entries × 9 bytes, null-terminated 8-char ASCII):
 
-| Class | STR | INT | PIE | VIT | DEX | SPD | PER | KAR |
-|-------|-----|-----|-----|-----|-----|-----|-----|-----|
-| Fighter | 12 | — | — | — | — | — | — | — |
-| Mage | — | 12 | — | — | — | — | — | — |
-| Priest | — | — | 12 | — | — | — | 8 | — |
-| Thief | — | — | — | — | 12 | 8 | — | — |
-| Bishop | 10 | 8 | 8 | 11 | 10 | 8 | 8 | — |
-| Samurai | — | 13 | — | — | 13 | — | — | — |
-| Lord | — | 10 | — | — | 12 | 8 | 12 | — |
-| Ninja | 10 | 14 | — | 14 | — | — | 10 | — |
-| Valkyrie | 10 | — | 11 | 11 | 10 | 11 | 8 | — |
-| Ranger | — | 15 | 15 | — | — | — | 8 | — |
-| Bard | 12 | 9 | 12 | 12 | 9 | 9 | 14 | — |
-| Psionic | 12 | 11 | — | 9 | 12 | 14 | 8 | — |
-| Monk | 13 | 8 | 13 | — | 10 | 13 | 8 | — |
-| Alchemist | 12 | 10 | 10 | 12 | 12 | 12 | — | — |
+| Class     | STR | INT | PIE | VIT | DEX | SPD | PER | KAR |
+| --------- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Fighter   | 12  | —   | —   | —   | —   | —   | —   | —   |
+| Mage      | —   | 12  | —   | —   | —   | —   | —   | —   |
+| Priest    | —   | —   | 12  | —   | —   | —   | 8   | —   |
+| Thief     | —   | —   | —   | —   | 12  | 8   | —   | —   |
+| Bishop    | 10  | 8   | 8   | 11  | 10  | 8   | 8   | —   |
+| Samurai   | —   | 13  | —   | —   | 13  | —   | —   | —   |
+| Lord      | —   | 10  | —   | —   | 12  | 8   | 12  | —   |
+| Ninja     | 10  | 14  | —   | 14  | —   | —   | 10  | —   |
+| Valkyrie  | 10  | —   | 11  | 11  | 10  | 11  | 8   | —   |
+| Ranger    | —   | 15  | 15  | —   | —   | —   | 8   | —   |
+| Bard      | 12  | 9   | 12  | 12  | 9   | 9   | 14  | —   |
+| Psionic   | 12  | 11  | —   | 9   | 12  | 14  | 8   | —   |
+| Monk      | 13  | 8   | 13  | —   | 10  | 13  | 8   | —   |
+| Alchemist | 12  | 10  | 10  | 12  | 12  | 12  | —   | —   |
 
 (`—` = no requirement for that attribute)
 
@@ -109,16 +109,16 @@ This is how 19+ bonus points unlocks elite classes: it lets you cover larger req
 
 At DGROUP `0x559c..0x55a3`:
 
-| Offset | Attribute                        |
-| ------ | -------------------------------- |
-| +0     | STR                              |
-| +1     | INT                              |
-| +2     | PIE                              |
-| +3     | VIT                              |
-| +4     | DEX                              |
-| +5     | SPD                              |
-| +6     | Personality (or Karma)           |
-| +7     | Karma (or Personality)           |
+| Offset | Attribute              |
+| ------ | ---------------------- |
+| +0     | STR                    |
+| +1     | INT                    |
+| +2     | PIE                    |
+| +3     | VIT                    |
+| +4     | DEX                    |
+| +5     | SPD                    |
+| +6     | Personality (or Karma) |
+| +7     | Karma (or Personality) |
 
 The last two are derived/personality stats; the exact name assignment (which byte is Karma vs Personality) is unverified — both are bumped by the personality reroll loop at `0x3837`.
 

@@ -95,19 +95,19 @@ Interactive race selection. After selection:
 
 **Race index → name** (confirmed from pcfile.dbs stock characters):
 
-| Index | Race | DGROUP BSS | Confirmed by |
-|-------|------|-----------|--------------|
-| 0 | Human | 0x52d9 | THESUS (slot 0) |
-| 1 | Elf | 0x52e2 | NOBAL (slot 3) |
-| 2 | Dwarf | 0x52eb | (inferred by position) |
-| 3 | Gnome | 0x52f4 | PENTAG (slot 5) |
-| 4 | Hobbit | 0x52fd | (inferred) |
-| 5 | Faerie | 0x5306 | (wpcvw: "Race=5(Faerie): AC-2") |
-| 6 | Lizardman | 0x530f | (inferred) |
-| 7 | Dracon | 0x5318 | TREON (slot 4) |
-| 8 | Felpurr | 0x5321 | LYSANDR (slot 2) |
-| 9 | Rawulf | 0x532a | (inferred) |
-| 10 | Mook | 0x5333 | TEMPEST (slot 1) |
+| Index | Race      | DGROUP BSS | Confirmed by                    |
+| ----- | --------- | ---------- | ------------------------------- |
+| 0     | Human     | 0x52d9     | THESUS (slot 0)                 |
+| 1     | Elf       | 0x52e2     | NOBAL (slot 3)                  |
+| 2     | Dwarf     | 0x52eb     | (inferred by position)          |
+| 3     | Gnome     | 0x52f4     | PENTAG (slot 5)                 |
+| 4     | Hobbit    | 0x52fd     | (inferred)                      |
+| 5     | Faerie    | 0x5306     | (wpcvw: "Race=5(Faerie): AC-2") |
+| 6     | Lizardman | 0x530f     | (inferred)                      |
+| 7     | Dracon    | 0x5318     | TREON (slot 4)                  |
+| 8     | Felpurr   | 0x5321     | LYSANDR (slot 2)                |
+| 9     | Rawulf    | 0x532a     | (inferred)                      |
+| 10    | Mook      | 0x5333     | TEMPEST (slot 1)                |
 
 Race stat floor tables are in wroot DGROUP BSS (not in wpcmk.ovr). They are zero-filled at file load and populated by winit state-0. File offset 0x52d9 in DGROUP = file position 0x15259, which is past wroot.exe end (0x1063e) — confirmed BSS.
 
@@ -177,11 +177,11 @@ c7 06 ac 56 15 00  ; mov word [0x56ac], 21  ; force bonus = 21
 
 **Distribution:**
 
-| Outcome | Range | Probability |
-|---------|-------|-------------|
-| No bonus | 5..10 | (19/20)² = 90.25% |
-| One +8 | 13..18 | 2·(1/20)·(19/20) = 9.50% |
-| Two +8 (jackpot) | 21..26 | (1/20)² = 0.25% |
+| Outcome          | Range  | Probability              |
+| ---------------- | ------ | ------------------------ |
+| No bonus         | 5..10  | (19/20)² = 90.25%        |
+| One +8           | 13..18 | 2·(1/20)·(19/20) = 9.50% |
+| Two +8 (jackpot) | 21..26 | (1/20)² = 0.25%          |
 
 Values **11, 12, 19, 20 are unreachable** due to +8 quantization.
 
@@ -307,22 +307,22 @@ call 0xf0dc                   ; roster_save_all
 
 14 entries × 9 bytes. Null-terminated 8-char ASCII. Encoding: `byte - 65` = minimum attribute value. Verified by `stats_bump_to_racial_minimums` at 0x2c7b (same `add ax, 0xffbf` = subtract 65).
 
-| Class | Raw hex | STR | INT | PIE | VIT | DEX | SPD | PER | KAR |
-|-------|---------|-----|-----|-----|-----|-----|-----|-----|-----|
-| Fighter (0) | `4d41414141414141 00` | 12 | — | — | — | — | — | — | — |
-| Mage (1) | `414d41414141414100` | — | 12 | — | — | — | — | — | — |
-| Priest (2) | `41414d414141494100` | — | — | 12 | — | — | — | 8 | — |
-| Thief (3) | `414141414d494141 00` | — | — | — | — | 12 | 8 | — | — |
-| Bishop (4) | `4b49494c4b494941 00` | 10 | 8 | 8 | 11 | 10 | 8 | 8 | — |
-| Samurai (5) | `414e41414e41414100` | — | 13 | — | — | 13 | — | — | — |
-| Lord (6) | `414b41414d494d4100` | — | 10 | — | — | 12 | 8 | 12 | — |
-| Ninja (7) | `4b4f414f41414b41 00` | 10 | 14 | — | 14 | — | — | 10 | — |
-| Valkyrie (8) | `4b414c4c4b4c494100` | 10 | — | 11 | 11 | 10 | 11 | 8 | — |
-| Ranger (9) | `415050414141494100` | — | 15 | 15 | — | — | — | 8 | — |
-| Bard (10) | `4d4a4d4d4a4a4f4100` | 12 | 9 | 12 | 12 | 9 | 9 | 14 | — |
-| Psionic (11) | `4d4c414a4d4f494100` | 12 | 11 | — | 9 | 12 | 14 | 8 | — |
-| Monk (12) | `4e494e414b4e494100` | 13 | 8 | 13 | — | 10 | 13 | 8 | — |
-| Alchemist (13) | `4d4b4b4d4d4d4141 00` | 12 | 10 | 10 | 12 | 12 | 12 | — | — |
+| Class          | Raw hex              | STR | INT | PIE | VIT | DEX | SPD | PER | KAR |
+| -------------- | -------------------- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Fighter (0)    | `4d4141414141414100` | 12  | —   | —   | —   | —   | —   | —   | —   |
+| Mage (1)       | `414d41414141414100` | —   | 12  | —   | —   | —   | —   | —   | —   |
+| Priest (2)     | `41414d414141494100` | —   | —   | 12  | —   | —   | —   | 8   | —   |
+| Thief (3)      | `414141414d49414100` | —   | —   | —   | —   | 12  | 8   | —   | —   |
+| Bishop (4)     | `4b49494c4b49494100` | 10  | 8   | 8   | 11  | 10  | 8   | 8   | —   |
+| Samurai (5)    | `414e41414e41414100` | —   | 13  | —   | —   | 13  | —   | —   | —   |
+| Lord (6)       | `414b41414d494d4100` | —   | 10  | —   | —   | 12  | 8   | 12  | —   |
+| Ninja (7)      | `4b4f414f41414b4100` | 10  | 14  | —   | 14  | —   | —   | 10  | —   |
+| Valkyrie (8)   | `4b414c4c4b4c494100` | 10  | —   | 11  | 11  | 10  | 11  | 8   | —   |
+| Ranger (9)     | `415050414141494100` | —   | 15  | 15  | —   | —   | —   | 8   | —   |
+| Bard (10)      | `4d4a4d4d4a4a4f4100` | 12  | 9   | 12  | 12  | 9   | 9   | 14  | —   |
+| Psionic (11)   | `4d4c414a4d4f494100` | 12  | 11  | —   | 9   | 12  | 14  | 8   | —   |
+| Monk (12)      | `4e494e414b4e494100` | 13  | 8   | 13  | —   | 10  | 13  | 8   | —   |
+| Alchemist (13) | `4d4b4b4d4d4d414100` | 12  | 10  | 10  | 12  | 12  | 12  | —   | —   |
 
 (`—` = requirement is 0, trivially met)
 
@@ -344,23 +344,23 @@ Skill index names (0..29) not yet decoded. Requires 4-pillar skill_train table d
 
 ## Key DGROUP variables
 
-| Address | Name | Description |
-|---------|------|-------------|
-| `0x546e` | `ui_window_handle` | Main creation window; first arg to all render calls |
-| `0x5470` | `new_char_record_buf` | 432-byte (0x1b0) char record being built |
-| `0x5488` | `secondary_window_handle` | Used in stat display context |
-| `0x5588` | `pillar_has_skills_flags` | 4 bytes; checked in skill training loop |
-| `0x559c..0x55a3` | `base_stats[8]` | STR/INT/PIE/VIT/DEX/SPD/PER/KAR during creation |
-| `0x560c` | `name_entry_flag` | Cleared before name entry |
-| `0x560d` | `chosen_race` | Race index 0..10 |
-| `0x5618` | `has_spells_flag` | Non-zero → run spell school init |
-| `0x56ac` | `bonus_points_remaining` | 0xffff=unset; 5..26 after roller; decremented by allocator |
-| `0x56ae` | `class_qual_flags` | Per-class qualification word; `[class_idx*2 + 0x56ae]` |
-| `0x56ca` | `char_record_ptr` | Pointer to char record in creation |
-| `0x56ce` | `debug_cheat_flag` | If==1, bonus forced to 21 |
-| `0x4fd2` | `max_roster_slots` | Read by find_empty_slot |
-| `0x4fd8` | `roster_occupancy[]` | One byte per slot; set to 1 on save |
-| `0x4fee` | `roster_filename_ptr` | Points to 'PCFILE.DBS' at 0x5ca9 |
+| Address          | Name                      | Description                                                   |
+| ---------------- | ------------------------- | ------------------------------------------------------------- |
+| `0x546e`         | `ui_window_handle`        | Main creation window; first arg to all render calls           |
+| `0x5470`         | `new_char_record_buf`     | 432-byte (0x1b0) char record being built                      |
+| `0x5488`         | `secondary_window_handle` | Used in stat display context                                  |
+| `0x5588`         | `pillar_has_skills_flags` | 4 bytes; checked in skill training loop                       |
+| `0x559c..0x55a3` | `base_stats[8]`           | STR/INT/PIE/VIT/DEX/SPD/PER/KAR during creation               |
+| `0x560c`         | `name_entry_flag`         | Cleared before name entry                                     |
+| `0x560d`         | `chosen_race`             | Race index 0..10                                              |
+| `0x5618`         | `has_spells_flag`         | Non-zero → run spell school init                              |
+| `0x56ac`         | `bonus_points_remaining`  | 0xffff=unset; 5..26 after roller; decremented by allocator    |
+| `0x56ae`         | `class_qual_flags`        | Per-class qualification word; `[class_idx*2 + 0x56ae]`        |
+| `0x56ca`         | `char_record_ptr`         | Pointer to char record in creation                            |
+| `0x56ce`         | `debug_cheat_flag`        | If==1, bonus forced to 21                                     |
+| `0x4fd2`         | `max_roster_slots`        | Read by find_empty_slot                                       |
+| `0x4fd8`         | `roster_occupancy[]`      | One byte per slot; set to 1 on save                           |
+| `0x4fee`         | `roster_filename_ptr`     | Points to 'PCFILE.DBS' at 0x5ca9                              |
 | `0x52d9..0x5333` | `race_stat_floors[11][9]` | wroot BSS; populated by winit; NOT accessible from wpcmk file |
 
 ---

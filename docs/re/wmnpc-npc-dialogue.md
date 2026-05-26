@@ -12,30 +12,30 @@ This is the second library-overlay pattern in Wiz6, alongside `wpcmk.ovr` (chara
 
 Five external entry points:
 
-| File offset | Name                       | Purpose                                                |
-| ----------- | -------------------------- | ------------------------------------------------------ |
-| `0x088b`    | `wmnpc_load_npc_sprite`    | Huffman-load MON*.PIC for the NPC portrait              |
-| `0x0fa4`    | `wmnpc_load_npc_record`    | Load NPC stat data + dialogue keyword refs              |
+| File offset | Name                       | Purpose                                                                                            |
+| ----------- | -------------------------- | -------------------------------------------------------------------------------------------------- |
+| `0x088b`    | `wmnpc_load_npc_sprite`    | Huffman-load MON*.PIC for the NPC portrait                                                         |
+| `0x0fa4`    | `wmnpc_load_npc_record`    | Load NPC stat data + dialogue keyword refs                                                         |
 | `0x737a`    | `wmnpc_encounter_init`     | Open dialogue UI, init reaction state. Writes `*0x363a = 5` to keep wmaze active in the background |
-| `0x749c`    | `wmnpc_encounter_cleanup`  | Close UI; restore wmaze state                           |
-| `0x6de0`    | `wmnpc_dialogue_main_loop` | The main TALK/GIVE/TAKE/ATTACK loop                     |
+| `0x749c`    | `wmnpc_encounter_cleanup`  | Close UI; restore wmaze state                                                                      |
+| `0x6de0`    | `wmnpc_dialogue_main_loop` | The main TALK/GIVE/TAKE/ATTACK loop                                                                |
 
 Internal write `*0x363a = 10` from within `wmnpc_charm_npc_attempt` is how a critical-failed charm transitions out of dialogue into combat (state 10 = `wmele.ovr` init-combat).
 
 ## Subsystem prefixes
 
-| Prefix                | Subsystem |
-| --------------------- | --------- |
-| `wmnpc_encounter_*`   | Init / cleanup; reaction-state setup |
-| `wmnpc_dialogue_*`    | Main loop + trigger-check |
-| `wmnpc_keyword_*`     | The synonym-expansion parser (see below) |
-| `wmnpc_load_*`        | NPC sprite + record + keyword-table loaders |
-| `wmnpc_render_3d_*`   | Embedded copy of wmaze's 3D wall rendering |
-| `wmnpc_render_sprite_*` | NPC portrait composition into the dialogue panel |
-| `wmnpc_charm_*`       | Charisma + skill + level → reaction roll |
-| `wmnpc_action_*`      | TALK / GIVE / TAKE / ATTACK / SHOW / READ handlers |
-| `wmnpc_inventory_*`   | Item transfer between party + NPC |
-| `ui_widget_*`         | Reused widgets (keyword picker, response renderer) |
+| Prefix                  | Subsystem                                          |
+| ----------------------- | -------------------------------------------------- |
+| `wmnpc_encounter_*`     | Init / cleanup; reaction-state setup               |
+| `wmnpc_dialogue_*`      | Main loop + trigger-check                          |
+| `wmnpc_keyword_*`       | The synonym-expansion parser (see below)           |
+| `wmnpc_load_*`          | NPC sprite + record + keyword-table loaders        |
+| `wmnpc_render_3d_*`     | Embedded copy of wmaze's 3D wall rendering         |
+| `wmnpc_render_sprite_*` | NPC portrait composition into the dialogue panel   |
+| `wmnpc_charm_*`         | Charisma + skill + level → reaction roll           |
+| `wmnpc_action_*`        | TALK / GIVE / TAKE / ATTACK / SHOW / READ handlers |
+| `wmnpc_inventory_*`     | Item transfer between party + NPC                  |
+| `ui_widget_*`           | Reused widgets (keyword picker, response renderer) |
 
 ## The dialogue keyword parser (`wmnpc_keyword_normalize` at 0x7d5b)
 

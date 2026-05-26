@@ -15,13 +15,13 @@ looked like multi-segment composition was a phantom produced by the engine's
 Every `.pic` load in the engine routes through a near call to
 **`wroot.exe:0xEE85`** (the cross-overlay decoder wrapper):
 
-| Overlay     | Function entry | Call site | Purpose                                                |
-| ----------- | -------------- | --------- | ------------------------------------------------------ |
-| `wmele.ovr` | `0x0042`       | `0x014C`  | Combat sprite load (arg = `combatSpriteId`)            |
-| `wmnpc.ovr` | `0x093A`       | `0x094A`  | NPC encounter sprite load                              |
-| `wdopt.ovr` | `0x00F7`       | `0x0107`  | Options/menu sprite load                               |
-| `winit.ovr` | `0x033A`       | `0x035F`  | Startup pre-load loop (mon00..monNN into N slots)      |
-| `winit.ovr` | `0x0432`       | `0x0449`  | `credits.pic` load                                     |
+| Overlay     | Function entry | Call site | Purpose                                           |
+| ----------- | -------------- | --------- | ------------------------------------------------- |
+| `wmele.ovr` | `0x0042`       | `0x014C`  | Combat sprite load (arg = `combatSpriteId`)       |
+| `wmnpc.ovr` | `0x093A`       | `0x094A`  | NPC encounter sprite load                         |
+| `wdopt.ovr` | `0x00F7`       | `0x0107`  | Options/menu sprite load                          |
+| `winit.ovr` | `0x033A`       | `0x035F`  | Startup pre-load loop (mon00..monNN into N slots) |
+| `winit.ovr` | `0x0432`       | `0x0449`  | `credits.pic` load                                |
 
 All five sites use **identical arguments at the decoder boundary**:
 

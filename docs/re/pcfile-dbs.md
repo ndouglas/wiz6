@@ -17,12 +17,12 @@ Total size for 16 slots: 24 + 16 × 432 = **6936 bytes**.
 
 ### File header (24 bytes)
 
-| Offset | Field          | Type    | Value (stock file) | Notes                                                                 |
-| ------ | -------------- | ------- | ------------------ | --------------------------------------------------------------------- |
-| +0x00  | record_size    | u16 LE  | 0x01B0 (432)       | Per-character record size; matches BSS slot stride                    |
-| +0x02  | slot_count     | u16 LE  | 0x0010 (16)        | Total slots in file                                                   |
-| +0x04  | header_size    | u32 LE  | 0x00000018 (24)    | Byte offset to first record                                           |
-| +0x08  | slot_status[16]| u8[16]  | 01 01 01 01 01 01 00×10 | 0=empty, 1=available, 2=in-party. Stock: first 6 populated. |
+| Offset | Field           | Type   | Value (stock file)      | Notes                                                       |
+| ------ | --------------- | ------ | ----------------------- | ----------------------------------------------------------- |
+| +0x00  | record_size     | u16 LE | 0x01B0 (432)            | Per-character record size; matches BSS slot stride          |
+| +0x02  | slot_count      | u16 LE | 0x0010 (16)             | Total slots in file                                         |
+| +0x04  | header_size     | u32 LE | 0x00000018 (24)         | Byte offset to first record                                 |
+| +0x08  | slot_status[16] | u8[16] | 01 01 01 01 01 01 00×10 | 0=empty, 1=available, 2=in-party. Stock: first 6 populated. |
 
 ### Load path (how records reach memory)
 
@@ -52,38 +52,38 @@ Then `add_party_member` does:
 
 ### Field map
 
-| Offset    | Field             | Type       | Confidence | Notes                                                                                                                                         |
-| --------- | ----------------- | ---------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| +0x00     | name              | char[8]    | HIGH       | ASCIIZ, 7 chars max + null. **NOT** 12 bytes.                                                                                                 |
-| +0x08     | xp                | u32 LE     | HIGH       | Experience points. **NOT** at +0x0c as bss_layout claimed.                                                                                    |
-| +0x0c     | *unknown*         | u8[12]     | LOW        | All 0 in stock data. Possibly gold u32 + padding, or reserved.                                                                                |
-| +0x18     | level             | u16 LE     | HIGH       | Current level (1-based). **NOT** at +0x24 as bss_layout claimed.                                                                              |
-| +0x1a     | level_secondary   | u16 LE     | MEDIUM     | Equals `level` in stock data. Possibly `max_level` or `saved_class_change_level`.                                                             |
-| +0x1c     | hp_cur            | u16 LE     | HIGH       | Current HP. **NOT** at +0x18 as bss_layout claimed.                                                                                           |
-| +0x1e     | hp_max            | u16 LE     | HIGH       | Maximum HP. Equals `hp_cur` in stock (fully healed).                                                                                          |
-| +0x20     | sp_cur            | u16 LE     | MEDIUM     | Spirit points (mana), combined pool. Values 128–295.                                                                                          |
-| +0x22     | gold              | u16 LE     | MEDIUM     | Gold pieces. Values 1035–2700 in stock data. May be low word of u32.                                                                          |
-| +0x24     | *unknown*         | u8[4]      | LOW        | Constant `01 00 01 00` for all stock chars.                                                                                                    |
-| +0x28     | per_school_sp[6]  | {u16,u16}[6]| LOW       | Per-school SP (cur, max) pairs? Mostly 0 for fighters. NOBAL: school[4]=(5,5), school[5]=(4,4). Ninjas: two schools with 3.                   |
-| +0x40     | inventory[22]     | item_record[22] | MEDIUM | 8 bytes/item: {item_id u16, u16, u8, u8, u8, u8}. 5 items each for stock chars.                                                              |
-| +0x110    | equip_slots[8]    | u8[8]      | MEDIUM     | Inventory-index of equipped item in each slot. 0xFF=empty. All 0xFF in stock.                                                                 |
-| +0x118    | *unknown*         | u8[10]     | LOW        | Near the conditions region. Contains small values.                                                                                             |
-| +0x122    | conditions[10]    | u8[10]     | MEDIUM     | Active status conditions per wpcvw bss_layout.                                                                                                 |
-| +0x12c    | STR               | u8         | HIGH       | Strength (0–18).                                                                                                                               |
-| +0x12d    | INT               | u8         | HIGH       | Intelligence.                                                                                                                                  |
-| +0x12e    | PIE               | u8         | HIGH       | Piety.                                                                                                                                         |
-| +0x12f    | VIT               | u8         | HIGH       | Vitality.                                                                                                                                      |
-| +0x130    | DEX               | u8         | HIGH       | Dexterity/Luck (used in AC formula).                                                                                                           |
-| +0x131    | SPD               | u8         | HIGH       | Speed (also used in AC formula).                                                                                                               |
-| +0x134    | skills[14]        | u8[14]     | MEDIUM     | Per-skill levels (0..100). From wpcvw bss_layout.                                                                                              |
-| +0x142    | *TBD*             | u8[90]     | LOW        | Spell bitmaps, school data, and other per-character flags. Not decoded in this pass.                                                           |
-| +0x19c    | *unknown*         | u8[8]      | LOW        | Race/class/sex region. wpcvw bss_layout may be off by 1–3 bytes here. Best guess: race at +0x19f (values 0,0,3,2,1,1 = plausible race indices). |
-| +0x1a0    | sex(?)            | u8         | LOW        | wpcvw bss_layout claims sex at abs 0x4589 = +0x1a0. All 0 in stock data; may be 0=male or wrong offset.                                       |
-| +0x1ab    | magic_power_hi    | u8         | LOW        | From wpcvw bss_layout. Values [10,8,13,10,9,7] in stock.                                                                                      |
-| +0x1ac    | inventory_count   | u8         | HIGH       | Number of items in inventory (0..22). Value 5 matches actual non-zero item count.                                                              |
-| +0x1ad    | equip_count(?)    | u8         | LOW        | From wpcvw bss_layout.                                                                                                                         |
-| +0x1ae    | ac_extra(?)       | u8         | LOW        | From wpcvw bss_layout.                                                                                                                         |
-| +0x1af    | saved_old_level   | u8         | LOW        | From wpcvw bss_layout (the class-change throttle value).                                                                                       |
+| Offset | Field            | Type            | Confidence | Notes                                                                                                                                           |
+| ------ | ---------------- | --------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| +0x00  | name             | char[8]         | HIGH       | ASCIIZ, 7 chars max + null. **NOT** 12 bytes.                                                                                                   |
+| +0x08  | xp               | u32 LE          | HIGH       | Experience points. **NOT** at +0x0c as bss_layout claimed.                                                                                      |
+| +0x0c  | *unknown*        | u8[12]          | LOW        | All 0 in stock data. Possibly gold u32 + padding, or reserved.                                                                                  |
+| +0x18  | level            | u16 LE          | HIGH       | Current level (1-based). **NOT** at +0x24 as bss_layout claimed.                                                                                |
+| +0x1a  | level_secondary  | u16 LE          | MEDIUM     | Equals `level` in stock data. Possibly `max_level` or `saved_class_change_level`.                                                               |
+| +0x1c  | hp_cur           | u16 LE          | HIGH       | Current HP. **NOT** at +0x18 as bss_layout claimed.                                                                                             |
+| +0x1e  | hp_max           | u16 LE          | HIGH       | Maximum HP. Equals `hp_cur` in stock (fully healed).                                                                                            |
+| +0x20  | sp_cur           | u16 LE          | MEDIUM     | Spirit points (mana), combined pool. Values 128–295.                                                                                            |
+| +0x22  | gold             | u16 LE          | MEDIUM     | Gold pieces. Values 1035–2700 in stock data. May be low word of u32.                                                                            |
+| +0x24  | *unknown*        | u8[4]           | LOW        | Constant `01 00 01 00` for all stock chars.                                                                                                     |
+| +0x28  | per_school_sp[6] | {u16,u16}[6]    | LOW        | Per-school SP (cur, max) pairs? Mostly 0 for fighters. NOBAL: school[4]=(5,5), school[5]=(4,4). Ninjas: two schools with 3.                     |
+| +0x40  | inventory[22]    | item_record[22] | MEDIUM     | 8 bytes/item: {item_id u16, u16, u8, u8, u8, u8}. 5 items each for stock chars.                                                                 |
+| +0x110 | equip_slots[8]   | u8[8]           | MEDIUM     | Inventory-index of equipped item in each slot. 0xFF=empty. All 0xFF in stock.                                                                   |
+| +0x118 | *unknown*        | u8[10]          | LOW        | Near the conditions region. Contains small values.                                                                                              |
+| +0x122 | conditions[10]   | u8[10]          | MEDIUM     | Active status conditions per wpcvw bss_layout.                                                                                                  |
+| +0x12c | STR              | u8              | HIGH       | Strength (0–18).                                                                                                                                |
+| +0x12d | INT              | u8              | HIGH       | Intelligence.                                                                                                                                   |
+| +0x12e | PIE              | u8              | HIGH       | Piety.                                                                                                                                          |
+| +0x12f | VIT              | u8              | HIGH       | Vitality.                                                                                                                                       |
+| +0x130 | DEX              | u8              | HIGH       | Dexterity/Luck (used in AC formula).                                                                                                            |
+| +0x131 | SPD              | u8              | HIGH       | Speed (also used in AC formula).                                                                                                                |
+| +0x134 | skills[14]       | u8[14]          | MEDIUM     | Per-skill levels (0..100). From wpcvw bss_layout.                                                                                               |
+| +0x142 | *TBD*            | u8[90]          | LOW        | Spell bitmaps, school data, and other per-character flags. Not decoded in this pass.                                                            |
+| +0x19c | *unknown*        | u8[8]           | LOW        | Race/class/sex region. wpcvw bss_layout may be off by 1–3 bytes here. Best guess: race at +0x19f (values 0,0,3,2,1,1 = plausible race indices). |
+| +0x1a0 | sex(?)           | u8              | LOW        | wpcvw bss_layout claims sex at abs 0x4589 = +0x1a0. All 0 in stock data; may be 0=male or wrong offset.                                         |
+| +0x1ab | magic_power_hi   | u8              | LOW        | From wpcvw bss_layout. Values [10,8,13,10,9,7] in stock.                                                                                        |
+| +0x1ac | inventory_count  | u8              | HIGH       | Number of items in inventory (0..22). Value 5 matches actual non-zero item count.                                                               |
+| +0x1ad | equip_count(?)   | u8              | LOW        | From wpcvw bss_layout.                                                                                                                          |
+| +0x1ae | ac_extra(?)      | u8              | LOW        | From wpcvw bss_layout.                                                                                                                          |
+| +0x1af | saved_old_level  | u8              | LOW        | From wpcvw bss_layout (the class-change throttle value).                                                                                        |
 
 ---
 
@@ -127,23 +127,23 @@ offset  00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f
 
 For the purposes of a working decoder, the following fields have sufficient confidence to decode immediately:
 
-| Field         | Offset  | Type   | Confidence |
-| ------------- | ------- | ------ | ---------- |
-| `name`        | +0x00   | char[8]| HIGH       |
-| `xp`          | +0x08   | u32 LE | HIGH       |
-| `level`       | +0x18   | u16 LE | HIGH       |
-| `hpCurrent`   | +0x1c   | u16 LE | HIGH       |
-| `hpMax`       | +0x1e   | u16 LE | HIGH       |
-| `str/int/pie/vit/dex/spd` | +0x12c | u8[6] | HIGH |
-| `inventoryCount` | +0x1ac | u8  | HIGH       |
+| Field                     | Offset | Type    | Confidence |
+| ------------------------- | ------ | ------- | ---------- |
+| `name`                    | +0x00  | char[8] | HIGH       |
+| `xp`                      | +0x08  | u32 LE  | HIGH       |
+| `level`                   | +0x18  | u16 LE  | HIGH       |
+| `hpCurrent`               | +0x1c  | u16 LE  | HIGH       |
+| `hpMax`                   | +0x1e  | u16 LE  | HIGH       |
+| `str/int/pie/vit/dex/spd` | +0x12c | u8[6]   | HIGH       |
+| `inventoryCount`          | +0x1ac | u8      | HIGH       |
 
 Fields for a richer decode (decoder can expose these but call them "tentative"):
 
-| Field   | Offset  | Type   | Confidence |
-| ------- | ------- | ------ | ---------- |
-| `spCurrent` | +0x20 | u16 LE | MEDIUM |
-| `gold`  | +0x22   | u16 LE | MEDIUM     |
-| `skills[14]` | +0x134 | u8[14] | MEDIUM |
+| Field        | Offset | Type   | Confidence |
+| ------------ | ------ | ------ | ---------- |
+| `spCurrent`  | +0x20  | u16 LE | MEDIUM     |
+| `gold`       | +0x22  | u16 LE | MEDIUM     |
+| `skills[14]` | +0x134 | u8[14] | MEDIUM     |
 
 The remaining ~320 bytes (`raw[]`) should be preserved verbatim in the decoder output for later refinement.
 

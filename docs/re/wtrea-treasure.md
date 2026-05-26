@@ -8,25 +8,25 @@ Human-readable index of function names applied to `wtrea.ovr` in the Ghidra proj
 
 wtrea is a true state-machine handler (unlike wpcmk and wmnpc, which are library overlays). Owns two states:
 
-| State | Decimal | Handler                                  | Purpose                                       |
-| ----- | ------- | ---------------------------------------- | --------------------------------------------- |
-| 0x0f  | 15      | `wtrea_state_0f_post_combat_treasure`    | Post-combat loot pickup (rolls treasure, divides gold, awards xp). Transitions to 0x16 on exit. |
-| 0x15  | 21      | `wtrea_state_15_chest_encounter`         | In-dungeon chest interaction (open / inspect / disarm / spell / leave). Transitions to 0x16 on exit. |
+| State | Decimal | Handler                               | Purpose                                                                                              |
+| ----- | ------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| 0x0f  | 15      | `wtrea_state_0f_post_combat_treasure` | Post-combat loot pickup (rolls treasure, divides gold, awards xp). Transitions to 0x16 on exit.      |
+| 0x15  | 21      | `wtrea_state_15_chest_encounter`      | In-dungeon chest interaction (open / inspect / disarm / spell / leave). Transitions to 0x16 on exit. |
 
 A TPK during state 0x0f forfeits the treasure and transitions to state 8 (graveyard). See "TPK treasure forfeit" below.
 
 ## Subsystem prefixes
 
-| Prefix                | Subsystem |
-| --------------------- | --------- |
-| `wtrea_state_*`       | The two state-handler entries |
-| `wtrea_chest_menu_*`  | The 5-option chest menu (OPEN / INSPECT / DISARM / SPELL / LEAVE) |
-| `wtrea_action_*`      | Action handlers (disarm, open, inspect, cast spell) |
-| `wtrea_run_loot_*`    | Loot-table rolling + per-character distribution |
-| `wtrea_trap_*`        | Trap selection + progressive trap-name reveal |
-| `wtrea_render_3d_*`   | Embedded copy of wmaze's 3D wall renderer (yet another duplicate) |
-| `wtrea_skill_*`       | Skill-train primitive used by every action attempt |
-| `wtrea_inventory_*`   | 22-slot inventory insert + cursed-flag translation |
+| Prefix               | Subsystem                                                         |
+| -------------------- | ----------------------------------------------------------------- |
+| `wtrea_state_*`      | The two state-handler entries                                     |
+| `wtrea_chest_menu_*` | The 5-option chest menu (OPEN / INSPECT / DISARM / SPELL / LEAVE) |
+| `wtrea_action_*`     | Action handlers (disarm, open, inspect, cast spell)               |
+| `wtrea_run_loot_*`   | Loot-table rolling + per-character distribution                   |
+| `wtrea_trap_*`       | Trap selection + progressive trap-name reveal                     |
+| `wtrea_render_3d_*`  | Embedded copy of wmaze's 3D wall renderer (yet another duplicate) |
+| `wtrea_skill_*`      | Skill-train primitive used by every action attempt                |
+| `wtrea_inventory_*`  | 22-slot inventory insert + cursed-flag translation                |
 
 ## The disarm formula (`wtrea_action_disarm_trap` at 0x2582)
 
@@ -95,13 +95,13 @@ The fix for this engine-side: keep at least one party member alive through the k
 
 At `*0x509d` (loaded from scenario data): 6 entries × 6 bytes each. Per-entry fields:
 
-| Offset | Field             |
-| ------ | ----------------- |
+| Offset | Field                             |
+| ------ | --------------------------------- |
 | +0     | base (gold / item-base / xp-base) |
-| +1     | dice (rng range) |
+| +1     | dice (rng range)                  |
 | +2     | type (1 = gold, 2 = item, 4 = xp) |
-| +3     | drop% (probability 0..100) |
-| +4–5   | additional / per-type params |
+| +3     | drop% (probability 0..100)        |
+| +4–5   | additional / per-type params      |
 
 Gold is divided by living party size at distribution time. Item rolls insert into the receiving character's 22-slot inventory via `wtrea_inventory_insert` (which respects the 22-slot cap and translates the cursed-flag bits — bit 0x40 = class-locked / cursed, same flag wpcvw blocks unequip on). XP is awarded in full to each alive member — i.e. the XP grant is per-character, not per-party.
 
@@ -120,11 +120,11 @@ The interesting structural consequence: **breadth of spellbook matters more than
 
 wtrea ships **another 2192-byte copy** of the 3D dungeon-corridor renderer — same `*0x4faa + 0x43a` and `+0x49a` wall-bitmap accesses, same hardcoded pixel coordinates, same facing-rotation math as wmaze. So the original Wiz6 codebase has the wall renderer duplicated *three* times:
 
-| Overlay        | Function                                  |
-| -------------- | ----------------------------------------- |
-| `wmaze.ovr`    | The original — corridor view during dungeon traversal |
-| `wmnpc.ovr`    | Mirror copy — used when NPC dialogue overlays the corridor |
-| `wtrea.ovr`    | Yet another mirror — used when a chest-interaction window overlays the corridor |
+| Overlay     | Function                                                                        |
+| ----------- | ------------------------------------------------------------------------------- |
+| `wmaze.ovr` | The original — corridor view during dungeon traversal                           |
+| `wmnpc.ovr` | Mirror copy — used when NPC dialogue overlays the corridor                      |
+| `wtrea.ovr` | Yet another mirror — used when a chest-interaction window overlays the corridor |
 
 The constants aren't shared via header or data table. Any tweak to wmaze's wall positions would silently desync the chest-encounter and NPC-encounter views unless someone hand-edited all three copies.
 
