@@ -112,7 +112,60 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 Source: `docs/re/findings/wpcmk-screen-flow.json`
 
 ## 2. Window layouts
-TBD (RE #2)
+
+Cross-overlay thunk: wpcmk file `0xbbb6` → `ui_window_create` at wroot image `0x011a`. Exactly **6 calls** to that thunk in the entire wpcmk binary: 3 persistent windows created early by an unnamed entry function `FUN_59e0` (called from wbase before the creation master runs), and 3 temporary windows created by individual screens.
+
+### Persistent windows
+
+Created once by `FUN_59e0` at the start of the creation flow. Most screens REUSE these.
+
+| Handle | Created at | Cells (col × row) | Pixels (w × h) | Position (x, y) | Attr | Role |
+|--------|-----------:|------------------:|---------------:|----------------:|-----:|------|
+| `*0x546e` | wpcmk 0x5a0b | 40 × 20 | 320 × 160 | (0, 0) | 0x14 | Full top area — stat panel, char-sheet redraw |
+| `*0x56ca` | wpcmk 0x5a31 | 40 × 5 | 320 × 40 | (0, 160) | 0x13 | Bottom status bar — picker headers, text input, personality roller |
+| `*0x56cc` | wpcmk 0x5a57 | 19 × 13 | 152 × 104 | (168, 56) | 0x15 | Right-side menu panel — race/alignment/class/portrait picker lists |
+
+Coordinate system: **screen-absolute** (320×200 EGA). Cells are 8×8 px tiles via wfont rendering.
+
+### Per-screen window usage
+
+| Screen | Windows used | Notes |
+|--------|-------------|-------|
+| screen-00-pre-entry | `*0x56ca` only | Text-input prompt in bottom bar |
+| screen-01-init | persistent + redraw call | Master entry; reuses all 3 persistent windows |
+| screen-02-race | `*0x56ca` (prompt) + `*0x56cc` (11-entry list) | |
+| screen-03-alignment | `*0x56ca` + `*0x56cc` (2-entry list) | |
+| screen-04-bonus-roller | `*0x546e` (stat panel update — no new window) | Non-interactive inline code |
+| screen-05-class | `*0x56ca` + `*0x56cc` (14-entry list, qualification-gated) | |
+| screen-06-bonus-allocator | `*0x56ca` exclusively | Direct stat input via bottom bar |
+| screen-07-derived-stats | `*0x546e` (panel update) | Non-interactive |
+| screen-08-personality | `*0x56ca` | Rolling-dice animation in bottom bar |
+| screen-09-skill-init | none | Non-interactive (32 skill-slot defaults) |
+| screen-10-portrait | `*0x56cc` (image area) + `*0x56ca` (prompt) | 42-cycle picker, keys 1/3/5 |
+| screen-11-class-starter-items | none | Non-interactive |
+| screen-12-char-sheet-redraw | `*0x546e` | Full panel redraw |
+| screen-13-spell-school-init | **NEW window at 0x1b28** | Temporary overlay, see below |
+| screen-14-skill-training | **2 NEW windows at 0x22bf + 0x22e5** | Temporary, see below |
+| screen-15-confirm | `*0x56ca` (menu picker via `ui_menu_picker_vertical`) | medium confidence — needs verification |
+| screen-16-save | none | Roster I/O, no UI windows |
+
+### Temporary (screen-specific) windows
+
+Three additional windows opened transiently:
+
+| Screen | Driver | Call site | Cells | Pixels | Position | Attr | Purpose |
+|--------|--------|-----------|-------|--------|----------|-----:|---------|
+| screen-13 | `ui_welcome_animation` 0x1ae9 | wpcmk 0x1b28 | 20 × 16 | 160 × 128 | (160, 32) | 0x19 | Spell-school animation overlay (stack-local) |
+| screen-14 outer | `ui_train_attribute_picker_grid` 0x229c | wpcmk 0x22bf | 20 × 16 | 160 × 128 | (160, 32) | 0x16 | Skill-training panel |
+| screen-14 inner | (same driver) | wpcmk 0x22e5 | 19 × 8 | 152 × 64 | (168, 56) | 0x17 | 6-cell skill-pick grid (nested) |
+
+### Notes
+
+- `FUN_59e0` is an unnamed top-level wpcmk function called from wbase **before** `wpcmk_create_character_master` runs. Earlier RE assumed `creation_ui_init` (0x0d13) created the persistent windows, but it does not — it only calls existing windows. This is a correction worth recording (and a candidate name in the Task 12 cleanup pass: `creation_ui_setup_persistent_windows`).
+- Attribute bytes (0x14, 0x13, 0x15, 0x16, 0x17, 0x19) encode wfont color/border style — see `docs/re/findings/wfont-tile-system.json` for the bit meanings.
+- `screen-04-bonus-roller`, `screen-07-derived-stats`, `screen-09-skill-init`, `screen-11-class-starter-items`, `screen-16-save` are all non-interactive — they update the record buffer (and sometimes redraw the stat panel via `*0x546e`) but don't open new windows.
+
+Source: `docs/re/findings/wpcmk-window-layouts.json`
 
 ## 3. msg.dbs string IDs per screen
 TBD (RE #3)
