@@ -1,0 +1,75 @@
+{
+  "topic": "newgame-dbs-record-fields",
+  "subagent_run": "2026-05-25",
+  "binaries": ["original/newgame.dbs", "original/wpcmk.ovr", "original/wroot.exe"],
+  "summary": "Investigation into newgame.dbs record structure via consumer-trace approach (tracing wpcmk.ovr reads). KEY FINDING: wpcmk does NOT read newgame.dbs at all. The consumer-trace approach failed because the assumed consumer (wpcmk) is not a consumer of this file. Race stat floor data lives in wroot DGROUP BSS, populated at runtime by a different pathway (winit). Direct byte-pattern searches in newgame.dbs also yielded no useful results.",
+  "findings": [
+    {
+      "id": "wpcmk-does-not-read-newgame-dbs",
+      "claim": "wpcmk.ovr does not access newgame.dbs at all. The consumer-trace approach produced a null result.",
+      "category": "file_access",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "int21h_count": 0,
+        "strings_searched": ["newgame", "scenario", "MASTER", "DISK", "newgame.dbs", "SCENARIO.DBS"],
+        "all_strings_found": "NONE of the above found in wpcmk.ovr (24793 bytes)",
+        "method": "python data.find() on binary content; also data.count(b'\\xcd\\x21') == 0"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "race-data-origin",
+      "claim": "Race base stat floor tables are in wroot DGROUP BSS at addresses 0x52d9..0x5333 (11 races × 9 bytes stride). These are ZERO at file load time and populated at runtime — almost certainly by winit.ovr state-0 which loads MASTER.HDR and/or DISK.HDR and scenario databases.",
+      "category": "race_system",
+      "evidence": {
+        "binary": "original/wroot.exe",
+        "wroot_file_size": "0x1063e bytes",
+        "dgroup_start_in_file": "0xff80 (SS=0xfd8 from MZ header, *16 + 0x200 header)",
+        "dgroup_offset_0x52d9_file_pos": "0xff80 + 0x52d9 = 0x15259 > 0x1063e -> BEYOND FILE END = BSS"
+      },
+      "implication": "To decode newgame.dbs race record offsets, we need to trace winit.ovr state-0 to find where race data is loaded and at what DGROUP address. The DGROUP load base for the race table would let us compute: newgame_offset = dgroup_load_base - 0x52d9 (inverted).",
+      "confidence": "high"
+    },
+    {
+      "id": "newgame-dbs-direct-search-results",
+      "claim": "Direct pattern searches in newgame.dbs for race stat data produced no useful matches.",
+      "category": "search_results",
+      "searches_attempted": [
+        {
+          "pattern": "A-encoded race stat tables (8 bytes, values like 0x48 'H'=7, 0x4b 'K'=10, etc.)",
+          "result": "Not found",
+          "method": "Searched for known Elf pattern HKNJJJIE (NOBAL attrs minus racial floors) — 0 matches"
+        },
+        {
+          "pattern": "11-entry 8-byte blocks with values in range 1-20",
+          "result": "296 false-positive matches (sequential counter data around offset 0xc16)",
+          "method": "Sliding window over file"
+        },
+        {
+          "pattern": "11-entry 9-byte null-terminated blocks",
+          "result": "0 matches",
+          "method": "Sliding window"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "newgame-dbs-file-overview",
+      "claim": "newgame.dbs is 49856 bytes (0xc2c0). Structure not decoded. Content not identifiable from wpcmk consumer trace or direct pattern matching.",
+      "category": "file_structure",
+      "evidence": {
+        "binary": "original/newgame.dbs",
+        "file_size": "0xc2c0 (49856 bytes)",
+        "header_bytes_hex": "first 32 bytes (from prior investigation)",
+        "status": "UNKNOWN — requires winit.ovr state-0 trace or dynamic DOSBox-X memory snapshot"
+      },
+      "confidence": "medium"
+    }
+  ],
+  "unresolved": [
+    "newgame.dbs record structure: unknown. Needs winit.ovr state-0 ASM trace to find where the file is opened and parsed, then decode what data is extracted and stored to DGROUP.",
+    "Which specific file (newgame.dbs, MASTER.HDR, DISK.HDR, scenario.dbs) contains race stat floor data — unknown. winit state-0 loads multiple database files.",
+    "Dynamic approach alternative: use DOSBox-X save-state MCP tools to snapshot DGROUP memory after winit state-0 completes (game_state transitions from 0 to 1), read DGROUP 0x52d9..0x5333 to get the actual race stat floor values without needing to trace the file I/O."
+  ],
+  "recommended_next_step": "Use dosbox_read_memory MCP tool on a save state captured after winit state-0 (game is past loading screen, in main menu). Read DGROUP offset 0x52d9, length 0x5a (90 bytes = 11 races × 9 bytes). This gives the actual runtime race stat floor values directly, bypassing the need to decode newgame.dbs format."
+}

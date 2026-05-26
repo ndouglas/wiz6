@@ -78,9 +78,32 @@ stored at DGROUP `*0x56ac`.
 
 ## Class qualification (`class_qualification_check_and_bump`)
 
-At file `0x2cae`. Per-class requirement strings use ASCII 'A'-relative encoding: character `'A'` = 8, `'B'` = 9, ..., `'O'` = 22. To check whether the rolled stats qualify for a class, the routine iterates the requirement string and either confirms the stat already meets the threshold or drains the bonus pool to bump it up. If the pool can't cover the gap, the class is ineligible.
+At file `0x2cae`. Per-class requirement strings use ASCII encoding with **subtract-65** (`'A'` = 0, `'B'` = 1, ..., `'M'` = 12). Verified at file `0x2c7b`: instruction `05 bf ff` = `add ax, 0xffbf` = subtract 65. **Correction from prior pass:** the earlier claim of `'A'` = 8 (subtract 64) was wrong; the correct formula is subtract 65.
+
+The routine iterates the requirement string and either confirms the stat already meets the threshold or drains the bonus pool to bump it up. If the pool can't cover the gap, the class is ineligible.
 
 This is how 19+ bonus points unlocks elite classes: it lets you cover larger required-vs-rolled deltas.
+
+**Requirement table** (file `0x5e98`, 14 entries × 9 bytes, null-terminated 8-char ASCII):
+
+| Class | STR | INT | PIE | VIT | DEX | SPD | PER | KAR |
+|-------|-----|-----|-----|-----|-----|-----|-----|-----|
+| Fighter | 12 | — | — | — | — | — | — | — |
+| Mage | — | 12 | — | — | — | — | — | — |
+| Priest | — | — | 12 | — | — | — | 8 | — |
+| Thief | — | — | — | — | 12 | 8 | — | — |
+| Bishop | 10 | 8 | 8 | 11 | 10 | 8 | 8 | — |
+| Samurai | — | 13 | — | — | 13 | — | — | — |
+| Lord | — | 10 | — | — | 12 | 8 | 12 | — |
+| Ninja | 10 | 14 | — | 14 | — | — | 10 | — |
+| Valkyrie | 10 | — | 11 | 11 | 10 | 11 | 8 | — |
+| Ranger | — | 15 | 15 | — | — | — | 8 | — |
+| Bard | 12 | 9 | 12 | 12 | 9 | 9 | 14 | — |
+| Psionic | 12 | 11 | — | 9 | 12 | 14 | 8 | — |
+| Monk | 13 | 8 | 13 | — | 10 | 13 | 8 | — |
+| Alchemist | 12 | 10 | 10 | 12 | 12 | 12 | — | — |
+
+(`—` = no requirement for that attribute)
 
 ## The 8-attribute layout
 

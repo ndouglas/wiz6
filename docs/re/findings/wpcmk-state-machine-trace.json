@@ -1,0 +1,415 @@
+{
+  "topic": "wpcmk-state-machine-trace",
+  "subagent_run": "2026-05-25",
+  "binaries": ["original/wpcmk.ovr", "original/pcfile.dbs", "original/wroot.exe"],
+  "summary": "Full ASM walk of wpcmk.ovr character-creation overlay. Key findings: (1) wpcmk does NOT read newgame.dbs — no INT 21h calls anywhere in the file, no database filenames present; (2) race base stat tables live in wroot DGROUP BSS at 0x52d9..0x5333 (11 races × 9 bytes), populated at runtime by winit startup code; (3) class requirement encoding uses subtract-65 (not subtract-64 as prior pass claimed) — verified at file 0x2c7b: 'add ax, 0xffbf'; (4) creation master flow documented with 14 sequential steps and all major DGROUP variables; (5) skill availability bitmaps confirmed for all 14 classes at 0x5cb8–0x5e93, cross-validated against stock characters.",
+  "corrections": [
+    {
+      "id": "encoding-formula-fix",
+      "prior_claim": "wpcmk-naming-pass.json: class requirements use 'A'=8 (subtract 0x40 = 64)",
+      "correction": "ASM at file 0x2c7b: 'add ax, 0xffbf' = subtract 65 (0x41). 'A'=0, 'M'=12. Fighter req 'MAAAAAAA' = STR>=12 (not 13 as prior pass claimed). Also at 0x2cae: class_qualification_check uses same subtract-65.",
+      "evidence_bytes": "wpcmk.ovr 0x2c91: 05 bf ff (add ax, 0xffbf)",
+      "confidence": "high"
+    },
+    {
+      "id": "no-newgame-dbs-reads",
+      "prior_claim": "Task hypothesis: wpcmk reads from newgame.dbs for fresh character data",
+      "correction": "wpcmk.ovr contains zero INT 21h (CD 21) opcodes — confirmed by byte scan returning 0 matches. No strings 'newgame', 'scenario', 'MASTER' appear in the file. wpcmk does NO file I/O. The only filename strings are 'PCFILE.DBS' (roster) at 0x5ca9 and 0x60b9, and portrait templates 'WPORT1.EGA' (0x608d), 'WPORT1.CGA' (0x6098), 'WPORT1.T16' (0x60ae). Race data originates in DGROUP BSS, loaded by winit state-0.",
+      "evidence": "python byte scan: data.count(b'\\xcd\\x21') == 0 on 24793-byte wpcmk.ovr",
+      "confidence": "high"
+    }
+  ],
+  "findings": [
+    {
+      "id": "dispatch-noop",
+      "claim": "wpcmk.ovr dispatch stub at file 0x10 is a no-op: pops a return address, sets *0x363a=4 (return to wbase main menu state 4), sets ax=0, returns. The character-creation UI is invoked as cross-overlay calls from wbase, not via the state machine.",
+      "category": "overlay_structure",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": "file 0x10",
+        "bytes": "59 c7 06 3a 36 04 00 b8 00 00 c3",
+        "disasm": "pop cx; mov word [0x363a],4; mov ax,0; ret"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "creation-master-flow",
+      "claim": "wpcmk_create_character_master at file 0x4e47 is the top-level creation orchestrator, called from wbase slot 5. It executes 14 sequential stages.",
+      "category": "creation_flow",
+      "stages": [
+        {
+          "step": 1,
+          "offset": "0x4e4c",
+          "action": "memset 0x5470 (char record buffer, 0x1b0=432 bytes) to zero",
+          "bytes": "b8 00 00 50 b8 b0 01 50 b8 70 54 50",
+          "bss_writes": ["0x5470..0x561f = new char record (432 bytes), zeroed"]
+        },
+        {
+          "step": 2,
+          "offset": "0x4e5f",
+          "action": "copy roster slot data into 0x5470 (via roster_read thunk, push slot, push 0x5470)",
+          "bytes": "ff 76 04 b8 70 54 50 e8 41 a5",
+          "notes": "Only relevant if slot has existing data; for empty slot this copies zeros"
+        },
+        {
+          "step": 3,
+          "offset": "0x4e6c",
+          "action": "call 0x0d13 (creation_ui_init): sets up 3 UI windows via calls to ui_window_create thunk",
+          "bytes": "e8 a4 be (call 0x0d13)"
+        },
+        {
+          "step": 4,
+          "offset": "0x4e6f",
+          "action": "call 0x0df7 (char_sheet_redraw): full character sheet redraw",
+          "bytes": "e8 85 bf (call 0x0df7)"
+        },
+        {
+          "step": 5,
+          "offset": "0x4e72",
+          "action": "set [0x56ac] = 0xffff (bonus_points = -1, sentinel for 'not yet rolled')",
+          "bytes": "c7 06 ac 56 ff ff",
+          "bss_writes": ["DGROUP 0x56ac: bonus_points_remaining = 0xffff"]
+        },
+        {
+          "step": 6,
+          "offset": "0x4e78",
+          "action": "call 0x2b04 (stat_panel_render): renders attribute panel with current stats",
+          "bytes": "e8 89 dc (call 0x2b04)",
+          "notes": "Called before race pick; shows base-zero stats at this point"
+        },
+        {
+          "step": 7,
+          "offset": "0x4e7b",
+          "action": "call 0x308d (race_picker_menu): interactive race selection, sets race in [0x560d], bumps [0x559c..0x55a3] to racial minimums via stats_bump_to_racial_minimums at 0x2c7b",
+          "bytes": "e8 0f e2 (call 0x308d)",
+          "bss_writes": [
+            "DGROUP 0x560d: chosen_race (0=Human..10=Mook)",
+            "DGROUP 0x559c..0x55a3: base_stats[8] bumped to racial minimums"
+          ]
+        },
+        {
+          "step": 8,
+          "offset": "0x4e7e",
+          "action": "call 0x31a6 (class_picker_menu): interactive class selection with qualification checks, sets class in char record",
+          "bytes": "e8 25 e3 (call 0x31a6)"
+        },
+        {
+          "step": 9,
+          "offset": "0x4e81",
+          "action": "BONUS ROLLER: bonus = 5 + rng(6); if rng(20)==0: bonus+=8; if rng(20)==0: bonus+=8; if [0x56ce]==1: bonus=21 (debug override); write to [0x56ac]",
+          "bytes": "b8 06 00 50 e8 f6 75 59 05 05 00 a3 ac 56 b8 14 00 50 e8 e8 75 59 85 c0 75 05 83 06 ac 56 08 b8 14 00 50 e8 d7 75 59 85 c0 75 05 83 06 ac 56 08 83 3e ce 56 01 75 06 c7 06 ac 56 15 00",
+          "bss_writes": [
+            "DGROUP 0x56ac: bonus_points_remaining = 5..10, 13..18, or 21..26",
+            "DGROUP 0x56ce: debug_cheat_flag (read; if==1, sets bonus to 21=0x15)"
+          ],
+          "distribution": {
+            "normal_5_to_10": "P=0.9025 (19/20)^2",
+            "one_plus8_13_to_18": "P=0.095 (2*(1/20)*(19/20))",
+            "two_plus8_21_to_26": "P=0.0025 (1/20)^2",
+            "unreachable_values": [11, 12, 19, 20]
+          }
+        },
+        {
+          "step": 10,
+          "offset": "0x4ebe",
+          "action": "call 0x2b04 (stat_panel_render): re-renders attribute panel (now with racial minimums + bonus total visible)",
+          "bytes": "e8 43 dc (call 0x2b04)"
+        },
+        {
+          "step": 11,
+          "offset": "0x4ec1",
+          "action": "call 0x32e1 (attribute_roll_display): triggers attribute rolling animation",
+          "bytes": "e8 1d e4 (call 0x32e1)"
+        },
+        {
+          "step": 12,
+          "offset": "0x4ec4",
+          "action": "call 0x3405 (bonus_allocator_ui): player distributes bonus points; 4-way nav (LEFT/RIGHT +/-, UP/DOWN attr select, key 5 confirm); each attr caps at 18; confirm gated on pool==0",
+          "bytes": "e8 3e e5 (call 0x3405)",
+          "bss_writes": [
+            "DGROUP 0x559c..0x55a3: base_stats[8] updated by bonus allocation",
+            "DGROUP 0x56ac: decremented as points are spent"
+          ]
+        },
+        {
+          "step": 13,
+          "offset": "0x4eca",
+          "action": "call 0x3837 (personality_reroll_loop): dice animation; rolls [0x55a3] each iteration; exits on mouse-click or RETURN",
+          "bytes": "e8 6a e9 (call 0x3837)",
+          "bss_writes": ["DGROUP 0x55a3: karma/personality stat set by final roll value"]
+        },
+        {
+          "step": 14,
+          "offset": "0x4ecd",
+          "action": "call 0x392e (alignment_picker): alignment selection menu",
+          "bytes": "e8 5e ea (call 0x392e)"
+        },
+        {
+          "step": 15,
+          "offset": "0x4ed0",
+          "action": "mov [0x560c], 0 (reset name-entry flag)",
+          "bytes": "c6 06 0c 56 00",
+          "bss_writes": ["DGROUP 0x560c: name_entry_flag = 0"]
+        },
+        {
+          "step": 16,
+          "offset": "0x4ed5",
+          "action": "call 0x4bad (name_entry): character name input via text editor widget",
+          "bytes": "e8 d5 fc (call 0x4bad)"
+        },
+        {
+          "step": 17,
+          "offset": "0x4ed8",
+          "action": "call 0x3c49 (portrait_picker): portrait file loader + picker loop",
+          "bytes": "e8 6e ed (call 0x3c49)"
+        },
+        {
+          "step": 18,
+          "offset": "0x4edb",
+          "action": "call 0x0df7 (char_sheet_redraw): final character sheet redraw",
+          "bytes": "e8 19 bf (call 0x0df7)"
+        },
+        {
+          "step": 19,
+          "offset": "0x4ede",
+          "action": "if [0x5618] != 0: call 0x1ae9 with [0x56ca] (spell_school_init: 14 schools per-class allocation)",
+          "bytes": "80 3e 18 56 00 76 08 ff 36 ca 56 e8 fd cb",
+          "bss_reads": ["DGROUP 0x5618: spell_count or class_has_spells flag"]
+        },
+        {
+          "step": 20,
+          "offset": "0x4eef",
+          "action": "skill training loop: iterate 4 pillars (MAGIC/FAITH/PHYSICAL/MENTAL), call skill_train at 0x28d4 for each pillar with [0x546e] window handle and [0x56ca] char record",
+          "bytes": "c7 46 fe 00 00 (init loop counter to 0); 80 bf 88 55 00 (check [si+0x5588] != 0); e8 cc d9 (call 0x28d4)",
+          "notes": "Loop index [bp-2] from 0 to 3; [si+0x5588] = pillar_has_skills flag"
+        },
+        {
+          "step": 21,
+          "offset": "0x4fa0",
+          "action": "call 0x1b (roster_write_slot): write char record to PCFILE.DBS at slot [bp+6]",
+          "bytes": "b8 01 00 50 ff 76 06 b8 70 54 50 e8 6d b0",
+          "bss_reads": ["DGROUP 0x4fee: roster_filename_ptr -> 'PCFILE.DBS'"]
+        },
+        {
+          "step": 22,
+          "offset": "0x4fb4",
+          "action": "mark roster slot occupied: [bx+0x4fd8] = 1 where bx = slot_index",
+          "bytes": "c6 87 d8 4f 01",
+          "bss_writes": ["DGROUP 0x4fd8[slot]: occupancy flag = 1"]
+        },
+        {
+          "step": 23,
+          "offset": "0x4fb9",
+          "action": "call 0xf0dc (roster_save_all): flush full roster to disk",
+          "bytes": "e8 20 a1 (call 0xf0dc)"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "race-ordering",
+      "claim": "11 races indexed 0..10. Race stat floor tables at DGROUP BSS 0x52d9..0x5333 (stride=9 bytes each). Ordering confirmed by cross-referencing stock character race bytes in pcfile.dbs.",
+      "category": "race_system",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "source": "race init dispatch at file 0x2fce: 11 push-then-call 0x2c7b blocks, each pushing a distinct DGROUP BSS address",
+        "address_sequence": {
+          "race_0": "DGROUP 0x52d9 -> push 0x52d9; call 0x2c7b",
+          "race_1": "DGROUP 0x52e2 -> push 0x52e2; call 0x2c7b",
+          "race_2": "DGROUP 0x52eb",
+          "race_3": "DGROUP 0x52f4",
+          "race_4": "DGROUP 0x52fd",
+          "race_5": "DGROUP 0x5306",
+          "race_6": "DGROUP 0x530f",
+          "race_7": "DGROUP 0x5318",
+          "race_8": "DGROUP 0x5321",
+          "race_9": "DGROUP 0x532a",
+          "race_10": "DGROUP 0x5333"
+        },
+        "cross_validation": {
+          "THESUS": "pcfile.dbs slot 0 race byte = 0 -> Human",
+          "NOBAL": "pcfile.dbs slot 3 race byte = 1 -> Elf",
+          "PENTAG": "pcfile.dbs slot 5 race byte = 3 -> Gnome",
+          "TREON": "pcfile.dbs slot 4 race byte = 7 -> Dracon",
+          "LYSANDR": "pcfile.dbs slot 2 race byte = 8 -> Felpurr",
+          "TEMPEST": "pcfile.dbs slot 1 race byte = 10 -> Mook"
+        },
+        "race_index_map": {
+          "0": "Human",
+          "1": "Elf",
+          "2": "Dwarf (inferred by position; no stock char to confirm)",
+          "3": "Gnome",
+          "4": "Hobbit (inferred; no stock char)",
+          "5": "Faerie (inferred; confirmed by wpcvw AC -2 for race=5)",
+          "6": "Lizardman (inferred; no stock char)",
+          "7": "Dracon",
+          "8": "Felpurr",
+          "9": "Rawulf (inferred; no stock char)",
+          "10": "Mook"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "race-stat-floor-bss",
+      "claim": "Race base stat tables at DGROUP 0x52d9..0x5333 are in wroot BSS (zero-filled at startup), populated at runtime by database-loading code (likely winit state-0). These addresses are BEYOND wroot.exe file end: wroot.exe is 0x1063e bytes, DGROUP file start = 0x200 + 0xfd8*16 = 0xff80; DGROUP offset 0x52d9 = file offset 0x152b9 > 0x1063e.",
+      "category": "race_system",
+      "evidence": {
+        "binary": "original/wroot.exe",
+        "wroot_file_size": "0x1063e (67134 bytes)",
+        "dgroup_file_start": "0xff80 (MZ header 0x200 + SS=0xfd8 * 16)",
+        "dgroup_0x52d9_file_offset": "0xff80 + 0x52d9 = 0x15259 > 0x1063e -> CONFIRMED BSS"
+      },
+      "implication": "To decode race stat floors from newgame.dbs, we need to trace winit state-0 database loading to find the DGROUP load base address, then compute file offset = load_base - 0x52d9 (relative to newgame.dbs start).",
+      "confidence": "high"
+    },
+    {
+      "id": "stats-bump-formula",
+      "claim": "stats_bump_to_racial_minimums at file 0x2c7b: for si=0..7, reads current_stat=[si+0x559c], reads raw_race_min=[bx+si] (bx=race_table_ptr), computes threshold=raw_race_min-65 via 'add ax,0xffbf'. If current_stat < threshold, sets [si+0x559c] = raw_race_min - 65. This is a FLOOR operation: stat is raised to racial minimum, never lowered.",
+      "category": "race_system",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": "file 0x2c7b",
+        "key_bytes": {
+          "0x2c91": "05 bf ff = add ax, 0xffbf (subtract 65)",
+          "0x2c9f": "88 84 9c 55 = mov [si+0x559c], al (write bumped stat)"
+        },
+        "loop_bounds": "si = 0..7 (cmp si, 8 at 0x2ca4)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "class-requirements-table",
+      "claim": "Class requirement table at file 0x5e98: 14 entries × 9 bytes each. Null-terminated 8-char ASCII strings, encoding: char-65 = minimum attribute value. Verified formula against stats_bump at 0x2c7b (same subtract-65). All 14 class requirements decoded.",
+      "category": "class_system",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": "file 0x5e98..0x5f5f",
+        "encoding": "byte_value - 65 = minimum_stat (e.g. 'A'=0x41=65, 65-65=0; 'M'=0x4d=77, 77-65=12)",
+        "formula_source": "file 0x2c7b: add ax, 0xffbf = subtract 65",
+        "table": {
+          "fighter_0": {"raw": "4d4141414141414100", "decoded": "STR>=12,INT>=0,PIE>=0,VIT>=0,DEX>=0,SPD>=0,PER>=0,KAR>=0"},
+          "mage_1": {"raw": "414d41414141414100", "decoded": "STR>=0,INT>=12,PIE>=0,VIT>=0,DEX>=0,SPD>=0,PER>=0,KAR>=0"},
+          "priest_2": {"raw": "41414d414141494100", "decoded": "STR>=0,INT>=0,PIE>=12,VIT>=0,DEX>=0,SPD>=0,PER>=8,KAR>=0"},
+          "thief_3": {"raw": "414141414d49414100", "decoded": "STR>=0,INT>=0,PIE>=0,VIT>=0,DEX>=12,SPD>=8,PER>=0,KAR>=0"},
+          "bishop_4": {"raw": "4b49494c4b49494100", "decoded": "STR>=10,INT>=8,PIE>=8,VIT>=11,DEX>=10,SPD>=8,PER>=8,KAR>=0"},
+          "samurai_5": {"raw": "414e41414e41414100", "decoded": "STR>=0,INT>=13,PIE>=0,VIT>=0,DEX>=13,SPD>=0,PER>=0,KAR>=0"},
+          "lord_6": {"raw": "414b41414d494d4100", "decoded": "STR>=0,INT>=10,PIE>=0,VIT>=0,DEX>=12,SPD>=8,PER>=12,KAR>=0"},
+          "ninja_7": {"raw": "4b4f414f41414b4100", "decoded": "STR>=10,INT>=14,PIE>=0,VIT>=14,DEX>=0,SPD>=0,PER>=10,KAR>=0"},
+          "valkyrie_8": {"raw": "4b414c4c4b4c494100", "decoded": "STR>=10,INT>=0,PIE>=11,VIT>=11,DEX>=10,SPD>=11,PER>=8,KAR>=0"},
+          "ranger_9": {"raw": "415050414141494100", "decoded": "STR>=0,INT>=15,PIE>=15,VIT>=0,DEX>=0,SPD>=0,PER>=8,KAR>=0"},
+          "bard_10": {"raw": "4d4a4d4d4a4a4f4100", "decoded": "STR>=12,INT>=9,PIE>=12,VIT>=12,DEX>=9,SPD>=9,PER>=14,KAR>=0"},
+          "psionic_11": {"raw": "4d4c414a4d4f494100", "decoded": "STR>=12,INT>=11,PIE>=0,VIT>=9,DEX>=12,SPD>=14,PER>=8,KAR>=0"},
+          "monk_12": {"raw": "4e494e414b4e494100", "decoded": "STR>=13,INT>=8,PIE>=13,VIT>=0,DEX>=10,SPD>=13,PER>=8,KAR>=0"},
+          "alchemist_13": {"raw": "4d4b4b4d4d4d414100", "decoded": "STR>=12,INT>=10,PIE>=10,VIT>=12,DEX>=12,SPD>=12,PER>=0,KAR>=0"}
+        },
+        "cross_validation": {
+          "NOBAL_Priest": "attrs=[7,10,13,9,9,9,8,4]; priest requires PIE>=12(has 13 OK), PER>=8(has 8 OK) -> PASS",
+          "PENTAG_Mage": "attrs=[10,12,13,10,8,6,6,9]; mage requires INT>=12(has 12 OK) -> PASS"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-availability-bitmaps",
+      "claim": "14 class skill availability bitmaps at file 0x5cb8..0x5e93. Each class has 4 null-terminated ASCII digit strings ('0'/'1' per skill), encoding 30 trainable-skill bits. bit[i]=1 means class can train skill i.",
+      "category": "skill_system",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": "file 0x5cb8..0x5e93 (end offset confirmed 0x5e94 by parse)",
+        "structure": "14 class groups, each 4 null-terminated strings concatenated (groups of 10+7+5+8=30 bits)",
+        "table": {
+          "fighter_0":   [1,1,1,1,1,1,1,1,1,0, 0,1,0,0,0,0,0, 0,0,0,0,0, 1,1,1,0,0,0,0,0],
+          "mage_1":      [1,0,0,0,1,1,1,1,0,0, 0,1,0,1,0,0,0, 0,0,0,0,0, 1,1,1,0,0,0,1,0],
+          "priest_2":    [0,0,0,1,1,0,1,0,1,0, 0,1,0,1,0,0,0, 0,0,0,0,0, 1,1,1,0,1,0,0,0],
+          "thief_3":     [1,1,1,1,1,1,1,1,1,0, 0,1,0,1,1,1,1, 0,0,0,0,0, 1,1,1,0,0,0,0,0],
+          "bishop_4":    [1,1,1,1,1,1,1,1,1,0, 0,1,0,0,1,1,1, 0,0,0,0,0, 1,1,1,1,0,0,0,0],
+          "samurai_5":   [1,0,0,1,1,1,0,0,0,0, 0,1,0,0,0,0,0, 0,0,0,0,0, 1,1,1,1,0,0,0,0],
+          "lord_6":      [1,1,1,1,1,1,1,1,1,0, 0,1,1,1,1,1,1, 0,0,0,0,0, 1,1,1,0,0,0,1,0],
+          "ninja_7":     [1,0,0,1,1,1,1,0,0,0, 0,1,0,1,0,0,0, 0,0,0,0,0, 1,1,1,0,0,1,0,0],
+          "valkyrie_8":  [1,1,1,1,1,1,1,1,1,0, 0,1,0,1,0,0,0, 0,0,0,0,0, 1,1,1,0,1,0,0,0],
+          "ranger_9":    [0,0,0,1,1,0,1,0,1,0, 0,1,0,1,0,0,0, 0,0,0,0,0, 1,1,1,0,1,0,1,0],
+          "bard_10":     [1,1,1,1,1,1,1,1,1,0, 0,1,0,1,0,0,0, 0,0,0,0,0, 1,1,1,0,1,0,0,0],
+          "psionic_11":  [1,1,1,1,1,1,1,1,1,0, 0,1,0,1,0,0,0, 0,0,0,0,0, 1,1,1,0,0,0,1,1],
+          "monk_12":     [1,0,0,1,1,1,1,1,0,1, 0,1,0,1,0,0,1, 0,0,0,0,0, 1,1,1,0,0,1,0,1],
+          "alchemist_13":[1,1,1,1,1,1,1,1,1,1, 0,1,0,0,1,1,1, 0,0,0,0,0, 1,1,1,1,0,0,0,1]
+        },
+        "cross_validation": {
+          "NOBAL_Priest_class2": "bitmap[2][4]=1(trainable), stock skill[4]=2; bitmap[2][8]=1(trainable), stock skill[8]=2 -> PASS",
+          "PENTAG_Mage_class1": "bitmap[1][0]=1(trainable), stock skill[0]=5 -> PASS"
+        },
+        "note": "Skill index names (0..29) not yet decoded. From stock chars: skill[0]=likely_sword/weapon?, skill[1]=likely_sword_high?, skill[4]=likely_bow_or_magic?, skill[8]=likely_bow?. Requires wpcmk 4-pillar skill_train table decode."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "bss-variable-map",
+      "claim": "Key DGROUP BSS variables read/written by wpcmk during character creation.",
+      "category": "bss_map",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "variables": {
+          "0x546e": "ui_window_handle (window created at game start, passed to all render calls)",
+          "0x5470": "new_char_record_buffer (432 bytes, 0x1b0, cleared at creation start; holds character being created)",
+          "0x5488": "secondary_window_handle (used in stat display context at 0x2bbd)",
+          "0x5588": "pillar_has_skills_flags (4 bytes at +0..+3, checked in skill training loop at 0x4eef)",
+          "0x559c..0x55a3": "base_stats[8]: STR/INT/PIE/VIT/DEX/SPD/PER/KAR during creation; bumped by racial minimums at 0x2c7b, further modified by bonus allocator",
+          "0x560c": "name_entry_flag (cleared to 0 before name entry at 0x4ed0)",
+          "0x560d": "chosen_race_index (0..10; set by race_picker_menu at 0x308d)",
+          "0x5618": "spell_count_or_has_spells (if != 0, spell school init runs at 0x4ede)",
+          "0x56ac": "bonus_points_remaining (0xffff=unset, 5..26 after roller, decremented by allocator)",
+          "0x56ae": "class_qualification_flags (word per class, set by class_check at 0x2cae; bx=class_idx*2)",
+          "0x56ca": "char_record_ptr (pointer to character record in creation; used in spell/skill calls)",
+          "0x56ce": "debug_cheat_flag (if==1, sets bonus=21=0x15 at 0x4eb6)",
+          "0x4fd2": "max_roster_slots (read in find_empty_slot at 0x4ff4)",
+          "0x4fd8": "roster_occupancy_array (one byte per slot; [slot]=1 when slot filled at 0x4fb4)",
+          "0x4fee": "roster_filename_ptr (points to 'PCFILE.DBS' string at 0x5ca9)",
+          "0x52d9..0x5333": "race_stat_floor_tables[11][9] in wroot BSS (zero-filled; populated at runtime by winit from newgame.dbs or similar database)"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "no-file-io",
+      "claim": "wpcmk.ovr contains zero INT 21h (CD 21) DOS syscall instructions. All file I/O is done via cross-overlay thunk calls to wroot file I/O functions. The only filename strings in wpcmk.ovr are PCFILE.DBS (roster) and portrait templates. No scenario, newgame, or master database filenames exist in this overlay.",
+      "category": "file_io",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "cd21_count": 0,
+        "filename_strings": {
+          "0x5ca9": "PCFILE.DBS (roster filename; also at 0x60b9)",
+          "0x608d": "WPORT1.EGA",
+          "0x6098": "WPORT1.CGA",
+          "0x60ae": "WPORT1.T16",
+          "newgame_dbs": "NOT PRESENT",
+          "scenario_dbs": "NOT PRESENT",
+          "master_hdr": "NOT PRESENT"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-system",
+      "claim": "Portrait picker at file 0x4a9a (previously documented). Filename templates at 0x608d: WPORT1.EGA (0x608d), WPORT1.CGA (0x6098), WPORT1.T16 (0x60ae). 3 video-mode-keyed templates × N portraits each.",
+      "category": "portrait_system",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "bytes_608d": "5750 4f52 5431 2e45 4741 00",
+        "ascii_608d": "WPORT1.EGA\\0"
+      },
+      "confidence": "high"
+    }
+  ],
+  "unresolved": [
+    "Race stat floor values: the actual minimum attribute values per race are in DGROUP BSS 0x52d9..0x5333, populated at runtime. To decode them statically, trace winit state-0 to find where newgame.dbs (or equivalent) is loaded into DGROUP and what the load base address is.",
+    "Skill index names: which of the 30 skill bits corresponds to which skill name. Requires decoding the 4-pillar skill_train table at wpcmk 0x28d4.",
+    "Race 2/4/5/6/9 confirmation: inferred as Dwarf/Hobbit/Faerie/Lizardman/Rawulf from position, but no stock characters have these races to confirm against pcfile.dbs.",
+    "Alignment picker at 0x392e: not traced in detail; alignment byte location in character record not confirmed from this pass (expected near race/class at +0x19d area).",
+    "The jump table at CS:0x75ab in wpcmk's race dispatch: address is beyond file end (0x60d9), indicating it lives in wpcmk's BSS region and is populated at load time by the overlay relocation fixer. The table entries would be pointers to handlers 0x2fd7..0x303d. This does not affect any of the above findings."
+  ],
+  "next_steps": [
+    "Trace winit.ovr state-0 database loading to find DGROUP load address for race stat tables, enabling newgame.dbs offset decode",
+    "Decode skill_train 4-pillar table at wpcmk 0x28d4 to name all 30 skill bits",
+    "Verify Dwarf/Hobbit/Faerie/Lizardman/Rawulf race indices via dynamic trace or newgame.dbs decode"
+  ]
+}
