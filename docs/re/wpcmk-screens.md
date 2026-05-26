@@ -2,12 +2,10 @@
 
 Single source of truth for the wpcmk character-creation overlay, promoted from parent-reviewed findings under `docs/re/findings/wpcmk-*.json`. This document feeds the Phase 2 port plan.
 
-**Status:** Section-by-section, populated as each Phase 1 RE task completes. Sections marked "TBD" are not yet investigated.
-
 **Source spec:** `docs/superpowers/specs/2026-05-26-wpcmk-byte-perfect-design.md`
 **Source plan:** `docs/superpowers/plans/2026-05-26-wpcmk-re-sweep.md`
 
-**Status: Phase 1 RE sweep COMPLETE.** All 12 investigations promoted. 76/76 wpcmk functions named. Ready to feed the Phase 2 port plan.
+**Status: Phase 1 RE sweep COMPLETE** (2026-05-26). All 12 investigations promoted; 76/76 wpcmk functions named. Ready to feed the Phase 2 port plan. Remaining uncertainties are listed under "Open questions for Phase 2" at the end.
 
 ---
 
