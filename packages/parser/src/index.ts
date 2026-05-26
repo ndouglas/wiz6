@@ -47,6 +47,7 @@ export {
 } from './formats/roster-codec.js';
 
 export { decodePcfile } from './formats/pcfile.js';
+export { encodeCharacterRecord } from './formats/encode-character-record.js';
 
 export {
   slugify,
