@@ -1,0 +1,116 @@
+{
+  "topic": "wpcmk-screen-13-14-buffer-writes",
+  "subagent_run": "2026-05-26",
+  "binary": "original/wpcmk.ovr",
+  "method": "ndisasm + raw byte-pattern search (Ghidra GUI was locked by main session; ndisasm + Python pattern scans used instead). Key functions traced: ui_welcome_animation (0x1ae9), ui_class_menu_with_qualification (0x1158..0x15d6), wpcmk_train_skill_pillar (0x28d4), wpcmk_create_character_master (0x4e47), race_specific_init_handler_dispatch (0x48e3), creation_init_derived_stats (0x4ddd). Cross-referenced against character-record-extended-map-v2.json and wpcmk-skill-train.json.",
+
+  "summary": "All four disputed offset ranges have been definitively reattributed. Screen-13 (SKILL training) writes to: skills[14] array (record +0x134..+0x141) and skill_growth_budget byte (record +0x1a8). Screen-14 (SPELL picking) writes to: school mana cur+max (record +0x28..+0x3f) and temporarily holds pillar training counters (record +0x118..+0x11b, always 0 after completion). The original RE#1 label 'spell-school mana' for range 0x068..0x07f was a complete misidentification — that range is inventory slots 5-7, never written during creation. The label 'has_spells flag' for 0x1a8 was also wrong — it is the skill_growth_budget, active during both creation (screen-13) and level-up (wpcvw skill trainer).",
+
+  "findings": [
+    {
+      "id": "screen-13-writes-skills-array",
+      "claim": "Screen-13 (ui_class_menu_with_qualification at 0x1158) writes to skills[14] at record +0x134..+0x141 (DGROUP 0x55a4..0x55b1). Each skill point spent increments skill[skill_idx] by 1; canceling a prior spend decrements by 1. Cap = 100 (0x64). The skill index array passed from creation_stage_dispatcher_by_step maps cursor positions to actual skill record indices (0..13).",
+      "evidence": {
+        "type": "disassemble",
+        "details": "file 0x14CC: FE 87 A4 55 = inc byte [bx+0x55a4] (spend: skill[bx]++ capped at 0x64). file 0x13FE: FE 8F A4 55 = dec byte [bx+0x55a4] (refund: skill[bx]--). bx loaded at 0x13FC: mov bx,[bx+si] where si=cursor*2 and [bp+0xa] is the skill_index_table[] passed from creation_stage_dispatcher_by_step. DGROUP 0x55a4 = record base 0x5470 + 0x134 = record offset 0x134 (skills[0]). Skills[14] occupies +0x134..+0x141 (14 bytes, confirmed v2 map).",
+        "addresses": ["file 0x13FE", "file 0x14CC"],
+        "precondition": "bx = skill_record_idx from index table; index in 0..13"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-13-writes-skill-growth-budget",
+      "claim": "Screen-13 writes record +0x1a8 (DGROUP 0x5618, 1 byte) = skill_growth_budget (remaining skill points to spend). Pre-initialized to rng(9)+10 minus tier2 adjustment by personality_roll_static_10_to_18 (0x4222) and class-specific handlers. Decremented by 1 for each skill point spent. Written back to record at screen-13 epilog. Final value = 0 when screen-13 loop exits.",
+      "evidence": {
+        "type": "disassemble",
+        "details": "file 0x115F: A0 18 56 = mov al,[0x5618] — load skill_pts at function entry. file 0x14D7: FF 4E E6 = dec word [bp-0x1a] — decrement local copy when player spends. file 0x1409: FF 46 E6 = inc word [bp-0x1a] — refund when player un-spends. file 0x15CF: A2 18 56 = mov [0x5618],al — write back at function epilog. Loop at ui_welcome_animation (0x1AE9): file 0x1B9F: 80 3E 18 56 00 = cmp byte [0x5618],0x0; ja 0x1b5a — continues while > 0. DGROUP 0x5618 = 0x5470+0x1a8 = record offset 0x1a8. Confirmed 1-byte field.",
+        "addresses": ["file 0x115F", "file 0x15CF", "file 0x1B9F"],
+        "also_used_by": "wpcvw skill trainer (0x9966): same pattern — loads [bx+0x4590] (wpcvw base 0x43e8 + 0x1a8 = 0x4590) as loop condition for level-up skill spending. This confirms it is a general-purpose skill_growth_budget, active across both creation and level-up."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-14-writes-school-mana",
+      "claim": "Screen-14 (wpcmk_train_skill_pillar at 0x28d4) writes to school mana cur+max at record +0x28..+0x3f (DGROUP 0x5498..0x54af). The index is governing_attr (0=STR..5=SPD), not spell school name. For each spell picked: mana_cur[attr] += delta and mana_max[attr] += delta, where delta = min(skill_entry.min_level*2+1, skill_entry.max_val - mana_max[attr]).",
+      "evidence": {
+        "type": "disassemble",
+        "details": "file 0x2AEF: 01 87 98 54 = add [bx+0x5498],ax (update mana_cur[attr]). file 0x2AEB: 01 87 9A 54 = add [bx+0x549a],ax (update mana_max[attr]). bx = governing_attr*4 (loaded at 0x2ABE: mov al,[bx+0xde] = skill_entry.governing_attr; then D1E1 D1E1 = shl cx,2). Save/restore pattern before ui_train_attribute_picker_grid: file 0x2A2E: C7 87 98 54 E7 03 = mov word [bx+0x5498],0x3e7 (temp set to 999 to allow any pick); file 0x2A85: 89 87 98 54 = mov [bx+0x5498],ax (restore from stack). DGROUP 0x5498 = 0x5470+0x28 = record offset 0x28. Range +0x28..+0x3f covers 6 attrs * 4 bytes (2 cur + 2 max) = 24 bytes. Confirmed by character-record-extended-map-v2.json: 'schoolManaCur[i] at +0x28+i*4, schoolManaMax[i] at +0x2a+i*4'.",
+        "addresses": ["file 0x2AEB", "file 0x2AEF", "file 0x2A2E", "file 0x2A85"]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-14-decrements-pillar-counters",
+      "claim": "Screen-14 decrements pillar training counters at record +0x118..+0x11b (DGROUP 0x5588..0x558b) once per spell pick. These counters start at 0, 1, or 2 per class (set by race_specific_init_handler_dispatch BEFORE screen-13/14), are decremented to 0 by screen-14, and are ALWAYS 0 in the final record written to disk.",
+      "evidence": {
+        "type": "disassemble",
+        "details": "file 0x2AF6: FE 8F 88 55 = dec byte [bx+0x5588] (decrement pillar_pts[pillar_idx]). bx = param_3 = pillar_index (0..3). Initialization: file 0x492D: C6 06 88 55 02 = mov byte [0x5588],2 (Mage MAGIC=2); file 0x4A03: C6 06 88 55 01 = mov byte [0x5588],1 (Bishop MAGIC=1). Master loop at 0x4EF5: CMP byte [bx+0x5588],0 = condition to skip/enter spell pick. All 4 pillars start at 0 for non-casters, 1-2 for casters; all reach 0 after screen-14 completes. DGROUP 0x5588..0x558b = record 0x5470+0x118..0x11b.",
+        "addresses": ["file 0x2AF6", "file 0x492D", "file 0x4A03", "file 0x4EF5"]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "range-0x068-0x07f-is-inventory-not-mana",
+      "claim": "Record +0x068..+0x07f is inventory slots 5-7 (each slot 8 bytes). This range is NEVER WRITTEN by screen-13 or screen-14 during character creation. It is zeroed by screen-01's full record zero-out and stays zero for any character with ≤5 starter items (all classes have at most 5). The RE#1 label 'spell-school cur/max mana per caster class' for this range was a COMPLETE MISIDENTIFICATION.",
+      "evidence": {
+        "type": "byte-pattern-search + disassemble",
+        "details": "Exhaustive search of entire wpcmk.ovr for any LE word in range 0x54d8..0x54ef (= record base 0x5470 + 0x068..0x07f) found NO actual DGROUP address references — all occurrences (0x0B50, 0x1D32, 0x2817, 0x3EFA, 0x596F) are call instruction displacements (0xE8 rel16) coincidentally containing those bytes. Inventory base: DGROUP 0x54b0 = record+0x40, stride 8 bytes/slot. Slot 5 starts at 0x5470+0x40+5*8 = 0x54d8 = record+0x068. Starter items function (0x3BFB): loop i=0..4 (cmp ax,5 at 0x3C40) writes max 5 slots. ACTUAL school mana IS at record +0x028..+0x03f, confirmed by v2 map and screen-14 asm.",
+        "addresses": ["file 0x3C40 (loop limit)", "exhaustive search finding zero hits in 0x54d8..0x54ef"]
+      },
+      "confidence": "high"
+    }
+  ],
+
+  "screen_13_writes": [
+    {
+      "record_offset": "0x134..0x141",
+      "dgroup_addr": "0x55a4..0x55b1",
+      "bytes": 14,
+      "meaning": "skills[14] — individual skill levels (WAND&DAGGER, SWORD, AXE, etc.). Each incremented (+1) when player spends a skill point on that skill; decremented (-1) when player refunds. Cap = 100 (0x64). Initial value = 0 from record zero-out.",
+      "evidence": "file 0x14CC: inc byte [bx+0x55a4] (spend); file 0x13FE: dec byte [bx+0x55a4] (refund). bx = skill_record_idx (0..13) from index table passed by creation_stage_dispatcher_by_step."
+    },
+    {
+      "record_offset": "0x1a8",
+      "dgroup_addr": "0x5618",
+      "bytes": 1,
+      "meaning": "skill_growth_budget — remaining skill points to spend. Initialized to rng(9)+10 minus class tier2 adjustment before screen-13. Decremented by 1 per skill spend. Written back to record at screen-13 function epilog. Final value = 0 when screen-13 exits (spent all points).",
+      "evidence": "file 0x115F: mov al,[0x5618]; file 0x14D7: dec [bp-0x1a] (local copy); file 0x15CF: mov [0x5618],al. Loop exit: file 0x1B9F: cmp byte [0x5618],0; ja loop."
+    }
+  ],
+
+  "screen_14_writes": [
+    {
+      "record_offset": "0x28 + governing_attr*4 (range 0x028..0x03c even offsets)",
+      "dgroup_addr": "0x5498 + governing_attr*4",
+      "bytes": "2 per attr (u16 cur); 6 attrs = 12 bytes total in cur fields",
+      "meaning": "schoolManaCur[governing_attr] — current mana for spell school governed by this attr. Incremented by spell pick delta. Initial value = 0, set by screen-01 zero-out. Stored as s16/u16.",
+      "evidence": "file 0x2AEF: 01 87 98 54 = add [bx+0x5498],ax. bx = governing_attr*4."
+    },
+    {
+      "record_offset": "0x2a + governing_attr*4 (range 0x02a..0x03e even offsets)",
+      "dgroup_addr": "0x549a + governing_attr*4",
+      "bytes": "2 per attr (u16 max); 6 attrs = 12 bytes total in max fields",
+      "meaning": "schoolManaMax[governing_attr] — max mana for spell school governed by this attr. Incremented by spell pick delta (same as cur). Initial value = 0. Combined with cur: +0x28..+0x3f holds 12 interleaved u16s (cur0, max0, cur1, max1, ...) as confirmed by character-record-extended-map-v2.json.",
+      "evidence": "file 0x2AEB: 01 87 9A 54 = add [bx+0x549a],ax. bx = governing_attr*4. Matches v2 map: schoolManaMax[i] at +0x2a+i*4."
+    },
+    {
+      "record_offset": "0x118 + pillar_idx (range 0x118..0x11b)",
+      "dgroup_addr": "0x5588 + pillar_idx",
+      "bytes": "1 per pillar (u8); 4 pillars = 4 bytes",
+      "meaning": "pillar_training_pts[pillar_idx] — spell training budget for each pillar (0=MAGIC/0x5588, 1=FAITH/0x5589, 2=PHYSICAL/0x558a, 3=MENTAL/0x558b). INITIALIZED before screen-14 by race_specific_init_handler_dispatch. DECREMENTED by 1 per spell pick. ALWAYS 0 in final record (spent to zero before screen-16 disk write). Not a permanent gameplay stat — this is a transient creation-time counter.",
+      "evidence": "file 0x2AF6: FE 8F 88 55 = dec byte [bx+0x5588]. Init: file 0x492D writes Mage MAGIC=2; file 0x4A03 writes Bishop MAGIC=1, etc. Master loop (0x4EED) checks [bx+0x5588] > 0 to run wpcmk_train_skill_pillar for that pillar."
+    }
+  ],
+
+  "reattribution": "Four disputed offset ranges, definitive screen attribution:\n\n0x028..0x03f → SCREEN-14 (spell picking). This is school mana cur+max for 6 governing attributes, written by wpcmk_train_skill_pillar (0x28d4) via 'add [bx+0x5498],ax' / 'add [bx+0x549a],ax'. RE#1 incorrectly labeled this 'skill/attribute pools' — the v2 map and asm both confirm this is school mana. NOT written by screen-13.\n\n0x068..0x07f → NEITHER SCREEN (dead range during creation). This is inventory slots 5-7 in the 8-bytes-per-slot inventory array starting at record+0x040. Zeroed by screen-01 full zero-out, never touched by screen-13 or screen-14. RE#1 labeled this 'spell-school cur/max mana' which was a complete misidentification — actual mana is at +0x028..+0x03f. No wpcmk instruction references DGROUP 0x54d8..0x54ef during character creation.\n\n0x118..0x11f → MIXED: bytes 0x118..0x11b are pillar training counters written by race_specific_init_handler_dispatch (called in screen-07 derivation sequence), consumed and zeroed to 0 by SCREEN-14. Bytes 0x11c..0x11f are combat stats written by the same screen-07 derivation sub at 0x487C. The full 8-byte range is NOT exclusively screen-13 or screen-14 — attribution is 'screen-07 init, screen-14 consumed to zero'.\n\n0x1a8 → SCREEN-13 (skill training). This is the skill_growth_budget byte — the pool of skill points to spend on skills. Initialized by personality_roll_static_10_to_18 (0x4222) + class tier2 handlers. Decremented by screen-13 skill picks. Written to 0 when screen-13 finishes. RE#1 labeled this 'has_spells flag' which was wrong — confirmed by wpcvw.ovr using the same field as a level-up skill budget (0x9966: mov al,[bx+0x4590] where 0x4590 = wpcvw_base+0x1a8).",
+
+  "flag_0x1a8_meaning": "Record offset 0x1a8 (DGROUP 0x5618 in wpcmk; 0x4590 in wpcvw) = skill_growth_budget (1 byte). During character creation: initial value = rng(9)+10 minus class tier2, decremented to 0 by screen-13 skill picks; final disk value = 0. During wpcvw level-up: set to newly-earned skill pts, decremented to 0 by skill trainer (wpcvw 0x9966 same pattern). The 'has_spells flag' interpretation in RE#1 was wrong — this byte has nothing to do with spell casting ability. Caster detection is instead done via the pillar counters at 0x5588..0x558b.",
+
+  "open_questions": [
+    "The skill_growth_budget at record+0x1a8 is ALWAYS 0 in the disk-saved record after creation. Does wpcvw ever set this to nonzero during gameplay to grant additional skill points from level-up? If so, what sets it? The wpcvw level-up path (0x9966) reads it, but the write mechanism during level-up was not traced in this pass.",
+    "Record+0x11c..+0x11f (DGROUP 0x558c..0x558f) is written by the sub-function at 0x487C during screen-07 derivation. These appear to be min-clamped parameters. Their semantic meaning (what stats they represent) was not decoded in this pass — they are in the 'combat stats init array' range.",
+    "The 14-class jump table at 0x4589 dispatches to class-specific derivation handlers (e.g., Fighter at 0x45C4, Mage at 0x45C4 area). Each handler calls personality_roll_static_10_to_18 (0x4222) with different arguments. The per-class skill_pts tier2 formulas (amount subtracted from 0x5618) were documented in wpcmk-skill-train.json but not re-verified in this pass — treat that finding as established.",
+    "Record+0x068..+0x07f (inventory slots 5-7) remains zeroed from creation. How many total inventory slots does the record support? The record size is 432 bytes = 0x1b0. If slots start at +0x040 and each is 8 bytes: 432 - 0x40 = 368 bytes available = 46 slots max. The actual inventory capacity during gameplay is unknown from this pass.",
+    "The save/restore of 0x5498..0x54af to 999 (0x3E7) at file 0x2A2E before calling ui_train_attribute_picker_grid and restore at 0x2A85 is interesting: it temporarily sets ALL attr mana to 999 to ensure any spell appears affordable in the picker, then restores. This is a display hack. The attr-pool cost-check in ui_train_attribute_picker_grid (0x229c) uses the live values, so without this hack some spells might be filtered out during selection."
+  ]
+}
