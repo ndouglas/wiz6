@@ -108,7 +108,8 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 | screen-06-bonus-allocator | DGROUP 0x56ac | 2 | `bonus_points_remaining` → 0 |
 | screen-07-derived-stats | 0x008..0x00b | 4 | age (`rng(1000) + 0x19aa`) |
 | screen-07-derived-stats | 0x018..0x01f | 8 | encumbrance min/max + weight min/max |
-| screen-07-derived-stats | 0x022..0x023 | 2 | `hp_initial = encumb_max × 15` (×10 for Faerie) |
+| screen-07-derived-stats | 0x022..0x023 | 2 | **gold** = `(STR*2+VIT)*3*15` (÷3 for Faerie) — verified vs 6 stock chars. (RE #1 mislabeled this "hp_initial".) |
+| screen-07-derived-stats | (hp field) | 2 | `hp_initial = (VIT*2+STR)*3 + (VIT if VIT≥16) + (VIT if VIT≥18)` — verified vs 6 stock chars. See `derived-stats.ts`. |
 | screen-07-derived-stats | 0x024..0x025 | 2 | `level = 1` |
 | screen-07-derived-stats | 0x026..0x027 | 2 | `xp = 1` |
 | screen-07-derived-stats | 0x1ac | 1 | `inventory_count = 0` |
