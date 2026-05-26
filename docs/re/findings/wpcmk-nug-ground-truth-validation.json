@@ -13,11 +13,11 @@
   },
   "findings": [
     {
-      "id": "mcp-struct-decoder-misaligned",
-      "claim": "The wiz6 MCP `dosbox_read_struct` (character_record) returns systematically misaligned fields. For NUG it returned {race:13, class:0, attributes:[12,12,8,13,4,0,0,0]} — all wrong. The character_record struct SOURCE has correct offsets (race@0x19d, class@0x19f, attributes@0x12c); raw `dosbox_read_memory` decodes correctly. The bug is in the MCP's struct-decode path (likely cumulative/offset handling or a stale build), not the struct source.",
-      "evidence": { "type": "comparison", "details": "MCP decode race=13/class=0/attrs=[12,12,8,13,4,0,0,0] vs raw bytes race=1(Elf)/class=13(Ninja)/attrs=[12,10,10,12,12,12,8,13], the latter matching the on-screen character sheet exactly." },
+      "id": "mcp-struct-decoder-stale-session",
+      "claim": "The wiz6 MCP `dosbox_read_struct` (character_record) returned misaligned fields for NUG (race:13, class:0, attrs:[12,12,8,13,4,0,0,0]) — but this is a STALE SERVER session, NOT a code bug. The decoder code correctly uses explicit per-field offsets; verified by tests with a known NUG byte buffer (race=1, class=13, attrs=[12,10,10,12,12,12,8,13] all correct). The running MCP server process predates the struct offset-correction commits, so it still decodes with old offsets. A server restart picks up the correct struct. Raw `dosbox_read_memory` bypasses the struct decoder and was always correct (and matched the screenshot).",
+      "evidence": { "type": "comparison", "details": "Live (stale) MCP decode race=13/class=0 vs raw bytes + screenshot race=1(Elf)/class=13(Ninja)/attrs=[12,10,10,12,12,12,8,13]. Subagent test of the current decoder code returns the correct values; live MCP still returns stale values until restart." },
       "confidence": "high",
-      "action": "Investigate packages/mcp BssStruct decode (does it honor explicit per-field `offset`, or pack sequentially?). Until fixed, prefer dosbox_read_memory + manual decode for character_record."
+      "action": "RESTART the MCP server to clear the stale struct. Separately, a REAL decoder bug WAS found+fixed (commit e50ef3f): school_mana_cur/max declared stride-2 but the engine interleaves them at stride-4 — fixed by adding optional `stride` to the array BssFieldType. Until the server restarts, prefer dosbox_read_memory for character_record."
     },
     {
       "id": "a5-stamina-mislabeled-as-hp",
