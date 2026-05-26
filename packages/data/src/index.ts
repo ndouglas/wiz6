@@ -152,6 +152,12 @@ export {
   STARTER_SPELLS_ARE_PLAYER_SELECTED,
 } from './character-creation/starter-spells.js';
 export {
+  SCHOOL_NAMES,
+  CLASS_SCHOOLS,
+  classCanCastSchool,
+  classCastingSchools,
+} from './character-creation/spell-schools.js';
+export {
   PORTRAIT_PICKER_CHOICES_PER_CLASS,
   PORTRAIT_POOL_BY_CLASS,
   computePortraitIndex,

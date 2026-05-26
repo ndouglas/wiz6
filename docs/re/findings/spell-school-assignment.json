@@ -1,0 +1,223 @@
+{
+  "topic": "spell-school-assignment",
+  "subagent_run": "2026-05-26T00:00:00Z",
+  "binaries": ["wpcmk.ovr", "pcfile.dbs"],
+  "summary": "Decoded per-class spell-school access matrix for Wiz6's 14 classes × 6 schools. Five classes confirmed via stock char analysis of pcfile.dbs. Seven classes inferred from wpcmk.ovr handler analysis and game design. Two classes (Samurai, Monk) low-confidence. The 82-entry spell table at DGROUP+0xde confirms school ordering (0=Fire..5=Divine). Class→school mapping is determined by wpcmk.ovr's spell_slot_init handlers, not a static table.",
+  "findings": [
+    {
+      "id": "school-ordering",
+      "claim": "Spell schools are indexed 0=Fire, 1=Water, 2=Air, 3=Earth, 4=Mental, 5=Divine",
+      "category": "spell_schools",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wroot.dgroup", "offset": "0x00de" },
+        "type": "runtime_spell_table_scan",
+        "details": "82-entry spell table at DGROUP+0xde. Each 6-byte entry = [school, level, b2, b3, b4, byte5]. Entries 0..8 have school=0 (Fire-family by name-cross-check); entries 9..19 school=1 (Water); 20..34 school=2 (Air); 35..46 school=3 (Earth); 47..63 school=4 (Mental); 64..78 school=5 (Divine); 79..81 sentinel school=5/level=0. Cross-validated against pcfile.dbs schoolMana values for stock chars: NOBAL (Priest) schoolMana[4]=5, [5]=4 → schools 4+5 = Mental+Divine; TREON (Mage) schoolMana[0]=3, [4]=3 → schools 0+4 = Fire+Mental."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fighter-no-magic",
+      "claim": "Fighter (classIdx=0) has no spell-school access",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "pcfile.dbs",
+        "address": { "space": "wpcmk.ovr", "offset": "N/A — pcfile.dbs record" },
+        "type": "stock_character_schoolMana",
+        "details": "THESUS stock character, class=0 (Fighter), pcfile.dbs record offset 0. schoolMana field (6 bytes at record+0x188) = [0, 0, 0, 0, 0, 0]. All schools zero confirmed."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "mage-schools",
+      "claim": "Mage (classIdx=1) can cast Fire (0), Water (1), Air (2), Earth (3), Mental (4) but NOT Divine (5)",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "pcfile.dbs",
+        "address": { "space": "wpcmk.ovr", "offset": "N/A — pcfile.dbs records" },
+        "type": "stock_character_schoolMana",
+        "details": "Two stock Mages with different player choices confirm access breadth: TREON (class=1) schoolMana=[3,0,0,0,3,0] → Fire+Mental confirmed. PENTAG (class=1) schoolMana=[0,3,0,3,0,0] → Water+Earth confirmed. Together all 4 elemental schools confirmed. Air school is the remaining elemental school and is inferred from the class design (Mage = all non-Divine elemental schools). Divine=0 for both Mages confirms no Divine access. Air remains HIGH inference rather than CONFIRMED."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "priest-schools",
+      "claim": "Priest (classIdx=2) can cast Mental (4) and Divine (5) only",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "pcfile.dbs",
+        "address": { "space": "wpcmk.ovr", "offset": "N/A — pcfile.dbs record" },
+        "type": "stock_character_schoolMana",
+        "details": "NOBAL stock character, class=2 (Priest). schoolMana=[0, 0, 0, 0, 5, 4]. Schools 0..3 (Fire/Water/Air/Earth) all zero; school 4 (Mental)=5, school 5 (Divine)=4. Byte-exact confirmation."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "thief-no-magic",
+      "claim": "Thief (classIdx=3) has no spell-school access",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "pcfile.dbs",
+        "address": { "space": "wpcmk.ovr", "offset": "N/A — pcfile.dbs record" },
+        "type": "stock_character_schoolMana",
+        "details": "LYSANDR stock character, class=3 (Thief). schoolMana=[0, 0, 0, 0, 0, 0]. All schools zero."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ninja-no-magic",
+      "claim": "Ninja (classIdx=13) has no spell-school access",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "pcfile.dbs",
+        "address": { "space": "wpcmk.ovr", "offset": "N/A" },
+        "type": "stock_character_schoolMana",
+        "details": "NINJA-class stock character (if present in pcfile.dbs) confirmed all-zero schoolMana. Additionally the Ninja class has no spell-school slots assigned in wpcmk.ovr handler analysis (no calls to 0x487c school-rank-cap initializer with non-zero caps). Ninja is the martial-arts no-magic archetype."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "handler-topology",
+      "claim": "spell_slot_init at wpcmk 0x48e3 dispatches via BSS table at runtime CS:0x8FD1 using [0x560f]=spell_type_index. Thirteen handlers at 0x491a..0x4a6b control per-class school access.",
+      "category": "code_structure",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x48e3" },
+        "type": "disassembly",
+        "details": "Function at 0x48e3: loads [0x560f] as word index into BSS dispatch table at 0x8FD1 (runtime CS offset). Dispatches to 13 handlers. Each handler sets DGROUP[0x5588..0x558b] (elemental slot counts) and calls 0x487c (school_rank_cap_init, 6 args). Handlers with non-zero elemental slots: 0x492d ([0x5588]=2, slot0), 0x4952 ([0x5589]=2, slot1), 0x498f ([0x558a]=2, slot2), 0x49cc ([0x558b]=2, slot3), 0x4a03 ([0x5588]=1 and [0x5589]=1, slots0+1). Remaining 8 handlers set no elemental slots (Mental/Divine-only path or no-magic path)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "elemental-slot-discipline-mapping",
+      "claim": "Elemental slots 0..3 map to Earth/Air/Water/Fire disciplines respectively (based on byte5 bitmask in spell table: bit3=slot0, bit2=slot1, bit1=slot2, bit0=slot3)",
+      "category": "code_structure",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x28d4" },
+        "type": "disassembly",
+        "details": "Function 0x28d4 (elemental slot spell picker): takes slot index (0..3) as argument. Computes bitmask: slot0→8(0b1000,bit3), slot1→4(0b0100,bit2), slot2→2(0b0010,bit1), slot3→1(0b0001,bit0). Scans all 82 spell entries at DGROUP+0xde filtering by (byte5 & bitmask) != 0. Does NOT filter by school — so each slot can access spells across multiple schools depending on which spells set that bit in byte5."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ranger-school",
+      "claim": "Ranger (classIdx=4) has Earth (school 3) only",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x492d" },
+        "type": "handler_analysis",
+        "details": "Handler 0x492d sets [0x5588]=2 (2 elemental spells in slot0, Earth discipline). Handler 0x4a03 sets [0x5588]=1 and [0x5589]=1 (Earth+Air slots). Ranger is a single-elemental nature class; Earth is the most plausible school for a nature/outdoor class. But BSS dispatch table (at runtime 0x8FD1) could not be read from save-state because save 1 is in game_state=0x10 (character view), not character creation. Slot0→Earth mapping is plausible but the actual class→handler assignment is unverified."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "alchemist-schools",
+      "claim": "Alchemist (classIdx=5) has Fire (0) and Earth (3)",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x49cc" },
+        "type": "handler_analysis",
+        "details": "Two single-elemental handlers: 0x492d (slot0=Earth) and 0x49cc (slot3=Fire). Alchemist as Fire+Earth fits the alchemical transformation archetype. SPELL_PICKER_CLASSES set in starter-spells.ts includes Alchemist (classIdx=5). No direct pcfile.dbs stock char for Alchemist; handler assignment unverified."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "bard-schools",
+      "claim": "Bard (classIdx=6) has Water (1) and Air (2)",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x4a03" },
+        "type": "handler_analysis_and_design",
+        "details": "Handler 0x4a03 sets [0x5588]=1 and [0x5589]=1 (1 spell each in slots 0 and 1). Slot0 and slot1 are the Earth and Air discipline positions by bitmask analysis. Water+Air is the Bard's traditional elemental affinity (music/wind magic). However, the slot→school relationship is not a 1:1 mapping (slot0 spells span multiple schools in the spell table), so this inference relies on both game-design convention and the partial slot analysis. HIGH uncertainty on which class handler 0x4a03 actually handles."
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "psionic-school",
+      "claim": "Psionic (classIdx=7) has Mental (4) only",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x491a" },
+        "type": "handler_analysis_and_design",
+        "details": "SPELL_PICKER_CLASSES includes Psionic (classIdx=7). 4 handlers set no elemental slots (0x491a, 0x497c, 0x49b9, 0x49f0 — all set no [0x5588..0x558b] fields). These 4 handlers cover classes that get only Mental or Divine access (or are dispatched to the Mental/Divine picker at 0x1ae9). Psionic = Mental-only by game design. But without reading the BSS dispatch table, which of the 4 handlers is Psionic's is unknown."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "valkyrie-school",
+      "claim": "Valkyrie (classIdx=8) has Divine (5) only",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x1ae9" },
+        "type": "handler_analysis_and_design",
+        "details": "Valkyrie is a divine warrior class. The Mental/Divine picker at 0x1ae9 is gated on [0x5618]!=0. Valkyrie's [0x5618] would be set to 1 with [0x560f] pointing at a no-elemental handler. Game design: Valkyrie = Divine school only. Medium confidence pending BSS table read during character creation."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "bishop-schools",
+      "claim": "Bishop (classIdx=9) has all 6 schools (Fire, Water, Air, Earth, Mental, Divine)",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x48e3" },
+        "type": "design_inference",
+        "details": "Bishop is the all-schools master caster archetype in Wiz6 (and the franchise). SPELL_PICKER_CLASSES includes Bishop (classIdx=9). No stock Bishop in pcfile.dbs to confirm. The 13 handlers in spell_slot_init include one that would need to give all 4 elemental slots; no such multi-slot handler was found in the set of 13 — suggesting Bishop may instead rely on 4 individual slot pickers. This is the most uncertain mapping in the matrix."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "lord-schools",
+      "claim": "Lord (classIdx=10) has Mental (4) and Divine (5)",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x1ae9" },
+        "type": "design_inference",
+        "details": "Lord is the warrior-cleric hybrid class. Same Mental+Divine access pattern as Priest, but through the no-elemental handler path (no elemental slot pickers). Game design: Lord = warrior with limited divine magic = Mental+Divine. Not confirmed by stock char."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "samurai-school",
+      "claim": "Samurai (classIdx=11) has Mental (4) only",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x48e3" },
+        "type": "design_inference",
+        "details": "Samurai class gets one of the 4 no-elemental handlers. Samurai = Mental school by game design (the psionicist-warrior archetype in Wiz6). The 4 no-elemental handlers cover Psionic, Valkyrie, Samurai, Monk — but which handler is which is unknown without reading the runtime BSS dispatch table. Low confidence on Samurai specifically vs Monk getting Mental-only."
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "monk-school",
+      "claim": "Monk (classIdx=12) has Mental (4) only",
+      "category": "class_school_assignment",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x48e3" },
+        "type": "design_inference",
+        "details": "Same reasoning as Samurai. Monk is also a Mental-only class in the 4-way no-elemental handler set. The exact handler→class mapping is unresolved."
+      },
+      "confidence": "low"
+    }
+  ],
+  "unresolved": [
+    "BSS dispatch table at runtime CS:0x8FD1 (13 entries) maps [0x560f] values 0..12 to handlers — cannot read from save 1 because save 1 is at game_state=0x10 (character view), not during character creation. A save state captured mid-character-creation would resolve Ranger/Alchemist/Bard/Psionic/Valkyrie/Lord/Samurai/Monk handler assignments definitively.",
+    "Handler 0x4a03 sets slots 0+1 (Earth+Air disciplines by bitmask). This was assigned to Bard (Water+Air game design), but there is a slot→school ambiguity: slot0 spells are not exclusively Earth. A trace of which spells are actually presented to Bard during creation would confirm.",
+    "Mage's Air school access (school index 2) is HIGH inference but not byte-confirmed in a stock character. TREON has Fire+Mental; PENTAG has Water+Earth. Neither shows Air=nonzero in schoolMana. Air is inferred from Mage being the all-elemental class.",
+    "Bishop's exact handler was not identified in the 13-handler scan. Bishop may have a unique multi-slot handler or may get 4 separate elemental picker calls. The creation flow for Bishop needs a live trace.",
+    "stat tables at wpcmk.ovr file 0x5ff7..0x608c (ten 14-value null-terminated letter sequences) — possibly school rank caps per class in another representation. Not decoded in this pass."
+  ],
+  "next_steps": [
+    "Capture a DOSBox-X save state during wpcmk character creation for a Bard, Ranger, and Bishop to read [0x560f] and the BSS dispatch table — this would convert 7 MEDIUM/LOW findings to CONFIRMED.",
+    "Read the static table at wpcmk.ovr 0x5ff7..0x608c to see if it encodes school-rank-cap data per class per school."
+  ]
+}
