@@ -226,21 +226,23 @@ export const CHARACTER_RECORD: BssStruct = {
         kind: 'array',
         length: 6,
         element: { kind: 'scalar', scalar: 'u16_le' },
+        stride: 4, // Engine interleaves cur[i] at +0x28+i*4, max[i] at +0x2a+i*4
       },
-      description: '6 per-school mana current values. Schools: [0]Fire [1]Water [2]Air [3]Earth [4]Mental [5]Divine. Layout: +0x28+i*4 = cur[i], +0x2a+i*4 = max[i]. Interleaved with school_mana_max.',
+      description: '6 per-school mana current values. Schools: [0]Fire [1]Water [2]Air [3]Earth [4]Mental [5]Divine. Layout: +0x28+i*4 = cur[i], +0x2a+i*4 = max[i]. Interleaved with school_mana_max (stride 4).',
     },
     {
       name: 'school_mana_max',
       offset: 0x2a,
-      // HIGH CONFIDENCE: 6 u16s at abs 0x4412..0x441b (even offsets), interleaved with cur.
+      // HIGH CONFIDENCE: 6 u16s at abs 0x4412..0x441b, interleaved with cur (stride 4).
       // See school_mana_cur above for evidence.
       // Stock: TREON max = [3,0,0,0,3,0]; NOBAL max = [0,0,0,0,5,4]; PENTAG max = [0,3,0,3,0,0].
       type: {
         kind: 'array',
         length: 6,
         element: { kind: 'scalar', scalar: 'u16_le' },
+        stride: 4, // Same interleaved stride as school_mana_cur
       },
-      description: '6 per-school mana max values (same school order as school_mana_cur). At +0x2a+i*4 for school i.',
+      description: '6 per-school mana max values (same school order as school_mana_cur). At +0x2a+i*4 for school i. Stride 4 (interleaved with cur).',
     },
     {
       name: 'level',
