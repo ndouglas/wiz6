@@ -21,6 +21,7 @@ const ROSTER: Roster = {
       schoolManaMax: [0, 0, 0, 0, 0, 0],
       skills: new Array(30).fill(0),
       savedOldLevel: 0, reaction: 0,
+      sex: 0,
     },
   ],
 };

@@ -187,6 +187,13 @@ export const CharacterSchema = z.object({
    */
   schoolRankThresholds: z.array(U8).length(14).optional(),
   /**
+   * Sex/gender byte. 0=Male, 1=Female. At record +0x1a1 (abs 0x4589).
+   * Party-row renderer (ndisasm 0x0e55+0x59a): shl ax → portrait table lookup via cs:0x526[sex*2].
+   * Written by wpcmk screen-03-sex. All stock chars = 0 (Male).
+   * Optional with default 0 for backwards-compatibility with stored rosters without this field.
+   */
+  sex: z.union([z.literal(0), z.literal(1)]).default(0),
+  /**
    * Monster Kill Statistic (MKS). Manual p. 23. u32. At record +0x10.
    * wmexe.ovr increments per kill. Stock chars all 0.
    * Optional for backwards-compatibility.
