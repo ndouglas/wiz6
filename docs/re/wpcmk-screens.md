@@ -20,7 +20,7 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 | 0 | `screen-00-pre-entry` | `wpcmk_create_via_empty_slot` 0x50f2 | yes | Name entry (≤14 chars, ASCII, unique) |
 | 1 | `screen-01-init` | master entry 0x4e47 | no | Zero 432-byte record + create UI windows |
 | 2 | `screen-02-race` | `wpcmk_pick_race_menu` 0x308d | yes | Pick 1 of **11 races** (all enabled) |
-| 3 | `screen-03-alignment` | `wpcmk_pick_alignment_menu` 0x31a6 | yes | Pick Good or Evil (**exactly 2 options**) |
+| 3 | `screen-03-sex` | `wpcmk_pick_sex_menu` 0x31a6 (was mislabeled `_alignment`) | yes | Pick MALE or FEMALE (**exactly 2 options**) — see §3 |
 | 4 | `screen-04-bonus-roller` | `stat_roller_bonus` 0x4e81 | no | Inline bonus-pool roll (5..26) |
 | 5 | `screen-05-class` | `wpcmk_pick_class_menu` 0x32e1 | yes | Pick 1 of **14 classes** (qualification-gated) |
 | 6 | `screen-06-bonus-allocator` | `wpcmk_bonus_point_allocator_ui` 0x3405 | yes | Distribute bonus pool across STR/INT/PIE/VIT/DEX/SPD/PER |
@@ -43,8 +43,8 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 | screen-00-pre-entry | empty name OR escape | **EXIT** → wbase state 4 |
 | screen-00-pre-entry | duplicate name | modal error → re-prompt |
 | screen-01-init | (immediate) | screen-02-race |
-| screen-02-race | player selects race (any of 11) | screen-03-alignment |
-| screen-03-alignment | player selects alignment | screen-04-bonus-roller |
+| screen-02-race | player selects race (any of 11) | screen-03-sex |
+| screen-03-sex | player selects sex (MALE/FEMALE) | screen-04-bonus-roller |
 | screen-04-bonus-roller | (immediate) | screen-05-class |
 | screen-05-class | player selects a qualified class | screen-06-bonus-allocator |
 | screen-06-bonus-allocator | key 5 while `pool==0` | screen-07-derived-stats |
@@ -70,8 +70,8 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 | screen-01-init | DGROUP 0x56ac | 2 | `bonus_points_remaining = 0xffff` sentinel |
 | screen-02-race | 0x19d | 1 | `chosen_race` (0..10) |
 | screen-02-race | 0x12c..0x133 | 8 | base stats (STR/INT/PIE/VIT/DEX/SPD/PER/KAR) bumped to race floors |
-| screen-03-alignment | 0x19e | 1 | alignment index (0=Good, 1=Evil) |
-| screen-03-alignment | 0x12e | 1 | PIE possibly adjusted by `race_faerie_personality_mod` |
+| screen-03-sex | 0x19e | 1 | sex index (0=Male, 1=Female) |
+| screen-03-sex | 0x12e | 1 | PIE possibly adjusted by `race_faerie_personality_mod` |
 | screen-04-bonus-roller | DGROUP 0x56ac | 2 | `bonus_points_remaining = 5..26` (or 21 if debug override) |
 | screen-05-class | 0x19f | 1 | class index (0=Fighter..13=Alchemist) |
 | screen-05-class | DGROUP 0x56ae[14] | 28 | `class_qualification_flags[14]` |
@@ -134,7 +134,7 @@ Coordinate system: **screen-absolute** (320×200 EGA). Cells are 8×8 px tiles v
 | screen-00-pre-entry | `*0x56ca` only | Text-input prompt in bottom bar |
 | screen-01-init | persistent + redraw call | Master entry; reuses all 3 persistent windows |
 | screen-02-race | `*0x56ca` (prompt) + `*0x56cc` (11-entry list) | |
-| screen-03-alignment | `*0x56ca` + `*0x56cc` (2-entry list) | |
+| screen-03-sex | `*0x56ca` + `*0x56cc` (2-entry list) | |
 | screen-04-bonus-roller | `*0x546e` (stat panel update — no new window) | Non-interactive inline code |
 | screen-05-class | `*0x56ca` + `*0x56cc` (14-entry list, qualification-gated) | |
 | screen-06-bonus-allocator | `*0x56ca` exclusively | Direct stat input via bottom bar |
@@ -168,7 +168,61 @@ Three additional windows opened transiently:
 Source: `docs/re/findings/wpcmk-window-layouts.json`
 
 ## 3. msg.dbs string IDs per screen
-TBD (RE #3)
+
+wpcmk holds no string literals (except 4 filenames). All on-screen text comes via `ui_window_write_msg_by_id` (thunk wpcmk `0xc2db` → wroot image `0x083f`) and `load_msg_into_buf` (thunk `0xc1f7`), each taking a msg.dbs ID. 30 + 16 call sites resolve to **56 strings**. Calling convention: `push col_or_attr; push window_handle; push msg_id; call thunk` (cdecl, 6-byte cleanup).
+
+### ⚠ Corrections to section 1 (screen-flow) from authoritative string text
+
+- **`screen-03` is the SEX picker, NOT alignment.** msg `0x0451` = "SELECT CHARACTER SEX", title `0x045d` = "CHARACTER SEX", options MALE (`0x8c`) / FEMALE (`0x8d`). The 2-option count Task 2 found is correct, but the "Good/Evil alignment" label was a wrong guess. Function `wpcmk_pick_alignment_menu` (0x31a6) should be renamed `wpcmk_pick_sex_menu` (flag for Task 12). Wiz6 has no Good/Evil alignment picker in creation. **Section 1 has been corrected accordingly.**
+- **`screen-05` class prompt is "SELECT CHARACTER PROFESSION" / title "PROFESSION"** — Wiz6 calls classes "professions" on-screen.
+- **Possible screen-13 / screen-14 spell-vs-skill mislabel.** Strings landing in `screen-13` (driver `ui_welcome_animation` 0x1ae9) are skill/weaponry labels (WEAPONRY/PHYSICAL/PERSONAL, weapon types, "SKILL POINTS"); strings landing in `screen-14` (driver grid picker 0x229c) are "SPELLS"/"COST"/spell names. This contradicts Task 2's labels (13=spell-school-anim, 14=skill-training). **Left as an open question for RE #5 (skill-train, Task 6) and RE #9 (spell-names, Task 10) to resolve definitively.**
+
+### Per-screen strings
+
+| Screen | Role | Msg ID | Text |
+|--------|------|-------:|------|
+| screen-00-pre-entry | prompt | 0x044c | `CHARACTER NAME >` |
+| screen-00-pre-entry | error | 0x044e | `* CHARACTER ALREADY EXISTS *` |
+| screen-02-race | prompt | 0x0450 | `SELECT CHARACTER RACE` |
+| screen-02-race | title | 0x045c | `CHARACTER RACE` |
+| screen-02-race | option_names | 0x0064..0x006e | HUMAN / ELF / DWARF / GNOME / HOBBIT / FAERIE / LIZARDMAN / DRACON / FELPURR / RAWULF / MOOK |
+| screen-03-**sex** | prompt | 0x0451 | `SELECT CHARACTER SEX` |
+| screen-03-**sex** | title | 0x045d | `CHARACTER SEX` |
+| screen-03-**sex** | option_names | 0x008c..0x008d | MALE / FEMALE |
+| screen-05-class | prompt | 0x0452 | `SELECT CHARACTER PROFESSION` |
+| screen-05-class | title | 0x045e | `PROFESSION` |
+| screen-05-class | option_names | 0x0078..0x0085 | FIGHTER / MAGE / PRIEST / THIEF / RANGER / ALCHEMIST / … (14 total) |
+| screen-06-bonus-allocator | title | 0x0460 | `ASSIGN ABILITY SCORE BONUS` |
+| screen-06-bonus-allocator | label | 0x0454 | `↑↓ ADJUSTS ABILITY` (`\x11\x12` arrow glyphs) |
+| screen-06-bonus-allocator | label | 0x0455 | `←→ SELECTS ABILITY` (`\x13\x14` arrow glyphs) |
+| screen-06-bonus-allocator | label | 0x0453 | `BONUS` |
+| screen-08-personality | label | 0x0457 | `CASTING KARMA - PRESS \x15` |
+| screen-10-portrait | label | 0x0458 | `↑↓ TO REVIEW PORTRAITS` |
+| screen-10-portrait | label | 0x0459 | `PRESS \x15 TO SELECT` |
+| screen-12-char-sheet | labels | 0x00c8.. | LVL / RNK / EXP / STR / INT / PIE / VIT / DEX / SPD / PER / KAR |
+| screen-13 (skill?) | labels | 0x0258..0x025d | WEAPONRY / PHYSICAL / PERSONAL / … |
+| screen-13 (skill?) | label | 0x159a | `SKILL POINTS` |
+| screen-14 (spell?) | title | 0x02bc | `      SPELLS      ` |
+| screen-14 (spell?) | label | 0x0f75 | `COST` |
+| screen-14 (spell?) | option_names | 0x0fa0.. | ENERGY BLAST / BLINDING FLASH / FIREBALL / … |
+| screen-15-confirm | prompt | 0x044f | `SAVE THIS CHARACTER?` |
+| screen-15-confirm | option | 0x045a | `YES` (/ NO) |
+
+Note: race/class/skill/spell names use **dynamic msg-id computation** (base + runtime index), e.g. race names at `0x0064 + race_idx`.
+
+### Adjacent roster-picker UI (wbase-side, outside creation)
+
+The subagent also resolved the roster-picker menu strings (msg `0x0464`–`0x046b`): `CANCEL`, `CREATE PC`, `REVIEW PC`, `DELETE THIS CHARACTER?`, `PRESS \x15 TO EXIT`. These belong to wbase's slot-5 entry (out of scope per spec) but are useful context for Phase 2's entry-point wiring.
+
+### Inline (non-msg.dbs) strings
+
+Only 4, all filenames: `PCFILE.DBS` (roster), `WPORT1.EGA` / `WPORT1.CGA` / `WPORT1.T16` (portraits, selected by video-mode flag `*0x4fc6`). Confirms `wpcmk-character-creation-trace.md`.
+
+### Unused
+
+msg `0x044d` = `* ROSTER FULL *` has no `push` reference anywhere in wpcmk — apparently dead/unused in this build.
+
+Source: `docs/re/findings/wpcmk-msg-strings.json`
 
 ## 4. Bonus-allocator UI loop
 TBD (RE #4)
