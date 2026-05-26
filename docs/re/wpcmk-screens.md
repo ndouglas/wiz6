@@ -136,7 +136,63 @@ TBD (RE #8)
 TBD (RE #9)
 
 ## 10. Post-commit return path
-TBD (RE #10)
+
+### Slot resolution: **no UI picker**
+
+`wpcmk_create_via_empty_slot` (0x50f2) calls `roster_find_first_empty_slot` (0x4ff4), which performs a linear scan over the in-memory occupancy array at DGROUP `*0x4fd8` and returns the first index where the byte is 0. There is **no overwrite prompt, no occupancy menu, no "which slot?" UI** anywhere in wpcmk. The slot is guaranteed empty by the entry wrapper.
+
+### Commit sequence (7 steps)
+
+| Step | Action | Details |
+|------|--------|---------|
+| 1 | Confirmation menu | `ui_menu_picker_vertical` with msg `0x44f` header + msg `0x45a` options. Choice 0 = KEEP, any other choice = DISCARD (exit without writing). |
+| 2 | Write character record | `roster_io_one_record(mode=1, slot_idx, buf=0x5470)` — opens PCFILE.DBS, seeks to `slot × 0x1b0 + header`, writes 432 bytes. |
+| 3 | Mark slot occupied | `*(0x4fd8 + slot_idx) := 1` — updates in-memory occupancy array (the byte that `roster_find_first_empty_slot` scans). |
+| 4 | Sync roster header to disk | Build filename via `boot_build_prompt_message` (0xc772 source 0x53fe), then rewrite the roster header so the new slot's occupancy persists. |
+| 5 | `wpcmk_create_character_master` returns | Standard epilogue. Control flows back through `wpcmk_create_via_empty_slot`, which also returns. |
+| 6 | Dispatch stub writes `*0x363a = 4` | wpcmk's dispatch entry at file `0x0010` runs: `59 c7 06 3a 36 04 00 b8 00 00 c3` = `pop cx; mov word [0x363a], 4; mov ax, 0; ret`. **This is the ONLY write to `*0x363a` anywhere in wpcmk.** |
+| 7 | wroot loads wbase | `ovl_install_table` sees state=4, dispatches to the wbase state-4 handler (main menu). |
+
+### State transition mechanism
+
+Full overlay flow at commit time:
+```
+wbase slot-5 writes *0x363a = 0x10
+    ↓
+wroot ovl_install_table loads wpcmk.ovr
+    ↓
+wpcmk entry (file 0x10) → wpcmk_create_via_empty_slot → creation subroutines
+    ↓
+creation completes; subroutines return up the stack
+    ↓
+wpcmk dispatch stub writes *0x363a = 4
+    ↓
+returns to wroot loop
+    ↓
+wroot loads wbase.ovr → main menu
+```
+
+The creation subroutines themselves (`wpcmk_create_character_master`, `roster_io_one_record`, etc.) **never** touch `*0x363a`. State transition is fully deferred to the dispatch-stub epilogue.
+
+### Confirmation menu strings
+
+| Msg ID | Role | Call site (wpcmk.ovr) |
+|-------:|------|-----------------------|
+| `0x44f` | Confirmation header (likely "Are you satisfied with this character?") | file 0x4f66 |
+| `0x45a` | Confirmation option list (YES / NO) | passed to `ui_menu_picker_vertical` at master commit path |
+| `0x44e` | Duplicate-name error (shown pre-creation in `wpcmk_create_via_empty_slot`) | file 0x51a5 |
+
+Actual string text requires msg.dbs decode (resolved in RE #3 / section 3).
+
+### DISCARD path
+
+If the user picks any option other than 0 at the confirmation menu (step 1), `wpcmk_create_character_master` returns immediately without touching the disk. The 432-byte record buffer at `*0x5470` is discarded; the slot remains empty in `*0x4fd8`; no roster header sync. Control returns to wbase via the same dispatch-stub epilogue (`*0x363a = 4`).
+
+### Open question
+
+The wpcmk overlay header at file `0x04-0x05` holds `0x5c9b`, which is likely a function-pointer table used by wroot's overlay loader to invoke the creation entry point. The exact loader-side mechanism (wroot `FUN_36dc` / `FUN_1462`) wasn't traced in this pass — flagged for follow-up if Phase 2 needs it.
+
+Source: `docs/re/findings/wpcmk-post-commit.json`
 
 ## 11. Remaining wpcmk functions (naming completion)
 TBD (RE #11)
