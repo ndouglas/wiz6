@@ -1,0 +1,155 @@
+{
+  "topic": "wpcmk-rng-seed-at-creation",
+  "subagent_run": "2026-05-26",
+  "binaries": ["wroot.exe", "wpcmk.ovr"],
+  "findings": [
+    {
+      "id": "stream-1-address",
+      "claim": "Stream 1 state lives at wroot CS offset 0x1d3b (CS-relative, same segment as code)",
+      "evidence": {
+        "type": "decompile",
+        "details": "Ghidra decompile of rng_advance at image 0x125b9 shows 'DAT_1000_1d3b = (DAT_1000_1d3b % 0xb1) * 0xab + (DAT_1000_1d3b / 0xb1) * -2'. The raw disassembly confirms: '1000:25bd MOV AX,CS:[0x1d3b]' and '1000:25dc MOV CS:[0x1d3b],AX'. Constants (q,a,c) = (0xb1, 0xab, -2); reseed constant 0x763d."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "stream-2-address",
+      "claim": "Stream 2 state lives at wroot CS offset 0x1d3d",
+      "evidence": {
+        "type": "decompile",
+        "details": "Ghidra decompile: 'DAT_1000_1d3d = (DAT_1000_1d3d % 0xb0) * 0xac + (DAT_1000_1d3d / 0xb0) * -0x23'. Raw disassembly: '1000:25e0 MOV AX,CS:[0x1d3d]' and '1000:25ff MOV CS:[0x1d3d],AX'. Constants (q,a,c) = (0xb0, 0xac, -0x23); reseed constant 0x7663."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "stream-3-address",
+      "claim": "Stream 3 state lives at wroot CS offset 0x1d3f",
+      "evidence": {
+        "type": "decompile",
+        "details": "Ghidra decompile: 'DAT_1000_1d3f = (DAT_1000_1d3f % 0xb2) * 0xaa + (DAT_1000_1d3f / 0xb2) * -0x3f'. Raw disassembly: '1000:2603 MOV AX,CS:[0x1d3f]' and '1000:2622 MOV CS:[0x1d3f],AX'. Constants (q,a,c) = (0xb2, 0xaa, -0x3f); reseed constant 0x7673."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "stream-storage-in-code-segment",
+      "claim": "All three stream states live physically inside the wroot.exe code segment (CS == DS for RNG data), NOT in DGROUP. rng_advance uses CS: segment prefix explicitly.",
+      "evidence": {
+        "type": "disassembly",
+        "details": "All rng_advance instructions use '2E' CS segment override prefix: e.g. '2E A1 3B 1D' = MOV AX, CS:[0x1d3b]. The physical address = wroot_code_seg * 16 + 0x1d3b. Not in DGROUP (which is the SS segment at a different base)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "stream-2-bios-tick-seed",
+      "claim": "Stream 2 is seeded at boot from the BIOS timer tick counter (BIOS int 1Ch low word at 0000:046c) + 2, making stream 2 non-deterministic across runs.",
+      "evidence": {
+        "type": "disassembly",
+        "details": "Function at wroot image 0x1d41 (file 0x1f41): 'PUSH ES / MOV AX,0 / MOV ES,AX / MOV BX,0x046c / MOV AX,ES:[BX] / POP ES / ADD AX,2 / MOV CS:[0x1d3d],AX / RET'. This seeds stream 2 with the low 16 bits of the BIOS tick counter + 2. Called via CALL 0x1d41 from a wroot init function at image 0x1c1e."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "stream-1-and-3-constant-seed",
+      "claim": "Streams 1 and 3 are never explicitly seeded. Their initial values come from the raw file bytes at CS offsets 0x1d3b and 0x1d3f in the wroot.exe image (code bytes that happen to live at those offsets).",
+      "evidence": {
+        "type": "raw_file_read + reference_scan",
+        "details": "Byte scan of all .exe and .ovr files finds zero explicit writes to CS:[0x1d3b] or CS:[0x1d3f] outside of rng_advance itself. The file bytes at wroot image 0x1d3b = 0xb8, 0x0b (LE word 0x0bb8 = 3000). File bytes at image 0x1d3f = 0x2f, 0x75 (LE word 0x752f = 29999). These code bytes (part of a function starting at 0x1d3b) serve as the de-facto initial seeds because the wroot code segment is read-write in DOS and the RNG data slots alias the function body."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "rng-call-chain",
+      "claim": "wpcmk calls rng via thunk 0xc480 (runtime CS offset) -> wroot image 0x09e4 (rng_next_bounded) -> wroot image 0x2556 (rng_sample) -> wroot image 0x25b9 (rng_advance). rng_sample combines all three streams via Wichmann-Hill combination formula.",
+      "evidence": {
+        "type": "disassembly",
+        "details": "wpcmk-naming-pass.json: bonus-point-roller evidence shows 'call 0xc480 (=rng_next thunk)'. Thunk law: 0xc480 - 0xBA9C = image 0x09e4. Disassembly at 0x09e4: 'call 0x2556 / cwd / idiv [bp+4] / mov ax,dx / ret'. 0x2556 (rng_sample) first calls 0x25b9 (rng_advance), then combines all three stream remainders via (stream_mod * 10000 / modulus) & 0x7fff, summed and masked."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "state-at-creation-entry-unknown",
+      "claim": "The exact RNG state at wpcmk_create_character_master entry is not predictable from static analysis. By that point the engine has advanced all three streams an unknown number of times through title screen, credits, menu interactions, and possibly sub-calls within wbase.",
+      "evidence": {
+        "type": "architecture",
+        "details": "No current save state captured at the exact wpcmk_create_character_master entry point. Save observations show large variation across saves even at title screen (state 1) vs later saves. A save specifically taken at character creation entry would be needed to observe the exact state."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "rng-advances-in-wpcmk",
+      "claim": "Within wpcmk, rng is called at minimum at: (1) bonus-point roller (3 calls: rng(6), rng(20), rng(20)); (2) personality roller (rng repeatedly, plus rng(9)+10 for static personality); (3) age roller (rng(1000)). First call happens at bonus roller in wpcmk_create_character_master sub-function at file 0x4e83.",
+      "evidence": {
+        "type": "decompile",
+        "details": "See wpcmk-naming-pass.json fn-bonus-point-roller (0x4e83), fn-personality-roller (0x3837, 0x4222), fn-age-and-hp (0x4589)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "stream_addresses": [
+    {
+      "stream": 1,
+      "cs_offset": "0x1d3b",
+      "size": 2,
+      "access": "CS:[0x1d3b] with explicit 2E CS: prefix",
+      "initial_boot_value": "0x0bb8 (3000 decimal) — from code bytes at that file offset",
+      "notes": "Physical address = wroot_code_seg * 16 + 0x1d3b. Same for each run with same binary."
+    },
+    {
+      "stream": 2,
+      "cs_offset": "0x1d3d",
+      "size": 2,
+      "access": "CS:[0x1d3d] with explicit 2E CS: prefix",
+      "initial_boot_value": "BIOS_tick_low + 2 (variable per boot)",
+      "notes": "Set by seeder function at image 0x1d41, called from init function at image 0x1c1e."
+    },
+    {
+      "stream": 3,
+      "cs_offset": "0x1d3f",
+      "size": 2,
+      "access": "CS:[0x1d3f] with explicit 2E CS: prefix",
+      "initial_boot_value": "0x752f (29999 decimal) — from code bytes at that file offset",
+      "notes": "Physical address = wroot_code_seg * 16 + 0x1d3f. Same for each run with same binary."
+    }
+  ],
+  "boot_seed": {
+    "mechanism": "mixed: constant (streams 1 and 3) + bios_tick (stream 2)",
+    "details": "Streams 1 and 3 are initialized to the code bytes that physically reside at those CS offsets in the wroot.exe image: stream1 = 0x0bb8 (file bytes b8 0b LE), stream3 = 0x752f (file bytes 2f 75 LE). Stream 2 is seeded by function at wroot image 0x1d41 which reads BIOS timer tick counter at 0000:046c and writes tick_low + 2 to CS:[0x1d3d]. This seeder is called once from an init function (image 0x1c1e) early in startup. Evidence: binary search shows zero explicit writes to CS:[0x1d3b] and CS:[0x1d3f] except within rng_advance itself. The seeder function is confirmed by disassembly: push ES / set ES=0 / BX=0x046c / read ES:[BX] (BIOS tick) / pop ES / add AX,2 / mov CS:[0x1d3d],AX / ret.",
+    "seeder_address": "wroot image 0x1d41 (file 0x1f41)",
+    "seeder_caller": "wroot image 0x1c1e (file 0x1e1e)"
+  },
+  "creation_start_observation": {
+    "available_saves": [
+      "1.sav (state 0x10, 2026-05-26, newest)",
+      "2.sav (state 1 / title page, 2026-05-24)",
+      "3.sav (state 1 / title page, 2026-05-24)",
+      "4.sav (state 1 / title page, 2026-05-24)",
+      "5.sav (state 1 / title page, 2026-05-24)",
+      "6.sav (state 1 / title page, 2026-05-24)",
+      "7.sav (state 1 / title page, 2026-05-24)",
+      "8.sav (state 0xffff / unknown, 2026-05-24)",
+      "9.sav (state 0xffff / unknown, 2026-05-24)",
+      "10.sav (state 0xffff / unknown, 2026-05-24)",
+      "11.sav (state 0xffff / unknown, 2026-05-24)",
+      "12.sav (state 0xffff / unknown, 2026-05-24)",
+      "13.sav (state 0xffff / unknown, 2026-05-24)"
+    ],
+    "note_on_state_0xffff": "State 0xffff may indicate saves taken during wpcmk execution (wpcmk is a library overlay that returns to state 4, but internal state variable may be 0xffff mid-execution). These could be mid-creation saves.",
+    "save_1_stream_1": "0x05da (1498)",
+    "save_1_stream_2": "0x57be (22462)",
+    "save_1_stream_3": "0x6d4a (27978)",
+    "save_2_stream_1": "0x4180 (16768)",
+    "save_2_stream_2": "0x62d7 (25303)",
+    "save_2_stream_3": "0x068e (1678)",
+    "save_3_stream_1": "0x1302 (4866)",
+    "save_3_stream_2": "0x0b41 (2881)",
+    "save_3_stream_3": "0x199a (6554)",
+    "save_8_stream_1": "0x4400 (17408)",
+    "save_8_stream_2": "0x0ffb (4091)",
+    "save_8_stream_3": "0x6967 (26983)",
+    "save_9_stream_1": "0x2bfb (11259)",
+    "save_9_stream_2": "0x6514 (25876)",
+    "save_9_stream_3": "0x2bc9 (11209)",
+    "notes": "No save specifically captured at wpcmk_create_character_master entry. All saves show highly varied stream states confirming non-determinism by the time creation starts. All values are in the valid positive range for each stream's LCG modulus (stream1 mod 0x763d=30269, stream2 mod 0x7663=30307, stream3 mod 0x7673=30323)."
+  },
+  "parity_strategy": "For Phase 2 RNG parity, inject a known fixed seed triple (e.g. stream1=3000, stream2=1, stream3=29999 — the static boot values before any seeding) directly into the TS rng_advance implementation at test setup, then replay the exact same sequence of rng calls made by each wpcmk sub-function. Since stream2 varies by BIOS tick on original hardware, bit-exact parity with live DOSBox is not possible without capturing a save at creation entry; instead capture a save at that point (state should transition to wpcmk / state 0xffff) and read the three values, then use those as a regression baseline for the TS port."
+}
