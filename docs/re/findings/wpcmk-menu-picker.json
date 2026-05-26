@@ -1,0 +1,423 @@
+{
+  "topic": "wpcmk-menu-picker",
+  "subagent_run": "2026-05-26",
+  "binaries": ["wpcmk.ovr"],
+  "method": "GhidraProject.openProject + DecompInterface full decompile of ui_menu_picker_vertical (0x029c) and all 6 call sites; ndisasm raw-asm verification of key dispatch and guard logic; call-site arg-stack reconstruction by push-sequence analysis.",
+  "picker_location": "wpcmk.ovr file 0x029c — REAL FUNCTION, NOT A THUNK. Entry bytes 55 8b ec (push bp; mov bp, sp) confirm a real function prologue. wpcmk uses DELTA=0 (file offset == runtime CS offset). No thunk-delta-law application needed. The picker does NOT live in wroot.",
+  "summary": "ui_menu_picker_vertical is a generic vertical-menu picker at wpcmk file 0x029c. It is a 9-argument function that builds a list of only the ENABLED entries from a caller-supplied bool-array, renders them into a window sub-region using the load_msg_into_buf thunk (0xc1f7) to load entry strings, and enters an input loop. Navigation: key 1/2/3/4 move between enabled entries in a 2D grid of (rows × columns); key 5 confirms. No wrap. No cancel. No letter shortcuts. Disabled entries are pre-filtered at init time and are never navigable. Mouse click directly sets cursor and confirms. Return value is the original (unfiltered) index in the caller's full options array (not the enabled-subset index). All three targeted creation pickers (race 0x308d, sex 0x31a6, class 0x32e1) pass identical navigation params: col_stride=10, num_rows=11, highlight_attr=5 (yellow-on-black).",
+  "findings": [
+    {
+      "id": "picker-location",
+      "claim": "ui_menu_picker_vertical lives in wpcmk.ovr at file offset 0x029c. It is a complete, self-contained function — not a thunk to wroot. The 16-bit cdecl convention; 9 args; total stack frame size is 9×2=18 bytes of args (confirmed by `add sp, 0x12` at each call site).",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x029c"},
+        "bytes": "55 8b ec 81 c4 62 fe",
+        "decoded": "push bp; mov bp, sp; add sp, 0xfe62 (frame alloc 0x19e bytes)",
+        "type": "instruction_pattern_match"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "function-signature",
+      "claim": "The function has 9 parameters laid out at bp+4..bp+14. From decompile analysis: param_1=window_handle, param_2=msg_id_base, param_3=enabled_array_ptr, param_4=base_col, param_5=base_row, param_6=col_stride, param_7=num_rows_per_column, param_8=highlight_attr, param_9=initial_cursor.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x029c", "0x02c8", "0x02d2", "0x0307", "0x031a"],
+        "details": "[bp+4]=param_1(window) at 0x02ee push word [bp+4]; [bp+6]=param_2(msg_id_base) at 0x0310 mov ax,[bp+6]; [bp+8]=param_3(enabled[]) at 0x02b5 mov bx,[bp+8]; [bp+a]=param_4(base_col) at 0x02d2 add ax,[bp+0xa]; [bp+c]=param_5(base_row) at 0x02e2 add ax,[bp+0xc]; [bp+e]=param_6(col_stride) at 0x02cf imul [bp+0xe]; [bp+10]=param_7(num_rows) at 0x02cc idiv [bp+0x10]; [bp+12]=param_8(highlight_attr) at 0x032c sub ax,[bp+0x12]; [bp+14]=param_9(initial_cursor) at 0x0321 cmp ax,[bp+0x14]."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "init-phase-enabled-filtering",
+      "claim": "The picker iterates the enabled[] array (terminated by sentinel 0xffff) and only adds entries where enabled[i]==1 to the visible list. Disabled entries (value 0) are silently skipped. The mapping aiStack_24[enabled_idx] = original_idx is built so the cursor operates on the enabled-entry index space but the return value is always the original index.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x02b8", "0x02c0", "0x02c3", "0x0380"],
+        "asm": [
+          "0x02b8  83 38 ff  cmp word [bx+si], 0xffff  ; test sentinel",
+          "0x02bb  75 03     jnz 0x2c0",
+          "0x02bd  e9 21 01  jmp 0x3e1  ; end of array -> exit init loop",
+          "0x02c0  83 38 01  cmp word [bx+si], 0x1  ; test enabled flag",
+          "0x02c3  74 03     jz 0x2c8   ; if enabled: process this entry",
+          "0x02c5  e9 13 01  jmp 0x3db  ; if not enabled: skip to next (no cursor slot)",
+          "0x0380  89 47 de  mov [bx-0x22], ax  ; aiStack_24[local_4] = local_6 (original idx)"
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "entry-layout-algorithm",
+      "claim": "Visible entries are positioned in a 2D grid using (entry_col, entry_row) coordinates derived from enabled_idx and param_7 (rows per column). entry_col = (enabled_idx / param_7) * param_6 + param_4; entry_row = enabled_idx % param_7 + param_5. The cursor index follows the same row-major layout within enabled entries.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x02c8", "0x02d2", "0x02e2"],
+        "asm": [
+          "0x02c8  8b 46 fc  mov ax, [bp-0x4]  ; ax = enabled_idx",
+          "0x02cb  99        cwd",
+          "0x02cc  f7 7e 10  idiv word [bp+0x10]  ; ax = idx/rows, dx = idx%rows",
+          "0x02cf  f7 6e 0e  imul word [bp+0xe]   ; ax = (idx/rows)*col_stride",
+          "0x02d2  03 46 0a  add ax, [bp+0xa]     ; ax = entry_col",
+          "0x02d9  8b 46 fc  mov ax, [bp-0x4]",
+          "0x02dc  99        cwd",
+          "0x02dd  f7 7e 10  idiv word [bp+0x10]  ; dx = idx % rows",
+          "0x02e0  8b c2     mov ax, dx",
+          "0x02e2  03 46 0c  add ax, [bp+0xc]     ; ax = entry_row"
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "key-handlers",
+      "claim": "The input loop calls input_poll_key_or_mouse (wpcmk 0x98) with args (0x541e, 0x3598). Mouse click sets cursor = mouse_x and forces key=5 (confirm). Key codes 1-4 navigate; key 5 confirms. Key dispatch is a cmp/jmp chain at file 0x05d2..0x05ef.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x0449", "0x0456", "0x05d2"],
+        "asm": [
+          "0x0449  e8 48 fc  call 0x98  ; input_poll_key_or_mouse(0x541e, 0x3598)",
+          "0x0450  83 c4 04",
+          "0x0453  89 46 fe  mov [bp-0x2], ax  ; save key code",
+          "0x0456  83 3e c4 4f 01  cmp word [0x4fc4], 1  ; mouse active?",
+          "0x045b  75 0b     jnz 0x468",
+          "0x045d  89 46 14  mov [bp+0x14], ax  ; param_9 = mouse_cursor",
+          "0x0460  c7 46 fe 05 00  mov word [bp-0x2], 5  ; force key=5",
+          "0x0465  e9 87 01  jmp 0x5ef",
+          "0x05d2  3d 01 00  cmp ax, 1  ; key 1?",
+          "0x05d5  75 03     jnz 0x5da",
+          "0x05d7  e9 94 fe  jmp 0x46e  ; -> key1 handler",
+          "0x05da  3d 02 00  cmp ax, 2  ; key 2?",
+          "0x05dd  75 03     jnz 0x5e2",
+          "0x05df  e9 e4 fe  jmp 0x4c6  ; -> key2 handler",
+          "0x05e2  3d 03 00  cmp ax, 3  ; key 3?",
+          "0x05e5  75 03     jnz 0x5ea",
+          "0x05e7  e9 2e ff  jmp 0x518  ; -> key3 handler",
+          "0x05ea  3d 04 00  cmp ax, 4  ; key 4?",
+          "0x05ed  74 84     jz 0x573   ; -> key4 handler",
+          "0x05ef  83 7e fe 05  cmp word [bp-0x2], 5  ; was key 5 (or forced)?",
+          "0x05f3  74 03     jz 0x5f8   ; -> exit and return",
+          "0x05f5  e9 fc fd  jmp 0x3f4  ; -> loop back (unrecognized key ignored)"
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "key-1-prev-column",
+      "claim": "Key 1: move to previous column. Subtracts param_7 (num_rows) from cursor. Guard: cursor >= param_7 (i.e., not already in column 0). If guard fails: no-op, cursor unchanged.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x046e"],
+        "asm": [
+          "0x046e  8b 46 14  mov ax, [bp+0x14]  ; ax = cursor",
+          "0x0471  2b 46 10  sub ax, [bp+0x10]  ; ax = cursor - num_rows",
+          "0x0474  7c 4d     jl 0x4c3            ; if negative: skip (no-op)",
+          "0x0476  ... ; [unhighlight current, call bda7+dfb9 for deselect]",
+          "0x04c0  29 46 14  sub [bp+0x14], ax  ; cursor -= num_rows"
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "key-2-prev-row",
+      "claim": "Key 2: move to previous row within column (decrement cursor by 1). Guard: cursor % num_rows > 0 (not at top of column). If guard fails: no-op.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x04c6"],
+        "asm": [
+          "0x04c6  8b 46 14  mov ax, [bp+0x14]  ; ax = cursor",
+          "0x04c9  99        cwd",
+          "0x04ca  f7 7e 10  idiv word [bp+0x10]  ; dx = cursor % num_rows",
+          "0x04cd  8b c2     mov ax, dx",
+          "0x04cf  3d 00 00  cmp ax, 0",
+          "0x04d2  7e 41     jng 0x515  ; if row <= 0: no-op",
+          "0x04d4  ... ; [unhighlight current, call bda7+dfb9]",
+          "0x0512  ff 4e 14  dec word [bp+0x14]  ; cursor--"
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "key-3-next-column",
+      "claim": "Key 3: move to next column. Adds param_7 (num_rows) to cursor. Guard: cursor + num_rows < total_enabled_count. If guard fails: no-op.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x0518"],
+        "asm": [
+          "0x0518  8b 46 14  mov ax, [bp+0x14]",
+          "0x051b  03 46 10  add ax, [bp+0x10]  ; ax = cursor + num_rows",
+          "0x051e  3b 46 fc  cmp ax, [bp-0x4]   ; cmp to total_enabled_count",
+          "0x0521  7d 4d     jnl 0x570           ; if >= count: no-op",
+          "0x0523  ... ; [unhighlight current, call bda7+dfb9]",
+          "0x056d  01 46 14  add [bp+0x14], ax  ; cursor += num_rows (via local copy)"
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "key-4-next-row",
+      "claim": "Key 4: move to next row within column (increment cursor by 1). TWO guards: (1) cursor % num_rows < num_rows - 1 (not at bottom of column); (2) cursor + 1 < total_enabled_count (not past last entry). Both must hold. If either guard fails: no-op.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x0573"],
+        "asm": [
+          "0x0573  8b 46 14  mov ax, [bp+0x14]",
+          "0x0576  99        cwd",
+          "0x0577  f7 7e 10  idiv word [bp+0x10]   ; dx = cursor % num_rows",
+          "0x057a  8b c2     mov ax, dx",
+          "0x057c  8b 4e 10  mov cx, [bp+0x10]",
+          "0x057f  49        dec cx                 ; cx = num_rows - 1",
+          "0x0580  3b c1     cmp ax, cx",
+          "0x0582  7d 4c     jnl 0x5d0             ; if row >= num_rows-1: no-op",
+          "0x0584  8b 46 14  mov ax, [bp+0x14]",
+          "0x0587  40        inc ax                 ; ax = cursor + 1",
+          "0x0588  3b 46 fc  cmp ax, [bp-0x4]      ; cmp to total_enabled",
+          "0x058b  7d 43     jnl 0x5d0             ; if cursor+1 >= count: no-op",
+          "0x058d  ... ; [unhighlight current, call bda7+dfb9]",
+          "0x05cd  ff 46 14  inc word [bp+0x14]    ; cursor++"
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "key-5-confirm",
+      "claim": "Key 5: confirm/accept current selection. Exits the loop. The cursor value (in enabled-entry index space) is used to look up the original index via aiStack_24[cursor]. No cancel key exists; the picker is a mandatory selection widget with no return path of -1.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x05f8"],
+        "asm": [
+          "0x05f8  8b 46 14  mov ax, [bp+0x14]  ; ax = cursor (enabled-entry idx)",
+          "0x05fb  d1 e0     shl ax, 1           ; ax *= 2 (word array index)",
+          "0x05fd  8b d8     mov bx, ax",
+          "0x05ff  03 dd     add bx, bp",
+          "0x0601  8b 47 de  mov ax, [bx-0x22]  ; ax = aiStack_24[cursor] = original_idx",
+          "0x0604  5e        pop si",
+          "0x0605  8b e5     mov sp, bp",
+          "0x0607  5d        pop bp",
+          "0x0608  c3        ret"
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wrap-behavior",
+      "claim": "The picker has NO wrap-around at any boundary. Each navigation direction is guarded by a hard check: key 1 blocked at column 0, key 2 blocked at row 0 of any column, key 3 blocked at last column, key 4 blocked at last row or last entry. Pressing a blocked direction is silently ignored.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "details": "Key 1 guard at 0x0474: jl 0x4c3 (jump-if-less to no-op). Key 2 guard at 0x04d2: jng 0x515 (jump-if-not-greater to no-op). Key 3 guard at 0x051e: jnl 0x570 (jump-if-not-less to no-op). Key 4 guard at 0x0582: jnl 0x5d0 + guard at 0x058b: jnl 0x5d0. None of these guards loop back to opposite end — they all jump to the end of the handler which falls through to the next loop iteration.",
+        "type": "instruction_pattern_match"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "disabled-entry-handling",
+      "claim": "Disabled entries (enabled[i]==0) are EXCLUDED during the init phase and never appear in the cursor navigation space. The cursor only has enabled entries to navigate. There is no 'land-and-reject' pattern; the cursor physically cannot reach disabled entries. This is pre-filter, not post-reject.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x02c0", "0x02c5"],
+        "asm": [
+          "0x02c0  83 38 01  cmp word [bx+si], 0x1  ; is enabled[original_idx] == 1?",
+          "0x02c3  74 03     jz 0x2c8               ; yes: add to visible list",
+          "0x02c5  e9 13 01  jmp 0x3db              ; no: skip to next iteration (no cursor slot)"
+        ],
+        "class_picker_context": "The class picker (0x32e1) pre-populates local_2e[i] = (*(0x56ae+i*2)==1) ? 1 : 0 before calling ui_menu_picker_vertical. This means the qualification check (FUN_2d10) sets the enabled[] array; unqualified classes have enabled[i]=0 and are never shown or navigable in the picker.",
+        "type": "instruction_pattern_match"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "letter-shortcuts",
+      "claim": "Letter shortcuts are ABSENT. The picker dispatches only on translated key codes 1-5 from input_poll_key_or_mouse. There is no cmp against ASCII letter codes, no per-entry first-letter matching, and no scan-code table for letters. Any key that does not translate to 1-5 is silently ignored (falls through the dispatch chain to jmp back to loop top).",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x05d2", "0x05f5"],
+        "asm": [
+          "dispatch chain: cmp ax,1; cmp ax,2; cmp ax,3; cmp ax,4; cmp [bp-0x2],5",
+          "0x05f5  e9 fc fd  jmp 0x3f4  ; all other key codes: back to loop top"
+        ],
+        "type": "instruction_pattern_match"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "return-value",
+      "claim": "Return value is the ORIGINAL index of the selected entry in the caller's full options array (not the enabled-subset index). The mapping aiStack_24[enabled_idx] = original_idx is built during init. For race: returns 0..10 (Human..Mook). For sex: returns 0..1 (Male..Female). For class: returns 0..13 (Fighter..Alchemist), skipping disabled indices. Callers then cast to byte: *(byte*)0x560d (race), *(byte*)0x560e (sex), *(byte*)0x560f (class). NO -1 cancel return.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x0380", "0x05f8", "0x3142", "0x325b", "0x33ab"],
+        "details": "aiStack_24[local_4] = local_6 set at 0x0380 (local_4=enabled_idx, local_6=original_idx). Return at 0x05f8 fetches aiStack_24[cursor]. Race caller at 0x3142 (after `83 c4 12`): mov [0x560d], low_byte_result. Sex caller at 0x325b (after `83 c4 12`): mov [0x560e], low_byte_result. Class caller at 0x33ab (after `83 c4 12`): mov [0x560f], low_byte_result.",
+        "type": "instruction_pattern_match"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "call-site-args-creation-pickers",
+      "claim": "All three creation pickers (race, sex, class) pass identical navigation arguments to ui_menu_picker_vertical: param_4=1 (base_col), param_5=1 (base_row), param_6=10 (col_stride), param_7=11 (num_rows), param_8=5 (highlight_attr=yellow), param_9=0 (initial_cursor at first entry). Msg_id_base differs: race=0x64(100), sex=0x8c(140), class=0x78(120).",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": [
+          "0x313f (race call)",
+          "0x3258 (sex call)",
+          "0x33a8 (class call)"
+        ],
+        "push_sequence": "Reconstructed from push sequence at each site. All three show: push 0x0; push 0x5; push 0xb; push 0xa; push 0x1; push 0x1; push &enabled[]; push msg_id_base; push [window_ptr]. add sp, 0x12 (18 bytes = 9×2) confirms 9 args.",
+        "type": "instruction_pattern_match"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "sex-picker-labeling-correction",
+      "claim": "wpcmk.ovr function 0x31a6 is the SEX picker (MALE/FEMALE), NOT an alignment picker as labeled in wpcmk-naming-pass.json. Evidence: msg 0x45d (passed to ui_write_centered_msg) = 'CHARACTER SEX'; msg_id_base 0x8c = msg 140 = MALE, msg 141 = FEMALE. The naming-pass used 'alignment' because the result is stored at *0x560e which was called 'alignment' — but the screen and strings say SEX.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x31a6"],
+        "msg_ids": {
+          "0x45d": "CHARACTER SEX (window header passed to ui_write_centered_msg at 0x31a6+0x8e)",
+          "0x8c": "MALE (msg_id_base for picker = race/sex name, with 0x8c+0=MALE, 0x8c+1=FEMALE)",
+          "0x0451": "SELECT CHARACTER SEX (window title msg)"
+        },
+        "correction_target": "docs/re/findings/wpcmk-naming-pass.json entry addr=0x31a6 should be renamed from wpcmk_pick_alignment_menu to wpcmk_pick_sex_menu",
+        "type": "msg_string_cross_reference"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "suppress-highlight-flag",
+      "claim": "The picker reads a flag at DGROUP 0x846 in two places: the init loop entry-render and the main loop cursor-render. When *0x846 != 0, both highlight (df85) renders are skipped. This flag is read-only within the picker; it must be cleared by the caller or initialized to 0 in BSS. Purpose: likely a 'suppress cursor highlight during a redraw pass' or 'animation-frame inhibit'.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x031a", "0x03f4"],
+        "asm": [
+          "0x031a  83 3e 46 08 00  cmp word [0x846], 0  ; in init loop",
+          "0x031f  75 30           jnz 0x351             ; skip df85 highlight if set",
+          "0x03f4  83 3e 46 08 00  cmp word [0x846], 0  ; in main loop",
+          "0x03f9  75 4a           jnz 0x445             ; skip df85 highlight if set"
+        ]
+      },
+      "confidence": "medium",
+      "note": "The purpose of 0x846 is speculative — only observing its effect on the highlight render paths. It is never written inside the picker itself."
+    }
+  ],
+  "state_machine": {
+    "states": [
+      "INIT: iterate enabled[] array, build visible entry list and aiStack_24[] map",
+      "RENDER_CURSOR: render cursor entry with highlight (df85 call), unless 0x846 set",
+      "WAIT_INPUT: call input_poll_key_or_mouse(0x541e, 0x3598)",
+      "DISPATCH: route on key code 1/2/3/4/5",
+      "NAVIGATE_KEY1: move cursor -num_rows (prev column) if guard passes",
+      "NAVIGATE_KEY2: move cursor -1 (prev row) if guard passes",
+      "NAVIGATE_KEY3: move cursor +num_rows (next column) if guard passes",
+      "NAVIGATE_KEY4: move cursor +1 (next row) if two guards pass",
+      "ACCEPT: fetch aiStack_24[cursor] and return"
+    ],
+    "transitions": [
+      {"from": "INIT", "to": "RENDER_CURSOR", "trigger": "end of enabled[] array (sentinel 0xffff)"},
+      {"from": "RENDER_CURSOR", "to": "WAIT_INPUT", "trigger": "after cursor render"},
+      {"from": "WAIT_INPUT", "to": "DISPATCH", "trigger": "key or mouse event"},
+      {"from": "WAIT_INPUT", "to": "ACCEPT", "trigger": "mouse click (forces key=5 path)"},
+      {"from": "DISPATCH", "to": "NAVIGATE_KEY1", "trigger": "key==1"},
+      {"from": "DISPATCH", "to": "NAVIGATE_KEY2", "trigger": "key==2"},
+      {"from": "DISPATCH", "to": "NAVIGATE_KEY3", "trigger": "key==3"},
+      {"from": "DISPATCH", "to": "NAVIGATE_KEY4", "trigger": "key==4"},
+      {"from": "DISPATCH", "to": "ACCEPT", "trigger": "key==5 (or was set=5 by mouse)"},
+      {"from": "DISPATCH", "to": "RENDER_CURSOR", "trigger": "any other key code (silently ignored)"},
+      {"from": "NAVIGATE_*", "to": "RENDER_CURSOR", "trigger": "after move or no-op guard"},
+      {"from": "ACCEPT", "to": "RETURN", "trigger": "function returns original_idx"}
+    ]
+  },
+  "key_handlers": [
+    {"key_code": 1, "key_name": "prev_column (possibly LEFT/H key via kbd_filter)", "action": "subtract num_rows from cursor, no-op if cursor < num_rows"},
+    {"key_code": 2, "key_name": "prev_row (possibly UP/K key via kbd_filter)", "action": "decrement cursor by 1, no-op if cursor % num_rows == 0"},
+    {"key_code": 3, "key_name": "next_column (possibly RIGHT/L key via kbd_filter)", "action": "add num_rows to cursor, no-op if cursor + num_rows >= total_enabled"},
+    {"key_code": 4, "key_name": "next_row (possibly DOWN/J key via kbd_filter)", "action": "increment cursor by 1, no-op if at bottom of column or last entry"},
+    {"key_code": 5, "key_name": "confirm/accept (possibly RETURN/SPACE key via kbd_filter)", "action": "exit loop and return aiStack_24[cursor] as original_idx"},
+    {"key_code": "other", "key_name": "any unrecognized code", "action": "silently ignored, loop continues from RENDER_CURSOR"},
+    {"key_code": "mouse_click", "key_name": "mouse button (when *0x4fc4==1)", "action": "set cursor = mouse_given_index, set key=5, immediately confirm"}
+  ],
+  "wrap_behavior": "NO WRAP. Each navigation direction is bounded by a hard guard. Key 1 (prev column): blocked at column 0 (cursor < num_rows). Key 2 (prev row): blocked at row 0 of any column (cursor % num_rows == 0). Key 3 (next column): blocked when next column would exceed total enabled count. Key 4 (next row): blocked at bottom of column OR at last enabled entry. No code paths loop cursor back to opposite end. Pressing a direction at a boundary is a silent no-op.",
+  "disabled_handling": "PRE-FILTER at init time — disabled entries are never placed in the navigable cursor space. The enabled[] array is scanned once during init; entries with value 0 (disabled) are skipped entirely and assigned no cursor slot. Only entries with value 1 (enabled) are added to aiStack_24[] and rendered. The cursor can only ever point to an enabled entry. There is no 'land and reject' pattern. Evidence: cmp word [bx+si], 0x1 at file 0x02c0 with jnz to skip-increment path (0x03db) bypassing all slot assignment code.",
+  "letter_shortcuts": "ABSENT. The picker's key dispatch chain at file 0x05d2..0x05ef compares only against integer key codes 1, 2, 3, 4, and 5 (via sub-word CMP instructions). There is no scan for ASCII letter codes in any part of the picker. The keyboard abstraction layer (input_poll_key_or_mouse at 0x0098, using kbd thunks 0xe0df/0xe1c0/0xedec) translates raw key events to the 1..5 action code space before the picker sees them. Any key that doesn't map to 1-5 falls through the dispatch chain and jumps back to the top of the render-and-wait loop.",
+  "return_value": "int original_index (>= 0 only — NO -1 cancel return). The picker always returns a valid selection; there is no escape key or cancel path. The return value is the original index of the selected entry in the caller-supplied full options array (before filtering by enabled[]). The enabled-subset index (cursor position) is converted to original_index via aiStack_24[cursor] before returning. Examples: race picker returns 0 (Human) through 10 (Mook); sex picker returns 0 (Male) or 1 (Female); class picker returns 0 (Fighter) through 13 (Alchemist) but only reachable values are those where enabled[i]==1.",
+  "picker_call_args_summary": {
+    "race_picker_0x308d": {
+      "call_site": "0x313f",
+      "param_2_msg_id_base": "0x64 (100 = HUMAN base; msgs 100..110 are the 11 race names)",
+      "param_4_base_col": 1,
+      "param_5_base_row": 1,
+      "param_6_col_stride": 10,
+      "param_7_num_rows": 11,
+      "param_8_highlight_attr": 5,
+      "param_9_initial_cursor": 0,
+      "enabled_array": "all 11 entries set to 1 (no disabled entries for race picker)",
+      "result_stored_at": "DGROUP *0x560d (byte)"
+    },
+    "sex_picker_0x31a6": {
+      "call_site": "0x3258",
+      "param_2_msg_id_base": "0x8c (140 = MALE; msg 141 = FEMALE)",
+      "param_4_base_col": 1,
+      "param_5_base_row": 1,
+      "param_6_col_stride": 10,
+      "param_7_num_rows": 11,
+      "param_8_highlight_attr": 5,
+      "param_9_initial_cursor": 0,
+      "enabled_array": "2 entries, both enabled (enabled[0]=1, enabled[1]=1, enabled[2]=0xffff)",
+      "result_stored_at": "DGROUP *0x560e (byte)"
+    },
+    "class_picker_0x32e1": {
+      "call_site": "0x33a8",
+      "param_2_msg_id_base": "0x78 (120 = FIGHTER base; msgs 120..133 are the 14 class names)",
+      "param_4_base_col": 1,
+      "param_5_base_row": 1,
+      "param_6_col_stride": 10,
+      "param_7_num_rows": 11,
+      "param_8_highlight_attr": 5,
+      "param_9_initial_cursor": 0,
+      "enabled_array": "14 entries; enabled[i] = (*(0x56ae + i*2) == 1) ? 1 : 0 after FUN_2d10 qualification pass",
+      "result_stored_at": "DGROUP *0x560f (byte)",
+      "note": "With num_rows=11 and 14 total classes, the first 11 classes fill column 0 (rows 0..10) and classes 11..13 fill column 1 (rows 0..2). Key 3 navigates between columns."
+    }
+  },
+  "other_call_sites": [
+    {
+      "call_site": "0x4f91",
+      "containing_fn": "wpcmk_show_roster_picker (0x56a0 area) — YES/NO confirmation dialog",
+      "param_2_msg_id_base": "0x45a",
+      "param_7_num_rows": 4,
+      "note": "roster yes/no confirmation — param_9 = 0, param_8 = 5"
+    },
+    {
+      "call_site": "0x52e5",
+      "containing_fn": "another confirmation dialog (0x52a0 area)",
+      "param_2_msg_id_base": "0x466",
+      "param_7_num_rows": 4,
+      "note": "param_9 = 1 (second entry pre-selected); initial cursor starts at second option"
+    },
+    {
+      "call_site": "0x5b03",
+      "containing_fn": "wpcmk_show_roster_picker (roster action menu)",
+      "param_2_msg_id_base": "0x46a (msgs CREATE/REVIEW/DELETE/RENAME/PORTRAIT)",
+      "param_7_num_rows": 2,
+      "note": "param_9 = result of menu_count_enabled_entries(5, &arr) = number of enabled options; this appears to pre-select the last enabled option or is an off-by-one (count = enabled_count may place cursor past last entry on first render)"
+    }
+  ],
+  "open_questions": [
+    {
+      "id": "Q-0x846-purpose",
+      "question": "What writes to DGROUP *0x846 and what is its semantic meaning? It is read by the picker in two places to suppress highlight rendering. Candidates: (a) 'currently-animating' flag set during portrait/animation callbacks; (b) 'force-redraw-without-cursor' flag for full-screen refresh after a window repaint; (c) game-state initialization flag. The picker never writes it. Investigation would require scanning all wpcmk + wroot functions for stores to *0x846.",
+      "confidence": "speculative"
+    },
+    {
+      "id": "Q-kbd-filter-masks",
+      "question": "The picker passes (0x541e, 0x3598) as args to input_poll_key_or_mouse. These are DGROUP addresses used by the keyboard filter/mouse subsystem (0xc674 = mouse check thunk, 0xedec = kbd validate/filter thunk). The exact key-to-action-code mapping (which physical keys produce codes 1-5) is documented in Task 9 (RE #8 - Keyboard filter masks). For now, the physical keys are unknown; only the action codes (1-5) and their effects are verified.",
+      "confidence": "high"
+    },
+    {
+      "id": "Q-class-picker-all-disabled",
+      "question": "What happens if ALL class entries are disabled (bonus pool too low for any class)? The picker would have total_enabled_count == 0. The init loop would skip all entries and fall through to the terminal c6b2 call at 0x03e1. The main loop would then start with cursor=0 and local_6=0 (count). key 5 would return aiStack_24[0] which is uninitialized stack memory. This would be a bug if the player has a bonus of 5 and doesn't meet any class minimum. Mitigation: FUN_2d10 always enables Fighter which has no attribute minimums. Needs confirmation.",
+      "confidence": "medium"
+    },
+    {
+      "id": "Q-initial-cursor-off-by-one-at-5b03",
+      "question": "The roster action menu (0x5b03) passes param_9 = menu_count_enabled_entries(5, &arr) as initial cursor. If all 5 entries are enabled, this is 5 — which is one past the last valid cursor index (0..4). What does the picker do with an out-of-range initial cursor? The init loop check `if (param_9 == enabled_idx)` would never match, so no entry is pre-highlighted. The main loop would then set the first key action to determine where cursor lands. This may be intentional (no default selection) or a bug. Verify by checking whether 0..4 are all consistently enabled in the roster action menu.",
+      "confidence": "medium"
+    }
+  ]
+}
