@@ -114,7 +114,7 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 | screen-07-derived-stats | 0x1ac | 1 | `inventory_count = 0` |
 | screen-07-derived-stats | 0x1ae | 1 | unknown = 100 |
 | screen-07-derived-stats | 0x110..0x11f | 16 | combat stats init array |
-| screen-08-personality | 0x133 | 1 | KAR = personality roll (`rng(9)+10` = 10..18) |
+| screen-08-personality | 0x133 | 1 | KAR (karma) = `rng(19)` → 0..18, +1 if player actively confirms (DGROUP 0x55a3). **NOT** `rng(9)+10` — that's the skill budget at 0x1a8. Cross-validated against stock chars (NOBAL=4, TREON=3) which are impossible under rng(9)+10. Matches existing `@wiz6/data/character-creation/karma-roll.ts`. |
 | screen-09-skill-init | 0x19c | 1 | `portrait_idx_prev_cache = 0` (not a true record field) |
 | screen-10-portrait | 0x19c | 1 | `portrait_index_final` (0..41) |
 | screen-11-class-starter-items | 0x040..0x10f | up to 40 | up to 5 starter inventory slots (8 bytes each) |
