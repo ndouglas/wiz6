@@ -19,7 +19,7 @@ Per-screen coverage across the RE dimensions. ✓ = documented; — = N/A (non-i
 | 01 init | ✓ | ✓ (3 persistent) | — | — | `wpcmk_entry_and_roster_menu` creates windows |
 | 02 race | ✓ | ✓ | ✓ | ✓ | menu picker §7 |
 | 03 **sex** | ✓ | ✓ | ✓ | ✓ | menu picker §7 (was mislabeled "alignment") |
-| 04 bonus roll | ✓ | — | — | — | formula `5+rng(6)`+8+8 |
+| 04 bonus roll | ✓ | — | — | — | `5+rng(6)`, +8 on each of two 1/20 rolls → 5..26 |
 | 05 class | ✓ | ✓ | ✓ | ✓ | menu picker §7, qualification-gated |
 | 06 bonus allocator | ✓ | ✓ | ✓ | ✓ | §4 |
 | 07 derived stats | ✓ | — | — | — | non-interactive |
@@ -31,7 +31,7 @@ Per-screen coverage across the RE dimensions. ✓ = documented; — = N/A (non-i
 | 13 **skill training** | ✓ | ✓ (temp) | ✓ | ✓ | §5 (was mislabeled "spell-school") |
 | 14 **spell picking** | ✓ | ✓ (2 temp) | ✓ | ✓ | §5, §9 (was mislabeled "skill-training") |
 | 15 confirm | ✓ | ✓ | ✓ | ✓ | KEEP/DISCARD |
-| 16 save | ✓ | — | ✓ (err msgs) | — | §10, no slot picker |
+| 16 save | ✓ | — | — | — | §10, no slot picker; error msgs (dup-name 0x44e) belong to screen-00 |
 
 RNG seed (§12) and post-commit (§10) cover the cross-cutting concerns.
 
@@ -128,7 +128,7 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 
 ### Conditional branches
 
-- **screen-13 (SKILL training) is conditional on `*0x5618 > 0`** — `*0x5618` is the skill-points pool (`rng(9)+10` minus class tier2), NOT a "caster flag". When tier2 drives it to 0 (e.g. Fighter), screen-13 is skipped. See §5. (The buffer-writes table below still uses the old `screen-13-spell-school-init` ID — to be reconciled in the Task 14 cross-check.)
+- **screen-13 (SKILL training) is conditional on `*0x5618 > 0`** — `*0x5618` is the skill-points pool (`rng(9)+10` minus class tier2), NOT a "caster flag". When tier2 drives it to 0 (e.g. Fighter), screen-13 is skipped. See §5. (The buffer-writes table above marks the screen-13/14 rows `⚠ ... ※` — their offset→screen attribution predates the swap and is provisional; see Open Question 1.)
 - **screen-14 (SPELL picking) loops via `while (*(0x5588+pillar) > 1)`** over the 4 spell-school pillars (MAGIC/FAITH/PHYSICAL/MENTAL at DGROUP `0x5588..0x558b`). Only 5 caster classes have nonzero pillar budgets; all others skip screen-14. See §5, §9.
 - **screen-15 (confirm) → screen-16 only if `choice == 0` (KEEP).** DISCARD exits to wbase without disk write; the record buffer is discarded.
 - **screen-00 (name entry) escape OR empty name exits wpcmk entirely.** Duplicate name shows modal error then re-prompts.
@@ -174,8 +174,8 @@ Coordinate system: **screen-absolute** (320×200 EGA). Cells are 8×8 px tiles v
 | screen-10-portrait | `*0x56cc` (image area) + `*0x56ca` (prompt) | 42-cycle picker, keys 1/3/5 |
 | screen-11-class-starter-items | none | Non-interactive |
 | screen-12-char-sheet-redraw | `*0x546e` | Full panel redraw |
-| screen-13-spell-school-init | **NEW window at 0x1b28** | Temporary overlay, see below |
-| screen-14-skill-training | **2 NEW windows at 0x22bf + 0x22e5** | Temporary, see below |
+| screen-13-skill-training | **NEW window at 0x1b28** | Temporary overlay, see below |
+| screen-14-spell-picking | **2 NEW windows at 0x22bf + 0x22e5** | Temporary, see below |
 | screen-15-confirm | `*0x56ca` (menu picker via `ui_menu_picker_vertical`) | medium confidence — needs verification |
 | screen-16-save | none | Roster I/O, no UI windows |
 
@@ -185,9 +185,9 @@ Three additional windows opened transiently:
 
 | Screen | Driver | Call site | Cells | Pixels | Position | Attr | Purpose |
 |--------|--------|-----------|-------|--------|----------|-----:|---------|
-| screen-13 | `ui_welcome_animation` 0x1ae9 | wpcmk 0x1b28 | 20 × 16 | 160 × 128 | (160, 32) | 0x19 | Spell-school animation overlay (stack-local) |
-| screen-14 outer | `ui_train_attribute_picker_grid` 0x229c | wpcmk 0x22bf | 20 × 16 | 160 × 128 | (160, 32) | 0x16 | Skill-training panel |
-| screen-14 inner | (same driver) | wpcmk 0x22e5 | 19 × 8 | 152 × 64 | (168, 56) | 0x17 | 6-cell skill-pick grid (nested) |
+| screen-13 (skill training) | `wpcmk_skill_training_loop` 0x1ae9 | wpcmk 0x1b28 | 20 × 16 | 160 × 128 | (160, 32) | 0x19 | Skill-training overlay (stack-local) |
+| screen-14 outer (spell pick) | `ui_train_attribute_picker_grid` 0x229c | wpcmk 0x22bf | 20 × 16 | 160 × 128 | (160, 32) | 0x16 | Spell-picking panel |
+| screen-14 inner (spell pick) | (same driver) | wpcmk 0x22e5 | 19 × 8 | 152 × 64 | (168, 56) | 0x17 | 6-cell spell-pick grid (nested) |
 
 ### Notes
 
@@ -205,7 +205,7 @@ wpcmk holds no string literals (except 4 filenames). All on-screen text comes vi
 
 - **`screen-03` is the SEX picker, NOT alignment.** msg `0x0451` = "SELECT CHARACTER SEX", title `0x045d` = "CHARACTER SEX", options MALE (`0x8c`) / FEMALE (`0x8d`). The 2-option count Task 2 found is correct, but the "Good/Evil alignment" label was a wrong guess. Function `wpcmk_pick_alignment_menu` (0x31a6) should be renamed `wpcmk_pick_sex_menu` (flag for Task 12). Wiz6 has no Good/Evil alignment picker in creation. **Section 1 has been corrected accordingly.**
 - **`screen-05` class prompt is "SELECT CHARACTER PROFESSION" / title "PROFESSION"** — Wiz6 calls classes "professions" on-screen.
-- **Possible screen-13 / screen-14 spell-vs-skill mislabel.** Strings landing in `screen-13` (driver `ui_welcome_animation` 0x1ae9) are skill/weaponry labels (WEAPONRY/PHYSICAL/PERSONAL, weapon types, "SKILL POINTS"); strings landing in `screen-14` (driver grid picker 0x229c) are "SPELLS"/"COST"/spell names. This contradicts Task 2's labels (13=spell-school-anim, 14=skill-training). **Left as an open question for RE #5 (skill-train, Task 6) and RE #9 (spell-names, Task 10) to resolve definitively.**
+- **screen-13 / screen-14 were swapped in Task 2 — now RESOLVED (see §5).** screen-13 (`wpcmk_skill_training_loop` 0x1ae9) = SKILL training (WEAPONRY/PHYSICAL/PERSONAL/ACADEMIA, "SKILL POINTS"); screen-14 (`wpcmk_pick_spell` 0x28d4) = SPELL picking ("SPELLS"/"COST"/spell names). Task 4's strings were correct; Task 2's labels were swapped.
 
 ### Per-screen strings
 
@@ -230,11 +230,11 @@ wpcmk holds no string literals (except 4 filenames). All on-screen text comes vi
 | screen-10-portrait | label | 0x0458 | `↑↓ TO REVIEW PORTRAITS` |
 | screen-10-portrait | label | 0x0459 | `PRESS \x15 TO SELECT` |
 | screen-12-char-sheet | labels | 0x00c8.. | LVL / RNK / EXP / STR / INT / PIE / VIT / DEX / SPD / PER / KAR |
-| screen-13 (skill?) | labels | 0x0258..0x025d | WEAPONRY / PHYSICAL / PERSONAL / … |
-| screen-13 (skill?) | label | 0x159a | `SKILL POINTS` |
-| screen-14 (spell?) | title | 0x02bc | `      SPELLS      ` |
-| screen-14 (spell?) | label | 0x0f75 | `COST` |
-| screen-14 (spell?) | option_names | 0x0fa0.. | ENERGY BLAST / BLINDING FLASH / FIREBALL / … |
+| screen-13 (skill training) | labels | 0x0258..0x025d | WEAPONRY / PHYSICAL / PERSONAL / ACADEMIA / … |
+| screen-13 (skill training) | label | 0x159a | `SKILL POINTS` |
+| screen-14 (spell picking) | title | 0x02bc | `      SPELLS      ` |
+| screen-14 (spell picking) | label | 0x0f75 | `COST` |
+| screen-14 (spell picking) | option_names | 0x0fa0.. | ENERGY BLAST / BLINDING FLASH / FIREBALL / … |
 | screen-15-confirm | prompt | 0x044f | `SAVE THIS CHARACTER?` |
 | screen-15-confirm | option | 0x045a | `YES` (/ NO) |
 
@@ -616,9 +616,9 @@ Source: `docs/re/findings/wpcmk-rng-seed-at-creation.json`
 
 ## Open questions for Phase 2
 
-Aggregated across all RE findings. None block Phase 2 from starting, but each should be resolved before claiming byte-perfect parity on the affected area.
+Aggregated across all RE findings. Most are non-blocking for *starting* Phase 2, but #1 specifically blocks implementing screens 13-14; the rest should be resolved before claiming byte-perfect parity on the affected area.
 
-1. **Buffer-write attribution for screen-13 (skill) / screen-14 (spell).** The §1 buffer-writes table offsets (0x068..0x07f, 0x028..0x03f, 0x118..0x11f, 0x1a8) were traced before the 13/14 swap was found; their per-screen attribution is provisional. **Do a dedicated re-trace** of `wpcmk_skill_training_loop` (0x1ae9) and `wpcmk_pick_spell` (0x28d4) record writes.
+1. **⛔ BLOCKS screens 13-14: buffer-write attribution for screen-13 (skill) / screen-14 (spell).** The §1 buffer-writes table offsets (0x068..0x07f, 0x028..0x03f, 0x118..0x11f, 0x1a8) were traced before the 13/14 swap was found; their per-screen attribution is provisional. You **cannot** achieve byte-perfect parity on the skill/spell record writes without resolving this. **Do a dedicated re-trace** of `wpcmk_skill_training_loop` (0x1ae9) and `wpcmk_pick_spell` (0x28d4) record writes before implementing those two screens. (Other screens can proceed.)
 2. **Portrait default-index conflict.** RE #6 found new-character default = portrait 0, with SPD+1 written to a *different* field (+0x1ab). But `portrait-pools.json` shows stock characters' +0x19c portrait == SPD+1. Resolve whether the picker default is truly 0 or SPD-derived before relying on it.
 3. **`portrait-pools.json` is mislabeled** — its `portrait_refs` are starter ITEM IDs, not portraits. Correct or retire that findings file.
 4. **Class tier2 skill-pool adjustment formula** (§5) — per-class `div`/`base` constants for Fighter/Ranger/Bishop/Monk/Ninja not fully enumerated. Needed for exact starter-skill-points parity.
