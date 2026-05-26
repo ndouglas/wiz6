@@ -372,8 +372,54 @@ Low byte written to: `*0x560d` (race), `*0x560e` (sex), `*0x560f` (class).
 
 Source: `docs/re/findings/wpcmk-menu-picker.json`
 
-## 8. Keyboard filter masks per screen
-TBD (RE #8)
+## 8. Keyboard input model + filter masks
+
+### The "1-5 codes" are arrow keys + Return (critical for Phase 2)
+
+Throughout wpcmk, interactive screens dispatch on action codes 1–5. **These are NOT literal digit keys.** `input_poll_key_or_mouse` (using `strchr_index`, wroot thunk `0xedec`) looks up the raw key byte in a 6-entry runtime table at wroot DGROUP `0x541e` = `[ESC, Left, Up, Right, Down, Return]`; the 0-based position is the action code:
+
+| Action code | Key | Raw byte (from save state) |
+|------------:|-----|---------------------------:|
+| 0 | ESC | 0x1b (silently ignored by all creation callers) |
+| 1 | **Left** | 0x08 |
+| 2 | **Up** | 0x09 |
+| 3 | **Right** | 0x0a |
+| 4 | **Down** | 0x0b |
+| 5 | **Return** | 0x0d |
+
+So the per-screen mappings documented elsewhere translate as:
+- **Menu picker** (§7): Left=prev col, Up=prev row, Right=next col, Down=next row, Return=confirm.
+- **Bonus allocator** (§4): Left=decrease, Up=prev attr, Right=increase, Down=next attr, Return=confirm.
+- **Portrait picker** (§6): Left/Right=cycle, Return=select.
+
+The key table at `0x541e` is BSS (zero in the binary, populated by winit at startup) — verified via DOSBox save state showing `1b 08 09 0a 0b 0d 00`.
+
+### `kbd_check_with_filter` param is a 3-way discriminant, not a bitmask
+
+Decompiling wroot `0x2643` shows the parameter is not a bit-mask:
+
+| Value | Behavior |
+|------:|----------|
+| 0 | accept any key |
+| 2 | digits only |
+| other (incl. 1) | broad printable |
+
+All wpcmk creation calls pass `1` → broad filter.
+
+### Per-screen input
+
+| Screen | Input path |
+|--------|-----------|
+| screen-00 name entry | `ui_text_input_editor` — bypasses the 1-5 system, works on **raw key bytes** |
+| screen-02 race / -03 sex / -05 class | menu picker via `input_poll_key_or_mouse` (arrow codes) |
+| screen-06 bonus allocator | `input_poll_key_or_mouse` (arrow codes) |
+| screen-08 personality | direct `kbd_check_with_filter` (0xe0df) — **CR-only**, bypasses 1-5 |
+| screen-10 portrait | `input_poll_key_or_mouse` |
+| screen-13 skill training | `input_poll_key_or_mouse` (2 call sites) |
+| screen-14 spell picking | `input_poll_key_or_mouse` |
+| screen-15 confirm | `input_poll_key_or_mouse` |
+
+Source: `docs/re/findings/wpcmk-kbd-filter-masks.json`
 
 ## 9. Spell-name resolution
 
