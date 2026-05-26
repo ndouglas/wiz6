@@ -7,6 +7,36 @@ Single source of truth for the wpcmk character-creation overlay, promoted from p
 **Source spec:** `docs/superpowers/specs/2026-05-26-wpcmk-byte-perfect-design.md`
 **Source plan:** `docs/superpowers/plans/2026-05-26-wpcmk-re-sweep.md`
 
+**Status: Phase 1 RE sweep COMPLETE.** All 12 investigations promoted. 76/76 wpcmk functions named. Ready to feed the Phase 2 port plan.
+
+---
+
+## Coverage summary
+
+Per-screen coverage across the RE dimensions. ✓ = documented; — = N/A (non-interactive / no such element).
+
+| Screen | Flow §1 | Window §2 | Strings §3 | Keys §8 | Special |
+|--------|:------:|:--------:|:---------:|:------:|---------|
+| 00 name entry | ✓ | ✓ (`*0x56ca`) | ✓ | ✓ (raw, not 1-5) | text input editor |
+| 01 init | ✓ | ✓ (3 persistent) | — | — | `wpcmk_entry_and_roster_menu` creates windows |
+| 02 race | ✓ | ✓ | ✓ | ✓ | menu picker §7 |
+| 03 **sex** | ✓ | ✓ | ✓ | ✓ | menu picker §7 (was mislabeled "alignment") |
+| 04 bonus roll | ✓ | — | — | — | formula `5+rng(6)`+8+8 |
+| 05 class | ✓ | ✓ | ✓ | ✓ | menu picker §7, qualification-gated |
+| 06 bonus allocator | ✓ | ✓ | ✓ | ✓ | §4 |
+| 07 derived stats | ✓ | — | — | — | non-interactive |
+| 08 personality | ✓ | ✓ | ✓ | ✓ (CR-only) | reroll loop |
+| 09 skill init | ✓ | — | — | — | combat-speed mods |
+| 10 portrait | ✓ | ✓ | ✓ | ✓ | §6, no filter, 42 portraits |
+| 11 starter items | ✓ | — | — | — | 14 class tables |
+| 12 char sheet | ✓ | ✓ (`*0x546e`) | ✓ | — | redraw |
+| 13 **skill training** | ✓ | ✓ (temp) | ✓ | ✓ | §5 (was mislabeled "spell-school") |
+| 14 **spell picking** | ✓ | ✓ (2 temp) | ✓ | ✓ | §5, §9 (was mislabeled "skill-training") |
+| 15 confirm | ✓ | ✓ | ✓ | ✓ | KEEP/DISCARD |
+| 16 save | ✓ | — | ✓ (err msgs) | — | §10, no slot picker |
+
+RNG seed (§12) and post-commit (§10) cover the cross-cutting concerns.
+
 ---
 
 ## 1. Screen-flow map
@@ -90,11 +120,13 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 | screen-09-skill-init | 0x19c | 1 | `portrait_idx_prev_cache = 0` (not a true record field) |
 | screen-10-portrait | 0x19c | 1 | `portrait_index_final` (0..41) |
 | screen-11-class-starter-items | 0x040..0x10f | up to 40 | up to 5 starter inventory slots (8 bytes each) |
-| screen-13-spell-school-init | 0x068..0x07f | up to 24 | spell-school cur/max mana per caster class |
-| screen-13-spell-school-init | 0x1a8 | 1 | `has_spells` cleared to 0 at animation end |
-| screen-14-skill-training | 0x028..0x03f | up to 24 | skill-attribute pools (6 × (cur u16, max u16)) |
-| screen-14-skill-training | 0x118..0x11f | 8 | `skill_training_points_per_pillar` decremented |
+| ⚠ screen-13/14 ※ | 0x068..0x07f | up to 24 | spell-school cur/max mana per caster class |
+| ⚠ screen-13/14 ※ | 0x1a8 | 1 | `has_spells`-style flag cleared at loop end |
+| ⚠ screen-13/14 ※ | 0x028..0x03f | up to 24 | skill/attribute pools (6 × (cur u16, max u16)) |
+| ⚠ screen-13/14 ※ | 0x118..0x11f | 8 | per-pillar points decremented (`0x5588..0x558b`) |
 | screen-16-save | disk + DGROUP 0x4fd8[slot] | 432 + 1 | full record → PCFILE.DBS slot, occupancy flag set |
+
+> ⚠ ※ The four screen-13/14 rows above carry offsets traced in RE #1 **before** the screen-13/14 swap was discovered (RE #5: screen-13 = SKILL training, screen-14 = SPELL picking). The offsets are real writes, but their attribution to a specific screen is provisional — a dedicated re-trace of the corrected screens' record writes is an open question (see bottom).
 
 ### Conditional branches
 
@@ -581,3 +613,19 @@ Use a **fixed seed triple** for deterministic unit tests — `(stream1=3000, str
 For bit-exact regression baselines against the real game, capture a new DOSBox save state at `wpcmk_create_character_master` entry (`game_state == 0xffff` window), read the three `CS:[0x1d3b/3d/3f]` values, and use those as the test seed.
 
 Source: `docs/re/findings/wpcmk-rng-seed-at-creation.json`
+
+---
+
+## Open questions for Phase 2
+
+Aggregated across all RE findings. None block Phase 2 from starting, but each should be resolved before claiming byte-perfect parity on the affected area.
+
+1. **Buffer-write attribution for screen-13 (skill) / screen-14 (spell).** The §1 buffer-writes table offsets (0x068..0x07f, 0x028..0x03f, 0x118..0x11f, 0x1a8) were traced before the 13/14 swap was found; their per-screen attribution is provisional. **Do a dedicated re-trace** of `wpcmk_skill_training_loop` (0x1ae9) and `wpcmk_pick_spell` (0x28d4) record writes.
+2. **Portrait default-index conflict.** RE #6 found new-character default = portrait 0, with SPD+1 written to a *different* field (+0x1ab). But `portrait-pools.json` shows stock characters' +0x19c portrait == SPD+1. Resolve whether the picker default is truly 0 or SPD-derived before relying on it.
+3. **`portrait-pools.json` is mislabeled** — its `portrait_refs` are starter ITEM IDs, not portraits. Correct or retire that findings file.
+4. **Class tier2 skill-pool adjustment formula** (§5) — per-class `div`/`base` constants for Fighter/Ranger/Bishop/Monk/Ninja not fully enumerated. Needed for exact starter-skill-points parity.
+5. **wpcmk overlay loader mechanism** (§10) — the header pointer at file 0x04-0x05 (`0x5c9b`) and wroot's `FUN_36dc`/`FUN_1462` loader path weren't traced. Only matters if Phase 2 needs to emulate the overlay-load handshake (it likely doesn't — the SPA calls creation directly).
+6. **Confirmation-menu entry-count formula** (§10) and exact KEEP/DISCARD option text — msg 0x44f/0x45a resolved as "SAVE THIS CHARACTER?" / "YES"(/NO); verify the option list rendering.
+7. **screen-15 confirm window** — RE #2 marked the confirm window as medium-confidence (`ui_menu_picker_vertical(*0x56ca,...)`); verify against a live screen.
+8. **Personality vs karma split** — `0x55a2` (PER) vs `0x55a3` (KAR) and the faerie racial +1 adjustment; the two "personality" attributes' exact semantics could use one more pass.
+
