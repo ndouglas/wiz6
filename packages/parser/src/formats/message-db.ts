@@ -1,6 +1,7 @@
 import { MessageDbSchema, type MessageDb, type IndexedMessage } from '@wiz6/data';
 
 const EXPECTED_TREE_SIZE = 1024;
+const BANK_SIZE = 1024;
 
 /**
  * Decompress a Huffman bit stream using a tree stored in `misc.hdr` format:
@@ -10,23 +11,29 @@ const EXPECTED_TREE_SIZE = 1024;
  * 16-bit value). Otherwise the link is a leaf and its low byte is the
  * character to emit.
  *
+ * `decodedLen` caps the number of characters emitted. Pass `Infinity` (or a
+ * large number) to decode until the bit stream is exhausted.
+ *
  * Mirrors the wroot.exe `FUN_33e9` decoder identified during Stage 1f.
  */
-export function huffmanDecode(tree: Uint8Array, bitStream: Uint8Array, maxOutput = 4096): string {
-  return huffmanDecodeRange(tree, bitStream, 0, bitStream.length, maxOutput);
+export function huffmanDecode(
+  tree: Uint8Array,
+  bitStream: Uint8Array,
+  decodedLen = 4096,
+): string {
+  return huffmanDecodeRange(tree, bitStream, 0, bitStream.length, decodedLen);
 }
 
 /**
  * Like `huffmanDecode`, but decodes only the bytes in [startByte, endByte) of
- * the bit stream. Used by the msg.hdr-based indexed-message decoder, which
- * treats msg.dbs as one continuous bit stream with byte offsets per message.
+ * the bit stream.
  */
 export function huffmanDecodeRange(
   tree: Uint8Array,
   bitStream: Uint8Array,
   startByte: number,
   endByte: number,
-  maxOutput = 65536,
+  decodedLen = 65536,
 ): string {
   if (tree.length !== EXPECTED_TREE_SIZE) {
     throw new Error(`huffman tree expected ${EXPECTED_TREE_SIZE} bytes, got ${tree.length}`);
@@ -36,7 +43,7 @@ export function huffmanDecodeRange(
   let si = startByte;
   let bitBuf = 0;
   let bitsLeft = 0;
-  while (out.length < maxOutput) {
+  while (out.length < decodedLen) {
     if (bitsLeft === 0) {
       if (si >= endByte || si >= bitStream.length) break;
       bitBuf = bitStream[si]!;
@@ -67,145 +74,102 @@ export interface DecodeMessageDbOpts {
   indexSourceFile: string;
 }
 
-interface HdrEntry {
-  byteOffset: number; // col_a
-  charOffset: number; // col_b
-  raw: number;        // col_c
+/**
+ * msg.hdr range entry (martydill model):
+ *   - 2-byte WORD: range count
+ *   - count × 6-byte records: (WORD start_id, WORD start_offset, WORD packed)
+ *   - packed = (bank_idx << 8) | id_span
+ *   - bank_idx: 1KB bank index into msg.dbs
+ *   - id_span: number of additional messages in this range (0 = 1 message, 10 = 11 messages)
+ *   - start_offset: byte offset of first record within the bank
+ */
+interface HdrRange {
+  startId: number;
+  startOffset: number;
+  bankIdx: number;
+  idSpan: number;
 }
 
-/**
- * Parse msg.hdr (Stage 1g.1 finding):
- *   - 2-byte WORD header: entry count (typically 718)
- *   - count × 6-byte records: (WORD byteOffset, WORD charOffset, WORD raw)
- *   - trailing zero padding to round out the file
- *
- * Each entry describes one indexed message. Multiple consecutive entries with
- * monotonically-increasing charOffset belong to the same "section"; when
- * charOffset resets to a smaller value, a new section begins. Within a
- * section, the msg.dbs bytes between consecutive byteOffsets form a single
- * continuous Huffman bit stream, and each message occupies the chars from its
- * own charOffset to the next entry's charOffset (or end of section).
- */
-function parseMsgHdr(hdrBytes: Uint8Array): HdrEntry[] {
+function parseMsgHdr(hdrBytes: Uint8Array): HdrRange[] {
   if (hdrBytes.length < 2) return [];
   const count = hdrBytes[0]! | (hdrBytes[1]! << 8);
-  const entries: HdrEntry[] = [];
+  const ranges: HdrRange[] = [];
   for (let i = 0; i < count; i++) {
     const base = 2 + i * 6;
     if (base + 6 > hdrBytes.length) break;
-    const a = hdrBytes[base]!     | (hdrBytes[base + 1]! << 8);
-    const b = hdrBytes[base + 2]! | (hdrBytes[base + 3]! << 8);
-    const c = hdrBytes[base + 4]! | (hdrBytes[base + 5]! << 8);
-    entries.push({ byteOffset: a, charOffset: b, raw: c });
+    const startId = hdrBytes[base]!     | (hdrBytes[base + 1]! << 8);
+    const startOffset = hdrBytes[base + 2]! | (hdrBytes[base + 3]! << 8);
+    const packed = hdrBytes[base + 4]! | (hdrBytes[base + 5]! << 8);
+    const bankIdx = (packed >> 8) & 0xff;
+    const idSpan = packed & 0xff;
+    ranges.push({ startId, startOffset, bankIdx, idSpan });
   }
-  return entries;
+  return ranges;
 }
 
 /**
- * Strip leading-noise heuristic for indexed messages.
+ * Decode one record from a bank at the given position.
  *
- * Stage 1g.2 finding: each indexed message slice from msg.dbs often has 1-8
- * chars of leading noise — either a per-message header (length / type byte
- * that decodes to gibberish via the shared Huffman tree) or bit-stream
- * resynchronization artifacts at message boundaries. The semantics of the
- * leading bytes haven't been decoded.
+ * msg.dbs record format (bank-structured):
+ *   [u8 rec_len]        — payload byte count NOT including this byte
+ *   [u8 decoded_len]    — number of chars to emit from Huffman decode
+ *   [u8 × (rec_len-1)]  — MSB-first Huffman bit stream
  *
- * Empirical pass over all 718 indexed messages: 91 already start with an
- * uppercase letter at position 0; 19 at position 1; 6 at position 2. So
- * stripping leading non-uppercase chars (up to 10 chars max) cleans up many
- * messages without eating real text. If nothing recognizable is in the
- * first 10 chars, leave the slice intact.
- *
- * Returns a trimmed version of `text`. The original is preserved in
- * `decodedText`; this output goes in `cleanedText`.
+ * rec_len = 0 is a sentinel (empty record); treat as empty string.
+ * Total bytes consumed = rec_len + 1.
  */
-export function cleanIndexedText(text: string): string {
-  if (text.length === 0) return text;
-
-  // Already starts cleanly: uppercase letter, digit, or common
-  // sentence-starting punctuation.
-  const first = text.charCodeAt(0);
-  if (
-    (first >= 0x41 && first <= 0x5A) ||  // A-Z
-    (first >= 0x30 && first <= 0x39) ||  // 0-9
-    first === 0x22 ||                    // "
-    first === 0x27 ||                    // '
-    first === 0x2A ||                    // *
-    first === 0x28                       // (
-  ) {
-    return text;
+function decodeRecordAt(
+  bank: Uint8Array,
+  pos: number,
+  tree: Uint8Array,
+): { text: string; totalBytes: number } {
+  const recLen = bank[pos]!;
+  if (recLen === 0) {
+    return { text: '', totalBytes: 1 };
   }
-
-  // Look for the first "clean start" character within the first 10 chars.
-  // We treat uppercase letters, digits, or sentence-starting punctuation as
-  // valid starts.
-  const maxScan = Math.min(10, text.length);
-  for (let i = 1; i < maxScan; i++) {
-    const c = text.charCodeAt(i);
-    if (
-      (c >= 0x41 && c <= 0x5A) ||
-      (c >= 0x30 && c <= 0x39) ||
-      c === 0x22 || c === 0x27 || c === 0x2A || c === 0x28
-    ) {
-      // Found a clean start. Only strip if at least one of the chars before
-      // it looks like noise (not a lowercase letter or space — those might
-      // be real text).
-      // Conservative: always strip if found within first 10 chars.
-      return text.slice(i);
-    }
-  }
-  return text;
+  const decodedLen = bank[pos + 1]!;
+  const payload = bank.subarray(pos + 2, pos + recLen + 1);
+  const text = huffmanDecode(tree, payload, decodedLen);
+  return { text, totalBytes: recLen + 1 };
 }
 
+/**
+ * Decode all indexed messages using the bank-structured model from msg.hdr.
+ *
+ * For each range [start_id .. start_id + id_span] (inclusive), we walk
+ * (id_span + 1) consecutive records starting at bank[start_offset].
+ */
 function decodeIndexedMessages(
   dbsBytes: Uint8Array,
   treeBytes: Uint8Array,
   hdrBytes: Uint8Array,
 ): IndexedMessage[] {
-  const entries = parseMsgHdr(hdrBytes);
-  if (entries.length === 0) return [];
-
-  // Find section boundaries: each section begins at the first entry, then at
-  // any entry where charOffset is less than the previous entry's charOffset.
-  const sectionStarts: number[] = [0];
-  for (let i = 1; i < entries.length; i++) {
-    if (entries[i]!.charOffset < entries[i - 1]!.charOffset) {
-      sectionStarts.push(i);
-    }
-  }
-
-  // P99 compressed message size in the real msg.dbs file is ~200 bytes; the
-  // last section has no "next section" byteOffset to bound it, so cap to a
-  // few hundred bytes past its last entry to avoid decoding all of msg.dbs's
-  // trailing data into one giant blob. (Without this cap, the last indexed
-  // message in real data is many KB of unrelated text.)
-  const LAST_SECTION_CAP = 256;
+  const ranges = parseMsgHdr(hdrBytes);
+  if (ranges.length === 0) return [];
 
   const messages: IndexedMessage[] = [];
-  for (let s = 0; s < sectionStarts.length; s++) {
-    const start = sectionStarts[s]!;
-    const end = s + 1 < sectionStarts.length ? sectionStarts[s + 1]! : entries.length;
-    const byteStart = entries[start]!.byteOffset;
-    const byteEnd =
-      end < entries.length
-        ? entries[end]!.byteOffset
-        : Math.min(dbsBytes.length, entries[end - 1]!.byteOffset + LAST_SECTION_CAP);
-    const sectionText = huffmanDecodeRange(treeBytes, dbsBytes, byteStart, byteEnd);
-    for (let i = start; i < end; i++) {
-      const cs = entries[i]!.charOffset;
-      const ce = i + 1 < end ? entries[i + 1]!.charOffset : sectionText.length;
-      const decodedText = sectionText.slice(cs, ce);
+
+  for (let rangeIndex = 0; rangeIndex < ranges.length; rangeIndex++) {
+    const { startId, startOffset, bankIdx, idSpan } = ranges[rangeIndex]!;
+    const bankBase = bankIdx * BANK_SIZE;
+    const bank = dbsBytes.subarray(bankBase, bankBase + BANK_SIZE);
+
+    let pos = startOffset;
+    for (let delta = 0; delta <= idSpan; delta++) {
+      if (pos >= bank.length) break;
+      const { text, totalBytes } = decodeRecordAt(bank, pos, treeBytes);
       messages.push({
-        index: i,
-        byteOffset: entries[i]!.byteOffset,
-        charOffset: cs,
-        raw: entries[i]!.raw,
-        sectionIndex: s,
-        decodedText,
-        cleanedText: cleanIndexedText(decodedText),
+        id: startId + delta,
+        rangeIndex,
+        bank: bankIdx,
+        offset: pos,
+        recordPos: bankBase + pos,
+        decodedText: text,
       });
+      pos += totalBytes;
     }
   }
+
   return messages;
 }
 
@@ -215,23 +179,30 @@ export function decodeMessageDb(
   hdrBytes: Uint8Array,
   opts: DecodeMessageDbOpts,
 ): MessageDb {
+  // Flat record scan: walk each bank sequentially, emitting one record per
+  // [rec_len][decoded_len][payload] triple.
   const records: MessageDb['records'] = [];
-  let pos = 0;
   let index = 0;
-  while (pos < dbsBytes.length) {
-    const length = dbsBytes[pos]!;
-    if (length === 0) {
-      records.push({ index, compressedBytes: 0, decodedText: '' });
-      pos += 1;
+  for (let bankIdx = 0; bankIdx < Math.ceil(dbsBytes.length / BANK_SIZE); bankIdx++) {
+    const bankBase = bankIdx * BANK_SIZE;
+    const bank = dbsBytes.subarray(bankBase, bankBase + BANK_SIZE);
+    let pos = 0;
+    while (pos < bank.length) {
+      const recLen = bank[pos]!;
+      if (recLen === 0) {
+        records.push({ index, compressedBytes: 0, decodedText: '' });
+        pos += 1;
+        index += 1;
+        continue;
+      }
+      if (pos + recLen + 1 > bank.length) break;
+      const decodedLen = bank[pos + 1]!;
+      const payload = bank.subarray(pos + 2, pos + recLen + 1);
+      const decoded = huffmanDecode(treeBytes, payload, decodedLen);
+      records.push({ index, compressedBytes: payload.length, decodedText: decoded });
+      pos += recLen + 1;
       index += 1;
-      continue;
     }
-    if (pos + length > dbsBytes.length) break;
-    const payload = dbsBytes.subarray(pos + 1, pos + length);
-    const decoded = huffmanDecode(treeBytes, payload);
-    records.push({ index, compressedBytes: payload.length, decodedText: decoded });
-    pos += length;
-    index += 1;
   }
 
   const indexedMessages = decodeIndexedMessages(dbsBytes, treeBytes, hdrBytes);

@@ -23,7 +23,6 @@ export function MessageGallery({ url }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [view, setView] = useState<View>('indexed');
-  const [showCleaned, setShowCleaned] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,8 +41,7 @@ export function MessageGallery({ url }: Props) {
     return db.indexedMessages.filter(
       (m) =>
         m.decodedText.toLowerCase().includes(needle) ||
-        m.cleanedText.toLowerCase().includes(needle) ||
-        String(m.index).includes(filter),
+        String(m.id).includes(filter),
     );
   }, [db, filter]);
 
@@ -85,16 +83,6 @@ export function MessageGallery({ url }: Props) {
           />{' '}
           Raw msg.dbs records
         </label>
-        {view === 'indexed' && (
-          <label style={{ marginLeft: '1.5em' }}>
-            <input
-              type="checkbox"
-              checked={showCleaned}
-              onChange={() => setShowCleaned(!showCleaned)}
-            />{' '}
-            strip leading garbage (heuristic)
-          </label>
-        )}
       </div>
       <label>
         Filter:{' '}
@@ -102,7 +90,7 @@ export function MessageGallery({ url }: Props) {
           type="text"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="search decoded text or #"
+          placeholder="search decoded text or msg ID"
           style={{ width: '20em', fontFamily: 'monospace' }}
         />
       </label>{' '}
@@ -114,24 +102,22 @@ export function MessageGallery({ url }: Props) {
         <table style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85em', marginTop: '0.5em', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #888', textAlign: 'left' }}>
-              <th style={{ width: '4em' }}>#</th>
-              <th style={{ width: '4em' }}>sec</th>
-              <th style={{ width: '5em' }}>byteOff</th>
-              <th style={{ width: '5em' }}>charOff</th>
-              <th style={{ width: '5em' }}>raw</th>
+              <th style={{ width: '5em' }}>msg ID</th>
+              <th style={{ width: '5em' }}>range</th>
+              <th style={{ width: '4em' }}>bank</th>
+              <th style={{ width: '5em' }}>offset</th>
               <th>decoded text</th>
             </tr>
           </thead>
           <tbody>
             {filteredIndexed.map((m) => (
-              <tr key={m.index} style={{ borderBottom: '1px solid #222' }}>
-                <td style={{ color: '#888' }}>{m.index}</td>
-                <td style={{ color: '#888' }}>{m.sectionIndex}</td>
-                <td style={{ color: '#888' }}>{m.byteOffset}</td>
-                <td style={{ color: '#888' }}>{m.charOffset}</td>
-                <td style={{ color: '#888' }}>{m.raw}</td>
+              <tr key={m.id} style={{ borderBottom: '1px solid #222' }}>
+                <td style={{ color: '#888' }}>{m.id}</td>
+                <td style={{ color: '#888' }}>{m.rangeIndex}</td>
+                <td style={{ color: '#888' }}>{m.bank}</td>
+                <td style={{ color: '#888' }}>{m.offset}</td>
                 <td style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {escapeText(showCleaned ? m.cleanedText : m.decodedText)}
+                  {escapeText(m.decodedText)}
                 </td>
               </tr>
             ))}

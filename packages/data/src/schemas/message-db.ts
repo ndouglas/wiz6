@@ -7,21 +7,22 @@ export const MessageRecordSchema = z.object({
   decodedText: z.string(),
 });
 
-// One individually-indexed message resolved through msg.hdr (Stage 1g.1).
-// Each entry is a slice of a section's decoded bit stream.
+// One individually-indexed message resolved through msg.hdr (bank-structured model).
+// Each entry is a single decoded record from the 1KB bank indicated by msg.hdr.
 //
-// `decodedText` is the raw slice — Stage 1g.2 investigation showed it
-// usually has 1-8 chars of leading noise (probably a per-message header
-// or bit-stream resync artifact whose semantics we haven't decoded).
-// `cleanedText` applies a heuristic strip — see decoder for details.
+// `id`          — integer message ID (e.g. 1130 for "CREATE PC")
+// `rangeIndex`  — which range (row in msg.hdr) this message belongs to
+// `bank`        — 1KB bank index into msg.dbs
+// `offset`      — byte offset of the record within the bank
+// `recordPos`   — absolute byte position in msg.dbs (bank * 1024 + offset)
+// `decodedText` — Huffman-decoded text, exactly `decoded_len` chars
 export const IndexedMessageSchema = z.object({
-  index: z.number().int().nonnegative(),
-  byteOffset: z.number().int().nonnegative(),   // col_a — byte offset in msg.dbs (bit-stream model)
-  charOffset: z.number().int().nonnegative(),   // col_b — char offset within the section
-  raw: z.number().int().nonnegative(),          // col_c — raw value; semantics TBD
-  sectionIndex: z.number().int().nonnegative(),
+  id: z.number().int().nonnegative(),
+  rangeIndex: z.number().int().nonnegative(),
+  bank: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  recordPos: z.number().int().nonnegative(),
   decodedText: z.string(),
-  cleanedText: z.string(),
 });
 
 export const MessageDbSchema = z.object({

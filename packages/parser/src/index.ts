@@ -5,7 +5,6 @@ export { decodeEgaScreen, type DecodeEgaScreenOpts } from './formats/ega-screen.
 export {
   decodeMessageDb,
   huffmanDecode,
-  cleanIndexedText,
   type DecodeMessageDbOpts,
 } from './formats/message-db.js';
 export { decodeNewgameDb, type DecodeNewgameDbOpts } from './formats/newgame-db.js';

@@ -7,13 +7,12 @@ import {
 
 const validRec = { index: 0, compressedBytes: 5, decodedText: 'HUMAN' };
 const validIndexed = {
-  index: 0,
-  byteOffset: 100,
-  charOffset: 0,
-  raw: 10,
-  sectionIndex: 0,
+  id: 100,
+  rangeIndex: 0,
+  bank: 0,
+  offset: 0,
+  recordPos: 0,
   decodedText: 'HUMAN',
-  cleanedText: 'HUMAN',
 };
 const baseDb = {
   id: 'msg',
@@ -49,9 +48,27 @@ describe('IndexedMessageSchema', () => {
     expect(() => IndexedMessageSchema.parse(validIndexed)).not.toThrow();
   });
 
-  it('rejects negative byteOffset', () => {
+  it('rejects negative id', () => {
     expect(() =>
-      IndexedMessageSchema.parse({ ...validIndexed, byteOffset: -1 }),
+      IndexedMessageSchema.parse({ ...validIndexed, id: -1 }),
+    ).toThrow();
+  });
+
+  it('rejects negative bank', () => {
+    expect(() =>
+      IndexedMessageSchema.parse({ ...validIndexed, bank: -1 }),
+    ).toThrow();
+  });
+
+  it('rejects negative offset', () => {
+    expect(() =>
+      IndexedMessageSchema.parse({ ...validIndexed, offset: -1 }),
+    ).toThrow();
+  });
+
+  it('rejects negative recordPos', () => {
+    expect(() =>
+      IndexedMessageSchema.parse({ ...validIndexed, recordPos: -1 }),
     ).toThrow();
   });
 });
