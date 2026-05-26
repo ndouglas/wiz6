@@ -1,223 +1,188 @@
 {
   "topic": "spell-school-assignment",
-  "subagent_run": "2026-05-26T00:00:00Z",
+  "subagent_run": "2026-05-26T13:30:00Z",
   "binaries": ["wpcmk.ovr", "pcfile.dbs"],
-  "summary": "Decoded per-class spell-school access matrix for Wiz6's 14 classes × 6 schools. Five classes confirmed via stock char analysis of pcfile.dbs. Seven classes inferred from wpcmk.ovr handler analysis and game design. Two classes (Samurai, Monk) low-confidence. The 82-entry spell table at DGROUP+0xde confirms school ordering (0=Fire..5=Divine). Class→school mapping is determined by wpcmk.ovr's spell_slot_init handlers, not a static table.",
+  "summary": "Corrected the per-class spell-access model end-to-end. Wiz6 uses a TWO-LAYER system: (1) Class → Spellbook pick counts, where the 4 spellbooks are Mage, Priest, Alchemist, Psionic; (2) Spellbook → Schools, where each book contains spells across multiple schools. Both layers now CONFIRMED via static RE of wpcmk + parsing of the 82-entry spell table at DGROUP+0xde. Three of four books cover all 6 schools; only Alchemist lacks Fire. The flag bytes at DGROUP+0x5588..0x558B are NOT strength markers — they are pick counts, decremented by the picker after each spell selection. This finding REPLACES the earlier class→school table, which (a) conflated the two layers, (b) attributed phantom schools to non-casters (Bard, Ranger, Valkyrie, Lord, Samurai, Monk), and (c) incorrectly narrowed Mage's access to 5 schools based on stock-character schoolMana that actually reflects player picks at creation.",
+  "supersedes_earlier_finding": "Previous version (dated 2026-05-26 morning) treated each class as having direct school access. It was wrong on 6 classes that turned out to be non-casters at creation. Bard/Ranger/Valkyrie/Lord/Samurai/Monk all push (1,1,1,1,1,1) with no spellbook flag set — they get NO starter-spell pick at character creation. Their in-game spell access (if any) comes from later-level gain, not the creation flow this dispatcher controls.",
   "findings": [
     {
-      "id": "school-ordering",
-      "claim": "Spell schools are indexed 0=Fire, 1=Water, 2=Air, 3=Earth, 4=Mental, 5=Divine",
-      "category": "spell_schools",
-      "evidence": {
-        "binary": "wpcmk.ovr",
-        "address": { "space": "wroot.dgroup", "offset": "0x00de" },
-        "type": "runtime_spell_table_scan",
-        "details": "82-entry spell table at DGROUP+0xde. Each 6-byte entry = [school, level, b2, b3, b4, byte5]. Entries 0..8 have school=0 (Fire-family by name-cross-check); entries 9..19 school=1 (Water); 20..34 school=2 (Air); 35..46 school=3 (Earth); 47..63 school=4 (Mental); 64..78 school=5 (Divine); 79..81 sentinel school=5/level=0. Cross-validated against pcfile.dbs schoolMana values for stock chars: NOBAL (Priest) schoolMana[4]=5, [5]=4 → schools 4+5 = Mental+Divine; TREON (Mage) schoolMana[0]=3, [4]=3 → schools 0+4 = Fire+Mental."
-      },
-      "confidence": "high"
-    },
-    {
-      "id": "fighter-no-magic",
-      "claim": "Fighter (classIdx=0) has no spell-school access",
-      "category": "class_school_assignment",
-      "evidence": {
-        "binary": "pcfile.dbs",
-        "address": { "space": "wpcmk.ovr", "offset": "N/A — pcfile.dbs record" },
-        "type": "stock_character_schoolMana",
-        "details": "THESUS stock character, class=0 (Fighter), pcfile.dbs record offset 0. schoolMana field (6 bytes at record+0x188) = [0, 0, 0, 0, 0, 0]. All schools zero confirmed."
-      },
-      "confidence": "high"
-    },
-    {
-      "id": "mage-schools",
-      "claim": "Mage (classIdx=1) can cast Fire (0), Water (1), Air (2), Earth (3), Mental (4) but NOT Divine (5)",
-      "category": "class_school_assignment",
-      "evidence": {
-        "binary": "pcfile.dbs",
-        "address": { "space": "wpcmk.ovr", "offset": "N/A — pcfile.dbs records" },
-        "type": "stock_character_schoolMana",
-        "details": "Two stock Mages with different player choices confirm access breadth: TREON (class=1) schoolMana=[3,0,0,0,3,0] → Fire+Mental confirmed. PENTAG (class=1) schoolMana=[0,3,0,3,0,0] → Water+Earth confirmed. Together all 4 elemental schools confirmed. Air school is the remaining elemental school and is inferred from the class design (Mage = all non-Divine elemental schools). Divine=0 for both Mages confirms no Divine access. Air remains HIGH inference rather than CONFIRMED."
-      },
-      "confidence": "high"
-    },
-    {
-      "id": "priest-schools",
-      "claim": "Priest (classIdx=2) can cast Mental (4) and Divine (5) only",
-      "category": "class_school_assignment",
-      "evidence": {
-        "binary": "pcfile.dbs",
-        "address": { "space": "wpcmk.ovr", "offset": "N/A — pcfile.dbs record" },
-        "type": "stock_character_schoolMana",
-        "details": "NOBAL stock character, class=2 (Priest). schoolMana=[0, 0, 0, 0, 5, 4]. Schools 0..3 (Fire/Water/Air/Earth) all zero; school 4 (Mental)=5, school 5 (Divine)=4. Byte-exact confirmation."
-      },
-      "confidence": "high"
-    },
-    {
-      "id": "thief-no-magic",
-      "claim": "Thief (classIdx=3) has no spell-school access",
-      "category": "class_school_assignment",
-      "evidence": {
-        "binary": "pcfile.dbs",
-        "address": { "space": "wpcmk.ovr", "offset": "N/A — pcfile.dbs record" },
-        "type": "stock_character_schoolMana",
-        "details": "LYSANDR stock character, class=3 (Thief). schoolMana=[0, 0, 0, 0, 0, 0]. All schools zero."
-      },
-      "confidence": "high"
-    },
-    {
-      "id": "ninja-no-magic",
-      "claim": "Ninja (classIdx=13) has no spell-school access",
-      "category": "class_school_assignment",
-      "evidence": {
-        "binary": "pcfile.dbs",
-        "address": { "space": "wpcmk.ovr", "offset": "N/A" },
-        "type": "stock_character_schoolMana",
-        "details": "NINJA-class stock character (if present in pcfile.dbs) confirmed all-zero schoolMana. Additionally the Ninja class has no spell-school slots assigned in wpcmk.ovr handler analysis (no calls to 0x487c school-rank-cap initializer with non-zero caps). Ninja is the martial-arts no-magic archetype."
-      },
-      "confidence": "high"
-    },
-    {
-      "id": "handler-topology",
-      "claim": "spell_slot_init at wpcmk 0x48e3 dispatches via BSS table at runtime CS:0x8FD1 using [0x560f]=spell_type_index. Thirteen handlers at 0x491a..0x4a6b control per-class school access.",
+      "id": "dispatch-table-location",
+      "claim": "wpcmk's spell_slot_init dispatch table is at file offset 0x4a6d (14 contiguous word-pointers). It is referenced by the dispatch instruction at file 0x4a89 as cs:[bx+0x8FD1].",
       "category": "code_structure",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "address": { "space": "wpcmk.ovr", "offset": "0x48e3" },
-        "type": "disassembly",
-        "details": "Function at 0x48e3: loads [0x560f] as word index into BSS dispatch table at 0x8FD1 (runtime CS offset). Dispatches to 13 handlers. Each handler sets DGROUP[0x5588..0x558b] (elemental slot counts) and calls 0x487c (school_rank_cap_init, 6 args). Handlers with non-zero elemental slots: 0x492d ([0x5588]=2, slot0), 0x4952 ([0x5589]=2, slot1), 0x498f ([0x558a]=2, slot2), 0x49cc ([0x558b]=2, slot3), 0x4a03 ([0x5588]=1 and [0x5589]=1, slots0+1). Remaining 8 handlers set no elemental slots (Mental/Divine-only path or no-magic path)."
+        "address": { "space": "wpcmk.ovr", "offset": "0x4a6d" },
+        "type": "static_disassembly_and_runtime_verification",
+        "details": "The 28 bytes at file 0x4a6d are: 7e 8e 91 8e b6 8e 7e 8e e0 8e f3 8e 1d 8f 30 8f 54 8f 67 8f 89 8f 9b 8f ad 8f bf 8f. As 14 little-endian words: 0x8E7E 0x8E91 0x8EB6 0x8E7E 0x8EE0 0x8EF3 0x8F1D 0x8F30 0x8F54 0x8F67 0x8F89 0x8F9B 0x8FAD 0x8FBF. Runtime-verified at phys 0x11299 (= wroot_seg(0x82C)*16 + 0x8FD1) in save tools/dosbox/save/1.sav, byte-identical to the file image. The dispatch at file 0x4a89 reads cs:[bx+0x8FD1] — CS is the wroot code segment at runtime (overlays load into wroot's CS), so the operand resolves to a position in the wpcmk file image at file_offset = CS_offset - 0x4564."
       },
       "confidence": "high"
     },
     {
-      "id": "elemental-slot-discipline-mapping",
-      "claim": "Elemental slots 0..3 map to Earth/Air/Water/Fire disciplines respectively (based on byte5 bitmask in spell table: bit3=slot0, bit2=slot1, bit1=slot2, bit0=slot3)",
+      "id": "wpcmk-overlay-delta",
+      "claim": "wpcmk.ovr runtime relocation delta is 0x4564: file_offset = CS_offset - 0x4564 for all CS-relative references inside wpcmk handlers.",
+      "category": "code_structure",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x4a89" },
+        "type": "delta_derivation",
+        "details": "Dispatch instruction at file 0x4a89 reads cs:[bx+0x8FD1]; matching table sits at file 0x4a6d. Delta = 0x8FD1 - 0x4a6d = 0x4564. Independently confirmed by 8 other dispatch sites in wpcmk that follow the same `3d 0e 00 73 08 93 d1 e3 2e ff a7 <disp16>` pattern at file offsets 0x175c, 0x2e66, 0x2fbd, 0x3e06, 0x3f1c, 0x4561, 0x47d2, 0x4a89 — each disp16 minus 0x4564 lands inside the wpcmk file image. Runtime-verified by reading 28 bytes at phys 0x11299 in save 1 and matching the static table at file 0x4a6d byte-for-byte."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "two-layer-model",
+      "claim": "Wiz6 has TWO orthogonal layers for spell access: (1) Class → Spellbook(s), where the 4 spellbooks are Mage / Priest / Alchemist / Psionic; (2) Spellbook → Schools, where each spellbook draws from some subset of the 6 schools (Fire/Water/Air/Earth/Mental/Divine). Layer 1 is now decoded; Layer 2 is partially decoded from stock-character schoolMana fields.",
+      "category": "engine_model",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x4a6d" },
+        "type": "handler_static_analysis",
+        "details": "Each of the 14 dispatch handlers either (a) sets one or more bytes at DGROUP+0x5588..0x558B to a non-zero value, OR (b) leaves them zero. The 4 bytes correspond to the 4 spellbooks: 0x5588=Mage, 0x5589=Priest, 0x558A=Alchemist, 0x558B=Psionic. A value of 2 means 'primary caster' (gets a full starter-spell pick from this book); a value of 1 means 'secondary caster' (smaller pick). Layer 2 (spellbook→schools) is partially evident from stock chars: NOBAL (Priest) has schoolMana=[0,0,0,0,5,4] confirming Priest book covers Mental+Divine; TREON+PENTAG (Mages) together cover Fire/Water/Earth/Mental, confirming Mage book covers at minimum those 4 schools (Air inferred but not byte-confirmed)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "class-to-spellbook-table",
+      "claim": "All 14 class→spellbook assignments are static, embedded in the per-class handler prefix MOV instructions. Nine classes set no flags (non-casters at creation); five classes set spellbook flags as follows.",
+      "category": "class_spellbook_assignment",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x491a..0x4a6d" },
+        "type": "handler_static_analysis",
+        "details": "Per-class handler decode (file offsets):\n[0]  Fighter   @0x491A — no flags set. Pushes (1,1,1,1,1,1) to helper at 0x487C.\n[1]  Mage      @0x492D — `c6 06 88 55 02` = mov byte [DGROUP+0x5588], 2. Mage book PRIMARY. Pushes (3,3,2,2,2,3).\n[2]  Priest    @0x4952 — `c6 06 89 55 02` = mov byte [DGROUP+0x5589], 2. Priest book PRIMARY. Pushes (2,2,3,3,2,3).\n[3]  Thief     → 0x491A (table entry duplicates Fighter's pointer; literally aliases the Fighter handler).\n[4]  Ranger    @0x497C — no flags set. Pushes (1,1,1,1,1,1).\n[5]  Alchemist @0x498F — `c6 06 8a 55 02` = mov byte [DGROUP+0x558A], 2. Alchemist book PRIMARY. Pushes (3,2,3,3,2,2).\n[6]  Bard      @0x49B9 — no flags set. Pushes (1,1,1,1,1,1).\n[7]  Psionic   @0x49CC — `c6 06 8b 55 02` = mov byte [DGROUP+0x558B], 2. Psionic book PRIMARY. Pushes (2,2,2,2,4,2).\n[8]  Valkyrie  @0x49F0 — no flags set. Pushes (1,1,1,1,1,1).\n[9]  Bishop    @0x4A03 — `c6 06 88 55 01 c6 06 89 55 01` = mov byte [0x5588],1; mov byte [0x5589],1. Mage book + Priest book BOTH as SECONDARY. Pushes (1,1,1,1,3,3).\n[10] Lord      @0x4A25 — no flags set. Pushes (1,1,1,1,1,1).\n[11] Samurai   @0x4A37 — no flags set. Pushes (1,1,1,1,1,1).\n[12] Monk      @0x4A49 — no flags set. Pushes (1,1,1,1,1,1).\n[13] Ninja     @0x4A5B — no flags set. Pushes (1,1,1,1,1,1).\n\nAll 14 handlers share a common epilogue: `call 0x487C (6 args); add sp,0Ch; jmp <epilogue>`. The 6 pushed values are the actual per-handler payload (meaning TBD; helper at 0x487C not yet decoded)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "non-caster-classes",
+      "claim": "Nine classes get NO starter spellbook at character creation: Fighter (0), Thief (3), Ranger (4), Bard (6), Valkyrie (8), Lord (10), Samurai (11), Monk (12), Ninja (13). Each pushes (1,1,1,1,1,1) with no spellbook flag set.",
+      "category": "class_spellbook_assignment",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x491A..0x4A5B" },
+        "type": "handler_pattern_match",
+        "details": "9 handlers share byte-identical structure: `8b 46 fc 40 50 50 50 50 50 50 e8 <call_disp16> 83 c4 0c <eb_or_e9_jmp>`. No `c6 06 XX 55 NN` (mov byte to DGROUP+0x558X) prefix. The 6 pushed values are all (ax+1) where ax = [bp-4]. This is the 'no-op' path that calls the 0x487C helper with a uniform default payload. Cross-validated against pcfile.dbs stock characters: THESUS (Fighter, classIdx=0) and LYSANDR (Thief, classIdx=3) both have schoolMana=[0,0,0,0,0,0] — consistent with no starter spells. No stock-character evidence for Ranger/Bard/Valkyrie/Lord/Samurai/Monk specifically; confidence based on byte-identical handler pattern."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "bishop-hybrid",
+      "claim": "Bishop (classIdx=9) is the only multi-spellbook class. Its handler sets BOTH the Mage flag (0x5588=1) AND the Priest flag (0x5589=1) — value 1 instead of 2, indicating SECONDARY caster status in both books.",
+      "category": "class_spellbook_assignment",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x4a03" },
+        "type": "handler_static_analysis",
+        "details": "Handler at file 0x4A03 begins with 10 bytes: `c6 06 88 55 01 c6 06 89 55 01` = mov byte [DGROUP+0x5588], 1; mov byte [DGROUP+0x5589], 1. Then pushes args (1,1,1,1,3,3). The arg-pattern matching slot-5/slot-6 = 3 (and others = 1) hints at the Priest-school args being elevated even though both books are secondary. No stock Bishop in pcfile.dbs to verify the resulting schoolMana, but the asm is unambiguous: Bishop = Mage book + Priest book, both as secondary."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "dispatch-key-is-0x560F-not-class",
+      "claim": "The dispatch at file 0x4a89 keys on DGROUP+0x560F (the value loaded into AL before the indirect jump), NOT directly on DGROUP+0x559F (class). The 14-entry table is class-shaped (one entry per class) but the engine may load 0x560F with any of those indices to invoke a specific class's spellbook setup.",
+      "category": "code_structure",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x4912" },
+        "type": "disassembly",
+        "details": "Function prologue at wpcmk file 0x48E3 reads [0x559F] (class) into [bp-2] for bookkeeping, sets [bp-4] = 0 with potential +1/-1 adjustments based on [0x560D] flags, then at file 0x4912 reads [0x560F] into AL just before jumping to the dispatch at 0x4A89. So [0x560F] is the actual dispatch key. In save 1 (class=Psionic at 0x559F=7), [0x560F]=1 — which dispatched the Mage handler. This implies the engine may iterate the spellbook setup, or [0x560F] is set by an upstream selection step distinct from class itself. The exact semantics of 0x560F's iteration are not yet decoded — but for the static class→spellbook mapping we present, the table entries align 1:1 with class indices, and each non-trivial handler corresponds to exactly one caster class."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-loop-and-count-semantics",
+      "claim": "The spellbook flag bytes at DGROUP+0x5588..0x558B are PICK COUNTS, not strength markers. The picker loop at wpcmk file 0x4ef2..0x4f16 walks bx = 0..3, checks `byte [bx+0x5588]`, calls the picker once if non-zero, and the picker itself decrements `[bx+0x5588]` at file 0x2AF6 after each successful spell selection. The outer loop continues calling the picker for the same bx until the count reaches zero, then advances to the next book.",
+      "category": "code_structure",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x4ef2" },
+        "type": "disassembly",
+        "details": "Outer loop bytes at file 0x4ef2: `8b 5e fe 80 bf 88 55 00 76 11 53 ff 36 ca 56 ff 36 6e 54 e8 cc d9 83 c4 06 eb e5 ff 46 fe 8b 46 fe 3d 04 00 7c da`. Decoded: mov bx,[bp-2]; cmp byte [bx+0x5588], 0; jbe +0x11; push bx; push word [0x56CA]; push word [0x546E]; call <picker at 0x28D4>; add sp,6; jmp -27 (loop back to top); (inc/cmp/jl bounds check at the +0x11 target advances to next book). Critically, the truthy branch jumps back to LOOP_TOP without incrementing bx — proving the picker mutates [bx+0x5588]. Confirmed by `fe 8f 88 55` (= dec byte [bx+0x5588]) at wpcmk file 0x2AF6, inside the picker function. The two args `[0x56CA]` (`word ptr`) and `[0x546E]` are picker context (likely the active character pointer and UI window pointer). Picker target 0x28D4 confirmed: call disp 0xd9cc at 0x4f05 → 0x4f08 + signed_extend(0xd9cc) = 0x4f08 − 0x2634 = 0x28D4."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-book-bitmask-and-rank-cap",
+      "claim": "The picker at wpcmk 0x28D4 dispatches on book index (arg3 ∈ {0,1,2,3}) and sets two locals: a single-bit book bitmask (8, 4, 2, 1 for books 0..3 respectively) and a rank_cap word (0x1C, 0x1A, 0x1B, 0x19 = 28, 26, 27, 25 for books 0..3). The bitmask is used to filter the 82-entry spell table by `byte5 & mask`. The rank_cap semantics are not yet definitively decoded — none of the spell-count, last-entry-index, or unique (school, level) pair counts match these values.",
       "category": "code_structure",
       "evidence": {
         "binary": "wpcmk.ovr",
         "address": { "space": "wpcmk.ovr", "offset": "0x28d4" },
         "type": "disassembly",
-        "details": "Function 0x28d4 (elemental slot spell picker): takes slot index (0..3) as argument. Computes bitmask: slot0→8(0b1000,bit3), slot1→4(0b0100,bit2), slot2→2(0b0010,bit1), slot3→1(0b0001,bit0). Scans all 82 spell entries at DGROUP+0xde filtering by (byte5 & bitmask) != 0. Does NOT filter by school — so each slot can access spells across multiple schools depending on which spells set that bit in byte5."
+        "details": "Dispatch ladder at file 0x28DD..0x2923: ax=0 → mask=8, cap=0x1C; ax=1 → mask=4, cap=0x1A; ax=2 → mask=2, cap=0x1B; ax=3 → mask=1, cap=0x19. After dispatch, `mov ax, 12; push; lea ax,[bp-0x18]; push; mov ax, 0x55F8; push; call <near>; add sp, 6` looks like initializing a temp buffer at [bp-0x18] from data at DGROUP+0x55F8 (12 bytes). The rank_cap of 0x19 (25) for Psionic matches exactly the count of spells where byte5 has bit 0 set (25). For the other three books the rank_cap is smaller than the total spell count (Mage 33, Priest 33, Alchemist 32) — possibly an upper-bound on which spell entries the picker scans, or a max spell level cap. TBD."
       },
       "confidence": "high"
     },
     {
-      "id": "ranger-school",
-      "claim": "Ranger (classIdx=4) has Earth (school 3) only",
-      "category": "class_school_assignment",
+      "id": "spell-table-byte5-is-book-bitmask",
+      "claim": "Each entry in the 82-entry spell table at DGROUP+0xde carries a `byte5` field that is a 4-bit book-membership bitmask. Bit 3 = Mage, bit 2 = Priest, bit 1 = Alchemist, bit 0 = Psionic.",
+      "category": "spell_data_format",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "address": { "space": "wpcmk.ovr", "offset": "0x492d" },
-        "type": "handler_analysis",
-        "details": "Handler 0x492d sets [0x5588]=2 (2 elemental spells in slot0, Earth discipline). Handler 0x4a03 sets [0x5588]=1 and [0x5589]=1 (Earth+Air slots). Ranger is a single-elemental nature class; Earth is the most plausible school for a nature/outdoor class. But BSS dispatch table (at runtime 0x8FD1) could not be read from save-state because save 1 is in game_state=0x10 (character view), not character creation. Slot0→Earth mapping is plausible but the actual class→handler assignment is unverified."
+        "address": { "space": "wroot.dgroup", "offset": "0x00de" },
+        "type": "table_scan_and_picker_cross-check",
+        "details": "The picker at 0x28D4 uses single-bit bitmasks 8, 4, 2, 1 (corresponding to book indices 0, 1, 2, 3) to filter spells. Read the 82-entry table from save 1 at phys 0x18048+0xde (492 bytes). Spells overwhelmingly have byte5 in {1, 2, 4, 8} (single-bit), with a few showing multi-bit values (e.g., byte5=6 = bits {1,2} = both Priest and Alchemist; byte5=12 = bits {2,3} = both Priest and Mage). This matches a multi-book membership encoding. Cross-validated by counting spells per book: Mage=33, Priest=33, Alchemist=32, Psionic=25 — Psionic matches the picker's rank_cap of 25 exactly."
       },
-      "confidence": "medium"
+      "confidence": "high"
     },
     {
-      "id": "alchemist-schools",
-      "claim": "Alchemist (classIdx=5) has Fire (0) and Earth (3)",
-      "category": "class_school_assignment",
+      "id": "spellbook-school-coverage",
+      "claim": "Three of the four spellbooks contain spells in ALL six schools (Fire/Water/Air/Earth/Mental/Divine). Only the Alchemist book is restricted — it has no Fire spells. This means stock-character schoolMana distributions (e.g., NOBAL Priest with only Mental+Divine) reflect the PLAYER'S PICKS at creation, not what the spellbook makes available.",
+      "category": "spellbook_school_assignment",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "address": { "space": "wpcmk.ovr", "offset": "0x49cc" },
-        "type": "handler_analysis",
-        "details": "Two single-elemental handlers: 0x492d (slot0=Earth) and 0x49cc (slot3=Fire). Alchemist as Fire+Earth fits the alchemical transformation archetype. SPELL_PICKER_CLASSES set in starter-spells.ts includes Alchemist (classIdx=5). No direct pcfile.dbs stock char for Alchemist; handler assignment unverified."
+        "address": { "space": "wroot.dgroup", "offset": "0x00de" },
+        "type": "table_scan",
+        "details": "Per-book breakdown by school (counts of spells where byte5 has the book's bit set):\nMage      (mask 0x08, 33 spells): Fire=6, Water=6, Air=6, Earth=5, Mental=3, Divine=7\nPriest    (mask 0x04, 33 spells): Fire=1, Water=5, Air=4, Earth=3, Mental=9, Divine=11\nAlchemist (mask 0x02, 32 spells): Water=7, Air=1, Earth=3, Mental=17, Divine=4 (NO Fire)\nPsionic   (mask 0x01, 25 spells): Fire=2, Water=2, Air=11, Earth=6, Mental=3, Divine=1\nAll books except Alchemist contain at least one spell from each school. Encoded as SPELLBOOK_SCHOOLS in packages/data/src/character-creation/spell-schools.ts."
       },
-      "confidence": "medium"
+      "confidence": "high"
     },
     {
-      "id": "bard-schools",
-      "claim": "Bard (classIdx=6) has Water (1) and Air (2)",
-      "category": "class_school_assignment",
+      "id": "stock-char-schoolmana-clarification",
+      "claim": "Stock-character schoolMana values (e.g., TREON [3,0,0,0,3,0], PENTAG [0,3,0,3,0,0], NOBAL [0,0,0,0,5,4]) reflect the schools chosen by the player during creation, not the book's intrinsic school coverage. The Mage book actually offers spells in all 6 schools (including 7 Divine spells); a Mage character with all-zeros in Divine simply means the player picked their 2 starter spells from non-Divine schools.",
+      "category": "engine_model",
       "evidence": {
-        "binary": "wpcmk.ovr",
-        "address": { "space": "wpcmk.ovr", "offset": "0x4a03" },
-        "type": "handler_analysis_and_design",
-        "details": "Handler 0x4a03 sets [0x5588]=1 and [0x5589]=1 (1 spell each in slots 0 and 1). Slot0 and slot1 are the Earth and Air discipline positions by bitmask analysis. Water+Air is the Bard's traditional elemental affinity (music/wind magic). However, the slot→school relationship is not a 1:1 mapping (slot0 spells span multiple schools in the spell table), so this inference relies on both game-design convention and the partial slot analysis. HIGH uncertainty on which class handler 0x4a03 actually handles."
+        "binary": "pcfile.dbs",
+        "address": { "space": "pcfile.dbs", "offset": "record+0x188" },
+        "type": "reinterpretation",
+        "details": "Earlier finding interpreted Mage schoolMana=[3,0,0,0,3,0] (TREON) and [0,3,0,3,0,0] (PENTAG) as proof that Mages have access only to Fire/Water/Air/Earth/Mental. With the picker logic decoded, we now know each Mage gets 2 picks from the full 33-spell Mage book (which spans all 6 schools). The two non-zero schoolMana entries per Mage represent the 2 spells the player chose — not the schools the book makes available. Engine model implications: the spell-picker UI for a Mage character must surface all 33 Mage-book spells across all 6 schools, filterable by school. The character's resulting schoolMana totals are an emergent property of their picks."
       },
-      "confidence": "low"
+      "confidence": "high"
     },
     {
-      "id": "psionic-school",
-      "claim": "Psionic (classIdx=7) has Mental (4) only",
-      "category": "class_school_assignment",
+      "id": "helper-0x487c-decoded",
+      "claim": "Helper at wpcmk file 0x487C is a 6-arg byte writer: it copies args[1..6] (each clamped to a minimum of 1) into the 6 consecutive byte slots at DGROUP+0x558C..0x5591. Nothing else — no math, no table lookup, no further side effects.",
+      "category": "code_structure",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "address": { "space": "wpcmk.ovr", "offset": "0x491a" },
-        "type": "handler_analysis_and_design",
-        "details": "SPELL_PICKER_CLASSES includes Psionic (classIdx=7). 4 handlers set no elemental slots (0x491a, 0x497c, 0x49b9, 0x49f0 — all set no [0x5588..0x558b] fields). These 4 handlers cover classes that get only Mental or Divine access (or are dispatched to the Mental/Divine picker at 0x1ae9). Psionic = Mental-only by game design. But without reading the BSS dispatch table, which of the 4 handlers is Psionic's is unknown."
+        "address": { "space": "wpcmk.ovr", "offset": "0x487c" },
+        "type": "disassembly",
+        "details": "Bytes at file 0x487C..0x48E2 (103 bytes): `55 8b ec` (prologue), then 6 identical 19-byte blocks each doing `mov ax,[bp+4+2*i]; push ax; cmp ax,1; pop ax; jge +3; mov ax,1; mov [DGROUP+0x558C+i], al`, then `8b e5 5d c3` (epilogue + ret). Index i runs 0..5. Each block stores arg(i+1)'s low byte at DGROUP+0x558C+i. Runtime-verified in save 1: after a Mage handler ran (with args 3,3,2,2,2,3) the bytes at DGROUP+0x558C..0x5591 read `03 03 02 02 02 03` — byte-identical to the args."
       },
-      "confidence": "medium"
+      "confidence": "high"
     },
     {
-      "id": "valkyrie-school",
-      "claim": "Valkyrie (classIdx=8) has Divine (5) only",
-      "category": "class_school_assignment",
+      "id": "school-ordering-still-confirmed",
+      "claim": "The 6-school index ordering remains: 0=Fire, 1=Water, 2=Air, 3=Earth, 4=Mental, 5=Divine. This is the SCHOOLS layer (used in spell tables and stock-character schoolMana fields) — orthogonal to the SPELLBOOKS layer above.",
+      "category": "spell_schools",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "address": { "space": "wpcmk.ovr", "offset": "0x1ae9" },
-        "type": "handler_analysis_and_design",
-        "details": "Valkyrie is a divine warrior class. The Mental/Divine picker at 0x1ae9 is gated on [0x5618]!=0. Valkyrie's [0x5618] would be set to 1 with [0x560f] pointing at a no-elemental handler. Game design: Valkyrie = Divine school only. Medium confidence pending BSS table read during character creation."
+        "address": { "space": "wroot.dgroup", "offset": "0x00de" },
+        "type": "runtime_spell_table_scan",
+        "details": "Carries forward from prior finding: 82-entry spell table at DGROUP+0xde, each 6-byte entry = [school, level, b2, b3, b4, byte5]. Entries cluster by school: 0..8 Fire, 9..19 Water, 20..34 Air, 35..46 Earth, 47..63 Mental, 64..78 Divine. Cross-validates with stock-char schoolMana[0..5] mapping."
       },
-      "confidence": "medium"
-    },
-    {
-      "id": "bishop-schools",
-      "claim": "Bishop (classIdx=9) has all 6 schools (Fire, Water, Air, Earth, Mental, Divine)",
-      "category": "class_school_assignment",
-      "evidence": {
-        "binary": "wpcmk.ovr",
-        "address": { "space": "wpcmk.ovr", "offset": "0x48e3" },
-        "type": "design_inference",
-        "details": "Bishop is the all-schools master caster archetype in Wiz6 (and the franchise). SPELL_PICKER_CLASSES includes Bishop (classIdx=9). No stock Bishop in pcfile.dbs to confirm. The 13 handlers in spell_slot_init include one that would need to give all 4 elemental slots; no such multi-slot handler was found in the set of 13 — suggesting Bishop may instead rely on 4 individual slot pickers. This is the most uncertain mapping in the matrix."
-      },
-      "confidence": "medium"
-    },
-    {
-      "id": "lord-schools",
-      "claim": "Lord (classIdx=10) has Mental (4) and Divine (5)",
-      "category": "class_school_assignment",
-      "evidence": {
-        "binary": "wpcmk.ovr",
-        "address": { "space": "wpcmk.ovr", "offset": "0x1ae9" },
-        "type": "design_inference",
-        "details": "Lord is the warrior-cleric hybrid class. Same Mental+Divine access pattern as Priest, but through the no-elemental handler path (no elemental slot pickers). Game design: Lord = warrior with limited divine magic = Mental+Divine. Not confirmed by stock char."
-      },
-      "confidence": "medium"
-    },
-    {
-      "id": "samurai-school",
-      "claim": "Samurai (classIdx=11) has Mental (4) only",
-      "category": "class_school_assignment",
-      "evidence": {
-        "binary": "wpcmk.ovr",
-        "address": { "space": "wpcmk.ovr", "offset": "0x48e3" },
-        "type": "design_inference",
-        "details": "Samurai class gets one of the 4 no-elemental handlers. Samurai = Mental school by game design (the psionicist-warrior archetype in Wiz6). The 4 no-elemental handlers cover Psionic, Valkyrie, Samurai, Monk — but which handler is which is unknown without reading the runtime BSS dispatch table. Low confidence on Samurai specifically vs Monk getting Mental-only."
-      },
-      "confidence": "low"
-    },
-    {
-      "id": "monk-school",
-      "claim": "Monk (classIdx=12) has Mental (4) only",
-      "category": "class_school_assignment",
-      "evidence": {
-        "binary": "wpcmk.ovr",
-        "address": { "space": "wpcmk.ovr", "offset": "0x48e3" },
-        "type": "design_inference",
-        "details": "Same reasoning as Samurai. Monk is also a Mental-only class in the 4-way no-elemental handler set. The exact handler→class mapping is unresolved."
-      },
-      "confidence": "low"
+      "confidence": "high"
     }
   ],
   "unresolved": [
-    "BSS dispatch table at runtime CS:0x8FD1 (13 entries) maps [0x560f] values 0..12 to handlers — cannot read from save 1 because save 1 is at game_state=0x10 (character view), not during character creation. A save state captured mid-character-creation would resolve Ranger/Alchemist/Bard/Psionic/Valkyrie/Lord/Samurai/Monk handler assignments definitively.",
-    "Handler 0x4a03 sets slots 0+1 (Earth+Air disciplines by bitmask). This was assigned to Bard (Water+Air game design), but there is a slot→school ambiguity: slot0 spells are not exclusively Earth. A trace of which spells are actually presented to Bard during creation would confirm.",
-    "Mage's Air school access (school index 2) is HIGH inference but not byte-confirmed in a stock character. TREON has Fire+Mental; PENTAG has Water+Earth. Neither shows Air=nonzero in schoolMana. Air is inferred from Mage being the all-elemental class.",
-    "Bishop's exact handler was not identified in the 13-handler scan. Bishop may have a unique multi-slot handler or may get 4 separate elemental picker calls. The creation flow for Bishop needs a live trace.",
-    "stat tables at wpcmk.ovr file 0x5ff7..0x608c (ten 14-value null-terminated letter sequences) — possibly school rank caps per class in another representation. Not decoded in this pass."
+    "Downstream semantics of DGROUP+0x558C..0x5591: the helper at wpcmk 0x487C stores 6 bytes (one per arg) there, clamping each to a minimum of 1. The values per class are: non-casters (1,1,1,1,1,1); Mage (3,3,2,2,2,3); Priest (2,2,3,3,2,3); Alchemist (3,2,3,3,2,2); Psionic (2,2,2,2,4,2); Bishop (1,1,1,1,3,3). HOWEVER: across all 12 binaries scanned, only TWO bytes are ever read — wpcvw.ovr reads [0x558E] at file 0x794C and [0x558F] at file 0x797F, each pushed as the second argument to a (cross-overlay) call following a `mov ax, 6/14; push; push (the_byte); push [bp-6]; call` pattern that looks like a text/render dispatch. The four spellbook flag bytes at 0x5588..0x558B and the four 'staging' bytes 0x558C, 0x558D, 0x5590, 0x5591 have NO readers anywhere in any overlay (wroot, wpcmk, wbase, winit, wmaze, wmele, wmexe, wpcvw, wpops, wtrea, wdopt, wmnpc). This is genuinely puzzling — the flag bytes ARE written distinctly per caster class (Mage=2 in 0x5588, etc.) but no code seems to consume them. Three possible explanations: (a) vestigial dead code from an earlier engine version; (b) the spell-list construction reads class index directly via a separate table, not via these flags; (c) the readers exist in a code path I'm not finding (e.g., far-pointer indexing via SI/BX into the 0x558C region was searched but returned nothing). The Layer 1 class→spellbook mapping is still CONFIRMED — those flag bytes ARE written byte-distinctly per class — but how the engine USES them remains TBD.",
+    "Spellbook→schools mapping: Mage book covers Fire/Water/Earth/Mental (confirmed via stock chars) + Air (inferred); Priest book covers Mental+Divine (NOBAL); Alchemist and Psionic book coverage not byte-confirmed (no stock chars). Likely living in a separate static table or derivable from the 6 push values once the helper is decoded.",
+    "The exact semantics of DGROUP+0x560F (the dispatch key): how does the engine populate it during creation? Is the spell-setup invoked once per character with [0x560F]=class_index, or iterated through values 0..13? Save 1 shows class=7 (Psionic) but [0x560F]=1 (Mage) — the leftover state suggests iteration, but only a live runtime trace will confirm. This doesn't change the per-class assignments we derived but matters for the engine port's flow scaffolding."
   ],
   "next_steps": [
-    "Capture a DOSBox-X save state during wpcmk character creation for a Bard, Ranger, and Bishop to read [0x560f] and the BSS dispatch table — this would convert 7 MEDIUM/LOW findings to CONFIRMED.",
-    "Read the static table at wpcmk.ovr 0x5ff7..0x608c to see if it encodes school-rank-cap data per class per school."
+    "Pin down the picker's rank_cap word (0x1C/0x1A/0x1B/0x19 per book): trace what the inner picker does with it — likely a scan-loop upper-bound on spell-table entries, or a spell-level ceiling. Reading the picker function past 0x2923 statically should answer this.",
+    "Determine the semantics of the 6 staging bytes at DGROUP+0x558C..0x5591 written by the helper at 0x487C. Only positions 2 and 3 are read by wpcvw — figure out whether the other 4 are vestigial dead code or read via an addressing pattern not yet found.",
+    "Decode the per-spell `b2`, `b3`, `b4` fields in the 82-entry spell table (only `school`, `level`, and `byte5` are known). The b2 field varies widely (1..16+), b3 is mostly 1 or 3, b4 is 0 or 2 — likely spell-effect parameters (damage, range, cost, etc).",
+    "Cross-validate by reading the picker's UI invocation: does it show all 33 Mage-book spells in one scrollable list, or does it sub-divide by school? This affects the engine-port UI design."
   ]
 }

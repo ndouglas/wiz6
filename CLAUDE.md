@@ -80,7 +80,14 @@ ghidraRun "$(pwd)/tools/ghidra/wiz6.gpr"
 
 **Translating between Ghidra image-offsets and raw file offsets:** for MZ executables, image offset = file offset − MZ header size. For wroot.exe, header is 0x200 bytes, so file 0x1c4a = image 0x1a4a.
 
-**Overlay relocation:** Ghidra often shows overlay code at virtual addresses that don't match file offsets. For winit.ovr, runtime delta = 0x3DB7 (DGROUP_runtime − file_offset). Use this to translate addresses you see in decompiled code back to file offsets when grepping bytes.
+**Overlay relocation (per-overlay delta law):** Ghidra and live disassembly often show overlay code at virtual addresses (CS-relative) that don't match raw file offsets — overlays load into wroot's code segment with a fixed offset. To translate `CS_offset → file_offset`, subtract the overlay's delta:
+
+| Overlay     | Runtime delta | Translation                                |
+|-------------|--------------:|--------------------------------------------|
+| `winit.ovr` |        0x3DB7 | `file_offset = CS_offset − 0x3DB7`         |
+| `wpcmk.ovr` |        0x4564 | `file_offset = CS_offset − 0x4564`         |
+
+How to confirm a new overlay's delta: find any in-file table referenced by a CS-disp16 instruction (e.g., `2e ff a7 <disp16>` jump-table dispatch), then `delta = disp16 − file_offset_of_table`. Verify by reading that disp16 from physical memory at `(wroot_phys_base + file_offset)` — wpcmk's table at file 0x4a6d is at phys 0x11299 in save 1, which is wroot_seg(0x82C) × 16 + 0x8FD1. Add new overlay deltas to this table when you find them.
 
 ## Project conventions
 

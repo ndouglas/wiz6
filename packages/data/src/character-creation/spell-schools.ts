@@ -1,100 +1,68 @@
 /**
  * Spell-school assignment per class — RE findings for wpcmk.ovr.
  *
- * ## What "spell schools" means here
+ * ## Two-layer model
  *
- * Wiz6 has 6 spell schools: Fire (0), Water (1), Air (2), Earth (3),
- * Mental (4), Divine (5). During character creation, each spell-capable
- * class gains access to a subset of schools. This determines which spells
- * the character can memorise and cast.
+ * Wiz6 has TWO orthogonal layers for spell access:
+ *
+ * 1. **Class → Spellbook(s).** 4 spellbooks exist: Mage, Priest, Alchemist,
+ *    Psionic. At character creation, the engine sets per-spellbook flag
+ *    bytes at DGROUP+0x5588..0x558B (one per book). The byte value is the
+ *    number of starter-spell PICKS the class gets from that book — most
+ *    casters get 2 picks from one book; Bishop is the hybrid getting 1
+ *    pick from each of two books. The spell picker decrements the flag
+ *    after each successful pick and loops until it hits zero. Most classes
+ *    set zero flags — they get NO starter spell pick at creation. Encoded
+ *    in `CLASS_SPELLBOOKS` below.
+ *
+ * 2. **Spellbook → Schools.** Each of the 4 spellbooks contains a fixed
+ *    list of spells, each spell carrying a school index 0..5 (Fire / Water
+ *    / Air / Earth / Mental / Divine) and a book-membership bitmask. Three
+ *    of four books actually have spells in all 6 schools — only Alchemist
+ *    lacks Fire spells. Encoded in `SPELLBOOK_SCHOOLS` below.
+ *
+ * The per-class `CLASS_SCHOOLS` matrix at the bottom is derived: the union
+ * of `SPELLBOOK_SCHOOLS` rows for whichever books the class has access to.
  *
  * ## RE evidence
  *
- * ### School index ordering — CONFIRMED
- * From the 82-entry spell table at DGROUP+0xde (wroot.dgroup 0x00de), each
- * 6-byte entry is [school, level, b2, b3, b4, byte5]:
- *   - Entries 0..8:  school=0 (Fire)   → school 0 = Fire   ✓
- *   - Entries 9..19: school=1 (Water)  → school 1 = Water  ✓
- *   - Entries 20..34: school=2 (Air)   → school 2 = Air    ✓
- *   - Entries 35..46: school=3 (Earth) → school 3 = Earth  ✓
- *   - Entries 47..63: school=4 (Mental)→ school 4 = Mental ✓
- *   - Entries 64..78: school=5 (Divine)→ school 5 = Divine ✓
- * Cross-validated against stock character schoolMana fields in pcfile.dbs.
+ * ### Class → Spellbook — CONFIRMED (static asm)
+ * The dispatch table at wpcmk file 0x4a6d (= runtime CS:0x8FD1, delta 0x4564)
+ * has 14 word-pointers, one per class. Each handler optionally prefixes a
+ * `mov byte [DGROUP+0x558X], NN` instruction setting the spellbook flag.
+ * Walked statically; runtime-verified against save 1 at phys 0x11299.
  *
- * ### Stock character cross-validation (pcfile.dbs)
- * schoolMana field at pcfile record +0x188 (6 bytes = one per school):
+ *   - Mage handler @0x492D    sets [0x5588]=2 → Mage primary
+ *   - Priest handler @0x4952  sets [0x5589]=2 → Priest primary
+ *   - Alchemist @0x498F       sets [0x558A]=2 → Alchemist primary
+ *   - Psionic @0x49CC         sets [0x558B]=2 → Psionic primary
+ *   - Bishop @0x4A03          sets [0x5588]=1 AND [0x5589]=1 → Mage+Priest both secondary
+ *   - All other 9 classes     set no flags (no starter-spell pick at creation)
  *
- * | Character | Class    | Fire | Water | Air | Earth | Mental | Divine |
- * |-----------|----------|------|-------|-----|-------|--------|--------|
- * | THESUS    | Fighter  |  0   |   0   |  0  |   0   |   0    |   0    | CONFIRMED no-magic
- * | LYSANDR   | Thief    |  0   |   0   |  0  |   0   |   0    |   0    | CONFIRMED no-magic
- * | NOBAL     | Priest   |  0   |   0   |  0  |   0   |   5    |   4    | CONFIRMED Mental+Divine
- * | TREON     | Mage     |  3   |   0   |  0  |   0   |   3    |   0    | confirms Fire+Mental; player chose 2 of 5
- * | PENTAG    | Mage     |  0   |   3   |  0  |   3   |   0    |   0    | confirms Water+Earth; player chose 2 of 5
+ * ### Spellbook → Schools — DIRECTLY from the spell table
+ * The 82-entry spell table at DGROUP+0xde stores per-spell `byte5` as a
+ * 4-bit book-membership bitmask: bit 3 = Mage, bit 2 = Priest, bit 1 =
+ * Alchemist, bit 0 = Psionic. Grouping the 82 entries by which book(s)
+ * each appears in:
  *
- * TREON+PENTAG together confirm Mage accesses Fire/Water/Air/Earth/Mental
- * (the non-zero values differ per player choice, but the total school set
- * is fixed by the 5 picker slots the Mage class gets).
+ *   - Mage book      (mask 0x08): 33 spells, all 6 schools
+ *   - Priest book    (mask 0x04): 33 spells, all 6 schools
+ *   - Alchemist book (mask 0x02): 32 spells, 5 schools (NO Fire)
+ *   - Psionic book   (mask 0x01): 25 spells, all 6 schools
  *
- * ### wpcmk.ovr function topology — HIGH CONFIDENCE
- * `creation_master_flow` at wpcmk 0x4e47 calls:
- *   - `call 0x1ae9` (Mental/Divine interactive picker) gated on [0x5618]≠0
- *     at 0x4ede: `80 3E 18 56 00 76 XX E8 XX XX` → cmp byte [0x5618], 0; jna skip
- *   - loop bx=0..3: `cmp byte [bx+0x5588], 0 / jna skip / call 0x28d4`
- *     at 0x4ef2: elemental slot pickers, each slot controls a subset of spells
+ * The earlier reading of "Mage covers Fire/Water/Air/Earth/Mental but not
+ * Divine" came from cross-validating stock-character schoolMana values
+ * (TREON, PENTAG). That cross-validation actually tells us what schools
+ * the player CHOSE FROM during creation, not what the book offers. A
+ * starter Mage gets 2 picks from a pool of 33 spells across 6 schools —
+ * the resulting schoolMana distribution depends on the player's selections.
  *
- * `spell_slot_init` at wpcmk 0x48e3 dispatches via BSS table [0x8FD1] using
- * [0x560f] (spell_type index). 13 handlers (0x491a..0x4a6b) set elemental slot
- * counts at DGROUP[0x5588..0x558b] and call 0x487c (school rank cap init):
- *
- * Handler assignments (spell_type_index → slots):
- *   - 0x491a: no elemental slots (Mental/Divine only; candidates: Psionic, Valkyrie, Lord, Samurai, Monk)
- *   - 0x492d: [0x5588]=2 → slot0=2 spells (Earth discipline)
- *   - 0x4952: [0x5589]=2 → slot1=2 spells (Air discipline)
- *   - 0x497c: no elemental slots
- *   - 0x498f: [0x558a]=2 → slot2=2 spells (Water discipline)
- *   - 0x49b9: no elemental slots
- *   - 0x49cc: [0x558b]=2 → slot3=2 spells (Fire discipline)
- *   - 0x49f0: no elemental slots
- *   - 0x4a03: [0x5588]=1 AND [0x5589]=1 → slots0+1=1 spell each (Earth+Air disciplines)
- *   - 0x4a25, 0x4a37, 0x4a49, 0x4a5b: no elemental slots
- *
- * Note: elemental slot filtering is by byte5 discipline bitmask (bit3=slot0,
- * bit2=slot1, bit1=slot2, bit0=slot3), NOT by school — function 0x28d4 scans
- * all 82 spells across all schools for each slot. So Fire/Water/Air/Earth
- * access for a class = which elemental slots it has + which schools those
- * spells belong to.
- *
- * ### Class→school assignments — confidence levels
- * Fighter(0), Thief(3), Ninja(13): CONFIRMED all-false via stock chars.
- * Priest(2): CONFIRMED Mental+Divine via stock chars.
- * Mage(1): HIGH — stock chars confirm Fire+Mental (TREON) and Water+Earth (PENTAG);
- *   Mage is the primary magic class and gets all 5 non-Divine elemental+mental schools.
- *   Mental confirmed; Fire/Water/Air/Earth confirmed by two distinct characters.
- * Ranger(4): INFERRED — single elemental class; Earth discipline matches game lore
- *   (nature/earth magic). Handler 0x492d gives Earth. Confidence: medium.
- * Alchemist(5): INFERRED — Fire+Earth matches game lore (alchemy). Handlers 0x492d+0x49cc.
- *   Confidence: medium.
- * Bard(6): INFERRED — Water+Air matches game lore (music/wind). Handler 0x4a03 gives
- *   Earth+Air slots, which may mean the school access differs from slot labels.
- *   Confidence: low (slot→school mapping uncertain).
- * Psionic(7): INFERRED — Mental only; Mental is the psionic school by design.
- *   Confidence: medium (one of 4 "no-elemental" handlers must cover Psionic).
- * Valkyrie(8): INFERRED — Divine only; divine warrior by design.
- *   Confidence: medium (one of 4 "no-elemental" handlers must cover Valkyrie).
- * Bishop(9): INFERRED — all 6 schools; Bishop is the all-school master class.
- *   Confidence: medium (game design; handler not directly traced).
- * Lord(10): INFERRED — Mental+Divine; warrior+cleric hybrid. Same [0x1ae9] picker path.
- *   Confidence: medium.
- * Samurai(11): INFERRED — Mental only; the samurai psionicist archetype.
- *   Confidence: low (one of 4 "no-elemental" handlers; could be Psionic instead).
- * Monk(12): INFERRED — Mental only; same archetype reasoning as Samurai.
- *   Confidence: low.
- *
- * See `docs/re/findings/spell-school-assignment.json` for full evidence anchors.
+ * ### See also
+ * `docs/re/findings/spell-school-assignment.json` for full evidence with
+ * byte-level anchors, supersedes-history, and unresolved items.
  */
 
-/** School index → school name. Ordering confirmed from spell table at DGROUP+0xde. */
+/** School index → school name. Confirmed from spell table at DGROUP+0xde. */
 export const SCHOOL_NAMES: readonly string[] = [
   'Fire',    // 0
   'Water',   // 1
@@ -104,59 +72,140 @@ export const SCHOOL_NAMES: readonly string[] = [
   'Divine',  // 5
 ];
 
-/**
- * Per-class school access matrix: `CLASS_SCHOOLS[classIdx][schoolIdx]` is true
- * if that class can cast spells of that school.
- *
- * Class ordering matches `CLASS_REQUIREMENTS` in `class-requirements.ts`:
- *   0=Fighter, 1=Mage, 2=Priest, 3=Thief, 4=Ranger, 5=Alchemist,
- *   6=Bard, 7=Psionic, 8=Valkyrie, 9=Bishop, 10=Lord, 11=Samurai,
- *   12=Monk, 13=Ninja
- *
- * School ordering: 0=Fire, 1=Water, 2=Air, 3=Earth, 4=Mental, 5=Divine
- *
- * Each row has a confidence comment:
- *   CONFIRMED = direct evidence from stock chars or asm bytes
- *   HIGH      = strong indirect evidence (multiple stock chars)
- *   MEDIUM    = inferred from game design + handler analysis
- *   LOW       = speculation; marked for follow-up
- */
-export const CLASS_SCHOOLS: readonly (readonly boolean[])[] = [
-  //  Fire   Water  Air    Earth  Mental Divine
-  [ false, false, false, false, false, false ], // 0  Fighter   CONFIRMED (THESUS schoolMana all-zero)
-  [ true,  true,  true,  true,  true,  false ], // 1  Mage      HIGH (TREON: Fire+Mental, PENTAG: Water+Earth)
-  [ false, false, false, false, true,  true  ], // 2  Priest    CONFIRMED (NOBAL schoolMana: Mental=5, Divine=4)
-  [ false, false, false, false, false, false ], // 3  Thief     CONFIRMED (LYSANDR schoolMana all-zero)
-  [ false, false, false, true,  false, false ], // 4  Ranger    MEDIUM (single elemental; Earth by game design)
-  [ true,  false, false, true,  false, false ], // 5  Alchemist MEDIUM (Fire+Earth by game design; wpcmk 0x492d+0x49cc handlers)
-  [ false, true,  true,  false, false, false ], // 6  Bard      LOW (Water+Air by game design; handler 0x4a03 may give Earth+Air)
-  [ false, false, false, false, true,  false ], // 7  Psionic   MEDIUM (Mental only; one of 4 no-elemental handlers)
-  [ false, false, false, false, false, true  ], // 8  Valkyrie  MEDIUM (Divine only; one of 4 no-elemental handlers)
-  [ true,  true,  true,  true,  true,  true  ], // 9  Bishop    MEDIUM (all schools; game design + all-schools archetype)
-  [ false, false, false, false, true,  true  ], // 10 Lord      MEDIUM (Mental+Divine; warrior-cleric hybrid)
-  [ false, false, false, false, true,  false ], // 11 Samurai   LOW (Mental only; one of 4 no-elemental handlers)
-  [ false, false, false, false, true,  false ], // 12 Monk      LOW (Mental only; one of 4 no-elemental handlers)
-  [ false, false, false, false, false, false ], // 13 Ninja     CONFIRMED (stock char data + no-magic archetype)
+/** Spellbook index → spellbook name. Confirmed from per-handler MOV-byte
+ *  writes to DGROUP+0x5588..0x558B (one byte per book, in this order). */
+export const SPELLBOOK_NAMES: readonly string[] = [
+  'Mage',       // book 0, flag byte DGROUP+0x5588
+  'Priest',     // book 1, flag byte DGROUP+0x5589
+  'Alchemist',  // book 2, flag byte DGROUP+0x558A
+  'Psionic',    // book 3, flag byte DGROUP+0x558B
+];
+
+/** Class index → class name (matches `CLASS_REQUIREMENTS`). */
+export const CLASS_INDEX_TO_NAME: readonly string[] = [
+  'Fighter', 'Mage', 'Priest', 'Thief', 'Ranger', 'Alchemist', 'Bard',
+  'Psionic', 'Valkyrie', 'Bishop', 'Lord', 'Samurai', 'Monk', 'Ninja',
 ];
 
 /**
- * Returns true if the class at `classIdx` can cast spells of school `schoolIdx`.
+ * Number of starter-spell picks the class gets from a given spellbook.
+ * The byte value the wpcmk handler writes to the spellbook flag IS this count:
+ *   - 0 = class does not have this book
+ *   - 1 = one pick from this book (Bishop's hybrid case)
+ *   - 2 = two picks from this book (primary caster default)
  *
- * @param classIdx  Class index 0..13 (see CLASS_REQUIREMENTS for the mapping)
- * @param schoolIdx School index 0..5 (see SCHOOL_NAMES for the mapping)
+ * Confirmed by the picker loop at wpcmk 0x4ef2..0x4f16: it reads
+ * `byte [bx+0x5588]`, calls the picker once if non-zero, and the picker
+ * itself decrements `[bx+0x5588]` at file 0x2AF6 after each spell selection.
+ * The outer loop terminates when the flag reaches zero.
  */
+export type SpellbookPickCount = 0 | 1 | 2;
+/** @deprecated Use `SpellbookPickCount`. Kept for backwards compatibility. */
+export type CasterStrength = SpellbookPickCount;
+
+/**
+ * `CLASS_SPELLBOOKS[classIdx]` returns a tuple of 4 `CasterStrength` values
+ * — one per spellbook in `SPELLBOOK_NAMES` order (Mage, Priest, Alchemist,
+ * Psionic). A row of all zeros means the class is a non-caster at creation.
+ *
+ * Decoded from wpcmk dispatch handlers at file 0x491A..0x4A6D. The flag
+ * values mirror the per-handler `mov byte [DGROUP+0x558X], NN` prefixes.
+ */
+export const CLASS_SPELLBOOKS: readonly (readonly [SpellbookPickCount, SpellbookPickCount, SpellbookPickCount, SpellbookPickCount])[] = [
+  //  Mage Priest Alch Psi
+  [ 0, 0, 0, 0 ], //  0 Fighter   — no books
+  [ 2, 0, 0, 0 ], //  1 Mage      — Mage primary
+  [ 0, 2, 0, 0 ], //  2 Priest    — Priest primary
+  [ 0, 0, 0, 0 ], //  3 Thief     — no books (handler aliases Fighter exactly)
+  [ 0, 0, 0, 0 ], //  4 Ranger    — no books (REVISED: previously claimed Earth, was wrong)
+  [ 0, 0, 2, 0 ], //  5 Alchemist — Alchemist primary
+  [ 0, 0, 0, 0 ], //  6 Bard      — no books (REVISED: previously claimed Water+Air, was wrong)
+  [ 0, 0, 0, 2 ], //  7 Psionic   — Psionic primary
+  [ 0, 0, 0, 0 ], //  8 Valkyrie  — no books (REVISED: previously claimed Divine, was wrong)
+  [ 1, 1, 0, 0 ], //  9 Bishop    — Mage + Priest BOTH as secondary
+  [ 0, 0, 0, 0 ], // 10 Lord      — no books (REVISED: previously claimed Mental+Divine, was wrong)
+  [ 0, 0, 0, 0 ], // 11 Samurai   — no books (REVISED)
+  [ 0, 0, 0, 0 ], // 12 Monk      — no books (REVISED)
+  [ 0, 0, 0, 0 ], // 13 Ninja     — no books
+] as const;
+
+/**
+ * `SPELLBOOK_SCHOOLS[bookIdx]` returns 6 booleans (one per school) marking
+ * which schools have at least one spell available in that book.
+ *
+ * Derived DIRECTLY from the 82-entry spell table at DGROUP+0xde, parsed in
+ * `docs/re/findings/spell-school-assignment.json`. Each spell entry has a
+ * `byte5` field that is a 4-bit book-membership bitmask (bit 3 = Mage,
+ * bit 2 = Priest, bit 1 = Alchemist, bit 0 = Psionic). For each book we
+ * collected the schools of all spells with that book's bit set.
+ *
+ * Result: three of four books cover ALL six schools. Only Alchemist lacks
+ * Fire entirely. Stock characters showing narrower per-school mana totals
+ * (e.g., NOBAL Priest with Mental+Divine only) reflect the PLAYER'S PICKS
+ * at creation, not the book's available spell pool.
+ */
+export const SPELLBOOK_SCHOOLS: readonly (readonly boolean[])[] = [
+  //  Fire   Water  Air    Earth  Mental Divine    spells in book
+  [ true,  true,  true,  true,  true,  true  ], // 0 Mage       — 33 spells
+  [ true,  true,  true,  true,  true,  true  ], // 1 Priest     — 33 spells
+  [ false, true,  true,  true,  true,  true  ], // 2 Alchemist  — 32 spells (no Fire)
+  [ true,  true,  true,  true,  true,  true  ], // 3 Psionic    — 25 spells
+];
+
+/**
+ * Per-class school access matrix, DERIVED from `CLASS_SPELLBOOKS` and
+ * `SPELLBOOK_SCHOOLS`. `CLASS_SCHOOLS[classIdx][schoolIdx]` is true if the
+ * class can cast spells of that school via any of its assigned spellbooks.
+ *
+ * This is the surface the spell-picker UI and spell-list filter consume.
+ */
+export const CLASS_SCHOOLS: readonly (readonly boolean[])[] = CLASS_SPELLBOOKS.map((books) => {
+  const out = [false, false, false, false, false, false];
+  for (let bookIdx = 0; bookIdx < 4; bookIdx++) {
+    if (books[bookIdx] === 0) continue;
+    const schools = SPELLBOOK_SCHOOLS[bookIdx];
+    if (schools === undefined) continue;
+    for (let s = 0; s < 6; s++) {
+      if (schools[s]) out[s] = true;
+    }
+  }
+  return out;
+});
+
+/** Returns true if the class casts ANY spells at creation (any book set). */
+export function classIsCaster(classIdx: number): boolean {
+  const row = CLASS_SPELLBOOKS[classIdx];
+  if (row === undefined) return false;
+  return row.some((strength) => strength > 0);
+}
+
+/** Returns the list of spellbook indices the class can cast from, in book
+ *  order (Mage, Priest, Alchemist, Psionic). Empty for non-casters. */
+export function classSpellbooks(classIdx: number): number[] {
+  const row = CLASS_SPELLBOOKS[classIdx];
+  if (row === undefined) return [];
+  const out: number[] = [];
+  for (let i = 0; i < row.length; i++) {
+    if (row[i]! > 0) out.push(i);
+  }
+  return out;
+}
+
+/** Caster strength for `classIdx` in `bookIdx` (0 = none, 1 = secondary, 2 = primary). */
+export function classBookStrength(classIdx: number, bookIdx: number): CasterStrength {
+  const row = CLASS_SPELLBOOKS[classIdx];
+  if (row === undefined) return 0;
+  return row[bookIdx] ?? 0;
+}
+
+/** True if the class can cast spells of the given school. */
 export function classCanCastSchool(classIdx: number, schoolIdx: number): boolean {
   const row = CLASS_SCHOOLS[classIdx];
   if (row === undefined) return false;
   return row[schoolIdx] ?? false;
 }
 
-/**
- * Returns the sorted list of school indices accessible to the class at `classIdx`.
- * Returns an empty array for non-casting classes.
- *
- * @param classIdx  Class index 0..13
- */
+/** Sorted list of school indices accessible to the class. Empty for non-casters. */
 export function classCastingSchools(classIdx: number): number[] {
   const row = CLASS_SCHOOLS[classIdx];
   if (row === undefined) return [];
