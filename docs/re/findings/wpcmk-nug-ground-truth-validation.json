@@ -47,8 +47,14 @@
     "screen-15 confirm prompt = msg 0x44f 'SAVE THIS CHARACTER?' with YES/NO — confirms §10.",
     "A5 derived-stat formula (VIT*2+STR)*3 computes correctly (=108) — it's stamina, see finding."
   ],
+  "post_fix_verification": {
+    "note": "After the MCP server restart + struct fixes, dosbox_read_struct(save=1, character_record, 0x5470) now decodes NUG correctly: race=1(Elf), class=13(Ninja), sex=0(Male), attributes=[12,10,10,12,12,12,8,13], hp_cur/max=6/6, sp_cur/max=108/108 (= stamina), school_mana de-interleaved. Matches the screenshot exactly. Fix verified end-to-end.",
+    "portrait_index_observation": "portrait_index decoded as 13 = SPD(12)+1. Data point for RE #6's open portrait-default question (default 0 vs SPD+1) — but the user may have navigated the picker manually, so not conclusive.",
+    "skills_observation": "skills sum to 13 (slots 0,9,16 = 4,4,5). NUG's Ninja skill budget of 13 is consistent with A3's Ninja tier2 formula (budget = rng(9)+10 − (rng(3)+floor((DEX+SPD)/10)+2) ∈ [4,14])."
+  },
   "open_questions": [
-    "Real HP formula (HP=6 for Elf Ninja VIT12 lvl1) — not yet derived.",
-    "Fighter tier2 skill-budget behavior — needs a Fighter save."
+    "Fighter tier2 skill-budget behavior — needs a Fighter creation save (NUG settled the Ninja path only).",
+    "Portrait default: is it 0 (RE #6) or SPD+1 (NUG portrait_index=13=SPD+1)? Needs a save where the picker was NOT manually navigated.",
+    "Pre-existing struct naming confusion: the field labeled `encumbrance_max` at +0x22 decodes as the gold-formula value (NUG=1620=(STR*2+VIT)*3*15). Separate from this validation; queued."
   ]
 }
