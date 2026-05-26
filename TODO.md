@@ -19,12 +19,12 @@ Next free ID: **#020**
 
 ## Open
 
-- #019 [open] — wpcmk Phase 2 — write port plan
-  - Phase 1 RE sweep COMPLETE: `docs/re/wpcmk-screens.md` (17 screens, 76/76 functions named) + 12 `docs/re/findings/wpcmk-*.json`.
-  - Use `superpowers:writing-plans` to draft `docs/superpowers/plans/2026-05-26-wpcmk-port.md` against `docs/superpowers/specs/2026-05-26-wpcmk-byte-perfect-design.md`.
-  - Plan scope: Wichmann-Hill RNG (seed §12), character-record serializer, EGA primitives (3 persistent + 3 temp windows §2), per-screen components (arrow-key input §8), spell picker (msg 0xFA0+idx §9), integration + parity tests, deletion of existing /roster/new wizard.
-  - Resolve the 8 "Open questions for Phase 2" in `wpcmk-screens.md` as needed during the port (none block starting).
-  - Branch with this work: `worktree-wpcmk-re-sweep` (Phase 1 commits) — merge to main before/with Phase 2.
+- #019 [open] — wpcmk Phase 2 — Stage A COMPLETE; Stage B: EGA primitives
+  - **Stage A (engine) COMPLETE** — RNG, formulas, record encoder, parity harness, all tested; full RNG-sequence parity pending a manual DOSBox creation-commit save capture.
+    - `WichmannHill`, `rollBonus`, `rollSkillBudget`, `rollKarmaWith`, `computeDerivedStats` all live in `@wiz6/data`; compose test in `packages/data/tests/character-creation/creation-engine.compose.test.ts`.
+  - **Stage B (EGA primitives)** — port the window-chrome + 8x8 font + cursor rendering for the creation screens (per `docs/re/wpcmk-screens.md` §2/§8), reusing CastleScreen/tile-window patterns.
+  - Phase 1 RE sweep: `docs/re/wpcmk-screens.md` (17 screens, 76/76 functions named) + 12 `docs/re/findings/wpcmk-*.json`.
+  - Plan in `docs/superpowers/plans/2026-05-26-wpcmk-port.md` (written); spec in `docs/superpowers/specs/2026-05-26-wpcmk-byte-perfect-design.md`.
 
 - #004 [open] — PIC Stage B: pixel rendering + monster sprite integration
   - In-flight plan: `docs/superpowers/plans/2026-05-22-pic-stage-b-pixel-rendering.md` (6/57 boxes checked).
