@@ -142,4 +142,35 @@ TBD (RE #10)
 TBD (RE #11)
 
 ## 12. Wichmann-Hill seed at creation start
-TBD (sub-investigation)
+
+The engine RNG is the 3-stream Wichmann-Hill 1982 Lehmer LCG at `rng_advance` (wroot image `0x125b9`). All three streams live as **CS-relative words inside wroot's code segment** (using explicit `2E` CS-prefix), which is a 16-bit DOS technique: the stream state aliases function code bytes.
+
+### Stream addresses
+
+| Stream | CS offset | Boot value | Constants `(q, a, c)` | Reseed-positive |
+|--------|----------:|-----------:|-----------------------|----------------:|
+| 1 | `CS:[0x1d3b]` | `0x0bb8` (3000) — code bytes | `(0xb1, 0xab, -2)` | `+0x763d` |
+| 2 | `CS:[0x1d3d]` | `BIOS_tick_low + 2` (variable) | `(0xb0, 0xac, -0x23)` | `+0x7663` |
+| 3 | `CS:[0x1d3f]` | `0x752f` (29999) — code bytes | `(0xb2, 0xaa, -0x3f)` | `+0x7673` |
+
+### Boot-seeding mechanism
+
+- **Streams 1 and 3 are never explicitly seeded.** Their "initial" value is whatever the wroot image binary holds at those file offsets — which happens to be the raw bytes `b8 0b` and `2f 75` (LE). Binary search confirms zero explicit writes to either address outside `rng_advance`.
+- **Stream 2 is seeded once at boot** by the function at wroot image `0x1d41` (file `0x1f41`): reads BIOS timer tick counter from `0000:046c`, adds 2, writes `AX → CS:[0x1d3d]`. Called from init function at wroot image `0x1c1e`. Asm pattern: `push ES; xor ax,ax; mov es,ax; mov bx,0x046c; mov ax,es:[bx]; pop es; add ax,2; mov CS:[0x1d3d],ax; ret`.
+
+### Available DOSBox-X save states
+
+13 saves in `tools/dosbox/save/` (1–13). None are confirmed at `wpcmk_create_character_master` entry. Saves 8–13 have `game_state = 0xffff` and may be mid-creation captures worth investigating during Phase 2 setup. Sample observed stream states:
+
+| Save | Context | stream1 | stream2 | stream3 |
+|------|---------|--------:|--------:|--------:|
+| 1 | newest | 0x05da | 0x57be | 0x6d4a |
+| 2 | title screen | 0x4180 | 0x62d7 | 0x068e |
+
+### Parity strategy for Phase 2
+
+Use a **fixed seed triple** for deterministic unit tests — `(stream1=3000, stream2=1, stream3=29999)`, the static boot values before any timer seeding. Replay the exact sequence of `rng.next()` calls made by each wpcmk sub-function; assert byte-identical outputs against captured DOSBox memory.
+
+For bit-exact regression baselines against the real game, capture a new DOSBox save state at `wpcmk_create_character_master` entry (`game_state == 0xffff` window), read the three `CS:[0x1d3b/3d/3f]` values, and use those as the test seed.
+
+Source: `docs/re/findings/wpcmk-rng-seed-at-creation.json`
