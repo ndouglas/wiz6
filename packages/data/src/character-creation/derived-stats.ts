@@ -10,10 +10,10 @@ import type { WichmannHill } from '../rng/wichmann-hill.js';
  * | Staging offset | DGROUP    | Formula                     | pcfile field  |
  * |---------------|-----------|-----------------------------|---------------|
  * | +0x008        | 0x5478    | rng(1000) + 6570            | age (u32)     |
- * | +0x018        | 0x5488    | encumbranceBase + VIT adj   | encumbranceMin|
- * | +0x01a        | 0x548a    | same as +0x18               | encumbranceMax|
- * | +0x01c        | 0x548c    | (VIT*2+STR)*3 + VIT bonus   | weightMin/hp  |
- * | +0x01e        | 0x548e    | same as +0x1c               | weightMax/hp  |
+ * | +0x018        | 0x5488    | encumbranceBase + VIT adj   | encumbranceMin=hpInitial|
+ * | +0x01a        | 0x548a    | same as +0x18               | encumbranceMax=hpInitial|
+ * | +0x01c        | 0x548c    | (VIT*2+STR)*3 + VIT bonus   | weightMin=stamina       |
+ * | +0x01e        | 0x548e    | same as +0x1c               | weightMax=stamina       |
  * | +0x020        | 0x5490    | 0 (constant)                | —             |
  * | +0x022        | 0x5492    | (STR*2+VIT)*3*15 (/3 Faerie)| goldInitial   |
  * | +0x024        | 0x5494    | 1 (constant)                | level         |
@@ -33,16 +33,26 @@ import type { WichmannHill } from '../rng/wichmann-hill.js';
  *   if VIT >= 16: encumbrance += 1
  *   if VIT >= 18: encumbrance += 1 (additional)
  *
- * ## HP formula: (VIT*2+STR)*3 + VIT bonuses
- * Built from the same VIT threshold checks as the encumbrance adjustments
- * (wpcmk 0x47DF..0x4827):
+ * ## Stamina formula: (VIT*2+STR)*3 + VIT bonuses
+ * Built from VIT threshold checks (wpcmk 0x47DF..0x4827). Written to staging+0x01c/0x01e
+ * (pcfile+0x1c/0x1e = sp_cur/sp_max). On-screen label: STM.
  *   base = (VIT*2+STR)*3
  *   if VIT >= 16: base += VIT
  *   if VIT >= 18: base += VIT (additional)
  *
- * Perfectly matches all 6 stock chars:
+ * Perfectly matches all 6 stock chars (pcfile sp_cur values):
  * THESUS(VIT=12,STR=18)=126, TEMPEST(VIT=14,STR=13)=123, LYSANDR(VIT=11,STR=7)=87,
  * NOBAL(VIT=9,STR=7)=75, TREON(VIT=12,STR=10)=102, PENTAG(VIT=10,STR=10)=90.
+ * Also matches NUG (Ninja, VIT=12, STR=12): (24+12)*3 = 108 = on-screen STM.
+ *
+ * ## HP formula: class-dispatch roll (same as encumbranceBase)
+ * Written to staging+0x018/0x01a (pcfile+0x18/0x1a = hp_cur/hp_max). On-screen label: HP.
+ * The engine writes the same class-dispatch roll to BOTH the encumbrance and HP fields.
+ * Formula: rng(range)+offset per class (see CLASS_ENCUMBRANCE_FORMULAS), then VIT adj.
+ *
+ * Verified: NUG (Ninja class=13, VIT=12): HP=6 ∈ [4..8] (Ninja: rng(5)+4).
+ * Stock char hp_cur values: THESUS=8∈[6..10], TEMPEST=9∈[6..10], LYSANDR=5∈[3..6],
+ *   NOBAL=4∈[4..7], TREON=4∈[2..4], PENTAG=2∈[2..4].
  *
  * ## Gold formula: (STR*2+VIT)*3*15, ÷3 for Faerie
  * Symmetric to the HP formula but uses STR as the primary stat (wpcmk 0x47F0..0x4875):
@@ -62,6 +72,7 @@ export interface DerivedStats {
   /**
    * Encumbrance capacity minimum. Class-based + VIT adjustments.
    * Stored at staging+0x018 (same value as encumbranceMax at creation).
+   * Equals hpInitial at creation — both are written from the same class-dispatch roll.
    */
   encumbranceMin: number;
   /**
@@ -71,7 +82,7 @@ export interface DerivedStats {
   encumbranceMax: number;
   /**
    * Weight capacity minimum. (VIT*2+STR)*3 + VIT bonuses.
-   * Stored at staging+0x01c. Equals hpInitial at creation.
+   * Stored at staging+0x01c. Equals stamina at creation.
    */
   weightMin: number;
   /**
@@ -80,9 +91,27 @@ export interface DerivedStats {
    */
   weightMax: number;
   /**
-   * Initial hit points. (VIT*2+STR)*3 + VIT bonuses.
-   * Same value as weightMin/Max at creation.
-   * Verified against all 6 stock chars in pcfile.dbs.
+   * Stamina (Spirit Points). (VIT*2+STR)*3 + VIT bonuses.
+   * Same value as weightMin/Max at creation. Written to pcfile+0x1c/0x1e (sp_cur/sp_max).
+   *
+   * On-screen label in-game is STM (Stamina). Verified against NUG (VIT12/STR12 = 108)
+   * and all 6 stock chars in pcfile.dbs (sp_cur field).
+   *
+   * Previously misnamed `hpInitial` in Stage A — corrected by ground-truth validation
+   * against NUG's DOSBox save showing STM=108/HP=6 as separate values.
+   */
+  stamina: number;
+  /**
+   * Initial HP (Hit Points). Class-dispatch formula — same formula as encumbranceBase.
+   * Written to pcfile+0x18/0x1a (hp_cur/hp_max). Equals encumbranceMin at creation.
+   *
+   * Formula: class_dispatch_roll (rng(range)+offset, with VIT adjustments).
+   * Same roll as the encumbrance base. See CLASS_ENCUMBRANCE_FORMULAS for per-class ranges.
+   *
+   * Verified: NUG (Ninja, VIT12) HP=6 ∈ Ninja range [4..8]; all 6 stock chars' hp_cur
+   * values also consistent with their class formula ranges.
+   *
+   * [wpcmk 0x47DF: [bp-0x2] written to staging+0x18 and +0x1a]
    */
   hpInitial: number;
   /**
@@ -201,11 +230,12 @@ export function computeDerivedStats(
   if (vit >= 18) encumbranceBase += 1;
 
   // -------------------------------------------------------------------------
-  // HP / weight: (VIT*2+STR)*3 + VIT bonuses   [wpcmk 0x47DF..0x4828]
+  // Stamina / weight: (VIT*2+STR)*3 + VIT bonuses   [wpcmk 0x47DF..0x4828]
+  // Written to staging+0x01c/0x01e (pcfile+0x1c/0x1e = sp_cur/sp_max). On-screen: STM.
   // -------------------------------------------------------------------------
-  let hpBase = (vit * 2 + str) * 3;
-  if (vit >= 16) hpBase += vit;
-  if (vit >= 18) hpBase += vit;
+  let staminaBase = (vit * 2 + str) * 3;
+  if (vit >= 16) staminaBase += vit;
+  if (vit >= 18) staminaBase += vit;
 
   // -------------------------------------------------------------------------
   // Gold: (STR*2+VIT)*3 * 15 (÷3 for Faerie)   [wpcmk 0x47F0..0x4875]
@@ -228,9 +258,10 @@ export function computeDerivedStats(
     age,
     encumbranceMin: encumbranceBase,
     encumbranceMax: encumbranceBase,
-    weightMin: hpBase,
-    weightMax: hpBase,
-    hpInitial: hpBase,
+    weightMin: staminaBase,
+    weightMax: staminaBase,
+    stamina: staminaBase,
+    hpInitial: encumbranceBase,  // HP = same class-dispatch roll as encumbranceBase
     goldInitial,
     level: 1,
     xp: 1,

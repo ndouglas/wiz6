@@ -525,7 +525,7 @@ export const CHARACTER_RECORD: BssStruct = {
       // Stock: THESUS=0(Fighter), TEMPEST=0(Fighter), LYSANDR=3(Thief),
       //        NOBAL=2(Priest), TREON=1(Mage), PENTAG=1(Mage)
       type: { kind: 'scalar', scalar: 'u8' },
-      description: 'Class index 0..13. 0=Fighter,1=Mage,2=Priest,3=Thief,4=Bard,5=Ranger,6=Alchemist,7=Psionic,8=Valkyrie,9=Lord,10=Samurai,11=Ninja,12=Monk,13=Bishop. At +0x19f (abs 0x4587).',
+      description: 'Class index 0..13. 0=Fighter,1=Mage,2=Priest,3=Thief,4=Ranger,5=Alchemist,6=Bard,7=Psionic,8=Valkyrie,9=Bishop,10=Lord,11=Samurai,12=Monk,13=Ninja. At +0x19f (abs 0x4587). Canonical order matches @wiz6/data CLASS_REQUIREMENTS; confirmed by NUG class byte=13=Ninja.',
     },
     {
       name: 'high_water_level',
