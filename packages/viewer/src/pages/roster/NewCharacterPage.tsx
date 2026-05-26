@@ -18,6 +18,7 @@ import { ClassPickStep } from './steps/ClassPickStep.js';
 import { AttributeDistributeStep } from './steps/AttributeDistributeStep.js';
 import { SkillPointStep } from './steps/SkillPointStep.js';
 import { SpellPickStep } from './steps/SpellPickStep.js';
+import { KarmaStep } from './steps/KarmaStep.js';
 import styles from './NewCharacterPage.module.css';
 
 const STEP_NAMES = [
@@ -81,7 +82,10 @@ export function NewCharacterPage() {
         {step === 6 && (
           <SpellPickStep draft={draft} onUpdate={(p) => setDraft((d) => ({ ...d, ...p }))} />
         )}
-        {step > 6 && <div>{stepName} (placeholder)</div>}
+        {step === 7 && (
+          <KarmaStep draft={draft} onUpdate={(p) => setDraft((d) => ({ ...d, ...p }))} />
+        )}
+        {step > 7 && <div>{stepName} (placeholder)</div>}
       </section>
       <footer className={styles.actions}>
         <button type="button" onClick={() => setStep((s) => s - 1)} disabled={step === 0}>
