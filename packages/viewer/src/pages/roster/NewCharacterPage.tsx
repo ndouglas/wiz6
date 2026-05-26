@@ -14,6 +14,7 @@ import {
 import { NameStep } from './steps/NameStep.js';
 import { RaceStep } from './steps/RaceStep.js';
 import { BonusRollStep } from './steps/BonusRollStep.js';
+import { ClassPickStep } from './steps/ClassPickStep.js';
 import styles from './NewCharacterPage.module.css';
 
 const STEP_NAMES = [
@@ -65,7 +66,10 @@ export function NewCharacterPage() {
         {step === 2 && (
           <BonusRollStep draft={draft} onUpdate={(p) => setDraft((d) => ({ ...d, ...p }))} />
         )}
-        {step > 2 && <div>{stepName} (placeholder)</div>}
+        {step === 3 && (
+          <ClassPickStep draft={draft} onUpdate={(p) => setDraft((d) => ({ ...d, ...p }))} />
+        )}
+        {step > 3 && <div>{stepName} (placeholder)</div>}
       </section>
       <footer className={styles.actions}>
         <button type="button" onClick={() => setStep((s) => s - 1)} disabled={step === 0}>
