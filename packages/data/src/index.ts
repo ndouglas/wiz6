@@ -175,6 +175,10 @@ export {
   type SpellEntry,
 } from './character-creation/spell-table.js';
 
+// Wichmann-Hill RNG — byte-perfect port of the engine's rng_advance / rng_sample /
+// rng_next_bounded chain (wroot image 0x25b9 / 0x2556 / 0x9e2).
+export { WichmannHill } from './rng/wichmann-hill.js';
+
 // BSS struct schemas (Wiz6 engine memory layouts) — pure declarative data
 // used by the eventual DOSBox-X MCP server (#017), the save-state viewer,
 // and the TS port's runtime introspection. See packages/data/src/structs/.
