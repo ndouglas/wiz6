@@ -338,8 +338,39 @@ Selected portrait index (0..41) → record offset `0x19c` (DGROUP `*0x560c`).
 
 Source: `docs/re/findings/wpcmk-portrait-picker.json`
 
-## 7. Generic menu picker widget
-TBD (RE #7)
+## 7. Generic menu-picker widget
+
+`ui_menu_picker_vertical` at **wpcmk file `0x029c`** (a real function, not a thunk — entry `55 8b ec`). Drives race (screen-02), sex (screen-03), and class (screen-05). All three pass identical nav params: `col_stride=10, num_rows=11, highlight_attr=5`.
+
+### Keys (grid navigation, no wrap)
+
+| Key | Action |
+|----:|--------|
+| 1 | prev column (cursor − num_rows) |
+| 2 | prev row (cursor − 1) |
+| 3 | next column (cursor + num_rows) |
+| 4 | next row (cursor + 1) |
+| 5 | confirm selection |
+
+**No wrap** — each direction has a hard bounds guard; a blocked move is a silent no-op. Mouse click sets the cursor directly and forces key=5. **No cancel/escape** — the picker is mandatory (always returns a valid selection).
+
+### Disabled entries: pre-filtered
+
+Disabled entries (`enabled[i] == 0`) are skipped during the init loop and **never assigned a cursor slot** — the cursor can only land on enabled entries (no land-and-reject). Evidence: `cmp word [bx+si],0x1; jnz skip` @ file 0x02c0. For the class picker, `FUN_2d10` populates the `*0x56ae[14]` qualification flags first; unqualified classes simply don't appear.
+
+### Return value
+
+The **original index** into the caller's full option array (not the enabled-subset index). No −1 cancel path.
+
+### No letter shortcuts
+
+The key-dispatch chain (file 0x05d2..) handles only codes 1–5. No ASCII-letter hotkeys.
+
+### Selection storage
+
+Low byte written to: `*0x560d` (race), `*0x560e` (sex), `*0x560f` (class).
+
+Source: `docs/re/findings/wpcmk-menu-picker.json`
 
 ## 8. Keyboard filter masks per screen
 TBD (RE #8)
