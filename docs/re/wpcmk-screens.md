@@ -285,7 +285,41 @@ TBD (RE #7)
 TBD (RE #8)
 
 ## 9. Spell-name resolution
-TBD (RE #9)
+
+### Labeling scheme: `msg_id = 0xFA0 + entry_idx`
+
+Flat base-offset indexing. The label renderer at wpcmk `0x21db` loads the spell's `entry_idx` from the filtered display array, adds `0xFA0`, and calls the msg-display thunk `0xc2db`:
+```asm
+2248:  05 a0 0f   ; ADD AX, 0x0FA0   (entry_idx → msg_id)
+```
+Called from both spell-picker display sites (`0x2509`, `0x275f`).
+
+### 82-entry spell table
+
+Names resolve to msg `0xfa0`..`0xff1`. The full table (name + school + level + bookmask) is in `docs/re/findings/wpcmk-spell-names.json`. Book counts match `spell-school-assignment.json` exactly: **Mage 33, Priest 33, Alchemist 32, Psionic 25** (spells appear in multiple books via the `byte5` bitmask).
+
+Sample:
+
+| Idx | Msg | Name | School | Lvl |
+|----:|----:|------|--------|----:|
+| 0 | 0xfa0 | ENERGY BLAST | FIRE | 1 |
+| 1 | 0xfa1 | BLINDING FLASH | FIRE | 2 |
+| 2 | 0xfa2 | FIREBALL | FIRE | 3 |
+| … | … | … | … | … |
+| 78 | 0xfee | DEATH WISH | DIVINE | 7 |
+| 79 | 0xfef | HOLY WATER | DIVINE | 0 |
+| 80 | 0xff0 | HELPFOOD | DIVINE | 0 |
+| 81 | 0xff1 | MAGICFOOD | DIVINE | 0 |
+
+### Non-learnable entries
+
+Entries 79–81 (HOLY WATER, HELPFOOD, MAGICFOOD) have msg names but `byte5 = 0` and `level = 0` — unreachable through the picker's bitmask filter (`byte5 & book_mask == 0`). Likely item/event-only spells, not selectable at creation.
+
+### Phase 2 note
+
+This resolves the spec's "spell names" placeholder. The Phase 2 spell picker (screen-14) should label entries via `0xFA0 + entry_idx` against the extracted msg.dbs, filtered by the active pillar's book mask.
+
+Source: `docs/re/findings/wpcmk-spell-names.json`
 
 ## 10. Post-commit return path
 
