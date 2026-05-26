@@ -13,11 +13,17 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#018**
+Next free ID: **#019**
 
 ---
 
 ## Open
+
+- #018 [open] — wpcmk RE Sweep (Phase 1)
+  - Plan: [`docs/superpowers/plans/2026-05-26-wpcmk-re-sweep.md`](docs/superpowers/plans/2026-05-26-wpcmk-re-sweep.md).
+  - Spec: [`docs/superpowers/specs/2026-05-26-wpcmk-byte-perfect-design.md`](docs/superpowers/specs/2026-05-26-wpcmk-byte-perfect-design.md).
+  - 12 parallel RE investigations + final promotion. Output: `docs/re/wpcmk-screens.md` + 12 `docs/re/findings/wpcmk-*.json`.
+  - Unblocks Phase 2 (port) plan.
 
 - #004 [open] — PIC Stage B: pixel rendering + monster sprite integration
   - In-flight plan: `docs/superpowers/plans/2026-05-22-pic-stage-b-pixel-rendering.md` (6/57 boxes checked).
