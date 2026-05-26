@@ -15,6 +15,7 @@ import { NameStep } from './steps/NameStep.js';
 import { RaceStep } from './steps/RaceStep.js';
 import { BonusRollStep } from './steps/BonusRollStep.js';
 import { ClassPickStep } from './steps/ClassPickStep.js';
+import { AttributeDistributeStep } from './steps/AttributeDistributeStep.js';
 import styles from './NewCharacterPage.module.css';
 
 const STEP_NAMES = [
@@ -69,7 +70,10 @@ export function NewCharacterPage() {
         {step === 3 && (
           <ClassPickStep draft={draft} onUpdate={(p) => setDraft((d) => ({ ...d, ...p }))} />
         )}
-        {step > 3 && <div>{stepName} (placeholder)</div>}
+        {step === 4 && (
+          <AttributeDistributeStep draft={draft} onUpdate={(p) => setDraft((d) => ({ ...d, ...p }))} />
+        )}
+        {step > 4 && <div>{stepName} (placeholder)</div>}
       </section>
       <footer className={styles.actions}>
         <button type="button" onClick={() => setStep((s) => s - 1)} disabled={step === 0}>
