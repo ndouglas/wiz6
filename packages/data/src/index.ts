@@ -148,6 +148,10 @@ export {
 } from './character-creation/karma-roll.js';
 export { rollBonus } from './character-creation/bonus-roll.js';
 export {
+  rollSkillBudget,
+  type SkillBudgetAttrs,
+} from './character-creation/skill-budget.js';
+export {
   SPELL_PICKER_CLASSES,
   classHasSpellPicker,
   STARTER_SPELLS_ARE_PLAYER_SELECTED,
