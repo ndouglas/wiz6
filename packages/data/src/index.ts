@@ -149,6 +149,14 @@ export {
 } from './character-creation/karma-roll.js';
 export { rollBonus } from './character-creation/bonus-roll.js';
 export {
+  computeDerivedStats,
+  CLASS_ENCUMBRANCE_FORMULAS,
+  DERIVED_STATS_FAERIE_RACE,
+  AGE_RNG_OFFSET,
+  type DerivedStats,
+  type Rng,
+} from './character-creation/derived-stats.js';
+export {
   rollSkillBudget,
   type SkillBudgetAttrs,
 } from './character-creation/skill-budget.js';

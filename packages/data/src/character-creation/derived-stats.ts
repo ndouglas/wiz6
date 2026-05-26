@@ -1,0 +1,238 @@
+import type { WichmannHill } from '../rng/wichmann-hill.js';
+
+/**
+ * Derived stats computed at character creation by `age_encumbrance_and_hp_roll`
+ * (wpcmk.ovr file 0x4589) and written to the character staging buffer at
+ * DGROUP 0x5470..0x5499.
+ *
+ * ## Buffer writes (verified against stock pcfile.dbs all 6 chars)
+ *
+ * | Staging offset | DGROUP    | Formula                     | pcfile field  |
+ * |---------------|-----------|-----------------------------|---------------|
+ * | +0x008        | 0x5478    | rng(1000) + 6570            | age (u32)     |
+ * | +0x018        | 0x5488    | encumbranceBase + VIT adj   | encumbranceMin|
+ * | +0x01a        | 0x548a    | same as +0x18               | encumbranceMax|
+ * | +0x01c        | 0x548c    | (VIT*2+STR)*3 + VIT bonus   | weightMin/hp  |
+ * | +0x01e        | 0x548e    | same as +0x1c               | weightMax/hp  |
+ * | +0x020        | 0x5490    | 0 (constant)                | —             |
+ * | +0x022        | 0x5492    | (STR*2+VIT)*3*15 (/3 Faerie)| goldInitial   |
+ * | +0x024        | 0x5494    | 1 (constant)                | level         |
+ * | +0x026        | 0x5496    | 1 (constant)                | xp            |
+ *
+ * ## Age constant
+ * The engine adds `0x19aa = 6570` to the rng result. Confirmed at wpcmk 0x45A1:
+ * `add ax, 0x19aa`.  Range: 6570..7569 (all 6 stock chars fall in this range).
+ *
+ * ## Encumbrance base: class-dispatched + VIT adjustments
+ * The engine dispatches on `[DGROUP 0x560F]` (class index) via a jump table at
+ * CS:0x8D1A to set `[bp-2]` (local encumbranceBase). Each class handler calls
+ * `rng(N)+K` for its range; see `CLASS_ENCUMBRANCE_FORMULAS`.
+ *
+ * VIT adjustments at wpcmk 0x4801..0x4827:
+ *   if VIT < 8:  encumbrance -= 1
+ *   if VIT >= 16: encumbrance += 1
+ *   if VIT >= 18: encumbrance += 1 (additional)
+ *
+ * ## HP formula: (VIT*2+STR)*3 + VIT bonuses
+ * Built from the same VIT threshold checks as the encumbrance adjustments
+ * (wpcmk 0x47DF..0x4827):
+ *   base = (VIT*2+STR)*3
+ *   if VIT >= 16: base += VIT
+ *   if VIT >= 18: base += VIT (additional)
+ *
+ * Perfectly matches all 6 stock chars:
+ * THESUS(VIT=12,STR=18)=126, TEMPEST(VIT=14,STR=13)=123, LYSANDR(VIT=11,STR=7)=87,
+ * NOBAL(VIT=9,STR=7)=75, TREON(VIT=12,STR=10)=102, PENTAG(VIT=10,STR=10)=90.
+ *
+ * ## Gold formula: (STR*2+VIT)*3*15, ÷3 for Faerie
+ * Symmetric to the HP formula but uses STR as the primary stat (wpcmk 0x47F0..0x4875):
+ *   base = (STR*2+VIT)*3
+ *   if STR >= 16: base += STR
+ *   if STR >= 18: base += STR (additional)
+ *   goldInitial = base * 15   (non-Faerie)
+ *   goldInitial = base * 5    (Faerie, race index 5: engine does *15 then ÷3)
+ *
+ * Perfectly matches all 6 stock chars at pcfile+0x022:
+ * THESUS=2700, TEMPEST=1800, LYSANDR=1125, NOBAL=1035, TREON=1440, PENTAG=1350.
+ */
+
+export interface DerivedStats {
+  /** Age in years. rng(1000) + 6570. Stored as u32 at staging+0x008. */
+  age: number;
+  /**
+   * Encumbrance capacity minimum. Class-based + VIT adjustments.
+   * Stored at staging+0x018 (same value as encumbranceMax at creation).
+   */
+  encumbranceMin: number;
+  /**
+   * Encumbrance capacity maximum. Same as encumbranceMin at creation.
+   * Stored at staging+0x01a.
+   */
+  encumbranceMax: number;
+  /**
+   * Weight capacity minimum. (VIT*2+STR)*3 + VIT bonuses.
+   * Stored at staging+0x01c. Equals hpInitial at creation.
+   */
+  weightMin: number;
+  /**
+   * Weight capacity maximum. Same as weightMin at creation.
+   * Stored at staging+0x01e.
+   */
+  weightMax: number;
+  /**
+   * Initial hit points. (VIT*2+STR)*3 + VIT bonuses.
+   * Same value as weightMin/Max at creation.
+   * Verified against all 6 stock chars in pcfile.dbs.
+   */
+  hpInitial: number;
+  /**
+   * Initial gold. (STR*2+VIT)*3 * 15; ÷3 (i.e. ×5) for Faerie.
+   * Stored at staging+0x022. Verified against all 6 stock chars.
+   */
+  goldInitial: number;
+  /** Character level at creation: always 1. Written to staging+0x024. */
+  level: 1;
+  /** Experience points at creation: always 1. Written to staging+0x026. */
+  xp: 1;
+}
+
+/**
+ * Minimal RNG interface required by computeDerivedStats.
+ * Compatible with WichmannHill and deterministic test stubs.
+ */
+export interface Rng {
+  uniform(n: number): number;
+}
+
+/**
+ * Per-class encumbrance base roll formula: { range, offset } where
+ * base = rng(range) + offset.
+ *
+ * Decoded from wpcmk.ovr class dispatch table at runtime CS:0x8D1A
+ * (save-state physical 0x10FE2) and the 14 class handlers at
+ * wpcmk file 0x45C4..0x47B4.
+ *
+ * Classes with TWO rng calls (index 4=Ranger, 11=Samurai) use
+ * `rng(range1) + rng(range2) + offset`; these are represented as
+ * `{ range: range1, range2: range2, offset }`.
+ *
+ * | idx | Class     | Formula                    |
+ * |-----|-----------|----------------------------|
+ * |  0  | Fighter   | rng(5)+6                   |
+ * |  1  | Mage      | rng(3)+2                   |
+ * |  2  | Priest    | rng(4)+4                   |
+ * |  3  | Thief     | rng(4)+3                   |
+ * |  4  | Ranger    | rng(4)+rng(4)+6            |
+ * |  5  | Alchemist | rng(4)+3                   |
+ * |  6  | Bard      | rng(4)+2                   |
+ * |  7  | Psionic   | rng(3)+3                   |
+ * |  8  | Valkyrie  | rng(5)+5                   |
+ * |  9  | Bishop    | rng(4)+3                   |
+ * | 10  | Lord      | rng(7)+8                   |
+ * | 11  | Samurai   | rng(4)+rng(4)+6            |
+ * | 12  | Monk      | rng(4)+4                   |
+ * | 13  | Ninja     | rng(5)+4                   |
+ */
+export const CLASS_ENCUMBRANCE_FORMULAS: ReadonlyArray<
+  { range: number; range2?: number; offset: number }
+> = [
+  { range: 5, offset: 6 },          // 0 Fighter
+  { range: 3, offset: 2 },          // 1 Mage
+  { range: 4, offset: 4 },          // 2 Priest
+  { range: 4, offset: 3 },          // 3 Thief
+  { range: 4, range2: 4, offset: 6 }, // 4 Ranger
+  { range: 4, offset: 3 },          // 5 Alchemist
+  { range: 4, offset: 2 },          // 6 Bard
+  { range: 3, offset: 3 },          // 7 Psionic
+  { range: 5, offset: 5 },          // 8 Valkyrie
+  { range: 4, offset: 3 },          // 9 Bishop
+  { range: 7, offset: 8 },          // 10 Lord
+  { range: 4, range2: 4, offset: 6 }, // 11 Samurai
+  { range: 4, offset: 4 },          // 12 Monk
+  { range: 5, offset: 4 },          // 13 Ninja
+];
+
+/** Race index for Faerie in the Wiz6 engine (verified against wpcmk ASM 0x4866). */
+export const DERIVED_STATS_FAERIE_RACE = 5;
+
+/** Age offset added to rng(1000). Verified at wpcmk 0x45A1: `add ax, 0x19aa`. */
+export const AGE_RNG_OFFSET = 0x19aa; // 6570
+
+/**
+ * Compute derived stats for a character at creation.
+ *
+ * Mirrors `age_encumbrance_and_hp_roll` (wpcmk.ovr file 0x4589) and
+ * the creation_init_derived_stats caller (0x4ddd).
+ *
+ * @param rng       The WichmannHill RNG (or a deterministic stub for tests).
+ * @param classIdx  Character class index (0..13).
+ * @param raceIdx   Character race index (0..10); only Faerie (5) is special-cased.
+ * @param attrs     The 8 primary attributes after bonus allocation.
+ */
+export function computeDerivedStats(
+  rng: Rng,
+  classIdx: number,
+  raceIdx: number,
+  attrs: { str: number; int: number; pie: number; vit: number; dex: number; spd: number; per: number; kar: number },
+): DerivedStats {
+  const { str, vit } = attrs;
+
+  // -------------------------------------------------------------------------
+  // Age: rng(1000) + 0x19aa   [wpcmk 0x4599..0x45A4]
+  // -------------------------------------------------------------------------
+  const age = rng.uniform(1000) + AGE_RNG_OFFSET;
+
+  // -------------------------------------------------------------------------
+  // Encumbrance base: class-dispatched   [wpcmk 0x45C4..0x47B4]
+  // -------------------------------------------------------------------------
+  const formula = CLASS_ENCUMBRANCE_FORMULAS[classIdx];
+  if (!formula) {
+    throw new Error(`classIdx ${classIdx} out of range (valid 0..13)`);
+  }
+
+  let encumbranceBase = rng.uniform(formula.range) + formula.offset;
+  if (formula.range2 !== undefined) {
+    encumbranceBase += rng.uniform(formula.range2);
+  }
+
+  // VIT adjustments to encumbranceBase   [wpcmk 0x4801..0x4827]
+  if (vit < 8) encumbranceBase -= 1;
+  if (vit >= 16) encumbranceBase += 1;
+  if (vit >= 18) encumbranceBase += 1;
+
+  // -------------------------------------------------------------------------
+  // HP / weight: (VIT*2+STR)*3 + VIT bonuses   [wpcmk 0x47DF..0x4828]
+  // -------------------------------------------------------------------------
+  let hpBase = (vit * 2 + str) * 3;
+  if (vit >= 16) hpBase += vit;
+  if (vit >= 18) hpBase += vit;
+
+  // -------------------------------------------------------------------------
+  // Gold: (STR*2+VIT)*3 * 15 (÷3 for Faerie)   [wpcmk 0x47F0..0x4875]
+  // -------------------------------------------------------------------------
+  let goldBase = (str * 2 + vit) * 3;
+  if (str >= 16) goldBase += str;
+  if (str >= 18) goldBase += str;
+
+  // Engine: shl ax,4; sub ax,dx → ax*16 - ax = ax*15.
+  let goldInitial = goldBase * 15;
+  // Faerie (race 5): engine divides by 3 via `idiv cx` with cx=3.
+  if (raceIdx === DERIVED_STATS_FAERIE_RACE) {
+    goldInitial = Math.floor(goldInitial / 3);
+  }
+
+  // -------------------------------------------------------------------------
+  // Level and XP are always 1 at creation   [wpcmk 0x4ddd: 0x5494=1, 0x5496=1]
+  // -------------------------------------------------------------------------
+  return {
+    age,
+    encumbranceMin: encumbranceBase,
+    encumbranceMax: encumbranceBase,
+    weightMin: hpBase,
+    weightMax: hpBase,
+    hpInitial: hpBase,
+    goldInitial,
+    level: 1,
+    xp: 1,
+  };
+}
