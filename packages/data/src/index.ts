@@ -169,6 +169,11 @@ export {
   PORTRAIT_INDEX_MIN,
   PORTRAIT_INDEX_MAX_SPD18,
 } from './character-creation/portrait-pools.js';
+export {
+  SPELL_TABLE,
+  spellsInBook,
+  type SpellEntry,
+} from './character-creation/spell-table.js';
 
 // BSS struct schemas (Wiz6 engine memory layouts) — pure declarative data
 // used by the eventual DOSBox-X MCP server (#017), the save-state viewer,
