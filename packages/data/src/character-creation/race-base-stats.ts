@@ -39,7 +39,13 @@ export interface RaceBaseStats {
   spd: number;
   /** Minimum PER (Personality). */
   per: number;
-  /** Minimum KAR (Karma). Always 0 — karma is purely earned. */
+  /**
+   * Minimum KAR (Karma) — always 0 across all races. Karma has no racial
+   * floor; it's **rolled per-character at creation** (a separate roll from
+   * the bonus-point pool — see "personality reroll" in
+   * `docs/re/wpcmk-character-creation-trace.md`). Stock characters vary
+   * from 3 (TREON) up to 16 (TEMPEST), confirming per-character roll.
+   */
   kar: number;
 }
 

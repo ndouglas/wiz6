@@ -1,7 +1,7 @@
 {
   "topic": "race-base-stats-table",
   "date": "2026-05-26",
-  "summary": "Decoded the 11 × 9-byte race base-stat table at DGROUP+0x52D9. Each race row is 8 ASCII-encoded attribute minimums + 1 null terminator. Decoder formula: byte - 0x41 ('A') = minimum stat value. KAR is 0 for every race (karma is purely earned, never granted at creation). Data is loaded transiently into DGROUP when wpcmk_create_character_master runs (game_state=0x10); it is NOT populated at boot. Captured from save state with game_state=0x10 at the race-selection menu.",
+  "summary": "Decoded the 11 × 9-byte race base-stat table at DGROUP+0x52D9. Each race row is 8 ASCII-encoded attribute minimums + 1 null terminator. Decoder formula: byte - 0x41 ('A') = minimum stat value. KAR has no race-derived floor (always 0); KAR is rolled per-character at creation (a separate roll from the bonus-point pool). Data is loaded transiently into DGROUP when wpcmk_create_character_master runs (game_state=0x10); it is NOT populated at boot. Captured from save state with game_state=0x10 at the race-selection menu.",
   "method": "MCP dosbox_read_memory at physical offset 0x18048+0x52D9 = 0x1D321 (length 99 bytes), against a save state captured at the race-selection menu (game_state=0x10). The 11 race-table-base immediates pushed by stats_bump_to_racial_minimums callers (wpcmk file 0x2fdb..0x3041) confirmed the table base + 9-byte stride.",
   "findings": [
     {
@@ -52,7 +52,7 @@
     },
     {
       "id": "karma-always-zero",
-      "claim": "KAR (Karma) attribute minimum is 0 for every race. Karma is purely earned through gameplay, never granted as a racial floor. Matches the manual's Appendix A note that all races start with Karma = 0.",
+      "claim": "KAR (Karma) attribute minimum is 0 for every race. Karma is rolled per-character at creation (a separate roll from the bonus-point pool — see 'personality reroll' state in the wpcmk-character-creation trace). Stock characters' decoded KAR values range from 3 (TREON) to 16 (TEMPEST), confirming per-character rolling rather than a fixed starting value.",
       "category": "derived-observation",
       "confidence": "high"
     },

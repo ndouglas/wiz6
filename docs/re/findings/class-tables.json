@@ -1,0 +1,65 @@
+{
+  "topic": "class-requirements-and-skill-availability",
+  "date": "2026-05-26",
+  "summary": "Decoded two static class-data tables from wpcmk.ovr's file image: (1) class attribute-requirement table at file 0x5e98 (14 × 9 bytes, ASCII-encoded minimums like the race base table — byte - 0x41 = min stat), and (2) class skill-availability bitmaps at file 0x5cb8..0x5e93 (14 × 4 null-terminated digit strings of lengths [10,7,5,8] = 30 bits per class, matching the 30-byte skill block in the character record at +0x134..+0x151).",
+  "method": "Direct file-byte read of wpcmk.ovr at the offsets identified by the prior wpcmk asm trace. The data is STATIC in the overlay file image (unlike the race base-stat table at DGROUP+0x52D9, which is loaded transiently at game_state=0x10).",
+  "findings": [
+    {
+      "id": "class-requirements-encoding",
+      "claim": "Class attribute requirements at wpcmk file 0x5e98 use the same 'byte - 0x41' ASCII encoding as race base stats. 14 classes × 9 bytes (8 attribute minimums + 1 null). KAR slot is always 0 — Karma never gates class eligibility.",
+      "category": "data-encoding",
+      "confidence": "high",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": "file 0x5e98",
+        "sample_class_0_fighter": "4d 41 41 41 41 41 41 41 00 -> 'MAAAAAAA' -> STR=12 (M-A=12)"
+      }
+    },
+    {
+      "id": "class-requirements-table",
+      "claim": "Decoded 14 class requirement records (STR/INT/PIE/VIT/DEX/SPD/PER minimums).",
+      "category": "decoded-data",
+      "confidence": "high",
+      "table": [
+        { "class": "Fighter",   "str": 12 },
+        { "class": "Mage",      "int": 12 },
+        { "class": "Priest",    "pie": 12, "per": 8 },
+        { "class": "Thief",     "dex": 12, "spd": 8 },
+        { "class": "Ranger",    "str": 10, "int": 8, "pie": 8, "vit": 11, "dex": 10, "spd": 8, "per": 8 },
+        { "class": "Alchemist", "int": 13, "dex": 13 },
+        { "class": "Bard",      "int": 10, "dex": 12, "spd": 8, "per": 12 },
+        { "class": "Psionic",   "str": 10, "int": 14, "vit": 14, "per": 10 },
+        { "class": "Valkyrie",  "str": 10, "pie": 11, "vit": 11, "dex": 10, "spd": 11, "per": 8 },
+        { "class": "Bishop",    "int": 15, "pie": 15, "per": 8 },
+        { "class": "Lord",      "str": 12, "int": 9, "pie": 12, "vit": 12, "dex": 9, "spd": 9, "per": 14 },
+        { "class": "Samurai",   "str": 12, "int": 11, "vit": 9, "dex": 12, "spd": 14, "per": 8 },
+        { "class": "Monk",      "str": 13, "int": 8, "pie": 13, "dex": 10, "spd": 13, "per": 8 },
+        { "class": "Ninja",     "str": 12, "int": 10, "pie": 10, "vit": 12, "dex": 12, "spd": 12 }
+      ]
+    },
+    {
+      "id": "skill-availability-encoding",
+      "claim": "Skill-availability data at wpcmk file 0x5cb8..0x5e93 is 56 null-terminated ASCII '0'/'1' strings grouped 4-per-class. String lengths are consistent: [10, 7, 5, 8] = 30 bits total per class, matching the 30-slot skill block in the character record at +0x134..+0x151.",
+      "category": "data-encoding",
+      "confidence": "high"
+    },
+    {
+      "id": "skill-availability-table",
+      "claim": "Decoded skill-availability bitmaps for all 14 classes. Per-class count of available skills: Fighter 13, Mage 11, Priest 10, Thief 17, Ranger 17, Alchemist 9, Bard 19, Psionic 11, Valkyrie 15, Bishop 11, Lord 15, Samurai 16, Monk 15, Ninja 19. Cross-validated against stock-character skill values (THESUS slot[1]=10, LYSANDR slot[15]=10, NOBAL slot[26]=7, TREON slot[28]=10 all correspond to '1' bits in their classes).",
+      "category": "decoded-data",
+      "confidence": "high"
+    },
+    {
+      "id": "skill-slot-naming",
+      "claim": "Slot-to-name mapping for the 30 skill slots is speculative (from martydill/Wizardry-6-reverse-engineering's SKILL_INDEX_MAP), cross-validated against stock-character values but not yet binary-verified against wpcmk asm. Slots 10, 17-21 are listed as 'holes' in martydill's map but the bitmaps occasionally set bits there for specific classes — the actual meaning of those slots needs further RE.",
+      "category": "open-question",
+      "confidence": "medium"
+    }
+  ],
+  "implications": [
+    "Engine-faithful character creation can now use CLASS_REQUIREMENTS + RACE_BASE_STATS to compute exact eligibility: given (race, rolled attributes + bonus allocation), which of the 14 classes is the character eligible for? Direct lookup from the typed constants.",
+    "The 'absolute dogshit gaming experience' framing of the bonus-point lottery now has concrete numbers attached: e.g., to qualify for Bishop you need INT>=15 AND PIE>=15. Combined with the bonus-roll distribution (5+rng(6) + two 1-in-20 +8 chances, max=21) and race base stats, the per-roll qualification probability for each class is calculable.",
+    "Skill-availability bitmaps let the create flow filter the skill-allocation menu to only show training-eligible skills for the chosen class — engine-faithful behavior.",
+    "The slot-to-name mapping should be verified via wpcmk asm tracing in a follow-up: find the skill-display routine in wpcmk that iterates the bitmap and renders skill names, identify which engine string table holds the names."
+  ]
+}

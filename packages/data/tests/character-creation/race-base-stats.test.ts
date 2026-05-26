@@ -15,7 +15,7 @@ describe('RACE_BASE_STATS', () => {
     }
   });
 
-  it('all KAR minimums are 0 (karma is purely earned)', () => {
+  it('all KAR racial floors are 0 (karma has no race-derived minimum; rolled per-character at creation)', () => {
     for (const r of RACE_BASE_STATS) {
       expect(r.kar).toBe(0);
     }

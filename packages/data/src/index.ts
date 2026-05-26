@@ -117,6 +117,21 @@ export {
   type RaceBaseStats,
 } from './character-creation/race-base-stats.js';
 export {
+  CLASS_REQUIREMENTS,
+  getClassRequirements,
+  meetsClassRequirements,
+  eligibleClasses,
+  type ClassRequirements,
+  type AttributeSet,
+} from './character-creation/class-requirements.js';
+export {
+  CLASS_SKILL_AVAILABILITY,
+  SKILL_SLOT_NAMES,
+  CLASS_INDEX_TO_NAME,
+  availableSkillSlots,
+  classCanTrainSkill,
+} from './character-creation/class-skill-availability.js';
+export {
   PALETTE_CATALOG,
   EGA_DEFAULT,
   WIZ6_MAIN,
