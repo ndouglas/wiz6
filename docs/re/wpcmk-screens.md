@@ -110,7 +110,7 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 | screen-07-derived-stats | 0x018..0x01f | 8 | encumbrance min/max + weight min/max |
 | screen-07-derived-stats | 0x022..0x023 | 2 | **gold** = `(STR*2+VIT)*3*15` (÷3 for Faerie) — verified vs 6 stock chars. (RE #1 mislabeled this "hp_initial".) |
 | screen-07-derived-stats | (stamina field, pcfile+0x1c) | 2 | **stamina** = `(VIT*2+STR)*3 + (VIT if VIT≥16) + (VIT if VIT≥18)` — verified vs 6 stock chars AND vs NUG's on-screen STM 108. (A5 mislabeled this `hpInitial`; it's STAMINA.) |
-| screen-07-derived-stats | (hp field — TBD) | 2 | real **HP** is a separate, smaller formula (NUG: HP 6/6, Elf Ninja VIT12 lvl1) — not yet derived. |
+| screen-07-derived-stats | (hp field, pcfile+0x18/0x1a) | 2 | real **HP** = the per-class dispatch roll `rng(range)+offset` + VIT adjustments (VIT<8 −1, ≥16 +1, ≥18 +1) — same roll as encumbrance base. Verified: NUG=6 (Ninja rng(5)+4) + all 6 stock chars. See `derived-stats.ts`. |
 | screen-07-derived-stats | 0x024..0x025 | 2 | `level = 1` |
 | screen-07-derived-stats | 0x026..0x027 | 2 | `xp = 1` |
 | screen-07-derived-stats | 0x1ac | 1 | `inventory_count = 0` |
