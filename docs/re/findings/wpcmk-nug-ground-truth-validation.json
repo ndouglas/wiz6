@@ -1,0 +1,54 @@
+{
+  "topic": "wpcmk-nug-ground-truth-validation",
+  "summary": "User captured a DOSBox-X save (tools/dosbox/save/1.sav, game_state=0x10/wpcmk) at the 'SAVE THIS CHARACTER? YES NO' confirmation screen, plus a screenshot, for character NUG. Used to validate the Stage-A engine + record layout against ground truth. Confirmed several things and exposed three bugs.",
+  "character": {
+    "name": "NUG",
+    "sex": "Male (record 0x1a1 = 0)",
+    "race": "Elf (record 0x19d = 1)",
+    "class": "Ninja (record 0x19f = 13, per canonical @wiz6/data order)",
+    "alignment": "0 (record 0x19e = 0)",
+    "attributes_raw_0x12c": { "STR": 12, "INT": 10, "PIE": 10, "VIT": 12, "DEX": 12, "SPD": 12, "PER": 8, "KAR": 13 },
+    "on_screen": { "STM": "108/108", "HP": "6/6", "LVL": 1 },
+    "evidence": "Raw dosbox_read_memory at physical 120292 (record 0x12c) = '0c 0a 0a 0c 0c 0c 08 0d'; race/class/sex bytes at record 0x19d/0x19f/0x1a1; cross-checked against the user's screenshot (M-ELF NINJA, matching stat block)."
+  },
+  "findings": [
+    {
+      "id": "mcp-struct-decoder-misaligned",
+      "claim": "The wiz6 MCP `dosbox_read_struct` (character_record) returns systematically misaligned fields. For NUG it returned {race:13, class:0, attributes:[12,12,8,13,4,0,0,0]} — all wrong. The character_record struct SOURCE has correct offsets (race@0x19d, class@0x19f, attributes@0x12c); raw `dosbox_read_memory` decodes correctly. The bug is in the MCP's struct-decode path (likely cumulative/offset handling or a stale build), not the struct source.",
+      "evidence": { "type": "comparison", "details": "MCP decode race=13/class=0/attrs=[12,12,8,13,4,0,0,0] vs raw bytes race=1(Elf)/class=13(Ninja)/attrs=[12,10,10,12,12,12,8,13], the latter matching the on-screen character sheet exactly." },
+      "confidence": "high",
+      "action": "Investigate packages/mcp BssStruct decode (does it honor explicit per-field `offset`, or pack sequentially?). Until fixed, prefer dosbox_read_memory + manual decode for character_record."
+    },
+    {
+      "id": "a5-stamina-mislabeled-as-hp",
+      "claim": "Stage-A A5 (derived-stats.ts) computes `(VIT*2+STR)*3 + VIT-threshold bonuses` and labels it `hpInitial`. The screen shows this value as STAMINA (STM 108/108 for VIT12/STR12 = (24+12)*3 = 108), NOT HP. Actual HP is a separate, smaller formula (HP 6/6 on screen). A5's formula + offset (pcfile+0x1c) are correct for STAMINA; the label is wrong and real HP is uncomputed.",
+      "evidence": { "type": "screenshot", "details": "DOSBox character sheet shows STM 108/108 and HP 6/6 distinctly; A5's 'hpInitial' = 108 = stamina." },
+      "confidence": "high",
+      "action": "Rename derived-stats `hpInitial`→`stamina` (and the record field), and RE the real HP formula (HP=6 for an Elf Ninja VIT12 lvl1)."
+    },
+    {
+      "id": "class-name-order-errors",
+      "claim": "Two docs have the class-index→name map in the WRONG order. (a) character_record.ts class field comment says '...11=Ninja,12=Monk,13=Bishop'. (b) wpcmk-screens.md §1 said '0=Fighter..13=Alchemist'. The canonical @wiz6/data CLASS_REQUIREMENTS order is Fighter,Mage,Priest,Thief,Ranger,Alchemist,Bard,Psionic,Valkyrie,Bishop,Lord,Samurai,Monk,Ninja → 13=Ninja, which matches NUG (class byte 13 = Ninja). The field OFFSETS are correct; only the name lists are misordered.",
+      "evidence": { "type": "comparison", "details": "NUG class byte=13 and user confirms Ninja; canonical order maps 13→Ninja; struct comment + §1 disagree." },
+      "confidence": "high",
+      "action": "Fix the class-name comment in character-record.ts and the §1 class-order note to the canonical @wiz6/data order."
+    },
+    {
+      "id": "fighter-tier2-still-open",
+      "claim": "An earlier (wrong) reading of this save treated NUG as a Fighter and concluded the A3 Fighter-clamp read was disproven. NUG is a NINJA. With DEX12/SPD12, A3's Ninja tier2 = rng(3)+floor((DEX+SPD)/10)+2 = rng(3)+floor(24/10)+2 = rng(3)+4 ∈ [4,6]; budget = rng(9)+10−tier2 ∈ [4,14] — consistent with this character. So A3 is NOT disproven by this save. The Fighter-specific tier2 question (does Fighter clamp / get adjusted?) remains OPEN — needs a Fighter creation save or an RNG replay.",
+      "evidence": { "type": "decompile+screenshot", "details": "NUG is class 13 (Ninja), not Fighter; A3 Ninja formula is consistent with NUG's attributes." },
+      "confidence": "high",
+      "action": "To settle the Fighter tier2 conflict, capture a Fighter creation save (or replay the RNG sequence for NUG against the engine record)."
+    }
+  ],
+  "validated_correct": [
+    "Record field OFFSETS in character-record.ts: race@0x19d, alignment@0x19e, class@0x19f, sex@0x1a1, attributes@0x12c (all match ground truth).",
+    "screen-13 = SKILL training (WEAPONRY/etc category list visible) — confirms §5.",
+    "screen-15 confirm prompt = msg 0x44f 'SAVE THIS CHARACTER?' with YES/NO — confirms §10.",
+    "A5 derived-stat formula (VIT*2+STR)*3 computes correctly (=108) — it's stamina, see finding."
+  ],
+  "open_questions": [
+    "Real HP formula (HP=6 for Elf Ninja VIT12 lvl1) — not yet derived.",
+    "Fighter tier2 skill-budget behavior — needs a Fighter save."
+  ]
+}

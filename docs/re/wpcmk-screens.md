@@ -101,7 +101,7 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 | screen-03-sex | **0x1a1** | 1 | sex index (0=Male, 1=Female) — verified vs 6 stock chars (A7 round-trip). NOTE: 0x19e is **alignment** (separate field), not sex. |
 | screen-03-sex | 0x12e | 1 | PIE possibly adjusted by `race_faerie_personality_mod` |
 | screen-04-bonus-roller | DGROUP 0x56ac | 2 | `bonus_points_remaining = 5..26` (or 21 if debug override) |
-| screen-05-class | 0x19f | 1 | class index (0=Fighter..13=Alchemist) |
+| screen-05-class | 0x19f | 1 | class index, canonical `@wiz6/data` order: 0=Fighter…9=Bishop,10=Lord,11=Samurai,12=Monk,**13=Ninja** (verified: NUG class byte 13 = Ninja) |
 | screen-05-class | DGROUP 0x56ae[14] | 28 | `class_qualification_flags[14]` |
 | screen-06-bonus-allocator | 0x12c..0x131 | 6 | STR/INT/PIE/VIT/DEX/SPD ↑ via spent points (cap 18) |
 | screen-06-bonus-allocator | 0x132 | 1 | PER also modifiable |
@@ -109,7 +109,8 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 | screen-07-derived-stats | 0x008..0x00b | 4 | age (`rng(1000) + 0x19aa`) |
 | screen-07-derived-stats | 0x018..0x01f | 8 | encumbrance min/max + weight min/max |
 | screen-07-derived-stats | 0x022..0x023 | 2 | **gold** = `(STR*2+VIT)*3*15` (÷3 for Faerie) — verified vs 6 stock chars. (RE #1 mislabeled this "hp_initial".) |
-| screen-07-derived-stats | (hp field) | 2 | `hp_initial = (VIT*2+STR)*3 + (VIT if VIT≥16) + (VIT if VIT≥18)` — verified vs 6 stock chars. See `derived-stats.ts`. |
+| screen-07-derived-stats | (stamina field, pcfile+0x1c) | 2 | **stamina** = `(VIT*2+STR)*3 + (VIT if VIT≥16) + (VIT if VIT≥18)` — verified vs 6 stock chars AND vs NUG's on-screen STM 108. (A5 mislabeled this `hpInitial`; it's STAMINA.) |
+| screen-07-derived-stats | (hp field — TBD) | 2 | real **HP** is a separate, smaller formula (NUG: HP 6/6, Elf Ninja VIT12 lvl1) — not yet derived. |
 | screen-07-derived-stats | 0x024..0x025 | 2 | `level = 1` |
 | screen-07-derived-stats | 0x026..0x027 | 2 | `xp = 1` |
 | screen-07-derived-stats | 0x1ac | 1 | `inventory_count = 0` |
