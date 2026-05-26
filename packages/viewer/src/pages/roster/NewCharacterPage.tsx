@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { addCharacter } from '../../lib/roster-store.js';
+import { buildCharacter } from './lib/build-character.js';
 import {
   type CharacterDraft,
   createEmptyDraft,
@@ -19,6 +22,7 @@ import { AttributeDistributeStep } from './steps/AttributeDistributeStep.js';
 import { SkillPointStep } from './steps/SkillPointStep.js';
 import { SpellPickStep } from './steps/SpellPickStep.js';
 import { KarmaStep } from './steps/KarmaStep.js';
+import { ReviewStep } from './steps/ReviewStep.js';
 import styles from './NewCharacterPage.module.css';
 
 const STEP_NAMES = [
@@ -46,8 +50,15 @@ const VALIDATORS: Array<(d: CharacterDraft) => boolean> = [
 ];
 
 export function NewCharacterPage() {
+  const navigate = useNavigate();
   const [draft, setDraft] = useState<CharacterDraft>(createEmptyDraft());
   const [step, setStep] = useState(0);
+
+  const handleCreate = () => {
+    const c = buildCharacter(draft);
+    addCharacter(c);
+    navigate('/roster');
+  };
 
   const validNow = VALIDATORS[step]!(draft);
   const stepName = STEP_NAMES[step]!;
@@ -85,7 +96,9 @@ export function NewCharacterPage() {
         {step === 7 && (
           <KarmaStep draft={draft} onUpdate={(p) => setDraft((d) => ({ ...d, ...p }))} />
         )}
-        {step > 7 && <div>{stepName} (placeholder)</div>}
+        {step === 8 && (
+          <ReviewStep draft={draft} onCreate={handleCreate} />
+        )}
       </section>
       <footer className={styles.actions}>
         <button type="button" onClick={() => setStep((s) => s - 1)} disabled={step === 0}>
