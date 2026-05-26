@@ -1,0 +1,1300 @@
+{
+  "topic": "wpcmk-spell-names",
+  "subagent_run": "2026-05-26T00:00:00Z",
+  "binaries": [
+    "wpcmk.ovr"
+  ],
+  "data_sources": [
+    "extracted/messages/msg.json (indexedMessages)",
+    "tools/dosbox/save/1.sav (Memory section, DGROUP phys 0x18048+0xde)"
+  ],
+  "summary": "Spell names on screen-14 (wpcmk_train_skill_pillar 0x28d4 = spell picker) use flat indexing: msg_id = 0xFA0 + entry_idx. Confirmed by static disassembly of the label renderer function at wpcmk file 0x21db, which executes ADD AX, 0x0FA0 after loading the entry index from the filtered display array. All 82 msg names resolved from extracted/messages/msg.json, cross-referenced with school/level/byte5(bookmask) from the 82-entry spell table at DGROUP+0xde. Entries 79-81 (HOLY WATER, HELPFOOD, MAGICFOOD) have msg names but byte5=0 and level=0, making them non-learnable at character creation.",
+  "findings": [
+    {
+      "id": "labeling-scheme",
+      "claim": "The spell picker labels each entry with msg_id = 0xFA0 + entry_idx (flat indexing). The label renderer at wpcmk file 0x21db loads the spell entry index from the filtered display array into AX, then executes ADD AX, 0x0FA0, then PUSHes AX before calling the msg-display thunk at 0xC2DB (wroot image 0x083F).",
+      "category": "ui_labeling",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {
+          "space": "wpcmk.ovr",
+          "offset": "0x2248"
+        },
+        "type": "static_disassembly",
+        "instruction_bytes": "05 a0 0f",
+        "decoded_instruction": "ADD AX, 0x0FA0",
+        "context_bytes": "8b46 08 03c6 d1e0 8bf8 8b5e0e 8b01 05a00f 50 e88ca0 83c406",
+        "decoded_sequence": "mov ax,[bp+8] ; add ax,si ; shl ax,1 ; mov di,ax ; mov bx,[bp+0xe] ; mov ax,[bx+di] ; add ax,0x0fa0 ; push ax ; call 0xC2DB ; add sp,6",
+        "call_target": "0xC2DB (= wroot image 0x083F, the msg-display function)",
+        "verification": "msg[0xfa0]='ENERGY BLAST', msg[0xfa2]='FIREBALL', msg[0xfa9]='CHILLING TOUCH' \u2014 all match expected spell names at their entry indices"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "msg-range",
+      "claim": "The 82 spell names occupy msg IDs 0xFA0..0xFF1 (4000..4081) as a contiguous flat range. The msg range is confirmed to have exactly 82 entries in extracted/messages/msg.json.",
+      "category": "msg_data",
+      "evidence": {
+        "binary": "msg.dbs",
+        "address": {
+          "space": "msg.dbs",
+          "id_range": "0xFA0..0xFF1"
+        },
+        "type": "extracted_json_query",
+        "count": 82,
+        "first_entry": "0xfa0 = ENERGY BLAST",
+        "last_entry": "0xff1 = MAGICFOOD"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "entries-79-81-non-learnable",
+      "claim": "Entries 79-81 (HOLY WATER, HELPFOOD, MAGICFOOD) have msg names at 0xfef..0xff1 but are non-learnable at character creation: their spell table entries have byte5=0 (no book membership) and level=0. The picker's bitmask filter (`byte5 & book_mask != 0`) would always exclude them.",
+      "category": "spell_data",
+      "evidence": {
+        "binary": "save-state",
+        "address": {
+          "space": "physical",
+          "offsets": "0x18126 + 79*6 .. 0x18126 + 81*6"
+        },
+        "type": "runtime_table_scan",
+        "raw_entries": [
+          {
+            "idx": 79,
+            "bytes_hex": "05000000020 0",
+            "school": 5,
+            "level": 0,
+            "byte5": 0
+          },
+          {
+            "idx": 80,
+            "bytes_hex": "050000000000",
+            "school": 5,
+            "level": 0,
+            "byte5": 0
+          },
+          {
+            "idx": 81,
+            "bytes_hex": "050000000000",
+            "school": 5,
+            "level": 0,
+            "byte5": 0
+          }
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "book-count-cross-validation",
+      "claim": "Book counts from the spell table data match the spell-school-assignment finding exactly: Mage=33, Priest=33, Alchemist=32, Psionic=25.",
+      "category": "cross_validation",
+      "evidence": {
+        "binary": "save-state",
+        "address": {
+          "space": "physical",
+          "offset": "0x18126"
+        },
+        "type": "runtime_table_scan_bit_count",
+        "details": "Counted entries where byte5 has each book bit set. Mage (bit3): 33, Priest (bit2): 33, Alchemist (bit1): 32, Psionic (bit0): 25. Matches spell-school-assignment.json findings exactly."
+      },
+      "confidence": "high"
+    }
+  ],
+  "labeling_scheme": "msg_id = 0xFA0 + entry_idx (flat base-offset indexing). The label renderer at wpcmk 0x21db loads the entry index from the per-book filtered display array and adds 0xFA0 to produce the msg_id, then calls the msg-display thunk.",
+  "spell_name_table": [
+    {
+      "entry_idx": 0,
+      "msg_id": 4000,
+      "msg_id_hex": "0xfa0",
+      "name": "ENERGY BLAST",
+      "school": "FIRE",
+      "school_idx": 0,
+      "level": 1,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 1,
+      "msg_id": 4001,
+      "msg_id_hex": "0xfa1",
+      "name": "BLINDING FLASH",
+      "school": "FIRE",
+      "school_idx": 0,
+      "level": 2,
+      "byte5": 1,
+      "byte5_hex": "0x1",
+      "books": [
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 2,
+      "msg_id": 4002,
+      "msg_id_hex": "0xfa2",
+      "name": "FIREBALL",
+      "school": "FIRE",
+      "school_idx": 0,
+      "level": 3,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 3,
+      "msg_id": 4003,
+      "msg_id_hex": "0xfa3",
+      "name": "FIRE SHIELD",
+      "school": "FIRE",
+      "school_idx": 0,
+      "level": 3,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 4,
+      "msg_id": 4004,
+      "msg_id_hex": "0xfa4",
+      "name": "FIRE BOMB",
+      "school": "FIRE",
+      "school_idx": 0,
+      "level": 4,
+      "byte5": 1,
+      "byte5_hex": "0x1",
+      "books": [
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 5,
+      "msg_id": 4005,
+      "msg_id_hex": "0xfa5",
+      "name": "LIGHTNING",
+      "school": "FIRE",
+      "school_idx": 0,
+      "level": 5,
+      "byte5": 4,
+      "byte5_hex": "0x4",
+      "books": [
+        "Priest"
+      ]
+    },
+    {
+      "entry_idx": 6,
+      "msg_id": 4006,
+      "msg_id_hex": "0xfa6",
+      "name": "PRISMIC MISSILE",
+      "school": "FIRE",
+      "school_idx": 0,
+      "level": 5,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 7,
+      "msg_id": 4007,
+      "msg_id_hex": "0xfa7",
+      "name": "FIRESTORM",
+      "school": "FIRE",
+      "school_idx": 0,
+      "level": 6,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 8,
+      "msg_id": 4008,
+      "msg_id_hex": "0xfa8",
+      "name": "NUCLEAR BLAST",
+      "school": "FIRE",
+      "school_idx": 0,
+      "level": 7,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 9,
+      "msg_id": 4009,
+      "msg_id_hex": "0xfa9",
+      "name": "CHILLING TOUCH",
+      "school": "WATER",
+      "school_idx": 1,
+      "level": 1,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 10,
+      "msg_id": 4010,
+      "msg_id_hex": "0xfaa",
+      "name": "STAMINA",
+      "school": "WATER",
+      "school_idx": 1,
+      "level": 1,
+      "byte5": 7,
+      "byte5_hex": "0x7",
+      "books": [
+        "Priest",
+        "Alchemist",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 11,
+      "msg_id": 4011,
+      "msg_id_hex": "0xfab",
+      "name": "TERROR",
+      "school": "WATER",
+      "school_idx": 1,
+      "level": 1,
+      "byte5": 10,
+      "byte5_hex": "0xa",
+      "books": [
+        "Mage",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 12,
+      "msg_id": 4012,
+      "msg_id_hex": "0xfac",
+      "name": "WEAKEN",
+      "school": "WATER",
+      "school_idx": 1,
+      "level": 2,
+      "byte5": 10,
+      "byte5_hex": "0xa",
+      "books": [
+        "Mage",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 13,
+      "msg_id": 4013,
+      "msg_id_hex": "0xfad",
+      "name": "SLOW",
+      "school": "WATER",
+      "school_idx": 1,
+      "level": 2,
+      "byte5": 6,
+      "byte5_hex": "0x6",
+      "books": [
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 14,
+      "msg_id": 4014,
+      "msg_id_hex": "0xfae",
+      "name": "HASTE",
+      "school": "WATER",
+      "school_idx": 1,
+      "level": 3,
+      "byte5": 6,
+      "byte5_hex": "0x6",
+      "books": [
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 15,
+      "msg_id": 4015,
+      "msg_id_hex": "0xfaf",
+      "name": "CURE PARALYSIS",
+      "school": "WATER",
+      "school_idx": 1,
+      "level": 3,
+      "byte5": 7,
+      "byte5_hex": "0x7",
+      "books": [
+        "Priest",
+        "Alchemist",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 16,
+      "msg_id": 4016,
+      "msg_id_hex": "0xfb0",
+      "name": "ICE SHIELD",
+      "school": "WATER",
+      "school_idx": 1,
+      "level": 3,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 17,
+      "msg_id": 4017,
+      "msg_id_hex": "0xfb1",
+      "name": "ICEBALL",
+      "school": "WATER",
+      "school_idx": 1,
+      "level": 4,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 18,
+      "msg_id": 4018,
+      "msg_id_hex": "0xfb2",
+      "name": "PARALYZE",
+      "school": "WATER",
+      "school_idx": 1,
+      "level": 4,
+      "byte5": 6,
+      "byte5_hex": "0x6",
+      "books": [
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 19,
+      "msg_id": 4019,
+      "msg_id_hex": "0xfb3",
+      "name": "DEEP FREEZE",
+      "school": "WATER",
+      "school_idx": 1,
+      "level": 5,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 20,
+      "msg_id": 4020,
+      "msg_id_hex": "0xfb4",
+      "name": "POISON",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 1,
+      "byte5": 1,
+      "byte5_hex": "0x1",
+      "books": [
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 21,
+      "msg_id": 4021,
+      "msg_id_hex": "0xfb5",
+      "name": "MISSILE SHIELD",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 2,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 22,
+      "msg_id": 4022,
+      "msg_id_hex": "0xfb6",
+      "name": "STINK BOMB",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 3,
+      "byte5": 9,
+      "byte5_hex": "0x9",
+      "books": [
+        "Mage",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 23,
+      "msg_id": 4023,
+      "msg_id_hex": "0xfb7",
+      "name": "AIR POCKET",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 3,
+      "byte5": 9,
+      "byte5_hex": "0x9",
+      "books": [
+        "Mage",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 24,
+      "msg_id": 4024,
+      "msg_id_hex": "0xfb8",
+      "name": "SILENCE",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 3,
+      "byte5": 6,
+      "byte5_hex": "0x6",
+      "books": [
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 25,
+      "msg_id": 4025,
+      "msg_id_hex": "0xfb9",
+      "name": "POISON GAS",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 4,
+      "byte5": 1,
+      "byte5_hex": "0x1",
+      "books": [
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 26,
+      "msg_id": 4026,
+      "msg_id_hex": "0xfba",
+      "name": "CURE POISON",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 4,
+      "byte5": 5,
+      "byte5_hex": "0x5",
+      "books": [
+        "Priest",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 27,
+      "msg_id": 4027,
+      "msg_id_hex": "0xfbb",
+      "name": "WHIRLWIND",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 4,
+      "byte5": 4,
+      "byte5_hex": "0x4",
+      "books": [
+        "Priest"
+      ]
+    },
+    {
+      "entry_idx": 28,
+      "msg_id": 4028,
+      "msg_id_hex": "0xfbc",
+      "name": "PURIFY AIR",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 5,
+      "byte5": 5,
+      "byte5_hex": "0x5",
+      "books": [
+        "Priest",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 29,
+      "msg_id": 4029,
+      "msg_id_hex": "0xfbd",
+      "name": "DEADLY POISON",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 5,
+      "byte5": 1,
+      "byte5_hex": "0x1",
+      "books": [
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 30,
+      "msg_id": 4030,
+      "msg_id_hex": "0xfbe",
+      "name": "LEVITATE",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 5,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 31,
+      "msg_id": 4031,
+      "msg_id_hex": "0xfbf",
+      "name": "TOXIC VAPORS",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 6,
+      "byte5": 1,
+      "byte5_hex": "0x1",
+      "books": [
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 32,
+      "msg_id": 4032,
+      "msg_id_hex": "0xfc0",
+      "name": "NOXIOUS FUMES",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 6,
+      "byte5": 9,
+      "byte5_hex": "0x9",
+      "books": [
+        "Mage",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 33,
+      "msg_id": 4033,
+      "msg_id_hex": "0xfc1",
+      "name": "ASPHYXIATION",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 6,
+      "byte5": 9,
+      "byte5_hex": "0x9",
+      "books": [
+        "Mage",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 34,
+      "msg_id": 4034,
+      "msg_id_hex": "0xfc2",
+      "name": "DEADLY AIR",
+      "school": "AIR",
+      "school_idx": 2,
+      "level": 7,
+      "byte5": 1,
+      "byte5_hex": "0x1",
+      "books": [
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 35,
+      "msg_id": 4035,
+      "msg_id_hex": "0xfc3",
+      "name": "ACID SPLASH",
+      "school": "EARTH",
+      "school_idx": 3,
+      "level": 1,
+      "byte5": 1,
+      "byte5_hex": "0x1",
+      "books": [
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 36,
+      "msg_id": 4036,
+      "msg_id_hex": "0xfc4",
+      "name": "ITCHING SKIN",
+      "school": "EARTH",
+      "school_idx": 3,
+      "level": 1,
+      "byte5": 1,
+      "byte5_hex": "0x1",
+      "books": [
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 37,
+      "msg_id": 4037,
+      "msg_id_hex": "0xfc5",
+      "name": "ARMOR SHIELD",
+      "school": "EARTH",
+      "school_idx": 3,
+      "level": 1,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 38,
+      "msg_id": 4038,
+      "msg_id_hex": "0xfc6",
+      "name": "DIRECTION",
+      "school": "EARTH",
+      "school_idx": 3,
+      "level": 1,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 39,
+      "msg_id": 4039,
+      "msg_id_hex": "0xfc7",
+      "name": "KNOCK-KNOCK",
+      "school": "EARTH",
+      "school_idx": 3,
+      "level": 2,
+      "byte5": 10,
+      "byte5_hex": "0xa",
+      "books": [
+        "Mage",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 40,
+      "msg_id": 4040,
+      "msg_id_hex": "0xfc8",
+      "name": "BLADES",
+      "school": "EARTH",
+      "school_idx": 3,
+      "level": 3,
+      "byte5": 6,
+      "byte5_hex": "0x6",
+      "books": [
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 41,
+      "msg_id": 4041,
+      "msg_id_hex": "0xfc9",
+      "name": "ARMORPLATE",
+      "school": "EARTH",
+      "school_idx": 3,
+      "level": 3,
+      "byte5": 4,
+      "byte5_hex": "0x4",
+      "books": [
+        "Priest"
+      ]
+    },
+    {
+      "entry_idx": 42,
+      "msg_id": 4042,
+      "msg_id_hex": "0xfca",
+      "name": "WEB",
+      "school": "EARTH",
+      "school_idx": 3,
+      "level": 3,
+      "byte5": 9,
+      "byte5_hex": "0x9",
+      "books": [
+        "Mage",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 43,
+      "msg_id": 4043,
+      "msg_id_hex": "0xfcb",
+      "name": "ACID BOMB",
+      "school": "EARTH",
+      "school_idx": 3,
+      "level": 4,
+      "byte5": 1,
+      "byte5_hex": "0x1",
+      "books": [
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 44,
+      "msg_id": 4044,
+      "msg_id_hex": "0xfcc",
+      "name": "ARMORMELT",
+      "school": "EARTH",
+      "school_idx": 3,
+      "level": 4,
+      "byte5": 10,
+      "byte5_hex": "0xa",
+      "books": [
+        "Mage",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 45,
+      "msg_id": 4045,
+      "msg_id_hex": "0xfcd",
+      "name": "CREATE LIFE",
+      "school": "EARTH",
+      "school_idx": 3,
+      "level": 5,
+      "byte5": 1,
+      "byte5_hex": "0x1",
+      "books": [
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 46,
+      "msg_id": 4046,
+      "msg_id_hex": "0xfce",
+      "name": "CURE STONE",
+      "school": "EARTH",
+      "school_idx": 3,
+      "level": 6,
+      "byte5": 5,
+      "byte5_hex": "0x5",
+      "books": [
+        "Priest",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 47,
+      "msg_id": 4047,
+      "msg_id_hex": "0xfcf",
+      "name": "MENTAL ATTACK",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 1,
+      "byte5": 2,
+      "byte5_hex": "0x2",
+      "books": [
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 48,
+      "msg_id": 4048,
+      "msg_id_hex": "0xfd0",
+      "name": "SLEEP",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 1,
+      "byte5": 11,
+      "byte5_hex": "0xb",
+      "books": [
+        "Mage",
+        "Alchemist",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 49,
+      "msg_id": 4049,
+      "msg_id_hex": "0xfd1",
+      "name": "BLESS",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 1,
+      "byte5": 6,
+      "byte5_hex": "0x6",
+      "books": [
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 50,
+      "msg_id": 4050,
+      "msg_id_hex": "0xfd2",
+      "name": "CHARM",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 1,
+      "byte5": 7,
+      "byte5_hex": "0x7",
+      "books": [
+        "Priest",
+        "Alchemist",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 51,
+      "msg_id": 4051,
+      "msg_id_hex": "0xfd3",
+      "name": "CURE LESSER CND",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 2,
+      "byte5": 7,
+      "byte5_hex": "0x7",
+      "books": [
+        "Priest",
+        "Alchemist",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 52,
+      "msg_id": 4052,
+      "msg_id_hex": "0xfd4",
+      "name": "DIVINE TRAP",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 2,
+      "byte5": 6,
+      "byte5_hex": "0x6",
+      "books": [
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 53,
+      "msg_id": 4053,
+      "msg_id_hex": "0xfd5",
+      "name": "DETECT SECRET",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 2,
+      "byte5": 10,
+      "byte5_hex": "0xa",
+      "books": [
+        "Mage",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 54,
+      "msg_id": 4054,
+      "msg_id_hex": "0xfd6",
+      "name": "IDENTIFY",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 2,
+      "byte5": 6,
+      "byte5_hex": "0x6",
+      "books": [
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 55,
+      "msg_id": 4055,
+      "msg_id_hex": "0xfd7",
+      "name": "HOLD MONSTERS",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 3,
+      "byte5": 6,
+      "byte5_hex": "0x6",
+      "books": [
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 56,
+      "msg_id": 4056,
+      "msg_id_hex": "0xfd8",
+      "name": "MINDREAD",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 3,
+      "byte5": 2,
+      "byte5_hex": "0x2",
+      "books": [
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 57,
+      "msg_id": 4057,
+      "msg_id_hex": "0xfd9",
+      "name": "SANE MIND",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 3,
+      "byte5": 6,
+      "byte5_hex": "0x6",
+      "books": [
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 58,
+      "msg_id": 4058,
+      "msg_id_hex": "0xfda",
+      "name": "PSIONIC BLAST",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 4,
+      "byte5": 2,
+      "byte5_hex": "0x2",
+      "books": [
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 59,
+      "msg_id": 4059,
+      "msg_id_hex": "0xfdb",
+      "name": "ILLUSION",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 4,
+      "byte5": 2,
+      "byte5_hex": "0x2",
+      "books": [
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 60,
+      "msg_id": 4060,
+      "msg_id_hex": "0xfdc",
+      "name": "WIZARD EYE",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 4,
+      "byte5": 10,
+      "byte5_hex": "0xa",
+      "books": [
+        "Mage",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 61,
+      "msg_id": 4061,
+      "msg_id_hex": "0xfdd",
+      "name": "DEATH",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 5,
+      "byte5": 6,
+      "byte5_hex": "0x6",
+      "books": [
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 62,
+      "msg_id": 4062,
+      "msg_id_hex": "0xfde",
+      "name": "LOCATE OBJECT",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 6,
+      "byte5": 6,
+      "byte5_hex": "0x6",
+      "books": [
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 63,
+      "msg_id": 4063,
+      "msg_id_hex": "0xfdf",
+      "name": "MIND FLAY",
+      "school": "MENTAL",
+      "school_idx": 4,
+      "level": 7,
+      "byte5": 2,
+      "byte5_hex": "0x2",
+      "books": [
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 64,
+      "msg_id": 4064,
+      "msg_id_hex": "0xfe0",
+      "name": "HEAL WOUNDS",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 1,
+      "byte5": 7,
+      "byte5_hex": "0x7",
+      "books": [
+        "Priest",
+        "Alchemist",
+        "Psionic"
+      ]
+    },
+    {
+      "entry_idx": 65,
+      "msg_id": 4065,
+      "msg_id_hex": "0xfe1",
+      "name": "MAKE WOUNDS",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 1,
+      "byte5": 4,
+      "byte5_hex": "0x4",
+      "books": [
+        "Priest"
+      ]
+    },
+    {
+      "entry_idx": 66,
+      "msg_id": 4066,
+      "msg_id_hex": "0xfe2",
+      "name": "MAGIC MISSILE",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 2,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 67,
+      "msg_id": 4067,
+      "msg_id_hex": "0xfe3",
+      "name": "DISPEL UNDEAD",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 2,
+      "byte5": 4,
+      "byte5_hex": "0x4",
+      "books": [
+        "Priest"
+      ]
+    },
+    {
+      "entry_idx": 68,
+      "msg_id": 4068,
+      "msg_id_hex": "0xfe4",
+      "name": "ENCHANTED BLADE",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 2,
+      "byte5": 4,
+      "byte5_hex": "0x4",
+      "books": [
+        "Priest"
+      ]
+    },
+    {
+      "entry_idx": 69,
+      "msg_id": 4069,
+      "msg_id_hex": "0xfe5",
+      "name": "BLINK",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 3,
+      "byte5": 10,
+      "byte5_hex": "0xa",
+      "books": [
+        "Mage",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 70,
+      "msg_id": 4070,
+      "msg_id_hex": "0xfe6",
+      "name": "MAGIC SCREEN",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 4,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 71,
+      "msg_id": 4071,
+      "msg_id_hex": "0xfe7",
+      "name": "CONJURATION",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 4,
+      "byte5": 12,
+      "byte5_hex": "0xc",
+      "books": [
+        "Mage",
+        "Priest"
+      ]
+    },
+    {
+      "entry_idx": 72,
+      "msg_id": 4072,
+      "msg_id_hex": "0xfe8",
+      "name": "ANTI-MAGIC",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 5,
+      "byte5": 8,
+      "byte5_hex": "0x8",
+      "books": [
+        "Mage"
+      ]
+    },
+    {
+      "entry_idx": 73,
+      "msg_id": 4073,
+      "msg_id_hex": "0xfe9",
+      "name": "REMOVE CURSE",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 5,
+      "byte5": 4,
+      "byte5_hex": "0x4",
+      "books": [
+        "Priest"
+      ]
+    },
+    {
+      "entry_idx": 74,
+      "msg_id": 4074,
+      "msg_id_hex": "0xfea",
+      "name": "LIFESTEAL",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 6,
+      "byte5": 6,
+      "byte5_hex": "0x6",
+      "books": [
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 75,
+      "msg_id": 4075,
+      "msg_id_hex": "0xfeb",
+      "name": "ASTRAL GATE",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 6,
+      "byte5": 12,
+      "byte5_hex": "0xc",
+      "books": [
+        "Mage",
+        "Priest"
+      ]
+    },
+    {
+      "entry_idx": 76,
+      "msg_id": 4076,
+      "msg_id_hex": "0xfec",
+      "name": "WORD OF DEATH",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 7,
+      "byte5": 4,
+      "byte5_hex": "0x4",
+      "books": [
+        "Priest"
+      ]
+    },
+    {
+      "entry_idx": 77,
+      "msg_id": 4077,
+      "msg_id_hex": "0xfed",
+      "name": "RESURRECTION",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 7,
+      "byte5": 14,
+      "byte5_hex": "0xe",
+      "books": [
+        "Mage",
+        "Priest",
+        "Alchemist"
+      ]
+    },
+    {
+      "entry_idx": 78,
+      "msg_id": 4078,
+      "msg_id_hex": "0xfee",
+      "name": "DEATH WISH",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 7,
+      "byte5": 4,
+      "byte5_hex": "0x4",
+      "books": [
+        "Priest"
+      ]
+    },
+    {
+      "entry_idx": 79,
+      "msg_id": 4079,
+      "msg_id_hex": "0xfef",
+      "name": "HOLY WATER",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 0,
+      "byte5": 0,
+      "byte5_hex": "0x0",
+      "books": [],
+      "note": "non-learnable at creation \u2014 byte5=0, level=0; name exists in msg.dbs but not accessible via spell picker"
+    },
+    {
+      "entry_idx": 80,
+      "msg_id": 4080,
+      "msg_id_hex": "0xff0",
+      "name": "HELPFOOD",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 0,
+      "byte5": 0,
+      "byte5_hex": "0x0",
+      "books": [],
+      "note": "non-learnable at creation \u2014 byte5=0, level=0; name exists in msg.dbs but not accessible via spell picker"
+    },
+    {
+      "entry_idx": 81,
+      "msg_id": 4081,
+      "msg_id_hex": "0xff1",
+      "name": "MAGICFOOD",
+      "school": "DIVINE",
+      "school_idx": 5,
+      "level": 0,
+      "byte5": 0,
+      "byte5_hex": "0x0",
+      "books": [],
+      "note": "non-learnable at creation \u2014 byte5=0, level=0; name exists in msg.dbs but not accessible via spell picker"
+    }
+  ],
+  "open_questions": [
+    "Entries 79-81 (HOLY WATER, HELPFOOD, MAGICFOOD) have msg names but byte5=0 \u2014 do they appear in-game at all (e.g., as food/item effects rather than learnable spells at creation)? Their presence in the spell table and msg.dbs suggests they are late-game or special-case entries.",
+    "The rank_cap values (0x1C/0x1A/0x1B/0x19 = 28/26/27/25 per book) from the picker dispatch at wpcmk 0x28d4 do not equal the book spell counts (33/33/32/25). Psionic's rank_cap matches its count (25=25), but the other three don't. The rank_cap is used in a loop bound \u2014 further decoding of the inner picker loop would clarify whether it is a spell-level cap, a scan-range limit, or something else.",
+    "The function at wpcmk 0x21db is called from two sites (0x2509 and 0x275f). Both appear to be in the same spell/skill display context. Confirming whether 0x21db is exclusively the SPELL label renderer or also used for skill labels would clarify whether the 0xFA0 base is gated by context (skills might use a different base)."
+  ]
+}
