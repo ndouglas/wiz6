@@ -1,0 +1,338 @@
+{
+  "topic": "wpcmk-portrait-picker",
+  "subagent_run": "2026-05-26",
+  "binaries": ["wpcmk.ovr"],
+  "method": "Ghidra DecompInterface (pyghidra open_project API) + raw byte disassembly of wpcmk.ovr. Functions decompiled: wpcmk_pick_portrait_loop (0x4bad), portrait_load_from_disk (0x4a9a), ui_draw_portrait_frame (0x0c12), wpcmk_change_portrait (0x5422). Key bytes verified against the original/wpcmk.ovr binary. Cross-referenced against wpcmk-screen-flow.json (screen-10), wpcmk-window-layouts.json (screen-10-portrait), wpcmk-msg-strings.json (msgs 0x458/0x459), and portrait-pools.json. DELTA=0 for wpcmk (file offset = CS offset).",
+
+  "findings": [
+    {
+      "id": "portrait-loop-unfiltered",
+      "claim": "wpcmk_pick_portrait_loop (0x4bad) cycles ALL 42 portraits (indices 0..41) with NO race/sex/class filter. The loop body contains zero comparisons against *0x560d (race), *0x560e (alignment), or *0x560f (class). All 42 portraits are always available to any character regardless of race, sex, or class.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x4bad",
+        "type": "decompile_and_raw_bytes",
+        "decompile_excerpt": "do { if (*(byte *)0x560c != uVar2) { portrait_load_from_disk(); uVar2 = (uint)*(byte *)0x560c; } ui_draw_portrait_frame(); iVar1 = input_poll_key_or_mouse(); ... if (iVar1 == 1) { *(undefined1 *)0x560c = (char)((*(byte *)0x560c + 0x29) % 0x2a); } else if (iVar1 == 3) { *(undefined1 *)0x560c = (char)((*(byte *)0x560c + 1) % 0x2a); } } while (iVar1 != 5);",
+        "raw_bytes_key_block": "a0 0c 56 2a e4 05 29 00 b9 2a 00 99 f7 f9 8b c2 a2 0c 56",
+        "note": "The loop body reads only from *0x560c (portrait index cache). No conditional branches on *0x560d, *0x560e, *0x560f, or any other character-state variables exist within the loop."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-pools-json-correction",
+      "claim": "portrait-pools.json finding 'portrait-dispatch-by-class' misidentifies address 0x3c49 as a portrait dispatcher. 0x3c49 is actually the STARTER ITEM dispatcher (confirmed by wpcmk-screen-flow.json screen-11 and wpcmk-naming-pass.json). The 5 per-class values ([141,130,132,135,8] for Fighter etc.) are ITEM IDs not portrait reference values. Cross-verification: Fighter item IDs match exactly: screen-flow Fighter items = [0x08,0x87,0x84,0x82,0x8d] = [8,135,132,130,141] (same set, different order). Furthermore, portrait-pools.json field 'portraitIndex at pcfile +0x1ab' (DGROUP 0x561b) is a DISTINCT byte from the portrait picker's output field at record +0x19c (DGROUP 0x560c). The SPD+1 formula writes to 0x561b (a separate field), not to the portrait picker's record field at 0x560c.",
+      "category": "correction_of_prior_finding",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x3c49", "0x4bad", "0x4ded"],
+        "type": "cross_reference",
+        "fighter_items_screen_flow": ["0x08", "0x87", "0x84", "0x82", "0x8d"],
+        "fighter_items_portrait_pools": [141, 130, 132, 135, 8],
+        "sets_equal": true,
+        "portrait_picker_writes_to": "DGROUP 0x560c = record +0x19c",
+        "spd_formula_writes_to": "DGROUP 0x561b = record +0x1ab",
+        "note": "Two separate character-record bytes. 0x560c = player-selected portrait (0..41). 0x561b = SPD+1 derived value (separate, purpose unclear but confirmed by SPD+1 asm at 0x4ded: a0 a1 55 fe c0 a2 1b 56)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-loop-key-handlers",
+      "claim": "Portrait picker key bindings: key 1 = previous portrait (index decrements with wrap), key 3 = next portrait (index increments with wrap), key 5 = accept/confirm (exits loop). Both navigation keys wrap fully around all 42 portraits. Mouse button mapping (when *0x4fc4==1): button 0 -> key 1 (prev), button 1 -> key 3 (next), button 2 -> key 5 (accept).",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x4d17",
+        "type": "raw_bytes",
+        "mouse_remap_bytes": "83 3e c4 4f 01 75 26 eb 15 c7 46 fe 01 00 eb 1d c7 46 fe 03 00 eb 16 c7 46 fe 05 00 eb 0f 3d 00 00 74 e6 3d 01 00 74 e8 3d 02 00 74 ea",
+        "mouse_remap_parse": [
+          "0x4d1f: cmp word [0x4fc4], 1  ; mouse enabled?",
+          "0x4d23: jnz 0x4d4b            ; skip mouse remap if not",
+          "0x4d25: jmp 0x4d3c            ; jump to button test",
+          "0x4d27: mov [bp-2], 1         ; button 0 -> key 1",
+          "0x4d2c: jmp 0x4d4b",
+          "0x4d2e: mov [bp-2], 3         ; button 1 -> key 3",
+          "0x4d33: jmp 0x4d4b",
+          "0x4d35: mov [bp-2], 5         ; button 2 -> key 5",
+          "0x4d3a: jmp 0x4d4b",
+          "0x4d3c: cmp ax, 0; je 0x4d27  ; button 0 -> map to key 1",
+          "0x4d41: cmp ax, 1; je 0x4d2e  ; button 1 -> map to key 3",
+          "0x4d46: cmp ax, 2; je 0x4d35  ; button 2 -> map to key 5"
+        ],
+        "key1_nav_bytes": "a0 0c 56 2a e4 05 29 00 b9 2a 00 99 f7 f9 8b c2 a2 0c 56",
+        "key1_nav_parse": [
+          "0x4d4f: mov al, [0x560c]",
+          "0x4d52: sub ah, ah",
+          "0x4d54: add ax, 0x29    ; +41 = (idx + 41) % 42 = (idx - 1) % 42",
+          "0x4d57: mov cx, 0x2a   ; 42",
+          "0x4d59: cwd",
+          "0x4d5a: idiv cx        ; dx = remainder",
+          "0x4d5c: mov ax, dx",
+          "0x4d5e: mov [0x560c], al"
+        ],
+        "key3_nav_bytes": "a0 0c 56 2a e4 40 b9 2a 00 99 f7 f9 8b c2 a2 0c 56",
+        "key3_nav_parse": [
+          "0x4d62: mov al, [0x560c]",
+          "0x4d65: sub ah, ah",
+          "0x4d67: inc ax          ; +1",
+          "0x4d68: mov cx, 0x2a   ; 42",
+          "0x4d6a: cwd",
+          "0x4d6b: idiv cx        ; dx = (idx+1) % 42",
+          "0x4d6d: mov ax, dx",
+          "0x4d6f: mov [0x560c], al"
+        ],
+        "loop_exit_test_bytes": "83 7e fe 05 74 03 e9 59 ff",
+        "loop_exit_test_parse": [
+          "0x4d82: cmp word [bp-2], 5",
+          "0x4d86: je  +3  -> fall through to cleanup (key 5 exits)",
+          "0x4d88: jmp 0x4cdf     ; loop back (not key 5 -> continue)"
+        ],
+        "key_comparisons_at": "0x4d7a: cmp ax, 1 (key1 branch); 0x4d7f: cmp ax, 3 (key3 branch); 0x4d82: cmp [bp-2], 5 (exit test)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-wrap-behavior",
+      "claim": "Portrait navigation wraps fully in both directions: key 1 (prev) uses (idx+41)%42 which wraps index 0 to 41; key 3 (next) uses (idx+1)%42 which wraps index 41 to 0. Both formulas use signed IDIV by 42 to compute the modulo.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x4d4f", "0x4d62"],
+        "type": "raw_bytes",
+        "key1_wrap_formula": "(current_idx + 41) % 42",
+        "key3_wrap_formula": "(current_idx + 1) % 42",
+        "verified_by": "raw bytes + Ghidra decompile: (*(byte*)0x560c + 0x29) % 0x2a and (*(byte*)0x560c + 1) % 0x2a"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-default-index",
+      "claim": "Starting portrait index on screen-10 entry is ALWAYS 0 for new character creation. Before calling wpcmk_pick_portrait_loop, wpcmk_create_character_master writes c6 06 0c 56 00 (mov byte [0x560c], 0) at 0x4ed0, clearing the cache. The loop initializes its 'previous' cache (uVar2) to 0xffff, so the first iteration always calls portrait_load_from_disk to load portrait 0. For CHANGE PORTRAIT (wpcmk_change_portrait, 0x5422): the starting index is the CHARACTER'S CURRENT portrait (loaded from record into *0x560c by the preceding roster_io call). For new creation, portrait 0 is always first shown.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x4ed0", "0x4ed5", "0x5422", "0x542f"],
+        "type": "raw_bytes",
+        "master_clear_bytes": "c6 06 0c 56 00",
+        "master_clear_address": "0x4ed0",
+        "master_clear_parse": "mov byte [0x560c], 0  ; clear portrait_idx cache to 0",
+        "master_call_bytes": "e8 d5 fc",
+        "master_call_parse": "call 0x4bad  ; call portrait picker loop (target verified: 0x4ed8+0xfcd5-0x10000=0x4bad)",
+        "change_portrait_load": "0x542b: call 0x51c6 (load char record); 0x542f: mov al,[0x560c] -> portrait idx from loaded record",
+        "sentinel": "uVar2 = 0xffff (c7 46 fc ff ff at 0x4c37) ensures first-iteration load always fires regardless of index value"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-load-from-disk",
+      "claim": "portrait_load_from_disk (0x4a9a) loads one portrait descriptor from the appropriate video-mode file. File selection: EGA bit (0x4fc6 & 1) -> WPORT1.EGA (template at 0x53d2); VGA bit (0x4fc6 & 2) -> WPORT1.CGA (0x53dd); CGA bit (0x4fc6 & 4) -> WPORT1.CGA variant (0x53e8); Herc bit (0x4fc6 & 8) -> WPORT1.T16 (0x53f3). File-number digit = (param_1 / 14) + '1' (giving suffix '1','2','3'). Seek offset = (param_1 % 14) * stride * 9, where stride=0x20 (EGA/Herc) or 0x10 (VGA/CGA). Descriptor sizes: 0x120 (288) bytes per portrait in EGA; 0x90 (144) bytes in CGA. After load, calls func 0xdcf2 (wroot image 0x2256) to blit/decompress the portrait data to screen.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x4a9a",
+        "type": "decompile_and_raw_bytes",
+        "decompile_excerpt": "if ((*(uint *)0x4fc6 & 1) == 0) { ... CGA/Herc branches ... } else { func_0x0000f3aa(local_18, 0x53d2); } local_13 = (char)(param_1 / 0xe) + '1'; func_0x0000f0dc(); func_0x0000c772(local_18, 0); local_4 = func_0x0000f924(); if (local_4 == -1) { func_0x0000bb71(); } func_0x0000fdbd(local_4); func_0x0000fd6f(); func_0x0000fda5(); func_0x0000dcf2();",
+        "video_mode_bytes": [
+          {"flag": "0x4fc6 & 1", "template_addr": "0x53d2", "stride": 32, "file_pattern": "WPORT1.EGA / WPORT2.EGA / WPORT3.EGA"},
+          {"flag": "0x4fc6 & 2", "template_addr": "0x53dd", "stride": 16, "file_pattern": "WPORT1.CGA / WPORT2.CGA / WPORT3.CGA"},
+          {"flag": "0x4fc6 & 4", "template_addr": "0x53e8", "stride": 16, "file_pattern": "WPORT1.CGA variant"},
+          {"flag": "0x4fc6 & 8", "template_addr": "0x53f3", "stride": 32, "file_pattern": "WPORT1.T16 / WPORT2.T16 / WPORT3.T16"}
+        ],
+        "file_strings_at": {
+          "0x608d": "WPORT1.EGA",
+          "0x6098": "WPORT1.CGA",
+          "0x60ae": "WPORT1.T16"
+        },
+        "file_digit_compute_bytes": "8b 46 04 b9 0e 00 99 f7 f9 05 31 00 88 46 ef",
+        "file_digit_parse": "mov ax,[bp+4]; mov cx,14; cwd; idiv cx -> ax=idx/14, dx=idx%14; add ax,'1' -> digit char; mov [buf-dig], al",
+        "seek_formula_bytes": "8b 46 04 f7 6e e8 8b d0 b1 03 d3 e0 03 c2 99 52 50",
+        "seek_formula_parse": "mov ax,param1(=idx%14); imul [bp-0x18](=stride); mov dx,ax; shl ax,3; add ax,dx; cwd -> push dx:ax = (idx%14)*stride*9",
+        "verified_file_sizes": {
+          "wport1.ega": "4096 bytes (0x1000), fits 14 * 0x120 = 4032 bytes + 64 spare",
+          "wport1.cga": "2048 bytes (0x800), fits 14 * 0x90 = 1920 bytes + 128 spare",
+          "wport1.t16": "4096 bytes (0x1000), same as EGA"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-record-write",
+      "claim": "The portrait index written to the character record is the final value of *0x560c when key 5 is pressed. This is at record offset 0x19c (= 0x560c - 0x5470). The loop does NOT write to the record itself; the entire 432-byte record buffer at *0x5470 is committed to disk at screen-16 (save step) by roster_io_one_record. The byte at *0x560c (record +0x19c) is therefore the player-selected portrait index.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x4bad",
+        "type": "address_arithmetic",
+        "dgroup_portrait_addr": "0x560c",
+        "dgroup_char_base": "0x5470",
+        "record_offset": "0x560c - 0x5470 = 0x19c",
+        "write_via": "roster_io_one_record (0x001b mode=1) writes 432 bytes from *0x5470 to PCFILE.DBS at screen-16",
+        "range": "portrait index 0..41 (0x2a = 42 total)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-on-screen-messages",
+      "claim": "The portrait picker uses two messages in *0x56ca (the navigation instructions window): msg 0x458 = '\\x11\\x12 TO REVIEW PORTRAITS' at cursor row 9, col 1; msg 0x459 = 'PRESS \\x15 TO SELECT' at cursor row 0x0c, col 2. (\\x11 and \\x12 are keyboard-arrow glyphs; \\x15 is the '5' key or ENTER glyph in the game's font.) A third message is written via ui_write_centered_msg (0x638) with msg 0x45f in the *0x56cc portrait frame window.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": ["0x4c05", "0x4c31"],
+        "type": "raw_bytes_and_msg_lookup",
+        "msg_458_text": "\\x11\\x12 TO REVIEW PORTRAITS",
+        "msg_458_call_site": "0x4c0d",
+        "msg_458_bytes": "b8 58 04 50 e8 cb 76",
+        "msg_459_text": "PRESS \\x15 TO SELECT",
+        "msg_459_call_site": "0x4c31",
+        "msg_459_bytes": "b8 59 04 50 e8 a7 76",
+        "cursor_setup_458": "0x4bfd: push 0x12 (row?); push [0x56ca]; call bda7 before msg 0x458",
+        "cursor_setup_459": "0x4c1d: push 2; push 0xc; push [0x56ca]; call bda7 before msg 0x459",
+        "centered_msg_call_target": "0x637 (ui_write_centered_msg)",
+        "centered_msg_bytes": "b8 5f 04 50 e8 f5 b9",
+        "source": "wpcmk-msg-strings.json findings confirmed"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-windows-used",
+      "claim": "Portrait picker uses two windows: *0x56cc (image area, x=21 y=7 w=19 h=13) for the portrait frame display, and *0x56ca (prompt, x=0 y=20 w=40 h=5) for navigation instructions. Both are pre-existing persistent windows (not created by this function). Both are cleared at entry via ui_window_clear (thunk 0xed5a) and refreshed via func_e5b5. No new windows are created.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x4bad",
+        "type": "raw_bytes",
+        "init_call_sequence": [
+          "0x4bbf: push [0x56cc]; call 0xed5a (ui_window_clear image window)",
+          "0x4bcc: push [0x56cc]; call 0xe5b5 (focus/refresh image window)",
+          "0x4bdd: push [0x56ca]; call 0xed5a (ui_window_clear prompt window)",
+          "0x4be7: push [0x56ca]; call 0xe5b5 (focus/refresh prompt window)"
+        ],
+        "source": "wpcmk-window-layouts.json screen-10-portrait confirmed"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-total-count",
+      "claim": "Total portrait count = 42 (0x2a). Portraits 0..13 in WPORTx.EGA/CGA/T16 file 1, 14..27 in file 2, 28..41 in file 3. The modulo divisor 0x2a = 42 is hardcoded in both key-1 and key-3 navigation arithmetic.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "type": "raw_bytes",
+        "modulo_bytes_key1": "b9 2a 00 (mov cx, 0x2a) at 0x4d57",
+        "modulo_bytes_key3": "b9 2a 00 (mov cx, 0x2a) at 0x4d68",
+        "file_index_divisor": "0x0e = 14 at 0x4b1d (portraits per file)",
+        "files_per_mode": 3,
+        "total_verified": "3 files * 14 = 42"
+      },
+      "confidence": "high"
+    }
+  ],
+
+  "filter_formula": "NONE: all 42 portraits are available to all characters regardless of race (0x560d), alignment (0x560e), or class (0x560f). The loop has no conditional branches on character-state fields.",
+
+  "state_machine": {
+    "states": [
+      {
+        "name": "INIT",
+        "description": "Clear/refresh both windows, write navigation msg headers, initialize cache sentinel uVar2=0xffff"
+      },
+      {
+        "name": "LOOP_TOP",
+        "address": "0x4cdf",
+        "description": "Check if portrait_idx changed; if yes, load from disk; draw portrait frame; poll input"
+      },
+      {
+        "name": "PREV",
+        "description": "*0x560c = (current + 41) % 42; loop back"
+      },
+      {
+        "name": "NEXT",
+        "description": "*0x560c = (current + 1) % 42; loop back"
+      },
+      {
+        "name": "ACCEPT",
+        "description": "Exit do-while (iVar1 == 5); cleanup windows; return"
+      }
+    ],
+    "transitions": [
+      {"from": "INIT", "to": "LOOP_TOP", "event": "setup complete"},
+      {"from": "LOOP_TOP", "to": "PREV", "event": "key 1 or mouse button 0"},
+      {"from": "LOOP_TOP", "to": "NEXT", "event": "key 3 or mouse button 1"},
+      {"from": "LOOP_TOP", "to": "ACCEPT", "event": "key 5 or mouse button 2"},
+      {"from": "PREV", "to": "LOOP_TOP", "event": "always"},
+      {"from": "NEXT", "to": "LOOP_TOP", "event": "always"}
+    ]
+  },
+
+  "key_handlers": [
+    {
+      "key_code": 1,
+      "key_name": "1 / LEFT (review prev)",
+      "action": "Decrement portrait index with wrap: *0x560c = (*0x560c + 41) % 42",
+      "asm_comparison": "0x4d7a: cmp ax, 1; je 0x4d4f (key-1 block at 0x4d4f)",
+      "wrap_formula": "(idx + 41) % 42"
+    },
+    {
+      "key_code": 3,
+      "key_name": "3 / RIGHT (review next)",
+      "action": "Increment portrait index with wrap: *0x560c = (*0x560c + 1) % 42",
+      "asm_comparison": "0x4d7f: cmp ax, 3; je 0x4d62 (key-3 block at 0x4d62)",
+      "wrap_formula": "(idx + 1) % 42"
+    },
+    {
+      "key_code": 5,
+      "key_name": "5 / ENTER (select)",
+      "action": "Exit loop; accept current portrait index as final selection",
+      "asm_comparison": "0x4d82: cmp word [bp-2], 5; je +3 (exit do-while); e9 59 ff jmp 0x4cdf (loop-back)",
+      "wrap_formula": "n/a"
+    }
+  ],
+
+  "mouse_button_mapping": {
+    "condition": "*(int *)0x4fc4 == 1 (mouse enabled)",
+    "mappings": [
+      {"button": 0, "maps_to_key": 1, "action": "prev portrait"},
+      {"button": 1, "maps_to_key": 3, "action": "next portrait"},
+      {"button": 2, "maps_to_key": 5, "action": "accept/confirm"}
+    ],
+    "asm_bytes": "83 3e c4 4f 01 75 26 (cmp [0x4fc4],1; jnz skip) then button 0->key1, 1->key3, 2->key5 branches"
+  },
+
+  "record_offset": "0x19c (portrait index in character record; DGROUP 0x560c = char_base 0x5470 + 0x19c)",
+
+  "default_index": "For new character creation: always 0. wpcmk_create_character_master clears *0x560c to 0 at 0x4ed0 (bytes: c6 06 0c 56 00) immediately before calling portrait loop. The loop's cache sentinel uVar2=0xffff ensures portrait 0 is always loaded on first display. For CHANGE PORTRAIT (0x5422): starting index is the character's current portrait loaded from the roster record.",
+
+  "total_portraits": 42,
+
+  "portrait_file_layout": {
+    "ega_herc_files": ["WPORT1.EGA", "WPORT2.EGA", "WPORT3.EGA", "WPORT1.T16", "WPORT2.T16", "WPORT3.T16"],
+    "cga_vga_files": ["WPORT1.CGA", "WPORT2.CGA", "WPORT3.CGA"],
+    "portraits_per_file": 14,
+    "file_selection": "portrait_idx / 14 + '1' = file suffix character",
+    "sprite_offset": "(portrait_idx % 14) * stride * 9 bytes from file start",
+    "stride_ega_herc": 32,
+    "stride_cga_vga": 16,
+    "descriptor_size_ega": 288,
+    "descriptor_size_cga": 144,
+    "file_sizes_observed": {
+      "wportN.ega": "4096 bytes (14*288=4032 + 64 spare)",
+      "wportN.cga": "2048 bytes (14*144=2016 + 32 spare)",
+      "wportN.t16": "4096 bytes (same as EGA)"
+    }
+  },
+
+  "open_questions": [
+    "The centered message at 0x45f (call to ui_write_centered_msg with msg 0x45f at 0x4c3f) was not decoded in the msg-strings pass. Its text is unknown.",
+    "The 4x func_c6b2 calls (wroot 0x0c16) in the init section register mouse-click hotspot regions. Their exact coordinate args read from the *0x56ca window struct bytes [+2] and [+3]. The meaning of those struct fields (likely width and height) and the resulting hotspot geometry is not fully documented here.",
+    "portrait_load_from_disk ends with a call to func 0xdcf2 (wroot image 0x2256). This function processes/blits the loaded portrait data. Its exact behavior (decompression, palette mapping, blit-to-window) is not traced here.",
+    "WPORT files: whether file 0x53dd uses exactly WPORT1.CGA or a different CGA variant. The decompile shows 4 template branches but only 3 file-pattern names were found at 0x608d/0x6098/0x60ae. The exact string at 0x53dd/0x53e8/0x53f3 was not read in this pass.",
+    "The separate byte at record +0x1ab (*0x561b) written by SPD+1 formula (portrait-pools.json finding) -- its actual runtime purpose is unclear. It may be an 'initial portrait suggestion' used elsewhere, or dead code, or related to wpcvw portrait display."
+  ],
+
+  "cross_references": {
+    "portrait_pools_json_status": "PARTIALLY INCORRECT. The 'portrait_refs' per class are item IDs not portrait references (see finding portrait-pools-json-correction). The SPD+1 formula at 0x4ded is real but writes to a DIFFERENT field (0x561b) than the portrait picker's output (0x560c). The 'portrait picker UI at 0x0df7' note in portrait-pools.json unresolved section is also wrong: 0x0df7 = ui_redraw_character_sheet, not portrait picker.",
+    "wpcmk_screen_flow_json_screen10": "CONFIRMED. The decompile output matches exactly.",
+    "wpcmk_msg_strings_json": "CONFIRMED. Msgs 0x458 and 0x459 confirmed at call sites 0x4c0d and 0x4c31.",
+    "wpcmk_window_layouts_json_screen10": "CONFIRMED. Windows *0x56cc (image) and *0x56ca (prompt) used as documented."
+  }
+}
