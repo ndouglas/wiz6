@@ -106,6 +106,9 @@ export function RosterView() {
       </p>
 
       <div className={styles.actions}>
+        <Link to="/roster/new" className={styles.uploadLabel}>
+          + New Character
+        </Link>
         <label className={styles.uploadLabel}>
           Upload character
           <input
