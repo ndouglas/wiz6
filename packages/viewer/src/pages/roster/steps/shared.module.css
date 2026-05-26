@@ -1,0 +1,31 @@
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+}
+
+.step label {
+  font-weight: 600;
+}
+
+.step input[type="text"] {
+  background: var(--color-bg, #0a0a0a);
+  color: var(--color-text, #ddd);
+  border: 1px solid var(--color-border, #444);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: monospace;
+  font-size: 1.1em;
+}
+
+.counter {
+  margin: 0;
+  color: var(--color-text-muted, #aaa);
+  font-size: 0.9em;
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-text-muted, #aaa);
+  font-size: 0.85em;
+}

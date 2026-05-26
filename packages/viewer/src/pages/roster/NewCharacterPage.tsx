@@ -11,6 +11,7 @@ import {
   isSpellsValid,
   isKarmaValid,
 } from './lib/draft.js';
+import { NameStep } from './steps/NameStep.js';
 import styles from './NewCharacterPage.module.css';
 
 const STEP_NAMES = [
@@ -53,7 +54,10 @@ export function NewCharacterPage() {
         </p>
       </header>
       <section className={styles.stepBody}>
-        <div>{stepName} (placeholder)</div>
+        {step === 0 && (
+          <NameStep draft={draft} onUpdate={(p) => setDraft((d) => ({ ...d, ...p }))} />
+        )}
+        {step !== 0 && <div>{stepName} (placeholder)</div>}
       </section>
       <footer className={styles.actions}>
         <button type="button" onClick={() => setStep((s) => s - 1)} disabled={step === 0}>
