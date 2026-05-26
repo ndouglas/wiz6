@@ -146,6 +146,7 @@ export {
   KARMA_MAX,
   KARMA_MAX_WITH_BONUS,
 } from './character-creation/karma-roll.js';
+export { rollBonus } from './character-creation/bonus-roll.js';
 export {
   SPELL_PICKER_CLASSES,
   classHasSpellPicker,
