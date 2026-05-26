@@ -1,0 +1,427 @@
+{
+  "topic": "wpcmk-screen-flow",
+  "subagent_run": "2026-05-26",
+  "binaries": ["original/wpcmk.ovr"],
+  "corrections": [
+    {
+      "id": "state-machine-trace-step-labels",
+      "prior_source": "docs/re/findings/wpcmk-state-machine-trace.json",
+      "issue": "Steps 8 and 11 in creation-master-flow have swapped labels: step 8 is labeled 'class_picker_menu at 0x31a6' but 0x31a6 = wpcmk_pick_alignment_menu; step 11 is labeled 'attribute_roll_display at 0x32e1' but 0x32e1 = wpcmk_pick_class_menu. Step 14 in the trace is labeled 'alignment_picker at 0x392e' but 0x392e = skill_init_all_32_slots.",
+      "correction": "Correct order (from Ghidra decompile of wpcmk_create_character_master): step 8 = ALIGNMENT picker (0x31a6); step 11 = CLASS picker (0x32e1); skill_init_all_32_slots (0x392e) is step 15, after personality reroll. Alignment is chosen BEFORE the bonus roller and class; class is chosen AFTER the bonus has been rolled and the panel redrawn. The trace's call-target addresses are all correct — only the English labels are wrong.",
+      "confidence": "high",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4e47"},
+        "type": "decompile",
+        "details": "Ghidra DecompInterface output for wpcmk_create_character_master: after wpcmk_pick_race_menu() the very next call is wpcmk_pick_alignment_menu(), confirmed by function names applied in wpcmk-naming-pass.json (0x31a6 = wpcmk_pick_alignment_menu, 0x32e1 = wpcmk_pick_class_menu). The alignment picker writes to *0x560e and the class picker writes to *0x560f."
+      }
+    },
+    {
+      "id": "name-entry-before-master",
+      "prior_source": "docs/re/findings/wpcmk-state-machine-trace.json steps 15-16",
+      "issue": "The state-machine-trace places 'name_entry_flag clear' and 'call 0x4bad (name_entry)' at steps 15-16 inside the master function. But 0x4bad = wpcmk_pick_portrait_loop (not name entry).",
+      "correction": "Name entry happens in wpcmk_create_via_empty_slot (0x50f2) and wpcmk_create_via_name_prompt (0x5337), BEFORE calling wpcmk_create_character_master. The *(0x560c)=0 write inside the master function clears the PORTRAIT INDEX CACHE (not a name-entry flag). Call 0x4bad = wpcmk_pick_portrait_loop, which checks whether the portrait cache byte matches the last-loaded portrait.",
+      "confidence": "high",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "addresses": [{"space": "wpcmk.ovr", "offset": "0x50f2"}, {"space": "wpcmk.ovr", "offset": "0x4bad"}],
+        "type": "decompile",
+        "details": "wpcmk_create_via_empty_slot (0x50f2): calls ui_text_input_editor, checks name uniqueness via roster_check_name_unique, THEN calls wpcmk_create_character_master. Inside master (0x4e47): immediately before 0x4bad is 'c6 06 0c 56 00 = mov byte [0x560c], 0'. The portrait loop body: 'if (*(byte *)0x560c != uVar2) { portrait_load_from_disk(); uVar2 = (uint)*(byte *)0x560c; }' — confirming 0x560c is the portrait-index-prev-frame cache, not a name flag."
+      }
+    }
+  ],
+  "findings": [
+    {
+      "id": "screen-00-pre-entry",
+      "claim": "Character name entry happens in the entry functions wpcmk_create_via_empty_slot (0x50f2) or wpcmk_create_via_name_prompt (0x5337), before wpcmk_create_character_master is called. The master function receives (slot_idx) as param and begins with the character creation screens.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x50f2"},
+        "type": "decompile",
+        "details": "wpcmk_create_via_empty_slot body: ui_text_input_editor(window, name_buf_ptr, 7 chars max); then roster_check_name_unique(); if unique: wpcmk_create_character_master(slot_idx, name_buf). The ui_text_input_editor at 0x0f0 accumulates printable chars into the window, handles backspace, exits on CR. wpcmk_create_via_name_prompt (0x5337) is the alternate entry that shows a previously-loaded character first (load, then prompt for new name)."
+      },
+      "screen_metadata": {
+        "entry_condition": "User selected 'Create New Character' from wbase main menu slot 5 (CHARACTER menu) and the roster has at least one empty slot. wpcmk_create_via_empty_slot finds the first empty slot via roster_find_first_empty_slot (0x4ff4).",
+        "exit_conditions": [
+          {"key_or_event": "CR after non-empty, unique name", "next_screen_id": "screen-01-init"},
+          {"key_or_event": "empty name or escape", "next_screen_id": "EXIT (return to wbase)"},
+          {"key_or_event": "duplicate name", "next_screen_id": "MODAL_ERROR then re-prompt"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "0x00..0x07", "bytes": 8, "meaning": "character name (8-char padded string, copied from text input buffer via strcpy thunk 0xf3aa at 0x5337)"}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-01-init",
+      "claim": "wpcmk_create_character_master (0x4e47) begins by zeroing the 432-byte character record buffer (0x5470..0x561f), optionally copying the existing slot's data (always zeros for a fresh slot), initialising UI windows (0x0d13), doing an initial char sheet redraw (0x0df7), and setting bonus_points_remaining = 0xffff (unrolled sentinel). The screen is the creation panel, but no player input occurs until the race picker.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4e47"},
+        "type": "decompile",
+        "details": "func_0x0000f34c(0x5470, 0x1b0, 0) = memset 432 bytes; func_0x0000f3aa(0x5470) = roster_read slot (no-op for new slot); ui_print_screen_title() = 0x0d13; ui_redraw_character_sheet() = 0x0df7; *(undefined2 *)0x56ac = 0xffff; ui_render_stat_panel() = 0x2b04."
+      },
+      "screen_metadata": {
+        "entry_condition": "Entered from wpcmk_create_via_empty_slot after name validation. Slot index is param_2.",
+        "exit_conditions": [
+          {"key_or_event": "no input — continues immediately to race picker", "next_screen_id": "screen-02-race"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "0x00..0x1af", "bytes": 432, "meaning": "entire char record zeroed"},
+          {"offset_in_record": "n/a (DGROUP 0x56ac)", "bytes": 2, "meaning": "bonus_points_remaining = 0xffff (sentinel)"}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-02-race",
+      "claim": "Race picker screen: wpcmk_pick_race_menu (0x308d) shows a vertical menu of 11 races. All entries are enabled. User picks one; the result is stored as race index (0..10) in *0x560d. Immediately after, stats_bump_to_racial_minimums (0x2c7b) is called (inside 0x308d via FUN_2fce) to set the 8 base stats to the race's floor values. The stat panel is redrawn.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x308d"},
+        "type": "decompile",
+        "details": "local_6 = 0..0xa; all enabled (all 1s). Calls ui_menu_picker_vertical(window_0x56cc, 100, entries_array) returning chosen_idx; *(undefined1 *)0x560d = (undefined1)local_4 (= result); then calls FUN_2fce(local_4) which dispatches race-specific stats_bump_to_racial_minimums(DGROUP_race_table[race]) for each race handler (jump table in BSS at runtime). After pick: msg '(race name) +N (attr)' displayed at cursor via ui_print_msg_with_byte_arg, ui_render_stat_panel called. The all-enabled pattern: 'local_6 = 0; do { local_2e[local_6] = 1; } while (++local_6 < 0xb)'."
+      },
+      "screen_metadata": {
+        "entry_condition": "Immediately after creation init (no conditional). Race stat floor tables are in wroot DGROUP BSS (0x52d9..0x5333, populated by winit).",
+        "exit_conditions": [
+          {"key_or_event": "player selects race (any of 11 options)", "next_screen_id": "screen-03-alignment"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "0x19d", "bytes": 1, "meaning": "chosen_race (0=Human, 1=Elf, 2=Dwarf, 3=Gnome, 4=Hobbit, 5=Faerie, 6=Lizardman, 7=Dracon, 8=Felpurr, 9=Rawulf, 10=Mook)"},
+          {"offset_in_record": "0x12c..0x133", "bytes": 8, "meaning": "base_stats[8] (STR/INT/PIE/VIT/DEX/SPD/PER/KAR) bumped to racial minimums by stats_bump_to_racial_minimums. Floor formula: char - 65 from race table bytes. DGROUP 0x559c..0x55a3."}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-03-alignment",
+      "claim": "Alignment picker: wpcmk_pick_alignment_menu (0x31a6) shows a vertical menu of exactly 2 alignment options (binary: option 0 vs option 1). User picks one; alignment byte stored in *0x560e. After pick: calls race_faerie_personality_mod (0x306e) if applicable. Stat panel redrawn. IMPORTANT: alignment is chosen BEFORE the bonus roller and BEFORE class selection. Cross-validated: pcfile.dbs stock chars show alignment values 0 or 1 at record +0x19e (TEMPEST=1=Evil?, all others=0=Good?).",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x31a6"},
+        "type": "decompile",
+        "details": "ASM at 0x31ac: 'mov word [bp-4], 0; loop: shl ax, 1; add bx, bp; mov word [bx-0x7c], 1; inc [bp-4]; cmp [bp-4], 1; jng loop' = enables indices 0 AND 1 (loop runs while counter <= 1 = 2 iterations). Then 'mov word [bp-0x78], 0xffff' = sentinel after 2nd element. CONFIRMED 2 options. Calls ui_menu_picker_vertical(window_0x56cc, 0x8c, entries) with msg 0x45d header; msg 0x8c = msg for result display (msg_base+result). Result: *(undefined1 *)0x560e = (undefined1)local_4. Then: calls load_msg_into_buf(*(byte *)0x560e + 0x8c) and writes the alignment name. Calls race_faerie_personality_mod (0x306e). ui_render_stat_panel. Cross-validated from pcfile.dbs: TEMPEST(Mook)=1, all others=0. The two alignments are most likely Good=0 / Evil=1."
+      },
+      "screen_metadata": {
+        "entry_condition": "Immediately after race selection. No conditional.",
+        "exit_conditions": [
+          {"key_or_event": "player selects alignment", "next_screen_id": "screen-04-bonus-roller"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "0x19e", "bytes": 1, "meaning": "alignment index (DGROUP 0x560e)"},
+          {"offset_in_record": "0x12e", "bytes": 1, "meaning": "PIE (base_stats[2]) possibly adjusted by race_faerie_personality_mod at 0x306e if race=Faerie"}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-04-bonus-roller",
+      "claim": "Bonus roller: NOT interactive. After alignment, the master function runs the bonus roll inline at file 0x4e81. Formula: bonus = 5 + rng(6), then two independent 1/20 chances for +8 each. Result stored in *0x56ac (bonus_points_remaining). Debug override: if *(0x56ce)==1, bonus forced to 21. Then stat panel redrawn (0x2b04). Player sees the panel update but has no input here.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4e81"},
+        "type": "decompile",
+        "details": "Inline in wpcmk_create_character_master: 'local_30 = 6; iVar1 = func_0x0000c47e(); *(int *)0x56ac = iVar1 + 5; local_2c = 0x14; iVar1 = func_0x0000c47e(); if (iVar1 == 0) *(int *)0x56ac += 8; [repeat]; if (*(int *)0x56ce == 1) *(undefined2 *)0x56ac = 0x15'. Byte pattern at 0x4e83: B8 06 00 50 E8 F6 75 59 05 05 00 A3 AC 56 B8 14 00 50 E8 E8 75 59 85 C0 75 05 83 06 AC 56 08 B8 14 00 50 E8 D7 75 59 85 C0 75 05 83 06 AC 56 08 83 3E CE 56 01 75 06 C7 06 AC 56 15 00. Distribution: {5..10}=90.25%, {13..18}=9.5%, {21..26}=0.25%; values 11/12/19/20 unreachable. Validated over 10M trials."
+      },
+      "screen_metadata": {
+        "entry_condition": "Immediately after alignment selection. Non-interactive (no player input at this step).",
+        "exit_conditions": [
+          {"key_or_event": "no input — continues immediately to class picker", "next_screen_id": "screen-05-class"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "n/a (DGROUP 0x56ac)", "bytes": 2, "meaning": "bonus_points_remaining = 5..26 (or 21 if debug override). This is NOT a character record field; it is a creation-state variable in wroot BSS."}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-05-class",
+      "claim": "Class picker: wpcmk_pick_class_menu (0x32e1) shows a vertical menu of 14 classes, with only the classes the player can afford (given current racial-minimum stats + bonus pool) enabled. Qualification check FUN_2d10 -> per-class jump table (0x2cae per class) is run before the menu is displayed. Result stored in *0x560f. Class name displayed in a sub-panel.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x32e1"},
+        "type": "decompile",
+        "details": "FUN_0000_2d10() called first — iterates 0..13 and dispatches each class through class-qualification jump table at BSS 0x73ae (computed: local_4*2+0x73ae). This sets *(0x56ae + class*2) = 1 if affordable, 0 otherwise. Then: 'for i in 0..13: if *(0x56ae+i*2)==1: local_2e[i]=1 else: local_2e[i]=0'. Calls ui_menu_picker_vertical(window_0x56cc, 0x78, entries). Result: *(undefined1 *)0x560f = local_4 (class index 0..13). Then FUN_2e85 dispatches race-specific class post-selection (FUN_2fbd/FUN_2fce). Calls ui_render_stat_panel. Class req table at wpcmk file 0x5e98 (14x9 bytes, subtract-65 encoded)."
+      },
+      "screen_metadata": {
+        "entry_condition": "After bonus roller runs. Conditional branch: if NO class is qualified (all *(0x56ae+i*2)==0 for all i), this still shows the menu but all entries may be grayed — however the player must reroll to proceed (this is the infamous 're-roll for stats' loop; they must navigate back to the bonus screen which requires exiting and starting over).",
+        "exit_conditions": [
+          {"key_or_event": "player selects a qualified class", "next_screen_id": "screen-06-bonus-allocator"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "0x19f", "bytes": 1, "meaning": "class index (0=Fighter..13=Alchemist). DGROUP 0x560f."},
+          {"offset_in_record": "n/a (DGROUP 0x56ae[14] words)", "bytes": 28, "meaning": "class_qualification_flags[14] set by FUN_2d10 (class_check_qualification_and_bump at 0x2cae per class)"}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-06-bonus-allocator",
+      "claim": "Bonus point allocator: wpcmk_bonus_point_allocator_ui (0x3405) allows the player to spend the rolled bonus points on the 6 primary attributes (STR/INT/PIE/VIT/DEX/SPD — NOT personality/karma). Navigation: key 1=decrease, key 2=prev attr, key 3=increase, key 4=next attr, key 5=confirm (only when pool==0). Each attr caps at 18 (0x12). Mouse button mapping: if *(0x4fc4)==1, button 0->key1, button 1->key3, button 2->key5. Play_sound on invalid action.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3405"},
+        "type": "decompile",
+        "details": "Loop: 'if (local_4 == 1) { if attr[local_6] < 1: play_sound else: attr[local_6]--; undo[local_6]--; pool++; }'. 'if (local_4 == 3) { if (attr[local_6] < 0x12 && pool > 0): attr[local_6]++; undo[local_6]++; pool--; else: play_sound; }'. 'if (local_4 == 5 && pool > 0): play_sound'. '(local_4 == 5) && pool==0 -> exit loop'. Attr index local_6 wraps: key2 decrements (wraps 0->6), key4 increments (wraps 6->0). Attrs operated: 0..6 (indices into 0x559c: STR/INT/PIE/VIT/DEX/SPD + index 6 = *0x55a2 = personality). But cap check 0x12 applies to index 0..6 of 0x559c."
+      },
+      "screen_metadata": {
+        "entry_condition": "Entered after class selection. Player has bonus_points_remaining > 0 (from roller). Exit is gated: confirm (key 5) only works when pool == 0.",
+        "exit_conditions": [
+          {"key_or_event": "key 5 when bonus_points_remaining == 0 (all points allocated)", "next_screen_id": "screen-07-derived-stats"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "0x12c..0x131", "bytes": 6, "meaning": "STR/INT/PIE/VIT/DEX/SPD incremented by up to 18-racial_min each. DGROUP 0x559c..0x55a1."},
+          {"offset_in_record": "0x132", "bytes": 1, "meaning": "PER (index 6 of base_stats = *0x55a2), also modifiable but capped at 18. DGROUP 0x55a2."},
+          {"offset_in_record": "n/a (DGROUP 0x56ac)", "bytes": 2, "meaning": "bonus_points_remaining decremented to 0"}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-07-derived-stats",
+      "claim": "Derived stats init: creation_init_derived_stats (0x4ddd) runs non-interactively. Calls age_encumbrance_and_hp_roll (0x4589), race_specific_init_handler_dispatch (0x48e3), finalize_class_and_race_stats (0x3e8c). Sets level=1 at *0x5619, xp=1 at *0x561a, inventory_count=0 at *0x561c, max_hp=encumbrancex15 (or x10 for Faerie) at *0x5492. Redraws stat panel. No player interaction.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4ddd"},
+        "type": "decompile",
+        "details": "*(undefined1 *)0x5619 = 1; *(undefined1 *)0x561a = 1; *(char *)0x561b = *(char *)0x55a1 + 1; *(undefined1 *)0x561e = 100; age_encumbrance_and_hp_roll(); race_specific_init_handler_dispatch(); *(undefined1 *)0x5612 = 0; *(undefined1 *)0x5613 = 0; *(undefined1 *)0x5615 = 0; *(undefined1 *)0x5610 = 0; *(undefined2 *)0x5494 = 1; *(undefined2 *)0x5496 = 1; *(undefined1 *)0x561c = 0; for i=0..7: *(0x5580+i)=0xff; finalize_class_and_race_stats(); ui_render_stat_panel()."
+      },
+      "screen_metadata": {
+        "entry_condition": "After bonus allocator exits. Non-interactive.",
+        "exit_conditions": [
+          {"key_or_event": "no input — continues immediately to personality reroll", "next_screen_id": "screen-08-personality"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "0x008..0x00b", "bytes": 4, "meaning": "age (32-bit from rng(1000)+0x19aa). DGROUP 0x5478..0x547b."},
+          {"offset_in_record": "0x018..0x01f", "bytes": 8, "meaning": "encumbrance (min/max carry), weight (min/max). DGROUP 0x5488..0x548f."},
+          {"offset_in_record": "0x022..0x023", "bytes": 2, "meaning": "hp_initial = encumb_max * 15 (or *10 for Faerie). DGROUP 0x5492."},
+          {"offset_in_record": "0x024..0x025", "bytes": 2, "meaning": "level = 1. DGROUP 0x5494."},
+          {"offset_in_record": "0x026..0x027", "bytes": 2, "meaning": "xp = 1. DGROUP 0x5496."},
+          {"offset_in_record": "0x1ac", "bytes": 1, "meaning": "inventory_count = 0. DGROUP 0x561c."},
+          {"offset_in_record": "0x1ae", "bytes": 1, "meaning": "? = 100 (0x64). DGROUP 0x561e."},
+          {"offset_in_record": "0x110..0x11f", "bytes": 16, "meaning": "combat_stats init array at 0x5580..0x558f (8 bytes each set to 0xff — possibly ability flags)."}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-08-personality",
+      "claim": "Personality reroll: wpcmk_personality_reroll_loop (0x3837) shows a rolling dice animation for the last attribute (*0x55a3 = KAR/karma). Each iteration rolls rng into *0x55a3. A '+1' adjustment is applied if a marker byte at 'byte 0x03' is 1 (compiler artifact: likely a race or class flag). Exit: mouse click or RETURN key. Stat panel redrawn after exit.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3837"},
+        "type": "decompile",
+        "details": "func_0x0000ed5a(window_0x56ca, 0x20, 3, 0); func_0x0000e5b5(window_0x56ca); func_0x0000bda7(window_0x56ca, 9, 1); func_0x0000c2db(0x457, window_0x56ca); do { uVar1 = rng_next(); *(undefined1 *)0x55a3 = uVar1; if (*\"\\x03\" == 1) *(char *)0x55a3 += 1; cursor_set+redraw; iVar3 = mouse_read_state_or_zero(); if (iVar3 != 0) exit=1; iVar3 = kbd_check_with_filter(); if (iVar3 == 1 && getkey==CR) exit=1; } while (exit != 0); ui_render_stat_panel(). The '*\"\\x03\"' expression is a Ghidra artifact for a CS-relative data reference. Msg 0x457 = 'PERSONALITY' or similar header label."
+      },
+      "screen_metadata": {
+        "entry_condition": "After derived stats init. Interactive: player waits for desired roll.",
+        "exit_conditions": [
+          {"key_or_event": "RETURN key (accept roll)", "next_screen_id": "screen-09-skill-init"},
+          {"key_or_event": "mouse click", "next_screen_id": "screen-09-skill-init"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "0x133", "bytes": 1, "meaning": "KAR (personality/karma) = final rng value. DGROUP 0x55a3."}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-09-skill-init",
+      "claim": "Skill slot initialization: skill_init_all_32_slots (0x392e) is called non-interactively. It calls FUN_38fb(idx, 9) for skill slots 0x00..0x1f (32 slots, skipping index 10/0x0a which is missing from the explicit list — likely a decompile gap). No player input. Then portrait_idx_prev cache is cleared (*(0x560c) = 0).",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x392e"},
+        "type": "decompile",
+        "details": "32 explicit calls to FUN_0000_38fb with args (idx, 9): idx = 0,1,2,3,4,5,6,7,8,9,0xb,0xc,0xd,0xe,0xf,0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f — note index 0x0a is absent. FUN_38fb takes (skill_idx, value_9) and initializes the skill slot's baseline fields. After skill_init_all_32_slots returns, master writes: 'c6 06 0c 56 00 = mov byte [0x560c], 0' (portrait cache clear)."
+      },
+      "screen_metadata": {
+        "entry_condition": "After personality reroll. Non-interactive.",
+        "exit_conditions": [
+          {"key_or_event": "no input — continues immediately to portrait picker", "next_screen_id": "screen-10-portrait"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "unclear — FUN_38fb writes to skill arrays", "bytes": "variable", "meaning": "32 skill slot initializations. Exact record offsets depend on FUN_38fb's body (not fully decompiled). Likely writes to the 14-skills array at +0x134..+0x141 and skill-related bitmaps."},
+          {"offset_in_record": "0x19c", "bytes": 1, "meaning": "portrait_idx_prev_cache = 0. DGROUP 0x560c. (Not a true record field — this is a UI cache byte; see open_question below.)"}
+        ]
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "screen-10-portrait",
+      "claim": "Portrait picker: wpcmk_pick_portrait_loop (0x4bad) loops until key 5 (ENTER/confirm). Key 1 = previous portrait (*(0x560c) = (*(0x560c) + 0x29) % 0x2a), key 3 = next portrait (*(0x560c) = (*(0x560c) + 1) % 0x2a). Total 0x2a = 42 portraits cycling. Loads portrait from disk if index changes (portrait_load_from_disk at 0x4a9a). Portrait rendered via ui_draw_portrait_frame (0x0c12). Mouse: button 0->key1, button 1->key3, button 2->key5. When confirmed, redraws window cleanup.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4bad"},
+        "type": "decompile",
+        "details": "do { if (*(byte *)0x560c != uVar2) { portrait_load_from_disk(); uVar2 = (uint)*(byte *)0x560c; } ui_draw_portrait_frame(); iVar1 = input_poll_key_or_mouse(); [mouse mapping]; if (iVar1 == 1) *(undefined1 *)0x560c = (char)((*(byte *)0x560c + 0x29) % 0x2a); else if (iVar1 == 3) *(undefined1 *)0x560c = (char)((*(byte *)0x560c + 1) % 0x2a); } while (iVar1 != 5). Portrait file templates: WPORT1.EGA (0x608d), WPORT1.CGA (0x6098), WPORT1.T16 (0x60ae). Selected by *(0x4fc6) video-mode bits. File index = portrait_idx / 14."
+      },
+      "screen_metadata": {
+        "entry_condition": "After skill init. *(0x560c) = 0 at entry (reset by previous step).",
+        "exit_conditions": [
+          {"key_or_event": "key 5 (confirm portrait selection)", "next_screen_id": "screen-11-class-starter-items"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "0x19c", "bytes": 1, "meaning": "portrait_index_final = *(0x560c), range 0..41. DGROUP 0x560c. (This byte in the record is the portrait ID used by wpcvw to load the correct portrait sprite.)"}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-11-class-starter-items",
+      "claim": "Class-specific starter item loading: FUN_3c49 (file 0x3c49) dispatches to one of 14 class handlers based on *(0x560f) (class index). Each handler pushes up to 5 item IDs (0 = empty) and calls inventory_load_starter_items (0x3bfb), which calls inventory_load_one_item (0x3aec) for each non-zero item. Non-interactive. Then ui_redraw_character_sheet (0x0df7) is called.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3c49"},
+        "type": "decompile",
+        "details": "ASM at 0x3c49: 'mov al,[0x560f]; sub ah,ah; jmp 0x3e06'. At 0x3e06: 'cmp ax, 0xe; jnc 0x3e13; xchg ax,bx; shl bx,1; jmp [cs:bx-0x7cb2]'. Jump table in BSS at runtime 0x834e (14 entries, populated by overlay relocation). 14 case handlers at 0x3c57..0x3de8 (stride=0x1d). Each pushes 5 words and calls 0x3bfb. Item IDs per class: Fighter=[0x08,0x87,0x84,0x82,0x8d]; Mage=[0x12,0x7a,0x7b,0x82,0x14f]; Priest=[0x18,0x7a,0x7b,0x82,0x13c]; Thief=[0x06,0x78,0x79,0x83,0x1b]; Bishop=[0x1f,0x21,0x7e,0x7f,0x83]; Samurai=[0x12,0x7a,0x7b,0x82,0x146]; Lord=[0x1d,0x1e,0x78,0x79,0x37]; Ninja=[0x01,0x7a,0x7b,0x82,0xf1]; Valkyrie=[0x16,0x7c,0x7d,0x82,0x8a]; Ranger=[0x18,0x7a,0x7b,0x82,0xa3]; Bard=[0x09,0x85,0x86,0x83,0x8f]; Psionic=[0x0a,0x04,0x7a,0x7b,0x82]; Monk=[0x19,0x2f,0x7a,0x7b,0x82]; Alchemist=[0x2f,0xa0,0x9e,0x9f,0xa1]. Exact item names require item database decode."
+      },
+      "screen_metadata": {
+        "entry_condition": "After portrait selection. Non-interactive.",
+        "exit_conditions": [
+          {"key_or_event": "no input — continues immediately to char sheet redraw then spell init", "next_screen_id": "screen-12-char-sheet-redraw"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "0x040..0x10f", "bytes": "up to 5 × 8 = 40", "meaning": "inventory slots filled with starter items. Each slot: 8 bytes via inventory_load_one_item (0x3aec) which calls wroot data_loader thunk with table_id=1. DGROUP 0x54b0+(slot*8). Also increments inventory_count at *0x561c."}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-12-char-sheet-redraw",
+      "claim": "Full character sheet redraw: ui_redraw_character_sheet (0x0df7) redraws the creation panel with current character state — name, level, experience, encumbrance, AC, HP, and attribute labels. Non-interactive. This is followed immediately by the conditional spell school animation.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x0df7"},
+        "type": "decompile",
+        "details": "Calls: ui_print_msg_at_xy(window_0x546e, 4, 1, 0x5470, 5) — prints name at col 4 row 1. func_0x0000bda7(window, 4, 2); ui_window_put_char_repeat(window, 0x1e, 5) — draws 30 dashes. FUN_3f1e(3, 0xe) -> some computed value; FUN_05a5(window, val) — prints formatted number (likely level). func_0x0000bda7(window, 4, 3); FUN_22b7(window, 0x1f, 5) — 31 dashes. FUN_05a5(window, *0x5496, 3, 0xc) — prints XP at col 3 offset 0xc. ui_load_and_print_msg_at_xy(200, window, 0xd, 3, 8) — msg 200 = 'EXP' label. FUN_05a5(window, *0x5494, 3, 9) — prints level. FUN_05a5(0x5620, ...) — class+race msg string built from *(0x560f)*10 + *(0x5610) + 800. 6 portrait-frame chars at style 0x23..0x28. ui_print_six_attribute_labels(window)."
+      },
+      "screen_metadata": {
+        "entry_condition": "After FUN_3c49 starter items. Non-interactive.",
+        "exit_conditions": [
+          {"key_or_event": "no input — continues to spell school init (conditional) or skill training", "next_screen_id": "screen-13-spell-school-init (conditional) OR screen-14-skill-training"}
+        ],
+        "buffer_writes": []
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-13-spell-school-init",
+      "claim": "Spell school animation: ui_welcome_animation (0x1ae9) is called ONLY if *(0x5618) != 0 (character can cast spells). Shows an animated sequence listing the character's spell schools. The loop inside 0x1ae9 calls creation_stage_dispatcher_by_step (0x15d7) in a cycle until *(0x5618) becomes 0. This initializes 14 spell schools per-class. No player interaction needed.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4ede"},
+        "type": "decompile",
+        "details": "In master: 'if (*(char *)0x5618 != 0) { iStack_28 = *(undefined2 *)0x56ca; ui_welcome_animation(); }'. At 0x1ae9: 'do { local_1c[0] = creation_stage_dispatcher_by_step(local_6, param_1, iVar2); ui_class_menu_with_qualification(param_1, local_6); iVar2 = (iVar2 + 1) % 4; if (iVar2==2 && ppppuVar1==0) iVar2=3; } while (*(char *)0x5618 != 0)'. This loops until *(0x5618) is cleared to 0 inside creation_stage_dispatcher_by_step. *(0x5618) = 'has_spells' flag: non-zero for Mage/Priest/Bishop/Samurai/Lord/Ninja/Valkyrie/Ranger/Bard/Psionic/Monk/Alchemist (all caster classes)."
+      },
+      "screen_metadata": {
+        "entry_condition": "Conditional: *(0x5618) != 0 (character is a caster). Skipped entirely for Fighter, Thief.",
+        "exit_conditions": [
+          {"key_or_event": "animation completes (*(0x5618) cleared to 0 by inner loop)", "next_screen_id": "screen-14-skill-training"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "0x1a8", "bytes": 1, "meaning": "has_spells = 0 (cleared at end of animation). DGROUP 0x5618."},
+          {"offset_in_record": "0x068..0x07f", "bytes": "up to 24", "meaning": "spell school cur/max mana initialized per caster class (14 schools × spell_init_per_class_books at 0x3e51). Exact offsets depend on school_mana layout (+0x28+i*4 per school i=0..5 for 6 schools)."}
+        ]
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "screen-14-skill-training",
+      "claim": "Skill training: 4 rounds of wpcmk_train_skill_pillar (0x28d4), one per pillar (MAGIC/FAITH/PHYSICAL/MENTAL = 0/1/2/3). Each round is SKIPPED if *(0x5588 + pillar) == 0 (no training points in that pillar). For active pillars: shows a 6-cell grid widget via ui_train_attribute_picker_grid (0x229c); player picks a skill to train; that skill's governing-attribute pool at *(0x5498 + attr*4) and *(0x549a + attr*4) are incremented. After pick, pillar training count *(0x5588 + pillar) is decremented by 1. A class with training points in all 4 pillars would show 4 consecutive skill-training screens.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4eef"},
+        "type": "decompile",
+        "details": "In master: 'local_4 = 0; do { while (*(char *)(local_4 + 0x5588) != 0) { wpcmk_train_skill_pillar(window_0x546e, char_ptr_0x56ca, local_4); } local_4++; } while (local_4 < 4)'. Inside 0x28d4: param_3 maps to pillar_mask (0->8=MAGIC, 1->4=FAITH, 2->1=PHYSICAL, 3->2=MENTAL). Skill table walk at DGROUP 0xde..0x322 (82 entries × 6 bytes): entry+0 = skill_idx, entry+4 = governing_attr (0..5), entry+3 = pillar_mask byte. Only skills where (pillar_mask & skill.pillar_mask) AND skill not already learned are shown. After pick: *(0x5498+attr*4) += delta; *(0x549a+attr*4) += delta; *(0x5588+pillar) -= 1. The inner while loop means multiple training points per pillar each show their own pick."
+      },
+      "screen_metadata": {
+        "entry_condition": "After spell school animation (or char sheet redraw if no spells). Iterated 4 times (one per pillar). Each pillar is skipped if *(0x5588+pillar) == 0.",
+        "exit_conditions": [
+          {"key_or_event": "player picks a skill from the grid (selection required)", "next_screen_id": "screen-14-skill-training (next pillar) OR screen-15-confirm"},
+          {"key_or_event": "ui_train_attribute_picker_grid returns -1 (cancel)", "next_screen_id": "loop retries until non-cancel"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "0x028..0x03f", "bytes": "up to 24", "meaning": "skill_attr_pool (6×(cur u16, max u16)) at *(0x5498+attr*4) and *(0x549a+attr*4). These fields also serve as school_mana in wpcvw. DGROUP 0x5498..0x54af."},
+          {"offset_in_record": "0x118..0x11f", "bytes": 8, "meaning": "skill_training_points_per_pillar *(0x5588+pillar) decremented. DGROUP 0x5588..0x558b."}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-15-confirm",
+      "claim": "Confirmation menu: after skill training, master shows a menu (msg 0x44f header, msg 0x45a options) with two choices. Choice 0 = KEEP/ACCEPT the character. Choice != 0 = DISCARD (return without saving). The menu is ui_menu_picker_vertical with up to roster_slot_count+1 entries (from '*iStack_a = *(byte *)(local_30 + 6) + 1'). If choice == 0: character is written to roster file.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4f20"},
+        "type": "decompile",
+        "details": "In master after skill loop: 'func_0x0000ed5a(window, 0, 3, 0x20); func_0x0000e5b5(window); func_0x0000bda7(...); func_0x0000c2db(0x44f, window); [cursor setup]; iStack_a = *(byte *)(local_30+6)+1; local_6 = ui_menu_picker_vertical(*(int *)0x56ca, ..., 0x45a, ...); if (local_6 == 0) { roster_io_one_record(1, slot, 0x5470); *(0x4fd8+slot)=1; roster_save_all(); ... }'. Msg 0x44f likely 'ARE YOU HAPPY?' or equivalent creation-complete prompt. Msg 0x45a = YES/NO choice list."
+      },
+      "screen_metadata": {
+        "entry_condition": "After skill training loop completes (all 4 pillars iterated). Always shown.",
+        "exit_conditions": [
+          {"key_or_event": "choice == 0 (KEEP/YES)", "next_screen_id": "screen-16-save"},
+          {"key_or_event": "choice != 0 (DISCARD/NO)", "next_screen_id": "EXIT (return to wbase without saving)"}
+        ],
+        "buffer_writes": []
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "screen-16-save",
+      "claim": "Roster save: roster_io_one_record (0x001b, mode=1) writes the 432-byte char record from *0x5470 to PCFILE.DBS at slot_idx*record_size. Then *(0x4fd8+slot)=1 (mark occupied). Then roster_save_all (0xf0dc thunk) flushes the full roster. Additional file I/O writes the roster header (0x18 bytes at *0x4fd0 via crt_write thunk 0xfd76) after an open+seek. Non-interactive; creation complete.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4fae"},
+        "type": "decompile",
+        "details": "if (local_6 == 0): 'roster_io_one_record(1, param_2, 0x5470); *(0x4fd8+param_2)=1; func_0x0000f0dc()' [=roster_save_all thunk]. Then: 'func_0x0000c772(0x53fe, 2)' [boot_build_prompt_message], 'func_0x0000f924(*0x4fd2)' [crt_open], 'func_0x0000fdbd(...)' [seek], 'local_8=func_0x0000fd76(0x18, local_8)' [write 0x18=24 bytes], 'func_0x0000fda5(...)' [close]. Roster filename from *0x4fee -> 'PCFILE.DBS' at 0x5ca9."
+      },
+      "screen_metadata": {
+        "entry_condition": "Player confirmed KEEP in screen-15. Non-interactive.",
+        "exit_conditions": [
+          {"key_or_event": "save completes — returns to wbase", "next_screen_id": "EXIT to wbase (state 4)"}
+        ],
+        "buffer_writes": [
+          {"offset_in_record": "n/a (disk write)", "bytes": 432, "meaning": "full char record at 0x5470..0x561f written to PCFILE.DBS at offset slot*0x1b0"},
+          {"offset_in_record": "n/a (DGROUP 0x4fd8[slot])", "bytes": 1, "meaning": "roster occupancy flag = 1"}
+        ]
+      },
+      "confidence": "high"
+    }
+  ],
+  "open_questions": [
+    "screen-03-alignment: CONFIRMED 2 options. ASM at 0x31b4: 'cmp ax, 1; jng loop' — loop runs for counter 0 and 1 only (2 iterations). Alignment is binary (0 or 1). Cross-validated from pcfile.dbs stock characters (header-adjusted at +0x18): THESUS align=0, TEMPEST align=1, LYSANDR align=0, NOBAL align=0, TREON align=0, PENTAG align=0. The two alignment names are fetched via msg base 0x8c + result (msg 0x8c=option0, msg 0x8d=option1). Names not decoded in this pass.",
+    "screen-04-bonus-roller: The ordering 'race -> alignment -> bonus -> class' is confirmed by Ghidra decompile. But the player CANNOT reroll the bonus without starting over (no loop around the roller). This means if no class is affordable, the user must abort and restart. Confirm: does the game actually abort / restart from a point BEFORE the alignment pick? If so, there's a 'restart' path not documented here.",
+    "screen-09-skill-init: FUN_38fb body not decompiled in this pass. The exact record fields written by skill_init_all_32_slots are not fully known. Index 0x0a is absent from the explicit 32-call list — possible decompiler gap or intentional skip.",
+    "screen-13-spell-school-init: The school_mana init offsets (from spell_init_per_class_books at 0x3e51) are not precisely documented. The *(0x55c2 + school) = 0 write is confirmed but the per-class max computation in FUN_3e17 is not traced here.",
+    "screen-14-skill-training: The 'while' inner loop (multiple skill picks per pillar when *(0x5588+pillar) > 1) means some classes may get multiple picks per pillar. The actual initial training point counts per class in *(0x5588..0x558b) are not confirmed — they are presumably set by finalize_class_and_race_stats or the race/class init handlers.",
+    "screen-15-confirm: Msg IDs 0x44f and 0x45a are inferred from the decompile call sites. Their actual text strings are in msg.dbs and have not been decoded in this pass.",
+    "screen-16-save: The secondary file write (0x18 bytes at *0x4fd0) is not fully understood. It may be a roster header or character index file. The crt_open target from *0x4fd2 suggests it is a separate metadata file, not PCFILE.DBS itself.",
+    "The confirmation menu entry count formula '*(byte *)(local_30 + 6) + 1' in screen-15: local_30 is the char_ptr (0x56ca region), and byte at +6 within the char struct at 0x56ca is unclear. This may be roster slot count or some character-window metadata.",
+    "The starter item ID-to-name mapping requires decoding newgame.dbs item table (table_id=1 in the data_loader thunk 0xc31e). Items 0x82, 0x7a, 0x7b appear across many classes — these are likely 'Clothes/Rations/Rope' or common basic gear.",
+    "offset_in_record 0x19c: confirmed as portrait_idx by usage in wpcmk_pick_portrait_loop, but character-record-extended-map-v2.json lists '+0x19c (one byte before race): small computed value from wpcmk (modulo result)' as still_tbd. The 'modulo result' is confirmed as portrait_idx mod 42 from portrait_load_from_disk (0x4a9a, param_1/14 for file selection and param_1 mod 14 for sprite index within file)."
+  ],
+  "topic_metadata": {
+    "summary": "wpcmk character creation is a synchronous 16-step flow driven by wpcmk_create_character_master (0x4e47). Name entry happens before the master is called (in wpcmk_create_via_empty_slot at 0x50f2). The in-master screen order is: init (buffer clear + UI setup) → race picker → alignment picker → bonus roller (inline, non-interactive) → stat panel redraw → class picker → bonus allocator → derived stats init (non-interactive) → personality reroll → skill init (non-interactive) → portrait picker → class starter items (non-interactive) → char sheet redraw → [conditional: spell school animation] → skill training × 4 pillars → confirmation menu → [conditional: save to PCFILE.DBS]. Key conditional branch: spell school animation skipped for Fighter and Thief (*(0x5618)==0). Key ordering finding: alignment is chosen BEFORE class (a correction to prior state-machine-trace label bugs). Character record is 432 bytes (0x1b0) at creation buffer DGROUP 0x5470..0x561f.",
+    "wpcmk_master_function": "0x4e47",
+    "entry_points_from_wbase": {
+      "wpcmk_create_via_empty_slot": "0x50f2",
+      "wpcmk_create_via_name_prompt": "0x5337",
+      "wpcmk_show_roster_picker": "0x56a0",
+      "wpcmk_view_character": "0x545c",
+      "wpcmk_change_portrait": "0x5422",
+      "wpcmk_train_skill_pillar": "0x28d4"
+    },
+    "pcfile_dbs_layout": {
+      "header_size_bytes": 24,
+      "header_content": "first 2 bytes = record_size (0x01b0 LE); bytes 2-3 = slot_count (0x10=16); bytes 4-5 = ? (0x18); bytes 8-13 = occupancy flags for slots 0..5 (1=occupied); rest zeros",
+      "record_size": 432,
+      "record_start_offset": "0x18 (header_size)",
+      "note": "pcfile.dbs has 24-byte header before slot 0. wpcmk 0x001b seeks to slot*432 — this is relative to the DATA start, not absolute file start. The 0x18 byte offset is handled by wroot's file I/O internals (likely stored in the file handle structure or encoded in the seek call). Cross-validated: reaction bytes at +0x168 match v2 map expectations exactly (THESUS=20, TEMPEST=12, LYSANDR=16, NOBAL=20, TREON=16, PENTAG=40)."
+    },
+    "total_screens": 17,
+    "interactive_screens": ["screen-00 (name)", "screen-02 (race)", "screen-03 (alignment)", "screen-05 (class)", "screen-06 (bonus allocator)", "screen-08 (personality)", "screen-10 (portrait)", "screen-14 (skill training)", "screen-15 (confirm)"],
+    "non_interactive_steps": ["screen-01 (init)", "screen-04 (bonus roller)", "screen-07 (derived stats)", "screen-09 (skill init)", "screen-11 (starter items)", "screen-12 (char sheet redraw)", "screen-13 (spell animation, conditional)", "screen-16 (save)"]
+  }
+}
