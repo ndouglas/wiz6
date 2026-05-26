@@ -1,0 +1,92 @@
+{
+  "topic": "karma-roll",
+  "subagent_run": "2026-05-25T00:00:00Z",
+  "binaries": ["wpcmk.ovr", "pcfile.dbs"],
+  "summary": "Decoded karma-roll routine at wpcmk.ovr file offset 0x3837. Formula: karma = rng(19) + optional +1 if personality-confirm flag [DGROUP 0x560e] == 1. Range 0..18 normally; 1..19 if player actively confirmed personality roll. Cross-validated against all 6 stock characters in pcfile.dbs.",
+  "findings": [
+    {
+      "id": "karma-rng-call",
+      "claim": "Karma is rolled via rng(19) — uniform 0..18 — stored at DGROUP 0x55a3",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x3837",
+        "type": "verified_bytes",
+        "bytes_hex": "b8 13 00 50 e8 f3 8b 59 a2 a3 55",
+        "disassembly": [
+          "b8 13 00    ; mov ax, 19",
+          "50          ; push ax",
+          "e8 f3 8b    ; call rng_thunk (uniform 0..ax-1)",
+          "59          ; pop cx",
+          "a2 a3 55    ; mov [0x55a3], al   ; store karma byte"
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "karma-personality-bonus",
+      "claim": "If [DGROUP 0x560e] == 1, karma gets +1 (inc byte [0x55a3]). Flag is set when player actively confirms personality roll instead of timing out.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x3842",
+        "type": "verified_bytes",
+        "bytes_hex": "80 3e 0e 56 01 75 04 fe 06 a3 55",
+        "disassembly": [
+          "80 3e 0e 56 01  ; cmp byte [0x560e], 1",
+          "75 04           ; jnz skip (+4 = past inc)",
+          "fe 06 a3 55     ; inc byte [0x55a3]   ; +1 to karma"
+        ],
+        "full_sequence_bytes": "b8 13 00 50 e8 f3 8b 59 a2 a3 55 80 3e 0e 56 01 75 04 fe 06 a3 55",
+        "full_sequence_address": "wpcmk.ovr file 0x3837..0x384c"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "karma-range",
+      "claim": "Karma range is 0..18 without confirm flag, 1..19 with confirm flag. Values 0..19 are all reachable; no dead zones.",
+      "category": "character_creation",
+      "evidence": {
+        "type": "derived_from_formula",
+        "formula": "karma = rng(19) + (flag ? 1 : 0)",
+        "notes": "rng(19) yields uniform 0..18 (the engine's rng_thunk returns 0..ax-1)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "karma-stock-char-validation",
+      "claim": "All 6 stock characters in pcfile.dbs have karma values in the reachable range 0..19",
+      "category": "cross_validation",
+      "evidence": {
+        "binary": "pcfile.dbs",
+        "type": "binary_cross_check",
+        "stock_characters": [
+          { "name": "THESUS",  "class": "Fighter", "karma": 14 },
+          { "name": "TEMPEST", "class": "Fighter", "karma": 16 },
+          { "name": "LYSANDR", "class": "Thief",   "karma": 15 },
+          { "name": "NOBAL",   "class": "Priest",  "karma": 4  },
+          { "name": "TREON",   "class": "Mage",    "karma": 3  },
+          { "name": "PENTAG",  "class": "Mage",    "karma": 9  }
+        ],
+        "all_in_range_0_19": true,
+        "notes": "Values decoded from pcfile.dbs slot records at the karma byte offset per the character-record schema"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "karma-dgroup-address",
+      "claim": "DGROUP 0x55a3 is the karma byte in the in-progress character record during creation. DGROUP 0x560e is the personality-confirm flag (cleared to 0 after use).",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "type": "asm_address_reference",
+        "notes": "Addresses appear in the verified bytes at 0x3837..0x384c. The flag at 0x560e is set by the click/RETURN handler in the personality-reroll idle loop; the inc at 0x55a3 and the subsequent clear of 0x560e both appear in the same code path."
+      },
+      "confidence": "high"
+    }
+  ],
+  "unresolved": [
+    "The exact DGROUP layout during character creation (which byte is Karma vs. Personality in the 8-attribute block at 0x559c..0x55a3) — see wpcmk-character-creation.md for the ambiguity. The binary evidence places karma at 0x55a3 but the attribute ordering note says 'exact name assignment is unverified.'",
+    "Whether the personality-confirm flag at 0x560e is ever set by a non-interactive path (e.g., a developer cheat similar to the bonus-point debug flag at 0x56ce). No evidence found; assumption is flag is only set by user interaction."
+  ]
+}

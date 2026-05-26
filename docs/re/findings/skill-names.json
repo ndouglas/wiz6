@@ -1,0 +1,111 @@
+{
+  "topic": "skill-names",
+  "subagent_run": "2026-05-25T00:00:00Z",
+  "binaries": ["wpcmk.ovr", "wroot.exe", "msg.hdr", "msg.dbs", "pcfile.dbs"],
+  "summary": "Decoded the mechanism by which wpcmk renders skill names in the character-creation UI. Skill names are stored as Huffman-compressed messages in msg.dbs. The 82-entry skill table at wroot.exe file offset 0x1005e drives both the skill-availability picker and the name lookup. msg_id = skill_table_index + 0xfa0 (4000). Skill names live in msg.dbs slots 7-8, msg IDs 4000..4080 (entry 4025 is a confirmed gap). Null holes at SKILL_SLOT_NAMES positions 10 and 17-21 are confirmed via all 6 stock characters having zero values at those positions in pcfile.dbs.",
+  "findings": [
+    {
+      "id": "skill-msg-id-formula",
+      "claim": "Skill name msg_id = 82-table index + 0xfa0 (= 4000). The engine computes this at wpcmk 0x2248 before calling draw_msg_in_window.",
+      "category": "skill_names",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x2248",
+        "type": "verified_bytes",
+        "bytes_hex": "05 a0 0f",
+        "disassembly": [
+          "05 a0 0f  ; add ax, 0x0fa0   ; ax = skill_table_index + 4000 = msg_id"
+        ],
+        "context": "This instruction is inside the skill-selection UI render path at wpcmk 0x21db. ax holds the skill table index (0..81) from the filtered available-skills buffer built by function 0x2186. After this add, the code calls draw_msg_in_window via thunk 0xc2db."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-82-table",
+      "claim": "The 82-entry skill master table lives at wroot.exe file offset 0x1005e (DGROUP 0x00de at runtime). Each entry is 6 bytes: [group, level, category, max, max2, pillar_flags]. 79 real entries; entries 79-81 are zero-padded.",
+      "category": "skill_names",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": "file 0x1005e",
+        "type": "direct_file_read",
+        "notes": "Entry 0 bytes: group/level fields consistent with Sword (weaponry). Pillar flags encode MAGIC(bit3)/FAITH(bit2)/PHYSICAL(bit1)/MENTAL(bit0). Verified non-zero entries 0..78; entries 79-81 all zero."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-msg-hdr-entries",
+      "claim": "Skill name messages occupy msg IDs 4000..4024 (slot 7, dbs_offset 0x32b) and 4026..4080 (slot 8, dbs_offset 0x0). Entry at msg_id 4025 is a confirmed gap — no msg.hdr entry covers it.",
+      "category": "skill_names",
+      "evidence": {
+        "binary": "msg.hdr",
+        "type": "msg_hdr_decode",
+        "msg_hdr_format": "2-byte count (718) + 718 x 6-byte entries: (start_id u16 LE, dbs_offset u16 LE, count u8, file_slot u8)",
+        "relevant_entries": [
+          { "entry_index": 67, "start_id": 4000, "dbs_offset": "0x032b", "count": 25, "file_slot": 7, "msg_ids": "4000..4024" },
+          { "entry_index": 68, "start_id": 4026, "dbs_offset": "0x0000", "count": 55, "file_slot": 8, "msg_ids": "4026..4080" }
+        ],
+        "gap_at_4025": "No entry in msg.hdr covers msg_id 4025 — this is a genuine gap in the skill name table. Corresponds to SKILL_SLOT_NAMES[25] = null (slot 25 is between 'Skulduggery' slot 15 and 'Scouting' slot 22 in the 30-slot class availability bitmaps).",
+        "notes": "msg.dbs data is Huffman-compressed; actual strings not decoded in this pass (requires a live save state in character creation mode to access the in-memory tree). The gap at 4025 is independently confirmed by msg.hdr having no entry covering that ID."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-hole-slots",
+      "claim": "SKILL_SLOT_NAMES positions 10 and 17-21 are genuine holes (null). All 6 stock characters have zero values at those character record positions.",
+      "category": "skill_names",
+      "evidence": {
+        "binary": "pcfile.dbs",
+        "type": "binary_cross_check",
+        "hole_slots": [10, 17, 18, 19, 20, 21],
+        "stock_chars_at_holes": {
+          "THESUS":  { "slot10": 0, "slot17": 0, "slot18": 0, "slot19": 0, "slot20": 0, "slot21": 0 },
+          "TEMPEST": { "slot10": 0, "slot17": 0, "slot18": 0, "slot19": 0, "slot20": 0, "slot21": 0 },
+          "LYSANDR": { "slot10": 0, "slot17": 0, "slot18": 0, "slot19": 0, "slot20": 0, "slot21": 0 },
+          "NOBAL":   { "slot10": 0, "slot17": 0, "slot18": 0, "slot19": 0, "slot20": 0, "slot21": 0 },
+          "TREON":   { "slot10": 0, "slot17": 0, "slot18": 0, "slot19": 0, "slot20": 0, "slot21": 0 },
+          "PENTAG":  { "slot10": 0, "slot17": 0, "slot18": 0, "slot19": 0, "slot20": 0, "slot21": 0 }
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-named-slots-cross-validation",
+      "claim": "Non-null SKILL_SLOT_NAMES values cross-validate correctly against stock character skill levels in pcfile.dbs",
+      "category": "skill_names",
+      "evidence": {
+        "binary": "pcfile.dbs",
+        "type": "binary_cross_check",
+        "validations": [
+          { "char": "THESUS",  "slot": 1,  "name": "Axe",           "value": 10, "notes": "Fighter with Axe=10 ✓" },
+          { "char": "THESUS",  "slot": 8,  "name": "Bow",           "value": 2,  "notes": "Fighter with Bow=2 ✓" },
+          { "char": "LYSANDR", "slot": 15, "name": "Skulduggery",   "value": 10, "notes": "Thief with Skulduggery=10 ✓" },
+          { "char": "NOBAL",   "slot": 26, "name": "Theology",      "value": 7,  "notes": "Priest with Theology=7 ✓" },
+          { "char": "TREON",   "slot": 4,  "name": "Dagger",        "value": 7,  "notes": "Mage with Dagger=7 ✓" },
+          { "char": "TREON",   "slot": 28, "name": "Thaumaturgy",   "value": 10, "notes": "Mage with Thaumaturgy=10 ✓" },
+          { "char": "PENTAG",  "slot": 0,  "name": "Sword",         "value": 5,  "notes": "Mage with Sword=5 ✓" },
+          { "char": "PENTAG",  "slot": 28, "name": "Thaumaturgy",   "value": 7,  "notes": "Mage with Thaumaturgy=7 ✓" }
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-draw-thunk",
+      "claim": "The thunk at wpcmk address 0xc2db targets wroot.exe function draw_msg_in_window at wroot file offset 0x083f",
+      "category": "skill_names",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "type": "thunk_delta_law",
+        "thunk_address": "0xc2db",
+        "calculation": "0xc2db - 0xba9c = 0x083f",
+        "target": "wroot.exe file 0x083f = draw_msg_in_window",
+        "notes": "thunk-delta law: thunk_address = wroot_file_offset + 0xBA9C"
+      },
+      "confidence": "high"
+    }
+  ],
+  "unresolved": [
+    "Actual decoded skill name strings from msg.dbs slots 7-8 — the Huffman tree is only loaded in memory during active character creation (wpcmk mode). No save states captured during character creation; the tree was all 0xffff (uninitialized) in all 13 available save states. The SKILL_SLOT_NAMES values in class-skill-availability.ts ('Sword', 'Axe', 'Polearm', etc.) are from martydill's open-source RE repo and cross-validate positionally against stock chars but are not yet binary-decoded from msg.dbs.",
+    "Slot 25 appears as null in SKILL_SLOT_NAMES but the msg.hdr gap at 4025 vs the 30-slot class availability array needs reconciliation — the 82-table and the 30-slot availability bitmap use different index spaces. The mapping from 30-slot class-availability index to 82-table skill index is not fully decoded.",
+    "Whether msg_id 4025 being missing from msg.hdr means that 82-table entry 25 has no human-readable name, or whether the table index and msg_id are not in strict 1:1 correspondence for all entries."
+  ]
+}

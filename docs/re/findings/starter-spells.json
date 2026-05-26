@@ -1,0 +1,71 @@
+{
+  "topic": "starter-spells",
+  "subagent_run": "2026-05-25T00:00:00Z",
+  "binaries": ["wpcmk.ovr", "pcfile.dbs"],
+  "summary": "No static per-class starter spell pool exists. Spells are interactively selected by the player during character creation via a picker UI at wpcmk.ovr file offset 0x1ae9. Confirmed by: (1) ui_window_create call at 0x1b28, (2) stock characters TREON and PENTAG (both Mage) having different spellSlotsKnown contents in pcfile.dbs.",
+  "findings": [
+    {
+      "id": "spell-picker-ui-window",
+      "claim": "The spell-selection entry at wpcmk 0x1ae9 opens an interactive UI window (calls ui_window_create at wpcmk 0x1b28), proving spells are player-chosen, not statically assigned.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x1b28",
+        "type": "verified_bytes",
+        "bytes_hex": "e8 8b a0",
+        "disassembly": [
+          "e8 8b a0   ; call 0xbbb6   ; thunk to ui_window_create"
+        ],
+        "thunk_resolution": {
+          "thunk_address": "0xbbb6",
+          "calculation": "0xbbb6 - 0xba9c = 0x011a",
+          "target": "wroot.exe file 0x011a = ui_window_create"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "spell-picker-stock-char-validation",
+      "claim": "Two Mage stock characters (TREON, PENTAG) have different spell contents, proving no static per-class starter pool.",
+      "category": "cross_validation",
+      "evidence": {
+        "binary": "pcfile.dbs",
+        "type": "binary_cross_check",
+        "field": "spellSlotsKnown at pcfile record +0x188, 20 bytes",
+        "stock_characters": [
+          {
+            "name": "TREON",
+            "class": "Mage",
+            "class_index": 1,
+            "spellSlotsKnown_hex": "0100000000000100000000000000000000000000"
+          },
+          {
+            "name": "PENTAG",
+            "class": "Mage",
+            "class_index": 1,
+            "spellSlotsKnown_hex": "0002000020000000000000000000000000000000"
+          }
+        ],
+        "conclusion": "Different values for same class. Static table would produce identical values."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "spell-school-init-not-spell-selection",
+      "claim": "The school-init routine at wpcmk 0x3e51 initializes class rank thresholds (14 schools), NOT the specific spells known. It is not the starter-spell assignment.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x3e51",
+        "type": "function_summary",
+        "notes": "Documented in wpcmk-character-creation.md as 'Spell-school init at 0x3e51: 14 schools × per-class allocation. Matches the Wiz6 Realms architecture.' This sets rank thresholds (schoolRankThresholds at pcfile +0x152), not spell-known bits."
+      },
+      "confidence": "high"
+    }
+  ],
+  "unresolved": [
+    "The exact branch condition at wpcmk 0x1ae9 that gates the spell picker to spell-capable classes only — which class indices trigger the picker. The SPELL_PICKER_CLASSES set in starter-spells.ts (Mage/Priest/Alchemist/Bard/Psionic/Bishop) is inferred from the class design, not read from the branch bytes.",
+    "The exact encoding of the 20-byte spellSlotsKnown field at pcfile +0x188 — whether each byte is a count per school, a spell index, or something else. The field shows sparse nonzero values for casters but the per-byte semantics remain unresolved.",
+    "Whether the Bard class has a spell picker (Bards have a limited subset of spells; it's possible the picker branches differently for them)."
+  ]
+}

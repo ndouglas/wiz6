@@ -139,6 +139,26 @@ export {
 } from './palettes/index.js';
 export type { PaletteName } from './palettes/index.js';
 
+export {
+  KARMA_ROLL,
+  rollKarma,
+  KARMA_MIN,
+  KARMA_MAX,
+  KARMA_MAX_WITH_BONUS,
+} from './character-creation/karma-roll.js';
+export {
+  SPELL_PICKER_CLASSES,
+  classHasSpellPicker,
+  STARTER_SPELLS_ARE_PLAYER_SELECTED,
+} from './character-creation/starter-spells.js';
+export {
+  PORTRAIT_PICKER_CHOICES_PER_CLASS,
+  PORTRAIT_POOL_BY_CLASS,
+  computePortraitIndex,
+  PORTRAIT_INDEX_MIN,
+  PORTRAIT_INDEX_MAX_SPD18,
+} from './character-creation/portrait-pools.js';
+
 // BSS struct schemas (Wiz6 engine memory layouts) — pure declarative data
 // used by the eventual DOSBox-X MCP server (#017), the save-state viewer,
 // and the TS port's runtime introspection. See packages/data/src/structs/.

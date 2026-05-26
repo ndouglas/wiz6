@@ -1,0 +1,102 @@
+{
+  "topic": "portrait-pools",
+  "subagent_run": "2026-05-25T00:00:00Z",
+  "binaries": ["wpcmk.ovr", "pcfile.dbs"],
+  "summary": "Portrait picker dispatches by CLASS index (reads DGROUP 0x560f = class byte). Each of 14 classes has exactly 5 portrait reference values passed to the picker UI. The stored portraitIndex at pcfile +0x1ab is computed as SPD+1 (not player-selected). Cross-validated against all 6 stock characters: 100% match.",
+  "findings": [
+    {
+      "id": "portrait-dispatch-by-class",
+      "claim": "Portrait picker at wpcmk 0x3c49 dispatches by class index. It reads the class byte from DGROUP 0x560f (= char_base + 0x19f), then jumps to one of 14 class-specific cases.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x3c49",
+        "type": "verified_bytes",
+        "bytes_hex": "558bec83c4f8a00f562ae4e9af01",
+        "disassembly": [
+          "55          ; push bp",
+          "8b ec       ; mov bp, sp",
+          "83 c4 f8    ; add sp, -8",
+          "a0 0f 56    ; mov al, [0x560f]   ; class index (DGROUP 0x560f = char_base+0x19f)",
+          "2a e4       ; sub ah, ah",
+          "e9 af 01    ; jmp 0x3e06         ; dispatch to 14-class jump table"
+        ],
+        "dgroup_address": "0x560f",
+        "dgroup_derivation": "char_base(0x5470) + class_offset(0x19f) = 0x560f ✓. Verified: 0x5470 + 0x12c(STR) = 0x559c (known STR addr) ✓"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-five-choices-per-class",
+      "claim": "Each class has exactly 5 portrait reference values. The dispatch calls function 0x3bfb with 5 pushed values; that function iterates them and renders non-zero ones.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "type": "pattern_scan",
+        "pattern": "5x (b8 XX XX 50) followed by e8 XX XX = mov/push x5 then call",
+        "all_14_cases": [
+          {"class_idx": 0,  "class": "Fighter",   "addr": "0x3c57", "portrait_refs": [141, 130, 132, 135, 8]},
+          {"class_idx": 1,  "class": "Mage",      "addr": "0x3c74", "portrait_refs": [335, 130, 123, 122, 18]},
+          {"class_idx": 2,  "class": "Priest",    "addr": "0x3c91", "portrait_refs": [316, 130, 123, 122, 24]},
+          {"class_idx": 3,  "class": "Thief",     "addr": "0x3cae", "portrait_refs": [27, 131, 121, 120, 6]},
+          {"class_idx": 4,  "class": "Ranger",    "addr": "0x3ccb", "portrait_refs": [131, 127, 126, 33, 31]},
+          {"class_idx": 5,  "class": "Alchemist", "addr": "0x3ce8", "portrait_refs": [326, 130, 123, 122, 18]},
+          {"class_idx": 6,  "class": "Bard",      "addr": "0x3d05", "portrait_refs": [55, 121, 120, 30, 29]},
+          {"class_idx": 7,  "class": "Psionic",   "addr": "0x3d22", "portrait_refs": [241, 130, 123, 122, 1]},
+          {"class_idx": 8,  "class": "Valkyrie",  "addr": "0x3d3f", "portrait_refs": [138, 130, 125, 124, 22]},
+          {"class_idx": 9,  "class": "Bishop",    "addr": "0x3d5c", "portrait_refs": [163, 130, 123, 122, 24]},
+          {"class_idx": 10, "class": "Lord",      "addr": "0x3d79", "portrait_refs": [143, 131, 134, 133, 9]},
+          {"class_idx": 11, "class": "Samurai",   "addr": "0x3d96", "portrait_refs": [130, 123, 122, 4, 10]},
+          {"class_idx": 12, "class": "Monk",      "addr": "0x3db2", "portrait_refs": [130, 123, 122, 47, 25]},
+          {"class_idx": 13, "class": "Ninja",     "addr": "0x3dce", "portrait_refs": [161, 159, 158, 160, 47]}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-index-formula",
+      "claim": "The stored portraitIndex (at pcfile +0x1ab = DGROUP 0x561b) is computed as SPD+1. The player does NOT select the portrait index; it is derived from SPD after the stat roll.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x4ded",
+        "type": "verified_bytes",
+        "bytes_hex": "a0a155fec0a21b56",
+        "disassembly": [
+          "a0 a1 55    ; mov al, [0x55a1]   ; SPD byte (char_base+0x131)",
+          "fe c0       ; inc al             ; portraitIndex = SPD + 1",
+          "a2 1b 56    ; mov [0x561b], al   ; store portraitIndex (char_base+0x1ab)"
+        ],
+        "dgroup_addresses": {
+          "0x55a1": "char_base(0x5470) + spd_offset(0x131) = 0x55a1 ✓",
+          "0x561b": "char_base(0x5470) + portraitIndex_offset(0x1ab) = 0x561b ✓"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-index-stock-char-validation",
+      "claim": "portraitIndex == SPD + 1 for all 6 stock characters in pcfile.dbs",
+      "category": "cross_validation",
+      "evidence": {
+        "binary": "pcfile.dbs",
+        "type": "binary_cross_check",
+        "stock_characters": [
+          {"name": "THESUS",  "class": "Fighter", "spd": 9,  "portraitIndex": 10, "formula_result": 10, "match": true},
+          {"name": "TEMPEST", "class": "Fighter", "spd": 7,  "portraitIndex": 8,  "formula_result": 8,  "match": true},
+          {"name": "LYSANDR", "class": "Thief",   "spd": 12, "portraitIndex": 13, "formula_result": 13, "match": true},
+          {"name": "NOBAL",   "class": "Priest",  "spd": 9,  "portraitIndex": 10, "formula_result": 10, "match": true},
+          {"name": "TREON",   "class": "Mage",    "spd": 8,  "portraitIndex": 9,  "formula_result": 9,  "match": true},
+          {"name": "PENTAG",  "class": "Mage",    "spd": 6,  "portraitIndex": 7,  "formula_result": 7,  "match": true}
+        ],
+        "all_match": true
+      },
+      "confidence": "high"
+    }
+  ],
+  "unresolved": [
+    "The encoding of the 5 portrait reference values per class (e.g., Fighter [141, 130, 132, 135, 8]) — what these numbers represent internally (msg IDs? file slot IDs? global portrait indices?). The display function at 0x3aec uses them but its full logic requires runtime trace to decode.",
+    "Whether portraitIndex is clamped to 0..13 downstream. Stock chars max SPD=12 (portraitIndex=13), so the ceiling behavior at SPD≥13 is untested. The doc says '14 portraits per file' implying max valid index = 13.",
+    "The portrait picker UI at 0x0df7 shows 5 options and lets the player choose — but the CHOSEN portrait's reference value does NOT directly become the stored index. The SPD+1 formula is a post-hoc assignment. It's unclear whether the player's visual selection affects anything other than what's shown on screen during creation (the stored value comes from SPD regardless)."
+  ]
+}
