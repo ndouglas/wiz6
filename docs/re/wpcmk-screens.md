@@ -305,8 +305,38 @@ Player spends points from the `0x5618` pool across the 4 skill categories; the l
 
 Source: `docs/re/findings/wpcmk-skill-train.json`
 
-## 6. Portrait picker UI loop
-TBD (RE #6)
+## 6. Portrait picker UI loop (screen-10)
+
+`wpcmk_pick_portrait_loop` (0x4bad) + `portrait_load_from_disk` (0x4a9a). Renders the image in window `*0x56cc`, prompt in `*0x56ca`.
+
+### No race/sex/class filter
+
+**Surprise: the picker cycles ALL 42 portraits unconditionally.** The loop body at 0x4bad contains zero comparisons against race (`*0x560d`), sex (`*0x560e`), or class (`*0x560f`). Any character can have any of the 42 portraits. This contradicts the spec's assumption of a race+sex-filtered pool — there is no filter.
+
+### Keys & navigation
+
+- Key 1 / Key 3 = cycle portrait left / right (review). On-screen: "↑↓ TO REVIEW PORTRAITS" (msg 0x458).
+- Key 5 = select/confirm. On-screen: "PRESS \x15 TO SELECT" (msg 0x459).
+- 42 portraits total (0x2a); index wraps.
+
+### Default index
+
+For **new** character creation: `wpcmk_create_character_master` executes `mov byte [0x560c], 0` (`c6 06 0c 56 00`) at file 0x4ed0 just before the loop, so the picker starts at portrait 0 (cache sentinel `0xffff` forces load of portrait 0 on first display). For **edit** (`wpcmk_change_portrait` 0x5422), it starts at the character's existing portrait from the roster record.
+
+### Record field
+
+Selected portrait index (0..41) → record offset `0x19c` (DGROUP `*0x560c`).
+
+### Portrait file layout
+
+`seek_offset = (idx % 14) * stride * 9`, where stride = 32 (EGA) / 16 (CGA). Yields 288-byte EGA / 144-byte CGA descriptors. File chosen by video-mode flag `*0x4fc6`: `WPORT1.EGA` / `WPORT1.CGA` / `WPORT1.T16`.
+
+### ⚠ Corrections / conflicts to resolve
+
+- **`portrait-pools.json` "portrait_refs" are actually starter ITEM IDs, not portraits.** Verified: Fighter `portrait_refs` `[141,130,132,135,8]` is set-equal to the screen-flow Fighter starter items `[0x08,0x87,0x84,0x82,0x8d]`. Address 0x3c49 is the starter-item dispatcher, not a portrait table. **`portrait-pools.json` should be corrected/retired** (flag for follow-up).
+- **Default-index conflict (open).** This pass found the new-character default is portrait 0, with an SPD+1-derived value written to a *different* field, record `+0x1ab` (`*0x561b`, computed at 0x4ded). But `portrait-pools.json` also validated that stock characters' `+0x19c` portrait index equals `SPD + 1` (e.g. THESUS spd=9 → portraitIndex=10). Either stock chars were authored with SPD+1 portraits, or the default logic is subtler than "0". **Left as an open question for Task 14 / a follow-up pass** — the Phase 2 port should not assume SPD+1 for the picker default until resolved.
+
+Source: `docs/re/findings/wpcmk-portrait-picker.json`
 
 ## 7. Generic menu picker widget
 TBD (RE #7)
