@@ -30,8 +30,8 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 | 10 | `screen-10-portrait` | `wpcmk_pick_portrait_loop` 0x4bad | yes | 42-cycle portrait picker (keys 1/3/5) |
 | 11 | `screen-11-class-starter-items` | `FUN_3c49` 0x3c49 | no | Class-specific starter inventory (14 tables) |
 | 12 | `screen-12-char-sheet-redraw` | `ui_redraw_character_sheet` 0x0df7 | no | Full character-sheet redraw |
-| 13 | `screen-13-spell-school-init` | `ui_welcome_animation` 0x1ae9 | no | **Conditional** — runs only if `*(0x5618) != 0` (caster) |
-| 14 | `screen-14-skill-training` | `wpcmk_train_skill_pillar` 0x28d4 ×4 | yes | 4 rounds (MAGIC/FAITH/PHYSICAL/MENTAL) grid picker |
+| 13 | `screen-13-skill-training` | `ui_welcome_animation` 0x1ae9 | yes | **SKILL** allocation (weaponry/physical/personal/academia); conditional on `*0x5618 > 0` — see §5 |
+| 14 | `screen-14-spell-picking` | `wpcmk_train_skill_pillar` 0x28d4 | yes | **SPELL** selection for casters (FIRE/WATER/AIR/EARTH/MENTAL/MAGIC) — see §5, §9 |
 | 15 | `screen-15-confirm` | menu picker (msg 0x44f/0x45a) | yes | KEEP or DISCARD |
 | 16 | `screen-16-save` | `roster_io_one_record` 0x001b (mode=1) | no | Write 432 bytes to PCFILE.DBS slot |
 
@@ -53,10 +53,10 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 | screen-09-skill-init | (immediate) | screen-10-portrait |
 | screen-10-portrait | key 5 (confirm portrait) | screen-11-class-starter-items |
 | screen-11-class-starter-items | (immediate) | screen-12-char-sheet-redraw |
-| screen-12-char-sheet-redraw | (immediate) | screen-13 (caster) **OR** screen-14 (non-caster) |
-| screen-13-spell-school-init | animation completes | screen-14-skill-training |
-| screen-14-skill-training | all pillars trained | screen-15-confirm |
-| screen-14-skill-training | picker returns −1 (cancel) | loop until non-cancel |
+| screen-12-char-sheet-redraw | (immediate) | screen-13 (if skill pts) **OR** screen-14 |
+| screen-13-skill-training | skill pool `*0x5618` exhausted | screen-14-spell-picking |
+| screen-14-spell-picking | all caster pillars trained | screen-15-confirm |
+| screen-14-spell-picking | picker returns −1 (cancel) | loop until non-cancel |
 | screen-15-confirm | choice == 0 (KEEP) | screen-16-save |
 | screen-15-confirm | choice != 0 (DISCARD) | **EXIT** → wbase (no save) |
 | screen-16-save | save completes | **EXIT** → wbase state 4 |
@@ -98,8 +98,8 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 
 ### Conditional branches
 
-- **screen-13 (spell school animation) is conditional on `*(0x5618) != 0`** — the caster flag, set during screen-11 (class starter items) for spellcasting classes. Non-casters skip directly from screen-12 to screen-14.
-- **screen-14 (skill training) loops via `while (*(0x5588+pillar) > 1)`** — most classes get one pick per pillar; classes with more skill points iterate.
+- **screen-13 (SKILL training) is conditional on `*0x5618 > 0`** — `*0x5618` is the skill-points pool (`rng(9)+10` minus class tier2), NOT a "caster flag". When tier2 drives it to 0 (e.g. Fighter), screen-13 is skipped. See §5. (The buffer-writes table below still uses the old `screen-13-spell-school-init` ID — to be reconciled in the Task 14 cross-check.)
+- **screen-14 (SPELL picking) loops via `while (*(0x5588+pillar) > 1)`** over the 4 spell-school pillars (MAGIC/FAITH/PHYSICAL/MENTAL at DGROUP `0x5588..0x558b`). Only 5 caster classes have nonzero pillar budgets; all others skip screen-14. See §5, §9.
 - **screen-15 (confirm) → screen-16 only if `choice == 0` (KEEP).** DISCARD exits to wbase without disk write; the record buffer is discarded.
 - **screen-00 (name entry) escape OR empty name exits wpcmk entirely.** Duplicate name shows modal error then re-prompts.
 
@@ -227,8 +227,53 @@ Source: `docs/re/findings/wpcmk-msg-strings.json`
 ## 4. Bonus-allocator UI loop
 TBD (RE #4)
 
-## 5. Skill-train UI loop
-TBD (RE #5)
+## 5. Skill-train UI loop (screen-13) + screen-13/14 resolution
+
+### ⚠ Screen-13 and screen-14 were SWAPPED in Task 2's labels
+
+Definitively resolved by decompile (RE #5) + cross-checked against msg strings (RE #3):
+
+- **screen-13** (`ui_welcome_animation` 0x1ae9 → `creation_stage_dispatcher_by_step` 0x15d7) = **SKILL training**, NOT "spell-school animation". Displays skill-category headers (WEAPONRY `0x258` / PHYSICAL `0x259` / PERSONAL `0x25a` / ACADEMIA `0x25b`) and individual skill names (WAND&DAGGER `0x157c`, SWORD, AXE, …) and "SKILL POINTS" (`0x159a`).
+- **screen-14** (`wpcmk_train_skill_pillar` 0x28d4) = **SPELL picking**, NOT "skill training". Displays "SPELLS" title (`0x2bc`), "SELECT A NEW SPELL FOR YOUR SPELLBOOK" (`0x2bf`), "COST" (`0xf75`), spell-school names FIRE/WATER/AIR/EARTH/MENTAL/MAGIC (base `0xf6e`), spell names (base `0xfa0`: ENERGY BLAST, FIREBALL, …).
+
+These are two orthogonal systems. **Section 1's screen-sequence table and transitions have been corrected; the buffer-writes and conditional-branches subsections retain provisional labels pending the Task 14 cross-check.**
+
+### Starter skill-points pool — `0x5618` = `rng(9) + 10` (10..18), NOT fixed 10
+
+The spec's placeholder of `10` is only the minimum. Pool is seeded by `personality_roll_static_10_to_18` (0x4222 — name is a misnomer; it actually rolls the skill pool):
+```asm
+4261:  b8 09 00 50 e8 XX XX   ; push 9; call rng_thunk(0xc47e) → 0..8
+       59 80 c0 0a            ; pop; add al, 10            → 10..18
+       a2 18 56               ; mov [0x5618], al
+```
+Then a class-specific handler (jump table at file `0x4545`, runtime `0x8aa9`) may **subtract an attribute-derived "tier2" adjustment**:
+
+| Classes | tier2 behavior |
+|---------|----------------|
+| Mage, Priest, Thief, Alchemist, Bard, Psionic, Valkyrie, Lord, Samurai | no adjustment — keep full `rng(9)+10` |
+| Fighter, Ranger, Bishop, Monk, Ninja | subtract `tier2 = (attr / div) + base` (per-class `div`/`base`); Fighter caps at 0 (`result = max(0, pool − tier2)`) |
+
+This reconciles the "screen-13 skipped" behavior: when the tier2 subtraction drives `0x5618` to 0 (e.g. Fighter), the skill-training loop never runs. So screen-13's condition is **`0x5618 > 0`** (has skill points to spend), not "is a caster" as Task 2 framed it.
+
+### Skill-training loop (screen-13)
+
+`ui_welcome_animation` (0x1ae9) creates a temporary window (20×16 @ (160,32), attr 0x19) then loops:
+```
+do {
+  creation_stage_dispatcher_by_step(window, party, step)   // shows a skill category + names
+  ui_class_menu_with_qualification(party, window)
+  step = (step + 1) % 4                                    // cycle WEAPONRY→PHYSICAL→PERSONAL→ACADEMIA
+  if (step == 2 && <no personal skills>) step = 3          // skip PERSONAL category when N/A
+} while (*0x5618 != 0)                                      // until skill pool exhausted
+```
+Player spends points from the `0x5618` pool across the 4 skill categories; the loop ends when the pool hits 0. Key codes 1/2/3/4/5 (the same input scheme used throughout wpcmk).
+
+### Other notes
+
+- `skill_init_all_32_slots` (0x392e, screen-09) does NOT allocate a skill pool — it initializes per-skill **combat-speed modifiers** at DGROUP `0x55d8+idx` via `speed = -4 × |KAR − 9| + 40`. The name is misleading (rename candidate for Task 12).
+- Spell training (screen-14) uses a separate per-pillar point budget at DGROUP `0x5588..0x558b` (MAGIC/FAITH/PHYSICAL/MENTAL), covered in section 9 (spell-names) — only Mage (MAGIC=2), Priest (FAITH=2), Alchemist (PHYSICAL=2), Psionic (MENTAL=2), Bishop (MAGIC=1+FAITH=1) reach it.
+
+Source: `docs/re/findings/wpcmk-skill-train.json`
 
 ## 6. Portrait picker UI loop
 TBD (RE #6)
