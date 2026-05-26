@@ -46,6 +46,8 @@ export interface CharacterDraft {
   /** Starter spell picks for caster classes. */
   starterSpells: Array<{ bookIdx: number; entryIdx: number }>;
   karma: number;
+  /** True once the karma roll step has been completed (karma may legitimately be 0). */
+  karmaRolled: boolean;
 }
 
 export function createEmptyDraft(): CharacterDraft {
@@ -60,6 +62,7 @@ export function createEmptyDraft(): CharacterDraft {
     skillPoints: {},
     starterSpells: [],
     karma: 0,
+    karmaRolled: false,
   };
 }
 
@@ -102,19 +105,10 @@ export function isBonusRollValid(d: CharacterDraft): boolean {
 export function isClassValid(d: CharacterDraft): boolean {
   if (d.classIdx === null) return false;
   if (d.classIdx < 0 || d.classIdx >= CLASS_REQUIREMENTS.length) return false;
-  // Use stored attributes (set at race-selection time) + bonus distribution.
-  // Adapt iq -> int to satisfy meetsClassRequirements(AttributeSet, ...).
-  const total = {
-    str: d.attributes.str + d.bonusDistribution.str,
-    int: d.attributes.iq + d.bonusDistribution.iq,
-    pie: d.attributes.pie + d.bonusDistribution.pie,
-    vit: d.attributes.vit + d.bonusDistribution.vit,
-    dex: d.attributes.dex + d.bonusDistribution.dex,
-    spd: d.attributes.spd + d.bonusDistribution.spd,
-    per: d.attributes.per + d.bonusDistribution.per,
-    kar: d.attributes.kar + d.bonusDistribution.kar,
-  };
-  return meetsClassRequirements(total, d.classIdx);
+  const total = computeTotalAttributes(d);
+  if (total === null) return false;
+  // meetsClassRequirements uses `int` for intelligence; DraftAttributes uses `iq`.
+  return meetsClassRequirements({ ...total, int: total.iq }, d.classIdx);
 }
 
 export function isAttributesValid(d: CharacterDraft): boolean {
@@ -122,7 +116,9 @@ export function isAttributesValid(d: CharacterDraft): boolean {
 }
 
 export function isSkillsValid(d: CharacterDraft): boolean {
-  const total = Object.values(d.skillPoints).reduce((a, b) => a + b, 0);
+  const values = Object.values(d.skillPoints);
+  if (values.some((v) => v < 0)) return false;
+  const total = values.reduce((a, b) => a + b, 0);
   return total === STARTER_SKILL_POINTS;
 }
 
@@ -138,5 +134,5 @@ export function isSpellsValid(d: CharacterDraft): boolean {
 }
 
 export function isKarmaValid(d: CharacterDraft): boolean {
-  return d.karma > 0;
+  return d.karmaRolled;
 }

@@ -24,6 +24,7 @@ describe('createEmptyDraft', () => {
     expect(d.classIdx).toBeNull();
     expect(d.bonusPool).toBe(0);
     expect(d.karma).toBe(0);
+    expect(d.karmaRolled).toBe(false);
     expect(d.starterSpells).toEqual([]);
   });
 });
@@ -64,21 +65,21 @@ describe('isBonusRollValid', () => {
 describe('isClassValid', () => {
   it('valid when classIdx is set AND attribute requirements met', () => {
     // Human base: STR 9 IQ 8 PIE 8 VIT 9 DEX 9 SPD 8 PER 8 KAR 0
-    // Fighter requires STR=12 minimum; we set attributes.str=12 directly.
+    // Fighter requires STR=12 minimum; put 3 bonus points into STR (9+3=12).
     const d = {
       ...createEmptyDraft(),
       raceIdx: 0,
       classIdx: 0,
-      attributes: { str: 12, iq: 8, pie: 8, vit: 9, dex: 9, spd: 8, per: 8, kar: 0 },
+      bonusDistribution: { str: 3, iq: 0, pie: 0, vit: 0, dex: 0, spd: 0, per: 0, kar: 0 },
     };
     expect(isClassValid(d)).toBe(true);
   });
   it('invalid when class requirements not met', () => {
+    // Human base stats with no bonus distribution cannot meet Ninja requirements.
     const d = {
       ...createEmptyDraft(),
       raceIdx: 0,
       classIdx: 13, // Ninja: requires high stats
-      attributes: { str: 9, iq: 8, pie: 8, vit: 9, dex: 9, spd: 8, per: 8, kar: 0 },
     };
     expect(isClassValid(d)).toBe(false);
   });
@@ -113,6 +114,14 @@ describe('isSkillsValid', () => {
   });
   it('invalid when sum < STARTER_SKILL_POINTS', () => {
     const d = { ...createEmptyDraft(), skillPoints: { 0: 1 } };
+    expect(isSkillsValid(d)).toBe(false);
+  });
+  it('invalid when any skill slot has a negative value', () => {
+    // 11 + (-1) sums to 10 === STARTER_SKILL_POINTS but contains a negative — must reject.
+    const d = {
+      ...createEmptyDraft(),
+      skillPoints: { 0: STARTER_SKILL_POINTS + 1, 1: -1 },
+    };
     expect(isSkillsValid(d)).toBe(false);
   });
 });
@@ -155,8 +164,14 @@ describe('isSpellsValid', () => {
 });
 
 describe('isKarmaValid', () => {
-  it('valid when karma > 0', () => {
-    expect(isKarmaValid({ ...createEmptyDraft(), karma: 1 })).toBe(true);
+  it('valid when karmaRolled is true', () => {
+    expect(isKarmaValid({ ...createEmptyDraft(), karmaRolled: true, karma: 1 })).toBe(true);
+  });
+  it('valid when karmaRolled is true even if karma === 0', () => {
+    expect(isKarmaValid({ ...createEmptyDraft(), karmaRolled: true, karma: 0 })).toBe(true);
+  });
+  it('invalid when karmaRolled is false', () => {
+    expect(isKarmaValid(createEmptyDraft())).toBe(false);
   });
 });
 

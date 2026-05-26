@@ -100,11 +100,9 @@ export const CLASS_INDEX_TO_NAME: readonly string[] = [
  * The outer loop terminates when the flag reaches zero.
  */
 export type SpellbookPickCount = 0 | 1 | 2;
-/** @deprecated Use `SpellbookPickCount`. Kept for backwards compatibility. */
-export type CasterStrength = SpellbookPickCount;
 
 /**
- * `CLASS_SPELLBOOKS[classIdx]` returns a tuple of 4 `CasterStrength` values
+ * `CLASS_SPELLBOOKS[classIdx]` returns a tuple of 4 `SpellbookPickCount` values
  * — one per spellbook in `SPELLBOOK_NAMES` order (Mage, Priest, Alchemist,
  * Psionic). A row of all zeros means the class is a non-caster at creation.
  *
@@ -192,7 +190,7 @@ export function classSpellbooks(classIdx: number): number[] {
 }
 
 /** Caster strength for `classIdx` in `bookIdx` (0 = none, 1 = secondary, 2 = primary). */
-export function classBookStrength(classIdx: number, bookIdx: number): CasterStrength {
+export function classBookStrength(classIdx: number, bookIdx: number): SpellbookPickCount {
   const row = CLASS_SPELLBOOKS[classIdx];
   if (row === undefined) return 0;
   return row[bookIdx] ?? 0;
