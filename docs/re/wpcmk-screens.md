@@ -224,8 +224,38 @@ msg `0x044d` = `* ROSTER FULL *` has no `push` reference anywhere in wpcmk — a
 
 Source: `docs/re/findings/wpcmk-msg-strings.json`
 
-## 4. Bonus-allocator UI loop
-TBD (RE #4)
+## 4. Bonus-allocator UI loop (screen-06)
+
+`wpcmk_bonus_point_allocator_ui` (0x3405) distributes the rolled pool (`*0x56ac`, 5..26) across 7 attribute slots at `*0x559c`: STR=0, INT=1, PIE=2, VIT=3, DEX=4, SPD=5, **PER=6** (KAR/index 7 is NOT adjustable here). Renders in the bottom status bar window `*0x56ca`.
+
+### Key handlers (asm comparison values)
+
+| Key | Action | Detail |
+|----:|--------|--------|
+| 1 (DECREASE) | `if undo[cursor] > 0: attr[cursor]--, undo[cursor]--, pool++` else play_sound | `CMP AX,1` @ 0x37c7 |
+| 2 (PREV_ATTR) | clear highlight; `cursor = cursor<=0 ? 6 : cursor-1` (wraps 0→6) | `CMP AX,2` @ 0x37cf |
+| 3 (INCREASE) | `if attr[cursor]<18 && pool>0: attr[cursor]++, undo[cursor]++, pool--` else play_sound | `CMP AX,3` @ 0x37d7 |
+| 4 (NEXT_ATTR) | clear highlight; `cursor = cursor>=6 ? 0 : cursor+1` (wraps 6→0) | `CMP AX,4` @ 0x37df |
+| 5 (CONFIRM) | `if pool<=0: exit` else play_sound + continue | `CMP [BP-2],5` @ 0x37e4/0x37f9 |
+
+Caps: attr ≤ 18 (`CMP byte [cursor+0x559c],0x12` @ 0x3732). Confirm gated on `pool <= 0` — **player must spend the entire pool** to leave.
+
+### Mouse (5-button table @ file 0x3678)
+
+If `*0x4fc4 == 1` (mouse mode): button0→key1, button1→key3, button2→key2, button3→key4, button4→key5. *(Correction: a prior pass claimed only 3 buttons mapped to key1/3/5 — the real table has 5.)*
+
+### Lower-bound rule
+
+The decrease guard checks `undo[cursor] > 0` (`CMP word [BX-0x14],0` @ 0x369e), **not** the race floor directly. `undo[]` starts at 0, so the player can only refund points spent *this session* — net effect: an attribute can't drop below its pre-allocator (racial-minimum) value. The race floor is never re-compared in this loop.
+
+### Structural notes
+
+- **`cursor` (`[BP-4]`) and `undo[]` (`[BP-0x14]`, 7 words) are stack-locals**, not DGROUP globals. `undo[]` is memset to 0 on entry. There is no persistent per-attribute spend counter in DGROUP.
+- When `pool != 0`, the pool-value display runs a **busy-loop count-up animation** (`ui_window_putchar` until `win.field[6] >= 38`) each loop iteration.
+
+State machine: 13 states / 20 transitions — full detail in the findings JSON.
+
+Source: `docs/re/findings/wpcmk-bonus-allocator.json`
 
 ## 5. Skill-train UI loop (screen-13) + screen-13/14 resolution
 
