@@ -41,7 +41,13 @@ const VALIDATORS: Array<(d: CharacterDraft) => boolean> = [
   (d) => isNameValid(d.name),
   isRaceValid,
   isBonusRollValid,
-  isClassValid,
+  // Step 3: classIdx is set. isClassValid checks if requirements are met via
+  // computeTotalAttributes (race base + bonusDistribution), but bonusDistribution
+  // is zero at class-pick time, so checking full requirements here would block
+  // all but a few race+class combos. The ClassPickStep already gates the buttons
+  // by theoretical reachability (race base + full bonus pool), so the wizard
+  // shell only needs to confirm a selection was made.
+  (d) => d.classIdx !== null,
   isAttributesValid,
   isSkillsValid,
   isSpellsValid,
