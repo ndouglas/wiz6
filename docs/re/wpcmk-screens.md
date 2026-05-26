@@ -518,7 +518,35 @@ The wpcmk overlay header at file `0x04-0x05` holds `0x5c9b`, which is likely a f
 Source: `docs/re/findings/wpcmk-post-commit.json`
 
 ## 11. Remaining wpcmk functions (naming completion)
-TBD (RE #11)
+
+wpcmk is now **76/76 named**. The final 10 (merged into `wpcmk-naming-pass.json`):
+
+| Addr | Name | Role |
+|------|------|------|
+| 0x2d10 | `class_qualification_check_all_14` | iterate-all 0..13 class qualification check (jump table at runtime 0x73ae / file 0x2e4a) |
+| 0x2e85 | `class_post_select_stat_bump` | raise stats to meet picked class requirements |
+| 0x2fbd | `class_post_select_dispatch` | jump-table case |
+| 0x2fca | `nop_return_stub` | no-op |
+| 0x2fce | `race_post_select_dispatch` | race-specific post-select handler |
+| 0x38fb | `combat_speed_for_slot` | per-skill combat-speed calculator (called 32× by combat_speed_modifier_init) |
+| 0x3c49 | `class_load_starter_inventory` | dispatches one of 14 class starter-item tables (screen-11) |
+| 0x3e17 | `spell_level_adjust_clamped` | clamps spell-level adjustment |
+| 0x505b | `ui_show_error_modal` | modal error display (msg_id, row, col) → render + sound + wait-for-key |
+| 0x59e0 | `wpcmk_entry_and_roster_menu` | **top-level** wpcmk entry: creates 3 persistent windows AND runs the roster-management menu (CREATE/REVIEW/DELETE/RENAME/PORTRAIT) |
+
+### 5 corrections to existing names (this sweep)
+
+| Addr | Was | Now | Why |
+|------|-----|-----|-----|
+| 0x31a6 | `wpcmk_pick_alignment_menu` | `wpcmk_pick_sex_menu` | msg "CHARACTER SEX", MALE/FEMALE (§3, §7) |
+| 0x4222 | `personality_roll_static_10_to_18` | `skill_pool_roll_and_class_adjust` | rolls skill-points pool (§5), not personality |
+| 0x1ae9 | `ui_welcome_animation` | `wpcmk_skill_training_loop` | screen-13 is skill training (§5) |
+| 0x28d4 | `wpcmk_train_skill_pillar` | `wpcmk_pick_spell` | screen-14 is spell picking (§5, §9) |
+| 0x392e | `skill_init_all_32_slots` | `combat_speed_modifier_init` | inits combat-speed mods, not skills (§5) |
+
+Note: `0x59e0` was not even recognized as a function by Ghidra (the `--only-unnamed` count of 10 missed it). It is the wpcmk overlay's real top-level entry, broader than just window setup.
+
+Source: `docs/re/findings/wpcmk-remaining-functions.json` (corrections merged into `wpcmk-naming-pass.json`).
 
 ## 12. Wichmann-Hill seed at creation start
 

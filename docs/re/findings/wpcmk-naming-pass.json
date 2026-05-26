@@ -4,12 +4,12 @@
   "binaries": [
     "wpcmk.ovr"
   ],
-  "summary": "Named 66 of 76 FUN_XXXX functions in wpcmk.ovr (PC-MK = player-character make: character creation, roster management, training). wpcmk has a 16-byte overlay header (longer than wbase's 14 or winit's 12); its dispatch entry at file offset 0x10 is a no-op handler that unconditionally writes *0x363a = 4 (return to wbase main menu) and returns ax=0 — i.e. wpcmk does NOT run an iterative state machine. Instead, the actual character-management UI is implemented entirely in wpcmk's top-level functions which are called as cross-overlay subroutines from wbase (slot 5 of the main menu jump-table). The top-level entry points are 0x50f2 (NEW char via empty roster slot, calls roller flow 0x4e47), 0x5337 (NEW char via name-prompt entry path), 0x56a0 (ROSTER picker — pick which char to act on), 0x545c (VIEW char), 0x5422 (CHANGE PORTRAIT), and 0x28d4/0x229c (TRAIN a skill). The flagship discovery is the bonus-point roller at 0x4e47 lines 0x4e83..0x4ec0: `bonus = (5..10) + 8*coinflip(1/20) + 8*coinflip(1/20)`. P(bonus ≥ 19) = 1/400 = 0.25%, mean ≈ 8.4 — empirically validated. Eligible values are {5..10, 13..18, 21..26}; you can never roll 11, 12, 19, 20 due to the +8 quantization. This is the math behind Wizardry VI's infamous reroll-for-hours character creation, and it took us decades to verify.",
+  "summary": "Named 66 of 76 FUN_XXXX functions in wpcmk.ovr (PC-MK = player-character make: character creation, roster management, training). wpcmk has a 16-byte overlay header (longer than wbase's 14 or winit's 12); its dispatch entry at file offset 0x10 is a no-op handler that unconditionally writes *0x363a = 4 (return to wbase main menu) and returns ax=0 \u2014 i.e. wpcmk does NOT run an iterative state machine. Instead, the actual character-management UI is implemented entirely in wpcmk's top-level functions which are called as cross-overlay subroutines from wbase (slot 5 of the main menu jump-table). The top-level entry points are 0x50f2 (NEW char via empty roster slot, calls roller flow 0x4e47), 0x5337 (NEW char via name-prompt entry path), 0x56a0 (ROSTER picker \u2014 pick which char to act on), 0x545c (VIEW char), 0x5422 (CHANGE PORTRAIT), and 0x28d4/0x229c (TRAIN a skill). The flagship discovery is the bonus-point roller at 0x4e47 lines 0x4e83..0x4ec0: `bonus = (5..10) + 8*coinflip(1/20) + 8*coinflip(1/20)`. P(bonus \u2265 19) = 1/400 = 0.25%, mean \u2248 8.4 \u2014 empirically validated. Eligible values are {5..10, 13..18, 21..26}; you can never roll 11, 12, 19, 20 due to the +8 quantization. This is the math behind Wizardry VI's infamous reroll-for-hours character creation, and it took us decades to verify.",
   "method": "PyGhidra + DecompInterface for all 76 functions in wpcmk.ovr (BinaryLoader, so file_offset == Ghidra address). For each function: extracted (a) decompiled C, (b) outgoing CALL edges (intra-overlay + indirect via BSS thunks), (c) scalar operands and BSS field accesses. Thunks resolved via the thunk-delta law (bss_offset - 0xBA9C = wroot file offset); 47 distinct thunks across 213 call sites. Names applied when there was multi-signal evidence: distinctive BSS-field access patterns matching the char-record layout (0x559c..0x55a1 = 6 main attrs, 0x55a2..0x55a3 = personality+karma, 0x56ac = bonus pool, 0x560d..0x560f = race/alignment/class indices), clear loops over 6 attrs / 8 skill-pillar tables / 14 class slots / 42 portraits, and the dice/menu/text-input idioms reused from wmele/wbase. The bonus-point math was confirmed in raw asm at 0x4e83..0x4ec0 (mov ax,6; call rng; add ax,5; mov [0x56ac],ax; then two `mov ax,0x14; call rng; test ax; jnz; add [0x56ac],8` blocks) and simulated empirically over 10^7 trials.",
   "stats": {
     "total_functions": 76,
-    "renamed": 66,
-    "remaining_FUN_XXXX": 10,
+    "renamed": 76,
+    "remaining_FUN_XXXX": 0,
     "categories": {
       "state_machine": 0,
       "creation_flow": 11,
@@ -30,7 +30,7 @@
       {
         "value": "0x10",
         "decimal": 16,
-        "purpose": "WPCMK state — handler is a NO-OP that immediately transitions back to state 4 (wbase main menu). The actual character-creation/roster/train UI runs in wpcmk's top-level functions which are called directly from wbase's main-menu slot-5 handler as cross-overlay subroutines, BEFORE the state-machine sees state 0x10.",
+        "purpose": "WPCMK state \u2014 handler is a NO-OP that immediately transitions back to state 4 (wbase main menu). The actual character-creation/roster/train UI runs in wpcmk's top-level functions which are called directly from wbase's main-menu slot-5 handler as cross-overlay subroutines, BEFORE the state-machine sees state 0x10.",
         "handler": "file offset 0x10 (a 14-byte stub: `pop cx; mov word [0x363a], 4; mov ax, 0; ret`)"
       }
     ],
@@ -38,32 +38,32 @@
     "header_size_bytes": 16,
     "header_bytes_hex": "f2 00 72 45 9b 5c ee 4f 30 04 02 04 68 a1 e8 cf",
     "transitions_out": [
-      "state 4: written unconditionally by the dispatch entry at 0x10 — always returns to wbase main menu after wpcmk-as-state-handler runs"
+      "state 4: written unconditionally by the dispatch entry at 0x10 \u2014 always returns to wbase main menu after wpcmk-as-state-handler runs"
     ],
     "subroutine_entry_points": [
-      "0x50f2 — wpcmk_create_via_empty_slot: picks first empty roster slot, prompts for name, runs full creation flow at 0x4e47",
-      "0x5337 — wpcmk_create_via_name_prompt: prompts for name, validates uniqueness, runs full creation flow",
-      "0x56a0 — wpcmk_show_roster_picker: shows list of saved characters, returns selected index or -1",
-      "0x545c — wpcmk_view_character: loads + draws + waits for input",
-      "0x5422 — wpcmk_change_portrait: load + pick portrait + writeback if changed",
-      "0x28d4 — wpcmk_train_skill_pillar: train one attribute pillar (PHYSICAL/MENTAL/MAGIC/FAITH)"
+      "0x50f2 \u2014 wpcmk_create_via_empty_slot: picks first empty roster slot, prompts for name, runs full creation flow at 0x4e47",
+      "0x5337 \u2014 wpcmk_create_via_name_prompt: prompts for name, validates uniqueness, runs full creation flow",
+      "0x56a0 \u2014 wpcmk_show_roster_picker: shows list of saved characters, returns selected index or -1",
+      "0x545c \u2014 wpcmk_view_character: loads + draws + waits for input",
+      "0x5422 \u2014 wpcmk_change_portrait: load + pick portrait + writeback if changed",
+      "0x28d4 \u2014 wpcmk_train_skill_pillar: train one attribute pillar (PHYSICAL/MENTAL/MAGIC/FAITH)"
     ]
   },
   "key_discoveries": [
-    "BONUS POINT ROLLER at 0x4e47 (file offsets 0x4e83..0x4ec0): `bonus_pool = (5 + rng(6)) + (8 if rng(20)==0) + (8 if rng(20)==0)` where rng_next is the wroot thunk at 0xc47e → wroot 0x9e2. Result stored at DGROUP 0x56ac. With rng(N) producing 0..N-1 uniformly, this gives a strongly bimodal distribution: P(bonus ∈ {5..10}) = (19/20)^2 = 90.25% (each value ~15.04%); P(bonus ∈ {13..18}) = 2·(1/20)·(19/20) = 9.5% (each ~1.58%); P(bonus ∈ {21..26}) = (1/20)^2 = 0.25% (each ~0.042%). P(bonus ≥ 19) = 0.2515% ≈ 1 in 400. Mean ≈ 8.4; values 11, 12, 19, 20 are unreachable due to the +8 quantization. Empirically validated over 10^7 trials. The famous 'roll for elite-class bonus' loop in Wiz6 requires ~400 attempts on average to land any value ≥ 21, the minimum needed to qualify for Samurai/Lord/Ninja/Bishop after meeting attribute prerequisites. There is also a hidden override at *0x56ce==1 that forces bonus=0x15=21 (likely a debug/cheat flag — only the cleared write `*0x56ce=0` exists in wpcmk; the flag is never set from within this overlay).",
+    "BONUS POINT ROLLER at 0x4e47 (file offsets 0x4e83..0x4ec0): `bonus_pool = (5 + rng(6)) + (8 if rng(20)==0) + (8 if rng(20)==0)` where rng_next is the wroot thunk at 0xc47e \u2192 wroot 0x9e2. Result stored at DGROUP 0x56ac. With rng(N) producing 0..N-1 uniformly, this gives a strongly bimodal distribution: P(bonus \u2208 {5..10}) = (19/20)^2 = 90.25% (each value ~15.04%); P(bonus \u2208 {13..18}) = 2\u00b7(1/20)\u00b7(19/20) = 9.5% (each ~1.58%); P(bonus \u2208 {21..26}) = (1/20)^2 = 0.25% (each ~0.042%). P(bonus \u2265 19) = 0.2515% \u2248 1 in 400. Mean \u2248 8.4; values 11, 12, 19, 20 are unreachable due to the +8 quantization. Empirically validated over 10^7 trials. The famous 'roll for elite-class bonus' loop in Wiz6 requires ~400 attempts on average to land any value \u2265 21, the minimum needed to qualify for Samurai/Lord/Ninja/Bishop after meeting attribute prerequisites. There is also a hidden override at *0x56ce==1 that forces bonus=0x15=21 (likely a debug/cheat flag \u2014 only the cleared write `*0x56ce=0` exists in wpcmk; the flag is never set from within this overlay).",
     "Class qualification at 0x2cae: takes (class_idx, requirements_str_ptr, mode). For each of 8 attrs (i=0..7), reads required value as `req_str[i] - 'A'` (so 'A'=8, 'B'=9, ..., 'O'=22), compares against current attr at *(0x559c+i); in auto-bump mode (mode==1) drains bonus_pool to raise the attr to the required value. Sets `*(0x56ae + class_idx*2) = 1` if the class is reachable (remaining bonus_pool >= 0), 0 otherwise. This is THE class-qualification gate: bonus_pool of 19+ unlocks the high-tier classes after race-modified base stats. Combined with the rolled bonus distribution above, hitting an elite class is a ~1-in-400 dice event.",
     "Character creation flow orchestrator at 0x4e47: sequence is (1) reset 432-byte buffer at 0x5470, (2) name (already entered before this fn), (3) attribute display widgets 2b04/308d/31a6 (alignment), (4) roll bonus, (5) class menu 32e1 (gated by *0x56ae[]), (6) bonus allocator 3405, (7) bump-stats-to-class-minimum (2c7b), (8) skill init 32e1/3405/4ddd, (9) personality roller 3837, (10) skill list init 392e, (11) portrait 4bad, (12) starter spells 3c49, (13) redraw 0xdf7, (14) optional welcome animation 1ae9, (15) menu 28d4 over 4 pillars, (16) commit to roster slot via 0x1b (write mode) and set roster occupancy *(0x4fd8+slot)=1.",
-    "Race/alignment/class index BSS layout: *0x560d = race (0..10 — 11 races, but bound-check at 0xb means index 0..10 valid; race jump tables at -0x7a4b are cs-relative offsets to handlers in another segment), *0x560e = alignment (selected via 31a6 menu of 11 options including some that may not be visible until others picked), *0x560f = class (0..13 — 14 classes; jump tables at -0x7557/-0x7b9c/-0x702f for class-specific init, attributes, race-mod handlers). The *2 stride at each table reference confirms 16-bit pointers — these are inline jump tables inside wpcmk.ovr at file offset `(runtime_addr - delta)` per the wbase findings' overlay-data-segment-delta law.",
-    "Six attributes at *0x559c..0x55a1 = STR/INT/PIE/VIT/DEX/SPD (Wizardry VI's canonical six). Two additional 'personality' attrs at *0x55a2..0x55a3 — derived (or rolled) at 0x4222 and 0x3837 respectively; *0x5618 = 10..18 rolled via rng(9)+10 in 0x4222 for an additional personality-traits value. The attribute display widget 0x2b04 iterates 8 attrs (the 6 primary plus 2 personality) and prints them.",
-    "Age and HP roller at 0x4589: rolls `rng(1000)` and combines with seed 0x19aa = 6570 into a 32-bit age at *0x5478..*0x547a; then dispatches to race-handler that computes (encum_min, encum_max, weight) at *0x5488..*0x548e from STR/VIT; HP_initial at *0x5492 = `STR_carry_total * 15` (or *0x1e/3 = *10 if race==5 — likely Faerie's HP penalty). The age + carry-capacity logic is the well-known 'old characters carry less' gameplay tax. The *15 multiplier means raw STR ~10 gives ~150 HP at level 1 for most races, ~100 for Faeries.",
-    "Inventory loader at 0x3aec: takes (item_id), calls cross-overlay thunk 0xc31e (= wroot 0x882, the generic data-loader used for monster types in wmele) with table=1 — so table 1 is the master items table. Stores 8-byte item records at *(0x54b0 + slot*8) (item_id, slot_value, AC, value, flag-bits), increments *0x561c (inventory count). Item flags at byte +7 are bitmapped (0x40=quest, 0x20=cursed, etc — derived from item table byte +0x13). Total weight at *0x5490 is recomputed as sum of (qty * weight) across slots. 0x3bfb is a 5-call wrapper that loads up to 5 starter items.",
-    "Spell-list init at 0x3e51: iterates 14 spell schools (0..13), if param_1[school] > 0 (= 'class can cast school?'): clears *(0x55c2 + school) = 0 and calls 0x3e17 which derives initial spell-level from race/class data tables. The 14-school × 0xe layout matches Wiz6's known Realms (Fire/Air/Water/Earth/Mind/Divine + 8 spell-books).",
+    "Race/alignment/class index BSS layout: *0x560d = race (0..10 \u2014 11 races, but bound-check at 0xb means index 0..10 valid; race jump tables at -0x7a4b are cs-relative offsets to handlers in another segment), *0x560e = alignment (selected via 31a6 menu of 11 options including some that may not be visible until others picked), *0x560f = class (0..13 \u2014 14 classes; jump tables at -0x7557/-0x7b9c/-0x702f for class-specific init, attributes, race-mod handlers). The *2 stride at each table reference confirms 16-bit pointers \u2014 these are inline jump tables inside wpcmk.ovr at file offset `(runtime_addr - delta)` per the wbase findings' overlay-data-segment-delta law.",
+    "Six attributes at *0x559c..0x55a1 = STR/INT/PIE/VIT/DEX/SPD (Wizardry VI's canonical six). Two additional 'personality' attrs at *0x55a2..0x55a3 \u2014 derived (or rolled) at 0x4222 and 0x3837 respectively; *0x5618 = 10..18 rolled via rng(9)+10 in 0x4222 for an additional personality-traits value. The attribute display widget 0x2b04 iterates 8 attrs (the 6 primary plus 2 personality) and prints them.",
+    "Age and HP roller at 0x4589: rolls `rng(1000)` and combines with seed 0x19aa = 6570 into a 32-bit age at *0x5478..*0x547a; then dispatches to race-handler that computes (encum_min, encum_max, weight) at *0x5488..*0x548e from STR/VIT; HP_initial at *0x5492 = `STR_carry_total * 15` (or *0x1e/3 = *10 if race==5 \u2014 likely Faerie's HP penalty). The age + carry-capacity logic is the well-known 'old characters carry less' gameplay tax. The *15 multiplier means raw STR ~10 gives ~150 HP at level 1 for most races, ~100 for Faeries.",
+    "Inventory loader at 0x3aec: takes (item_id), calls cross-overlay thunk 0xc31e (= wroot 0x882, the generic data-loader used for monster types in wmele) with table=1 \u2014 so table 1 is the master items table. Stores 8-byte item records at *(0x54b0 + slot*8) (item_id, slot_value, AC, value, flag-bits), increments *0x561c (inventory count). Item flags at byte +7 are bitmapped (0x40=quest, 0x20=cursed, etc \u2014 derived from item table byte +0x13). Total weight at *0x5490 is recomputed as sum of (qty * weight) across slots. 0x3bfb is a 5-call wrapper that loads up to 5 starter items.",
+    "Spell-list init at 0x3e51: iterates 14 spell schools (0..13), if param_1[school] > 0 (= 'class can cast school?'): clears *(0x55c2 + school) = 0 and calls 0x3e17 which derives initial spell-level from race/class data tables. The 14-school \u00d7 0xe layout matches Wiz6's known Realms (Fire/Air/Water/Earth/Mind/Divine + 8 spell-books).",
     "Roster I/O at 0x001b: takes (record_buf_ptr, slot_idx, mode). Opens disk file via template at *0x4fee, seeks to `slot_idx * *0x4fd0` (record size, likely 0x1b0 bytes = 432), then mode 0 = read via 0xfd6f, mode 1 = write via 0xfd76, then close via 0xfda5. Used to load (5337/56a0/51c6) and save (5337/5422) character records to the roster file on disk. *0x4fd2 = roster slot count (likely 20-32); *0x4fd8+i = occupancy byte (0=empty, 1=in-use).",
-    "Portrait loader at 0x4a9a: based on video-mode flag *0x4fc6 (bit 0=EGA, bit 1=VGA, bit 2=CGA?, bit 3=Hercules?), picks one of 4 filename templates at 0x53d2/0x53dd/0x53e8/0x53f3. Substitutes record_idx by `param_1 / 0xe` (14 portraits per file). With 42 portraits total (cycling at 0x4bad mod 0x2a), the partitioning is 14×3=42 — three portrait files per video mode. Same as wmele's snd loader pattern (0x008d): pre-input disk check, build filename, open, seek-read, close.",
+    "Portrait loader at 0x4a9a: based on video-mode flag *0x4fc6 (bit 0=EGA, bit 1=VGA, bit 2=CGA?, bit 3=Hercules?), picks one of 4 filename templates at 0x53d2/0x53dd/0x53e8/0x53f3. Substitutes record_idx by `param_1 / 0xe` (14 portraits per file). With 42 portraits total (cycling at 0x4bad mod 0x2a), the partitioning is 14\u00d73=42 \u2014 three portrait files per video mode. Same as wmele's snd loader pattern (0x008d): pre-input disk check, build filename, open, seek-read, close.",
     "Train UI at 0x28d4 / 0x229c: param_3 selects a 'skill pillar' (0=MAGIC mask 8, 1=FAITH mask 4, 2=PHYSICAL mask 1, 3=MENTAL mask 2). For each of 82 entries (`*(0xde + i*6)`) in the wroot DGROUP skill table at runtime 0xde..0x322 (6-byte stride: byte +0 = governing_attr, byte +1 = min_level, byte +2 = max_level, ..., byte +5 = pillar_mask), the train screen lists all skills where (skill_pillar_mask & pillar) and current_level >= min_level. User picks one via 6-cell grid widget (0x229c) and the skill_level at *(0x5498 + skill*4) is incremented up to max from per-attribute table at *(0x549a+skill*4).",
-    "UI layout drawer 0x6af (called from 0x5093) paints the entire char-creation screen via 0x689: writes styled chars into a 40x20 grid (offset +0x10 within window struct). Corners (1/3/6/8), edges (2/4/5/7), T-junctions (9/0xa/0xb/0xc..0x10), vertical dividers at x=2,10,12,20 to separate attribute columns. The second layout 0x1cb2 (used by 0x229c train screen) is a smaller 19×3 panel for the 6-attribute selection grid.",
+    "UI layout drawer 0x6af (called from 0x5093) paints the entire char-creation screen via 0x689: writes styled chars into a 40x20 grid (offset +0x10 within window struct). Corners (1/3/6/8), edges (2/4/5/7), T-junctions (9/0xa/0xb/0xc..0x10), vertical dividers at x=2,10,12,20 to separate attribute columns. The second layout 0x1cb2 (used by 0x229c train screen) is a smaller 19\u00d73 panel for the 6-attribute selection grid.",
     "Stat panel at 0x2b04: iterates 8 attrs at 0x559c..0x55a3, prints each via 0xc041 (right-aligned 2-digit) with msg ID base 0xcc (so msgs 0xcc..0xd3 are 'STR INT PIE VIT DEX SPD PER KAR'). Then if bonus_pool >= 0, shows pool via msg 0x453 'BONUS POINTS'. Then encumbrance pair (0x5488/0x548a as A/B carrying caps, msg 0xd4) and weight pair (0x548c/0x548e, msg 0xd5). This widget is called from 0x4e47 multiple times to redraw stats as bonus is allocated.",
-    "Personality roller (0x3837) is a 'roll until ENTER' loop visible to the player: rng draws into *0x55a3, redraws, waits for mouse-click or RETURN — this is the in-place reroll loop that gave Wiz6 its iconic 'press space to reroll' feel during character creation. (Note: this is rolling personality at *0x55a3, NOT bonus points. Bonus points at *0x56ac are rolled ONCE in 0x4e47 — the player must commit at that point and then redistribute via 0x3405.)"
+    "Personality roller (0x3837) is a 'roll until ENTER' loop visible to the player: rng draws into *0x55a3, redraws, waits for mouse-click or RETURN \u2014 this is the in-place reroll loop that gave Wiz6 its iconic 'press space to reroll' feel during character creation. (Note: this is rolling personality at *0x55a3, NOT bonus points. Bonus points at *0x56ac are rolled ONCE in 0x4e47 \u2014 the player must commit at that point and then redistribute via 0x3405.)"
   ],
   "thunk_usage": [
     {
@@ -200,7 +200,7 @@
         "0x5337",
         "0x56a0"
       ],
-      "note": "ui_window_write_msg_by_id — combination of load_msg_into_buf + write"
+      "note": "ui_window_write_msg_by_id \u2014 combination of load_msg_into_buf + write"
     },
     {
       "thunk": "0xc31e",
@@ -261,7 +261,7 @@
         "0x4e47",
         "0x56a0"
       ],
-      "note": "Likely a multi-arg menu-list-entry setup (5-arg) — sets up a single entry in a hover/select widget"
+      "note": "Likely a multi-arg menu-list-entry setup (5-arg) \u2014 sets up a single entry in a hover/select widget"
     },
     {
       "thunk": "0xc6de",
@@ -436,7 +436,7 @@
         "0x5214",
         "0x5337"
       ],
-      "note": "Likely ui_window_focus_or_refresh — paired with ui_window_clear (ed5a) in setup sequences"
+      "note": "Likely ui_window_focus_or_refresh \u2014 paired with ui_window_clear (ed5a) in setup sequences"
     },
     {
       "thunk": "0xebb4",
@@ -501,7 +501,7 @@
       "callers": [
         "0x98"
       ],
-      "note": "kbd validate/filter key — used inside the keyboard-poll loop"
+      "note": "kbd validate/filter key \u2014 used inside the keyboard-poll loop"
     },
     {
       "thunk": "0xf0dc",
@@ -557,7 +557,7 @@
       "callers": [
         "0xdf7"
       ],
-      "note": "Likely a small RNG-helper or coinflip — also seen in wmele/wbase"
+      "note": "Likely a small RNG-helper or coinflip \u2014 also seen in wmele/wbase"
     },
     {
       "thunk": "0xfaab",
@@ -650,7 +650,7 @@
     },
     {
       "id": "fn-bonus-point-roller",
-      "claim": "0x4e47 is the master character-creation orchestrator. Lines 0x4e83..0x4ec0 contain the bonus-point roller: `bonus = 5 + rng(6) + 8*(rng(20)==0) + 8*(rng(20)==0)`. P(bonus ≥ 19) = 1/400 = 0.25% (must roll both +8 bonuses; values 11/12/19/20 are unreachable).",
+      "claim": "0x4e47 is the master character-creation orchestrator. Lines 0x4e83..0x4ec0 contain the bonus-point roller: `bonus = 5 + rng(6) + 8*(rng(20)==0) + 8*(rng(20)==0)`. P(bonus \u2265 19) = 1/400 = 0.25% (must roll both +8 bonuses; values 11/12/19/20 are unreachable).",
       "category": "stat_roller",
       "evidence": {
         "binary": "wpcmk.ovr",
@@ -661,7 +661,7 @@
           "0x4ea4"
         ],
         "type": "instruction_pattern_match",
-        "details": "Raw asm at file 0x4e83: `B8 06 00 50 E8 F6 75 59 05 05 00 A3 AC 56` = `mov ax, 6; push ax; call 0xc480 (=rng_next thunk); pop cx; add ax, 5; mov [0x56ac], ax`. Then at 0x4e90: `B8 14 00 50 E8 E8 75 59 85 C0 75 05 83 06 AC 56 08` = `mov ax, 20; push ax; call rng; pop cx; test ax; jnz skip; add word [0x56ac], 8`. Identical block follows at 0x4ea4..0x4eb6 (second 1/20 bonus check). The override path at 0x4eb6: `83 3E CE 56 01 75 06 C7 06 AC 56 15 00` = `cmp word [0x56ce], 1; jnz skip; mov word [0x56ac], 0x15` — forces bonus=21 if the (debug?) flag is set. Empirically validated over 10^7 trials: bonus={5..10} 90.25%, {13..18} 9.5%, {21..26} 0.25%; mean=8.39; P(≥19)=0.2515% ≈ 1 in 400. This is THE Wizardry VI re-roll math: to qualify for elite classes (Samurai, Lord, Ninja, Bishop) you need 19+ bonus points after meeting raw attribute prerequisites, so an average run takes ~400 reroll attempts per character — and Wiz6 demands a 6-character party."
+        "details": "Raw asm at file 0x4e83: `B8 06 00 50 E8 F6 75 59 05 05 00 A3 AC 56` = `mov ax, 6; push ax; call 0xc480 (=rng_next thunk); pop cx; add ax, 5; mov [0x56ac], ax`. Then at 0x4e90: `B8 14 00 50 E8 E8 75 59 85 C0 75 05 83 06 AC 56 08` = `mov ax, 20; push ax; call rng; pop cx; test ax; jnz skip; add word [0x56ac], 8`. Identical block follows at 0x4ea4..0x4eb6 (second 1/20 bonus check). The override path at 0x4eb6: `83 3E CE 56 01 75 06 C7 06 AC 56 15 00` = `cmp word [0x56ce], 1; jnz skip; mov word [0x56ac], 0x15` \u2014 forces bonus=21 if the (debug?) flag is set. Empirically validated over 10^7 trials: bonus={5..10} 90.25%, {13..18} 9.5%, {21..26} 0.25%; mean=8.39; P(\u226519)=0.2515% \u2248 1 in 400. This is THE Wizardry VI re-roll math: to qualify for elite classes (Samurai, Lord, Ninja, Bishop) you need 19+ bonus points after meeting raw attribute prerequisites, so an average run takes ~400 reroll attempts per character \u2014 and Wiz6 demands a 6-character party."
       },
       "confidence": "high"
     },
@@ -692,7 +692,7 @@
           "0x4222",
           "0x3837"
         ],
-        "details": "0x2b04 (attr panel display) iterates `iVar2 = 0..7` and prints `*(0x559c + iVar2)`; msg-id `0xcc + iVar2` for label (so msgs 0xcc..0xd3 are the 8 attr labels). 0x3405 (allocator) navigates `local_6 = 0..6` (7 slots — only the 6 main attrs + personality) modifying `*(0x559c+local_6)`, drains/refunds *0x56ac. 0x4222 rolls into *0x55a3 + 10 (KARMA-like initial value). 0x55a3 cap at 18 (`< 0x12` check in 3405). The personality vs karma split is inferred from the way 0x55a2 is bumped in 0x306e (faerie penalty) — that's the +1 PERSONALITY adjustment from racial mod."
+        "details": "0x2b04 (attr panel display) iterates `iVar2 = 0..7` and prints `*(0x559c + iVar2)`; msg-id `0xcc + iVar2` for label (so msgs 0xcc..0xd3 are the 8 attr labels). 0x3405 (allocator) navigates `local_6 = 0..6` (7 slots \u2014 only the 6 main attrs + personality) modifying `*(0x559c+local_6)`, drains/refunds *0x56ac. 0x4222 rolls into *0x55a3 + 10 (KARMA-like initial value). 0x55a3 cap at 18 (`< 0x12` check in 3405). The personality vs karma split is inferred from the way 0x55a2 is bumped in 0x306e (faerie penalty) \u2014 that's the +1 PERSONALITY adjustment from racial mod."
       },
       "confidence": "high"
     },
@@ -713,7 +713,7 @@
     },
     {
       "id": "fn-bonus-allocator-ui",
-      "claim": "0x3405 is the bonus-point allocator UI: 4-way nav (←=key1 decrease, ↑=key2 prev, →=key3 increase, ↓=key4 next, key5=confirm) over the 6+1 (STR..SPD + personality?) attribute slots, capping each at 18 and gated on bonus_pool > 0.",
+      "claim": "0x3405 is the bonus-point allocator UI: 4-way nav (\u2190=key1 decrease, \u2191=key2 prev, \u2192=key3 increase, \u2193=key4 next, key5=confirm) over the 6+1 (STR..SPD + personality?) attribute slots, capping each at 18 and gated on bonus_pool > 0.",
       "category": "stat_roller",
       "evidence": {
         "binary": "wpcmk.ovr",
@@ -735,7 +735,7 @@
           "0x3837",
           "0x4222"
         ],
-        "details": "0x3837: clears window 0x56ca, writes title (msg 0x457), `iVar4=1; do { call rng → *0x55a3; if mouse → exit; if kbd → if RETURN exit; } while(iVar4)`; on exit calls 0x2b04 to redraw stats. 0x4222: rolls rng(9)+10 into *0x5618 (range 10..18, 9 values uniform), then if race < 14 calls `(race_handler_table)[race]` to do race-specific post-adjustment (race table at cs:-0x7557 inside wpcmk file)."
+        "details": "0x3837: clears window 0x56ca, writes title (msg 0x457), `iVar4=1; do { call rng \u2192 *0x55a3; if mouse \u2192 exit; if kbd \u2192 if RETURN exit; } while(iVar4)`; on exit calls 0x2b04 to redraw stats. 0x4222: rolls rng(9)+10 into *0x5618 (range 10..18, 9 values uniform), then if race < 14 calls `(race_handler_table)[race]` to do race-specific post-adjustment (race table at cs:-0x7557 inside wpcmk file)."
       },
       "confidence": "high"
     },
@@ -749,13 +749,13 @@
           "space": "wpcmk.ovr",
           "offset": "0x4589"
         },
-        "details": "Sets *0x5616=1, *0x5617=10 (likely level + level-cap), rolls rng(1000)+0x19aa, stores at *0x5478/*0x547a (32-bit). If race < 14: dispatch to race-handler (table at cs:-0x72e6). For 'default' code path: read *0x559c (STR) and *0x559f (VIT), compute `local_6 = (VIT*2 + STR) * 3` and `local_8 = (STR*2 + VIT) * 3`. Adjustments: STR<8 → -1; STR>=16 → +1, local_6+=STR; STR>=18 → +1 again. Similar mods for VIT into local_8. Store at *0x5488/*0x548a (encum_min), *0x548c/*0x548e (encum_max?), HP at *0x5492 = `local_8 * 15`. If race==5 (Faerie): HP = `local_8 * 30 / 3` = local_8 * 10."
+        "details": "Sets *0x5616=1, *0x5617=10 (likely level + level-cap), rolls rng(1000)+0x19aa, stores at *0x5478/*0x547a (32-bit). If race < 14: dispatch to race-handler (table at cs:-0x72e6). For 'default' code path: read *0x559c (STR) and *0x559f (VIT), compute `local_6 = (VIT*2 + STR) * 3` and `local_8 = (STR*2 + VIT) * 3`. Adjustments: STR<8 \u2192 -1; STR>=16 \u2192 +1, local_6+=STR; STR>=18 \u2192 +1 again. Similar mods for VIT into local_8. Store at *0x5488/*0x548a (encum_min), *0x548c/*0x548e (encum_max?), HP at *0x5492 = `local_8 * 15`. If race==5 (Faerie): HP = `local_8 * 30 / 3` = local_8 * 10."
       },
       "confidence": "high"
     },
     {
       "id": "fn-portrait-loader",
-      "claim": "0x4a9a loads one portrait (sprite descriptor) from disk based on video mode and portrait id. 4 templates at 0x53d2..0x53f3 keyed on *0x4fc6 video-mode bitmap; 14 portraits per file × 3 files = 42 total (portrait id cycles 0..41 in 0x4bad mod 0x2a).",
+      "claim": "0x4a9a loads one portrait (sprite descriptor) from disk based on video mode and portrait id. 4 templates at 0x53d2..0x53f3 keyed on *0x4fc6 video-mode bitmap; 14 portraits per file \u00d7 3 files = 42 total (portrait id cycles 0..41 in 0x4bad mod 0x2a).",
       "category": "portrait",
       "evidence": {
         "binary": "wpcmk.ovr",
@@ -763,13 +763,13 @@
           "0x4a9a",
           "0x4bad"
         ],
-        "details": "0x4a9a: tests *0x4fc6 against bits 1/2/4/8, picks template 0x53d2/0x53dd/0x53e8/0x53f3 (4 short filename templates — likely 'EFACE??', 'VFACE??', 'CFACE??', 'HFACE??' format). Substitutes record idx via `param_1 / 0xe + '1'` so portrait_id 0..13 → file 1, 14..27 → file 2, 28..41 → file 3. Opens via crt_open (0xf924), seeks via crt_lseek (0xfdbd), reads via crt_read (0xfd6f), closes via crt_dos_close (0xfda5). 0x4bad cycles portrait via *0x560c modulo 42 in a mouse/key loop until user confirms."
+        "details": "0x4a9a: tests *0x4fc6 against bits 1/2/4/8, picks template 0x53d2/0x53dd/0x53e8/0x53f3 (4 short filename templates \u2014 likely 'EFACE??', 'VFACE??', 'CFACE??', 'HFACE??' format). Substitutes record idx via `param_1 / 0xe + '1'` so portrait_id 0..13 \u2192 file 1, 14..27 \u2192 file 2, 28..41 \u2192 file 3. Opens via crt_open (0xf924), seeks via crt_lseek (0xfdbd), reads via crt_read (0xfd6f), closes via crt_dos_close (0xfda5). 0x4bad cycles portrait via *0x560c modulo 42 in a mouse/key loop until user confirms."
       },
       "confidence": "high"
     },
     {
       "id": "fn-train-skill",
-      "claim": "0x28d4 is the train-a-skill flow (skill_pillar=0/1/2/3 → MAGIC/FAITH/PHYSICAL/MENTAL). Iterates 82 skills in the wroot DGROUP table at runtime 0xde..0x322 (6-byte stride), filters by pillar bitmask, lets player pick via 0x229c selection grid, increments skill level at *(0x5498 + skill*4) up to per-attribute cap *(0x549a + skill*4).",
+      "claim": "0x28d4 is the train-a-skill flow (skill_pillar=0/1/2/3 \u2192 MAGIC/FAITH/PHYSICAL/MENTAL). Iterates 82 skills in the wroot DGROUP table at runtime 0xde..0x322 (6-byte stride), filters by pillar bitmask, lets player pick via 0x229c selection grid, increments skill level at *(0x5498 + skill*4) up to per-attribute cap *(0x549a + skill*4).",
       "category": "skill_train",
       "evidence": {
         "binary": "wpcmk.ovr",
@@ -778,7 +778,7 @@
           "0x229c",
           "0x2186"
         ],
-        "details": "0x28d4: param_3 maps to (local_c, local_e): 0→(8,0x1c), 1→(4,0x1a), 2→(1,0x19), 3→(2,0x1b). local_c is the 'pillar mask', local_e is the 'screen label msg id base'. Iterates 0..0x52 (82 entries) reading byte at `(idx*6 + 0xe3)` (governing-attribute or pillar mask byte), checks `local_c & that_byte != 0` AND `(idx*6 + 0xdf) <= 1` (some level gate), and if both: marks skill available in bitmap 0x55f8 via setbit. 0x229c is the 6-cell grid widget for skill selection. After selection: increments *(0x549a + skill*4) by 1 (clamped to byte at idx*6+0xe0 = max), and *(0x5498 + skill*4) (current level)."
+        "details": "0x28d4: param_3 maps to (local_c, local_e): 0\u2192(8,0x1c), 1\u2192(4,0x1a), 2\u2192(1,0x19), 3\u2192(2,0x1b). local_c is the 'pillar mask', local_e is the 'screen label msg id base'. Iterates 0..0x52 (82 entries) reading byte at `(idx*6 + 0xe3)` (governing-attribute or pillar mask byte), checks `local_c & that_byte != 0` AND `(idx*6 + 0xdf) <= 1` (some level gate), and if both: marks skill available in bitmap 0x55f8 via setbit. 0x229c is the 6-cell grid widget for skill selection. After selection: increments *(0x549a + skill*4) by 1 (clamped to byte at idx*6+0xe0 = max), and *(0x5498 + skill*4) (current level)."
       },
       "confidence": "high"
     },
@@ -825,7 +825,7 @@
           "space": "wpcmk.ovr",
           "offset": "0x3e8c"
         },
-        "details": "Dispatches: if class < 14 → class-handler-table[class] (cs:-0x7b9c); else if race < 11 → race-handler-table[race] (cs:-0x7a4b); else inline 'human-default' block. Inline block: stat caps DEX>=16 → boost FUN_3e17(6,5) (skill 6 levels up to 5) + FUN_3e17(11,5); INT>=16 → boost FUN_3e17(9,5); SPD>=16 → FUN_3e17(7,5) + FUN_3e17(4,5). Initializes 32-byte combat-stats array at *0x5560..*0x557f (HP, MP, AC, attack mods). DEX adjustments to *0x5563 (AC byte). VIT adjustments to *0x556e (HP byte). Race==5 (Faerie) adjustment to two unnamed bytes (HP penalty + something)."
+        "details": "Dispatches: if class < 14 \u2192 class-handler-table[class] (cs:-0x7b9c); else if race < 11 \u2192 race-handler-table[race] (cs:-0x7a4b); else inline 'human-default' block. Inline block: stat caps DEX>=16 \u2192 boost FUN_3e17(6,5) (skill 6 levels up to 5) + FUN_3e17(11,5); INT>=16 \u2192 boost FUN_3e17(9,5); SPD>=16 \u2192 FUN_3e17(7,5) + FUN_3e17(4,5). Initializes 32-byte combat-stats array at *0x5560..*0x557f (HP, MP, AC, attack mods). DEX adjustments to *0x5563 (AC byte). VIT adjustments to *0x556e (HP byte). Race==5 (Faerie) adjustment to two unnamed bytes (HP penalty + something)."
       },
       "confidence": "medium"
     },
@@ -855,11 +855,11 @@
     },
     {
       "id": "fn-data-tables-in-wroot",
-      "claim": "wpcmk shares data tables with wroot at DGROUP runtime offsets: skill table at 0x00de..0x0322 (82 skills × 6 bytes), portrait filename templates at 0x53d2..0x53f3 (4 templates × 11 bytes), msg-id labels 0xcc..0xd3 = 8 attr names, 0xcc=carry-cap label, 0x450..0x452 = race/alignment/class window titles, 0x45c..0x45e = menu headers, 0x453='BONUS POINTS', 0x457='PERSONALITY', 0x458='PORTRAIT', 0x468='Name:', 0x44c='Name:'(alt). The 12 main option msgs are at 0xcc..0xd5, the per-class strings encoding requirements at file offset (per the wbase delta law) somewhere ≥0x4dc6.",
+      "claim": "wpcmk shares data tables with wroot at DGROUP runtime offsets: skill table at 0x00de..0x0322 (82 skills \u00d7 6 bytes), portrait filename templates at 0x53d2..0x53f3 (4 templates \u00d7 11 bytes), msg-id labels 0xcc..0xd3 = 8 attr names, 0xcc=carry-cap label, 0x450..0x452 = race/alignment/class window titles, 0x45c..0x45e = menu headers, 0x453='BONUS POINTS', 0x457='PERSONALITY', 0x458='PORTRAIT', 0x468='Name:', 0x44c='Name:'(alt). The 12 main option msgs are at 0xcc..0xd5, the per-class strings encoding requirements at file offset (per the wbase delta law) somewhere \u22650x4dc6.",
       "category": "data_util",
       "evidence": {
         "binary": "wpcmk.ovr",
-        "details": "Inferred from the load_msg_into_buf (0xc1f7) calls and the c2db msg-id arguments across all UI functions. The skill table at runtime 0xde is referenced directly via cs:-style addressing in 0x28d4 (which iterates 82 entries × 6 bytes = 492 bytes). The portrait templates at 0x53d2..0x53f3 are 4 × 0x11 = 0x44 bytes (each is a near-string with placeholder for digit), referenced by 0x4a9a's video-mode-based template selection."
+        "details": "Inferred from the load_msg_into_buf (0xc1f7) calls and the c2db msg-id arguments across all UI functions. The skill table at runtime 0xde is referenced directly via cs:-style addressing in 0x28d4 (which iterates 82 entries \u00d7 6 bytes = 492 bytes). The portrait templates at 0x53d2..0x53f3 are 4 \u00d7 0x11 = 0x44 bytes (each is a near-string with placeholder for digit), referenced by 0x4a9a's video-mode-based template selection."
       },
       "confidence": "medium"
     }
@@ -1006,8 +1006,9 @@
     {
       "addr": "0x1ae9",
       "old": "FUN_0000_1ae9",
-      "new": "ui_welcome_animation",
-      "category": "creation_ui"
+      "new": "wpcmk_skill_training_loop",
+      "category": "skill_train",
+      "corrected_2026_05_26": "was ui_welcome_animation"
     },
     {
       "addr": "0x1bb7",
@@ -1054,8 +1055,9 @@
     {
       "addr": "0x28d4",
       "old": "FUN_0000_28d4",
-      "new": "wpcmk_train_skill_pillar",
-      "category": "skill_train"
+      "new": "wpcmk_pick_spell",
+      "category": "skill_train",
+      "corrected_2026_05_26": "was wpcmk_train_skill_pillar"
     },
     {
       "addr": "0x2b04",
@@ -1090,8 +1092,9 @@
     {
       "addr": "0x31a6",
       "old": "FUN_0000_31a6",
-      "new": "wpcmk_pick_alignment_menu",
-      "category": "race_class_alignment"
+      "new": "wpcmk_pick_sex_menu",
+      "category": "race_class_alignment",
+      "corrected_2026_05_26": "was wpcmk_pick_alignment_menu"
     },
     {
       "addr": "0x32e1",
@@ -1114,8 +1117,9 @@
     {
       "addr": "0x392e",
       "old": "FUN_0000_392e",
-      "new": "skill_init_all_32_slots",
-      "category": "skill_train"
+      "new": "combat_speed_modifier_init",
+      "category": "skill_train",
+      "corrected_2026_05_26": "was skill_init_all_32_slots"
     },
     {
       "addr": "0x3aec",
@@ -1144,8 +1148,9 @@
     {
       "addr": "0x4222",
       "old": "FUN_0000_4222",
-      "new": "personality_roll_static_10_to_18",
-      "category": "stat_roller"
+      "new": "skill_pool_roll_and_class_adjust",
+      "category": "stat_roller",
+      "corrected_2026_05_26": "was personality_roll_static_10_to_18"
     },
     {
       "addr": "0x4589",
@@ -1260,34 +1265,122 @@
       "old": "FUN_0000_546d",
       "new": "ui_render_roster_row",
       "category": "roster_io"
+    },
+    {
+      "addr": "0x2d10",
+      "old": "FUN_0000_2d10",
+      "new": "class_qualification_check_all_14",
+      "category": "class_qualification",
+      "named_2026_05_26": true
+    },
+    {
+      "addr": "0x2e85",
+      "old": "FUN_0000_2e85",
+      "new": "class_post_select_stat_bump",
+      "category": "class_qualification",
+      "named_2026_05_26": true
+    },
+    {
+      "addr": "0x2fbd",
+      "old": "FUN_0000_2fbd",
+      "new": "class_post_select_dispatch",
+      "category": "class_qualification",
+      "named_2026_05_26": true
+    },
+    {
+      "addr": "0x2fca",
+      "old": "FUN_0000_2fca",
+      "new": "nop_return_stub",
+      "category": "data_util",
+      "named_2026_05_26": true
+    },
+    {
+      "addr": "0x2fce",
+      "old": "FUN_0000_2fce",
+      "new": "race_post_select_dispatch",
+      "category": "race_class_alignment",
+      "named_2026_05_26": true
+    },
+    {
+      "addr": "0x38fb",
+      "old": "FUN_0000_38fb",
+      "new": "combat_speed_for_slot",
+      "category": "skill_train",
+      "named_2026_05_26": true
+    },
+    {
+      "addr": "0x3c49",
+      "old": "FUN_0000_3c49",
+      "new": "class_load_starter_inventory",
+      "category": "creation_flow",
+      "named_2026_05_26": true
+    },
+    {
+      "addr": "0x3e17",
+      "old": "FUN_0000_3e17",
+      "new": "spell_level_adjust_clamped",
+      "category": "creation_flow",
+      "named_2026_05_26": true
+    },
+    {
+      "addr": "0x505b",
+      "old": "FUN_0000_505b",
+      "new": "ui_show_error_modal",
+      "category": "ui_widget",
+      "named_2026_05_26": true
+    },
+    {
+      "addr": "0x59e0",
+      "old": "FUN_0000_59e0",
+      "new": "wpcmk_entry_and_roster_menu",
+      "category": "creation_flow",
+      "named_2026_05_26": true
     }
   ],
   "unresolved": [
-    "Eight functions left FUN_xxxx because of limited evidence: 0x2eeb (caseD_0, jump-table fragment), 0x2fbd/0x2fca/0x2fce (small jump-table cases), 0x38fb (single-skill init helper called 32 times by 0x392e but body is just a calculator), 0x3c49 (a 31-byte helper called once from 4e47, likely small status reset), 0x3e17 (skill-level setter helper called from multiple init paths, body has the skill-cap+level-bump math but the exact bit-layout into the spell array at 0x55c2 isn't clear from the fragmentary references). Plus the per-stage dispatchers in 0x15d7 case fragments. 505b (4-arg helper) is unnamed but plausibly a 'show error message + wait' modal.",
-    "Race-handler and class-handler jump tables at cs-relative offsets -0x7a4b, -0x7b9c, -0x702f, -0x7557, -0x72e6 inside wpcmk.ovr — these are the per-race / per-class init code stubs. Their file offsets can be computed via the wbase data-segment-delta law (file_off = runtime_addr - delta) but the precise delta for wpcmk hasn't been calibrated. Once known, the per-race attribute base tables and per-class qualification strings can be dumped and a per-race/per-class semantics map can be promoted into wpcmk docs.",
-    "Eight thunks resolve to wroot FUN_XXXX functions that have informal names in wmaze/wmele/wbase findings but aren't yet promoted into wroot-naming-pass.json: 0xc1f7 (load_msg_into_buf), 0xc2db (ui_window_write_msg_by_id?), 0xc47e (rng_next), 0xc546 (play_sound), 0xdd53 (ui_window_put_char_repeat), 0xdf85 (ui_window_write_chars), 0xe34b (getbit_test), 0xf34c (memset). Promoting these names into wroot-naming-pass.json would lift the wpcmk thunk-named count from 20/41 to 28/41.",
-    "The 'auto-21' override at *0x56ce==1 in 0x4e47 — only the clearing write `*0x56ce=0` exists in wpcmk. The setting code likely lives in wbase (a debug menu or chargen restart path) or wroot (a config/cheat flag). Tracing it would confirm whether it's a debug-only escape hatch or a player-accessible 'guaranteed elite roll' option.",
-    "The wbase main-menu 'CHARACTER MENU' (slot 5) handler in wbase.ovr at runtime address ~0x731f+offset hasn't been decompiled. Per wbase findings: 'Slot 5 (CHARACTER MENU) → *0x363a := 0x10 (WPCMK)'. The slot-5 handler in wbase must be the actual dispatcher that calls wpcmk's 0x56a0 (roster picker) followed by 0x50f2/0x545c/0x5422/0x28d4 based on user choice — but that wbase function is unnamed in the current wbase pass. A follow-up wbase pass should name it as e.g. `wbase_state4_slot5_character_menu_dispatch`."
+    "All 76 functions named as of the 2026-05-26 wpcmk RE sweep (RE #11). See docs/re/findings/wpcmk-remaining-functions.json for the final 10 + 5 corrections."
   ],
   "next_steps": [
-    "Dynamic-trace pass: boot the game, navigate wbase main menu → CHARACTER, capture the cross-overlay call sequence into wpcmk (which thunks are exercised, in what order, and which roster slots are touched). That confirms: (a) the actual top-level entry point invoked by wbase, (b) the slot-management bytes at *0x4fd8, (c) the disk-file format (probably CHARROST.PC and CHARROST.RW for original/SaveGame variants).",
+    "Dynamic-trace pass: boot the game, navigate wbase main menu \u2192 CHARACTER, capture the cross-overlay call sequence into wpcmk (which thunks are exercised, in what order, and which roster slots are touched). That confirms: (a) the actual top-level entry point invoked by wbase, (b) the slot-management bytes at *0x4fd8, (c) the disk-file format (probably CHARROST.PC and CHARROST.RW for original/SaveGame variants).",
     "Promote informal thunk names into wroot-naming-pass.json (8 candidates listed in unresolved[]). That would auto-lift the wpcmk findings' thunk-named ratio without requiring re-analysis.",
     "Run the bonus-distribution simulation against an in-engine save: load a freshly-created character whose creation date is recent, and verify the bonus value at *0x56ac matches a value in {5..10, 13..18, 21..26}. Or, replicate the asm at 0x4e83..0x4ec0 in a TypeScript test and roll a million times to compare against this finding's empirical distribution.",
-    "Begin overlay pass on wmnpc.ovr (NPC interaction) and wtrea.ovr (treasure/loot) — they almost certainly share the same UI-widget vocabulary (0x29c menu picker, 0xc1f7 msg loader, 0xc6b2 grid setup) and will benefit from the BSS layout map being established here.",
+    "Begin overlay pass on wmnpc.ovr (NPC interaction) and wtrea.ovr (treasure/loot) \u2014 they almost certainly share the same UI-widget vocabulary (0x29c menu picker, 0xc1f7 msg loader, 0xc6b2 grid setup) and will benefit from the BSS layout map being established here.",
     "Resolve the race/class jump-table indirections in 0x3e8c/0x48e3/0x4222/0x4589: read the 14 jump-table entries from the wpcmk file at the computed delta offset, identify each per-race and per-class init handler, and name them inline (these are the source of the visible race differences in stat ranges and HP)."
   ],
   "operational_notes": {
     "ghidra_install": "/opt/homebrew/Cellar/ghidra/12.1/libexec",
     "pyghidra_version": "3.1.0",
-    "project_path": "/Users/nathan/Projects/ndouglas/wiz6/tools/ghidra/wiz6.gpr (canonical path; worktree's tools/ghidra/ is a symlink — PyGhidra rejects .config paths)",
+    "project_path": "/Users/nathan/Projects/ndouglas/wiz6/tools/ghidra/wiz6.gpr (canonical path; worktree's tools/ghidra/ is a symlink \u2014 PyGhidra rejects .config paths)",
     "program": "wpcmk.ovr",
     "scripts_used": [
       "/tmp/wpcmk_enum.py (enumerates all 76 functions, decompiles each, dumps outgoing CALL edges)",
       "/tmp/wpcmk_analyze.py (interactive inspector for specific functions and BSS references)",
       "tools/ghidra/scripts/apply_wpcmk_names.py (the deliverable replay script)"
     ],
-    "key_quirk": "wpcmk.ovr is loaded with BinaryLoader (no MZ header). File offset == Ghidra address. The 16-byte overlay header (longer than wbase's 14, winit's 12) is followed by an unconditional state-4-reset stub at file 0x10 — meaning the state machine's invocation of wpcmk is a no-op; the actual character-management UI runs as cross-overlay subroutine calls FROM wbase TO wpcmk's top-level fns at 0x50f2/0x5337/0x56a0/0x545c/0x5422/0x28d4.",
+    "key_quirk": "wpcmk.ovr is loaded with BinaryLoader (no MZ header). File offset == Ghidra address. The 16-byte overlay header (longer than wbase's 14, winit's 12) is followed by an unconditional state-4-reset stub at file 0x10 \u2014 meaning the state machine's invocation of wpcmk is a no-op; the actual character-management UI runs as cross-overlay subroutine calls FROM wbase TO wpcmk's top-level fns at 0x50f2/0x5337/0x56a0/0x545c/0x5422/0x28d4.",
     "address_translation": "wpcmk.ovr Ghidra addr == file offset (BinaryLoader; no 0x200 / 0x10000 adjustment). Cross-overlay thunk: subtract 0xBA9C from bss_offset to get wroot file offset.",
     "bonus_distribution_simulation": "10 million trials in Python: bonus={5..10} 90.25%, {13..18} 9.5%, {21..26} 0.25%; mean=8.39; values 11/12/19/20 unreachable; P(bonus >= 19) = 0.2515% = 1 in 397."
+  },
+  "sweep_2026_05_26": {
+    "note": "wpcmk RE sweep completed naming (76/76) and corrected 5 mislabeled functions. Full evidence in wpcmk-remaining-functions.json and the per-topic wpcmk-*.json findings.",
+    "corrections_applied": [
+      "0x31a6: wpcmk_pick_alignment_menu -> wpcmk_pick_sex_menu",
+      "0x4222: personality_roll_static_10_to_18 -> skill_pool_roll_and_class_adjust",
+      "0x1ae9: ui_welcome_animation -> wpcmk_skill_training_loop",
+      "0x28d4: wpcmk_train_skill_pillar -> wpcmk_pick_spell",
+      "0x392e: skill_init_all_32_slots -> combat_speed_modifier_init"
+    ],
+    "newly_named": [
+      "0x2d10: class_qualification_check_all_14",
+      "0x2e85: class_post_select_stat_bump",
+      "0x2fbd: class_post_select_dispatch",
+      "0x2fca: nop_return_stub",
+      "0x2fce: race_post_select_dispatch",
+      "0x38fb: combat_speed_for_slot",
+      "0x3c49: class_load_starter_inventory",
+      "0x3e17: spell_level_adjust_clamped",
+      "0x505b: ui_show_error_modal",
+      "0x59e0: wpcmk_entry_and_roster_menu"
+    ]
   }
 }
