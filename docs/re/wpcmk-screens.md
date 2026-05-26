@@ -118,17 +118,17 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 | screen-09-skill-init | 0x19c | 1 | `portrait_idx_prev_cache = 0` (not a true record field) |
 | screen-10-portrait | 0x19c | 1 | `portrait_index_final` (0..41) |
 | screen-11-class-starter-items | 0x040..0x10f | up to 40 | up to 5 starter inventory slots (8 bytes each) |
-| ⚠ screen-13/14 ※ | 0x068..0x07f | up to 24 | spell-school cur/max mana per caster class |
-| ⚠ screen-13/14 ※ | 0x1a8 | 1 | `has_spells`-style flag cleared at loop end |
-| ⚠ screen-13/14 ※ | 0x028..0x03f | up to 24 | skill/attribute pools (6 × (cur u16, max u16)) |
-| ⚠ screen-13/14 ※ | 0x118..0x11f | 8 | per-pillar points decremented (`0x5588..0x558b`) |
+| screen-13-skill-training | 0x134..0x141 | 14 | **skills[14]** — actual skill-level values incremented per pick (the PRIMARY skill write) |
+| screen-13-skill-training | 0x1a8 | 1 | `skill_growth_budget` (= `rng(9)+10` − class tier2, DGROUP 0x5618); decremented to 0 as points are spent. Final disk value 0. (RE #1's "has_spells flag" was wrong.) |
+| screen-14-spell-picking | 0x028..0x03f | 24 | **school mana** cur+max — 12 interleaved u16s for the 6 governing attributes (`add [0x5498],ax` / `add [0x549a],ax`). (RE #1's "skill pools" label was wrong; matches v2 record map.) |
+| screen-14-spell-picking | 0x118..0x11b | 4 | per-pillar spell-training counters (initialized by screen-07's race handler, **drained to 0** here as spells are picked) |
 | screen-16-save | disk + DGROUP 0x4fd8[slot] | 432 + 1 | full record → PCFILE.DBS slot, occupancy flag set |
 
-> ⚠ ※ The four screen-13/14 rows above carry offsets traced in RE #1 **before** the screen-13/14 swap was discovered (RE #5: screen-13 = SKILL training, screen-14 = SPELL picking). The offsets are real writes, but their attribution to a specific screen is provisional — a dedicated re-trace of the corrected screens' record writes is an open question (see bottom).
+> ✅ The screen-13/14 buffer-write attribution above was resolved by a dedicated re-trace (RE #1 had swapped/mislabeled them). Corrections: `0x028..0x03f` = school mana (screen-14, not skills); `0x1a8` = skill_growth_budget (screen-13, not a has-spells flag); `0x118..0x11b` = spell-pillar counters drained by screen-14; the old `0x068..0x07f` "spell mana" row was a **misidentification** — that range is inventory slots 5-7, zeroed at screen-01 init and never touched by 13/14. The primary screen-13 write (`skills[14]` at 0x134..0x141) was missing entirely from the RE #1 table. Caster detection is by checking pillar counters `0x5588..0x558b` directly, not a flag. Source: `docs/re/findings/wpcmk-screen-13-14-buffer-writes.json`.
 
 ### Conditional branches
 
-- **screen-13 (SKILL training) is conditional on `*0x5618 > 0`** — `*0x5618` is the skill-points pool (`rng(9)+10` minus class tier2), NOT a "caster flag". When tier2 drives it to 0 (e.g. Fighter), screen-13 is skipped. See §5. (The buffer-writes table above marks the screen-13/14 rows `⚠ ... ※` — their offset→screen attribution predates the swap and is provisional; see Open Question 1.)
+- **screen-13 (SKILL training) is conditional on `*0x5618 > 0`** — `*0x5618` is the skill-points pool (`rng(9)+10` minus class tier2), NOT a "caster flag". When tier2 drives it to 0 (e.g. Fighter), screen-13 is skipped. See §5. (Screen-13's record writes — `skills[14]` at 0x134 and the `skill_growth_budget` at 0x1a8 — are now resolved in the buffer-writes table above.)
 - **screen-14 (SPELL picking) loops via `while (*(0x5588+pillar) > 1)`** over the 4 spell-school pillars (MAGIC/FAITH/PHYSICAL/MENTAL at DGROUP `0x5588..0x558b`). Only 5 caster classes have nonzero pillar budgets; all others skip screen-14. See §5, §9.
 - **screen-15 (confirm) → screen-16 only if `choice == 0` (KEEP).** DISCARD exits to wbase without disk write; the record buffer is discarded.
 - **screen-00 (name entry) escape OR empty name exits wpcmk entirely.** Duplicate name shows modal error then re-prompts.
@@ -616,9 +616,9 @@ Source: `docs/re/findings/wpcmk-rng-seed-at-creation.json`
 
 ## Open questions for Phase 2
 
-Aggregated across all RE findings. Most are non-blocking for *starting* Phase 2, but #1 specifically blocks implementing screens 13-14; the rest should be resolved before claiming byte-perfect parity on the affected area.
+Aggregated across all RE findings. All resolved or non-blocking for Phase 2.
 
-1. **⛔ BLOCKS screens 13-14: buffer-write attribution for screen-13 (skill) / screen-14 (spell).** The §1 buffer-writes table offsets (0x068..0x07f, 0x028..0x03f, 0x118..0x11f, 0x1a8) were traced before the 13/14 swap was found; their per-screen attribution is provisional. You **cannot** achieve byte-perfect parity on the skill/spell record writes without resolving this. **Do a dedicated re-trace** of `wpcmk_skill_training_loop` (0x1ae9) and `wpcmk_pick_spell` (0x28d4) record writes before implementing those two screens. (Other screens can proceed.)
+1. **✅ RESOLVED — buffer-write attribution for screen-13 (skill) / screen-14 (spell).** Re-traced (`docs/re/findings/wpcmk-screen-13-14-buffer-writes.json`): screen-13 writes `skills[14]` at 0x134..0x141 + `skill_growth_budget` at 0x1a8; screen-14 writes school mana at 0x028..0x03f and drains pillar counters at 0x118..0x11b. The old 0x068..0x07f "spell mana" row was a misID (inventory, zeroed at init). See the §1 buffer-writes table.
 2. **Portrait default-index conflict.** RE #6 found new-character default = portrait 0, with SPD+1 written to a *different* field (+0x1ab). But `portrait-pools.json` shows stock characters' +0x19c portrait == SPD+1. Resolve whether the picker default is truly 0 or SPD-derived before relying on it.
 3. **`portrait-pools.json` is mislabeled** — its `portrait_refs` are starter ITEM IDs, not portraits. Correct or retire that findings file.
 4. **Class tier2 skill-pool adjustment formula** (§5) — per-class `div`/`base` constants for Fighter/Ranger/Bishop/Monk/Ninja not fully enumerated. Needed for exact starter-skill-points parity.
