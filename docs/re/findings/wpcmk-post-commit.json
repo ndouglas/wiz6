@@ -1,0 +1,159 @@
+{
+  "topic": "wpcmk-post-commit",
+  "subagent_run": "2026-05-26",
+  "binaries": ["original/wpcmk.ovr", "original/wbase.ovr", "original/wroot.exe"],
+  "method": "PyGhidra DecompInterface + ndisasm raw disassembly. Decompiled wpcmk_create_character_master (0x4e47), wpcmk_create_via_empty_slot (0x50f2), roster_io_one_record (0x001b), wbase_option5_make_character (0x2d51), wbase entry dispatch (file 0x0e), and roster_find_first_empty_slot (0x4ff4). Scanned wpcmk.ovr for all writes to *0x363a and all occupancy-byte (*0x4fd8) accesses. Traced wbase entry dispatch asm to determine the exact *0x363a persistence mechanism. Confirmed wroot ovl_install_table state dispatch table at image 0x1417 to verify state-10 loads wpcmk.",
+
+  "findings": [
+    {
+      "id": "slot-resolution",
+      "claim": "Slot is resolved programmatically via roster_find_first_empty_slot (0x4ff4) inside wpcmk_create_via_empty_slot (0x50f2). It scans *(0x4fd8+i) for the first i where the byte == 0 (empty). Returns the first empty slot index or -1 if none. There is NO slot-picker UI anywhere in the creation path.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "addresses": ["0x50f2", "0x4ff4"],
+        "type": "decompile",
+        "details": "roster_find_first_empty_slot (0x4ff4) decompile: 'iVar1 = 0; while(iVar1 < *(int*)0x4fd2) { if(*(char*)(iVar1+0x4fd8)==0) return iVar1; iVar1++; } return -1'. Called from wpcmk_create_via_empty_slot: 'local_4 = roster_find_first_empty_slot(); if (local_4 != -1) { ... wpcmk_create_character_master(local_4, name_buf) ... }'. The only check before calling the master is whether a slot exists at all. No menu or picker UI is involved in slot selection."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "occupancy-check",
+      "claim": "There is NO overwrite-prompt or occupancy check in the creation path. Slot guaranteed empty by roster_find_first_empty_slot which ONLY returns slots with occupancy byte == 0. Scan of all *(0x4fd8+slot) accesses in wpcmk.ovr shows only: (a) commit sets *(0x4fd8+slot)=1, (b) find-empty checks for ==0, (c) name-uniqueness checks for !=0, (d) roster-picker checks for ==1, (e) delete-character handler clears *(0x4fd8+slot)=0. No code path in wpcmk shows a 'slot N occupied, overwrite?' prompt.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "addresses": ["0x4fb4", "0x4ffa", "0x501e", "0x52f7", "0x56b5", "0x5aaf"],
+        "type": "byte_scan",
+        "details": "Python pattern scan for 'd8 4f' (LE encoding of 0x4fd8) found 6 occurrences in file. Disassembly of each: 0x4fb4 = 'c6 87 d8 4f 01' = mov byte[bx+0x4fd8],1 (commit sets occupied); 0x4ffa = '80 bc d8 4f 00' = cmp byte[si+0x4fd8],0 (find-empty); 0x501e = '80 bc d8 4f 00' = cmp byte[si+0x4fd8],0 in name-uniqueness check (skip slot if empty); 0x52f7 = 'c6 87 d8 4f 00' = mov byte[bx+0x4fd8],0 in delete-character function at 0x527d; 0x56b5 = '80 bf d8 4f 01' = cmp byte[bx+0x4fd8],1 in wpcmk_show_roster_picker (show occupied only); 0x5aaf = similar roster-picker usage. None of these are overwrite prompts."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "disk-write",
+      "claim": "Disk write uses roster_io_one_record (0x001b) with mode=1 (write). The function: (1) calls wroot thunk 0xf0dc (kbd_pre_input_disk_check / disk ready check), (2) builds filename from *0x4fee via thunk 0xc772 (boot_build_prompt_message → wroot 0x0cd6), (3) opens file via thunk 0xf924 (crt_open → wroot 0x3e88), (4) seeks to slot * *(int*)0x4fd0 + *(uint*)0x4fd4 via thunk 0xfdbd (crt_lseek → wroot 0x4321), (5) writes via thunk 0xfd76 (crt_write → wroot 0x42da) — THE DISK WRITE THUNK, (6) closes via thunk 0xfda5 (crt_dos_close → wroot 0x4309). Called with args: param_1=mode(1), param_2=slot_idx, param_3=buf_ptr(0x5470).",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "addresses": ["0x001b", "0x4fab"],
+        "type": "decompile",
+        "details": "roster_io_one_record decompile: 'func_0x0000f0dc(); uVar1=func_0x0000c772(0x4fee,0,2); func_0x0000f924(uVar1); uVar2=param_2**(int*)0x4fd0; iVar3=uVar2+*(uint*)0x4fd4; func_0x0000fdbd(iVar3,iVar3,carry+overflow); if(param_3==0) func_0x0000fd6f(iVar3); else if(param_3==1) func_0x0000fd76(iVar3); func_0x0000fda5()'. Call site in master commit path at file 0x4fab: 'push 1 (mode); push [bp+6] (slot_idx); push 0x5470 (buf); call 0x001b'. Seek formula: slot * 0x1b0 (record_size) + 0x18 (header_size) = absolute file offset. From naming pass: thunk 0xfd76 → wroot image offset 0x42da → wroot file offset 0x44da → crt_write (write N bytes to open DOS file handle)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "roster-header-sync",
+      "claim": "After roster_io_one_record writes the record, two more operations complete the save: (1) *(0x4fd8+slot) := 1 (marks slot occupied in DGROUP), (2) call thunk 0xf0dc (disk-ready check), then open roster file, seek to 0, write 24-byte roster header from DGROUP 0x4fd0..0x4fe7 via crt_write (thunk 0xfd76), close. This second write syncs the updated occupancy flag to the on-disk pcfile.dbs file header (the status[16] byte array that pcfile-dbs.json documents at header +0x08).",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "addresses": ["0x4fb4", "0x4fbc", "0x4fcc"],
+        "type": "decompile",
+        "details": "Master commit path (after roster_io_one_record returns): '*(0x4fd8+param_2) = 1; func_0x0000f0dc(); uStack_1e=func_0x0000c772(0x53fe,0,2); uStack_1e=func_0x0000f924(uStack_1e); local_8=uStack_1e; [seek args]; func_0x0000fd76() [write 0x18=24 bytes from 0x4fd0]; func_0x0000fda5()'. The 24-byte write from DGROUP 0x4fd0 writes the pcfile.dbs header (record_size + slot_count + header_size + status[16]). The occupancy byte at DGROUP *(0x4fd8+slot) was just set to 1, so this write persists the updated status to disk."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "state-transition",
+      "claim": "The state transition back to wbase (state 4) is a TWO-STEP mechanism: (1) wpcmk_create_via_empty_slot runs inside wpcmk.ovr's CS while wpcmk is loaded (via wroot's overlay state machine). After creation completes, wpcmk_create_via_empty_slot returns normally via 'ret'. (2) wpcmk's overlay dispatch stub at file 0x10 writes *0x363a := 4 when wpcmk is invoked as a state handler. Mechanism: wbase slot-5 handler writes *0x363a := 0x10, returns through wbase entry dispatch (state-0x10 is not 4/7/18 so the *0x4fce copy is skipped), wroot ovl_install_table sees state=0x10, loads wpcmk. wpcmk entry at 0x10 runs the creation UI (the naming-pass claim that 0x50f2 is 'called from wbase' is incorrect in the direct-call sense — it's called from within wpcmk's own overlay by the state machine). After the creation completes, wpcmk entry stub writes *0x363a := 4 and returns 0. wroot loop continues with state=4, loads wbase, wbase shows main menu again.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "addresses": ["0x0010", "0x0011"],
+        "type": "disassembly + byte_scan",
+        "details": "Full scan of wpcmk.ovr for 'c7 06 3a 36' (mov word [0x363a], X) found EXACTLY ONE occurrence at file offset 0x0011: 'c7 06 3a 36 04 00' = mov word [0x363a], 4. This is inside the dispatch stub at file 0x10 (11 bytes total: 59 c7 06 3a 36 04 00 b8 00 00 c3 = pop cx; mov word [0x363a],4; mov ax,0; ret). No other writes to *0x363a exist in wpcmk.ovr — the wpcmk subroutines themselves never write *0x363a. wpcmk_create_via_empty_slot ends with: call wpcmk_create_character_master; add sp,4; jmp 0x5111; at 0x5111: mov sp,bp; pop bp; ret. Return path confirmed to be via normal call stack. wbase entry dispatch confirmed: after calling state-4 handler, falls through to 'cmp [0x363a],0x18; jnz 0x32; ... 0x32: mov ax,0; ret' — the *0x4fce copy at dispatch+0x2c is ONLY executed when state-18 handler was called. State-4 handler returning with *0x363a=0x10 exits wbase entry dispatch with *0x363a=0x10 intact."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "confirmation-menu",
+      "claim": "After all 4 skill-training pillars are iterated, master shows a confirmation menu using msg ID 0x44f as header (written via thunk 0xc2db = ui_window_write_msg_by_id) and msg ID 0x45a as option list (passed to ui_menu_picker_vertical). Choice 0 = KEEP/ACCEPT: triggers roster write. Choice != 0 = DISCARD: skips roster write, returns to wbase without saving. The menu entry count formula 'iStack_a = *(byte*)(local_30+6)+1' uses byte at offset +6 of the window struct at *0x56ca — likely the visible window height or item count. The name-entry path (wpcmk_create_via_empty_slot) shows a duplicate-name error via FUN_505b using msg ID 0x44e.",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "addresses": ["0x4f20", "0x4f52", "0x4f66"],
+        "type": "decompile",
+        "details": "From wpcmk_create_character_master decompile (tail): 'func_0x0000ed5a(window,0,3,0x20); func_0x0000e5b5(window); func_0x0000bda7(window,1,6); func_0x0000c2db(0x44f,window); [cursor positioning]; iStack_a = *(byte*)(*(int*)0x56ca + 6) + 1; local_2e = 0x45a; local_6 = ui_menu_picker_vertical(); if(local_6==0) { roster_io_one_record(1,param_2,0x5470); *(0x4fd8+param_2)=1; ... }'. Msg 0x44f = confirmation header, msg 0x45a = YES/NO options (actual text requires msg.dbs decode)."
+      },
+      "confidence": "high"
+    }
+  ],
+
+  "slot_picker_in_wpcmk": false,
+  "slot_picker_evidence": "NO slot-picker UI in wpcmk. The entry function wpcmk_create_via_empty_slot (0x50f2) calls roster_find_first_empty_slot (0x4ff4) which auto-selects the first empty slot (occupancy byte == 0) via a linear scan. The name 'create_via_empty_slot' is accurate: it finds the slot programmatically, never shows a picker UI. There is no code path in any wpcmk function that presents a 'which slot to save into?' prompt. The slot is passed as param_2 to wpcmk_create_character_master and later to roster_io_one_record(1, slot, buf) — always the auto-found empty slot.",
+
+  "commit_sequence": [
+    {
+      "step": 1,
+      "action": "Confirmation menu",
+      "details": "ui_menu_picker_vertical with msg 0x44f header and msg 0x45a options. Choice 0 = KEEP; any other choice aborts without saving. If DISCARD, function returns immediately (no disk write)."
+    },
+    {
+      "step": 2,
+      "action": "Write character record to disk",
+      "details": "roster_io_one_record(mode=1, slot_idx=param_2, buf=0x5470). Opens PCFILE.DBS, seeks to slot*0x1b0+0x18, writes 432 bytes via crt_write (thunk 0xfd76 → wroot 0x42da). The 432-byte record is the complete character data assembled during creation (name at +0x00, XP at +0x08, attributes at +0x12c, etc.)."
+    },
+    {
+      "step": 3,
+      "action": "Mark slot occupied in DGROUP",
+      "details": "*(0x4fd8 + slot_idx) := 1. Updates the in-memory occupancy array. This byte corresponds to pcfile.dbs header status[slot] which is written in the next step."
+    },
+    {
+      "step": 4,
+      "action": "Sync roster header to disk",
+      "details": "Disk-ready check via thunk 0xf0dc. Build filename via boot_build_prompt_message (0xc772, src 0x53fe). Open PCFILE.DBS via crt_open (0xf924). Write 24 bytes from DGROUP 0x4fd0..0x4fe7 (= pcfile.dbs header: record_size + slot_count + header_size + status[16]) via crt_write (0xfd76). Close file via crt_dos_close (0xfda5). This syncs the updated occupancy byte to the file header."
+    },
+    {
+      "step": 5,
+      "action": "wpcmk_create_character_master returns",
+      "details": "Master function epilogue: mov sp,bp; pop bp; ret. Returns to wpcmk_create_via_empty_slot, which also returns via 'jmp 0x5111; mov sp,bp; pop bp; ret'."
+    },
+    {
+      "step": 6,
+      "action": "wpcmk dispatch stub writes state transition",
+      "details": "After wpcmk_create_via_empty_slot returns, wpcmk's dispatch entry at file 0x10 runs (it was called by wroot's overlay entry point): 'pop cx; mov word [0x363a], 4; mov ax, 0; ret'. This is the ONLY write to *0x363a in all of wpcmk.ovr. Returns to wroot's overlay entry caller."
+    },
+    {
+      "step": 7,
+      "action": "wroot ovl_install_table sees state 4 and loads wbase",
+      "details": "wroot loop reads *0x363a = 4, dispatches to state-4 handler in its jump table (image 0x1417 + state*2). Calls FUN_36dc(0x5fa) which loads wbase.ovr and calls its entry point at file 0x0e. wbase displays main menu."
+    }
+  ],
+
+  "overwrite_msg_ids": [
+    {
+      "msg_id": "0x44f",
+      "context": "Confirmation menu header (shown after all skill-training pillar picks complete). Likely 'ARE YOU SATISFIED WITH THIS CHARACTER?' or equivalent. Text requires msg.dbs decode.",
+      "call_site": "wpcmk.ovr file 0x4f66: func_0x0000c2db(0x44f, window_0x56ca)"
+    },
+    {
+      "msg_id": "0x45a",
+      "context": "Confirmation menu option list (msg base for YES/NO choice). Passed to ui_menu_picker_vertical at master commit path.",
+      "call_site": "wpcmk.ovr decompile: 'local_2e = 0x45a; local_6 = ui_menu_picker_vertical()'"
+    },
+    {
+      "msg_id": "0x44e",
+      "context": "Duplicate-name error msg. Shown by FUN_505b when roster_check_name_unique returns -1 (duplicate found). Shown in wpcmk_create_via_empty_slot before creation begins — not strictly in the commit path but adjacent.",
+      "call_site": "wpcmk.ovr file 0x51a5: FUN_505b called with (msg_id=0x44e, param_2=0x6, param_3=0x2)"
+    }
+  ],
+
+  "state_transition": {
+    "writes_0x363a": true,
+    "mechanism": "The ONLY write to *0x363a in all of wpcmk.ovr is in the overlay dispatch stub at file 0x0011: 'mov word [0x363a], 4'. This runs as part of wpcmk's state-handler entry path (invoked by wroot when *0x363a == 0x10). The wpcmk subroutines themselves (wpcmk_create_via_empty_slot, wpcmk_create_character_master, roster_io_one_record, etc.) never write *0x363a. The creation UI runs to completion and returns via normal call stack before the dispatch stub writes state=4. The full flow: wbase slot-5 → *0x363a=0x10 → wroot loads wpcmk → wpcmk entry calls creation subroutines → creation completes → wpcmk entry writes *0x363a=4 → returns to wroot → wroot loads wbase → main menu.",
+    "return_destination": "wbase state 4 (main menu)",
+    "dispatch_stub_bytes": "59 c7 06 3a 36 04 00 b8 00 00 c3",
+    "dispatch_stub_asm": "pop cx; mov word [0x363a], 4; mov ax, 0; ret",
+    "stub_file_offset": "0x0010 (wpcmk.ovr)"
+  },
+
+  "corrections_to_prior_findings": [
+    {
+      "id": "naming-pass-cross-overlay-claim",
+      "prior_source": "docs/re/findings/wpcmk-naming-pass.json, state_machine.subroutine_entry_points",
+      "issue": "The naming pass states wpcmk functions are 'called as cross-overlay subroutines from wbase (slot 5 of the main menu jump-table)'. This is MECHANICALLY INACCURATE. wbase slot 5 handler does NOT directly call wpcmk_create_via_empty_slot or any other wpcmk function. It only writes *0x363a := 0x10 and returns.",
+      "correction": "wpcmk creation is invoked via the state machine: wbase sets state=0x10, wroot's ovl_install_table loads wpcmk.ovr and calls its entry at file 0x10. The creation UI runs inside wpcmk's overlay while it's loaded. The naming pass claim is accurate at the UX level ('triggered from wbase's menu') but wrong about the call mechanism.",
+      "confidence": "high"
+    }
+  ],
+
+  "open_questions": [
+    "The exact text strings for msg IDs 0x44f and 0x45a require msg.dbs decode (not done in this pass). They correspond to the confirmation menu header and YES/NO options.",
+    "wpcmk entry dispatch mechanism: the exact timing of when wpcmk_create_via_empty_slot is called within the wpcmk overlay load sequence is not fully traced through wroot's FUN_1462/FUN_36dc. The naming-pass claim vs. the dispatch stub's apparent no-op nature may be reconciled by wroot calling a DIFFERENT entry point (not file 0x10) when the overlay is loaded, or by wroot's loader chain being more complex than the dispatch stub analysis suggests. The creation DOES work in practice, so the calling mechanism exists — but the exact code path in wroot was not fully traced in this pass due to scope.",
+    "wpcmk header bytes 0x04-0x05 = 0x5c9b: likely a function pointer to wpcmk_create_via_empty_slot (or nearby) used by wroot's FUN_36dc to call the creation entry. This would explain how wroot invokes the creation UI. Checking: file offset 0x5c9b is in the data/string section of wpcmk (> 0x60d9 file size would be BSS; 0x5c9b < 0x60d9 so it's in the file). Verifying what's at wpcmk 0x5c9b and whether it's callable is a remaining open question."
+  ]
+}

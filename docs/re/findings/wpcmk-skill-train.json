@@ -1,0 +1,342 @@
+{
+  "topic": "wpcmk-skill-train",
+  "subagent_run": "2026-05-26",
+  "binaries": ["original/wpcmk.ovr"],
+  "method": "PyGhidra DecompInterface decompile of ui_welcome_animation (0x1ae9), creation_stage_dispatcher_by_step (0x15d7), ui_train_attribute_picker_grid (0x229c), wpcmk_train_skill_pillar (0x28d4), personality_roll_static_10_to_18 (0x4222), race_specific_init_handler_dispatch (0x48e3). Direct byte-pattern scan for writes to DGROUP 0x5588-0x558b (training points) and 0x5618 (skill_points). Jump table reconstruction using DELTA=0x4564 (wpcmk runtime delta: file_offset = CS_offset - 0x4564). Cross-referenced against msg-strings findings (wpcmk-msg-strings.json) and screen-flow findings (wpcmk-screen-flow.json).",
+
+  "screen_13_14_resolution": {
+    "screen_13_actual": "SKILL training (weapon skills, personal skills, physical skills, academic skills) — CONFIRMED BY ASM",
+    "screen_14_actual": "SPELL school selection (which spell school gets starter spell points: MAGIC/FAITH/PHYSICAL/MENTAL pillars) — CONFIRMED BY ASM",
+    "explanation": "The conflict arose from incorrect English labels in the prior screen-flow pass. ASM decompile definitively resolves it: (1) screen-13 driver is ui_welcome_animation (0x1ae9) calling creation_stage_dispatcher_by_step (0x15d7), which displays skill category headers from msg base 0x0258 (WEAPONRY=0x258, PHYSICAL=0x259, PERSONAL=0x25a, ACADEMIA=0x25b) and individual skill names from msg base 0x157c (WAND&DAGGER, SWORD, AXE, etc.) and 'SKILL POINTS' label (msg 0x159a). The loop drives *(char*)0x5618 to 0 = allocating skill points from a pool. (2) screen-14 driver is wpcmk_train_skill_pillar (0x28d4) which displays 'SPELLS' title (msg 0x2bc=700), 'SELECT A NEW SPELL FOR YOUR SPELLBOOK' (msg 0x2bf=703), 'COST' (msg 0x0f75=3957), spell school names FIRE/WATER/AIR/EARTH/MENTAL/MAGIC (msg base 0x0f6e), and individual spell names from msg base 0x0fa0 (ENERGY BLAST, FIREBALL, etc.), and decrements *(char*)(pillar+0x5588) after each pick. These are two completely different UI flows touching completely different data. Task 2 screen-flow labeled them backwards; Task 4 msg-strings correctly identified the string content. The msg-strings evidence was correct."
+  },
+
+  "starter_pool": {
+    "value_range": "10..18",
+    "formula": "rng(9) + 10 (= random uniform over {10,11,...,18})",
+    "evidence": "wpcmk file 0x4261 (inside personality_roll_static_10_to_18 at 0x4222): 'func_0x0000c47e(9)' = wroot rng thunk returning 0..8 (exclusive upper bound 9); result stored as '*(char*)0x5618 = rng_result + 10'. ASM: b8 09 00 50 e8 XX XX (push 9; call rng); 59 (pop); 80 c0 0a (add al, 10); a2 18 56 (mov [0x5618], al). This is NOT a fixed value of 10 — the min is 10 (when rng returns 0) and max is 18 (when rng returns 8).",
+    "dgroup_address": "0x5618",
+    "function": "personality_roll_static_10_to_18 @ wpcmk 0x4222",
+    "per_class_variation": "After personality_roll sets 0x5618 = rng(9)+10, each class-specific handler (dispatched via jump table at file 0x4545, runtime 0x8aa9) may subtract an attribute-derived 'tier2 adjustment' from 0x5618. The adjustment formula is: tier2 = (int)(attr_value / div) + base_increment, where div and base_increment differ per class. Classes that do NOT modify 0x5618 (they jump to epilog directly): Mage, Priest, Thief, Alchemist, Bard, Psionic, Valkyrie, Lord, Samurai. Classes that subtract a computed tier2: Fighter, Ranger, Bishop, Monk, Ninja. The tier2 subtraction pattern: 'a0 18 56; 2a e4; 2b 46 f4; a2 18 56' = load skill_pts, clear AH, subtract [bp-0xc] (tier2), store back. If skill_pts <= tier2: store 0 instead (Fighter special case at 0x4580: c6 06 18 56 00).",
+    "note": "The existing viewer placeholder of 10 is the MINIMUM possible value (when rng returns 0). Most characters will have 11..18 skill points. A correct implementation should use rng(9)+10."
+  },
+
+  "pillar_mapping": [
+    {
+      "pillar_index": 0,
+      "pillar_name": "MAGIC",
+      "bitmask": 8,
+      "msg_id_label": "0x1c",
+      "dgroup_training_pts": "0x5588",
+      "what_is_trained": "MAGIC spell schools — player selects from grid which magic spell school gets initial spell points (e.g. FIRE, WATER, AIR, EARTH, MENTAL, MAGIC categories in ui_train_attribute_picker_grid)",
+      "classes_with_pts": ["Mage (2 pts)", "Bishop (1 pt)"]
+    },
+    {
+      "pillar_index": 1,
+      "pillar_name": "FAITH",
+      "bitmask": 4,
+      "msg_id_label": "0x1a",
+      "dgroup_training_pts": "0x5589",
+      "what_is_trained": "FAITH spell schools — divine/priestly spell schools",
+      "classes_with_pts": ["Priest (2 pts)", "Bishop (1 pt)"]
+    },
+    {
+      "pillar_index": 2,
+      "pillar_name": "PHYSICAL",
+      "bitmask": 1,
+      "msg_id_label": "0x19",
+      "dgroup_training_pts": "0x558a",
+      "what_is_trained": "PHYSICAL spell schools — alchemical/physical magic schools",
+      "classes_with_pts": ["Alchemist (2 pts)"]
+    },
+    {
+      "pillar_index": 3,
+      "pillar_name": "MENTAL",
+      "bitmask": 2,
+      "msg_id_label": "0x1b",
+      "dgroup_training_pts": "0x558b",
+      "what_is_trained": "MENTAL spell schools — psionic/mental magic schools",
+      "classes_with_pts": ["Psionic (2 pts)"]
+    }
+  ],
+
+  "per_class_training_pts": {
+    "Fighter":   { "MAGIC": 0, "FAITH": 0, "PHYSICAL": 0, "MENTAL": 0 },
+    "Mage":      { "MAGIC": 2, "FAITH": 0, "PHYSICAL": 0, "MENTAL": 0 },
+    "Priest":    { "MAGIC": 0, "FAITH": 2, "PHYSICAL": 0, "MENTAL": 0 },
+    "Thief":     { "MAGIC": 0, "FAITH": 0, "PHYSICAL": 0, "MENTAL": 0 },
+    "Ranger":    { "MAGIC": 0, "FAITH": 0, "PHYSICAL": 0, "MENTAL": 0 },
+    "Alchemist": { "MAGIC": 0, "FAITH": 0, "PHYSICAL": 2, "MENTAL": 0 },
+    "Bard":      { "MAGIC": 0, "FAITH": 0, "PHYSICAL": 0, "MENTAL": 0 },
+    "Psionic":   { "MAGIC": 0, "FAITH": 0, "PHYSICAL": 0, "MENTAL": 2 },
+    "Valkyrie":  { "MAGIC": 0, "FAITH": 0, "PHYSICAL": 0, "MENTAL": 0 },
+    "Bishop":    { "MAGIC": 1, "FAITH": 1, "PHYSICAL": 0, "MENTAL": 0 },
+    "Lord":      { "MAGIC": 0, "FAITH": 0, "PHYSICAL": 0, "MENTAL": 0 },
+    "Samurai":   { "MAGIC": 0, "FAITH": 0, "PHYSICAL": 0, "MENTAL": 0 },
+    "Monk":      { "MAGIC": 0, "FAITH": 0, "PHYSICAL": 0, "MENTAL": 0 },
+    "Ninja":     { "MAGIC": 0, "FAITH": 0, "PHYSICAL": 0, "MENTAL": 0 },
+    "evidence": "Jump table at wpcmk file 0x4a6d (runtime 0x8fd1) dispatched by race_specific_init_handler_dispatch (0x48e3). Each class handler scanned for 'c6 06 XX 55 YY' = mov byte [0x55XX], YY patterns where XX in {88,89,8a,8b}. Verified: Mage handler at file 0x492d writes c6 06 88 55 02; Priest at 0x4952 writes c6 06 89 55 02; Alchemist at 0x498f writes c6 06 8a 55 02; Psionic at 0x49cc writes c6 06 8b 55 02; Bishop at 0x4a03 writes c6 06 88 55 01 followed by c6 06 89 55 01. All other classes land at handlers with no 0x5588-0x558b writes."
+  },
+
+  "findings": [
+    {
+      "id": "screen-13-is-skill-training",
+      "claim": "Screen-13 (ui_welcome_animation at 0x1ae9 / creation_stage_dispatcher_by_step at 0x15d7) is the SKILL training screen, NOT the spell school animation. It shows weapon skill categories (WEAPONRY/PHYSICAL/PERSONAL/ACADEMIA) and individual skill names (WAND&DAGGER, SWORD, AXE, etc.) from the skill table. The player allocates skill points from a pool of rng(9)+10 = 10..18.",
+      "evidence": {
+        "type": "decompile",
+        "binary": "original/wpcmk.ovr",
+        "addresses": ["0x1ae9", "0x15d7", "0x1941", "0x1a34", "0x1aa5"],
+        "details": "ui_welcome_animation (0x1ae9): calls creation_stage_dispatcher_by_step in loop while *(char*)0x5618 != 0. msg-strings scan found: creation_stage_dispatcher_by_step at 0x1941 writes msg_id = arg + 0x0258 (WEAPONRY/PHYSICAL/PERSONAL/ACADEMIA/EXIT/YOU EARNED A SKILL BONUS), at 0x1a34 writes msg_id = arg + 0x157c (WAND&DAGGER/SWORD/AXE/MACE&FLAIL/...), at 0x1aa5 writes msg 0x159a = 'SKILL POINTS'. These are weapon/personal/academic skill names, not spell names."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-14-is-spell-training",
+      "claim": "Screen-14 (wpcmk_train_skill_pillar at 0x28d4 / ui_train_attribute_picker_grid at 0x229c) is the SPELL school selection screen, NOT generic skill training. It shows a 6-cell grid of spell schools (FIRE/WATER/AIR/EARTH/MENTAL/MAGIC) and individual spell names (ENERGY BLAST, FIREBALL, etc.). Only Mage, Priest, Alchemist, Psionic, and Bishop get this screen; all other classes have 0 training points and skip it entirely.",
+      "evidence": {
+        "type": "decompile",
+        "binary": "original/wpcmk.ovr",
+        "addresses": ["0x28d4", "0x229c", "0x1d93", "0x29fa", "0x2424"],
+        "details": "wpcmk_train_skill_pillar (0x28d4) decompile: param_3 maps to pillar mask (0→8=MAGIC, 1→4=FAITH, 2→1=PHYSICAL, 3→2=MENTAL). At 0x29fd: calls func_0x0000c2db(0x2bf, ...) where 0x2bf = msg 703 = 'SELECT A NEW SPELL FOR YOUR SPELLBOOK'. At 0x1d93 (ui_draw_train_screen_borders): calls c2db(0x2bc) = msg 700 = 'SPELLS'. At 0x2424: calls c2db(0x0f74) = msg 3956 = 'CANCEL'. At 0x224c (ui_render_skill_grid_entry): ax = [bx] + 0x0fa0 (spell names base). The 'skill' being trained is a SPELL SCHOOL entry from the wroot DGROUP spell table, not the weapon/personal skill table."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-14-skipped-for-non-caster-classes",
+      "claim": "The spell training screen (screen-14) is completely skipped for Fighter, Thief, Ranger, Bard, Valkyrie, Lord, Samurai, Monk, and Ninja because all 4 pillar training point counters (0x5588-0x558b) are 0 for these classes. Only Mage (MAGIC=2), Priest (FAITH=2), Alchemist (PHYSICAL=2), Psionic (MENTAL=2), and Bishop (MAGIC=1, FAITH=1) get any spell training screen(s).",
+      "evidence": {
+        "type": "decompile+byte_scan",
+        "binary": "original/wpcmk.ovr",
+        "addresses": ["0x48e3", "0x4a6d", "0x492d", "0x4952", "0x498f", "0x49cc", "0x4a03"],
+        "details": "wpcmk_create_character_master inner loop: 'local_4 = 0; do { while (*(char*)(local_4+0x5588) != 0) { wpcmk_train_skill_pillar(win, charptr, local_4); } local_4++; } while (local_4 < 4)'. Race_specific_init_handler_dispatch jump table at file 0x4a6d (runtime 0x8fd1). Only 5 of 14 class handlers write to 0x5588-0x558b. Verified by scanning all 14 handlers."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "starter-skill-pool-is-rng-not-fixed",
+      "claim": "The starter SKILL points pool for screen-13 is rng(9)+10 = 10..18, NOT a fixed value of 10. Stored at DGROUP 0x5618. The existing viewer placeholder of 10 is only the minimum possible value.",
+      "evidence": {
+        "type": "decompile",
+        "binary": "original/wpcmk.ovr",
+        "address": "0x4222",
+        "asm": "b8 09 00 50 e8 XX XX 59 80 c0 0a a2 18 56",
+        "details": "personality_roll_static_10_to_18 at 0x4222: push 9; call rng_thunk(0xc47e); pop; add al, 10; mov [0x5618], al. This sets skill_pts = rng(0..8) + 10. Then dispatches via class jump table at file 0x4545 (runtime 0x8aa9) where class-specific handlers may subtract an attribute-derived 'tier2' adjustment. Classes that don't modify the pool keep the full rng(9)+10 value. Fighter gets a special capped subtraction (result = max(0, skill_pts - tier2))."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-table-structure-is-in-wroot-dgroup",
+      "claim": "The 82-entry skill table accessed by wpcmk_train_skill_pillar at DGROUP addresses 0xde..0x322 is NOT in wpcmk.ovr — it lives in wroot's DGROUP BSS at runtime. wpcmk accesses it via the shared DGROUP segment. Each 6-byte entry: byte+0 = governing_attr (0..5 = STR/INT/PIE/VIT/DEX/SPD), byte+1 = min_level, byte+2 = max_level, ..., byte+5 = pillar_mask (bitfield: 8=MAGIC, 4=FAITH, 1=PHYSICAL, 2=MENTAL). The decompile expression '*(byte*)(local_4*6 + 0xe3)' accesses byte+5 (pillar_mask) of entry local_4.",
+      "evidence": {
+        "type": "decompile",
+        "binary": "original/wpcmk.ovr",
+        "address": "0x28d4",
+        "details": "wpcmk_train_skill_pillar loop: 'if ((local_c & *(byte*)((int)local_4*6 + 0xe3)) != 0) && ((int)(uint)*(byte*)((int)local_4*6+0xdf) <= local_a)' — local_c is the pillar bitmask, 0xe3 is the mask byte offset, 0xdf is the min_level byte offset. These are wroot DGROUP runtime addresses (verified: 0xde-0x322 = 82 * 6 = 492 bytes, matches 82-entry count). The base for entry N is 0xde + N*6; fields are at offsets +0(governing_attr), +1(min_level), +2(max_level), +5(pillar_mask)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ui-welcome-animation-flow",
+      "claim": "ui_welcome_animation (0x1ae9) is the outer shell for screen-13 (skill training). It creates a new window (ui_window_create thunk 0xbbb6 with size 20x4x20x16x25), then loops: (1) call creation_stage_dispatcher_by_step(window, param_1, step_counter), (2) call ui_class_menu_with_qualification(param_1, window), (3) advance step_counter mod 4 (skipping step 2 when dispatcher returns 0). Loop exits when *(char*)0x5618 == 0.",
+      "evidence": {
+        "type": "decompile",
+        "binary": "original/wpcmk.ovr",
+        "address": "0x1ae9",
+        "details": "Decompile: 'local_6 = func_0x0000bbb6(0x14,4,0x14,0x10,0x19,0xffff,0,0)' (create window 20 cols, 4 rows, at pos 20,16 with height 25); 'local_4 = 0x11; do { local_4++; } while (local_4 < 0x16)' (initialization loop 0x12..0x15 = 4 iters); then main loop: 'local_1c[0] = creation_stage_dispatcher_by_step(local_6, param_1, iVar2); ui_class_menu_with_qualification(param_1, local_6); iVar2 = ((int)ppppuVar3 + 1) % 4; if (iVar2==2 && ppppuVar1==0) iVar2=3; while (*(char*)0x5618 != 0)'. The step counter iVar2 cycles 0→1→2→3→0... skipping step 2 when the dispatcher returns 0."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ui-train-attribute-picker-grid-structure",
+      "claim": "ui_train_attribute_picker_grid (0x229c) shows a 6-cell grid (2 rows × 3 cols) of spell schools. Key 1/2/3/4 navigate up/left/down/right; key 5 selects. After cell selection, shows a scrollable list of spells for that school. Key 2/4 scroll the list up/down; key 1 cancels; key 5 confirms. Returns the selected spell index or -1 on cancel (CANCEL button). The 6 cells display spell school names from msg base 0x0f6e: FIRE(0)/WATER(1)/AIR(2)/EARTH(3)/MENTAL(4)/MAGIC(5).",
+      "evidence": {
+        "type": "decompile",
+        "binary": "original/wpcmk.ovr",
+        "address": "0x229c",
+        "details": "Decompile shows: two windows created (local_4=outer frame, local_6=spell list panel). Grid navigation: key1→uVar4-=3 (up), key2→uVar4-=1 (left), key3→uVar4+=3 (down clamp to 0xffff=cancel), key4→uVar4+=1 (right). After cell pick: skill_find_indices_by_attr (not named yet) fills local_34[]; ui_render_skill_grid_entry renders each spell; key2→local_3c-- (scroll up), key4→local_3c++ (scroll down), key5→return local_34[local_3c] (return spell index), key1→iVar1=1 (cancel flag). Returns -1 if CANCEL cell (uVar4==0xffff) is confirmed. Spell display check: 'if *(int*)(uVar4*4+0x5498) < (int)(uint)*(byte*)(local_34[local_3c]*6+0xe0)' — cost check against current attr pool."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "spell-pick-updates-attr-pools",
+      "claim": "When a spell is selected in wpcmk_train_skill_pillar, the spell's governing attribute pools at DGROUP 0x5498 (cur) and 0x549a (max) are incremented. The increment amount is bounded by the spell's max value at skill_table[skill_idx].byte2 (0xe0). Formula: delta = min(skill_entry.min_level_attr_pts * 2 + 1, skill_entry.max_val - current_pool). After update, the pillar counter *(char*)(param_3+0x5588) is decremented by 1.",
+      "evidence": {
+        "type": "decompile",
+        "binary": "original/wpcmk.ovr",
+        "address": "0x28d4",
+        "details": "After ui_train_attribute_picker_grid returns local_8 (skill index): 'iVar1 = local_8*6; local_4 = (uint)*(byte*)(iVar1+0xdf)*2 + 1' (delta = min_level_pts*2+1); 'local_6 = (uint)*(byte*)(iVar1+0xde)' (governing_attr); 'iVar2 = local_6*4'; 'if (*(int*)(iVar2+0x549a) + local_4 < (uint)*(byte*)(iVar1+0xe0)) { local_4 stays }; else { local_4 = *(byte*)(iVar1+0xe0) - *(int*)(iVar2+0x549a) }'; '*(int*)(iVar2+0x549a) += local_4; *(int*)(iVar2+0x5498) += local_4; *(char*)(param_3+0x5588) -= 1'."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-init-all-32-slots-writes-combat-speed",
+      "claim": "skill_init_all_32_slots (0x392e) calls FUN_38fb(idx, 9) for 32 skill slots (indices 0..31). FUN_38fb (0x38fb) writes to DGROUP 0x55d8+idx: 'value = (KAR - 9 == 0) ? 0 : abs(KAR - 9); slot_speed = -4 * value + 40'. This initializes per-skill speed modifiers based on the karma stat. The formula gives slot_speed in {-152..40} (KAR range 10..18 → |KAR-9| = 1..9 → slot_speed = 36..4). NOT a skill pool init.",
+      "evidence": {
+        "type": "decompile",
+        "binary": "original/wpcmk.ovr",
+        "address": "0x38fb",
+        "details": "FUN_38fb(param_1, param_2=9): 'if (*(byte*)0x55a3 < param_2) cVar1 = -(*(byte*)0x55a3 - param_2); else cVar1 = *(char*)0x55a3 - param_2; *(char*)(param_1+0x55d8) = cVar1 * -4 + 40'. So slot_speed[idx] = -4 * |KAR - 9| + 40. Range: KAR=10: -4*1+40=36; KAR=18: -4*9+40=4. Called for idx 0..9, 11..31 (32 calls; idx 10 is absent from skill_init_all_32_slots but this is a Ghidra decompile artifact — the original asm likely has idx=10 too)."
+      },
+      "confidence": "high"
+    }
+  ],
+
+  "state_machine": {
+    "description": "Screen-13 (skill training) has an implicit loop driven by 0x5618 > 0. Screen-14 (spell training) has an implicit loop driven by any pillar 0x5588-0x558b > 0. Both are inside wpcmk_create_character_master's outer flow.",
+    "states": [
+      {
+        "state_id": "skill_train_select_category",
+        "description": "creation_stage_dispatcher_by_step showing skill category header (WEAPONRY/PHYSICAL/PERSONAL/ACADEMIA). Tracks step_counter (0..3 cycling mod 4).",
+        "trigger": "*(char*)0x5618 > 0"
+      },
+      {
+        "state_id": "skill_train_select_skill",
+        "description": "Within a category: scrollable list of individual skill names. Player picks a skill, skill points are consumed.",
+        "trigger": "Player selects a category cell"
+      },
+      {
+        "state_id": "spell_train_pillar_active",
+        "description": "wpcmk_train_skill_pillar showing 6-cell spell-school grid. Active for pillars 0-3 where *(0x5588+pillar) > 0.",
+        "trigger": "*(char*)(0x5588+pillar_idx) > 0 for some pillar 0..3"
+      },
+      {
+        "state_id": "spell_train_spell_pick",
+        "description": "After selecting a spell school cell: scrollable spell list for that school.",
+        "trigger": "Player selects a spell-school cell in the 6-cell grid"
+      }
+    ],
+    "transitions": [
+      {
+        "from": "skill_train_select_category",
+        "to": "skill_train_select_skill",
+        "condition": "Player selects a category (key 5 on a non-EXIT entry)"
+      },
+      {
+        "from": "skill_train_select_skill",
+        "to": "skill_train_select_category",
+        "condition": "Player picks a skill (key 5) → 0x5618 decremented. If 0x5618 > 0 still, loops back to category."
+      },
+      {
+        "from": "skill_train_select_category",
+        "to": "spell_train_pillar_active (first non-zero pillar)",
+        "condition": "*(char*)0x5618 becomes 0 → ui_welcome_animation exits → master loop proceeds to wpcmk_train_skill_pillar"
+      },
+      {
+        "from": "spell_train_pillar_active",
+        "to": "spell_train_spell_pick",
+        "condition": "Player selects a spell-school cell"
+      },
+      {
+        "from": "spell_train_spell_pick",
+        "to": "spell_train_pillar_active",
+        "condition": "Player picks a spell (key 5 non-cancel) → *(0x5588+pillar) decremented. Loop continues if > 0."
+      },
+      {
+        "from": "spell_train_pillar_active",
+        "to": "spell_train_pillar_active (next pillar)",
+        "condition": "*(0x5588+pillar) hits 0 → advance to next pillar (local_4++) up to 4"
+      },
+      {
+        "from": "spell_train_pillar_active (all done)",
+        "to": "screen-15-confirm",
+        "condition": "All 4 pillars exhausted (local_4 == 4)"
+      }
+    ]
+  },
+
+  "key_handlers": [
+    {
+      "screen": "ui_train_attribute_picker_grid (spell school 6-cell grid)",
+      "key_code": 1,
+      "key_name": "UP / 1",
+      "action": "Move selection up (uVar4 -= 3, wraps to cancel=0xffff if uVar4 < 2)"
+    },
+    {
+      "screen": "ui_train_attribute_picker_grid (spell school 6-cell grid)",
+      "key_code": 2,
+      "key_name": "LEFT / 2",
+      "action": "Move selection left (uVar4 -= 1, only if uVar4 % 3 > 0)"
+    },
+    {
+      "screen": "ui_train_attribute_picker_grid (spell school 6-cell grid)",
+      "key_code": 3,
+      "key_name": "DOWN / 3",
+      "action": "Move selection down (uVar4 += 3, clamp to 0xffff=CANCEL if > 5)"
+    },
+    {
+      "screen": "ui_train_attribute_picker_grid (spell school 6-cell grid)",
+      "key_code": 4,
+      "key_name": "RIGHT / 4",
+      "action": "Move selection right (uVar4 += 1, only if uVar4 % 3 < 2)"
+    },
+    {
+      "screen": "ui_train_attribute_picker_grid (spell school 6-cell grid)",
+      "key_code": 5,
+      "key_name": "ENTER / 5 / CONFIRM",
+      "action": "Confirm selection. If uVar4==0xffff (CANCEL cell): return -1. Else: enter spell-list sub-picker for that school."
+    },
+    {
+      "screen": "ui_train_attribute_picker_grid (spell list sub-picker)",
+      "key_code": 1,
+      "key_name": "1 (BACK)",
+      "action": "Cancel and return to spell school grid (iVar1=1 flag → break inner loop)"
+    },
+    {
+      "screen": "ui_train_attribute_picker_grid (spell list sub-picker)",
+      "key_code": 2,
+      "key_name": "UP / 2",
+      "action": "Scroll spell list up (local_3c-- if > 0)"
+    },
+    {
+      "screen": "ui_train_attribute_picker_grid (spell list sub-picker)",
+      "key_code": 4,
+      "key_name": "DOWN / 4",
+      "action": "Scroll spell list down (local_3c++ if < local_c-1)"
+    },
+    {
+      "screen": "ui_train_attribute_picker_grid (spell list sub-picker)",
+      "key_code": 5,
+      "key_name": "ENTER / 5 / SELECT",
+      "action": "Select currently highlighted spell (return local_34[local_3c] = skill table index)"
+    },
+    {
+      "screen": "ui_train_attribute_picker_grid mouse mode (*(int*)0x4fc4==1)",
+      "key_code": "mouse_button_0..9",
+      "key_name": "mouse click",
+      "action": "Dispatches via jump table at file 0x6d9c (runtime). Direct click on a cell selects or navigates it."
+    }
+  ],
+
+  "dgroup_addresses": {
+    "skill_points_remaining_screen13": "0x5618 (byte) — initialized by personality_roll_static_10_to_18 to rng(9)+10; decremented by ui_class_menu_with_qualification after each skill pick; loop in ui_welcome_animation exits when 0",
+    "spell_train_pts_pillar0_MAGIC":   "0x5588 (byte) — count of spell picks remaining for MAGIC pillar; decremented by wpcmk_train_skill_pillar after each pick",
+    "spell_train_pts_pillar1_FAITH":   "0x5589 (byte)",
+    "spell_train_pts_pillar2_PHYSICAL":"0x558a (byte)",
+    "spell_train_pts_pillar3_MENTAL":  "0x558b (byte)",
+    "spell_attr_pool_cur_base":        "0x5498 (int[6]) — cur spell points per governing attr (0..5 = STR/INT/PIE/VIT/DEX/SPD), stride 4: *(0x5498 + attr*4)",
+    "spell_attr_pool_max_base":        "0x549a (int[6]) — max spell points per governing attr, stride 4: *(0x549a + attr*4)",
+    "class_index":                     "0x560f (byte) — class 0..13",
+    "race_index":                      "0x560d (byte) — race 0..10"
+  },
+
+  "skill_table_structure": {
+    "description": "82-entry spell/skill table in wroot DGROUP. Accessed by wpcmk_train_skill_pillar for spell training (screen-14). Entry N starts at DGROUP 0xde + N*6.",
+    "field_offsets": {
+      "byte+0": "governing_attr — index 0..5 = STR/INT/PIE/VIT/DEX/SPD; controls which 0x5498+attr*4 pool gets updated",
+      "byte+1": "min_level — minimum character level to pick this entry (always 1 for new char creation)",
+      "byte+2": "max_val — max value cap for the governing attribute pool (used in increment formula)",
+      "byte+5": "pillar_mask — bitmask: 8=MAGIC, 4=FAITH, 1=PHYSICAL, 2=MENTAL; a single entry can appear in multiple pillars"
+    },
+    "decompile_refs": "wpcmk_train_skill_pillar at 0x28d4: '*(byte*)(local_4*6 + 0xe3)' = entry[N].byte5 = pillar_mask; '*(byte*)(local_4*6 + 0xdf)' = entry[N].byte1 = min_level; '*(byte*)(local_8*6 + 0xde)' = entry[chosen].byte0 = governing_attr; '*(byte*)(local_8*6 + 0xe0)' = entry[chosen].byte2 = max_val"
+  },
+
+  "open_questions": [
+    "The class-specific tier2 adjustment to skill_pts (subtracting from 0x5618) in the handlers at 0x426b-0x456d is not fully decoded. The formula involves attribute-derived arithmetic (INT/PIE/VIT/SPD divisions). A complete class-by-class table of expected skill-pts ranges after tier2 adjustment would require tracing each handler's attribute reads. Priority: medium (affects starting skill points for Fighter/Ranger/Bishop/Monk/Ninja).",
+    "The 82-entry skill table at wroot DGROUP 0xde..0x322 was not fully decoded in this pass. Only the field layout (6 bytes per entry: governing_attr, min_level, max_val, ..., pillar_mask) is confirmed from the access patterns in wpcmk_train_skill_pillar. The full table data (which skills map to which pillars, which attrs govern them) requires reading from a live save-state via dosbox_read_memory at DGROUP offset 0xde.",
+    "The class_skill_init jump table handlers (at file 0x426b-0x456d) also write to other DGROUP addresses (0x55af, 0x55be, 0x55c0, 0x55ad, etc.) that were not decoded. These may be additional class-specific stats. They are NOT 0x5588-0x558b (training points). Possibly spell school capacity or category enablement flags.",
+    "ui_class_menu_with_qualification (0x1158) writes '*(undefined1*)0x5618 = local_1c' (line 409 of decompile). The value local_1c is the return value (number of skills available in the selected category? remaining skill points?). This write is the skill_pts decrement from screen-13. The exact decrement logic (does it decrement by 1 per pick or by the number of skills in a category?) needs verification.",
+    "The 'skill_find_indices_by_attr' call inside ui_train_attribute_picker_grid fills local_34[] with spell indices for the selected school and returns local_c (count). This function was not independently decompiled. Its name is inferred from context. File offset not determined in this pass.",
+    "The mouse jump table at file 0x6d9c (runtime, accessed via ui_train_attribute_picker_grid's mouse handler) was not decoded. Mouse button → key mapping is partially documented (button0..9 dispatched via table), but exact mapping is unknown.",
+    "Bishop's spell training: MAGIC=1 and FAITH=1. The master loop runs wpcmk_train_skill_pillar for pillar 0 (MAGIC) first, then pillar 1 (FAITH). So Bishop gets 2 separate spell-pick screens in sequence. This is the expected behavior but should be verified against a live Bishop character creation in DOSBox-X.",
+    "The 'while (*(char*)(local_4+0x5588) != 0)' inner loop in wpcmk_create_character_master means if a class had training_pts > 1 for a pillar (none do in the current data, max is 2), that pillar would show multiple picks. Mage has MAGIC=2 which means Mage gets 2 separate MAGIC spell picks. The loop structure: 'while pts>0: call wpcmk_train_skill_pillar(pillar); pts decremented inside the pillar fn; re-check'."
+  ]
+}

@@ -1,0 +1,335 @@
+{
+  "topic": "wpcmk-bonus-allocator",
+  "date": "2026-05-26",
+  "binary": "wpcmk.ovr",
+  "function": "wpcmk_bonus_point_allocator_ui",
+  "entry_point_file_offset": "0x3405",
+  "method": "Ghidra PyGhidra decompile + full asm listing (0x3405..0x3836) + raw binary read of mouse dispatch table at file:0x3678",
+  "summary": "Full state machine, key-handler pseudocode, and edge cases for the bonus-point allocator UI (screen-06). Lower bound is undo-array > 0 (can only decrease what was added in this session), not the race floor directly. Mouse has 5 buttons, not 3 as prior pass claimed. Cursor_index and undo_array are stack-locals, not DGROUP globals.",
+
+  "findings": [
+    {
+      "id": "function-bounds",
+      "claim": "wpcmk_bonus_point_allocator_ui spans file 0x3405..0x3836 (0x431 = 1073 bytes). Called from wpcmk_create_character_master at file 0x4ec4 (step 12 of 23).",
+      "evidence": {
+        "type": "decompile",
+        "details": "Ghidra decompile entry at 0000:3405; RET at 0000:3836. Caller: 0x4ec4 E8 3E E5."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "stack-frame-layout",
+      "claim": "Stack frame: ADD SP,-0x14 allocates 0x14 bytes. [BP-0x2]=key_code (word), [BP-0x4]=cursor_index (word, 0..6), [BP-0x6..BP-0x14]=undo[7] (7 words, index 0..6 at [BP+cursor*2-0x14]).",
+      "evidence": {
+        "type": "asm",
+        "details": "0x3406 MOV BP,SP; 0x3408 ADD SP,-0x14. Undo array: 0x3495 LEA AX,[BP-0x14] passed to memset init. Cursor: 0x36a7 MOV BX,[BP-0x4]; DEC [BX+0x559c]. Undo: 0x3698 SHL AX,1; 0x369c ADD BX,BP; 0x369e CMP [BX-0x14],0."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "dgroup-addresses-confirmed",
+      "claim": "DGROUP 0x56ac = bonus_points_remaining (confirmed read/write in loop). DGROUP 0x559c..0x55a2 = attrs[7] (STR..PER, indices 0..6). DGROUP 0x56ca = ui window handle (read repeatedly). DGROUP 0x546e = secondary window handle (used for cursor highlight). DGROUP 0x4fc4 = mouse_mode flag. Cursor_index and undo_array are stack locals only.",
+      "evidence": {
+        "type": "asm",
+        "details": "0x35ab CMP [0x56ac],0; 0x36b2 INC [0x56ac]; 0x374b DEC [0x56ac]; 0x36a7 DEC [BX+0x559c] (BX=cursor_index); 0x3740 INC [BX+0x559c]; 0x364c CMP [0x4fc4],1."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "undo-array-is-stack-only",
+      "claim": "The undo[] array tracking per-attribute bonus spends is allocated on the stack ([BP-0x14..BP-0x8]) and zero-initialized at function entry. It is NOT a DGROUP global. There is no persistent undo state between calls.",
+      "evidence": {
+        "type": "asm",
+        "details": "0x3495 LEA AX,[BP-0x14]; 0x3498 PUSH AX; 0x348d PUSH 0 (val); 0x3491 PUSH 0x10 (len=16 bytes); 0x3499 CALL 0xf34c (memset). Undo read at 0x369e, 0x36af; undo write at 0x36af DEC [BX-0x14], 0x3748 INC [BX-0x14]."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "cursor-index-is-stack-only",
+      "claim": "cursor_index is a stack local at [BP-0x4]. Initialized to 0 at entry (0x349f MOV [BP-0x4],0). Ranges 0..6. No DGROUP address holds the cursor between screens.",
+      "evidence": {
+        "type": "asm",
+        "details": "0x349f MOV word ptr [BP-0x4],0; 0x36a4/0x36a7 MOV BX,[BP-0x4]; 0x36fb DEC [BP-0x4]; 0x36fb/0x3700/0x3705 cursor wrap logic."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "key-mapping-confirmed",
+      "claim": "Key dispatch at 0x37c7 (CMP AX chain): key1=decrease, key2=prev_attr, key3=increase, key4=next_attr, key5=confirm. Concrete comparison values at: 0x37c7 CMP AX,1; 0x37cf CMP AX,2; 0x37d7 CMP AX,3; 0x37df CMP AX,4. Key5 handled separately at 0x37e4/0x37f9 confirm gate.",
+      "evidence": {
+        "type": "asm",
+        "details": "0x37c7: CMP AX,1 JNZ 37cf -> JMP 3695 (key1). 0x37cf: CMP AX,2 JNZ 37d7 -> JMP 36ce (key2). 0x37d7: CMP AX,3 JNZ 37df -> JMP 372f (key3). 0x37df: CMP AX,4 JZ 3767 (key4). 0x37e4: CMP [BP-2],5 + CMP [0x56ac],0 (key5 gate)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "mouse-mapping-confirmed",
+      "claim": "Mouse dispatch table at CS:0x7bdc (wpcmk file:0x3678), 5 entries × 2 bytes. Active when [0x4fc4]==1 and raw_input < 5 (JNC guard at 0x3685). button0->key1(decrease), button1->key3(increase), button2->key2(prev), button3->key4(next), button4->key5(confirm). Stubs write key code to [BP-0x2] then JMP to 0x368f (normal dispatch entry). Prior pass claim (only 3 buttons) is INCORRECT.",
+      "evidence": {
+        "type": "raw-binary",
+        "details": "File 0x3678: 7 bytes per stub: C7 46 FE [key] 00 EB [disp]. button0@0x3655: key=1, button1@0x365c: key=3, button2@0x3663: key=2, button3@0x366a: key=4, button4@0x3671: key=5. All JMPs resolve to 0x368f. Guard: 0x3682 CMP AX,5; 0x3685 JNC 368f."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "lower-bound-rule",
+      "claim": "Lower bound for decrease is undo[cursor] > 0, NOT the race floor directly. The race floor is already encoded in the attribute values at [0x559c+cursor] BEFORE this function is called (set by stats_bump_to_racial_minimums). This function tracks how many points it added per attribute in undo[cursor], and only allows decreasing what it added. Result: can never go below pre-allocator value = racial minimum.",
+      "evidence": {
+        "type": "asm",
+        "details": "0x369e: CMP word ptr [BX-0x14],0x0 (BX=cursor*2+BP, so [BX-0x14]=undo[cursor]). 0x36a2: JLE 0x36c3 (play_sound(0) if undo[cursor] <= 0). 0x36af DEC undo[cursor] when decreasing. Undo starts at 0 (memset). So: undo[cursor] = points added this session -> lower bound = starting value (= racial minimum)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "upper-bound-rule",
+      "claim": "Upper bound for increase is attr < 18 (0x12) AND pool > 0. The check is CMP byte ptr [BX+0x559c], 0x12; JNC (jump-not-carry = jump-if-unsigned->=) to error path. Second condition: CMP [0x56ac],0; JLE to error path.",
+      "evidence": {
+        "type": "asm",
+        "details": "0x372f: MOV BX,[BP-4] (cursor). 0x3732: CMP byte ptr [BX+0x559c],0x12. 0x3737: JNC 0x375c (error if attr >= 18). 0x3739: CMP word ptr [0x56ac],0. 0x373e: JLE 0x375c (error if pool <= 0). 0x3740: INC [BX+0x559c]; 0x3748 INC undo[cursor]; 0x374b DEC [0x56ac]."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "confirm-gate",
+      "claim": "Confirm (key5) only exits the loop when pool <= 0. If pool > 0: play_sound(0) (invalid beep) and loop. Exit condition: key==5 AND [0x56ac] <= 0.",
+      "evidence": {
+        "type": "asm",
+        "details": "0x37e4: CMP [BP-2],5; JNZ 37f9. 0x37ea: CMP [0x56ac],0; JLE 37f9. 0x37f1: PUSH 0; CALL c546 (play_sound(0)). 0x37f9: CMP [BP-2],5; JZ 3802. 0x37ff: JMP 3599 (loop). 0x3802: CMP [0x56ac],0; JLE 380c (exit). 0x3809: JMP 3599 (loop if pool > 0)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "cursor-wrap-behavior",
+      "claim": "KEY2 (prev): if cursor <= 0 wrap to 6, else cursor--. KEY4 (next): if cursor >= 6 wrap to 0, else cursor++.",
+      "evidence": {
+        "type": "asm",
+        "details": "KEY2 at 0x36ce: 0x36f5 CMP [BP-4],0; 0x36f9 JLE 3700; 0x36fb DEC [BP-4]; JMP 3705; 0x3700 MOV [BP-4],6. KEY4 at 0x3767: 0x378e CMP [BP-4],6; 0x3792 JGE 3799; 0x3794 INC [BP-4]; JMP 379e; 0x3799 MOV [BP-4],0."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "cursor-highlight-mechanics",
+      "claim": "Cursor highlight: ui_window_set_cursor(win=0x546e, row=cursor+5, col=7) for CLEAR; ui_window_putstring_highlight(win=0x546e, text=0x62??, len=7) for SELECT. Both called on entry and on every cursor move (before/after). The +5 offset maps cursor_index 0..6 to window rows 5..11.",
+      "evidence": {
+        "type": "asm",
+        "details": "0x34a4 MOV AX,[BP-4]; ADD AX,5; PUSH AX (row=cursor+5); PUSH 7 (col); PUSH [0x546e]; CALL bda7 (ui_window_set_cursor). 0x34b9 PUSH 7; 0x34bc PUSH 0x62; PUSH [0x546e]; CALL dd53 (ui_window_putstring_highlight). Same pattern at 0x36ce, 0x3767 cursor-move handlers."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pool-zero-display",
+      "claim": "When pool == 0: shows msg 0x456 ('PRESS RETURN TO EXIT') and two c6b2 draws. When pool != 0: inner loop waits until win.field[6] >= 0x26 (38) by calling ui_window_putchar(win, 0x20, 3) in a busy loop, then draws pool value with c6b2. The two-INC at 0x3475/0x3478 prepares win.field[6] at init.",
+      "evidence": {
+        "type": "asm",
+        "details": "0x35ab CMP [0x56ac],0; JNZ 360c. Pool==0 path: 0x35b2 call c2db(0x456, win, 0x12); 0x35f0 call c6b2; 0x3604 call c6b2; JMP 363b. Pool!=0 path (0x360c): BX=[0x56ca]; 0x3610 CMP [BX+6],0x26; JNC 3627; PUSH 3,0x20,BX; CALL de7f; JMP 360c."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "invalid-action-sound",
+      "claim": "Invalid action plays audio_play_sound with argument 0 (PUSH 0 before CALL c546). Valid action plays audio_play_sound with argument 1 (PUSH 1 before CALL c546).",
+      "evidence": {
+        "type": "asm",
+        "details": "Key1 invalid: 0x36c3 PUSH 0; CALL c546. Key1 valid: 0x36b6 PUSH 1; CALL c546. Key3 invalid: 0x375c PUSH 0; CALL c546. Key3 valid: 0x374f PUSH 1; CALL c546. Key5 invalid: 0x37f1 PUSH 0; CALL c546. Confirm gate valid exit: no additional sound."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "init-sequence",
+      "claim": "Init sequence: (1) ui_window_clear(win=0x56ca, 0x20, 3, 0); (2) ui_window_blit(win=0x56ca); (3) ui_window_set_cursor(win=0x56ca, col=1, row=7); (4) write msg 0x460 ('ASSIGN ABILITY SCORE BONUS'); (5) bda7 x2 for label rows; (6) write msg 0x454 ('UP/DOWN ADJUSTS ABILITY'); (7) two INC [0x56ca.field6]; (8) write msg 0x455 ('L/R SELECTS ABILITY'); (9) memset undo[7]=0; (10) cursor_index=0; (11) initial cursor highlight.",
+      "evidence": {
+        "type": "asm",
+        "details": "0x341b CALL ed5a (ui_window_clear); 0x3425 CALL e5b5 (ui_window_blit); 0x3435 CALL bda7; 0x3447 CALL c2db (msg 0x460); 0x3459 CALL bda7; 0x346b CALL c2db (msg 0x454); 0x3475/3478 INC [BX+6]; 0x3487 CALL c2db (msg 0x455); 0x3499 CALL f34c (memset); 0x349f MOV [BP-4],0; 0x34b3 CALL bda7 (initial highlight)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "input-poll-function",
+      "claim": "Input polling is at wpcmk file 0x3643 (CALL 0x0098 with args pushed at 0x363b-0x3642). The call at 0x3643 returns the raw input value (key code 1-5 or mouse button 0-4). Result stored in [BP-0x2].",
+      "evidence": {
+        "type": "asm",
+        "details": "0x363b MOV AX,0x3598; PUSH AX; MOV AX,0x541e; PUSH AX; 0x3643 CALL 0x0098; ADD SP,0x4; 0x3649 MOV [BP-2],AX. Function 0x0098 is wpcmk's local input_poll_key_or_mouse."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "prior-pass-mouse-correction",
+      "claim": "Prior RE pass (screen-flow trace) claimed mouse mapping was button0->key1, button1->key3, button2->key5 (only 3 buttons). CORRECTED: there are 5 mouse buttons in the dispatch table. button0->key1(decrease), button1->key3(increase), button2->key2(prev), button3->key4(next), button4->key5(confirm).",
+      "evidence": {
+        "type": "raw-binary",
+        "details": "Dispatch table at file:0x3678 has 5 sequential 2-byte pointer entries followed by 5 stubs. Verified by reading raw bytes: 7bb9 7bc0 7bc7 7bce 7bd5 (little-endian CS offsets). Each stub: C7 46 FE [N] 00 EB [disp]. Key values: 01 03 02 04 05."
+      },
+      "confidence": "high"
+    }
+  ],
+
+  "state_machine": {
+    "states": [
+      {
+        "id": "INIT",
+        "description": "Function entry. Clear window, draw labels, zero undo[], cursor=0, initial highlight."
+      },
+      {
+        "id": "LOOP_TOP",
+        "description": "Loop top at 0x3599. Redraw cursor row with bda7(win, 0xc, 3)."
+      },
+      {
+        "id": "DISPLAY_POOL_ZERO",
+        "description": "pool == 0 branch: show msg 0x456 ('PRESS RETURN TO EXIT'), draw pool display as 0."
+      },
+      {
+        "id": "DISPLAY_POOL_NONZERO",
+        "description": "pool != 0 branch: wait-animation (inner loop calling ui_window_putchar until win.field[6]>=38), then draw current pool value."
+      },
+      {
+        "id": "INPUT_WAIT",
+        "description": "Call input_poll_key_or_mouse at 0x3643. Blocks until key or mouse event. Returns raw input in AX."
+      },
+      {
+        "id": "MOUSE_DISPATCH",
+        "description": "If [0x4fc4]==1 and raw_input < 5: indirect jump via CS:[BX+0x7bdc] stub. Stub writes translated key_code to [BP-0x2] and jumps to KEY_DISPATCH. Active only when mouse_mode flag is set."
+      },
+      {
+        "id": "KEY_DISPATCH",
+        "description": "CMP chain at 0x37c7 on [BP-0x2]. Routes to DECREASE(1), PREV(2), INCREASE(3), NEXT(4). Key 5 falls through to CONFIRM_GATE."
+      },
+      {
+        "id": "DECREASE",
+        "description": "If undo[cursor] > 0: attrs[cursor]--, undo[cursor]--, pool++, play_sound(1), ui_render_stat_panel. Else: play_sound(0)."
+      },
+      {
+        "id": "PREV_ATTR",
+        "description": "Clear cursor highlight. cursor = (cursor == 0) ? 6 : cursor-1. Redraw cursor highlight."
+      },
+      {
+        "id": "INCREASE",
+        "description": "If attrs[cursor] < 18 AND pool > 0: attrs[cursor]++, undo[cursor]++, pool--, play_sound(1), ui_render_stat_panel. Else: play_sound(0)."
+      },
+      {
+        "id": "NEXT_ATTR",
+        "description": "Clear cursor highlight. cursor = (cursor == 6) ? 0 : cursor+1. Redraw cursor highlight."
+      },
+      {
+        "id": "CONFIRM_GATE",
+        "description": "If key==5 and pool > 0: play_sound(0) (can't confirm yet). If key==5 and pool <= 0: goto EXIT_CLEANUP. Else: fall through to loop-check."
+      },
+      {
+        "id": "EXIT_CLEANUP",
+        "description": "Clear cursor highlight (bda7 + dd53). MOV SP,BP; POP BP; RET. Returns to wpcmk_create_character_master step 13."
+      }
+    ],
+    "transitions": [
+      { "from": "INIT",              "to": "LOOP_TOP",          "condition": "always" },
+      { "from": "LOOP_TOP",          "to": "DISPLAY_POOL_ZERO",    "condition": "[0x56ac] == 0" },
+      { "from": "LOOP_TOP",          "to": "DISPLAY_POOL_NONZERO", "condition": "[0x56ac] != 0" },
+      { "from": "DISPLAY_POOL_ZERO",    "to": "INPUT_WAIT",       "condition": "always" },
+      { "from": "DISPLAY_POOL_NONZERO", "to": "INPUT_WAIT",       "condition": "win.field[6] >= 38" },
+      { "from": "INPUT_WAIT",        "to": "MOUSE_DISPATCH",    "condition": "[0x4fc4]==1 AND raw_input < 5" },
+      { "from": "INPUT_WAIT",        "to": "KEY_DISPATCH",      "condition": "mouse not active OR raw_input >= 5" },
+      { "from": "MOUSE_DISPATCH",    "to": "KEY_DISPATCH",      "condition": "stub sets [BP-2] and jumps to 0x368f" },
+      { "from": "KEY_DISPATCH",      "to": "DECREASE",          "condition": "key == 1" },
+      { "from": "KEY_DISPATCH",      "to": "PREV_ATTR",         "condition": "key == 2" },
+      { "from": "KEY_DISPATCH",      "to": "INCREASE",          "condition": "key == 3" },
+      { "from": "KEY_DISPATCH",      "to": "NEXT_ATTR",         "condition": "key == 4" },
+      { "from": "KEY_DISPATCH",      "to": "CONFIRM_GATE",      "condition": "key == 5 (or unrecognized)" },
+      { "from": "DECREASE",          "to": "LOOP_TOP",          "condition": "always" },
+      { "from": "PREV_ATTR",         "to": "LOOP_TOP",          "condition": "always" },
+      { "from": "INCREASE",          "to": "LOOP_TOP",          "condition": "always" },
+      { "from": "NEXT_ATTR",         "to": "LOOP_TOP",          "condition": "always" },
+      { "from": "CONFIRM_GATE",      "to": "EXIT_CLEANUP",      "condition": "key==5 AND pool <= 0" },
+      { "from": "CONFIRM_GATE",      "to": "LOOP_TOP",          "condition": "key==5 AND pool > 0 (invalid beep)" },
+      { "from": "CONFIRM_GATE",      "to": "LOOP_TOP",          "condition": "key != 5" }
+    ]
+  },
+
+  "key_handlers": [
+    {
+      "key_code": 1,
+      "key_name": "DECREASE",
+      "asm_comparison": "CMP AX,1 at 0x37c7",
+      "mouse_button": 0,
+      "action": "If undo[cursor]>0: attrs[cursor]--, undo[cursor]--, pool++, play_sound(1), ui_render_stat_panel(). Else: play_sound(0).",
+      "lower_bound_check": "CMP word ptr [BX-0x14],0x0 at 0x369e; JLE 0x36c3 (error if undo[cursor] <= 0)"
+    },
+    {
+      "key_code": 2,
+      "key_name": "PREV_ATTR",
+      "asm_comparison": "CMP AX,2 at 0x37cf",
+      "mouse_button": 2,
+      "action": "Clear cursor highlight. If cursor<=0: cursor=6 (wrap). Else: cursor--. Redraw cursor highlight.",
+      "wrap_asm": "CMP [BP-4],0 at 0x36f5; JLE 0x3700 (set cursor=6)"
+    },
+    {
+      "key_code": 3,
+      "key_name": "INCREASE",
+      "asm_comparison": "CMP AX,3 at 0x37d7",
+      "mouse_button": 1,
+      "action": "If attrs[cursor]<18 AND pool>0: attrs[cursor]++, undo[cursor]++, pool--, play_sound(1), ui_render_stat_panel(). Else: play_sound(0).",
+      "upper_bound_check": "CMP byte ptr [BX+0x559c],0x12 at 0x3732; JNC 0x375c (error if attr >= 18)",
+      "pool_check": "CMP [0x56ac],0 at 0x3739; JLE 0x375c (error if pool <= 0)"
+    },
+    {
+      "key_code": 4,
+      "key_name": "NEXT_ATTR",
+      "asm_comparison": "CMP AX,4 at 0x37df",
+      "mouse_button": 3,
+      "action": "Clear cursor highlight. If cursor>=6: cursor=0 (wrap). Else: cursor++. Redraw cursor highlight.",
+      "wrap_asm": "CMP [BP-4],6 at 0x378e; JGE 0x3799 (set cursor=0)"
+    },
+    {
+      "key_code": 5,
+      "key_name": "CONFIRM",
+      "asm_comparison": "CMP [BP-2],5 at 0x37e4 and 0x37f9",
+      "mouse_button": 4,
+      "action": "If pool<=0: exit loop (EXIT_CLEANUP). If pool>0: play_sound(0) and continue loop.",
+      "gate_asm": "0x37ea CMP [0x56ac],0; JLE 0x37f9; 0x37f1 PUSH 0; CALL c546. 0x3802 CMP [0x56ac],0; JLE 380c (exit); JMP 3599 (loop)."
+    }
+  ],
+
+  "dgroup_addresses": {
+    "pool": "0x56ac",
+    "cursor_index": "STACK [BP-0x4] — not a DGROUP global",
+    "attributes_base": "0x559c",
+    "attr_indices": "STR=0, INT=1, PIE=2, VIT=3, DEX=4, SPD=5, PER=6 (matches 0x559c..0x55a2)",
+    "undo_array": "STACK [BP-0x14] — 7 words, index as [BP + cursor*2 - 0x14]; NOT a DGROUP global",
+    "window_handle_main": "0x56ca",
+    "window_handle_secondary": "0x546e",
+    "mouse_mode_flag": "0x4fc4"
+  },
+
+  "mouse_dispatch_table": {
+    "cs_address": "0x7bdc",
+    "file_offset": "0x3678",
+    "guard": "active only when [0x4fc4]==1 AND raw_input < 5",
+    "guard_asm": "0x364c CMP [0x4fc4],1; JNZ 368f. 0x3682 CMP AX,5; JNC 368f",
+    "entries": [
+      { "button": 0, "stub_file_offset": "0x3655", "mapped_key": 1, "action": "decrease attr" },
+      { "button": 1, "stub_file_offset": "0x365c", "mapped_key": 3, "action": "increase attr" },
+      { "button": 2, "stub_file_offset": "0x3663", "mapped_key": 2, "action": "prev attr" },
+      { "button": 3, "stub_file_offset": "0x366a", "mapped_key": 4, "action": "next attr" },
+      { "button": 4, "stub_file_offset": "0x3671", "mapped_key": 5, "action": "confirm" }
+    ],
+    "stub_format": "C7 46 FE [key_code_byte] 00 EB [rel_offset] — MOV word [BP-2], key_code; JMP short to 0x368f"
+  },
+
+  "edge_cases": [
+    "Cannot decrease attr below pre-allocator value (undo[cursor] guard at 0x369e). The pre-allocator value = racial minimum (set by stats_bump_to_racial_minimums before this fn is called). Race floor is not checked directly in this function — it is already encoded as the starting attr value.",
+    "Cannot raise attr above 18 (0x12) — hard cap at CMP byte [cursor+0x559c],0x12 at 0x3732 (JNC = unsigned >=).",
+    "Cannot raise when pool is exhausted (pool <= 0 check at 0x3739 with JLE — catches both 0 and impossible negative).",
+    "Confirm (key5 / button4) is invalid while pool > 0 — play_sound(0) and loop continues. This forces the player to spend all bonus points before proceeding.",
+    "Mouse mode guard: if [0x4fc4] != 1, no mouse dispatch; raw_input is used directly as key_code. Also if raw_input >= 5 in mouse mode, falls through to normal key dispatch (no crash).",
+    "Cursor wraps: prev from 0 wraps to 6 (PER); next from 6 wraps to 0 (STR). JLE at 0x36f9 means wrap fires on cursor==0 (and hypothetical negative, which can't occur).",
+    "Animation: when pool != 0, the display of the pool value runs a busy-loop driving win.field[6] from its starting value up to 38 before accepting input. This creates a visible count-up animation of the pool number each iteration.",
+    "KAR (karma, index 7 in the character record) is NOT in the allocator's attribute range. attrs[0..6] = STR/INT/PIE/VIT/DEX/SPD/PER. Karma (at char_record+7, runtime 0x55a3) is set by the subsequent personality_reroll_loop, not here.",
+    "undo[cursor] is a WORD (16-bit), so theoretically up to 65535 increments per attr — but capped in practice by the pool (5..26 points max) and the 18 upper bound."
+  ],
+
+  "open_questions": [
+    "What does ui_window_clear(0x56ca, 0x20, 3, 0) do with the arguments 0x20 and 3 at function start? The 0x20 may be fill character (space), 3 may be attribute/color.",
+    "What is win.field[6] exactly? The init increments it twice (INC [BX+6] at 0x3475/0x3478), then the pool-nonzero branch loops until it reaches 0x26=38. Is this a row counter, a Y-coordinate, or a frame counter?",
+    "What does ui_window_blit(0x56ca) do on init vs being called in a scroll loop — is de7f the same function or distinct?",
+    "The c6b2 calls (mouse_status_set_field per wroot Ghidra naming) appear in the init sequence with arguments that look like screen coordinates. Are these defining clickable regions for each attribute row? The +0x15/+0x16 column offsets suggest row-by-row mouse hot-zones.",
+    "input_poll_key_or_mouse at wpcmk 0x0098 — what keyboard filter mask does it use? See RE #8 task for keyboard filter analysis.",
+    "The PUSH 0x3598/PUSH 0x541e before the input poll call — are these keyboard filter tables or callback ptrs? Needs further analysis for RE #8."
+  ]
+}

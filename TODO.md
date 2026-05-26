@@ -13,11 +13,18 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#018**
+Next free ID: **#020**
 
 ---
 
 ## Open
+
+- #019 [open] — wpcmk Phase 2 — write port plan
+  - Phase 1 RE sweep COMPLETE: `docs/re/wpcmk-screens.md` (17 screens, 76/76 functions named) + 12 `docs/re/findings/wpcmk-*.json`.
+  - Use `superpowers:writing-plans` to draft `docs/superpowers/plans/2026-05-26-wpcmk-port.md` against `docs/superpowers/specs/2026-05-26-wpcmk-byte-perfect-design.md`.
+  - Plan scope: Wichmann-Hill RNG (seed §12), character-record serializer, EGA primitives (3 persistent + 3 temp windows §2), per-screen components (arrow-key input §8), spell picker (msg 0xFA0+idx §9), integration + parity tests, deletion of existing /roster/new wizard.
+  - Resolve the 8 "Open questions for Phase 2" in `wpcmk-screens.md` as needed during the port (none block starting).
+  - Branch with this work: `worktree-wpcmk-re-sweep` (Phase 1 commits) — merge to main before/with Phase 2.
 
 - #004 [open] — PIC Stage B: pixel rendering + monster sprite integration
   - In-flight plan: `docs/superpowers/plans/2026-05-22-pic-stage-b-pixel-rendering.md` (6/57 boxes checked).

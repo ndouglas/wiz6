@@ -1,0 +1,236 @@
+{
+  "topic": "wpcmk-kbd-filter-masks",
+  "subagent_run": "2026-05-26",
+  "binaries": ["original/wroot.exe", "original/wpcmk.ovr"],
+  "method": "Ghidra PyGhidra decompile of kbd_check_with_filter (wroot 1000:2643), kbd_getkey_with_filter (wroot 1000:2724), FUN_1000_3350/strchr_index (wroot 1000:3350 = edec thunk target); full ASM listing of all input paths; DOSBox save-state memory read to confirm runtime key table contents at wroot DGROUP offset 0x541e.",
+
+  "kbd_check_with_filter": {
+    "wroot_image_offset": "0x2643",
+    "wpcmk_thunk_address": "0xe0df",
+    "thunk_delta_law_check": "0xe0df - 0xBA9C = 0x2643 (verified)",
+    "signature": "int __cdecl16near kbd_check_with_filter(int param_1)",
+    "return_value": "1 if matching key in buffer, 0 if buffer empty",
+    "description": "Non-blocking check: scans the keyboard FIFO buffer (at CS:0x262b count, CS:0x262d..0x2641 bytes) and returns 1 if the front key passes the filter mask. Does NOT dequeue. If buffer is empty, reads from INT 0x16 (BIOS keyboard). Internally calls rng_advance() at entry as a timing side-effect.",
+    "buffer_layout": "word at CS:0x262b = queue depth; bytes at CS:0x262d+N = key codes (up to 20 entries); when a key fails the filter it is DEQUEUED and discarded (loop advances)"
+  },
+
+  "bit_meanings": [
+    {
+      "mask_value": "0x00",
+      "name": "accept_any",
+      "description": "Filter disabled: any key in buffer returns 1. The function returns 1 immediately (JZ at 1000:2662). Used when caller wants to detect ANY keypress.",
+      "asm_evidence": "1000:2660: CMP AL,0x0; JZ 0x1000:26a9 (return 1)"
+    },
+    {
+      "mask_value": "0x02",
+      "name": "numeric_plus_control",
+      "description": "Narrow filter: accepts BS(0x08), ESC(0x1b), CR(0x0d), and ASCII digits '0'..'9' (0x30..0x39). Rejects all other keys. Used by text-input editor in digit-only mode (param_5==1 at caller). The CMP AL,0x02 branch at 1000:2664 applies this filter.",
+      "accepted_keys": [
+        {"code": "0x08", "key": "BS/Backspace"},
+        {"code": "0x1b", "key": "ESC"},
+        {"code": "0x0d", "key": "CR/Return"},
+        {"code": "0x30..0x39", "key": "ASCII digits '0'..'9'"}
+      ],
+      "asm_evidence": "1000:2664: CMP AL,0x2; JZ 0x1000:268e -> restricted branch accepting 0x08/0x1b/0x0d/0x30-0x39"
+    },
+    {
+      "mask_value": "other (non-zero, non-2)",
+      "name": "broad_printable",
+      "description": "Broad filter: accepts BS(0x08), TAB/UP(0x09), LF/RIGHT(0x0a), 0x0b/DOWN, ESC(0x1b), CR(0x0d), and printable-ASCII 0x20..0x5f. Rejects control chars below 0x08, DEL(0x7f), and high bytes. This is the ONLY mask value used by wpcmk (always param=1).",
+      "accepted_keys": [
+        {"code": "0x08", "key": "BS / LEFT arrow (mapped to code 0x08 by BIOS keyboard handler)"},
+        {"code": "0x09", "key": "TAB / UP arrow (mapped to code 0x09)"},
+        {"code": "0x0a", "key": "LF / RIGHT arrow (mapped to code 0x0a)"},
+        {"code": "0x0b", "key": "DOWN arrow (mapped to code 0x0b)"},
+        {"code": "0x1b", "key": "ESC"},
+        {"code": "0x0d", "key": "CR/Return"},
+        {"code": "0x20..0x5f", "key": "Printable ASCII space through underscore (uppercase A-Z at 0x41..0x5a included; lowercase uppercased in buffer)"}
+      ],
+      "rejected_keys": [
+        {"code": "0x00..0x07", "key": "NUL and low control chars"},
+        {"code": "0x0c..0x1a", "key": "Form-feed through Ctrl-Z (except 0x0d/0x1b)"},
+        {"code": "0x1c..0x1f", "key": "Remaining control chars"},
+        {"code": "0x60..0x7f", "key": "Backtick, lowercase a-z (after uppercase-forcing), and DEL"}
+      ],
+      "note": "kbd_getkey_with_filter also force-uppercases 'a'..'z' (0x61..0x7a → AND 0xDF) before storing in buffer, so lowercase letters pass the 0x20..0x5f check after transformation.",
+      "asm_evidence": "1000:2668..268b: fall-through branch (neither 0 nor 2) checks 0x08/0x09/0x0a/0x0b/0x1b/0x0d then range 0x20..0x5f"
+    }
+  ],
+
+  "arrow_key_encoding": {
+    "description": "The BIOS/DOS layer (INT 0x21 AH=7 + second INT 0x21 read for extended keys) translates hardware scancodes to internal codes that fit in the filter. When scan code 0x00 is the first read, the second read gives the extended scancode. Arrows are remapped as follows:",
+    "mappings": [
+      {"scancode": "0x4b", "key": "Left arrow", "internal_code": "0x08", "stored_type_byte": "0x08"},
+      {"scancode": "0x48", "key": "Up arrow", "internal_code": "0x09", "stored_type_byte": "0x09"},
+      {"scancode": "0x4d", "key": "Right arrow", "internal_code": "0x0a", "stored_type_byte": "0x0a"},
+      {"scancode": "0x50", "key": "Down arrow", "internal_code": "0x0b", "stored_type_byte": "0x0b"}
+    ],
+    "asm_evidence": "wroot 1000:2700..271a: cmp AL,0x4b -> type=0x8; cmp AL,0x48 -> type=0x9; cmp AL,0x4d -> type=0xa; cmp AL,0x50 -> type=0xb; other -> type=0x0 (unrecognized extended, discarded)"
+  },
+
+  "key_translation_table": {
+    "address_in_wroot_dgroup": "DS:0x541e",
+    "runtime_bytes_verified": "1b 08 09 0a 0b 0d 00",
+    "verification_method": "DOSBox save-state read via dosbox_read_memory(save=1, space=wroot.dgroup, offset=0x541e, len=16)",
+    "table": [
+      {"position": 0, "byte": "0x1b", "key": "ESC", "returns_from_input_poll": 0, "meaning": "Cancel/escape (callers ignore or loop)"},
+      {"position": 1, "byte": "0x08", "key": "Left arrow", "returns_from_input_poll": 1, "meaning": "Key code 1 (prev column / decrease)"},
+      {"position": 2, "byte": "0x09", "key": "Up arrow", "returns_from_input_poll": 2, "meaning": "Key code 2 (prev row / prev attribute)"},
+      {"position": 3, "byte": "0x0a", "key": "Right arrow", "returns_from_input_poll": 3, "meaning": "Key code 3 (next column / increase)"},
+      {"position": 4, "byte": "0x0b", "key": "Down arrow", "returns_from_input_poll": 4, "meaning": "Key code 4 (next row / next attribute)"},
+      {"position": 5, "byte": "0x0d", "key": "Return/Enter", "returns_from_input_poll": 5, "meaning": "Key code 5 (confirm/accept)"},
+      {"position": 6, "byte": "0x00", "key": "(null terminator)", "returns_from_input_poll": "N/A", "meaning": "End of table"}
+    ]
+  },
+
+  "input_model": "wpcmk uses a THREE-LAYER keyboard abstraction. Layer 1: the keyboard FIFO buffer (CS:0x262b) is filled by INT 0x16 / INT 0x21 reads; extended keys (arrows) are remapped to internal codes 0x08-0x0b by the buffer-fill routine. Layer 2: kbd_check_with_filter (wroot 1000:2643, thunk 0xe0df) checks whether the front key matches a filter mask — wpcmk ALWAYS uses mask=1 (broad printable filter). Layer 3: input_poll_key_or_mouse (wpcmk 0x0098) retrieves the key via kbd_getkey_with_filter (thunk 0xe1c0), then uses FUN_1000_3350/strchr_index (thunk 0xedec) to find the key's position in the runtime table at wroot DGROUP:0x541e (contents: ESC=pos0, Left=pos1, Up=pos2, Right=pos3, Down=pos4, Return=pos5). The POSITION (0-based index) IS the returned action code: 1=Left, 2=Up, 3=Right, 4=Down, 5=Return. ESC returns 0 which is silently ignored by all callers (loop continues). The codes 1-5 are NOT the literal digit keys '1'..'5'; they are ARROW KEY codes translated from physical navigation keys.",
+
+  "findings": [
+    {
+      "id": "screen-00-name",
+      "screen_id": "screen-00-name-entry",
+      "function": "ui_text_input_editor (0x00f0)",
+      "input_mechanism": "direct e1c0 call",
+      "mask_value": "0x01 (param_1=1 to e1c0)",
+      "filter_description": "broad_printable filter on kbd_getkey_with_filter (1). Returns raw key bytes, NOT action codes 1-5.",
+      "keys_accepted": ["printable ASCII 0x20..0x7f", "BS (0x08) for delete", "CR (0x0d) to confirm"],
+      "special_handling": "param_5=0 → any printable char 0x20..0x7f accepted; param_5=1 → only digits 0x30..0x39. Name entry uses param_5=0 (any printable). Digit-only mode exists in the same function for another caller.",
+      "call_site": "0x0129",
+      "confidence": "high"
+    },
+    {
+      "id": "screen-02-race",
+      "screen_id": "screen-02-race",
+      "function": "wpcmk_pick_race_menu (0x308d) → ui_menu_picker_vertical (0x029c) → input_poll_key_or_mouse (0x0098)",
+      "input_mechanism": "input_poll_key_or_mouse",
+      "mask_value": "0x01 (e0df param=1)",
+      "filter_description": "broad_printable via input_poll. Returns action codes: 1=Left/prev-col, 2=Up/prev-row, 3=Right/next-col, 4=Down/next-row, 5=Return/confirm.",
+      "key_table_address": "DGROUP 0x541e",
+      "call_site": "0x044d (inside ui_menu_picker_vertical)",
+      "confidence": "high"
+    },
+    {
+      "id": "screen-03-sex",
+      "screen_id": "screen-03-sex",
+      "function": "wpcmk_pick_sex_menu (0x31a6) → ui_menu_picker_vertical (0x029c) → input_poll_key_or_mouse (0x0098)",
+      "input_mechanism": "input_poll_key_or_mouse",
+      "mask_value": "0x01 (e0df param=1)",
+      "filter_description": "Same as race picker — broad_printable, action codes 1-5.",
+      "key_table_address": "DGROUP 0x541e",
+      "call_site": "0x044d (inside ui_menu_picker_vertical)",
+      "confidence": "high"
+    },
+    {
+      "id": "screen-05-class",
+      "screen_id": "screen-05-class",
+      "function": "wpcmk_pick_class_menu (0x32e1) → ui_menu_picker_vertical (0x029c) → input_poll_key_or_mouse (0x0098)",
+      "input_mechanism": "input_poll_key_or_mouse",
+      "mask_value": "0x01 (e0df param=1)",
+      "filter_description": "Same as race/sex picker — broad_printable, action codes 1-5.",
+      "key_table_address": "DGROUP 0x541e",
+      "call_site": "0x044d (inside ui_menu_picker_vertical)",
+      "confidence": "high"
+    },
+    {
+      "id": "screen-06-bonus-allocator",
+      "screen_id": "screen-06-bonus-allocator",
+      "function": "wpcmk_bonus_point_allocator_ui (0x3405) → input_poll_key_or_mouse (0x0098)",
+      "input_mechanism": "input_poll_key_or_mouse",
+      "mask_value": "0x01 (e0df param=1)",
+      "filter_description": "broad_printable, action codes: 1=decrease stat, 2=prev stat, 3=increase stat, 4=next stat, 5=confirm (only when pool=0).",
+      "key_table_address": "DGROUP 0x541e",
+      "call_site": "0x3643",
+      "confidence": "high"
+    },
+    {
+      "id": "screen-08-personality",
+      "screen_id": "screen-08-personality",
+      "function": "wpcmk_personality_reroll_loop (0x3837)",
+      "input_mechanism": "direct e0df + e1c0 calls, NOT input_poll_key_or_mouse",
+      "mask_value": "0x01 (e0df param=1)",
+      "filter_description": "Calls e0df(1) to check if any key pending (broad filter). If yes, calls e1c0(1) to get the raw key byte and checks only for 0x0d (CR/Return). ANY key in buffer triggers the check, but only CR exits the loop. Other keys are dequeued and discarded.",
+      "call_site": "0x38d4 (e0df check), 0x38e1 (e1c0 get), 0x38e5 (CMP AL, 0x0d)",
+      "note": "Mouse click also exits via func_0x0000c6de (mouse_check thunk) at 0x38c4.",
+      "confidence": "high"
+    },
+    {
+      "id": "screen-10-portrait",
+      "screen_id": "screen-10-portrait",
+      "function": "wpcmk_pick_portrait_loop (0x4bad) → input_poll_key_or_mouse (0x0098)",
+      "input_mechanism": "input_poll_key_or_mouse",
+      "mask_value": "0x01 (e0df param=1)",
+      "filter_description": "broad_printable, action codes: 1=prev portrait, 3=next portrait, 5=confirm. Codes 2 and 4 are silently ignored (no portrait navigation uses up/down).",
+      "key_table_address": "DGROUP 0x541e",
+      "call_site": "0x4d15",
+      "confidence": "high"
+    },
+    {
+      "id": "screen-13-skill-training",
+      "screen_id": "screen-13-skill-training",
+      "function": "ui_train_attribute_picker_grid (0x229c) → input_poll_key_or_mouse (0x0098)",
+      "input_mechanism": "input_poll_key_or_mouse",
+      "mask_value": "0x01 (e0df param=1)",
+      "filter_description": "broad_printable, action codes 1-5 used to navigate the 6-cell skill grid and confirm selection.",
+      "key_table_address": "DGROUP 0x541e",
+      "call_sites": ["0x251c", "0x27e4"],
+      "note": "Two call sites in ui_train_attribute_picker_grid — likely one for each sub-phase of the skill grid interaction.",
+      "confidence": "high"
+    },
+    {
+      "id": "screen-14-spell-picking",
+      "screen_id": "screen-14-spell-picking",
+      "function": "ui_class_menu_with_qualification (0x1158) → input_poll_key_or_mouse (0x0098)",
+      "input_mechanism": "input_poll_key_or_mouse",
+      "mask_value": "0x01 (e0df param=1)",
+      "filter_description": "broad_printable, action codes 1-5 navigate the spell school menu.",
+      "key_table_address": "DGROUP 0x541e",
+      "call_site": "0x1396",
+      "confidence": "high"
+    },
+    {
+      "id": "screen-15-confirm",
+      "screen_id": "screen-15-confirm",
+      "function": "wpcmk_create_character_master (0x4e47) → ui_menu_picker_vertical (0x029c) → input_poll_key_or_mouse (0x0098)",
+      "input_mechanism": "input_poll_key_or_mouse",
+      "mask_value": "0x01 (e0df param=1)",
+      "filter_description": "Same as all other menu pickers — broad_printable, action codes 1-5.",
+      "key_table_address": "DGROUP 0x541e",
+      "call_site": "0x044d (inside ui_menu_picker_vertical)",
+      "confidence": "high"
+    },
+    {
+      "id": "screen-roster-picker",
+      "screen_id": "screen-00-roster-picker",
+      "function": "wpcmk_show_roster_picker (area 0x56a0) → input_poll_key_or_mouse (0x0098)",
+      "input_mechanism": "input_poll_key_or_mouse",
+      "mask_value": "0x01 (e0df param=1)",
+      "filter_description": "Same as all other menu-using screens.",
+      "key_table_address": "DGROUP 0x541e",
+      "call_site": "0x5918",
+      "confidence": "high"
+    }
+  ],
+
+  "input_model_summary": {
+    "relationship_raw_to_1_5_codes": "TRANSLATION via runtime key table. The codes 1-5 are NOT digit keys '1'..'5' — they are positional indices in a 6-entry null-terminated table at wroot DGROUP:0x541e that maps physical keys to action codes: ESC→0, Left→1, Up→2, Right→3, Down→4, Return→5. The strchr_index function (wroot 1000:3350, thunk edec) performs the lookup by scanning the table byte-by-byte. If the key is NOT in the table, the function returns -1 and input_poll_key_or_mouse loops (does not return to caller).",
+    "physical_keys_for_1_5": {
+      "code_0": "ESC — returned but ignored by all callers (loop continues)",
+      "code_1": "Left arrow (scancode 0x4b → internal 0x08)",
+      "code_2": "Up arrow (scancode 0x48 → internal 0x09)",
+      "code_3": "Right arrow (scancode 0x4d → internal 0x0a)",
+      "code_4": "Down arrow (scancode 0x50 → internal 0x0b)",
+      "code_5": "Return/Enter (ASCII 0x0d)"
+    },
+    "personality_reroll_and_wait_for_enter": "These two screens bypass input_poll_key_or_mouse entirely and call kbd_getkey_with_filter(1) directly, then test the raw key byte for 0x0d only. Only Return exits; all other keys are discarded. No 1-5 code scheme is used here.",
+    "name_entry": "Name entry bypasses both input_poll and the 1-5 scheme. It calls kbd_getkey_with_filter(1) directly and processes raw key bytes (printable ASCII + BS + CR).",
+    "mouse_integration": "Mouse input is handled via func_0x0000c674(param_2=0x3598) in input_poll_key_or_mouse. The mouse result is decremented by 1 before returning (return iVar2 + -1), so mouse button 0 → return 0, button 1 → return 1, etc. Individual pickers have separate mouse dispatch tables that override the 1-5 codes with direct mouse button→action mappings."
+  },
+
+  "open_questions": [
+    "The key table at DGROUP:0x541e is verified as ESC/Left/Up/Right/Down/Return at runtime (from save 1). What initializes this table? It is zero in the static binary (BSS). Likely set by winit.ovr startup code. A specific init function should populate this table during game startup. Not investigated in this pass.",
+    "The mouse table at DGROUP:0x3598 contains pairs like '01 0e, 01 0e, 01 10...' — these appear to be (col, row) coordinate pairs for mouse hotspot regions. The exact format of the mouse handler (func_0x0000c674) and how 0x3596 flag is set was not investigated in this pass.",
+    "The kbd_check_with_filter mask=0x02 (digits-only) path is present in the binary but was not observed as a direct wpcmk call site. It appears in the general wroot function. Which game screen or context uses mask=0x02? The ui_text_input_editor at wpcmk 0x00f0 has an internal param_5=1 path that uses digit-only filtering, but this is enforced AFTER the key is read (post-retrieval filter), not via kbd_check mask.",
+    "Are there any wpcmk screens that use mask=0 (accept_any)? Not observed in this pass — all wpcmk e0df calls use param=1.",
+    "The ES register setup when FUN_1000_3350 (edec thunk target) executes SCASB.REPNE ES:DI: at runtime, ES must point to the wroot data segment (DGROUP) for the scan of the table at DS/ES:0x541e. The exact segment register preservation chain from wroot → wpcmk → wroot thunk was not traced but the runtime memory read confirms the correct bytes are scanned."
+  ]
+}

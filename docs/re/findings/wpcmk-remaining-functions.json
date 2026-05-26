@@ -1,0 +1,337 @@
+{
+  "topic": "wpcmk-remaining-functions",
+  "subagent_run": "2026-05-26",
+  "binary": "wpcmk.ovr",
+  "method": "PyGhidra DecompInterface for all 9 unnamed FUN_XXXX functions (0x2d10, 0x2e85, 0x2fbd, 0x2fca, 0x2fce, 0x38fb, 0x3c49, 0x3e17, 0x505b) plus FUN_59e0 (unlisted in naming-pass; not defined as a function in Ghidra but identified by window-layouts pass). ndisasm -b16 for confirmation of jump-table stubs. Jump-table delta verification: wpcmk delta=0x4564, so file_offset = CS_offset - 0x4564. All callers identified via Ghidra reference scan.",
+  "findings": [
+    {
+      "id": "fn-2d10-class-qualification-all",
+      "claim": "FUN_0000_2d10 (0x2d10, 48 bytes) iterates all 14 classes (indices 0..13), dispatching each via the jump table at CS:0x73ae (file 0x2e4a) to a class-specific stub that calls class_check_qualification_and_bump (0x2cae) in DRY_RUN mode (mode=0) to populate the 14-entry availability flag array at *0x56ae. Called once from wpcmk_pick_class_menu at the very start (before menu display).",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x2d10",
+        "size_bytes": 48,
+        "callers": ["wpcmk_pick_class_menu @ 0x32e7"],
+        "type": "instruction_pattern_match",
+        "details": "ASM at 0x2d10: push bp; mov bp,sp; sub sp,2; mov [bp-2],0; then jmp to dispatch at 0x2e66. Dispatch: mov ax,[bp-2]; shl bx; jmp [cs:bx+0x73ae]. After each case: inc [bp-2]; cmp ax,0xd; jg epilogue; jmp 0x2d1b. Loop exits when local_4 > 13, completing all 14 class checks. Jump table at CS:0x73ae = file 0x2e4a (0x73ae - 0x4564). Each case body: push mode=0; push class_req_str (at 0x51dd, 0x51e6, 0x51ef, 0x51f8, 0x5201, 0x520a, 0x5213, 0x521c, 0x5225, 0x524f, 0x5262, 0x5275, 0x5288, 0x529b for classes 0..13); push local_4 (class_idx); call class_check_qualification_and_bump (0x2cae); add sp,6; jmp 0x2e73.",
+        "jump_table_cs_addr": "0x73ae",
+        "jump_table_file_addr": "0x2e4a",
+        "note": "Ghidra decompiler shows a loop body that 'returns after first case' because it cannot track the jmp-then-inc-and-recheck pattern. ndisasm confirms the correct loop shape. The decompile is misleading; the asm is a canonical 'iterate 0..13 and dispatch each' loop."
+      },
+      "proposed_name": "class_qualification_check_all_14",
+      "category": "class_qualification",
+      "confidence": "high"
+    },
+    {
+      "id": "fn-2e85-class-post-select-wrapper",
+      "claim": "FUN_0000_2e85 (0x2e85, 9 bytes) is a 1-arg wrapper that receives the selected class index (from wpcmk_pick_class_menu's result) and calls FUN_0000_2fbd to apply the selected class's minimum attribute requirements to the character's stats.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x2e85",
+        "size_bytes": 9,
+        "callers": ["wpcmk_pick_class_menu @ 0x33fc"],
+        "type": "instruction_pattern_match",
+        "details": "ASM: push bp; mov bp,sp; mov ax,[bp+4] (param_1 = selected class index); jmp 0x2f2f (inside FUN_0000_2fbd dispatch). Actually it's E8 2F 01 = call 0x2fbd; ret. Confirmed by Ghidra decompile: 'FUN_0000_2fbd(); return;' with param threading. The class index flows through AX register."
+      },
+      "proposed_name": "class_post_select_stat_bump",
+      "category": "class_qualification",
+      "confidence": "high"
+    },
+    {
+      "id": "fn-2fbd-class-post-select-dispatch",
+      "claim": "FUN_0000_2fbd (0x2fbd, 13 bytes) receives class index in AX and dispatches via jump table at CS:0x7505 (file 0x2fa1) to the class-specific post-selection stub. Each stub calls class_check_qualification_and_bump (0x2cae) with mode=1 (apply bump) to raise the character's attributes to the selected class's minimum requirements, then jumps to the nop_return_stub (0x2fca).",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x2fbd",
+        "size_bytes": 13,
+        "callers": ["FUN_0000_2e85 @ 0x2e87", "caseD_0 @ 0x2eef"],
+        "type": "instruction_pattern_match",
+        "details": "ASM: cmp ax,0xe; jnc return; xchg ax,bx; shl bx; jmp [cs:bx+0x7505]. Jump table at CS:0x7505 = file 0x2fa1. 14 entries at file 0x2fa1..0x2fbd, each pointing into the bump-stubs block at 0x2e8e..0x2fbd. Each stub: push 1 (mode=apply); push req_string_addr; push param_1 (class_idx); call 0x2cae; add sp,6; jmp 0x2fca. Class requirement strings at 0x525b..0x529b (9 bytes each, 14 classes; the 'A'-based attribute encoding described in naming-pass fn-class-qualification finding).",
+        "jump_table_file_addr": "0x2fa1",
+        "class_req_strings_range": "0x525b..0x52b4"
+      },
+      "proposed_name": "class_post_select_dispatch",
+      "category": "class_qualification",
+      "confidence": "high"
+    },
+    {
+      "id": "fn-2fca-nop-return-stub",
+      "claim": "FUN_0000_2fca (0x2fca, 4 bytes) is a shared convergence target that does nothing and returns. It is jumped to (not called) by both the class post-select stubs (0x2e8e..0x2fbd) and the race post-select stubs (0x2fd7..0x3046) after their work is done. The shared target allows the per-stub jump to reach a single clean epilogue.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x2fca",
+        "size_bytes": 4,
+        "callers": ["FUN_0000_2fbd (indirect jump target)", "caseD_0 (direct jump from 0x2eef)"],
+        "type": "instruction_pattern_match",
+        "details": "ASM at 0x2fca: mov sp,bp; pop bp; ret (standard 16-bit function epilogue). Size=4 bytes. All 14 class stubs jmp to 0x2fca; all 11 race stubs jmp to 0x306a (different convergence target). This stub is the class-path convergence point."
+      },
+      "proposed_name": "nop_return_stub",
+      "category": "data_util",
+      "confidence": "high"
+    },
+    {
+      "id": "fn-2fce-race-post-select-dispatch",
+      "claim": "FUN_0000_2fce (0x2fce, 26 bytes) receives race index in param_1 and dispatches via jump table at CS:0x75ab (file 0x3047) to the race-specific base-stats-bump stub. Each race stub calls stats_bump_to_racial_minimums (0x2c7b) with the race's attribute requirement string, setting the character's base stats to the racial minimum values.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x2fce",
+        "size_bytes": 26,
+        "callers": ["wpcmk_pick_race_menu @ 0x31a1"],
+        "type": "instruction_pattern_match",
+        "details": "ASM: push bp; mov bp,sp; mov ax,[bp+4]; cmp ax,0xb; jnc return; xchg ax,bx; shl bx; jmp [cs:bx+0x75ab]. Jump table at CS:0x75ab = file 0x3047. 11 entries at 0x3047..0x305f, pointing to race stubs at 0x2fd7..0x3046. Each race stub: push req_string_addr (0x52d9, 0x52e2, 0x52eb, 0x52f4, 0x52fd, 0x5306, 0x530f, 0x5318, 0x5321, 0x532a, 0x5333 for races 0..10); call 0x2c7b; pop cx; jmp 0x306a. Race requirement strings use the same 'A'-based encoding as class requirements.",
+        "jump_table_file_addr": "0x3047",
+        "race_req_strings_range": "0x52d9..0x5340"
+      },
+      "proposed_name": "race_post_select_dispatch",
+      "category": "race_class_alignment",
+      "confidence": "high"
+    },
+    {
+      "id": "fn-38fb-combat-speed-for-slot",
+      "claim": "FUN_0000_38fb (0x38fb, 51 bytes) computes the combat-speed modifier for a single skill slot using the karma stat. Formula: slot_speed = -4 * |karma - param_2| + 40 (where param_2 is always 9 = baseline karma). Result stored at *(0x55d8 + param_1). Called 32 times by skill_init_all_32_slots (0x392e) for slots 0..31.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x38fb",
+        "size_bytes": 51,
+        "callers": ["skill_init_all_32_slots @ 0x392e (32 call sites, slots 0..31)"],
+        "type": "decompile_and_instruction_match",
+        "details": "Decompile: 'if (*(byte*)0x55a3 < param_2) cVar1 = -(*(byte*)0x55a3 - (char)param_2); else cVar1 = *(byte*)0x55a3 - (char)param_2; *(char*)(param_1 + 0x55d8) = cVar1 * -4 + 0x28'. 0x55a3 = karma byte; '(' = 0x28 = 40; param_2 = 9 (baseline). So slot_speed = -4 * |KAR - 9| + 40. For KAR=9: speed=40. For KAR=18: speed = -4*9 + 40 = 4. For KAR=1: speed = -4*8 + 40 = 8. The formula gives higher speed to characters with karma closer to 9 (neutral). Confirmed by wpcmk-skill-train.json finding: 'FUN_38fb writes to DGROUP 0x55d8+idx: slot_speed = -4*|KAR-9|+40. This initializes per-skill speed modifiers based on the karma stat.'",
+        "bss_write_addr": "0x55d8 + slot_idx (0..31)"
+      },
+      "proposed_name": "combat_speed_for_slot",
+      "category": "skill_train",
+      "confidence": "high"
+    },
+    {
+      "id": "fn-3c49-class-load-starter-inventory",
+      "claim": "FUN_0000_3c49 (0x3c49, 31 bytes) reads the selected class index from *0x560f and dispatches via jump table at CS:-0x7cb2 (file 0x3dea) to the class-specific starter-inventory loader. Each class case calls inventory_load_starter_items (0x3bfb) with the class's hardcoded starter items (up to 5 item IDs). Called once from wpcmk_create_character_master after class finalization.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x3c49",
+        "size_bytes": 31,
+        "callers": ["wpcmk_create_character_master @ 0x4f18"],
+        "type": "instruction_pattern_match",
+        "details": "ASM: push bp; mov bp,sp; sub sp,8; mov al,[0x560f]; sub ah,ah; jmp 0x3e06. At 0x3e06: cmp ax,0xe; jnc return (14 classes); xchg ax,bx; shl bx; jmp [cs:bx-0x7cb2]. Jump table at CS:0xffff-0x7cb2+1 = 0x834e, file 0x3dea (0x834e - 0x4564). 14 entries pointing to stubs at 0x3c57..0x3dce. Each stub: push up to 5 item IDs + count; call 0x3bfb; add sp; jmp 0x3e13 (epilogue). Example class 0 (Fighter): items 0x8d, 0x82, 0x84, 0x87, count 8. The item IDs match the inventory_load_one_item (0x3aec) scheme. Classes with no starter items (if any) jump directly to epilogue.",
+        "jump_table_file_addr": "0x3dea",
+        "class_cases_range": "0x3c57..0x3dce"
+      },
+      "proposed_name": "class_load_starter_inventory",
+      "category": "creation_flow",
+      "confidence": "high"
+    },
+    {
+      "id": "fn-3e17-spell-level-adjust",
+      "claim": "FUN_0000_3e17 (0x3e17, 58 bytes) adds param_2 to the current spell level at *(0x55c2 + param_1) (school index), clamping the result to [0, 125 = 0x7d]. It is the per-school spell-level increment helper: used by spell_init_per_class_books to set initial school capacity, and by finalize_class_and_race_stats to award attribute-threshold skill bonuses.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x3e17",
+        "size_bytes": 58,
+        "callers": [
+          "spell_init_per_class_books @ 0x3e7e",
+          "finalize_class_and_race_stats @ 0x407b, 0x408f, 0x40b0, 0x40d1, 0x40e5"
+        ],
+        "type": "decompile_match",
+        "details": "Decompile: 'param_2 = (uint)*(byte*)(param_1 + 0x55c2) + param_2; iVar1 = 0; if (-1 < param_2) { iVar1 = param_2; if (0x7d < param_2) iVar1 = 0x7d; } *(byte*)(param_1 + 0x55c2) = (byte)iVar1'. The 0x55c2 array holds 14 spell-school capacity/level values (one byte per school, indices 0..13 matching Wiz6's 14 spell schools). Max value = 0x7d = 125. Called from finalize_class_and_race_stats to boost spell schools for DEX>=16 (boost 6,5), INT>=16 (boost 9,5), SPD>=16 (boost 7,5 and 4,5). Called from spell_init_per_class_books with derived initial spell level.",
+        "bss_array_base": "0x55c2",
+        "clamp_max": "0x7d = 125"
+      },
+      "proposed_name": "spell_level_adjust_clamped",
+      "category": "creation_flow",
+      "confidence": "high"
+    },
+    {
+      "id": "fn-505b-modal-error-display",
+      "claim": "FUN_0000_505b (0x505b, 56 bytes) is a modal error display: sets cursor in the status-bar window (*0x56ca) to (row=param_2, col=param_3), writes msg_id=param_1 in style 0x12, plays an error sound (thunk 0xc546 = play_sound), then waits for key-or-timeout (thunk 0xc43f = FUN_1000_09a3, a timed-wait loop). Called on duplicate-name error ('* CHARACTER ALREADY EXISTS *', msg 0x44e) from both wpcmk_create_via_empty_slot and wpcmk_create_via_name_prompt.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x505b",
+        "size_bytes": 56,
+        "callers": [
+          "wpcmk_create_via_empty_slot @ 0x51ae (args: 0x44e, 6, 2)",
+          "wpcmk_create_via_name_prompt @ 0x53d7 (args: 0x44e, 6, 2)"
+        ],
+        "type": "decompile_and_xref",
+        "details": "Decompile: 'func_0x0000bda7(*(word*)0x56ca, param_2, param_3)' = set cursor to (param_2, param_3) in status bar. 'func_0x0000c2db(param_1, *(word*)0x56ca, 0x12)' = write msg_id=param_1 to status bar in style 0x12. 'func_0x0000c546()' = play_sound. 'func_0x0000c43f()' = FUN_1000_09a3 (timed wait: loops up to param*10 iterations or until ENTER). Context: wpcmk-msg-strings.json entry 'screen-00-dup-name-error' identifies msg 0x44e = '* CHARACTER ALREADY EXISTS *' with call at 0x51ae confirming this is the duplicate-name modal. Thunk 0xc43f - 0xBA9C = 0x9a3 -> wroot Ghidra 0x109a3 = 'wait_for_key_or_timeout' pattern (kbd_check loop with param*10 iterations).",
+        "msg_used": "0x44e = '* CHARACTER ALREADY EXISTS *'",
+        "window_used": "*0x56ca (status-bar window)"
+      },
+      "proposed_name": "ui_show_error_modal",
+      "category": "ui_widget",
+      "confidence": "high"
+    },
+    {
+      "id": "fn-59e0-wpcmk-entry-and-roster-menu",
+      "claim": "FUN_59e0 (0x59e0, not defined as function in Ghidra for this analysis session) is the top-level wpcmk entry point called from wbase's CHARACTER MENU handler. It creates the 3 persistent windows (*0x546e = main panel, *0x56ca = status bar, *0x56cc = menu list), then runs the roster-management loop: calls ui_setup_creation_windows, checks for empty roster slot, shows the 5-option menu (CREATE PC/REVIEW PC/DELETE PC/RENAME PC/PORTRAIT, msg base 0x46a), and dispatches via jump table to the appropriate sub-function. Returns to wbase when the EXIT option is chosen.",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": "0x59e0",
+        "type": "decompile_match",
+        "details": "Force-created Ghidra function by calling CreateFunctionCmd. Decompile shows: (1) func_0x0000c1f7(1000, 0x541e) — loads msg 1000 into roster buffer. (2) Three calls to func_0x0000bbb6 (ui_window_create): args (0,0,0x28,0x14,0x14,0xffff,0) -> *0x546e; args (0,0x14,0x28,5,0x13,0xffff) -> *0x56ca; args (0x15,7,0x13,0xd,0x15,...) -> *0x56cc. (3) Outer loop: call ui_setup_creation_windows; populate 6-entry enabled-flag array (entries 0..5, checking empty slot for CREATE and occupied slot for others); call ui_menu_picker_vertical with msg 0x46a (CREATE PC) and 6 entries; dispatch via jump table on result. (4) Case 5 = EXIT: closes all 3 windows via func_0x0000bd6e (ui_window_close) and returns.",
+        "windows_created": {
+          "main_panel": "*0x546e = ui_window_create(0, 0, 40, 20, 20, 0xffff, 0)",
+          "status_bar": "*0x56ca = ui_window_create(0, 20, 40, 5, 19, 0xffff)",
+          "menu_list": "*0x56cc = ui_window_create(21, 7, 19, 13, 21)"
+        },
+        "note": "Confirmed by wpcmk-window-layouts.json: 'FUN_59e0 (unnamed in naming pass; top-level wpcmk entry called from wbase)' with call sites at 0x5a0b, 0x5a31, 0x5a57. The task-proposed name 'creation_ui_setup_persistent_windows' is PARTIALLY CORRECT — window creation is only the first ~20 bytes of this 200+ byte function. The function is more accurately the entire roster-management entry loop.",
+        "naming_note": "Proposed name corrected from task's 'creation_ui_setup_persistent_windows' to 'wpcmk_entry_and_roster_menu' to reflect full scope."
+      },
+      "proposed_name": "wpcmk_entry_and_roster_menu",
+      "category": "creation_flow",
+      "confidence": "high"
+    }
+  ],
+  "rename_proposals": [
+    {
+      "addr": "0x2d10",
+      "old": "FUN_0000_2d10",
+      "new": "class_qualification_check_all_14",
+      "category": "class_qualification",
+      "reason": "Iterates all 14 class indices, dispatches each to a stub calling class_check_qualification_and_bump(mode=0) to populate *0x56ae availability flags. Called from wpcmk_pick_class_menu before menu display. Jump table at file 0x2e4a; loop shape confirmed via ndisasm (Ghidra decompile misleadingly shows early return due to jmp-dispatch pattern)."
+    },
+    {
+      "addr": "0x2e85",
+      "old": "FUN_0000_2e85",
+      "new": "class_post_select_stat_bump",
+      "category": "class_qualification",
+      "reason": "1-arg wrapper called from wpcmk_pick_class_menu after class selection; passes selected class index to class_post_select_dispatch (0x2fbd) to apply class minimum attribute requirements."
+    },
+    {
+      "addr": "0x2fbd",
+      "old": "FUN_0000_2fbd",
+      "new": "class_post_select_dispatch",
+      "category": "class_qualification",
+      "reason": "Jump table dispatch on class index (0..13) at file 0x2fa1; each case calls class_check_qualification_and_bump(mode=1, req_str, class_idx) to raise character stats to selected class's minimums."
+    },
+    {
+      "addr": "0x2fca",
+      "old": "FUN_0000_2fca",
+      "new": "nop_return_stub",
+      "category": "data_util",
+      "reason": "4-byte convergence target (mov sp,bp; pop bp; ret) jumped to by all 14 class post-select stubs. Shared epilogue pattern; not a real function with distinct semantics."
+    },
+    {
+      "addr": "0x2fce",
+      "old": "FUN_0000_2fce",
+      "new": "race_post_select_dispatch",
+      "category": "race_class_alignment",
+      "reason": "Jump table dispatch on race index (0..10) at file 0x3047; each case calls stats_bump_to_racial_minimums(0x2c7b) with race-specific attribute requirement string, setting character's base stats to racial minimum values."
+    },
+    {
+      "addr": "0x38fb",
+      "old": "FUN_0000_38fb",
+      "new": "combat_speed_for_slot",
+      "category": "skill_train",
+      "reason": "Computes combat-speed modifier for one skill slot: -4*|karma-9|+40, stores at *(0x55d8+slot_idx). Called 32 times by skill_init_all_32_slots. The existing name 'skill_init_all_32_slots' (0x392e) is also a CORRECTION target (see rename_correction #5); this function IS the per-slot speed calc helper."
+    },
+    {
+      "addr": "0x3c49",
+      "old": "FUN_0000_3c49",
+      "new": "class_load_starter_inventory",
+      "category": "creation_flow",
+      "reason": "Reads *0x560f (class index), dispatches via jump table at file 0x3dea to class-specific case that calls inventory_load_starter_items(0x3bfb) with hardcoded starter item IDs for that class. Called once from wpcmk_create_character_master."
+    },
+    {
+      "addr": "0x3e17",
+      "old": "FUN_0000_3e17",
+      "new": "spell_level_adjust_clamped",
+      "category": "creation_flow",
+      "reason": "Adds param_2 to *(0x55c2+school_idx), clamped to [0, 125]. The 0x55c2 array holds per-school spell capacities. Used by spell_init_per_class_books (0x3e51) and finalize_class_and_race_stats (0x3e8c) for attribute-threshold bonuses."
+    },
+    {
+      "addr": "0x505b",
+      "old": "FUN_0000_505b",
+      "new": "ui_show_error_modal",
+      "category": "ui_widget",
+      "reason": "Sets cursor in *0x56ca, writes msg in style 0x12, plays sound (0xc546), waits for key-or-timeout (0xc43f). Called on duplicate-name condition with msg 0x44e ('* CHARACTER ALREADY EXISTS *')."
+    },
+    {
+      "addr": "0x59e0",
+      "old": "FUN_59e0 (not defined in Ghidra)",
+      "new": "wpcmk_entry_and_roster_menu",
+      "category": "creation_flow",
+      "reason": "Top-level wpcmk entry from wbase. Creates 3 persistent windows (*0x546e, *0x56ca, *0x56cc), then runs the roster-management loop (menu msg 0x46a base: CREATE PC/REVIEW PC/DELETE PC/RENAME PC/PORTRAIT/EXIT). Dispatches to wpcmk_create_via_empty_slot, wpcmk_load_and_draw_character, etc. Based on window-layouts finding (wpcmk-window-layouts.json) identifying this as 'top-level wpcmk entry called from wbase'."
+    },
+    {
+      "addr": "0x31a6",
+      "old": "wpcmk_pick_alignment_menu",
+      "new": "wpcmk_pick_sex_menu",
+      "category": "race_class_alignment",
+      "reason": "RENAME CORRECTION (verification: CONFIRMED). Decompile shows: loop runs for only 2 entries (`local_6 < 2`); title msg 0x451 ('CHARACTER SEX' per msg-strings finding); menu base msg 0x8c (MALE=0x8c, FEMALE=0x8d per wpcmk-msg-strings.json entry 'screen-03-alignment-option-names'); stores at *0x560e. The field *0x560e is labeled 'alignment' in the BSS layout but it actually encodes sex (0=MALE, 1=FEMALE). The label 'alignment' is a Wiz6 convention for the MALE/FEMALE binary axis; the actual in-game concept is sex/gender. Both 'alignment' and 'sex' appear in the game's own UI (msg 0x45d = 'CHARACTER SEX'). Correction from wpcmk-msg-strings.json: 'Note: The alignment picker header instruction says SELECT CHARACTER SEX, confirming alignment is the sex/gender selection (MALE/FEMALE).' Evidence anchor: ASM at 0x31c3 `mov word [local_7e+2], 0xffff` after 2 iterations confirms exactly 2 options."
+    },
+    {
+      "addr": "0x4222",
+      "old": "personality_roll_static_10_to_18",
+      "new": "skill_pool_roll_and_class_adjust",
+      "category": "stat_roller",
+      "reason": "RENAME CORRECTION (verification: CONFIRMED). Decompile shows: rng(9)+10 stored at *0x5618; then dispatches via class jump table at CS:-0x7557 to class-specific handler that adjusts the pool. *0x5618 is the skill-points pool (confirmed by wpcmk-skill-train.json: 'Screen-13 driver loops while *(char*)0x5618 != 0'). The function also reads attrs INT(*0x559d), PIE(*0x559e), DEX(*0x55a0), SPD(*0x55a1) and passes them to the class handler, which subtracts an attribute-derived 'tier2' from the pool. Name 'personality_roll_static_10_to_18' was wrong on two counts: (1) *0x5618 is skill points, not personality; personality is at *0x55a3 (rolled separately by wpcmk_personality_reroll_loop). (2) The value is NOT static — it's rng(9)+10 (10..18), then further adjusted by class tier2."
+    },
+    {
+      "addr": "0x1ae9",
+      "old": "ui_welcome_animation",
+      "new": "wpcmk_skill_training_loop",
+      "category": "skill_train",
+      "reason": "RENAME CORRECTION (verification: CONFIRMED). Decompile shows: creates a new window via ui_window_create (0xbbb6) with size 20x4x20x16x25; loops calling creation_stage_dispatcher_by_step(window, param_1, step_counter) and ui_class_menu_with_qualification; increments step_counter mod 4; exits when *(char*)0x5618 == 0. This is the skill-training screen (screen-13) loop. wpcmk-skill-train.json: 'Screen-13 (ui_welcome_animation at 0x1ae9 / creation_stage_dispatcher_by_step at 0x15d7) is the SKILL training screen.' No animation, no welcome — it's the skill allocation loop."
+    },
+    {
+      "addr": "0x28d4",
+      "old": "wpcmk_train_skill_pillar",
+      "new": "wpcmk_pick_spell",
+      "category": "skill_train",
+      "reason": "RENAME CORRECTION (verification: CONFIRMED). Decompile confirms param_3 maps to pillar bitmask (0=MAGIC/8, 1=FAITH/4, 2=PHYSICAL/1, 3=MENTAL/2). Title msg 0x2bc ('SPELLS'), prompt msg 0x2bf ('SELECT A NEW SPELL FOR YOUR SPELLBOOK'). Shows 6-cell grid of spell SCHOOLS (FIRE/WATER/AIR/EARTH/MENTAL/MAGIC at msg base 0x0f6e), then individual spell names at msg base 0x0fa0 (ENERGY BLAST, FIREBALL, etc.). Decrements pillar training counter at *(0x5588 + param_3). This is the spell-school/spell-picker for screen-14, not a generic skill trainer. The 'pillar' parameter selects which spell type family is shown. Only caster classes (Mage, Priest, Alchemist, Psionic, Bishop) reach this screen."
+    },
+    {
+      "addr": "0x392e",
+      "old": "skill_init_all_32_slots",
+      "new": "combat_speed_modifier_init",
+      "category": "skill_train",
+      "reason": "RENAME CORRECTION (verification: CONFIRMED). Decompile shows 32 explicit calls to FUN_0000_38fb(0..31, 9) — now named combat_speed_for_slot. The function initializes combat speed modifiers for 32 skill slots at DGROUP 0x55d8..0x55f7 using karma-based formula -4*|KAR-9|+40. This is NOT a skill pool init — it's per-slot speed setup. wpcmk-skill-train.json: 'skill_init_all_32_slots (0x392e) calls FUN_38fb(idx, 9) for 32 skill slots ... initializes per-skill speed modifiers based on the karma stat. The formula gives slot_speed in {-152..40} (KAR range). NOT a skill pool init.'"
+    },
+    {
+      "addr": "0x59e0",
+      "old": "FUN_59e0 (task proposed: creation_ui_setup_persistent_windows)",
+      "new": "wpcmk_entry_and_roster_menu",
+      "category": "creation_flow",
+      "reason": "RENAME CORRECTION (task proposal adjusted after verification). The task proposed 'creation_ui_setup_persistent_windows' but that understates the scope. FUN_59e0 does create the 3 windows but it also runs the ENTIRE roster-management menu loop (CREATE PC/REVIEW PC/DELETE PC/RENAME PC/PORTRAIT/EXIT via msg base 0x46a) with jump-table dispatch to all sub-functions. It's the top-level wpcmk entry point called from wbase, not merely a window setup function. Name corrected to 'wpcmk_entry_and_roster_menu' to reflect the full scope."
+    }
+  ],
+  "cross_task_relevance": [
+    {
+      "function_addr": "0x59e0",
+      "related_task": "RE #2 (screen-flow map)",
+      "reason": "wpcmk_entry_and_roster_menu IS the entry point that drives all character-management screens. The screen-flow map from Task 2 should be updated to show that FUN_59e0 is the outer loop, not just window setup. The 5-entry menu (msg base 0x46a: CREATE PC/REVIEW PC/DELETE PC/RENAME PC/PORTRAIT) is the top-level navigation node."
+    },
+    {
+      "function_addr": "0x2d10",
+      "related_task": "RE #4 (bonus-allocator / class-qualification)",
+      "reason": "class_qualification_check_all_14 is the class-menu preparation step that runs BEFORE the player sees which classes are available. It precedes the bonus allocation UI. Understanding its loop structure is needed to correctly model the class availability filtering in the viewer."
+    },
+    {
+      "function_addr": "0x38fb",
+      "related_task": "RE #5 (skill-train UI loop)",
+      "reason": "combat_speed_for_slot is the per-slot helper called by combat_speed_modifier_init (formerly skill_init_all_32_slots), which is called at step 10 of the character creation flow. The BSS layout at 0x55d8 (32 speed slots) was previously unlabeled; this function confirms it's a per-skill combat-speed array."
+    },
+    {
+      "function_addr": "0x3e17",
+      "related_task": "RE #9 (spell-name resolution)",
+      "reason": "spell_level_adjust_clamped writes to the per-school spell-capacity array at 0x55c2..0x55cf. The spell-names pass needs this function to understand how initial spell-school levels are set during character creation (via finalize_class_and_race_stats attribute threshold checks)."
+    },
+    {
+      "function_addr": "0x1ae9",
+      "related_task": "RE #5 (skill-train UI loop)",
+      "reason": "wpcmk_skill_training_loop is the outer shell of screen-13. Its rename affects how the viewer models the skill-point allocation flow. The old name 'ui_welcome_animation' caused confusion between screens 13 and 14 in the Task 2 screen-flow pass."
+    },
+    {
+      "function_addr": "0x28d4",
+      "related_task": "RE #9 (spell-name resolution)",
+      "reason": "wpcmk_pick_spell is the entry point for screen-14 (spell selection). Rename from 'wpcmk_train_skill_pillar' is critical for clarity: this function selects SPELLS, not skills. It also decrements the pillar training counter at 0x5588."
+    }
+  ],
+  "open_questions": [
+    "The wpcmk delta (0x4564) was used to translate jump table addresses. This has not been independently calibrated for this pass — it was taken from the existing CLAUDE.md documentation. Recommended verification: pick any CS-disp16 jump table reference in the function bodies above and confirm `file_offset = CS_addr - 0x4564` gives a valid in-file address.",
+    "FUN_59e0 was not defined as a Ghidra function at session start (CreateFunctionCmd was needed). This means any naming-pass that lists '66/76 named' should be re-checked: the function count may have been computed against a project state where 0x59e0 was not recognized as a function entry, which would explain the '10 remaining' discrepancy (this pass found 9 via list_functions + 0x59e0 separately = 10 total).",
+    "The class requirement strings at 0x525b..0x52b4 (used by class_post_select_dispatch) and race requirement strings at 0x52d9..0x5340 (used by race_post_select_dispatch) contain 'A'-based attribute encodings. These strings are the canonical class/race minimum attribute tables. A follow-up pass should decode all 14 class strings and 11 race strings into a human-readable table (per the naming-pass recommendation about race/class jump-table resolution).",
+    "The thunk 0xc43f resolves to wroot image 0x9a3 (Ghidra 0x109a3) named 'FUN_1000_09a3'. Its body is a timed-wait loop (kbd_check + delay_fn * N iterations). It should be added to wroot-naming-pass.json as 'wait_for_key_timed' or similar. It's used only by ui_show_error_modal (0x505b) in wpcmk.",
+    "The naming-pass unresolved item about 0x56ce == 1 forcing bonus=21 was NOT revisited in this pass. The clearing write `*(0x56ce)=0` is in wpcmk_create_character_master (0x4e47); the setter is presumably in wbase or wroot and was not traced here. This debug-flag question remains open.",
+    "nop_return_stub (0x2fca) appears in two distinct call contexts: as a convergence jump target for class-post-select stubs, and as a direct jump target from 'caseD_0' at 0x2eef. The 'caseD_0' naming in Ghidra is suspicious — it may be an artifact of a switch-statement decoder. Understanding caseD_0 would confirm whether 0x2fca is purely a convergence stub or has a third semantic use."
+  ]
+}
