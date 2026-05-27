@@ -11,7 +11,7 @@ import type { Character, Roster, Save } from '@wiz6/data';
 
 function makeCharacter(id: string, name: string, level = 1): Character {
   return {
-    id, name, race: 0, class: 0, level, xp: 0, gold: 0,
+    id, name, race: 0, class: 0, sex: 0, level, xp: 0, gold: 0,
     conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     dead: false, paralyzed: false,
     attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, per: 50, kar: 50 },
