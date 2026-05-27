@@ -21,10 +21,9 @@ import styles from './SettingsPage.module.css';
  * UI can use modern web affordances (mouseover descriptions, scrollable
  * lists, multi-column layouts, etc.).
  *
- * v1 ships a single toggle (pinMaxBonusRoll); the architecture supports
- * adding more by extending HouseRulesSchema and HOUSE_RULES_META — no
- * UI changes needed for additional boolean toggles. Number / enum
- * controls will need additional render branches.
+ * The architecture supports adding rules by extending HouseRulesSchema
+ * and HOUSE_RULES_META — no UI changes needed for additional boolean
+ * toggles. Number / enum controls will need additional render branches.
  */
 export function SettingsPage() {
   const [rules, setRules] = useState<HouseRules>(getHouseRules());
