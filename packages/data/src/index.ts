@@ -121,6 +121,8 @@ export {
   getClassRequirements,
   meetsClassRequirements,
   eligibleClasses,
+  classBonusDeficit,
+  classReachableWithPool,
   type ClassRequirements,
   type AttributeSet,
 } from './character-creation/class-requirements.js';

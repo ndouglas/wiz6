@@ -25,12 +25,12 @@ import { readFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setCursor, puts, clearWindow } from '@wiz6/parser';
-import { MessageDbSchema } from '@wiz6/data';
+import { MessageDbSchema, classReachableWithPool } from '@wiz6/data';
 import { createPersistentWindows } from '../../../../../src/pages/roster/creation/ega/windows.js';
 import { highlightRange } from '../../../../../src/pages/roster/creation/ega/highlight.js';
 import { drawCharSheet } from '../../../../../src/pages/roster/creation/ega/char-sheet.js';
 import { blankDraft } from '../../../../../src/pages/roster/creation/state.js';
-import { raceName, creationString, MSG } from '../../../../../src/pages/roster/creation/messages.js';
+import { raceName, className, creationString, MSG } from '../../../../../src/pages/roster/creation/messages.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..', '..', '..', '..');
@@ -323,5 +323,47 @@ describe('PERSONALITY (karma) cell-grid parity', () => {
     const topDiffs = diffCoords(top.cells, w.top!).filter((c) => !STALE_CELLS.has(c));
     expect(topDiffs, `unexpected top diffs: ${topDiffs.join(' ')}`).toEqual([]);
     expect(diffCoords(bottomBar.cells, w.bottomBar!)).toEqual([]);
+  });
+});
+
+describe('CLASS SELECT cell-grid parity (menuPanel + prompt; cursor on FIGHTER)', () => {
+  // The engine offers only the classes reachable by spending the bonus pool
+  // (Σ deficit ≤ pool), packed at col 1 rows 1+, FIGHTER highlighted. The
+  // "SELECT CHARACTER PROFESSION" prompt is assembled + ceil-centered (col 7).
+  // Class-select save: Human base + pool 6 → Fighter/Mage/Priest/Thief/Ranger.
+  it('qualifying class list + prompt match engine cell memory', () => {
+    const eng = JSON.parse(
+      readFileSync(join(FIXTURES, 'class-select.json'), 'utf-8'),
+    ).windows as Record<string, EngineWindow>;
+    const db = MessageDbSchema.parse(
+      JSON.parse(readFileSync(join(mainRoot(), 'extracted', 'messages', 'msg.json'), 'utf-8')),
+    );
+    const attrs = { str: 9, int: 8, pie: 8, vit: 9, dex: 9, spd: 8, per: 8, kar: 0 };
+    const pool = 6;
+    const { bottomBar, menuPanel } = createPersistentWindows();
+
+    const prompt = creationString(db, MSG.classPrompt);
+    setCursor(bottomBar, Math.ceil((bottomBar.widthCells - prompt.length) / 2), 1);
+    puts(bottomBar, prompt, 0x03);
+
+    clearWindow(menuPanel, 0x20, 0x03);
+    let row = 1;
+    for (let i = 0; i < 14; i++) {
+      if (!classReachableWithPool(attrs, pool, i)) continue;
+      const label = className(db, i);
+      setCursor(menuPanel, 1, row);
+      puts(menuPanel, label, 0x03);
+      if (row === 1) highlightRange(menuPanel, 1, row, label.length, 5); // FIGHTER selected
+      row++;
+    }
+    expect(row - 1, 'qualifying class count').toBe(5);
+
+    for (const [name, win] of [
+      ['bottomBar', bottomBar],
+      ['menuPanel', menuPanel],
+    ] as const) {
+      const { diffs, first } = diffCount(win.cells, eng[name]!);
+      expect(diffs, `${name} diff: ${first ?? ''}`).toBe(0);
+    }
   });
 });

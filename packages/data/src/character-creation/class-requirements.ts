@@ -102,3 +102,38 @@ export function eligibleClasses(attrs: AttributeSet): number[] {
   }
   return out;
 }
+
+/**
+ * Total bonus points needed to raise `attrs` up to class `classIndex`'s
+ * minimums: Σ over attributes of max(0, requirement − current). 0 means the
+ * class already qualifies outright.
+ */
+export function classBonusDeficit(attrs: AttributeSet, classIndex: number): number {
+  const r = getClassRequirements(classIndex);
+  return (
+    Math.max(0, r.str - attrs.str) +
+    Math.max(0, r.int - attrs.int) +
+    Math.max(0, r.pie - attrs.pie) +
+    Math.max(0, r.vit - attrs.vit) +
+    Math.max(0, r.dex - attrs.dex) +
+    Math.max(0, r.spd - attrs.spd) +
+    Math.max(0, r.per - attrs.per)
+  );
+}
+
+/**
+ * Class-selection-screen eligibility: a class is offered iff its total
+ * attribute deficit can be covered by the available bonus pool — i.e. the
+ * player could distribute `pool` points to meet every minimum. This is the
+ * engine's rule at screen-05 (`wpcmk_pick_class_menu` fills
+ * `class_qualification_flags[14]` @ DGROUP 0x56ae), where the class is chosen
+ * BEFORE the bonus is allocated. Verified against the class-select save
+ * (Human base + pool 6 → exactly Fighter/Mage/Priest/Thief/Ranger).
+ */
+export function classReachableWithPool(
+  attrs: AttributeSet,
+  bonusPool: number,
+  classIndex: number,
+): boolean {
+  return classBonusDeficit(attrs, classIndex) <= bonusPool;
+}

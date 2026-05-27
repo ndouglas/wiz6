@@ -27,7 +27,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { clearWindow, setCursor, puts } from '@wiz6/parser';
-import { meetsClassRequirements, WIZ6_MAIN } from '@wiz6/data';
+import { classReachableWithPool, WIZ6_MAIN } from '@wiz6/data';
 import type { Palette } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
@@ -84,14 +84,18 @@ function buildSexOptions(db: MessageDb): PickerOption[] {
 }
 
 /**
- * Build the 14-entry class option list. Entries failing meetsClassRequirements
- * are marked disabled and will be skipped by the cursor.
+ * Build the class option list. The engine offers only the classes the player
+ * could qualify for by distributing the (as-yet-unallocated) bonus pool — i.e.
+ * total attribute deficit ≤ bonusPool — and lists ONLY those, packed (not all
+ * 14 with the rest dimmed). Verified against the class-select save: Human base
+ * + pool 6 → Fighter/Mage/Priest/Thief/Ranger.
  */
 function buildClassOptions(db: MessageDb, state: CreationState): PickerOption[] {
   const opts: PickerOption[] = [];
   for (let i = 0; i < 14; i++) {
-    const enabled = meetsClassRequirements(state.draft.attributes, i);
-    opts.push({ originalIndex: i, label: className(db, i), enabled });
+    if (classReachableWithPool(state.draft.attributes, state.draft.bonusPool, i)) {
+      opts.push({ originalIndex: i, label: className(db, i), enabled: true });
+    }
   }
   return opts;
 }
@@ -239,7 +243,13 @@ export function MenuPickerScreen({
     : MSG.classPrompt;
   const promptText = creationString(db, promptId);
   if (promptText) {
-    const col = Math.max(0, Math.floor((bottomBar.widthCells - promptText.length) / 2));
+    // Centering: race/sex are baked full prompts (floor-centered → race len 21
+    // at col 9). The class prompt is engine-assembled ("SELECT CHARACTER " +
+    // the "PROFESSION" category msg) via a different draw path that biases the
+    // odd-pad cell left, i.e. ceil (len 27 at col 7). Verified vs the fixtures;
+    // the exact c61a centering math isn't fully RE'd, this reproduces the saves.
+    const round = kind === 'class' ? Math.ceil : Math.floor;
+    const col = Math.max(0, round((bottomBar.widthCells - promptText.length) / 2));
     setCursor(bottomBar, col, 1);
     puts(bottomBar, promptText, 0x03);
   }
