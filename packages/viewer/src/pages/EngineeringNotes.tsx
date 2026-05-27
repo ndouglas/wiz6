@@ -16,7 +16,8 @@ type Tag =
   | 'audio'
   | 'maze'
   | 'intro'
-  | 'engine';
+  | 'engine'
+  | 'resolved-2026-05-25';
 
 interface Note {
   id: string;
@@ -1407,6 +1408,7 @@ const ALL_TAGS: Tag[] = [
   'maze',
   'intro',
   'engine',
+  'resolved-2026-05-25',
 ];
 
 // Total cards per tag (independent of current filter selection). Computed at

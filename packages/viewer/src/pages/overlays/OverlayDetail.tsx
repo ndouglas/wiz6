@@ -18,7 +18,9 @@ function parseHexAddr(s: string): number {
 
 function compareRows(a: RenamedFunctionEntry, b: RenamedFunctionEntry, field: SortField): number {
   if (field === 'addr') return parseHexAddr(a.addr) - parseHexAddr(b.addr);
-  return (a[field] ?? '').localeCompare(b[field] ?? '');
+  // The "name" column displays the renamed (`new`) function name.
+  const key = field === 'name' ? 'new' : 'category';
+  return a[key].localeCompare(b[key]);
 }
 
 export function OverlayDetail() {

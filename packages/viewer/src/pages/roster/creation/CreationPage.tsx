@@ -185,7 +185,10 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
     Promise.all([
       loadCreationFontSet(
         fontLoader || font4bppLoader
-          ? { loadFont: fontLoader, loadFont4bpp: font4bppLoader }
+          ? {
+              ...(fontLoader ? { loadFont: fontLoader } : {}),
+              ...(font4bppLoader ? { loadFont4bpp: font4bppLoader } : {}),
+            }
           : undefined,
       ),
       msgLoader('/messages/msg.json'),

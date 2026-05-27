@@ -43,7 +43,12 @@ export function CreationCanvas({ windows, fontSet, palette, scale = DEFAULT_SCAL
     if (!ctx) return; // jsdom: getContext returns null — guard and bail
 
     const rgba = renderCreationFrame(windows, fontSet, palette);
-    ctx.putImageData(new ImageData(rgba, ENGINE_W, ENGINE_H), 0, 0);
+    // Allocate an ImageData (ArrayBuffer-backed) and copy into it — passing the
+    // Uint8ClampedArray directly trips the ArrayBufferLike/SharedArrayBuffer
+    // mismatch in the DOM lib types.
+    const img = new ImageData(ENGINE_W, ENGINE_H);
+    img.data.set(rgba);
+    ctx.putImageData(img, 0, 0);
   }, [windows, fontSet, palette]);
 
   return (

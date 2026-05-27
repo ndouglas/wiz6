@@ -93,7 +93,7 @@ function eligibleSpells(classIdx: number): Array<{ entryIdx: number; bookIdx: nu
 function totalPicksRequired(classIdx: number): number {
   const books = CLASS_SPELLBOOKS[classIdx];
   if (!books) return 0;
-  return books.reduce((sum, count) => sum + count, 0);
+  return books.reduce<number>((sum, count) => sum + count, 0);
 }
 
 // ---------------------------------------------------------------------------

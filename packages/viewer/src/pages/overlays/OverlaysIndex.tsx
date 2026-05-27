@@ -27,7 +27,7 @@ export function OverlaysIndex() {
             const data = (await res.json()) as NamingPassFindings;
             return {
               manifest: m,
-              total: data.stats?.total_functions ?? data.renamed_full_list?.length,
+              total: data.stats?.total_functions ?? data.renamed_full_list?.length ?? 0,
               renamed: data.stats?.renamed ?? data.renamed_full_list?.length ?? 0,
               remaining: data.stats?.remaining_FUN_XXXX ?? 0,
             };
