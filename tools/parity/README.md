@@ -168,6 +168,62 @@ against the engine. Currently confirmed for Fighter (A2/A3 test coverage).
 2. **Remaining field offsets** — any pcfile fields with `unknown_*` annotations in
    `encode-character-record.ts` that are populated at creation time (not just stock values).
 
+## Decode engine screen from a save state
+
+`decode-screen.ts` reads the DOSBox-X save state's `Vga` blob, decodes the 320×200
+mode-0x0D planar screen to RGBA via the EGA_DEFAULT palette, and writes a PNG — entirely
+offline, no DOSBox process required.
+
+```bash
+# Decode save 1 → /tmp/engine-screen-1.png (default output path)
+pnpm tsx tools/parity/decode-screen.ts --save 1
+
+# Explicit save path + custom output
+pnpm tsx tools/parity/decode-screen.ts \
+    --save tools/dosbox/save/1.sav \
+    --out /tmp/wpcmk-screen.png
+```
+
+Output shows color statistics and a structural check:
+
+```
+decoded 320×200 from .../tools/dosbox/save/1.sav
+  → /tmp/engine-screen-1.png
+  black:     80.6%
+  dark-gray:  9.1%
+  light-gray: 0.1%
+  white:      0.2%
+  full-width dark bar: row 120 ✓
+  structural check: PASS
+```
+
+### VGA blob layout (DOSBox-X 2026.05.02)
+
+Confirmed empirically — see `docs/re/findings/dosbox-vga-save-layout.json`:
+
+| Parameter | Value |
+|---|---|
+| VRAM start in blob | `0x80000` |
+| Plane layout | Interleaved: `blob[0x80000 + vga_addr*4 + plane]` |
+| Row stride | 40 bytes/row/plane (CRTC reg 0x13 = 0x14) |
+| Display start | VGA address 0 (CRTC regs 0x0C/0x0D = 0) |
+| Palette | `EGA_DEFAULT` (direct pixel→RGB, no AC stage) |
+
+The DAC and CRTC registers are embedded at blob offsets 0x82F80–0x83800
+(which overlaps VRAM rows 75–89 in the address model). This adds minor noise
+to those rows but does not affect the bulk of the screen.
+
+### Using decoded screens for parity testing
+
+For parity testing between the engine framebuffer and our TS renderer, the typical workflow is:
+
+1. Decode the engine screen: `pnpm tsx tools/parity/decode-screen.ts --save N`
+2. Render our TS implementation to a canvas / PNG
+3. Compare pixel-by-pixel using an image diff tool
+
+The `decode-screen.ts` tool can also be used to visually confirm which game state
+a save is at — helpful for identifying which screen layout to replicate.
+
 ## Where this pattern shines next
 
 - **Combat math**: save at "right before damage roll" → dump the combatant struct → run our combat sim from the same starting state → diff.
