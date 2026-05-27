@@ -1,46 +1,47 @@
 {
   "topic": "dosbox-vga-save-layout",
   "date": "2026-05-27",
-  "summary": "DOSBox-X 2026.05.02 Vga save blob layout for Wiz6 mode-0x0D (320x200 EGA 16-color). VRAM at blob offset 0x80000, 4-plane interleaved (plane = byte-index % 4 within each 4-byte group). Two contamination regions must be zeroed during decode: (1) blob[0x0810E0..0x08171F] = rows 27-36 (DOSBox-X internal state: timer counters, config pointers, EGA attribute-controller lookup tables); (2) blob[0x82F70..0x838CE] = rows 75-90 (VGA hardware register state dump). Both are confirmed non-game-VRAM via cross-save invariance analysis across all 13 saves. After both masks: save 1 decodes with 0 noisy pixels in rows 8-48 and 100% top-third black.",
+  "summary": "DOSBox-X 2026.05.02 Vga save blob layout for Wiz6 mode-0x0D (320x200 EGA 16-color). VRAM (vga.mem.linear) starts at blob offset 0x84000, NOT 0x80000 as previously claimed. 0x80000–0x83FFF is the VGA register/state dump (CRTC at 0x82F8C, AC regs at 0x82FC2, DAC at 0x82FE9, EGA lookup tables through 0x83FFF). Pixel pipeline: raw_index → AC_REGS[raw_index] → DAC[dac_entry] → RGB (NOT EGA_DEFAULT directly). Confirmed by decoding save 1 (CHARACTER MENU), save 2 (title art), save 8 (MASTER OPTIONS menu) — all produce recognisable clean screens with no masking. ~170 invariant DOSBox-internal-state bytes land inside vga.mem.linear at VGA addresses 621–646 (rows 15–16) and scattered positions in rows 18–23, 49–54, 121–131, producing ~161 noise pixels (< 0.3% of screen). No masking applied; disclosed here.",
   "findings": [
     {
       "id": "vram-start-offset",
-      "claim": "VGA VRAM (vga.mem.linear) starts at blob offset 0x80000 in every captured save state.",
+      "claim": "VGA VRAM (vga.mem.linear) starts at blob offset 0x84000 in every captured save state. The range 0x80000–0x83FFF is the VGA register/state dump, NOT VRAM.",
       "category": "vga_blob_layout",
       "evidence": {
-        "method": "empirical_decode",
-        "saves_tested": ["1.sav", "2.sav", "3.sav", "4.sav", "5.sav"],
-        "blob_size_all": "0xC4F48 = 806728 bytes (identical across all saves)",
-        "vram_total_size": "0x44F48 bytes = 282440 bytes (standard 256KB VRAM + 0x4F48 bytes of DOSBox-X internal tables at end)",
-        "validation": "Decoding as interleaved-plane VRAM with vram_start=0x80000 produces plausible Wiz6 game screens (black 84-85%, dark-gray 8-18%, full-width dark bars present in save 1 with full-screen window chrome).",
-        "alternative_tested": "vram_start=0x84800 gave 50.1% black / 35.3% dark-gray (too dark — wrong).",
-        "alternative_tested_2": "Planar layout (separate 64KB planes at 0x00000/0x10000/0x20000/0x30000) gave 99.2% black (entirely empty — wrong)."
+        "method": "empirical_decode + visual inspection",
+        "saves_tested": ["1.sav", "2.sav", "3.sav", "8.sav"],
+        "blob_layout": {
+          "0x000000-0x07FFFF": "mostly-zero VGA state header (512 KB, < 0.1% non-zero)",
+          "0x080000-0x083FFF": "VGA register state dump: CRTC at 0x82F8C, AC regs at 0x82FC2, DAC at 0x82FE9 (768 bytes), EGA lookup tables through 0x83FFF",
+          "0x084000-0x0C3FFF": "vga.mem.linear, 256 KB = 4 planes × 64 KB interleaved",
+          "0x0C4000-0x0C4F47": "trailing state ~4 KB"
+        },
+        "validation": "base=0x84000 decodes save 1 (CHARACTER MENU) showing gray background, blue frames, white menu-option text (1224 white pixels in bottom 40 rows). Save 2 (title art) shows 'Bane of the Cosmic Forge' characters. Save 8 (MASTER OPTIONS) shows ADD PARTY MEMBER / RESUME SAVED GAME / CHARACTER MENU / QUIT text.",
+        "prior_error": "Earlier analysis used base=0x80000 and masked rows 27-36 and 75-90 as 'contamination'. Those masked ranges were entirely within the VGA state dump (0x80000-0x83FFF), not within actual VRAM. The masking made all-zero VRAM decode as all-black, which superficially passed color-distribution checks but produced no real game content."
       },
       "confidence": "high"
     },
     {
       "id": "plane-arrangement-interleaved",
-      "claim": "VGA VRAM is stored as 4-plane interleaved: for VGA address A and plane P, the byte is at blob[0x80000 + A*4 + P].",
+      "claim": "VGA VRAM is stored as 4-plane interleaved: for VGA address A and plane P, the byte is at blob[0x84000 + A*4 + P].",
       "category": "vga_blob_layout",
       "evidence": {
-        "method": "pattern_analysis",
-        "observable": "Non-zero bytes in the blob appear at offsets that are multiples of 4 (e.g., +0x0003, +0x0007, +0x000b = plane 3 bytes only), consistent with plane-3-only pixels (EGA color 8 = dark gray window background).",
-        "verified_by": "Decoding with interleaved formula produces structured image; planar layout produces blank image."
+        "method": "visual decode verification",
+        "observable": "Decoding with interleaved formula at base 0x84000 produces correct structured game screens. Planar layout (separate 64KB planes) produces noise.",
+        "stride": "40 bytes/plane/row × 8 bits/byte = 320 pixels/row, confirmed by CRTC offset reg 0x13 = 0x14 = 20 → row stride 40"
       },
       "confidence": "high"
     },
     {
       "id": "crtc-display-start",
-      "claim": "CRTC display-start address = 0 (registers 0x0C/0x0D both = 0x00) in save 1. No page flipping active at this game state.",
+      "claim": "CRTC display-start address = 0 (registers 0x0C/0x0D both = 0x00) in all captured saves. No page flipping at any captured game state.",
       "category": "crtc_registers",
       "evidence": {
         "blob_offset": "0x82F8C",
         "crtc_register_block": "2D 27 28 90 2B 80 BF 1F 00 C0 00 00 00 00 00 00 9C 8E 8F 14 00 96 B9 E3 FF",
         "reg_0C": "0x00 (start-addr hi)",
         "reg_0D": "0x00 (start-addr lo)",
-        "decoded_display_start_vga_addr": "0x0000",
-        "crtc_mode_0x17": "0xE3 = byte-mode, address-wrap enabled",
-        "vde_calculation": "CRTC[0x12]=0x8F, overflow bit8=1, bit9=0 → VDE=0x18F=399 → 400 scanlines (double-scanned 200 logical rows)"
+        "decoded_display_start_vga_addr": "0x0000"
       },
       "confidence": "high"
     },
@@ -50,98 +51,94 @@
       "category": "crtc_registers",
       "evidence": {
         "blob_offset": "0x82F8C + 0x13 = 0x82F9F",
-        "value": "0x14",
-        "derivation": "40 bytes/plane/row × 8 bits/byte = 320 pixels/row"
+        "value": "0x14"
       },
       "confidence": "high"
     },
     {
       "id": "dac-palette-offset",
-      "claim": "DAC palette is at blob offset 0x82FE9, 768 bytes (256 entries × 3 channels × 6-bit values).",
+      "claim": "DAC palette is at blob offset 0x82FE9, 768 bytes (256 entries × 3 channels × 6-bit values). Entries 0–15 match BIOS-default EGA (same as EGA_DEFAULT when scaled to 8-bit).",
       "category": "vga_blob_layout",
       "evidence": {
-        "method": "findDacOffset() in packages/mcp/src/vga-palette.ts",
-        "fast_path_verified": "0x82FE9 passes the all-bytes-≤0x3F heuristic plus entry-0=black and entry-15=bright constraints.",
-        "note": "The DAC region falls within the VGA state-dump block (blob[0x82F70..0x838CE]) which overlaps with VRAM rows 75-90. See finding 'vga-state-dump-contamination'."
+        "method": "direct read from blob across all saves",
+        "note": "DAC[0..15] matches EGA_DEFAULT[0..15] exactly (confirmed by dosbox_identify_palette). However, pixels do NOT render via DAC[raw_index] directly — they go through AC register remapping first. See palette-pipeline finding."
       },
       "confidence": "high"
     },
     {
-      "id": "palette-color-mapping",
-      "claim": "Direct EGA_DEFAULT[pixel_index] lookup produces correct RGB without going through the Attribute Controller → DAC path.",
+      "id": "palette-pipeline",
+      "claim": "Pixel→RGB uses AC→DAC composed pipeline, NOT EGA_DEFAULT[raw_index] directly. AC_REGS = [23,17,21,20,22,18,19,16, 7,1,5,4,6,2,3,0] (invariant across all saves, blob 0x82FC2). Pipeline: raw_index → AC_REGS[raw_index] → DAC[dac_entry] → 8-bit RGB.",
       "category": "color_pipeline",
       "evidence": {
-        "cross_ref": "docs/re/findings/state4-runtime-palette.json: live VGA DAC across all saves = BIOS-default EGA palette, distance 0.",
-        "ac_registers_found": "blob 0x82FC2: [0x17, 0x11, 0x15, 0x14, 0x16, 0x12, 0x13, 0x10, 0x07, 0x01, 0x05, 0x04, 0x06, 0x02, 0x03, 0x00]",
-        "explanation": "The AC registers perform a non-identity remapping, but dosbox_identify_palette confirmed the rendered pixel colors match EGA_DEFAULT exactly (distance 0). The 16 composed colors (pixel_index → AC[idx] → DAC[AC[idx]] → RGB) are identical to EGA_DEFAULT. Render against EGA_DEFAULT and the colors will match the engine framebuffer.",
-        "note": "The AC register at blob 0x82FC2 is within the VGA state-dump block (rows 75-90 area) but reading AC registers for palette identification (not VRAM decode) is correct — these are hardware config, not display pixels."
+        "ac_regs_blob_offset": "0x82FC2",
+        "ac_regs": [23, 17, 21, 20, 22, 18, 19, 16, 7, 1, 5, 4, 6, 2, 3, 0],
+        "composed_result": {
+          "raw_0": "(255,255,255) white — background of windows/fills",
+          "raw_1": "(85,85,255) dark blue — UI frame borders",
+          "raw_7": "(85,85,85) dark gray",
+          "raw_8": "(170,170,170) light gray — screen background",
+          "raw_15": "(0,0,0) black"
+        },
+        "why_not_ega_default": "EGA_DEFAULT[0]=(0,0,0) black but actual pixel-0 renders as white. dosbox_identify_palette reports 'distance 0 to ega-default' because it measures DAC[0..15] directly (before AC), not the rendered pixel colors. The AC remapping inverts the luminance ordering relative to EGA_DEFAULT."
       },
       "confidence": "high"
     },
     {
-      "id": "dosbox-internal-rows-27-36",
-      "claim": "DOSBox-X 2026.05.02 stores internal state (timer counters, config pointers, EGA attribute-controller lookup tables) at VGA addresses 0x0438–0x05C7, which maps to display rows 27–36 (blob[0x0810E0..0x08171F]). These bytes are NOT game-drawn VRAM — they must be zeroed during decode.",
+      "id": "residual-dosbox-state-in-vram",
+      "claim": "DOSBox-X writes ~170 internal-state bytes into vga.mem.linear at VGA addresses 621–646 (screen rows 15–16, right-side columns 21–46) and scattered positions (rows 18–23 col 22, 34, 38–39; rows 49–54 col 19,30–31; rows 121–131 col 34). These produce ~161 noise pixels (< 0.3% of screen). They are invariant across all captured saves.",
       "category": "vga_blob_layout",
       "evidence": {
-        "method": "cross-save invariance analysis across all 13 saves",
-        "invariant_vga_addresses": "15 VGA addresses in rows 27-28 are byte-for-byte identical in all 13 saves (DOSBox-X internal pointers/config; e.g. VGA 0x0460 = planes 80,3D,02,68 = a 32-bit pointer value)",
-        "variant_vga_addresses": "4 VGA addresses in row 27 vary per save (timer/counter bytes: e.g. VGA 0x0455 has plane3 values F4,F6,A4,53,02,B1,60... cycling each save)",
-        "save1_extra": "Save 1 has 94 additional non-zero VGA addresses in rows 28-36 (EGA attribute-controller lookup tables: 0x55/0xFF/0xAA patterns) serialized by DOSBox-X during save; saves 2-13 have zeroes there",
-        "total_contaminated_save1": "113 VGA addresses out of the 0x044B-0x05BA range",
-        "total_contaminated_saves2_13": "19 VGA addresses per save (the invariant subset)",
-        "blob_range": "0x0810E0 (row 27 start) to 0x08171F (row 36 end inclusive)",
-        "fix": "In decodeVgaScreen(): if blobBase >= DOSBOX_INTERNAL_BLOB_START (0x0810E0) and blobBase <= DOSBOX_INTERNAL_BLOB_END (0x08171F), treat pixel as index 0 (black)",
-        "actual_game_vram": "All 13 saves have zero game VRAM at rows 27-36 (black top-window interior). After masking, rows 8-48 have 0 non-black/non-gray pixels."
-      },
-      "confidence": "high"
-    },
-    {
-      "id": "vga-state-dump-contamination",
-      "claim": "DOSBox-X 2026.05.02 serializes VGA hardware register state (CRTC, sequencer, attribute controller, GFX controller, DAC palette, lookup tables) into blob[0x82F70..0x838CE], which overlaps with screen rows 75-90 in the interleaved VRAM mapping. These bytes must be treated as zero (= black, pixel-index 0) during VRAM decode.",
-      "category": "vga_blob_layout",
-      "evidence": {
-        "method": "cross-save invariance analysis",
-        "state_block_blob_start": "0x82F70",
-        "state_block_blob_end": "0x838CE",
-        "affected_rows": "75-90 (16 rows × 160 bytes = 2560 byte region in interleaved VRAM)",
-        "state_start_vga_addr": "3036 (= (0x82F70-0x80000)/4)",
-        "state_end_vga_addr": "3635 (= (0x838CE-0x80000)/4)",
-        "invariance_proof": "Bytes within this range are identical (or near-identical with ≤4 bytes variation) across all 13 captured save states. Specifically: rows 77, 84-89 are byte-for-byte identical; rows 75-76, 90 have ≤4 bytes varying. In contrast, real game VRAM at adjacent rows varies dramatically between saves (different characters, different screens).",
-        "identification": "The data matches known VGA register values (CRTC: 2D 27 28 90 2B 80 BF 1F 00 C0...; AC palette: 17 11 15 14 16 12 13 10 07 01 05 04 06 02 03 00; DAC: 768 bytes of 6-bit RGB values starting at 0x82FE9). The alternating 0x55/0xAA/0xFF pattern in rows 85-90 matches the EGA default lookup table.",
-        "actual_vram_content": "The game VRAM at those VGA addresses is all-zero (black window interior). The state dump overwrites it during DOSBox-X serialization.",
-        "fix_applied": "In decodeVgaScreen(): if blobBase >= VGA_STATE_BLOB_START (0x82F70) and blobBase <= VGA_STATE_BLOB_END (0x838CE), treat pixel as index 0 (black).",
-        "saves_tested": "all 13 saves (1.sav through 13.sav)"
+        "method": "cross-save invariance analysis (saves 1,2,3,8)",
+        "invariant_vga_addresses": 148,
+        "noise_pixels_induced": 161,
+        "noise_pct": "0.25%",
+        "example": "VGA addr 630 (row 15 col_byte 30): bytes (03,04,05,06) = sequential counter values, not pixel data",
+        "decision": "Not masked — visual impact is negligible and the base is confirmed correct. Masking was removed (previous code masked 0x0810E0-0x08171F and 0x82F70-0x838CE, which were in the VGA state region, not true VRAM)."
       },
       "confidence": "high"
     }
   ],
   "decode_parameters": {
-    "vram_offset_in_blob": "0x80000",
-    "plane_layout": "interleaved: blob[0x80000 + vga_addr * 4 + plane]",
+    "vram_offset_in_blob": "0x84000",
+    "plane_layout": "interleaved: blob[0x84000 + vga_addr * 4 + plane]",
     "screen_width": 320,
     "screen_height": 200,
     "bytes_per_row_per_plane": 40,
     "display_start_vga_addr": 0,
-    "palette": "EGA_DEFAULT (direct pixel_index → RGB, no AC stage needed)",
-    "contamination_region_1": "blob[0x0810E0..0x08171F] (rows 27-36) — DOSBox-X internal state, treat as pixel 0 (black)",
-    "contamination_region_2": "blob[0x82F70..0x838CE] (rows 75-90) — VGA register state dump, treat as pixel 0 (black)",
+    "palette_pipeline": "raw_index → AC_REGS[raw_index] → DAC[dac_entry] → 8-bit RGB (NOT EGA_DEFAULT[raw_index])",
+    "ac_regs": [23, 17, 21, 20, 22, 18, 19, 16, 7, 1, 5, 4, 6, 2, 3, 0],
+    "dac_offset_in_blob": "0x82FE9",
+    "contamination_masking": "NONE — removed; previous masking addressed wrong-base symptom, not the root cause",
     "tool": "tools/parity/decode-screen.ts"
   },
   "validation_save1": {
-    "save": "tools/dosbox/save/1.sav",
-    "game_state": "0x10 (wpcmk character-confirm screen)",
-    "black_pct": 84.6,
-    "dark_gray_pct": 8.8,
-    "light_gray_pct": 0.1,
-    "white_pct": 0.0,
-    "top_third_black_pct": 100.0,
-    "full_width_dark_bar_row": 120,
-    "top_window_noisy_pixels_rows_8_48": 0,
+    "save": "tools/dosbox/save/1.sav (recaptured 2026-05-27 = CHARACTER MENU screen)",
+    "game_state": "0x04 (wbase — main menu with character roster)",
+    "black_pct": 0.0,
+    "white_pct": 43.7,
+    "light_gray_pct": 50.4,
+    "dark_gray_pct": 0.0,
+    "white_pixels_bottom_40_rows": 1224,
+    "isolated_noise_pixels": 21,
     "structural_check": "PASS",
-    "before_fix_rows_27_36": {
-      "top_window_noisy_pixels_rows_8_48": 709,
-      "note": "Before the rows-27-36 mask: save 1 had 709 noisy pixels in rows 8-48 from DOSBox-X internal state (EGA lookup tables + timer data serialized at VGA addr 0x044B-0x05BA). Saves 2-13 each had 45 noisy pixels from the 19 invariant VGA addresses. All now zero after adding DOSBOX_INTERNAL_BLOB mask."
-    },
-    "saves_all_pass": "all 13 saves decode with 0 top-window noisy pixels and structural check PASS"
+    "content_visible": "Gray background, blue double-line frames, white interior boxes, 6 white menu options at bottom (PORTRAIT / EXIT / CREATE PC / REVIEW PC / DELETE PC / RENAME PC)"
+  },
+  "validation_save2": {
+    "save": "tools/dosbox/save/2.sav",
+    "white_pct": 42.1,
+    "light_gray_pct": 22.5,
+    "white_pixels_bottom_40_rows": 5082,
+    "isolated_noise_pixels": 11212,
+    "structural_check": "PASS",
+    "note": "High noise due to dithered title art ('Bane of the Cosmic Forge' characters + stone wall). Normal for graphical screens."
+  },
+  "validation_save8": {
+    "save": "tools/dosbox/save/8.sav",
+    "white_pct": 27.3,
+    "light_gray_pct": 52.7,
+    "white_pixels_bottom_40_rows": 1071,
+    "isolated_noise_pixels": 5163,
+    "structural_check": "PASS",
+    "content_visible": "MASTER OPTIONS menu: ADD PARTY MEMBER, RESUME SAVED GAME, CHARACTER MENU, TITLE PAGE, SHOW GAME, QUIT"
   }
 }

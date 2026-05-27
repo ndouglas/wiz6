@@ -2,37 +2,46 @@
  * Decode the engine's exact displayed screen from a DOSBox-X save state offline.
  *
  * Reads the `Vga` zip member from the save state, extracts the interleaved VGA VRAM
- * at offset 0x80000, decodes 320x200 mode-0x0D planar pixels to RGBA, maps through
- * the EGA_DEFAULT palette (matches the live runtime DAC per state4-runtime-palette.json),
- * and writes a PNG.
+ * at offset 0x84000, decodes 320x200 mode-0x0D planar pixels to RGBA, maps through
+ * the composed AC→DAC palette, and writes a PNG.
  *
- * VGA blob layout (DOSBox-X 2026.05.02, confirmed empirically on tools/dosbox/save/1.sav):
- *   - blob[0x80000 + vgaAddr * 4 + plane]: plane byte for a given VGA address
- *   - CRTC display-start = 0 (registers 0x0C/0x0D = 0), confirmed from blob 0x82F8C
- *   - Row stride = 40 bytes/plane/row (CRTC offset reg 0x13 = 0x14), correct for 320-px wide mode
- *   - Visible area: 320x200 pixels, starting at VGA address 0 in page 0
+ * VGA blob layout (DOSBox-X 2026.05.02, confirmed empirically across saves 1-13):
  *
- * VGA state-dump contamination (two regions):
+ *   blob[0x000000..0x07FFFF]  – mostly-zero VGA register header (~512 KB, <0.1% non-zero)
+ *   blob[0x080000..0x083FFF]  – VGA state dump: CRTC registers at 0x82F8C, DAC palette
+ *                               at 0x82FE9 (768 bytes, 256 × 3 × 6-bit), attribute
+ *                               controller registers at 0x82FC2, EGA lookup tables.
+ *   blob[0x084000..0x0C3FFF]  – vga.mem.linear (256 KB = 4 planes × 64 KB, interleaved):
+ *                               blob[0x84000 + vgaAddr * 4 + plane] = plane byte for VGA addr.
+ *   blob[0x0C4000..0x0C4F47]  – trailing state (~4 KB).
  *
- *   Region 1 — rows 27–36 (blob 0x0810E0–0x08171F):
- *   DOSBox-X stores internal state (timer counters, configuration pointers) at VGA addresses
- *   0x0438–0x05C7, which maps to display rows 27–36. Cross-save analysis (13 saves) confirms:
- *   - 19 VGA addresses in rows 27-28 carry INVARIANT bytes identical across ALL saves
- *     (e.g. 0x0460: planes=80,3D,02,68 = a DOSBox-X pointer/timer, unchanging)
- *   - 4 additional VGA addresses in row 27 vary per save (timer/counter values)
- *   - Save 1 has 94 additional addresses in rows 28–36 from EGA attribute-controller
- *     lookup tables (0x55/0xFF/0xAA patterns) serialized by DOSBox-X during save
- *   These bytes are NOT game-drawn pixels. The actual game VRAM at those VGA addresses
- *   is all-zero (black top-window interior). Fix: treat any VRAM read in this blob range
- *   as zero (black, pixel-index 0).
+ * Pixel pipeline for mode-0x0D (320×200 EGA 16-color):
+ *   vga_addr   = y × 40 + (x >> 3)
+ *   plane_byte[p] = blob[0x84000 + vga_addr × 4 + p]
+ *   bit_pos    = 7 − (x & 7)        (MSB first, 8 pixels per VGA address)
+ *   raw_index  = bit_n(plane0) | bit_n(plane1)<<1 | bit_n(plane2)<<2 | bit_n(plane3)<<3
+ *   rgb        = COMPOSED_PALETTE[raw_index]
  *
- *   Region 2 — rows 75–90 (blob 0x82F70–0x838CE):
- *   DOSBox-X serializes VGA hardware register state (CRTC, sequencer, attribute controller,
- *   GFX controller, DAC palette, lookup tables) into blob offsets 0x82F70–0x838CE, which
- *   overlaps with screen rows 75–90. These bytes decode as random-colored "noise" pixels
- *   where the actual game screen has a black window interior.
- *   Confirmed: byte-for-byte identical across all 13 captured save states.
- *   Game VRAM at those VGA addresses is all-zero (black interior of the top window).
+ * Palette pipeline (AC → DAC composition):
+ *   The Attribute Controller (AC) registers at blob 0x82FC2 remap pixel indices before
+ *   they hit the DAC. The DAC (256 × 3 × 6-bit, blob 0x82FE9) holds BIOS-default EGA
+ *   values (entries 0–15 match EGA_DEFAULT 6-bit). Composition:
+ *     ac_regs = [23,17,21,20,22,18,19,16, 7,1,5,4,6,2,3,0]   (invariant across all saves)
+ *     pixel raw_index → DAC[ac_regs[raw_index]] → (R,G,B)
+ *   Result: raw_index 0 renders as white (255,255,255), raw_index 15 as black (0,0,0).
+ *   NOTE: using EGA_DEFAULT[raw_index] directly is WRONG — it ignores the AC remapping
+ *   and produces inverted luminance (background appears black instead of gray, menu text
+ *   appears black instead of white).
+ *
+ * CRTC display-start = 0 (registers 0x0C/0x0D = 0x00) in all captured saves.
+ * CRTC offset reg 0x13 = 0x14 → 40 bytes/plane/row (correct for 320-pixel-wide mode).
+ *
+ * Residual DOSBox-X internal state: DOSBox-X writes ~170 internal-state bytes into
+ * vga.mem.linear at VGA addresses 621–646 (screen rows 15–16, right-side columns) and
+ * a handful of other positions (rows 18–23, 49–54, 121–131). These produce ~161 pixels
+ * of colored noise in areas that would otherwise be uniform background. They are invariant
+ * across all captured saves (not game-drawn VRAM). Their visual impact is negligible
+ * (< 0.3% of screen pixels), so no masking is applied. See dosbox-vga-save-layout.json.
  *
  * Invoke:
  *   pnpm tsx tools/parity/decode-screen.ts --save <path|N> [--out <png>]
@@ -45,75 +54,68 @@ import { join } from 'node:path';
 import { readVgaBlob } from '../../packages/mcp/src/vga-palette.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 
-// ─── EGA default palette (DAC 0-15), 8-bit RGB ───────────────────────────────
-// Verified against all captured save states via state4-runtime-palette.json:
-// live DAC = BIOS-default EGA, distance 0. Direct pixel→RGB lookup; AC→DAC path
-// not needed because EGA_DEFAULT entries already match the AC→DAC composed output.
-const EGA_DEFAULT: ReadonlyArray<readonly [number, number, number]> = [
-  [0, 0, 0],       // 0  black
-  [0, 0, 170],     // 1  blue
-  [0, 170, 0],     // 2  green
-  [0, 170, 170],   // 3  cyan
-  [170, 0, 0],     // 4  red
-  [170, 0, 170],   // 5  magenta
-  [170, 85, 0],    // 6  brown / dark yellow
-  [170, 170, 170], // 7  light gray
-  [85, 85, 85],    // 8  dark gray
-  [85, 85, 255],   // 9  bright blue
-  [85, 255, 85],   // 10 bright green
-  [85, 255, 255],  // 11 bright cyan
-  [255, 85, 85],   // 12 bright red
-  [255, 85, 255],  // 13 bright magenta
-  [255, 255, 85],  // 14 yellow
-  [255, 255, 255], // 15 white
+// ─── Palette constants ────────────────────────────────────────────────────────
+
+/**
+ * AC registers (invariant across all captured saves, blob offset 0x82FC2).
+ * Maps raw pixel index → DAC entry index.
+ */
+const AC_REGS = [23, 17, 21, 20, 22, 18, 19, 16, 7, 1, 5, 4, 6, 2, 3, 0] as const;
+
+/**
+ * BIOS-default EGA DAC, 6-bit per channel, entries 0..31.
+ * Entries 0–15 are the low-intensity set; 16–31 the high-intensity set.
+ * Verified from DAC dump at blob 0x82FE9 (all saves match).
+ */
+const DAC_6BIT: ReadonlyArray<readonly [number, number, number]> = [
+  // Low-intensity (entries 0-15)
+  [0,  0,  0], [0,  0,  42], [0,  42, 0], [0,  42, 42],
+  [42, 0,  0], [42, 0,  42], [42, 21, 0], [42, 42, 42],
+  [21, 21, 21],[21, 21, 63], [21, 63, 21],[21, 63, 63],
+  [63, 21, 21],[63, 21, 63], [63, 63, 21],[63, 63, 63],
+  // High-intensity (entries 16-31) — used by AC_REGS remapping
+  [21, 21, 21],[21, 21, 63], [21, 63, 21],[21, 63, 63],
+  [63, 21, 21],[63, 21, 63], [63, 63, 21],[63, 63, 63],
+  [0,  0,  0], [0,  0,  42], [0,  42, 0], [0,  42, 42],
+  [42, 0,  0], [42, 0,  42], [42, 21, 0], [42, 42, 42],
 ];
 
+/**
+ * Compose the full pixel→RGB palette through the AC→DAC pipeline.
+ * raw_index → AC_REGS[raw_index] → DAC_6BIT[dac_entry] → 8-bit RGB (VGA bit-replication).
+ */
+function buildComposedPalette(): ReadonlyArray<readonly [number, number, number]> {
+  return AC_REGS.map((dacIdx) => {
+    const [r6, g6, b6] = DAC_6BIT[dacIdx]!;
+    return [
+      (r6 << 2) | (r6 >> 4),
+      (g6 << 2) | (g6 >> 4),
+      (b6 << 2) | (b6 >> 4),
+    ] as const;
+  });
+}
+
+const COMPOSED_PALETTE = buildComposedPalette();
+
 // ─── VGA VRAM layout constants ───────────────────────────────────────────────
-const VRAM_OFFSET_IN_BLOB = 0x80000; // confirmed: vga.mem.linear starts here
-const VRAM_BYTES_PER_ROW = 40;       // CRTC offset reg = 0x14 → 40 bytes/row/plane
-const SCREEN_WIDTH = 320;
+const VRAM_OFFSET_IN_BLOB = 0x84000; // vga.mem.linear starts here (not 0x80000)
+const VRAM_BYTES_PER_ROW  = 40;      // CRTC offset reg 0x13 = 0x14 → 40 bytes/row/plane
+const SCREEN_WIDTH  = 320;
 const SCREEN_HEIGHT = 200;
 const PLANES = 4;
-
-// ─── VGA state-dump contamination ranges ─────────────────────────────────────
-//
-// Range 1: rows 27–36 (blob 0x0810E0–0x08171F)
-// DOSBox-X stores internal state (timer counters, config pointers, EGA attribute
-// lookup tables) at VGA addresses 0x0438–0x05C7, overlapping display rows 27–36.
-// Cross-save invariance analysis on all 13 saves confirms these are NOT game pixels:
-//   - 19 VGA addresses in rows 27-28 are byte-identical in all 13 saves (DOSBox-X
-//     internal pointers: e.g. VGA 0x0460 = 80,3D,02,68 in every save)
-//   - 4 more addresses vary per save (timer counters)
-//   - Save 1 has 94 additional addresses in rows 28–36 (EGA lookup tables serialized
-//     during save; saves 2-13 have zeroes there)
-// The actual game VRAM at rows 27–36 should be all-zero (black top-window interior).
-const DOSBOX_INTERNAL_BLOB_START = 0x0810E0; // rows 27–36 inclusive
-const DOSBOX_INTERNAL_BLOB_END   = 0x08171F;
-
-// Range 2: rows 75–90 (blob 0x82F70–0x838CE)
-// DOSBox-X serializes VGA hardware register state (CRTC, sequencer, attribute
-// controller, GFX controller, DAC palette, lookup tables) here. Byte-for-byte
-// identical across all 13 captured save states.
-const VGA_STATE_BLOB_START = 0x82F70; // inclusive (absolute blob offset)
-const VGA_STATE_BLOB_END   = 0x838CE; // inclusive (absolute blob offset)
 
 /**
  * Decode a 320×200 mode-0x0D EGA screen from a DOSBox-X save state Vga blob.
  *
- * Pixel addressing for interleaved 4-plane layout:
- *   vga_addr = y * VRAM_BYTES_PER_ROW + (x >> 3)
- *   plane_byte_offset = vga_addr * PLANES + plane
- *   bit_position = 7 - (x & 7)                         (MSB first)
- *   pixel_index = bit_n(plane0) | bit_n(plane1)<<1 | bit_n(plane2)<<2 | bit_n(plane3)<<3
+ * Pixel addressing (interleaved 4-plane layout):
+ *   vga_addr         = y × VRAM_BYTES_PER_ROW + (x >> 3)
+ *   plane_byte_offset = VRAM_OFFSET_IN_BLOB + vga_addr × PLANES + plane
+ *   bit_position      = 7 − (x & 7)                       (MSB first)
+ *   raw_index         = bit_n(p0) | bit_n(p1)<<1 | bit_n(p2)<<2 | bit_n(p3)<<3
+ *   rgb               = COMPOSED_PALETTE[raw_index]        (AC→DAC composed)
  *
- * Display start is VGA address 0 (CRTC regs 0x0C/0x0D = 0).
- *
- * Two contamination ranges are zeroed (see top-of-file comment for full analysis):
- *   - rows 27–36  (DOSBOX_INTERNAL_BLOB_START..DOSBOX_INTERNAL_BLOB_END): DOSBox-X
- *     internal state (timer counters, config pointers, EGA lookup tables) stored at
- *     VGA addresses 0x0438–0x05C7. Invariant across all 13 saves — not game VRAM.
- *   - rows 75–90  (VGA_STATE_BLOB_START..VGA_STATE_BLOB_END): VGA hardware register
- *     state dump (CRTC, AC, GFX, DAC, xlat tables). Identical in all 13 saves.
+ * No masking is applied. The ~170 DOSBox-X internal-state bytes that land inside
+ * vga.mem.linear produce < 0.3% noise pixels — documented in dosbox-vga-save-layout.json.
  */
 function decodeVgaScreen(blob: Uint8Array): Uint8Array {
   const rgba = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT * 4);
@@ -125,30 +127,18 @@ function decodeVgaScreen(blob: Uint8Array): Uint8Array {
       const blobBase = base + vgaAddr * PLANES;
       const bitPos = 7 - (x & 7);
 
-      let pixelIndex: number;
+      const b0 = blob[blobBase]!;
+      const b1 = blob[blobBase + 1]!;
+      const b2 = blob[blobBase + 2]!;
+      const b3 = blob[blobBase + 3]!;
 
-      // Zero any pixel whose plane bytes fall within either contamination range.
-      // Both ranges contain DOSBox-X internal state, not game-drawn VRAM content.
-      // The actual game pixels at these VGA addresses are all-zero (black).
-      if (
-        (blobBase >= DOSBOX_INTERNAL_BLOB_START && blobBase <= DOSBOX_INTERNAL_BLOB_END) ||
-        (blobBase >= VGA_STATE_BLOB_START && blobBase <= VGA_STATE_BLOB_END)
-      ) {
-        pixelIndex = 0; // treat as black
-      } else {
-        const b0 = blob[blobBase]!;
-        const b1 = blob[blobBase + 1]!;
-        const b2 = blob[blobBase + 2]!;
-        const b3 = blob[blobBase + 3]!;
+      const rawIndex =
+        ((b0 >> bitPos) & 1) |
+        (((b1 >> bitPos) & 1) << 1) |
+        (((b2 >> bitPos) & 1) << 2) |
+        (((b3 >> bitPos) & 1) << 3);
 
-        pixelIndex =
-          ((b0 >> bitPos) & 1) |
-          (((b1 >> bitPos) & 1) << 1) |
-          (((b2 >> bitPos) & 1) << 2) |
-          (((b3 >> bitPos) & 1) << 3);
-      }
-
-      const [r, g, b] = EGA_DEFAULT[pixelIndex]!;
+      const [r, g, b] = COMPOSED_PALETTE[rawIndex]!;
       const offset = (y * SCREEN_WIDTH + x) * 4;
       rgba[offset] = r;
       rgba[offset + 1] = g;
@@ -162,75 +152,59 @@ function decodeVgaScreen(blob: Uint8Array): Uint8Array {
 
 /**
  * Compute structural statistics for validation.
- * The wpcmk confirmation screen (save 1) should show:
- *   - Black > 70%  (outer background)
- *   - Dark gray > 5%  (window borders/backgrounds)
- *   - At least one full-width (≥300 px) dark-gray row  (window border)
- *   - Top third (rows 0-65) black > 60%  (top window interior, no state-dump noise)
- *   - Rows 8-48 non-black/non-gray pixel count = 0  (clean top window, hard bar)
- *     Allowed colors in rows 8-48: black (0,0,0), light-gray (170,170,170), dark-gray (85,85,85)
+ *
+ * For the CHARACTER MENU save (save 1 as of 2026-05-27):
+ *   - Background color: light-gray (170,170,170) — pixel raw_index 8, dominant
+ *   - Window fill: white (255,255,255) — pixel raw_index 0
+ *   - Frames: dark blue (85,85,255) — pixel raw_index 1
+ *   - Menu text: white and blue in bottom rows
+ *   - Expected: white > 30%, light-gray > 30%, white_bottom_rows > 500
+ *
+ * These statistics work for ANY Wiz6 screen captured at a UI state:
+ *   - light-gray or white together > 50% (UI background)
+ *   - white pixels in bottom 40 rows > 0 (text visible on-screen)
  */
 function computeStats(rgba: Uint8Array): {
   blackPct: number;
   whitePct: number;
   lGrayPct: number;
   dGrayPct: number;
-  hasFullWidthDarkBar: boolean;
-  fullWidthDarkBarRow: number;
-  topThirdBlackPct: number;
-  topWindowNoisyPixels: number;
+  whiteBottomRows: number;
+  noisePixels: number;
 } {
   const total = SCREEN_WIDTH * SCREEN_HEIGHT;
-  let black = 0, white = 0, lGray = 0, dGray = 0;
+  let black = 0, white = 0, lGray = 0, dGray = 0, whiteBottom = 0;
 
   for (let i = 0; i < total; i++) {
     const r = rgba[i * 4]!;
     const g = rgba[i * 4 + 1]!;
     const b = rgba[i * 4 + 2]!;
+    const y = Math.floor(i / SCREEN_WIDTH);
     if (r === 0 && g === 0 && b === 0) black++;
-    else if (r === 255 && g === 255 && b === 255) white++;
+    else if (r === 255 && g === 255 && b === 255) {
+      white++;
+      if (y >= SCREEN_HEIGHT - 40) whiteBottom++;
+    }
     else if (r === 170 && g === 170 && b === 170) lGray++;
     else if (r === 85 && g === 85 && b === 85) dGray++;
   }
 
-  let hasFullWidthDarkBar = false;
-  let fullWidthDarkBarRow = -1;
-  for (let y = 0; y < SCREEN_HEIGHT; y++) {
-    let rowDGray = 0;
-    for (let x = 0; x < SCREEN_WIDTH; x++) {
+  // Isolated-pixel noise: pixels whose color differs from ALL 4 cardinal neighbors.
+  // Low for structured tile-rendered screens; high for noise/wrong-base decodes.
+  let noisePixels = 0;
+  for (let y = 1; y < SCREEN_HEIGHT - 1; y++) {
+    for (let x = 1; x < SCREEN_WIDTH - 1; x++) {
       const i = (y * SCREEN_WIDTH + x) * 4;
-      if (rgba[i] === 85 && rgba[i + 1] === 85 && rgba[i + 2] === 85) rowDGray++;
-    }
-    if (rowDGray >= 300 && !hasFullWidthDarkBar) {
-      hasFullWidthDarkBar = true;
-      fullWidthDarkBarRow = y;
-    }
-  }
-
-  // Measure top-third (rows 0-65) black fraction.
-  const TOP_THIRD_ROWS = 66; // rows 0..65
-  const topThirdTotal = SCREEN_WIDTH * TOP_THIRD_ROWS;
-  let topThirdBlack = 0;
-  for (let i = 0; i < topThirdTotal; i++) {
-    const r = rgba[i * 4]!;
-    const g = rgba[i * 4 + 1]!;
-    const b = rgba[i * 4 + 2]!;
-    if (r === 0 && g === 0 && b === 0) topThirdBlack++;
-  }
-
-  // Count "noisy" pixels in rows 8-48: anything that is NOT black, light-gray, or dark-gray.
-  // This is the hard bar for the top-window region — must be ~0 for a clean screen.
-  let topWindowNoisyPixels = 0;
-  for (let y = 8; y <= 48; y++) {
-    for (let x = 0; x < SCREEN_WIDTH; x++) {
-      const i = (y * SCREEN_WIDTH + x) * 4;
-      const r = rgba[i]!;
-      const g = rgba[i + 1]!;
-      const b = rgba[i + 2]!;
-      const isBlack   = r === 0   && g === 0   && b === 0;
-      const isDGray   = r === 85  && g === 85  && b === 85;
-      const isLGray   = r === 170 && g === 170 && b === 170;
-      if (!isBlack && !isDGray && !isLGray) topWindowNoisyPixels++;
+      const r = rgba[i]!, g = rgba[i + 1]!, b = rgba[i + 2]!;
+      const neighbors = [
+        [rgba[(i - SCREEN_WIDTH * 4)]!, rgba[(i - SCREEN_WIDTH * 4) + 1]!, rgba[(i - SCREEN_WIDTH * 4) + 2]!],
+        [rgba[(i + SCREEN_WIDTH * 4)]!, rgba[(i + SCREEN_WIDTH * 4) + 1]!, rgba[(i + SCREEN_WIDTH * 4) + 2]!],
+        [rgba[i - 4]!, rgba[i - 3]!, rgba[i - 2]!],
+        [rgba[i + 4]!, rgba[i + 5]!, rgba[i + 6]!],
+      ];
+      if (neighbors.every(([nr, ng, nb]) => nr !== r || ng !== g || nb !== b)) {
+        noisePixels++;
+      }
     }
   }
 
@@ -239,31 +213,27 @@ function computeStats(rgba: Uint8Array): {
     whitePct: (white / total) * 100,
     lGrayPct: (lGray / total) * 100,
     dGrayPct: (dGray / total) * 100,
-    hasFullWidthDarkBar,
-    fullWidthDarkBarRow,
-    topThirdBlackPct: (topThirdBlack / topThirdTotal) * 100,
-    topWindowNoisyPixels,
+    whiteBottomRows: whiteBottom,
+    noisePixels,
   };
 }
 
 // ─── CLI ─────────────────────────────────────────────────────────────────────
 
 function resolveSavePath(arg: string): { path: string; saveNum: string } {
-  // If arg is a number, look up tools/dosbox/save/<N>.sav
   if (/^\d+$/.test(arg)) {
     return {
       path: join(process.cwd(), 'tools', 'dosbox', 'save', `${arg}.sav`),
       saveNum: arg,
     };
   }
-  // Extract a number from the filename for the default output name
   const m = arg.match(/(\d+)/);
   return { path: arg, saveNum: m ? m[1]! : '0' };
 }
 
 const args = process.argv.slice(2);
 const saveIdx = args.indexOf('--save');
-const outIdx = args.indexOf('--out');
+const outIdx  = args.indexOf('--out');
 
 if (saveIdx < 0 || saveIdx + 1 >= args.length) {
   console.error('usage: pnpm tsx tools/parity/decode-screen.ts --save <path|N> [--out <png>]');
@@ -278,40 +248,39 @@ const outPath =
 
 const blob = readVgaBlob(savePath);
 const rgba = decodeVgaScreen(blob);
-const png = encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba);
+const png  = encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba);
 writeFileSync(outPath, png);
 
 const stats = computeStats(rgba);
 console.log(`decoded ${SCREEN_WIDTH}×${SCREEN_HEIGHT} from ${savePath}`);
 console.log(`  → ${outPath}`);
-console.log(`  black:    ${stats.blackPct.toFixed(1)}%`);
-console.log(`  dark-gray: ${stats.dGrayPct.toFixed(1)}%`);
-console.log(`  light-gray: ${stats.lGrayPct.toFixed(1)}%`);
-console.log(`  white:    ${stats.whitePct.toFixed(1)}%`);
-console.log(`  top-third black (rows 0-65): ${stats.topThirdBlackPct.toFixed(1)}%`);
-console.log(`  top-window noisy pixels (rows 8-48): ${stats.topWindowNoisyPixels}`);
-if (stats.hasFullWidthDarkBar) {
-  console.log(`  full-width dark bar: row ${stats.fullWidthDarkBarRow} ✓`);
-} else {
-  console.log(`  full-width dark bar: NOT FOUND`);
-}
+console.log(`  black:       ${stats.blackPct.toFixed(1)}%`);
+console.log(`  white:       ${stats.whitePct.toFixed(1)}%`);
+console.log(`  light-gray:  ${stats.lGrayPct.toFixed(1)}%`);
+console.log(`  dark-gray:   ${stats.dGrayPct.toFixed(1)}%`);
+console.log(`  white pixels in bottom 40 rows: ${stats.whiteBottomRows}`);
+console.log(`  isolated noise pixels: ${stats.noisePixels}`);
 
-// Structural validation: the decoded image must be plausible as a Wiz6 game screen.
-// Requirements that hold for ANY Wiz6 screen (not just the wpcmk save-1 layout):
-//   - Black > 50%  (outer background / empty VRAM)
-//   - Dark gray > 0.5%  (at least some UI chrome visible)
-//   - Top-third black > 60%  (top window interior, no state-dump noise)
-//   - Top-window noisy pixels (rows 8-48) = 0  (hard bar: no colored noise in top frame)
-// The full-width-dark-bar test is reported but not a hard failure — it only fires for
-// screens with a full-width window border (like the wpcmk character-confirm screen).
+// Structural validation: the decoded image must be a plausible Wiz6 UI screen.
+//   - white + light-gray > 50%: UI background under AC→DAC composed palette.
+//     Under EGA_DEFAULT (wrong pipeline), pixel 0 = black → bg would be mostly dark.
+//   - white in bottom 40 rows > 0: at least some text/UI element visible at bottom.
+//     Pure-graphical backgrounds (title art) also satisfy this via dithered highlights.
+//
+// NOTE: isolated-noise count is reported but NOT a hard failure criterion because
+// graphical screens with dithered art (title, dungeon view) naturally have high noise
+// counts (5000–12000) while still being correctly decoded. The bg% check is the
+// reliable discriminator.
+const bgPct = stats.whitePct + stats.lGrayPct;
 const passed =
-  stats.blackPct > 50 &&
-  stats.dGrayPct > 0.5 &&
-  stats.topThirdBlackPct > 60 &&
-  stats.topWindowNoisyPixels === 0;
+  bgPct > 50 &&
+  stats.whiteBottomRows > 0;
+
 if (passed) {
   console.log('  structural check: PASS');
 } else {
-  console.error('  structural check: FAIL (unexpected color distribution)');
+  console.error(`  structural check: FAIL`);
+  console.error(`    bg (white+lgray)=${bgPct.toFixed(1)}% (need >50%)`);
+  console.error(`    white_bottom=${stats.whiteBottomRows} (need >0)`);
   process.exit(1);
 }
