@@ -19,12 +19,14 @@ Next free ID: **#020**
 
 ## Open
 
-- #019 [open] — wpcmk Phase 2 — Stage A COMPLETE; Stage B: EGA primitives
+- #019 [open] — wpcmk Phase 2 — Stages A+B COMPLETE; next: Stage C (screens)
   - **Stage A (engine) COMPLETE** — RNG, formulas, record encoder, parity harness, all tested; full RNG-sequence parity pending a manual DOSBox creation-commit save capture.
     - `WichmannHill`, `rollBonus`, `rollSkillBudget`, `rollKarmaWith`, `computeDerivedStats` all live in `@wiz6/data`; compose test in `packages/data/tests/character-creation/creation-engine.compose.test.ts`.
-  - **Stage B (EGA primitives)** — port the window-chrome + 8x8 font + cursor rendering for the creation screens (per `docs/re/wpcmk-screens.md` §2/§8), reusing CastleScreen/tile-window patterns.
+  - **Stage B (EGA primitives) COMPLETE** — `packages/viewer/src/pages/roster/creation/ega/`: `windows.ts` (window-set), `assets.ts` (`loadCreationFontSet`+palette), `render-frame.ts` (`renderCreationFrame`→RGBA + golden snapshot), `highlight.ts` (menu-cursor), `CreationCanvas.tsx`. Plan: `docs/superpowers/plans/2026-05-26-wpcmk-port-stage-b-ega.md`.
+  - **Stage C (screens) NEXT** — the 17 screen components + `state.ts` reducer (wpcmk flow §1) + `CreationPage`, wiring engine (Stage A) + EGA primitives (Stage B). Per-screen: §3 strings, §4 bonus-allocator, §5 skill-train, §6 portrait, §7 menu-picker, §9 spells, §8 arrow-key input. Then Stage D = integration + delete old `/roster/new` wizard. Write the Stage C plan with `superpowers:writing-plans`.
+  - **Open RE items** (see `docs/re/wpcmk-screens.md` Open Questions): Fighter skill-budget tier2 (needs a Fighter creation save); portrait default (0 vs SPD+1); real HP formula now derived (per-class roll).
   - Phase 1 RE sweep: `docs/re/wpcmk-screens.md` (17 screens, 76/76 functions named) + 12 `docs/re/findings/wpcmk-*.json`.
-  - Plan in `docs/superpowers/plans/2026-05-26-wpcmk-port.md` (written); spec in `docs/superpowers/specs/2026-05-26-wpcmk-byte-perfect-design.md`.
+  - Stage A plan: `docs/superpowers/plans/2026-05-26-wpcmk-port-stage-a-engine.md`; spec: `docs/superpowers/specs/2026-05-26-wpcmk-byte-perfect-design.md`.
 
 - #004 [open] — PIC Stage B: pixel rendering + monster sprite integration
   - In-flight plan: `docs/superpowers/plans/2026-05-22-pic-stage-b-pixel-rendering.md` (6/57 boxes checked).
