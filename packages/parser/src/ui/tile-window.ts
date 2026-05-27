@@ -180,12 +180,14 @@ export function renderTileWindow(
       const fontIdx = attr & 0x0f;
 
       if (fontIdx === 0 && attr !== 0) {
-        // HIGHLIGHT path — `df85` stored this cell as (char, original_attr<<4).
-        // Engine dispatches to ega.drv slot 1 (1bpp text), which reads wfont0
-        // and writes per-pixel: stroke -> palette[0] (black), bg -> palette[attr>>4].
-        // Confirmed in docs/re/findings/wfont-highlight-render.json.
+        // HIGHLIGHT path — cell stored as (char, attrParam<<4); ega.drv slot 1
+        // blits wfont0 (1bpp) writing: stroke (glyph "on" pixels) -> the COLOR
+        // palette[attr>>4], bg ("off" pixels) -> palette[0] (black). I.e. the
+        // attr's high nibble is the FOREGROUND colour: char-sheet labels render
+        // yellow-on-black (param 5), values white-on-black (param 1), etc.
+        // Verified against the engine framebuffer (decode-screen of save 1).
         if (!fonts.font0) continue;
-        const bgIdx = (attr >> 4) & 0x0f;
+        const colorIdx = (attr >> 4) & 0x0f;
         renderTextRun(
           destRgba,
           destW,
@@ -194,9 +196,9 @@ export function renderTileWindow(
           dy,
           String.fromCharCode(char),
           fonts.font0,
-          0, // stroke = palette[0] (black)
+          colorIdx, // stroke = palette[high nibble] (the foreground colour)
           palette,
-          bgIdx, // bg = palette[attr_high_nibble]
+          0, // bg = palette[0] (black)
         );
         continue;
       }
