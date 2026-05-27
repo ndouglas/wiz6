@@ -1,0 +1,132 @@
+{
+  "topic": "wpcmk-window-chrome",
+  "subagent_run": "2026-05-27",
+  "binaries": ["wroot.exe", "wpcmk.ovr"],
+  "summary": "Determined the exact tile char codes and font used for the wpcmk window frame (gray single-line border) and black interior fill. All chrome tiles use wfont1 (attr=0x01). The black fill is char 0x00 (wfont1 glyph 0 = all-black 8x8 tile). The 6 frame pieces are chars 0x01-0x08 in wfont1 (see chrome section below). The frame is drawn by wpcmk:FUN_06af (file 0x06af) via a helper wpcmk:FUN_0689 that writes individual chars to window cells. The window chrome is NOT driven by the window struct's border_style field (which is 0xFFFF/plain for all wpcmk windows); instead wpcmk draws it manually after creation. Interior fill is initialized by ui_window_clear (wroot image 0x32be, thunk 0xed5a in wpcmk) with (char=0x00, attr=0x01) before frame drawing begins.",
+  "method": "Three-pronged: (1) ndisasm of wroot.exe ui_window_create at file 0x031a to decode all border_style cases, confirming wpcmk uses 0xFFFF=plain/no-struct-border; (2) raw memory dump of live wpcmk window cells from save 1 (handle 0x7426 at DGROUP+0x546e, struct phys 0x01f46e, cells starting at 0x01f47e) to observe actual (char, attr) pairs in first and last rows; (3) ndisasm of wpcmk FUN_06af (file 0x06af) to trace every explicit cell write, cross-referenced against wfont1 glyph renders from extracted/fonts/wfont1.json to visually confirm each tile's role.",
+  "findings": [
+    {
+      "id": "wpcmk-uses-plain-border-style",
+      "claim": "All 6 wpcmk window creation calls (FUN_59e0, screen-13, screen-14) use border_style=0xFFFF (plain). In ui_window_create, 0xFFFF triggers a memfill of struct+8..+0xF with 0 (via call to 0x38b0), leaving all 8 border-char slots zeroed. Consequence: the window struct mechanism does NOT draw any frame; the frame is drawn separately by wpcmk-specific code.",
+      "category": "window_chrome",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0x031a"},
+        "type": "raw_disasm",
+        "details": "At image 0x194: 'cmp word [bp+0xe],0xFFFF / jnz 0x1b2'. The 0xFFFF branch calls 0x38b0(struct+8, 8, 0) which zero-fills 8 bytes. Verified against wpcmk-window-layouts.json: all 6 call sites push 0xFFFF as border_style arg. Save-1 cell dump of window struct at phys 0x01f46e: bytes +8..+0xF = '00 00 00 00 00 00 00 00' confirming all border chars zero."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "black-fill-char",
+      "claim": "The window interior fill is: char=0x00, attr=0x01 (wfont1 glyph 0x00 = 8x8 solid-black tile, all 64 pixels = color index 0 = RGB(0,0,0)). ui_setup_creation_windows (wpcmk 0x5093) calls ui_window_clear (wroot image 0x32be via thunk 0xed5a) with (window_ptr, char=0x00, arg3=1, arg4=0), causing rep stosw to fill cells with word 0x0001 = (char=0x00, attr=0x01). Confirmed by cell dump: interior cells at mid-rows show (char=0x00, attr=0x01) consistently.",
+      "category": "window_chrome",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x5093"},
+        "type": "raw_disasm",
+        "details": "At wpcmk 0x5099-0x50a5: push 0x0 / push 0x1 / push 0x0 (char=0) / push window_ptr / call 0xed5a (=ui_window_clear). ui_window_clear body: arg3=1 != 0 so attr=arg3=1; al=[bp+0x6]=char=0; rep stosw writes 0x0001 per cell. Save-1 cell dump at phys 0x1f47e+N*80+2: interior cells show bytes '00 01' = (char=0x00, attr=0x01)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "frame-drawn-by-fn_06af",
+      "claim": "wpcmk FUN_06af (file 0x06af) draws the visible window chrome by calling FUN_0689 (file 0x0689) for each cell. FUN_0689 signature: (window_ptr [bp+4], x_cell [bp+6], y_cell [bp+8], char [bp+0xa]) — writes ONLY the char byte (not attr) at cells[y*w + x] (struct offset +0x10). The attr stays as set by ui_window_clear (0x01 = wfont1). ui_setup_creation_windows calls FUN_06af after the initial clear.",
+      "category": "window_chrome",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x06af"},
+        "type": "raw_disasm",
+        "details": "FUN_06af: series of push/call 0x689 patterns. FUN_0689 body: al=[bp+0xa]; bx=[bp+4] (window); mul [bp+8] / add ax,[bp+6] / shl ax,1 (= (y*w+x)*2); mov [bx+si+0x10],al (writes char only, NOT attr). Confirmed by save-1 row 0 cell dump: (char=0x01,attr=0x01) at col 0, (char=0x02,attr=0x01) at cols 1-38, (char=0x03,attr=0x01) at col 39."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "frame-chars-identified",
+      "claim": "6 primary frame chars (all wfont1, attr=0x01): top-left=0x01, horiz-top-edge=0x02, top-right=0x03, left-vert-edge=0x04, right-vert-edge=0x05, bottom-left=0x06, horiz-bottom-edge=0x07, bottom-right=0x08. Glyphs are single gray lines (color 9 = RGB(170,170,170)) on a black background (colors 0 and 8, both = RGB(0,0,0) in wiz6-main palette). Corner glyphs join vertical+horizontal segments at the tile boundary.",
+      "category": "window_chrome",
+      "evidence": {
+        "binary": "wpcmk.ovr + extracted/fonts/wfont1.json",
+        "address": {"space": "wpcmk.ovr", "offset": "0x06af"},
+        "type": "raw_disasm + glyph_render",
+        "details": "FUN_06af disasm: (x=0,y=0,char=0x01), (x=39,y=0,char=0x03), (x=0,y=19,char=0x06), loop x=1..38 y=0 char=0x02, loop y=1..18 x=0 char=0x04, loop y=1..5 x=39 char=0x05, (x=20,y=19,char=0x08). Glyph renders from wfont1.json: glyph[0x01] shows 3px gray segment at row5 cols5-7 and col5 rows5-7 (= top-left corner junction); glyph[0x02] shows full-width gray line at row5 (= horizontal top edge); glyphs 0x03-0x08 follow symmetric pattern. wiz6-main palette: color 0 -> DAC[0x00] = (0,0,0), color 8 -> DAC[0x10] = (0,0,0), color 9 -> DAC[0x07] = (170,170,170)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "interior-separator-chars",
+      "claim": "Two additional wfont1 glyphs serve as INTERIOR PANEL DIVIDERS (not outer frame): char=0x0c = double horizontal line (two full-width gray lines at rows 2 and 5), char=0x0d = double vertical line (two gray pixels per row at cols 2 and 5). FUN_06af uses 0x0c for the row-4 horizontal separator spanning columns 1-38, and 0x0d for vertical separators at x=20 rows 5-18. These create the multi-panel layout of the wpcmk creation screen.",
+      "category": "window_chrome",
+      "evidence": {
+        "binary": "wpcmk.ovr + extracted/fonts/wfont1.json",
+        "address": {"space": "wpcmk.ovr", "offset": "0x0843"},
+        "type": "raw_disasm + glyph_render",
+        "details": "FUN_06af at 0x0843: loop x=1..38, y=4, char=0x0c (double horiz separator). At 0x09cd: loop x=14..19, y=13..18 cols 2,10,12 use char=0x0c. Glyph[0x0c] from wfont1.json: rows 2 and 5 = LLLLLLLL (all gray), rows 0-1,3-4,6-7 = black. Glyph[0x0d]: cols 2 and 5 = gray, all other cols = black."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "frame-line-position-within-tile",
+      "claim": "The frame line is NOT centered in the 8x8 tile — it uses a specific sub-tile position that creates visual continuity: vertical edges use column 5 (0-indexed from left) for the left edge tiles (glyph 0x04) and column 2 for the right edge tiles (glyph 0x05). Horizontal edges use row 5 for the top edge (glyph 0x02) and row 2 for the bottom edge (glyph 0x07). This asymmetric placement means the line sits closer to the outer edge of the cell, which may be why it looks like a 'double' frame on screenshots — the top and bottom horizontal lines are at different visual heights within their respective tile rows.",
+      "category": "window_chrome",
+      "evidence": {
+        "binary": "extracted/fonts/wfont1.json",
+        "address": {"space": "wpcmk.ovr", "offset": "0x06af"},
+        "type": "glyph_render",
+        "details": "glyph[0x04]: each row = '.....#..' (col 5 = gray). glyph[0x05]: each row = '..#.....' (col 2 = gray). glyph[0x02]: row 5 = '########' (all gray). glyph[0x07]: row 2 = '########' (all gray). Corner glyphs consistently use (col5/row5) junction for top-left and (col2/row2) for bottom-right. The 3-pixel L-shape at glyph[0x01] = rows5-7 + cols5-7 row5 creates a mitered join."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "bottom-bar-window-fill",
+      "claim": "The bottom status-bar window (wpcmk handle at DGROUP+0x56ca, attr=0x13=wfont3) is cleared with (char=0x20, attr=0x03=wfont3). wfont3 glyph 0x20 = all color-8 tile = all-black (color 8 -> DAC[0x10] = RGB(0,0,0) in wiz6-main). So the bottom bar also renders as solid black, visually identical to the main window interior. wfont3 glyph 0x00 and 0x01 are also all-black (color 0).",
+      "category": "window_chrome",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x50ab"},
+        "type": "raw_disasm + glyph_render",
+        "details": "At wpcmk 0x50ab-0x50c0: push 0x0 / push 0x3 / push 0x20 / push [0x56ca] / call 0xed5a. ui_window_clear: arg3=3 -> attr=3 = wfont3; al=0x20; rep stosw fills with 0x0320. wfont3.json glyph[0x20]: 64 pixels all = color-index 8; wiz6-main color 8 -> DAC[0x10] = RGB(0,0,0)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "chrome": {
+    "font": "wfont1 (attr low-nibble 1)",
+    "blackFillChar": "0x00",
+    "blackFillAttr": "0x01",
+    "frame": {
+      "topLeft": "0x01",
+      "topRight": "0x03",
+      "bottomLeft": "0x06",
+      "bottomRight": "0x08",
+      "horizTop": "0x02",
+      "horizBottom": "0x07",
+      "vertLeft": "0x04",
+      "vertRight": "0x05"
+    },
+    "frameAttr": "0x01",
+    "interiorSeparators": {
+      "doubleHorizontal": "0x0c",
+      "doubleVertical": "0x0d",
+      "tJunctionHoriz": "0x0b",
+      "vertLeftWithHorizCross": "0x09",
+      "vertRightWithHorizCross": "0x0a",
+      "rightEdgeSpecial": "0x0e",
+      "leftEdgeSpecial": "0x0f",
+      "interiorBarVertRightAtEnd": "0x15"
+    },
+    "paletteColors": {
+      "color0_black": "RGB(0,0,0)",
+      "color8_alsoBlack": "RGB(0,0,0) - DAC[0x10] in wiz6-main",
+      "color9_lightGray": "RGB(170,170,170) - DAC[0x07] = the visible frame line color"
+    },
+    "notes": "The frame chrome is drawn by wpcmk FUN_06af (file 0x06af) which calls FUN_0689 to write char codes directly to window cells after ui_window_clear fills the entire window with (0x00, 0x01). Since FUN_0689 writes only the char byte (not attr), all frame cells inherit attr=0x01 from the initial clear. The window struct's border_style is 0xFFFF (plain), meaning the struct-level border mechanism is bypassed entirely. The gray frame lines appear at an asymmetric sub-tile position (row/col 5 for outer edges, row/col 2 for inner-side edges), creating the appearance of a thin line close to the outer boundary of each cell. The 'double-line' appearance visible in screenshots is produced by the interior separator chars (0x0c/0x0d) which have two parallel lines within a single tile, NOT by the outer frame."
+  },
+  "open_questions": [
+    "The right vertical edge loop (char=0x05) in FUN_06af only covers y=1..5 (5 rows), then specific additional rows are set. The full right-side layout has more complexity — there appear to be sub-panel borders in the right half. The full FUN_06af was partially decoded; rows 6-18 at x=39 may use a different char or another function sets them.",
+    "Chars 0x09 (vert-with-horiz-cross left), 0x0a (vert-with-horiz-cross right), 0x0b (T-junction), 0x0e, 0x0f, 0x15 are interior junction/separator chars observed in FUN_06af but not fully mapped to all usage sites. They appear to be used at panel intersection points (where the interior dividers meet the outer frame).",
+    "Whether wfont1 glyph index 0 being all-black is INTENTIONAL (designed as a fill tile) or incidental (zeroed out by default) is unclear. The engine could use any all-black tile as fill; the choice of 0x00 matches the initial memset-to-0 that wpcmk does before frame drawing.",
+    "The 'outer frame only covers 21 of 40 columns at bottom row y=19' observation: FUN_06af bottom-row loop ends at x=20 for the bottom-right corner char, leaving cols 21-39 at y=19 unset (they stay as the initial char=0x00=black fill). This suggests the wpcmk window has a LEFT PANEL (cols 0-20) and RIGHT PANEL (cols 21-39) with separate top/bottom frame treatment.",
+    "Color 8 = RGB(0,0,0) in wiz6-main is counterintuitive (usually color 8 = dark gray in standard EGA). This is because AC[8]=0x10 and DAC[0x10] happens to be black in the VGA default DAC at this position. The visual result is that all 'dark gray background fill' pixels in wfont1 tiles also appear as black, making the frame appear as pure light-gray lines on a pure-black background with no visible dark-gray midtone."
+  ]
+}
