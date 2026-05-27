@@ -292,9 +292,10 @@ function drawStatPanel(top: TileWindow, draft: DraftState, db: MessageDb): void 
   putCell(top, 18, 8, 0x2f, attrFor(8)); // '/'
   putNumberRight(top, 15, 9, stm, 3, 0x6); // max (row9), digit at col 17
 
-  // BONUS row (10,11): only when the pool has been rolled (>0 in our port).
-  // Label "BONUS" cols 10..14 attr 0x7, value at cols 16..17 (width-2) attr 0x7.
-  if (draft.bonusPool > 0) {
+  // BONUS row (10,11): shown once the pool has been ROLLED (>= 0; the engine's
+  // *0x56ac is -1 until the bonus roll fires). It stays visible after full
+  // allocation, displaying "BONUS  0". Label cols 10..14, value cols 16..17.
+  if (draft.bonusPool >= 0) {
     putLabel(top, 10, 11, creationString(db, MSG_BONUS), 0x7);
     putNumberRight(top, 16, 11, draft.bonusPool, 2, 0x7);
   }

@@ -16,13 +16,14 @@
  */
 
 import { useEffect, useCallback } from 'react';
-import { setCursor, puts } from '@wiz6/parser';
+import { clearWindow, setCursor, puts } from '@wiz6/parser';
 import { WIZ6_MAIN } from '@wiz6/data';
 import type { Palette } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
 import { createPersistentWindows } from '../ega/windows.js';
+import { drawCharSheet } from '../ega/char-sheet.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { MSG, creationString } from '../messages.js';
 
@@ -77,18 +78,17 @@ export function PersonalityScreen({
   const { top, bottomBar } = createPersistentWindows();
   const pal = palette ?? WIZ6_MAIN;
 
-  // --- top window: show current karma value ---
-  const karValue = state.draft.attributes.kar;
-  const karLine = `KAR  ${karValue}`;
-  setCursor(top, 0, 0);
-  puts(top, karLine, top.cells[1] ?? 0x14);
+  // top: the shared character sheet (KAR now reflects the rolled karma value).
+  drawCharSheet(top, state.draft, db);
 
-  // --- bottomBar window: "CASTING KARMA - PRESS ►" label ---
-  const labelText = creationString(db, MSG.personality);
-  if (labelText) {
-    setCursor(bottomBar, 0, 0);
-    puts(bottomBar, labelText, bottomBar.cells[1] ?? 0x13);
-  }
+  // bottomBar: "CASTING KARMA - PRESS ►" (msg 0x0457) centered at row 1. This
+  // screen's centering left-biases the pad (ceil), so a 23-char prompt starts
+  // at col 9 — verified against the engine.
+  clearWindow(bottomBar, 0x20, 0x03);
+  const prompt = creationString(db, MSG.personality);
+  const col = Math.max(0, Math.ceil((bottomBar.widthCells - prompt.length) / 2));
+  setCursor(bottomBar, col, 1);
+  puts(bottomBar, prompt, 0x03);
 
   const windows = [top, bottomBar];
 

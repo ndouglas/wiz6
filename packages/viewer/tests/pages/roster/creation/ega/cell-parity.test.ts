@@ -274,3 +274,54 @@ describe('CHAR SHEET `top` cell-grid parity (byte-exact vs engine)', () => {
     expect(diffs, `top diff: ${first ?? ''}`).toBe(0);
   });
 });
+
+describe('PERSONALITY (karma) cell-grid parity', () => {
+  // Char-sheet with rolled values (STR 15, KAR 17, HP 10/10, STM 99/99, BONUS 0)
+  // + the "CASTING KARMA - PRESS" prompt. The top matches byte-exact EXCEPT one
+  // cell (7,5): the engine leaves a (space, attr 0x70) there — the erased
+  // bonus-allocator cursor 'b', lingering because the engine reuses windows.
+  // Our port redraws clean, so that single stale cell is an accepted diff.
+  const db = MessageDbSchema.parse(
+    JSON.parse(readFileSync(join(mainRoot(), 'extracted', 'messages', 'msg.json'), 'utf-8')),
+  );
+  const STALE_CELLS = new Set(['7,5']);
+
+  function diffCoords(ourCells: Uint8Array | number[], eng: EngineWindow): string[] {
+    const out: string[] = [];
+    for (let y = 0; y < eng.h; y++) {
+      for (let x = 0; x < eng.w; x++) {
+        const i = (y * eng.w + x) * 2;
+        const [ec, ea] = eng.cells[y]![x]!;
+        if (ourCells[i] !== ec || ourCells[i + 1] !== ea) out.push(`${x},${y}`);
+      }
+    }
+    return out;
+  }
+
+  it('top (minus the stale allocator-cursor cell) + bottomBar match engine', () => {
+    const w = JSON.parse(readFileSync(join(FIXTURES, 'personality.json'), 'utf-8'))
+      .windows as Record<string, EngineWindow>;
+    const { top, bottomBar } = createPersistentWindows();
+    const draft = {
+      ...blankDraft(),
+      name: 'P',
+      race: 0,
+      sex: 0,
+      class: 0,
+      bonusPool: 0,
+      attributes: { str: 15, int: 8, pie: 8, vit: 9, dex: 9, spd: 8, per: 8, kar: 17 },
+      derived: { hpInitial: 10, stamina: 99, level: 0, xp: 0 },
+    };
+    drawCharSheet(top, draft, db);
+
+    clearWindow(bottomBar, 0x20, 0x03);
+    const prompt = creationString(db, MSG.personality);
+    const col = Math.ceil((bottomBar.widthCells - prompt.length) / 2);
+    setCursor(bottomBar, col, 1);
+    puts(bottomBar, prompt, 0x03);
+
+    const topDiffs = diffCoords(top.cells, w.top!).filter((c) => !STALE_CELLS.has(c));
+    expect(topDiffs, `unexpected top diffs: ${topDiffs.join(' ')}`).toEqual([]);
+    expect(diffCoords(bottomBar.cells, w.bottomBar!)).toEqual([]);
+  });
+});

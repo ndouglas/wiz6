@@ -144,13 +144,13 @@ describe('initialCreationState', () => {
     expect(s.screen).toBe('characterMenu');
   });
 
-  it('draft has null race/sex/class and zero bonusPool', () => {
+  it('draft has null race/sex/class and unrolled bonusPool (-1)', () => {
     const rng = makeRng();
     const s = initialCreationState(rng);
     expect(s.draft.race).toBeNull();
     expect(s.draft.sex).toBeNull();
     expect(s.draft.class).toBeNull();
-    expect(s.draft.bonusPool).toBe(0);
+    expect(s.draft.bonusPool).toBe(-1); // -1 = not yet rolled (set by fireBonus)
     expect(s.draft.skillBudget).toBe(0);
     expect(s.draft.name).toBe('');
   });
@@ -241,7 +241,7 @@ describe('characterMenu events', () => {
     expect(d.name).toBe('');
     expect(d.race).toBeNull();
     expect(d.class).toBeNull();
-    expect(d.bonusPool).toBe(0);
+    expect(d.bonusPool).toBe(-1); // -1 = bonus not yet rolled
   });
 });
 

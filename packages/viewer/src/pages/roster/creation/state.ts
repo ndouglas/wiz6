@@ -203,7 +203,10 @@ export function blankDraft(): DraftState {
     sex: null,
     class: null,
     attributes: { str: 0, int: 0, pie: 0, vit: 0, dex: 0, spd: 0, per: 0, kar: 0 },
-    bonusPool: 0,
+    // -1 = bonus not yet rolled (mirrors the engine's *0x56ac sentinel). fireBonus
+    // sets it 0..26 at sex→class. The char-sheet BONUS row shows only when >= 0,
+    // so it's hidden on race/sex but shown (even "BONUS 0") from the class screen on.
+    bonusPool: -1,
     skillBudget: 0,
     skills: zeroSkills(),
     portrait: 0,
