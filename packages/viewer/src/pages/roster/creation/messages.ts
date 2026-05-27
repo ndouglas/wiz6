@@ -72,6 +72,12 @@ export const SEX_NAME_BASE = 0x8c;
 /** Skill-category names: WEAPONRY=0x258, PHYSICAL=0x259, PERSONAL=0x25a, ACADEMIA=0x25b */
 export const SKILL_CAT_BASE = 0x0258;
 
+/**
+ * Skill names: WAND&DAGGER=0x157c, SWORD=0x157d, AXE=0x157e, …
+ * msg_id = 0x157c + skill_slot_index  (30 skill slots, indices 0..29)
+ */
+export const SKILL_NAME_BASE = 0x157c;
+
 /** Spell names: ENERGY BLAST=0xfa0, BLINDING FLASH=0xfa1, …  (82 spells, indices 0..81) */
 export const SPELL_NAME_BASE = 0x0fa0;
 
@@ -113,6 +119,11 @@ export function sexName(db: MessageDb, i: number): string {
 /** Skill-category name by index (0=WEAPONRY, 1=PHYSICAL, 2=PERSONAL, 3=ACADEMIA). */
 export function skillCatName(db: MessageDb, i: number): string {
   return creationString(db, SKILL_CAT_BASE + i);
+}
+
+/** Skill name by slot index (0..29, maps to msg 0x157c..0x1599). */
+export function skillName(db: MessageDb, slotIdx: number): string {
+  return creationString(db, SKILL_NAME_BASE + slotIdx);
 }
 
 /** Spell name by entry index (0..81, maps to msg 0xfa0..0xff1). */
