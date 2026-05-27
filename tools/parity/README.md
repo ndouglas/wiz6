@@ -322,6 +322,108 @@ following step 4 above once you have a (route, save) pair.
 cd packages/viewer && pnpm test:e2e e2e/parity.spec.ts
 ```
 
+## Sprite-level checks
+
+`sprite.ts` — helpers to render a single sprite/tile by index, dump it to PNG,
+and assert it matches an expected reference (a fixture or an engine-decoded cell).
+
+### CLI: dump a single tile to PNG
+
+```bash
+# 4bpp font glyph (wfont1, wfont2, wfont3, wfont4)
+pnpm tsx tools/parity/sprite.ts --font wfont1 --char 0x00 --out /tmp/fill.png
+pnpm tsx tools/parity/sprite.ts --font wfont4 --char 0x20 --out /tmp/ring.png
+
+# 1bpp font glyph (wfont0)
+pnpm tsx tools/parity/sprite.ts --font wfont0 --char 0x41 --out /tmp/A.png
+
+# Pic sprite by descriptor index (0-based)
+pnpm tsx tools/parity/sprite.ts --pic original/mon11.pic --index 0 --out /tmp/sprite.png
+```
+
+The CLI reports whether the tile is all-black, which is useful for quickly
+confirming fill vs. content tiles:
+
+```
+font:    wfont1
+char:    0x00 (0)
+output:  /tmp/fill.png
+all-black: true        ← interior fill tile ✓
+
+font:    wfont4
+char:    0x20 (32)
+output:  /tmp/ring.png
+all-black: false       ← ring sprite tile (original bug anchor) ✓
+```
+
+### API: assert helper
+
+```ts
+import { renderFontGlyph, extractCell, assertSpriteMatches, spriteToPng } from './sprite.js';
+import { Font4bppSchema, WIZ6_MAIN } from '@wiz6/data';
+
+// Render a single glyph
+const font = Font4bppSchema.parse(JSON.parse(readFileSync('extracted/fonts/wfont1.json', 'utf-8')));
+const { rgba } = renderFontGlyph(font, 0x01, WIZ6_MAIN);
+
+// Dump for visual inspection
+spriteToPng(rgba, 8, 8, '/tmp/frame-corner.png');
+
+// Compare two sprite buffers (works for any w×h, not just 320-wide frames)
+const result = assertSpriteMatches(ourRgba, referenceRgba, { tolerance: 0 });
+// { match: boolean, matchPct: number, diffCount: number, total: number }
+```
+
+### Engine-cell cross-check pattern
+
+The loop-closing workflow: decode the engine screen, crop a cell, compare to
+our rendered glyph.
+
+```ts
+import { extractCell, renderFontGlyph, assertSpriteMatches } from './sprite.js';
+import { readVgaBlob } from '../../packages/mcp/src/vga-palette.js';
+
+// 1. Decode engine screen from save state
+const blob = readVgaBlob('tools/dosbox/save/1.sav');
+const engineRgba = decodeVgaScreen(blob); // 320×200 Uint8Array
+
+// 2. Crop the 8×8 cell at pixel (16,16) — inside the top window interior
+const cellRgba = extractCell(engineRgba, 320, 16, 16, 8, 8);
+
+// 3. Render our glyph (wfont1/0x00 = solid-black fill)
+const wfont1 = Font4bppSchema.parse(...);
+const { rgba: ourRgba } = renderFontGlyph(wfont1, 0x00, WIZ6_MAIN);
+
+// 4. Assert they match
+const { matchPct } = assertSpriteMatches(ourRgba, cellRgba, { tolerance: 0 }, 99);
+// → 100.0% — engine drew exactly wfont1/0x00 there
+```
+
+The `extractCell` function accepts any cell size (`w`, `h` default to 8), so
+you can crop multi-cell sprites or entire window regions if needed.
+
+### Regression anchor: wfont4/0x20
+
+The failing test that motivated this module was: the viewport interior was filled
+with wfont4/0x20 instead of wfont1/0x00. Since wfont4/0x20 is the "ring sprite"
+tile (21 non-zero bytes), it produced visible ring artifacts in the window interior.
+
+`sprite.test.ts` test 3 permanently documents this: `renderFontGlyph(wfont4, 0x20)`
+must NOT be all-black. If a refactor accidentally makes it all-black, that test fails
+and surfaces the bug immediately.
+
+**Run the sprite tests:**
+
+```bash
+cd tools/parity && npx vitest run sprite.test.ts
+```
+
+All 4 tests pass in < 30ms:
+1. `wfont1/0x00` → all-black (fill tile)
+2. `wfont1/0x01` → light-gray + black (frame corner)
+3. `wfont4/0x20` → NOT all-black (ring sprite regression anchor)
+4. Engine cross-check: `extractCell(16,16)` in save 1 → all-black; `assertSpriteMatches` → 100%
+
 ## Where this pattern shines next
 
 - **Combat math**: save at "right before damage roll" → dump the combatant struct → run our combat sim from the same starting state → diff.
