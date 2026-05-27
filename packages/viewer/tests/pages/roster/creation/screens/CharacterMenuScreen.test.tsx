@@ -1,18 +1,18 @@
 // packages/viewer/tests/pages/roster/creation/screens/CharacterMenuScreen.test.tsx
 //
-// RTL tests for CharacterMenuScreen — the 6-option entry menu rendered over
-// window chrome matching the 2-row × 3-column layout:
-//   Row 0: CREATE PC  |  DELETE PC  |  PORTRAIT
-//   Row 1: REVIEW PC  |  RENAME PC  |  EXIT
+// RTL tests for CharacterMenuScreen — roster-state-dependent CHARACTER MENU.
 //
-// Grid navigation: ArrowLeft/Right change col (clamp, no wrap);
-//                  ArrowUp/Down change row (clamp, no wrap).
-// Enter at cursor dispatches the matching event.
+// Three roster states produce different visible option sets:
+//   EMPTY   (rosterCount=0):  CREATE PC + EXIT
+//   PARTIAL (rosterCount=7):  all 6 options
+//   FULL    (rosterCount=16): no CREATE PC — REVIEW PC + DELETE PC + RENAME PC + PORTRAIT + EXIT
+//
+// RE source: docs/re/findings/wpcmk-character-menu-options.json
 //
 // jsdom canvas is non-functional — we assert on dispatch behavior and
 // canvas mounting, not pixels.
 //
-// Spec: docs/re/wpcmk-screens.md §7 (grid nav), §8 (key model).
+// Spec: docs/re/wpcmk-screens.md §1a (option rules), §7 (grid nav), §8 (key model).
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
@@ -22,7 +22,7 @@ import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../../../../../src/pages/roster/creation/state.js';
 import { initialCreationState } from '../../../../../src/pages/roster/creation/state.js';
 import { WichmannHill } from '@wiz6/data';
-import { CharacterMenuScreen } from '../../../../../src/pages/roster/creation/screens/CharacterMenuScreen.js';
+import { CharacterMenuScreen, MAX_ROSTER_SLOTS } from '../../../../../src/pages/roster/creation/screens/CharacterMenuScreen.js';
 
 // ---------------------------------------------------------------------------
 // Minimal stubs
@@ -91,6 +91,7 @@ describe('CharacterMenuScreen — canvas mounting', () => {
         fontSet={STUB_FONT_SET}
         palette={WIZ6_MAIN}
         db={db}
+        rosterCount={0}
       />,
     );
 
@@ -110,6 +111,7 @@ describe('CharacterMenuScreen — canvas mounting', () => {
         fontSet={STUB_FONT_SET}
         palette={WIZ6_MAIN}
         db={db}
+        rosterCount={0}
       />,
     );
 
@@ -120,37 +122,21 @@ describe('CharacterMenuScreen — canvas mounting', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Default cursor: Enter at top-left (CREATE PC) dispatches MENU_CREATE
+// MAX_ROSTER_SLOTS export
 // ---------------------------------------------------------------------------
 
-describe('CharacterMenuScreen — initial cursor on CREATE PC', () => {
-  it('Enter at initial cursor position dispatches MENU_CREATE', () => {
-    const state = makeMenuState();
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <CharacterMenuScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'Enter' });
-
-    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_CREATE' });
+describe('MAX_ROSTER_SLOTS constant', () => {
+  it('equals 16 (confirmed from pcfile.dbs header + save-state memory)', () => {
+    expect(MAX_ROSTER_SLOTS).toBe(16);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Grid navigation — row 0 (CREATE PC, DELETE PC, PORTRAIT)
+// EMPTY roster (rosterCount=0): only CREATE PC + EXIT reachable
 // ---------------------------------------------------------------------------
 
-describe('CharacterMenuScreen — row 0 navigation', () => {
-  it('ArrowRight from CREATE PC (0,0) → DELETE PC (0,1); Enter dispatches MENU_DELETE', () => {
+describe('CharacterMenuScreen — EMPTY roster (rosterCount=0)', () => {
+  it('Enter at initial cursor dispatches MENU_CREATE', () => {
     const state = makeMenuState();
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
@@ -162,88 +148,15 @@ describe('CharacterMenuScreen — row 0 navigation', () => {
         fontSet={STUB_FONT_SET}
         palette={WIZ6_MAIN}
         db={db}
+        rosterCount={0}
       />,
     );
 
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
     fireEvent.keyDown(window, { key: 'Enter' });
-
-    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_DELETE' });
-  });
-
-  it('ArrowRight×2 from CREATE PC → PORTRAIT (0,2); Enter dispatches MENU_PORTRAIT', () => {
-    const state = makeMenuState();
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <CharacterMenuScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
-    fireEvent.keyDown(window, { key: 'Enter' });
-
-    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_PORTRAIT' });
-  });
-
-  it('ArrowRight clamps at rightmost column (col=2); extra ArrowRight stays at PORTRAIT', () => {
-    const state = makeMenuState();
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <CharacterMenuScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    for (let i = 0; i < 5; i++) {
-      fireEvent.keyDown(window, { key: 'ArrowRight' });
-    }
-    fireEvent.keyDown(window, { key: 'Enter' });
-
-    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_PORTRAIT' });
-  });
-
-  it('ArrowLeft at leftmost column (col=0) is a no-op; still dispatches MENU_CREATE', () => {
-    const state = makeMenuState();
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <CharacterMenuScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'ArrowLeft' });
-    fireEvent.keyDown(window, { key: 'Enter' });
-
     expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_CREATE' });
   });
-});
 
-// ---------------------------------------------------------------------------
-// Grid navigation — row 1 (REVIEW PC, RENAME PC, EXIT)
-// ---------------------------------------------------------------------------
-
-describe('CharacterMenuScreen — row 1 navigation', () => {
-  it('ArrowDown from CREATE PC → REVIEW PC (1,0); Enter dispatches MENU_REVIEW', () => {
+  it('ArrowDown then Enter dispatches MENU_EXIT (single column, 2 rows)', () => {
     const state = makeMenuState();
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
@@ -255,58 +168,197 @@ describe('CharacterMenuScreen — row 1 navigation', () => {
         fontSet={STUB_FONT_SET}
         palette={WIZ6_MAIN}
         db={db}
+        rosterCount={0}
       />,
     );
 
     fireEvent.keyDown(window, { key: 'ArrowDown' });
     fireEvent.keyDown(window, { key: 'Enter' });
-
-    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_REVIEW' });
-  });
-
-  it('ArrowDown + ArrowRight → RENAME PC (1,1); Enter dispatches MENU_RENAME', () => {
-    const state = makeMenuState();
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <CharacterMenuScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
-    fireEvent.keyDown(window, { key: 'Enter' });
-
-    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_RENAME' });
-  });
-
-  it('ArrowDown + ArrowRight×2 → EXIT (1,2); Enter dispatches MENU_EXIT', () => {
-    const state = makeMenuState();
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <CharacterMenuScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
-    fireEvent.keyDown(window, { key: 'Enter' });
-
     expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_EXIT' });
+  });
+
+  it('REVIEW PC is not reachable (ArrowRight is no-op in single-column)', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={0}
+      />,
+    );
+
+    // ArrowRight should not move to any new column (only 1 col in EMPTY layout)
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    // Still at (0,0) = CREATE PC (ArrowRight had no valid cell to move to)
+    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_CREATE' });
+    expect(dispatch).not.toHaveBeenCalledWith({ type: 'MENU_REVIEW' });
+  });
+
+  it('DELETE PC is not reachable', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={0}
+      />,
+    );
+
+    for (let i = 0; i < 4; i++) fireEvent.keyDown(window, { key: 'ArrowRight' });
+    for (let i = 0; i < 4; i++) fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).not.toHaveBeenCalledWith({ type: 'MENU_DELETE' });
+  });
+
+  it('RENAME PC is not reachable', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={0}
+      />,
+    );
+
+    for (let i = 0; i < 4; i++) fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).not.toHaveBeenCalledWith({ type: 'MENU_RENAME' });
+  });
+
+  it('PORTRAIT is not reachable', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={0}
+      />,
+    );
+
+    for (let i = 0; i < 4; i++) fireEvent.keyDown(window, { key: 'ArrowRight' });
+    for (let i = 0; i < 2; i++) fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).not.toHaveBeenCalledWith({ type: 'MENU_PORTRAIT' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PARTIAL roster (rosterCount=7): all 6 options reachable
+// ---------------------------------------------------------------------------
+
+describe('CharacterMenuScreen — PARTIAL roster (rosterCount=7)', () => {
+  it('Enter at initial cursor dispatches MENU_CREATE', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={7}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_CREATE' });
+  });
+
+  it('all 6 options are reachable via grid navigation', () => {
+    // The partial grid is 2x3:
+    // Row 0: CREATE PC | DELETE PC | PORTRAIT
+    // Row 1: REVIEW PC | RENAME PC | EXIT
+    const GRID: Array<{
+      row: number;
+      col: number;
+      event: CreationEvent;
+      label: string;
+    }> = [
+      { row: 0, col: 0, event: { type: 'MENU_CREATE' },   label: 'CREATE PC (0,0)' },
+      { row: 0, col: 1, event: { type: 'MENU_DELETE' },   label: 'DELETE PC (0,1)' },
+      { row: 0, col: 2, event: { type: 'MENU_PORTRAIT' }, label: 'PORTRAIT (0,2)' },
+      { row: 1, col: 0, event: { type: 'MENU_REVIEW' },   label: 'REVIEW PC (1,0)' },
+      { row: 1, col: 1, event: { type: 'MENU_RENAME' },   label: 'RENAME PC (1,1)' },
+      { row: 1, col: 2, event: { type: 'MENU_EXIT' },     label: 'EXIT (1,2)' },
+    ];
+
+    for (const { row, col, event, label } of GRID) {
+      const state = makeMenuState();
+      const dispatch = vi.fn<[CreationEvent], void>();
+      const db = stubDb();
+
+      render(
+        <CharacterMenuScreen
+          state={state}
+          dispatch={dispatch}
+          fontSet={STUB_FONT_SET}
+          palette={WIZ6_MAIN}
+          db={db}
+          rosterCount={7}
+        />,
+      );
+
+      // Navigate to (row, col) from (0,0)
+      for (let r = 0; r < row; r++) {
+        fireEvent.keyDown(window, { key: 'ArrowDown' });
+      }
+      for (let c = 0; c < col; c++) {
+        fireEvent.keyDown(window, { key: 'ArrowRight' });
+      }
+      fireEvent.keyDown(window, { key: 'Enter' });
+
+      expect(dispatch, label).toHaveBeenCalledWith(event);
+    }
+  });
+
+  it('ArrowRight clamps at col 2; extra ArrowRight stays at PORTRAIT', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={7}
+      />,
+    );
+
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_PORTRAIT' });
   });
 
   it('ArrowDown clamps at row 1; extra ArrowDown stays in row 1', () => {
@@ -321,19 +373,17 @@ describe('CharacterMenuScreen — row 1 navigation', () => {
         fontSet={STUB_FONT_SET}
         palette={WIZ6_MAIN}
         db={db}
+        rosterCount={7}
       />,
     );
 
-    for (let i = 0; i < 5; i++) {
-      fireEvent.keyDown(window, { key: 'ArrowDown' });
-    }
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(window, { key: 'ArrowDown' });
     fireEvent.keyDown(window, { key: 'Enter' });
-
-    // Should be in row 1, col 0 = REVIEW PC
+    // Should be row 1, col 0 = REVIEW PC
     expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_REVIEW' });
   });
 
-  it('ArrowUp from row 1 returns to row 0; Enter dispatches row 0 option', () => {
+  it('ArrowLeft at col 0 is a no-op; still at CREATE PC', () => {
     const state = makeMenuState();
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
@@ -345,23 +395,16 @@ describe('CharacterMenuScreen — row 1 navigation', () => {
         fontSet={STUB_FONT_SET}
         palette={WIZ6_MAIN}
         db={db}
+        rosterCount={7}
       />,
     );
 
-    fireEvent.keyDown(window, { key: 'ArrowDown' }); // → (1,0) REVIEW PC
-    fireEvent.keyDown(window, { key: 'ArrowUp' });   // → (0,0) CREATE PC
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
     fireEvent.keyDown(window, { key: 'Enter' });
-
     expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_CREATE' });
   });
-});
 
-// ---------------------------------------------------------------------------
-// Column preserved across row changes
-// ---------------------------------------------------------------------------
-
-describe('CharacterMenuScreen — column preserved across row changes', () => {
-  it('ArrowRight then ArrowDown preserves col → RENAME PC (1,1)', () => {
+  it('column preserved across row change: ArrowRight then ArrowDown → RENAME PC (1,1)', () => {
     const state = makeMenuState();
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
@@ -373,46 +416,23 @@ describe('CharacterMenuScreen — column preserved across row changes', () => {
         fontSet={STUB_FONT_SET}
         palette={WIZ6_MAIN}
         db={db}
+        rosterCount={7}
       />,
     );
 
     fireEvent.keyDown(window, { key: 'ArrowRight' }); // → (0,1) DELETE PC
     fireEvent.keyDown(window, { key: 'ArrowDown' });  // → (1,1) RENAME PC
     fireEvent.keyDown(window, { key: 'Enter' });
-
     expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_RENAME' });
-  });
-
-  it('ArrowRight×2 then ArrowDown preserves col → EXIT (1,2)', () => {
-    const state = makeMenuState();
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <CharacterMenuScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'ArrowRight' }); // → (0,1)
-    fireEvent.keyDown(window, { key: 'ArrowRight' }); // → (0,2) PORTRAIT
-    fireEvent.keyDown(window, { key: 'ArrowDown' });  // → (1,2) EXIT
-    fireEvent.keyDown(window, { key: 'Enter' });
-
-    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_EXIT' });
   });
 });
 
 // ---------------------------------------------------------------------------
-// ESC is silently ignored
+// FULL roster (rosterCount=MAX_ROSTER_SLOTS): no CREATE PC, 5 options
 // ---------------------------------------------------------------------------
 
-describe('CharacterMenuScreen — ESC is silently ignored', () => {
-  it('ESC does not dispatch any event', () => {
+describe('CharacterMenuScreen — FULL roster (rosterCount=16)', () => {
+  it('CREATE PC is NOT reachable (any navigation only reaches remaining 5 options)', () => {
     const state = makeMenuState();
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
@@ -424,60 +444,244 @@ describe('CharacterMenuScreen — ESC is silently ignored', () => {
         fontSet={STUB_FONT_SET}
         palette={WIZ6_MAIN}
         db={db}
+        rosterCount={MAX_ROSTER_SLOTS}
+      />,
+    );
+
+    // Exhaustively try all reachable cells with arrow navigation
+    // and check CREATE was never dispatched
+    for (let r = 0; r < 4; r++) fireEvent.keyDown(window, { key: 'ArrowDown' });
+    for (let c = 0; c < 4; c++) fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(dispatch).not.toHaveBeenCalledWith({ type: 'MENU_CREATE' });
+  });
+
+  it('Enter at initial cursor (0,0) dispatches MENU_EXIT (EXIT is at top-left in FULL layout)', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={MAX_ROSTER_SLOTS}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_EXIT' });
+  });
+
+  it('ArrowRight from EXIT (0,0) → REVIEW PC (0,1); Enter dispatches MENU_REVIEW', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={MAX_ROSTER_SLOTS}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_REVIEW' });
+  });
+
+  it('ArrowRight×2 from EXIT → RENAME PC (0,2); Enter dispatches MENU_RENAME', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={MAX_ROSTER_SLOTS}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_RENAME' });
+  });
+
+  it('ArrowRight×1 + ArrowDown → DELETE PC (1,1); Enter dispatches MENU_DELETE', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={MAX_ROSTER_SLOTS}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowRight' }); // → (0,1) REVIEW PC
+    fireEvent.keyDown(window, { key: 'ArrowDown' });  // → (1,1) DELETE PC
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_DELETE' });
+  });
+
+  it('ArrowRight×2 + ArrowDown → PORTRAIT (1,2); Enter dispatches MENU_PORTRAIT', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={MAX_ROSTER_SLOTS}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowRight' }); // → (0,1) REVIEW PC
+    fireEvent.keyDown(window, { key: 'ArrowRight' }); // → (0,2) RENAME PC
+    fireEvent.keyDown(window, { key: 'ArrowDown' });  // → (1,2) PORTRAIT
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_PORTRAIT' });
+  });
+
+  it('ArrowDown from EXIT (0,0) skips missing (1,0) and lands on nearest occupied cell', () => {
+    // In FULL layout, (1,0) is absent. ArrowDown from (0,0) should skip or stay
+    // at a valid cell — clampCursor ensures we don't land on an absent cell.
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={MAX_ROSTER_SLOTS}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowDown' });  // from (0,0) EXIT
+    fireEvent.keyDown(window, { key: 'Enter' });
+    // Should land on the nearest cell in row 1 (col 1 = DELETE PC or col 2 = PORTRAIT)
+    // but NOT dispatch MENU_CREATE
+    expect(dispatch).not.toHaveBeenCalledWith({ type: 'MENU_CREATE' });
+    // And should dispatch something valid
+    const callArg = dispatch.mock.calls[0]?.[0];
+    expect(callArg?.type).toMatch(/^MENU_(DELETE|PORTRAIT|REVIEW|RENAME|EXIT)$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Default rosterCount (omitted = 0 = EMPTY)
+// ---------------------------------------------------------------------------
+
+describe('CharacterMenuScreen — default rosterCount=0 (EMPTY)', () => {
+  it('omitting rosterCount defaults to empty roster; Enter dispatches MENU_CREATE', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        // rosterCount omitted — should default to 0 (EMPTY)
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_CREATE' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ESC is silently ignored (all states)
+// ---------------------------------------------------------------------------
+
+describe('CharacterMenuScreen — ESC is silently ignored', () => {
+  it('ESC does not dispatch any event (EMPTY state)', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={0}
       />,
     );
 
     fireEvent.keyDown(window, { key: 'Escape' });
-
     expect(dispatch).not.toHaveBeenCalled();
   });
-});
 
-// ---------------------------------------------------------------------------
-// All 6 options — verify each dispatches its correct event via exhaustive nav
-// ---------------------------------------------------------------------------
+  it('ESC does not dispatch any event (PARTIAL state)', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
 
-describe('CharacterMenuScreen — all 6 options dispatch correct events', () => {
-  const GRID: Array<{
-    row: number;
-    col: number;
-    event: CreationEvent;
-    label: string;
-  }> = [
-    { row: 0, col: 0, event: { type: 'MENU_CREATE' },   label: 'CREATE PC (0,0)' },
-    { row: 0, col: 1, event: { type: 'MENU_DELETE' },   label: 'DELETE PC (0,1)' },
-    { row: 0, col: 2, event: { type: 'MENU_PORTRAIT' }, label: 'PORTRAIT (0,2)' },
-    { row: 1, col: 0, event: { type: 'MENU_REVIEW' },   label: 'REVIEW PC (1,0)' },
-    { row: 1, col: 1, event: { type: 'MENU_RENAME' },   label: 'RENAME PC (1,1)' },
-    { row: 1, col: 2, event: { type: 'MENU_EXIT' },     label: 'EXIT (1,2)' },
-  ];
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={7}
+      />,
+    );
 
-  for (const { row, col, event, label } of GRID) {
-    it(`${label} dispatches ${event.type}`, () => {
-      const state = makeMenuState();
-      const dispatch = vi.fn<[CreationEvent], void>();
-      const db = stubDb();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
 
-      render(
-        <CharacterMenuScreen
-          state={state}
-          dispatch={dispatch}
-          fontSet={STUB_FONT_SET}
-          palette={WIZ6_MAIN}
-          db={db}
-        />,
-      );
+  it('ESC does not dispatch any event (FULL state)', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
 
-      // Navigate to (row, col) from (0,0)
-      for (let r = 0; r < row; r++) {
-        fireEvent.keyDown(window, { key: 'ArrowDown' });
-      }
-      for (let c = 0; c < col; c++) {
-        fireEvent.keyDown(window, { key: 'ArrowRight' });
-      }
-      fireEvent.keyDown(window, { key: 'Enter' });
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={MAX_ROSTER_SLOTS}
+      />,
+    );
 
-      expect(dispatch).toHaveBeenCalledWith(event);
-    });
-  }
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
 });

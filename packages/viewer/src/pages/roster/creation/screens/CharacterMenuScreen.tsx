@@ -1,43 +1,53 @@
 /**
- * CharacterMenuScreen — the 6-option entry menu for the character creation
- * roster management, rendered over the persistent window chrome.
+ * CharacterMenuScreen — the CHARACTER MENU entry screen for the character
+ * creation / roster management flow. Rendered over the persistent window chrome.
  *
- * Layout (2 rows × 3 columns, matching `wpcmk_entry_and_roster_menu` FUN_59e0):
+ * ## Roster-state-dependent options
  *
- *   Row 0:  CREATE PC   |  DELETE PC  |  PORTRAIT
- *   Row 1:  REVIEW PC   |  RENAME PC  |  EXIT
+ * `wpcmk_entry_and_roster_menu` (FUN_59e0, wpcmk file 0x59e0) builds a 6-entry
+ * enabled[] array on the stack and selectively zeroes entries based on roster state.
+ * The rules (confirmed by disassembly at 0x5a6e–0x5ad1 + 3 save-state memory reads):
  *
- * Option → event mapping:
- *   CREATE PC  (0,0) → MENU_CREATE
- *   DELETE PC  (0,1) → MENU_DELETE
- *   PORTRAIT   (0,2) → MENU_PORTRAIT
- *   REVIEW PC  (1,0) → MENU_REVIEW
- *   RENAME PC  (1,1) → MENU_RENAME
- *   EXIT       (1,2) → MENU_EXIT
+ *   CREATE PC: shown only when roster has room (rosterCount < MAX_ROSTER_SLOTS)
+ *   REVIEW/DELETE/RENAME/PORTRAIT: shown only when roster has ≥1 character
+ *   EXIT: always shown
  *
- * Msg IDs (docs/re/findings/wpcmk-msg-strings.json, base=0x046a):
- *   0x046a = CREATE PC
- *   0x046b = REVIEW PC
- *   0x046c = DELETE PC
- *   0x046d = RENAME PC
- *   0x046e = PORTRAIT
- *   EXIT has no msg ID — rendered as a documented literal fallback.
+ * Three observable states:
+ *   EMPTY   (rosterCount == 0):              [CREATE PC, EXIT]
+ *   PARTIAL (0 < rosterCount < 16):          [CREATE PC, REVIEW PC, DELETE PC, RENAME PC, PORTRAIT, EXIT]
+ *   FULL    (rosterCount == MAX_ROSTER_SLOTS): [REVIEW PC, DELETE PC, RENAME PC, PORTRAIT, EXIT]
  *
- * Grid navigation (§7, no wrap):
+ * RE reference: docs/re/findings/wpcmk-character-menu-options.json
+ * Source: `wpcmk_entry_and_roster_menu` (FUN_59e0) @ wpcmk file 0x59e0.
+ *
+ * ## Layout
+ *
+ * 6 options (PARTIAL): 2 rows × 3 columns in bottomBar
+ *   Row 0:  CREATE PC  |  DELETE PC  |  PORTRAIT
+ *   Row 1:  REVIEW PC  |  RENAME PC  |  EXIT
+ *
+ * 5 options (FULL):    3-column layout, left col has only EXIT
+ *   Row 0:  EXIT       |  REVIEW PC  |  RENAME PC
+ *   Row 1:  —          |  DELETE PC  |  PORTRAIT
+ *
+ * 2 options (EMPTY):   single-column centered layout
+ *   Row 0:  CREATE PC
+ *   Row 1:  EXIT
+ *
+ * ## Grid navigation
+ *
+ * Cursor navigates over the grid of VISIBLE options only. Options absent in
+ * the current state are not reachable (no "skip" logic needed — the grid
+ * collapses to only include visible cells).
+ *
  *   ArrowLeft  → prev col (clamp at 0)
- *   ArrowRight → next col (clamp at 2)
+ *   ArrowRight → next col (clamp at maxCol)
  *   ArrowUp    → prev row (clamp at 0)
- *   ArrowDown  → next row (clamp at 1)
+ *   ArrowDown  → next row (clamp at maxRow)
  *   Enter      → dispatch selected option's event
  *   ESC        → silently ignored (§8)
  *
- * Cursor state: {row: 0|1, col: 0|1|2}, seeded to (0,0) = CREATE PC.
- *
- * Renders over persistent window chrome (three framed TileWindows) via
- * CreationCanvas. Options are written in the bottomBar window area.
- *
- * Spec: docs/re/wpcmk-screens.md §7 (grid nav), §8 (key model).
- * Source: `wpcmk_entry_and_roster_menu` (FUN_59e0) @ wpcmk file 0x59e0.
+ * Spec: docs/re/wpcmk-screens.md §7 (grid nav), §8 (key model), §1a (option rules).
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -52,6 +62,17 @@ import { highlightRow } from '../ega/highlight.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { creationString } from '../messages.js';
 import { mapKey } from './ScreenProps.js';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum number of roster slots. Confirmed from pcfile.dbs header +0x02
+ * (value 0x0010 = 16) and live save-state memory reads at DGROUP 0x4fd2.
+ * RE source: docs/re/findings/wpcmk-character-menu-options.json
+ */
+export const MAX_ROSTER_SLOTS = 16;
 
 // ---------------------------------------------------------------------------
 // Menu option definitions
@@ -69,66 +90,158 @@ const MENU_MSG_IDS = {
   portrait:  0x046e,
 } as const;
 
-/** Single option entry in the 2×3 grid. */
+/** Single option entry: display label + dispatch event. */
 interface MenuOption {
-  /** Display label — from msg.dbs or literal fallback. */
   label: string;
-  /** Event to dispatch on confirm. */
   event: CreationEvent;
 }
 
 /**
- * Build the 6 menu options, resolving labels from msg.dbs where available.
- * EXIT falls back to the literal "EXIT" since no msg ID exists for it.
- *
- * Grid order (row-major):
- *   [0] (0,0) CREATE PC
- *   [1] (0,1) DELETE PC
- *   [2] (0,2) PORTRAIT
- *   [3] (1,0) REVIEW PC
- *   [4] (1,1) RENAME PC
- *   [5] (1,2) EXIT
+ * Build the full 6-option list (all states merged).
+ * Returns all 6 regardless of roster state — the grid builder selects from this.
  */
-function buildOptions(db: MessageDb): MenuOption[] {
+function buildAllOptions(db: MessageDb): MenuOption[] {
   const resolve = (id: number, fallback: string): string => {
     const s = creationString(db, id);
     return s !== '' ? s : fallback;
   };
 
   return [
-    // Row 0
     { label: resolve(MENU_MSG_IDS.createPc, 'CREATE PC'), event: { type: 'MENU_CREATE' }   },
-    { label: resolve(MENU_MSG_IDS.deletePc, 'DELETE PC'), event: { type: 'MENU_DELETE' }   },
-    { label: resolve(MENU_MSG_IDS.portrait, 'PORTRAIT'),  event: { type: 'MENU_PORTRAIT' } },
-    // Row 1
     { label: resolve(MENU_MSG_IDS.reviewPc, 'REVIEW PC'), event: { type: 'MENU_REVIEW' }   },
+    { label: resolve(MENU_MSG_IDS.deletePc, 'DELETE PC'), event: { type: 'MENU_DELETE' }   },
     { label: resolve(MENU_MSG_IDS.renamePc, 'RENAME PC'), event: { type: 'MENU_RENAME' }   },
-    // EXIT: no msg ID — literal fallback
+    { label: resolve(MENU_MSG_IDS.portrait, 'PORTRAIT'),  event: { type: 'MENU_PORTRAIT' } },
     { label: 'EXIT',                                       event: { type: 'MENU_EXIT' }     },
   ];
 }
 
-/** Map (row, col) to the flat index in buildOptions() output. */
-function optionIndex(row: number, col: number): number {
-  return row * 3 + col;
-}
-
 // ---------------------------------------------------------------------------
-// Layout constants
+// Grid cells — position + option
 // ---------------------------------------------------------------------------
-
-const NUM_ROWS = 2;
-const NUM_COLS = 3;
 
 /**
- * Column widths in cells for the 2×3 grid rendered inside bottomBar (40×5).
- * Each column is left-aligned with a fixed offset.
- * Approximate column starts (cell units within the bottomBar window, row-start at y=1):
- *   col 0 → x=1
- *   col 1 → x=14
- *   col 2 → x=27
+ * A cell in the visible menu grid. Row and col are 0-based indices into
+ * the rendered 2D layout. x is the cell x position in bottomBar cells.
  */
-const COL_X = [1, 14, 27] as const;
+interface GridCell {
+  row: number;
+  col: number;
+  /** X offset in bottomBar cells (for rendering). */
+  x: number;
+  option: MenuOption;
+}
+
+// Column X offsets in bottomBar cell units (matching existing 3-column layout).
+const COL_X_3 = [1, 14, 27] as const;  // 3-column layout
+const COL_X_1 = [14] as const;          // 1-column centered layout
+
+// Row Y offsets in bottomBar cells.
+const ROW_Y = [1, 3] as const;
+
+/**
+ * Build the grid cells for the current roster state.
+ *
+ * PARTIAL (6 options):
+ *   Row 0, col 0: CREATE PC  | col 1: DELETE PC  | col 2: PORTRAIT
+ *   Row 1, col 0: REVIEW PC  | col 1: RENAME PC  | col 2: EXIT
+ *
+ * FULL (5 options — no CREATE PC):
+ *   Row 0, col 0: EXIT       | col 1: REVIEW PC  | col 2: RENAME PC
+ *   Row 1, col 0: —          | col 1: DELETE PC  | col 2: PORTRAIT
+ *
+ * EMPTY (2 options — only CREATE PC + EXIT):
+ *   Row 0, col 0: CREATE PC
+ *   Row 1, col 0: EXIT
+ *
+ * The grid layouts match the decoded save-state screenshots:
+ *   save1 (PARTIAL): 3-col 2-row with all 6
+ *   save2 (EMPTY):   centered CREATE PC / EXIT
+ *   save3 (FULL):    3-col with EXIT/REVIEW/RENAME top, DELETE/PORTRAIT bottom-center/right
+ */
+function buildGrid(allOptions: MenuOption[], rosterCount: number): GridCell[] {
+  const hasRoom   = rosterCount < MAX_ROSTER_SLOTS;
+  const hasChars  = rosterCount > 0;
+
+  const [createPc, reviewPc, deletePc, renamePc, portrait, exit] = allOptions as [
+    MenuOption, MenuOption, MenuOption, MenuOption, MenuOption, MenuOption
+  ];
+
+  if (!hasChars && hasRoom) {
+    // EMPTY: 1-column centered — CREATE PC row 0, EXIT row 1
+    return [
+      { row: 0, col: 0, x: COL_X_1[0], option: createPc },
+      { row: 1, col: 0, x: COL_X_1[0], option: exit      },
+    ];
+  }
+
+  if (!hasRoom && hasChars) {
+    // FULL: 3-column, 2 rows — no CREATE PC
+    // Row 0: EXIT | REVIEW PC | RENAME PC
+    // Row 1: —   | DELETE PC | PORTRAIT
+    return [
+      { row: 0, col: 0, x: COL_X_3[0], option: exit     },
+      { row: 0, col: 1, x: COL_X_3[1], option: reviewPc },
+      { row: 0, col: 2, x: COL_X_3[2], option: renamePc },
+      { row: 1, col: 1, x: COL_X_3[1], option: deletePc },
+      { row: 1, col: 2, x: COL_X_3[2], option: portrait },
+    ];
+  }
+
+  // PARTIAL (or edge case: 0 < rosterCount < MAX): all 6, 2×3 grid
+  // Row 0: CREATE PC | DELETE PC | PORTRAIT
+  // Row 1: REVIEW PC | RENAME PC | EXIT
+  return [
+    { row: 0, col: 0, x: COL_X_3[0], option: createPc },
+    { row: 0, col: 1, x: COL_X_3[1], option: deletePc },
+    { row: 0, col: 2, x: COL_X_3[2], option: portrait },
+    { row: 1, col: 0, x: COL_X_3[0], option: reviewPc },
+    { row: 1, col: 1, x: COL_X_3[1], option: renamePc },
+    { row: 1, col: 2, x: COL_X_3[2], option: exit     },
+  ];
+}
+
+/** Find the cell at (row, col), or undefined if absent. */
+function cellAt(grid: GridCell[], row: number, col: number): GridCell | undefined {
+  return grid.find((c) => c.row === row && c.col === col);
+}
+
+/** The max row index present in the grid. */
+function maxRow(grid: GridCell[]): number {
+  return grid.reduce((m, c) => Math.max(m, c.row), 0);
+}
+
+/** The max col index present in the grid. */
+function maxCol(grid: GridCell[]): number {
+  return grid.reduce((m, c) => Math.max(m, c.col), 0);
+}
+
+/**
+ * Clamp the cursor to a valid (row, col) that has a cell.
+ * If the exact cell doesn't exist, scan right then down for the nearest.
+ * This handles the FULL layout's missing (1,0) cell gracefully.
+ */
+function clampCursor(
+  grid: GridCell[],
+  row: number,
+  col: number,
+): { row: number; col: number } {
+  // Direct hit
+  if (cellAt(grid, row, col)) return { row, col };
+
+  // Try scanning cols in current row
+  const mCol = maxCol(grid);
+  for (let c = col; c <= mCol; c++) {
+    if (cellAt(grid, row, c)) return { row, col: c };
+  }
+  // Back-scan in current row
+  for (let c = col - 1; c >= 0; c--) {
+    if (cellAt(grid, row, c)) return { row, col: c };
+  }
+  // Fall back to first cell in grid
+  const first = grid[0];
+  return first ? { row: first.row, col: first.col } : { row: 0, col: 0 };
+}
 
 // ---------------------------------------------------------------------------
 // CharacterMenuScreen component
@@ -140,13 +253,24 @@ export interface CharacterMenuScreenProps {
   fontSet: FontSet;
   palette: Palette;
   db: MessageDb;
+  /**
+   * Number of characters currently in the roster. Drives which options are shown.
+   *
+   * Rules (RE-confirmed from wpcmk_entry_and_roster_menu disassembly):
+   *   0     → EMPTY: only CREATE PC + EXIT
+   *   1..15 → PARTIAL: all 6 options
+   *   16    → FULL: no CREATE PC (5 options)
+   *
+   * Defaults to 0 (empty roster) when omitted, matching the first-visit experience.
+   */
+  rosterCount?: number;
 }
 
 /**
- * CharacterMenuScreen — renders the 6-option character roster entry menu.
+ * CharacterMenuScreen — renders the roster-state-dependent CHARACTER MENU.
  *
- * Cursor starts at (0,0) = CREATE PC. ArrowLeft/Right change column; ArrowUp/Down
- * change row (both clamp, no wrap). Enter dispatches the selected option's event.
+ * Cursor starts at (0,0) (the top-left visible cell). Arrow keys navigate
+ * within the current grid; Enter dispatches the selected option's event.
  */
 export function CharacterMenuScreen({
   state,
@@ -154,13 +278,22 @@ export function CharacterMenuScreen({
   fontSet,
   palette,
   db,
+  rosterCount = 0,
 }: CharacterMenuScreenProps) {
-  // Cursor: 2D position in the 2×3 grid
   const [row, setRow] = useState(0);
   const [col, setCol] = useState(0);
 
-  // Build options once per db (db is stable within a session)
-  const options = buildOptions(db);
+  // Build the option set and grid for the current roster state.
+  // These are stable per render (db is stable; rosterCount changes only when
+  // the roster changes between creations, which causes a re-render).
+  const allOptions = buildAllOptions(db);
+  const grid = buildGrid(allOptions, rosterCount);
+
+  // Ensure cursor is on a valid cell whenever the grid changes.
+  // (e.g. if rosterCount changes from partial to full, (0,0) might shift)
+  const clamped = clampCursor(grid, row, col);
+  const cursorRow = clamped.row;
+  const cursorCol = clamped.col;
 
   // -------------------------------------------------------------------------
   // Key handler
@@ -172,27 +305,39 @@ export function CharacterMenuScreen({
       if (code === null) return;
 
       switch (code) {
-        case 1: // ArrowLeft — prev col (no wrap)
-          setCol((c) => Math.max(0, c - 1));
+        case 1: { // ArrowLeft — prev col (clamp)
+          const next = clampCursor(grid, cursorRow, Math.max(0, cursorCol - 1));
+          setRow(next.row);
+          setCol(next.col);
           break;
-        case 3: // ArrowRight — next col (no wrap)
-          setCol((c) => Math.min(NUM_COLS - 1, c + 1));
+        }
+        case 3: { // ArrowRight — next col (clamp)
+          const next = clampCursor(grid, cursorRow, Math.min(maxCol(grid), cursorCol + 1));
+          setRow(next.row);
+          setCol(next.col);
           break;
-        case 2: // ArrowUp — prev row (no wrap)
-          setRow((r) => Math.max(0, r - 1));
+        }
+        case 2: { // ArrowUp — prev row (clamp)
+          const next = clampCursor(grid, Math.max(0, cursorRow - 1), cursorCol);
+          setRow(next.row);
+          setCol(next.col);
           break;
-        case 4: // ArrowDown — next row (no wrap)
-          setRow((r) => Math.min(NUM_ROWS - 1, r + 1));
+        }
+        case 4: { // ArrowDown — next row (clamp)
+          const next = clampCursor(grid, Math.min(maxRow(grid), cursorRow + 1), cursorCol);
+          setRow(next.row);
+          setCol(next.col);
           break;
+        }
         case 5: { // Enter — confirm
-          const opt = options[optionIndex(row, col)];
-          if (!opt) break;
-          dispatch(opt.event);
+          const cell = cellAt(grid, cursorRow, cursorCol);
+          if (!cell) break;
+          dispatch(cell.option.event);
           break;
         }
       }
     },
-    [options, row, col, dispatch],
+    [grid, cursorRow, cursorCol, dispatch],
   );
 
   useEffect(() => {
@@ -206,43 +351,20 @@ export function CharacterMenuScreen({
 
   const { top, bottomBar, menuPanel } = createPersistentWindows();
 
-  // Write each option into the bottomBar window in the documented 2×3 layout.
-  // Row 0 at bottomBar y=1; Row 1 at bottomBar y=3.
-  const ROW_Y = [1, 3] as const;
-
-  for (let r = 0; r < NUM_ROWS; r++) {
-    const y = ROW_Y[r] ?? 1;
-    for (let c = 0; c < NUM_COLS; c++) {
-      const optIdx = optionIndex(r, c);
-      const opt = options[optIdx];
-      if (!opt) continue;
-
-      const x = COL_X[c] ?? 1;
-      const normalAttr = 0x13; // bottomBar default attr
-
-      setCursor(bottomBar, x, y);
-      puts(bottomBar, opt.label, normalAttr);
-    }
+  // Write each visible option into the bottomBar window at its grid position.
+  for (const cell of grid) {
+    const y = ROW_Y[cell.row] ?? 1;
+    const normalAttr = 0x13;
+    setCursor(bottomBar, cell.x, y);
+    puts(bottomBar, cell.option.label, normalAttr);
   }
 
-  // Apply highlight to the cursor row (the entire cursor row in the 2×3 grid).
-  // We re-attr the row in bottomBar that contains the cursor option.
-  // The cursor row is at bottomBar row ROW_Y[row].
+  // Highlight the cursor row in bottomBar.
   {
-    const cursorY = ROW_Y[row] ?? 1;
-    // Only highlight the cursor cell's text, not the full row —
-    // we'll use a "cursor cell highlight" approach: re-write the cursor option
-    // with the highlight attr encoding (bgPaletteIdx=5 = bright yellow).
-    // This matches the engine: only the selected cell is highlighted.
-    const cursorOptIdx = optionIndex(row, col);
-    const cursorOpt = options[cursorOptIdx];
-    const cursorX = COL_X[col] ?? 1;
-    if (cursorOpt) {
-      // Re-attr the row segment for the cursor option using highlightRow only on
-      // the specific row (entire bottomBar row y is re-attrred for the cursor row).
+    const cursorCell = cellAt(grid, cursorRow, cursorCol);
+    if (cursorCell) {
+      const cursorY = ROW_Y[cursorRow] ?? 1;
       highlightRow(bottomBar, cursorY, 5);
-      // Re-write just the cursor option label to ensure it's readable
-      // (highlightRow leaves char bytes intact, so text is preserved).
     }
   }
 

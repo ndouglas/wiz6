@@ -143,6 +143,33 @@ The wpcmk character-creation overlay is invoked as a cross-overlay call from wba
 
 Source: `docs/re/findings/wpcmk-screen-flow.json`
 
+## 1a. Character roster menu options (wpcmk_entry_and_roster_menu §59e0)
+
+`wpcmk_entry_and_roster_menu` (file 0x59e0) is the top-level wpcmk entry. Before dispatching to `wpcmk_create_via_empty_slot` and siblings, it displays the CHARACTER menu with a roster-state-dependent option set.
+
+**Max roster slots: 16** (value at DGROUP 0x4fd2, loaded from pcfile.dbs header +0x02; confirmed from save-state memory reads).
+
+### Option enable rules (from disassembly at 0x5a6e–0x5ad1)
+
+| Option | Index | Msg ID | Enabled when |
+|--------|-------|--------|--------------|
+| CREATE PC | 0 | 0x046a | `roster_find_first_empty_slot() != -1` (roster has room) |
+| REVIEW PC | 1 | 0x046b | any slot `*(0x4fd8+i) == 1` (has characters) |
+| DELETE PC | 2 | 0x046c | any slot occupied |
+| RENAME PC | 3 | 0x046d | any slot occupied |
+| PORTRAIT  | 4 | 0x046e | any slot occupied |
+| EXIT      | 5 | (literal) | **always** |
+
+### States
+
+| State | Condition | Visible options |
+|-------|-----------|-----------------|
+| EMPTY | 0 characters | CREATE PC, EXIT |
+| PARTIAL | 1–15 characters | all 6 |
+| FULL | 16 characters | REVIEW PC, DELETE PC, RENAME PC, PORTRAIT, EXIT |
+
+**Evidence:** `docs/re/findings/wpcmk-character-menu-options.json` (RE date 2026-05-27). Confirmed against save states 1 (7 chars), 2 (0 chars), 3 (16 chars) via dosbox_read_memory at physical 0x1d020 (DGROUP+0x4fd8).
+
 ## 2. Window layouts
 
 Cross-overlay thunk: wpcmk file `0xbbb6` → `ui_window_create` at wroot image `0x011a`. Exactly **6 calls** to that thunk in the entire wpcmk binary: 3 persistent windows created early by an unnamed entry function `FUN_59e0` (called from wbase before the creation master runs), and 3 temporary windows created by individual screens.

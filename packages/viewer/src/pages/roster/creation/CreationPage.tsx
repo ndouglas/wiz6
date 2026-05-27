@@ -46,7 +46,7 @@ import {
 } from './state.js';
 import { loadCreationFontSet } from './ega/assets.js';
 import { loadMessageDb as defaultLoadMessageDb } from '../../../data-loader.js';
-import { addCharacter } from '../../../lib/roster-store.js';
+import { addCharacter, readRoster } from '../../../lib/roster-store.js';
 import { buildCharacterFromDraft } from './lib/build.js';
 
 // Screen components
@@ -255,11 +255,25 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
     db,
   };
 
+  // Read roster count synchronously for CharacterMenuScreen.
+  // readRoster() is a synchronous localStorage read, so it's safe here.
+  // We read it freshly on each render of the character menu so it reflects
+  // the most up-to-date roster state (e.g. after a character is added or deleted).
+  const rosterCount = state.screen === 'characterMenu'
+    ? (() => {
+        try {
+          return readRoster().characters.length;
+        } catch {
+          return 0;
+        }
+      })()
+    : 0;
+
   // Render the active screen wrapped in the centering shell.
   function renderScreen() {
     switch (state.screen) {
       case 'characterMenu':
-        return <CharacterMenuScreen {...sharedProps} />;
+        return <CharacterMenuScreen {...sharedProps} rosterCount={rosterCount} />;
 
       case 'name':
         return <NameInputScreen {...sharedProps} />;
