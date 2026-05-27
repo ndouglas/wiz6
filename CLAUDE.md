@@ -6,7 +6,8 @@ This file is auto-loaded into every session. Project background lives in auto-me
 
 ```
 .
-├── original/                       # Game binaries (Wiz6 DOS, 1990). Private repo, OK to commit.
+├── original/                       # Game binaries (Wiz6 DOS, 1990). DOSBox WORKSPACE — playing mutates pcfile.dbs/scenario.hdr/saves here; do NOT make tests depend on it.
+├── test-fixtures/original/         # Pristine vendored copy of original/ that the test suite reads (decoupled from DOSBox mutations).
 ├── extracted/                      # JSON outputs from extractors. Mostly gitignored.
 ├── packages/                       # pnpm monorepo
 │   ├── data/                       # zod schemas + BssStruct schemas + symbol resolver (no DOM/Node)
