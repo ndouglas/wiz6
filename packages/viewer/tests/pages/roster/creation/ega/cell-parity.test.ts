@@ -25,7 +25,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setCursor, puts, clearWindow } from '@wiz6/parser';
-import { MessageDbSchema, classReachableWithPool } from '@wiz6/data';
+import { MessageDbSchema, classOffered } from '@wiz6/data';
 import { createPersistentWindows } from '../../../../../src/pages/roster/creation/ega/windows.js';
 import { highlightRange } from '../../../../../src/pages/roster/creation/ega/highlight.js';
 import { drawCharSheet } from '../../../../../src/pages/roster/creation/ega/char-sheet.js';
@@ -330,18 +330,24 @@ describe('CLASS SELECT cell-grid parity (pool-aware qualification)', () => {
   // The engine offers only the classes reachable by spending the bonus pool
   // (Σ max(0, req-attr) ≤ pool), packed at col 1 rows 1+, FIGHTER highlighted.
   // The "SELECT CHARACTER PROFESSION" prompt is assembled + ceil-centered (col 7).
-  // Two saves confirm the rule + its threshold:
-  //   Human base + pool 6 → 5 classes (Fighter/Mage/Priest/Thief/Ranger)
-  //   Elf base   + pool 9 → 7 (adds Alchemist+Bard, deficit 7; Bishop@10 excluded)
+  // Saves confirm the rule, its threshold, the sex gate, and the column wrap:
+  //   Human base + pool 6  → 5 classes (Fighter/Mage/Priest/Thief/Ranger)
+  //   Elf base   + pool 9  → 7 (adds Alchemist+Bard, deficit 7; Bishop@10 excluded)
+  //   Human male + pool 18 → 13, two columns (11 left + MONK/NINJA right);
+  //                          VALKYRIE excluded — female-only, char is male.
   const db = MessageDbSchema.parse(
     JSON.parse(readFileSync(join(mainRoot(), 'extracted', 'messages', 'msg.json'), 'utf-8')),
   );
+  // Two-column list geometry — must mirror MenuPickerScreen's menuCellOf.
+  const COLUMN_ROWS = 11;
+  const COLUMN_STRIDE = 10;
   const CASES = [
     {
       name: 'Human base, pool 6 → 5 qualifying',
       fixture: 'class-select.json',
       attrs: { str: 9, int: 8, pie: 8, vit: 9, dex: 9, spd: 8, per: 8, kar: 0 },
       pool: 6,
+      sex: 0,
       expected: 5,
     },
     {
@@ -349,7 +355,16 @@ describe('CLASS SELECT cell-grid parity (pool-aware qualification)', () => {
       fixture: 'class-select-elf.json',
       attrs: { str: 7, int: 10, pie: 10, vit: 7, dex: 9, spd: 9, per: 8, kar: 0 },
       pool: 9,
+      sex: 0,
       expected: 7,
+    },
+    {
+      name: 'Human male, pool 18 → 13 in two columns (Valkyrie excluded, female-only)',
+      fixture: 'class-select-all.json',
+      attrs: { str: 9, int: 8, pie: 8, vit: 9, dex: 9, spd: 8, per: 8, kar: 0 },
+      pool: 18,
+      sex: 0,
+      expected: 13,
     },
   ];
 
@@ -365,16 +380,18 @@ describe('CLASS SELECT cell-grid parity (pool-aware qualification)', () => {
       puts(bottomBar, prompt, 0x03);
 
       clearWindow(menuPanel, 0x20, 0x03);
-      let row = 1;
+      let n = 0;
       for (let i = 0; i < 14; i++) {
-        if (!classReachableWithPool(c.attrs, c.pool, i)) continue;
+        if (!classOffered(c.attrs, c.pool, c.sex, i)) continue;
         const label = className(db, i);
-        setCursor(menuPanel, 1, row);
+        const x = 1 + Math.floor(n / COLUMN_ROWS) * COLUMN_STRIDE;
+        const row = (n % COLUMN_ROWS) + 1;
+        setCursor(menuPanel, x, row);
         puts(menuPanel, label, 0x03);
-        if (row === 1) highlightRange(menuPanel, 1, row, label.length, 5); // FIGHTER selected
-        row++;
+        if (n === 0) highlightRange(menuPanel, x, row, label.length, 5); // FIGHTER selected
+        n++;
       }
-      expect(row - 1, 'qualifying class count').toBe(c.expected);
+      expect(n, 'qualifying class count').toBe(c.expected);
 
       for (const [name, win] of [
         ['bottomBar', bottomBar],

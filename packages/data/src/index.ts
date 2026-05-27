@@ -123,6 +123,9 @@ export {
   eligibleClasses,
   classBonusDeficit,
   classReachableWithPool,
+  classAllowedForSex,
+  classOffered,
+  FEMALE_ONLY_CLASSES,
   type ClassRequirements,
   type AttributeSet,
 } from './character-creation/class-requirements.js';

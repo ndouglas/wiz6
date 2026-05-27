@@ -8,8 +8,8 @@
  *   - Handles key codes per §7/§8:
  *       ArrowUp (code 2)   = prev row (no wrap)
  *       ArrowDown (code 4) = next row (no wrap)
- *       ArrowLeft (code 1) = prev column (no-op for single-column list)
- *       ArrowRight (code 3) = next column (no-op for single-column list)
+ *       ArrowLeft (code 1) = prev column, same row (no-op in column 0)
+ *       ArrowRight (code 3) = next column, same row (no-op if none)
  *       Enter (code 5)     = confirm → dispatch PICK_RACE/PICK_SEX/PICK_CLASS
  *   - ESC → silently ignored (no cancel path per §7)
  *   - No letter shortcuts (§7)
@@ -27,7 +27,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { clearWindow, setCursor, puts } from '@wiz6/parser';
-import { classReachableWithPool, WIZ6_MAIN } from '@wiz6/data';
+import { classOffered, WIZ6_MAIN } from '@wiz6/data';
 import type { Palette } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
@@ -91,13 +91,30 @@ function buildSexOptions(db: MessageDb): PickerOption[] {
  * + pool 6 → Fighter/Mage/Priest/Thief/Ranger.
  */
 function buildClassOptions(db: MessageDb, state: CreationState): PickerOption[] {
+  const sex = state.draft.sex ?? 0;
   const opts: PickerOption[] = [];
   for (let i = 0; i < 14; i++) {
-    if (classReachableWithPool(state.draft.attributes, state.draft.bonusPool, i)) {
+    if (classOffered(state.draft.attributes, state.draft.bonusPool, sex, i)) {
       opts.push({ originalIndex: i, label: className(db, i), enabled: true });
     }
   }
   return opts;
+}
+
+// Menu list geometry (wpcmk `ui_menu_picker_vertical`): entries fill a column
+// top-to-bottom, MENU_COLUMN_ROWS per column, then wrap to the next column
+// MENU_COLUMN_STRIDE cells to the right. Verified byte-exact vs the
+// all-professions capture (class-select-all.json): 13 classes → 11 in the left
+// column (rows 1-11, x=1) + 2 in the right column (rows 1-2, x=11). The 11-race
+// list fits in one column, so the wrap only shows up for long class lists.
+const MENU_COLUMN_ROWS = 11;
+const MENU_COLUMN_STRIDE = 10;
+const MENU_COL_BASE = 1;
+
+/** Grid position (x, row) of list entry `i` within the menuPanel. */
+function menuCellOf(i: number): { x: number; row: number } {
+  const colIdx = Math.floor(i / MENU_COLUMN_ROWS);
+  return { x: MENU_COL_BASE + colIdx * MENU_COLUMN_STRIDE, row: (i % MENU_COLUMN_ROWS) + 1 };
 }
 
 // ---------------------------------------------------------------------------
@@ -108,22 +125,6 @@ function buildClassOptions(db: MessageDb, state: CreationState): PickerOption[] 
 function firstEnabledIdx(opts: PickerOption[]): number {
   const idx = opts.findIndex((o) => o.enabled);
   return idx >= 0 ? idx : 0;
-}
-
-/** Return the index of the next enabled entry at or after `from`. Clamps at end. */
-function nextEnabledIdx(opts: PickerOption[], from: number): number {
-  for (let i = from + 1; i < opts.length; i++) {
-    if (opts[i]!.enabled) return i;
-  }
-  return from; // at end — no-op
-}
-
-/** Return the index of the prev enabled entry at or before `from`. Clamps at start. */
-function prevEnabledIdx(opts: PickerOption[], from: number): number {
-  for (let i = from - 1; i >= 0; i--) {
-    if (opts[i]!.enabled) return i;
-  }
-  return from; // at start — no-op
 }
 
 // ---------------------------------------------------------------------------
@@ -186,14 +187,23 @@ export function MenuPickerScreen({
       if (code === null) return;
 
       switch (code) {
-        case 2: // ArrowUp — prev row
-          setCursorIdx((prev) => prevEnabledIdx(options, prev));
+        case 2: // ArrowUp — prev row within column
+          setCursorIdx((prev) => (prev % MENU_COLUMN_ROWS > 0 ? prev - 1 : prev));
           break;
-        case 4: // ArrowDown — next row
-          setCursorIdx((prev) => nextEnabledIdx(options, prev));
+        case 4: // ArrowDown — next row within column
+          setCursorIdx((prev) =>
+            prev % MENU_COLUMN_ROWS < MENU_COLUMN_ROWS - 1 && prev + 1 < options.length
+              ? prev + 1
+              : prev,
+          );
           break;
-        case 1: // ArrowLeft — prev column (single-column list: no-op)
-        case 3: // ArrowRight — next column (single-column list: no-op)
+        case 1: // ArrowLeft — prev column, same row
+          setCursorIdx((prev) => (prev >= MENU_COLUMN_ROWS ? prev - MENU_COLUMN_ROWS : prev));
+          break;
+        case 3: // ArrowRight — next column, same row
+          setCursorIdx((prev) =>
+            prev + MENU_COLUMN_ROWS < options.length ? prev + MENU_COLUMN_ROWS : prev,
+          );
           break;
         case 5: { // Enter — confirm
           const opt = options[cursorIdx];
@@ -261,15 +271,12 @@ export function MenuPickerScreen({
   clearWindow(menuPanel, 0x20, 0x03);
   for (let i = 0; i < options.length; i++) {
     const opt = options[i]!;
-    const row = i + 1;
+    const { x, row } = menuCellOf(i);
     if (row >= menuPanel.heightCells) break;
-    // Disabled (unqualified class) entries render dimmer; engine attr for those
-    // is unverified pending a class-screen capture.
-    const attr = opt.enabled ? 0x03 : 0x01;
-    setCursor(menuPanel, 1, row);
-    puts(menuPanel, opt.label, attr);
+    setCursor(menuPanel, x, row);
+    puts(menuPanel, opt.label, 0x03);
     if (i === cursorIdx) {
-      highlightRange(menuPanel, 1, row, opt.label.length, 5);
+      highlightRange(menuPanel, x, row, opt.label.length, 5);
     }
   }
 

@@ -137,3 +137,40 @@ export function classReachableWithPool(
 ): boolean {
   return classBonusDeficit(attrs, classIndex) <= bonusPool;
 }
+
+/**
+ * Class indices restricted to a single sex. Valkyrie (8) is female-only; every
+ * other class is open to both. The restriction is enforced in the engine's
+ * per-class qualification routine (the 0x73ae jump table), NOT the 0x5e98
+ * attribute table — so it can't be read off the requirements data.
+ *
+ * Empirically pinned: the profession-screen capture for a MALE Human at bonus
+ * pool 18 offers every class EXCEPT Valkyrie, even though Valkyrie's attribute
+ * deficit (10) otherwise qualifies — Bishop has the identical deficit and IS
+ * offered. Matches universal Wizardry-VI lore (Valkyrie = female only). Sex is
+ * the only identity gate — Wiz6 has no race-class restrictions (confirmed by
+ * Nate).
+ */
+export const FEMALE_ONLY_CLASSES: readonly number[] = [8]; // Valkyrie
+
+/** Sex codes: 0 = Male, 1 = Female (matches the record's +0x1a1 sex field). */
+export function classAllowedForSex(classIndex: number, sex: number): boolean {
+  if (FEMALE_ONLY_CLASSES.includes(classIndex)) return sex === 1;
+  return true;
+}
+
+/**
+ * Full profession-screen eligibility: a class is offered iff the bonus pool can
+ * cover its attribute deficit AND it isn't sex-restricted away from `sex`.
+ */
+export function classOffered(
+  attrs: AttributeSet,
+  bonusPool: number,
+  sex: number,
+  classIndex: number,
+): boolean {
+  return (
+    classReachableWithPool(attrs, bonusPool, classIndex) &&
+    classAllowedForSex(classIndex, sex)
+  );
+}

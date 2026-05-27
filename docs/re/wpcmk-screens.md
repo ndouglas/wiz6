@@ -462,6 +462,10 @@ Source: `docs/re/findings/wpcmk-portrait-picker.json`
 
 Disabled entries (`enabled[i] == 0`) are skipped during the init loop and **never assigned a cursor slot** — the cursor can only land on enabled entries (no land-and-reject). Evidence: `cmp word [bx+si],0x1; jnz skip` @ file 0x02c0. For the class picker, `FUN_2d10` populates the `*0x56ae[14]` qualification flags first; unqualified classes simply don't appear.
 
+The list **wraps to a second column** once it exceeds `num_rows=11`: entries fill column 0 (x=1, rows 1-11) top-to-bottom, then column 1 at x=1+`col_stride`=11. Verified byte-exact vs `tools/parity/fixtures/cells/class-select-all.json` — a male Human at bonus pool 18 yields 13 qualifying classes: 11 left (FIGHTER…SAMURAI) + MONK/NINJA right. (The 11-race list fits one column, so the wrap only manifests on long class lists.)
+
+**Class qualification has a sex gate beyond the attribute deficit.** Valkyrie (index 8) is female-only and is withheld from male characters even when the bonus pool covers its deficit — in the pool-18 capture above Valkyrie (deficit 10) is excluded while Bishop (identical deficit 10) is offered. The restriction lives in the per-class qualification routine, not the `0x5e98` attribute-minimums table. Sex is the **only** identity gate — Wiz6 has no race-class restrictions (any race can be any class if the pool covers the deficit), confirmed by Nate. Ported as `classAllowedForSex` / `classOffered` in `@wiz6/data`.
+
 ### Return value
 
 The **original index** into the caller's full option array (not the enabled-subset index). No −1 cancel path.
