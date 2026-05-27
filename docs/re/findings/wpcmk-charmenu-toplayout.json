@@ -1,0 +1,132 @@
+{
+  "topic": "wpcmk-charmenu-toplayout",
+  "subagent_run": "2026-05-27",
+  "binaries": ["wpcmk.ovr", "wroot.exe"],
+  "summary": "Resolved how wpcmk_entry_and_roster_menu (wpcmk file 0x59e0) draws the static top region of the CHARACTER menu. MECHANISM: it is fully INLINE draw calls, NO data table. 0x59e0 creates 3 persistent windows then calls ui_setup_creation_windows (wpcmk 0x5093), which (1) clears the top window to (char=0x00, attr=0x01)=wfont1 solid-black, (2) clears bottomBar to (0x20,attr3)=wfont3 and menuPanel to (0x20,attr3)=wfont3, (3) ui_window_focus, (4) calls ui_draw_creation_screen_borders (wpcmk FUN_06af 0x06af) which writes ~90 individual frame/separator glyph chars into the TOP window via ui_put_styled_char_at (FUN_0689 0x0689, writes char byte only), (5) ui_window_unfocus, (6) ui_screen_refresh. FILL MODEL (corrects the open question): the attr low-nibble ONLY selects the wfont file (1/2/3/4); there is NO attribute recoloring. The framebuffer index of each pixel = the 4bpp pixel value baked into the chosen font's glyph. wfont1 glyph 0x00 = all index-0 (black); wfont3 glyph 0x20 = all index-8 (gray). So the TOP window is ENTIRELY BLACK (wfont1) with gray (idx8/idx9) frame lines from glyphs 0x01-0x15; the GRAY area in the composite is the separate menuPanel window (wfont3, 19x13 at cell (21,7)) drawn on top, NOT gray showing through the top window. CONFLICT FLAG: the engine's actual top template (verified byte-exact below) does NOT match the parent's ground-truth pixel description (parent: black title band rows0-1, black central panel cols15-33, gray sides; engine: outer frame + row-4 H-divider + col-20 V-divider, black LEFT stat panel cols0-19, GRAY RIGHT panel cols21-39). The parent's framebuffer was almost certainly captured from a DIFFERENT screen (the wpcvw character-VIEW/REVIEW sheet, or a creation sub-screen), not from 0x59e0's bare roster menu. The engine code path for 0x59e0 is unambiguous and reproduced below.",
+  "method": "Disassembled wpcmk_entry_and_roster_menu (0x59e0) with capstone (Ghidra had not auto-defined this region as code; it is the unnamed top-level entry per wpcmk-screens.md §11). Decompiled ui_setup_creation_windows (0x5093) and FUN_06af (0x06af) via pyghidra 3.1.0. Decoded all 3 ui_window_create call sites (cdecl arg order) at 0x5a0b/0x5a31/0x5a57. Decompiled wroot ui_window_clear (image 0x132be) and ui_window_create (image 0x1011a) to nail the clear/struct semantics. Decoded ui_put_styled_char_at (FUN_0689) to confirm char-only write. Decoded every wfont1/wfont3 glyph used (0x00-0x15, 0x20) to palette indices via the documented 4-plane (G,B,R,I) MSB-first packing, cross-checked against packages/parser/src/formats/wfont-4bpp-render.ts. Rendered the full 320x200 index framebuffer of the composite and classified each 8x8 cell. FUN_06af cell writes are independently verified byte-exact against a live save-state cell dump in docs/re/findings/wpcmk-window-chrome.json.",
+  "findings": [
+    {
+      "id": "draw-is-inline-not-table",
+      "claim": "The top template is drawn by INLINE code, not a data table. wpcmk_entry_and_roster_menu (0x59e0) calls ui_setup_creation_windows (0x5093) at file 0x5a68, which calls ui_draw_creation_screen_borders (FUN_06af, file 0x06af). FUN_06af is a flat sequence of ~90 ui_put_styled_char_at(window, x_cell, y_cell, char) calls plus a handful of small loops. There is no rectangle/label descriptor table; each cell's char is an immediate operand.",
+      "category": "draw_mechanism",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x5a68"},
+        "type": "raw_disasm + decompile",
+        "details": "0x5a68: 'call 0x5093' (ui_setup_creation_windows) with args (push *0x56ca bottomBar, push *0x546e top). 0x5093 body: ui_window_clear(top,0x00,1,0); ui_window_clear(bottomBar,0x20,3,0); ui_window_clear(menuPanel,0x20,3,0); ui_window_focus(top) [thunk 0xebb4 -> wroot image 0x13118]; call 0x06af(top); ui_window_unfocus(top) [thunk 0xec6d -> 0x131d1]; ui_screen_refresh() [thunk 0xe4ff -> 0x12a63]. FUN_06af decompile = pure inline ui_put_styled_char_at calls."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "persistent-window-geometry",
+      "claim": "0x59e0 creates 3 persistent windows via the ui_window_create thunk (wpcmk 0xbbb6 -> wroot image 0x1011a). Args (cdecl): top window = 40x20 cells at cell(0,0), attr 0x14, border 0xFFFF(=plain), handle->*0x546e (call 0x5a0b). bottomBar = 40x5 at cell(0,20), attr 0x13, handle->*0x56ca (call 0x5a31). menuPanel = 19x13 at cell(21,7), attr 0x15, handle->*0x56cc (call 0x5a57). ui_window_create stores width@[0],height@[1],x_col@[2],y_row@[3],attr@[4],flags@[5]; cells start @[0x10], 2 bytes/cell.",
+      "category": "window_geometry",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x5a0b"},
+        "type": "raw_disasm",
+        "details": "top pushes (rev) -> param_1=0(x_col),param_2=0(y_row),param_3=0x28(w=40),param_4=0x14(h=20),param_5=0x14(attr),param_6=0xffff(border),param_7=0(flags),param_8=0. bottomBar -> x=0,y=0x14,w=0x28,h=5,attr=0x13. menuPanel -> x=0x15(21),y=7,w=0x13(19),h=0xd(13),attr=0x15. ui_window_create (wroot image 0x1011a) decompile confirms struct field order and that border==0xFFFF zero-fills the 8 border-char slots (struct-level border bypassed)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fill-model-attr-selects-font-no-recolor",
+      "claim": "WINDOW FILL MODEL: ui_window_clear(window, char, attr_flag, alt) sets every cell to (char, effectiveAttr). effectiveAttr = attr_flag if attr_flag!=0 else (alt<<4). The attr's LOW NIBBLE selects the wfont file (1=wfont1,2=wfont2,3=wfont3,4=wfont4). There is NO attribute-based recoloring: each pixel's framebuffer index IS the 4bpp value baked into the selected font's glyph (confirmed by wfont-tile-system.json and renderTextRun4bpp). Therefore fill color depends on (fill_char, font) only: wfont1 glyph 0x00 -> all index 0 (BLACK); wfont3 glyph 0x20 -> all index 8 (GRAY). The window's struct attr byte (0x14 for top) is OVERRIDDEN by the clear call's attr (1 for top), so the top window renders as wfont1 regardless of 0x14.",
+      "category": "fill_model",
+      "evidence": {
+        "binary": "wroot.exe + wpcmk.ovr + extracted/fonts",
+        "address": {"space": "wroot.exe", "offset": "0x132be"},
+        "type": "decompile + glyph_render",
+        "details": "ui_window_clear (image 0x132be) decompile: 'if(param_3==0) param_4=param_4<<4; else param_4=param_3; ... *cell = CONCAT11(param_4,param_2)'. Top clear call (0x5093@0x5096): char=0,attr_flag=1,alt=0 -> cell=(attr=1,char=0). bottomBar/menuPanel clear: char=0x20,attr_flag=3 -> (attr=3,char=0x20). Glyph decode (4-plane MSB-first per wfont-4bpp-render.ts): wfont1[0x00]=all idx0; wfont3[0x20]=all idx8. ui_put_styled_char_at (FUN_0689 @0x0689) writes ONLY the char byte at [bx+si+0x10] (even offset), leaving attr (odd offset) = 1 from the clear -> all FUN_06af frame glyphs are wfont1."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "top-window-fun06af-template",
+      "claim": "The TOP window template drawn by FUN_06af (in 40x20 cell coords; window is at screen 0,0 so cell==screen-cell) is: outer frame (corners 0x01/0x03/0x06/0x08, top edge 0x02 cols1-38 row0, bottom edge 0x07 cols1-19 row19, left edge 0x04 col0 rows1-18, right edge 0x05 col39 rows1-5 + col39 row6=0x08); a full-width horizontal double-rule (char 0x0c) at row4 cols1-38; a vertical double-rule (char 0x05) at col20 (0x14) rows7-18 with cap chars at col20 rows4(0x0e)/5(0x0d)/6(0x15); LEFT stat panel sub-grid: horizontal double-rules (0x0c) at rows13,15,17 cols1-19 plus closing rule at row13 cols0-19, and vertical double-rules (0x0d) at cols2,10,12 rows14-18 with junction caps (0x0e top, 0x10 mid). Net visual: black panels framed by gray lines. The LEFT half (cols0-19) is the character stat sheet (LVL/STR/INT/... rows); the RIGHT half (cols20-39) is a large open black panel.",
+      "category": "top_layout",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x06af"},
+        "type": "decompile",
+        "details": "Full FUN_06af decompile transcribed (see operations list below). Independently verified byte-exact against save-1 live cell dump in wpcmk-window-chrome.json (window struct phys 0x01f46e, cells 0x01f47e): row0 = (0x01,...0x02...,0x03), etc. Note FUN_06af bottom-edge loop covers only cols1-19 (x<0x14) then the bottom-right corner 0x08 lands at col20,row19 — confirming the left panel is self-contained and the right panel's bottom edge is left as fill."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "composite-gray-is-menupanel",
+      "claim": "In the COMPOSITE roster-menu screen, the GRAY block at cells (cols 21-39, rows 7-19) is the menuPanel window (wfont3 glyph 0x20 = idx8) drawn on top of the top window, NOT the top window. The top window's own right half (cols20-39 rows5-12) is BLACK. menuPanel occupies cell(21,7) size 19x13 -> covers screen rows 7..19, cols 21..39. bottomBar (rows20-24) is wfont3 0x20 = idx8 gray. So the full-screen index map is: black creation stat panel on the left, gray menuPanel on the right, gray bottom bar.",
+      "category": "composite",
+      "evidence": {
+        "binary": "wpcmk.ovr + extracted/fonts",
+        "address": {"space": "wpcmk.ovr", "offset": "0x5a57"},
+        "type": "raw_disasm + glyph_render + composite_render",
+        "details": "menuPanel create (0x5a57): w=0x13,h=0xd,x=0x15,y=7. Cleared (0x5093@0x50c0) with (char=0x20,attr=3)=wfont3 glyph0x20=idx8. Rendered composite (top=wfont1 template UNDER, menuPanel=wfont3 gray OVER): cols0-19=black stat panel w/ gray frame, col20=gray V-divider, cols21-39 rows7-19=solid idx8 gray."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ground-truth-mismatch",
+      "claim": "The parent's ground-truth top-region description does NOT match what wpcmk_entry_and_roster_menu (0x59e0) draws. Parent describes: solid-black title band rows0-1; black central panel cols15-33 rows7-14 with gray cols0-14 and cols34-39; label rows 16/18/20 with two ~7-cell black bars on gray. Engine 0x59e0 draws: NO solid black title band (rows0-3 are black framed by gray rule at row0 & row4); divider at col20 not col15/34; black LEFT panel cols0-19 / gray RIGHT panel cols21-39 (the MIRROR of the parent's black-center/gray-sides). The parent's screen most plausibly is the wpcvw character-VIEW/REVIEW sheet (REVIEW PC dispatches to wpcmk 0x545c which likely calls a wpcvw char-sheet redraw) or a creation sub-screen, NOT the bare roster menu. RECOMMENDATION: confirm via a live DOSBox-X framebuffer capture at the exact CHARACTER menu state and compare to the cell map in this finding before porting; if the parent truly wants the screen they pixel-sampled, RE the wpcvw char-view sheet instead.",
+      "category": "conflict",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x59e0"},
+        "type": "composite_render_vs_description",
+        "details": "Engine composite (cell classification, B=black F=gray-frameline g=gray): rows0/4/6(right)/13/15/17/19 are frame rules; cols0-19 black stat panel; col20 V-divider; cols21-39 rows7-19 gray menuPanel; rows20-24 gray bottom bar. Parent's described black-central-panel/gray-sides is geometrically the mirror and includes a solid-black rows0-1 title band absent from FUN_06af."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "reproduction": {
+    "note": "Operations to reproduce 0x59e0's top region EXACTLY (cell coords; top window is screen-absolute since it is at 0,0). All chars are wfont1 (attr 0x01) unless drawn into menuPanel/bottomBar. char glyph indices contain idx0(black)/idx8(gray)/idx9(line).",
+    "windows": [
+      {"handle": "*0x546e top", "wCells": 40, "hCells": 20, "cellX": 0, "cellY": 0, "clearChar": "0x00", "clearAttr": "0x01", "font": "wfont1", "fillColorIndex": 0},
+      {"handle": "*0x56ca bottomBar", "wCells": 40, "hCells": 5, "cellX": 0, "cellY": 20, "clearChar": "0x20", "clearAttr": "0x03", "font": "wfont3", "fillColorIndex": 8},
+      {"handle": "*0x56cc menuPanel", "wCells": 19, "hCells": 13, "cellX": 21, "cellY": 7, "clearChar": "0x20", "clearAttr": "0x03", "font": "wfont3", "fillColorIndex": 8}
+    ],
+    "draw_order": ["clear top (black)", "clear bottomBar (gray)", "clear menuPanel (gray)", "FUN_06af writes frame chars into top", "refresh"],
+    "fun06af_operations": [
+      "putChar(x=0,y=0,0x01) top-left corner",
+      "putChar(x=39,y=0,0x03) top-right corner",
+      "putChar(x=0,y=19,0x06) bottom-left corner",
+      "loop x=1..38: putChar(x,y=0,0x02) top edge",
+      "loop x=1..19: putChar(x,y=19,0x07) bottom edge (LEFT panel only)",
+      "loop y=1..18: putChar(x=0,y,0x04) left edge",
+      "loop y=1..5: putChar(x=39,y,0x05) right edge (rows1-5 only)",
+      "putChar(0,4,0x09); putChar(0,13,0x09); putChar(0,15,0x09); putChar(0,17,0x09) left-edge T-junctions",
+      "putChar(39,4,0x0a) right-edge T-junction",
+      "putChar(2,19,0x0b); putChar(10,19,0x0b); putChar(12,19,0x0b) bottom T-junctions",
+      "putChar(20,19,0x08) bottom-right corner (of LEFT panel; col20)",
+      "loop x=1..38: putChar(x,y=4,0x0c) full-width horizontal double-rule",
+      "loop x=21..38: putChar(x,y=6,0x07) horizontal rule under right header (cols21-38 row6)",
+      "putChar(20,4,0x0e); putChar(20,5,0x0d) vertical-divider top cap",
+      "loop y=7..18: putChar(x=20,y,0x05) central vertical double-rule",
+      "putChar(20,6,0x15) vertical-divider junction",
+      "putChar(20,13,0x0a); putChar(20,15,0x0a); putChar(20,17,0x0a) central-divider T-junctions",
+      "putChar(39,6,0x08) right-edge bottom corner cap",
+      "loop x=1..19: putChar(x,13,0x0c); putChar(x,15,0x0c); putChar(x,17,0x0c) LEFT stat-panel horizontal rules",
+      "putChar(2,13,0x0e); putChar(10,13,0x0e); putChar(12,13,0x0e) stat-panel vertical-rule top caps",
+      "loop y=14..18: putChar(2,y,0x0d); putChar(10,y,0x0d); putChar(12,y,0x0d) stat-panel vertical rules",
+      "putChar(2,15,0x10); putChar(2,17,0x10); putChar(10,15,0x10); putChar(10,17,0x10); putChar(12,15,0x10); putChar(12,17,0x10) stat-panel cross junctions",
+      "ui_clear_top_status_row()"
+    ],
+    "cell_classification_engine": [
+      "row 0  : F x40 (top frame rule)",
+      "row 1-3: F B*38 F (black interior, side frames)",
+      "row 4  : F x40 (horizontal double-rule)",
+      "row 5  : F B*19 F B*18 F (col20 divider appears)",
+      "row 6  : F B*19 F F*19 (right header rule)",
+      "rows 7-12: F B*19 F g*19 (left black panel | col20 | right gray menuPanel)",
+      "row 13 : F*21 g*19 (left stat-rule + col20 + menuPanel)",
+      "rows 14/16/18: F B F B*7 F B F B*7 F g*19 (stat sub-cells | menuPanel)",
+      "rows 15/17/19: F*21 g*19",
+      "rows 20-24: g x40 (bottomBar gray)"
+    ]
+  },
+  "unresolved": [
+    "PRIMARY: the parent's pixel ground-truth (black central panel cols15-33, solid-black title band rows0-1, gray sides) does not match wpcmk 0x59e0's verified draw. Need a fresh DOSBox-X framebuffer capture confirmed to be at the bare CHARACTER roster menu to settle which screen the parent sampled. Strong hypothesis: parent sampled the wpcvw character-VIEW/REVIEW sheet (reached via REVIEW PC -> wpcmk 0x545c) or a mirror-flipped capture.",
+    "FUN_06af uses interior separator chars 0x09,0x0a,0x0b,0x0d,0x0e,0x0f,0x10,0x15 whose exact in-tile gray-line geometry (which sub-rows/cols carry idx9 vs idx8) was decoded to index sets {0,8,9} but not pixel-mapped per glyph in this pass; for byte-perfect pixel parity, render each glyph from extracted/fonts/wfont1.json directly (they are fully baked, deterministic).",
+    "Comparator confidence: FUN_06af loop bounds were read from Ghidra decompile ('while (local_4 < 0x27)' etc.) not hand-disasm; the off-by-one on the right-panel bottom edge (loop x<0x14 for bottom edge, corner 0x08 at x=0x14) is the one place worth a DOSBox breakpoint check, though it is corroborated by the save-1 dump in wpcmk-window-chrome.json."
+  ]
+}

@@ -21,8 +21,8 @@
  * Reference: docs/re/wpcmk-screens.md §2
  */
 
-import { createTileWindow, type TileWindow } from '@wiz6/parser';
-import { drawWindowChrome } from './chrome.js';
+import { createTileWindow, clearWindow, type TileWindow } from '@wiz6/parser';
+import { drawWindowChrome, drawCharSheetTemplate } from './chrome.js';
 
 /** Single entry in the CREATION_WINDOW_GEOMETRY table. */
 export interface WindowGeometryEntry {
@@ -88,19 +88,45 @@ export interface PersistentWindows {
   menuPanel: TileWindow;
 }
 
+/** Allocate a TileWindow from a geometry entry (no chrome). */
+function blankWindow(entry: WindowGeometryEntry): TileWindow {
+  return createTileWindow({
+    screenX: entry.screenX,
+    screenY: entry.screenY,
+    widthCells: entry.widthCells,
+    heightCells: entry.heightCells,
+  });
+}
+
 /**
- * Create the three persistent wpcmk creation windows, pre-filled with
- * space characters at the documented attribute byte.
+ * Create the three persistent wpcmk windows for the CHARACTER MENU, mirroring
+ * the engine's `ui_setup_creation_windows` (wpcmk 0x5093):
  *
- * Engine equivalent: `wpcmk_entry_and_roster_menu` (0x59e0) — three calls to
- * `ui_window_create` at wpcmk 0x5a0b, 0x5a31, 0x5a57.
+ *   - top:       cleared BLACK (char 0x00, attr 0x01 / wfont1), then the
+ *                char-sheet frame template (FUN_06af) is drawn into it.
+ *   - bottomBar: cleared GRAY  (char 0x20, attr 0x03 / wfont3) — no frame.
+ *   - menuPanel: cleared GRAY  (char 0x20, attr 0x03 / wfont3) — no frame.
+ *
+ * The fill model is `clearWindow(char, attr)`: the attr's low nibble selects
+ * the wfont, and the fill GLYPH (0x00 = solid black, 0x20 = solid gray in the
+ * tile fonts) carries the colour. This is verified byte-exact against the
+ * engine's live window cell memory (saves 1/2/3).
+ *
+ * Engine `ui_window_create` call sites: wpcmk 0x5a0b/0x5a31/0x5a57; clears at
+ * 0x5093. RE: docs/re/findings/wpcmk-charmenu-toplayout.json.
  */
 export function createPersistentWindows(): PersistentWindows {
-  return {
-    top: makeWindow(getGeometry('top')),
-    bottomBar: makeWindow(getGeometry('bottomBar')),
-    menuPanel: makeWindow(getGeometry('menuPanel')),
-  };
+  const top = blankWindow(getGeometry('top'));
+  clearWindow(top, 0x00, 0x01);
+  drawCharSheetTemplate(top);
+
+  const bottomBar = blankWindow(getGeometry('bottomBar'));
+  clearWindow(bottomBar, 0x20, 0x03);
+
+  const menuPanel = blankWindow(getGeometry('menuPanel'));
+  clearWindow(menuPanel, 0x20, 0x03);
+
+  return { top, bottomBar, menuPanel };
 }
 
 /**

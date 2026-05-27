@@ -1,4 +1,13 @@
 /**
+ * ⚠️ KNOWN BUG (2026-05-27): this decoder's output is HORIZONTALLY/VERTICALLY
+ * SHIFTED relative to the engine's true screen — empirically a +14-cell / +2-row
+ * cyclic offset on the CHARACTER MENU (likely a CRTC display-start / origin
+ * miscalculation). Do NOT trust its framebuffer for pixel parity. For tile-level
+ * parity, read the engine's live window CELL memory instead (tools/parity/
+ * dump-cells.py → fixtures/cells/*.json), which is authoritative and immune to
+ * this bug. See packages/viewer/tests/.../ega/cell-parity.test.ts. Fixing the
+ * display-start math here is tracked in TODO #019.
+ *
  * Decode the engine's exact displayed screen from a DOSBox-X save state offline.
  *
  * Reads the `Vga` zip member from the save state, extracts the interleaved VGA VRAM

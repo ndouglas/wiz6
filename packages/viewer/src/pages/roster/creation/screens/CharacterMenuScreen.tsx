@@ -58,6 +58,7 @@ import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
 import { createPersistentWindows } from '../ega/windows.js';
+import { highlightRange } from '../ega/highlight.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { creationString } from '../messages.js';
 import { mapKey } from './ScreenProps.js';
@@ -131,16 +132,14 @@ interface GridCell {
   option: MenuOption;
 }
 
-// Column X offsets in bottomBar-local cells, in fill order (center, right, left).
-// Verified pixel-exact against the engine fixtures: options fill column-major,
-// 2 rows per column, and column N's text starts at COL_X[N]. The visual order
-// is center→right→left, which keeps the option list sequential (see buildGrid).
-//   docs/re/findings/wpcmk-character-menu-options.json
-const COL_X = [18, 30, 2] as const;
+// Column X offsets in bottomBar-local cells. Verified byte-exact against the
+// engine's live window cell memory (saves 1/2/3, all 3 roster states): options
+// fill column-major, 2 rows per column, column N's text starting at COL_X[N].
+//   docs/re/findings/wpcmk-charmenu-toplayout.json (cell-grid ground truth)
+const COL_X = [4, 16, 28] as const;
 
-// Row Y offsets in bottomBar-local cells. The bottomBar window is at screen
-// row 20 (y=160); the two option rows are screen rows 23 & 24 → local 3 & 4.
-const ROW_Y = [3, 4] as const;
+// Row Y offsets in bottomBar-local cells (the bottomBar is 40×5 @ screen row 20).
+const ROW_Y = [1, 2] as const;
 
 /**
  * The ordered list of options visible in each roster state. Drives the
@@ -333,17 +332,21 @@ export function CharacterMenuScreen({
   const { top, bottomBar, menuPanel } = createPersistentWindows();
 
   // Write each visible option into the bottomBar at its grid position.
-  // The bottom option list renders as plain white text (attr 0x13) — verified
-  // against all three engine fixtures. The engine does NOT highlight the
-  // selected option in this bottom list; selection is reflected in the top
-  // status bar (the black-on-yellow string at screen rows 1-2). That top-bar
-  // reflection is not yet ported, so the cursor is tracked for Enter dispatch
-  // and navigation but not yet drawn. See docs/re/findings/menu-cursor-render-path.json.
-  const normalAttr = 0x13;
+  // attr 0x03 = wfont3, matching the engine's bottomBar clear+text attr byte-exact.
+  const normalAttr = 0x03;
   for (const cell of grid) {
     const y = ROW_Y[cell.row] ?? ROW_Y[0];
     setCursor(bottomBar, cell.x, y);
     puts(bottomBar, cell.option.label, normalAttr);
+  }
+
+  // Cursor highlight: re-attr the selected option's label cells to black-on-
+  // yellow (the engine's per-string menu cursor, bgPaletteIdx=5 → attr 0x50).
+  // Verified byte-exact against save 3 (REVIEW PC highlighted).
+  const selected = cellAt(grid, cursorRow, cursorCol);
+  if (selected) {
+    const y = ROW_Y[selected.row] ?? ROW_Y[0];
+    highlightRange(bottomBar, selected.x, y, selected.option.label.length, 5);
   }
 
   const pal = palette ?? WIZ6_MAIN;

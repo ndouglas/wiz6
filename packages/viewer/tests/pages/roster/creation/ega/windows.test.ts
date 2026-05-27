@@ -119,15 +119,15 @@ describe('createPersistentWindows', () => {
     expect(bottomBar.cells.length).toBe(bottomBar.widthCells * bottomBar.heightCells * 2);
   });
 
-  it('bottomBar window cells have chrome applied (corner at 0,0 is TL char, attr=0x01)', () => {
+  it('bottomBar window is cleared GRAY (0x20, attr 0x03) with no frame', () => {
     const { bottomBar } = createPersistentWindows();
-    // Top-left corner cell has chrome TL char + attr=0x01
-    expect(bottomBar.cells[0]).toBe(CHROME_CORNER_TL);
-    expect(bottomBar.cells[1]).toBe(CHROME_ATTR);
-    // An interior cell (e.g. row 1, col 1) has black fill (0x00) + attr=0x01
+    // Engine clears bottomBar to (char 0x20, attr 0x03 / wfont3) — no chrome.
+    // Verified byte-exact vs save memory (wpcmk-charmenu-toplayout.json).
+    expect(bottomBar.cells[0]).toBe(0x20);
+    expect(bottomBar.cells[1]).toBe(0x03);
     const interiorIdx = (1 * bottomBar.widthCells + 1) * 2;
-    expect(bottomBar.cells[interiorIdx]).toBe(0x00);
-    expect(bottomBar.cells[interiorIdx + 1]).toBe(CHROME_ATTR);
+    expect(bottomBar.cells[interiorIdx]).toBe(0x20);
+    expect(bottomBar.cells[interiorIdx + 1]).toBe(0x03);
   });
 
   it('returns menuPanel window with correct geometry', () => {
@@ -143,15 +143,14 @@ describe('createPersistentWindows', () => {
     expect(menuPanel.cells.length).toBe(menuPanel.widthCells * menuPanel.heightCells * 2);
   });
 
-  it('menuPanel window cells have chrome applied (corner at 0,0 is TL char, attr=0x01)', () => {
+  it('menuPanel window is cleared GRAY (0x20, attr 0x03) with no frame', () => {
     const { menuPanel } = createPersistentWindows();
-    // Top-left corner cell has chrome TL char + attr=0x01
-    expect(menuPanel.cells[0]).toBe(CHROME_CORNER_TL);
-    expect(menuPanel.cells[1]).toBe(CHROME_ATTR);
-    // An interior cell (e.g. row 1, col 1) has black fill (0x00) + attr=0x01
+    // Engine clears menuPanel to (char 0x20, attr 0x03 / wfont3) — no chrome.
+    expect(menuPanel.cells[0]).toBe(0x20);
+    expect(menuPanel.cells[1]).toBe(0x03);
     const interiorIdx = (1 * menuPanel.widthCells + 1) * 2;
-    expect(menuPanel.cells[interiorIdx]).toBe(0x00);
-    expect(menuPanel.cells[interiorIdx + 1]).toBe(CHROME_ATTR);
+    expect(menuPanel.cells[interiorIdx]).toBe(0x20);
+    expect(menuPanel.cells[interiorIdx + 1]).toBe(0x03);
   });
 });
 

@@ -93,3 +93,26 @@ export function highlightRow(win: TileWindow, row: number, bgPaletteIdx: number)
     win.cells[idx + 1] = attr;
   }
 }
+
+/**
+ * Re-attr a horizontal RANGE of cells (`x` .. `x+len-1`) on `row` to the
+ * highlight encoding for `bgPaletteIdx`. Char bytes are left unchanged.
+ *
+ * This is the menu-cursor highlight: the engine re-renders the selected
+ * option's label string via the per-char highlight path (attr = bgPaletteIdx
+ * << 4), producing black glyphs on a `bgPaletteIdx` background. For the wpcmk
+ * roster menu the cursor uses bgPaletteIdx=5 → yellow (verified byte-exact vs
+ * save 3, where REVIEW PC's cells carry attr 0x50).
+ */
+export function highlightRange(
+  win: TileWindow,
+  x: number,
+  row: number,
+  len: number,
+  bgPaletteIdx: number,
+): void {
+  const attr = highlightAttr(bgPaletteIdx);
+  for (let cx = x; cx < x + len && cx < win.widthCells; cx++) {
+    win.cells[(row * win.widthCells + cx) * 2 + 1] = attr;
+  }
+}
