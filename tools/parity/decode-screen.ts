@@ -1,13 +1,4 @@
 /**
- * ⚠️ KNOWN BUG (2026-05-27): this decoder's output is HORIZONTALLY/VERTICALLY
- * SHIFTED relative to the engine's true screen — empirically a +14-cell / +2-row
- * cyclic offset on the CHARACTER MENU (likely a CRTC display-start / origin
- * miscalculation). Do NOT trust its framebuffer for pixel parity. For tile-level
- * parity, read the engine's live window CELL memory instead (tools/parity/
- * dump-cells.py → fixtures/cells/*.json), which is authoritative and immune to
- * this bug. See packages/viewer/tests/.../ega/cell-parity.test.ts. Fixing the
- * display-start math here is tracked in TODO #019.
- *
  * Decode the engine's exact displayed screen from a DOSBox-X save state offline.
  *
  * Reads the `Vga` zip member from the save state, extracts the interleaved VGA VRAM
@@ -144,7 +135,13 @@ function buildComposedPalette(): ReadonlyArray<readonly [number, number, number]
 export const COMPOSED_PALETTE = buildComposedPalette();
 
 // ─── VGA VRAM layout constants ───────────────────────────────────────────────
-const VRAM_OFFSET_IN_BLOB = 0x84000; // vga.mem.linear starts here (not 0x80000)
+// vga.mem.linear's displayed frame begins at blob 0x84038, i.e. 14 VGA addresses
+// (×4 planes = 56 bytes) past the 0x84000 region start. CRTC display-start is 0
+// in every save, so this 14-address offset is just where the visible frame sits
+// within the serialized linear buffer; reading from 0x84000 shifted the whole
+// image right by 14 cells. Empirically pinned by aligning the decode against the
+// authoritative window cell memory (dump-cells), and visually confirmed.
+const VRAM_OFFSET_IN_BLOB = 0x84038; // 0x84000 + 14 addresses × 4 planes
 const VRAM_BYTES_PER_ROW  = 40;      // CRTC offset reg 0x13 = 0x14 → 40 bytes/row/plane
 export const SCREEN_WIDTH  = 320;
 export const SCREEN_HEIGHT = 200;
