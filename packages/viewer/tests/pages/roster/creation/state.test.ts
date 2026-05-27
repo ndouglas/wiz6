@@ -8,6 +8,7 @@ import { WichmannHill } from '@wiz6/data';
 import {
   initialCreationState,
   creationReducer,
+  blankDraft,
 } from '../../../../src/pages/roster/creation/state.js';
 import type { CreationState, CreationEvent } from '../../../../src/pages/roster/creation/state.js';
 
@@ -35,11 +36,18 @@ function advance(state: CreationState, events: CreationEvent[]): CreationState {
   return events.reduce((s, e) => creationReducer(s, e), state);
 }
 
+// Helper: start at 'name' screen (characterMenu → MENU_CREATE → name)
+function startCreate(rng: WichmannHill): CreationState {
+  const s = initialCreationState(rng);
+  return creationReducer(s, { type: 'MENU_CREATE' });
+}
+
 // Build a minimal state at class-select screen with a Human male character
 // who has all bonus points allocated to STR (to qualify for Fighter).
 function buildToClassScreen(): CreationState {
   const rng = makeRng();
-  let s = initialCreationState(rng);
+  let s = startCreate(rng);
+  expect(s.screen).toBe('name');
 
   // SET_NAME → still on 'name' screen until submitted
   s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
@@ -92,11 +100,15 @@ function buildToPersonalityScreen(classIdx = FIGHTER): CreationState {
   return s;
 }
 
+// ---------------------------------------------------------------------------
+// characterMenu — new entry screen
+// ---------------------------------------------------------------------------
+
 describe('initialCreationState', () => {
-  it('starts at name screen', () => {
+  it('starts at characterMenu screen (entry point of the creation flow)', () => {
     const rng = makeRng();
     const s = initialCreationState(rng);
-    expect(s.screen).toBe('name');
+    expect(s.screen).toBe('characterMenu');
   });
 
   it('draft has null race/sex/class and zero bonusPool', () => {
@@ -118,10 +130,169 @@ describe('initialCreationState', () => {
   });
 });
 
+describe('characterMenu events', () => {
+  it('MENU_CREATE resets draft to blank and transitions to name screen', () => {
+    const rng = makeRng();
+    const s0 = initialCreationState(rng);
+    const s1 = creationReducer(s0, { type: 'MENU_CREATE' });
+    expect(s1.screen).toBe('name');
+    expect(s1.draft.name).toBe('');
+    expect(s1.draft.race).toBeNull();
+    expect(s1.draft.class).toBeNull();
+  });
+
+  it('MENU_CREATE after a previous creation resets draft to blank (RNG persists)', () => {
+    // Simulate: start → create once (partially) → return to characterMenu → create again
+    const rng = makeRng();
+    let s = initialCreationState(rng);
+    s = creationReducer(s, { type: 'MENU_CREATE' });
+    s = creationReducer(s, { type: 'SET_NAME', name: 'OLD' });
+    s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
+    // Return to characterMenu via CANCEL
+    s = creationReducer(s, { type: 'CANCEL' });
+    expect(s.screen).toBe('characterMenu');
+    // Now create again — draft should be blank
+    s = creationReducer(s, { type: 'MENU_CREATE' });
+    expect(s.screen).toBe('name');
+    expect(s.draft.name).toBe('');
+    expect(s.draft.race).toBeNull();
+  });
+
+  it('MENU_EXIT transitions to exit (terminal: leave to castle)', () => {
+    const rng = makeRng();
+    const s0 = initialCreationState(rng);
+    const s1 = creationReducer(s0, { type: 'MENU_EXIT' });
+    expect(s1.screen).toBe('exit');
+  });
+
+  it('MENU_REVIEW is a no-op (stub for future work)', () => {
+    const rng = makeRng();
+    const s0 = initialCreationState(rng);
+    const s1 = creationReducer(s0, { type: 'MENU_REVIEW' });
+    expect(s1.screen).toBe('characterMenu');
+  });
+
+  it('MENU_DELETE is a no-op (stub for future work)', () => {
+    const rng = makeRng();
+    const s0 = initialCreationState(rng);
+    const s1 = creationReducer(s0, { type: 'MENU_DELETE' });
+    expect(s1.screen).toBe('characterMenu');
+  });
+
+  it('MENU_RENAME is a no-op (stub for future work)', () => {
+    const rng = makeRng();
+    const s0 = initialCreationState(rng);
+    const s1 = creationReducer(s0, { type: 'MENU_RENAME' });
+    expect(s1.screen).toBe('characterMenu');
+  });
+
+  it('MENU_PORTRAIT is a no-op (stub for future work)', () => {
+    const rng = makeRng();
+    const s0 = initialCreationState(rng);
+    const s1 = creationReducer(s0, { type: 'MENU_PORTRAIT' });
+    expect(s1.screen).toBe('characterMenu');
+  });
+
+  it('exit is a terminal — no further transitions from exit', () => {
+    const rng = makeRng();
+    const s0 = initialCreationState(rng);
+    const exit = creationReducer(s0, { type: 'MENU_EXIT' });
+    expect(exit.screen).toBe('exit');
+    // Any further event stays on exit
+    const s1 = creationReducer(exit, { type: 'MENU_CREATE' });
+    expect(s1.screen).toBe('exit');
+  });
+
+  it('blankDraft export returns a fresh blank DraftState', () => {
+    const d = blankDraft();
+    expect(d.name).toBe('');
+    expect(d.race).toBeNull();
+    expect(d.class).toBeNull();
+    expect(d.bonusPool).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Return-to-menu after creation
+// ---------------------------------------------------------------------------
+
+describe('return-to-characterMenu after creation', () => {
+  it('full flow: CONFIRM{keep:true} → committing, COMMIT_DONE → characterMenu with blank draft', () => {
+    const rng = makeRng();
+    let s = startCreate(rng);
+    s = creationReducer(s, { type: 'SET_NAME', name: 'GROND' });
+    s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
+    s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
+    s = creationReducer(s, { type: 'PICK_CLASS', index: FIGHTER });
+    const pool = s.draft.bonusPool;
+    for (let i = 0; i < pool; i++) {
+      s = creationReducer(s, { type: 'ALLOC_ADJUST', attr: 0, delta: 1 });
+    }
+    s = creationReducer(s, { type: 'ALLOC_CONFIRM' });
+    s = creationReducer(s, { type: 'ACCEPT_PERSONALITY' });
+    s = creationReducer(s, { type: 'PICK_PORTRAIT', index: 0 });
+    if (s.screen === 'skillTrain') s = creationReducer(s, { type: 'SKILLS_DONE' });
+    if (s.screen === 'spellPick') s = creationReducer(s, { type: 'SPELLS_DONE' });
+
+    // confirm → committing
+    s = creationReducer(s, { type: 'CONFIRM', keep: true });
+    expect(s.screen).toBe('committing');
+
+    // Page does its I/O, then dispatches COMMIT_DONE → characterMenu
+    s = creationReducer(s, { type: 'COMMIT_DONE' });
+    expect(s.screen).toBe('characterMenu');
+    // Draft is reset to blank
+    expect(s.draft.name).toBe('');
+    expect(s.draft.race).toBeNull();
+    expect(s.draft.class).toBeNull();
+  });
+
+  it('CONFIRM{keep:false} (DISCARD) → returns directly to characterMenu with blank draft', () => {
+    const rng = makeRng();
+    let s = startCreate(rng);
+    s = creationReducer(s, { type: 'SET_NAME', name: 'TEMP' });
+    s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
+    s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
+    s = creationReducer(s, { type: 'PICK_CLASS', index: FIGHTER });
+    // Get to confirm via state injection to keep test short
+    const atConfirm: CreationState = { ...s, screen: 'confirm' };
+    const s1 = creationReducer(atConfirm, { type: 'CONFIRM', keep: false });
+    expect(s1.screen).toBe('characterMenu');
+    // Draft is reset
+    expect(s1.draft.name).toBe('');
+    expect(s1.draft.race).toBeNull();
+  });
+
+  it('CANCEL from any creation screen → returns to characterMenu with blank draft', () => {
+    const rng = makeRng();
+    let s = startCreate(rng);
+    s = creationReducer(s, { type: 'SET_NAME', name: 'TEMP' });
+    s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
+    expect(s.screen).toBe('sex');
+    const s1 = creationReducer(s, { type: 'CANCEL' });
+    expect(s1.screen).toBe('characterMenu');
+    // Draft is reset
+    expect(s1.draft.name).toBe('');
+    expect(s1.draft.race).toBeNull();
+  });
+
+  it('COMMIT_DONE on committing screen returns to characterMenu', () => {
+    const rng = makeRng();
+    const s0 = initialCreationState(rng);
+    const atCommitting: CreationState = { ...s0, screen: 'committing' };
+    const s1 = creationReducer(atCommitting, { type: 'COMMIT_DONE' });
+    expect(s1.screen).toBe('characterMenu');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// screen-00 → screen-02 (name → race)
+// ---------------------------------------------------------------------------
+
 describe('screen-00 → screen-02 (name → race)', () => {
   it('SET_NAME with non-empty name transitions to race', () => {
     const rng = makeRng();
-    const s0 = initialCreationState(rng);
+    const s0 = startCreate(rng);
     const s1 = creationReducer(s0, { type: 'SET_NAME', name: 'ALDRIC' });
     expect(s1.screen).toBe('race');
     expect(s1.draft.name).toBe('ALDRIC');
@@ -129,23 +300,23 @@ describe('screen-00 → screen-02 (name → race)', () => {
 
   it('SET_NAME with empty name does not transition', () => {
     const rng = makeRng();
-    const s0 = initialCreationState(rng);
+    const s0 = startCreate(rng);
     const s1 = creationReducer(s0, { type: 'SET_NAME', name: '' });
     expect(s1.screen).toBe('name');
   });
 
-  it('CANCEL on name screen transitions to cancelled', () => {
+  it('CANCEL on name screen returns to characterMenu', () => {
     const rng = makeRng();
-    const s0 = initialCreationState(rng);
+    const s0 = startCreate(rng);
     const s1 = creationReducer(s0, { type: 'CANCEL' });
-    expect(s1.screen).toBe('cancelled');
+    expect(s1.screen).toBe('characterMenu');
   });
 });
 
 describe('screen-02 → screen-03 (race → sex)', () => {
   it('PICK_RACE transitions to sex and seeds attributes from RACE_BASE_STATS', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: HUMAN });
     expect(s.screen).toBe('sex');
@@ -161,7 +332,7 @@ describe('screen-02 → screen-03 (race → sex)', () => {
 describe('screen-03 → screen-04 → screen-05 (sex → bonus-roll → class)', () => {
   it('PICK_SEX transitions through bonus-roll to class screen', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: HUMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -172,7 +343,7 @@ describe('screen-03 → screen-04 → screen-05 (sex → bonus-roll → class)',
 
   it('bonus pool is rolled when leaving sex screen (non-zero)', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: HUMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -183,7 +354,7 @@ describe('screen-03 → screen-04 → screen-05 (sex → bonus-roll → class)',
 
   it('PICK_SEX female stores correct index', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: HUMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: FEMALE });
@@ -239,7 +410,7 @@ describe('screen-05 → screen-06 (class → bonusAllocator)', () => {
 
   it('PICK_CLASS transitions to bonusAllocator for a qualifying class (Lizardman → Fighter)', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN }); // str=12, int=5, pie=5, vit=14, dex=8, spd=10, per=3
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -254,7 +425,7 @@ describe('screen-05 → screen-06 (class → bonusAllocator)', () => {
 describe('screen-06 → screen-07 → screen-08 (bonusAllocator → derived-stats → personality)', () => {
   it('ALLOC_CONFIRM when pool=0 transitions through derived-stats to personality', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -272,7 +443,7 @@ describe('screen-06 → screen-07 → screen-08 (bonusAllocator → derived-stat
 
   it('ALLOC_CONFIRM when pool>0 stays on bonusAllocator', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -285,7 +456,7 @@ describe('screen-06 → screen-07 → screen-08 (bonusAllocator → derived-stat
 
   it('derived-stats are populated after ALLOC_CONFIRM (non-interactive step fires)', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -307,7 +478,7 @@ describe('screen-06 → screen-07 → screen-08 (bonusAllocator → derived-stat
 
   it('ALLOC_ADJUST caps attribute at 18', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -321,7 +492,7 @@ describe('screen-06 → screen-07 → screen-08 (bonusAllocator → derived-stat
 
   it('ALLOC_ADJUST does not let attribute go below race floor', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -337,7 +508,7 @@ describe('screen-08 → screen-09 → screen-10 (personality → skill-init → 
   it('ACCEPT_PERSONALITY transitions through skill-init to portrait', () => {
     // Build to personality screen using Fighter (Lizardman)
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -356,7 +527,7 @@ describe('screen-08 → screen-09 → screen-10 (personality → skill-init → 
 
   it('karma is rolled after ACCEPT_PERSONALITY (in derived-stats block)', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -377,7 +548,7 @@ describe('screen-08 → screen-09 → screen-10 (personality → skill-init → 
 describe('screen-10 → screen-11 → screen-12 → conditional (portrait → starter-items → char-sheet → skill-train or spell-pick)', () => {
   it('PICK_PORTRAIT transitions through starter-items and char-sheet to next conditional screen', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -400,7 +571,7 @@ describe('screen-10 → screen-11 → screen-12 → conditional (portrait → st
 
   it('skill budget is rolled at ALLOC_CONFIRM time (before portrait)', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -421,7 +592,7 @@ describe('conditional skip: non-caster skips spellPick', () => {
   // Fighter (class 0) is a non-caster — classIsCaster(0) = false
   it('after skill training exhausted, non-caster goes directly to confirm (skips spellPick)', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -451,7 +622,7 @@ describe('conditional skip: zero skill budget skips skillTrain', () => {
   // Let's test the conditional differently: if skillBudget=0, we go straight to spellPick/confirm.
   it('when skillBudget is 0, screen-13 is skipped (transitions directly to spellPick or confirm)', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -478,7 +649,7 @@ describe('conditional skip: zero skill budget skips skillTrain', () => {
 describe('screen-13 → screen-14 or confirm (skill training)', () => {
   it('SKILLS_DONE transitions to spellPick (if caster) or confirm (if non-caster)', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -528,7 +699,7 @@ describe('screen-14 → screen-15 (spell picking → confirm)', () => {
   });
 });
 
-describe('screen-15 confirm → screen-16 save / cancelled', () => {
+describe('screen-15 confirm → screen-16 save / return-to-menu', () => {
   it('CONFIRM keep=true transitions to committing', () => {
     const rng = makeRng();
     const s0 = initialCreationState(rng);
@@ -537,38 +708,40 @@ describe('screen-15 confirm → screen-16 save / cancelled', () => {
     expect(s1.screen).toBe('committing');
   });
 
-  it('CONFIRM keep=false transitions to cancelled', () => {
+  it('CONFIRM keep=false transitions back to characterMenu (not cancelled)', () => {
     const rng = makeRng();
     const s0 = initialCreationState(rng);
     const s: CreationState = { ...s0, screen: 'confirm' };
     const s1 = creationReducer(s, { type: 'CONFIRM', keep: false });
-    expect(s1.screen).toBe('cancelled');
+    expect(s1.screen).toBe('characterMenu');
   });
 });
 
-describe('CANCEL at any screen transitions to cancelled', () => {
-  it('CANCEL on race screen transitions to cancelled', () => {
+describe('CANCEL at any screen returns to characterMenu', () => {
+  it('CANCEL on race screen returns to characterMenu', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     expect(s.screen).toBe('race');
     const s1 = creationReducer(s, { type: 'CANCEL' });
-    expect(s1.screen).toBe('cancelled');
+    expect(s1.screen).toBe('characterMenu');
   });
 
-  it('CANCEL on class screen transitions to cancelled', () => {
+  it('CANCEL on class screen returns to characterMenu', () => {
     const s = buildToClassScreen();
     const s1 = creationReducer(s, { type: 'CANCEL' });
-    expect(s1.screen).toBe('cancelled');
+    expect(s1.screen).toBe('characterMenu');
   });
 });
 
 describe('determinism test', () => {
   it('same seed + same event list produces identical final draft', () => {
     // Build a deterministic sequence through the full flow using Lizardman/Fighter
+    // Note: starts with MENU_CREATE to get to 'name' screen
     function runFullFlow(seed: [number, number, number]) {
       const rng = new WichmannHill(...seed);
       let s = initialCreationState(rng);
+      s = creationReducer(s, { type: 'MENU_CREATE' });   // characterMenu → name
       s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
       s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
       s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
@@ -608,7 +781,7 @@ describe('determinism test', () => {
 describe('TRAIN_SKILL event decrements skill budget', () => {
   it('TRAIN_SKILL decrements budget and increments skill slot', () => {
     const rng = makeRng();
-    let s = initialCreationState(rng);
+    let s = startCreate(rng);
     s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
     s = creationReducer(s, { type: 'PICK_RACE', index: LIZARDMAN });
     s = creationReducer(s, { type: 'PICK_SEX', index: MALE });

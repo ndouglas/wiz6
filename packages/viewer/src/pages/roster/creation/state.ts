@@ -21,7 +21,7 @@
  *  13 skill-train          — interactive (CONDITIONAL: only if skillBudget > 0)
  *  14 spell-pick           — interactive (CONDITIONAL: only if classIsCaster)
  *  15 confirm              — interactive (KEEP / DISCARD)
- *  16 save/committing      — non-interactive (commit; transitions to done)
+ *  16 save/committing      — non-interactive (commit; caller dispatches COMMIT_DONE when done)
  *
  * ## Non-interactive roll placement (per §1 transitions table):
  *  - bonus-roll  → fires when transitioning OUT of sex (entering class screen)
@@ -37,6 +37,19 @@
  *    (stored at DGROUP 0x5618) is checked at screen-13 entry.
  *  - starter-items → fires when transitioning OUT of portrait (no RNG modeled here)
  *  - char-sheet-redraw → fires immediately after starter-items (no RNG)
+ *
+ * ## Page contract for committing → COMMIT_DONE:
+ *  The reducer transitions to 'committing' on CONFIRM{keep:true}. The page is responsible
+ *  for calling buildCharacterFromDraft + addCharacter (I/O), then dispatching COMMIT_DONE
+ *  to signal completion. The reducer responds to COMMIT_DONE by resetting the draft and
+ *  returning to 'characterMenu' so the user can create another character.
+ *  The page should watch for 'exit' (from MENU_EXIT) and navigate to the castle/MASTER OPTIONS.
+ *
+ * NOTE for E5 (CreationPage redesign):
+ *  - 'cancelled' is no longer a navigate-away terminal (it returns to characterMenu).
+ *  - 'exit' is the only terminal that leaves to the castle (/castle or /roster equivalent).
+ *  - 'committing' signals page to do I/O; page dispatches COMMIT_DONE when done.
+ *  - 'done' is removed; COMMIT_DONE → characterMenu replaces the committing→done→navigate path.
  */
 
 import {
@@ -61,8 +74,16 @@ import {
  * starter-items, char-sheet-redraw) are collapsed into their adjacent interactive
  * transitions — the reducer fires their logic automatically and advances state.
  * They do not appear as resting ScreenIds.
+ *
+ * ## Flow entry and exit:
+ *  - 'characterMenu' is the ENTRY point. The user sees the character roster menu
+ *    with options: Create, Review, Delete, Rename, Portrait, Exit.
+ *  - 'exit' is the only TERMINAL that navigates away to the castle (MASTER OPTIONS).
+ *    The page watches for 'exit' and calls navigate('/castle') or equivalent.
+ *  - All other "done" paths return to 'characterMenu' (create another, discard, cancel).
  */
 export type ScreenId =
+  | 'characterMenu'  // entry: character roster menu (Create / Review / Delete / Rename / Portrait / Exit)
   | 'name'           // screen-00-pre-entry: name input
   | 'race'           // screen-02-race: pick race (11 options)
   | 'sex'            // screen-03-sex: pick MALE/FEMALE
@@ -73,9 +94,10 @@ export type ScreenId =
   | 'skillTrain'     // screen-13-skill-training (conditional: skillBudget > 0)
   | 'spellPick'      // screen-14-spell-picking (conditional: classIsCaster)
   | 'confirm'        // screen-15-confirm: KEEP or DISCARD
-  | 'committing'     // screen-16-save: write record (caller handles async I/O)
-  | 'done'           // after successful save
-  | 'cancelled';     // DISCARD or escape/empty-name exit
+  | 'committing'     // screen-16-save: page performs I/O then dispatches COMMIT_DONE
+  | 'cancelled'      // internal alias — folds back to characterMenu (not a navigate-away terminal)
+  | 'exit'           // terminal: leave to castle/MASTER OPTIONS (only 'exit' navigates away)
+  | 'done';          // kept for backward compat (CreationPage currently watches for this; E5 removes it)
 
 // ---------------------------------------------------------------------------
 // CreationState
@@ -130,20 +152,27 @@ export interface CreationState {
 // ---------------------------------------------------------------------------
 
 export type CreationEvent =
-  | { type: 'SET_NAME'; name: string }         // screen-00: confirm name (empty → no-op; non-empty → init+race)
-  | { type: 'PICK_RACE'; index: number }       // screen-02: choose race 0..10
-  | { type: 'PICK_SEX'; index: number }        // screen-03: choose sex 0..1
-  | { type: 'PICK_CLASS'; index: number }      // screen-05: choose class 0..13 (must be qualified)
+  | { type: 'MENU_CREATE' }                // characterMenu: begin new character creation (resets draft → name)
+  | { type: 'MENU_EXIT' }                  // characterMenu: leave to castle (→ exit terminal)
+  | { type: 'MENU_REVIEW' }               // characterMenu: review character (STUB — no-op, future work)
+  | { type: 'MENU_DELETE' }               // characterMenu: delete character (STUB — no-op, future work)
+  | { type: 'MENU_RENAME' }               // characterMenu: rename character (STUB — no-op, future work)
+  | { type: 'MENU_PORTRAIT' }             // characterMenu: change portrait (STUB — no-op, future work)
+  | { type: 'SET_NAME'; name: string }    // screen-00: confirm name (empty → no-op; non-empty → init+race)
+  | { type: 'PICK_RACE'; index: number }  // screen-02: choose race 0..10
+  | { type: 'PICK_SEX'; index: number }   // screen-03: choose sex 0..1
+  | { type: 'PICK_CLASS'; index: number } // screen-05: choose class 0..13 (must be qualified)
   | { type: 'ALLOC_ADJUST'; attr: number; delta: number }  // screen-06: +1 or -1 to attr 0..6
-  | { type: 'ALLOC_CONFIRM' }                  // screen-06: confirm allocation (only if pool==0)
-  | { type: 'ACCEPT_PERSONALITY' }             // screen-08: player accepts karma roll
-  | { type: 'PICK_PORTRAIT'; index: number }   // screen-10: confirm portrait 0..41
-  | { type: 'TRAIN_SKILL'; slot: number }      // screen-13: spend 1 skill point on slot
-  | { type: 'SKILLS_DONE' }                    // screen-13: player done (budget exhausted or explicit)
-  | { type: 'PICK_SPELL'; entry: number }      // screen-14: select a spell entry index
-  | { type: 'SPELLS_DONE' }                    // screen-14: player done with spell picks
-  | { type: 'CONFIRM'; keep: boolean }         // screen-15: KEEP (true) or DISCARD (false)
-  | { type: 'CANCEL' };                        // any screen: abandon creation
+  | { type: 'ALLOC_CONFIRM' }             // screen-06: confirm allocation (only if pool==0)
+  | { type: 'ACCEPT_PERSONALITY' }        // screen-08: player accepts karma roll
+  | { type: 'PICK_PORTRAIT'; index: number }  // screen-10: confirm portrait 0..41
+  | { type: 'TRAIN_SKILL'; slot: number } // screen-13: spend 1 skill point on slot
+  | { type: 'SKILLS_DONE' }              // screen-13: player done (budget exhausted or explicit)
+  | { type: 'PICK_SPELL'; entry: number } // screen-14: select a spell entry index
+  | { type: 'SPELLS_DONE' }             // screen-14: player done with spell picks
+  | { type: 'CONFIRM'; keep: boolean }   // screen-15: KEEP (true) or DISCARD (false)
+  | { type: 'COMMIT_DONE' }             // screen-16: page has finished I/O; return to characterMenu
+  | { type: 'CANCEL' };                  // any screen: abandon creation (return to characterMenu)
 
 // ---------------------------------------------------------------------------
 // initialCreationState
@@ -155,27 +184,40 @@ function zeroSkills(): number[] {
 }
 
 /**
+ * Returns a fresh blank DraftState. Used by MENU_CREATE and CANCEL to reset
+ * the draft when returning to the character menu.
+ *
+ * Exported so tests can verify the shape of a reset draft.
+ */
+export function blankDraft(): DraftState {
+  return {
+    name: '',
+    race: null,
+    sex: null,
+    class: null,
+    attributes: { str: 0, int: 0, pie: 0, vit: 0, dex: 0, spd: 0, per: 0, kar: 0 },
+    bonusPool: 0,
+    skillBudget: 0,
+    skills: zeroSkills(),
+    portrait: 0,
+    spellPicks: [],
+    derived: {},
+  };
+}
+
+/**
  * Create the initial creation state for a new character.
+ *
+ * Starts at 'characterMenu' — the entry point of the creation flow.
+ * The player must dispatch MENU_CREATE to begin character creation.
  *
  * @param rng  A WichmannHill instance (carried in state; will be advanced as rolls fire).
  */
 export function initialCreationState(rng: WichmannHill): CreationState {
   return {
-    screen: 'name',
+    screen: 'characterMenu',
     rng,
-    draft: {
-      name: '',
-      race: null,
-      sex: null,
-      class: null,
-      attributes: { str: 0, int: 0, pie: 0, vit: 0, dex: 0, spd: 0, per: 0, kar: 0 },
-      bonusPool: 0,
-      skillBudget: 0,
-      skills: zeroSkills(),
-      portrait: 0,
-      spellPicks: [],
-      derived: {},
-    },
+    draft: blankDraft(),
     cursor: 0,
     scratch: {},
   };
@@ -297,6 +339,21 @@ function screenAfterSkillTrain(state: CreationState): ScreenId {
   return 'confirm';
 }
 
+/**
+ * Return to characterMenu with a reset draft.
+ * Used by CANCEL, CONFIRM{keep:false}, and COMMIT_DONE.
+ * The RNG is NOT reset — it persists across creates so repeated creations keep advancing the RNG.
+ */
+function returnToMenu(state: CreationState): CreationState {
+  return {
+    ...state,
+    screen: 'characterMenu',
+    draft: blankDraft(),
+    cursor: 0,
+    scratch: {},
+  };
+}
+
 // ---------------------------------------------------------------------------
 // creationReducer
 // ---------------------------------------------------------------------------
@@ -310,14 +367,47 @@ function screenAfterSkillTrain(state: CreationState): ScreenId {
  * safe because: (a) the rng is owned by state, (b) the caller never snapshots
  * rng between events, (c) same seed + same event sequence always produces the
  * same result (determinism test in state.test.ts).
+ *
+ * ## Page contract (updated in Stage E):
+ *  - CANCEL / CONFIRM{keep:false}: returns to 'characterMenu' (draft reset, no navigate).
+ *  - CONFIRM{keep:true}: goes to 'committing'. Page does I/O, then dispatches COMMIT_DONE.
+ *  - COMMIT_DONE: returns to 'characterMenu' (draft reset, no navigate).
+ *  - MENU_EXIT: goes to 'exit'. Page watches for 'exit' and navigates to castle.
+ *  - 'cancelled' and 'done' are retained in ScreenId for backward compat but are NOT
+ *    resting states anymore — 'cancelled' is an alias handled as return-to-menu.
  */
 export function creationReducer(state: CreationState, event: CreationEvent): CreationState {
-  // Global: CANCEL terminates from any screen
+  // Global: CANCEL returns to characterMenu from any non-terminal screen
   if (event.type === 'CANCEL') {
-    return { ...state, screen: 'cancelled' };
+    // From exit terminal, CANCEL has no effect (already exited)
+    if (state.screen === 'exit') return state;
+    return returnToMenu(state);
   }
 
   switch (state.screen) {
+    // -----------------------------------------------------------------------
+    case 'characterMenu': {
+      if (event.type === 'MENU_CREATE') {
+        // Reset draft to blank, advance to name screen
+        // RNG is NOT reset — it persists across creates
+        return { ...returnToMenu(state), screen: 'name' };
+      }
+      if (event.type === 'MENU_EXIT') {
+        return { ...state, screen: 'exit' };
+      }
+      // Stubs for future work — no-op, stay on characterMenu
+      // MENU_REVIEW, MENU_DELETE, MENU_RENAME, MENU_PORTRAIT: to be implemented in later tasks
+      if (
+        event.type === 'MENU_REVIEW' ||
+        event.type === 'MENU_DELETE' ||
+        event.type === 'MENU_RENAME' ||
+        event.type === 'MENU_PORTRAIT'
+      ) {
+        return state;
+      }
+      return state;
+    }
+
     // -----------------------------------------------------------------------
     case 'name': {
       if (event.type === 'SET_NAME') {
@@ -549,11 +639,11 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
     case 'confirm': {
       if (event.type === 'CONFIRM') {
         if (event.keep) {
-          // KEEP → committing (caller handles actual disk write)
+          // KEEP → committing (page handles actual disk write, then dispatches COMMIT_DONE)
           return { ...state, screen: 'committing' };
         } else {
-          // DISCARD → cancelled
-          return { ...state, screen: 'cancelled' };
+          // DISCARD → reset draft, return to characterMenu (not a navigate-away terminal)
+          return returnToMenu(state);
         }
       }
       return state;
@@ -561,16 +651,28 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
 
     // -----------------------------------------------------------------------
     case 'committing': {
-      // Caller drives this screen (async I/O). The reducer exposes 'done' as the
-      // terminal success state; 'committing' → 'done' transition is caller-initiated.
-      // No events handled here by the reducer itself.
+      // Page drives this screen (async I/O). When the page finishes persisting
+      // the character it dispatches COMMIT_DONE, which resets the draft and
+      // returns to characterMenu so the user can create another.
+      if (event.type === 'COMMIT_DONE') {
+        return returnToMenu(state);
+      }
+      return state;
+    }
+
+    // -----------------------------------------------------------------------
+    case 'exit': {
+      // Terminal state — no further transitions.
+      // The page watches for 'exit' and calls navigate('/castle') or equivalent.
       return state;
     }
 
     // -----------------------------------------------------------------------
     case 'done':
     case 'cancelled': {
-      // Terminal states — no further transitions
+      // These are no longer resting states in Stage E — they fold back to
+      // characterMenu immediately via returnToMenu in the global CANCEL handler.
+      // But if we somehow land here (e.g. old saved state), stay put.
       return state;
     }
 

@@ -121,14 +121,41 @@ const TEST_SEED = 0; // maps to static boot triple (3000, 1, 29999)
 
 // ---------------------------------------------------------------------------
 // Helper: mount CreationPage with disk loaders in a MemoryRouter
+//
+// NOTE (Stage E): initialCreationState now starts at 'characterMenu'. For
+// integration tests that need to drive the full creation flow from 'name',
+// we pass a _testInitialState that starts at 'name' via MENU_CREATE semantics.
+// This avoids needing to drive through characterMenu keydowns in tests that
+// predate the characterMenu feature.
 // ---------------------------------------------------------------------------
+
+function makeNameScreenState(seed = TEST_SEED): CreationState {
+  // Construct a state at the 'name' screen (as if MENU_CREATE was just dispatched).
+  // This is the same as what MENU_CREATE produces: blank draft + screen='name'.
+  const rng = seed === 0
+    ? new WichmannHill(3000, 1, 29999)
+    : new WichmannHill(
+        (Math.abs(seed) % 30268) + 1,
+        (Math.abs(seed + 7919) % 30306) + 1,
+        (Math.abs(seed + 15731) % 30322) + 1,
+      );
+  const base = initialCreationState(rng);
+  return {
+    ...base,
+    screen: 'name' as const,
+  };
+}
 
 function mountCreationPage(seed = TEST_SEED) {
   return render(
     <MemoryRouter initialEntries={['/roster/new']}>
       <Routes>
         <Route path="/roster/new" element={
-          <CreationPage seed={seed} loaders={DISK_LOADERS} />
+          <CreationPage
+            seed={seed}
+            loaders={DISK_LOADERS}
+            _testInitialState={makeNameScreenState(seed)}
+          />
         } />
         <Route path="/roster" element={<div data-testid="roster-page">ROSTER</div>} />
       </Routes>
@@ -288,8 +315,11 @@ describe('CreationPage — Fighter happy-path (Lizardman)', () => {
 // + navigate to /roster.
 
 describe('CreationPage — Cancel path', () => {
-  it('navigates to /roster without calling addCharacter on DISCARD', async () => {
+  it('does NOT call addCharacter on DISCARD (returns to characterMenu, roster stays empty)', async () => {
     // Build a pre-populated state at the 'confirm' screen.
+    // NOTE (Stage E): CONFIRM{keep:false} now returns to 'characterMenu' instead of
+    // navigating to /roster. The page stays mounted — only MENU_EXIT triggers navigation.
+    // This test verifies that addCharacter is NOT called on DISCARD.
     const rng = new WichmannHill(3000, 1, 29999);
     const baseState = initialCreationState(rng);
     const confirmState: CreationState = {
@@ -341,16 +371,17 @@ describe('CreationPage — Cancel path', () => {
     fireEvent.keyDown(window, { key: 'ArrowDown' });
     fireEvent.keyDown(window, { key: 'Enter' });
 
-    // After DISCARD: CreationPage navigates to /roster.
+    // After DISCARD: reducer returns to 'characterMenu' (no navigation — E5 wires that).
+    // Verify addCharacter was NOT called — roster remains empty.
     await waitFor(
       () => {
-        const rosterPage = document.querySelector('[data-testid="roster-page-cancel"]');
-        expect(rosterPage).toBeTruthy();
+        // Give React a moment to process the state update
+        const roster = readRoster();
+        expect(roster.characters.length).toBe(0);
       },
-      { timeout: 3000 },
+      { timeout: 1000 },
     );
 
-    // addCharacter was NOT called — roster remains empty
     const roster = readRoster();
     expect(roster.characters.length).toBe(0);
   }, 10000);
@@ -459,7 +490,11 @@ describe('buildCharacterFromDraft via CreationPage', () => {
       <MemoryRouter initialEntries={['/roster/new']}>
         <Routes>
           <Route path="/roster/new" element={
-            <CreationPage seed={TEST_SEED} loaders={DISK_LOADERS} />
+            <CreationPage
+              seed={TEST_SEED}
+              loaders={DISK_LOADERS}
+              _testInitialState={makeNameScreenState(TEST_SEED)}
+            />
           } />
           <Route path="/roster" element={<div data-testid="roster-build">ROSTER</div>} />
         </Routes>
