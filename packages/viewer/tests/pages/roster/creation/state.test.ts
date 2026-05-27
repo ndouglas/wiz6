@@ -10,7 +10,7 @@ import {
   creationReducer,
   blankDraft,
 } from '../../../../src/pages/roster/creation/state.js';
-import type { CreationState, CreationEvent } from '../../../../src/pages/roster/creation/state.js';
+import type { CreationState } from '../../../../src/pages/roster/creation/state.js';
 
 // Deterministic seed per §12: static boot triple (stream1=3000, stream2=1, stream3=29999)
 function makeRng() {
@@ -30,11 +30,6 @@ const FIGHTER = 0;
 const HUMAN = 0;
 const MALE = 0;
 const FEMALE = 1;
-
-// Helper: advance state through a series of events
-function advance(state: CreationState, events: CreationEvent[]): CreationState {
-  return events.reduce((s, e) => creationReducer(s, e), state);
-}
 
 // Helper: start at 'name' screen (characterMenu → MENU_CREATE → name)
 function startCreate(rng: WichmannHill): CreationState {
@@ -95,40 +90,6 @@ function buildToClassScreen(): CreationState {
   s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
   // bonus-roll fires non-interactively → should advance to 'class'
   expect(s.screen).toBe('class');
-
-  return s;
-}
-
-// Build state fully allocated for bonus + class selected + to personality screen
-function buildToPersonalityScreen(classIdx = FIGHTER): CreationState {
-  let s = buildToClassScreen();
-
-  // Allocate all bonus points to STR first to meet Fighter's str=12 requirement
-  // Human starts at str=9, needs 3 more for Fighter.
-  // For Mage, needs int=12, Human int=8 → needs 4 more.
-  // We'll use ALLOC_ADJUST with delta=+1 until pool=0.
-  // The attr index: str=0, int=1, ..., per=6 (KAR not adjustable).
-
-  // First select the class so we know we're working with valid state.
-  // But we can only pick a class if attrs qualify. With Human base stats + bonus pool,
-  // we need to distribute enough to qualify.
-  // Let's just drain the pool into attr 0 (STR).
-  // The bonus pool is in s.draft.bonusPool after the bonus roll.
-  const pool = s.draft.bonusPool;
-  // For Fighter: need str=12, Human base str=9 → need 3 more
-  // Allocate 3 to STR (attr 0)
-  for (let i = 0; i < 3; i++) {
-    s = creationReducer(s, { type: 'ALLOC_ADJUST', attr: 0, delta: 1 });
-  }
-  // Now drain remaining pool into int (attr 1) or wherever — just need pool=0
-  const remaining = s.draft.bonusPool;
-  for (let i = 0; i < remaining; i++) {
-    s = creationReducer(s, { type: 'ALLOC_ADJUST', attr: 1, delta: 1 });
-  }
-
-  // Confirm allocation
-  s = creationReducer(s, { type: 'ALLOC_CONFIRM' });
-  expect(s.screen).toBe('personality');
 
   return s;
 }
@@ -398,7 +359,7 @@ describe('screen-03 → screen-04 → screen-05 (sex → bonus-roll → class)',
 
 describe('screen-05 → screen-06 (class → bonusAllocator)', () => {
   it('PICK_CLASS with a qualified class transitions to bonusAllocator', () => {
-    let s = buildToClassScreen();
+    const s = buildToClassScreen();
     // Human str=9 qualifies for nothing initially; need bonus to reach Fighter's str=12.
     // However the transition to bonusAllocator happens regardless — the class is just stored.
     // But per §1: class picker is "qualification-gated" (disqualified classes not selectable).

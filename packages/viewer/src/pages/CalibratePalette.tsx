@@ -235,7 +235,7 @@ export function CalibratePalette() {
 
   // Build an index map (one palette-index per pixel; -1 = transparent/skipped)
   // and the set of used indices in one pass.
-  const { indexMap, usedIndices, mapW, mapH } = useMemo(() => {
+  const { indexMap, usedIndices, mapW } = useMemo(() => {
     if (!data) return { indexMap: null, usedIndices: new Set<number>(), mapW: 0, mapH: 0 };
     const d = data.descriptors[Math.min(descIdx, data.descriptors.length - 1)];
     if (!d) return { indexMap: null, usedIndices: new Set<number>(), mapW: 0, mapH: 0 };

@@ -61,7 +61,6 @@ export interface PortraitPickerScreenProps {
  * On Enter, dispatches PICK_PORTRAIT { index } to the reducer.
  */
 export function PortraitPickerScreen({
-  state,
   dispatch,
   fontSet,
   palette,

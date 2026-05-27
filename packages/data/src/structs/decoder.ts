@@ -151,7 +151,7 @@ export function sizeOfType(type: BssFieldType, registry?: ReadonlyMap<string, Bs
         case 'i32_le':
           return 4;
       }
-    // eslint-disable-next-line no-fallthrough
+    // intentional fallthrough: an unmatched scalar uses the default size below
     case 'string':
       return type.length;
     case 'bytes':

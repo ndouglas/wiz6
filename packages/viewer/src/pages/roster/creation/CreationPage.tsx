@@ -162,7 +162,7 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
   // useMemo ensures the RNG is only created once even if the component
   // re-renders due to parent state changes. The seed prop is intentionally
   // not in the dependency array — changing seed after mount has no effect.
-  const rng = useMemo(() => seedToRng(seed), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const rng = useMemo(() => seedToRng(seed), []);
 
   const [state, dispatch] = useReducer(creationReducer, undefined, () =>
     _testInitialState ??
@@ -205,7 +205,7 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
     return () => {
       cancelled = true;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // -------------------------------------------------------------------------
   // Terminal state handlers
@@ -235,7 +235,7 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
     if (state.screen === 'exit') {
       navigate('/castle');
     }
-  }, [state.screen, state.draft, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.screen, state.draft, navigate]);
 
   // -------------------------------------------------------------------------
   // Loading state

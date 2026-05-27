@@ -20,7 +20,7 @@
 // DIFFERS from the same window with that row NOT highlighted.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { describe, expect, it } from 'vitest';

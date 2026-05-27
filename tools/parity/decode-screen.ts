@@ -71,7 +71,7 @@
  *   SCREEN_WIDTH, SCREEN_HEIGHT, WIZ6_MAIN_AC, COMPOSED_PALETTE
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readVgaBlob } from '../../packages/mcp/src/vga-palette.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
@@ -293,7 +293,6 @@ function computeStats(rgba: Uint8Array): {
 // ─── CLI (only runs when executed directly, not when imported) ────────────────
 
 import { fileURLToPath as _fileURLToPath } from 'node:url';
-import { dirname as _dirname } from 'node:path';
 
 const _isMain = process.argv[1] === _fileURLToPath(import.meta.url) ||
   process.argv[1]?.endsWith('decode-screen.ts') ||

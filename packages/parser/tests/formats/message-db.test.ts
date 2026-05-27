@@ -200,7 +200,6 @@ describe('integration: real msg.dbs (original game data)', () => {
     // original/ files not present; skip
     it.skip('original game files not present — skipping integration tests', () => {});
     // biome-ignore lint/correctness/noConstantCondition: early exit pattern
-    // eslint-disable-next-line no-constant-condition
     if (true) return;  // stop evaluating the rest of the describe block
   }
 

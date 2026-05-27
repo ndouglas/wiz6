@@ -244,7 +244,6 @@ export function initialCreationState(
 
 /** Attribute slot 0..6 index → key in DraftState.attributes. KAR (index 7) is NOT allocatable. */
 const ATTR_KEYS = ['str', 'int', 'pie', 'vit', 'dex', 'spd', 'per'] as const;
-type AllocAttrKey = typeof ATTR_KEYS[number];
 
 /** Race floor for a given attribute after a race was selected. */
 function raceFlorFor(state: CreationState, attrIdx: number): number {

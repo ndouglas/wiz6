@@ -1,5 +1,3 @@
-import type { WichmannHill } from '../rng/wichmann-hill.js';
-
 /**
  * Derived stats computed at character creation by `age_encumbrance_and_hp_roll`
  * (wpcmk.ovr file 0x4589) and written to the character staging buffer at

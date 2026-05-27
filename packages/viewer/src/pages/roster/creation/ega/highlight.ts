@@ -23,7 +23,7 @@
  *   - docs/re/findings/wfont-highlight-render.json
  */
 
-import { puts, setCursor, type TileWindow } from '@wiz6/parser';
+import { puts, type TileWindow } from '@wiz6/parser';
 
 // ---------------------------------------------------------------------------
 // highlightAttr — pure encoding helper

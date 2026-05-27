@@ -40,6 +40,8 @@
  * The +1 flag adds a small bias toward higher karma for engaged players.
  */
 
+import type { Rng } from './derived-stats.js';
+
 /**
  * Karma roll parameters decoded from wpcmk.ovr 0x3837.
  *
@@ -82,7 +84,7 @@ export function rollKarma(
  * @returns Karma value in 0..18 (or 1..19 if personalityConfirmed).
  */
 export function rollKarmaWith(
-  rng: any, // WichmannHill, but avoid circular import
+  rng: Rng,
   personalityConfirmed = false,
 ): number {
   const base = rng.uniform(KARMA_ROLL.base_range); // uniform 0..18

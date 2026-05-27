@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   computeDerivedStats,
   CLASS_ENCUMBRANCE_FORMULAS,
-  DERIVED_STATS_FAERIE_RACE,
   type DerivedStats,
 } from '../../src/character-creation/derived-stats.js';
 
@@ -20,11 +19,6 @@ function makeFixedRng(fixedValue: number) {
 /** Stats that produce predictable values without any bonus thresholds. */
 const PLAIN_ATTRS = {
   str: 10, int: 10, pie: 10, vit: 10, dex: 10, spd: 10, per: 10, kar: 0,
-};
-
-/** High-STR attrs that trigger both STR bonus thresholds (16, 18). */
-const HIGH_STR_ATTRS = {
-  str: 18, int: 10, pie: 10, vit: 10, dex: 10, spd: 10, per: 10, kar: 0,
 };
 
 /** High-VIT attrs that trigger both VIT bonus thresholds (16, 18). */

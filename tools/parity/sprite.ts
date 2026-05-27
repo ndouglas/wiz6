@@ -26,7 +26,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Font, Font4bpp, Palette, Pic, PicDescriptor } from '../../packages/data/src/index.js';
+import type { Font, Font4bpp, Palette, PicDescriptor } from '../../packages/data/src/index.js';
 import { FontSchema, Font4bppSchema, WIZ6_MAIN } from '../../packages/data/src/index.js';
 import { renderTextRun4bpp } from '../../packages/parser/src/formats/wfont-4bpp-render.js';
 import { renderTextRun } from '../../packages/parser/src/formats/wfont-render.js';

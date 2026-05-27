@@ -152,7 +152,6 @@ export function DocsPage() {
           <div
             className={styles.markdown}
             // The docs are committed in our own repo; we control the input.
-            // eslint-disable-next-line react/no-danger
             dangerouslySetInnerHTML={{ __html: html }}
           />
         )}

@@ -16,8 +16,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FontSchema, Font4bppSchema, WIZ6_MAIN } from '../../packages/data/src/index.js';
-import type { Font, Font4bpp } from '../../packages/data/src/index.js';
+import { Font4bppSchema, WIZ6_MAIN } from '../../packages/data/src/index.js';
+import type { Font4bpp } from '../../packages/data/src/index.js';
 import { readVgaBlob } from '../../packages/mcp/src/vga-palette.js';
 import {
   renderFontGlyph,
@@ -53,11 +53,6 @@ const EXTRACTED_FONTS = join(MAIN_ROOT, 'extracted', 'fonts');
 function loadFont4bpp(name: string): Font4bpp {
   const json: unknown = JSON.parse(readFileSync(join(EXTRACTED_FONTS, `${name}.json`), 'utf-8'));
   return Font4bppSchema.parse(json);
-}
-
-function loadFont(name: string): Font {
-  const json: unknown = JSON.parse(readFileSync(join(EXTRACTED_FONTS, `${name}.json`), 'utf-8'));
-  return FontSchema.parse(json);
 }
 
 // ─── Engine screen decoder (inline — same logic as decode-screen.ts) ─────────

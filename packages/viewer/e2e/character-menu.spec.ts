@@ -76,7 +76,7 @@ test('character menu renders framed EGA chrome + 6 options', async ({ page }) =>
   let blackCount    = 0;
   let lightGrayCount = 0;
   let darkGrayCount  = 0;
-  let distinctColors = new Set<number>();
+  const distinctColors = new Set<number>();
 
   for (let i = 0; i < cap.rgba.length; i += 4) {
     const r = cap.rgba[i]!;
