@@ -199,6 +199,26 @@ Three additional windows opened transiently:
 
 Source: `docs/re/findings/wpcmk-window-layouts.json`
 
+### Window chrome (black fill + gray frame) — tile codes
+
+A window's black interior + gray double-line frame is drawn entirely from **wfont1** (attr `0x01`), NOT a struct-level border. `ui_setup_creation_windows` (wpcmk 0x5093) clears each window to `(char 0x00, attr 0x01)` then `FUN_06af` writes the frame chars cell-by-cell (only the char byte; attr stays 0x01 from the fill).
+
+| Piece | char | font/attr |
+|-------|-----:|-----------|
+| black-fill interior | `0x00` | wfont1, attr `0x01` (solid black 8×8) |
+| top-left corner | `0x01` | wfont1, `0x01` |
+| horizontal edge (top/bottom) | `0x02` / `0x07` | wfont1, `0x01` |
+| top-right corner | `0x03` | wfont1, `0x01` |
+| left / right vertical edge | `0x04` / `0x05` | wfont1, `0x01` |
+| bottom-left / bottom-right corner | `0x06` / `0x08` | wfont1, `0x01` |
+| double-line separators (interior) | `0x0c` (horiz) / `0x0d` (vert) | wfont1, `0x01` |
+
+Frame line = palette color 9 (RGB 170,170,170, light gray); fill = color 0 (black); screen bg = attr 8 (dim gray). Verified via live save-1 cell dump (phys 0x1f47e), ndisasm of `FUN_06af`, and wfont1 glyph renders. **Text content** drawn into a window (e.g. "CHARACTER NAME >") uses its own attr (e.g. wfont3 = attr 0x13) via `puts`, layered over the chrome.
+
+**Port note:** Stage-B `createPersistentWindows` wrongly filled with `(0x20, 0x14)` → wfont4 glyph 0x20 = a graphic tile ("ring sprites"). Correct: fill `(0x00, 0x01)` + frame chars `0x01–0x08` from wfont1.
+
+Source: `docs/re/findings/wpcmk-window-chrome.json`
+
 ## 3. msg.dbs string IDs per screen
 
 wpcmk holds no string literals (except 4 filenames). All on-screen text comes via `ui_window_write_msg_by_id` (thunk wpcmk `0xc2db` → wroot image `0x083f`) and `load_msg_into_buf` (thunk `0xc1f7`), each taking a msg.dbs ID. 30 + 16 call sites resolve to **56 strings**. Calling convention: `push col_or_attr; push window_handle; push msg_id; call thunk` (cdecl, 6-byte cleanup).
