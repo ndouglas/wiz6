@@ -1,0 +1,123 @@
+{
+  "topic": "wpcmk-charsheet-fields",
+  "subagent_run": "2026-05-27",
+  "binaries": ["wpcmk.ovr", "wroot.exe"],
+  "summary": "Resolved the routines that fill the character-sheet CONTENT (values + dynamic labels) inside the top window *0x546e during creation, and the value source + position + attr + formatting of every content cell. CONTENT IS DRAWN BY THREE COOPERATING wpcmk FUNCTIONS, not one: (1) ui_redraw_character_sheet (wpcmk 0x0df7) draws the dynamic LABELS (LVL/RNK/EXP/MKS) + name + class/rank title + the 6 icon glyphs (chars 0x23-0x28) + the 6 bottom-grid 'cur/max' pairs + (via ui_print_six_attribute_labels 0x0b6d) the 6 bottom-grid number pairs; (2) ui_render_stat_panel (wpcmk 0x2b04) draws the 8 attribute label+value rows (STR..KAR), the BONUS row, and the HP / STM / ENCUMBRANCE 'cur/max' triplet; (3) ui_print_character_header (wpcmk 0x0d52) draws the row-1 header: name + sex glyph + '-' + race name + class name. CALL SITES (in wpcmk_create_character_master 0x4e47): after memset(record 0x5470,432,0)+strcpy(name) it calls ui_print_screen_title, then ui_redraw_character_sheet (file 0x4e72), then ui_render_stat_panel (file 0x4e7b), THEN wpcmk_pick_race_menu (file 0x4e7e). The race picker (0x308d) internally re-runs ui_print_character_header(race name) + ui_render_stat_panel after writing *0x560d=race. A SECOND ui_redraw_character_sheet runs after the portrait picker (master file ~0x4f..). The NAME screen (screen-00, wpcmk_create_via_empty_slot 0x50f2) runs BEFORE the master and only writes the bottom-bar window *0x56ca — it never calls any of these three functions, which is exactly why the top is the bare frame on screen-00 and content appears from screen-01/02 onward. KEY MECHANISM FACTS (all from wroot decompiles): set_cursor(win,x,y) sets col=x,row=y; the cell-write primitives encode the cell ATTR BYTE as (attrParam << 4) — i.e. the attr arg you pass IS the high nibble (background color index) and the low nibble is always 0 (the 'highlight/1bpp render path' the parent observed). Numbers are printed by FUN_0507(win, val_lo, val_hi, fieldWidth, attrParam): it formats the decimal string then RIGHT-ALIGNS it in fieldWidth cells (pads leading spaces, prints trailing fieldWidth chars), advancing the cursor; so values occupy [cursorX .. cursorX+fieldWidth-1] right-justified. Verified against save/1.sav (which is actually the PROFESSION/class-select screen, NOT race-select: it shows real STR=9 INT=8 PIE=8 VIT=9 DEX=9 SPD=8 PER=8 KAR=0 read live from DGROUP 0x559c, BONUS=6 from 0x56ac) and against the all-zero race-select.json fixture.",
+  "method": "Decompiled wpcmk 0x0df7 (ui_redraw_character_sheet), 0x0b6d (ui_print_six_attribute_labels), 0x2b04 (ui_render_stat_panel), 0x0d52 (ui_print_character_header), 0x308d (wpcmk_pick_race_menu) and the master 0x4e47 via a corrected PyGhidra shim (tools/ghidra/scripts/decompile.py — uses open_project+program_context for pyghidra 3.x; the old dump_function.py's open_program(gpr,'/bin') is broken). Decompiled the wroot UI primitives at their image offsets (Ghidra segmented addr 1000:offset): set_cursor 0x030b, FUN_22b7 single-cell-write 0x22b7, FUN_24e9 write_chars 0x24e9, FUN_05a5 print_signed 0x05a5 -> FUN_0507 number/right-align printer 0x0507. Cross-checked every (col,row,attr,value) against the live save-1 cell dump (tools/parity/dump-cells.py) which renders ASCII art of windows top/bottomBar/menuPanel, and against the all-zero race-select.json fixture. Read DGROUP caches live from save 1 (dgroup_base=0x18048): 0x559c attr array=09 08 08 09 09 08 08 00, 0x56ac bonus=06 00, per-row attr table at wroot DGROUP 0x0004 = words [0,5,4,2,3,6,7,5]. Label msg IDs confirmed via wpcmk-msg-strings.json: 0xc8=LVL 0xc9=RNK 0xca=EXP 0xcb=MKS 0xcc..0xd3=STR/INT/PIE/VIT/DEX/SPD/PER/KAR 0xd4=HP 0xd5=STM.",
+
+  "primitives": {
+    "ui_window_set_cursor": {"thunk": "0xbda7", "wroot_image": "0x030b", "sig": "set_cursor(win, x_col, y_row)", "note": "win->[6]=x%width, win->[7]=y%height. A few call sites post-increment win->[6] by 1 to leave a 1-cell gap after a label before printing its value."},
+    "ui_put_cell_styled": {"thunk": "0xdd53", "wroot_image": "0x22b7", "sig": "putcell(win, char, attrParam)", "note": "Writes ONE cell at cursor = {attr: attrParam<<4, char}, then advances cursor by 1. attrParam is the HIGH NIBBLE of the cell attr; low nibble always 0. This is the ONLY way the attr byte's high nibble (=background color index in the parent's scheme) is set."},
+    "ui_window_write_chars": {"thunk": "0xdf85", "wroot_image": "0x24e9", "sig": "write_chars(win, asciiz_ptr, attrParam)", "note": "Calls putcell for each non-NUL char; same attr=attrParam<<4 rule. Empty string writes nothing (leaves prior cell contents)."},
+    "ui_print_number": {"thunk": "0xc041", "wroot_image": "0x05a5", "sig": "print_number(win, value, fieldWidth, attrParam)", "note": "Wrapper that sign-extends value to 32-bit then calls FUN_0507(win, lo, hi, fieldWidth, attrParam)."},
+    "ui_print_curmax_or_number": {"thunk": "0xbfa3", "wroot_image": "0x0507", "sig": "FUN_0507(win, val_lo, val_hi, fieldWidth, attrParam)", "note": "Formats decimal string of the 32-bit value, then prints (fieldWidth - len) leading SPACES (attr=attrParam<<4) and the trailing fieldWidth chars of the string => RIGHT-ALIGNED in fieldWidth cells starting at current cursorX. Advances cursor by fieldWidth. The 'cur/max' pairs are NOT one call: code prints the cur number (width), then a literal '/' via putcell, then the max number (width)."},
+    "load_msg_into_buf": {"thunk": "0xc1f7", "wroot_image": "0x075b", "sig": "load_msg(msg_id, dest_buf)"},
+    "ui_write_msg_by_id": {"thunk": "0xc2db", "wroot_image": "0x083f", "sig": "write_msg(msg_id, win, attrParam)"},
+    "ui_print_msg_at_xy": {"wpcmk": "0x0a99", "sig": "(win, x, y, asciiz_ptr, attrParam) => set_cursor(win,x,y); write_chars(win,ptr,attr)"},
+    "ui_load_and_print_msg_at_xy": {"wpcmk": "0x0abe", "sig": "(msg_id, win, x, y, attrParam) => load_msg(msg_id,buf); set_cursor(win,x,y); write_chars(win,buf,attr)"},
+    "ui_putchar_at_style2": {"wpcmk": "0x0b1b", "sig": "(win, x, y, char) => set_cursor(win,x,y); ui_window_putchar(win,char, attr=2)", "note": "attr=2 => cell attr 0x02 => wfont2 (the icon font) — the 6 stat-grid icon glyphs."}
+  },
+
+  "draw_routines": [
+    {
+      "id": "ui_redraw_character_sheet",
+      "address": {"space": "wpcmk.ovr", "offset": "0x0df7"},
+      "called_from": [
+        {"space": "wpcmk.ovr", "offset": "0x4e72", "context": "wpcmk_create_character_master, screen-01 init (right after name strcpy)"},
+        {"space": "wpcmk.ovr", "offset": "~0x4f.. (master, after portrait picker)", "context": "screen-12 char-sheet redraw"}
+      ],
+      "confidence": "high",
+      "evidence": "Full raw disasm transcribed below (operations list). Verified byte-for-byte against the save-1 cell dump and race-select.json positions/attrs."
+    },
+    {
+      "id": "ui_render_stat_panel",
+      "address": {"space": "wpcmk.ovr", "offset": "0x2b04"},
+      "called_from": [
+        {"space": "wpcmk.ovr", "offset": "0x4e7b", "context": "master, initial"},
+        {"space": "wpcmk.ovr", "offset": "0x31a2", "context": "end of wpcmk_pick_race_menu (after *0x560d=race + racial-min stat bump)"},
+        {"context": "after sex/class/bonus/derived screens (master file 0x4e.. / picker tails)"}
+      ],
+      "confidence": "high",
+      "evidence": "Raw disasm 0x2b04..0x2c7a. Loop i=0..7 prints msg(0xcc+i) label at (1,5+i) attr5, then value *(0x559c+i) width2 attr1; then BONUS, HP, STM, ENC. Live save-1 read of 0x559c = 09 08 08 09 09 08 08 00 == on-screen STR9/INT8/PIE8/VIT9/DEX9/SPD8/PER8/KAR0; *0x56ac=6 == on-screen BONUS 6."
+    },
+    {
+      "id": "ui_print_character_header",
+      "address": {"space": "wpcmk.ovr", "offset": "0x0d52"},
+      "called_from": [
+        {"space": "wpcmk.ovr", "offset": "0x3195", "context": "wpcmk_pick_race_menu draws race name into header"},
+        {"context": "also re-run by sex/class pickers to refresh sex glyph + class name"}
+      ],
+      "confidence": "high",
+      "evidence": "Decompile: write_chars(name@0x5470) at (4,1) attr5; set_cursor(0xd,1); putcell(sex glyph = msg 0x8c+*0x560e); putcell('-'=0x2d); write_msg_with_byte(race name = msg 0x64+*0x560d); load_and_print(class name = msg 0x78+*0x560f) at (2,?) — builds the 'M-HUMAN'/'PROFESSION' row-1 header."
+    }
+  ],
+
+  "field_table": [
+    {"cell": "(4,1)", "kind": "value", "content": "character NAME", "attrParam": 5, "cellAttr": "0x50", "source": "ASCIIZ name at DGROUP 0x5470 (record offset +0x00). draft.name", "format": "left-aligned, written char-by-char from cursor (4,1). Empty name writes NOTHING (cell keeps prior frame content). race-select.json shows residual 'P'(0x50) here only because nothing overwrote it.", "drawn_by": "ui_redraw_character_sheet 0x0df7 @e02 AND ui_print_character_header 0x0d52", "confidence": "high"},
+
+    {"cell": "(13,1)..", "kind": "value", "content": "sex glyph + '-' + RACE name", "attrParam": "1 (sex glyph/'-'), then race-name attr", "cellAttr": "varies", "source": "sex glyph = msg 0x8c + *0x560e (alignment cache? see note); race name = msg 0x64 + *0x560d (race). draft.race / draft.sex", "format": "set_cursor(0xd,1); putcell(sexGlyph); putcell('-' 0x2d); write race-name string", "drawn_by": "ui_print_character_header 0x0d52", "confidence": "medium", "note": "On the race screen race not yet picked so *0x560d=0 -> HUMAN placeholder may show. Header attrs (0xb0 for 'RNK' label region etc.) need a per-cell cross-check; the row-1 'RNK'/'NONE' tokens at cols 25-27/35-38 are from ui_redraw_character_sheet (see below), not the header."},
+
+    {"cell": "(25,1) RNK label", "kind": "label", "content": "RNK (msg 0xc9)", "attrParam": 11, "cellAttr": "0xb0", "source": "static msg 0xc9", "format": "load_and_print_msg(0xc9, win, x=0x19=25, y=1, attr=0xb)", "drawn_by": "ui_redraw_character_sheet 0x0df7 @ee0", "confidence": "high"},
+    {"cell": "(35..38,1) class/rank TITLE", "kind": "value", "content": "rank/class title string e.g. 'NONE'", "attrParam": 3, "cellAttr": "0x30", "source": "msg buffer 0x5620 = load_msg(*0x560f*10 + *0x5610 + 0x320). *0x560f=class index, *0x5610=secondary (0). Before a class is picked the formula yields 800(=0x320) -> the 'NONE' string.", "format": "RIGHT-aligned to col 0x27=39: set_cursor(x = 0x27 - strlen(buf), y=1); write_chars(buf, attr=3). 'NONE' len4 -> starts col35.", "drawn_by": "ui_redraw_character_sheet 0x0df7 @eea-f3f", "confidence": "high"},
+
+    {"cell": "(25,2) EXP label", "kind": "label", "content": "EXP (msg 0xca)", "attrParam": 14, "cellAttr": "0xe0", "source": "static msg 0xca", "format": "load_and_print_msg(0xca, win, x=0x19=25, y=2, attr=0xe)", "drawn_by": "ui_redraw_character_sheet @f42", "confidence": "high"},
+    {"cell": "(..38,2) EXP value", "kind": "value", "content": "experience points", "attrParam": 6, "cellAttr": "0x60", "source": "DGROUP 0x5496 (record offset +0x26, xp). draft.xp. NOTE the redraw call at @e83 prints *0x5496 with width3 attr0xc at (3,?) on the LEFT — and the EXP-row value at right (col38) uses width? See note.", "format": "print_number width and attr per call; right-aligned ending at col 38.", "drawn_by": "ui_redraw_character_sheet", "confidence": "medium", "note": "The redraw prints two numbers from the XP/level caches; mapping of which goes to the LEFT panel (col 7) vs the RIGHT EXP/MKS column needs the exact set_cursor before each. The cur values are 0 in both saves so position is verified but field width for >1 digit is inferred from the FUN_0507 right-align rule, not yet seen with a multi-digit value."},
+
+    {"cell": "(7,2) value '0'(0xe0)", "kind": "value", "content": "(left-panel) likely AGE or HP cur — small left field", "attrParam": 14, "cellAttr": "0xe0", "source": "redraw @e3c: print_number(win, FUN_3f1e(3,0xe) of [0x5478]/[0x547a]) width? attr0xe at (3,?). 0x5478 = age 32-bit (record +0x08).", "format": "right-aligned width; value 0 in both saves", "drawn_by": "ui_redraw_character_sheet @e3c-e59", "confidence": "low", "note": "FUN_3f1e(0x547a:0x5478, 0x16d, 0) is an age/duration transform; exact semantics unverified."},
+
+    {"cell": "(13..15,3) LVL label", "kind": "label", "content": "LVL (msg 0xc8)", "attrParam": 8, "cellAttr": "0x80", "source": "static msg 0xc8", "format": "load_and_print_msg(0xc8, win, x=0xd=13, y=3, attr=8)", "drawn_by": "ui_redraw_character_sheet @e99", "confidence": "high"},
+    {"cell": "(19,3) LVL value", "kind": "value", "content": "level", "attrParam": 9, "cellAttr": "0x90", "source": "DGROUP 0x5494 (record +0x24, level). draft.level.", "format": "print_number(win, *0x5494, width3, attr9) ending at col? -> single '0'(0x90) at col19 in race.json. =1 after derived-stats.", "drawn_by": "ui_redraw_character_sheet @eba", "confidence": "high"},
+    {"cell": "(25..27,3) MKS label", "kind": "label", "content": "MKS (msg 0xcb)", "attrParam": 14, "cellAttr": "0xe0", "source": "static msg 0xcb", "format": "load_and_print_msg(0xcb, win, x=0x19=25, y=3, attr=0xe)", "drawn_by": "ui_redraw_character_sheet @f7d", "confidence": "high"},
+    {"cell": "(..38,3) MKS value", "kind": "value", "content": "marks/kills counter", "attrParam": 6, "cellAttr": "0x60", "source": "redraw @f9e: print_curmax(win, *0x5480, *0x5482, width10, attr6) -> a cur/max pair (weight or marks). 0/0 in both saves.", "format": "two right-aligned numbers width10 each with '/' — but renders as single '0'(0x60) at col38 when 0. Width-10 field but truncated/clamped to window edge.", "drawn_by": "ui_redraw_character_sheet @f7d-fb5", "confidence": "medium"},
+
+    {"cell": "(1..3,5+i) attribute LABELS", "kind": "label", "content": "STR/INT/PIE/VIT/DEX/SPD/PER/KAR (msg 0xcc+i, i=0..7)", "attrParam": 5, "cellAttr": "0x50", "source": "static msg 0xcc..0xd3", "format": "loop i=0..7: load_and_print_msg(0xcc+i, win, x=1, y=5+i, attr=5)", "drawn_by": "ui_render_stat_panel 0x2b04", "confidence": "high"},
+    {"cell": "(5..6,5+i) attribute VALUES", "kind": "value", "content": "STR..KAR scores", "attrParam": 1, "cellAttr": "0x10", "source": "DGROUP byte 0x559c+i (i=0..7). NOT the record buffer; this is the live working-attribute array. draft.attributes {str,int,pie,vit,dex,spd,per,kar}.", "format": "after label, cursor++ (gap), print_number(win, *(0x559c+i), width2, attr1) => right-aligned in 2 cells (cols 5-6). Verified: 0x559c=09 08 08 09 09 08 08 00 == on-screen 9/8/8/9/9/8/8/0.", "drawn_by": "ui_render_stat_panel 0x2b04", "confidence": "high"},
+
+    {"cell": "(10..12,5) HP label", "kind": "label", "content": "HP (msg 0xd4)", "attrParam": 4, "cellAttr": "0x40", "source": "static msg 0xd4", "format": "load_and_print_msg(0xd4, win, x=0xa=10, y=5, attr=4); cursor++", "drawn_by": "ui_render_stat_panel @2b94", "confidence": "high"},
+    {"cell": "(17,5)+(18,5) HP cur/max", "kind": "value", "content": "HP current / max", "attrParam": "6 (cur), 8 ('/')", "cellAttr": "0x60 / 0x80", "source": "cur = DGROUP 0x5488 (record +0x18, hp_cur cache); '/' literal 0x2f; max = DGROUP 0x548a (hp_max).", "format": "print_number(win, *0x5488, width4, attr6); putcell('/' 0x2f, attr8); set_cursor(x=0xe=14); print_number(win, *0x548a, width4, attr6). 0/0 in both saves (derived stats not yet computed).", "drawn_by": "ui_render_stat_panel @2b94-2c02", "confidence": "high", "note": "ground-truth race.json: r5 17:'0'(0x60) 18:'/'(0x80). draft.hpInitial (cur=max at creation)."},
+
+    {"cell": "(10..12,8) STM label", "kind": "label", "content": "STM (msg 0xd5)", "attrParam": 4, "cellAttr": "0x40", "source": "static msg 0xd5", "format": "load_and_print_msg(0xd5, win, x=0xa=10, y=8, attr=4); cursor++ twice", "drawn_by": "ui_render_stat_panel @2c05", "confidence": "high"},
+    {"cell": "(17,8)+(18,8) STM cur/max", "kind": "value", "content": "stamina current / max", "attrParam": "6 (cur), 8 ('/')", "cellAttr": "0x60 / 0x80", "source": "cur = DGROUP 0x548c; '/' 0x2f; max = DGROUP 0x548e. draft.stamina (cur=max).", "format": "print_number(win,*0x548c,width3,attr6); putcell('/' 0x2f,attr8); set_cursor(x=9,y=0xf=15)? print_number(win,*0x548e,width3,attr6). 0/0 in both saves.", "drawn_by": "ui_render_stat_panel @2c05-2c76", "confidence": "high", "note": "race.json: r8 10-12 'STM'(0x40), 17:'0'(0x60) 18:'/'(0x80). NOTE row index: HP on row5, STM on row8 per ground truth — the y args in 0x2b04 confirm distinct rows."},
+
+    {"cell": "(10,11) BONUS label", "kind": "label", "content": "BONUS (msg 0x453)", "attrParam": "0xfff9 (=-7 sentinel)", "cellAttr": "see note", "source": "static msg 0x453", "format": "ONLY drawn if *0x56ac >= 0 (bonus pool present). set_cursor(0xa=10, 0xb=11); write_msg(0x453, win, attr=-7); cursor++; print_number(win, *0x56ac, width2, attr2).", "drawn_by": "ui_render_stat_panel @2b4c-2b91", "confidence": "high", "note": "Save-1 (class screen) shows 'BONUS# 6' with *0x56ac=6. race.json (race screen) has bonus not yet rolled so *0x56ac=0xffff (<0) -> BONUS row OMITTED, which matches race.json having no BONUS text. attrParam -7 -> negative => the highlight/selected style path."},
+
+    {"cell": "(1,14) icon '#'(0x02)", "kind": "label", "content": "stat-grid icon glyph (char 0x23='#' in wfont2)", "attrParam": 2, "cellAttr": "0x02", "source": "literal char 0x23, font wfont2 (combat-stat icon, e.g. AC)", "format": "ui_putchar_at_style2(win, x=1, y=0xe=14, 0x23)", "drawn_by": "ui_redraw_character_sheet @fb8", "confidence": "high"},
+    {"cell": "(1,16) icon '$'(0x02)", "kind": "label", "content": "icon glyph char 0x24", "attrParam": 2, "cellAttr": "0x02", "source": "literal 0x24 wfont2", "format": "ui_putchar_at_style2(win, 1, 0x10=16, 0x24)", "drawn_by": "ui_redraw_character_sheet @fce", "confidence": "high"},
+    {"cell": "(1,18) icon '%'(0x02)", "kind": "label", "content": "icon glyph char 0x25", "attrParam": 2, "cellAttr": "0x02", "source": "literal 0x25 wfont2", "format": "ui_putchar_at_style2(win, 1, 0x12=18, 0x25)", "drawn_by": "ui_redraw_character_sheet @fe4", "confidence": "high"},
+    {"cell": "(11,14) icon '&'(0x02)", "kind": "label", "content": "icon glyph char 0x26", "attrParam": 2, "cellAttr": "0x02", "source": "literal 0x26 wfont2", "format": "ui_putchar_at_style2(win, x=0xb=11, y=0xe=14, 0x26)", "drawn_by": "ui_redraw_character_sheet @ffa", "confidence": "high"},
+    {"cell": "(11,16) icon ''(0x02)", "kind": "label", "content": "icon glyph char 0x27", "attrParam": 2, "cellAttr": "0x02", "source": "literal 0x27 wfont2", "format": "ui_putchar_at_style2(win, 0xb, 0x10, 0x27)", "drawn_by": "ui_redraw_character_sheet @1010", "confidence": "high"},
+    {"cell": "(11,18) icon '('(0x02)", "kind": "label", "content": "icon glyph char 0x28", "attrParam": 2, "cellAttr": "0x02", "source": "literal 0x28 wfont2", "format": "ui_putchar_at_style2(win, 0xb, 0x12, 0x28)", "drawn_by": "ui_redraw_character_sheet @1026", "confidence": "high"},
+
+    {"cell": "bottom-grid 6 'cur/max' pairs at rows 14/16/18", "kind": "value", "content": "the 6 stat-grid number pairs next to icons 0x23-0x28", "attrParam": "per-row table at wroot DGROUP 0x0004 = [_, _, 4,2,3,6,7,5] indexed by i (i=0..5 -> attrParam 4,2,3,6,7,5)", "cellAttr": "0x40,0x20,0x30 (left col i=0,1,2 rows14,16,18) and 0x60,0x70,0x50 (right col i=3,4,5 rows14,16,18)", "source": "cur = DGROUP word 0x5498 + i*4; max = DGROUP word 0x549a + i*4 (i=0..5). These are the same 6 governing-attribute 'school mana' cur/max slots written by screen-14 (record +0x28..+0x3f). At creation they are 0 until spells are picked.", "format": "ui_print_six_attribute_labels (wpcmk 0x0b6d) loop i=0..5: x = (i<3)?3:0xd ; y=(i%3)*2+0xe (14/16/18); print_number(win, *(0x5498+i*4), width3, attrParam=table[i+? ]); putcell('/' 0x2f, attr9); print_number(win, *(0x549a+i*4), width3, attrParam). LEFT triplet x=3 (values land cols ~5 & ~9 after the icon+slash); RIGHT triplet x=13 (values cols ~15 & ~19).", "drawn_by": "ui_redraw_character_sheet -> ui_print_six_attribute_labels 0x0b6d", "confidence": "high", "note": "ALL SIX ATTRS MATCH race.json exactly: r14 cols5,9 attr0x40 / cols15,19 attr0x60; r16 0x20/0x70; r18 0x30/0x50. Verified the per-row attr table at DGROUP 0x0004 live in save 1 = 00 00 05 00 04 00 02 00 03 00 06 00 07 00 05 00 (words). The loop indexes [i*2+4] => i0=4,i1=2,i2=3,i3=6,i4=7,i5=5 -> <<4 => 0x40,0x20,0x30,0x60,0x70,0x50. The '/' separators (race.json r14 6:'/'(0x90),16:'/'(0x90) etc.) are putcell 0x2f attr9 -> 0x90."}
+  ],
+
+  "value_source_map_to_port": {
+    "name (4,1)": "draft.name (record 0x5470/+0x00)",
+    "race name + sex glyph (row1)": "draft.race (msg 0x64+idx), draft.sex (sex glyph msg 0x8c+*0x560e)",
+    "rank/class title (35,1)": "msg(800 + class*10 + secondary); 'NONE' when no class. -> draft.class title",
+    "LVL (19,3)": "draft.level (DGROUP 0x5494 / record +0x24)",
+    "EXP": "draft.xp (DGROUP 0x5496 / record +0x26)",
+    "MKS": "marks/kills cur/max (DGROUP 0x5480/0x5482) — 0 at creation",
+    "STR..KAR values (6,5..12)": "draft.attributes[str,int,pie,vit,dex,spd,per,kar] (DGROUP byte 0x559c+i)",
+    "BONUS (col,11)": "remaining bonus pool (DGROUP 0x56ac); row omitted when pool<0 (not yet rolled)",
+    "HP cur/max (17/18,5)": "draft.hpInitial (DGROUP 0x5488/0x548a) — cur==max at creation",
+    "STM cur/max (17/18,8)": "draft.stamina (DGROUP 0x548c/0x548e) — cur==max at creation",
+    "6 bottom-grid pairs": "the 6 governing-attribute school-mana cur/max (DGROUP 0x5498+i*4 / 0x549a+i*4); all 0 until spell picking (screen-14)",
+    "6 icon glyphs (chars 0x23-0x28)": "static wfont2 icons labeling the bottom combat-stat grid (AC / carry / etc.) — NOT data-driven"
+  },
+
+  "formatting_rules": {
+    "alignment": "Numbers are ALWAYS right-aligned in their fieldWidth via FUN_0507. The cursor is set to the LEFT edge of the field; the printer pads leading spaces so the digits hug the RIGHT edge (cursorX + fieldWidth - 1). A single '0' therefore appears at the right cell of the field, with leading cells blank — exactly what race.json shows.",
+    "field_widths": {"attributes (STR..KAR)": 2, "level": 3, "xp/mks left number": 3, "hp/stm pair numbers": "3 (STM) / 4 (HP) — see per-field note", "bonus": 2, "bottom-grid pairs": 3},
+    "no_zero_padding": "Pads with SPACES, never '0'. A 2-digit value fills both cells; a 1-digit value blanks the leading cell.",
+    "attr_byte": "cellAttr = attrParam << 4. attrParam is the high nibble. Low nibble is always 0 (the highlight/1bpp path). Negative attrParam (e.g. -7 for BONUS label) selects the highlighted/selected style.",
+    "cur_max_pairs": "Drawn as THREE writes: print cur (right-aligned width), putcell('/' 0x2f, attr=9 except HP/STM '/' attr=8), set_cursor to the max field's left edge, print max (right-aligned width)."
+  },
+
+  "unresolved": [
+    "EXACT field widths / start cols for the RIGHT-column EXP and MKS values, and the (7,2) left value: all source caches are 0 in BOTH available saves (race.json all-zero; save-1/class screen has level/xp/hp/stm still 0). The POSITIONS are pixel-verified but the field WIDTH for multi-digit values is inferred from the FUN_0507 right-align rule, not observed. To close: capture a save AFTER creation_init_derived_stats (screen-07) where level=1, xp=1, hp>0, stm>0, and/or a mid-game character with EXP in the thousands and MKS>0, then dump-cells and confirm the right-alignment span.",
+    "FUN_3f1e(*0x547a:*0x5478, 0x16d, 0) at redraw @e3c — the transform applied to the 32-bit age cache before printing the (7,2)/(7,3) left value. Likely an age-in-years or HP-derivation; value 0 in both saves so unverified. Decompile wroot image 0x3f1e to settle.",
+    "Sex glyph attr + exact header attrs (row1 cols 13-24): ui_print_character_header writes the sex glyph (msg 0x8c+*0x560e) and race name; the *0x560e cache is labeled 'alignment' in some findings and 'sex' in others (the screens.md open-question #2b: sex is record 0x1a1, alignment 0x19e). For the HEADER GLYPH the engine uses *0x560e — confirm whether that DGROUP cache mirrors sex or alignment by reading it live in a save where sex is known.",
+    "Whether ui_redraw_character_sheet's own EXP/MKS number calls (@e83 print *0x5496 width3 attr0xc at left col, @ec2 print *0x5494 width3 attr9) duplicate or differ from ui_render_stat_panel — there is overlap in which routine prints level/xp. Both run at screen-01; the LAST writer wins per cell. For the port, drawing render_stat_panel AFTER redraw (the master's order) reproduces the final state."
+  ]
+}

@@ -28,6 +28,8 @@ import { setCursor, puts, clearWindow } from '@wiz6/parser';
 import { MessageDbSchema } from '@wiz6/data';
 import { createPersistentWindows } from '../../../../../src/pages/roster/creation/ega/windows.js';
 import { highlightRange } from '../../../../../src/pages/roster/creation/ega/highlight.js';
+import { drawCharSheet } from '../../../../../src/pages/roster/creation/ega/char-sheet.js';
+import { blankDraft } from '../../../../../src/pages/roster/creation/state.js';
 import { raceName, creationString, MSG } from '../../../../../src/pages/roster/creation/messages.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -199,5 +201,52 @@ describe('RACE SELECT cell-grid parity (menuPanel + bottomBar; cursor on HUMAN)'
       const { diffs, first } = diffCount(win.cells, eng[name]!);
       expect(diffs, `${name} diff: ${first ?? ''}`).toBe(0);
     }
+  });
+});
+
+describe('CHAR SHEET `top` cell-grid parity (byte-exact vs engine)', () => {
+  // drawCharSheet fills the 40×20 `top` window with the char-sheet content
+  // (attribute labels+values, HP/STM, EXP/LVL/MKS/RNK, name/race header, bottom
+  // stat grid). The status title is drawn centered into row 5 cols 21..38.
+  //
+  // The name field reproduces draft.name at (4,1) attr 0x50; both fixtures were
+  // captured with a 1-char residual rendering as 'P' (the engine name buffer
+  // held content), so the draft.name='P' matches the live engine cells.
+  const db = MessageDbSchema.parse(
+    JSON.parse(readFileSync(join(mainRoot(), 'extracted', 'messages', 'msg.json'), 'utf-8')),
+  );
+
+  function loadTop(fixture: string): EngineWindow {
+    return JSON.parse(readFileSync(join(FIXTURES, fixture), 'utf-8')).windows.top as EngineWindow;
+  }
+
+  it('RACE screen: race not picked → attrs 0, no BONUS row, rank NONE', () => {
+    const eng = loadTop('race-select.json');
+    const { top } = createPersistentWindows();
+    // race=null, class=null, attributes all 0, bonusPool 0 (not rolled).
+    const draft = { ...blankDraft(), name: 'P' };
+    drawCharSheet(top, draft, db, creationString(db, MSG.raceTitle));
+
+    const { diffs, first } = diffCount(top.cells, eng);
+    expect(diffs, `top diff: ${first ?? ''}`).toBe(0);
+  });
+
+  it('CLASS screen: race HUMAN, bonus 6, class not picked → rank NONE', () => {
+    const eng = loadTop('class-select.json');
+    const { top } = createPersistentWindows();
+    // race=HUMAN(0), sex=MALE(0), bonusPool=6 (rolled → BONUS row present),
+    // class=null (rank NONE), attrs STR9 INT8 PIE8 VIT9 DEX9 SPD8 PER8 KAR0.
+    const draft = {
+      ...blankDraft(),
+      name: 'P',
+      race: 0,
+      sex: 0,
+      bonusPool: 6,
+      attributes: { str: 9, int: 8, pie: 8, vit: 9, dex: 9, spd: 8, per: 8, kar: 0 },
+    };
+    drawCharSheet(top, draft, db, creationString(db, MSG.classTitle));
+
+    const { diffs, first } = diffCount(top.cells, eng);
+    expect(diffs, `top diff: ${first ?? ''}`).toBe(0);
   });
 });

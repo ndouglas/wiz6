@@ -34,6 +34,7 @@ import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
 import { createPersistentWindows } from '../ega/windows.js';
 import { highlightRange } from '../ega/highlight.js';
+import { drawCharSheet } from '../ega/char-sheet.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import {
   MSG,
@@ -221,10 +222,15 @@ export function MenuPickerScreen({
   // -------------------------------------------------------------------------
 
   // Build the windows for this frame (persistent set: top char-sheet template
-  // + gray bottomBar + gray menuPanel). NOTE: the populated char-sheet (the
-  // attribute labels/values drawn into `top` from the race screen onward) is a
-  // separate shared component, not yet ported — `top` is the empty template.
+  // + gray bottomBar + gray menuPanel), then populate the char sheet (attribute
+  // labels/values + header) into `top`. The screen title is centered into the
+  // status row by drawCharSheet. Verified byte-exact vs the engine race/class
+  // screens (tools/parity/fixtures/cells/{race,class}-select.json).
   const { top, bottomBar, menuPanel } = createPersistentWindows();
+  const titleId = kind === 'race' ? MSG.raceTitle
+    : kind === 'sex' ? MSG.sexTitle
+    : MSG.classTitle;
+  drawCharSheet(top, state.draft, db, creationString(db, titleId));
 
   // Prompt: centered in the bottomBar at row 1, attr 0x03 (verified byte-exact
   // vs the engine race screen — "SELECT CHARACTER RACE" at col 9).
