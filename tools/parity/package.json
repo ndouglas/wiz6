@@ -1,0 +1,13 @@
+{
+  "name": "@wiz6/parity",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "vitest": "^2.1.0"
+  }
+}

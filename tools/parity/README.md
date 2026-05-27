@@ -219,10 +219,108 @@ For parity testing between the engine framebuffer and our TS renderer, the typic
 
 1. Decode the engine screen: `pnpm tsx tools/parity/decode-screen.ts --save N`
 2. Render our TS implementation to a canvas / PNG
-3. Compare pixel-by-pixel using an image diff tool
+3. Compare pixel-by-pixel using `compareRgba` (see below)
 
 The `decode-screen.ts` tool can also be used to visually confirm which game state
 a save is at — helpful for identifying which screen layout to replicate.
+
+## Pixel-diff harness
+
+### `diff-image.ts` — compareRgba + writeDiffPng
+
+```ts
+import { compareRgba, writeDiffPng } from './diff-image.js';
+
+const result = compareRgba(ourRgba, engineRgba, { tolerance: 8 });
+// { width, height, total, diffCount, matchPct, firstDiffs }
+
+writeDiffPng(ourRgba, engineRgba, '/tmp/diff.png', { tolerance: 8 });
+// Red pixels = mismatch; copied pixels = match
+```
+
+**Tolerance (default 8):** A pixel matches when every RGBA channel differs by ≤ tolerance.
+This accommodates the AC→DAC rounding that can shift palette entries by a few LSBs between
+our EGA_DEFAULT constants and the live DAC values in a save.
+
+**firstDiffs:** Up to 10 mismatching `{x, y, a, b}` entries — the first diverging pixels
+in scan order (top-left to bottom-right). Use these to quickly identify what region is wrong.
+
+**Unit tests:** `cd tools/parity && npx vitest run diff-image.test.ts`
+
+### `screen-parity.ts` — headless confirm-screen harness (CLI)
+
+Reconstructs the NUG confirm screen (screen-15: "SAVE THIS CHARACTER?") headlessly
+via `renderCreationFrame` + `loadCreationFontSet`, and compares against the engine's
+decoded save 1. Prints the match % and writes PNG artifacts.
+
+```bash
+pnpm tsx tools/parity/screen-parity.ts
+# → Match: 67.22%  (43019/64000 pixels match)
+# → /tmp/our-confirm-nug.png    (our render)
+# → /tmp/engine-screen-1.png    (engine reference)
+# → /tmp/diff-confirm-nug.png   (red = mismatch)
+```
+
+**Current match: ~67.2%** (tolerance=8). Main sources of divergence:
+
+| Source | Approx. contribution |
+|---|---|
+| Background fill: we use dark-gray (85,85,85), engine uses black in window interiors | ~11% |
+| Top window chrome tiles drawn where engine is blank/black | ~8% |
+| Bottom bar position/content difference (engine partially black) | ~7% |
+| Window border row differences (minor layout shift) | ~5% |
+
+Layout refinement will raise this number. The regression floor is set conservatively
+in the test (60%) so the test does not break on minor improvements.
+
+**Regression test:** `cd tools/parity && npx vitest run screen-parity.test.ts`
+
+The test asserts `matchPct ≥ 60%` (actual ~67.2%, 7% safety margin). It also writes
+diff artifacts to `/tmp/` for visual inspection.
+
+### Adding a (screen, save) parity case
+
+To validate a new screen against a DOSBox-X save:
+
+1. **Capture the save state** at the exact screen you want to validate:
+   ```bash
+   # Boot Wiz6 in DOSBox-X, navigate to the screen, press Alt-F5 to save state
+   # → saves to tools/dosbox/save/<n>.sav (DOSBox-X default numbering)
+   ```
+
+2. **Determine whether the screen is directly URL-addressable** in the viewer:
+   - If YES (e.g. `/castle/character-menu`): use the Playwright route-based parity spec
+   - If NO (e.g. confirm screen — sub-state of creation wizard): use the headless harness
+
+3. **Headless harness path** (preferred for non-routable screens):
+   - Create `tools/parity/<screen-name>-parity.ts` (runnable CLI + PNG artifacts)
+   - Create `tools/parity/<screen-name>-parity.test.ts` (vitest regression floor)
+   - Model it on `screen-parity.ts` / `screen-parity.test.ts`
+   - Run: `cd tools/parity && npx vitest run <screen-name>-parity.test.ts`
+
+4. **Playwright route-based path** (for directly-addressable screens):
+   - Add a new entry to `PARITY_CASES` in `packages/viewer/e2e/parity.spec.ts`
+   - Set `threshold` conservatively (actual match % − 10%)
+   - Run: `cd packages/viewer && pnpm test:e2e e2e/parity.spec.ts`
+   - Diff PNG is attached to the Playwright HTML report (`/tmp/playwright-parity/`)
+
+5. **Check the diff PNG** — mismatching pixels are shown in red. Common patterns:
+   - Solid red region = missing window or completely wrong fill color
+   - Red border on a window = geometry offset by 1–2 cells
+   - Red pixels scattered through text = wrong font or wrong attribute byte
+   - Red in known-black region = DOSBox contamination (rows 27–36, 75–90) — these are expected
+
+6. **Tighten the threshold** once layout refinement is complete.
+
+### Playwright parity spec
+
+`packages/viewer/e2e/parity.spec.ts` — route-based parity scaffold. Currently seeded
+with a `test.skip` for the character menu (no matching save yet). Extend PARITY_CASES
+following step 4 above once you have a (route, save) pair.
+
+```bash
+cd packages/viewer && pnpm test:e2e e2e/parity.spec.ts
+```
 
 ## Where this pattern shines next
 
