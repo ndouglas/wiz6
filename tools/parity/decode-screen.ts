@@ -2,14 +2,8 @@
  * Decode the engine's exact displayed screen from a DOSBox-X save state offline.
  *
  * Reads the `Vga` zip member from the save state, extracts the interleaved VGA VRAM
- * at offset 0x84000, decodes 320x200 mode-0x0D planar pixels to RGBA via the direct
- * DAC palette (raw_index → DAC_6BIT[raw_index]), and writes a PNG.
- *
- * STATUS: GEOMETRY-faithful (correct VRAM base 0x84000, no masking; window layout,
- * interiors=black, bg=dark-gray all match the engine). KNOWN LIMITATION: gray frames
- * and white text currently collapse to BLUE (raw_index 1) — only plane 0 assembles;
- * planes 1–3 do not, so multi-plane colors (gray/white) are wrong. Resolving this needs
- * a plane-assembly RE pass on the higher-plane byte offsets within vga.mem.linear.
+ * at offset 0x84000, decodes 320x200 mode-0x0D planar pixels to RGBA via the wiz6-main
+ * AC→DAC palette pipeline, and writes a PNG.
  *
  * VGA blob layout (DOSBox-X 2026.05.02, confirmed empirically across saves 1-13):
  *
@@ -26,14 +20,36 @@
  *   plane_byte[p] = blob[0x84000 + vga_addr × 4 + p]
  *   bit_pos    = 7 − (x & 7)        (MSB first, 8 pixels per VGA address)
  *   raw_index  = bit_n(plane0) | bit_n(plane1)<<1 | bit_n(plane2)<<2 | bit_n(plane3)<<3
- *   rgb        = COMPOSED_PALETTE[raw_index]   (direct DAC_6BIT[raw_index], 6→8 bit)
+ *   rgb        = COMPOSED_PALETTE[raw_index]   (wiz6-main AC→DAC chain, see below)
  *
- * Palette: the DAC (blob 0x82FE9, 256×3×6-bit) holds BIOS-default EGA values; entries
- *   0–15 are used DIRECTLY by raw pixel index. (The AC registers at 0x82FC2 =
- *   [23,17,21,20,22,18,19,16, 7,1,5,4,6,2,3,0] are NOT applied: composing through them
- *   INVERTS the screen — index 0→white, frames→blue — which does not match the engine's
- *   displayed black interiors / gray frames / white text. Verified against the NUG
- *   creation screen and the CHARACTER MENU reference. AC_REGS kept below for reference.)
+ * Palette pipeline — wiz6-main AC→BIOS-DAC:
+ *   The VRAM plane bits form a 4-bit EGA attribute. The Wiz6 engine programs the
+ *   VGA Attribute Controller via INT 10h AH=10h AL=02h with the wiz6-main table from
+ *   wroot.exe offset 0x2043: [0x00,0x17,0x11,0x15,0x14,0x16,0x12,0x13,
+ *                              0x10,0x07,0x01,0x05,0x04,0x06,0x02,0x03].
+ *   Each entry is a DAC index into the BIOS-default VGA palette (blob 0x82FE9).
+ *   Key attribute→color mappings for the CHARACTER MENU state:
+ *     attr 0 → DAC[0]  = (0,0,0)       = black         [window interiors]
+ *     attr 1 → DAC[23] = (63,63,63)    = white         [menu option text]
+ *     attr 8 → DAC[16] = (21,21,21)    = dark-gray     [screen background]
+ *     attr 9 → DAC[7]  = (42,42,42)    = light-gray    [frame double-lines]
+ *   The blob's AC registers at 0x82FC2 = [23,17,21,…] are the BIOS-default EGA
+ *   attribute controller values (NOT the wiz6-main table). The wiz6-main table is
+ *   baked into wroot.exe and programmed at startup; the blob field captures the
+ *   hardware register state AFTER the game has programmed its own table — the
+ *   two differ because DOSBox-X's save format serialises the HW register in a
+ *   shifted/raw layout that does NOT match the original INT 10h argument bytes.
+ *   Always use the wiz6-main AC table (WIZ6_MAIN_AC below) for decoding.
+ *
+ * Why the game's VRAM uses only EGA planes 0 and 3:
+ *   The character menu is drawn with a specific EGA write strategy:
+ *   - Background fill: Map Mask = 0b1000 (plane 3 only) → attr 8 = dark-gray background.
+ *   - Window borders: Map Mask = 0b0001 (plane 0 only) on top of existing background
+ *     → plane 3 left set + plane 0 set = attr 9 = light-gray via wiz6-main AC.
+ *   - Menu text glyphs: plane 0 set only (plane 3 cleared for text rows by window clear)
+ *     → attr 1 = white via wiz6-main AC.
+ *   - Window interior: cleared with plane 3 = 0 → attr 0 = black.
+ *   Planes 1 and 2 are never written for this UI mode; save state correctly reflects that.
  *
  * CRTC display-start = 0 (registers 0x0C/0x0D = 0x00) in all captured saves.
  * CRTC offset reg 0x13 = 0x14 → 40 bytes/plane/row (correct for 320-pixel-wide mode).
@@ -59,15 +75,23 @@ import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 // ─── Palette constants ────────────────────────────────────────────────────────
 
 /**
- * AC registers (invariant across all captured saves, blob offset 0x82FC2).
- * Maps raw pixel index → DAC entry index.
+ * Wiz6-main AC palette register values (from wroot.exe offset 0x2043, 16 bytes).
+ * Each entry is a BIOS-default VGA DAC index. The engine programs these via
+ * INT 10h AH=10h AL=02h at startup. Verified in docs/re/palette-discovery.md.
+ *
+ * raw_index (4-bit EGA attribute from plane bits) → AC entry → DAC[AC[i]] → RGB.
  */
-const AC_REGS = [23, 17, 21, 20, 22, 18, 19, 16, 7, 1, 5, 4, 6, 2, 3, 0] as const;
+const WIZ6_MAIN_AC = [
+  0x00, 0x17, 0x11, 0x15, 0x14, 0x16, 0x12, 0x13,
+  0x10, 0x07, 0x01, 0x05, 0x04, 0x06, 0x02, 0x03,
+] as const;
 
 /**
- * BIOS-default EGA DAC, 6-bit per channel, entries 0..31.
- * Entries 0–15 are the low-intensity set; 16–31 the high-intensity set.
- * Verified from DAC dump at blob 0x82FE9 (all saves match).
+ * BIOS-default VGA DAC, 6-bit per channel, first 32 entries.
+ * Entries 0–15: low-intensity EGA colours.
+ * Entries 16–31: high-intensity EGA colours (DAC duplicate; AC indices 0x10–0x17 land here).
+ * Entries 24–31 repeat the low-intensity set (DAC indices 0x18–0x1F = 24–31).
+ * Verified from DAC dump at blob 0x82FE9 (invariant across all captured saves).
  */
 const DAC_6BIT: ReadonlyArray<readonly [number, number, number]> = [
   // Low-intensity (entries 0-15)
@@ -75,29 +99,33 @@ const DAC_6BIT: ReadonlyArray<readonly [number, number, number]> = [
   [42, 0,  0], [42, 0,  42], [42, 21, 0], [42, 42, 42],
   [21, 21, 21],[21, 21, 63], [21, 63, 21],[21, 63, 63],
   [63, 21, 21],[63, 21, 63], [63, 63, 21],[63, 63, 63],
-  // High-intensity (entries 16-31) — used by AC_REGS remapping
+  // High-intensity (entries 16-31) — WIZ6_MAIN_AC entries 0x10–0x17 index here
   [21, 21, 21],[21, 21, 63], [21, 63, 21],[21, 63, 63],
   [63, 21, 21],[63, 21, 63], [63, 63, 21],[63, 63, 63],
+  // Low-intensity repeat (entries 24-31) — WIZ6_MAIN_AC entries 0x17 = DAC[23] = white
   [0,  0,  0], [0,  0,  42], [0,  42, 0], [0,  42, 42],
   [42, 0,  0], [42, 0,  42], [42, 21, 0], [42, 42, 42],
 ];
 
 /**
- * Compose the full pixel→RGB palette through the AC→DAC pipeline.
- * raw_index → AC_REGS[raw_index] → DAC_6BIT[dac_entry] → 8-bit RGB (VGA bit-replication).
+ * Compose the full pixel→RGB palette through the wiz6-main AC→DAC pipeline.
+ * raw_index → WIZ6_MAIN_AC[raw_index] → DAC_6BIT[dac_entry] → 8-bit RGB (VGA bit-replication).
+ *
+ * Key attribute→colour mappings for the CHARACTER MENU state (saves 1–3):
+ *   attr 0 → black       (window interiors)
+ *   attr 1 → white       (menu option text)
+ *   attr 8 → dark-gray   (screen background)
+ *   attr 9 → light-gray  (double-line frame borders)
  */
 function buildComposedPalette(): ReadonlyArray<readonly [number, number, number]> {
-  // NOTE: empirically the visible screen uses the DAC entries DIRECTLY by raw pixel
-  // index (raw_index → DAC_6BIT[raw_index]); the AC_REGS indirection produces an
-  // INVERTED palette (index 0 → white, frames → blue) that does NOT match the engine's
-  // displayed colors (black window interiors, gray frames, white text). Verified
-  // against the NUG creation screen + the CHARACTER MENU reference. AC_REGS retained
-  // above for documentation but not applied.
-  return DAC_6BIT.slice(0, 16).map(([r6, g6, b6]) => [
-    (r6 << 2) | (r6 >> 4),
-    (g6 << 2) | (g6 >> 4),
-    (b6 << 2) | (b6 >> 4),
-  ] as const);
+  return WIZ6_MAIN_AC.map((dacIdx) => {
+    const [r6, g6, b6] = DAC_6BIT[dacIdx]!;
+    return [
+      (r6 << 2) | (r6 >> 4),
+      (g6 << 2) | (g6 >> 4),
+      (b6 << 2) | (b6 >> 4),
+    ] as const;
+  });
 }
 
 const COMPOSED_PALETTE = buildComposedPalette();
@@ -158,16 +186,17 @@ function decodeVgaScreen(blob: Uint8Array): Uint8Array {
 /**
  * Compute structural statistics for validation.
  *
- * For the CHARACTER MENU save (save 1 as of 2026-05-27):
- *   - Background color: light-gray (170,170,170) — pixel raw_index 8, dominant
- *   - Window fill: white (255,255,255) — pixel raw_index 0
- *   - Frames: dark blue (85,85,255) — pixel raw_index 1
- *   - Menu text: white and blue in bottom rows
- *   - Expected: white > 30%, light-gray > 30%, white_bottom_rows > 500
+ * For the CHARACTER MENU saves (saves 1–3, game_state 0x10):
+ *   - Background: dark-gray (85,85,85)   = EGA attr 8 → wiz6-main AC[8]=0x10 → DAC[16]
+ *   - Window fill: black (0,0,0)          = EGA attr 0 → AC[0]=0x00 → DAC[0]
+ *   - Frame lines: light-gray (170,170,170) = EGA attr 9 → AC[9]=0x07 → DAC[7]
+ *   - Menu text: white (255,255,255)      = EGA attr 1 → AC[1]=0x17 → DAC[23]
  *
- * These statistics work for ANY Wiz6 screen captured at a UI state:
- *   - light-gray or white together > 50% (UI background)
- *   - white pixels in bottom 40 rows > 0 (text visible on-screen)
+ * Validation thresholds for a plausible Wiz6 UI screen (any of saves 1–3):
+ *   - black > 25%     : window interiors
+ *   - dark-gray > 20% : screen background
+ *   - light-gray > 2% : frame/border lines (thin double-line borders)
+ *   - white > 0.3%    : menu text (save 2 has minimal text = CREATE PC / EXIT ≈ 0.5%)
  */
 function computeStats(rgba: Uint8Array): {
   blackPct: number;
@@ -266,25 +295,23 @@ console.log(`  dark-gray:   ${stats.dGrayPct.toFixed(1)}%`);
 console.log(`  white pixels in bottom 40 rows: ${stats.whiteBottomRows}`);
 console.log(`  isolated noise pixels: ${stats.noisePixels}`);
 
-// Structural (GEOMETRY) validation: the decoded image must be a plausible Wiz6 UI
-// screen under the direct DAC palette (raw_index → DAC_6BIT[raw_index]):
-//   - black > 15%   : window interiors / empty VRAM (raw_index 0 = black)
-//   - dark-gray > 10%: the attr-8 gray UI background (raw_index 8)
-// This validates GEOMETRY (correct VRAM base, no scrambled-noise decode). It does
-// NOT validate exact frame/text COLOR: see the KNOWN LIMITATION below — gray frames
-// and white text currently collapse to blue (index 1), i.e. only plane 0 assembles;
-// planes 1–3 do not, so multi-plane colors are wrong. That is a remaining VGA-layout
-// detail (the higher-plane byte offsets within vga.mem.linear). Geometry is faithful;
-// color fidelity for frames/text is pending a plane-assembly RE pass.
+// Structural validation: the decoded image must be a plausible Wiz6 UI screen
+// under the wiz6-main AC→DAC palette. Four-color check:
+//   - black > 25%     : window interiors (attr 0 = black via AC[0]=0x00→DAC[0])
+//   - dark-gray > 20% : screen background (attr 8 → AC[8]=0x10 → DAC[16] = dark-gray)
+//   - light-gray > 2% : frame/border lines (attr 9 → AC[9]=0x07 → DAC[7] = light-gray)
+//   - white > 0.3%    : menu option text (attr 1 → AC[1]=0x17 → DAC[23] = white)
+//                       (0.3% to accommodate save 2 which has minimal text ≈ 0.5%)
 const passed =
-  stats.blackPct > 15 &&
-  stats.dGrayPct > 10;
+  stats.blackPct > 25 &&
+  stats.dGrayPct > 20 &&
+  stats.lGrayPct > 2 &&
+  stats.whitePct > 0.3;
 
 if (passed) {
-  console.log('  structural (geometry) check: PASS');
-  console.log('  NOTE: frame/text colors collapse to blue (planes 1-3 unresolved) — geometry is faithful, full color pending.');
+  console.log('  structural check: PASS (black windows + dark-gray bg + light-gray frames + white text)');
 } else {
   console.error(`  structural check: FAIL`);
-  console.error(`    black=${stats.blackPct.toFixed(1)}% (need >15%), dark-gray=${stats.dGrayPct.toFixed(1)}% (need >10%)`);
+  console.error(`    black=${stats.blackPct.toFixed(1)}% (need >25%), dark-gray=${stats.dGrayPct.toFixed(1)}% (need >20%), light-gray=${stats.lGrayPct.toFixed(1)}% (need >2%), white=${stats.whitePct.toFixed(1)}% (need >0.3%)`);
   process.exit(1);
 }

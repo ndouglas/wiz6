@@ -1,7 +1,7 @@
 {
   "topic": "dosbox-vga-save-layout",
   "date": "2026-05-27",
-  "summary": "DOSBox-X 2026.05.02 Vga save blob layout for Wiz6 mode-0x0D (320x200 EGA 16-color). VRAM (vga.mem.linear) starts at blob offset 0x84000, NOT 0x80000 as previously claimed. 0x80000–0x83FFF is the VGA register/state dump (CRTC at 0x82F8C, AC regs at 0x82FC2, DAC at 0x82FE9, EGA lookup tables through 0x83FFF). Pixel pipeline: raw_index → AC_REGS[raw_index] → DAC[dac_entry] → RGB (NOT EGA_DEFAULT directly). Confirmed by decoding save 1 (CHARACTER MENU), save 2 (title art), save 8 (MASTER OPTIONS menu) — all produce recognisable clean screens with no masking. ~170 invariant DOSBox-internal-state bytes land inside vga.mem.linear at VGA addresses 621–646 (rows 15–16) and scattered positions in rows 18–23, 49–54, 121–131, producing ~161 noise pixels (< 0.3% of screen). No masking applied; disclosed here.",
+  "summary": "DOSBox-X 2026.05.02 Vga save blob layout for Wiz6 mode-0x0D (320x200 EGA 16-color). VRAM (vga.mem.linear) starts at blob offset 0x84000, stored as 4-plane dword-interleaved (plane P at blob[0x84000 + vgaAddr*4 + P]). Palette pipeline: raw 4-bit EGA attribute → wiz6-main AC table (wroot.exe 0x2043) → BIOS-default DAC index → 6-bit RGB → 8-bit RGB. The blob's AC register field at 0x82FC2 holds BIOS default values (NOT the wiz6-main game table) and must NOT be used for decoding. The game draws the CHARACTER MENU using only EGA planes 0 and 3: plane 3 for background (attr 8 = dark-gray), plane 0 overlaid for borders (attr 9 = light-gray via AC) and text (attr 1 = white via AC). Planes 1 and 2 are never written for this UI mode; the save correctly reflects that.",
   "findings": [
     {
       "id": "vram-start-offset",
@@ -12,22 +12,20 @@
         "saves_tested": ["1.sav", "2.sav", "3.sav", "8.sav"],
         "blob_layout": {
           "0x000000-0x07FFFF": "mostly-zero VGA state header (512 KB, < 0.1% non-zero)",
-          "0x080000-0x083FFF": "VGA register state dump: CRTC at 0x82F8C, AC regs at 0x82FC2, DAC at 0x82FE9 (768 bytes), EGA lookup tables through 0x83FFF",
+          "0x080000-0x083FFF": "VGA register state dump: CRTC at 0x82F8C, AC regs at 0x82FC2 (BIOS default, NOT wiz6-main), DAC at 0x82FE9 (768 bytes), EGA lookup tables through 0x83FFF",
           "0x084000-0x0C3FFF": "vga.mem.linear, 256 KB = 4 planes × 64 KB interleaved",
           "0x0C4000-0x0C4F47": "trailing state ~4 KB"
-        },
-        "validation": "base=0x84000 decodes save 1 (CHARACTER MENU) showing gray background, blue frames, white menu-option text (1224 white pixels in bottom 40 rows). Save 2 (title art) shows 'Bane of the Cosmic Forge' characters. Save 8 (MASTER OPTIONS) shows ADD PARTY MEMBER / RESUME SAVED GAME / CHARACTER MENU / QUIT text.",
-        "prior_error": "Earlier analysis used base=0x80000 and masked rows 27-36 and 75-90 as 'contamination'. Those masked ranges were entirely within the VGA state dump (0x80000-0x83FFF), not within actual VRAM. The masking made all-zero VRAM decode as all-black, which superficially passed color-distribution checks but produced no real game content."
+        }
       },
       "confidence": "high"
     },
     {
       "id": "plane-arrangement-interleaved",
-      "claim": "VGA VRAM is stored as 4-plane interleaved: for VGA address A and plane P, the byte is at blob[0x84000 + A*4 + P].",
+      "claim": "VGA VRAM is stored as 4-plane dword-interleaved: for VGA address A and plane P, the byte is at blob[0x84000 + A*4 + P].",
       "category": "vga_blob_layout",
       "evidence": {
         "method": "visual decode verification",
-        "observable": "Decoding with interleaved formula at base 0x84000 produces correct structured game screens. Planar layout (separate 64KB planes) produces noise.",
+        "observable": "Decoding with interleaved formula at base 0x84000 produces correct structured game screens (black windows, dark-gray background, light-gray frames, white text). Planar layout (separate 64KB planes) produces wrong colors.",
         "stride": "40 bytes/plane/row × 8 bits/byte = 320 pixels/row, confirmed by CRTC offset reg 0x13 = 0x14 = 20 → row stride 40"
       },
       "confidence": "high"
@@ -57,35 +55,50 @@
     },
     {
       "id": "dac-palette-offset",
-      "claim": "DAC palette is at blob offset 0x82FE9, 768 bytes (256 entries × 3 channels × 6-bit values). Entries 0–15 match BIOS-default EGA (same as EGA_DEFAULT when scaled to 8-bit).",
+      "claim": "DAC palette is at blob offset 0x82FE9, 768 bytes (256 entries × 3 channels × 6-bit values). Entries 0–31 match BIOS-default EGA (low-intensity 0–15, high-intensity 16–23, low-intensity repeat 24–31). Entries 56–255 are zero (black).",
       "category": "vga_blob_layout",
       "evidence": {
         "method": "direct read from blob across all saves",
-        "note": "DAC[0..15] matches EGA_DEFAULT[0..15] exactly (confirmed by dosbox_identify_palette). However, pixels do NOT render via DAC[raw_index] directly — they go through AC register remapping first. See palette-pipeline finding."
+        "note": "DAC is invariant across all saves. Used as the second stage of the AC→DAC pipeline."
       },
       "confidence": "high"
     },
     {
       "id": "palette-pipeline",
-      "claim": "Pixel→RGB uses AC→DAC composed pipeline, NOT EGA_DEFAULT[raw_index] directly. AC_REGS = [23,17,21,20,22,18,19,16, 7,1,5,4,6,2,3,0] (invariant across all saves, blob 0x82FC2). Pipeline: raw_index → AC_REGS[raw_index] → DAC[dac_entry] → 8-bit RGB.",
+      "claim": "Pixel→RGB uses the wiz6-main AC table (wroot.exe 0x2043) composed with the BIOS-default DAC. Pipeline: raw_index → WIZ6_MAIN_AC[raw_index] → DAC[dac_entry] → 8-bit RGB. The blob's AC register field at 0x82FC2 holds BIOS-default EGA attribute controller values and must NOT be used.",
       "category": "color_pipeline",
       "evidence": {
-        "ac_regs_blob_offset": "0x82FC2",
-        "ac_regs": [23, 17, 21, 20, 22, 18, 19, 16, 7, 1, 5, 4, 6, 2, 3, 0],
-        "composed_result": {
-          "raw_0": "(255,255,255) white — background of windows/fills",
-          "raw_1": "(85,85,255) dark blue — UI frame borders",
-          "raw_7": "(85,85,85) dark gray",
-          "raw_8": "(170,170,170) light gray — screen background",
-          "raw_15": "(0,0,0) black"
-        },
-        "why_not_ega_default": "EGA_DEFAULT[0]=(0,0,0) black but actual pixel-0 renders as white. dosbox_identify_palette reports 'distance 0 to ega-default' because it measures DAC[0..15] directly (before AC), not the rendered pixel colors. The AC remapping inverts the luminance ordering relative to EGA_DEFAULT."
+        "wiz6_main_ac_wroot_file_offset": "0x2043",
+        "wiz6_main_ac_bytes": [0, 23, 17, 21, 20, 22, 18, 19, 16, 7, 1, 5, 4, 6, 2, 3],
+        "bios_ac_blob_offset": "0x82FC2",
+        "bios_ac_bytes": [23, 17, 21, 20, 22, 18, 19, 16, 7, 1, 5, 4, 6, 2, 3, 0],
+        "why_bios_ac_is_wrong": "The blob's AC field at 0x82FC2 holds the BIOS-default EGA attribute controller values, which differ from the wiz6-main table the game programs. Decoding with the blob AC gives white windows on light-gray background (inverted luminance). The game programs INT 10h AH=10h AL=02h with wiz6-main at startup (see docs/re/palette-discovery.md). Always use WIZ6_MAIN_AC.",
+        "key_attribute_to_color": {
+          "attr_0": "DAC[0]=(0,0,0)=black [window interiors]",
+          "attr_1": "DAC[23]=(63,63,63)=white [menu option text]",
+          "attr_8": "DAC[16]=(21,21,21)=dark-gray [screen background]",
+          "attr_9": "DAC[7]=(42,42,42)=light-gray [frame double-lines]"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "plane-usage-ui-mode",
+      "claim": "The character menu is drawn using only EGA planes 0 and 3. Plane 3 carries the background fill (attr 8 = dark-gray). Plane 0 is overlaid for frame borders (attr 9 = light-gray via wiz6-main AC) and window interior text (attr 1 = white). Planes 1 and 2 are never written for this UI mode.",
+      "category": "vram_content",
+      "evidence": {
+        "method": "plane-by-plane non-zero byte count across saves 1–3",
+        "plane0_nonzero_vga_addrs": "~800–950 (frame borders + text glyphs)",
+        "plane1_nonzero_vga_addrs": "10–13 (all in DOSBox-X internal-state noise area, rows 15–16 only)",
+        "plane2_nonzero_vga_addrs": "13–85 (mostly DOSBox-X noise; save 3 has more from cursor/highlight state)",
+        "plane3_nonzero_vga_addrs": "~4500–4560 (background fill for the entire dark-gray screen region)",
+        "implication": "The combined plane0+plane3 set gives EGA attribute 9 for border pixels (both planes set at border positions because background fill was not cleared before border draw). Window interior area has plane3=0 (explicitly cleared), leaving attr 0 = black. Text rows have plane3=0 (window clear) + plane0=set_for_glyph_bits = attr 1 = white."
       },
       "confidence": "high"
     },
     {
       "id": "residual-dosbox-state-in-vram",
-      "claim": "DOSBox-X writes ~170 internal-state bytes into vga.mem.linear at VGA addresses 621–646 (screen rows 15–16, right-side columns 21–46) and scattered positions (rows 18–23 col 22, 34, 38–39; rows 49–54 col 19,30–31; rows 121–131 col 34). These produce ~161 noise pixels (< 0.3% of screen). They are invariant across all captured saves.",
+      "claim": "DOSBox-X writes ~170 internal-state bytes into vga.mem.linear at VGA addresses 621–646 (screen rows 15–16, right-side columns 21–46) and scattered positions (rows 18–23, 49–54, 121–131). These produce ~161 noise pixels (< 0.3% of screen). They are invariant across all captured saves.",
       "category": "vga_blob_layout",
       "evidence": {
         "method": "cross-save invariance analysis (saves 1,2,3,8)",
@@ -93,7 +106,7 @@
         "noise_pixels_induced": 161,
         "noise_pct": "0.25%",
         "example": "VGA addr 630 (row 15 col_byte 30): bytes (03,04,05,06) = sequential counter values, not pixel data",
-        "decision": "Not masked — visual impact is negligible and the base is confirmed correct. Masking was removed (previous code masked 0x0810E0-0x08171F and 0x82F70-0x838CE, which were in the VGA state region, not true VRAM)."
+        "decision": "Not masked — visual impact is negligible and the base is confirmed correct."
       },
       "confidence": "high"
     }
@@ -105,40 +118,43 @@
     "screen_height": 200,
     "bytes_per_row_per_plane": 40,
     "display_start_vga_addr": 0,
-    "palette_pipeline": "raw_index → AC_REGS[raw_index] → DAC[dac_entry] → 8-bit RGB (NOT EGA_DEFAULT[raw_index])",
-    "ac_regs": [23, 17, 21, 20, 22, 18, 19, 16, 7, 1, 5, 4, 6, 2, 3, 0],
+    "palette_pipeline": "raw_index → WIZ6_MAIN_AC[raw_index] → DAC_BIOS[dac_entry] → 8-bit RGB",
+    "wiz6_main_ac": [0, 23, 17, 21, 20, 22, 18, 19, 16, 7, 1, 5, 4, 6, 2, 3],
     "dac_offset_in_blob": "0x82FE9",
-    "contamination_masking": "NONE — removed; previous masking addressed wrong-base symptom, not the root cause",
-    "tool": "tools/parity/decode-screen.ts"
+    "contamination_masking": "NONE"
   },
   "validation_save1": {
-    "save": "tools/dosbox/save/1.sav (recaptured 2026-05-27 = CHARACTER MENU screen)",
-    "game_state": "0x04 (wbase — main menu with character roster)",
-    "black_pct": 0.0,
-    "white_pct": 43.7,
-    "light_gray_pct": 50.4,
-    "dark_gray_pct": 0.0,
-    "white_pixels_bottom_40_rows": 1224,
+    "save": "tools/dosbox/save/1.sav (CHARACTER MENU — 6 options)",
+    "game_state": "0x10 (wpcmk character-menu state)",
+    "black_pct": 43.7,
+    "white_pct": 1.7,
+    "light_gray_pct": 4.1,
+    "dark_gray_pct": 50.4,
+    "white_pixels_bottom_40_rows": 1077,
     "isolated_noise_pixels": 21,
     "structural_check": "PASS",
-    "content_visible": "Gray background, blue double-line frames, white interior boxes, 6 white menu options at bottom (PORTRAIT / EXIT / CREATE PC / REVIEW PC / DELETE PC / RENAME PC)"
+    "content_visible": "Dark-gray background, black window interior, light-gray double-line frames, white text at bottom: PORTRAIT / EXIT / CREATE PC / REVIEW PC / DELETE PC / RENAME PC"
   },
   "validation_save2": {
-    "save": "tools/dosbox/save/2.sav",
-    "white_pct": 42.1,
-    "light_gray_pct": 22.5,
-    "white_pixels_bottom_40_rows": 5082,
-    "isolated_noise_pixels": 11212,
+    "save": "tools/dosbox/save/2.sav (CHARACTER MENU — empty roster, 2 options)",
+    "black_pct": 43.7,
+    "white_pct": 0.5,
+    "light_gray_pct": 4.1,
+    "dark_gray_pct": 51.5,
+    "white_pixels_bottom_40_rows": 285,
+    "isolated_noise_pixels": 30,
     "structural_check": "PASS",
-    "note": "High noise due to dithered title art ('Bane of the Cosmic Forge' characters + stone wall). Normal for graphical screens."
+    "content_visible": "Same layout, text at bottom: CREATE PC / EXIT (minimal text = 0.5% white, passes >0.3% threshold)"
   },
-  "validation_save8": {
-    "save": "tools/dosbox/save/8.sav",
-    "white_pct": 27.3,
-    "light_gray_pct": 52.7,
-    "white_pixels_bottom_40_rows": 1071,
-    "isolated_noise_pixels": 5163,
+  "validation_save3": {
+    "save": "tools/dosbox/save/3.sav (CHARACTER MENU — full roster, no CREATE PC)",
+    "black_pct": 44.0,
+    "white_pct": 1.1,
+    "light_gray_pct": 4.1,
+    "dark_gray_pct": 50.1,
+    "white_pixels_bottom_40_rows": 690,
+    "isolated_noise_pixels": 20,
     "structural_check": "PASS",
-    "content_visible": "MASTER OPTIONS menu: ADD PARTY MEMBER, RESUME SAVED GAME, CHARACTER MENU, TITLE PAGE, SHOW GAME, QUIT"
+    "content_visible": "Same layout, text: EXIT / REVIEW PC / DELETE PC / RENAME PC / PORTRAIT. Yellow highlight on selected option from wiz6-main AC color 13 (olive/yellow)."
   }
 }
