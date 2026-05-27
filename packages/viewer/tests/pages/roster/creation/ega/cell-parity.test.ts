@@ -326,44 +326,63 @@ describe('PERSONALITY (karma) cell-grid parity', () => {
   });
 });
 
-describe('CLASS SELECT cell-grid parity (menuPanel + prompt; cursor on FIGHTER)', () => {
+describe('CLASS SELECT cell-grid parity (pool-aware qualification)', () => {
   // The engine offers only the classes reachable by spending the bonus pool
-  // (Σ deficit ≤ pool), packed at col 1 rows 1+, FIGHTER highlighted. The
-  // "SELECT CHARACTER PROFESSION" prompt is assembled + ceil-centered (col 7).
-  // Class-select save: Human base + pool 6 → Fighter/Mage/Priest/Thief/Ranger.
-  it('qualifying class list + prompt match engine cell memory', () => {
-    const eng = JSON.parse(
-      readFileSync(join(FIXTURES, 'class-select.json'), 'utf-8'),
-    ).windows as Record<string, EngineWindow>;
-    const db = MessageDbSchema.parse(
-      JSON.parse(readFileSync(join(mainRoot(), 'extracted', 'messages', 'msg.json'), 'utf-8')),
-    );
-    const attrs = { str: 9, int: 8, pie: 8, vit: 9, dex: 9, spd: 8, per: 8, kar: 0 };
-    const pool = 6;
-    const { bottomBar, menuPanel } = createPersistentWindows();
+  // (Σ max(0, req-attr) ≤ pool), packed at col 1 rows 1+, FIGHTER highlighted.
+  // The "SELECT CHARACTER PROFESSION" prompt is assembled + ceil-centered (col 7).
+  // Two saves confirm the rule + its threshold:
+  //   Human base + pool 6 → 5 classes (Fighter/Mage/Priest/Thief/Ranger)
+  //   Elf base   + pool 9 → 7 (adds Alchemist+Bard, deficit 7; Bishop@10 excluded)
+  const db = MessageDbSchema.parse(
+    JSON.parse(readFileSync(join(mainRoot(), 'extracted', 'messages', 'msg.json'), 'utf-8')),
+  );
+  const CASES = [
+    {
+      name: 'Human base, pool 6 → 5 qualifying',
+      fixture: 'class-select.json',
+      attrs: { str: 9, int: 8, pie: 8, vit: 9, dex: 9, spd: 8, per: 8, kar: 0 },
+      pool: 6,
+      expected: 5,
+    },
+    {
+      name: 'Elf base, pool 9 → 7 qualifying (Bishop@10 excluded)',
+      fixture: 'class-select-elf.json',
+      attrs: { str: 7, int: 10, pie: 10, vit: 7, dex: 9, spd: 9, per: 8, kar: 0 },
+      pool: 9,
+      expected: 7,
+    },
+  ];
 
-    const prompt = creationString(db, MSG.classPrompt);
-    setCursor(bottomBar, Math.ceil((bottomBar.widthCells - prompt.length) / 2), 1);
-    puts(bottomBar, prompt, 0x03);
+  for (const c of CASES) {
+    it(`${c.name}: list + prompt match engine cell memory`, () => {
+      const eng = JSON.parse(
+        readFileSync(join(FIXTURES, c.fixture), 'utf-8'),
+      ).windows as Record<string, EngineWindow>;
+      const { bottomBar, menuPanel } = createPersistentWindows();
 
-    clearWindow(menuPanel, 0x20, 0x03);
-    let row = 1;
-    for (let i = 0; i < 14; i++) {
-      if (!classReachableWithPool(attrs, pool, i)) continue;
-      const label = className(db, i);
-      setCursor(menuPanel, 1, row);
-      puts(menuPanel, label, 0x03);
-      if (row === 1) highlightRange(menuPanel, 1, row, label.length, 5); // FIGHTER selected
-      row++;
-    }
-    expect(row - 1, 'qualifying class count').toBe(5);
+      const prompt = creationString(db, MSG.classPrompt);
+      setCursor(bottomBar, Math.ceil((bottomBar.widthCells - prompt.length) / 2), 1);
+      puts(bottomBar, prompt, 0x03);
 
-    for (const [name, win] of [
-      ['bottomBar', bottomBar],
-      ['menuPanel', menuPanel],
-    ] as const) {
-      const { diffs, first } = diffCount(win.cells, eng[name]!);
-      expect(diffs, `${name} diff: ${first ?? ''}`).toBe(0);
-    }
-  });
+      clearWindow(menuPanel, 0x20, 0x03);
+      let row = 1;
+      for (let i = 0; i < 14; i++) {
+        if (!classReachableWithPool(c.attrs, c.pool, i)) continue;
+        const label = className(db, i);
+        setCursor(menuPanel, 1, row);
+        puts(menuPanel, label, 0x03);
+        if (row === 1) highlightRange(menuPanel, 1, row, label.length, 5); // FIGHTER selected
+        row++;
+      }
+      expect(row - 1, 'qualifying class count').toBe(c.expected);
+
+      for (const [name, win] of [
+        ['bottomBar', bottomBar],
+        ['menuPanel', menuPanel],
+      ] as const) {
+        const { diffs, first } = diffCount(win.cells, eng[name]!);
+        expect(diffs, `${name} diff: ${first ?? ''}`).toBe(0);
+      }
+    });
+  }
 });
