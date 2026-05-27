@@ -1,0 +1,411 @@
+// packages/viewer/tests/pages/roster/creation/screens/NameInputScreen.test.tsx
+//
+// RTL tests for NameInputScreen — screen-00 name entry.
+//
+// Name entry is raw-key text input (NOT the §8 arrow model):
+//   - Printable ASCII appends to buffer (capped at NAME_MAX_LENGTH = 7)
+//   - Backspace removes last character
+//   - Enter with non-empty buffer dispatches SET_NAME { name }
+//   - Enter on empty buffer does nothing (no dispatch)
+//   - Escape does nothing (no dispatch)
+//
+// jsdom canvas is non-functional — we assert dispatch behavior and
+// canvas mounting, not pixels.
+//
+// Spec: docs/re/wpcmk-screens.md §1 (screen-00), CharacterSchema name max=7.
+
+import { describe, it, expect, vi } from 'vitest';
+import { render, fireEvent } from '@testing-library/react';
+import { WIZ6_MAIN } from '@wiz6/data';
+import { WichmannHill } from '@wiz6/data';
+import type { FontSet } from '@wiz6/parser';
+import type { MessageDb } from '@wiz6/data';
+import type { CreationState, CreationEvent } from '../../../../../src/pages/roster/creation/state.js';
+import { initialCreationState } from '../../../../../src/pages/roster/creation/state.js';
+import { NameInputScreen } from '../../../../../src/pages/roster/creation/screens/NameInputScreen.js';
+
+// ---------------------------------------------------------------------------
+// Minimal stubs
+// ---------------------------------------------------------------------------
+
+/** Stub FontSet — all fonts null. CreationCanvas handles this gracefully. */
+const STUB_FONT_SET: FontSet = {
+  font0: null,
+  font1: null,
+  font2: null,
+  font3: null,
+  font4: null,
+};
+
+/**
+ * Minimal stub MessageDb covering only the IDs used by NameInputScreen.
+ */
+function stubDb(): MessageDb {
+  const entries: Array<{ id: number; decodedText: string }> = [
+    // screen-00: "CHARACTER NAME >"
+    { id: 0x044c, decodedText: 'CHARACTER NAME >' },
+  ];
+
+  return {
+    banks: [],
+    indexedMessages: entries.map((e) => ({
+      id: e.id,
+      decodedText: e.decodedText,
+      rawBytes: new Uint8Array(0),
+    })),
+  } as unknown as MessageDb;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: build a state at the 'name' screen
+// ---------------------------------------------------------------------------
+
+function makeNameState(): CreationState {
+  const rng = new WichmannHill(3000, 1, 29999);
+  return initialCreationState(rng);
+}
+
+// ---------------------------------------------------------------------------
+// Canvas mounting
+// ---------------------------------------------------------------------------
+
+describe('NameInputScreen — canvas mounting', () => {
+  it('renders a <canvas> element', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn();
+    const db = stubDb();
+
+    const { container } = render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    const canvas = container.querySelector('canvas');
+    expect(canvas).toBeTruthy();
+  });
+
+  it('renders a <canvas> with width=320 and height=200', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn();
+    const db = stubDb();
+
+    const { container } = render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    const canvas = container.querySelector('canvas');
+    expect(canvas!.width).toBe(320);
+    expect(canvas!.height).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Typing "NUG" then Enter dispatches SET_NAME { name: 'NUG' }
+// ---------------------------------------------------------------------------
+
+describe('NameInputScreen — typing and confirm', () => {
+  it('typing "NUG" then Enter dispatches SET_NAME with name "NUG"', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'N' });
+    fireEvent.keyDown(window, { key: 'U' });
+    fireEvent.keyDown(window, { key: 'G' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledWith({ type: 'SET_NAME', name: 'NUG' });
+  });
+
+  it('typing a single character and Enter dispatches SET_NAME', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'A' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'SET_NAME', name: 'A' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Enter on empty buffer does NOT dispatch SET_NAME
+// ---------------------------------------------------------------------------
+
+describe('NameInputScreen — empty Enter does nothing', () => {
+  it('Enter on empty buffer does not dispatch SET_NAME', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('typing then deleting all chars, then Enter does not dispatch', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'A' });
+    fireEvent.keyDown(window, { key: 'Backspace' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Backspace editing
+// ---------------------------------------------------------------------------
+
+describe('NameInputScreen — Backspace editing', () => {
+  it('Backspace removes the last typed character', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    // Type "AB", backspace to get "A", then Enter → "A"
+    fireEvent.keyDown(window, { key: 'A' });
+    fireEvent.keyDown(window, { key: 'B' });
+    fireEvent.keyDown(window, { key: 'Backspace' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'SET_NAME', name: 'A' });
+  });
+
+  it('Backspace on empty buffer does nothing (no crash)', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    // Backspace on empty — should not throw
+    fireEvent.keyDown(window, { key: 'Backspace' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Input is length-capped at NAME_MAX_LENGTH = 7
+// ---------------------------------------------------------------------------
+
+describe('NameInputScreen — name length cap (max 7)', () => {
+  it('does not accept more than 7 characters', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    // Type 10 characters — only first 7 should be kept
+    'ABCDEFGHIJ'.split('').forEach((ch) => {
+      fireEvent.keyDown(window, { key: ch });
+    });
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'SET_NAME', name: 'ABCDEFG' });
+  });
+
+  it('accepts exactly 7 characters', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    'ABCDEFG'.split('').forEach((ch) => {
+      fireEvent.keyDown(window, { key: ch });
+    });
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'SET_NAME', name: 'ABCDEFG' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Escape does nothing
+// ---------------------------------------------------------------------------
+
+describe('NameInputScreen — Escape does nothing', () => {
+  it('Escape does not dispatch any event', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('Escape after typing does not dispatch', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'A' });
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Non-printable / special keys are ignored
+// ---------------------------------------------------------------------------
+
+describe('NameInputScreen — non-printable keys are ignored', () => {
+  it('ArrowUp does not append to buffer', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    // Buffer was empty — no dispatch
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('Tab does not append to buffer', () => {
+    const state = makeNameState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <NameInputScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'Tab' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+});
