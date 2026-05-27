@@ -160,13 +160,14 @@ describe('loadCreationFontSet', () => {
     expect(fontSet.font1?.id).toBe('wfont1');
   });
 
-  it('font2 is null (not needed by creation screens)', async () => {
+  it('font2 is loaded (char-sheet bottom-grid magic-school icons, attr 0x02)', async () => {
     const fontSet = await loadCreationFontSet({
       loadFont: diskLoadFont,
       loadFont4bpp: diskLoadFont4bpp,
     });
-    // Creation screens don't use wfont2 — attr low nibble 2 is not used.
-    expect(fontSet.font2 ?? null).toBeNull();
+    // The 6 magic-school icon glyphs (chars 0x23-0x28) render via wfont2.
+    expect(fontSet.font2).toBeTruthy();
+    expect(fontSet.font2?.id).toBe('wfont2');
   });
 });
 
