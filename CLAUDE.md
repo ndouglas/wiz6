@@ -211,6 +211,15 @@ The credit-scroll table uses absolute screen pixels (320×200) even though a UI 
 
 The .snd decoder bug: decoded bytes had a centered distribution around 128, 32 distinct quantized levels, mean diff ≈ 25 — every statistic looked like real 8-bit PCM. It sounded like noise because the decoder started 2 bytes too late (treated bytes 2-3 as a `rate_word` when they were actually the first word of the Huffman tree), misaligning every tree walk from the start. The format was also missing a 2-byte decoded-length prefix at the start of the bitstream, which was being consumed as 16 bits of garbage. We chased LUT transformations, sample-rate variants, unipolar-vs-bipolar interpretations, AdLib log-to-linear conversions — all post-process — for *hours* before checking the decoder against the engine's actual decode loop in asm. **When output looks structurally right but behaves wrong, suspect alignment in the decoder, not interpretation downstream.** Verify offsets against the engine's asm BEFORE exploring post-process transformations.
 
+### Cell-grid parity ≠ pixel parity — check the highlight attr SIGN
+
+Tile-window cell-grid parity (`dump-cells.py` → `cells/*.json`) validates the `(char, attr)` PLACEMENT, **not** the rendered pixels. A whole class of render state is NOT in the cell array and is therefore invisible to cell parity:
+
+- **Highlight fg/bg orientation.** A highlight cell (attr low-nibble 0, e.g. `0x50`) is drawn TWO ways and the stored cell is identical for both: **colored text** (stroke = `palette[high nibble]`, bg = black — char-sheet labels: yellow STR, white values) vs **inverse** (stroke = black, bg = `palette[high nibble]` — menu selection cursors: black on a yellow bar). The engine picks via the **SIGN of the `attr` arg at the draw site** (`+n` colored, `−n` inverse; the sign becomes a "negated_flag" bit in the dirty-map, **not** the cell). dump-cells can't see it, and a settled save likely doesn't even retain it. We carry it as `TileWindow.invertHighlight` per window (menu windows = inverse, char-sheet = colored).
+- **Checklist when porting any screen with highlights:** for each highlight cell, RE the draw routine to confirm the attr sign (colored vs inverse) — don't infer colour from the cell. Then **eyeball the rendered colours against the engine framebuffer** (`pnpm tsx tools/parity/decode-screen.ts --save N --out x.png` — now positionally correct), not just the cell parity. The render formula itself is locked by `packages/parser/tests/ui/tile-window.test.ts` (highlight path).
+
+This bit us twice: a global fg/bg inversion, then the menu-vs-charsheet split — both with green byte-exact cell parity while the colours were wrong.
+
 ## Audio (Wiz6 sound system)
 
 Wiz6 supports **PC speaker, AdLib, and SoundBlaster** outputs. There is **no separate audio driver file** (no `*.drv` for audio — graphics-only); audio output is inline in `wroot.exe`, gated by the video-mode flag at `*0x4FC6` or similar.

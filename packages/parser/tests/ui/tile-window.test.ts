@@ -146,3 +146,51 @@ describe('renderTileWindow', () => {
     expect(buf.every((b) => b === 0)).toBe(true);
   });
 });
+
+/** Fake 1bpp font0 (wfont0-style): glyph 'A' (0x41) has only the top-left
+ *  pixel set (row 0 = 0x80); all other pixels clear. Lets us read the
+ *  highlight path's stroke (on-pixel) vs background (off-pixel) colours. */
+function fakeFont0() {
+  const glyphs: number[][] = [];
+  for (let c = 0; c < 128; c++) {
+    const g = new Array(8).fill(0);
+    if (c === 0x41) g[0] = 0x80; // 'A' → single on-pixel at (0,0)
+    glyphs.push(g);
+  }
+  return { id: 'fake0', sourceFile: 'fake0.ega', glyphCount: 128, glyphs };
+}
+
+describe('renderTileWindow highlight path (attr low-nibble 0)', () => {
+  // Regression guard for the highlight fg/bg orientation. The same cell
+  // (char, 0x50) renders two ways depending on win.invertHighlight; getting
+  // this backwards inverted the char-sheet labels / menu cursors (the cells
+  // were byte-exact but the colours wrong). attr 0x50 → colour index 5 (yellow
+  // under WIZ6_MAIN); palette[0] is black.
+  const YELLOW = WIZ6_MAIN.colors[5]!;
+  const BLACK = WIZ6_MAIN.colors[0]!;
+
+  function renderCell(invert: boolean): { on: number[]; off: number[] } {
+    const win = createTileWindow({ screenX: 0, screenY: 0, widthCells: 1, heightCells: 1 });
+    win.invertHighlight = invert;
+    puts(win, 'A', 0x50); // attr 0x50 → highlight path, colour idx 5
+    const dest = new Uint8ClampedArray(8 * 8 * 4);
+    renderTileWindow(win, dest, 8, 8, { font0: fakeFont0() }, WIZ6_MAIN);
+    const at = (x: number, y: number) => {
+      const i = (y * 8 + x) * 4;
+      return [dest[i]!, dest[i + 1]!, dest[i + 2]!];
+    };
+    return { on: at(0, 0), off: at(1, 0) }; // (0,0) is the glyph stroke; (1,0) is bg
+  }
+
+  it('colored text (invertHighlight=false): stroke = palette[5] (yellow), bg = black', () => {
+    const { on, off } = renderCell(false);
+    expect(on).toEqual([YELLOW[0], YELLOW[1], YELLOW[2]]);
+    expect(off).toEqual([BLACK[0], BLACK[1], BLACK[2]]);
+  });
+
+  it('inverse highlight (invertHighlight=true): stroke = black, bg = palette[5] (yellow)', () => {
+    const { on, off } = renderCell(true);
+    expect(on).toEqual([BLACK[0], BLACK[1], BLACK[2]]);
+    expect(off).toEqual([YELLOW[0], YELLOW[1], YELLOW[2]]);
+  });
+});
