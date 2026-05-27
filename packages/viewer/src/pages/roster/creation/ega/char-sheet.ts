@@ -34,6 +34,7 @@ import type { DraftState } from '../state.js';
 import {
   creationString,
   raceName,
+  className,
   SEX_NAME_BASE,
 } from '../messages.js';
 
@@ -163,6 +164,13 @@ function drawHeader(top: TileWindow, draft: DraftState, db: MessageDb): void {
     const text = `${sexGlyph.charAt(0)}-${race}`;
     setCursor(top, 13, 1);
     puts(top, text, attrFor(1));
+  }
+
+  // CLASS name at (13,2) attr 0x10 — only once a class is picked (the rank
+  // TITLE at row 1 col 35 stays "NONE" at creation; this is the class name).
+  if (draft.class !== null) {
+    setCursor(top, 13, 2);
+    puts(top, className(db, draft.class), attrFor(1));
   }
 }
 

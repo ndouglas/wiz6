@@ -38,17 +38,10 @@ import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
 import { createPersistentWindows } from '../ega/windows.js';
-import { highlightRow } from '../ega/highlight.js';
+import { drawCharSheet } from '../ega/char-sheet.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { MSG, creationString } from '../messages.js';
 import { mapKey } from './ScreenProps.js';
-
-// ---------------------------------------------------------------------------
-// Attribute labels
-// ---------------------------------------------------------------------------
-
-/** Display labels for the 7 allocatable attributes (STR..PER, indices 0..6). */
-const ATTR_LABELS = ['STR', 'INT', 'PIE', 'VIT', 'DEX', 'SPD', 'PER'] as const;
 
 // ---------------------------------------------------------------------------
 // BonusAllocatorScreen component
@@ -120,54 +113,27 @@ export function BonusAllocatorScreen({
   const { top, bottomBar } = createPersistentWindows();
   const pal = palette ?? WIZ6_MAIN;
 
-  // --- top window: title + attr table + pool ---
+  // top: the shared character sheet (attribute values reflect live allocation,
+  // BONUS row shows the remaining pool). No status title on this screen.
+  drawCharSheet(top, state.draft, db);
 
-  const titleText = creationString(db, MSG.bonusTitle);
-  if (titleText) {
-    setCursor(top, 0, 0);
-    puts(top, titleText, top.cells[1] ?? 0x14);
-  }
+  // Cursor marker: the engine draws char 'b' (0x62) at col 7 of the selected
+  // attribute's row (rows 5..11 = STR..PER), attr 0x70. Verified byte-exact vs
+  // the bonus-alloc save. (Drawn by the allocator, not the shared char-sheet.)
+  setCursor(top, 7, 5 + cursor);
+  puts(top, String.fromCharCode(0x62), 0x70);
 
-  // Render 7-row attribute table: "STR  8" etc.
-  const attrs = state.draft.attributes;
-  const attrValues = [
-    attrs.str, attrs.int, attrs.pie,
-    attrs.vit, attrs.dex, attrs.spd, attrs.per,
-  ];
-  const normalAttr = top.cells[1] ?? 0x14;
-
-  for (let i = 0; i < 7; i++) {
-    const row = i + 2; // rows 2..8 (skip title at 0 and blank at 1)
-    const label = ATTR_LABELS[i] ?? '';
-    const value = attrValues[i] ?? 0;
-    const line = `${label}  ${value}`;
-    setCursor(top, 0, row);
-    puts(top, line, normalAttr);
-
-    if (i === cursor) {
-      highlightRow(top, row, 5);
-    }
-  }
-
-  // Render pool count below the attr table
-  const poolText = `${creationString(db, MSG.bonusLabel)}  ${state.draft.bonusPool}`;
-  setCursor(top, 0, 10);
-  puts(top, poolText, normalAttr);
-
-  // --- bottomBar window: control labels ---
-
-  clearWindow(bottomBar, 0x20 /* space */, 0x13);
-  const adjustText = creationString(db, MSG.bonusAdjust);
-  if (adjustText) {
-    setCursor(bottomBar, 0, 0);
-    puts(bottomBar, adjustText, bottomBar.cells[1] ?? 0x13);
-  }
-
-  const selectText = creationString(db, MSG.bonusSelect);
-  if (selectText) {
-    setCursor(bottomBar, 0, 1);
-    puts(bottomBar, selectText, bottomBar.cells[1] ?? 0x13);
-  }
+  // bottomBar: title centered (row 1) + the two control-hint labels (row 2),
+  // each carrying its arrow glyphs (msg 0x454 = "\x11\x12 ADJUSTS ABILITY" at
+  // col 1; msg 0x455 = "\x13\x14 SELECTS ABILITY" at col 21). attr 0x03.
+  clearWindow(bottomBar, 0x20, 0x03);
+  const title = creationString(db, MSG.bonusTitle);
+  setCursor(bottomBar, Math.max(0, Math.floor((bottomBar.widthCells - title.length) / 2)), 1);
+  puts(bottomBar, title, 0x03);
+  setCursor(bottomBar, 1, 2);
+  puts(bottomBar, creationString(db, MSG.bonusAdjust), 0x03);
+  setCursor(bottomBar, 21, 2);
+  puts(bottomBar, creationString(db, MSG.bonusSelect), 0x03);
 
   const windows = [top, bottomBar];
 

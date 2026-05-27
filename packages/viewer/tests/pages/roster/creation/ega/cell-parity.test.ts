@@ -249,4 +249,28 @@ describe('CHAR SHEET `top` cell-grid parity (byte-exact vs engine)', () => {
     const { diffs, first } = diffCount(top.cells, eng);
     expect(diffs, `top diff: ${first ?? ''}`).toBe(0);
   });
+
+  it('BONUS ALLOCATOR: class FIGHTER, STR raised to 13, bonus 2, cursor on STR', () => {
+    // top = char-sheet (class name FIGHTER on row 2, STR=13, BONUS row=2) +
+    // the allocator cursor marker 'b' (0x62, attr 0x70) at col 7 of the cursor
+    // attribute's row (STR → row 5). No status title on this screen.
+    const eng = loadTop('bonus-alloc.json');
+    const { top } = createPersistentWindows();
+    const draft = {
+      ...blankDraft(),
+      name: 'P',
+      race: 0,
+      sex: 0,
+      class: 0,
+      bonusPool: 2,
+      attributes: { str: 13, int: 8, pie: 8, vit: 9, dex: 9, spd: 8, per: 8, kar: 0 },
+    };
+    drawCharSheet(top, draft, db);
+    const cursor = 0; // STR
+    setCursor(top, 7, 5 + cursor);
+    puts(top, String.fromCharCode(0x62), 0x70);
+
+    const { diffs, first } = diffCount(top.cells, eng);
+    expect(diffs, `top diff: ${first ?? ''}`).toBe(0);
+  });
 });
