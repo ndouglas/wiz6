@@ -130,3 +130,35 @@ describe('CHARACTER MENU cell-grid parity (byte-exact vs engine)', () => {
     });
   }
 });
+
+describe('NAME INPUT cell-grid parity (byte-exact vs engine, buffer="a")', () => {
+  // Mirrors NameInputScreen's render: prompt "CHARACTER NAME >" at (col 1,
+  // row 1) attr 0x03, then a fixed 8-cell field at col 17 — typed text +
+  // cursor at attr 0x10 (inverse-video), remainder blanked at attr 0x00.
+  const NAME_MAX_LENGTH = 7;
+  const PROMPT = 'CHARACTER NAME >';
+
+  it('top + bottomBar + menuPanel match engine cell memory', () => {
+    const eng = JSON.parse(
+      readFileSync(join(FIXTURES, 'name-input.json'), 'utf-8'),
+    ).windows as Record<string, EngineWindow>;
+    const { top, bottomBar, menuPanel } = createPersistentWindows();
+
+    const buffer = 'a';
+    setCursor(bottomBar, 1, 1);
+    puts(bottomBar, PROMPT, 0x03);
+    setCursor(bottomBar, 1 + PROMPT.length, 1);
+    puts(bottomBar, `${buffer} `, 0x10);
+    const pad = NAME_MAX_LENGTH + 1 - (buffer.length + 1);
+    if (pad > 0) puts(bottomBar, ' '.repeat(pad), 0x00);
+
+    for (const [name, win] of [
+      ['top', top],
+      ['bottomBar', bottomBar],
+      ['menuPanel', menuPanel],
+    ] as const) {
+      const { diffs, first } = diffCount(win.cells, eng[name]!);
+      expect(diffs, `${name} diff: ${first ?? ''}`).toBe(0);
+    }
+  });
+});

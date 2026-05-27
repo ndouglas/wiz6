@@ -134,23 +134,28 @@ export function NameInputScreen({
   // Render
   // -------------------------------------------------------------------------
 
-  // Build windows for this frame (pure function, fresh each render)
-  const { top, bottomBar } = createPersistentWindows();
+  // Build windows for this frame (same persistent set as the menu: top
+  // char-sheet template + gray bottomBar + gray menuPanel).
+  const { top, bottomBar, menuPanel } = createPersistentWindows();
 
-  // Write prompt + buffer to bottomBar
-  // Engine: wpcmk name-entry loop calls puts(bottomBar, "CHARACTER NAME >", attr)
-  // then appends the typed buffer + cursor '_' to the same line.
-  const promptText = creationString(db, MSG.namePrompt);
-  const displayText = promptText
-    ? `${promptText} ${buffer}_`
-    : `${buffer}_`;
-
-  setCursor(bottomBar, 0, 0);
-  puts(bottomBar, displayText, bottomBar.cells[1] ?? 0x13);
+  // Byte-exact against the engine name screen (save 1):
+  //   bottomBar row 1, col 1: "CHARACTER NAME >" at attr 0x03 (plain wfont3).
+  //   then at col 1+len: the typed name + a trailing cursor cell, all at
+  //   attr 0x10 — the highlight path (black-on-palette[1]), an inverse-video
+  //   input field. The cursor is just the highlighted space after the text.
+  // The field is a fixed NAME_MAX_LENGTH+1 cells (7 name chars + 1 cursor):
+  // the typed text and cursor are highlighted (attr 0x10); the remainder is
+  // cleared to attr 0x00 (transparent), matching the engine byte-for-byte.
+  const promptText = creationString(db, MSG.namePrompt); // "CHARACTER NAME >"
+  setCursor(bottomBar, 1, 1);
+  puts(bottomBar, promptText, 0x03);
+  setCursor(bottomBar, 1 + promptText.length, 1);
+  puts(bottomBar, `${buffer} `, 0x10);
+  const fieldPad = NAME_MAX_LENGTH + 1 - (buffer.length + 1);
+  if (fieldPad > 0) puts(bottomBar, ' '.repeat(fieldPad), 0x00);
 
   const pal = palette ?? WIZ6_MAIN;
-  // top window is blank (no char-sheet yet at name entry)
-  const windows = [top, bottomBar];
+  const windows = [top, bottomBar, menuPanel];
 
   return <CreationCanvas windows={windows} fontSet={fontSet} palette={pal} />;
 }
