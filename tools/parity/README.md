@@ -168,11 +168,100 @@ against the engine. Currently confirmed for Fighter (A2/A3 test coverage).
 2. **Remaining field offsets** — any pcfile fields with `unknown_*` annotations in
    `encode-character-record.ts` that are populated at creation time (not just stock values).
 
+## Committed engine fixtures — `fixtures/engine/`
+
+The canonical approach for screen-level parity tests. `.sav` files are huge (~240 KB),
+gitignored, machine-specific, and absent in CI. The decode is deterministic, so we decode
+each reference screen ONCE from its `.sav`, write a tiny committed derivative, and all
+subsequent tests diff our render against that committed fixture — no `.sav` needed.
+
+### Fixture format
+
+| File | Content | Typical size |
+|------|---------|-------------|
+| `<name>.idx.gz` | Gzipped Uint8Array(64000): one 4-bit EGA index per pixel | ~0.7–1 KB |
+| `<name>.png`    | PNG render via wiz6-main AC→DAC palette, for human viewing | ~2–3 KB |
+
+The `.idx.gz` is palette-independent — the test applies the wiz6-main AC→DAC pipeline
+at load time via `indicesToRgba()` from `decode-screen.ts`. This means if the palette
+mapping is refined, the index fixture stays valid; only the test RGBA changes.
+
+### Committed menu fixtures
+
+| Fixture name | Save | Roster state | Sizes |
+|---|---|---|---|
+| `character-menu-empty`   | save 2 | 0 chars — CREATE PC + EXIT only | idx.gz 762 B, png 2237 B |
+| `character-menu-partial` | save 1 | partial — all 6 options          | idx.gz 956 B, png 2509 B |
+| `character-menu-full`    | save 3 | 16 chars — no CREATE PC          | idx.gz 959 B, png 2524 B |
+
+### Generating a fixture (one-time per save)
+
+```bash
+# Capture the save state in DOSBox-X first (Alt-F5 → tools/dosbox/save/<n>.sav)
+# Then generate the fixture:
+pnpm tsx tools/parity/gen-fixture.ts --save <n> --name <fixture-name>
+
+# Examples (the 3 menu fixtures already committed):
+pnpm tsx tools/parity/gen-fixture.ts --save 2 --name character-menu-empty
+pnpm tsx tools/parity/gen-fixture.ts --save 1 --name character-menu-partial
+pnpm tsx tools/parity/gen-fixture.ts --save 3 --name character-menu-full
+
+# Commit the results:
+git add tools/parity/fixtures/engine/
+```
+
+`gen-fixture.ts` writes both the `.idx.gz` and the `.png` to `tools/parity/fixtures/engine/`
+and verifies the gzip round-trip. The `.sav` file is only needed for this one-time generation.
+
+### Loading a fixture in tests
+
+```ts
+import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
+import { indicesToRgba } from './decode-screen.js';
+
+function loadFixtureRgba(name: string): Uint8Array {
+  const compressed = readFileSync(`tools/parity/fixtures/engine/${name}.idx.gz`);
+  const raw = gunzipSync(compressed);
+  const indices = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+  return indicesToRgba(indices); // apply wiz6-main AC→DAC palette
+}
+
+const engineRgba = loadFixtureRgba('character-menu-partial');
+// → Uint8Array(256000) — RGBA, 320×200 pixels
+```
+
+Or use the helper in `fixtures.ts`:
+
+```ts
+import { loadFixture } from './fixtures.js';
+const { indices, rgba } = loadFixture('character-menu-partial');
+```
+
+### Screen-parity test (no .sav, runs in CI)
+
+The canonical parity test for the CHARACTER MENU (partial state) lives in `@wiz6/viewer`:
+
+```bash
+pnpm --filter @wiz6/viewer test tests/pages/roster/creation/ega/screen-parity.test.ts
+```
+
+Actual match as of implementation: **46.78%** (tolerance=8). Main sources of divergence:
+our renderer fills the entire background with dark-gray before compositing windows; the
+engine only fills the non-window-covered background region. Window interiors are black.
+
+Regression floor: 40% (actual − 7% safety margin).
+
+---
+
 ## Decode engine screen from a save state
 
 `decode-screen.ts` reads the DOSBox-X save state's `Vga` blob, decodes the 320×200
-mode-0x0D planar screen to RGBA via the EGA_DEFAULT palette, and writes a PNG — entirely
-offline, no DOSBox process required.
+mode-0x0D planar screen to RGBA via the wiz6-main AC→DAC palette, and writes a PNG —
+entirely offline, no DOSBox process required.
+
+It also exports `decodeSaveToScreen(savePath)`, `decodeVgaIndices(blob)`, and
+`indicesToRgba(indices)` for programmatic use in `gen-fixture.ts` and `fixtures.ts`.
 
 ```bash
 # Decode save 1 → /tmp/engine-screen-1.png (default output path)
@@ -189,11 +278,10 @@ Output shows color statistics and a structural check:
 ```
 decoded 320×200 from .../tools/dosbox/save/1.sav
   → /tmp/engine-screen-1.png
-  black:     80.6%
-  dark-gray:  9.1%
-  light-gray: 0.1%
-  white:      0.2%
-  full-width dark bar: row 120 ✓
+  black:     43.7%
+  dark-gray: 50.4%
+  light-gray: 4.1%
+  white:      1.7%
   structural check: PASS
 ```
 
@@ -203,26 +291,20 @@ Confirmed empirically — see `docs/re/findings/dosbox-vga-save-layout.json`:
 
 | Parameter | Value |
 |---|---|
-| VRAM start in blob | `0x80000` |
-| Plane layout | Interleaved: `blob[0x80000 + vga_addr*4 + plane]` |
+| VRAM start in blob | `0x84000` (not 0x80000) |
+| Plane layout | Interleaved: `blob[0x84000 + vga_addr*4 + plane]` |
 | Row stride | 40 bytes/row/plane (CRTC reg 0x13 = 0x14) |
 | Display start | VGA address 0 (CRTC regs 0x0C/0x0D = 0) |
-| Palette | `EGA_DEFAULT` (direct pixel→RGB, no AC stage) |
+| Palette | wiz6-main AC→DAC (not EGA_DEFAULT) — see WIZ6_MAIN_AC in decode-screen.ts |
 
-The DAC and CRTC registers are embedded at blob offsets 0x82F80–0x83800
-(which overlaps VRAM rows 75–89 in the address model). This adds minor noise
-to those rows but does not affect the bulk of the screen.
+### Using decoded screens for one-off inspection
 
-### Using decoded screens for parity testing
+```bash
+pnpm tsx tools/parity/decode-screen.ts --save N
+```
 
-For parity testing between the engine framebuffer and our TS renderer, the typical workflow is:
-
-1. Decode the engine screen: `pnpm tsx tools/parity/decode-screen.ts --save N`
-2. Render our TS implementation to a canvas / PNG
-3. Compare pixel-by-pixel using `compareRgba` (see below)
-
-The `decode-screen.ts` tool can also be used to visually confirm which game state
-a save is at — helpful for identifying which screen layout to replicate.
+For regression testing, use `gen-fixture.ts` to generate a committed fixture instead —
+then the test can run without the `.sav` file present.
 
 ## Pixel-diff harness
 
@@ -247,40 +329,44 @@ in scan order (top-left to bottom-right). Use these to quickly identify what reg
 
 **Unit tests:** `cd tools/parity && npx vitest run diff-image.test.ts`
 
-### `screen-parity.ts` — headless confirm-screen harness (CLI)
+### `screen-parity.ts` — headless CHARACTER MENU harness (CLI)
 
-Reconstructs the NUG confirm screen (screen-15: "SAVE THIS CHARACTER?") headlessly
-via `renderCreationFrame` + `loadCreationFontSet`, and compares against the engine's
-decoded save 1. Prints the match % and writes PNG artifacts.
+Loads the committed `character-menu-partial` fixture and compares against our headless
+render of the CHARACTER MENU in PARTIAL roster state. Prints the match % and writes
+PNG artifacts. No `.sav` file is read.
 
 ```bash
 pnpm tsx tools/parity/screen-parity.ts
-# → Match: 67.22%  (43019/64000 pixels match)
-# → /tmp/our-confirm-nug.png    (our render)
-# → /tmp/engine-screen-1.png    (engine reference)
-# → /tmp/diff-confirm-nug.png   (red = mismatch)
+# → Match: 46.78%  (29942/64000 pixels match)
+# → /tmp/our-character-menu-partial.png     (our render)
+# → /tmp/engine-character-menu-partial.png  (from fixture, NOT a .sav)
+# → /tmp/diff-character-menu-partial.png    (red = mismatch)
 ```
 
-**Current match: ~67.2%** (tolerance=8). Main sources of divergence:
+**Current match: ~46.78%** (tolerance=8). Main sources of divergence:
 
 | Source | Approx. contribution |
 |---|---|
-| Background fill: we use dark-gray (85,85,85), engine uses black in window interiors | ~11% |
-| Top window chrome tiles drawn where engine is blank/black | ~8% |
-| Bottom bar position/content difference (engine partially black) | ~7% |
-| Window border row differences (minor layout shift) | ~5% |
+| Background fill: our renderer fills entire 320×200 with dark-gray; engine uses black in window interiors | ~25% |
+| Window chrome tiles drawn where engine is blank/black | ~15% |
+| Menu text / highlight rows differ slightly | ~8% |
+| DOSBox-X internal-state noise (~161 pixels in rows 15–16) | < 0.3% |
 
 Layout refinement will raise this number. The regression floor is set conservatively
-in the test (60%) so the test does not break on minor improvements.
+in the test (40%) so the test does not break on minor improvements.
 
-**Regression test:** `cd tools/parity && npx vitest run screen-parity.test.ts`
+**Canonical regression test (no .sav, runs in CI):**
 
-The test asserts `matchPct ≥ 60%` (actual ~67.2%, 7% safety margin). It also writes
-diff artifacts to `/tmp/` for visual inspection.
+```bash
+pnpm --filter @wiz6/viewer test tests/pages/roster/creation/ega/screen-parity.test.ts
+```
 
-### Adding a (screen, save) parity case
+The test asserts `matchPct ≥ 40%` (actual ~46.78%, 7% safety margin).
 
-To validate a new screen against a DOSBox-X save:
+### Adding a new (screen, fixture) parity case
+
+The fixture-based workflow — capture a `.sav` ONCE, generate a committed derivative,
+then test against the fixture in CI (no `.sav` needed):
 
 1. **Capture the save state** at the exact screen you want to validate:
    ```bash
@@ -288,35 +374,43 @@ To validate a new screen against a DOSBox-X save:
    # → saves to tools/dosbox/save/<n>.sav (DOSBox-X default numbering)
    ```
 
-2. **Determine whether the screen is directly URL-addressable** in the viewer:
-   - If YES (e.g. `/castle/character-menu`): use the Playwright route-based parity spec
-   - If NO (e.g. confirm screen — sub-state of creation wizard): use the headless harness
+2. **Generate the committed fixture** (one-time):
+   ```bash
+   pnpm tsx tools/parity/gen-fixture.ts --save <n> --name <fixture-name>
+   # Writes: tools/parity/fixtures/engine/<fixture-name>.{idx.gz,png}
+   ```
 
-3. **Headless harness path** (preferred for non-routable screens):
-   - Create `tools/parity/<screen-name>-parity.ts` (runnable CLI + PNG artifacts)
-   - Create `tools/parity/<screen-name>-parity.test.ts` (vitest regression floor)
-   - Model it on `screen-parity.ts` / `screen-parity.test.ts`
-   - Run: `cd tools/parity && npx vitest run <screen-name>-parity.test.ts`
+3. **Commit the fixture**:
+   ```bash
+   git add tools/parity/fixtures/engine/<fixture-name>.idx.gz \
+           tools/parity/fixtures/engine/<fixture-name>.png
+   git commit -m "test(parity): add <fixture-name> engine fixture"
+   ```
 
-4. **Playwright route-based path** (for directly-addressable screens):
-   - Add a new entry to `PARITY_CASES` in `packages/viewer/e2e/parity.spec.ts`
-   - Set `threshold` conservatively (actual match % − 10%)
-   - Run: `cd packages/viewer && pnpm test:e2e e2e/parity.spec.ts`
-   - Diff PNG is attached to the Playwright HTML report (`/tmp/playwright-parity/`)
+4. **Write the parity test** (no .sav read):
+   - **Headless path** (for non-routable screens or sub-states): add a test in
+     `packages/viewer/tests/pages/roster/creation/ega/screen-parity.test.ts` or a
+     sibling file. Load the fixture with `loadFixtureRgba(name)` + `indicesToRgba()`,
+     render headlessly via `renderCreationFrame`, compare with `compareRgba`.
+   - **Playwright path** (for URL-addressable screens): add to `PARITY_CASES` in
+     `packages/viewer/e2e/parity.spec.ts` with `fixtureName` pointing to the committed fixture.
+     The spec loads the fixture and compares against the Playwright canvas capture.
 
-5. **Check the diff PNG** — mismatching pixels are shown in red. Common patterns:
+5. **Set threshold conservatively** (actual match − 7–10%) and document actual match % in comments.
+
+6. **Check the diff PNG** — mismatching pixels shown in red. Common patterns:
    - Solid red region = missing window or completely wrong fill color
-   - Red border on a window = geometry offset by 1–2 cells
-   - Red pixels scattered through text = wrong font or wrong attribute byte
-   - Red in known-black region = DOSBox contamination (rows 27–36, 75–90) — these are expected
+   - Red border = geometry offset by 1–2 cells
+   - Red pixels in text = wrong font or wrong attribute byte
+   - Sparse red pixels in rows 15–16 = DOSBox-X internal-state contamination (expected, invariant)
 
-6. **Tighten the threshold** once layout refinement is complete.
+7. **Tighten the threshold** once layout refinement is complete.
 
 ### Playwright parity spec
 
-`packages/viewer/e2e/parity.spec.ts` — route-based parity scaffold. Currently seeded
-with a `test.skip` for the character menu (no matching save yet). Extend PARITY_CASES
-following step 4 above once you have a (route, save) pair.
+`packages/viewer/e2e/parity.spec.ts` — route-based parity scaffold using committed fixtures.
+The CHARACTER MENU case is `skip: true` until the route can be initialized with a matching
+roster state. Extend PARITY_CASES with `fixtureName` (not `savePath`) following step 4 above.
 
 ```bash
 cd packages/viewer && pnpm test:e2e e2e/parity.spec.ts

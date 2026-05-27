@@ -1,10 +1,17 @@
 /**
- * parity.spec.ts — Route-based pixel-diff parity against DOSBox-X engine saves.
+ * parity.spec.ts — Route-based pixel-diff parity against committed engine fixtures.
  *
  * Pattern: for each entry in PARITY_CASES, navigate to the viewer route that
  * shows a specific game screen, capture the 320×200 canvas RGBA via Playwright,
- * decode the matching DOSBox-X save via readVgaBlob + EGA_DEFAULT palette, and
- * run compareRgba to assert the match % ≥ threshold.
+ * load the matching committed engine fixture (NOT a .sav file), and run
+ * compareRgba to assert the match % ≥ threshold.
+ *
+ * ## Fixture-based approach (no .sav at test time)
+ *
+ * Fixtures live in `tools/parity/fixtures/engine/<name>.idx.gz` — committed
+ * ground-truth EGA index arrays generated once from DOSBox-X save states via
+ * `tools/parity/gen-fixture.ts`. At test time, the fixture is gunzipped and
+ * the wiz6-main AC→DAC palette is applied to produce RGBA. No .sav needed.
  *
  * ## How to add a new parity case
  *
@@ -12,59 +19,52 @@
  *    - Boot Wiz6 via `tools/dosbox/run-with-logging.sh` (or just `dosbox-x`)
  *    - Navigate to the screen
  *    - Press Alt-F5 to save state → `tools/dosbox/save/<n>.sav`
- *    - Note which save number you used and which screen it shows
  *
- * 2. **Find a viewer route** that displays the same screen content:
- *    - Must be a URL you can hit directly (no multi-step wizard state)
- *    - If the screen requires a specific character, the route may need query params
- *      or the page must auto-load the character by name/slot
- *    - If no direct route exists yet, you can: (a) add one, (b) use the headless
- *      harness (`tools/parity/screen-parity.ts`) instead, (c) leave as test.skip
+ * 2. **Generate the fixture** (one-time; commit the result):
+ *    ```bash
+ *    pnpm tsx tools/parity/gen-fixture.ts --save <n> --name <fixture-name>
+ *    git add tools/parity/fixtures/engine/<fixture-name>.{idx.gz,png}
+ *    ```
  *
- * 3. **Add the entry to PARITY_CASES**:
+ * 3. **Find a viewer route** that displays the same screen content.
+ *    If no direct route exists: (a) add one, (b) use the headless harness
+ *    (packages/viewer/tests/pages/roster/creation/ega/screen-parity.test.ts),
+ *    or (c) leave as test.skip.
+ *
+ * 4. **Add the entry to PARITY_CASES**:
  *    ```ts
  *    {
  *      description: 'character menu',
  *      route: '/castle/character-menu',
- *      savePath: 'tools/dosbox/save/N.sav',  // relative to repo root
- *      threshold: 50,   // start conservative; tighten after layout refinement
- *      skip: false,     // set true if no matching route yet
+ *      fixtureName: 'character-menu-partial',  // from fixtures/engine/
+ *      threshold: 40,   // start conservative; tighten after layout refinement
+ *      skip: false,
  *      skipReason: '',
  *    }
  *    ```
  *
- * 4. **Set the threshold conservatively** (e.g. 50%):
+ * 5. **Set the threshold conservatively** (e.g. 40%):
  *    - Run `pnpm test:e2e e2e/parity.spec.ts` to get the actual match %
  *    - Set threshold = actual − 10% (safety margin for minor refactors)
  *    - Document the actual match % in a comment beside the entry
  *
- * 5. **The diff PNG** is attached to the Playwright HTML report for visual inspection.
+ * 6. **The diff PNG** is attached to the Playwright HTML report for visual inspection.
  *    Look for `artifacts/diff-<description>.png` in the test output.
  *
- * ## Current status
- *
- *   CHARACTER_MENU  — BLOCKED: no save state captured at the character menu screen.
- *     The character menu (MASTER OPTIONS → Characters → …) requires navigating to
- *     a specific save state. Once captured, enable the case below.
- *
- *   CONFIRM_SCREEN (NUG) — covered by the HEADLESS harness instead of Playwright,
- *     because the confirm screen isn't directly URL-addressable (it's a sub-state of
- *     the creation wizard). The headless test lives in:
- *       tools/parity/screen-parity.test.ts  (assertion)
- *       tools/parity/screen-parity.ts       (CLI harness with PNG artifacts)
- *
  * ## See also
- *   tools/parity/README.md — diff workflow + DOSBox capture instructions
- *   tools/parity/screen-parity.ts — headless confirm-screen parity harness
+ *   tools/parity/README.md — fixture workflow + capture instructions
+ *   tools/parity/gen-fixture.ts — generate fixtures from .sav
+ *   packages/viewer/tests/pages/roster/creation/ega/screen-parity.test.ts — headless parity
  *   tools/parity/diff-image.ts — compareRgba + writeDiffPng
  */
 
 import { test, expect } from '@playwright/test';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { resolve } from 'path';
+import { gunzipSync } from 'zlib';
+import { resolve, join } from 'path';
 import { captureCanvas, waitForNonBlankCanvas } from './lib/canvas.js';
 import { compareRgba, writeDiffPng } from '../../../tools/parity/diff-image.js';
-import { readVgaBlob } from '../../../packages/mcp/src/vga-palette.js';
+import { indicesToRgba } from '../../../tools/parity/decode-screen.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -74,10 +74,11 @@ interface ParityCase {
   /** Viewer route to navigate to (e.g. '/castle/character-menu'). */
   route: string;
   /**
-   * Path to the DOSBox-X save state file, relative to the repo root.
-   * E.g. 'tools/dosbox/save/1.sav'.
+   * Name of the committed engine fixture (without extension).
+   * The file `tools/parity/fixtures/engine/<fixtureName>.idx.gz` must exist.
+   * Generate via: pnpm tsx tools/parity/gen-fixture.ts --save <n> --name <fixtureName>
    */
-  savePath: string;
+  fixtureName: string;
   /**
    * Minimum acceptable match % (0–100). Start conservative; tighten after
    * confirming actual match and completing layout refinement.
@@ -89,82 +90,64 @@ interface ParityCase {
   skipReason?: string;
 }
 
-// ─── EGA decoder (mirrors decode-screen.ts, inlined to avoid circular deps) ─
+// ─── Fixture loader (no .sav) ─────────────────────────────────────────────────
 
-const EGA_DEFAULT: ReadonlyArray<readonly [number, number, number]> = [
-  [0, 0, 0], [0, 0, 170], [0, 170, 0], [0, 170, 170],
-  [170, 0, 0], [170, 0, 170], [170, 85, 0], [170, 170, 170],
-  [85, 85, 85], [85, 85, 255], [85, 255, 85], [85, 255, 255],
-  [255, 85, 85], [255, 85, 255], [255, 255, 85], [255, 255, 255],
-];
+/** Repo root — resolve fixture paths relative to here. */
+const REPO_ROOT = resolve(new URL(import.meta.url).pathname, '..', '..', '..');
+const FIXTURES_ENGINE = join(REPO_ROOT, 'tools', 'parity', 'fixtures', 'engine');
 
-function decodeEngineScreen(savePath: string): Uint8Array {
-  const blob = readVgaBlob(savePath);
-  const VRAM_OFFSET = 0x80000;
-  const W = 320; const H = 200; const PLANES = 4;
-  const DOSBOX_INTERNAL_START = 0x0810E0; const DOSBOX_INTERNAL_END = 0x08171F;
-  const VGA_STATE_START = 0x82F70; const VGA_STATE_END = 0x838CE;
-  const rgba = new Uint8Array(W * H * 4);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const vgaAddr = y * 40 + (x >> 3);
-      const blobBase = VRAM_OFFSET + vgaAddr * PLANES;
-      let pixelIndex: number;
-      if ((blobBase >= DOSBOX_INTERNAL_START && blobBase <= DOSBOX_INTERNAL_END) ||
-          (blobBase >= VGA_STATE_START && blobBase <= VGA_STATE_END)) {
-        pixelIndex = 0;
-      } else {
-        const b0 = blob[blobBase]!; const b1 = blob[blobBase + 1]!;
-        const b2 = blob[blobBase + 2]!; const b3 = blob[blobBase + 3]!;
-        const bit = 7 - (x & 7);
-        pixelIndex = ((b0 >> bit) & 1) | (((b1 >> bit) & 1) << 1) |
-                     (((b2 >> bit) & 1) << 2) | (((b3 >> bit) & 1) << 3);
-      }
-      const [r, g, b] = EGA_DEFAULT[pixelIndex]!;
-      const off = (y * W + x) * 4;
-      rgba[off] = r; rgba[off + 1] = g; rgba[off + 2] = b; rgba[off + 3] = 0xff;
-    }
+/**
+ * Load a committed engine fixture from tools/parity/fixtures/engine/<name>.idx.gz.
+ * No .sav file needed — the fixture is the committed ground truth.
+ */
+function loadFixtureRgba(name: string): Uint8Array {
+  const idxGzPath = join(FIXTURES_ENGINE, `${name}.idx.gz`);
+  const compressed = readFileSync(idxGzPath);
+  const raw = gunzipSync(compressed);
+  if (raw.length !== 64000) {
+    throw new Error(`Fixture "${name}": expected 64000 bytes, got ${raw.length}`);
   }
-  return rgba;
+  const indices = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+  return indicesToRgba(indices);
 }
 
 // ─── PARITY_CASES table ──────────────────────────────────────────────────────
 
 /**
- * Add new entries here as (save, route) pairs become available.
+ * Add new entries here as (fixture, route) pairs become available.
  * See file header comment for step-by-step instructions.
+ *
+ * CHARACTER MENU — The route `/castle/character-menu` displays the roster
+ * entry screen. The `character-menu-partial` fixture was decoded from save 1
+ * (partial roster). The Playwright canvas must be loaded with partial roster
+ * state for a meaningful comparison.
+ *
+ * NOTE: Until the viewer auto-loads a partial roster state at /castle/character-menu,
+ * this test compares the DEFAULT (empty) render against the partial fixture, which
+ * will have low match %. The test is left skip=true until the route renders a
+ * roster-state-matching screen.
+ *
+ * For headless parity (no Playwright), see:
+ *   packages/viewer/tests/pages/roster/creation/ega/screen-parity.test.ts
  */
 const PARITY_CASES: ParityCase[] = [
-  // ─────────────────────────────────────────────────────────────────────────
-  // CHARACTER MENU  — BLOCKED: no matching save captured yet.
-  //
-  // Save 1 shows the NUG confirm screen (screen-15), NOT the character menu.
-  // The character menu requires a different save state (the empty character
-  // menu at MASTER OPTIONS → Characters, before any character is created).
-  //
-  // TODO: capture a save at the character menu screen and enable this case.
-  // Steps:
-  //   1. Boot Wiz6, navigate to the character menu (no characters — fresh game)
-  //   2. Alt-F5 → save to tools/dosbox/save/<n>.sav
-  //   3. Update savePath below, set skip: false
-  // ─────────────────────────────────────────────────────────────────────────
   {
     description: 'character-menu',
     route: '/castle/character-menu',
-    savePath: 'tools/dosbox/save/PLACEHOLDER-no-save-yet.sav',
-    threshold: 50,
+    fixtureName: 'character-menu-partial',
+    threshold: 40,
+    // TODO: un-skip once the viewer route renders with a partial roster state.
+    // The headless parity test covers this comparison in the meantime.
     skip: true,
     skipReason:
-      'No matching save state captured yet. ' +
-      'Capture a save at the character menu screen (MASTER OPTIONS → Characters, empty roster) ' +
-      'and update savePath + threshold. See file header for instructions.',
+      'The /castle/character-menu route defaults to empty roster. The fixture ' +
+      'is character-menu-partial (save 1). Once the route can be initialized with ' +
+      'a partial roster state, update threshold + un-skip. ' +
+      'Headless coverage: packages/viewer/tests/pages/roster/creation/ega/screen-parity.test.ts',
   },
 ];
 
 // ─── Test runner ─────────────────────────────────────────────────────────────
-
-/** Repo root — resolve save paths relative to here. */
-const REPO_ROOT = resolve(new URL(import.meta.url).pathname, '..', '..', '..');
 
 for (const c of PARITY_CASES) {
   const fn = c.skip ? test.skip : test;
@@ -181,9 +164,8 @@ for (const c of PARITY_CASES) {
       expect(cap.width).toBe(320);
       expect(cap.height).toBe(200);
 
-      // Decode engine reference
-      const absoluteSavePath = resolve(REPO_ROOT, c.savePath);
-      const engineRgba = decodeEngineScreen(absoluteSavePath);
+      // Load engine fixture (no .sav read)
+      const engineRgba = loadFixtureRgba(c.fixtureName);
 
       // Compare
       const result = compareRgba(new Uint8Array(cap.rgba), engineRgba, { tolerance: 8 });

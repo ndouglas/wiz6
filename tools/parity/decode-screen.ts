@@ -61,10 +61,14 @@
  * across all captured saves (not game-drawn VRAM). Their visual impact is negligible
  * (< 0.3% of screen pixels), so no masking is applied. See dosbox-vga-save-layout.json.
  *
- * Invoke:
+ * Invoke (CLI):
  *   pnpm tsx tools/parity/decode-screen.ts --save <path|N> [--out <png>]
  *
  * Default output: /tmp/engine-screen-<N>.png
+ *
+ * Exports:
+ *   decodeSaveToScreen(savePath) → { indices, rgba }
+ *   SCREEN_WIDTH, SCREEN_HEIGHT, WIZ6_MAIN_AC, COMPOSED_PALETTE
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -81,7 +85,7 @@ import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
  *
  * raw_index (4-bit EGA attribute from plane bits) → AC entry → DAC[AC[i]] → RGB.
  */
-const WIZ6_MAIN_AC = [
+export const WIZ6_MAIN_AC = [
   0x00, 0x17, 0x11, 0x15, 0x14, 0x16, 0x12, 0x13,
   0x10, 0x07, 0x01, 0x05, 0x04, 0x06, 0x02, 0x03,
 ] as const;
@@ -93,7 +97,7 @@ const WIZ6_MAIN_AC = [
  * Entries 24–31 repeat the low-intensity set (DAC indices 0x18–0x1F = 24–31).
  * Verified from DAC dump at blob 0x82FE9 (invariant across all captured saves).
  */
-const DAC_6BIT: ReadonlyArray<readonly [number, number, number]> = [
+export const DAC_6BIT: ReadonlyArray<readonly [number, number, number]> = [
   // Low-intensity (entries 0-15)
   [0,  0,  0], [0,  0,  42], [0,  42, 0], [0,  42, 42],
   [42, 0,  0], [42, 0,  42], [42, 21, 0], [42, 42, 42],
@@ -128,30 +132,23 @@ function buildComposedPalette(): ReadonlyArray<readonly [number, number, number]
   });
 }
 
-const COMPOSED_PALETTE = buildComposedPalette();
+export const COMPOSED_PALETTE = buildComposedPalette();
 
 // ─── VGA VRAM layout constants ───────────────────────────────────────────────
 const VRAM_OFFSET_IN_BLOB = 0x84000; // vga.mem.linear starts here (not 0x80000)
 const VRAM_BYTES_PER_ROW  = 40;      // CRTC offset reg 0x13 = 0x14 → 40 bytes/row/plane
-const SCREEN_WIDTH  = 320;
-const SCREEN_HEIGHT = 200;
+export const SCREEN_WIDTH  = 320;
+export const SCREEN_HEIGHT = 200;
 const PLANES = 4;
 
 /**
- * Decode a 320×200 mode-0x0D EGA screen from a DOSBox-X save state Vga blob.
+ * Decode 320×200 mode-0x0D EGA screen from a VGA blob to raw EGA index array.
  *
- * Pixel addressing (interleaved 4-plane layout):
- *   vga_addr         = y × VRAM_BYTES_PER_ROW + (x >> 3)
- *   plane_byte_offset = VRAM_OFFSET_IN_BLOB + vga_addr × PLANES + plane
- *   bit_position      = 7 − (x & 7)                       (MSB first)
- *   raw_index         = bit_n(p0) | bit_n(p1)<<1 | bit_n(p2)<<2 | bit_n(p3)<<3
- *   rgb               = COMPOSED_PALETTE[raw_index]        (AC→DAC composed)
- *
- * No masking is applied. The ~170 DOSBox-X internal-state bytes that land inside
- * vga.mem.linear produce < 0.3% noise pixels — documented in dosbox-vga-save-layout.json.
+ * Returns a Uint8Array of length SCREEN_WIDTH * SCREEN_HEIGHT where each byte
+ * is the 4-bit raw EGA attribute index (0–15).
  */
-function decodeVgaScreen(blob: Uint8Array): Uint8Array {
-  const rgba = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT * 4);
+export function decodeVgaIndices(blob: Uint8Array): Uint8Array {
+  const indices = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
   const base = VRAM_OFFSET_IN_BLOB;
 
   for (let y = 0; y < SCREEN_HEIGHT; y++) {
@@ -165,22 +162,58 @@ function decodeVgaScreen(blob: Uint8Array): Uint8Array {
       const b2 = blob[blobBase + 2]!;
       const b3 = blob[blobBase + 3]!;
 
-      const rawIndex =
+      indices[y * SCREEN_WIDTH + x] =
         ((b0 >> bitPos) & 1) |
         (((b1 >> bitPos) & 1) << 1) |
         (((b2 >> bitPos) & 1) << 2) |
         (((b3 >> bitPos) & 1) << 3);
-
-      const [r, g, b] = COMPOSED_PALETTE[rawIndex]!;
-      const offset = (y * SCREEN_WIDTH + x) * 4;
-      rgba[offset] = r;
-      rgba[offset + 1] = g;
-      rgba[offset + 2] = b;
-      rgba[offset + 3] = 0xff;
     }
   }
 
+  return indices;
+}
+
+/**
+ * Convert EGA index array to RGBA using the wiz6-main AC→DAC composed palette.
+ *
+ * @param indices Uint8Array of length SCREEN_WIDTH * SCREEN_HEIGHT (4-bit values 0–15)
+ * @returns Uint8Array of length SCREEN_WIDTH * SCREEN_HEIGHT * 4 (RGBA, row-major)
+ */
+export function indicesToRgba(indices: Uint8Array): Uint8Array {
+  const rgba = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT * 4);
+  for (let i = 0; i < indices.length; i++) {
+    const [r, g, b] = COMPOSED_PALETTE[indices[i]!]!;
+    const offset = i * 4;
+    rgba[offset] = r;
+    rgba[offset + 1] = g;
+    rgba[offset + 2] = b;
+    rgba[offset + 3] = 0xff;
+  }
   return rgba;
+}
+
+/**
+ * Decode a DOSBox-X save state to a 320×200 screen.
+ *
+ * @param savePath Path to the .sav file (ZIP containing Vga member).
+ * @returns Object with:
+ *   - `indices`: Uint8Array(64000) — 4-bit EGA index per pixel, palette-independent
+ *   - `rgba`:    Uint8Array(256000) — RGBA via wiz6-main AC→DAC pipeline
+ */
+export function decodeSaveToScreen(savePath: string): {
+  indices: Uint8Array;
+  rgba: Uint8Array;
+} {
+  const blob = readVgaBlob(savePath);
+  const indices = decodeVgaIndices(blob);
+  const rgba = indicesToRgba(indices);
+  return { indices, rgba };
+}
+
+// ─── Internal: decode for CLI (RGBA from blob) ────────────────────────────────
+
+function decodeVgaScreen(blob: Uint8Array): Uint8Array {
+  return indicesToRgba(decodeVgaIndices(blob));
 }
 
 /**
@@ -224,7 +257,6 @@ function computeStats(rgba: Uint8Array): {
   }
 
   // Isolated-pixel noise: pixels whose color differs from ALL 4 cardinal neighbors.
-  // Low for structured tile-rendered screens; high for noise/wrong-base decodes.
   let noisePixels = 0;
   for (let y = 1; y < SCREEN_HEIGHT - 1; y++) {
     for (let x = 1; x < SCREEN_WIDTH - 1; x++) {
@@ -252,66 +284,75 @@ function computeStats(rgba: Uint8Array): {
   };
 }
 
-// ─── CLI ─────────────────────────────────────────────────────────────────────
+// ─── CLI (only runs when executed directly, not when imported) ────────────────
 
-function resolveSavePath(arg: string): { path: string; saveNum: string } {
-  if (/^\d+$/.test(arg)) {
-    return {
-      path: join(process.cwd(), 'tools', 'dosbox', 'save', `${arg}.sav`),
-      saveNum: arg,
-    };
+import { fileURLToPath as _fileURLToPath } from 'node:url';
+import { dirname as _dirname } from 'node:path';
+
+const _isMain = process.argv[1] === _fileURLToPath(import.meta.url) ||
+  process.argv[1]?.endsWith('decode-screen.ts') ||
+  process.argv[1]?.endsWith('decode-screen.js');
+
+if (_isMain) {
+  function resolveSavePath(arg: string): { path: string; saveNum: string } {
+    if (/^\d+$/.test(arg)) {
+      return {
+        path: join(process.cwd(), 'tools', 'dosbox', 'save', `${arg}.sav`),
+        saveNum: arg,
+      };
+    }
+    const m = arg.match(/(\d+)/);
+    return { path: arg, saveNum: m ? m[1]! : '0' };
   }
-  const m = arg.match(/(\d+)/);
-  return { path: arg, saveNum: m ? m[1]! : '0' };
-}
 
-const args = process.argv.slice(2);
-const saveIdx = args.indexOf('--save');
-const outIdx  = args.indexOf('--out');
+  const args = process.argv.slice(2);
+  const saveIdx = args.indexOf('--save');
+  const outIdx  = args.indexOf('--out');
 
-if (saveIdx < 0 || saveIdx + 1 >= args.length) {
-  console.error('usage: pnpm tsx tools/parity/decode-screen.ts --save <path|N> [--out <png>]');
-  process.exit(1);
-}
+  if (saveIdx < 0 || saveIdx + 1 >= args.length) {
+    console.error('usage: pnpm tsx tools/parity/decode-screen.ts --save <path|N> [--out <png>]');
+    process.exit(1);
+  }
 
-const { path: savePath, saveNum } = resolveSavePath(args[saveIdx + 1]!);
-const outPath =
-  outIdx >= 0 && outIdx + 1 < args.length
-    ? args[outIdx + 1]!
-    : `/tmp/engine-screen-${saveNum}.png`;
+  const { path: savePath, saveNum } = resolveSavePath(args[saveIdx + 1]!);
+  const outPath =
+    outIdx >= 0 && outIdx + 1 < args.length
+      ? args[outIdx + 1]!
+      : `/tmp/engine-screen-${saveNum}.png`;
 
-const blob = readVgaBlob(savePath);
-const rgba = decodeVgaScreen(blob);
-const png  = encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba);
-writeFileSync(outPath, png);
+  const blob = readVgaBlob(savePath);
+  const rgba = decodeVgaScreen(blob);
+  const png  = encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba);
+  writeFileSync(outPath, png);
 
-const stats = computeStats(rgba);
-console.log(`decoded ${SCREEN_WIDTH}×${SCREEN_HEIGHT} from ${savePath}`);
-console.log(`  → ${outPath}`);
-console.log(`  black:       ${stats.blackPct.toFixed(1)}%`);
-console.log(`  white:       ${stats.whitePct.toFixed(1)}%`);
-console.log(`  light-gray:  ${stats.lGrayPct.toFixed(1)}%`);
-console.log(`  dark-gray:   ${stats.dGrayPct.toFixed(1)}%`);
-console.log(`  white pixels in bottom 40 rows: ${stats.whiteBottomRows}`);
-console.log(`  isolated noise pixels: ${stats.noisePixels}`);
+  const stats = computeStats(rgba);
+  console.log(`decoded ${SCREEN_WIDTH}×${SCREEN_HEIGHT} from ${savePath}`);
+  console.log(`  → ${outPath}`);
+  console.log(`  black:       ${stats.blackPct.toFixed(1)}%`);
+  console.log(`  white:       ${stats.whitePct.toFixed(1)}%`);
+  console.log(`  light-gray:  ${stats.lGrayPct.toFixed(1)}%`);
+  console.log(`  dark-gray:   ${stats.dGrayPct.toFixed(1)}%`);
+  console.log(`  white pixels in bottom 40 rows: ${stats.whiteBottomRows}`);
+  console.log(`  isolated noise pixels: ${stats.noisePixels}`);
 
-// Structural validation: the decoded image must be a plausible Wiz6 UI screen
-// under the wiz6-main AC→DAC palette. Four-color check:
-//   - black > 25%     : window interiors (attr 0 = black via AC[0]=0x00→DAC[0])
-//   - dark-gray > 20% : screen background (attr 8 → AC[8]=0x10 → DAC[16] = dark-gray)
-//   - light-gray > 2% : frame/border lines (attr 9 → AC[9]=0x07 → DAC[7] = light-gray)
-//   - white > 0.3%    : menu option text (attr 1 → AC[1]=0x17 → DAC[23] = white)
-//                       (0.3% to accommodate save 2 which has minimal text ≈ 0.5%)
-const passed =
-  stats.blackPct > 25 &&
-  stats.dGrayPct > 20 &&
-  stats.lGrayPct > 2 &&
-  stats.whitePct > 0.3;
+  // Structural validation: the decoded image must be a plausible Wiz6 UI screen
+  // under the wiz6-main AC→DAC palette. Four-color check:
+  //   - black > 25%     : window interiors (attr 0 = black via AC[0]=0x00→DAC[0])
+  //   - dark-gray > 20% : screen background (attr 8 → AC[8]=0x10 → DAC[16] = dark-gray)
+  //   - light-gray > 2% : frame/border lines (attr 9 → AC[9]=0x07 → DAC[7] = light-gray)
+  //   - white > 0.3%    : menu option text (attr 1 → AC[1]=0x17 → DAC[23] = white)
+  //                       (0.3% to accommodate save 2 which has minimal text ≈ 0.5%)
+  const passed =
+    stats.blackPct > 25 &&
+    stats.dGrayPct > 20 &&
+    stats.lGrayPct > 2 &&
+    stats.whitePct > 0.3;
 
-if (passed) {
-  console.log('  structural check: PASS (black windows + dark-gray bg + light-gray frames + white text)');
-} else {
-  console.error(`  structural check: FAIL`);
-  console.error(`    black=${stats.blackPct.toFixed(1)}% (need >25%), dark-gray=${stats.dGrayPct.toFixed(1)}% (need >20%), light-gray=${stats.lGrayPct.toFixed(1)}% (need >2%), white=${stats.whitePct.toFixed(1)}% (need >0.3%)`);
-  process.exit(1);
+  if (passed) {
+    console.log('  structural check: PASS (black windows + dark-gray bg + light-gray frames + white text)');
+  } else {
+    console.error(`  structural check: FAIL`);
+    console.error(`    black=${stats.blackPct.toFixed(1)}% (need >25%), dark-gray=${stats.dGrayPct.toFixed(1)}% (need >20%), light-gray=${stats.lGrayPct.toFixed(1)}% (need >2%), white=${stats.whitePct.toFixed(1)}% (need >0.3%)`);
+    process.exit(1);
+  }
 }
