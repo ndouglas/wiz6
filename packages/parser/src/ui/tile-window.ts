@@ -105,29 +105,19 @@ export function setCursor(win: TileWindow, x: number, y: number): void {
 }
 
 /** `ui_window_puts` — write a string at the cursor with the given attr.
- *  Each byte gets written to one cell as `(byte, attr)`; cursor advances
- *  by one cell per byte, wrapping at both x and y.
+ *  Each byte (INCLUDING space 0x20) gets written to one cell as `(byte, attr)`;
+ *  cursor advances by one cell per byte, wrapping at both x and y.
  *
- *  Space (0x20) is treated as a non-glyph: it advances the cursor WITHOUT
- *  overwriting the cell, so the window's existing fill shows through the gap
- *  (matching the engine, whose text renderer leaves the window background
- *  visible at spaces). Blitting glyph 0x20 instead would draw the wfont2/3/4
- *  graphic tile that occupies that slot — a stray block between words. */
+ *  Space is written like any other char — the tile fonts render glyph 0x20 as
+ *  the background fill (wfont3 0x20 = solid gray; wfont0 highlight 0x20 = blank
+ *  on the highlight bg). This matches the engine, and crucially keeps the space
+ *  cell carrying the same attr as its word — so a highlighted multi-word label
+ *  (e.g. "CHARACTER MENU") highlights the inter-word gap too. */
 export function puts(win: TileWindow, text: string, attr: number): void {
   const a = attr & 0xff;
   for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i) & 0xff;
-    if (code === 0x20) {
-      win.cursorX++;
-      if (win.cursorX >= win.widthCells) {
-        win.cursorX = 0;
-        win.cursorY++;
-        if (win.cursorY >= win.heightCells) win.cursorY = 0;
-      }
-      continue;
-    }
     const idx = (win.cursorY * win.widthCells + win.cursorX) * 2;
-    win.cells[idx] = code;
+    win.cells[idx] = text.charCodeAt(i) & 0xff;
     win.cells[idx + 1] = a;
     win.cursorX++;
     if (win.cursorX >= win.widthCells) {
