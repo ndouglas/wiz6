@@ -170,6 +170,31 @@ Source: `docs/re/findings/wpcmk-screen-flow.json`
 
 **Evidence:** `docs/re/findings/wpcmk-character-menu-options.json` (RE date 2026-05-27). Confirmed against save states 1 (7 chars), 2 (0 chars), 3 (16 chars) via dosbox_read_memory at physical 0x1d020 (DGROUP+0x4fd8).
 
+### Option placement (verified pixel-exact vs engine fixtures, 2026-05-27)
+
+The visible options are laid out **column-major, 2 rows per column**, in the
+bottomBar window. Column N's text starts at bottomBar-local cell **x = [18, 30, 2]**
+(fill order = center, right, left); the two rows are bottomBar-local **y = 3 & 4**
+(screen rows 23 & 24). Option index `i` → column `⌊i/2⌋`, row `i mod 2`.
+
+- **EMPTY**: `[CREATE, EXIT]` → both in the center column (x18), rows 3 & 4.
+- **PARTIAL**: CREATE/REVIEW @ x18 · DELETE/RENAME @ x30 · PORTRAIT/EXIT @ x2.
+
+The bottom option list renders as **plain white text** — the engine does NOT
+highlight the selected option here. The black-on-yellow cursor highlight
+(`menu-cursor-render-path.json`, attr −5 → palette[5] yellow) is reflected in the
+**top status bar** (the highlighted string at screen rows 1–2), not the bottom list.
+
+**OPEN QUESTION — FULL layout unverified.** The EMPTY and PARTIAL states match
+the column-major model pixel-exactly, but the FULL (16-char) fixture does **not**
+fit it (observed text cells: EXIT @ x2/row3, RENAME @ x30/row3, a `_ PC` option
+@ x18/row4, PORTRAIT @ x30/row4 — inconsistent with any simple fill rule). The
+full save may not be a clean full-roster state, or FULL uses a different
+placement. The port currently applies the column-major rule to FULL too (so its
+grid→dispatch navigation is well-defined) but its pixel layout is **not** verified.
+To close: re-capture a clean 16-char roster save, or decompile the placement loop
+in `wpcmk_entry_and_roster_menu` (0x59e0).
+
 ## 2. Window layouts
 
 Cross-overlay thunk: wpcmk file `0xbbb6` → `ui_window_create` at wroot image `0x011a`. Exactly **6 calls** to that thunk in the entire wpcmk binary: 3 persistent windows created early by an unnamed entry function `FUN_59e0` (called from wbase before the creation master runs), and 3 temporary windows created by individual screens.

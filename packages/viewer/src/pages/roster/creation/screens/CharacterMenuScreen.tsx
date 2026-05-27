@@ -58,7 +58,6 @@ import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
 import { createPersistentWindows } from '../ega/windows.js';
-import { highlightRow } from '../ega/highlight.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { creationString } from '../messages.js';
 import { mapKey } from './ScreenProps.js';
@@ -132,73 +131,55 @@ interface GridCell {
   option: MenuOption;
 }
 
-// Column X offsets in bottomBar cell units (matching existing 3-column layout).
-const COL_X_3 = [1, 14, 27] as const;  // 3-column layout
-const COL_X_1 = [14] as const;          // 1-column centered layout
+// Column X offsets in bottomBar-local cells, in fill order (center, right, left).
+// Verified pixel-exact against the engine fixtures: options fill column-major,
+// 2 rows per column, and column N's text starts at COL_X[N]. The visual order
+// is center→right→left, which keeps the option list sequential (see buildGrid).
+//   docs/re/findings/wpcmk-character-menu-options.json
+const COL_X = [18, 30, 2] as const;
 
-// Row Y offsets in bottomBar cells.
-const ROW_Y = [1, 3] as const;
+// Row Y offsets in bottomBar-local cells. The bottomBar window is at screen
+// row 20 (y=160); the two option rows are screen rows 23 & 24 → local 3 & 4.
+const ROW_Y = [3, 4] as const;
 
 /**
- * Build the grid cells for the current roster state.
+ * The ordered list of options visible in each roster state. Drives the
+ * column-major grid placement below.
  *
- * PARTIAL (6 options):
- *   Row 0, col 0: CREATE PC  | col 1: DELETE PC  | col 2: PORTRAIT
- *   Row 1, col 0: REVIEW PC  | col 1: RENAME PC  | col 2: EXIT
- *
- * FULL (5 options — no CREATE PC):
- *   Row 0, col 0: EXIT       | col 1: REVIEW PC  | col 2: RENAME PC
- *   Row 1, col 0: —          | col 1: DELETE PC  | col 2: PORTRAIT
- *
- * EMPTY (2 options — only CREATE PC + EXIT):
- *   Row 0, col 0: CREATE PC
- *   Row 1, col 0: EXIT
- *
- * The grid layouts match the decoded save-state screenshots:
- *   save1 (PARTIAL): 3-col 2-row with all 6
- *   save2 (EMPTY):   centered CREATE PC / EXIT
- *   save3 (FULL):    3-col with EXIT/REVIEW/RENAME top, DELETE/PORTRAIT bottom-center/right
+ *   EMPTY   (rosterCount == 0):  [CREATE PC, EXIT]
+ *   PARTIAL (0 < count < MAX):   [CREATE, REVIEW, DELETE, RENAME, PORTRAIT, EXIT]
+ *   FULL    (count == MAX):      [REVIEW, DELETE, RENAME, PORTRAIT, EXIT]  (no CREATE)
  */
-function buildGrid(allOptions: MenuOption[], rosterCount: number): GridCell[] {
-  const hasRoom   = rosterCount < MAX_ROSTER_SLOTS;
-  const hasChars  = rosterCount > 0;
+function buildVisibleOptions(allOptions: MenuOption[], rosterCount: number): MenuOption[] {
+  const hasRoom  = rosterCount < MAX_ROSTER_SLOTS;
+  const hasChars = rosterCount > 0;
 
   const [createPc, reviewPc, deletePc, renamePc, portrait, exit] = allOptions as [
     MenuOption, MenuOption, MenuOption, MenuOption, MenuOption, MenuOption
   ];
 
-  if (!hasChars && hasRoom) {
-    // EMPTY: 1-column centered — CREATE PC row 0, EXIT row 1
-    return [
-      { row: 0, col: 0, x: COL_X_1[0], option: createPc },
-      { row: 1, col: 0, x: COL_X_1[0], option: exit      },
-    ];
-  }
+  if (!hasChars && hasRoom) return [createPc, exit];
+  if (!hasRoom && hasChars) return [reviewPc, deletePc, renamePc, portrait, exit];
+  return [createPc, reviewPc, deletePc, renamePc, portrait, exit];
+}
 
-  if (!hasRoom && hasChars) {
-    // FULL: 3-column, 2 rows — no CREATE PC
-    // Row 0: EXIT | REVIEW PC | RENAME PC
-    // Row 1: —   | DELETE PC | PORTRAIT
-    return [
-      { row: 0, col: 0, x: COL_X_3[0], option: exit     },
-      { row: 0, col: 1, x: COL_X_3[1], option: reviewPc },
-      { row: 0, col: 2, x: COL_X_3[2], option: renamePc },
-      { row: 1, col: 1, x: COL_X_3[1], option: deletePc },
-      { row: 1, col: 2, x: COL_X_3[2], option: portrait },
-    ];
-  }
-
-  // PARTIAL (or edge case: 0 < rosterCount < MAX): all 6, 2×3 grid
-  // Row 0: CREATE PC | DELETE PC | PORTRAIT
-  // Row 1: REVIEW PC | RENAME PC | EXIT
-  return [
-    { row: 0, col: 0, x: COL_X_3[0], option: createPc },
-    { row: 0, col: 1, x: COL_X_3[1], option: deletePc },
-    { row: 0, col: 2, x: COL_X_3[2], option: portrait },
-    { row: 1, col: 0, x: COL_X_3[0], option: reviewPc },
-    { row: 1, col: 1, x: COL_X_3[1], option: renamePc },
-    { row: 1, col: 2, x: COL_X_3[2], option: exit     },
-  ];
+/**
+ * Place the visible options into the bottomBar via column-major fill:
+ * option index i → column = ⌊i/2⌋, row-within-column = i mod 2, with the
+ * column's screen x taken from COL_X (fill order = center, right, left).
+ *
+ * EMPTY   → both options in the center column (col 0 = x18), rows 0 & 1.
+ * PARTIAL → CREATE/REVIEW @ x18, DELETE/RENAME @ x30, PORTRAIT/EXIT @ x2.
+ *
+ * Grid (row,col) indices used for navigation match this fill order, so
+ * ArrowRight steps through columns center→right→left (engine column-index nav).
+ */
+function buildGrid(visible: MenuOption[]): GridCell[] {
+  return visible.map((option, i) => {
+    const col = Math.floor(i / 2);
+    const row = i % 2;
+    return { row, col, x: COL_X[col] ?? COL_X[0], option };
+  });
 }
 
 /** Find the cell at (row, col), or undefined if absent. */
@@ -287,7 +268,7 @@ export function CharacterMenuScreen({
   // These are stable per render (db is stable; rosterCount changes only when
   // the roster changes between creations, which causes a re-render).
   const allOptions = buildAllOptions(db);
-  const grid = buildGrid(allOptions, rosterCount);
+  const grid = buildGrid(buildVisibleOptions(allOptions, rosterCount));
 
   // Ensure cursor is on a valid cell whenever the grid changes.
   // (e.g. if rosterCount changes from partial to full, (0,0) might shift)
@@ -351,21 +332,18 @@ export function CharacterMenuScreen({
 
   const { top, bottomBar, menuPanel } = createPersistentWindows();
 
-  // Write each visible option into the bottomBar window at its grid position.
+  // Write each visible option into the bottomBar at its grid position.
+  // The bottom option list renders as plain white text (attr 0x13) — verified
+  // against all three engine fixtures. The engine does NOT highlight the
+  // selected option in this bottom list; selection is reflected in the top
+  // status bar (the black-on-yellow string at screen rows 1-2). That top-bar
+  // reflection is not yet ported, so the cursor is tracked for Enter dispatch
+  // and navigation but not yet drawn. See docs/re/findings/menu-cursor-render-path.json.
+  const normalAttr = 0x13;
   for (const cell of grid) {
-    const y = ROW_Y[cell.row] ?? 1;
-    const normalAttr = 0x13;
+    const y = ROW_Y[cell.row] ?? ROW_Y[0];
     setCursor(bottomBar, cell.x, y);
     puts(bottomBar, cell.option.label, normalAttr);
-  }
-
-  // Highlight the cursor row in bottomBar.
-  {
-    const cursorCell = cellAt(grid, cursorRow, cursorCol);
-    if (cursorCell) {
-      const cursorY = ROW_Y[cursorRow] ?? 1;
-      highlightRow(bottomBar, cursorY, 5);
-    }
   }
 
   const pal = palette ?? WIZ6_MAIN;

@@ -428,7 +428,17 @@ describe('CharacterMenuScreen — PARTIAL roster (rosterCount=7)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// FULL roster (rosterCount=MAX_ROSTER_SLOTS): no CREATE PC, 5 options
+// FULL roster (rosterCount=MAX_ROSTER_SLOTS): no CREATE PC, 5 options.
+//
+// Column-major grid (visible = [REVIEW, DELETE, RENAME, PORTRAIT, EXIT]):
+//   (0,0) REVIEW   (0,1) RENAME   (0,2) EXIT
+//   (1,0) DELETE   (1,1) PORTRAIT   —    ((1,2) absent)
+//
+// NOTE: the FULL *pixel* layout is not yet verified against the engine — the
+// full-roster fixture does not cleanly fit the column-major model that EMPTY
+// and PARTIAL match exactly. These tests pin the grid→dispatch navigation
+// logic (the consistent column-major rule), not pixel positions. See the
+// "FULL layout unverified" open question in docs/re/wpcmk-screens.md.
 // ---------------------------------------------------------------------------
 
 describe('CharacterMenuScreen — FULL roster (rosterCount=16)', () => {
@@ -457,7 +467,7 @@ describe('CharacterMenuScreen — FULL roster (rosterCount=16)', () => {
     expect(dispatch).not.toHaveBeenCalledWith({ type: 'MENU_CREATE' });
   });
 
-  it('Enter at initial cursor (0,0) dispatches MENU_EXIT (EXIT is at top-left in FULL layout)', () => {
+  it('Enter at initial cursor (0,0) dispatches MENU_REVIEW (REVIEW PC is top-left in FULL layout)', () => {
     const state = makeMenuState();
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
@@ -473,32 +483,11 @@ describe('CharacterMenuScreen — FULL roster (rosterCount=16)', () => {
       />,
     );
 
-    fireEvent.keyDown(window, { key: 'Enter' });
-    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_EXIT' });
-  });
-
-  it('ArrowRight from EXIT (0,0) → REVIEW PC (0,1); Enter dispatches MENU_REVIEW', () => {
-    const state = makeMenuState();
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <CharacterMenuScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-        rosterCount={MAX_ROSTER_SLOTS}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
     fireEvent.keyDown(window, { key: 'Enter' });
     expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_REVIEW' });
   });
 
-  it('ArrowRight×2 from EXIT → RENAME PC (0,2); Enter dispatches MENU_RENAME', () => {
+  it('ArrowRight from REVIEW (0,0) → RENAME PC (0,1); Enter dispatches MENU_RENAME', () => {
     const state = makeMenuState();
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
@@ -514,13 +503,12 @@ describe('CharacterMenuScreen — FULL roster (rosterCount=16)', () => {
       />,
     );
 
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
     fireEvent.keyDown(window, { key: 'ArrowRight' });
     fireEvent.keyDown(window, { key: 'Enter' });
     expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_RENAME' });
   });
 
-  it('ArrowRight×1 + ArrowDown → DELETE PC (1,1); Enter dispatches MENU_DELETE', () => {
+  it('ArrowRight×2 from REVIEW → EXIT (0,2); Enter dispatches MENU_EXIT', () => {
     const state = makeMenuState();
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
@@ -536,10 +524,32 @@ describe('CharacterMenuScreen — FULL roster (rosterCount=16)', () => {
       />,
     );
 
-    fireEvent.keyDown(window, { key: 'ArrowRight' }); // → (0,1) REVIEW PC
-    fireEvent.keyDown(window, { key: 'ArrowDown' });  // → (1,1) DELETE PC
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
     fireEvent.keyDown(window, { key: 'Enter' });
-    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_DELETE' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_EXIT' });
+  });
+
+  it('ArrowRight×1 + ArrowDown → PORTRAIT (1,1); Enter dispatches MENU_PORTRAIT', () => {
+    const state = makeMenuState();
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <CharacterMenuScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+        rosterCount={MAX_ROSTER_SLOTS}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowRight' }); // → (0,1) RENAME PC
+    fireEvent.keyDown(window, { key: 'ArrowDown' });  // → (1,1) PORTRAIT
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_PORTRAIT' });
   });
 
   it('ArrowRight×2 + ArrowDown → PORTRAIT (1,2); Enter dispatches MENU_PORTRAIT', () => {
@@ -565,9 +575,9 @@ describe('CharacterMenuScreen — FULL roster (rosterCount=16)', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'MENU_PORTRAIT' });
   });
 
-  it('ArrowDown from EXIT (0,0) skips missing (1,0) and lands on nearest occupied cell', () => {
-    // In FULL layout, (1,0) is absent. ArrowDown from (0,0) should skip or stay
-    // at a valid cell — clampCursor ensures we don't land on an absent cell.
+  it('ArrowDown from (0,0) lands on an occupied cell and never dispatches MENU_CREATE', () => {
+    // In FULL layout (0,0)=REVIEW and (1,0)=DELETE. clampCursor guarantees the
+    // cursor only ever rests on an occupied cell, and CREATE PC is unreachable.
     const state = makeMenuState();
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();

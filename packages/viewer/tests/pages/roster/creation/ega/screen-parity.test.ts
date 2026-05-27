@@ -34,7 +34,6 @@ import { setCursor, puts } from '@wiz6/parser';
 import { loadCreationFontSet } from '../../../../../src/pages/roster/creation/ega/assets.js';
 import { renderCreationFrame } from '../../../../../src/pages/roster/creation/ega/render-frame.js';
 import { createPersistentWindows } from '../../../../../src/pages/roster/creation/ega/windows.js';
-import { highlightRow } from '../../../../../src/pages/roster/creation/ega/highlight.js';
 import { creationString } from '../../../../../src/pages/roster/creation/messages.js';
 import { compareRgba, writeDiffPng } from '../../../../../../../tools/parity/diff-image.js';
 import { indicesToRgba } from '../../../../../../../tools/parity/decode-screen.js';
@@ -158,20 +157,21 @@ async function renderCharacterMenuPartial(): Promise<Uint8ClampedArray> {
 
   const { top, bottomBar, menuPanel } = createPersistentWindows();
 
-  // PARTIAL grid (6 options, 3 cols × 2 rows)
-  // Row 0: CREATE PC @ x=1 | DELETE PC @ x=14 | PORTRAIT @ x=27
-  // Row 1: REVIEW PC @ x=1 | RENAME PC @ x=14 | EXIT @ x=27
-  // COL_X_3 = [1, 14, 27], ROW_Y = [1, 3]
+  // PARTIAL grid (6 options): column-major fill, 2 rows per column, column x
+  // in fill order = [18, 30, 2] (center, right, left), rows at bottomBar-local
+  // 3 & 4 (screen rows 23 & 24). Verified pixel-exact against the fixture.
+  //   col x18: CREATE PC (row3) / REVIEW PC (row4)
+  //   col x30: DELETE PC (row3) / RENAME PC (row4)
+  //   col x2:  PORTRAIT  (row3) / EXIT      (row4)
+  // The engine does NOT highlight the bottom option list (selection shows in
+  // the top status bar), so options are plain white text (attr 0x13).
   const normalAttr = 0x13;
-  setCursor(bottomBar, 1,  1); puts(bottomBar, labels.createPc, normalAttr);
-  setCursor(bottomBar, 14, 1); puts(bottomBar, labels.deletePc, normalAttr);
-  setCursor(bottomBar, 27, 1); puts(bottomBar, labels.portrait,  normalAttr);
-  setCursor(bottomBar, 1,  3); puts(bottomBar, labels.reviewPc, normalAttr);
-  setCursor(bottomBar, 14, 3); puts(bottomBar, labels.renamePc, normalAttr);
-  setCursor(bottomBar, 27, 3); puts(bottomBar, labels.exit,     normalAttr);
-
-  // Cursor at (row=0, col=0) → y = ROW_Y[0] = 1 → highlightRow(bottomBar, 1, 5)
-  highlightRow(bottomBar, 1, 5);
+  setCursor(bottomBar, 18, 3); puts(bottomBar, labels.createPc, normalAttr);
+  setCursor(bottomBar, 18, 4); puts(bottomBar, labels.reviewPc, normalAttr);
+  setCursor(bottomBar, 30, 3); puts(bottomBar, labels.deletePc, normalAttr);
+  setCursor(bottomBar, 30, 4); puts(bottomBar, labels.renamePc, normalAttr);
+  setCursor(bottomBar, 2,  3); puts(bottomBar, labels.portrait, normalAttr);
+  setCursor(bottomBar, 2,  4); puts(bottomBar, labels.exit,     normalAttr);
 
   return renderCreationFrame([top, bottomBar, menuPanel], fontSet, WIZ6_MAIN);
 }
@@ -187,15 +187,18 @@ async function renderCharacterMenuPartial(): Promise<Uint8ClampedArray> {
  * Threshold is set conservatively. Run the test to see the actual match %.
  * Tighten threshold after layout refinement.
  */
-// Actual match as of implementation: ~46.78% (tolerance=8).
-// Main sources of divergence:
-//   - Our renderer fills the full background with dark-gray (85,85,85 = attr 8).
-//     The engine only fills background pixels outside of window regions. Window
-//     interiors are black (attr 0 = 0,0,0,255). This accounts for the largest share.
-//   - Window chrome tiles drawn where engine leaves blank/black in un-written cells.
-//   - DOSBox-X internal-state contamination (~161 pixels in rows 15–16, 18–23, 49–54).
-// Threshold = actual − 7% safety margin (40%).
-const CHARACTER_MENU_PARTIAL_PARITY_THRESHOLD = 40; // percent
+// Actual match as of last layout pass: ~49.25% (tolerance=8).
+// The menu-option layout now matches the engine exactly (column-major fill,
+// columns at bottomBar-local x = [18, 30, 2], rows 3 & 4; no bottom-menu
+// highlight). Remaining divergence is the TOP region:
+//   - The engine's CHARACTER MENU top is the character-SHEET view: black only at
+//     screen rows 0–5 and the central columns 15–33; GRAY everywhere else, with
+//     nested label/value sub-panels. Our `top`/`menuPanel`/`bottomBar` windows
+//     black-fill large regions the engine leaves gray (bottom menu sits on the
+//     gray background, not a black bar). Reproducing the real char-sheet window
+//     geometry (from wpcmk_entry_and_roster_menu @ 0x59e0) is the next pass.
+// Threshold = actual − ~4% safety margin (45%).
+const CHARACTER_MENU_PARTIAL_PARITY_THRESHOLD = 45; // percent
 
 describe('screen parity: CHARACTER MENU (partial) vs committed fixture', () => {
   it(
