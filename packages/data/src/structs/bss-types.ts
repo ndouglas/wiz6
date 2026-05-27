@@ -27,7 +27,7 @@ export type BssFieldType =
   | { kind: 'scalar'; scalar: BssScalarType }
   | { kind: 'string'; length: number; encoding?: 'ascii' }
   | { kind: 'bytes'; length: number }
-  | { kind: 'array'; length: number; element: BssFieldType }
+  | { kind: 'array'; length: number; element: BssFieldType; stride?: number }
   | { kind: 'substruct'; structName: string }
   | { kind: 'enum'; scalar: BssScalarType; values: Readonly<Record<number, string>> }
   | { kind: 'bitflags'; scalar: BssScalarType; flags: Readonly<Record<number, string>> };

@@ -57,9 +57,10 @@ function decodeType(
       return Array.from(buffer.subarray(absoluteOffset, absoluteOffset + type.length));
     case 'array': {
       const elementSize = sizeOfType(type.element, registry);
+      const stride = type.stride ?? elementSize;
       const out: unknown[] = [];
       for (let i = 0; i < type.length; i++) {
-        out.push(decodeType(type.element, buffer, absoluteOffset + i * elementSize, registry));
+        out.push(decodeType(type.element, buffer, absoluteOffset + i * stride, registry));
       }
       return out;
     }
@@ -155,8 +156,11 @@ export function sizeOfType(type: BssFieldType, registry?: ReadonlyMap<string, Bs
       return type.length;
     case 'bytes':
       return type.length;
-    case 'array':
-      return sizeOfType(type.element, registry) * type.length;
+    case 'array': {
+      const elementSize = sizeOfType(type.element, registry);
+      const stride = type.stride ?? elementSize;
+      return stride * type.length;
+    }
     case 'substruct': {
       const sub = registry?.get(type.structName);
       return sub?.bytes ?? 0;
