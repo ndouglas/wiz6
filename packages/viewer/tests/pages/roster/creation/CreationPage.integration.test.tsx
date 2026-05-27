@@ -11,12 +11,10 @@
 //   - The Mage path goes through the spell-pick screen.
 //   - The Cancel path asserts addCharacter is NOT called.
 //
-// Reducer-state bypass note:
-//   For the bonus-allocator screen we use the `loaders.overrideState` hook
-//   to inject a state where the bonus pool is already 0 (to skip the
-//   tedious point-by-point allocation in the integration test). The approach:
-//   we use `waitFor` to poll until the expected screen appears, then fire
-//   keydowns.
+// Route (Stage E):
+//   CreationPage is mounted at /castle/character-menu (not /roster/new).
+//   After committing, the page returns to characterMenu (no navigation) via
+//   COMMIT_DONE. Only MENU_EXIT causes navigation to /castle.
 //
 // Screen routing for keydowns:
 //   Each screen mounts its own `window.addEventListener('keydown', ...)`.
@@ -127,6 +125,10 @@ const TEST_SEED = 0; // maps to static boot triple (3000, 1, 29999)
 // we pass a _testInitialState that starts at 'name' via MENU_CREATE semantics.
 // This avoids needing to drive through characterMenu keydowns in tests that
 // predate the characterMenu feature.
+//
+// Route is now /castle/character-menu (Stage E).
+// After committing, navigation does NOT happen — the page returns to characterMenu.
+// Only MENU_EXIT triggers navigation to /castle.
 // ---------------------------------------------------------------------------
 
 function makeNameScreenState(seed = TEST_SEED): CreationState {
@@ -148,16 +150,16 @@ function makeNameScreenState(seed = TEST_SEED): CreationState {
 
 function mountCreationPage(seed = TEST_SEED) {
   return render(
-    <MemoryRouter initialEntries={['/roster/new']}>
+    <MemoryRouter initialEntries={['/castle/character-menu']}>
       <Routes>
-        <Route path="/roster/new" element={
+        <Route path="/castle/character-menu" element={
           <CreationPage
             seed={seed}
             loaders={DISK_LOADERS}
             _testInitialState={makeNameScreenState(seed)}
           />
         } />
-        <Route path="/roster" element={<div data-testid="roster-page">ROSTER</div>} />
+        <Route path="/castle" element={<div data-testid="castle-page">CASTLE</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -185,11 +187,14 @@ async function waitForLoaded(container: HTMLElement): Promise<void> {
 //
 // Flow: name → race(Lizardman=6) → sex(Male=0) → class(Fighter=0) →
 //       bonusAllocator(drain pool) → personality → portrait → confirm(YES)
-//       → committing → addCharacter → navigate('/roster')
+//       → committing → addCharacter → COMMIT_DONE → characterMenu
 //
 // Lizardman (index 6) has str=12 which qualifies for Fighter immediately,
 // so no bonus allocation to STR is needed (though we still drain the pool
 // so ALLOC_CONFIRM succeeds).
+//
+// Stage E: after committing, the page dispatches COMMIT_DONE and returns to
+// characterMenu (no navigation). We assert the roster has the character.
 
 describe('CreationPage — Fighter happy-path (Lizardman)', () => {
   it('drives full flow to committing and calls addCharacter', async () => {
@@ -284,6 +289,7 @@ describe('CreationPage — Fighter happy-path (Lizardman)', () => {
     fireEvent.keyDown(window, { key: 'Enter' });
 
     // --- After committing: roster should have a character ---
+    // Stage E: page dispatches COMMIT_DONE, returns to characterMenu (no navigation).
     await waitFor(
       () => {
         const roster = readRoster();
@@ -312,7 +318,7 @@ describe('CreationPage — Fighter happy-path (Lizardman)', () => {
 // Injects a pre-built state at `confirm` via `_testInitialState` so we
 // don't need to drive the full keydown flow (which is already covered by
 // the Fighter happy-path test). Just verifies that DISCARD → no addCharacter
-// + navigate to /roster.
+// and returns to characterMenu (no navigation in Stage E).
 
 describe('CreationPage — Cancel path', () => {
   it('does NOT call addCharacter on DISCARD (returns to characterMenu, roster stays empty)', async () => {
@@ -351,16 +357,16 @@ describe('CreationPage — Cancel path', () => {
     };
 
     const { container } = render(
-      <MemoryRouter initialEntries={['/roster/new']}>
+      <MemoryRouter initialEntries={['/castle/character-menu']}>
         <Routes>
-          <Route path="/roster/new" element={
+          <Route path="/castle/character-menu" element={
             <CreationPage
               seed={TEST_SEED}
               loaders={DISK_LOADERS}
               _testInitialState={confirmState}
             />
           } />
-          <Route path="/roster" element={<div data-testid="roster-page-cancel">ROSTER</div>} />
+          <Route path="/castle" element={<div data-testid="castle-page-cancel">CASTLE</div>} />
         </Routes>
       </MemoryRouter>,
     );
@@ -371,7 +377,7 @@ describe('CreationPage — Cancel path', () => {
     fireEvent.keyDown(window, { key: 'ArrowDown' });
     fireEvent.keyDown(window, { key: 'Enter' });
 
-    // After DISCARD: reducer returns to 'characterMenu' (no navigation — E5 wires that).
+    // After DISCARD: reducer returns to 'characterMenu' (no navigation).
     // Verify addCharacter was NOT called — roster remains empty.
     await waitFor(
       () => {
@@ -384,6 +390,53 @@ describe('CreationPage — Cancel path', () => {
 
     const roster = readRoster();
     expect(roster.characters.length).toBe(0);
+  }, 10000);
+});
+
+// ---------------------------------------------------------------------------
+// Exit path test
+// ---------------------------------------------------------------------------
+//
+// Verifies that MENU_EXIT → 'exit' screen → navigate('/castle').
+// Injects a state at 'characterMenu' and dispatches MENU_EXIT via Enter on
+// the CharacterMenuScreen's EXIT option (row 1, col 2).
+
+describe('CreationPage — Exit path', () => {
+  it("navigates to /castle when MENU_EXIT is dispatched from characterMenu", async () => {
+    const rng = new WichmannHill(3000, 1, 29999);
+    const menuState = initialCreationState(rng); // starts at 'characterMenu'
+
+    const { container, getByTestId } = render(
+      <MemoryRouter initialEntries={['/castle/character-menu']}>
+        <Routes>
+          <Route path="/castle/character-menu" element={
+            <CreationPage
+              seed={TEST_SEED}
+              loaders={DISK_LOADERS}
+              _testInitialState={menuState}
+            />
+          } />
+          <Route path="/castle" element={<div data-testid="castle-exit-target">CASTLE</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitForLoaded(container);
+
+    // CharacterMenuScreen: cursor starts at (row=0, col=0) = CREATE PC.
+    // Navigate to EXIT: ArrowDown (row=1), ArrowRight x2 (col=2) → EXIT option.
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'Enter' }); // → MENU_EXIT → 'exit' → navigate('/castle')
+
+    // After MENU_EXIT: the page should navigate to /castle.
+    await waitFor(
+      () => {
+        expect(getByTestId('castle-exit-target')).toBeTruthy();
+      },
+      { timeout: 2000 },
+    );
   }, 10000);
 });
 
@@ -433,16 +486,16 @@ describe('CreationPage — Mage caster path (via state injection)', () => {
     };
 
     const { container } = render(
-      <MemoryRouter initialEntries={['/roster/new']}>
+      <MemoryRouter initialEntries={['/castle/character-menu']}>
         <Routes>
-          <Route path="/roster/new" element={
+          <Route path="/castle/character-menu" element={
             <CreationPage
               seed={TEST_SEED}
               loaders={DISK_LOADERS}
               _testInitialState={spellPickState}
             />
           } />
-          <Route path="/roster" element={<div data-testid="roster-mage">ROSTER</div>} />
+          <Route path="/castle" element={<div data-testid="castle-mage">CASTLE</div>} />
         </Routes>
       </MemoryRouter>,
     );
@@ -460,6 +513,7 @@ describe('CreationPage — Mage caster path (via state injection)', () => {
     fireEvent.keyDown(window, { key: 'Enter' });
 
     // After committing: roster should have a Mage with 2 spell picks
+    // Stage E: page dispatches COMMIT_DONE, returns to characterMenu.
     await waitFor(
       () => {
         const roster = readRoster();
@@ -487,16 +541,16 @@ describe('buildCharacterFromDraft via CreationPage', () => {
     window.localStorage.clear();
 
     const { container } = render(
-      <MemoryRouter initialEntries={['/roster/new']}>
+      <MemoryRouter initialEntries={['/castle/character-menu']}>
         <Routes>
-          <Route path="/roster/new" element={
+          <Route path="/castle/character-menu" element={
             <CreationPage
               seed={TEST_SEED}
               loaders={DISK_LOADERS}
               _testInitialState={makeNameScreenState(TEST_SEED)}
             />
           } />
-          <Route path="/roster" element={<div data-testid="roster-build">ROSTER</div>} />
+          <Route path="/castle" element={<div data-testid="castle-build">CASTLE</div>} />
         </Routes>
       </MemoryRouter>,
     );
@@ -538,6 +592,7 @@ describe('buildCharacterFromDraft via CreationPage', () => {
     // Confirm: Enter (YES)
     fireEvent.keyDown(window, { key: 'Enter' });
 
+    // Stage E: after COMMIT_DONE the page returns to characterMenu (no navigation).
     await waitFor(
       () => {
         const roster = readRoster();

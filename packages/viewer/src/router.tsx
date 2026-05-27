@@ -80,9 +80,9 @@ export const routes = (
     <Route element={<GameLayout />}>
       <Route path="/" element={<GameTitle />} />
       <Route path="/castle" element={<CastleScreen />} />
+      <Route path="/castle/character-menu" element={<CreationPage />} />
       <Route path="/castle/:stub" element={<CastleStub />} />
       <Route path="/roster" element={<RosterView />} />
-      <Route path="/roster/new" element={<CreationPage />} />
     </Route>
     <Route path="/settings" element={<SettingsPage />} />
     <Route path="/explore" element={<ExploreLayout />}>

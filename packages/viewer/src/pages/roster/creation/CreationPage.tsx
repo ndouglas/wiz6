@@ -6,8 +6,9 @@
  *   - `WichmannHill` RNG instance (constructed once from `seed` prop)
  *   - Asset loading (`loadCreationFontSet` + `loadMessageDb`)
  *   - Screen routing: renders the correct screen component for `state.screen`
- *   - Terminal transitions: on `committing` → buildCharacterFromDraft + addCharacter + navigate
- *                           on `cancelled` → navigate without saving
+ *   - Terminal transitions: on `committing` → buildCharacterFromDraft + addCharacter +
+ *                           dispatch COMMIT_DONE (returns to characterMenu)
+ *                           on `exit` → navigate('/castle')
  *
  * Props:
  *   `seed?`    — numeric seed for deterministic tests (default `Date.now()`).
@@ -25,10 +26,15 @@
  *   at a time (no multi-screen overlap), exactly one listener is active.
  *   CreationPage does NOT add a top-level keydown listener of its own.
  *
+ * Centering wrapper:
+ *   The rendered CreationCanvas is wrapped in:
+ *     <main className={styles.page}><div className={styles.canvasWrap}>…</div></main>
+ *   using CreationPage.module.css (same .page/.canvasWrap rules as CastleScreen.module.css).
+ *
  * Spec: docs/re/wpcmk-screens.md §1 (screen sequence and transitions)
  */
 
-import { useReducer, useEffect, useMemo } from 'react';
+import { useReducer, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { WichmannHill, WIZ6_MAIN } from '@wiz6/data';
 import type { Font, Font4bpp, MessageDb } from '@wiz6/data';
@@ -44,6 +50,7 @@ import { addCharacter } from '../../../lib/roster-store.js';
 import { buildCharacterFromDraft } from './lib/build.js';
 
 // Screen components
+import { CharacterMenuScreen } from './screens/CharacterMenuScreen.js';
 import { NameInputScreen } from './screens/NameInputScreen.js';
 import { MenuPickerScreen } from './screens/MenuPickerScreen.js';
 import { BonusAllocatorScreen } from './screens/BonusAllocatorScreen.js';
@@ -52,6 +59,8 @@ import { PortraitPickerScreen } from './screens/PortraitPickerScreen.js';
 import { SkillTrainScreen } from './screens/SkillTrainScreen.js';
 import { SpellPickScreen } from './screens/SpellPickScreen.js';
 import { ConfirmScreen } from './screens/ConfirmScreen.js';
+
+import styles from './CreationPage.module.css';
 
 // ---------------------------------------------------------------------------
 // Loader interface (injectable for tests)
@@ -137,8 +146,10 @@ interface LoadedAssets {
  * CreationPage — owns the creation flow state machine, assets, and commit logic.
  *
  * Renders a loading indicator until assets are ready, then delegates rendering
- * to the active screen component. Watches for `committing` and `cancelled`
- * terminal states and handles navigation accordingly.
+ * to the active screen component. Watches for `committing` and `exit`
+ * terminal states and handles them accordingly.
+ *
+ * Entry point: /castle/character-menu (centered in the game shell).
  */
 export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: CreationPageProps) {
   const navigate = useNavigate();
@@ -195,19 +206,31 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
   // Terminal state handlers
   // -------------------------------------------------------------------------
 
+  // Guard against double-commit: only call addCharacter+COMMIT_DONE once
+  // per entry into the 'committing' screen.
+  const committingFired = useRef(false);
+
   useEffect(() => {
     if (state.screen === 'committing') {
-      try {
-        const character = buildCharacterFromDraft(state.draft);
-        addCharacter(character);
-      } catch (err: unknown) {
-        console.error('[CreationPage] buildCharacterFromDraft failed:', err);
+      if (!committingFired.current) {
+        committingFired.current = true;
+        try {
+          const character = buildCharacterFromDraft(state.draft);
+          addCharacter(character);
+        } catch (err: unknown) {
+          console.error('[CreationPage] buildCharacterFromDraft failed:', err);
+        }
+        dispatch({ type: 'COMMIT_DONE' });
       }
-      navigate('/roster');
-    } else if (state.screen === 'cancelled') {
-      navigate('/roster');
+    } else {
+      // Reset the guard whenever we leave the committing screen.
+      committingFired.current = false;
     }
-  }, [state.screen, state.draft, navigate]);
+
+    if (state.screen === 'exit') {
+      navigate('/castle');
+    }
+  }, [state.screen, state.draft, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -------------------------------------------------------------------------
   // Loading state
@@ -232,41 +255,56 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
     db,
   };
 
-  switch (state.screen) {
-    case 'name':
-      return <NameInputScreen {...sharedProps} />;
+  // Render the active screen wrapped in the centering shell.
+  function renderScreen() {
+    switch (state.screen) {
+      case 'characterMenu':
+        return <CharacterMenuScreen {...sharedProps} />;
 
-    case 'race':
-    case 'sex':
-    case 'class':
-      return <MenuPickerScreen {...sharedProps} />;
+      case 'name':
+        return <NameInputScreen {...sharedProps} />;
 
-    case 'bonusAllocator':
-      return <BonusAllocatorScreen {...sharedProps} />;
+      case 'race':
+      case 'sex':
+      case 'class':
+        return <MenuPickerScreen {...sharedProps} />;
 
-    case 'personality':
-      return <PersonalityScreen {...sharedProps} />;
+      case 'bonusAllocator':
+        return <BonusAllocatorScreen {...sharedProps} />;
 
-    case 'portrait':
-      return <PortraitPickerScreen {...sharedProps} />;
+      case 'personality':
+        return <PersonalityScreen {...sharedProps} />;
 
-    case 'skillTrain':
-      return <SkillTrainScreen {...sharedProps} />;
+      case 'portrait':
+        return <PortraitPickerScreen {...sharedProps} />;
 
-    case 'spellPick':
-      return <SpellPickScreen {...sharedProps} />;
+      case 'skillTrain':
+        return <SkillTrainScreen {...sharedProps} />;
 
-    case 'confirm':
-      return <ConfirmScreen {...sharedProps} />;
+      case 'spellPick':
+        return <SpellPickScreen {...sharedProps} />;
 
-    case 'committing':
-    case 'done':
-    case 'cancelled':
-      // Terminal states — navigation is handled by the useEffect above.
-      // Render a blank canvas while the navigate() call fires.
-      return <div>Saving…</div>;
+      case 'confirm':
+        return <ConfirmScreen {...sharedProps} />;
 
-    default:
-      return null;
+      case 'committing':
+      case 'done':
+      case 'cancelled':
+      case 'exit':
+        // Terminal states — transition is handled by the useEffect above.
+        // Render a blank canvas while the navigate() call or COMMIT_DONE fires.
+        return <div>Saving…</div>;
+
+      default:
+        return null;
+    }
   }
+
+  return (
+    <main className={styles.page}>
+      <div className={styles.canvasWrap}>
+        {renderScreen()}
+      </div>
+    </main>
+  );
 }

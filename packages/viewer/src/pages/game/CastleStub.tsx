@@ -11,11 +11,6 @@ const STUB_INFO: Record<string, { title: string; description: string }> = {
     title: 'Choose Leader',
     description: 'Select a party member as leader. Transitions to WPCVW (state 0x11).',
   },
-  'character-menu': {
-    title: 'Character Menu',
-    description:
-      'Inspect or create characters. Transitions to WPCMK (state 0x10) when no party is loaded.',
-  },
   'remove-party': {
     title: 'Remove Party Member',
     description: 'Send a member back to PCFILE.DBS. Requires party-state mutation.',
