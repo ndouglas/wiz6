@@ -33,8 +33,7 @@ import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
 import { createPersistentWindows } from '../ega/windows.js';
-import { highlightRow } from '../ega/highlight.js';
-import { renderCreationFrame } from '../ega/render-frame.js';
+import { highlightRange } from '../ega/highlight.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import {
   MSG,
@@ -221,50 +220,41 @@ export function MenuPickerScreen({
   // Render
   // -------------------------------------------------------------------------
 
-  // Build the windows for this frame.
-  // We allocate fresh windows each render (pure function — no persistent refs).
+  // Build the windows for this frame (persistent set: top char-sheet template
+  // + gray bottomBar + gray menuPanel). NOTE: the populated char-sheet (the
+  // attribute labels/values drawn into `top` from the race screen onward) is a
+  // separate shared component, not yet ported — `top` is the empty template.
   const { top, bottomBar, menuPanel } = createPersistentWindows();
 
-  // Write prompt to bottomBar
+  // Prompt: centered in the bottomBar at row 1, attr 0x03 (verified byte-exact
+  // vs the engine race screen — "SELECT CHARACTER RACE" at col 9).
   const promptId = kind === 'race' ? MSG.racePrompt
     : kind === 'sex' ? MSG.sexPrompt
     : MSG.classPrompt;
   const promptText = creationString(db, promptId);
   if (promptText) {
-    setCursor(bottomBar, 0, 0);
-    puts(bottomBar, promptText, bottomBar.cells[1] ?? 0x13); // use window's default attr
+    const col = Math.max(0, Math.floor((bottomBar.widthCells - promptText.length) / 2));
+    setCursor(bottomBar, col, 1);
+    puts(bottomBar, promptText, 0x03);
   }
 
-  // Write title to top window (column 0, row 0)
-  const titleId = kind === 'race' ? MSG.raceTitle
-    : kind === 'sex' ? MSG.sexTitle
-    : MSG.classTitle;
-  const titleText = creationString(db, titleId);
-  if (titleText) {
-    setCursor(top, 0, 0);
-    puts(top, titleText, top.cells[1] ?? 0x14);
-  }
-
-  // Write option list to menuPanel
-  clearWindow(menuPanel, 0x20 /* space */, 0x15);
-  let row = 0;
+  // Option list in the menuPanel: written at col 1, starting row 1 (a 1-cell
+  // top/left margin), attr 0x03. The selected entry's label is highlighted
+  // black-on-yellow (attr 0x50) via highlightRange. Verified vs the engine
+  // race list (HUMAN highlighted, others plain).
+  clearWindow(menuPanel, 0x20, 0x03);
   for (let i = 0; i < options.length; i++) {
     const opt = options[i]!;
+    const row = i + 1;
     if (row >= menuPanel.heightCells) break;
-
-    // Disabled entries: render with a dim attr (lower contrast)
-    // Enabled entries: render with normal attr
-    // The cursor row: highlight via highlightRow (bgPaletteIdx=5 = bright yellow)
-    const normalAttr = opt.enabled ? 0x15 : 0x11; // 0x11 = dim-ish
-    setCursor(menuPanel, 0, row);
-    puts(menuPanel, opt.label, normalAttr);
-
+    // Disabled (unqualified class) entries render dimmer; engine attr for those
+    // is unverified pending a class-screen capture.
+    const attr = opt.enabled ? 0x03 : 0x01;
+    setCursor(menuPanel, 1, row);
+    puts(menuPanel, opt.label, attr);
     if (i === cursorIdx) {
-      // Re-attr the cursor row to highlight encoding (bgPaletteIdx=5)
-      highlightRow(menuPanel, row, 5);
+      highlightRange(menuPanel, 1, row, opt.label.length, 5);
     }
-
-    row++;
   }
 
   const pal = palette ?? WIZ6_MAIN;

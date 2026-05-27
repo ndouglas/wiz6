@@ -24,9 +24,11 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { setCursor, puts } from '@wiz6/parser';
+import { setCursor, puts, clearWindow } from '@wiz6/parser';
+import { MessageDbSchema } from '@wiz6/data';
 import { createPersistentWindows } from '../../../../../src/pages/roster/creation/ega/windows.js';
 import { highlightRange } from '../../../../../src/pages/roster/creation/ega/highlight.js';
+import { raceName, creationString, MSG } from '../../../../../src/pages/roster/creation/messages.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..', '..', '..', '..');
@@ -154,6 +156,43 @@ describe('NAME INPUT cell-grid parity (byte-exact vs engine, buffer="a")', () =>
 
     for (const [name, win] of [
       ['top', top],
+      ['bottomBar', bottomBar],
+      ['menuPanel', menuPanel],
+    ] as const) {
+      const { diffs, first } = diffCount(win.cells, eng[name]!);
+      expect(diffs, `${name} diff: ${first ?? ''}`).toBe(0);
+    }
+  });
+});
+
+describe('RACE SELECT cell-grid parity (menuPanel + bottomBar; cursor on HUMAN)', () => {
+  // The populated char-sheet `top` is a separate shared component (attribute
+  // labels/values), not yet ported — so this only asserts the race list +
+  // prompt, which ARE byte-exact: menuPanel races at col 1 rows 1+ (HUMAN
+  // highlighted at attr 0x50), bottomBar prompt centered at row 1 attr 0x03.
+  it('menuPanel race list + centered prompt match engine cell memory', () => {
+    const eng = JSON.parse(
+      readFileSync(join(FIXTURES, 'race-select.json'), 'utf-8'),
+    ).windows as Record<string, EngineWindow>;
+    const db = MessageDbSchema.parse(
+      JSON.parse(readFileSync(join(mainRoot(), 'extracted', 'messages', 'msg.json'), 'utf-8')),
+    );
+    const { bottomBar, menuPanel } = createPersistentWindows();
+
+    const prompt = creationString(db, MSG.racePrompt);
+    const col = Math.floor((bottomBar.widthCells - prompt.length) / 2);
+    setCursor(bottomBar, col, 1);
+    puts(bottomBar, prompt, 0x03);
+
+    clearWindow(menuPanel, 0x20, 0x03);
+    for (let i = 0; i < 11; i++) {
+      const label = raceName(db, i);
+      setCursor(menuPanel, 1, i + 1);
+      puts(menuPanel, label, 0x03);
+      if (i === 0) highlightRange(menuPanel, 1, i + 1, label.length, 5);
+    }
+
+    for (const [name, win] of [
       ['bottomBar', bottomBar],
       ['menuPanel', menuPanel],
     ] as const) {
