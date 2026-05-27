@@ -127,13 +127,12 @@ const validMessageDb = {
   records: [{ index: 0, compressedBytes: 4, decodedText: 'HELLO' }],
   indexedCount: 1,
   indexedMessages: [{
-    index: 0,
-    byteOffset: 0,
-    charOffset: 0,
-    raw: 0,
-    sectionIndex: 0,
+    id: 1130,
+    rangeIndex: 0,
+    bank: 0,
+    offset: 0,
+    recordPos: 0,
     decodedText: 'HELLO',
-    cleanedText: 'HELLO',
   }],
 };
 
