@@ -30,13 +30,21 @@ describe('HouseRulesSchema', () => {
     expect((r as unknown as { bogusField?: unknown }).bogusField).toBeUndefined();
   });
 
-  // (pinMaxBonusRoll was removed at the wpcmk Stage-D cutover; the schema
-  // currently carries no house rules beyond schemaVersion.)
+  it('rejects non-boolean pinMaxBonusRoll', () => {
+    expect(() =>
+      HouseRulesSchema.parse({ ...DEFAULT_HOUSE_RULES, pinMaxBonusRoll: 'yes' as unknown as boolean }),
+    ).toThrow();
+  });
+
+  it('stock and default differ at pinMaxBonusRoll (stock=false, default=true)', () => {
+    expect(STOCK_HOUSE_RULES.pinMaxBonusRoll).toBe(false);
+    expect(DEFAULT_HOUSE_RULES.pinMaxBonusRoll).toBe(true);
+  });
 });
 
 describe('HOUSE_RULES_META', () => {
-  it('is empty until a house rule is (re-)added', () => {
-    expect(HOUSE_RULES_META).toHaveLength(0);
+  it('has one entry per house rule (currently 1)', () => {
+    expect(HOUSE_RULES_META).toHaveLength(1);
   });
 
   it('every meta entry has matching key in HouseRules', () => {

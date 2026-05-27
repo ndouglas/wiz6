@@ -47,6 +47,7 @@ import {
 import { loadCreationFontSet } from './ega/assets.js';
 import { loadMessageDb as defaultLoadMessageDb } from '../../../data-loader.js';
 import { addCharacter, readRoster } from '../../../lib/roster-store.js';
+import { getHouseRules } from '../../../lib/house-rules-store.js';
 import { buildCharacterFromDraft } from './lib/build.js';
 
 // Screen components
@@ -164,7 +165,8 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
   const rng = useMemo(() => seedToRng(seed), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [state, dispatch] = useReducer(creationReducer, undefined, () =>
-    _testInitialState ?? initialCreationState(rng),
+    _testInitialState ??
+    initialCreationState(rng, { pinMaxBonusRoll: getHouseRules().pinMaxBonusRoll }),
   );
 
   // -------------------------------------------------------------------------

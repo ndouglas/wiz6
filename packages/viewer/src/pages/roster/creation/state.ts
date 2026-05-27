@@ -55,6 +55,7 @@
 import {
   WichmannHill,
   rollBonus,
+  MAX_BONUS_POINTS,
   computeDerivedStats,
   rollKarmaWith,
   rollSkillBudget,
@@ -145,6 +146,12 @@ export interface CreationState {
   cursor: number;
   /** Per-session undo counters for the bonus allocator (7 values, one per attr). */
   scratch: Record<string, unknown>;
+  /**
+   * House rule (read once at creation start): when true, the bonus-roll step
+   * pins the pool to MAX_BONUS_POINTS instead of the random roll — skipping the
+   * elite-class grind. See HOUSE_RULES_META.pinMaxBonusRoll.
+   */
+  pinMaxBonusRoll: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,14 +219,19 @@ export function blankDraft(): DraftState {
  * The player must dispatch MENU_CREATE to begin character creation.
  *
  * @param rng  A WichmannHill instance (carried in state; will be advanced as rolls fire).
+ * @param opts.pinMaxBonusRoll  House rule: pin the bonus pool to its max (default false).
  */
-export function initialCreationState(rng: WichmannHill): CreationState {
+export function initialCreationState(
+  rng: WichmannHill,
+  opts?: { pinMaxBonusRoll?: boolean },
+): CreationState {
   return {
     screen: 'characterMenu',
     rng,
     draft: blankDraft(),
     cursor: 0,
     scratch: {},
+    pinMaxBonusRoll: opts?.pinMaxBonusRoll ?? false,
   };
 }
 
@@ -246,7 +258,10 @@ function raceFlorFor(state: CreationState, attrIdx: number): number {
  * §1: "screen-04 bonus-roller: 5+rng(6), +8 on each of two 1/20 rolls → 5..26"
  */
 function fireBonus(state: CreationState): CreationState {
-  const bonus = rollBonus(state.rng);
+  // Always roll (advancing the rng) so later rolls stay identical whether or
+  // not the pin is on; the pin only overrides the resulting pool value.
+  const rolled = rollBonus(state.rng);
+  const bonus = state.pinMaxBonusRoll ? MAX_BONUS_POINTS : rolled;
   return {
     ...state,
     draft: { ...state.draft, bonusPool: bonus },

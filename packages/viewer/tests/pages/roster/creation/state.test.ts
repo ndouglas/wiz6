@@ -4,7 +4,7 @@
 // Authoritative spec: docs/re/wpcmk-screens.md §1 (transitions table)
 //
 import { describe, it, expect } from 'vitest';
-import { WichmannHill } from '@wiz6/data';
+import { WichmannHill, MAX_BONUS_POINTS } from '@wiz6/data';
 import {
   initialCreationState,
   creationReducer,
@@ -41,6 +41,39 @@ function startCreate(rng: WichmannHill): CreationState {
   const s = initialCreationState(rng);
   return creationReducer(s, { type: 'MENU_CREATE' });
 }
+
+// Drive a fresh creation through the sex→class transition (where fireBonus
+// runs) and return the resulting bonus pool. `pinMaxBonusRoll` toggles the
+// house rule.
+function rollPoolWith(pinMaxBonusRoll: boolean): number {
+  const rng = makeRng();
+  let s = creationReducer(
+    initialCreationState(rng, { pinMaxBonusRoll }),
+    { type: 'MENU_CREATE' },
+  );
+  s = creationReducer(s, { type: 'SET_NAME', name: 'TESTER' });
+  s = creationReducer(s, { type: 'PICK_RACE', index: HUMAN });
+  s = creationReducer(s, { type: 'PICK_SEX', index: MALE });
+  expect(s.screen).toBe('class');
+  return s.draft.bonusPool;
+}
+
+describe('pinMaxBonusRoll house rule (new creation flow)', () => {
+  it('pins the bonus pool to MAX_BONUS_POINTS when enabled', () => {
+    expect(rollPoolWith(true)).toBe(MAX_BONUS_POINTS);
+  });
+
+  it('rolls a normal pool (5..26) when disabled', () => {
+    const pool = rollPoolWith(false);
+    expect(pool).toBeGreaterThanOrEqual(5);
+    expect(pool).toBeLessThanOrEqual(MAX_BONUS_POINTS);
+  });
+
+  it('defaults to NOT pinned when the option is omitted', () => {
+    const rng = makeRng();
+    expect(initialCreationState(rng).pinMaxBonusRoll).toBe(false);
+  });
+});
 
 // Build a minimal state at class-select screen with a Human male character
 // who has all bonus points allocated to STR (to qualify for Fighter).
