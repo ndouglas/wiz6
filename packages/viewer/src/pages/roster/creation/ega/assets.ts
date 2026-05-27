@@ -46,10 +46,10 @@ export interface CreationFontSetLoaders {
  * Loads:
  *   - wfont0 (1bpp) — used by the highlight path (selected-row cursor)
  *   - wfont1 (4bpp) — used by window chrome cells (attr=0x01, frame tiles)
+ *   - wfont2 (4bpp) — used by the char-sheet bottom-grid magic-school icons
+ *                     (chars 0x23–0x28 at attr 0x02)
  *   - wfont3 (4bpp) — used by cells with attr low nibble 3 (e.g. bottomBar)
  *   - wfont4 (4bpp) — used by cells with attr low nibble 4 (e.g. top panel)
- *
- * Font 2 is not used by any creation-screen attr and is left null.
  *
  * The loaders are injectable to allow tests to supply disk-reading replacements
  * instead of relying on fetch('/fonts/...') which doesn't work in vitest/node.
@@ -60,9 +60,10 @@ export async function loadCreationFontSet(opts?: CreationFontSetLoaders): Promis
   const _loadFont = opts?.loadFont ?? defaultLoadFont;
   const _loadFont4bpp = opts?.loadFont4bpp ?? defaultLoadFont4bpp;
 
-  const [font0, font1, font3, font4] = await Promise.all([
+  const [font0, font1, font2, font3, font4] = await Promise.all([
     _loadFont('/fonts/wfont0.json'),
     _loadFont4bpp('/fonts/wfont1.json'),
+    _loadFont4bpp('/fonts/wfont2.json'),
     _loadFont4bpp('/fonts/wfont3.json'),
     _loadFont4bpp('/fonts/wfont4.json'),
   ]);
@@ -70,7 +71,7 @@ export async function loadCreationFontSet(opts?: CreationFontSetLoaders): Promis
   return {
     font0,
     font1,
-    font2: null,
+    font2,
     font3,
     font4,
   };
