@@ -21,7 +21,8 @@
  * Reference: docs/re/wpcmk-screens.md §2
  */
 
-import { clearWindow, createTileWindow, type TileWindow } from '@wiz6/parser';
+import { createTileWindow, type TileWindow } from '@wiz6/parser';
+import { drawWindowChrome } from './chrome.js';
 
 /** Single entry in the CREATION_WINDOW_GEOMETRY table. */
 export interface WindowGeometryEntry {
@@ -65,7 +66,7 @@ function getGeometry(id: WindowGeometryEntry['id']): WindowGeometryEntry {
   return entry;
 }
 
-/** Allocate and clear a TileWindow from a geometry entry. */
+/** Allocate a TileWindow from a geometry entry and draw the window chrome. */
 function makeWindow(entry: WindowGeometryEntry): TileWindow {
   const win = createTileWindow({
     screenX: entry.screenX,
@@ -73,7 +74,7 @@ function makeWindow(entry: WindowGeometryEntry): TileWindow {
     widthCells: entry.widthCells,
     heightCells: entry.heightCells,
   });
-  clearWindow(win, 0x20 /* space */, entry.attr);
+  drawWindowChrome(win);
   return win;
 }
 

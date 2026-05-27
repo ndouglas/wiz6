@@ -7,6 +7,10 @@ import {
   createSpellPickWindows,
 } from '../../../../../src/pages/roster/creation/ega/windows.js';
 
+// Chrome constants — must match chrome.ts
+const CHROME_CORNER_TL = 0x01;
+const CHROME_ATTR = 0x01;
+
 // §2 geometry constants from docs/re/wpcmk-screens.md
 const EXPECTED_TOP = { screenX: 0, screenY: 0, widthCells: 40, heightCells: 20, attr: 0x14 };
 const EXPECTED_BOTTOM_BAR = { screenX: 0, screenY: 160, widthCells: 40, heightCells: 5, attr: 0x13 };
@@ -91,12 +95,15 @@ describe('createPersistentWindows', () => {
     expect(top.cells.length).toBe(top.widthCells * top.heightCells * 2);
   });
 
-  it('top window cells are filled with space char and correct attr', () => {
+  it('top window cells have chrome applied (corner at 0,0 is TL char, attr=0x01)', () => {
     const { top } = createPersistentWindows();
-    for (let i = 0; i < top.cells.length; i += 2) {
-      expect(top.cells[i]).toBe(0x20);
-      expect(top.cells[i + 1]).toBe(EXPECTED_TOP.attr);
-    }
+    // Top-left corner cell has chrome TL char + attr=0x01
+    expect(top.cells[0]).toBe(CHROME_CORNER_TL);
+    expect(top.cells[1]).toBe(CHROME_ATTR);
+    // An interior cell (e.g. row 1, col 1) has black fill (0x00) + attr=0x01
+    const interiorIdx = (1 * top.widthCells + 1) * 2;
+    expect(top.cells[interiorIdx]).toBe(0x00);
+    expect(top.cells[interiorIdx + 1]).toBe(CHROME_ATTR);
   });
 
   it('returns bottomBar window with correct geometry', () => {
@@ -112,12 +119,15 @@ describe('createPersistentWindows', () => {
     expect(bottomBar.cells.length).toBe(bottomBar.widthCells * bottomBar.heightCells * 2);
   });
 
-  it('bottomBar window cells are filled with space char and correct attr', () => {
+  it('bottomBar window cells have chrome applied (corner at 0,0 is TL char, attr=0x01)', () => {
     const { bottomBar } = createPersistentWindows();
-    for (let i = 0; i < bottomBar.cells.length; i += 2) {
-      expect(bottomBar.cells[i]).toBe(0x20);
-      expect(bottomBar.cells[i + 1]).toBe(EXPECTED_BOTTOM_BAR.attr);
-    }
+    // Top-left corner cell has chrome TL char + attr=0x01
+    expect(bottomBar.cells[0]).toBe(CHROME_CORNER_TL);
+    expect(bottomBar.cells[1]).toBe(CHROME_ATTR);
+    // An interior cell (e.g. row 1, col 1) has black fill (0x00) + attr=0x01
+    const interiorIdx = (1 * bottomBar.widthCells + 1) * 2;
+    expect(bottomBar.cells[interiorIdx]).toBe(0x00);
+    expect(bottomBar.cells[interiorIdx + 1]).toBe(CHROME_ATTR);
   });
 
   it('returns menuPanel window with correct geometry', () => {
@@ -133,12 +143,15 @@ describe('createPersistentWindows', () => {
     expect(menuPanel.cells.length).toBe(menuPanel.widthCells * menuPanel.heightCells * 2);
   });
 
-  it('menuPanel window cells are filled with space char and correct attr', () => {
+  it('menuPanel window cells have chrome applied (corner at 0,0 is TL char, attr=0x01)', () => {
     const { menuPanel } = createPersistentWindows();
-    for (let i = 0; i < menuPanel.cells.length; i += 2) {
-      expect(menuPanel.cells[i]).toBe(0x20);
-      expect(menuPanel.cells[i + 1]).toBe(EXPECTED_MENU_PANEL.attr);
-    }
+    // Top-left corner cell has chrome TL char + attr=0x01
+    expect(menuPanel.cells[0]).toBe(CHROME_CORNER_TL);
+    expect(menuPanel.cells[1]).toBe(CHROME_ATTR);
+    // An interior cell (e.g. row 1, col 1) has black fill (0x00) + attr=0x01
+    const interiorIdx = (1 * menuPanel.widthCells + 1) * 2;
+    expect(menuPanel.cells[interiorIdx]).toBe(0x00);
+    expect(menuPanel.cells[interiorIdx + 1]).toBe(CHROME_ATTR);
   });
 });
 
@@ -156,12 +169,15 @@ describe('createSkillTrainWindow', () => {
     expect(win.cells.length).toBe(win.widthCells * win.heightCells * 2);
   });
 
-  it('cells are filled with space char and correct attr', () => {
+  it('cells have chrome applied (corner at 0,0 is TL char, attr=0x01)', () => {
     const win = createSkillTrainWindow();
-    for (let i = 0; i < win.cells.length; i += 2) {
-      expect(win.cells[i]).toBe(0x20);
-      expect(win.cells[i + 1]).toBe(EXPECTED_SKILL_TRAIN.attr);
-    }
+    // Top-left corner cell has chrome TL char + attr=0x01
+    expect(win.cells[0]).toBe(CHROME_CORNER_TL);
+    expect(win.cells[1]).toBe(CHROME_ATTR);
+    // An interior cell (e.g. row 1, col 1) has black fill (0x00) + attr=0x01
+    const interiorIdx = (1 * win.widthCells + 1) * 2;
+    expect(win.cells[interiorIdx]).toBe(0x00);
+    expect(win.cells[interiorIdx + 1]).toBe(CHROME_ATTR);
   });
 });
 
@@ -179,12 +195,15 @@ describe('createSpellPickWindows', () => {
     expect(outer.cells.length).toBe(outer.widthCells * outer.heightCells * 2);
   });
 
-  it('outer window cells filled with space char and correct attr', () => {
+  it('outer window cells have chrome applied (corner at 0,0 is TL char, attr=0x01)', () => {
     const { outer } = createSpellPickWindows();
-    for (let i = 0; i < outer.cells.length; i += 2) {
-      expect(outer.cells[i]).toBe(0x20);
-      expect(outer.cells[i + 1]).toBe(EXPECTED_SPELL_OUTER.attr);
-    }
+    // Top-left corner cell has chrome TL char + attr=0x01
+    expect(outer.cells[0]).toBe(CHROME_CORNER_TL);
+    expect(outer.cells[1]).toBe(CHROME_ATTR);
+    // An interior cell (e.g. row 1, col 1) has black fill (0x00) + attr=0x01
+    const interiorIdx = (1 * outer.widthCells + 1) * 2;
+    expect(outer.cells[interiorIdx]).toBe(0x00);
+    expect(outer.cells[interiorIdx + 1]).toBe(CHROME_ATTR);
   });
 
   it('returns inner window with correct geometry', () => {
@@ -200,11 +219,14 @@ describe('createSpellPickWindows', () => {
     expect(inner.cells.length).toBe(inner.widthCells * inner.heightCells * 2);
   });
 
-  it('inner window cells filled with space char and correct attr', () => {
+  it('inner window cells have chrome applied (corner at 0,0 is TL char, attr=0x01)', () => {
     const { inner } = createSpellPickWindows();
-    for (let i = 0; i < inner.cells.length; i += 2) {
-      expect(inner.cells[i]).toBe(0x20);
-      expect(inner.cells[i + 1]).toBe(EXPECTED_SPELL_INNER.attr);
-    }
+    // Top-left corner cell has chrome TL char + attr=0x01
+    expect(inner.cells[0]).toBe(CHROME_CORNER_TL);
+    expect(inner.cells[1]).toBe(CHROME_ATTR);
+    // An interior cell (e.g. row 1, col 1) has black fill (0x00) + attr=0x01
+    const interiorIdx = (1 * inner.widthCells + 1) * 2;
+    expect(inner.cells[interiorIdx]).toBe(0x00);
+    expect(inner.cells[interiorIdx + 1]).toBe(CHROME_ATTR);
   });
 });

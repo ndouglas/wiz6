@@ -149,13 +149,23 @@ describe('loadCreationFontSet', () => {
     expect(fontSet.font4?.glyphs.length).toBeGreaterThan(0);
   });
 
-  it('font1 and font2 are null (not needed by creation screens)', async () => {
+  it('font1 is set (4bpp, wfont1) — used by window chrome (attr=0x01)', async () => {
     const fontSet = await loadCreationFontSet({
       loadFont: diskLoadFont,
       loadFont4bpp: diskLoadFont4bpp,
     });
-    // Creation screen attr low nibbles are 3 and 4 only; fonts 1 and 2 unused.
-    expect(fontSet.font1 ?? null).toBeNull();
+    // Window chrome cells use attr=0x01 (wfont1) for frame tiles.
+    expect(fontSet.font1).toBeDefined();
+    expect(fontSet.font1).not.toBeNull();
+    expect(fontSet.font1?.id).toBe('wfont1');
+  });
+
+  it('font2 is null (not needed by creation screens)', async () => {
+    const fontSet = await loadCreationFontSet({
+      loadFont: diskLoadFont,
+      loadFont4bpp: diskLoadFont4bpp,
+    });
+    // Creation screens don't use wfont2 — attr low nibble 2 is not used.
     expect(fontSet.font2 ?? null).toBeNull();
   });
 });

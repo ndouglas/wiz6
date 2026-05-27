@@ -9,6 +9,7 @@
  *
  * The creation window attr bytes are 0x13–0x19. `renderTileWindow` masks each
  * cell's attr to its low nibble to select the wfont:
+ *   - 0x01 → low nibble 1 → wfont1 (window chrome frame tiles)
  *   - 0x13 → low nibble 3 → wfont3 (bottomBar)
  *   - 0x14 → low nibble 4 → wfont4 (top)
  *   - 0x15, 0x16, 0x17, 0x19 → nibbles 5, 6, 7, 9 → no mapped font (cells
@@ -16,10 +17,12 @@
  *     or attr=4 text by the per-screen handlers)
  *   - attr low nibble == 0 and attr != 0 → highlight path → wfont0 (1bpp)
  *
- * Mirror of CastleScreen's font-set, extended with wfont4 for the top window.
+ * Mirror of CastleScreen's font-set, extended with wfont1 (chrome) and
+ * wfont4 for the top window.
  *
  * Reference: docs/re/findings/wfont-tile-system.json,
- *            docs/re/wpcmk-screens.md §2
+ *            docs/re/wpcmk-screens.md §2,
+ *            docs/re/findings/wpcmk-window-chrome.json
  */
 
 import { WIZ6_MAIN, type Font, type Font4bpp } from '@wiz6/data';
@@ -42,10 +45,11 @@ export interface CreationFontSetLoaders {
  *
  * Loads:
  *   - wfont0 (1bpp) — used by the highlight path (selected-row cursor)
+ *   - wfont1 (4bpp) — used by window chrome cells (attr=0x01, frame tiles)
  *   - wfont3 (4bpp) — used by cells with attr low nibble 3 (e.g. bottomBar)
  *   - wfont4 (4bpp) — used by cells with attr low nibble 4 (e.g. top panel)
  *
- * Fonts 1 and 2 are not used by any creation-screen attr and are left null.
+ * Font 2 is not used by any creation-screen attr and is left null.
  *
  * The loaders are injectable to allow tests to supply disk-reading replacements
  * instead of relying on fetch('/fonts/...') which doesn't work in vitest/node.
@@ -56,15 +60,16 @@ export async function loadCreationFontSet(opts?: CreationFontSetLoaders): Promis
   const _loadFont = opts?.loadFont ?? defaultLoadFont;
   const _loadFont4bpp = opts?.loadFont4bpp ?? defaultLoadFont4bpp;
 
-  const [font0, font3, font4] = await Promise.all([
+  const [font0, font1, font3, font4] = await Promise.all([
     _loadFont('/fonts/wfont0.json'),
+    _loadFont4bpp('/fonts/wfont1.json'),
     _loadFont4bpp('/fonts/wfont3.json'),
     _loadFont4bpp('/fonts/wfont4.json'),
   ]);
 
   return {
     font0,
-    font1: null,
+    font1,
     font2: null,
     font3,
     font4,
