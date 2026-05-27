@@ -148,12 +148,12 @@ stream3 = 29999   (wroot image bytes at CS:0x1d3f → LE word 0x752f)
 Inject via `new WichmannHill(3000, 1, 29999)` in test setup. Each character-creation
 sub-function consumes a known number of RNG calls in order:
 
-| Sub-function | RNG calls |
-|---|---|
-| `rollAttributes` | 8 (one per stat, independently) |
-| `rollBonusPoints` | 1 |
-| `rollSkillBudget` | 1–3 (class-dependent) |
-| `rollKarma` | 1 |
+| Sub-function      | RNG calls                       |
+| ----------------- | ------------------------------- |
+| `rollAttributes`  | 8 (one per stat, independently) |
+| `rollBonusPoints` | 1                               |
+| `rollSkillBudget` | 1–3 (class-dependent)           |
+| `rollKarma`       | 1                               |
 
 Replaying the exact sequence for a given class + race deterministically reproduces
 the same character every time — once the RNG call count per sub-function is confirmed
@@ -162,7 +162,7 @@ against the engine. Currently confirmed for Fighter (A2/A3 test coverage).
 ### Open questions a creation-commit save would settle
 
 1. **Skill-budget tier-2 details** — is there a `rng(3)` call? a second subtraction?
-   a Fighter "clamp" (e.g. budget capped at some fighter-specific max)?  
+   a Fighter "clamp" (e.g. budget capped at some fighter-specific max)?
    See `docs/re/wpcmk-screens.md` "Open Questions".
 
 2. **Remaining field offsets** — any pcfile fields with `unknown_*` annotations in
