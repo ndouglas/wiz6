@@ -106,12 +106,28 @@ export function setCursor(win: TileWindow, x: number, y: number): void {
 
 /** `ui_window_puts` — write a string at the cursor with the given attr.
  *  Each byte gets written to one cell as `(byte, attr)`; cursor advances
- *  by one cell per byte, wrapping at both x and y. */
+ *  by one cell per byte, wrapping at both x and y.
+ *
+ *  Space (0x20) is treated as a non-glyph: it advances the cursor WITHOUT
+ *  overwriting the cell, so the window's existing fill shows through the gap
+ *  (matching the engine, whose text renderer leaves the window background
+ *  visible at spaces). Blitting glyph 0x20 instead would draw the wfont2/3/4
+ *  graphic tile that occupies that slot — a stray block between words. */
 export function puts(win: TileWindow, text: string, attr: number): void {
   const a = attr & 0xff;
   for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i) & 0xff;
+    if (code === 0x20) {
+      win.cursorX++;
+      if (win.cursorX >= win.widthCells) {
+        win.cursorX = 0;
+        win.cursorY++;
+        if (win.cursorY >= win.heightCells) win.cursorY = 0;
+      }
+      continue;
+    }
     const idx = (win.cursorY * win.widthCells + win.cursorX) * 2;
-    win.cells[idx] = text.charCodeAt(i) & 0xff;
+    win.cells[idx] = code;
     win.cells[idx + 1] = a;
     win.cursorX++;
     if (win.cursorX >= win.widthCells) {
