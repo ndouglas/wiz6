@@ -333,6 +333,7 @@ function composeFrame(
     //   cursor_Y = (slot % 4) + 1       → 4 rows per column at Y=1..4
     const pane = createTileWindow({ screenX: 0, screenY: 152, widthCells: 40, heightCells: 5 });
     clearWindow(pane, 0x20, 0x03);
+    pane.invertHighlight = true; // menu selection = black text on the colour bar
     const X_BASE = 2;
     const Y_BASE = 1;
     const X_STRIDE = 19;

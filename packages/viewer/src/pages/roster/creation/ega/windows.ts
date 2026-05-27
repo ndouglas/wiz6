@@ -120,11 +120,17 @@ export function createPersistentWindows(): PersistentWindows {
   clearWindow(top, 0x00, 0x01);
   drawCharSheetTemplate(top);
 
+  // bottomBar + menuPanel hold the menu selection cursor, which the engine
+  // renders INVERSE (black text on the highlight-colour bar). The `top`
+  // char-sheet renders highlights as COLOURED TEXT on black, so it keeps the
+  // default (invertHighlight = false).
   const bottomBar = blankWindow(getGeometry('bottomBar'));
   clearWindow(bottomBar, 0x20, 0x03);
+  bottomBar.invertHighlight = true;
 
   const menuPanel = blankWindow(getGeometry('menuPanel'));
   clearWindow(menuPanel, 0x20, 0x03);
+  menuPanel.invertHighlight = true;
 
   return { top, bottomBar, menuPanel };
 }

@@ -47,6 +47,17 @@ export interface TileWindow {
   /** Current cursor position, in cell coords (within the window). */
   cursorX: number;
   cursorY: number;
+  /**
+   * Highlight render mode for this window. The same highlight cell (attr
+   * low-nibble 0, e.g. 0x50) is drawn two ways by the engine via different
+   * ega.drv slots, indistinguishable from the stored (char, attr):
+   *   - false/undefined → COLORED TEXT: stroke = palette[high nibble], bg = black.
+   *     (character-sheet labels/values: yellow STR, white values, etc.)
+   *   - true → INVERSE: stroke = black, bg = palette[high nibble].
+   *     (menu selection cursors: black text on a yellow bar)
+   * Set per window by the caller since the cell alone can't carry it.
+   */
+  invertHighlight?: boolean;
 }
 
 /** Wfont file lookup. attr's low nibble selects font1..font4 (4bpp tiles)
@@ -180,12 +191,15 @@ export function renderTileWindow(
       const fontIdx = attr & 0x0f;
 
       if (fontIdx === 0 && attr !== 0) {
-        // HIGHLIGHT path — cell stored as (char, attrParam<<4); ega.drv slot 1
-        // blits wfont0 (1bpp) writing: stroke (glyph "on" pixels) -> the COLOR
-        // palette[attr>>4], bg ("off" pixels) -> palette[0] (black). I.e. the
-        // attr's high nibble is the FOREGROUND colour: char-sheet labels render
-        // yellow-on-black (param 5), values white-on-black (param 1), etc.
-        // Verified against the engine framebuffer (decode-screen of save 1).
+        // HIGHLIGHT path — cell (char, attrParam<<4) blitted via wfont0 (1bpp).
+        // The engine renders this two ways depending on the draw routine's
+        // ega.drv slot, indistinguishable from the cell; `win.invertHighlight`
+        // selects which (see TileWindow.invertHighlight):
+        //   normal  → stroke = palette[high nibble] (colour), bg = black
+        //             (char-sheet: yellow STR labels, white values, …)
+        //   inverse → stroke = black, bg = palette[high nibble]
+        //             (menu selection cursor: black text on a yellow bar)
+        // Verified vs the engine framebuffer (decode-screen of saves 1 & 3).
         if (!fonts.font0) continue;
         const colorIdx = (attr >> 4) & 0x0f;
         renderTextRun(
@@ -196,9 +210,9 @@ export function renderTileWindow(
           dy,
           String.fromCharCode(char),
           fonts.font0,
-          colorIdx, // stroke = palette[high nibble] (the foreground colour)
+          win.invertHighlight ? 0 : colorIdx, // stroke
           palette,
-          0, // bg = palette[0] (black)
+          win.invertHighlight ? colorIdx : 0, // bg
         );
         continue;
       }
