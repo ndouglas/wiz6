@@ -5,7 +5,8 @@ import { join, resolve } from 'node:path';
 import { run } from '../../src/index.js';
 
 const REPO_ROOT = resolve(__dirname, '../../../..');
-const REAL_DBS = join(REPO_ROOT, 'original/scenario.dbs');
+// Vendored pristine game files — decoupled from the DOSBox-mutable original/.
+const REAL_DBS = join(REPO_ROOT, 'test-fixtures', 'original', 'scenario.dbs');
 
 function capture(args: readonly string[], cwd?: string): {
   code: number;

@@ -6,7 +6,10 @@ import { decodePcfile } from '../../src/formats/pcfile.js';
 import { encodeCharacterRecord } from '../../src/formats/encode-character-record.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PCFILE = readFileSync(join(HERE, '..', '..', '..', '..', 'original', 'pcfile.dbs'));
+// Vendored pristine pcfile — decoupled from the DOSBox-mutable original/.
+const PCFILE = readFileSync(
+  join(HERE, '..', '..', '..', '..', 'test-fixtures', 'original', 'pcfile.dbs'),
+);
 
 /**
  * pcfile.dbs layout constants (verified by decodePcfile):

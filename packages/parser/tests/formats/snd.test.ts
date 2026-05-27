@@ -4,7 +4,8 @@ import { join, resolve } from 'node:path';
 import { decodeSnd, SND_SAMPLE_RATE_HZ } from '../../src/formats/snd.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
-const ORIGINAL = join(REPO_ROOT, 'original');
+// Vendored pristine game files — decoupled from the DOSBox-mutable original/.
+const ORIGINAL = join(REPO_ROOT, 'test-fixtures', 'original');
 
 function loadSnd(name: string): Uint8Array {
   return new Uint8Array(readFileSync(join(ORIGINAL, name)));

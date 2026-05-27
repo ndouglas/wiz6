@@ -8,7 +8,8 @@ import { extractPcfile } from '../../src/extractors/extract-pcfile.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..', '..', '..');
-const PCFILE_SRC = join(REPO_ROOT, 'original', 'pcfile.dbs');
+// Vendored pristine pcfile — decoupled from the DOSBox-mutable original/.
+const PCFILE_SRC = join(REPO_ROOT, 'test-fixtures', 'original', 'pcfile.dbs');
 
 describe('extractPcfile', () => {
   it('reads pcfile.dbs and writes decoded JSON', () => {

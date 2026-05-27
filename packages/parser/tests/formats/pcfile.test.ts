@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { decodePcfile } from '../../src/formats/pcfile.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PCFILE = readFileSync(join(HERE, '..', '..', '..', '..', 'original', 'pcfile.dbs'));
+// Vendored pristine pcfile — decoupled from the DOSBox-mutable original/.
+const PCFILE = readFileSync(
+  join(HERE, '..', '..', '..', '..', 'test-fixtures', 'original', 'pcfile.dbs'),
+);
 
 describe('decodePcfile', () => {
   it('decodes the header from the real file', () => {
