@@ -1,13 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PicSchema, WIZ6_MAIN, type Font, type Font4bpp, type Pic } from '@wiz6/data';
+import {
+  PicSchema,
+  WIZ6_MAIN,
+  type ActivePartyMember,
+  type Font,
+  type Font4bpp,
+  type Pic,
+  type PortraitSet,
+} from '@wiz6/data';
 import {
   renderEgaScreen,
   concatenatePicSegments,
   visibleMenuOptions,
   type MainMenuContext,
 } from '@wiz6/parser';
-import { loadEgaScreen, loadFont, loadFont4bpp } from '../../data-loader.js';
+import { loadEgaScreen, loadFont, loadFont4bpp, loadPortraitSet } from '../../data-loader.js';
+import { readActiveParty } from '../../lib/active-party-store.js';
+import { readRoster } from '../../lib/roster-store.js';
 import { composeCastleFrame } from './castle-frame.js';
 import styles from './CastleScreen.module.css';
 
@@ -19,11 +29,6 @@ const SCALE = 3;
  *  polls between flips; on a 486DX/33 that's roughly 400-600ms wall-clock.
  *  Tunable by feel — we don't aim for byte-precise emulator timing. */
 const PARITY_FLIP_MS = 500;
-
-const DEFAULT_CONTEXT: MainMenuContext = {
-  partySize: 0,
-  pcFileHasUnloadedChars: true,
-};
 
 const ROUTE_BY_SLOT: Record<number, { route: string; replay?: boolean }> = {
   0: { route: '/castle/add-party' },
@@ -57,10 +62,13 @@ export function CastleScreen() {
   //  - slot 8 (QUIT GAME): there's no "quit to DOS" in a browser. The user
   //    closes the tab or navigates away. We keep slot 8 in the engine-model
   //    MAIN_MENU_OPTIONS for engine-faithfulness, just hide it here.
-  const visible = useMemo(
-    () => visibleMenuOptions(DEFAULT_CONTEXT).filter((opt) => opt.slot !== 8),
-    [],
-  );
+  const visible = useMemo(() => {
+    const ctx: MainMenuContext = {
+      partySize: readActiveParty().members.length,
+      pcFileHasUnloadedChars: readRoster().characters.length > 0,
+    };
+    return visibleMenuOptions(ctx).filter((opt) => opt.slot !== 8);
+  }, []);
   const [selectedIdx, setSelectedIdx] = useState(0);
   // Mirror to a ref so the RAF tick + keyboard listener can both read it
   // without forcing the tick to re-bind on every cursor move.
