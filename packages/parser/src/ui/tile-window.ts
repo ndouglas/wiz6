@@ -58,6 +58,18 @@ export interface TileWindow {
    * Set per window by the caller since the cell alone can't carry it.
    */
   invertHighlight?: boolean;
+  /**
+   * Optional per-cell override of the inversion polarity for the highlight
+   * path. One byte per cell (row-major, length = widthCells * heightCells);
+   * 0 = follow `invertHighlight`, 1 = flip it. Used for windows that mix the
+   * two render modes — e.g. the char-sheet `top` window renders STR labels at
+   * attr 0x50 as COLORED but the BONUS box at attr 0x70 as INVERSE, despite
+   * both being in the same window with `invertHighlight=false`. The cell alone
+   * can't distinguish (per the CLAUDE.md negated-flag note); the caller marks
+   * the inverted cells here. Optional — if omitted, all cells follow
+   * `invertHighlight`.
+   */
+  highlightInvertMask?: Uint8Array;
 }
 
 /** Wfont file lookup. attr's low nibble selects font1..font4 (4bpp tiles)
@@ -169,6 +181,29 @@ export function centeredPuts(
 }
 
 /**
+ * Mark a horizontal run of `count` cells starting at (x, y) as having flipped
+ * highlight polarity (XOR with the window's `invertHighlight`). Use for cells
+ * that need the opposite render mode from the rest of the window — e.g. the
+ * BONUS box on the char-sheet (inverse) while STR labels in the same window
+ * stay colored. Lazy-allocates `highlightInvertMask` on first use.
+ */
+export function setHighlightInvert(
+  win: TileWindow,
+  x: number,
+  y: number,
+  count: number,
+): void {
+  if (!win.highlightInvertMask) {
+    win.highlightInvertMask = new Uint8Array(win.widthCells * win.heightCells);
+  }
+  for (let i = 0; i < count; i++) {
+    const cx = x + i;
+    if (cx < 0 || cx >= win.widthCells || y < 0 || y >= win.heightCells) continue;
+    win.highlightInvertMask[y * win.widthCells + cx] = 1;
+  }
+}
+
+/**
  * Render a tile window into an RGBA destination buffer at the window's
  * screen position. Each cell is rendered as one 8×8 tile from the wfont
  * file selected by the attribute byte's low nibble.
@@ -191,6 +226,10 @@ export function renderTileWindow(
       const fontIdx = attr & 0x0f;
 
       if (fontIdx === 0) {
+        // Per-cell inversion override XOR'd with the window default.
+        const cellIdx = cy * win.widthCells + cx;
+        const cellInverted = win.highlightInvertMask?.[cellIdx] ? true : false;
+        const inverse = (win.invertHighlight ?? false) !== cellInverted;
         // HIGHLIGHT path — cell (char, attrParam<<4) blitted via wfont0 (1bpp).
         // Every cell with attr_lo=0 routes through here, including attr 0x00
         // itself: with colorIdx=0 both stroke and bg are palette[0]=black, so
@@ -215,9 +254,9 @@ export function renderTileWindow(
           dy,
           String.fromCharCode(char),
           fonts.font0,
-          win.invertHighlight ? 0 : colorIdx, // stroke
+          inverse ? 0 : colorIdx, // stroke
           palette,
-          win.invertHighlight ? colorIdx : 0, // bg
+          inverse ? colorIdx : 0, // bg
         );
         continue;
       }

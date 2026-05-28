@@ -28,7 +28,7 @@
  *   tools/parity/fixtures/cells/class-select.json  (race=HUMAN, bonus=6)
  */
 
-import { setCursor, puts, type TileWindow } from '@wiz6/parser';
+import { setCursor, puts, setHighlightInvert, type TileWindow } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { DraftState } from '../state.js';
 import {
@@ -300,9 +300,13 @@ function drawStatPanel(top: TileWindow, draft: DraftState, db: MessageDb): void 
   // BONUS row (10,11): shown once the pool has been ROLLED (>= 0; the engine's
   // *0x56ac is -1 until the bonus roll fires). It stays visible after full
   // allocation, displaying "BONUS  0". Label cols 10..14, value cols 16..17.
+  // The "BONUS" LABEL renders INVERSE (black text on the cyan/palette[7] box)
+  // while the VALUE digits stay COLORED (cyan-on-black) — same attr 0x70 in
+  // both, but different render polarity per-cell. Flag just the 5 label cells.
   if (draft.bonusPool >= 0) {
     putLabel(top, 10, 11, creationString(db, MSG_BONUS), 0x7);
     putNumberRight(top, 16, 11, draft.bonusPool, 2, 0x7);
+    setHighlightInvert(top, 10, 11, 5); // "BONUS" label only
   }
 }
 

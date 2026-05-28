@@ -26,6 +26,7 @@ export {
   setCursor,
   puts,
   centeredPuts,
+  setHighlightInvert,
   renderTileWindow,
   type TileWindow,
   type FontSet,

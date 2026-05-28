@@ -22,7 +22,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WIZ6_MAIN, FontSchema, Font4bppSchema, MessageDbSchema } from '../../packages/data/src/index.js';
+import { WIZ6_MAIN, FontSchema, Font4bppSchema, MessageDbSchema, classOffered, getRaceBaseStats } from '../../packages/data/src/index.js';
 import type { Font, Font4bpp, Palette, MessageDb } from '../../packages/data/src/index.js';
 import { setCursor, puts, type FontSet } from '../../packages/parser/src/index.js';
 import { loadCreationFontSet } from '../../packages/viewer/src/pages/roster/creation/ega/assets.js';
@@ -31,7 +31,7 @@ import { createPersistentWindows } from '../../packages/viewer/src/pages/roster/
 import { highlightRange } from '../../packages/viewer/src/pages/roster/creation/ega/highlight.js';
 import { drawCharSheet } from '../../packages/viewer/src/pages/roster/creation/ega/char-sheet.js';
 import { blankDraft } from '../../packages/viewer/src/pages/roster/creation/state.js';
-import { raceName, creationString, MSG } from '../../packages/viewer/src/pages/roster/creation/messages.js';
+import { raceName, className, creationString, MSG } from '../../packages/viewer/src/pages/roster/creation/messages.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { compareRgba, writeDiffPng } from './diff-image.js';
 import { indicesToRgba } from './decode-screen.js';
@@ -148,6 +148,44 @@ function renderRaceSelect(fontSet: FontSet, palette: Palette): Uint8ClampedArray
   return renderCreationFrame([top, bottomBar, menuPanel], fontSet, palette);
 }
 
+// ─── CLASS / PROFESSION SELECT helper (post-sex, bonus rolled) ─────────────────
+// State: NATHAN, Human male, bonusPool=17 → 12 qualifying classes in 2 columns
+// (FIGHTER..MONK in left col + NINJA in right col); Lord (deficit 18) and
+// Valkyrie (female-only) excluded.
+
+function renderClassSelect(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  const { top, bottomBar, menuPanel } = createPersistentWindows();
+  const human = getRaceBaseStats(0);
+  const draft = {
+    ...blankDraft(),
+    name: 'NATHAN',
+    race: 0,
+    sex: 0,
+    attributes: { ...human, kar: 0 },
+    bonusPool: 17,
+  };
+  drawCharSheet(top, draft, msgDb, creationString(msgDb, MSG.classTitle));
+  const prompt = creationString(msgDb, MSG.classPrompt);
+  setCursor(bottomBar, Math.ceil((bottomBar.widthCells - prompt.length) / 2), 1);
+  puts(bottomBar, prompt, 0x03);
+  // Two-column profession list — see MenuPickerScreen.menuCellOf.
+  const ROWS_PER_COL = 11;
+  const COL_STRIDE = 10;
+  let n = 0;
+  for (let i = 0; i < 14; i++) {
+    if (!classOffered(draft.attributes, draft.bonusPool, draft.sex!, i)) continue;
+    const label = className(msgDb, i);
+    const col = Math.floor(n / ROWS_PER_COL);
+    const x = 1 + col * COL_STRIDE;
+    const row = (n % ROWS_PER_COL) + 1;
+    setCursor(menuPanel, x, row);
+    puts(menuPanel, label, 0x03);
+    if (n === 0) highlightRange(menuPanel, x, row, label.length, 5);
+    n++;
+  }
+  return renderCreationFrame([top, bottomBar, menuPanel], fontSet, palette);
+}
+
 // ─── Screen table ──────────────────────────────────────────────────────────────
 // `floor` = current measured match % minus a small margin. TARGET is 100.
 
@@ -178,6 +216,11 @@ const SCREENS: ScreenCase[] = [
     fixture: 'creation-race-select',
     floor: 100, // pixel-exact — char-sheet + race list with HUMAN selected
     render: renderRaceSelect,
+  },
+  {
+    fixture: 'creation-class-select',
+    floor: 100, // pixel-exact — NATHAN, pool 17, 12 qualifying classes
+    render: renderClassSelect,
   },
 ];
 
