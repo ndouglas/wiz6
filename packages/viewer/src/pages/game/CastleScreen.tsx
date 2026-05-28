@@ -54,6 +54,12 @@ export function CastleScreen() {
   const [wfont3, setWfont3] = useState<Font4bpp | null>(null);
   const [wfont1, setWfont1] = useState<Font4bpp | null>(null);
   const [wfont0, setWfont0] = useState<Font | null>(null);
+  const [portraitSet, setPortraitSet] = useState<PortraitSet | null>(null);
+
+  // Active-party snapshot — read once on mount. The store is localStorage-backed
+  // and our flow always navigates away from CastleScreen to mutate it (the ADD/
+  // REMOVE party pages route here on commit), so we don't need to subscribe.
+  const activeMembers = useMemo<ActivePartyMember[]>(() => readActiveParty().members, []);
 
   // Web-port menu filtering:
   //  - slot 6 (GAME CONFIGURATION): kept visible; repurposed to navigate to
@@ -153,6 +159,21 @@ export function CastleScreen() {
     };
   }, []);
 
+  // Load the wport1 portrait set for blitting active-party portraits. We only
+  // load wport1 (portraits 0..13) here — higher portrait indices won't blit
+  // until we expand to wport2/wport3, matching the engine's progressive load.
+  useEffect(() => {
+    let cancelled = false;
+    loadPortraitSet('/portraits/wport1.json')
+      .then((ps) => {
+        if (!cancelled) setPortraitSet(ps);
+      })
+      .catch((err) => console.warn('failed to load portrait set', err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // RAF loop that flips the parity bit every PARITY_FLIP_MS and recomposites
   // the frame. Mirrors the engine's FUN_013b → FUN_07b7 cadence: parity==0
   // draws everything except the slot-5/6 overlays (water); parity==1 adds
@@ -185,6 +206,8 @@ export function CastleScreen() {
         visible,
         selectedIdxRef.current,
         wfont1,
+        activeMembers,
+        portraitSet,
       );
       // Allocate ArrayBuffer-backed ImageData + copy; passing the
       // Uint8ClampedArray to the ctor trips the lib.dom ArrayBufferLike types.
@@ -195,7 +218,17 @@ export function CastleScreen() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [mon08Pic, mon08Decoded, dragonscRgba, wfont3, wfont1, wfont0, visible]);
+  }, [
+    mon08Pic,
+    mon08Decoded,
+    dragonscRgba,
+    wfont3,
+    wfont1,
+    wfont0,
+    visible,
+    activeMembers,
+    portraitSet,
+  ]);
 
   // Keyboard navigation: ↑/↓ wrap-around through visible options; Enter activates.
   useEffect(() => {

@@ -8,7 +8,14 @@
  * RAF tick; the test invokes it at both parity values.
  */
 
-import { WIZ6_MAIN, type Font, type Font4bpp, type Pic } from '@wiz6/data';
+import {
+  WIZ6_MAIN,
+  type ActivePartyMember,
+  type Font,
+  type Font4bpp,
+  type Pic,
+  type PortraitSet,
+} from '@wiz6/data';
 import {
   compositePicScript,
   createTileWindow,
@@ -22,6 +29,70 @@ import {
 
 const ENGINE_W = 320;
 const ENGINE_H = 200;
+
+/** Portrait tiles are 8×8 4bpp EGA-planar; each portrait is a 3×3 grid → 24×24. */
+const PORTRAIT_TILE_PX = 8;
+const PORTRAIT_TILES_PER_SIDE = 3;
+
+/** Engine X for the left-side party-portrait column (per FUN_0b0e). */
+const PORTRAIT_BLIT_X = 2;
+/** Engine Y baseline for portrait slot 0 (per FUN_0b0e: Y = slot*9 + 0x48). */
+const PORTRAIT_BLIT_Y_BASE = 0x48;
+/** Engine Y stride between portrait slots (per FUN_0b0e). */
+const PORTRAIT_BLIT_Y_STRIDE = 9;
+
+/**
+ * Blit one wport portrait (3×3 4bpp tiles → 24×24 pixels) at (dstX, dstY).
+ * Mirrors the per-pixel plane-decoding from `renderTextRun4bpp` — each tile is
+ * 32 bytes (G/B/R/I planes × 8 rows), MSB-first within each plane byte. The
+ * file-color value is used directly as the palette index.
+ */
+function blitPortrait(
+  destRgba: Uint8ClampedArray,
+  portraitSet: PortraitSet,
+  portraitIndex: number,
+  dstX: number,
+  dstY: number,
+): void {
+  // Resolve which portrait in the set. The CastleScreen receives a single
+  // PortraitSet (wport1) which holds 14 portraits; portraitIndex values that
+  // fall outside this set silently no-op (no engine partial draw).
+  const portrait = portraitSet.portraits[portraitIndex];
+  if (!portrait) return;
+  for (let ty = 0; ty < PORTRAIT_TILES_PER_SIDE; ty++) {
+    for (let tx = 0; tx < PORTRAIT_TILES_PER_SIDE; tx++) {
+      const glyph = portrait.tiles[ty * PORTRAIT_TILES_PER_SIDE + tx];
+      if (!glyph) continue;
+      const tileBaseX = dstX + tx * PORTRAIT_TILE_PX;
+      const tileBaseY = dstY + ty * PORTRAIT_TILE_PX;
+      for (let row = 0; row < 8; row++) {
+        const py = tileBaseY + row;
+        if (py < 0 || py >= ENGINE_H) continue;
+        const pG = glyph[row] ?? 0;
+        const pB = glyph[8 + row] ?? 0;
+        const pR = glyph[16 + row] ?? 0;
+        const pI = glyph[24 + row] ?? 0;
+        for (let col = 0; col < 8; col++) {
+          const bit = 7 - col;
+          const fileIdx =
+            ((pG >> bit) & 1) |
+            (((pB >> bit) & 1) << 1) |
+            (((pR >> bit) & 1) << 2) |
+            (((pI >> bit) & 1) << 3);
+          const px = tileBaseX + col;
+          if (px < 0 || px >= ENGINE_W) continue;
+          const color = WIZ6_MAIN.colors[fileIdx];
+          if (!color) continue;
+          const idx = (py * ENGINE_W + px) * 4;
+          destRgba[idx] = color[0]!;
+          destRgba[idx + 1] = color[1]!;
+          destRgba[idx + 2] = color[2]!;
+          destRgba[idx + 3] = 0xff;
+        }
+      }
+    }
+  }
+}
 
 /**
  * Compose one castle-screen frame to RGBA. Returns a fresh
@@ -37,6 +108,10 @@ const ENGINE_H = 200;
  * @param wfont0         wfont0 (1bpp text-mask for the highlight path), or null.
  * @param menuOptions    Visible main-menu options.
  * @param selectedIdx    Index into `menuOptions` of the highlighted entry.
+ * @param wfont1         wfont1 (4bpp panel-edge font), or null.
+ * @param partyMembers   Active-party members to blit portraits for. Default: empty.
+ * @param portraitSet    Loaded wport portrait set (default: null → no blit, used
+ *                       by the empty-party castle parity fixtures).
  */
 export function composeCastleFrame(
   parity: number,
@@ -48,6 +123,8 @@ export function composeCastleFrame(
   menuOptions: readonly MainMenuOption[],
   selectedIdx: number,
   wfont1: Font4bpp | null = null,
+  partyMembers: ReadonlyArray<ActivePartyMember> = [],
+  portraitSet: PortraitSet | null = null,
 ): Uint8ClampedArray {
   const buf = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
 
@@ -144,6 +221,19 @@ export function composeCastleFrame(
       const rightEdge = createTileWindow({ screenX: 248, screenY: 32, widthCells: 1, heightCells: 14 });
       clearWindow(rightEdge, 0x1a, 0x01);
       renderTileWindow(rightEdge, buf, ENGINE_W, ENGINE_H, fontSet, WIZ6_MAIN);
+    }
+  }
+
+  // Active-party portraits — engine FUN_0b0e blits each member's portrait at
+  // (X=2, Y=portraitSlotId*9 + 0x48) on the left-side party panel. We only
+  // draw when both a portraitSet has been loaded AND there's at least one
+  // active member, so the empty-party castle parity fixtures (which pass the
+  // defaults) remain byte-exact.
+  if (portraitSet && partyMembers.length > 0) {
+    for (const member of partyMembers) {
+      const portraitIndex = member.portraitIndex ?? 0;
+      const y = member.portraitSlotId * PORTRAIT_BLIT_Y_STRIDE + PORTRAIT_BLIT_Y_BASE;
+      blitPortrait(buf, portraitSet, portraitIndex, PORTRAIT_BLIT_X, y);
     }
   }
 
