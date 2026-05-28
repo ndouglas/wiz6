@@ -13,7 +13,7 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#022**
+Next free ID: **#023**
 
 ---
 
@@ -54,6 +54,13 @@ Next free ID: **#022**
   - Plan: `docs/superpowers/plans/2026-05-22-viewer-redesign-stage-2d.md` (0/44).
   - Compare mode (`/monsters/compare`), family-grouped index, copy-bytes/JSON header buttons.
   - `.pic` monster sprites are still blocked on prior stage; cross-references with #004.
+
+- #022 [open] — Skill-train screen (screen-13) pixel parity vs slot-1 fixture
+  - Engine fixture committed: `tools/parity/fixtures/engine/creation-skill-train.{idx.gz,png}` — NATHAN samurai, post-portrait, WEAPONRY category (9 skills: HAND&DAGGER..SHIELD), skill points budget = 5, HAND&DAGGER selected at 9. Top char-sheet now shows AGE=20, LVL=1, and the **chosen portrait baked into wfont2 at glyphs 0x48..0x50** (rendered as 3 wfont2 tiles at top-left (1-3, 1-3)).
+  - bottomBar (cell dump, all attr 0x03): row 1 "ASSIGN INITIAL SKILL BONUS" (centered, col 7), row 2 "◄► ADJUSTS SKILL    ▲▼ SELECTS SKILL", row 3 "PRESS ▶ FOR NEXT CATEGORY".
+  - Skill panel area (top-window cols 21-39 rows 5-18) is mostly black-fill from `drawCharSheetTemplate` — the skill list is rendered in a SEPARATE window. Need to RE which window: `ui_train_attribute_picker_grid` (wpcmk 0x229c) is the entry; `ui_draw_train_screen_borders` (wpcmk 0x1cb2) draws its chrome; per-row rendering in `ui_render_skill_grid_entry` (wpcmk 0x21db). Check geometry — likely the temp `skillTrain` window (20×16 @ (160,32) attr 0x19) per `wpcmk-screens.md` §2.
+  - Implementation: needs (1) WEAPONRY header centered, (2) 9 skill names + bonus values right-aligned, (3) selected-row highlight (HAND&DAGGER at attr 0x50?), (4) "SKILL POINTS  5" at the right-bottom of the panel. Also: top-window needs to be re-rendered with the persistent portrait font2 patch — likely the simplest path is to keep `creation.draft.portrait` in state and inject font2 in all post-portrait screens (just as PortraitPickerScreen does).
+  - Add `renderSkillTrain` helper to `tools/parity/screen-parity.test.ts` once layout is RE'd.
 
 - #021 [open] — Per-class bonus-allocator AUTO-FILL animation
   - End-state implemented (commit 9c7879b): `PICK_CLASS` snaps attributes to `max(race_base, class_min)` and deducts the deficit from the pool. Verified vs the engine save (NATHAN/Samurai/pool 17→2).
