@@ -16,4 +16,5 @@ Freeform jot pad. Add anything — bug, idea, half-baked thought, "remember to l
 - Looks like engineering note permalinks don't actually scroll to the anchor href :(
 - Add to CLAUDE.md - suggest new engineering notes when you find interesting things!
 - Add to CLAUDE.md - suggest new QoL improvements when you have an idea!
-- We can shorten the bonus point QoL description a bit.
+- We can shorten the bonus point QoL description a bit since it links to a card and the card has a rich description.
+- The profession list, when it flows into two columns, should be scrollable entirely via up/down.
