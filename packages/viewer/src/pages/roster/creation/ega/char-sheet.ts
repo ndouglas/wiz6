@@ -194,12 +194,21 @@ function drawRedrawFields(top: TileWindow, draft: DraftState, db: MessageDb): vo
   putCell(top, 4, 2, 0x1e, attrFor(5)); // up-arrow
   putCell(top, 4, 3, 0x1f, attrFor(5)); // down-arrow
 
-  // Left-panel age values (col 5, width-3) — rows 2/3. Row 2 = age (populated by
-  // `fireDerivedStats` once class/race finalized; 0 pre-derived); row 2 attr 0xe.
-  // Row 3 is a second age-cache field (engine purpose unverified; observed = 1
-  // post-skill-init for NATHAN samurai) — kept at 0 here. attr 0xc.
-  putNumberRight(top, 5, 2, draft.derived.age ?? 0, 3, 0xe);
-  putNumberRight(top, 5, 3, 0, 3, 0xc);
+  // Left-panel age values (col 5, width-3) — rows 2/3.
+  //
+  // Row 2: AGE-IN-YEARS, attr 0xe. The engine stores age as a 32-bit DAY
+  // count at DGROUP 0x5478 (computed as `rng(1000) + 6570` ≈ 18..20 years
+  // in days), and the renderer divides by 365 at display time (wpcmk
+  // 0x0e44..0x0e54: `mov ax,[0x5478]; mov dx,[0x547a]; mov cx,0x16d; call
+  // long_idiv` then writes the quotient). draft.derived.age IS the day
+  // count, so divide here.
+  //
+  // Row 3: AGE2 (purpose unverified — possibly campaign-year counter), attr
+  // 0xc. Engine reads `*0x5496` 16-bit directly. Observed = 0 pre-derived,
+  // = 1 post-derived/skill-init. We carry it on draft.derived.secondAge.
+  const ageYears = Math.floor((draft.derived.age ?? 0) / 365);
+  putNumberRight(top, 5, 2, ageYears, 3, 0xe);
+  putNumberRight(top, 5, 3, draft.derived.secondAge ?? 0, 3, 0xc);
 
   // RNK label (25,1) attr 0xb. LVL label (13,3) attr 0x8.
   // EXP label (25,2) attr 0xe. MKS label (25,3) attr 0xe.

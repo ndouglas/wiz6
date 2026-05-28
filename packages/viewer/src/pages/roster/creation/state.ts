@@ -127,7 +127,14 @@ export interface DraftState {
   portrait: number;          // 0..41
   spellPicks: number[];      // entry indices chosen at spell-pick screen
   derived: Partial<{
+    /** Age in DAYS — divide by 365 for the displayed value. Engine *0x5478. */
     age: number;
+    /**
+     * Secondary age counter (purpose unverified; engine *0x5496 16-bit).
+     * Observed = 0 pre-derived, = 1 post-derived/skill-init. Displayed at
+     * char-sheet row 3 col 5..7 attr 0xc.
+     */
+    secondAge: number;
     hpInitial: number;
     stamina: number;
     encumbranceMin: number;
@@ -293,6 +300,11 @@ function fireDerivedStats(state: CreationState): CreationState {
       ...draft,
       derived: {
         age: derived.age,
+        // secondAge transitions 0→1 at skill-init time in the engine; we
+        // set it = 1 alongside the first derived-stats pass so all
+        // post-allocation screens (personality, portrait, skillTrain,
+        // confirm) show "  1" matching the engine cells.
+        secondAge: 1,
         hpInitial: derived.hpInitial,
         stamina: derived.stamina,
         encumbranceMin: derived.encumbranceMin,

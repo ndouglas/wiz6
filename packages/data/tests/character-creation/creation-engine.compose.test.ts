@@ -112,11 +112,12 @@ describe('creation-engine compose (Stage A)', () => {
     expect(snap.classEligible).toBe(true);
   });
 
-  it('computeDerivedStats returns level===1, xp===1, hpInitial>0', () => {
+  it('computeDerivedStats returns level===1, xp===0, hpInitial>0', () => {
+    // Verified vs DOSBox save 2 (Fighter Rawulf): *0x547c 32-bit = 0.
     const rng = new WichmannHill(3000, 1, 29999);
     const snap = runCreationSequence(rng);
     expect(snap.level).toBe(1);
-    expect(snap.xp).toBe(1);
+    expect(snap.xp).toBe(0);
     expect(snap.hpInitial).toBeGreaterThan(0);
   });
 

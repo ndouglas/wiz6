@@ -41,19 +41,27 @@ import { creationString, MSG, skillName, skillCatName } from '../messages.js';
 /**
  * Skill categories per `docs/re/wpcmk-screens.md` §5.
  *
- * Fields:
- *   - `iconLeft` / `iconRight` — wfont4 glyph chars at row-1 col 2 / col 17
- *     (always attr 0x04). WEAPONRY uses the same glyph both sides; PHYSICAL
- *     uses a mirrored pair. PERSONAL/ACADEMIA are inferred pending engine RE.
- *   - `nameAttr` — attr applied to the skill name cells (col 1..N). WEAPONRY
- *     uses 0x20 (palette 2 = light blue); PHYSICAL uses 0xe0 (palette 14 =
- *     yellow). PERSONAL/ACADEMIA inferred — see TODO #022.
+ * Fields below are decoded byte-exact from `creation_stage_dispatcher_by_step`
+ * (wpcmk file 0x15d7) — see the four 5-MOV blocks at 0x194c (WEAPONRY),
+ * 0x1967 (PHYSICAL), 0x1982 (PERSONAL), and 0x199d (ACADEMIA). The engine
+ * stores `iconLeft - 1` / `iconRight - 1` in the locals and `INC AX` before
+ * the draw call, so the table-emitted values are 1 less than the final char.
+ *
+ *   - `iconLeft` / `iconRight` — wfont4 glyph chars at row-1 col 2 / col 17,
+ *     drawn at attr 0x04. WEAPONRY uses the same glyph both sides; PHYSICAL
+ *     and PERSONAL share the (0x25, 0x26) "scout" mirror pair; ACADEMIA uses
+ *     0x22 both sides.
+ *   - `nameAttr` — attr applied to skill name cells (col 1..N). Computed as
+ *     `attrParam << 4` from the wpcmk locals: WEAPONRY=0x2, PHYSICAL=0xe,
+ *     PERSONAL=0xc, ACADEMIA=0xb.
+ *   - `startSlot` / `endSlot` (inclusive) — skill-name msg IDs are
+ *     `0x157c + slot`. The reducer iterates this inclusive range.
  */
 export const SKILL_CATEGORIES = [
-  { msgOffset: 0, startSlot: 0,  endSlot: 9,  iconLeft: 0x02, iconRight: 0x02, nameAttr: 0x20 }, // WEAPONRY ✓
-  { msgOffset: 1, startSlot: 10, endSlot: 16, iconLeft: 0x25, iconRight: 0x26, nameAttr: 0xe0 }, // PHYSICAL ✓
-  { msgOffset: 2, startSlot: 17, endSlot: 21, iconLeft: 0x27, iconRight: 0x27, nameAttr: 0x60 }, // PERSONAL — TODO RE
-  { msgOffset: 3, startSlot: 22, endSlot: 29, iconLeft: 0x29, iconRight: 0x2a, nameAttr: 0x90 }, // ACADEMIA — TODO RE
+  { msgOffset: 0, startSlot: 0,  endSlot: 9,  iconLeft: 0x02, iconRight: 0x02, nameAttr: 0x20 }, // WEAPONRY
+  { msgOffset: 1, startSlot: 10, endSlot: 16, iconLeft: 0x25, iconRight: 0x26, nameAttr: 0xe0 }, // PHYSICAL
+  { msgOffset: 2, startSlot: 17, endSlot: 21, iconLeft: 0x25, iconRight: 0x26, nameAttr: 0xc0 }, // PERSONAL
+  { msgOffset: 3, startSlot: 22, endSlot: 29, iconLeft: 0x22, iconRight: 0x22, nameAttr: 0xb0 }, // ACADEMIA
 ] as const;
 
 /** Font slot for the persistent portrait baked into wfont2 glyphs 0x48..0x50. */
@@ -189,13 +197,9 @@ export function composeSkillTrainFrame(
     );
   }
 
-  // Engine populates a second age-cache field at top (5, 3) — purpose unknown
-  // (TODO: RE; not in draft.derived). Slot-1 observed value = 1. drawCharSheet
-  // writes "  0" here so we paint over for parity. Once derived, this should
-  // come from draft.derived.
-  // Render width-3 right-aligned at attr 0xc0 (matches drawCharSheet's choice).
-  setCursor(top, 5, 3);
-  puts(top, '  1', 0xc0);
+  // (Note: the row-3 age2 field is now read from draft.derived.secondAge by
+  // drawCharSheet — no override needed. Callers populate secondAge = 1 once
+  // derived stats have been rolled.)
 
   // --- bottomBar: caller override or default 3 prompts ---
   if (renderBottomBar) {

@@ -1,0 +1,114 @@
+{
+  "topic": "wpcmk-skill-train-category-table",
+  "subagent_run": "2026-05-28T20:00:00Z",
+  "binaries": ["wpcmk.ovr"],
+  "summary": "Decoded the per-category data table for the skill-training screen header from the dispatch at wpcmk file 0x194c-0x199d. Four locals (iconLeft-1, iconRight-1, startSlot, endSlot, nameAttrParam) are written immediately for each of WEAPONRY/PHYSICAL/PERSONAL/ACADEMIA. Engine `INC AX` before drawing icons, so the table value is 1 less than the rendered char.",
+  "key_findings": {
+    "category_table": [
+      {
+        "categoryIdx": 0,
+        "name": "WEAPONRY",
+        "iconLeft": "0x02",
+        "iconRight": "0x02",
+        "iconAttr": "0x04 (wfont4)",
+        "nameAttrParam": "0x02",
+        "nameAttr": "0x20 (palette 2 = light blue, low nibble 0 = wfont0 highlight path)",
+        "startSlot": 0,
+        "endSlot": 9,
+        "asmAddr": "wpcmk file 0x194c"
+      },
+      {
+        "categoryIdx": 1,
+        "name": "PHYSICAL",
+        "iconLeft": "0x25",
+        "iconRight": "0x26",
+        "iconAttr": "0x04",
+        "nameAttrParam": "0x0e",
+        "nameAttr": "0xe0 (palette 14 = yellow)",
+        "startSlot": 10,
+        "endSlot": 16,
+        "asmAddr": "wpcmk file 0x1967"
+      },
+      {
+        "categoryIdx": 2,
+        "name": "PERSONAL",
+        "iconLeft": "0x25",
+        "iconRight": "0x26",
+        "iconAttr": "0x04",
+        "nameAttrParam": "0x0c",
+        "nameAttr": "0xc0 (palette 12)",
+        "startSlot": 17,
+        "endSlot": 21,
+        "asmAddr": "wpcmk file 0x1982",
+        "note": "PERSONAL shares the same icon pair as PHYSICAL (0x25, 0x26)."
+      },
+      {
+        "categoryIdx": 3,
+        "name": "ACADEMIA",
+        "iconLeft": "0x22",
+        "iconRight": "0x22",
+        "iconAttr": "0x04",
+        "nameAttrParam": "0x0b",
+        "nameAttr": "0xb0 (palette 11)",
+        "startSlot": 22,
+        "endSlot": 29,
+        "asmAddr": "wpcmk file 0x199d",
+        "note": "ACADEMIA uses 0x22 both sides (symmetric)."
+      }
+    ],
+    "encoding": {
+      "iconChar": "table_value + 1 (engine INC AX before push to draw call at 0x19cf and 0x19e5)",
+      "skillName": "drawn via call at 0x1a27 with attr = nameAttrParam (raw value, which the renderer encodes as attrParam<<4 in cells)",
+      "categoryHeaderName": "msg id = SKILL_CAT_BASE (0x0258) + categoryIdx, drawn at row 1 cols 6-13 attr 0x03",
+      "skillRowLoop": "for slot in startSlot..endSlot inclusive: msg id = 0x157c + slot at attr nameAttr; bonus value = byte at DGROUP 0x55a4 + slot rendered width-3 at col 16-18 attr 0x10"
+    }
+  },
+  "findings": [
+    {
+      "id": "wpcmk-skilltrain-cat-table",
+      "claim": "Per-category data (icons, skill range, name attr) is set by four 5-MOV blocks in creation_stage_dispatcher_by_step at wpcmk file 0x194c/0x1967/0x1982/0x199d",
+      "category": "data_layout",
+      "confidence": "high",
+      "evidence": "Raw disassembly of wpcmk.ovr file offset 0x18e5..0x1a89 dispatched via CMP AX,0..3 / JZ chain at 0x19b8..0x19ca. Each block writes 5 stack locals at [BP-4]..[BP-C]."
+    },
+    {
+      "id": "wpcmk-skilltrain-icon-encoding",
+      "claim": "Engine stores iconChar-1 and INCs before drawing; table char 0x01 → renders 0x02, table 0x24 → 0x25, etc.",
+      "category": "encoding",
+      "confidence": "high",
+      "evidence": "wpcmk 0x19cc-0x19e9: MOV AX,[BP-4]; INC AX; PUSH AX; ... ui_put_styled_char_at"
+    },
+    {
+      "id": "wpcmk-skilltrain-nameattr",
+      "claim": "Skill-row name attr is per-category: WEAPONRY=0x20, PHYSICAL=0xe0, PERSONAL=0xc0, ACADEMIA=0xb0",
+      "category": "ui_styling",
+      "confidence": "high",
+      "evidence": "[BP-C] passed as attr to ui_load_and_print_msg_at_xy at 0x1a27..0x1a34; cell dumps of slot 1 (WEAPONRY → attr 0x20) and slot 2 (PHYSICAL → attr 0xe0) verify the encoding."
+    },
+    {
+      "id": "wpcmk-derived-xp-zero",
+      "claim": "Initial xp at character creation is 0, not 1 — DOSBox save 2 *0x547c 32-bit reads 0",
+      "category": "derived_stats",
+      "confidence": "high",
+      "evidence": "Direct memory read of DGROUP+0x547c..0x547f in save 2 = 0; rendered as '0' at top window row 2 col 38 attr 0x60."
+    },
+    {
+      "id": "wpcmk-age-days-not-years",
+      "claim": "Engine stores age as a 32-bit DAY count at DGROUP 0x5478; renders by dividing by 365 (cx=0x16d)",
+      "category": "derived_stats",
+      "confidence": "high",
+      "evidence": "wpcmk 0x0e44..0x0e54: MOV AX,[0x5478]; MOV DX,[0x547a]; MOV CX,0x16d; CALL long_idiv; PUSH AX. Save 2 *0x5478 = 6925 days → 18 years displayed."
+    },
+    {
+      "id": "wpcmk-secondage-16bit-direct",
+      "claim": "The row-3 'second age' field reads *0x5496 16-bit directly (no division); transitions 0→1 between race-select and confirm",
+      "category": "derived_stats",
+      "confidence": "medium",
+      "evidence": "wpcmk 0x0e8b PUSH word [0x5496]; saves 1+2 both show value 1 post-derived; race/class-select cell dumps show 0 pre-derived. Exact write point not yet RE'd."
+    }
+  ],
+  "unresolved": [
+    "Exact write point where *0x5496 transitions 0→1 (presumably during the fireDerivedStats / portrait flow)",
+    "Whether *0x5496 represents real game-time, a player-action counter, or something else"
+  ]
+}

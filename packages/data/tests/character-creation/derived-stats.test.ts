@@ -72,10 +72,12 @@ describe('level and xp at creation', () => {
     expect(result.level).toBe(1);
   });
 
-  it('xp is always 1 at creation', () => {
+  it('xp is always 0 at creation', () => {
+    // Verified vs DOSBox save 2: *0x547c 32-bit = 0. (Earlier impl returned 1
+    // based on a misread of `ui_redraw_character_sheet`; the engine memory is 0.)
     const rng = makeFixedRng(0);
     const result = computeDerivedStats(rng, 0, 0, PLAIN_ATTRS);
-    expect(result.xp).toBe(1);
+    expect(result.xp).toBe(0);
   });
 });
 

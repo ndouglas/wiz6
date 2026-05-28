@@ -119,8 +119,12 @@ export interface DerivedStats {
   goldInitial: number;
   /** Character level at creation: always 1. Written to staging+0x024. */
   level: 1;
-  /** Experience points at creation: always 1. Written to staging+0x026. */
-  xp: 1;
+  /**
+   * Experience points at creation: 0. Verified vs DOSBox save 2's
+   * 32-bit field at DGROUP 0x547c. (An earlier comment in this file
+   * claimed xp=1 — that was a misread; the engine memory is 0.)
+   */
+  xp: 0;
 }
 
 /**
@@ -262,6 +266,6 @@ export function computeDerivedStats(
     hpInitial: encumbranceBase,  // HP = same class-dispatch roll as encumbranceBase
     goldInitial,
     level: 1,
-    xp: 1,
+    xp: 0,
   };
 }

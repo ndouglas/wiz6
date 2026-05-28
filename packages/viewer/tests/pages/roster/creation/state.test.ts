@@ -464,7 +464,7 @@ describe('screen-06 → screen-07 → screen-08 (bonusAllocator → derived-stat
     expect(s.draft.derived.age).toBeGreaterThanOrEqual(6570);
     expect(s.draft.derived.age).toBeLessThanOrEqual(7569);
     expect(s.draft.derived.level).toBe(1);
-    expect(s.draft.derived.xp).toBe(1);
+    expect(s.draft.derived.xp).toBe(0);
     expect(s.draft.derived.stamina).toBeGreaterThan(0);
     expect(s.draft.derived.hpInitial).toBeGreaterThan(0);
     expect(s.draft.derived.goldInitial).toBeGreaterThan(0);

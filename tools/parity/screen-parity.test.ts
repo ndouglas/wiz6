@@ -255,6 +255,10 @@ function renderPortraitSelect(fontSet: FontSet, palette: Palette): Uint8ClampedA
 // the live `SkillTrainScreen.tsx` also calls — pixel parity here is the
 // regression guard for that viewer screen too.
 
+// derived.age is in DAYS (engine *0x5478 32-bit); drawCharSheet divides by 365.
+// For test drafts we use the actual day-count from the matching DOSBox save —
+// see Memory dump at DGROUP+0x5478 / +0x5496.
+
 function makeSkillTrainDraft(skills: number[]) {
   return {
     ...blankDraft(),
@@ -263,7 +267,7 @@ function makeSkillTrainDraft(skills: number[]) {
     sex: 0,
     class: 11, // Samurai
     attributes: { str: 14, int: 11, pie: 8, vit: 9, dex: 12, spd: 14, per: 8, kar: 3 },
-    derived: { age: 20, hpInitial: 7, stamina: 96, level: 1, xp: 0 },
+    derived: { age: 20 * 365 + 100, secondAge: 1, hpInitial: 7, stamina: 96, level: 1, xp: 0 },
     bonusPool: 0,
     portrait: 21,
     skills,
@@ -278,7 +282,7 @@ function makeRawulfFighterDraft(skills: number[]) {
     sex: 0,
     class: 0, // Fighter
     attributes: { str: 16, int: 8, pie: 12, vit: 10, dex: 8, spd: 8, per: 10, kar: 18 },
-    derived: { age: 18, hpInitial: 7, stamina: 108, level: 1, xp: 0 },
+    derived: { age: 6925, secondAge: 1, hpInitial: 7, stamina: 108, level: 1, xp: 0 }, // 6925 days = 18 years (engine save 2)
     bonusPool: 0,
     portrait: 1, // verified vs *0x560c = 0x01
     skills,

@@ -623,7 +623,7 @@ describe('buildCharacterFromDraft via CreationPage', () => {
     expect(char!.race).toBe(6); // Lizardman
     expect(char!.class).toBe(0); // Fighter
     expect(char!.level).toBe(1);
-    expect(char!.xp).toBeGreaterThanOrEqual(1);
+    expect(char!.xp).toBeGreaterThanOrEqual(0);
     expect(char!.skills).toHaveLength(30);
     expect(char!.conditions).toHaveLength(10);
     expect(char!.schoolMana).toHaveLength(6);
