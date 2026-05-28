@@ -6,11 +6,15 @@
  * cycles wfont2 as the player presses ◄/►. Layout (verified vs slot 8):
  *
  *   - top: review-style char sheet (drawCharSheet + BONUS hidden). The
- *     small portrait tiles at (1..3, 1..3) attr 0x02 track the picker
- *     selection (they read from wfont2 like every other portrait glyph).
+ *     small portrait tiles at (1..3, 1..3) attr 0x02 are LOCKED to the
+ *     character's stored portrait — written at chars 0x70..0x78, which
+ *     wfont2 has patched with the stored portrait's tiles. (Engine
+ *     cells use 0x48..0x50 here too, so engine's small portrait DOES
+ *     cycle with the picker; we diverge to keep the char sheet feeling
+ *     stable as the user scrolls. See patchFontSetWithTwoPortraits.)
  *   - menuPanel: same "CHARACTER PORTRAIT" header + 3×3 big-portrait tile
- *     grid as creation's PortraitPickerScreen. The picker UI is identical;
- *     only the surrounding context differs.
+ *     grid at chars 0x48..0x50. wfont2 has those patched with the
+ *     CURRENTLY-CYCLED portrait — this preview is what changes live.
  *   - bottomBar row 1: "◄► TO REVIEW PORTRAITS" (msg 0x0458).
  *   - bottomBar row 2: "PRESS ▶ TO SELECT"      (msg 0x0459).
  *
@@ -33,7 +37,7 @@ import type { CreationState, CreationEvent } from '../state.js';
 import { createPersistentWindows } from '../ega/windows.js';
 import { drawCharSheet } from '../ega/char-sheet.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
-import { patchFontSetWithPortrait } from '../ega/skill-train-frame.js';
+import { patchFontSetWithTwoPortraits, STORED_PORTRAIT_GLYPH_BASE } from '../ega/skill-train-frame.js';
 import { MSG, creationString } from '../messages.js';
 import { draftFromCharacter } from '../lib/draft-from-character.js';
 import { readRoster, updateCharacter } from '../../../../lib/roster-store.js';
@@ -122,12 +126,13 @@ export function PortraitChangeScreen({
   // ── Render ───────────────────────────────────────────────────────────────
 
   const pal = palette ?? WIZ6_MAIN;
-  // Patch font2 with the CURRENTLY-CYCLED portrait — both the top-left tiny
-  // portrait AND the big menuPanel portrait read from wfont2 glyphs
-  // 0x48..0x50, so they update together as the user cycles.
-  const fontSetWithPortrait = useMemo(
-    () => patchFontSetWithPortrait(fontSet, portraits, portraitIdx),
-    [fontSet, portraits, portraitIdx],
+  // Patch font2 with BOTH portraits — the cycling preview at the standard
+  // 0x48..0x50 slots (used by the menuPanel) AND the LOCKED stored portrait
+  // at 0x70..0x78 (used by the small char-sheet portrait). This decouples
+  // the two areas so cycling only changes the big preview.
+  const fontSetWithPortraits = useMemo(
+    () => patchFontSetWithTwoPortraits(fontSet, portraits, portraitIdx, originalIdx),
+    [fontSet, portraits, portraitIdx, originalIdx],
   );
 
   const { top, bottomBar, menuPanel } = createPersistentWindows();
@@ -136,14 +141,16 @@ export function PortraitChangeScreen({
     // Engine puts "CHARACTER PORTRAIT" (msg 0x045f) in the status-row title
     // slot — same as the creation portrait-picker screen.
     drawCharSheet(top, draft, db, creationString(db, MSG.portraitTitle));
-    // Small portrait tiles at top (1..3, 1..3) attr 0x02.
+    // Small portrait tiles at top (1..3, 1..3) attr 0x02 — write at the
+    // STORED-PORTRAIT char range (0x70..0x78) so this area always renders the
+    // character's actual current portrait, regardless of where the picker is.
     for (let r = 0; r < 3; r++) {
       setCursor(top, 1, 1 + r);
       puts(
         top,
-        String.fromCharCode(PORTRAIT_GLYPH_BASE + r * 3) +
-          String.fromCharCode(PORTRAIT_GLYPH_BASE + r * 3 + 1) +
-          String.fromCharCode(PORTRAIT_GLYPH_BASE + r * 3 + 2),
+        String.fromCharCode(STORED_PORTRAIT_GLYPH_BASE + r * 3) +
+          String.fromCharCode(STORED_PORTRAIT_GLYPH_BASE + r * 3 + 1) +
+          String.fromCharCode(STORED_PORTRAIT_GLYPH_BASE + r * 3 + 2),
         0x02,
       );
     }
@@ -173,7 +180,7 @@ export function PortraitChangeScreen({
   return (
     <CreationCanvas
       windows={[top, bottomBar, menuPanel]}
-      fontSet={fontSetWithPortrait}
+      fontSet={fontSetWithPortraits}
       palette={pal}
     />
   );

@@ -160,6 +160,58 @@ export function patchFontSetWithPortrait(
   return { ...fontSet, font2: { ...baseFont2, glyphs } };
 }
 
+/**
+ * Char-code base for the SECOND (locked) portrait used by PortraitChangeScreen.
+ * wfont2 glyphs 0x70..0x78 are unused by any other UI element — confirmed
+ * via grep of the existing creation screens (used ranges: 0x23..0x28 for the
+ * bottom-grid icons, 0x45..0x47 for the picker scrollbar, 0x48..0x50 for the
+ * primary portrait). Lets us render TWO portraits simultaneously in the
+ * portrait-change screen: the locked stored portrait at 0x70..0x78 (small
+ * char-sheet portrait), and the live-cycling preview at 0x48..0x50 (big
+ * menuPanel preview).
+ */
+export const STORED_PORTRAIT_GLYPH_BASE = 0x70;
+
+/**
+ * Clone fontSet.font2 with TWO portraits injected — `cyclingIdx` at the
+ * engine's standard 0x48..0x50 slots (used by every screen that just shows
+ * one portrait), and `storedIdx` at 0x70..0x78 (used only by
+ * PortraitChangeScreen for its locked char-sheet portrait).
+ *
+ * The engine's portrait-change screen has both areas render the cycling
+ * portrait — but the engine cell layout makes it impossible for the small
+ * char-sheet portrait to stay locked while the big preview cycles. This
+ * port-side improvement lets the small portrait stay anchored to the
+ * character's stored value as the user scrolls the picker.
+ *
+ * Parity fixtures still match pixel-for-pixel where storedIdx === cyclingIdx
+ * (slots 8 + 9), since both glyph ranges render the same tiles.
+ */
+export function patchFontSetWithTwoPortraits(
+  fontSet: FontSet,
+  portraits: PortraitSet[],
+  cyclingIdx: number,
+  storedIdx: number,
+): FontSet {
+  const cyclingTiles = portraitTilesFor(portraits, cyclingIdx);
+  const storedTiles = portraitTilesFor(portraits, storedIdx);
+  const baseFont2 = fontSet.font2;
+  if (!baseFont2) return fontSet;
+  if (!cyclingTiles && !storedTiles) return fontSet;
+  const glyphs = [...baseFont2.glyphs];
+  if (cyclingTiles) {
+    for (let i = 0; i < 9; i++) {
+      glyphs[PORTRAIT_GLYPH_BASE + i] = cyclingTiles[i]!;
+    }
+  }
+  if (storedTiles) {
+    for (let i = 0; i < 9; i++) {
+      glyphs[STORED_PORTRAIT_GLYPH_BASE + i] = storedTiles[i]!;
+    }
+  }
+  return { ...fontSet, font2: { ...baseFont2, glyphs } };
+}
+
 // ---------------------------------------------------------------------------
 // composeSkillTrainFrame
 // ---------------------------------------------------------------------------
