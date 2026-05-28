@@ -54,7 +54,9 @@ export function composeIntroFrame(
   fillBlack(dest);
 
   // titlepag is the background from when the Wizardry wordmark appears
-  // (title-hold) through the post-scroll hold.
+  // (title-hold) through the post-scroll hold. Copy RGB only and keep the
+  // opaque alpha from fillBlack — renderEgaScreen marks index-0 (black) pixels
+  // transparent, but a displayed framebuffer is fully opaque (the engine's is).
   if (
     (state.phase === 'title-hold' ||
       state.phase === 'wizardry-hang' ||
@@ -62,7 +64,11 @@ export function composeIntroFrame(
       state.phase === 'post-scroll') &&
     titlepagRgba
   ) {
-    dest.set(titlepagRgba);
+    for (let i = 0; i < dest.length; i += 4) {
+      dest[i] = titlepagRgba[i]!;
+      dest[i + 1] = titlepagRgba[i + 1]!;
+      dest[i + 2] = titlepagRgba[i + 2]!;
+    }
   }
 
   switch (state.phase) {

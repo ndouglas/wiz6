@@ -6,15 +6,15 @@
  * (tolerance 0) against committed engine framebuffer fixtures. No `.sav` read.
  *
  * Current state (floors are regression guards; TARGET 100%, diff PNGs in /tmp):
- *   sirtech-logo          ~89%  — splash sprite position needs a tweak
- *   author-credit         ~94%  — splash sprite position needs a tweak
- *   title-art             ~56%  — titlepag background is ~93% correct on its own;
- *                                 the wizardry-hang wordmark sprite overlay
- *                                 (desc 6/7 @ 0x4c,0x43/0x63) clobbers the frame
- *   title-art-copyright   ~66%  — same wordmark-overlay issue + scroll end state
+ *   sirtech-logo          ~89%  — sprite content gap (position is ~optimal)
+ *   author-credit         ~94%  — sprite content gap (position is ~optimal)
+ *   title-art             ~93%  — titlepag dither (~7%) + wordmark sprite tweak
+ *   title-art-copyright   ~98%
  *
- * The splashes + background prove the harness and the decode-screen fix; the
- * title frames flag a real placement bug in the wizardry wordmark overlay.
+ * composeIntroFrame emits an opaque frame (the engine framebuffer is opaque);
+ * an earlier version inherited renderEgaScreen's transparent-black alpha on the
+ * titlepag background, which compareRgba (alpha-aware) scored as ~37% extra diff
+ * — that masked the true ~93/98% and is why the title floors are now this high.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -73,10 +73,10 @@ interface IntroCase {
 const CASES: IntroCase[] = [
   { fixture: 'sirtech-logo', floor: 88, state: introState('sirtech-splash'), withTitlepag: false },
   { fixture: 'author-credit', floor: 93, state: introState('bradley-splash'), withTitlepag: false },
-  { fixture: 'title-art', floor: 55, state: introState('wizardry-hang'), withTitlepag: true },
+  { fixture: 'title-art', floor: 92, state: introState('wizardry-hang'), withTitlepag: true },
   {
     fixture: 'title-art-copyright',
-    floor: 64,
+    floor: 97,
     state: introState('post-scroll', SCROLL_TERMINAL_POS + 1),
     withTitlepag: true,
   },
