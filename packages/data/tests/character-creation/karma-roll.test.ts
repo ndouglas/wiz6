@@ -4,7 +4,7 @@ import {
   rollKarma,
   KARMA_MIN,
   KARMA_MAX,
-  KARMA_MAX_WITH_BONUS,
+  KARMA_MAX_FEMALE,
 } from '../../src/character-creation/karma-roll.js';
 
 /**
@@ -12,8 +12,8 @@ import {
  *
  * Engine formula:
  *   karma = rng(19)          → uniform 0..18
- *   if [DGROUP 0x560e] == 1:
- *     karma += 1             → +1 if player actively confirmed personality roll
+ *   if [DGROUP 0x560e] == 1: → sex byte == female
+ *     karma += 1             → +1 for female characters only
  *
  * Verified bytes (wpcmk 0x3837..0x384a):
  *   b8 13 00 50 e8 f3 8b 59 a2 a3 55 80 3e 0e 56 01 75 04 fe 06 a3 55
@@ -27,12 +27,12 @@ describe('KARMA_ROLL constants', () => {
     expect(KARMA_ROLL.base_range).toBe(19);
   });
 
-  it('personality_bonus is 1 (inc byte [0x55a3])', () => {
-    expect(KARMA_ROLL.personality_bonus).toBe(1);
+  it('female_bonus is 1 (inc byte [0x55a3] when [0x560e] == 1)', () => {
+    expect(KARMA_ROLL.female_bonus).toBe(1);
   });
 });
 
-describe('KARMA_MIN / KARMA_MAX / KARMA_MAX_WITH_BONUS', () => {
+describe('KARMA_MIN / KARMA_MAX / KARMA_MAX_FEMALE', () => {
   it('KARMA_MIN is 0', () => {
     expect(KARMA_MIN).toBe(0);
   });
@@ -41,38 +41,38 @@ describe('KARMA_MIN / KARMA_MAX / KARMA_MAX_WITH_BONUS', () => {
     expect(KARMA_MAX).toBe(18);
   });
 
-  it('KARMA_MAX_WITH_BONUS is 19 (18 + personality_bonus)', () => {
-    expect(KARMA_MAX_WITH_BONUS).toBe(19);
+  it('KARMA_MAX_FEMALE is 19 (18 + female_bonus)', () => {
+    expect(KARMA_MAX_FEMALE).toBe(19);
   });
 });
 
 describe('rollKarma', () => {
-  it('returns 0 when rng01 returns 0 and no personality confirm', () => {
+  it('returns 0 when rng01 returns 0 and male', () => {
     expect(rollKarma(() => 0, false)).toBe(0);
   });
 
-  it('returns 18 when rng01 returns just below 1 and no personality confirm', () => {
+  it('returns 18 when rng01 returns just below 1 and male', () => {
     // Math.floor(0.9999 * 19) = Math.floor(18.9981) = 18
     expect(rollKarma(() => 0.9999, false)).toBe(18);
   });
 
-  it('returns 1 when rng01 returns 0 and personality confirm fires', () => {
+  it('returns 1 when rng01 returns 0 and female', () => {
     expect(rollKarma(() => 0, true)).toBe(1);
   });
 
-  it('returns 19 when rng01 returns just below 1 and personality confirm fires', () => {
+  it('returns 19 when rng01 returns just below 1 and female', () => {
     expect(rollKarma(() => 0.9999, true)).toBe(19);
   });
 
-  it('never exceeds 19 over many rolls (full confirm path)', () => {
+  it('never exceeds 19 over many rolls (female path)', () => {
     for (let i = 0; i < 10000; i++) {
       const k = rollKarma(Math.random, true);
-      expect(k).toBeGreaterThanOrEqual(0);
+      expect(k).toBeGreaterThanOrEqual(1);
       expect(k).toBeLessThanOrEqual(19);
     }
   });
 
-  it('never exceeds 18 without confirm over many rolls', () => {
+  it('never exceeds 18 for males over many rolls', () => {
     for (let i = 0; i < 10000; i++) {
       const k = rollKarma(Math.random, false);
       expect(k).toBeGreaterThanOrEqual(0);
@@ -80,7 +80,7 @@ describe('rollKarma', () => {
     }
   });
 
-  it('defaults to no personality confirm (false)', () => {
+  it('defaults isFemale to false', () => {
     // Deterministic: seeded rng returning 0 → karma = 0 (not 1)
     expect(rollKarma(() => 0)).toBe(0);
   });
@@ -98,6 +98,6 @@ describe('rollKarma', () => {
     ['PENTAG',   9],
   ])('stock character %s karma=%i is in reachable range', (_name, karma) => {
     expect(karma).toBeGreaterThanOrEqual(KARMA_MIN);
-    expect(karma).toBeLessThanOrEqual(KARMA_MAX_WITH_BONUS);
+    expect(karma).toBeLessThanOrEqual(KARMA_MAX_FEMALE);
   });
 });

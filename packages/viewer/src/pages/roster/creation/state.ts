@@ -308,11 +308,14 @@ function fireDerivedStats(state: CreationState): CreationState {
 /**
  * Non-interactive: fire karma roll (screen-08 personality accept).
  * Called at ACCEPT_PERSONALITY.
- * §1/§8: karma = rng(19) + optional +1 if player actively confirms.
- * personalityConfirmed = true because player pressed RETURN to confirm.
+ *
+ * §1/§8 + asm (wpcmk 0x3884): karma = rng(19); if sex == female (`[0x560e]==1`),
+ * karma += 1. Nate RE'd the +1 as female-only (it's NOT a "player-confirms"
+ * bonus — the earlier model was wrong). Males get 0..18; females get 1..19.
  */
-function fireKarmaRoll(state: CreationState, personalityConfirmed: boolean): CreationState {
-  const kar = rollKarmaWith(state.rng, personalityConfirmed);
+function fireKarmaRoll(state: CreationState): CreationState {
+  const isFemale = state.draft.sex === 1;
+  const kar = rollKarmaWith(state.rng, isFemale);
   return {
     ...state,
     draft: {
@@ -616,11 +619,11 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
     case 'personality': {
       if (event.type === 'ACCEPT_PERSONALITY') {
         // screen-08 → screen-09 (skill-init, non-interactive) → screen-10 (portrait)
-        // §8: karma rolled via rollKarmaWith on player confirm
-        // personalityConfirmed = true (player actively confirmed)
+        // §8 + asm (wpcmk 0x3884): karma = rng(19) + (sex==female ? 1 : 0).
+        // The +1 bonus is FEMALE-only — Nate caught the prior "player-confirms"
+        // interpretation as wrong; `*0x560e` is the sex byte, not a confirm flag.
         let s: CreationState = { ...state, screen: 'portrait' };
-        // Fire karma roll
-        s = fireKarmaRoll(s, true);
+        s = fireKarmaRoll(s);
         // screen-09: skill-init (combat-speed modifiers) — no RNG modeled here
         // (the port models this as a no-op since we don't track per-slot combat speed at creation)
         return s;

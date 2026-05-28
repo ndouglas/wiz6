@@ -4,19 +4,19 @@ import {
   rollKarmaWith,
   KARMA_MIN,
   KARMA_MAX,
-  KARMA_MAX_WITH_BONUS,
+  KARMA_MAX_FEMALE,
 } from '../../src/character-creation/karma-roll.js';
 
 /**
  * Tests for rollKarmaWith — the WichmannHill RNG adapter over the karma roll formula.
  *
- * rollKarmaWith(rng, personalityConfirmed) should:
+ * rollKarmaWith(rng, isFemale) should:
  *   - Call rng.uniform(19) to get 0..18
- *   - Add 1 if personalityConfirmed is true (range becomes 1..19)
+ *   - Add 1 if isFemale is true (range becomes 1..19)
  *   - Deterministically match expected sequences for a given seed
  */
 describe('rollKarmaWith', () => {
-  it('returns 0..18 when personalityConfirmed is false', () => {
+  it('returns 0..18 when isFemale is false', () => {
     const rng = new WichmannHill(3000, 1, 29999);
     for (let i = 0; i < 1000; i++) {
       const karma = rollKarmaWith(rng, false);
@@ -25,16 +25,16 @@ describe('rollKarmaWith', () => {
     }
   });
 
-  it('returns 1..19 when personalityConfirmed is true', () => {
+  it('returns 1..19 when isFemale is true', () => {
     const rng = new WichmannHill(3000, 1, 29999);
     for (let i = 0; i < 1000; i++) {
       const karma = rollKarmaWith(rng, true);
       expect(karma).toBeGreaterThanOrEqual(1);
-      expect(karma).toBeLessThanOrEqual(KARMA_MAX_WITH_BONUS);
+      expect(karma).toBeLessThanOrEqual(KARMA_MAX_FEMALE);
     }
   });
 
-  it('defaults to personalityConfirmed=false', () => {
+  it('defaults to isFemale=false', () => {
     const rng = new WichmannHill(3000, 1, 29999);
     const withFalse = rollKarmaWith(rng.clone(), false);
     const withDefault = rollKarmaWith(rng);
@@ -56,7 +56,7 @@ describe('rollKarmaWith', () => {
     expect(seq1).toEqual(seq2);
   });
 
-  it('produces deterministic sequences with personalityConfirmed=true', () => {
+  it('produces deterministic sequences with isFemale=true', () => {
     const rng1 = new WichmannHill(3000, 1, 29999);
     const rng2 = new WichmannHill(3000, 1, 29999);
 
