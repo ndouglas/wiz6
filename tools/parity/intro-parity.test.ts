@@ -6,8 +6,8 @@
  * (tolerance 0) against committed engine framebuffer fixtures. No `.sav` read.
  *
  * Current state (floors are regression guards; TARGET 100%, diff PNGs in /tmp):
- *   sirtech-logo          ~89%  — sprite content gap (position is ~optimal)
- *   author-credit         ~94%  — sprite content gap (position is ~optimal)
+ *   sirtech-logo          100%  — pixel-exact
+ *   author-credit         100%  — pixel-exact
  *   title-art             ~93%  — titlepag dither (~7%) + wordmark sprite tweak
  *   title-art-copyright   ~98%
  *
@@ -71,8 +71,8 @@ interface IntroCase {
 }
 
 const CASES: IntroCase[] = [
-  { fixture: 'sirtech-logo', floor: 88, state: introState('sirtech-splash'), withTitlepag: false },
-  { fixture: 'author-credit', floor: 93, state: introState('bradley-splash'), withTitlepag: false },
+  { fixture: 'sirtech-logo', floor: 100, state: introState('sirtech-splash'), withTitlepag: false },
+  { fixture: 'author-credit', floor: 100, state: introState('bradley-splash'), withTitlepag: false },
   { fixture: 'title-art', floor: 92, state: introState('wizardry-hang'), withTitlepag: true },
   {
     fixture: 'title-art-copyright',

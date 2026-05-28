@@ -18,19 +18,20 @@ import { visibleScrollEntries } from './intro-sequence.js';
 const ENGINE_W = 320;
 const ENGINE_H = 200;
 
-// Sir-Tech splash: dragon ABOVE wordmark (152×32 each, ~2px overlap so the red
-// strips visually join).
-const SIRTECH_SPRITE_W = 152;
-const SIRTECH_X = Math.floor((ENGINE_W - SIRTECH_SPRITE_W) / 2);
-const SIRTECH_DRAGON_Y = 70;
-const SIRTECH_WORDMARK_Y = SIRTECH_DRAGON_Y + 30;
+// Splash sprite positions — pixel-exact vs the engine framebuffer fixtures
+// (verified to 100% by tools/parity/intro-parity.test.ts; the earlier
+// centered-guess values sat the logos ~18-28px too low).
+// Sir-Tech splash: dragon above the SIR-TECH wordmark.
+const SIRTECH_X = 84;
+const SIRTECH_DRAGON_Y = 52;
+const SIRTECH_WORDMARK_Y = 84;
 
 // Bradley splash: "A Fantasy Role-Playing Simulation by" line above the
-// D.W. Bradley signature.
-const BRADLEY_LINE_X = Math.floor((ENGINE_W - 144) / 2);
-const BRADLEY_SIG_X = Math.floor((ENGINE_W - 112) / 2);
-const BRADLEY_LINE_Y = 80;
-const BRADLEY_SIG_Y = BRADLEY_LINE_Y + 36;
+// D.W. Bradley signature (the two are NOT centered identically).
+const BRADLEY_LINE_X = 91;
+const BRADLEY_SIG_X = 107;
+const BRADLEY_LINE_Y = 52;
+const BRADLEY_SIG_Y = 82;
 
 // Wizardry wordmark (top + bottom) at their CREDITS_SCROLL_ENTRIES[0]/[1]
 // fieldB positions (col=0x4c, y=0x43 and 0x63) during the pre-scroll hang.
