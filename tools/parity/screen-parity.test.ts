@@ -7,11 +7,15 @@
  * read at test time — the fixtures are permanent derivatives of the DOSBox saves.
  *
  * The assertion is a **regression floor**, not the goal: each screen records its
- * current match % and we fail if a change drops below it. The TARGET is 100%.
- * Today our renderer fills the whole background gray where the engine uses black
- * outside the desktop region, and a few window rects don't pixel-align — so the
- * floors sit in the ~75–85% range. As the port closes those gaps, ratchet the
- * floors up toward 100. On a shortfall, inspect the diff PNG written to /tmp.
+ * current match % and we fail if a change drops below it. The TARGET is 100% and
+ * we're essentially there — `character-menu-populated` is pixel-exact (100%), the
+ * rest are 99%+, the residual being the engine's mouse-cursor sprite (which our
+ * headless render doesn't draw). On a shortfall, inspect the diff PNG in /tmp.
+ *
+ * Getting here required fixing a 16-scanline vertical offset in decode-screen.ts
+ * (VRAM_OFFSET_IN_BLOB): the fixtures used to be shifted down 16px, which pinned
+ * the comparison at ~80% even though our tile placement was already byte-exact
+ * (cell-grid parity is blind to a uniform pixel shift).
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -122,18 +126,18 @@ interface ScreenCase {
 const SCREENS: ScreenCase[] = [
   {
     fixture: 'character-menu-empty',
-    floor: 79, // actual ~81.2%
+    floor: 99.8, // actual 99.90% — residual 65px = mouse cursor
     render: (f, p) => renderCharacterMenu(f, p, ['CREATE PC', 'EXIT'], null),
   },
   {
     fixture: 'character-menu-populated',
-    floor: 76, // actual ~78.3%
+    floor: 100, // pixel-exact (0 px differ)
     render: (f, p) =>
       renderCharacterMenu(f, p, ['REVIEW PC', 'DELETE PC', 'RENAME PC', 'PORTRAIT', 'EXIT'], 0),
   },
   {
     fixture: 'creation-name-input',
-    floor: 78, // actual ~80.1%
+    floor: 99, // actual 99.27% — residual = mouse cursor + text-field cursor
     render: renderNameInput,
   },
 ];

@@ -135,13 +135,14 @@ function buildComposedPalette(): ReadonlyArray<readonly [number, number, number]
 export const COMPOSED_PALETTE = buildComposedPalette();
 
 // ─── VGA VRAM layout constants ───────────────────────────────────────────────
-// vga.mem.linear's displayed frame begins at blob 0x84038, i.e. 14 VGA addresses
-// (×4 planes = 56 bytes) past the 0x84000 region start. CRTC display-start is 0
-// in every save, so this 14-address offset is just where the visible frame sits
-// within the serialized linear buffer; reading from 0x84000 shifted the whole
-// image right by 14 cells. Empirically pinned by aligning the decode against the
-// authoritative window cell memory (dump-cells), and visually confirmed.
-const VRAM_OFFSET_IN_BLOB = 0x84038; // 0x84000 + 14 addresses × 4 planes
+// vga.mem.linear's displayed frame begins at blob 0x84A38. Two components:
+//   +0x38  = 14 VGA addresses × 4 planes — horizontal alignment within the row.
+//   +0xA00 = 16 scanlines (16 × 40 bytes/row × 4 planes = 2560) — the displayed
+//            frame starts 16 rows into the serialized buffer. Reading 16 rows too
+//            early left the top 16px black and shifted the whole image DOWN 16px.
+// Pinned to 99.9% pixel parity by aligning the decode against our tile renderer
+// of the authoritative window cell memory (dump-cells); residual = mouse cursor.
+const VRAM_OFFSET_IN_BLOB = 0x84a38; // 0x84000 + 0x38 (horiz) + 0xA00 (16 rows)
 const VRAM_BYTES_PER_ROW  = 40;      // CRTC offset reg 0x13 = 0x14 → 40 bytes/row/plane
 export const SCREEN_WIDTH  = 320;
 export const SCREEN_HEIGHT = 200;
