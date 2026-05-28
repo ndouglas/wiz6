@@ -66,6 +66,10 @@ export const MSG = {
   skillNextCategory: 0x0260,
   /** screen-13 bottomBar row 3 (budget == 0): "PRESS ▶ TO EXIT" */
   skillExit: 0x0456,
+  /** REVIEW PC roster picker: "REVIEW WHO?" header (cell-dumped as msg 0x0469). */
+  reviewWho: 0x0469,
+  /** REVIEW PC roster picker: "CANCEL" option (cell-dumped as msg 0x0464). */
+  cancelOption: 0x0464,
   /** screen-14 title: "      SPELLS      " */
   spellsTitle: 0x02bc,
   /** screen-14: "COST" */

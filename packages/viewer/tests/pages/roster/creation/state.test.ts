@@ -159,10 +159,33 @@ describe('characterMenu events', () => {
     expect(s1.screen).toBe('exit');
   });
 
-  it('MENU_REVIEW is a no-op (stub for future work)', () => {
+  it('MENU_REVIEW transitions to reviewPicker', () => {
     const rng = makeRng();
     const s0 = initialCreationState(rng);
     const s1 = creationReducer(s0, { type: 'MENU_REVIEW' });
+    expect(s1.screen).toBe('reviewPicker');
+  });
+
+  it('PICK_REVIEW transitions reviewPicker → review and stores the index', () => {
+    const rng = makeRng();
+    const s0 = { ...initialCreationState(rng), screen: 'reviewPicker' as const };
+    const s1 = creationReducer(s0, { type: 'PICK_REVIEW', index: 2 });
+    expect(s1.screen).toBe('review');
+    expect(s1.reviewIndex).toBe(2);
+  });
+
+  it('EXIT_REVIEW returns from review → characterMenu and clears the index', () => {
+    const rng = makeRng();
+    const s0 = { ...initialCreationState(rng), screen: 'review' as const, reviewIndex: 0 };
+    const s1 = creationReducer(s0, { type: 'EXIT_REVIEW' });
+    expect(s1.screen).toBe('characterMenu');
+    expect(s1.reviewIndex).toBeNull();
+  });
+
+  it('CANCEL_REVIEW returns from reviewPicker → characterMenu', () => {
+    const rng = makeRng();
+    const s0 = { ...initialCreationState(rng), screen: 'reviewPicker' as const };
+    const s1 = creationReducer(s0, { type: 'CANCEL_REVIEW' });
     expect(s1.screen).toBe('characterMenu');
   });
 

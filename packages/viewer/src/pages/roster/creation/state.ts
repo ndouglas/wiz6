@@ -96,6 +96,8 @@ export type ScreenId =
   | 'portrait'       // screen-10-portrait: pick portrait (0..41)
   | 'skillTrain'     // screen-13-skill-training (conditional: skillBudget > 0)
   | 'spellPick'      // screen-14-spell-picking (conditional: classIsCaster)
+  | 'reviewPicker'   // REVIEW PC: pick a roster character to review
+  | 'review'         // REVIEW PC: render the selected character (read-only)
   | 'confirm'        // screen-15-confirm: KEEP or DISCARD
   | 'committing'     // screen-16-save: page performs I/O then dispatches COMMIT_DONE
   | 'cancelled'      // internal alias — folds back to characterMenu (not a navigate-away terminal)
@@ -161,6 +163,11 @@ export interface CreationState {
    * elite-class grind. See HOUSE_RULES_META.pinMaxBonusRoll.
    */
   pinMaxBonusRoll: boolean;
+  /**
+   * Roster index being reviewed (for `screen === 'review'`). Set by PICK_REVIEW
+   * and cleared on EXIT_REVIEW. Null on all non-review screens.
+   */
+  reviewIndex: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +177,10 @@ export interface CreationState {
 export type CreationEvent =
   | { type: 'MENU_CREATE' }                // characterMenu: begin new character creation (resets draft → name)
   | { type: 'MENU_EXIT' }                  // characterMenu: leave to castle (→ exit terminal)
-  | { type: 'MENU_REVIEW' }               // characterMenu: review character (STUB — no-op, future work)
+  | { type: 'MENU_REVIEW' }                // characterMenu: review character (→ reviewPicker if roster non-empty)
+  | { type: 'PICK_REVIEW'; index: number } // reviewPicker: selected roster index → review screen
+  | { type: 'EXIT_REVIEW' }                // review: Enter pressed → back to characterMenu
+  | { type: 'CANCEL_REVIEW' }              // reviewPicker: ESC / CANCEL → back to characterMenu
   | { type: 'MENU_DELETE' }               // characterMenu: delete character (STUB — no-op, future work)
   | { type: 'MENU_RENAME' }               // characterMenu: rename character (STUB — no-op, future work)
   | { type: 'MENU_PORTRAIT' }             // characterMenu: change portrait (STUB — no-op, future work)
@@ -244,6 +254,7 @@ export function initialCreationState(
     cursor: 0,
     scratch: {},
     pinMaxBonusRoll: opts?.pinMaxBonusRoll ?? false,
+    reviewIndex: null,
   };
 }
 
@@ -402,6 +413,7 @@ function returnToMenu(state: CreationState): CreationState {
     draft: blankDraft(),
     cursor: 0,
     scratch: {},
+    reviewIndex: null,
   };
 }
 
@@ -446,15 +458,43 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
       if (event.type === 'MENU_EXIT') {
         return { ...state, screen: 'exit' };
       }
+      if (event.type === 'MENU_REVIEW') {
+        // Engine flow: wpcmk_view_character routes through a roster picker
+        // (`wpcmk_show_roster_picker`) that lists existing characters. If the
+        // roster is empty the engine grays out REVIEW PC (we don't render the
+        // option for an empty roster — see CharacterMenuScreen), so reaching
+        // here always implies at least one entry.
+        return { ...state, screen: 'reviewPicker' };
+      }
       // Stubs for future work — no-op, stay on characterMenu
-      // MENU_REVIEW, MENU_DELETE, MENU_RENAME, MENU_PORTRAIT: to be implemented in later tasks
       if (
-        event.type === 'MENU_REVIEW' ||
         event.type === 'MENU_DELETE' ||
         event.type === 'MENU_RENAME' ||
         event.type === 'MENU_PORTRAIT'
       ) {
         return state;
+      }
+      return state;
+    }
+
+    // -----------------------------------------------------------------------
+    case 'reviewPicker': {
+      // CANCEL is handled by the global handler at the top of the reducer
+      // (returns to characterMenu via returnToMenu, which also clears
+      // reviewIndex). CANCEL_REVIEW is the picker-specific alias.
+      if (event.type === 'PICK_REVIEW') {
+        return { ...state, screen: 'review', reviewIndex: event.index };
+      }
+      if (event.type === 'CANCEL_REVIEW') {
+        return { ...state, screen: 'characterMenu', reviewIndex: null };
+      }
+      return state;
+    }
+
+    // -----------------------------------------------------------------------
+    case 'review': {
+      if (event.type === 'EXIT_REVIEW') {
+        return { ...state, screen: 'characterMenu', reviewIndex: null };
       }
       return state;
     }

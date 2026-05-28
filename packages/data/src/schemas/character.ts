@@ -218,6 +218,31 @@ export const CharacterSchema = z.object({
    * Optional for backwards-compatibility.
    */
   bodyAc: z.array(U8).length(7).optional(),
+  /**
+   * Current HP. U16 at record +0x18. Equals hpMax for fully-healed stock chars.
+   * Optional for backwards-compatibility with pre-review rosters; defaults to 0
+   * when absent (REVIEW PC shows " 0" in the HP cells).
+   */
+  hpCurrent: U16.optional(),
+  /**
+   * Max HP. U16 at record +0x1a. Same class-dispatch roll as encumbranceBase
+   * for a fresh character. See CLASS_ENCUMBRANCE_FORMULAS in derived-stats.ts.
+   */
+  hpMax: U16.optional(),
+  /**
+   * Current stamina (sp_cur in the engine struct). U16 at record +0x1c.
+   */
+  staminaCurrent: U16.optional(),
+  /**
+   * Max stamina (sp_max). U16 at record +0x1e. Formula (VIT*2+STR)*3 + VIT bonuses
+   * — see computeDerivedStats.
+   */
+  staminaMax: U16.optional(),
+  /**
+   * Age in game-DAYS. U32 at record +0x08 (age_counter). Rendered as age/365
+   * years on the char-sheet (wpcmk 0x0e44..0x0e54 + wpcvw 0x1077).
+   */
+  age: U32.optional(),
 });
 
 export const PartyMemberSchema = CharacterSchema.extend({

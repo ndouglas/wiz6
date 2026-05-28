@@ -29,9 +29,12 @@ import { loadCreationFontSet } from '../../packages/viewer/src/pages/roster/crea
 import { renderCreationFrame } from '../../packages/viewer/src/pages/roster/creation/ega/render-frame.js';
 import { createPersistentWindows } from '../../packages/viewer/src/pages/roster/creation/ega/windows.js';
 import { composeSkillTrainFrame, patchFontSetWithPortrait } from '../../packages/viewer/src/pages/roster/creation/ega/skill-train-frame.js';
+import { composeReviewPickerFrame } from '../../packages/viewer/src/pages/roster/creation/ega/review-picker-frame.js';
 import { highlightRange } from '../../packages/viewer/src/pages/roster/creation/ega/highlight.js';
 import { drawCharSheet } from '../../packages/viewer/src/pages/roster/creation/ega/char-sheet.js';
 import { blankDraft } from '../../packages/viewer/src/pages/roster/creation/state.js';
+import { draftFromCharacter } from '../../packages/viewer/src/pages/roster/creation/lib/draft-from-character.js';
+import type { Character } from '../../packages/data/src/index.js';
 import { raceName, className, creationString, MSG } from '../../packages/viewer/src/pages/roster/creation/messages.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { compareRgba, writeDiffPng } from './diff-image.js';
@@ -396,6 +399,77 @@ function renderSkillTrainDone(fontSet: FontSet, palette: Palette): Uint8ClampedA
   return renderCreationFrame(windows, skillTrainFontSet(fontSet), palette);
 }
 
+// ─── REVIEW CHARACTER helper (slot 2 char-sheet view; BONUS hidden) ───────────
+// Engine: wpcmk_view_character on NATHAN RAWULF FIGHTER. Same drawCharSheet
+// machinery as creation; the only UI difference is bonusPool = -1 (hides BONUS
+// row). Verified vs slot 2 cells: BONUS label absent at row 11, "PRESS ▶ TO
+// EXIT" centered in bottomBar row 2.
+
+const NATHAN_RAWULF_FIGHTER: Character = {
+  id: '00000000-0000-0000-0000-000000000001',
+  name: 'NATHAN',
+  race: 9,    // Rawulf
+  class: 0,   // Fighter
+  sex: 0,     // Male
+  level: 1,
+  savedOldLevel: 0,
+  xp: 0,
+  gold: 0,
+  conditions: new Array(10).fill(0) as number[],
+  dead: false,
+  paralyzed: false,
+  attributes: { str: 16, int: 8, pie: 12, vit: 10, dex: 8, spd: 8, per: 10, kar: 18 },
+  schoolMana: new Array(6).fill(0) as number[],
+  schoolManaMax: new Array(6).fill(0) as number[],
+  skills: new Array(30).fill(0) as number[],
+  reaction: 50,
+  portraitIndex: 1,
+  hpCurrent: 7,
+  hpMax: 7,
+  staminaCurrent: 108,
+  staminaMax: 108,
+  age: 6925,  // 18 years (engine save 2 *0x5478 = 6925)
+};
+
+function renderReviewPicker(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // Engine slot 1: single-character roster (NATHAN Rawulf Fighter).
+  const windows = composeReviewPickerFrame(
+    { roster: [NATHAN_RAWULF_FIGHTER], cursorIdx: 0 },
+    msgDb,
+  );
+  return renderCreationFrame(windows, fontSet, palette);
+}
+
+function renderReviewCharacter(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  const wport1: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  );
+  const empty: PortraitSet = { ...wport1, portraits: [] };
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, empty, empty], 1);
+
+  const { top, bottomBar, menuPanel } = createPersistentWindows();
+  const draft = draftFromCharacter(NATHAN_RAWULF_FIGHTER);
+  drawCharSheet(top, draft, msgDb);
+
+  // Portrait tiles at top (1..3, 1..3) attr 0x02.
+  for (let r = 0; r < 3; r++) {
+    setCursor(top, 1, 1 + r);
+    puts(top,
+      String.fromCharCode(0x48 + r * 3) +
+      String.fromCharCode(0x48 + r * 3 + 1) +
+      String.fromCharCode(0x48 + r * 3 + 2),
+      0x02,
+    );
+  }
+
+  // bottomBar: "PRESS ▶ TO EXIT" centered at row 1.
+  const exitPrompt = creationString(msgDb, MSG.skillExit);
+  setCursor(bottomBar, Math.floor((bottomBar.widthCells - exitPrompt.length) / 2), 1);
+  puts(bottomBar, exitPrompt, 0x03);
+
+  return renderCreationFrame([top, bottomBar, menuPanel], fontSetWithPortrait, palette);
+}
+
 // ─── Screen table ──────────────────────────────────────────────────────────────
 // `floor` = current measured match % minus a small margin. TARGET is 100.
 
@@ -456,6 +530,16 @@ const SCREENS: ScreenCase[] = [
     fixture: 'creation-skill-train-physical',
     floor: 100, // pixel-exact — PHYSICAL category (Fighter SCOUTING only); 0x25/0x26 brackets + 0xe0 name attr
     render: renderSkillTrainPhysical,
+  },
+  {
+    fixture: 'creation-review-character',
+    floor: 100, // pixel-exact — REVIEW PC char-sheet of NATHAN Rawulf Fighter; BONUS row hidden, EXIT prompt at row 1
+    render: renderReviewCharacter,
+  },
+  {
+    fixture: 'creation-review-picker',
+    floor: 100, // pixel-exact — REVIEW WHO? roster picker (1 character; scrollbar + COLORED highlight)
+    render: renderReviewPicker,
   },
 ];
 

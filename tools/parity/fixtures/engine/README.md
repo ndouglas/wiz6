@@ -38,4 +38,6 @@ pnpm tsx tools/parity/gen-fixture.ts --save <path|N> --name <name>
 | `creation-skill-train-done` | Character creation — skill-train fully spent (0 pool, WAND&DAGGER +5; row 3 = "PRESS ▶ TO EXIT" — engine does NOT auto-advance) |
 | `creation-skill-train-physical` | Character creation — PHYSICAL category (NATHAN Rawulf Fighter; 1 skill SCOUTING; verifies per-category bracket icons 0x25/0x26) |
 | `creation-confirm` | Character creation — "SAVE THIS CHARACTER? YES NO" (post-exit; skillTrain panel persists with residual cursor marker; YES selected) |
+| `creation-review-picker` | REVIEW PC — "REVIEW WHO?" roster picker (NATHAN Rawulf Fighter in slot 0; scrollbar at menuPanel col 0; CANCEL row at bottomBar row 3) |
+| `creation-review-character` | REVIEW PC — char sheet of NATHAN Rawulf Fighter (BONUS row hidden; "PRESS ▶ TO EXIT" centered at bottomBar row 1) |
 | `character-delete-confirm` | DELETE THIS CHARACTER? confirm (with char sheet) |

@@ -38,10 +38,14 @@ export function buildCharacterFromDraft(draft: DraftState): Character {
   const attrs = draft.attributes;
 
   // level and xp come from derived stats (computeDerivedStats fires at ALLOC_CONFIRM).
-  // Default to 1/1 if not present (should always be present after a full flow).
   const level = draft.derived.level ?? 1;
-  const xp    = draft.derived.xp    ?? 1;
+  const xp    = draft.derived.xp    ?? 0;
   const gold  = draft.derived.goldInitial ?? 0;
+  // HP, stamina, and age — needed by the review char-sheet renderer (and the
+  // in-game stat panel). Default to 0 if a partial draft is committed.
+  const hpInitial = draft.derived.hpInitial ?? 0;
+  const stamina   = draft.derived.stamina   ?? 0;
+  const age       = draft.derived.age       ?? 0;
 
   // skills: 30-element array, clamped to U8 (already 0..50 from training)
   const skills = draft.skills.slice(0, 30);
@@ -82,6 +86,11 @@ export function buildCharacterFromDraft(draft: DraftState): Character {
     skills,
     reaction: 50,             // neutral reaction
     portraitIndex: draft.portrait,
+    hpCurrent: hpInitial,
+    hpMax: hpInitial,
+    staminaCurrent: stamina,
+    staminaMax: stamina,
+    age,
   };
 
   // CharacterSchema.parse validates and applies .default(0) for sex etc.
