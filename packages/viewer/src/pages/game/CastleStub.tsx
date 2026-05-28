@@ -2,11 +2,6 @@ import { Link, useParams } from 'react-router-dom';
 import styles from './CastleStub.module.css';
 
 const STUB_INFO: Record<string, { title: string; description: string }> = {
-  'add-party': {
-    title: 'Add Party Member',
-    description:
-      'Pick from PCFILE.DBS. Requires the character-data subsystem and PCFILE I/O — not yet implemented.',
-  },
   'choose-leader': {
     title: 'Choose Leader',
     description: 'Select a party member as leader. Transitions to WPCVW (state 0x11).',

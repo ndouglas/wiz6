@@ -18,6 +18,9 @@ const RosterView = lazy(() =>
 const CreationPage = lazy(() =>
   import('./pages/roster/creation/CreationPage.js').then((m) => ({ default: m.CreationPage })),
 );
+const AddPartyPage = lazy(() =>
+  import('./pages/castle/AddPartyPage.js').then((m) => ({ default: m.AddPartyPage })),
+);
 
 const Landing = lazy(() => import('./pages/Landing.js').then((m) => ({ default: m.Landing })));
 const MonstersPage = lazy(() =>
@@ -81,6 +84,7 @@ export const routes = (
       <Route path="/" element={<GameTitle />} />
       <Route path="/castle" element={<CastleScreen />} />
       <Route path="/castle/character-menu" element={<CreationPage />} />
+      <Route path="/castle/add-party" element={<AddPartyPage />} />
       <Route path="/castle/:stub" element={<CastleStub />} />
       <Route path="/roster" element={<RosterView />} />
     </Route>
