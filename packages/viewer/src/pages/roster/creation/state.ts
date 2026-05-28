@@ -61,6 +61,7 @@ import {
   rollSkillBudget,
   getRaceBaseStats,
   classOffered,
+  getClassRequirements,
   classIsCaster,
 } from '@wiz6/data';
 
@@ -506,10 +507,39 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
         if (!classOffered(state.draft.attributes, state.draft.bonusPool, state.draft.sex ?? 0, event.index)) {
           return state; // not offered — no transition
         }
+        // Auto-fill: bring each attribute up to the class minimum, spending
+        // from the bonus pool. RE'd from wpcmk: `wpcmk_pick_class_menu` calls
+        // FUN_2e85 → FUN_2fbd at exit, dispatching via the 14-entry jump
+        // table at 0x7505 to the per-class auto-fill routine; each routine
+        // animates the attr ramps. End-state formula (verified vs save 1 for
+        // Samurai + Human base → final attrs 12,11,8,9,12,14,8 / pool 17→2):
+        //   for each attr: new = max(race_base, class_min); pool -= deficit.
+        // The bonus-allocator screen then enters with the auto-filled stats +
+        // remaining pool — the player adjusts the leftovers freely.
+        const req = getClassRequirements(event.index);
+        const a = state.draft.attributes;
+        const filled = {
+          str: Math.max(a.str, req.str),
+          int: Math.max(a.int, req.int),
+          pie: Math.max(a.pie, req.pie),
+          vit: Math.max(a.vit, req.vit),
+          dex: Math.max(a.dex, req.dex),
+          spd: Math.max(a.spd, req.spd),
+          per: Math.max(a.per, req.per),
+          kar: a.kar,
+        };
+        const spent = (filled.str - a.str) + (filled.int - a.int) + (filled.pie - a.pie)
+                    + (filled.vit - a.vit) + (filled.dex - a.dex) + (filled.spd - a.spd)
+                    + (filled.per - a.per);
         return {
           ...state,
           screen: 'bonusAllocator',
-          draft: { ...state.draft, class: event.index },
+          draft: {
+            ...state.draft,
+            class: event.index,
+            attributes: filled,
+            bonusPool: state.draft.bonusPool - spent,
+          },
           // Reset undo counters (7 values, one per attr slot)
           scratch: { undo: new Array(7).fill(0) as number[] },
         };
