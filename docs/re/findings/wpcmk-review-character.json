@@ -1,0 +1,114 @@
+{
+  "topic": "wpcmk-view-character-flow",
+  "subagent_run": "2026-05-28T21:30:00Z",
+  "binaries": ["wpcmk.ovr"],
+  "summary": "Decoded the engine's 'REVIEW PC' flow end-to-end. The screen is dead simple: load the character record from pcfile.dbs, render the char sheet (same machinery as creation), wait for Enter, return. No skillTrain panel; BONUS row is hidden via the *0x56ac = -1 sentinel. 90% of the work is already done in our existing creation port — the only new pieces are roster_io_one_record (already ported as decodePcfile) and the menu picker that selects which character to view.",
+  "key_findings": {
+    "entryPoint": {
+      "function": "wpcmk_view_character",
+      "fileOffset": "0x545c",
+      "body": [
+        "wpcmk_load_and_draw_character(charIdx)",
+        "ui_wait_for_enter_or_click()"
+      ],
+      "note": "Total 2 calls — render + wait."
+    },
+    "renderRoutine": {
+      "function": "wpcmk_load_and_draw_character",
+      "fileOffset": "0x51c6",
+      "steps": [
+        {
+          "step": 1,
+          "call": "ui_setup_creation_windows(*0x546e, *0x56ca)",
+          "purpose": "Create persistent windows (top, bottomBar, menuPanel). Already ported as createPersistentWindows()."
+        },
+        {
+          "step": 2,
+          "call": "roster_io_one_record(0x5470, charIdx, 0)",
+          "purpose": "Read one 432-byte character record from pcfile.dbs into the staging buffer at DGROUP 0x5470. Mode 0 = read; mode 1 = write. Already ported as decodePcfile() in packages/parser."
+        },
+        {
+          "step": 3,
+          "write": "*0x56ac = 0xffff (-1)",
+          "purpose": "Set the bonus-pool sentinel to -1; the char-sheet renderer hides the BONUS row when *0x56ac < 0. This is the key UI difference between creation (BONUS shown 0..26) and review (BONUS hidden)."
+        },
+        {
+          "step": 4,
+          "call": "portrait_load_from_disk(*0x560c)",
+          "purpose": "Load this character's portrait tiles into wfont2 glyphs 0x48..0x50. Reads from wportN.EGA where N = (portraitIdx / 14) + 1; reads 288 bytes (9 tiles × 32 bytes) at file offset (portraitIdx % 14) * 288. Already mirrored by patchFontSetWithPortrait() in skill-train-frame.ts."
+        },
+        {
+          "step": 5,
+          "call": "ui_draw_portrait_frame(top, 1, 1)",
+          "purpose": "Write chars 0x48..0x50 in a 3×3 grid at top window (1..3, 1..3) attr 0x02. NOT a frame — just the tile placement. Already mirrored by the top-window overlay loop in composeSkillTrainFrame."
+        },
+        {
+          "step": 6,
+          "call": "ui_print_character_header()",
+          "purpose": "Row 1 col 4: NAME (attr 0x50). Col 13: sex glyph + '-' + race name (attr 0x10). Row 2 col 13: class name (attr 0x10). Already ported as drawHeader in char-sheet.ts."
+        },
+        {
+          "step": 7,
+          "call": "ui_redraw_character_sheet()",
+          "purpose": "Age fields (rows 2/3 col 5..7), LVL value, RNK label, EXP value, MKS value, rank title (row 1 right), 6 wfont2 icons + bottom-grid cur/max pairs. Already ported as drawRedrawFields in char-sheet.ts."
+        },
+        {
+          "step": 8,
+          "call": "ui_render_stat_panel()",
+          "purpose": "STR..KAR rows + HP cur/max + STM cur/max + BONUS row (hidden when *0x56ac<0). Already ported as drawStatPanel in char-sheet.ts."
+        }
+      ],
+      "afterReturn": [
+        "ui_wait_for_enter_or_click() — busy-wait for input",
+        "Return to caller (the roster picker loop)"
+      ]
+    },
+    "rosterPicker": {
+      "function": "wpcmk_show_roster_picker",
+      "fileOffset": "0x56a0",
+      "purpose": "Lists existing characters by name (read from pcfile.dbs slot-by-slot, slot 0xFF = empty). Player picks one with arrow keys + Enter; the picked index is passed to wpcmk_view_character. (Not yet fully decompiled here — TODO if we need to RE the picker layout.)"
+    },
+    "newPiecesNeeded": [
+      "Read characters from the LIVE roster store (localStorage in our port; pcfile.dbs in the engine) — already have lib/roster-store.ts.",
+      "A 'review' screen that mirrors the engine flow: drawCharSheet + persistent portrait + no BONUS + wait for Enter to return.",
+      "Wire the existing CharacterMenuScreen 'REVIEW PC' option to either: (a) navigate to a new review screen, or (b) reuse a per-character detail page."
+    ],
+    "bonusRowGate": {
+      "claim": "*0x56ac is the bonus-pool register. -1 = not active (BONUS row hidden). 0..26 = creation pool (BONUS row visible). The char-sheet renderer in our port already gates this — drawStatPanel only renders BONUS when draft.bonusPool >= 0.",
+      "implication": "Our drawCharSheet will correctly hide BONUS for a roster-loaded character if we pass bonusPool: -1."
+    }
+  },
+  "findings": [
+    {
+      "id": "wpcmk-review-render-flow",
+      "claim": "wpcmk_view_character is a 2-call wrapper (load_and_draw + wait); the render itself is 8 calls that reuse the creation char-sheet machinery exactly",
+      "category": "creation_flow",
+      "confidence": "high",
+      "evidence": "Decompile of wpcmk file 0x545c (wpcmk_view_character) + 0x51c6 (wpcmk_load_and_draw_character)"
+    },
+    {
+      "id": "wpcmk-bonus-pool-sentinel",
+      "claim": "*0x56ac = 0xffff (-1) is the 'no bonus pool' sentinel; the renderer skips the BONUS row when negative. This is the key UI difference between creation and review screens.",
+      "category": "ui_styling",
+      "confidence": "high",
+      "evidence": "wpcmk_load_and_draw_character writes 0xffff to *0x56ac before calling the render functions. Cross-checked vs creation flow where *0x56ac is set to the rolled pool value (0..26)."
+    },
+    {
+      "id": "wpcmk-portrait-load-on-review",
+      "claim": "Reviewing a character calls portrait_load_from_disk to patch wfont2 with that character's portrait tiles — same mechanism as the post-portrait creation flow. Subsequent screens (rest of the game) inherit the patched wfont2 until another portrait is loaded.",
+      "category": "font_state",
+      "confidence": "high",
+      "evidence": "wpcmk_load_and_draw_character calls portrait_load_from_disk(*0x560c) after roster_io_one_record. *0x560c is populated by the read from pcfile.dbs."
+    },
+    {
+      "id": "wpcmk-portrait-frame-is-tile-grid",
+      "claim": "ui_draw_portrait_frame is just the 3×3 tile-grid placement at (x, y)..(x+2, y+2) using chars 0x48..0x50 at attr 0x02 — no decorative frame chrome",
+      "category": "ui_render",
+      "confidence": "high",
+      "evidence": "Decompile of wpcmk 0x0c12 shows 9 consecutive ui_window_putchar calls at attr 0x02 with chars 0x48..0x50; no extra border characters."
+    }
+  ],
+  "unresolved": [
+    "wpcmk_show_roster_picker layout (the menu that selects which character to review) — not RE'd yet; needed only if we want to faithfully reproduce the in-game picker. Our port can use the existing RosterView instead."
+  ]
+}
