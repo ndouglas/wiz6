@@ -23,3 +23,4 @@ Freeform jot pad. Add anything — bug, idea, half-baked thought, "remember to l
 - Consider using custom shaders
 - Consider additional (AI-generated?) portraits!
 - Consider additional (AI-generated?) textures for certain areas!
+- How much of CHARACTER MENU is reverse-engineered? Are we 100% functionally correct here?
