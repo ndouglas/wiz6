@@ -1,0 +1,54 @@
+{
+  "topic": "wbase-window-struct",
+  "subagent_run": "2026-05-28",
+  "binaries": ["original/wbase.ovr"],
+  "summary": "The wbase ADD PARTY MEMBER picker draws two dynamically-allocated tile windows (a left prompt panel and a right roster panel) that are NOT registered through the fixed wpcmk DGROUP handles. By scanning save/1.sav (state 0xffff, party_size=0, one PCFILE char NATHAN) for the picker's known cell-content signatures and walking back to plausible struct headers, we identified both windows. Their layout matches the wpcmk window struct's first 5 bytes (w@+0x00, h@+0x01, x@+0x02, y@+0x03, attr@+0x04) but cells_off varies: the left panel uses cells_off = struct + 0x10 (matching wpcmk), while the right panel uses cells_off = struct + 0x14 (4 extra bytes of unknown purpose between header and cells). The empirical alignment is locked by requiring the highlighted-NATHAN cells to start at column 0 of the row. This finding is consumed by tools/parity/dump-cells.py --picker, which tries both deltas and selects the alignment that anchors the signature to its expected column.",
+  "findings": [
+    {
+      "id": "left-panel-location",
+      "claim": "The picker's left panel ('ADD WHO?' / 'CANCEL' prompt) lives at struct_off=0x1f46e in save/1.sav physical memory. Dimensions: w=19, h=5, x=0, y=19, attr=0x0a. Cells follow at struct+0x10 = 0x1f47e.",
+      "category": "window_struct_instance",
+      "evidence": {
+        "binary": "tools/dosbox/save/1.sav",
+        "address": {
+          "space": "wroot.dgroup",
+          "offset": "0x1f46e (save-state physical offset)"
+        },
+        "type": "save_state_bytes",
+        "details": "Header bytes at 0x1f46e: '13 05 00 13 0a 00 0d 03 00 00 1c 00 1c 00 00 1c'. Decoded: w=0x13=19, h=0x05=5, x=0x00=0, y=0x13=19, attr=0x0a. Cells at 0x1f47e show 5 rows of width 19: row 0 = 19 spaces (attr 0x03), row 1 = 6 spaces + 'ADD WHO?' (attr 0x03) + 5 spaces, row 2 = 19 spaces, row 3 = 7 spaces + 'CANCEL' (attr 0x03) + 6 spaces, row 4 = 19 spaces. The 2 bytes immediately before the struct (0x1f46c..0x1f46d) are 'f8 74' = a 16-bit pointer (0x74f8) — likely a back-link to the parent window."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "right-panel-location",
+      "claim": "The picker's right panel (roster list with highlighted NATHAN row) lives at struct_off=0x1f8ac in save/1.sav physical memory. Dimensions: w=20, h=5, x=20, y=19, attr=0x14. Cells follow at struct+0x14 = 0x1f8c0 (NOT struct+0x10).",
+      "category": "window_struct_instance",
+      "evidence": {
+        "binary": "tools/dosbox/save/1.sav",
+        "address": {
+          "space": "wroot.dgroup",
+          "offset": "0x1f8ac (save-state physical offset)"
+        },
+        "type": "save_state_bytes",
+        "details": "Header bytes at 0x1f8ac (20 bytes, cells start at 0x1f8c0): '14 05 14 13 14 00 13 02 23 23 23 00 00 00 00 00 20 03 45 02'. Decoded: w=0x14=20, h=0x05=5, x=0x14=20, y=0x13=19, attr=0x14. Cells at 0x1f8c0 show row 2 starting with the NATHAN highlight cells '4e 50 41 50 54 50 48 50 41 50 4e 50' (N A T H A N each with attr 0x50 = yellow on dark) at column 0 — confirming cells_off = struct + 0x14, not +0x10 (the latter would put NATHAN at column 2 with stray cells preceding it). Column 19 of every row holds a scrollbar marker glyph ('G' attr 0x02 at rows 0..2, 'F' attr 0x02 at row 3). The 2 bytes immediately before the struct (0x1f8aa..0x1f8ab) are '41 79' = a 16-bit pointer (0x7941) — likely a back-link to the parent window. Single occurrence in the full Memory blob (the highlighted-NATHAN cell sequence appears only once)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "cells-off-delta-inconsistency",
+      "claim": "The two picker windows use DIFFERENT cells_off deltas from their struct base: left panel uses +0x10 (matching wpcmk's known format), right panel uses +0x14. The 4 extra bytes (0x1f8bc..0x1f8bf = '23 23 23 00') between the right panel's header and its cells are of unknown purpose — possibly a small tail of the struct (window title length, callback ptr, or padding), possibly an artifact of a different wbase allocation path. The pattern-based scanner in dump-cells.py tries both deltas and uses the signature's expected column anchor to disambiguate.",
+      "category": "struct_format_observation",
+      "evidence": {
+        "binary": "tools/dosbox/save/1.sav",
+        "type": "save_state_bytes",
+        "details": "Left panel: applying cells_off = struct + 0x10 to struct@0x1f46e gives clean 5-row panel with 'ADD WHO?' centred at row 1 col 6 and 'CANCEL' centred at row 3 col 7. Applying cells_off = struct + 0x14 gives the same content shifted left by 2 cells AND introduces stray bytes into row 4. Right panel: applying cells_off = struct + 0x10 to struct@0x1f8ac puts the NATHAN cells at row 2 col 2, with a preceding ' E' (chars 0x20 0x45 with attrs 0x03 0x02) at cols 0..1 — inconsistent with the screenshot's NATHAN starting at the left edge of the panel. Applying cells_off = struct + 0x14 puts NATHAN at row 2 col 0 (matching the screenshot) and puts the scrollbar marker glyph at col 19 (the right edge). The asymmetry is reproducible across both deltas — only ONE delta gives a column-0 anchor for each panel. Open question: is the right panel a different window type, or do all wbase dynamic windows actually use +0x14 with the left panel coincidentally tolerating +0x10 because its first 4 cells are blank? Resolution would require dynamic-tracing the wbase allocation site."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "unresolved": [
+    "The 4 extra bytes (0x1f8bc..0x1f8bf = '23 23 23 00') between the right panel's header and its cells — purpose unknown. Hypotheses: (a) a 4-byte trailing struct field that the wpcmk format also has but is zero-initialised; (b) a small inline string (title?) of length 4; (c) heap allocator padding. Static RE of wbase.ovr's window-allocation routine would settle this.",
+    "Where exactly is the 'ADD MEMBER' header bar (visible in the framebuffer above the picker panels)? The string 'ADD MEMBER' does not appear as cells anywhere in save/1.sav memory (verified by exhaustive attr-byte search over [0x4d,A,0x45,A,0x4d,A,0x42,A,0x45,A,0x52,A] for A in 0..0xff). It may be a sprite/bitmap blit, a residual buffer cleared between frames, or stored in a window we haven't located. Out of scope for the cell-parity fixture but worth following up.",
+    "The 2-byte values immediately preceding each picker struct (0xf8 74 for left, 0x41 79 for right) look like 16-bit pointers (0x74f8 and 0x7941 respectively) — likely back-links to a parent window or to a struct allocator chain. Verifying requires reading at those targets, which falls outside the current task."
+  ]
+}
