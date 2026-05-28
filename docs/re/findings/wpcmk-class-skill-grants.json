@@ -1,0 +1,116 @@
+{
+  "topic": "wpcmk-class-skill-grants-table",
+  "subagent_run": "2026-05-28T21:00:00Z",
+  "binaries": ["wpcmk.ovr"],
+  "summary": "Decoded all 13 per-class skill pre-grant routines from `skill_pool_roll_and_class_adjust` (wpcmk file 0x4222). After rolling skill BUDGET = rng(9) + 10 (10..18), the engine dispatches via a 14-entry word jump table at file 0x4545 (CS:0x8aa9) to a per-class routine that pre-grants 1..2 skill values, deducting each from the budget. Fighter (class 0) gets nothing. Every other class gets at least one grant. All formulas fit the template: value = rng(rngRange) + sum(attrs)/divisor + constAdd; skills[slot] = value; budget -= value.",
+  "key_findings": {
+    "dispatch": {
+      "function": "skill_pool_roll_and_class_adjust",
+      "fileOffset": "0x4222",
+      "jumpTable": {
+        "fileOffset": "0x4545",
+        "csOffset": "0x8aa9",
+        "entries": 14,
+        "indexBy": "class byte at DGROUP 0x560f"
+      },
+      "budgetRoll": "rng(9) + 10 = 10..18, stored at DGROUP 0x5618",
+      "postDispatchTail": "file 0x456e..0x4585 — deducts the final grant from budget, clamping at 0",
+      "stackLocals": {
+        "[bp-2]":  "INT (*0x559d, zero-extended byte)",
+        "[bp-4]":  "PIE (*0x559e)",
+        "[bp-6]":  "DEX (*0x55a0)",
+        "[bp-8]":  "SPD (*0x55a1)",
+        "[bp-a]":  "VIT (*0x559f)",
+        "[bp-c]":  "current grant result (temp)"
+      },
+      "skillArrayBase": "DGROUP 0x55a4 (byte array, 30 entries, indexed by slot 0..29)"
+    },
+    "perClassRoutines": [
+      { "class": 0,  "name": "Fighter",   "fileOffset": "0x456e", "grants": [] },
+      { "class": 1,  "name": "Mage",      "fileOffset": "0x426b",
+        "grants": [{ "slot": 28, "skill": "THAUMATURGY", "formula": "rng(4) + INT/3 + 3" }] },
+      { "class": 2,  "name": "Priest",    "fileOffset": "0x4291",
+        "grants": [{ "slot": 26, "skill": "THEOLOGY",    "formula": "rng(4) + PIE/3 + 3" }] },
+      { "class": 3,  "name": "Thief",     "fileOffset": "0x42b7",
+        "grants": [{ "slot": 15, "skill": "SKULDUGGERY", "formula": "rng(4) + (INT+DEX)/6 + 3" }] },
+      { "class": 4,  "name": "Ranger",    "fileOffset": "0x42e6",
+        "grants": [
+          { "slot": 11, "skill": "SCOUTING", "formula": "rng(3) + (INT+VIT)/10 + 2" },
+          { "slot":  7, "skill": "BOWS",     "formula": "rng(3) + (DEX+SPD)/10 + 2" }
+        ] },
+      { "class": 5,  "name": "Alchemist", "fileOffset": "0x4379",
+        "grants": [{ "slot": 25, "skill": "ALCHEMY",     "formula": "rng(4) + INT/3 + 3" }] },
+      { "class": 6,  "name": "Bard",      "fileOffset": "0x434a",
+        "grants": [{ "slot": 12, "skill": "MUSIC",       "formula": "rng(4) + (INT+DEX)/6 + 3" }] },
+      { "class": 7,  "name": "Psionic",   "fileOffset": "0x439f",
+        "grants": [{ "slot": 27, "skill": "THEOSOPHY",   "formula": "rng(4) + (INT+PIE)/6 + 3" }] },
+      { "class": 8,  "name": "Valkyrie",  "fileOffset": "0x4420",
+        "grants": [{ "slot":  4, "skill": "POLE&STAFF",  "formula": "rng(4) + (DEX+SPD)/6 + 3" }] },
+      { "class": 9,  "name": "Bishop",    "fileOffset": "0x43ce",
+        "grants": [
+          { "slot": 28, "skill": "THAUMATURGY", "formula": "rng(3) + INT/5 + 2" },
+          { "slot": 26, "skill": "THEOLOGY",    "formula": "rng(3) + PIE/5 + 2" }
+        ] },
+      { "class": 10, "name": "Lord",      "fileOffset": "0x444f",
+        "grants": [{ "slot":  1, "skill": "SWORD",       "formula": "rng(4) + (DEX+SPD)/6 + 3" }],
+        "note": "Lord and Samurai SHARE this exact routine via two jump-table entries pointing at the same file offset." },
+      { "class": 11, "name": "Samurai",   "fileOffset": "0x444f",
+        "grants": [{ "slot":  1, "skill": "SWORD",       "formula": "rng(4) + (DEX+SPD)/6 + 3" }] },
+      { "class": 12, "name": "Monk",      "fileOffset": "0x447e",
+        "grants": [
+          { "slot":  9, "skill": "HANDS&FEET", "formula": "rng(3) + (DEX+SPD)/10 + 2" },
+          { "slot": 27, "skill": "THEOSOPHY",  "formula": "rng(3) + (INT+PIE)/10 + 2" }
+        ] },
+      { "class": 13, "name": "Ninja",     "fileOffset": "0x44e2",
+        "grants": [
+          { "slot":  9, "skill": "HANDS&FEET", "formula": "rng(3) + (DEX+SPD)/10 + 2" },
+          { "slot": 16, "skill": "NINJUTSU",   "formula": "rng(3) + (DEX+SPD)/10 + 2" }
+        ] }
+    ]
+  },
+  "findings": [
+    {
+      "id": "wpcmk-class-skill-grants-table",
+      "claim": "13 of 14 classes get pre-granted skill values at character creation; Fighter is the only class with no grants",
+      "category": "creation_flow",
+      "confidence": "high",
+      "evidence": "Raw disassembly of wpcmk file 0x4222..0x4588; jump table at 0x4545 with 14 word entries; per-class routine at each entry's file offset"
+    },
+    {
+      "id": "wpcmk-class-grants-shared-lord-samurai",
+      "claim": "Lord (class 10) and Samurai (class 11) share the same routine (file 0x444f) via duplicated jump-table entries",
+      "category": "code_layout",
+      "confidence": "high",
+      "evidence": "Jump table words 10 + 11 both point to CS:0x89b3 = file 0x444f"
+    },
+    {
+      "id": "wpcmk-samurai-sword-verified",
+      "claim": "Samurai SWORD = rng(4) + (DEX+SPD)/6 + 3; for NATHAN (DEX=12, SPD=14) the range is 7..10, engine save 1 observed = 9",
+      "category": "creation_flow",
+      "confidence": "high",
+      "evidence": "Engine save 1 memory at DGROUP+0x55a5 = 9; formula match"
+    },
+    {
+      "id": "wpcmk-fighter-no-grants-verified",
+      "claim": "Fighter (class 0) grants nothing; jump-table entry routes to the post-dispatch tail with [bp-c]=0",
+      "category": "creation_flow",
+      "confidence": "high",
+      "evidence": "Engine save 2 (NATHAN Rawulf Fighter) memory at DGROUP+0x55a4..0x55c2 = all zeros"
+    },
+    {
+      "id": "wpcmk-grant-budget-deduction",
+      "claim": "Each grant deducts from the skill BUDGET pool (initial roll = rng(9) + 10); the final grant is deducted by the post-dispatch tail at 0x456e, intermediate grants deduct inline. Budget clamped at 0.",
+      "category": "creation_flow",
+      "confidence": "high",
+      "evidence": "Multi-grant routines (Ranger 0x42e6, Bishop 0x43ce, Monk 0x447e, Ninja 0x44e2) carry inline `sub [0x5618], [bp-c]` between grants; tail at 0x4576 does the same with cmp+clamp."
+    },
+    {
+      "id": "wpcmk-grant-divisor-shape",
+      "claim": "Grants with `(A+B)/n` always implement n as `idiv 2` followed by `idiv (n/2)` — so divisor 6 = idiv 2 then idiv 3, divisor 10 = idiv 2 then idiv 5. For positive sums (always true at creation) this equals Math.floor(sum/n).",
+      "category": "encoding",
+      "confidence": "high",
+      "evidence": "Pattern visible at every multi-attr grant (Thief 0x42c6/0x42cc; Bard 0x4359/0x435f; etc.)"
+    }
+  ],
+  "unresolved": []
+}

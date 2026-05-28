@@ -59,6 +59,7 @@ import {
   computeDerivedStats,
   rollKarmaWith,
   rollSkillBudget,
+  applyClassSkillGrants,
   getRaceBaseStats,
   classOffered,
   getClassRequirements,
@@ -338,18 +339,35 @@ function fireKarmaRoll(state: CreationState): CreationState {
 }
 
 /**
- * Non-interactive: fire skill-budget roll.
- * Called when transitioning OUT of char-sheet-redraw → conditional.
- * §1/§5: skillBudget = rollSkillBudget(rng, classIdx, attrs), stored at DGROUP 0x5618.
- * Conditional: screen-13 only runs if *0x5618 > 0.
+ * Non-interactive: fire skill-budget roll AND per-class pre-grants.
+ *
+ * Engine equivalent: `skill_pool_roll_and_class_adjust` (wpcmk file 0x4222).
+ * The engine rolls `rng(9) + 10` into *0x5618 (budget), then dispatches to a
+ * per-class routine that grants 1..2 skill values and deducts each grant
+ * from the budget. Fighter (class 0) grants nothing.
+ *
+ * Examples (verified vs DOSBox saves):
+ *   - Samurai (class 11): SWORD = rng(4) + (DEX+SPD)/6 + 3, ~7..10
+ *   - Bishop (class 9): THAUMATURGY + THEOLOGY (2 grants from a shared pool)
+ *
+ * Stored at: draft.skillBudget (number) + draft.skills[slot] (per-class).
+ * Final budget is clamped at 0 (engine post-dispatch tail at 0x4576..0x4580).
  */
 function fireSkillBudget(state: CreationState): CreationState {
   const { draft } = state;
   if (draft.class === null) return state;
   const budget = rollSkillBudget(state.rng, draft.class, draft.attributes);
+  const { grants, budgetDeduction } = applyClassSkillGrants(
+    state.rng,
+    draft.class,
+    draft.attributes,
+  );
+  const skills = [...draft.skills];
+  for (const { slot, value } of grants) skills[slot] = value;
+  const remaining = Math.max(0, budget - budgetDeduction);
   return {
     ...state,
-    draft: { ...draft, skillBudget: budget },
+    draft: { ...draft, skillBudget: remaining, skills },
   };
 }
 

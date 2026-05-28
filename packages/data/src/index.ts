@@ -166,6 +166,13 @@ export {
   type SkillBudgetAttrs,
 } from './character-creation/skill-budget.js';
 export {
+  CLASS_SKILL_GRANTS,
+  applyClassSkillGrants,
+  type SkillGrantFormula,
+  type ClassSkillGrantResult,
+  type AttrKey,
+} from './character-creation/class-skill-grants.js';
+export {
   SPELL_PICKER_CLASSES,
   classHasSpellPicker,
   STARTER_SPELLS_ARE_PLAYER_SELECTED,
