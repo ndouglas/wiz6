@@ -18,3 +18,4 @@ Freeform jot pad. Add anything — bug, idea, half-baked thought, "remember to l
 - Add to CLAUDE.md - suggest new QoL improvements when you have an idea!
 - We can shorten the bonus point QoL description a bit since it links to a card and the card has a rich description.
 - The profession list, when it flows into two columns, should be scrollable entirely via up/down.
+- JSON is fine for extraction and an intermediate form, but incredibly space-inefficient; we should consider adopting spritesheets again for the final forms of fonts, portraits, sprites, etc.
