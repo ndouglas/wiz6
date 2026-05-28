@@ -158,6 +158,15 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@20.19.41)(jsdom@25.0.1)
 
+  tools/parity:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.41
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.41)(jsdom@25.0.1)
+
 packages:
 
   '@adobe/css-tools@4.4.4':

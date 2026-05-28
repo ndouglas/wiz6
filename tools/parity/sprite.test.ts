@@ -1,15 +1,13 @@
 /**
  * sprite.test.ts — unit + integration tests for sprite-at-index helpers.
  *
- * Tests:
+ * Tests (hermetic — read only committed extracted/fonts):
  *   1. renderFontGlyph(wfont1, 0x00) → all-black (solid fill tile)
  *   2. renderFontGlyph(wfont1, 0x01) → frame piece: contains light-gray AND black
  *   3. renderFontGlyph(wfont4, 0x20) → NOT all-black (ring sprite tile — regression anchor)
- *   4. Engine cross-check: extractCell from engine screen (16,16) → all-black;
- *      assertSpriteMatches(renderFontGlyph(wfont1, 0x00), cellRgba) ≥ 99%
  *
  * Run:
- *   cd tools/parity && npx vitest run sprite.test.ts
+ *   pnpm --filter @wiz6/parity test
  */
 
 import { describe, it, expect } from 'vitest';
@@ -18,12 +16,7 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Font4bppSchema, WIZ6_MAIN } from '../../packages/data/src/index.js';
 import type { Font4bpp } from '../../packages/data/src/index.js';
-import { readVgaBlob } from '../../packages/mcp/src/vga-palette.js';
-import {
-  renderFontGlyph,
-  extractCell,
-  assertSpriteMatches,
-} from './sprite.js';
+import { renderFontGlyph } from './sprite.js';
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 
@@ -53,74 +46,6 @@ const EXTRACTED_FONTS = join(MAIN_ROOT, 'extracted', 'fonts');
 function loadFont4bpp(name: string): Font4bpp {
   const json: unknown = JSON.parse(readFileSync(join(EXTRACTED_FONTS, `${name}.json`), 'utf-8'));
   return Font4bppSchema.parse(json);
-}
-
-// ─── Engine screen decoder (inline — same logic as decode-screen.ts) ─────────
-//
-// We inline the VGA decode logic here to avoid a top-level CLI dependency from
-// the test. This is the same implementation used in screen-parity.test.ts.
-
-const EGA_DEFAULT: ReadonlyArray<readonly [number, number, number]> = [
-  [0, 0, 0],       // 0  black
-  [0, 0, 170],     // 1  blue
-  [0, 170, 0],     // 2  green
-  [0, 170, 170],   // 3  cyan
-  [170, 0, 0],     // 4  red
-  [170, 0, 170],   // 5  magenta
-  [170, 85, 0],    // 6  brown
-  [170, 170, 170], // 7  light gray
-  [85, 85, 85],    // 8  dark gray
-  [85, 85, 255],   // 9  bright blue
-  [85, 255, 85],   // 10 bright green
-  [85, 255, 255],  // 11 bright cyan
-  [255, 85, 85],   // 12 bright red
-  [255, 85, 255],  // 13 bright magenta
-  [255, 255, 85],  // 14 yellow
-  [255, 255, 255], // 15 white
-];
-
-const VRAM_OFFSET = 0x80000;
-const DOSBOX_INTERNAL_START = 0x0810E0;
-const DOSBOX_INTERNAL_END   = 0x08171F;
-const VGA_STATE_START = 0x82F70;
-const VGA_STATE_END   = 0x838CE;
-const SCREEN_W = 320;
-const SCREEN_H = 200;
-
-function decodeEngineScreen(savePath: string): Uint8Array {
-  const blob = readVgaBlob(savePath);
-  const rgba = new Uint8Array(SCREEN_W * SCREEN_H * 4);
-  for (let y = 0; y < SCREEN_H; y++) {
-    for (let x = 0; x < SCREEN_W; x++) {
-      const vgaAddr = y * 40 + (x >> 3);
-      const blobBase = VRAM_OFFSET + vgaAddr * 4;
-      let pixelIndex: number;
-      if (
-        (blobBase >= DOSBOX_INTERNAL_START && blobBase <= DOSBOX_INTERNAL_END) ||
-        (blobBase >= VGA_STATE_START && blobBase <= VGA_STATE_END)
-      ) {
-        pixelIndex = 0;
-      } else {
-        const b0 = blob[blobBase]!;
-        const b1 = blob[blobBase + 1]!;
-        const b2 = blob[blobBase + 2]!;
-        const b3 = blob[blobBase + 3]!;
-        const bit = 7 - (x & 7);
-        pixelIndex =
-          ((b0 >> bit) & 1) |
-          (((b1 >> bit) & 1) << 1) |
-          (((b2 >> bit) & 1) << 2) |
-          (((b3 >> bit) & 1) << 3);
-      }
-      const [r, g, b] = EGA_DEFAULT[pixelIndex]!;
-      const off = (y * SCREEN_W + x) * 4;
-      rgba[off] = r;
-      rgba[off + 1] = g;
-      rgba[off + 2] = b;
-      rgba[off + 3] = 0xff;
-    }
-  }
-  return rgba;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -210,50 +135,5 @@ describe('renderFontGlyph', () => {
   });
 });
 
-/**
- * Engine cross-check: extractCell + assertSpriteMatches.
- *
- * The pixel at (16,16) in save 1 is inside the top window interior at a
- * cell boundary. Per decode-screen.ts analysis, rows 8-48 contain ZERO noisy
- * pixels — only black (0,0,0), dark-gray (85,85,85), or light-gray (170,170,170).
- * The top-window interior cells are filled with wfont1/0x00 (all-black), so
- * the cell at pixel (16,16) — which maps to window tile (2,2) — is all-black
- * in the engine's rendered screen.
- *
- * This test demonstrates the "get the sprite the engine drew at index X and
- * confirm ours matches" loop-closing pattern:
- *   1. Decode engine screen from save state.
- *   2. extractCell at a known tile boundary.
- *   3. Render our glyph.
- *   4. assertSpriteMatches → ≥ 99% (should be 100%).
- */
-describe('engine cross-check: extractCell + assertSpriteMatches', () => {
-  it(
-    'engine cell at (16,16) in save 1 is all-black and matches renderFontGlyph(wfont1, 0x00)',
-    () => {
-      const savePath = join(WORKTREE_ROOT, 'tools', 'dosbox', 'save', '1.sav');
-      const engineScreen = decodeEngineScreen(savePath);
-
-      // Extract the 8×8 cell at pixel (16,16) from the engine screen.
-      // This is inside the top window interior (rows 8-48 are clean black),
-      // well above the rows 27-36 contamination range.
-      const cellRgba = extractCell(engineScreen, SCREEN_W, 16, 16);
-      expect(cellRgba).toHaveLength(8 * 8 * 4);
-
-      // The engine's actual cell at (16,16) must be all-black.
-      expect(allPixelsBlack(cellRgba)).toBe(true);
-
-      // Our rendered wfont1/0x00 glyph should match the engine cell exactly.
-      const wfont1 = loadFont4bpp('wfont1');
-      const ourGlyph = renderFontGlyph(wfont1, 0x00, WIZ6_MAIN);
-
-      // Use tolerance=0 since both buffers should be identical (pure black).
-      // Both our rendered glyph and the engine cell are all-black, so we expect 100%.
-      const result = assertSpriteMatches(ourGlyph.rgba, cellRgba, { tolerance: 0 }, 99);
-      expect(result.match).toBe(true);
-      expect(result.matchPct).toBeGreaterThanOrEqual(99);
-      console.log(`  engine-cell cross-check: ${result.matchPct.toFixed(1)}% match (cell at 16,16 vs wfont1/0x00)`);
-    },
-    15_000, // allow 15s for VGA blob parse
-  );
-});
+// Engine cross-check: full-screen pixel parity against the committed engine
+// fixtures now lives in screen-parity.test.ts (no live .sav read).
