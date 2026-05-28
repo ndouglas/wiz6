@@ -102,6 +102,9 @@ export type ScreenId =
   | 'deleteConfirm'  // DELETE PC: confirm before deletion (NO default-selected)
   | 'renamePicker'   // RENAME PC: pick a roster character to rename
   | 'renameInput'    // RENAME PC: type a new name for the selected character
+  | 'portraitPicker' // PORTRAIT PC: pick a roster character to re-portrait
+  | 'portraitChange' // PORTRAIT PC: cycle portraits for the selected character
+  | 'portraitDone'   // PORTRAIT PC: post-confirm preview ("PRESS ▶ TO EXIT")
   | 'confirm'        // screen-15-confirm: KEEP or DISCARD
   | 'committing'     // screen-16-save: page performs I/O then dispatches COMMIT_DONE
   | 'cancelled'      // internal alias — folds back to characterMenu (not a navigate-away terminal)
@@ -191,6 +194,10 @@ export type CreationEvent =
   | { type: 'PICK_RENAME'; index: number } // renamePicker: selected roster index → renameInput
   | { type: 'CONFIRM_RENAME'; name: string } // renameInput: submit a non-empty new name → characterMenu
   | { type: 'CANCEL_RENAME' }              // renamePicker / renameInput: back to characterMenu without renaming
+  | { type: 'PICK_PORTRAIT_FOR'; index: number } // portraitPicker: selected roster index → portraitChange
+  | { type: 'CONFIRM_PORTRAIT_CHANGE' }    // portraitChange: portrait actually changed → portraitDone (preview)
+  | { type: 'EXIT_PORTRAIT_CHANGE' }       // portraitDone: Enter → characterMenu
+  | { type: 'CANCEL_PORTRAIT_CHANGE' }     // portraitPicker / portraitChange: ESC or unchanged → characterMenu
   | { type: 'MENU_DELETE' }               // characterMenu: delete character (STUB — no-op, future work)
   | { type: 'MENU_RENAME' }               // characterMenu: rename character (STUB — no-op, future work)
   | { type: 'MENU_PORTRAIT' }             // characterMenu: change portrait (STUB — no-op, future work)
@@ -490,9 +497,12 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
         // char-sheet view. Hidden in CharacterMenuScreen when roster is empty.
         return { ...state, screen: 'renamePicker' };
       }
-      // Stubs for future work — no-op, stay on characterMenu
       if (event.type === 'MENU_PORTRAIT') {
-        return state;
+        // Engine path: wpcmk_show_roster_picker (with "PORTRAIT FOR WHOM?") →
+        // wpcmk_change_portrait → wpcmk_pick_portrait_loop → if changed, write
+        // record + wait-for-enter exit screen. Hidden in CharacterMenuScreen
+        // when roster is empty.
+        return { ...state, screen: 'portraitPicker' };
       }
       return state;
     }
@@ -563,6 +573,41 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
         return { ...state, screen: 'characterMenu', rosterIndex: null };
       }
       if (event.type === 'CANCEL_RENAME') {
+        return { ...state, screen: 'characterMenu', rosterIndex: null };
+      }
+      return state;
+    }
+
+    // -----------------------------------------------------------------------
+    case 'portraitPicker': {
+      if (event.type === 'PICK_PORTRAIT_FOR') {
+        return { ...state, screen: 'portraitChange', rosterIndex: event.index };
+      }
+      if (event.type === 'CANCEL_PORTRAIT_CHANGE') {
+        return { ...state, screen: 'characterMenu', rosterIndex: null };
+      }
+      return state;
+    }
+
+    // -----------------------------------------------------------------------
+    case 'portraitChange': {
+      if (event.type === 'CONFIRM_PORTRAIT_CHANGE') {
+        // Portrait changed — PortraitChangeScreen has already written the
+        // updateCharacter() call before dispatching this event. Transition to
+        // the "PRESS ▶ TO EXIT" preview screen.
+        return { ...state, screen: 'portraitDone' };
+      }
+      if (event.type === 'CANCEL_PORTRAIT_CHANGE') {
+        // User picked the same portrait OR pressed Escape — engine skips the
+        // EXIT preview and returns to the menu silently.
+        return { ...state, screen: 'characterMenu', rosterIndex: null };
+      }
+      return state;
+    }
+
+    // -----------------------------------------------------------------------
+    case 'portraitDone': {
+      if (event.type === 'EXIT_PORTRAIT_CHANGE') {
         return { ...state, screen: 'characterMenu', rosterIndex: null };
       }
       return state;

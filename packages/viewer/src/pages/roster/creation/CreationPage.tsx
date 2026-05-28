@@ -66,6 +66,9 @@ import { DeletePickerScreen } from './screens/DeletePickerScreen.js';
 import { DeleteConfirmScreen } from './screens/DeleteConfirmScreen.js';
 import { RenamePickerScreen } from './screens/RenamePickerScreen.js';
 import { RenameInputScreen } from './screens/RenameInputScreen.js';
+import { PortraitTargetPickerScreen } from './screens/PortraitTargetPickerScreen.js';
+import { PortraitChangeScreen } from './screens/PortraitChangeScreen.js';
+import { PortraitDoneScreen } from './screens/PortraitDoneScreen.js';
 
 import styles from './CreationPage.module.css';
 
@@ -336,6 +339,15 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
 
       case 'renameInput':
         return <RenameInputScreen {...sharedProps} portraits={portraits} />;
+
+      case 'portraitPicker':
+        return <PortraitTargetPickerScreen {...sharedProps} />;
+
+      case 'portraitChange':
+        return <PortraitChangeScreen {...sharedProps} portraits={portraits} />;
+
+      case 'portraitDone':
+        return <PortraitDoneScreen {...sharedProps} portraits={portraits} />;
 
       case 'committing':
       case 'done':

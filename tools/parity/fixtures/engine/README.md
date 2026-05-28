@@ -44,4 +44,7 @@ pnpm tsx tools/parity/gen-fixture.ts --save <path|N> --name <name>
 | `creation-delete-confirm` | DELETE PC — "DELETE THIS CHARACTER? YES NO" confirm; NO highlighted by default (safer for destructive action) |
 | `creation-rename-picker` | RENAME PC — "RENAME WHO?" roster picker (same layout as REVIEW/DELETE WHO?, different title msg) |
 | `creation-rename-input` | RENAME PC — char-sheet + " NEW NAME >a       " input prompt (empty buffer; cursor block at col 11) |
+| `creation-portrait-target-picker` | PORTRAIT PC — "PORTRAIT FOR WHOM?" roster picker (fourth consumer of composeReviewPickerFrame) |
+| `creation-portrait-change` | PORTRAIT PC — char sheet + active portrait picker (CHARACTER PORTRAIT panel, ◄►/▶ prompts; cycles wfont2 0x48..0x50) |
+| `creation-portrait-done` | PORTRAIT PC — post-change preview (char sheet with new portrait baked in + "PRESS ▶ TO EXIT") |
 | `character-delete-confirm` | DELETE THIS CHARACTER? confirm (with char sheet) |

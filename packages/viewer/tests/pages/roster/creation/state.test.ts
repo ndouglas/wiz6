@@ -249,11 +249,43 @@ describe('characterMenu events', () => {
     expect(s1.screen).toBe('characterMenu');
   });
 
-  it('MENU_PORTRAIT is a no-op (stub for future work)', () => {
+  it('MENU_PORTRAIT transitions to portraitPicker', () => {
     const rng = makeRng();
     const s0 = initialCreationState(rng);
     const s1 = creationReducer(s0, { type: 'MENU_PORTRAIT' });
+    expect(s1.screen).toBe('portraitPicker');
+  });
+
+  it('PICK_PORTRAIT_FOR transitions portraitPicker → portraitChange with index', () => {
+    const rng = makeRng();
+    const s0 = { ...initialCreationState(rng), screen: 'portraitPicker' as const };
+    const s1 = creationReducer(s0, { type: 'PICK_PORTRAIT_FOR', index: 2 });
+    expect(s1.screen).toBe('portraitChange');
+    expect(s1.rosterIndex).toBe(2);
+  });
+
+  it('CONFIRM_PORTRAIT_CHANGE transitions portraitChange → portraitDone', () => {
+    const rng = makeRng();
+    const s0 = { ...initialCreationState(rng), screen: 'portraitChange' as const, rosterIndex: 0 };
+    const s1 = creationReducer(s0, { type: 'CONFIRM_PORTRAIT_CHANGE' });
+    expect(s1.screen).toBe('portraitDone');
+    expect(s1.rosterIndex).toBe(0);
+  });
+
+  it('EXIT_PORTRAIT_CHANGE returns from portraitDone → characterMenu', () => {
+    const rng = makeRng();
+    const s0 = { ...initialCreationState(rng), screen: 'portraitDone' as const, rosterIndex: 0 };
+    const s1 = creationReducer(s0, { type: 'EXIT_PORTRAIT_CHANGE' });
     expect(s1.screen).toBe('characterMenu');
+    expect(s1.rosterIndex).toBeNull();
+  });
+
+  it('CANCEL_PORTRAIT_CHANGE from portraitChange → characterMenu (skips portraitDone)', () => {
+    const rng = makeRng();
+    const s0 = { ...initialCreationState(rng), screen: 'portraitChange' as const, rosterIndex: 0 };
+    const s1 = creationReducer(s0, { type: 'CANCEL_PORTRAIT_CHANGE' });
+    expect(s1.screen).toBe('characterMenu');
+    expect(s1.rosterIndex).toBeNull();
   });
 
   it('exit is a terminal — no further transitions from exit', () => {

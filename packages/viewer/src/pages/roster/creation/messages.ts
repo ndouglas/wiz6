@@ -78,6 +78,8 @@ export const MSG = {
   renameWho: 0x0462,
   /** RENAME PC input prompt: "NEW NAME >" (msg 0x0468). */
   newNamePrompt: 0x0468,
+  /** PORTRAIT PC roster picker: "PORTRAIT FOR WHOM?" header (msg 0x0463). */
+  portraitForWhom: 0x0463,
   /** screen-14 title: "      SPELLS      " */
   spellsTitle: 0x02bc,
   /** screen-14: "COST" */

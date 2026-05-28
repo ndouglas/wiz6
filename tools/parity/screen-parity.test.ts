@@ -460,6 +460,94 @@ function renderRenamePicker(fontSet: FontSet, palette: Palette): Uint8ClampedArr
   return renderCreationFrame(windows, fontSet, palette);
 }
 
+function renderPortraitTargetPicker(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // Engine slot 7: picker title = "PORTRAIT FOR WHOM?".
+  const windows = composeReviewPickerFrame(
+    { roster: [NATHAN_RAWULF_FIGHTER], cursorIdx: 0, titleMsgId: MSG.portraitForWhom },
+    msgDb,
+  );
+  return renderCreationFrame(windows, fontSet, palette);
+}
+
+function renderPortraitChange(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // Engine slot 8: portrait-change active. Char sheet of NATHAN Rawulf Fighter
+  // on the left + portrait picker (CHARACTER PORTRAIT title + 3x3 tiles) on
+  // the right. wfont2 is loaded with the character's CURRENT portrait (= 1) —
+  // the picker has just started.
+  const wport1: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  );
+  const empty: PortraitSet = { ...wport1, portraits: [] };
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, empty, empty], 1);
+
+  const { top, bottomBar, menuPanel } = createPersistentWindows();
+  const draft = draftFromCharacter(NATHAN_RAWULF_FIGHTER);
+  drawCharSheet(top, draft, msgDb, creationString(msgDb, MSG.portraitTitle));
+
+  // Small portrait tiles at top (1..3, 1..3) attr 0x02.
+  for (let r = 0; r < 3; r++) {
+    setCursor(top, 1, 1 + r);
+    puts(top,
+      String.fromCharCode(0x48 + r * 3) +
+      String.fromCharCode(0x48 + r * 3 + 1) +
+      String.fromCharCode(0x48 + r * 3 + 2),
+      0x02,
+    );
+  }
+
+  // menuPanel big portrait 3×3 at (8,3)..(10,5) attr 0x02.
+  for (let r = 0; r < 3; r++) {
+    setCursor(menuPanel, 8, 3 + r);
+    for (let c = 0; c < 3; c++) {
+      puts(menuPanel, String.fromCharCode(0x48 + r * 3 + c), 0x02);
+    }
+  }
+
+  // bottomBar prompts (ceil centering, same as creation portrait picker).
+  const review = creationString(msgDb, MSG.portraitReview);
+  setCursor(bottomBar, Math.ceil((bottomBar.widthCells - review.length) / 2), 1);
+  puts(bottomBar, review, 0x03);
+  const select = creationString(msgDb, MSG.portraitSelect);
+  setCursor(bottomBar, Math.ceil((bottomBar.widthCells - select.length) / 2), 2);
+  puts(bottomBar, select, 0x03);
+
+  return renderCreationFrame([top, bottomBar, menuPanel], fontSetWithPortrait, palette);
+}
+
+function renderPortraitDone(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // Engine slot 9: post-change preview. Char sheet with the NEW portrait
+  // (index 21 — same as the earlier samurai save) baked into wfont2.
+  // bottomBar row 1: "PRESS ▶ TO EXIT" centered (same as ReviewScreen).
+  const wport2: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport2.json'), 'utf-8')),
+  );
+  const empty: PortraitSet = { ...wport2, portraits: [] };
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [empty, wport2, empty], 21);
+
+  // Use the existing fighter character but with portraitIndex updated to 21.
+  const updatedCharacter = { ...NATHAN_RAWULF_FIGHTER, portraitIndex: 21 };
+
+  const { top, bottomBar, menuPanel } = createPersistentWindows();
+  const draft = draftFromCharacter(updatedCharacter);
+  drawCharSheet(top, draft, msgDb);
+
+  for (let r = 0; r < 3; r++) {
+    setCursor(top, 1, 1 + r);
+    puts(top,
+      String.fromCharCode(0x48 + r * 3) +
+      String.fromCharCode(0x48 + r * 3 + 1) +
+      String.fromCharCode(0x48 + r * 3 + 2),
+      0x02,
+    );
+  }
+
+  const exitPrompt = creationString(msgDb, MSG.skillExit);
+  setCursor(bottomBar, Math.floor((bottomBar.widthCells - exitPrompt.length) / 2), 1);
+  puts(bottomBar, exitPrompt, 0x03);
+
+  return renderCreationFrame([top, bottomBar, menuPanel], fontSetWithPortrait, palette);
+}
+
 function renderRenameInput(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
   // Engine slot 6: char sheet of NATHAN Rawulf Fighter (BONUS hidden) with
   // " NEW NAME >a       " at bottomBar row 1 — empty buffer, cursor at col 11.
@@ -656,6 +744,21 @@ const SCREENS: ScreenCase[] = [
     fixture: 'creation-rename-input',
     floor: 100, // pixel-exact — char-sheet + " NEW NAME >a       " input (empty buffer)
     render: renderRenameInput,
+  },
+  {
+    fixture: 'creation-portrait-target-picker',
+    floor: 100, // pixel-exact — PORTRAIT FOR WHOM? picker
+    render: renderPortraitTargetPicker,
+  },
+  {
+    fixture: 'creation-portrait-change',
+    floor: 100, // pixel-exact — portrait-change active (char sheet + creation-style picker)
+    render: renderPortraitChange,
+  },
+  {
+    fixture: 'creation-portrait-done',
+    floor: 100, // pixel-exact — post-change preview (char sheet with new portrait + "PRESS ▶ TO EXIT")
+    render: renderPortraitDone,
   },
 ];
 
