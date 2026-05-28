@@ -22,6 +22,10 @@ pnpm tsx tools/parity/gen-fixture.ts --save <path|N> --name <name>
 
 | Fixture | Screen |
 |---|---|
+| `sirtech-logo` | Boot splash 1 — SIR-TECH publisher logo (red dragon) |
+| `author-credit` | Boot splash 2 — "A Fantasy Role-Playing Simulation by D.W. Bradley" |
+| `title-art` | Title art (Wizardry VI / Bane of the Cosmic Forge), pre-copyright |
+| `title-art-copyright` | Title art + "COPYRIGHT 1990 by SIR-TECH …" overlay |
 | `title-page` / `title-page-2` | Wizardry VI title + scrolling credits (two scroll frames) |
 | `main-menu` / `main-menu-2` | MASTER OPTIONS menu (two door-animation frames) |
 | `character-menu-empty` | CHARACTER MENU, empty roster (CREATE PC / EXIT only) |
