@@ -60,7 +60,7 @@ import {
   rollKarmaWith,
   rollSkillBudget,
   getRaceBaseStats,
-  meetsClassRequirements,
+  classOffered,
   classIsCaster,
 } from '@wiz6/data';
 
@@ -497,12 +497,14 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
     // -----------------------------------------------------------------------
     case 'class': {
       if (event.type === 'PICK_CLASS') {
-        // Qualification check: class must be qualified by current attributes
-        // §1: "menu picker §7, qualification-gated"
-        // §7: "Disabled entries (enabled[i] == 0) are skipped during the init loop"
-        // We enforce qualification silently (ignore unqualified picks).
-        if (!meetsClassRequirements(state.draft.attributes, event.index)) {
-          return state; // not qualified — no transition
+        // Qualification check: same `classOffered` predicate the picker uses
+        // (pool-aware + sex-aware). At this screen the bonus pool isn't yet
+        // allocated, so raw attributes rarely meet the minimums — what matters
+        // is whether the pool CAN cover the deficit, AND the sex restriction
+        // (Valkyrie female-only). The picker filters via classOffered already;
+        // re-check defensively here, ignore unqualified picks silently.
+        if (!classOffered(state.draft.attributes, state.draft.bonusPool, state.draft.sex ?? 0, event.index)) {
+          return state; // not offered — no transition
         }
         return {
           ...state,
