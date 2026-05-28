@@ -1,25 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PicSchema, WIZ6_MAIN, type Font, type Font4bpp, type Pic } from '@wiz6/data';
-// NOTE: was EGA_DEFAULT before the per-scene AC->DAC palette fix.
-// WIZ6_MAIN.colors[i] is the AC->DAC chain result for color attribute i
-// under the engine's main-game AC palette. See
-// docs/re/findings/menu-cursor-render-path.json.
 import {
   renderEgaScreen,
   concatenatePicSegments,
-  compositePicScript,
-  createTileWindow,
-  clearWindow,
-  setCursor,
-  puts,
-  centeredPuts,
-  renderTileWindow,
   visibleMenuOptions,
-  type MainMenuOption,
   type MainMenuContext,
 } from '@wiz6/parser';
 import { loadEgaScreen, loadFont, loadFont4bpp } from '../../data-loader.js';
+import { composeCastleFrame } from './castle-frame.js';
 import styles from './CastleScreen.module.css';
 
 const ENGINE_W = 320;
@@ -58,6 +47,7 @@ export function CastleScreen() {
   const [mon08Decoded, setMon08Decoded] = useState<number[] | null>(null);
   const [dragonscRgba, setDragonscRgba] = useState<Uint8ClampedArray | null>(null);
   const [wfont3, setWfont3] = useState<Font4bpp | null>(null);
+  const [wfont1, setWfont1] = useState<Font4bpp | null>(null);
   const [wfont0, setWfont0] = useState<Font | null>(null);
 
   // Web-port menu filtering:
@@ -129,6 +119,20 @@ export function CastleScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    loadFont4bpp('/fonts/wfont1.json')
+      .then((font) => {
+        if (!cancelled) setWfont1(font);
+      })
+      .catch(() => {
+        /* leave null */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     loadFont('/fonts/wfont0.json')
       .then((font) => {
         if (!cancelled) setWfont0(font);
@@ -163,8 +167,7 @@ export function CastleScreen() {
         parity = parity === 0 ? 1 : 0;
         lastFlip = now;
       }
-      composeFrame(
-        ctx,
+      const buf = composeCastleFrame(
         parity,
         dragonscRgba,
         mon08Pic,
@@ -173,12 +176,18 @@ export function CastleScreen() {
         wfont0,
         visible,
         selectedIdxRef.current,
+        wfont1,
       );
+      // Allocate ArrayBuffer-backed ImageData + copy; passing the
+      // Uint8ClampedArray to the ctor trips the lib.dom ArrayBufferLike types.
+      const img = new ImageData(ENGINE_W, ENGINE_H);
+      img.data.set(buf);
+      ctx.putImageData(img, 0, 0);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [mon08Pic, mon08Decoded, dragonscRgba, wfont3, wfont0, visible]);
+  }, [mon08Pic, mon08Decoded, dragonscRgba, wfont3, wfont1, wfont0, visible]);
 
   // Keyboard navigation: ↑/↓ wrap-around through visible options; Enter activates.
   useEffect(() => {
@@ -227,134 +236,3 @@ export function CastleScreen() {
   );
 }
 
-function composeFrame(
-  ctx: CanvasRenderingContext2D,
-  parity: 0 | 1 | number,
-  dragonscRgba: Uint8ClampedArray | null,
-  mon08Pic: Pic | null,
-  mon08Decoded: number[] | null,
-  wfont3: Font4bpp | null,
-  wfont0: Font | null,
-  menuOptions: readonly MainMenuOption[],
-  selectedIdx: number,
-): void {
-  const buf = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
-  // Start with the canvas filled in the neutral dark-gray that wraps the
-  // gate / dungeon viewport on every side AND fills the bottom of the
-  // screen down to y=200. The gate art + dragonsc strip + banner are
-  // overlaid on top.
-  // Engine writes color attribute 8 to the bordering pixels around the
-  // dungeon viewport. Under WIZ6_MAIN AC, that's DAC[16] = dim gray.
-  const GRAY = WIZ6_MAIN.colors[8] ?? [0x55, 0x55, 0x55];
-  for (let i = 0; i < buf.length; i += 4) {
-    buf[i] = GRAY[0]!;
-    buf[i + 1] = GRAY[1]!;
-    buf[i + 2] = GRAY[2]!;
-    buf[i + 3] = 0xff;
-  }
-
-  // Top strip + gate art (FUN_07b7 calls — see wroot-window-heap-allocator
-  // finding for the engine-derived positions).
-  // dragonsc.ega is a full 320×200 image but has visible content from
-  // rows 4..38. Per user reference, the gray ground starts at the TOP
-  // edge of the dungeon viewport (y=32), so we crop dragonsc to rows
-  // 0..31 only — the dragon-shape decorations dragonsc has at rows
-  // 32..44 are covered by other windows in the engine's render and
-  // shouldn't bleed into the gray sides.
-  if (dragonscRgba) {
-    const DRAGONSC_TOP_ROWS = 32;
-    const bytes = ENGINE_W * DRAGONSC_TOP_ROWS * 4;
-    buf.set(dragonscRgba.subarray(0, bytes));
-  }
-  if (mon08Pic && mon08Decoded) {
-    compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 32, [0], mon08Pic, mon08Decoded, WIZ6_MAIN);
-    compositePicScript(buf, ENGINE_W, ENGINE_H, 160, 32, [1], mon08Pic, mon08Decoded, WIZ6_MAIN);
-    compositePicScript(buf, ENGINE_W, ENGINE_H, 128, 49, [2], mon08Pic, mon08Decoded, WIZ6_MAIN);
-    compositePicScript(buf, ENGINE_W, ENGINE_H, 160, 49, [3], mon08Pic, mon08Decoded, WIZ6_MAIN);
-  }
-
-  // Parity-gated water overlays from FUN_0732 slots 5 + 6:
-  //   slot 5: desc 4 (devil + water column) at (208, 52)
-  //   slot 6: desc 5 (water ripple strip)   at (72,  125)
-  if (parity !== 0 && mon08Pic && mon08Decoded) {
-    compositePicScript(buf, ENGINE_W, ENGINE_H, 208, 52, [4], mon08Pic, mon08Decoded, WIZ6_MAIN);
-    compositePicScript(buf, ENGINE_W, ENGINE_H, 72, 125, [5], mon08Pic, mon08Decoded, WIZ6_MAIN);
-  }
-
-  // Menu UI bottom band — three stacked windows per the engine's heap walk
-  // (docs/re/findings/wroot-window-heap-allocator.json):
-  //   y=144..152 px : BANNER row, attr=0x0E (yellow). "MASTER OPTIONS" with
-  //                   bat glyphs (wfont3 char 0x7F) on either side; cursor
-  //                   was at col 30 at save time = matches centered 18-char
-  //                   layout "\x7F MASTER OPTIONS \x7F".
-  //   y=152..192 px : LOWER PANE, attr=0x04 (red) background under attr=0x0F
-  //                   (white) text overlay. The menu options live here.
-  //   y=192..200 px : STATUS row, attr=0x03 (cyan). Empty in this save.
-  //
-  // FUN_025c's grid math (wbase 0x028F..0x02AC, called from FUN_2b36 with
-  // args (2, 1, 0x13, 4)) puts option text at:
-  //   cursor_X = (slot / 4) * 19 + 2   → col 0 at cell X=2; col 1 at X=21
-  //   cursor_Y = (slot % 4) + 1        → 4 rows per column at Y=1..4
-  // Cells are 8 px relative to the lower pane's top-left.
-  if (wfont3) {
-    // wfont3 is a SPRITESHEET — every glyph slot is a complete 8×8 tile
-    // with baked-in colors. Same shape appears at multiple slots with
-    // different color schemes. See docs/re/findings/wfont-tile-system.json.
-    //
-    // The UI rendering uses an engine-faithful (char, attr) tile-window
-    // model: tiles are placed via clearWindow / puts / centeredPuts and
-    // then renderTileWindow blits each cell using the wfont selected by
-    // the attribute byte's low nibble (attr_lo=3 → wfont3).
-
-    // ---- Banner row at cell (0, 18) = screen (0, 144), 40×1 cells ----
-    // Engine call: c61a(banner_window, "master options", 0, 0x12)
-    //   c61a translates attr ≥ 0x10 by subtracting 0xF, so the underlying
-    //   puts attr is 3 → wfont3. The string is centered with padding
-    //   character 0x5F (banner-variant space).
-    const fontSet = { font0: wfont0, font3: wfont3 };
-
-    const banner = createTileWindow({ screenX: 0, screenY: 144, widthCells: 40, heightCells: 1 });
-    clearWindow(banner, 0x5f, 0x03); // banner-variant space, wfont3
-    // Banner string is 20 cells total: bat + 2 banner-spaces + "master" +
-    // 1 banner-space + "options" + 2 banner-spaces + bat. Centered in 40
-    // cells starts at col 10 and ends at col 29 — cursor advances to 30,
-    // matching the live banner_window cursor we read from wbase.dgroup
-    // at save time. (0x5F is the banner-variant space; 0x7F the banner-
-    // variant bat icon.)
-    centeredPuts(banner, '\x7f\x5f\x5fmaster\x5foptions\x5f\x5f\x7f', 0x12, 0x5f);
-    renderTileWindow(banner, buf, ENGINE_W, ENGINE_H, fontSet, WIZ6_MAIN);
-
-    // ---- Lower pane at cell (0, 19) = screen (0, 152), 40×5 cells ----
-    // Engine call: ed5a(menu_text_window, 0x20, 3, 0) — clear with
-    //   tile 0x20 (uniform dark-gray fill) at attr=3 (wfont3). Then for
-    //   each visible menu option, set cursor + puts.
-    // FUN_025c grid math (called from FUN_2b36 args 2, 1, 0x13, 4):
-    //   cursor_X = (slot / 4) * 19 + 2  → col 0 at cell X=2; col 1 at X=21
-    //   cursor_Y = (slot % 4) + 1       → 4 rows per column at Y=1..4
-    const pane = createTileWindow({ screenX: 0, screenY: 152, widthCells: 40, heightCells: 5 });
-    clearWindow(pane, 0x20, 0x03);
-    pane.invertHighlight = true; // menu selection = black text on the colour bar
-    const X_BASE = 2;
-    const Y_BASE = 1;
-    const X_STRIDE = 19;
-    const ROWS_PER_COL = 4;
-    for (let i = 0; i < menuOptions.length; i++) {
-      const opt = menuOptions[i]!;
-      const cx = Math.floor(i / ROWS_PER_COL) * X_STRIDE + X_BASE;
-      const cy = (i % ROWS_PER_COL) + Y_BASE;
-      setCursor(pane, cx, cy);
-      // Selected option uses the highlight putchar (wbase pushes attr=-5).
-      // Cell stores (char, 0x50): attr<<4 in the high nibble, 0 in the low
-      // nibble dispatches the blit to ega.drv slot 1 (1bpp wfont0 text).
-      // At render time: stroke → palette[0] (black), bg → palette[5]. Under
-      // WIZ6_MAIN AC, AC[5]=0x16 → DAC[22] = (255, 255, 85) bright yellow.
-      // Non-selected options use the normal text path at attr=3 → wfont3.
-      // See docs/re/findings/menu-cursor-render-path.json.
-      const attr = i === selectedIdx ? 0x50 : 0x03;
-      puts(pane, opt.label, attr);
-    }
-    renderTileWindow(pane, buf, ENGINE_W, ENGINE_H, fontSet, WIZ6_MAIN);
-  }
-
-  ctx.putImageData(new ImageData(buf, ENGINE_W, ENGINE_H), 0, 0);
-}
