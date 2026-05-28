@@ -60,9 +60,28 @@ import { creationString, MSG, skillName, skillCatName } from '../messages.js';
 export const SKILL_CATEGORIES = [
   { msgOffset: 0, startSlot: 0,  endSlot: 9,  iconLeft: 0x02, iconRight: 0x02, nameAttr: 0x20 }, // WEAPONRY
   { msgOffset: 1, startSlot: 10, endSlot: 16, iconLeft: 0x25, iconRight: 0x26, nameAttr: 0xe0 }, // PHYSICAL
-  { msgOffset: 2, startSlot: 17, endSlot: 21, iconLeft: 0x25, iconRight: 0x26, nameAttr: 0xc0 }, // PERSONAL
+  { msgOffset: 2, startSlot: 17, endSlot: 21, iconLeft: 0x25, iconRight: 0x26, nameAttr: 0xc0 }, // PERSONAL — never shown at creation (see note below)
   { msgOffset: 3, startSlot: 22, endSlot: 29, iconLeft: 0x22, iconRight: 0x22, nameAttr: 0xb0 }, // ACADEMIA
 ] as const;
+
+/**
+ * PERSONAL category is never shown at initial skill training, for any of the
+ * 14 classes. The engine gates the category on a pre-check at wpcmk file
+ * 0x1b31..0x1b53: it scans slots 17..21 in the character's skill-values array
+ * (DGROUP 0x55a4 + slot) and sets `has_personal_skills = 1` only if any byte
+ * is > 0. Mid-loop at 0x1b91..0x1b9c: when the rotation would land on cat 2
+ * (PERSONAL) and the flag is 0, it INCs the cat to 3 (ACADEMIA), skipping
+ * PERSONAL entirely. Since no class grants PERSONAL skill values at creation
+ * (our CLASS_SKILL_AVAILABILITY returns 0 PERSONAL slots for every class),
+ * the gate never opens — DEFENSE / SPEED / MOVEMENT / AIM / POWER are
+ * acquired through play, not training.
+ *
+ * Our cycle naturally honors this: the "next category" search skips any
+ * category with an empty `trainableInCategory` list, and the initial-category
+ * resolution does the same. The PERSONAL entry above is preserved so that
+ * IF the engine logic ever did open the gate (e.g. via a save-game edit
+ * granting a PERSONAL skill value), we'd render the panel correctly.
+ */
 
 /** Font slot for the persistent portrait baked into wfont2 glyphs 0x48..0x50. */
 const PORTRAIT_GLYPH_BASE = 0x48;
