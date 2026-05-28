@@ -100,6 +100,8 @@ How to confirm a new overlay's delta: find any in-file table referenced by a CS-
 - **TS ESM** — relative imports use `.js` extensions even though source is `.ts`.
 - **Live deploy**: pushing to `main` of the wiz6 repo builds a container; the goldentooth gitops repo (`~/Projects/goldentooth/gitops/apps/wiz6/deployment.yaml`) pins a specific image SHA; flux reconciles to the K8s cluster. Live URL: https://wiz6.goldentooth.net/.
 - **`pnpm dev:viewer` runs predev → re-extracts** all JSON assets before launching Vite, so schema changes never get tested against stale assets.
+- **Every ported screen requires a pixel-exact parity test.** Decode the engine's framebuffer from a known save via `tools/parity/gen-fixture.ts`; commit the `.idx.gz` + `.png` under `tools/parity/fixtures/engine/`; write a `*-parity.test.ts` that compares our composed RGBA to the engine pixel-by-pixel (target floor: 100%; if you ship with a lower floor, file a TODO entry for the remaining gap). **Cell-grid parity tests are a fast intermediate diagnostic, not a substitute.** A cell-grid test can pass while the rendered pixels are visually wrong (e.g. window placed at wrong screen coords — only the pixel test catches it). Don't claim "byte-exact" / "pixel-exact" until the pixel test is the gate.
+- **Manual smoke test before declaring a screen port done.** `pnpm dev:viewer`, click through the feature in a browser, eyeball the result. The pixel-parity test should make this fast (if it passes ≥99%, the browser will look right) — but the manual click is the final sanity check that the page loads, key handling works, and navigation goes where it should.
 
 ## Parity testing — `tools/parity/`
 

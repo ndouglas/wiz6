@@ -5,10 +5,11 @@
  * engine's LIVE window cell memory, dumped from DOSBox-X save states 1/2/3 via
  * `tools/parity/dump-cells.py` and committed as JSON fixtures.
  *
- * This is the authoritative parity oracle: the engine's cell array is exactly
- * what it placed, independent of any framebuffer decode. (The older framebuffer
- * decoder, tools/parity/decode-screen.ts, has a display-start offset bug and is
- * NOT used here.)
+ * SCOPE NOTE: this test asserts cell content (and window dimensions) match the
+ * engine's live cell memory. It does NOT verify rendered pixels. For pixel-exact
+ * parity see `tools/parity/screen-parity.test.ts`. Per CLAUDE.md project
+ * conventions, cell-grid tests are an intermediate diagnostic — the pixel test
+ * is the gate for a screen port being "done."
  *
  * Ground truth: docs/re/findings/wpcmk-charmenu-toplayout.json — every cell is
  * an 8×8 tile written via ui_put_styled_char_at; the attr low nibble selects

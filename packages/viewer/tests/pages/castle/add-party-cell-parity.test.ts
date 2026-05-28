@@ -1,8 +1,12 @@
 /**
- * add-party-cell-parity.test.ts — BYTE-EXACT tile parity for the ADD PARTY picker.
+ * add-party-cell-parity.test.ts — cell-grid (char + attr) match for the ADD PARTY picker.
  *
- * Drives composeAddPartyPickerFrame against the engine's live cell memory
- * dumped from save/1.sav (NATHAN as the only candidate, cursor on NATHAN).
+ * SCOPE: this test compares per-cell `(char, attr)` byte pairs AND each window's
+ * `screenX`/`screenY` against the engine's live cell memory dumped from save/1.sav.
+ * It is an INTERMEDIATE diagnostic that catches composer bugs fast — it does NOT
+ * verify the final rendered pixels. For end-to-end pixel parity, see
+ * `tools/parity/add-party-parity.test.ts`. (Per CLAUDE.md project conventions,
+ * cell-grid tests are diagnostics; the pixel test is the gate.)
  *
  * Fixture: tools/parity/fixtures/cells/add-party-picker-1char.json
  *
