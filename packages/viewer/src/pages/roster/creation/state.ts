@@ -100,6 +100,8 @@ export type ScreenId =
   | 'review'         // REVIEW PC: render the selected character (read-only)
   | 'deletePicker'   // DELETE PC: pick a roster character to delete
   | 'deleteConfirm'  // DELETE PC: confirm before deletion (NO default-selected)
+  | 'renamePicker'   // RENAME PC: pick a roster character to rename
+  | 'renameInput'    // RENAME PC: type a new name for the selected character
   | 'confirm'        // screen-15-confirm: KEEP or DISCARD
   | 'committing'     // screen-16-save: page performs I/O then dispatches COMMIT_DONE
   | 'cancelled'      // internal alias — folds back to characterMenu (not a navigate-away terminal)
@@ -186,6 +188,9 @@ export type CreationEvent =
   | { type: 'PICK_DELETE'; index: number } // deletePicker: selected roster index → deleteConfirm
   | { type: 'CONFIRM_DELETE'; delete: boolean } // deleteConfirm: YES=delete / NO=cancel; either way → characterMenu
   | { type: 'CANCEL_DELETE' }              // deletePicker / deleteConfirm: back to characterMenu without deleting
+  | { type: 'PICK_RENAME'; index: number } // renamePicker: selected roster index → renameInput
+  | { type: 'CONFIRM_RENAME'; name: string } // renameInput: submit a non-empty new name → characterMenu
+  | { type: 'CANCEL_RENAME' }              // renamePicker / renameInput: back to characterMenu without renaming
   | { type: 'MENU_DELETE' }               // characterMenu: delete character (STUB — no-op, future work)
   | { type: 'MENU_RENAME' }               // characterMenu: rename character (STUB — no-op, future work)
   | { type: 'MENU_PORTRAIT' }             // characterMenu: change portrait (STUB — no-op, future work)
@@ -479,11 +484,14 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
         // when roster is empty.
         return { ...state, screen: 'deletePicker' };
       }
+      if (event.type === 'MENU_RENAME') {
+        // Engine path: wpcmk_show_roster_picker (with "RENAME WHO?" title) →
+        // wpcmk_load_and_draw_character → "NEW NAME >" text input on the same
+        // char-sheet view. Hidden in CharacterMenuScreen when roster is empty.
+        return { ...state, screen: 'renamePicker' };
+      }
       // Stubs for future work — no-op, stay on characterMenu
-      if (
-        event.type === 'MENU_RENAME' ||
-        event.type === 'MENU_PORTRAIT'
-      ) {
+      if (event.type === 'MENU_PORTRAIT') {
         return state;
       }
       return state;
@@ -531,6 +539,30 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
         return { ...state, screen: 'characterMenu', rosterIndex: null };
       }
       if (event.type === 'CANCEL_DELETE') {
+        return { ...state, screen: 'characterMenu', rosterIndex: null };
+      }
+      return state;
+    }
+
+    // -----------------------------------------------------------------------
+    case 'renamePicker': {
+      if (event.type === 'PICK_RENAME') {
+        return { ...state, screen: 'renameInput', rosterIndex: event.index };
+      }
+      if (event.type === 'CANCEL_RENAME') {
+        return { ...state, screen: 'characterMenu', rosterIndex: null };
+      }
+      return state;
+    }
+
+    // -----------------------------------------------------------------------
+    case 'renameInput': {
+      if (event.type === 'CONFIRM_RENAME') {
+        // RenameInputScreen owns the updateCharacter(...) call (same I/O
+        // policy as DeleteConfirmScreen / commit path).
+        return { ...state, screen: 'characterMenu', rosterIndex: null };
+      }
+      if (event.type === 'CANCEL_RENAME') {
         return { ...state, screen: 'characterMenu', rosterIndex: null };
       }
       return state;

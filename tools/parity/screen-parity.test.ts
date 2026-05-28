@@ -451,6 +451,50 @@ function renderDeletePicker(fontSet: FontSet, palette: Palette): Uint8ClampedArr
   return renderCreationFrame(windows, fontSet, palette);
 }
 
+function renderRenamePicker(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // Engine slot 5: same single-character roster, picker title = "RENAME WHO?".
+  const windows = composeReviewPickerFrame(
+    { roster: [NATHAN_RAWULF_FIGHTER], cursorIdx: 0, titleMsgId: MSG.renameWho },
+    msgDb,
+  );
+  return renderCreationFrame(windows, fontSet, palette);
+}
+
+function renderRenameInput(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // Engine slot 6: char sheet of NATHAN Rawulf Fighter (BONUS hidden) with
+  // " NEW NAME >a       " at bottomBar row 1 — empty buffer, cursor at col 11.
+  const wport1: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  );
+  const empty: PortraitSet = { ...wport1, portraits: [] };
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, empty, empty], 1);
+
+  const { top, bottomBar, menuPanel } = createPersistentWindows();
+  const draft = draftFromCharacter(NATHAN_RAWULF_FIGHTER);
+  drawCharSheet(top, draft, msgDb);
+
+  for (let r = 0; r < 3; r++) {
+    setCursor(top, 1, 1 + r);
+    puts(top,
+      String.fromCharCode(0x48 + r * 3) +
+      String.fromCharCode(0x48 + r * 3 + 1) +
+      String.fromCharCode(0x48 + r * 3 + 2),
+      0x02,
+    );
+  }
+
+  // bottomBar — empty buffer (cursor block 'a' at col 11, 7 spaces after).
+  bottomBar.invertHighlight = false;
+  const promptText = creationString(msgDb, MSG.newNamePrompt); // "NEW NAME >"
+  setCursor(bottomBar, 1, 1);
+  puts(bottomBar, promptText, 0x03);
+  setCursor(bottomBar, 1 + promptText.length, 1);
+  puts(bottomBar, 'a', 0x10);
+  puts(bottomBar, ' '.repeat(7), 0x00);
+
+  return renderCreationFrame([top, bottomBar, menuPanel], fontSetWithPortrait, palette);
+}
+
 function renderDeleteConfirm(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
   // Engine slot 4: char-sheet of NATHAN Rawulf Fighter with the
   // "DELETE THIS CHARACTER? YES NO" prompt at bottomBar row 1, NO selected.
@@ -602,6 +646,16 @@ const SCREENS: ScreenCase[] = [
     fixture: 'creation-delete-confirm',
     floor: 100, // pixel-exact — "DELETE THIS CHARACTER? YES NO" with NO selected by default
     render: renderDeleteConfirm,
+  },
+  {
+    fixture: 'creation-rename-picker',
+    floor: 100, // pixel-exact — RENAME WHO? picker
+    render: renderRenamePicker,
+  },
+  {
+    fixture: 'creation-rename-input',
+    floor: 100, // pixel-exact — char-sheet + " NEW NAME >a       " input (empty buffer)
+    render: renderRenameInput,
   },
 ];
 

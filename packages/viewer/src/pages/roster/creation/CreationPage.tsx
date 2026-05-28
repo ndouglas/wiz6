@@ -64,6 +64,8 @@ import { ReviewScreen } from './screens/ReviewScreen.js';
 import { ReviewPickerScreen } from './screens/ReviewPickerScreen.js';
 import { DeletePickerScreen } from './screens/DeletePickerScreen.js';
 import { DeleteConfirmScreen } from './screens/DeleteConfirmScreen.js';
+import { RenamePickerScreen } from './screens/RenamePickerScreen.js';
+import { RenameInputScreen } from './screens/RenameInputScreen.js';
 
 import styles from './CreationPage.module.css';
 
@@ -328,6 +330,12 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
 
       case 'deleteConfirm':
         return <DeleteConfirmScreen {...sharedProps} portraits={portraits} />;
+
+      case 'renamePicker':
+        return <RenamePickerScreen {...sharedProps} />;
+
+      case 'renameInput':
+        return <RenameInputScreen {...sharedProps} portraits={portraits} />;
 
       case 'committing':
       case 'done':

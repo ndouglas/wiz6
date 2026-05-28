@@ -219,10 +219,33 @@ describe('characterMenu events', () => {
     expect(s1.screen).toBe('characterMenu');
   });
 
-  it('MENU_RENAME is a no-op (stub for future work)', () => {
+  it('MENU_RENAME transitions to renamePicker', () => {
     const rng = makeRng();
     const s0 = initialCreationState(rng);
     const s1 = creationReducer(s0, { type: 'MENU_RENAME' });
+    expect(s1.screen).toBe('renamePicker');
+  });
+
+  it('PICK_RENAME transitions renamePicker → renameInput and stores the index', () => {
+    const rng = makeRng();
+    const s0 = { ...initialCreationState(rng), screen: 'renamePicker' as const };
+    const s1 = creationReducer(s0, { type: 'PICK_RENAME', index: 1 });
+    expect(s1.screen).toBe('renameInput');
+    expect(s1.rosterIndex).toBe(1);
+  });
+
+  it('CONFIRM_RENAME returns from renameInput → characterMenu', () => {
+    const rng = makeRng();
+    const s0 = { ...initialCreationState(rng), screen: 'renameInput' as const, rosterIndex: 0 };
+    const s1 = creationReducer(s0, { type: 'CONFIRM_RENAME', name: 'NEWNAME' });
+    expect(s1.screen).toBe('characterMenu');
+    expect(s1.rosterIndex).toBeNull();
+  });
+
+  it('CANCEL_RENAME returns from renamePicker → characterMenu', () => {
+    const rng = makeRng();
+    const s0 = { ...initialCreationState(rng), screen: 'renamePicker' as const };
+    const s1 = creationReducer(s0, { type: 'CANCEL_RENAME' });
     expect(s1.screen).toBe('characterMenu');
   });
 

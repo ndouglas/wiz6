@@ -74,6 +74,10 @@ export const MSG = {
   deleteWho: 0x0461,
   /** DELETE PC confirm: "DELETE THIS CHARACTER?" header (msg 0x0465). */
   deleteThisCharacter: 0x0465,
+  /** RENAME PC roster picker: "RENAME WHO?" header (msg 0x0462). */
+  renameWho: 0x0462,
+  /** RENAME PC input prompt: "NEW NAME >" (msg 0x0468). */
+  newNamePrompt: 0x0468,
   /** screen-14 title: "      SPELLS      " */
   spellsTitle: 0x02bc,
   /** screen-14: "COST" */

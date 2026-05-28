@@ -42,4 +42,6 @@ pnpm tsx tools/parity/gen-fixture.ts --save <path|N> --name <name>
 | `creation-review-character` | REVIEW PC — char sheet of NATHAN Rawulf Fighter (BONUS row hidden; "PRESS ▶ TO EXIT" centered at bottomBar row 1) |
 | `creation-delete-picker` | DELETE PC — "DELETE WHO?" roster picker (same layout as REVIEW WHO?, different title msg) |
 | `creation-delete-confirm` | DELETE PC — "DELETE THIS CHARACTER? YES NO" confirm; NO highlighted by default (safer for destructive action) |
+| `creation-rename-picker` | RENAME PC — "RENAME WHO?" roster picker (same layout as REVIEW/DELETE WHO?, different title msg) |
+| `creation-rename-input` | RENAME PC — char-sheet + " NEW NAME >a       " input prompt (empty buffer; cursor block at col 11) |
 | `character-delete-confirm` | DELETE THIS CHARACTER? confirm (with char sheet) |
