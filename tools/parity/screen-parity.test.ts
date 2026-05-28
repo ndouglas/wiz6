@@ -440,6 +440,58 @@ function renderReviewPicker(fontSet: FontSet, palette: Palette): Uint8ClampedArr
   return renderCreationFrame(windows, fontSet, palette);
 }
 
+function renderDeletePicker(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // Engine slot 3: same single-character roster, but the picker title is
+  // "DELETE WHO?" (msg 0x0461) instead of "REVIEW WHO?". Everything else
+  // (scrollbar, entry row, CANCEL prompt) is identical.
+  const windows = composeReviewPickerFrame(
+    { roster: [NATHAN_RAWULF_FIGHTER], cursorIdx: 0, titleMsgId: MSG.deleteWho },
+    msgDb,
+  );
+  return renderCreationFrame(windows, fontSet, palette);
+}
+
+function renderDeleteConfirm(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // Engine slot 4: char-sheet of NATHAN Rawulf Fighter with the
+  // "DELETE THIS CHARACTER? YES NO" prompt at bottomBar row 1, NO selected.
+  const wport1: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  );
+  const empty: PortraitSet = { ...wport1, portraits: [] };
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, empty, empty], 1);
+
+  const { top, bottomBar, menuPanel } = createPersistentWindows();
+  const draft = draftFromCharacter(NATHAN_RAWULF_FIGHTER);
+  drawCharSheet(top, draft, msgDb);
+
+  for (let r = 0; r < 3; r++) {
+    setCursor(top, 1, 1 + r);
+    puts(top,
+      String.fromCharCode(0x48 + r * 3) +
+      String.fromCharCode(0x48 + r * 3 + 1) +
+      String.fromCharCode(0x48 + r * 3 + 2),
+      0x02,
+    );
+  }
+
+  // bottomBar row 1: "DELETE THIS CHARACTER? YES NO" centered. NO selected
+  // (attr 0x50). 29-char string; floor((40-29)/2) = 5 start col.
+  const prompt = creationString(msgDb, MSG.deleteThisCharacter);
+  const yes = creationString(msgDb, MSG.confirmYes);
+  const no = creationString(msgDb, MSG.confirmNo);
+  const full = `${prompt} ${yes} ${no}`;
+  const startCol = Math.floor((bottomBar.widthCells - full.length) / 2);
+  setCursor(bottomBar, startCol, 1);
+  puts(bottomBar, full, 0x03);
+  // Overwrite NO at attr 0x50.
+  const yesCol = startCol + prompt.length + 1;
+  const noCol = yesCol + yes.length + 1;
+  setCursor(bottomBar, noCol, 1);
+  puts(bottomBar, no, 0x50);
+
+  return renderCreationFrame([top, bottomBar, menuPanel], fontSetWithPortrait, palette);
+}
+
 function renderReviewCharacter(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
   const wport1: PortraitSet = PortraitSetSchema.parse(
     JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
@@ -540,6 +592,16 @@ const SCREENS: ScreenCase[] = [
     fixture: 'creation-review-picker',
     floor: 100, // pixel-exact — REVIEW WHO? roster picker (1 character; scrollbar + COLORED highlight)
     render: renderReviewPicker,
+  },
+  {
+    fixture: 'creation-delete-picker',
+    floor: 100, // pixel-exact — DELETE WHO? picker (same layout as REVIEW WHO?, different title msg)
+    render: renderDeletePicker,
+  },
+  {
+    fixture: 'creation-delete-confirm',
+    floor: 100, // pixel-exact — "DELETE THIS CHARACTER? YES NO" with NO selected by default
+    render: renderDeleteConfirm,
   },
 ];
 

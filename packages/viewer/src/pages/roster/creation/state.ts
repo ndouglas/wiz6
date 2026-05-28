@@ -98,6 +98,8 @@ export type ScreenId =
   | 'spellPick'      // screen-14-spell-picking (conditional: classIsCaster)
   | 'reviewPicker'   // REVIEW PC: pick a roster character to review
   | 'review'         // REVIEW PC: render the selected character (read-only)
+  | 'deletePicker'   // DELETE PC: pick a roster character to delete
+  | 'deleteConfirm'  // DELETE PC: confirm before deletion (NO default-selected)
   | 'confirm'        // screen-15-confirm: KEEP or DISCARD
   | 'committing'     // screen-16-save: page performs I/O then dispatches COMMIT_DONE
   | 'cancelled'      // internal alias — folds back to characterMenu (not a navigate-away terminal)
@@ -167,7 +169,7 @@ export interface CreationState {
    * Roster index being reviewed (for `screen === 'review'`). Set by PICK_REVIEW
    * and cleared on EXIT_REVIEW. Null on all non-review screens.
    */
-  reviewIndex: number | null;
+  rosterIndex: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +183,9 @@ export type CreationEvent =
   | { type: 'PICK_REVIEW'; index: number } // reviewPicker: selected roster index → review screen
   | { type: 'EXIT_REVIEW' }                // review: Enter pressed → back to characterMenu
   | { type: 'CANCEL_REVIEW' }              // reviewPicker: ESC / CANCEL → back to characterMenu
+  | { type: 'PICK_DELETE'; index: number } // deletePicker: selected roster index → deleteConfirm
+  | { type: 'CONFIRM_DELETE'; delete: boolean } // deleteConfirm: YES=delete / NO=cancel; either way → characterMenu
+  | { type: 'CANCEL_DELETE' }              // deletePicker / deleteConfirm: back to characterMenu without deleting
   | { type: 'MENU_DELETE' }               // characterMenu: delete character (STUB — no-op, future work)
   | { type: 'MENU_RENAME' }               // characterMenu: rename character (STUB — no-op, future work)
   | { type: 'MENU_PORTRAIT' }             // characterMenu: change portrait (STUB — no-op, future work)
@@ -254,7 +259,7 @@ export function initialCreationState(
     cursor: 0,
     scratch: {},
     pinMaxBonusRoll: opts?.pinMaxBonusRoll ?? false,
-    reviewIndex: null,
+    rosterIndex: null,
   };
 }
 
@@ -413,7 +418,7 @@ function returnToMenu(state: CreationState): CreationState {
     draft: blankDraft(),
     cursor: 0,
     scratch: {},
-    reviewIndex: null,
+    rosterIndex: null,
   };
 }
 
@@ -466,9 +471,16 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
         // here always implies at least one entry.
         return { ...state, screen: 'reviewPicker' };
       }
+      if (event.type === 'MENU_DELETE') {
+        // Same picker layout as REVIEW PC but with the DELETE WHO? title and
+        // a confirmation step before destruction. Engine path:
+        // wpcmk_show_roster_picker → wpcmk_load_and_draw_character →
+        // delete-confirm modal. DELETE PC is also hidden in CharacterMenuScreen
+        // when roster is empty.
+        return { ...state, screen: 'deletePicker' };
+      }
       // Stubs for future work — no-op, stay on characterMenu
       if (
-        event.type === 'MENU_DELETE' ||
         event.type === 'MENU_RENAME' ||
         event.type === 'MENU_PORTRAIT'
       ) {
@@ -481,12 +493,12 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
     case 'reviewPicker': {
       // CANCEL is handled by the global handler at the top of the reducer
       // (returns to characterMenu via returnToMenu, which also clears
-      // reviewIndex). CANCEL_REVIEW is the picker-specific alias.
+      // rosterIndex). CANCEL_REVIEW is the picker-specific alias.
       if (event.type === 'PICK_REVIEW') {
-        return { ...state, screen: 'review', reviewIndex: event.index };
+        return { ...state, screen: 'review', rosterIndex: event.index };
       }
       if (event.type === 'CANCEL_REVIEW') {
-        return { ...state, screen: 'characterMenu', reviewIndex: null };
+        return { ...state, screen: 'characterMenu', rosterIndex: null };
       }
       return state;
     }
@@ -494,7 +506,32 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
     // -----------------------------------------------------------------------
     case 'review': {
       if (event.type === 'EXIT_REVIEW') {
-        return { ...state, screen: 'characterMenu', reviewIndex: null };
+        return { ...state, screen: 'characterMenu', rosterIndex: null };
+      }
+      return state;
+    }
+
+    // -----------------------------------------------------------------------
+    case 'deletePicker': {
+      if (event.type === 'PICK_DELETE') {
+        return { ...state, screen: 'deleteConfirm', rosterIndex: event.index };
+      }
+      if (event.type === 'CANCEL_DELETE') {
+        return { ...state, screen: 'characterMenu', rosterIndex: null };
+      }
+      return state;
+    }
+
+    // -----------------------------------------------------------------------
+    case 'deleteConfirm': {
+      if (event.type === 'CONFIRM_DELETE') {
+        // The reducer doesn't touch localStorage — DeleteConfirmScreen is
+        // responsible for calling removeCharacter(id) on the YES path before
+        // dispatching this event. The reducer just transitions state.
+        return { ...state, screen: 'characterMenu', rosterIndex: null };
+      }
+      if (event.type === 'CANCEL_DELETE') {
+        return { ...state, screen: 'characterMenu', rosterIndex: null };
       }
       return state;
     }

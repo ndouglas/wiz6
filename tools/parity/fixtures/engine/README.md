@@ -40,4 +40,6 @@ pnpm tsx tools/parity/gen-fixture.ts --save <path|N> --name <name>
 | `creation-confirm` | Character creation — "SAVE THIS CHARACTER? YES NO" (post-exit; skillTrain panel persists with residual cursor marker; YES selected) |
 | `creation-review-picker` | REVIEW PC — "REVIEW WHO?" roster picker (NATHAN Rawulf Fighter in slot 0; scrollbar at menuPanel col 0; CANCEL row at bottomBar row 3) |
 | `creation-review-character` | REVIEW PC — char sheet of NATHAN Rawulf Fighter (BONUS row hidden; "PRESS ▶ TO EXIT" centered at bottomBar row 1) |
+| `creation-delete-picker` | DELETE PC — "DELETE WHO?" roster picker (same layout as REVIEW WHO?, different title msg) |
+| `creation-delete-confirm` | DELETE PC — "DELETE THIS CHARACTER? YES NO" confirm; NO highlighted by default (safer for destructive action) |
 | `character-delete-confirm` | DELETE THIS CHARACTER? confirm (with char sheet) |

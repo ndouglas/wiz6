@@ -171,15 +171,15 @@ describe('characterMenu events', () => {
     const s0 = { ...initialCreationState(rng), screen: 'reviewPicker' as const };
     const s1 = creationReducer(s0, { type: 'PICK_REVIEW', index: 2 });
     expect(s1.screen).toBe('review');
-    expect(s1.reviewIndex).toBe(2);
+    expect(s1.rosterIndex).toBe(2);
   });
 
   it('EXIT_REVIEW returns from review → characterMenu and clears the index', () => {
     const rng = makeRng();
-    const s0 = { ...initialCreationState(rng), screen: 'review' as const, reviewIndex: 0 };
+    const s0 = { ...initialCreationState(rng), screen: 'review' as const, rosterIndex: 0 };
     const s1 = creationReducer(s0, { type: 'EXIT_REVIEW' });
     expect(s1.screen).toBe('characterMenu');
-    expect(s1.reviewIndex).toBeNull();
+    expect(s1.rosterIndex).toBeNull();
   });
 
   it('CANCEL_REVIEW returns from reviewPicker → characterMenu', () => {
@@ -189,10 +189,33 @@ describe('characterMenu events', () => {
     expect(s1.screen).toBe('characterMenu');
   });
 
-  it('MENU_DELETE is a no-op (stub for future work)', () => {
+  it('MENU_DELETE transitions to deletePicker', () => {
     const rng = makeRng();
     const s0 = initialCreationState(rng);
     const s1 = creationReducer(s0, { type: 'MENU_DELETE' });
+    expect(s1.screen).toBe('deletePicker');
+  });
+
+  it('PICK_DELETE transitions deletePicker → deleteConfirm and stores the index', () => {
+    const rng = makeRng();
+    const s0 = { ...initialCreationState(rng), screen: 'deletePicker' as const };
+    const s1 = creationReducer(s0, { type: 'PICK_DELETE', index: 3 });
+    expect(s1.screen).toBe('deleteConfirm');
+    expect(s1.rosterIndex).toBe(3);
+  });
+
+  it('CONFIRM_DELETE returns from deleteConfirm → characterMenu', () => {
+    const rng = makeRng();
+    const s0 = { ...initialCreationState(rng), screen: 'deleteConfirm' as const, rosterIndex: 0 };
+    const s1 = creationReducer(s0, { type: 'CONFIRM_DELETE', delete: true });
+    expect(s1.screen).toBe('characterMenu');
+    expect(s1.rosterIndex).toBeNull();
+  });
+
+  it('CANCEL_DELETE returns from deletePicker → characterMenu', () => {
+    const rng = makeRng();
+    const s0 = { ...initialCreationState(rng), screen: 'deletePicker' as const };
+    const s1 = creationReducer(s0, { type: 'CANCEL_DELETE' });
     expect(s1.screen).toBe('characterMenu');
   });
 

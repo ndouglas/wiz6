@@ -19,6 +19,11 @@ const CLASS_ABBREV_LEN = 3;
 export interface ReviewPickerView {
   roster: ReadonlyArray<Character>;
   cursorIdx: number;
+  /**
+   * Optional header msg ID for bottomBar row 1 — defaults to MSG.reviewWho.
+   * DELETE PC reuses this picker layout with MSG.deleteWho instead.
+   */
+  titleMsgId?: number;
 }
 
 /** Draw one roster entry into the menuPanel at `row`. */
@@ -112,10 +117,11 @@ export function composeReviewPickerFrame(
     drawRosterRow(menuPanel, row, roster[i]!, db);
   }
 
-  // bottomBar prompts.
-  const reviewWho = creationString(db, MSG.reviewWho);
-  setCursor(bottomBar, Math.floor((bottomBar.widthCells - reviewWho.length) / 2), 1);
-  puts(bottomBar, reviewWho, 0x03);
+  // bottomBar prompts. Header msg defaults to MSG.reviewWho; DELETE picker
+  // passes MSG.deleteWho via the `titleMsgId` field.
+  const title = creationString(db, view.titleMsgId ?? MSG.reviewWho);
+  setCursor(bottomBar, Math.floor((bottomBar.widthCells - title.length) / 2), 1);
+  puts(bottomBar, title, 0x03);
   const cancel = creationString(db, MSG.cancelOption);
   setCursor(bottomBar, Math.floor((bottomBar.widthCells - cancel.length) / 2), 3);
   puts(bottomBar, cancel, 0x03);

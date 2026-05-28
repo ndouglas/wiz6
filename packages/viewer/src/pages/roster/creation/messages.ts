@@ -68,8 +68,12 @@ export const MSG = {
   skillExit: 0x0456,
   /** REVIEW PC roster picker: "REVIEW WHO?" header (cell-dumped as msg 0x0469). */
   reviewWho: 0x0469,
-  /** REVIEW PC roster picker: "CANCEL" option (cell-dumped as msg 0x0464). */
+  /** REVIEW PC / DELETE PC roster picker: "CANCEL" option (msg 0x0464). */
   cancelOption: 0x0464,
+  /** DELETE PC roster picker: "DELETE WHO?" header (msg 0x0461). */
+  deleteWho: 0x0461,
+  /** DELETE PC confirm: "DELETE THIS CHARACTER?" header (msg 0x0465). */
+  deleteThisCharacter: 0x0465,
   /** screen-14 title: "      SPELLS      " */
   spellsTitle: 0x02bc,
   /** screen-14: "COST" */

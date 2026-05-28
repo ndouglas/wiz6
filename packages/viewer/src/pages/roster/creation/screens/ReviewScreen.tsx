@@ -64,14 +64,14 @@ export function ReviewScreen({
   // ── Resolve the character being reviewed ────────────────────────────────
 
   const character = useMemo(() => {
-    if (state.reviewIndex === null) return null;
+    if (state.rosterIndex === null) return null;
     try {
       const roster = readRoster();
-      return roster.characters[state.reviewIndex] ?? null;
+      return roster.characters[state.rosterIndex] ?? null;
     } catch {
       return null;
     }
-  }, [state.reviewIndex]);
+  }, [state.rosterIndex]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -81,10 +81,10 @@ export function ReviewScreen({
   // review), bail out by dispatching EXIT_REVIEW on next tick. Render an
   // empty frame in the meantime.
   useEffect(() => {
-    if (state.reviewIndex !== null && character === null) {
+    if (state.rosterIndex !== null && character === null) {
       dispatch({ type: 'EXIT_REVIEW' });
     }
-  }, [character, state.reviewIndex, dispatch]);
+  }, [character, state.rosterIndex, dispatch]);
 
   const portraitIdx = character?.portraitIndex ?? 0;
   const fontSetWithPortrait = useMemo(
