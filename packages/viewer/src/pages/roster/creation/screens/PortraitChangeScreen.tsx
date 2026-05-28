@@ -8,13 +8,19 @@
  *   - top: review-style char sheet (drawCharSheet + BONUS hidden). The
  *     small portrait tiles at (1..3, 1..3) attr 0x02 are LOCKED to the
  *     character's stored portrait — written at chars 0x70..0x78, which
- *     wfont2 has patched with the stored portrait's tiles. (Engine
- *     cells use 0x48..0x50 here too, so engine's small portrait DOES
- *     cycle with the picker; we diverge to keep the char sheet feeling
- *     stable as the user scrolls. See patchFontSetWithTwoPortraits.)
+ *     wfont2 has patched with the stored portrait's tiles.
  *   - menuPanel: same "CHARACTER PORTRAIT" header + 3×3 big-portrait tile
  *     grid at chars 0x48..0x50. wfont2 has those patched with the
  *     CURRENTLY-CYCLED portrait — this preview is what changes live.
+ *
+ * Engine mechanism (for context): the engine achieves the same visual
+ * result via incremental rendering rather than dual glyph ranges.
+ * `wpcmk_load_and_draw_character` paints the small portrait into VRAM
+ * before entering `wpcmk_pick_portrait_loop`; the loop only redraws the
+ * menuPanel area as wfont2 cycles, leaving the top window's VRAM pixels
+ * intact. Our viewer is immediate-mode (every frame re-renders all
+ * windows), so we use the dual-glyph-range trick to decouple instead.
+ * See `patchFontSetWithTwoPortraits` in skill-train-frame.ts.
  *   - bottomBar row 1: "◄► TO REVIEW PORTRAITS" (msg 0x0458).
  *   - bottomBar row 2: "PRESS ▶ TO SELECT"      (msg 0x0459).
  *
