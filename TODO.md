@@ -13,7 +13,7 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#023**
+Next free ID: **#027**
 
 ---
 
@@ -58,6 +58,26 @@ Next free ID: **#023**
 - #022 [open] — Skill-train screen polish + remaining RE
   - Live viewer screen is now wired up via the shared `composeSkillTrainFrame` (commit 29aa2c8); parity test stays pixel-perfect (7/7 floor 100). Key bindings match the engine: ◄►=adjust skill, ▲▼=select, Enter=next category, ArrowLeft=no-op.
   - Open items: (1) RE the row 9/11 left-vert glyph 0x0f vs 0x0d — origin still unknown, reproduced as-is; (2) RE the row-3 "second age" field at top (5,3) — currently hardcoded "  1" in `composeSkillTrainFrame` to match slot 1 (TODO: derive from a real source — possibly child age or some chargen counter); (3) confirm layout for PHYSICAL/PERSONAL/ACADEMIA categories (different row counts may need a parity fixture per category); (4) consider hoisting the persistent wfont2 portrait patch into `CreationPage` so ALL post-portrait screens (skillTrain, spellPick, confirm) get it automatically instead of each repeating the pattern.
+
+- #023 [open] — DISMISS A PARTY MEMBER (wbase character_submenu, slot 2)
+  - Engine slot 2 calls `pick_party_member(0x4b3)` then `character_submenu(picked)`. The character_submenu (`FUN_25cc` @ wbase 0x25cc) is undecoded; per-member DISMISS likely lives inside it.
+  - Needs an RE subagent pass on `wbase_character_submenu` to identify per-member options. Then a sibling spec/plan to `2026-05-28-add-party-member-design.md`.
+  - Spec referenced this as the per-member inverse of ADD.
+
+- #024 [open] — Right-side party-panel rendering (`FUN_1b2d`)
+  - Engine `FUN_1b2d` @ wbase 0x1b2d draws per-member info panels on the right side of MASTER OPTIONS: name, status icon, condition icons, class symbol, two equipment-tile slots.
+  - Blocked on RE of the `0x526` (status icon lookup) and `0x532` (condition severity lookup) tables and the equipment-tile rendering path.
+  - Currently CastleScreen renders portraits on the LEFT only (Task 7); the RIGHT side stays empty.
+
+- #025 [open] — `msg.dbs` ID-to-text decoding for IDs ≥ 718
+  - `load_msg_into_buf` (wroot 0x75b) has an ID → section/offset encoding not yet reversed. Our `extracted/messages/msg.json` covers IDs 0..717.
+  - Blocks reading exact engine strings for any msg ID > 717. Picker titles (0x4b1 / 0x4b6 / 0x4b7), race/class/sex enum strings (bases 100/120/140), and many other UI labels live in the unmapped range.
+  - ADD PARTY MEMBER uses fixture-captured strings (`save/1.sav` cells), so this isn't blocking the feature — but a proper decode would let the picker render strings from the msg DB rather than hardcoded constants in the composer.
+
+- #026 [open] — Engine-faithful 64×9 party portraits (currently 24×24 wport sprites)
+  - Per `docs/re/findings/wbase-add-party-member.json`, engine `FUN_0b0e` reads 9 rows × 32 bytes per portrait from `WPORT*.EGA` (= 64 pixels wide × 9 rows tall). Our castle-side blit uses the 24×24 portrait sprites from `extracted/portraits/wport*.json` instead.
+  - To match engine pixel-exact: extend the portrait extractor to also produce the 64×9 castle-side variant (or compute it on the fly from raw WPORT bytes), then update `blitPortrait` in `castle-frame.ts` to use it.
+  - Visual functional today (portraits show), but not engine-faithful for the castle-side rendering.
 
 - #021 [open] — Per-class bonus-allocator AUTO-FILL animation
   - End-state implemented (commit 9c7879b): `PICK_CLASS` snaps attributes to `max(race_base, class_min)` and deducts the deficit from the pool. Verified vs the engine save (NATHAN/Samurai/pool 17→2).
