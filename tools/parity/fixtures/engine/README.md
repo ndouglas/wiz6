@@ -28,7 +28,7 @@ pnpm tsx tools/parity/gen-fixture.ts --save <path|N> --name <name>
 | `title-art-copyright` | Title art + "COPYRIGHT 1990 by SIR-TECH …" overlay |
 | `title-page` / `title-page-2` | Wizardry VI title + scrolling credits (two scroll frames) |
 | `main-menu` / `main-menu-2` | MASTER OPTIONS menu (two door-animation frames) |
-| `character-menu-empty` | CHARACTER MENU, empty roster (CREATE PC / EXIT only) |
+| `character-menu-empty` | CHARACTER MENU, empty roster (CREATE PC / EXIT only; CREATE PC selected) |
 | `character-menu-populated` | CHARACTER MENU, populated roster (all 6 options) |
 | `creation-name-input` | Character creation — CHARACTER NAME prompt |
 | `creation-class-select` | Character creation — SELECT PROFESSION (all professions, two columns) |

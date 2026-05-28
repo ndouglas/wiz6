@@ -8,9 +8,9 @@
  *
  * The assertion is a **regression floor**, not the goal: each screen records its
  * current match % and we fail if a change drops below it. The TARGET is 100% and
- * we're essentially there — `character-menu-populated` is pixel-exact (100%), the
- * rest are 99%+, the residual being the engine's mouse-cursor sprite (which our
- * headless render doesn't draw). On a shortfall, inspect the diff PNG in /tmp.
+ * we're essentially there — both CHARACTER MENU fixtures are pixel-exact (100%);
+ * name-input sits ~99% (mouse cursor + text-field caret residual). On a
+ * shortfall, inspect the diff PNG in /tmp.
  *
  * Getting here required fixing a 16-scanline vertical offset in decode-screen.ts
  * (VRAM_OFFSET_IN_BLOB): the fixtures used to be shifted down 16px, which pinned
@@ -126,8 +126,8 @@ interface ScreenCase {
 const SCREENS: ScreenCase[] = [
   {
     fixture: 'character-menu-empty',
-    floor: 99.8, // actual 99.90% — residual 65px = mouse cursor
-    render: (f, p) => renderCharacterMenu(f, p, ['CREATE PC', 'EXIT'], null),
+    floor: 100, // pixel-exact (0 px differ) — fixture has CREATE PC highlighted
+    render: (f, p) => renderCharacterMenu(f, p, ['CREATE PC', 'EXIT'], 0),
   },
   {
     fixture: 'character-menu-populated',
