@@ -8,9 +8,8 @@
  *
  * The assertion is a **regression floor**, not the goal: each screen records its
  * current match % and we fail if a change drops below it. The TARGET is 100% and
- * we're essentially there — both CHARACTER MENU fixtures are pixel-exact (100%);
- * name-input sits ~99% (mouse cursor + text-field caret residual). On a
- * shortfall, inspect the diff PNG in /tmp.
+ * we're there — all three creation screens (character-menu empty + populated,
+ * name-input) are pixel-exact. On a shortfall, inspect the diff PNG in /tmp.
  *
  * Getting here required fixing a 16-scanline vertical offset in decode-screen.ts
  * (VRAM_OFFSET_IN_BLOB): the fixtures used to be shifted down 16px, which pinned
@@ -103,14 +102,19 @@ function renderCharacterMenu(
 // ─── NAME INPUT helper (empty buffer + cursor) ─────────────────────────────────
 
 function renderNameInput(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // Engine fixture state: buffer="a" (one letter typed, cursor on the next
+  // position). Per the committed cells/name-input.json: x=17 'a' attr 0x10,
+  // x=18 ' ' (cursor) attr 0x10, x=19..24 spaces attr 0x00.
   const { top, bottomBar, menuPanel } = createPersistentWindows();
   const PROMPT = 'CHARACTER NAME >';
   const NAME_MAX_LENGTH = 7;
+  const buffer = 'a';
   setCursor(bottomBar, 1, 1);
   puts(bottomBar, PROMPT, 0x03);
   setCursor(bottomBar, 1 + PROMPT.length, 1);
-  puts(bottomBar, ' ', 0x10); // cursor on empty field
-  puts(bottomBar, ' '.repeat(NAME_MAX_LENGTH), 0x00);
+  puts(bottomBar, `${buffer} `, 0x10); // letter + cursor block
+  const pad = NAME_MAX_LENGTH + 1 - (buffer.length + 1);
+  if (pad > 0) puts(bottomBar, ' '.repeat(pad), 0x00);
   return renderCreationFrame([top, bottomBar, menuPanel], fontSet, palette);
 }
 
@@ -137,7 +141,7 @@ const SCREENS: ScreenCase[] = [
   },
   {
     fixture: 'creation-name-input',
-    floor: 99, // actual 99.27% — residual = mouse cursor + text-field cursor
+    floor: 100, // pixel-exact (0 px differ) with buffer='a'
     render: renderNameInput,
   },
 ];
