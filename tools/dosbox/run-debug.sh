@@ -11,4 +11,4 @@ LOG="$ROOT/tools/dosbox/dosbox.log"
 
 rm -f "$LOG"
 cd "$ROOT/tools/dosbox"
-"$DOSBOX" -conf "$CONF" -debug -log-int21 -log-fileio 2>&1 | tee "$LOG"
+"$DOSBOX" -conf "$CONF" -debug -log-int21 -fastlaunch -log-fileio 2>&1 | tee "$LOG"
