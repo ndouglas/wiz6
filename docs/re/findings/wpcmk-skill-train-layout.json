@@ -1,0 +1,148 @@
+{
+  "topic": "wpcmk-skill-training-screen-13-layout",
+  "subagent_run": "2026-05-28T20:00:00Z",
+  "binaries": [
+    "wpcmk.ovr"
+  ],
+  "summary": "Reverse-engineered the skill-training screen (screen-13) layout by reading the engine's live window cell-grid memory from DOSBox save state 1. Found the skillTrain window struct at DGROUP+0x7e26, extracted full 20\u00d716 cell grid with character names, attribute values, selection highlight semantics, and skill-points display. Confirmed category cycle mechanism (WEAPONRY only visible, next category on key-5), font2 portrait patch persists from prior screen.",
+  "key_findings": {
+    "skillTrain_window_handle": {
+      "dgroup_offset": "0x7e26",
+      "geometry": {
+        "widthCells": 20,
+        "heightCells": 16,
+        "screenX": 20,
+        "screenY": 4,
+        "attr": "0x19"
+      },
+      "note": "This is a stack-local temporary window created by wpcmk_skill_training_loop (0x1ae9) at call site 0x1b28. The handle is returned into [bp-0x4] but also persists in memory during render. DGROUP+0x7e26 is the struct base; handle at +0x10 contains the cell grid."
+    },
+    "cell_grid_layout": {
+      "description": "20x16 cell window rendered at skill-training screen. Shows WEAPONRY category header (row 1), 9 skill names (rows 3-11, left-aligned), bonus values (right-aligned rows 3-11), SKILL POINTS label (row 14), skill-points count (row 14, right-aligned), and WAND&DAGGER selected (row 3, attr 0x20 on name, 0x40 on d glyph, 0x10 on bonus area).",
+      "layout": {
+        "row_0": "Frame top (char 0x0c horizontal, 0x0a top-right corner, attr 0x01)",
+        "row_1": "Frame left + WEAPONRY header text (WEAPONRY at cols 6-13, attr 0x03) + frame right",
+        "row_2": "Frame separator (char 0x0c horizontal, attr 0x01)",
+        "rows_3_to_11": "Skill entries: Frame left (0x0d) + skill name left-aligned (cols 1-15, attr 0x20) + bonus value right-aligned (cols 17-18, attr 0x10) + frame right (0x05). WAND&DAGGER (row 3) has attr 0x20 on name but 0x40 on d glyph (selected), 0x10 for bonus area.",
+        "row_12": "Empty separator (frame left/right only)",
+        "row_13": "Frame separator (char 0x0c horizontal, attr 0x01)",
+        "row_14": "SKILL POINTS label (cols 1-12, attr 0x90 inverted) + bonus count at col 18 (attr 0x10)",
+        "row_15": "Frame bottom (char 0x07 horizontal, 0x08 bottom-right corner, attr 0x01)"
+      }
+    },
+    "skill_list_detailed": [
+      {
+        "row": 3,
+        "name": "WAND&DAGGER",
+        "bonus": 0,
+        "selected": true
+      },
+      {
+        "row": 4,
+        "name": "SWORD",
+        "bonus": 9
+      },
+      {
+        "row": 5,
+        "name": "AXE",
+        "bonus": 0
+      },
+      {
+        "row": 6,
+        "name": "MACE&FLAIL",
+        "bonus": 0
+      },
+      {
+        "row": 7,
+        "name": "POLE&STAFF",
+        "bonus": 0
+      },
+      {
+        "row": 8,
+        "name": "THROWING",
+        "bonus": 0
+      },
+      {
+        "row": 9,
+        "name": "SLING",
+        "bonus": 0
+      },
+      {
+        "row": 10,
+        "name": "BOWS",
+        "bonus": 0
+      },
+      {
+        "row": 11,
+        "name": "SHIELD",
+        "bonus": 0
+      }
+    ],
+    "selection_highlight_semantics": {
+      "claim": "Selected skill row uses attr 0x40 (inverted palette) with wfont1 black",
+      "confidence": "medium",
+      "note": "attr 0x40 matches documented attr_lo=0 highlight path"
+    },
+    "category_cycle_mechanism": {
+      "claim": "Only WEAPONRY visible; cycles to PHYSICAL, PERSONAL, ACADEMIA on successive key-5 presses",
+      "category_order": [
+        "WEAPONRY",
+        "PHYSICAL",
+        "PERSONAL",
+        "ACADEMIA"
+      ],
+      "confidence": "high",
+      "evidence_source": "wpcmk-screens.md section 5"
+    },
+    "font2_portrait_patch_status": {
+      "claim": "wfont2 persists from screen-10 into screen-13",
+      "confidence": "high",
+      "implication": "TS port must not restore wfont2 after portrait picker"
+    }
+  },
+  "findings": [
+    {
+      "id": "wpcmk-skill-train-handle",
+      "claim": "skillTrain window struct is located at DGROUP+0x7e26",
+      "category": "memory_layout",
+      "confidence": "high",
+      "applied_handle": "DGROUP+0x7e26",
+      "details": "Exhaustive DGROUP scan in save state 1 found 20x16 window at screen position (160,32)"
+    },
+    {
+      "id": "wpcmk-skill-train-cells",
+      "claim": "skillTrain window cell grid is fully populated with WEAPONRY category, 9 skills, selection highlight",
+      "category": "ui_layout",
+      "confidence": "high",
+      "details": "20x16 grid with frame chrome, category header, skill names+bonuses, skill points display"
+    },
+    {
+      "id": "wpcmk-skill-select-highlight",
+      "claim": "Selected skill uses attr 0x40 on highlight char",
+      "category": "selection_rendering",
+      "confidence": "medium",
+      "details": "WAND&DAGGER row 3 has 0x20 on name, 0x40 on d glyph, 0x10 on bonus"
+    },
+    {
+      "id": "wpcmk-skill-category-cycle",
+      "claim": "WEAPONRY only visible; cycle via wpcmk_skill_training_loop key 5 dispatch",
+      "category": "input_dispatch",
+      "confidence": "high",
+      "source": "wpcmk-screens.md section 5"
+    },
+    {
+      "id": "wpcmk-font2-persistent",
+      "claim": "wfont2 portrait patch persists from screen-10 into screen-13",
+      "category": "font_state",
+      "confidence": "high",
+      "implication": "Do not restore wfont2 after portrait picker"
+    }
+  ],
+  "unresolved": [
+    "Exact skill-points allocation mechanics (+1 per click or variable?)",
+    "Full layouts for PERSONAL/ACADEMIA categories",
+    "Exact category cycle trigger (key-5 allocates then advances, or advance then allocate?)",
+    "PERSONAL skip condition when no personal skills available",
+    "wfont2 restoration in portrait picker exit paths (needs disasm confirmation)"
+  ]
+}

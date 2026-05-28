@@ -17,7 +17,7 @@ import sys, json, zipfile
 from pathlib import Path
 
 DGROUP_BASE = 0x18048  # constant across this capture session (verified vs save 3 inspect)
-HANDLES = {"top": 0x546e, "bottomBar": 0x56ca, "menuPanel": 0x56cc}
+HANDLES = {"top": 0x546e, "bottomBar": 0x56ca, "menuPanel": 0x56cc, "skillTrain": 0x7e26}
 
 
 def mem(save: Path) -> bytes:
@@ -31,7 +31,14 @@ def u16(b, off):
 
 
 def read_window(b, handle_off):
-    struct_off = DGROUP_BASE + u16(b, DGROUP_BASE + handle_off)
+    # Handle offsets > 0x7000 are direct struct offsets (stack-local windows
+    # whose handle has been resolved via DGROUP scan). Smaller values are
+    # DGROUP-relative pointers (the engine stores the struct offset as a u16
+    # at DGROUP+handle_off — see wpcmk-charmenu-toplayout.json).
+    if handle_off >= 0x7000:
+        struct_off = DGROUP_BASE + handle_off
+    else:
+        struct_off = DGROUP_BASE + u16(b, DGROUP_BASE + handle_off)
     w = b[struct_off]
     h = b[struct_off + 1]
     x = b[struct_off + 2]

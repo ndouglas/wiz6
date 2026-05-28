@@ -52,6 +52,14 @@ export const MSG = {
   bonusTitle: 0x0460,
   /** screen-13: "SKILL POINTS" */
   skillPoints: 0x159a,
+  /** screen-13 bottomBar row 1: "ASSIGN INITIAL SKILL BONUS" */
+  skillAssign: 0x0262,
+  /** screen-13 bottomBar row 2 (left half): "◄► ADJUSTS SKILL" */
+  skillAdjusts: 0x025e,
+  /** screen-13 bottomBar row 2 (right half): " ▲▼ SELECTS SKILL" — note leading space in DB */
+  skillSelects: 0x025f,
+  /** screen-13 bottomBar row 3: "PRESS ▶ FOR NEXT CATEGORY" */
+  skillNextCategory: 0x0260,
   /** screen-14 title: "      SPELLS      " */
   spellsTitle: 0x02bc,
   /** screen-14: "COST" */
