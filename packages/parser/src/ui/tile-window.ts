@@ -190,11 +190,16 @@ export function renderTileWindow(
       const dy = win.screenY + cy * 8;
       const fontIdx = attr & 0x0f;
 
-      if (fontIdx === 0 && attr !== 0) {
+      if (fontIdx === 0) {
         // HIGHLIGHT path — cell (char, attrParam<<4) blitted via wfont0 (1bpp).
-        // The engine renders this two ways depending on the draw routine's
-        // ega.drv slot, indistinguishable from the cell; `win.invertHighlight`
-        // selects which (see TileWindow.invertHighlight):
+        // Every cell with attr_lo=0 routes through here, including attr 0x00
+        // itself: with colorIdx=0 both stroke and bg are palette[0]=black, so
+        // the cell renders as a solid black tile (the engine's "empty" cell —
+        // we never skip, every cell is a tile).
+        //
+        // The engine renders highlight cells two ways depending on the draw
+        // routine's ega.drv slot, indistinguishable from the cell; the
+        // `win.invertHighlight` flag selects which:
         //   normal  → stroke = palette[high nibble] (colour), bg = black
         //             (char-sheet: yellow STR labels, white values, …)
         //   inverse → stroke = black, bg = palette[high nibble]

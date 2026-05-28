@@ -8,9 +8,8 @@
  *
  * The assertion is a **regression floor**, not the goal: each screen records its
  * current match % and we fail if a change drops below it. The TARGET is 100% and
- * we're there — both character-menu screens are pixel-exact; name-input sits
- * at ~99% pending the renderer fixes tracked in TODO #021 (empty-cell black
- * fill + attr 0x10 yellow-not-white in the cursor highlight path). On a
+ * we're essentially there — both character-menu screens pixel-exact; name-input
+ * at 99.90% with the residual = 1 cell (cursor block colour, TODO #021). On a
  * shortfall, inspect the diff PNG in /tmp.
  *
  * Getting here required fixing a 16-scanline vertical offset in decode-screen.ts
@@ -143,7 +142,7 @@ const SCREENS: ScreenCase[] = [
   },
   {
     fixture: 'creation-name-input',
-    floor: 99, // actual ~99.20% — see TODO #021 (empty-cell black-fill + attr 0x10 color mapping)
+    floor: 99.8, // actual 99.90% — residual = 1 cell (cursor block colour, see TODO #021)
     render: renderNameInput,
   },
 ];
