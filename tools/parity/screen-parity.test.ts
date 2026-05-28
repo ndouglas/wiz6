@@ -22,13 +22,16 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WIZ6_MAIN, FontSchema, Font4bppSchema } from '../../packages/data/src/index.js';
-import type { Font, Font4bpp, Palette } from '../../packages/data/src/index.js';
+import { WIZ6_MAIN, FontSchema, Font4bppSchema, MessageDbSchema } from '../../packages/data/src/index.js';
+import type { Font, Font4bpp, Palette, MessageDb } from '../../packages/data/src/index.js';
 import { setCursor, puts, type FontSet } from '../../packages/parser/src/index.js';
 import { loadCreationFontSet } from '../../packages/viewer/src/pages/roster/creation/ega/assets.js';
 import { renderCreationFrame } from '../../packages/viewer/src/pages/roster/creation/ega/render-frame.js';
 import { createPersistentWindows } from '../../packages/viewer/src/pages/roster/creation/ega/windows.js';
 import { highlightRange } from '../../packages/viewer/src/pages/roster/creation/ega/highlight.js';
+import { drawCharSheet } from '../../packages/viewer/src/pages/roster/creation/ega/char-sheet.js';
+import { blankDraft } from '../../packages/viewer/src/pages/roster/creation/state.js';
+import { raceName, creationString, MSG } from '../../packages/viewer/src/pages/roster/creation/messages.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { compareRgba, writeDiffPng } from './diff-image.js';
 import { indicesToRgba } from './decode-screen.js';
@@ -50,6 +53,7 @@ function mainRoot(): string {
 }
 
 const EXTRACTED_FONTS = join(mainRoot(), 'extracted', 'fonts');
+const EXTRACTED_MESSAGES = join(mainRoot(), 'extracted', 'messages');
 const FIXTURES_ENGINE = join(mainRoot(), 'tools', 'parity', 'fixtures', 'engine');
 
 // ─── Loaders ───────────────────────────────────────────────────────────────────
@@ -123,6 +127,27 @@ function renderNameInput(fontSet: FontSet, palette: Palette): Uint8ClampedArray 
   return renderCreationFrame([top, bottomBar, menuPanel], fontSet, palette);
 }
 
+// ─── RACE SELECT helper (char-sheet + race list + prompt) ──────────────────────
+// Engine state: draft.name='NATHAN', race=null (not yet picked), HUMAN selected.
+
+let msgDb: MessageDb;
+
+function renderRaceSelect(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  const { top, bottomBar, menuPanel } = createPersistentWindows();
+  const draft = { ...blankDraft(), name: 'NATHAN' };
+  drawCharSheet(top, draft, msgDb, creationString(msgDb, MSG.raceTitle));
+  const prompt = creationString(msgDb, MSG.racePrompt);
+  setCursor(bottomBar, Math.floor((bottomBar.widthCells - prompt.length) / 2), 1);
+  puts(bottomBar, prompt, 0x03);
+  for (let i = 0; i < 11; i++) {
+    const label = raceName(msgDb, i);
+    setCursor(menuPanel, 1, i + 1);
+    puts(menuPanel, label, 0x03);
+    if (i === 0) highlightRange(menuPanel, 1, i + 1, label.length, 5);
+  }
+  return renderCreationFrame([top, bottomBar, menuPanel], fontSet, palette);
+}
+
 // ─── Screen table ──────────────────────────────────────────────────────────────
 // `floor` = current measured match % minus a small margin. TARGET is 100.
 
@@ -149,6 +174,11 @@ const SCREENS: ScreenCase[] = [
     floor: 100, // pixel-exact (0 px differ)
     render: renderNameInput,
   },
+  {
+    fixture: 'creation-race-select',
+    floor: 100, // pixel-exact — char-sheet + race list with HUMAN selected
+    render: renderRaceSelect,
+  },
 ];
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -157,6 +187,9 @@ describe('screen pixel-parity vs committed engine fixtures (target 100%)', () =>
   let fontSet: FontSet;
   beforeAll(async () => {
     fontSet = await loadCreationFontSet({ loadFont: diskLoadFont, loadFont4bpp: diskLoadFont4bpp });
+    msgDb = MessageDbSchema.parse(
+      JSON.parse(readFileSync(join(EXTRACTED_MESSAGES, 'msg.json'), 'utf-8')),
+    );
   });
 
   for (const sc of SCREENS) {

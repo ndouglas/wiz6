@@ -31,5 +31,6 @@ pnpm tsx tools/parity/gen-fixture.ts --save <path|N> --name <name>
 | `character-menu-empty` | CHARACTER MENU, empty roster (CREATE PC / EXIT only; CREATE PC selected) |
 | `character-menu-populated` | CHARACTER MENU, populated roster (all 6 options) |
 | `creation-name-input` | Character creation — CHARACTER NAME prompt |
+| `creation-race-select` | Character creation — SELECT CHARACTER RACE (NATHAN, HUMAN selected) |
 | `creation-class-select` | Character creation — SELECT PROFESSION (all professions, two columns) |
 | `character-delete-confirm` | DELETE THIS CHARACTER? confirm (with char sheet) |

@@ -434,10 +434,14 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
         }
         // screen-00 confirms → screen-01-init fires immediately → screen-02-race
         // screen-01-init: zeroes record (handled by initialCreationState already)
+        // Force uppercase: the engine uppercases on input and stores the name
+        // as uppercase in cells. wfont0/wfont3 only carry uppercase letters at
+        // ASCII 65-90 — lowercase 97-122 land on cursor/symbol sprites (+32
+        // indices = +2 rows in the 16-per-row sheet).
         return {
           ...state,
           screen: 'race',
-          draft: { ...state.draft, name: event.name },
+          draft: { ...state.draft, name: event.name.toUpperCase() },
         };
       }
       return state;
