@@ -138,20 +138,24 @@ export function NameInputScreen({
   // char-sheet template + gray bottomBar + gray menuPanel).
   const { top, bottomBar, menuPanel } = createPersistentWindows();
 
-  // Byte-exact against the engine name screen (save 1):
-  //   bottomBar row 1, col 1: "CHARACTER NAME >" at attr 0x03 (plain wfont3).
-  //   then at col 1+len: the typed name + a trailing cursor cell, all at
-  //   attr 0x10 — the highlight path (black-on-palette[1]), an inverse-video
-  //   input field. The cursor is just the highlighted space after the text.
-  // The field is a fixed NAME_MAX_LENGTH+1 cells (7 name chars + 1 cursor):
-  // the typed text and cursor are highlighted (attr 0x10); the remainder is
-  // cleared to attr 0x00 (transparent), matching the engine byte-for-byte.
+  // Byte-exact against the engine name screen — confirmed by dumping the
+  // bottomBar cells from a "NATHAN"-typed save:
+  //   col 1 .. 16:   "CHARACTER NAME >" at attr 0x03 (plain wfont3).
+  //   col 17 .. 16+N: the typed letters UPPERCASED at attr 0x50 (highlight
+  //                   path, color 5 = yellow). wfont0 only carries uppercase
+  //                   letter glyphs at codes 65-90; lowercase ASCII 97-122
+  //                   point at symbol/cursor sprites (the "2 rows lower in
+  //                   font0" bug Nate caught).
+  //   col 17+N:      char 'a' (97) at attr 0x10 — wfont0 glyph 97 is the
+  //                   solid-block CURSOR sprite (not a lowercase 'a').
+  //   col 17+N+1..:  spaces at attr 0x00 (empty input field).
   const promptText = creationString(db, MSG.namePrompt); // "CHARACTER NAME >"
   setCursor(bottomBar, 1, 1);
   puts(bottomBar, promptText, 0x03);
   setCursor(bottomBar, 1 + promptText.length, 1);
-  puts(bottomBar, `${buffer} `, 0x10);
-  const fieldPad = NAME_MAX_LENGTH + 1 - (buffer.length + 1);
+  if (buffer.length > 0) puts(bottomBar, buffer.toUpperCase(), 0x50);
+  puts(bottomBar, 'a', 0x10);
+  const fieldPad = NAME_MAX_LENGTH - buffer.length;
   if (fieldPad > 0) puts(bottomBar, ' '.repeat(fieldPad), 0x00);
 
   const pal = palette ?? WIZ6_MAIN;

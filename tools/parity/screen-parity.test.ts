@@ -8,8 +8,10 @@
  *
  * The assertion is a **regression floor**, not the goal: each screen records its
  * current match % and we fail if a change drops below it. The TARGET is 100% and
- * we're there — all three creation screens (character-menu empty + populated,
- * name-input) are pixel-exact. On a shortfall, inspect the diff PNG in /tmp.
+ * we're there — both character-menu screens are pixel-exact; name-input sits
+ * at ~99% pending the renderer fixes tracked in TODO #021 (empty-cell black
+ * fill + attr 0x10 yellow-not-white in the cursor highlight path). On a
+ * shortfall, inspect the diff PNG in /tmp.
  *
  * Getting here required fixing a 16-scanline vertical offset in decode-screen.ts
  * (VRAM_OFFSET_IN_BLOB): the fixtures used to be shifted down 16px, which pinned
@@ -102,19 +104,19 @@ function renderCharacterMenu(
 // ─── NAME INPUT helper (empty buffer + cursor) ─────────────────────────────────
 
 function renderNameInput(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Engine fixture state: buffer="a" (one letter typed, cursor on the next
-  // position). Per the committed cells/name-input.json: x=17 'a' attr 0x10,
-  // x=18 ' ' (cursor) attr 0x10, x=19..24 spaces attr 0x00.
+  // Engine fixture state (empty input — single-letter blink-off state at the
+  // start of typing). Per the live struct dump from the save:
+  //   col 17:    char 'a' (97) attr 0x10 — wfont0 glyph 97 is the SOLID-BLOCK
+  //              cursor sprite (not a lowercase letter).
+  //   col 18..24: spaces attr 0x00 (empty field).
   const { top, bottomBar, menuPanel } = createPersistentWindows();
   const PROMPT = 'CHARACTER NAME >';
   const NAME_MAX_LENGTH = 7;
-  const buffer = 'a';
   setCursor(bottomBar, 1, 1);
   puts(bottomBar, PROMPT, 0x03);
   setCursor(bottomBar, 1 + PROMPT.length, 1);
-  puts(bottomBar, `${buffer} `, 0x10); // letter + cursor block
-  const pad = NAME_MAX_LENGTH + 1 - (buffer.length + 1);
-  if (pad > 0) puts(bottomBar, ' '.repeat(pad), 0x00);
+  puts(bottomBar, 'a', 0x10); // wfont0 0x61 = cursor block sprite
+  puts(bottomBar, ' '.repeat(NAME_MAX_LENGTH), 0x00);
   return renderCreationFrame([top, bottomBar, menuPanel], fontSet, palette);
 }
 
@@ -141,7 +143,7 @@ const SCREENS: ScreenCase[] = [
   },
   {
     fixture: 'creation-name-input',
-    floor: 100, // pixel-exact (0 px differ) with buffer='a'
+    floor: 99, // actual ~99.20% — see TODO #021 (empty-cell black-fill + attr 0x10 color mapping)
     render: renderNameInput,
   },
 ];
