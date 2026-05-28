@@ -8,8 +8,8 @@
  * Current state (floors are regression guards; TARGET 100%, diff PNGs in /tmp):
  *   sirtech-logo          100%  — pixel-exact
  *   author-credit         100%  — pixel-exact
- *   title-art             ~93%  — titlepag dither (~7%) + wordmark sprite tweak
- *   title-art-copyright   ~98%
+ *   title-art             ~98%  — residual is the bottom ~7 rows (185-191)
+ *   title-art-copyright   ~98%  — same bottom-rows residual
  *
  * composeIntroFrame emits an opaque frame (the engine framebuffer is opaque);
  * an earlier version inherited renderEgaScreen's transparent-black alpha on the
@@ -73,10 +73,10 @@ interface IntroCase {
 const CASES: IntroCase[] = [
   { fixture: 'sirtech-logo', floor: 100, state: introState('sirtech-splash'), withTitlepag: false },
   { fixture: 'author-credit', floor: 100, state: introState('bradley-splash'), withTitlepag: false },
-  { fixture: 'title-art', floor: 92, state: introState('wizardry-hang'), withTitlepag: true },
+  { fixture: 'title-art', floor: 98, state: introState('wizardry-hang'), withTitlepag: true },
   {
     fixture: 'title-art-copyright',
-    floor: 97,
+    floor: 98,
     state: introState('post-scroll', SCROLL_TERMINAL_POS + 1),
     withTitlepag: true,
   },

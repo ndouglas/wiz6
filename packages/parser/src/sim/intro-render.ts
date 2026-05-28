@@ -33,11 +33,13 @@ const BRADLEY_SIG_X = 107;
 const BRADLEY_LINE_Y = 52;
 const BRADLEY_SIG_Y = 82;
 
-// Wizardry wordmark (top + bottom) at their CREDITS_SCROLL_ENTRIES[0]/[1]
-// fieldB positions (col=0x4c, y=0x43 and 0x63) during the pre-scroll hang.
+// Wizardry wordmark (top + bottom) during the pre-scroll hang. The scroll-table
+// fieldB values are col=0x4c, y=0x43/0x63, but the engine renders the sprites
+// 2px higher (the descriptors carry a 2px transparent top margin) — verified to
+// pixel-parity vs the title-art fixture (65/97, not 67/99).
 const WIZARDRY_X = 0x4c;
-const WIZARDRY_TOP_Y = 0x43;
-const WIZARDRY_BOTTOM_Y = 0x63;
+const WIZARDRY_TOP_Y = 65;
+const WIZARDRY_BOTTOM_Y = 97;
 
 /**
  * Compose one intro frame into a fresh RGBA buffer (ENGINE_W*ENGINE_H*4).
