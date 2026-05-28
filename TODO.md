@@ -13,11 +13,18 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#027**
+Next free ID: **#028**
 
 ---
 
 ## Open
+
+- #027 [open] — ADD PARTY picker: close the last 3.69% pixel-parity gap
+  - Current parity: 96.31% (2360 px diff) vs `tools/parity/fixtures/engine/add-party-picker.idx.gz`. Floor in `tools/parity/add-party-parity.test.ts` is 96 (regression net).
+  - Remaining gap concentrated at engine cell row 18 (y=144-151), cells 5-14: an "ADD MEMBER" title strip in color 9 on color 8. This text is NOT stored as cells in any tile-window in memory (verified by scanning the full 17MB Memory blob for the `(char, attr)` pattern with any consistent attr).
+  - Hypothesis: engine draws the title strip via a direct-pixel path (font-glyph blit without populating any cell array — possibly `ui_window_putstring` or equivalent that writes pixels but not into a destination window's cells). Needs a quick RE pass on the picker setup code to identify the routine.
+  - Possibly additional small differences in the right panel's residual-cells area.
+  - Once reproduced, raise the parity floor in `add-party-parity.test.ts` toward 100%.
 
 - #019 [open] — wpcmk Phase 2 — Stages A–F COMPLETE; next: layout-refinement (now measurable via parity)
   - **Stage C (screens) COMPLETE** — `packages/viewer/src/pages/roster/creation/`: `state.ts` (pure flow reducer, §1 + characterMenu entry), `messages.ts` (§3 msg-id wiring), `screens/` (CharacterMenu, NameInput, MenuPicker[race/sex/class], BonusAllocator, Personality, PortraitPicker[placeholder pixels], SkillTrain, SpellPick, Confirm), `CreationPage.tsx` + `lib/build.ts`. Plan: `…-stage-c-screens.md`.

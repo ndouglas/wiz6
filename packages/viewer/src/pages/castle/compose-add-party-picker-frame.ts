@@ -54,6 +54,7 @@ const RIGHT_CELL_Y = 19;
 const RIGHT_W = 20;
 const RIGHT_H = 5;
 
+
 /** Background fill attr for blank cells in both panels. */
 const ATTR_BG = 0x03;
 /** Highlight attr (selected row / button) — wfont0 path, palette[5] background. */
@@ -215,6 +216,11 @@ function composeRightPanel(view: AddPartyPickerView, db: MessageDb): TileWindow 
  * Build the two TileWindows that make up the ADD PARTY picker frame.
  * Pure function: no I/O, no DOM. The returned windows are byte-exact (modulo
  * documented engine-residual cells) against the engine's live cell memory.
+ *
+ * KNOWN GAP (#027 in TODO.md): the engine renders an "ADD MEMBER" title
+ * strip at cell row 18, cells 5-14, via a direct-pixel path that doesn't
+ * populate any cell array. Reproducing it requires identifying the engine
+ * routine; for now this remains a ~3-4% pixel-parity gap.
  */
 export function composeAddPartyPickerFrame(
   view: AddPartyPickerView,
