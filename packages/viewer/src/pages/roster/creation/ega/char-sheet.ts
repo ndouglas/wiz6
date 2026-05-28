@@ -148,9 +148,14 @@ function drawHeader(top: TileWindow, draft: DraftState, db: MessageDb): void {
   // NAME at (4,1) attr 0x50, left-aligned. Empty name writes nothing (the
   // fixtures show a 1-char residual already present in engine memory; we
   // reproduce the draft.name content here).
+  // Uppercase defensively: wfont0/wfont3 only carry uppercase letter glyphs at
+  // ASCII 65-90, so lowercase 97-122 would render +32 indices off (= +2 rows
+  // in the 16-per-row sheet) — landing on cursor/symbol sprites. The state
+  // reducer already uppercases on SET_NAME, but this keeps drawCharSheet
+  // robust against a buggy caller.
   if (draft.name.length > 0) {
     setCursor(top, 4, 1);
-    puts(top, draft.name, attrFor(5));
+    puts(top, draft.name.toUpperCase(), attrFor(5));
   }
 
   // Sex glyph + '-' + race name at (13,1), attr 0x10. Only present once a race
