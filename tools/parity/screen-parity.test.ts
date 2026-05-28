@@ -255,14 +255,8 @@ function renderPortraitSelect(fontSet: FontSet, palette: Palette): Uint8ClampedA
 // the live `SkillTrainScreen.tsx` also calls — pixel parity here is the
 // regression guard for that viewer screen too.
 
-function renderSkillTrain(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Build a draft that matches the engine's slot-1 state byte-for-byte. The
-  // skill bonus = 9 on slot 1 (SWORD) reflects 1 point already allocated
-  // (engine's base value is 8 for Samurai sword proficiency + 1 spent).
-  const skills = new Array<number>(30).fill(0);
-  skills[1] = 9; // SWORD
-
-  const draft = {
+function makeSkillTrainDraft(skills: number[]) {
+  return {
     ...blankDraft(),
     name: 'NATHAN',
     race: 0,
@@ -274,33 +268,54 @@ function renderSkillTrain(fontSet: FontSet, palette: Palette): Uint8ClampedArray
     portrait: 21,
     skills,
   };
+}
 
+function skillTrainFontSet(fontSet: FontSet): FontSet {
   const wport2: PortraitSet = PortraitSetSchema.parse(
     JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport2.json'), 'utf-8')),
   );
-  // Wrap into a length-3 array indexed by wport-file (the patch helper expects
-  // [wport1, wport2, wport3]; only the file holding the portrait actually
-  // matters, so pad with empty PortraitSets).
   const empty: PortraitSet = { ...wport2, portraits: [] };
-  const portraits = [empty, wport2, empty];
+  return patchFontSetWithPortrait(fontSet, [empty, wport2, empty], 21);
+}
 
-  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, portraits, 21);
+const SAMURAI_WEAPONRY_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 
-  // WEAPONRY for Samurai = slots 0..8 (HANDS&FEET excluded).
-  const trainable = [0, 1, 2, 3, 4, 5, 6, 7, 8];
-
+function renderSkillTrain(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // Mid-allocation state: 5 points remaining, SWORD at 9 (1 already spent).
+  // Bottom prompt: "PRESS ▶ FOR NEXT CATEGORY".
+  const skills = new Array<number>(30).fill(0);
+  skills[1] = 9;
   const windows = composeSkillTrainFrame(
     {
-      draft,
-      categoryIdx: 0, // WEAPONRY
-      trainableInCategory: trainable,
-      cursorIdx: 0, // WAND&DAGGER selected
+      draft: makeSkillTrainDraft(skills),
+      categoryIdx: 0,
+      trainableInCategory: SAMURAI_WEAPONRY_SLOTS,
+      cursorIdx: 0,
       skillPoints: 5,
     },
     msgDb,
   );
+  return renderCreationFrame(windows, skillTrainFontSet(fontSet), palette);
+}
 
-  return renderCreationFrame(windows, fontSetWithPortrait, palette);
+function renderSkillTrainDone(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // Exhausted state: 0 points remaining, all 5 budget points spent on
+  // WAND&DAGGER (slot 0 = 5). Bottom prompt toggles to "PRESS ▶ TO EXIT" — the
+  // engine does NOT auto-advance; Enter (▶) is the exit key.
+  const skills = new Array<number>(30).fill(0);
+  skills[0] = 5; // WAND&DAGGER
+  skills[1] = 9; // SWORD (preserved from base)
+  const windows = composeSkillTrainFrame(
+    {
+      draft: makeSkillTrainDraft(skills),
+      categoryIdx: 0,
+      trainableInCategory: SAMURAI_WEAPONRY_SLOTS,
+      cursorIdx: 0,
+      skillPoints: 0,
+    },
+    msgDb,
+  );
+  return renderCreationFrame(windows, skillTrainFontSet(fontSet), palette);
 }
 
 // ─── Screen table ──────────────────────────────────────────────────────────────
@@ -346,8 +361,13 @@ const SCREENS: ScreenCase[] = [
   },
   {
     fixture: 'creation-skill-train',
-    floor: 100, // pixel-exact — char sheet w/ persistent portrait 21 + skillTrain panel
+    floor: 100, // pixel-exact — mid-allocation; row 3 = "PRESS ▶ FOR NEXT CATEGORY"
     render: renderSkillTrain,
+  },
+  {
+    fixture: 'creation-skill-train-done',
+    floor: 100, // pixel-exact — budget = 0; row 3 = "PRESS ▶ TO EXIT"
+    render: renderSkillTrainDone,
   },
 ];
 

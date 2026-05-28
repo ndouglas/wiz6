@@ -287,22 +287,17 @@ describe('CreationPage — Fighter happy-path (Lizardman)', () => {
 
     // For skill training: keep pressing Enter until we reach confirm.
     // SkillTrainScreen: Enter dispatches TRAIN_SKILL; reducer auto-advances when budget=0.
-    // SkillTrain screen: ArrowRight allocates 1 point to the cursor skill (Enter
-    // cycles category in the engine-correct binding). Pump 30 ArrowRights to
-    // drain ANY budget 0..29; reducer auto-advances when budget hits 0. Excess
-    // ArrowRights leak into the Confirm screen where they move the cursor
-    // toward NO (index 1, clamped); we pump ArrowLeft below to snap back to YES
-    // before the final Enter.
+    // SkillTrain screen: ArrowRight allocates 1 point per press. The engine
+    // does NOT auto-advance on budget=0 — the bottomBar toggles to "PRESS ▶ TO
+    // EXIT" and Enter dispatches SKILLS_DONE. Pump 30 ArrowRights to drain ANY
+    // budget 0..29 (presses beyond budget are no-ops in the reducer guard),
+    // then Enter to exit the screen.
     for (let i = 0; i < 30; i++) {
       fireEvent.keyDown(window, { key: 'ArrowRight' });
     }
-    // Reset Confirm cursor to YES (idempotent — clamps at 0).
-    for (let i = 0; i < 3; i++) {
-      fireEvent.keyDown(window, { key: 'ArrowLeft' });
-    }
+    fireEvent.keyDown(window, { key: 'Enter' }); // SKILLS_DONE → confirm
 
     // --- Confirm screen: Enter (YES = first option = keep=true) ---
-    // At this point we should be on confirm. Fire Enter once more.
     fireEvent.keyDown(window, { key: 'Enter' });
 
     // --- After committing: roster should have a character ---
@@ -601,15 +596,12 @@ describe('buildCharacterFromDraft via CreationPage', () => {
     // Portrait: Enter
     fireEvent.keyDown(window, { key: 'Enter' });
 
-    // Drain skill budget — ArrowRight allocates 1 point per press (Enter cycles
-    // category in the engine-correct binding). Excess ArrowRights leak into
-    // Confirm where they move cursor toward NO; reset with ArrowLeft.
+    // Drain skill budget — ArrowRight per point, then Enter to exit (engine
+    // doesn't auto-advance on budget=0; the "▶ TO EXIT" prompt requires Enter).
     for (let i = 0; i < 30; i++) {
       fireEvent.keyDown(window, { key: 'ArrowRight' });
     }
-    for (let i = 0; i < 3; i++) {
-      fireEvent.keyDown(window, { key: 'ArrowLeft' });
-    }
+    fireEvent.keyDown(window, { key: 'Enter' }); // SKILLS_DONE
 
     // Confirm: Enter (YES)
     fireEvent.keyDown(window, { key: 'Enter' });

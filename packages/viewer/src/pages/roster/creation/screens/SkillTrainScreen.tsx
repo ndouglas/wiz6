@@ -117,13 +117,21 @@ export function SkillTrainScreen({
           break;
         }
         case 'Enter': {
-          // NEXT CATEGORY — wrap, skip empty.
-          for (let step = 1; step <= SKILL_CATEGORIES.length; step++) {
-            const next = (categoryIdx + step) % SKILL_CATEGORIES.length;
-            if (trainableInCategory(classIdx, next).length > 0) {
-              setCategoryIdx(next);
-              setCursorIdx(0);
-              break;
+          // Engine bottomBar toggles row 3 by budget:
+          //   - budget > 0  → "PRESS ▶ FOR NEXT CATEGORY" — Enter cycles category
+          //   - budget == 0 → "PRESS ▶ TO EXIT"           — Enter exits the screen
+          // The engine does NOT auto-advance on budget reaching 0; the player
+          // must press Enter to leave (verified vs slot 1).
+          if (state.draft.skillBudget <= 0) {
+            dispatch({ type: 'SKILLS_DONE' });
+          } else {
+            for (let step = 1; step <= SKILL_CATEGORIES.length; step++) {
+              const next = (categoryIdx + step) % SKILL_CATEGORIES.length;
+              if (trainableInCategory(classIdx, next).length > 0) {
+                setCategoryIdx(next);
+                setCursorIdx(0);
+                break;
+              }
             }
           }
           break;

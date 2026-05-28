@@ -34,5 +34,6 @@ pnpm tsx tools/parity/gen-fixture.ts --save <path|N> --name <name>
 | `creation-race-select` | Character creation — SELECT CHARACTER RACE (NATHAN, HUMAN selected) |
 | `creation-class-select` | Character creation — SELECT PROFESSION (NATHAN, M-HUMAN, pool 17 → 12 qualifying classes, 2 columns) |
 | `creation-portrait-select` | Character creation — CHARACTER PORTRAIT picker (NATHAN samurai, portrait 0; 3×3 wfont2 tile grid) |
-| `creation-skill-train` | Character creation — ASSIGN INITIAL SKILL BONUS, WEAPONRY category (NATHAN samurai, portrait 21, 9 weaponry skills + 5 pool) |
+| `creation-skill-train` | Character creation — ASSIGN INITIAL SKILL BONUS, WEAPONRY category mid-allocation (NATHAN samurai, portrait 21, 5 pool remaining; row 3 = "PRESS ▶ FOR NEXT CATEGORY") |
+| `creation-skill-train-done` | Character creation — skill-train fully spent (0 pool, WAND&DAGGER +5; row 3 = "PRESS ▶ TO EXIT" — engine does NOT auto-advance) |
 | `character-delete-confirm` | DELETE THIS CHARACTER? confirm (with char sheet) |

@@ -58,8 +58,10 @@ export const MSG = {
   skillAdjusts: 0x025e,
   /** screen-13 bottomBar row 2 (right half): " ▲▼ SELECTS SKILL" — note leading space in DB */
   skillSelects: 0x025f,
-  /** screen-13 bottomBar row 3: "PRESS ▶ FOR NEXT CATEGORY" */
+  /** screen-13 bottomBar row 3 (budget > 0): "PRESS ▶ FOR NEXT CATEGORY" */
   skillNextCategory: 0x0260,
+  /** screen-13 bottomBar row 3 (budget == 0): "PRESS ▶ TO EXIT" */
+  skillExit: 0x0456,
   /** screen-14 title: "      SPELLS      " */
   spellsTitle: 0x02bc,
   /** screen-14: "COST" */

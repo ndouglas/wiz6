@@ -181,9 +181,15 @@ export function composeSkillTrainFrame(
   setCursor(bottomBar, Math.floor((bottomBar.widthCells - combined.length) / 2), 2);
   puts(bottomBar, combined, 0x03);
 
-  const nextCat = creationString(db, MSG.skillNextCategory);
-  setCursor(bottomBar, Math.floor((bottomBar.widthCells - nextCat.length) / 2), 3);
-  puts(bottomBar, nextCat, 0x03);
+  // Row 3 toggles by budget: while points remain, "PRESS ▶ FOR NEXT CATEGORY"
+  // (Enter cycles category). When budget hits 0, the prompt becomes
+  // "PRESS ▶ TO EXIT" — Enter dispatches SKILLS_DONE and advances. The engine
+  // does NOT auto-advance on budget 0; the player must press the exit key.
+  const exitPrompt = view.skillPoints <= 0
+    ? creationString(db, MSG.skillExit)
+    : creationString(db, MSG.skillNextCategory);
+  setCursor(bottomBar, Math.floor((bottomBar.widthCells - exitPrompt.length) / 2), 3);
+  puts(bottomBar, exitPrompt, 0x03);
 
   // --- skillTrain window: frame + category header + skill rows + footer ---
   const skillTrain = createSkillTrainWindow();

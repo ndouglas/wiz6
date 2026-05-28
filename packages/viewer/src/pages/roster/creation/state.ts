@@ -655,24 +655,24 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
     // -----------------------------------------------------------------------
     case 'skillTrain': {
       if (event.type === 'TRAIN_SKILL') {
-        // Decrement skill budget and increment the skill slot
+        // Decrement skill budget and increment the skill slot. The engine does
+        // NOT auto-advance when the budget reaches 0 — the player must press
+        // the EXIT key (Enter, with the bottomBar prompt toggled to "PRESS ▶ TO
+        // EXIT"). Verified vs slot 1: budget=0, screen still skillTrain,
+        // prompt = MSG.skillExit. So just update the draft and stay on screen.
         if (state.draft.skillBudget <= 0) return state;
         const skills = [...state.draft.skills];
         skills[event.slot] = (skills[event.slot] ?? 0) + 1;
         const newBudget = state.draft.skillBudget - 1;
-        const newDraft = { ...state.draft, skills, skillBudget: newBudget };
-
-        // If budget exhausted, auto-advance to next screen
-        if (newBudget <= 0) {
-          const nextScreen = screenAfterSkillTrain({ ...state, draft: newDraft });
-          return { ...state, screen: nextScreen, draft: newDraft };
-        }
-        return { ...state, draft: newDraft };
+        return {
+          ...state,
+          draft: { ...state.draft, skills, skillBudget: newBudget },
+        };
       }
 
       if (event.type === 'SKILLS_DONE') {
-        // Player signals done with skill training (budget may still have points — but
-        // per §1 loop condition "until skill pool exhausted", we respect explicit done)
+        // Player explicitly exited the screen (Enter while budget=0, or "done"
+        // even with points remaining — engine allows this per §1).
         const nextScreen = screenAfterSkillTrain(state);
         return { ...state, screen: nextScreen };
       }
