@@ -33,4 +33,5 @@ pnpm tsx tools/parity/gen-fixture.ts --save <path|N> --name <name>
 | `creation-name-input` | Character creation — CHARACTER NAME prompt |
 | `creation-race-select` | Character creation — SELECT CHARACTER RACE (NATHAN, HUMAN selected) |
 | `creation-class-select` | Character creation — SELECT PROFESSION (NATHAN, M-HUMAN, pool 17 → 12 qualifying classes, 2 columns) |
+| `creation-portrait-select` | Character creation — CHARACTER PORTRAIT picker (NATHAN samurai, portrait 0; 3×3 wfont2 tile grid) |
 | `character-delete-confirm` | DELETE THIS CHARACTER? confirm (with char sheet) |

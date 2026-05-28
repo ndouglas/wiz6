@@ -22,8 +22,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WIZ6_MAIN, FontSchema, Font4bppSchema, MessageDbSchema, classOffered, getRaceBaseStats } from '../../packages/data/src/index.js';
-import type { Font, Font4bpp, Palette, MessageDb } from '../../packages/data/src/index.js';
+import { WIZ6_MAIN, FontSchema, Font4bppSchema, MessageDbSchema, PortraitSetSchema, classOffered, getRaceBaseStats } from '../../packages/data/src/index.js';
+import type { Font, Font4bpp, Palette, MessageDb, PortraitSet } from '../../packages/data/src/index.js';
 import { setCursor, puts, type FontSet } from '../../packages/parser/src/index.js';
 import { loadCreationFontSet } from '../../packages/viewer/src/pages/roster/creation/ega/assets.js';
 import { renderCreationFrame } from '../../packages/viewer/src/pages/roster/creation/ega/render-frame.js';
@@ -54,6 +54,7 @@ function mainRoot(): string {
 
 const EXTRACTED_FONTS = join(mainRoot(), 'extracted', 'fonts');
 const EXTRACTED_MESSAGES = join(mainRoot(), 'extracted', 'messages');
+const EXTRACTED_PORTRAITS = join(mainRoot(), 'extracted', 'portraits');
 const FIXTURES_ENGINE = join(mainRoot(), 'tools', 'parity', 'fixtures', 'engine');
 
 // ─── Loaders ───────────────────────────────────────────────────────────────────
@@ -186,6 +187,63 @@ function renderClassSelect(fontSet: FontSet, palette: Palette): Uint8ClampedArra
   return renderCreationFrame([top, bottomBar, menuPanel], fontSet, palette);
 }
 
+// ─── PORTRAIT SELECT helper (post-karma; portrait sub-window open) ────────────
+// Engine state (save 1): NATHAN, M-HUMAN, SAMURAI, karma=3, HP=7/7, STM=96/96,
+// BONUS pool=0, portrait index 0 (default). Portrait sprite is a 3×3 tile grid
+// at menuPanel cells (8,3)..(10,5), each cell drawn at attr 0x02 (wfont2). The
+// engine loads wport1.ega into the wfont2 slot for this screen, mapping portrait
+// 0's 9 tiles to font glyphs 0x48..0x50. We replicate that by injecting the 9
+// tiles into a cloned font2.
+
+function renderPortraitSelect(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  const { top, bottomBar, menuPanel } = createPersistentWindows();
+  const draft = {
+    ...blankDraft(),
+    name: 'NATHAN',
+    race: 0,    // HUMAN
+    sex: 0,     // M
+    class: 11,  // SAMURAI
+    attributes: { str: 14, int: 11, pie: 8, vit: 9, dex: 12, spd: 14, per: 8, kar: 3 },
+    derived: { hpInitial: 7, stamina: 96, level: 0, xp: 0 },
+    bonusPool: 0,
+    portrait: 0,
+  };
+  drawCharSheet(top, draft, msgDb, creationString(msgDb, MSG.portraitTitle));
+
+  // bottomBar prompts — engine centers with Math.ceil padding (row 1: "◄► TO
+  // REVIEW PORTRAITS" len 22 at col 9; row 2: "PRESS ▶ TO SELECT" len 17 at col 12).
+  const review = creationString(msgDb, MSG.portraitReview);
+  setCursor(bottomBar, Math.ceil((bottomBar.widthCells - review.length) / 2), 1);
+  puts(bottomBar, review, 0x03);
+  const select = creationString(msgDb, MSG.portraitSelect);
+  setCursor(bottomBar, Math.ceil((bottomBar.widthCells - select.length) / 2), 2);
+  puts(bottomBar, select, 0x03);
+
+  // menuPanel: 9 portrait tile chars at (8..10, 3..5), attr 0x02.
+  for (let r = 0; r < 3; r++) {
+    setCursor(menuPanel, 8, 3 + r);
+    for (let c = 0; c < 3; c++) {
+      puts(menuPanel, String.fromCharCode(0x48 + r * 3 + c), 0x02);
+    }
+  }
+
+  // Inject portrait 0's 9 tiles into a cloned font2 at glyphs 0x48..0x50.
+  const wport1: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  );
+  const portrait = wport1.portraits[0]!;
+  const baseFont2 = fontSet.font2!;
+  const font2Glyphs = baseFont2.glyphs.map((g, i) =>
+    i >= 0x48 && i <= 0x50 ? portrait.tiles[i - 0x48]! : g,
+  );
+  const fontSetWithPortrait: FontSet = {
+    ...fontSet,
+    font2: { ...baseFont2, glyphs: font2Glyphs },
+  };
+
+  return renderCreationFrame([top, bottomBar, menuPanel], fontSetWithPortrait, palette);
+}
+
 // ─── Screen table ──────────────────────────────────────────────────────────────
 // `floor` = current measured match % minus a small margin. TARGET is 100.
 
@@ -221,6 +279,11 @@ const SCREENS: ScreenCase[] = [
     fixture: 'creation-class-select',
     floor: 100, // pixel-exact — NATHAN, pool 17, 12 qualifying classes
     render: renderClassSelect,
+  },
+  {
+    fixture: 'creation-portrait-select',
+    floor: 100, // pixel-exact — NATHAN/SAMURAI char sheet + portrait 0 tile grid
+    render: renderPortraitSelect,
   },
 ];
 

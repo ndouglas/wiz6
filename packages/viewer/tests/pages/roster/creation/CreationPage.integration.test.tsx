@@ -26,8 +26,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
 import { fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import type { Font, Font4bpp, MessageDb } from '@wiz6/data';
-import { FontSchema, Font4bppSchema, WichmannHill } from '@wiz6/data';
+import type { Font, Font4bpp, MessageDb, PortraitSet } from '@wiz6/data';
+import { FontSchema, Font4bppSchema, PortraitSetSchema, WichmannHill } from '@wiz6/data';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
@@ -69,6 +69,7 @@ function findMainCheckoutRoot(): string {
 const MAIN_ROOT = findMainCheckoutRoot();
 const EXTRACTED_FONTS = join(MAIN_ROOT, 'extracted', 'fonts');
 const EXTRACTED_MESSAGES = join(MAIN_ROOT, 'extracted', 'messages');
+const EXTRACTED_PORTRAITS = join(MAIN_ROOT, 'extracted', 'portraits');
 
 async function diskLoadFont(url: string): Promise<Font> {
   const filename = url.replace(/^\/fonts\//, '');
@@ -90,10 +91,17 @@ async function diskLoadMessageDb(url: string): Promise<MessageDb> {
   return MessageDbSchema.parse(json);
 }
 
+async function diskLoadPortraitSet(url: string): Promise<PortraitSet> {
+  const filename = url.replace(/^\/portraits\//, '');
+  const json: unknown = JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, filename), 'utf-8'));
+  return PortraitSetSchema.parse(json);
+}
+
 const DISK_LOADERS = {
   loadFont: diskLoadFont,
   loadFont4bpp: diskLoadFont4bpp,
   loadMessageDb: diskLoadMessageDb,
+  loadPortraitSet: diskLoadPortraitSet,
 };
 
 // ---------------------------------------------------------------------------

@@ -46,6 +46,8 @@ export const MSG = {
   sexTitle: 0x045d,
   /** screen-05 title: "PROFESSION" */
   classTitle: 0x045e,
+  /** screen-10 title: "CHARACTER PORTRAIT" */
+  portraitTitle: 0x045f,
   /** screen-06 title: "ASSIGN ABILITY SCORE BONUS" */
   bonusTitle: 0x0460,
   /** screen-13: "SKILL POINTS" */

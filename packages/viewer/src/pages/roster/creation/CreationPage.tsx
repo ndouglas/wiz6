@@ -37,7 +37,7 @@
 import { useReducer, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { WichmannHill, WIZ6_MAIN } from '@wiz6/data';
-import type { Font, Font4bpp, MessageDb } from '@wiz6/data';
+import type { Font, Font4bpp, MessageDb, PortraitSet } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import { useState } from 'react';
 import {
@@ -45,7 +45,7 @@ import {
   creationReducer,
 } from './state.js';
 import { loadCreationFontSet } from './ega/assets.js';
-import { loadMessageDb as defaultLoadMessageDb } from '../../../data-loader.js';
+import { loadMessageDb as defaultLoadMessageDb, loadPortraitSet as defaultLoadPortraitSet } from '../../../data-loader.js';
 import { addCharacter, readRoster } from '../../../lib/roster-store.js';
 import { getHouseRules } from '../../../lib/house-rules-store.js';
 import { buildCharacterFromDraft } from './lib/build.js';
@@ -74,6 +74,8 @@ export interface CreationPageLoaders {
   loadFont4bpp?: (url: string) => Promise<Font4bpp>;
   /** MessageDb loader. Defaults to fetch('/msg.json'). */
   loadMessageDb?: (url: string) => Promise<MessageDb>;
+  /** PortraitSet loader. Defaults to fetch-based loadPortraitSet. */
+  loadPortraitSet?: (url: string) => Promise<PortraitSet>;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +139,7 @@ function seedToRng(seed: number): WichmannHill {
 interface LoadedAssets {
   fontSet: FontSet;
   db: MessageDb;
+  portraits: PortraitSet[]; // wport1, wport2, wport3 — 42 portraits total
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +184,7 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
     const fontLoader = loaders?.loadFont;
     const font4bppLoader = loaders?.loadFont4bpp;
     const msgLoader = loaders?.loadMessageDb ?? defaultLoadMessageDb;
+    const portraitLoader = loaders?.loadPortraitSet ?? defaultLoadPortraitSet;
 
     Promise.all([
       loadCreationFontSet(
@@ -192,9 +196,12 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
           : undefined,
       ),
       msgLoader('/messages/msg.json'),
-    ]).then(([fontSet, db]) => {
+      portraitLoader('/portraits/wport1.json'),
+      portraitLoader('/portraits/wport2.json'),
+      portraitLoader('/portraits/wport3.json'),
+    ]).then(([fontSet, db, w1, w2, w3]) => {
       if (!cancelled) {
-        setAssets({ fontSet, db });
+        setAssets({ fontSet, db, portraits: [w1, w2, w3] });
       }
     }).catch((err: unknown) => {
       if (!cancelled) {
@@ -245,7 +252,7 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
     return <div>Loading…</div>;
   }
 
-  const { fontSet, db } = assets;
+  const { fontSet, db, portraits } = assets;
   const palette = WIZ6_MAIN;
 
   // -------------------------------------------------------------------------
@@ -295,7 +302,7 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
         return <PersonalityScreen {...sharedProps} />;
 
       case 'portrait':
-        return <PortraitPickerScreen {...sharedProps} />;
+        return <PortraitPickerScreen {...sharedProps} portraits={portraits} />;
 
       case 'skillTrain':
         return <SkillTrainScreen {...sharedProps} />;
