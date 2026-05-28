@@ -82,6 +82,12 @@ export {
 } from './schemas/character.js';
 export { RosterSchema, type Roster } from './schemas/roster.js';
 export {
+  ActivePartySchema,
+  ActivePartyMemberSchema,
+  type ActiveParty,
+  type ActivePartyMember,
+} from './schemas/active-party.js';
+export {
   SaveSchema,
   SaveMetadataSchema,
   PositionSchema,
