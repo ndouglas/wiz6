@@ -144,6 +144,14 @@ describe('ADD PARTY picker — cell-grid parity', () => {
     expect(left).toBeDefined();
     expect(right).toBeDefined();
 
+    // Screen position: fixture stores x/y in CELL coords; composer emits PIXEL
+    // coords (cells × 8). Mismatched screenX/screenY puts the windows in the
+    // wrong place — invisible to a cells-only comparison, so we check it here.
+    expect(left!.screenX).toBe(fixture.leftPanel!.x * 8);
+    expect(left!.screenY).toBe(fixture.leftPanel!.y * 8);
+    expect(right!.screenX).toBe(fixture.rightPanel!.x * 8);
+    expect(right!.screenY).toBe(fixture.rightPanel!.y * 8);
+
     // Composer-emitted right panel must NOT contain the residual bytes — mask
     // the fixture to match the clean output the composer produces.
     const rightMasked = maskResiduals(fixture.rightPanel!);

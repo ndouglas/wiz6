@@ -38,15 +38,19 @@ export interface AddPartyPickerView {
 }
 
 // --- Geometry constants -------------------------------------------------------
-// All values are confirmed against the Task 1 fixture
-// (tools/parity/fixtures/cells/add-party-picker-1char.json).
-const LEFT_X = 0;
-const LEFT_Y = 19;
+// Cell-grid positions come from the Task 1 fixture
+// (tools/parity/fixtures/cells/add-party-picker-1char.json) where the engine
+// stores x/y in CELL coordinates (40×25 grid). `createTileWindow` takes
+// screenX/screenY in PIXELS, so we multiply by 8 (one cell = 8×8 px).
+const CELL_PX = 8;
+
+const LEFT_CELL_X = 0;
+const LEFT_CELL_Y = 19;
 const LEFT_W = 19;
 const LEFT_H = 5;
 
-const RIGHT_X = 20;
-const RIGHT_Y = 19;
+const RIGHT_CELL_X = 20;
+const RIGHT_CELL_Y = 19;
 const RIGHT_W = 20;
 const RIGHT_H = 5;
 
@@ -106,8 +110,8 @@ function abbrev3(name: string): string {
 
 function composeLeftPanel(view: AddPartyPickerView): TileWindow {
   const w = createTileWindow({
-    screenX: LEFT_X,
-    screenY: LEFT_Y,
+    screenX: LEFT_CELL_X * CELL_PX,
+    screenY: LEFT_CELL_Y * CELL_PX,
     widthCells: LEFT_W,
     heightCells: LEFT_H,
   });
@@ -173,8 +177,8 @@ function drawCandidateRow(
 
 function composeRightPanel(view: AddPartyPickerView, db: MessageDb): TileWindow {
   const w = createTileWindow({
-    screenX: RIGHT_X,
-    screenY: RIGHT_Y,
+    screenX: RIGHT_CELL_X * CELL_PX,
+    screenY: RIGHT_CELL_Y * CELL_PX,
     widthCells: RIGHT_W,
     heightCells: RIGHT_H,
   });
