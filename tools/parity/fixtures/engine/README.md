@@ -36,4 +36,6 @@ pnpm tsx tools/parity/gen-fixture.ts --save <path|N> --name <name>
 | `creation-portrait-select` | Character creation — CHARACTER PORTRAIT picker (NATHAN samurai, portrait 0; 3×3 wfont2 tile grid) |
 | `creation-skill-train` | Character creation — ASSIGN INITIAL SKILL BONUS, WEAPONRY category mid-allocation (NATHAN samurai, portrait 21, 5 pool remaining; row 3 = "PRESS ▶ FOR NEXT CATEGORY") |
 | `creation-skill-train-done` | Character creation — skill-train fully spent (0 pool, WAND&DAGGER +5; row 3 = "PRESS ▶ TO EXIT" — engine does NOT auto-advance) |
+| `creation-skill-train-physical` | Character creation — PHYSICAL category (NATHAN Rawulf Fighter; 1 skill SCOUTING; verifies per-category bracket icons 0x25/0x26) |
+| `creation-confirm` | Character creation — "SAVE THIS CHARACTER? YES NO" (post-exit; skillTrain panel persists with residual cursor marker; YES selected) |
 | `character-delete-confirm` | DELETE THIS CHARACTER? confirm (with char sheet) |

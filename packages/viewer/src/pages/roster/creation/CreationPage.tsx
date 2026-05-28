@@ -311,7 +311,7 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
         return <SpellPickScreen {...sharedProps} />;
 
       case 'confirm':
-        return <ConfirmScreen {...sharedProps} />;
+        return <ConfirmScreen {...sharedProps} portraits={portraits} />;
 
       case 'committing':
       case 'done':

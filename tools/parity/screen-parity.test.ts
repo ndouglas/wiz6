@@ -270,6 +270,21 @@ function makeSkillTrainDraft(skills: number[]) {
   };
 }
 
+function makeRawulfFighterDraft(skills: number[]) {
+  return {
+    ...blankDraft(),
+    name: 'NATHAN',
+    race: 9, // Rawulf
+    sex: 0,
+    class: 0, // Fighter
+    attributes: { str: 16, int: 8, pie: 12, vit: 10, dex: 8, spd: 8, per: 10, kar: 18 },
+    derived: { age: 18, hpInitial: 7, stamina: 108, level: 1, xp: 0 },
+    bonusPool: 0,
+    portrait: 1, // verified vs *0x560c = 0x01
+    skills,
+  };
+}
+
 function skillTrainFontSet(fontSet: FontSet): FontSet {
   const wport2: PortraitSet = PortraitSetSchema.parse(
     JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport2.json'), 'utf-8')),
@@ -296,6 +311,65 @@ function renderSkillTrain(fontSet: FontSet, palette: Palette): Uint8ClampedArray
     msgDb,
   );
   return renderCreationFrame(windows, skillTrainFontSet(fontSet), palette);
+}
+
+function renderConfirm(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // Confirm screen: skillTrain panel persists with the residual cursor marker
+  // at (15, 3) attr 0x70; SKILL POINTS = 0; bottomBar swapped to
+  // "SAVE THIS CHARACTER? YES NO" centered at col 6 with YES at attr 0x50.
+  const skills = new Array<number>(30).fill(0);
+  skills[0] = 5; // WAND&DAGGER (all 5 points spent)
+  skills[1] = 9; // SWORD (base)
+  const windows = composeSkillTrainFrame(
+    {
+      draft: makeSkillTrainDraft(skills),
+      categoryIdx: 0, // WEAPONRY (last visited)
+      trainableInCategory: SAMURAI_WEAPONRY_SLOTS,
+      cursorIdx: 0,
+      cursorState: 'residual',
+      skillPoints: 0,
+    },
+    msgDb,
+    (bb) => {
+      const prompt = creationString(msgDb, MSG.confirmPrompt);
+      const yes = creationString(msgDb, MSG.confirmYes);
+      const no = creationString(msgDb, MSG.confirmNo);
+      const full = `${prompt} ${yes} ${no}`;
+      const startCol = Math.floor((bb.widthCells - full.length) / 2);
+      setCursor(bb, startCol, 1);
+      puts(bb, full, 0x03);
+      // YES highlighted (selected): attr 0x50 over the YES cells.
+      const yesCol = startCol + prompt.length + 1;
+      setCursor(bb, yesCol, 1);
+      puts(bb, yes, 0x50);
+    },
+  );
+  return renderCreationFrame(windows, skillTrainFontSet(fontSet), palette);
+}
+
+function renderSkillTrainPhysical(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // Slot 2: NATHAN Rawulf Fighter, PHYSICAL category. Fighter has only one
+  // PHYSICAL trainable skill (SCOUTING = slot 11). Verifies per-category icon
+  // brackets: PHYSICAL uses 0x25/0x26 (vs WEAPONRY's 0x02/0x02).
+  const skills = new Array<number>(30).fill(0);
+  const wport1: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  );
+  const empty: PortraitSet = { ...wport1, portraits: [] };
+  const portraits = [wport1, empty, empty];
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, portraits, 1);
+  const windows = composeSkillTrainFrame(
+    {
+      draft: makeRawulfFighterDraft(skills),
+      categoryIdx: 1, // PHYSICAL
+      trainableInCategory: [11], // SCOUTING only (Fighter PHYSICAL trainable)
+      cursorIdx: 0,
+      cursorState: 'active',
+      skillPoints: 17,
+    },
+    msgDb,
+  );
+  return renderCreationFrame(windows, fontSetWithPortrait, palette);
 }
 
 function renderSkillTrainDone(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
@@ -368,6 +442,16 @@ const SCREENS: ScreenCase[] = [
     fixture: 'creation-skill-train-done',
     floor: 100, // pixel-exact — budget = 0; row 3 = "PRESS ▶ TO EXIT"
     render: renderSkillTrainDone,
+  },
+  {
+    fixture: 'creation-confirm',
+    floor: 100, // pixel-exact — "SAVE THIS CHARACTER? YES NO" with YES selected
+    render: renderConfirm,
+  },
+  {
+    fixture: 'creation-skill-train-physical',
+    floor: 100, // pixel-exact — PHYSICAL category (Fighter SCOUTING only); 0x25/0x26 brackets + 0xe0 name attr
+    render: renderSkillTrainPhysical,
   },
 ];
 

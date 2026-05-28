@@ -38,7 +38,11 @@ export const MSG = {
   portraitReview: 0x0458,
   /** screen-10: "PRESS \x15 TO SELECT" */
   portraitSelect: 0x0459,
-  /** screen-15: "YES" (option list for KEEP/DISCARD picker) */
+  /** screen-15: "YES" (first option for KEEP/DISCARD picker) */
+  confirmYes: 0x045a,
+  /** screen-15: "NO" (second option for KEEP/DISCARD picker) */
+  confirmNo: 0x045b,
+  /** @deprecated Use confirmYes/confirmNo. */
   confirmOptions: 0x045a,
   /** screen-02 title: "CHARACTER RACE" */
   raceTitle: 0x045c,
