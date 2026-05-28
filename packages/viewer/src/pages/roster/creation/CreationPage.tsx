@@ -305,7 +305,7 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
         return <PortraitPickerScreen {...sharedProps} portraits={portraits} />;
 
       case 'skillTrain':
-        return <SkillTrainScreen {...sharedProps} />;
+        return <SkillTrainScreen {...sharedProps} portraits={portraits} />;
 
       case 'spellPick':
         return <SpellPickScreen {...sharedProps} />;

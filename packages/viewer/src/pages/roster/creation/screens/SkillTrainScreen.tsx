@@ -1,78 +1,43 @@
 /**
- * SkillTrainScreen — screen-13: skill training.
+ * SkillTrainScreen — screen-13: ASSIGN INITIAL SKILL BONUS.
  *
- * The player spends `state.draft.skillBudget` points across the trainable skill
- * slots for their class (from CLASS_SKILL_AVAILABILITY[classIdx]). The screen
- * loops until the budget hits 0.
+ * Layout: `composeSkillTrainFrame` (ega/skill-train-frame.ts) — verified
+ * pixel-exact against the engine's slot-1 framebuffer in
+ * `tools/parity/screen-parity.test.ts → creation-skill-train` (floor 100%).
  *
- * Key handlers per §5/§8:
- *   ArrowUp    (code 2) → cursor = prev trainable slot (clamp at start, no wrap)
- *   ArrowDown  (code 4) → cursor = next trainable slot (clamp at end, no wrap)
- *   ArrowRight (code 3) → dispatch TRAIN_SKILL { slot: <cursor slot> }
- *   Enter      (code 5) → dispatch TRAIN_SKILL { slot: <cursor slot> }
- *   ArrowLeft  (code 1) → no-op (no decrease for skill points)
- *   Escape     (code 0) → silently ignored per §8
+ * Behavior per docs/re/wpcmk-screens.md §5 + bottomBar prompts dumped from
+ * save 1:
+ *   - ArrowUp (key 2)    → cursor prev (clamp; no wrap)
+ *   - ArrowDown (key 4)  → cursor next (clamp; no wrap)
+ *   - ArrowRight (key 3) → spend 1 point on the cursor skill (dispatch
+ *                          TRAIN_SKILL). Reducer auto-advances when budget=0.
+ *   - Enter (key 5)      → "PRESS ▶ FOR NEXT CATEGORY" — advance category.
+ *                          Skips empty categories. Wraps WEAPONRY → PHYSICAL
+ *                          → PERSONAL → ACADEMIA → WEAPONRY.
+ *   - ArrowLeft / Escape → no-op (no untrain).
  *
- * Budget enforcement:
- *   - The REDUCER owns budget decrement, skills[] increment, and auto-advance
- *     when budget reaches 0 (TRAIN_SKILL sets screen → spellPick|confirm
- *     when newBudget <= 0). The screen dispatches TRAIN_SKILL unconditionally.
- *   - No SKILLS_DONE dispatch needed: the reducer auto-advances on budget 0.
- *   - No double-enforcement in the screen.
+ * The portrait chosen in the previous screen is permanently baked into wfont2
+ * at glyphs 0x48..0x50 — `patchFontSetWithPortrait` clones font2 with the
+ * portrait's 9 tiles. Memoized by portrait index so the patch only recomputes
+ * on actual portrait change (never, in this screen).
  *
- * Render:
- *   - Uses the temporary `skillTrain` window (20×16 @ (160,32) attr 0x19) per §2.
- *   - Shows skill-category headers (WEAPONRY/PHYSICAL/PERSONAL/ACADEMIA per §5).
- *   - Lists trainable skill names within each category.
- *   - Highlights the cursor row via highlightRow (bgPaletteIdx=5).
- *   - Shows "SKILL POINTS: N" budget counter via MSG.skillPoints (0x159a).
- *
- * Spec: docs/re/wpcmk-screens.md §5, §8
+ * Reducer interface: dispatches `TRAIN_SKILL { slot }`. The "next category"
+ * advance is screen-local (no reducer event) since the engine treats it as a
+ * UI cycle, not a state machine transition.
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { clearWindow, setCursor, puts } from '@wiz6/parser';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { WIZ6_MAIN, availableSkillSlots } from '@wiz6/data';
-import type { Palette } from '@wiz6/data';
+import type { Palette, PortraitSet } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
-import { createPersistentWindows, createSkillTrainWindow } from '../ega/windows.js';
-import { highlightRow } from '../ega/highlight.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import {
-  MSG,
-  creationString,
-  skillName,
-  skillCatName,
-} from '../messages.js';
-import { mapKey } from './ScreenProps.js';
-
-// ---------------------------------------------------------------------------
-// Category groupings — match the engine's 4-pillar cycle per §5
-// ---------------------------------------------------------------------------
-
-/**
- * Skill-category definitions matching the wpcmk §5 "4-pillar cycle":
- * WEAPONRY → PHYSICAL → PERSONAL → ACADEMIA.
- *
- * The engine groups the 30 skill slots into 4 categories by the bit-block
- * sizes [10, 7, 5, 8]:
- *   WEAPONRY  = slots  0.. 9 (10 slots)
- *   PHYSICAL  = slots 10..16 (7 slots)
- *   PERSONAL  = slots 17..21 (5 slots)
- *   ACADEMIA  = slots 22..29 (8 slots)
- */
-const SKILL_CATEGORIES: readonly { msgOffset: number; startSlot: number; endSlot: number }[] = [
-  { msgOffset: 0, startSlot: 0, endSlot: 9 },   // WEAPONRY (0x258)
-  { msgOffset: 1, startSlot: 10, endSlot: 16 },  // PHYSICAL (0x259)
-  { msgOffset: 2, startSlot: 17, endSlot: 21 },  // PERSONAL (0x25a)
-  { msgOffset: 3, startSlot: 22, endSlot: 29 },  // ACADEMIA (0x25b)
-] as const;
-
-// ---------------------------------------------------------------------------
-// SkillTrainScreen component
-// ---------------------------------------------------------------------------
+  composeSkillTrainFrame,
+  patchFontSetWithPortrait,
+  SKILL_CATEGORIES,
+} from '../ega/skill-train-frame.js';
 
 export interface SkillTrainScreenProps {
   state: CreationState;
@@ -80,59 +45,94 @@ export interface SkillTrainScreenProps {
   fontSet: FontSet;
   palette: Palette;
   db: MessageDb;
+  /** [wport1, wport2, wport3] — 14 portraits each. Falls back gracefully if empty. */
+  portraits?: PortraitSet[];
 }
 
 /**
- * SkillTrainScreen — renders screen-13: class-specific skill training.
+ * Derive trainable skill slots in a given category for the given class.
  *
- * Dumb component. Budget decrement + skills[] increment live in the reducer.
- * Local state tracks only the cursor position (index into the trainable-slots array).
+ * Filters `availableSkillSlots(classIdx)` by the slot range belonging to the
+ * category (e.g. WEAPONRY = slots 0..9). Returns the slots in slot-index order
+ * (matches the engine's rendering order).
  */
+function trainableInCategory(classIdx: number, categoryIdx: number): number[] {
+  const cat = SKILL_CATEGORIES[categoryIdx]!;
+  return availableSkillSlots(classIdx).filter(
+    (slot) => slot >= cat.startSlot && slot <= cat.endSlot,
+  );
+}
+
 export function SkillTrainScreen({
   state,
   dispatch,
   fontSet,
   palette,
   db,
+  portraits = [],
 }: SkillTrainScreenProps) {
-  // Derive trainable slots for this character's class
   const classIdx = state.draft.class ?? 0;
-  const trainableSlots = availableSkillSlots(classIdx);
 
-  // Cursor: index into trainableSlots array (not a slot number directly).
-  // Seeded to 0 (first trainable slot).
+  // Category cycle is screen-local. Start at WEAPONRY; if it has no trainable
+  // slots for this class (unusual), advance until we find one. This keeps the
+  // cursor + render in a valid state on mount.
+  const [categoryIdx, setCategoryIdx] = useState<number>(() => {
+    for (let i = 0; i < SKILL_CATEGORIES.length; i++) {
+      if (trainableInCategory(classIdx, i).length > 0) return i;
+    }
+    return 0;
+  });
+
   const [cursorIdx, setCursorIdx] = useState<number>(0);
 
-  // -------------------------------------------------------------------------
-  // Key handler
-  // -------------------------------------------------------------------------
+  // Filter trainable slots for the current category.
+  const trainable = useMemo(
+    () => trainableInCategory(classIdx, categoryIdx),
+    [classIdx, categoryIdx],
+  );
+
+  // Reset cursor if it falls off after a category change.
+  useEffect(() => {
+    if (cursorIdx >= trainable.length) {
+      setCursorIdx(Math.max(0, trainable.length - 1));
+    }
+  }, [trainable.length, cursorIdx]);
+
+  // ── Key handler ────────────────────────────────────────────────────────────
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      const code = mapKey(e);
-      if (code === null) return;
-
-      switch (code) {
-        case 2: // ArrowUp — prev trainable slot (clamp at start, no wrap)
+      switch (e.key) {
+        case 'ArrowUp':
           setCursorIdx((prev) => Math.max(0, prev - 1));
           break;
-        case 4: // ArrowDown — next trainable slot (clamp at end, no wrap)
-          setCursorIdx((prev) => Math.min(trainableSlots.length - 1, prev + 1));
+        case 'ArrowDown':
+          setCursorIdx((prev) => Math.min(trainable.length - 1, prev + 1));
           break;
-        case 3: // ArrowRight — allocate point to current cursor skill
-        case 5: { // Enter — same as ArrowRight per §5/§8
-          const slot = trainableSlots[cursorIdx];
-          if (slot !== undefined) {
+        case 'ArrowRight': {
+          const slot = trainable[cursorIdx];
+          if (slot !== undefined && state.draft.skillBudget > 0) {
             dispatch({ type: 'TRAIN_SKILL', slot });
           }
           break;
         }
-        case 1: // ArrowLeft — no-op for skill training (no decrease)
+        case 'Enter': {
+          // NEXT CATEGORY — wrap, skip empty.
+          for (let step = 1; step <= SKILL_CATEGORIES.length; step++) {
+            const next = (categoryIdx + step) % SKILL_CATEGORIES.length;
+            if (trainableInCategory(classIdx, next).length > 0) {
+              setCategoryIdx(next);
+              setCursorIdx(0);
+              break;
+            }
+          }
+          break;
+        }
         default:
           break;
       }
     },
-    [cursorIdx, trainableSlots, dispatch],
+    [trainable, cursorIdx, categoryIdx, classIdx, state.draft.skillBudget, dispatch],
   );
 
   useEffect(() => {
@@ -140,66 +140,27 @@ export function SkillTrainScreen({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  // -------------------------------------------------------------------------
-  // Render
-  // -------------------------------------------------------------------------
+  // ── Render ─────────────────────────────────────────────────────────────────
 
-  const { top, bottomBar } = createPersistentWindows();
-  const skillWin = createSkillTrainWindow();
   const pal = palette ?? WIZ6_MAIN;
+  const portraitIdx = state.draft.portrait;
 
-  // --- skillTrain window: show category headers + trainable skill names ---
+  // Persistent portrait font2 patch — cloned once per portrait change.
+  const fontSetWithPortrait = useMemo(
+    () => patchFontSetWithPortrait(fontSet, portraits, portraitIdx),
+    [fontSet, portraits, portraitIdx],
+  );
 
-  clearWindow(skillWin, 0x20 /* space */, 0x19);
-  let row = 0;
+  const windows = composeSkillTrainFrame(
+    {
+      draft: state.draft,
+      categoryIdx,
+      trainableInCategory: trainable,
+      cursorIdx,
+      skillPoints: state.draft.skillBudget,
+    },
+    db,
+  );
 
-  for (const cat of SKILL_CATEGORIES) {
-    // Only render categories that have at least one trainable slot for this class
-    const trainableInCat = trainableSlots.filter(
-      (s) => s >= cat.startSlot && s <= cat.endSlot,
-    );
-    if (trainableInCat.length === 0) continue;
-
-    // Category header
-    const catLabel = skillCatName(db, cat.msgOffset);
-    if (catLabel && row < skillWin.heightCells) {
-      setCursor(skillWin, 0, row);
-      puts(skillWin, catLabel, skillWin.cells[1] ?? 0x19);
-      row++;
-    }
-
-    // Skill entries in this category
-    for (const slot of trainableInCat) {
-      if (row >= skillWin.heightCells) break;
-      const name = skillName(db, slot);
-      const displayName = name || `SKILL ${slot}`;
-      // Find the cursor position for this slot
-      const slotCursorIdx = trainableSlots.indexOf(slot);
-
-      setCursor(skillWin, 1, row); // indent by 1 column under the category header
-      puts(skillWin, displayName, skillWin.cells[1] ?? 0x19);
-
-      if (slotCursorIdx === cursorIdx) {
-        highlightRow(skillWin, row, 5);
-      }
-
-      row++;
-    }
-  }
-
-  // --- bottomBar: "SKILL POINTS: N" ---
-  const skillPtsLabel = creationString(db, MSG.skillPoints);
-  const budgetLine = skillPtsLabel
-    ? `${skillPtsLabel}: ${state.draft.skillBudget}`
-    : `SKILL POINTS: ${state.draft.skillBudget}`;
-  setCursor(bottomBar, 0, 0);
-  puts(bottomBar, budgetLine, bottomBar.cells[1] ?? 0x13);
-
-  // --- top: show a brief status header ---
-  setCursor(top, 0, 0);
-  puts(top, 'SKILL TRAINING', top.cells[1] ?? 0x14);
-
-  const windows = [top, bottomBar, skillWin];
-
-  return <CreationCanvas windows={windows} fontSet={fontSet} palette={pal} />;
+  return <CreationCanvas windows={windows} fontSet={fontSetWithPortrait} palette={pal} />;
 }

@@ -194,9 +194,11 @@ function drawRedrawFields(top: TileWindow, draft: DraftState, db: MessageDb): vo
   putCell(top, 4, 2, 0x1e, attrFor(5)); // up-arrow
   putCell(top, 4, 3, 0x1f, attrFor(5)); // down-arrow
 
-  // Left-panel age values (col 5, width-3) — rows 2/3. Source is the age cache;
-  // 0 during creation (unverified multi-digit width). attr 0xe (row2) / 0xc (row3).
-  putNumberRight(top, 5, 2, 0, 3, 0xe);
+  // Left-panel age values (col 5, width-3) — rows 2/3. Row 2 = age (populated by
+  // `fireDerivedStats` once class/race finalized; 0 pre-derived); row 2 attr 0xe.
+  // Row 3 is a second age-cache field (engine purpose unverified; observed = 1
+  // post-skill-init for NATHAN samurai) — kept at 0 here. attr 0xc.
+  putNumberRight(top, 5, 2, draft.derived.age ?? 0, 3, 0xe);
   putNumberRight(top, 5, 3, 0, 3, 0xc);
 
   // RNK label (25,1) attr 0xb. LVL label (13,3) attr 0x8.

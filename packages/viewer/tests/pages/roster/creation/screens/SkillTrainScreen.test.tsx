@@ -2,15 +2,16 @@
 //
 // RTL tests for SkillTrainScreen (screen-13).
 //
-// Screen-13 behaviour per docs/re/wpcmk-screens.md §5:
-//   - Player spends `state.draft.skillBudget` points on trainable skill slots.
-//   - Trainable slots derived from CLASS_SKILL_AVAILABILITY[state.draft.class].
-//   - ArrowUp   (code 2) → cursor = prev trainable slot (no wrap / clamp at start)
-//   - ArrowDown (code 4) → cursor = next trainable slot (no wrap / clamp at end)
-//   - ArrowRight (code 3) / Enter (code 5) → dispatch TRAIN_SKILL { slot: <cursor slot> }
-//   - ArrowLeft (code 1) → no-op for this screen (no decrease for skills)
+// Screen-13 behaviour — engine-verified bindings (cell dump of slot-1
+// bottomBar: "◄► ADJUSTS SKILL    ▲▼ SELECTS SKILL" + "PRESS ▶ FOR NEXT CATEGORY"):
+//   - ArrowUp    → cursor prev (clamp at start, no wrap)
+//   - ArrowDown  → cursor next (clamp at end, no wrap)
+//   - ArrowRight → "ADJUSTS SKILL" — dispatch TRAIN_SKILL { slot: <cursor slot> }
+//   - Enter      → "PRESS ▶ FOR NEXT CATEGORY" — screen-local category advance
+//                  (WEAPONRY → PHYSICAL → PERSONAL → ACADEMIA, skips empty, wraps)
+//   - ArrowLeft  → no-op (no skill point untrain)
+//   - Escape     → silently ignored
 //   - Reducer owns budget decrement + skills[] increment + auto-advance when budget hits 0.
-//   - Screen does NOT need to dispatch SKILLS_DONE — reducer auto-advances.
 //   - Renders via CreationCanvas (<canvas>).
 //
 // Spec: docs/re/wpcmk-screens.md §5, §8
@@ -195,8 +196,8 @@ describe('SkillTrainScreen — trainable slots reflect class', () => {
 // Cursor starts at the first trainable slot for the class.
 // ---------------------------------------------------------------------------
 
-describe('SkillTrainScreen — Enter dispatches TRAIN_SKILL at cursor slot', () => {
-  it('Enter at initial position dispatches TRAIN_SKILL with the first trainable slot', () => {
+describe('SkillTrainScreen — ArrowRight dispatches TRAIN_SKILL at cursor slot', () => {
+  it('ArrowRight at initial position dispatches TRAIN_SKILL with the first trainable slot', () => {
     const state = makeSkillTrainState();
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
@@ -211,14 +212,14 @@ describe('SkillTrainScreen — Enter dispatches TRAIN_SKILL at cursor slot', () 
       />,
     );
 
-    fireEvent.keyDown(window, { key: 'Enter' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
 
     // Fighter's first trainable slot is slot 0 (Sword)
     const firstSlot = availableSkillSlots(0)[0]!;
     expect(dispatch).toHaveBeenCalledWith({ type: 'TRAIN_SKILL', slot: firstSlot });
   });
 
-  it('ArrowRight dispatches TRAIN_SKILL at cursor slot', () => {
+  it('ArrowRight dispatches TRAIN_SKILL at cursor slot (alias)', () => {
     const state = makeSkillTrainState();
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
@@ -245,7 +246,7 @@ describe('SkillTrainScreen — Enter dispatches TRAIN_SKILL at cursor slot', () 
 // ---------------------------------------------------------------------------
 
 describe('SkillTrainScreen — ArrowDown moves cursor to next trainable slot', () => {
-  it('ArrowDown then Enter dispatches TRAIN_SKILL with the second trainable slot', () => {
+  it('ArrowDown then ArrowRight dispatches TRAIN_SKILL with the second trainable slot', () => {
     const state = makeSkillTrainState();
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
@@ -262,14 +263,19 @@ describe('SkillTrainScreen — ArrowDown moves cursor to next trainable slot', (
 
     // Move cursor to second trainable slot
     fireEvent.keyDown(window, { key: 'ArrowDown' });
-    fireEvent.keyDown(window, { key: 'Enter' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
 
     const slots = availableSkillSlots(0);
     const secondSlot = slots[1]!;
     expect(dispatch).toHaveBeenCalledWith({ type: 'TRAIN_SKILL', slot: secondSlot });
   });
 
-  it('ArrowDown clamps at the last trainable slot (no wrap)', () => {
+  it('ArrowDown clamps at the last trainable slot WITHIN the current category', () => {
+    // Per the engine binding, the cursor only moves within the visible
+    // category. WEAPONRY = slots 0..9; Fighter's trainable WEAPONRY slots end
+    // at slot 9 (HANDS&FEET) — that's where ArrowDown clamps. Use
+    // `availableSkillSlots(0)` filtered to WEAPONRY to compute the last slot
+    // generically (in case the class table changes).
     const state = makeSkillTrainState();
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
@@ -284,16 +290,15 @@ describe('SkillTrainScreen — ArrowDown moves cursor to next trainable slot', (
       />,
     );
 
-    const slots = availableSkillSlots(0);
-    const lastSlot = slots[slots.length - 1]!;
+    const weaponrySlots = availableSkillSlots(0).filter((s) => s >= 0 && s <= 9);
+    const lastInWeaponry = weaponrySlots[weaponrySlots.length - 1]!;
 
-    // Press ArrowDown more times than there are slots — should clamp
-    for (let i = 0; i < slots.length + 5; i++) {
+    for (let i = 0; i < weaponrySlots.length + 5; i++) {
       fireEvent.keyDown(window, { key: 'ArrowDown' });
     }
-    fireEvent.keyDown(window, { key: 'Enter' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
 
-    expect(dispatch).toHaveBeenCalledWith({ type: 'TRAIN_SKILL', slot: lastSlot });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'TRAIN_SKILL', slot: lastInWeaponry });
   });
 });
 
@@ -319,7 +324,7 @@ describe('SkillTrainScreen — ArrowUp moves cursor to prev trainable slot', () 
 
     // Arrow up from the start — should stay at first slot
     fireEvent.keyDown(window, { key: 'ArrowUp' });
-    fireEvent.keyDown(window, { key: 'Enter' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
 
     const firstSlot = availableSkillSlots(0)[0]!;
     expect(dispatch).toHaveBeenCalledWith({ type: 'TRAIN_SKILL', slot: firstSlot });
@@ -343,7 +348,7 @@ describe('SkillTrainScreen — ArrowUp moves cursor to prev trainable slot', () 
     // Move to second, then back to first
     fireEvent.keyDown(window, { key: 'ArrowDown' });
     fireEvent.keyDown(window, { key: 'ArrowUp' });
-    fireEvent.keyDown(window, { key: 'Enter' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
 
     const firstSlot = availableSkillSlots(0)[0]!;
     expect(dispatch).toHaveBeenCalledWith({ type: 'TRAIN_SKILL', slot: firstSlot });
