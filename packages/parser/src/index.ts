@@ -82,6 +82,7 @@ export {
   type IntroInputs,
   type VisibleEntry,
 } from './sim/intro-sequence.js';
+export { composeIntroFrame } from './sim/intro-render.js';
 export {
   MAIN_MENU_OPTIONS,
   isOptionEnabled,

@@ -7,7 +7,7 @@ import {
   concatenatePicSegments,
   initialIntroState,
   stepIntro,
-  visibleScrollEntries,
+  composeIntroFrame,
   SCROLL_RAF_STEP_RATIO,
   type IntroState,
   type RenderedSprite,
@@ -123,9 +123,6 @@ export function GameTitle() {
     ctx.imageSmoothingEnabled = false;
 
     let raf = 0;
-    // Per-frame compositing buffer — one putImageData per frame, all sprite
-    // blending happens by hand into this buffer so alpha actually composites.
-    const frameRgba = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
 
     // Sub-frame counter for slowing the scroll phase. Outside scroll, we
     // step the sim every RAF (1:1). During scroll, we step once per
@@ -175,8 +172,12 @@ export function GameTitle() {
         }
       }
 
-      composeFrame(frameRgba, stateRef.current, spritesByDesc, titlepagRgba);
-      ctx.putImageData(new ImageData(frameRgba, ENGINE_W, ENGINE_H), 0, 0);
+      const frameRgba = composeIntroFrame(stateRef.current, spritesByDesc, titlepagRgba);
+      // Allocate an ArrayBuffer-backed ImageData and copy in — passing the
+      // Uint8ClampedArray to the ctor trips the ArrayBufferLike DOM lib types.
+      const img = new ImageData(ENGINE_W, ENGINE_H);
+      img.data.set(frameRgba);
+      ctx.putImageData(img, 0, 0);
 
       if (stateRef.current.phase === 'done') {
         navigate('/castle');
@@ -247,119 +248,4 @@ export function GameTitle() {
   );
 }
 
-/**
- * Compose one frame into `dest` (ENGINE_W*ENGINE_H*4 RGBA bytes). Composites
- * sprite alpha properly: transparent sprite pixels are skipped, the underlying
- * background pixel is preserved. One `dest` buffer, mutated in place; viewer
- * calls putImageData(dest) once per frame.
- */
-function composeFrame(
-  dest: Uint8ClampedArray,
-  state: IntroState,
-  sprites: RenderedSprite[],
-  titlepagRgba: Uint8ClampedArray | null,
-): void {
-  fillBlack(dest);
-
-  // Background per phase. titlepag shows during title-hold + wizardry-hang +
-  // scroll + post-scroll (Wizardry wordmark + scene visible from when SOUND07
-  // lands until the post-scroll fadeout).
-  if (
-    (state.phase === 'title-hold' ||
-      state.phase === 'wizardry-hang' ||
-      state.phase === 'scroll' ||
-      state.phase === 'post-scroll') &&
-    titlepagRgba
-  ) {
-    dest.set(titlepagRgba);
-  }
-
-  // Sir-Tech splash layout: dragon ABOVE wordmark, red-bar edges meeting
-  // (152×32 each, ~2px overlap so red strips visually join).
-  const cxLogo = Math.floor((ENGINE_W - 152) / 2);
-  const dragonY = 70;
-  const wordmarkY = dragonY + 30;
-
-  const cxBradleyLine = Math.floor((ENGINE_W - 144) / 2);
-  const cxBradleySig = Math.floor((ENGINE_W - 112) / 2);
-  const bradleyLineY = 80;
-  const bradleySigY = bradleyLineY + 36;
-
-  switch (state.phase) {
-    case 'pause-pre-sirtech':
-    case 'pause-between':
-    case 'pause-pre-scroll':
-    case 'title-hold':
-    case 'done':
-      // background only (titlepag for title-hold; black for the pauses)
-      break;
-
-    case 'sirtech-splash':
-      blendSprite(dest, sprites[9], cxLogo, dragonY);
-      blendSprite(dest, sprites[10], cxLogo, wordmarkY);
-      break;
-
-    case 'bradley-splash':
-      blendSprite(dest, sprites[12], cxBradleyLine, bradleyLineY);
-      blendSprite(dest, sprites[8], cxBradleySig, bradleySigY);
-      break;
-
-    case 'wizardry-hang':
-      // Render the Wizardry-VI top + bottom sprites at their fieldB positions
-      // (matches what the engine draws via winit_render_text_token between
-      // SOUND07 firing and the scroll loop initialisation). Coords come from
-      // CREDITS_SCROLL_ENTRIES[0] and [1] (col=0x4c, fieldB=0x43 and 0x63).
-      // sprites[6] = entry 0's descriptor (Wizardry top, token=7 → desc=6),
-      // sprites[7] = entry 1's descriptor (Wizardry bottom, token=8 → desc=7).
-      blendSprite(dest, sprites[6], 0x4c, 0x43);
-      blendSprite(dest, sprites[7], 0x4c, 0x63);
-      break;
-
-    case 'scroll':
-    case 'post-scroll':
-      for (const v of visibleScrollEntries(state.scrollPos)) {
-        blendSprite(dest, sprites[v.descriptorIndex], v.col, v.y);
-      }
-      break;
-  }
-}
-
-function fillBlack(buf: Uint8ClampedArray): void {
-  for (let i = 0; i < buf.length; i += 4) {
-    buf[i] = 0;
-    buf[i + 1] = 0;
-    buf[i + 2] = 0;
-    buf[i + 3] = 0xff;
-  }
-}
-
-/**
- * Composite a sprite over the destination buffer, respecting per-pixel alpha.
- * Transparent sprite pixels (alpha=0) leave the destination untouched.
- * Out-of-bounds destination pixels are clipped.
- */
-function blendSprite(
-  dest: Uint8ClampedArray,
-  sprite: RenderedSprite | undefined,
-  dx: number,
-  dy: number,
-): void {
-  if (!sprite) return;
-  const { width: sw, height: sh, rgba } = sprite;
-  for (let y = 0; y < sh; y++) {
-    const dstY = dy + y;
-    if (dstY < 0 || dstY >= ENGINE_H) continue;
-    for (let x = 0; x < sw; x++) {
-      const srcIdx = (y * sw + x) * 4;
-      if (rgba[srcIdx + 3] === 0) continue;
-      const dstX = dx + x;
-      if (dstX < 0 || dstX >= ENGINE_W) continue;
-      const dstIdx = (dstY * ENGINE_W + dstX) * 4;
-      dest[dstIdx] = rgba[srcIdx]!;
-      dest[dstIdx + 1] = rgba[srcIdx + 1]!;
-      dest[dstIdx + 2] = rgba[srcIdx + 2]!;
-      dest[dstIdx + 3] = 0xff;
-    }
-  }
-}
 
