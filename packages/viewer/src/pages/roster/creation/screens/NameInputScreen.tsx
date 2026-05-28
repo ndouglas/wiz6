@@ -149,6 +149,13 @@ export function NameInputScreen({
   //   col 17+N:      char 'a' (97) at attr 0x10 — wfont0 glyph 97 is the
   //                   solid-block CURSOR sprite (not a lowercase 'a').
   //   col 17+N+1..:  spaces at attr 0x00 (empty input field).
+  // Override bottomBar.invertHighlight to false — name-input renders typed
+  // letters + the cursor block in COLORED mode (stroke=palette[colorIdx],
+  // bg=black: yellow NATHAN on black; white cursor block on black). The
+  // character-menu selection cursor uses INVERSE mode (black-on-yellow) via
+  // the default invertHighlight=true; that's a per-screen call, not a per-cell
+  // flag, so screens override as needed.
+  bottomBar.invertHighlight = false;
   const promptText = creationString(db, MSG.namePrompt); // "CHARACTER NAME >"
   setCursor(bottomBar, 1, 1);
   puts(bottomBar, promptText, 0x03);

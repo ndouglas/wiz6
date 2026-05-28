@@ -13,7 +13,7 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#022**
+Next free ID: **#021**
 
 ---
 
@@ -54,12 +54,6 @@ Next free ID: **#022**
   - Plan: `docs/superpowers/plans/2026-05-22-viewer-redesign-stage-2d.md` (0/44).
   - Compare mode (`/monsters/compare`), family-grouped index, copy-bytes/JSON header buttons.
   - `.pic` monster sprites are still blocked on prior stage; cross-references with #004.
-
-- #021 [open] — Cursor cell `(char 0x61 'a', attr 0x10)` renders white, engine renders yellow (name-input last 0.1%)
-  - `tools/parity/screen-parity.test.ts` `creation-name-input` sits at **99.90%** — residual is exactly **1 cell (64 px) = the cursor block**. Cell-parity is byte-exact; the disagreement is purely render-side.
-  - The highlight path computes `colorIdx = (attr >> 4) & 0x0f = 1`, and `WIZ6_MAIN.colors[1]` is white. Engine renders the same cell as a **yellow** block — so attr 0x10's high nibble in the cursor render path doesn't follow the straight high-nibble→`WIZ6_MAIN.colors[N]` mapping that attr 0x50 (NATHAN: yellow-on-black) follows correctly.
-  - Either there's a per-cell "negated/cursor" flag we're missing (the CLAUDE.md note about the dirty-map negated_flag — but bottomBar's `invertHighlight=true` already toggles the polarity), or attr 0x10 specifically routes through a different colour path / different palette (maybe AC[1] is yellow in some screens' palette and white in others, while WIZ6_MAIN.colors[1]=white is the wrong choice for this screen).
-  - Also a separate name-input UX question: NameInputScreen now stores the typed buffer lowercase + uppercases on render. The engine *also* mirrors the typed chars into wbase memory as uppercase (0x50 cell content). Decide: do we also store uppercase in our buffer state (and call `name` from that), or keep lowercase in state and uppercase only when displaying? Diff PNG: `/tmp/parity-diff-creation-name-input.png`.
 
 - #020 [open] — `renderEgaScreen` plane-3 storage for `titlepag.scr` bottom tagline (last 1.6% of intro parity)
   - `tools/parity/intro-parity.test.ts` sits at 98.38% on `title-art` / `title-art-copyright` (1038 px). The residual is entirely in the bottom 7 rows (y 185-191) and every diff pixel is exactly `engine = ours | 8` — the engine has the **intensity plane (bit 3)** set on the bottom tagline, ours doesn't.

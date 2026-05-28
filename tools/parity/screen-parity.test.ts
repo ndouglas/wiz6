@@ -8,9 +8,8 @@
  *
  * The assertion is a **regression floor**, not the goal: each screen records its
  * current match % and we fail if a change drops below it. The TARGET is 100% and
- * we're essentially there — both character-menu screens pixel-exact; name-input
- * at 99.90% with the residual = 1 cell (cursor block colour, TODO #021). On a
- * shortfall, inspect the diff PNG in /tmp.
+ * we're there — all three creation screens (character-menu empty + populated,
+ * name-input) are pixel-exact. On a shortfall, inspect the diff PNG in /tmp.
  *
  * Getting here required fixing a 16-scanline vertical offset in decode-screen.ts
  * (VRAM_OFFSET_IN_BLOB): the fixtures used to be shifted down 16px, which pinned
@@ -109,6 +108,11 @@ function renderNameInput(fontSet: FontSet, palette: Palette): Uint8ClampedArray 
   //              cursor sprite (not a lowercase letter).
   //   col 18..24: spaces attr 0x00 (empty field).
   const { top, bottomBar, menuPanel } = createPersistentWindows();
+  // Name-input renders typed text + cursor in COLORED highlight mode (yellow
+  // text on black, white cursor block on black) — override the bottomBar's
+  // default invertHighlight=true (which is right for the character-menu
+  // selection cursor, wrong here).
+  bottomBar.invertHighlight = false;
   const PROMPT = 'CHARACTER NAME >';
   const NAME_MAX_LENGTH = 7;
   setCursor(bottomBar, 1, 1);
@@ -142,7 +146,7 @@ const SCREENS: ScreenCase[] = [
   },
   {
     fixture: 'creation-name-input',
-    floor: 99.8, // actual 99.90% — residual = 1 cell (cursor block colour, see TODO #021)
+    floor: 100, // pixel-exact (0 px differ)
     render: renderNameInput,
   },
 ];
