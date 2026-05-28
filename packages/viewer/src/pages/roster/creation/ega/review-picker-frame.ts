@@ -21,25 +21,41 @@ export interface ReviewPickerView {
   cursorIdx: number;
   /**
    * Optional header msg ID for bottomBar row 1 — defaults to MSG.reviewWho.
-   * DELETE PC reuses this picker layout with MSG.deleteWho instead.
+   * DELETE / RENAME / PORTRAIT pickers reuse this layout with different titles.
    */
   titleMsgId?: number;
+  /**
+   * Two-state cursor model from `wpcmk_show_roster_picker` (wpcmk file 0x56a0):
+   * the picker has a separate "on CANCEL" state. When `onCancel === true`, the
+   * CANCEL option at bottomBar row 3 is highlighted (attr 0x50) and the
+   * cursorIdx roster row is rendered without highlight (attr 0x03). When
+   * `onCancel === false`, the highlight flips. See
+   * findings/wpcmk-roster-picker-input.json.
+   */
+  onCancel?: boolean;
 }
 
-/** Draw one roster entry into the menuPanel at `row`. */
+/**
+ * Draw one roster entry into the menuPanel at `row`.
+ *
+ * When `selected` is true, the NAME cells get the highlight attr 0x50;
+ * otherwise attr 0x03 (matches the CANCEL behavior: highlight flips between
+ * the roster row and the CANCEL bottomBar row based on the picker's
+ * two-state cursor).
+ */
 function drawRosterRow(
   panel: TileWindow,
   row: number,
   ch: Character,
   db: MessageDb,
+  selected: boolean,
 ): void {
   // Col 0 = scrollbar (drawn separately). Cols 1..(name.length) hold the NAME
-  // chars at attr 0x50. The trailing padding to col 8 (inclusive) is spaces at
-  // attr 0x10 — verified vs slot 1: NATHAN (6 chars at cols 1..6 attr 0x50)
-  // followed by 2 spaces at cols 7..8 attr 0x10.
+  // chars; attr depends on selection. Trailing pad to col 8 at attr 0x10.
+  const nameAttr = selected ? 0x50 : 0x03;
   const name = ch.name.slice(0, 7);
   setCursor(panel, 1, row);
-  puts(panel, name, 0x50);
+  puts(panel, name, nameAttr);
   for (let x = 1 + name.length; x <= 8; x++) {
     setCursor(panel, x, row);
     puts(panel, ' ', 0x10);
@@ -110,21 +126,26 @@ export function composeReviewPickerFrame(
     puts(menuPanel, glyph, 0x02);
   }
 
-  // Roster entries.
+  // Roster entries. The current roster cursor row is highlighted iff the
+  // picker is in the 'roster' state (i.e. NOT on CANCEL). Engine's two-state
+  // cursor: highlight flips between the roster row and the CANCEL bottomBar
+  // row as the user navigates between them via ArrowLeft / ArrowRight/Up/Down.
+  const onCancel = view.onCancel === true;
   for (let i = 0; i < roster.length; i++) {
     const row = ENTRY_ROW_OFFSET + i;
     if (row >= menuPanel.heightCells) break;
-    drawRosterRow(menuPanel, row, roster[i]!, db);
+    drawRosterRow(menuPanel, row, roster[i]!, db, !onCancel && i === view.cursorIdx);
   }
 
-  // bottomBar prompts. Header msg defaults to MSG.reviewWho; DELETE picker
-  // passes MSG.deleteWho via the `titleMsgId` field.
+  // bottomBar prompts. Header msg defaults to MSG.reviewWho; DELETE/RENAME/
+  // PORTRAIT pickers pass their own via `titleMsgId`. CANCEL row attr flips
+  // 0x03 ↔ 0x50 with the two-state cursor.
   const title = creationString(db, view.titleMsgId ?? MSG.reviewWho);
   setCursor(bottomBar, Math.floor((bottomBar.widthCells - title.length) / 2), 1);
   puts(bottomBar, title, 0x03);
   const cancel = creationString(db, MSG.cancelOption);
   setCursor(bottomBar, Math.floor((bottomBar.widthCells - cancel.length) / 2), 3);
-  puts(bottomBar, cancel, 0x03);
+  puts(bottomBar, cancel, onCancel ? 0x50 : 0x03);
 
   return [top, bottomBar, menuPanel];
 }

@@ -1,11 +1,11 @@
 /**
- * PortraitTargetPickerScreen — "PORTRAIT FOR WHOM?" roster picker.
+ * PortraitTargetPickerScreen — PORTRAIT FOR WHOM? roster picker.
  *
- * Fourth consumer of composeReviewPickerFrame (after Review/Delete/Rename
- * pickers). Title is msg 0x0463 "PORTRAIT FOR WHOM?".
+ * Same engine layout + input model as ReviewPickerScreen with title
+ * msg swapped to MSG.portraitForWhom (0x0463). See useRosterPicker for keys.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { WIZ6_MAIN } from '@wiz6/data';
 import type { Palette } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
@@ -13,6 +13,7 @@ import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { composeReviewPickerFrame } from '../ega/review-picker-frame.js';
+import { useRosterPicker } from './useRosterPicker.js';
 import { MSG } from '../messages.js';
 import { readRoster } from '../../../../lib/roster-store.js';
 
@@ -38,46 +39,27 @@ export function PortraitTargetPickerScreen({
     }
   }, []);
 
-  const [cursorIdx, setCursorIdx] = useState<number>(0);
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      switch (e.key) {
-        case 'ArrowUp':
-          setCursorIdx((prev) => Math.max(0, prev - 1));
-          break;
-        case 'ArrowDown':
-          setCursorIdx((prev) => Math.min(roster.length - 1, prev + 1));
-          break;
-        case 'Enter':
-          if (cursorIdx >= 0 && cursorIdx < roster.length) {
-            dispatch({ type: 'PICK_PORTRAIT_FOR', index: cursorIdx });
-          }
-          break;
-        case 'Escape':
-          dispatch({ type: 'CANCEL_PORTRAIT_CHANGE' });
-          break;
-        default:
-          break;
-      }
-    },
-    [cursorIdx, roster.length, dispatch],
+  const onPick = useCallback(
+    (index: number) => dispatch({ type: 'PICK_PORTRAIT_FOR', index }),
+    [dispatch],
+  );
+  const onCancel = useCallback(
+    () => dispatch({ type: 'CANCEL_PORTRAIT_CHANGE' }),
+    [dispatch],
   );
 
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+  const { cursorIdx, onCancel: cancelState } = useRosterPicker(roster.length, {
+    onPick,
+    onCancel,
+  });
 
   useEffect(() => {
-    if (roster.length === 0) {
-      dispatch({ type: 'CANCEL_PORTRAIT_CHANGE' });
-    }
-  }, [roster.length, dispatch]);
+    if (roster.length === 0) onCancel();
+  }, [roster.length, onCancel]);
 
   const pal = palette ?? WIZ6_MAIN;
   const windows = composeReviewPickerFrame(
-    { roster, cursorIdx, titleMsgId: MSG.portraitForWhom },
+    { roster, cursorIdx, onCancel: cancelState, titleMsgId: MSG.portraitForWhom },
     db,
   );
 

@@ -1,0 +1,97 @@
+{
+  "topic": "wpcmk-roster-picker-input-keymap",
+  "subagent_run": "2026-05-28T22:30:00Z",
+  "binaries": ["wpcmk.ovr"],
+  "summary": "Decoded the keyboard keymap for the REVIEW WHO? / DELETE WHO? / RENAME WHO? / PORTRAIT FOR WHOM? roster pickers, which share entry point `wpcmk_show_roster_picker` (wpcmk file 0x56a0). The picker has a two-state cursor (`local_a`): 0 = on a roster row (cursor index in `local_8`), 1 = on the CANCEL row. ArrowLeft jumps to CANCEL; ArrowRight/Up/Down jump back to roster. Enter commits the current selection (PICK if on roster, CANCEL if on CANCEL). Initially RE'd with the keyboard/mouse remap direction reversed — corrected after empirical testing in DOSBox confirmed the actual behavior.",
+  "key_findings": {
+    "function": "wpcmk_show_roster_picker",
+    "fileOffset": "0x56a0",
+    "returnValue": "Selected roster index (0..N-1) or -1 if CANCEL was confirmed",
+    "stateVars": {
+      "local_8": "Cursor index within roster (0..N-1)",
+      "local_a": "0 = on roster row; 1 = on CANCEL row",
+      "local_c": "Roster length"
+    },
+    "controlGate": {
+      "test": "*(int *)0x4fc4 == 1",
+      "meaning": "Mouse-input mode (NOT keyboard, as initially misread). When true, the remap block runs and translates mouse-derived codes into keyboard-equivalent codes; when false, keyboard codes pass through directly to the post-remap if-elif chain."
+    },
+    "keyboard_bindings": {
+      "ArrowLeft (1)":  "if not on CANCEL → jump cursor to CANCEL row",
+      "ArrowUp (2)":    "if on CANCEL → return to roster; else cursor up (clamp at 0)",
+      "ArrowRight (3)": "if on CANCEL → return to roster; else no-op (engine binding — Right is a no-op on roster)",
+      "ArrowDown (4)":  "if on CANCEL → return to roster; else cursor down (clamp at N-1)",
+      "Enter (5)":      "exits the loop; returns cursor index if on roster, -1 if on CANCEL",
+      "Escape (0)":     "no-op (doesn't match any post-remap branch in keyboard mode — the engine silently ignores Escape in this picker)"
+    },
+    "mouse_remap_for_reference": {
+      "0 → 5":           "Mouse-derived 'escape' acts as Enter",
+      "1 → 2":           "Mouse-derived code 1 acts as Up",
+      "2 → 4":           "Mouse-derived code 2 acts as Down",
+      "3 → 5 + local_a=1": "Mouse-derived code 3 jumps to CANCEL and exits"
+    },
+    "scrollbar": {
+      "location": "menuPanel col 0 (vertical strip)",
+      "geometry": "E at row 0 (top arrow), G G G G G at rows 1..5 (track), F at row 6 (bottom arrow); rows 7..12 blank. All attr 0x02 (wfont2 glyphs).",
+      "purpose": "Decorative — engine doesn't track scroll within this 13-row panel. Behavior for >13 entries (paging) not yet RE'd."
+    },
+    "highlight_model": {
+      "on_roster": "The selected roster row's NAME at attr 0x50; CANCEL at attr 0x03",
+      "on_cancel": "The roster row's NAME at attr 0x03; CANCEL at attr 0x50 (highlight flips)"
+    }
+  },
+  "findings": [
+    {
+      "id": "wpcmk-picker-two-state-cursor",
+      "claim": "The roster picker has a two-state cursor: 'on roster' (with index `local_8` in 0..N-1) or 'on CANCEL'. The highlight flips between the roster row and the CANCEL bottomBar row based on this state.",
+      "category": "input_handling",
+      "confidence": "high",
+      "evidence": "wpcmk file 0x56a0 — variable `local_a` toggles 0/1; the picker post-remap chain sets `local_a` from key events."
+    },
+    {
+      "id": "wpcmk-picker-left-jumps-to-cancel",
+      "claim": "ArrowLeft is the engine's mechanism to jump from a roster row to CANCEL. Once on CANCEL, Enter dispatches the cancel.",
+      "category": "input_handling",
+      "confidence": "high",
+      "evidence": "wpcmk file 0x56a0 keyboard path — `if (local_4 == 1) { if (local_a != 1) local_a = 1; }`. Verified empirically in DOSBox."
+    },
+    {
+      "id": "wpcmk-picker-right-is-noop-on-roster",
+      "claim": "ArrowRight is a no-op when the cursor is on a roster row; it only does something when on CANCEL (returns to roster).",
+      "category": "input_handling",
+      "confidence": "high",
+      "evidence": "wpcmk file 0x56a0 keyboard path — `if (local_4 == 3) { if (local_a == 1) local_a = 0; }`. Empirically verified in DOSBox."
+    },
+    {
+      "id": "wpcmk-picker-escape-is-noop-keyboard",
+      "claim": "Escape has no effect in keyboard mode — the post-remap if-elif chain doesn't match raw code 0. (The remap converting 0 → 5 only runs in mouse mode.)",
+      "category": "input_handling",
+      "confidence": "high",
+      "evidence": "wpcmk file 0x56a0 — keyboard path falls through code 0 with no state transition."
+    },
+    {
+      "id": "wpcmk-picker-control-gate-is-mouse-mode",
+      "claim": "The `*0x4fc4 == 1` gate inside the input poll loop selects the MOUSE-input remap path, NOT the keyboard path. Earlier RE incorrectly inverted this.",
+      "category": "input_handling",
+      "confidence": "high",
+      "evidence": "Empirical testing in DOSBox (keyboard) confirmed Up = up, Down = down, Left = jump-to-cancel, Right = no-op on roster — the post-remap if-elif behavior, not the remap output. The remap therefore must apply to the non-keyboard (mouse) input path."
+    }
+  ],
+  "port_decisions": [
+    {
+      "id": "port-matches-engine-keys",
+      "decision": "All four pickers (Review/Delete/Rename/PortraitTarget) use the engine-correct two-state cursor via the `useRosterPicker` shared hook.",
+      "rationale": "Natural arrow-key mapping; faithful to the engine; Left to CANCEL + Enter to confirm matches what players expect.",
+      "implementation": "screens/useRosterPicker.ts; ReviewPickerScreen / DeletePickerScreen / RenamePickerScreen / PortraitTargetPickerScreen all delegate input to it."
+    },
+    {
+      "id": "port-adds-escape-as-quick-cancel",
+      "decision": "Our port also accepts Escape as a quick-cancel — engine ignores Escape in this picker but modern users expect it to cancel.",
+      "rationale": "Pure-additive UX improvement; engine-faithful path (Left + Enter) still works.",
+      "implementation": "useRosterPicker handles 'Escape' by calling onCancel directly."
+    }
+  ],
+  "unresolved": [
+    "Whether the engine's mouse-mode input has additional behaviors worth porting. Left as a follow-up if mouse support becomes a priority."
+  ]
+}

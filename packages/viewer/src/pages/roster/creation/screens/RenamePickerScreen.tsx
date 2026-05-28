@@ -1,11 +1,11 @@
 /**
  * RenamePickerScreen — RENAME WHO? roster picker.
  *
- * Identical layout to ReviewPicker / DeletePicker. The only difference is
- * the row-1 title (msg 0x0462 "RENAME WHO?").
+ * Same engine layout + input model as ReviewPickerScreen with title
+ * msg swapped to MSG.renameWho (0x0462). See useRosterPicker for keys.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { WIZ6_MAIN } from '@wiz6/data';
 import type { Palette } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
@@ -13,6 +13,7 @@ import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { composeReviewPickerFrame } from '../ega/review-picker-frame.js';
+import { useRosterPicker } from './useRosterPicker.js';
 import { MSG } from '../messages.js';
 import { readRoster } from '../../../../lib/roster-store.js';
 
@@ -38,47 +39,27 @@ export function RenamePickerScreen({
     }
   }, []);
 
-  const [cursorIdx, setCursorIdx] = useState<number>(0);
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      switch (e.key) {
-        case 'ArrowUp':
-          setCursorIdx((prev) => Math.max(0, prev - 1));
-          break;
-        case 'ArrowDown':
-          setCursorIdx((prev) => Math.min(roster.length - 1, prev + 1));
-          break;
-        case 'Enter':
-          if (cursorIdx >= 0 && cursorIdx < roster.length) {
-            dispatch({ type: 'PICK_RENAME', index: cursorIdx });
-          }
-          break;
-        case 'Escape':
-          dispatch({ type: 'CANCEL_RENAME' });
-          break;
-        default:
-          break;
-      }
-    },
-    [cursorIdx, roster.length, dispatch],
+  const onPick = useCallback(
+    (index: number) => dispatch({ type: 'PICK_RENAME', index }),
+    [dispatch],
+  );
+  const onCancel = useCallback(
+    () => dispatch({ type: 'CANCEL_RENAME' }),
+    [dispatch],
   );
 
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+  const { cursorIdx, onCancel: cancelState } = useRosterPicker(roster.length, {
+    onPick,
+    onCancel,
+  });
 
-  // Empty-roster guard.
   useEffect(() => {
-    if (roster.length === 0) {
-      dispatch({ type: 'CANCEL_RENAME' });
-    }
-  }, [roster.length, dispatch]);
+    if (roster.length === 0) onCancel();
+  }, [roster.length, onCancel]);
 
   const pal = palette ?? WIZ6_MAIN;
   const windows = composeReviewPickerFrame(
-    { roster, cursorIdx, titleMsgId: MSG.renameWho },
+    { roster, cursorIdx, onCancel: cancelState, titleMsgId: MSG.renameWho },
     db,
   );
 

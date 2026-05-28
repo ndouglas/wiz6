@@ -1,17 +1,11 @@
 /**
  * DeletePickerScreen — DELETE WHO? roster picker.
  *
- * Identical layout to ReviewPickerScreen — same scrollbar / entry rows /
- * bottomBar CANCEL. The only difference is the row-1 title (msg 0x0461
- * "DELETE WHO?" instead of msg 0x0469 "REVIEW WHO?").
- *
- * Behavior:
- *   ArrowUp / ArrowDown → move cursor (no wrap)
- *   Enter               → dispatch PICK_DELETE { index } → deleteConfirm
- *   Escape              → dispatch CANCEL_DELETE
+ * Same engine layout + input model as ReviewPickerScreen, with the title
+ * msg swapped to MSG.deleteWho (0x0461). See useRosterPicker for keys.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { WIZ6_MAIN } from '@wiz6/data';
 import type { Palette } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
@@ -19,6 +13,7 @@ import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { composeReviewPickerFrame } from '../ega/review-picker-frame.js';
+import { useRosterPicker } from './useRosterPicker.js';
 import { MSG } from '../messages.js';
 import { readRoster } from '../../../../lib/roster-store.js';
 
@@ -44,47 +39,27 @@ export function DeletePickerScreen({
     }
   }, []);
 
-  const [cursorIdx, setCursorIdx] = useState<number>(0);
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      switch (e.key) {
-        case 'ArrowUp':
-          setCursorIdx((prev) => Math.max(0, prev - 1));
-          break;
-        case 'ArrowDown':
-          setCursorIdx((prev) => Math.min(roster.length - 1, prev + 1));
-          break;
-        case 'Enter':
-          if (cursorIdx >= 0 && cursorIdx < roster.length) {
-            dispatch({ type: 'PICK_DELETE', index: cursorIdx });
-          }
-          break;
-        case 'Escape':
-          dispatch({ type: 'CANCEL_DELETE' });
-          break;
-        default:
-          break;
-      }
-    },
-    [cursorIdx, roster.length, dispatch],
+  const onPick = useCallback(
+    (index: number) => dispatch({ type: 'PICK_DELETE', index }),
+    [dispatch],
+  );
+  const onCancel = useCallback(
+    () => dispatch({ type: 'CANCEL_DELETE' }),
+    [dispatch],
   );
 
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+  const { cursorIdx, onCancel: cancelState } = useRosterPicker(roster.length, {
+    onPick,
+    onCancel,
+  });
 
-  // Empty-roster guard (CharacterMenuScreen hides DELETE PC at count==0).
   useEffect(() => {
-    if (roster.length === 0) {
-      dispatch({ type: 'CANCEL_DELETE' });
-    }
-  }, [roster.length, dispatch]);
+    if (roster.length === 0) onCancel();
+  }, [roster.length, onCancel]);
 
   const pal = palette ?? WIZ6_MAIN;
   const windows = composeReviewPickerFrame(
-    { roster, cursorIdx, titleMsgId: MSG.deleteWho },
+    { roster, cursorIdx, onCancel: cancelState, titleMsgId: MSG.deleteWho },
     db,
   );
 
