@@ -221,6 +221,272 @@ SHOW TITLE PAGE / QUIT GAME. Slot 5's transition to state 0x10=WPCMK (make
 player character) is consistent with the "CHARACTER MENU" label being the
 character-creation submenu when there's no party to edit.
 
+### Slot 0 — ADD PARTY MEMBER (deep dive)
+
+Full byte-exact RE pass — findings at
+[`docs/re/findings/wbase-add-party-member.json`](findings/wbase-add-party-member.json).
+
+#### Dispatch shape (handlers are JMP-dispatched code blocks, not CALL'd functions)
+
+Critical to understand: the 9 main-menu slot "handlers" are reached via
+`jmp word ptr cs:[bx + 0x731f]` from the menu-loop tail, **not** via
+`call`. Each "handler" runs in `wbase_state4_main_menu`'s stack frame
+and ends with its own `jmp 0x2dda` back to the loop top. So:
+
+- A slot handler can read/write the menu loop's locals (e.g. `[bp-0xa]`,
+  the next-iteration cursor offset).
+- A slot handler does NOT need `ret`. If it wanted to exit the loop it
+  would just write `*0x363a := <non-negative state>` and jump back to the
+  loop test.
+
+This is the structural reason `wbase_option0_add_party_member` @ wbase
+`0x2cf7` is a tiny stub:
+
+```asm
+0x2cf7: call 0x253a              ; wbase_add_party_member_action()
+0x2cfa: cmp  word [0x43ce], 6    ; party_size == 6 (full)?
+0x2cff: jnz  0x2d06
+0x2d01: mov  word [bp-0xa], 3    ; reset caller's cursor offset for next render
+0x2d06: jmp  0x2dda               ; back to menu loop top
+```
+
+The `[bp-0xa] := 3` write only fires when the party just filled up — it
+matches the prelude's `uStack_c := 3 if party_size < 6 else 0` rule, so
+the menu cursor lands on a sensible default after the party is full.
+
+**Implication: slot 0 is single-add per click.** There is no internal
+add-loop. To add a second member the user re-selects ADD PARTY MEMBER
+from the redrawn menu.
+
+#### `wbase_add_party_member_action` @ wbase 0x253a
+
+The action helper (called from the slot-0 stub). End-to-end sequence,
+all DGROUP writes documented in source order:
+
+```c
+void wbase_add_party_member_action(void) {
+    char record_buf[0x1b0];                                    // [bp-0x1b2 .. bp-0x3], 432 bytes
+    int picker_pos = wbase_pcfile_picker();                     // wbase 0x2143
+    if (picker_pos == -1) return;                               // CANCEL = clean no-op
+    int char_idx = *(int*)(picker_pos*2 + 0x515a);              // backref to PCFILE index
+    roster_io_one_record(record_buf, char_idx, 0);              // wbase 0x36, mode=READ
+    *(byte*)(char_idx + 0x4fd8) = 2;                            // mark in-party
+    *(int*)(*0x43ce*2 + 0x43dc) = char_idx;                     // party_slot → char_idx
+    int portrait_id = portrait_unique_id_alloc(*0x43ce);        // wbase 0xc2c (smallest free 0..5)
+    *(int*)(*0x43ce*2 + 0x43d0) = portrait_id;                  // party_slot → portrait_id
+    portrait_blit_per_slot(record_buf[0x19c], portrait_id);     // wbase 0xb0e
+    memcpy(0x43e8 + *0x43ce*0x1b0, record_buf, 0x1b0);          // rep movsw 0xd8 words
+    party_panel_redraw_slot(*0x43ce);                           // wbase 0x1b2d
+    (*0x43ce)++;                                                 // party_size++
+}
+```
+
+Verified key bytes:
+
+- `0x2543: call 0x2143` — picker dispatch
+- `0x254d: jz 0x25c6` — cancel → epilogue (no state mutation)
+- `0x2566: call 0x36` — `roster_io_one_record(buf, idx, 0)` with `mode=READ`
+- `0x256f: mov byte [bx+0x4fd8], 2`
+- `0x2582: call 0xc2c` — `portrait_unique_id_alloc(party_size)`
+- `0x2599: call 0xb0e` — `portrait_blit(record_buf[0x19c], portrait_id)`
+- `0x25b5: mov cx, 0xd8 / rep movsw` — copies 0xd8 words = 0x1b0 bytes
+- `0x25be: call 0x1b2d` — `party_panel_redraw_slot(party_size)`
+- `0x25c2: inc word [0x43ce]` — party_size++ (AFTER panel redraw)
+
+No sound is played. No animation. Portrait_blit + memcpy + panel redraw
+are synchronous and immediate.
+
+If `crt_open` of the portrait file fails, the engine calls
+`abort_with_code(0xe)` — a hard exit, NOT a recoverable error message.
+The picker has no error path either; PCFILE.DBS read failures abort the
+same way.
+
+#### `wbase_pcfile_picker` @ wbase 0x2143
+
+The PCFILE-character picker — **self-contained in wbase**, no
+cross-overlay calls during navigation. Distinct from
+`wbase_pick_party_member` @ 0x26c7 (used by slots 1 and 2 for picking
+party members; this one picks PCFILE characters).
+
+**Phase 1 — scan + parallel-array build:** loops `i = 0..*0x4fd2-1` and
+for each `*0x4fd8[i] == 1` (status = available, not-in-party), calls
+`roster_io_one_record(tmp, i, 0)` then writes five fields to parallel
+BSS arrays:
+
+| Source                              | Parallel array (DGROUP)         | Renderer use |
+|-------------------------------------|---------------------------------|--------------|
+| `tmp_record[0..7]` (name, 8 bytes)  | `0x507a + count*8` (via strcpy) | row label    |
+| `tmp_record[0x19e]` (race byte)     | `0x50fa + count*2` (word, zext) | + `0x8c` → race-name msg ID |
+| `tmp_record[0x19d]` (class byte)    | `0x511a + count*2` (word, zext) | + `0x64` (100) → class-name msg ID |
+| `tmp_record[0x19f]` (sex byte)      | `0x513a + count*2` (word, zext) | + `0x78` (120) → sex-name msg ID |
+| `i` (original PCFILE index)         | `0x515a + count*2`              | backref on select |
+
+`count == 0` → picker returns -1 immediately (no available characters).
+
+**This pass identifies the msg-ID base offsets for the race/class/sex
+enums** for the first time: race=140, class=100, sex=120. These are
+fixed bases in the msg.dbs strings table; per-character bytes are added
+to the base to produce the per-enum msg ID. Useful well beyond the
+add-party-member screen.
+
+**PCFILE record field correction:** `pcfile-dbs.md` marks bytes
+`+0x19c..+0x1a3` as a "race/class/sex region" with low confidence on
+exact byte-to-field mapping. This pass clarifies:
+
+- `+0x19c` — face / portrait-source-row index (divides by 14 inside
+  `portrait_blit_per_slot` to pick the portrait file + row).
+- `+0x19d` — class
+- `+0x19e` — race
+- `+0x19f` — sex
+
+The `+0x19c` byte is read by `portrait_blit_per_slot` independently
+from the picker's race/class/sex reads — it's a separate field with a
+distinct semantic role.
+
+**Phase 2 — two-window UI:**
+
+```c
+outer = ui_window_create(parent=0,    x=0x13, y=0x13, w=5, h=10,  attr=0xfffc, 0, 0);
+inner = ui_window_create(parent=0x14, x=0x13, y=0x14, w=5, h=0x14, attr=0xfffb, 0, 0);
+ui_window_clear(outer, 0x20, 3);
+ui_window_clear(inner, 0x20, 3);
+load_msg_into_buf(0x4b1, &top_strip_title);          // msg 1201, top-strip centered
+load_msg_into_buf(0x4b6, &outer_title);              // msg 1206, outer window header
+load_msg_into_buf(0x4b7, &cancel_text);              // msg 1207, CANCEL button label
+```
+
+The picker thus uses three new msg IDs not previously documented:
+
+| msg ID | decimal | Purpose                                                |
+|-------:|--------:|--------------------------------------------------------|
+| 0x4b1  |    1201 | Top-strip title (centered, drawn into `*0x3342`)       |
+| 0x4b6  |    1206 | Outer-window title (drawn with width 0x12)             |
+| 0x4b7  |    1207 | CANCEL button text                                     |
+
+(The race/class/sex enum text IDs in ranges 100..119 / 120..123 /
+140..159 are derived but their actual text strings still need msg.dbs
+decoding — see Open Questions below.)
+
+**Phase 3 — five mouse hotspots** registered via
+`mouse_status_set_field` (thunk `0xc6b2`). Field assignments are
+inferred from the (x,y) args used; live verification recommended:
+
+| Field | Likely role |
+|------:|-------------|
+| 0 | List area, top half |
+| 1 | List area, bottom half (?) |
+| 2 | List paging arrow (?) |
+| 3 | CANCEL button text-rect |
+| 4 | Catch-all `(0,0)-(0xff,0)` — possibly a sentinel |
+
+**Phase 4 — input loop** (per-iteration: redraw rows via `FUN_1f11`,
+poll input via `wbase_menu_poll_input`, navigate). Key mapping:
+
+| Key | When on list | When on CANCEL |
+|----:|--------------|----------------|
+| 1 (UP) | Move focus to CANCEL | — |
+| 2 (LEFT) | `cursor--` (clamp ≥ 0) | Move back to list |
+| 3 (DOWN) | — | Move back to list |
+| 4 (RIGHT) | `cursor++` (clamp < count) | Move back to list |
+| 5 (ENTER) | Return `cursor` | Return -1 (cancel) |
+
+Mouse-click remaps the four nav fields through `*0x4fc4 == 1` →
+synthetic key. Field 3 (CANCEL hotspot) sets the cancel-flag then
+returns ENTER, so a mouse click on CANCEL behaves identically to a
+keyboard UP+ENTER.
+
+The cancel-flag branch in `FUN_1f11`'s row renderer
+(`*0x846 == 0 && local_e == 1`) is marked **medium confidence** —
+the JZ/JNZ chain at file ~0x23b6 could be misread; recommend DOSBox-X
+breakpoint verification before committing the port's highlight logic.
+
+**Row renderer (`FUN_1f11` @ wbase 0x1f11):** draws a 5-row sliding
+window with the center row highlighted. Per-row layout:
+
+```
+<name padded to 10 cols> <race-text> - <class-text> <sex-text>
+```
+
+The center-row highlight uses the **negated-attr** write path (thunk
+`0xdf85`, `ui_window_puts_highlight`), consistent with the wbase
+highlight-attr-sign convention — so the port should use
+`invertHighlight = true` for the picker's list-area window (menu-style
+inverse colors, not colored-text).
+
+#### `portrait_blit_per_slot` @ wbase 0xb0e
+
+Signature: `portrait_blit_per_slot(record_byte, portrait_id)`.
+
+- Picks one of four candidate portrait-set filenames at DGROUP `0x5003`
+  / `0x500e` / `0x5019` / `0x5024` based on bits 0..3 of `*0x4fc6`
+  (video mode flag). EGA/HRC use 32-byte rows; CGA/T16 use 16-byte
+  rows.
+- Sets the penultimate filename byte to `'1' + record_byte/14`, and
+  stores `record_byte % 14` back into the param slot (used as the
+  row-within-file index).
+- `crt_open` → `lseek(remainder * row_size * 9)` → read `row_size * 9`
+  bytes → `crt_close`.
+- Blits via thunk `0xdcf2` (unnamed in `wroot-naming-pass`) to screen
+  `(X=2, Y = portrait_id*9 + 0x48, rows=9)`.
+
+**Y position uses portrait_id, NOT party_slot.** So a freed party slot
+leaves its portrait Y-slot empty until the next add refills it (the
+allocator at `0xc2c` returns the smallest free portrait_id in
+`*0x43d0[0..party_size-1]`).
+
+| portrait_id | screen Y |
+|------------:|---------:|
+| 0           | 0x48 (72)|
+| 1           | 0x51 (81)|
+| 2           | 0x5a (90)|
+| 3           | 0x63 (99)|
+| 4           | 0x6c (108)|
+| 5           | 0x75 (117)|
+
+#### `party_panel_redraw_slot` (`FUN_1b2d`) @ wbase 0x1b2d
+
+Even/odd party slots draw to two different ui_window handles
+(`*0x4fba` vs `*0x4fb8` — the left vs right party panel split, three
+slots each). Renders: name (3-char-padded to 7), a 3-cell colored bar,
+status icon (lookup at `0x526 + byte*2`), condition icons (severity
+lookup at `0x532`), class symbol (from char-record `+0x4587`), and
+two equipment tile slots via `FUN_1a4c`. The class/condition/status
+lookups read from wbase BSS tables not in the .ovr file (likely
+runtime-computed).
+
+#### Confidence notes for porting
+
+| Element | Confidence |
+|---------|------------|
+| Slot 0 → action helper dispatch, single-add semantics | HIGH — verified disasm |
+| Sequence of DGROUP writes in action helper | HIGH — verified disasm |
+| Picker window dims (outer 5×10, inner 5×20) at (19,19)/(19,20) | HIGH — verified disasm |
+| Picker msg IDs (0x4b1 / 0x4b6 / 0x4b7) | HIGH — verified disasm |
+| Race/class/sex msg-ID bases (140 / 100 / 120) | HIGH — derived from FUN_1f11 reads |
+| PCFILE record byte mapping (+0x19c face, +0x19d class, +0x19e race, +0x19f sex) | HIGH — bp-relative arithmetic verified |
+| Portrait Y = portrait_id × 9 + 0x48 | HIGH — verified disasm |
+| Mouse hotspot field role assignments | MEDIUM — inferred from offsets, needs DOSBox-X verification |
+| `FUN_1f11`'s cancel-flag branch direction | LOW — ambiguous JZ/JNZ; recommend DOSBox-X breakpoint capture |
+| Race/class/sex enum text strings | LOW — outside extracted msg.hdr range; needs MSG.DBS ID-encoding decode |
+| Portrait-set filenames at `0x5003`/`0x500e`/`0x5019`/`0x5024` | LOW — likely PORTRT1.* pattern but unconfirmed; DOSBox-X file-open log would resolve |
+
+#### Open questions
+
+1. Exact text at msg IDs 0x4b1, 0x4b6, 0x4b7 (picker title / outer
+   header / CANCEL button). Needs MSG.DBS decode.
+2. Race/class/sex enum strings at msg IDs 100..119, 120..123+,
+   140..159+. Critical for porting the picker.
+3. The four portrait-set filenames at DGROUP `0x5003`/`0x500e`/`0x5019`/`0x5024`
+   — likely `PORTRT1.{EGA,CGA,T16,HRC}` per video mode but unconfirmed.
+4. Whether record byte `+0x19c` is genuinely a "face index" field or a
+   tag that combines with race for portrait selection. The `% 14`
+   divisor in `portrait_blit_per_slot` suggests 14 portraits per file
+   and a multi-file split — investigate by varying char records.
+5. `FUN_1b2d`'s status / condition lookup tables at `0x526` and
+   `0x532` — wbase BSS or CS-relative data?
+6. `FUN_1f11` row renderer's cancel-highlight branch direction —
+   verify by DOSBox-X breakpoint during a live ADD PARTY MEMBER session.
+
 ### State 7 — post-gameplay cleanup (`wbase_state7_post_gameplay_cleanup` @ 0x2de1)
 
 Reached after `boot_select_disk_for_content(1, 0)` (per ovl_install_table).

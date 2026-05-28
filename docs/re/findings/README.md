@@ -98,5 +98,5 @@ The parent then reads the JSON, spot-checks high-confidence claims, integrates v
 Track which JSON files have had their findings promoted, so we know what's stale:
 
 <!-- promoted (file → canonical doc, date):
-- (none yet)
+- wbase-add-party-member.json → docs/re/wbase-main-menu.md "Slot 0 — ADD PARTY MEMBER (deep dive)" section, 2026-05-28
 -->

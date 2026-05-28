@@ -1,0 +1,367 @@
+{
+  "topic": "wbase-add-party-member",
+  "subagent_run": "2026-05-28T00:00:00Z",
+  "binaries": ["wbase.ovr", "wroot.exe"],
+  "summary": "Full byte-exact RE of MASTER OPTIONS slot 0 (ADD PARTY MEMBER). Two functions: wbase_option0_add_party_member @ wbase 0x2cf7 is a thin wrapper that calls wbase_add_party_member_action @ wbase 0x253a and then falls into the main-menu loop body to keep iterating (NOT a state transition). The action helper invokes wbase_pcfile_picker @ wbase 0x2143 (a self-contained PCFILE picker — distinct from the existing party-member picker at 0x26c7) which scans *0x4fd8[0..*0x4fd2] for status==1 candidates, copies their (name, race-byte, class-byte, sex-byte, char_idx) into four parallel arrays at DGROUP 0x507a/0x50fa/0x511a/0x513a/0x515a, opens a two-window UI (outer at (19,19,5,10) and inner at (19,20,5,20)) with title msg 0x4b6 (1206) and a top-strip msg 0x4b1 (1201), runs a 4-key navigation loop (1=up, 2=down, 3=cancel, 4=down — wait keys are 1=NOOP-makes-cursor-active, 2=up, 3=NOOP, 4=down, 5=ENTER), and returns -1 on cancel or the picker-position on select. The action then loads the chosen char via roster_io_one_record (wbase 0x36, mode=read), marks *0x4fd8[char_idx] := 2, writes *0x43dc[party_size] := char_idx, allocates a unique portrait_id via FUN_0c2c (smallest unused integer 0..5), writes *0x43d0[party_size] := portrait_id, calls portrait_blit (wbase 0xb0e) to draw the portrait at screen Y=portrait_id*9+0x48 using the race/sex byte from record offset 0x19c to pick the source row, memcpy's 432 bytes from the load buffer to *0x43e8+party_size*0x1b0, redraws the party panel via FUN_1b2d, increments *0x43ce (party_size). The slot-0 handler is single-add (NOT a loop) — after one add it falls into the menu-loop redraw and the user must reselect ADD PARTY MEMBER to add another. The 'if party_size==6 set local_a := 3' is part of the menu-redraw cursor positioning, not an add-loop terminator. No state transition; the handler returns to the main menu loop. Discovered: race/class/sex enum msg IDs are encoded as offset+base (race=0x8c, class=0x64, sex=0x78) — this is the first time we've identified the per-enum msg-ID base offsets.",
+  "method": "PyGhidra decompile + ndisasm raw bytes. Decompiled wbase_option0_add_party_member @ 0x2cf7, wbase_add_party_member_action @ 0x253a, wbase_pcfile_picker @ 0x2143, roster_io_one_record @ 0x36, portrait_unique_id_alloc @ 0xc2c, portrait_blit_per_slot @ 0xb0e, and party_panel_render @ 0x1b2d. Cross-referenced thunk targets to wroot via the thunk-delta law (wroot_image = thunk - 0xBA9C). Verified record byte offsets by tracing [bp-N] back to buffer base. The slot-0-handler-is-just-a-prelude finding was confirmed by tracking that the handler's epilogue is the menu-loop body, not a ret — Ghidra renders this as a do-while that exits via the jump table at 0x731f.",
+  "stats": {
+    "wbase_functions_analyzed": 7,
+    "wroot_thunks_resolved": 22,
+    "dgroup_state_vars_new": 5,
+    "msg_ids_identified": 5,
+    "ui_windows_in_picker": 2
+  },
+  "findings": [
+    {
+      "id": "slot0-handler-is-thin-wrapper",
+      "claim": "wbase_option0_add_party_member @ wbase 0x2cf7 is NOT a self-contained handler — it calls wbase_add_party_member_action once, then falls into the main-menu loop body (which begins at 0x2bc1 in wbase_state4_main_menu but here is duplicated from 0x2d06 onwards). The handler ends at file 0x2dd5 with the `jmp ax`-via-jump-table dispatch (cs:[bx+0x731f]) that completes the iteration.",
+      "category": "control_flow",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2cf7" },
+        "type": "decompile",
+        "details": "Decompile shows: `wbase_add_party_member_action(); if (*0x43ce == 6) { local_a := 3; } do { if (*0x363a >= 0) return; render_banner(0x3e9); ... wbase_menu_select_loop(...); ... } while (selected_slot > 8); jmp cs:[selected_slot*2 + 0x731f];`. The handler shares its epilogue with the main-menu loop body."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "add-action-decomp",
+      "claim": "wbase_add_party_member_action @ wbase 0x253a is the actual 'add one PCFILE character to party' helper. Sequence: (1) call wbase_pcfile_picker (returns -1 on cancel or picker-position on select); (2) if cancel, return without state change; (3) look up char_idx via picker-position table at 0x515a; (4) load record from PCFILE.DBS via roster_io_one_record(buf, char_idx, mode=read); (5) mark *0x4fd8[char_idx] := 2; (6) write *0x43dc[party_size*2] := char_idx; (7) call FUN_0c2c(party_size) to allocate a unique portrait_id; (8) write *0x43d0[party_size*2] := portrait_id; (9) call portrait_blit(record_byte_0x19c, portrait_id) — draws portrait at Y=portrait_id*9+0x48; (10) rep movsw 0xd8 words (= 432 bytes = 0x1b0) from stack buffer to *0x43e8+party_size*0x1b0; (11) call FUN_1b2d(party_size) — redraws party-panel cell; (12) inc *0x43ce (party_size).",
+      "category": "data_flow",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x253a" },
+        "type": "disasm",
+        "details": "Raw bytes from file 0x253a..0x25cb: `55 8B EC 81 C4 4C FE 57 56 E8 FD FB 89 86 4C FE 3D FF FF 74 77 D1 E0 8B D8 8B 87 5A 51 89 46 FE B8 00 00 50 FF 76 FE 8D 86 4E FE 50 E8 CD DA 83 C4 06 8B 5E FE C6 87 D8 4F 02 8B 36 CE 43 D1 E6 89 9C DC 43 FF 36 CE 43 E8 A7 E6 59 8B 0E CE 43 D1 E1 8B D9 89 87 D0 43 50 8A 46 EA 2A E4 50 E8 72 E5 83 C4 04 8D B6 4E FE B8 B0 01 F7 2E CE 43 8B F8 05 E8 43 8B F8 8C D9 8E C1 B9 D8 00 F3 A5 FF 36 CE 43 E8 6C F5 59 FF 06 CE 43 5E 5F 8B E5 5D C3` — every step verified."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-function-address",
+      "claim": "The PCFILE-character picker (used by slot 0) is wbase_pcfile_picker @ wbase 0x2143 — a SELF-CONTAINED function in wbase.ovr. This is DISTINCT from wbase_pick_party_member @ 0x26c7 (the party-roster picker used by slots 1 and 2). It is NOT a cross-overlay call to wroot or wpcvw.",
+      "category": "ui",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2143" },
+        "type": "disasm",
+        "details": "wbase_add_party_member_action @ 0x2543 contains `E8 FD FB` = call rel16 (0x2546 + 0xFBFD = 0x2143). The target is a local wbase function, not a thunk."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-pre-pass-builds-parallel-arrays",
+      "claim": "Before showing the picker UI, the picker scans *0x4fd8[0..*0x4fd2-1] for status==1 (available, not-in-party) and, for each match, loads the full PCFILE record via roster_io_one_record and copies five per-candidate fields into parallel BSS arrays: (a) the 8-byte name (record +0..+7) at DGROUP 0x507a + count*8 via strcpy thunk f3aa; (b) the byte at record offset 0x19e (race?) at DGROUP 0x50fa + count*2 (zero-extended to word); (c) the byte at record offset 0x19d (class?) at DGROUP 0x511a + count*2; (d) the byte at record offset 0x19f (sex?) at DGROUP 0x513a + count*2; (e) the original char_idx at DGROUP 0x515a + count*2. The scan terminates at *0x4fd2 (scenario_pcfile_count). If count == 0 the picker returns -1 immediately.",
+      "category": "data_flow",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2156" },
+        "type": "disasm",
+        "details": "Loop body at 0x2156..0x21b6 reads `byte [bx + 0x4fd8] cmp 1`, calls roster_io_one_record with buffer at [bp-0x1bc], then: `mov al, [bp-0x1e]` (= record offset 0x19e), `mov [bx + 0x50fa], ax`; `mov al, [bp-0x1f]` (= record offset 0x19d), `mov [bx + 0x511a], ax`; `mov al, [bp-0x1d]` (= record offset 0x19f), `mov [bx + 0x513a], ax`; `mov [bx + 0x515a], picker_idx`. The strcpy call `f3aa(0x507a + count*8, [bp-0x1bc])` copies the name (8 bytes from record +0). Note: pre-existing wpcmk findings have identified +0x19c..+0x1a3 as a 'race/class/sex region' with low confidence on the exact byte-to-field mapping — the picker uses three of those bytes."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "race-class-sex-msg-id-base",
+      "claim": "Each candidate's race/class/sex byte is rendered to the picker list by ADDING a fixed base msg-ID and calling load_msg_into_buf with the resulting msg_id. The bases are: race_msg_id_base = 0x8c (140), class_msg_id_base = 0x64 (100), sex_msg_id_base = 0x78 (120). So a character with race byte 3 renders as msg ID 0x8f, class byte 5 renders as msg ID 0x69, sex byte 1 renders as msg ID 0x79. This is the FIRST evidence we have of the msg-ID encoding for the race/class/sex enum tables. NOTE: which of the three bytes (0x19d/0x19e/0x19f) is race vs class vs sex is not separately confirmed by this pass — the row renderer FUN_1f11 uses array 0x50fa with base 0x8c (race), array 0x511a with base 0x64 (class), array 0x513a with base 0x78 (sex). So byte at +0x19e = race, byte at +0x19d = class, byte at +0x19f = sex (per the picker's array assignments).",
+      "category": "data_flow",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1f11" },
+        "type": "decompile",
+        "details": "FUN_1f11 (list-row-renderer) computes msg IDs as `*(int *)(pos*2 + 0x50fa) + 0x8c` (race name), `+ 100` (class), `+ 0x78` (sex). These are passed to load_msg_into_buf (c1f7) which loads the text into a local buffer and then writes it to the window via dfb9/df85."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-window-geometry",
+      "claim": "The picker opens TWO ui_windows via thunk 0xbbb6 (ui_window_create). Outer window: `ui_window_create(parent=0, x=0x13=19, y=0x13=19, w=5, h=10, attr=0xfffc, ?=0, ?=0)` — stored in local_4 (outer). Inner window: `ui_window_create(0x14, x=0x13=19, y=0x14=20, w=5, h=0x14=20, attr=0xfffb, ?=0, ?=0)` — stored in local_6 (inner, list area). Note: the first arg differs (0 vs 0x14) — possibly a parent-handle or style flag. After create, each is cleared via ui_window_clear(handle, 0x20, 3).",
+      "category": "ui",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x21d4" },
+        "type": "disasm",
+        "details": "Push sequence at 0x21d4..0x21ed: push 0, push 0, push 0xfffc, push 10, push 5, push 0x13, push 0, push 0 — call bbb6. Then at 0x220c..0x222b: push 0, push 0, push 0xfffb, push 0x14, push 5, push 0x14, push 0x13, push 0x14 — call bbb6. (Args reversed in C-order: rightmost push = first arg.)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-msg-ids",
+      "claim": "The picker uses three msg IDs: (a) 0x4b1 (1201) — top-strip title text, loaded via load_msg_into_buf into local_210; rendered via FUN_1e0e (which is a 'draw centered text at top of *0x3342') with X centering = 10 - (strlen+1)/2; (b) 0x4b6 (1206) — outer-window title, drawn via thunk 0xc2db with width param 0x12=18; (c) 0x4b7 (1207) — list area prompt text loaded into local_21a (used as a template buffer for the row renderer to draw against). These extend the wbase msg-ID range beyond 0x4b3 documented in wbase-main-menu.json.",
+      "category": "ui",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x224b" },
+        "type": "disasm",
+        "details": "0x224b: `lea ax, [bp-0x20e]; push ax; mov ax, 0x4b1; push ax; call c1f7` — load msg 0x4b1 into local_210. 0x229f: `push 0x12; push [bp-0x2]; mov ax, 0x4b6; push ax; call c2db` — draw msg 0x4b6 in outer window. 0x22c7: `lea ax, [bp-0x218]; push ax; mov ax, 0x4b7; push ax; call c1f7` — load msg 0x4b7 into local_21a."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-navigation-loop",
+      "claim": "The picker's main loop runs at file 0x23b6..0x24e9. Each iteration: (1) read selected vs cancel state (local_e == 1 ⇒ cursor on CANCEL, else on list); (2) if cancel-state: use df85 (highlight write) to render with attr 0xfffb for the row, else use dfb9 (regular puts) with attr 3; (3) call FUN_1f11(inner_window, cursor=local_c, has_cancel_focus, count=local_1c0) — renders 5-row sliding window of candidates with the center row highlighted; (4) call wbase_menu_poll_input(0x5066, 0x3598) — returns nav code; (5) if mouse click (*0x4fc4 == 1): remap mouse-index 0→5(ENTER), 1→2(LEFT), 2→4(RIGHT), 3→cancel+ENTER; (6) navigation: key 1 ⇒ cursor onto cancel; key 2 (LEFT) ⇒ off cancel OR cursor-- (clamp >= 0); key 3 (DOWN) ⇒ off cancel; key 4 (RIGHT) ⇒ off cancel OR cursor++ (clamp < count); key 5 (ENTER) ⇒ exit loop. After exit: destroy both windows, refresh status bar, return -1 if cancel-flag set OR return current cursor position.",
+      "category": "input",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x23b6" },
+        "type": "disasm",
+        "details": "Loop dispatch at 0x24d5..0x24e7 dispatches on the returned key value 1..4 (and 5 exits via fallthrough check at 0x24e9). Cancel state tracked in local_e (1 = on CANCEL button, 0 = on list). The 'left'/'right' navigation while on the list increments/decrements local_c (cursor position). Click remapping at 0x244b..0x246c handles four mouse hotspot indices that were registered earlier via mouse_status_set_field (c6b2) at 0x2308/0x232f/0x235c/0x2389/0x23b0."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-mouse-hotspots",
+      "claim": "Five mouse hotspots are registered via mouse_status_set_field (thunk c6b2) at picker entry, covering: (1) field 0 — likely 'list area top half' at inner window's top region; (2) field 1 — likely 'list area bottom half'; (3) field 2 — likely 'page-down arrow'; (4) field 3 — CANCEL button at outer window's top-right area; (5) field 4 — generic catch-all at (0,0)-(0xff,0). Each call computes screen pixel rects from the window's stored (x,y) bytes at handle+2/+3.",
+      "category": "input",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x22df" },
+        "type": "disasm",
+        "details": "Five c6b2 calls at 0x2308/0x232f/0x235c/0x2389/0x23b0. Each takes 5 args (field_index, x0, y0, x1, y1). Field 3 specifically references local_4 (the OUTER window) and uses strlen of local_21a — suggesting it's the CANCEL button text-rect. Fields 0/1/2 reference local_6 (INNER window). Field 4 has x0..x1=0..0xff and y0..y1=0..0 (degenerate — possibly a 'clear all hotspots' sentinel or screen-wide catch).",
+        "needs": "Validate field assignments via DOSBox-X mouse click on the live picker."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "picker-row-renderer-fun-1f11",
+      "claim": "FUN_1f11 @ wbase 0x1f11 is the picker row-renderer. Signature: `FUN_1f11(window_handle, center_position, focused_on_cancel_flag, total_count)`. Renders a 5-row sliding window: for iVar1 in -2..2, if `0 <= (center + iVar1) < count`, renders row at window y=iVar1+2 (Y center is row 2 in a 5-row window). The center row (iVar1==0 AND focused_on_cancel_flag==1 path actually means 'not focused on cancel'; the disasm has the cancel-flag logic inverted relative to my prior description) draws via highlight write (df85) with attr 5; other rows draw via regular puts (dfb9) with attr 3. Each row layout: `<name (pads to 10 wide with 0x20)> <race-text> - <class-text> <sex-text>`. The renderer ends with ui_window_unfocus + ui_screen_refresh (e5b5).",
+      "category": "ui",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1f11" },
+        "type": "decompile",
+        "details": "Per-row sequence: position cursor (bda7) at (2, iVar1+2); write name from 0x507a+pos*8 (either highlight via df85 or normal via dfb9); pad to 10 cols with 0x20 chars via dd53/de7f loop; load+write race name (msg id from 0x50fa+pos*2 plus 0x8c); write `-` (char 0x2d); load+write class name (msg id from 0x511a+pos*2 plus 0x64); write space (0x20); load+write sex name (msg id from 0x513a+pos*2 plus 0x78)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "roster-io-one-record",
+      "claim": "wbase_add_party_member_action loads PCFILE records via roster_io_one_record @ wbase 0x36. Signature: `roster_io_one_record(buf, slot_idx, mode)` where mode=0 ⇒ read, mode=1 ⇒ write. Uses: filename template at *0x4fee ('PCFILE.DBS'), record size at *0x4fd0 (= 0x1b0 = 432), and record table base offset (32-bit) at *0x4fd4/*0x4fd6 (= 0x18 per pcfile-dbs.md header_size). Open via crt_open, lseek to slot*record_size + table_base, read or write `record_size` bytes, close. Same function used by wpcmk's roster path (per wpcmk-naming-pass.json finding for 0x001b).",
+      "category": "io",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x0036" },
+        "type": "decompile",
+        "details": "Decompile: `f0dc(); uVar1 = c772(0x4fee, 0, 2); f924(uVar1); offset = param_2 * *0x4fd0 + *0x4fd4 (32-bit); fdbd(handle, offset_lo, offset_hi); if (mode==0) fd6f(handle); else if (mode==1) fd76(handle); fda5();`. Action helper passes param_3=0 (read) at call site 0x255a."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-unique-id-alloc",
+      "claim": "FUN_0c2c @ wbase 0xc2c is the portrait-id allocator. Signature: `int allocate_unique_portrait_id(int party_size)`. Returns the smallest non-negative integer in [0..5] not already present in *0x43d0[0..party_size-1]. If all of 0..5 are taken (impossible since party_size <= 5 when called), returns 0. This is NOT a random roll, NOT a lookup from PCFILE — it's a deterministic 'next free portrait slot' allocator.",
+      "category": "data_flow",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x0c2c" },
+        "type": "decompile",
+        "details": "Decompile: `local_4 = 0; while (true) { collision = false; for (i = 0; i < party_size; i++) if (*(int *)(i*2 + 0x43d0) == local_4) collision = true; if (!collision) break; local_4++; if (local_4 > 5) return 0; } return local_4;`. The +0x43d0 array is the per-party-slot portrait_id table."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-blit-per-slot",
+      "claim": "FUN_0b0e @ wbase 0xb0e is `portrait_blit_per_slot(record_byte, party_slot)`. Reads four candidate filenames from DGROUP 0x5003 (EGA), 0x500e (CGA), 0x5019 (T16?), 0x5024 (HRC?) based on bits 0/1/2/3 of *0x4fc6 (video mode flag); picks the matching filename and copies it into a local buffer. Sets row_size_bytes := 0x20 for EGA/HRC, 0x10 for CGA/T16. Sets filename digit char (penultimate byte of filename) := '1' + record_byte/14 and stores remainder := record_byte%14 back into the param slot. Opens the file (f924 = crt_open), lseeks to `(record_byte%14) * row_size * 9` (= the Nth 9-row block in the file), reads `row_size * 9` bytes into a 0xfec7-offset stack buffer, closes. Then calls thunk dcf2(buf, 2, party_slot*9 + 0x48, 9) — likely a video-driver image-blit at screen (X=2, Y=party_slot*9+0x48, rows=9). Effectively: each portrait is 9 rows tall x (32 bytes = 64 pixels in EGA / 16 bytes = 64 pixels in CGA) wide. Portraits are stacked vertically: slot 0 at Y=0x48=72, slot 1 at Y=0x51=81, ..., slot 5 at Y=0x75=117.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x0b0e" },
+        "type": "decompile",
+        "details": "Raw disasm: param_1 (record_byte) is at [bp+0x4], param_2 (party_slot) at [bp+0x6]. `ax = [bp+0x4]; cwd; idiv cx=14; ax += 0x31; [bp-0x11] = al; [bp+0x4] = dx;` puts digit char into the filename and remainder back. Later: `ax = [bp+0x4] * row_size; ax = (ax<<3) + ax = ax*9; push DX:AX; call fdbd;` lseeks. `ax = row_size * 9; push ax; lea bp+0xfec7; push handle; call fd6f` reads. `push 9; push (party_slot*9 + 0x48); push 2; lea buf; call dcf2` blits.",
+        "needs": "Verify dcf2 signature and that args are (buf, x, y, rows). Verify the 0x5003/0x500e/0x5019/0x5024 strings are portrait-set filenames (likely 'PORTRT1.SET'-style names — needs DOSBox-X file-open log)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "party-panel-render-fun-1b2d",
+      "claim": "FUN_1b2d @ wbase 0x1b2d is `party_panel_redraw_slot(party_slot)`. Picks one of two ui_window handles based on slot parity: even slots use *0x4fba, odd slots use *0x4fb8 (this is the LEFT vs RIGHT party panel split — 3 slots per panel, alternating). Computes panel row = (slot/2)*4. Draws: (1) name (3 chars max, padded to 7) from char-record at +0x43e8+slot*0x1b0; (2) a colored bar of 3 cells with codes `cell_x*3 + 2 + col_x`; (3) status icon based on (*record+0x4589 byte → lookup at 0x526+byte*2; if 0 and *record+0x450c != 0 ⇒ 1; if <2 and *record+0x450d != 0 ⇒ 2); (4) condition icons: scan *record+0x450a..+0x4513 for non-zero, find max condition severity from lookup 0x532; (5) class symbol from byte at +0x4587 (x*2 + 0x3a); (6) two equipment slot tiles from inventory data at +0x44f8/+0x4428/+0x442d via FUN_1a4c at (5,5,...) and (6,6,...). FUN_1a4c takes (kind, kind, row, item_lo, item_hi, sprite_id).",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1b2d" },
+        "type": "decompile",
+        "details": "Decompile shows two 0x4fba/0x4fb8 window handles selected via slot%2 == 0. Reads from party char-data buffer at slot*0x1b0+0x43e8 for name, +0x4589 status flag, +0x450c/+0x450d boolean flags, +0x450a..+0x4513 condition bytes, +0x4587 class index, +0x44f8 inventory-slot equip indices. The 0x526 and 0x532 lookups are wbase BSS tables not in the file (likely runtime-computed)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "cancel-path-is-noop",
+      "claim": "Cancel path: if the picker returns -1, wbase_add_party_member_action immediately returns without modifying ANY state — no state-machine transition, no party-table writes, no rendering. The slot-0 handler then falls into the main-menu loop body, which redraws the menu. There is NO 'are you sure' or error message on cancel.",
+      "category": "control_flow",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x254a" },
+        "type": "disasm",
+        "details": "`cmp ax, 0xffff; jz 0x25c6` — jumps directly to the function epilogue (pop si; pop di; mov sp, bp; pop bp; ret) on cancel."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "no-error-path-detected",
+      "claim": "No explicit error handling path in wbase_add_party_member_action for: (a) PCFILE.DBS read failure (roster_io_one_record's f924 call discards its return value), (b) corrupt char record (no validation), (c) portrait file read failure (in portrait_blit, an abort_with_code(0xe) IS called if crt_open returns -1 — that's a hard abort, not a recoverable error message). The only conditional return is the cancel path. Player-facing errors would manifest as a wroot abort dialog from abort_with_code rather than an in-menu message.",
+      "category": "error_handling",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x0bbb" },
+        "type": "disasm",
+        "details": "portrait_blit @ 0xbbb: `cmp ax, 0xffff; jnz +5; mov ax, 0xe; push ax; call bb71` — abort_with_code(0xe) on open failure."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "no-sound-played",
+      "claim": "wbase_add_party_member_action does NOT play any sound effect. No calls to audio_play_sound (wroot thunk 0xc546). The picker also does not play any sound on navigation or selection (only ui_screen_refresh is called).",
+      "category": "audio",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x253a" },
+        "type": "absence_of_call",
+        "details": "Full disasm of action helper and picker shows zero calls to thunk 0xc546. The decompile shows only ui calls (bbb6, ed5a, bda7, dfb9, df85, dd53, de7f), msg loads (c1f7, c2db, faab), mouse hotspot regs (c6b2), input poll (wbase_menu_poll_input), and window destroy/refresh (bd6e, c497, c4de, e4ff, e5b5)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "no-add-animation",
+      "claim": "No staged animation when the new party member appears — the party-panel slot is drawn synchronously by FUN_1b2d after the memcpy. The portrait is blitted synchronously by FUN_0b0e before the memcpy. There's no fade-in, slide-in, or timing delay around the new-slot draw.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2599" },
+        "type": "disasm",
+        "details": "Sequence at 0x2599..0x25c1: call portrait_blit; rep movsw (memcpy); call FUN_1b2d (party panel); inc party_size. No intervening delay/sound/animation calls."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-blit-y-stacking",
+      "claim": "Party portraits are stacked vertically on the left side of the screen at X=2, with Y = portrait_id*9 + 0x48 (72). For portraits 0..5 this gives Y = 72, 81, 90, 99, 108, 117. Note: this uses *portrait_id*, NOT party_slot — so the visual position of a given character's portrait is determined by their portrait_id (allocated by FUN_0c2c). Since FUN_0c2c allocates the smallest free id, the first member added gets portrait_id 0 at Y=72, the second gets id 1 at Y=81, etc. — but if a character is later removed and another added, the new portrait fills the freed Y slot, NOT the bottom of the stack.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x0c0a" },
+        "type": "disasm",
+        "details": "0x0c0a..0x0c1e: `push 9; ax = [bp+0x6]; ax = ax*9; ax += 0x48; push ax; push 2; lea buf; call dcf2`. The second arg (party_slot) is the value passed by the action helper as `*0x43ce` (= party_size before increment); but the action helper uses portrait_id as the FIRST arg and party_size as the SECOND arg — wait, re-check the call site...",
+        "verification_at_call_site": "Action helper 0x2592: `push ax` (portrait_id from earlier FUN_0c2c result). Action helper 0x2593: `mov al, [bp-0x16]; sub ah, ah; push ax` (record byte 0x19c, sign-extended to word). Then `call b0e`. Cdecl pushes RTL, so the first push is the LAST arg. First push = portrait_id ⇒ [bp+0x6] in callee. Second push = record_byte ⇒ [bp+0x4] in callee. So portrait_blit(record_byte, portrait_id) ⇒ Y = portrait_id*9 + 0x48. Confirmed."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "loop-vs-single-add",
+      "claim": "Slot 0's handler is SINGLE-ADD per invocation. After one add_party_member_action call, the handler falls into the main-menu redraw and re-enters the SELECT loop — the user must re-select ADD PARTY MEMBER to add another character. The 'if party_size == 6: local_a := 3 else: local_a := 0' line at the end of the add+iteration cycle controls the initial-cursor offset for the NEXT main-menu render (consistent with wbase_state4_main_menu's prelude which also sets uStack_c := 3 if party_size < 6 else 0). It is NOT a 'loop-until-cancel' marker.",
+      "category": "control_flow",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2cf7" },
+        "type": "decompile",
+        "details": "Slot-0 handler decompile: `wbase_add_party_member_action(); if (*0x43ce == 6) local_a := 3; do { ... wbase_menu_select_loop ... } while (...); jmp cs:[selected*2 + 0x731f];` — the do/while is the SHARED menu-loop body, not a private add-loop. The handler exits via the jump table back to whatever slot the user picks next, INCLUDING re-picking slot 0 to add another."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "slot0-handler-shares-menu-loop-with-state-4",
+      "claim": "wbase_option0_add_party_member at file 0x2cf7 duplicates the byte sequence of wbase_state4_main_menu's loop body (from file 0x2bc1 onwards). Both fall through to file 0x2dd5 (`xchg bx, ax; shl bx, 1; jmp cs:[bx + 0x731f]`). This is a compiler-generated tail-merge: the slot-0 handler is implemented in C as `add_party_member_action(); /* fall through */` and the C compiler emitted the menu-loop body once with two entry points.",
+      "category": "control_flow",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2cf7" },
+        "type": "byte_pattern",
+        "details": "Decompile of 0x2cf7 shows the SAME do-while body as wbase_state4_main_menu @ 0x2b36 (post-prelude). Verified by comparing the C output side-by-side: identical bbb6/ed5a/wbase_menu_count_enabled_options/wbase_menu_select_loop/bd6e/jump-table sequence."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "cross-overlay-calls-list",
+      "claim": "wbase_add_party_member_action + wbase_pcfile_picker + helpers (roster_io_one_record + portrait_blit + party_panel_render) collectively call the following wroot thunks. None of these introduce previously-unseen thunks beyond what wbase-main-menu.json already lists, except the four highlighted below.",
+      "category": "thunks",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2143" },
+        "type": "disasm",
+        "details": "Thunks invoked (with wroot image offset = thunk - 0xBA9C): 0xc1f7→0x75b (load_msg_into_buf), 0xc2db→0x83f (UNNAMED — drawmsg with width), 0xc497→0x9fb (ui_window_redraw_focused), 0xc4de→0xa42 (ui helper), 0xc6b2→0xc16 (mouse_status_set_field), 0xc772→0xcd6 (boot_build_prompt_message), 0xbb71→0xd5 (abort_with_code), 0xbbb6→0x11a (ui_window_create), 0xbd6e→0x2d2 (ui_window_destroy), 0xbda7→0x30b (ui_window_set_cursor), 0xdcf2→0x2256 (UNNAMED — image_blit?), 0xdd53→0x22b7 (ui_window_putchar_attr?), 0xde7f→0x23e3 (ui_window_putchar — known), 0xdf85→0x24e9 (UNNAMED — highlight write), 0xdfb9→0x251d (ui_window_puts), 0xe4ff→0x2a63 (ui_screen_refresh), 0xe5b5→0x2b19 (UNNAMED — ui_window_blit per wroot-naming-pass), 0xebb4→0x3118 (ui_window_focus), 0xec6d→0x31d1 (ui_window_unfocus), 0xed5a→0x32be (ui_window_clear), 0xf0dc→0x3640 (kbd_pre_input_disk_check), 0xf3aa→0x390e (strcpy), 0xf924→0x3e88 (crt_open), 0xfaab→0x400f (strlen), 0xfd6f→0x42d3 (crt_read_via_fd), 0xfd76→0x42da (crt_write_via_fd), 0xfda5→0x4309 (crt_dos_close), 0xfdbd→0x4321 (crt_dos_lseek)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pcfile-record-bytes-0x19c-0x19f-confirmed-as-race-class-sex",
+      "claim": "The pcfile-dbs.md document marks bytes at +0x19c..+0x1a3 as 'race/class/sex region' with LOW confidence on exact byte-to-field mapping. This pass confirms (with high confidence) that bytes at exactly +0x19d, +0x19e, +0x19f are class, race, sex respectively — based on the picker's parallel-array assignments and the row-renderer's msg-ID-base offsets. NOTE: this CORRECTS the speculative 'race at +0x19f' guess in pcfile-dbs.md.",
+      "category": "format",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2188" },
+        "type": "cross_reference",
+        "details": "Picker pre-pass at 0x2188..0x21a9: `[bp-0x1e]` (record offset 0x19e) → 0x50fa array → renderer uses base 0x8c (RACE msg base — 0x8c..0xab range is the 'WIZ6 RACES' msg block per the convention of single-byte enum bases). `[bp-0x1f]` (record offset 0x19d) → 0x511a array → renderer uses base 0x64 (CLASS msg base, 0x64..0x77 = 100..119). `[bp-0x1d]` (record offset 0x19f) → 0x513a array → renderer uses base 0x78 (SEX msg base, 0x78..0x7b = 120..123). The 0x4ffa offset for byte +0x19c (the first byte of the region, used by portrait_blit to pick the row index) remains unnamed — likely 'portrait variant' or 'face index'.",
+        "needs": "Confirm by decoding msg IDs 100, 140, 120 from MSG.DBS — should be 'FIGHTER'-style class strings, 'HUMAN'-style race strings, 'MALE'/'FEMALE' strings."
+      },
+      "confidence": "high"
+    }
+  ],
+  "dgroup_state_variables": [
+    {
+      "address": { "space": "wbase.ovr", "offset": "0x507a" },
+      "name": "picker_candidate_names",
+      "type": "char[N][8]",
+      "purpose": "Per-picker-position candidate name (ASCII, padded to 8 bytes). Populated by picker pre-pass via strcpy from PCFILE record offset +0..+7."
+    },
+    {
+      "address": { "space": "wbase.ovr", "offset": "0x50fa" },
+      "name": "picker_candidate_race",
+      "type": "u16[N]",
+      "purpose": "Per-picker-position race byte (from PCFILE record offset +0x19e, zero-extended to word). Renderer adds 0x8c to get race name msg ID."
+    },
+    {
+      "address": { "space": "wbase.ovr", "offset": "0x511a" },
+      "name": "picker_candidate_class",
+      "type": "u16[N]",
+      "purpose": "Per-picker-position class byte (from PCFILE record offset +0x19d). Renderer adds 0x64 (=100) to get class name msg ID."
+    },
+    {
+      "address": { "space": "wbase.ovr", "offset": "0x513a" },
+      "name": "picker_candidate_sex",
+      "type": "u16[N]",
+      "purpose": "Per-picker-position sex byte (from PCFILE record offset +0x19f). Renderer adds 0x78 (=120) to get sex name msg ID."
+    },
+    {
+      "address": { "space": "wbase.ovr", "offset": "0x515a" },
+      "name": "picker_candidate_charidx",
+      "type": "u16[N]",
+      "purpose": "Per-picker-position original PCFILE char index. Indexed by picker return value to map back to char_idx for the actual load."
+    }
+  ],
+  "msg_ids_extended": [
+    { "id": "0x4b1", "decimal": 1201, "usage": "Picker top-strip title text (centered, drawn via FUN_1e0e). Probable text: 'PICK A CHARACTER TO ADD' or similar." },
+    { "id": "0x4b6", "decimal": 1206, "usage": "Picker outer-window title, drawn via thunk c2db with width 0x12=18. Probable text: 'AVAILABLE CHARACTERS' header." },
+    { "id": "0x4b7", "decimal": 1207, "usage": "Picker CANCEL button text, used as template buffer for highlight rendering. Probable text: 'CANCEL' or 'EXIT'." },
+    { "id_base": "0x64 (100)", "usage": "Class name msg-ID base. Add per-character class byte (record offset +0x19d) to get the class name msg ID. Expected range: 100..119 (20 classes max)." },
+    { "id_base": "0x78 (120)", "usage": "Sex name msg-ID base. Add per-character sex byte (record offset +0x19f) to get the sex name msg ID. Expected range: 120..123 (3-4 sexes — likely MALE/FEMALE)." },
+    { "id_base": "0x8c (140)", "usage": "Race name msg-ID base. Add per-character race byte (record offset +0x19e) to get the race name msg ID. Expected range: 140..159 (up to 20 races — Wiz6 has ~11)." }
+  ],
+  "pseudocode_walkthrough": "// ENTRY: wbase_option0_add_party_member @ wbase 0x2cf7\nwbase_option0_add_party_member() {\n    wbase_add_party_member_action();\n    if (*0x43ce == 6) initial_cursor_offset = 3;\n    // Falls through into menu-loop body (shared with wbase_state4_main_menu)\n    goto menu_loop_redraw;\n}\n\n// CORE: wbase_add_party_member_action @ wbase 0x253a\nwbase_add_party_member_action() {\n    char record_buf[0x1b0];                       // [bp-0x1b2 .. bp-0x02], 432 bytes\n    int picker_pos = wbase_pcfile_picker();       // wbase 0x2143\n    if (picker_pos == -1) return;                 // CANCEL — no state change\n    int char_idx = *(int *)(picker_pos*2 + 0x515a);\n    roster_io_one_record(record_buf, char_idx, 0);  // wbase 0x36, mode=READ\n    *(byte *)(char_idx + 0x4fd8) = 2;             // mark in-party\n    *(int *)(*0x43ce*2 + 0x43dc) = char_idx;      // party_slot → char_idx map\n    int portrait_id = portrait_unique_id_alloc(*0x43ce);  // wbase 0xc2c\n    *(int *)(*0x43ce*2 + 0x43d0) = portrait_id;   // party_slot → portrait_id map\n    portrait_blit_per_slot(record_buf[0x19c], portrait_id);  // wbase 0xb0e — draws at X=2, Y=portrait_id*9+0x48\n    memcpy(0x43e8 + *0x43ce*0x1b0, record_buf, 0x1b0);  // 0xd8 words rep movsw\n    party_panel_redraw_slot(*0x43ce);             // wbase 0x1b2d\n    (*0x43ce)++;                                  // party_size++\n}\n\n// PICKER: wbase_pcfile_picker @ wbase 0x2143\nint wbase_pcfile_picker() {\n    char tmp_record[0x1b0];                       // [bp-0x1bc..]\n    int count = 0;\n    // --- PHASE 1: scan PCFILE.DBS char status array, build parallel candidate arrays ---\n    for (int i = 0; i < *(int *)0x4fd2; i++) {\n        if (*(byte *)(i + 0x4fd8) == 1) {\n            roster_io_one_record(tmp_record, i, 0);\n            strcpy(0x507a + count*8, tmp_record);                    // name (8 bytes from rec+0)\n            *(int *)(count*2 + 0x50fa) = tmp_record[0x19e];          // race byte\n            *(int *)(count*2 + 0x511a) = tmp_record[0x19d];          // class byte\n            *(int *)(count*2 + 0x513a) = tmp_record[0x19f];          // sex byte\n            *(int *)(count*2 + 0x515a) = i;                          // back-ref to char_idx\n            count++;\n        }\n    }\n    if (count == 0) return -1;\n    // --- PHASE 2: build UI windows + title text ---\n    int outer = ui_window_create(0, 0x13, 0x13, 5, 10, 0xfffc, 0, 0);  // x=19 y=19 w=5 h=10\n    ui_window_clear(outer, 0x20, 3);\n    int inner = ui_window_create(0x14, 0x13, 0x14, 5, 0x14, 0xfffb, 0, 0);  // x=19 y=20 w=5 h=20\n    ui_window_clear(inner, 0x20, 3);\n    char title_buf[0x10];\n    load_msg_into_buf(0x4b1, title_buf);                                // top-strip title (msg 1201)\n    int center_x = 10 - (strlen(title_buf) + 1)/2;\n    draw_title_strip_centered(title_buf, center_x);                     // FUN_1e0e: writes into *0x3342\n    ui_window_redraw_focused(*0x4fb2, 0);\n    ui_window_focus(outer);\n    ui_window_set_cursor(outer, 6, 1);\n    draw_msg_in_window(outer, 0x4b6, 0x12);                             // outer title (msg 1206)\n    ui_window_unfocus(outer);\n    FUN_1e93(inner, 0);                                                  // draw 5-cell decorative bar in inner\n    ui_screen_refresh();\n    char cancel_text[0x18];\n    load_msg_into_buf(0x4b7, cancel_text);                              // CANCEL button text (msg 1207)\n    // --- PHASE 3: register mouse hotspots ---\n    mouse_status_set_field(0, inner.x+2, inner.y+2, inner.x+0x12, inner.y+2);  // list top half\n    mouse_status_set_field(1, inner.x+1, inner.y, inner.x+0x11, inner.y);      // list bottom half (?)\n    mouse_status_set_field(2, inner.x+1, inner.y+4, inner.x+0x11, inner.y+4);  // (paging?)\n    mouse_status_set_field(3, outer.x+7, outer.y+3, outer.x+7+strlen(cancel_text)+6, outer.y+3);  // CANCEL hotspot\n    mouse_status_set_field(4, 0, 0, 0xff, 0);                                  // sentinel / clear\n    // --- PHASE 4: input loop ---\n    int cursor = 0;\n    int on_cancel = 0;\n    while (true) {\n        if (*0x846 == 0 && on_cancel == 1) {\n            ui_window_set_cursor(outer, 7, 3);\n            ui_window_puts_highlight(outer, cancel_text, 0xfffb);   // df85 highlight\n            FUN_1f11(inner, cursor, 0, count);                       // render rows w/ none highlighted (df85 path)\n        } else {\n            ui_window_set_cursor(outer, 7, 3);\n            ui_window_puts(outer, cancel_text, 3);                   // dfb9 normal\n            FUN_1f11(inner, cursor, 1, count);                       // render rows w/ center highlighted\n        }\n        int key = wbase_menu_poll_input(0x5066, 0x3598);\n        if (*0x4fc4 == 1) {                                          // mouse click\n            if (key == 0) key = 5;        // list center → ENTER\n            else if (key == 1) key = 2;   // list-up → LEFT (page up)\n            else if (key == 2) key = 4;   // list-down → RIGHT (page down)\n            else if (key == 3) { on_cancel = 1; key = 5; }           // CANCEL hotspot → on_cancel + ENTER\n        }\n        switch (key) {\n            case 1: on_cancel = 1; break;                            // UP — move to CANCEL\n            case 2:                                                  // LEFT\n                if (on_cancel) on_cancel = 0;\n                else if (cursor > 0) cursor--;\n                break;\n            case 3:                                                  // DOWN\n                if (on_cancel) on_cancel = 0;\n                break;\n            case 4:                                                  // RIGHT\n                if (on_cancel) on_cancel = 0;\n                else if (cursor + 1 < count) cursor++;\n                break;\n            case 5: goto loop_exit;                                  // ENTER\n        }\n    }\nloop_exit:\n    ui_window_destroy(outer, 0);\n    ui_window_destroy(inner, 0);\n    ui_window_redraw_focused(*0x3342, 0);\n    ui_window_redraw_focused(*0x4fb2, 0);    // c4de — restore status bar\n    return on_cancel ? -1 : cursor;\n}\n",
+  "wroot_thunks_new_or_clarified": [
+    { "thunk": "0xc2db", "wroot_image": "0x083f", "wroot_file": "0x0a3f", "claim": "Draws a message string in a window with explicit width truncation/wrap. Args: (msg_id, window_handle, width). Called by picker to draw msg 0x4b6 in outer window with width 0x12. UNNAMED in wroot-naming-pass.", "confidence": "medium" },
+    { "thunk": "0xdcf2", "wroot_image": "0x2256", "wroot_file": "0x2456", "claim": "Image/sprite blit to screen. Args (likely): (buf, x, y, rows). Called by portrait_blit to draw 9 rows at (2, party_slot*9+0x48). UNNAMED in wroot-naming-pass.", "confidence": "medium" },
+    { "thunk": "0xdd53", "wroot_image": "0x22b7", "wroot_file": "0x24b7", "claim": "ui_window_putchar_with_attr — writes a char at the current cursor with explicit attribute. Args: (handle, char, attr). Called by FUN_1f11 to pad rows with 0x20-attr-1.", "confidence": "medium" },
+    { "thunk": "0xdf85", "wroot_image": "0x24e9", "wroot_file": "0x26e9", "claim": "ui_window_puts_highlight — writes a string with NEGATED highlight (inverse-color). Args: (handle, string, attr). Used by FUN_1f11 for the selected center-row of the picker. Distinguished from regular puts (dfb9) by the sign of the attr arg per the wbase highlight-attr-sign convention.", "confidence": "high" }
+  ],
+  "open_questions": [
+    "What is the exact text at msg IDs 0x4b1 (1201), 0x4b6 (1206), 0x4b7 (1207)? Need MSG.DBS decode or DOSBox-X capture during a live PCFILE picker session.",
+    "What are the texts at msg IDs 100..119 (class names), 120..123+ (sex names), 140..159+ (race names)? These are critical for the picker port AND will validate the pcfile-dbs.md offset mapping.",
+    "Confirm the four portrait-set filenames at DGROUP 0x5003/0x500e/0x5019/0x5024. Likely 'PORTRT1.EGA' / 'PORTRT1.CGA' / 'PORTRT1.T16' / 'PORTRT1.HRC' but unverified. A DOSBox-X file-open log during ADD PARTY MEMBER would confirm.",
+    "Is record byte +0x19c (the byte used by portrait_blit's filename-digit math) really a 'portrait variant index', or is it a different per-character field that just happens to also drive portrait selection? It's read separately from the race/class/sex bytes. Investigate by varying char data and observing which portraits get used.",
+    "FUN_1b2d's 0x526 and 0x532 lookup tables — what are they? Status icon and condition-severity lookups, but origin unclear. Possibly compile-time-baked tables in wbase BSS (CS-relative data refs would yield file offsets via the 0x4564 delta).",
+    "FUN_1f11's row-renderer cancel-flag interpretation: my disasm read of the cancel-flag branch could be inverted. Specifically, the if-branch at 0x23b6+ ((*0x846 == 0 && local_e == 1) → df85 path) is described as 'on_cancel highlights cancel' but it MAY actually be 'list-focused-and-not-disabled highlights center row'. Confidence: low on the branch direction; mark dynamic verification required.",
+    "Mouse hotspot field assignments (5 mouse_status_set_field calls) — the field-index-to-screen-region mapping was inferred from the offsets used (handle->x, handle->y). Validate by clicking known regions in DOSBox-X.",
+    "Slot-0 handler's 'jmp via jump-table' tail (file 0x2dd5) — this re-enters the main-menu dispatch loop. Verify the local_a (initial cursor offset) is consumed correctly when the menu re-renders — specifically that the user sees the cursor at the ADD PARTY MEMBER row again after the add (or perhaps moves to slot 4 RESUME if party_size is now 1, since slot 4 was disabled when party_size==0)."
+  ],
+  "unresolved": [
+    "Comparator direction in picker navigation: the JZ/JNZ chain at 0x2487..0x24c4 is a tangled chain mixing 'cancel-flag toggle' and 'cursor inc/dec'. A misread of one JNZ would flip an entire navigation case. Recommend DOSBox-X breakpoint capture of the picker keypresses to verify each of the 4 nav cases.",
+    "1-indexed vs 0-indexed concerns: the picker's return value (a picker-position) is used to index 0x515a as `*(int *)(picker_pos*2 + 0x515a)` which suggests 0-indexed. Confirmed by the loop counter being 0-init'd. No 1-indexing detected in this path.",
+    "MSG.DBS extraction for msg IDs above 0x3e8 — the extracted indexedMessages range only covers IDs 0..717. The msg IDs we identified (0x4b1, 0x4b6, 0x4b7, plus the class/sex/race enum ranges) ALL fall outside this range. The msg-DBS ID-to-section encoding inside load_msg_into_buf needs to be decoded to actually read these strings (TODO in wbase-main-menu.md open question 1)."
+  ],
+  "implementation_notes_for_port": [
+    "The picker is fully self-contained in wbase.ovr — no cross-overlay roundtrips during user navigation. A TypeScript port can implement it as a single React component analogous to the wpcmk CHARACTER MENU.",
+    "The two-window UI structure (outer 5x10 + inner 5x20) suggests the visible 'frame' is the outer window with the inner window overlaid for the scrollable list. Cell-grid parity should validate the outer window's static text + inner window's 5-row sliding list separately.",
+    "FUN_1f11's center-row highlight uses df85 (negated-attr write) per the wbase highlight-attr-sign convention from CLAUDE.md. The port should use `invertHighlight = true` for the picker's list-area window (menu-style inverse), NOT the colored-text variant.",
+    "Portrait blit is synchronous and immediate — no animation needed. The portrait appears at X=2, Y=portrait_id*9+0x48. Width is 64px (8 EGA bytes × 8 pixels), height is 9 rows. This matches the small vertical stack of portraits on the left of the character sheet/main menu.",
+    "Party-panel redraw (FUN_1b2d) is the same render used elsewhere — already extensively studied in prior wbase work. The slot-0 path simply triggers one redraw of the newly-added slot.",
+    "Cancel must be a NO-OP — no state writes, no party-table mutations, no panel redraw. The current main-menu render stays as-is.",
+    "Add-loop semantics: each ADD PARTY MEMBER click adds at most ONE member. The user must reselect from the menu to add another. This is NOT 'loop until cancel' style."
+  ]
+}
