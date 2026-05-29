@@ -1,0 +1,213 @@
+{
+  "topic": "wbase-picker-internals",
+  "subagent_run": "2026-05-28T00:00:00Z",
+  "binaries": ["wbase.ovr", "wroot.exe"],
+  "summary": "Resolved three open questions about wbase_pcfile_picker @ wbase 0x2143 by combining a re-decompile of the picker with the canonical ui_window_create @ wroot image 0x11a (file 0x31a) and direct save-state memory verification against tools/dosbox/save/1.sav. (1) ui_window_create has the C signature `(byte x, byte y, int w, int h, byte attr, int chrome_param, byte flags, int do_refresh)` — eight args, cdecl, RTL push. Cells live at struct+0x10 when flags&2==0 (the canonical layout). (2) The 'x=20 stored but renders at 22' mystery is NOT a struct-vs-render mismatch — it's the row renderer FUN_1f11 deliberately calling `ui_window_set_cursor(handle, x=2, y=...)` for every text row, leaving panel cols 0..1 for chrome decoration. NATHAN at panel col 2 → global col 22 is consistent with struct.x=20. (3) The 'cells_off discrepancy' claim in the prior wbase-window-struct.json finding (left=+0x10, right=+0x14) is WRONG: both panels use cells_off = struct+0x10. The 4 bytes the prior finding interpreted as 'padding' (`20 03 45 02` at right panel struct+0x10..+0x13) are actually the FIRST TWO CELLS of row 0 (space attr 03 at col 0, 'E' attr 0x02 at col 1). The 'E' is painted by FUN_1e93 @ wbase 0x1e93 (the picker's left-edge chrome painter) which writes E/G/G/G/F glyphs into panel col 1 at rows 0..4 via FUN_1e6a @ wbase 0x1e6a (`paint_cell(handle, x, y, char)` = bda7 cursor + de7f putchar attr=2). The right panel renderer FUN_1f11 starts text at x=2, not x=0, so its content NATHAN naturally lands at global col 22 = panel x(20) + render_x(2). The banner row (global y=18) chrome glyphs (0x1c, 0x1d, 0x5f-as-underscore-in-add_member, 'add_member' lowercase) live in a SEPARATE persistent window 0x732E (the title strip, 40x1 at y=18, attr=0x0e) — the picker writes only the centered 'add_member' (msg 0x4b1) into it via FUN_1e0e; the surrounding 0x1c/0x1d chrome cells PRE-EXIST from prior overlay state (likely written by winit state 2 or by an earlier wbase frame). The picker does NOT clear *0x3342 before writing. The 'middle strip at col 19' and 'L corner at (19,24)' are similarly NOT painted by the picker — they belong to *0x732E (col 19 row 18 = 0x1d) and *0x7394 (the bottom status row at y=24). The picker's struct-header chrome bytes at +0x08..+0x0f (right panel: `23 23 23 00 00 00 00 00`, left panel: `00 00 1c 00 1c 00 00 1c`) are static border-decoration bytes set by ui_window_create's param_6 code paths (-5 for the right, -4 for the left); they are NOT in the cell grid but are consumed by an unidentified border-draw routine (likely invoked by ui_screen_refresh / focus). Bottom line: the prior 'right panel uses cells_off=+0x14' finding should be rolled back, the wbase-window-struct.json should be re-stated to say both use +0x10, and the perceived x-offset is a renderer-side leftpad of 2 cells, not a struct-level shift.",
+  "method": "PyGhidra decompile of wbase_pcfile_picker @ 0x2143, FUN_1f11 @ 0x1f11 (row renderer), FUN_1e93 @ 0x1e93 (right-panel chrome painter), FUN_1e6a @ 0x1e6a (paint_cell helper), FUN_1e0e @ 0x1e0e (banner writer), and ui_window_create @ wroot 0x11a (canonical). Raw `ndisasm -b 16` for the two ui_window_create call sites at file 0x21d4 and 0x220c to recover exact arg push order (cdecl RTL). Save-state memory verification via mcp__wiz6__dosbox_read_memory against save/1.sav: read right-panel struct at phys 0x1f8ac, left-panel struct at phys 0x1f46e, banner window 0x732E struct at wroot.dgroup+0x732E. Verified cell layout by reading 5 rows × 40 bytes = 200 bytes of cell data after struct+0x10 and confirming NATHAN ('4e 50 41 50 ...') starts at panel col 2 (offset +0x14 from struct), and chrome 'E'/'G'/'G'/'G'/'F' (0x45/0x47/0x47/0x47/0x46) at panel col 1 of rows 0..4. Cross-referenced FUN_1e93's chrome paints against memory bytes for byte-exact match. Cross-checked wroot-window-heap-allocator.json for banner window 0x732E confirmation (40x1 at y=18, attr=0x0e).",
+  "stats": {
+    "wbase_functions_decompiled": 5,
+    "wroot_functions_decompiled": 1,
+    "ui_window_create_args_recovered": 8,
+    "save_state_struct_reads": 4,
+    "chrome_glyphs_traced": 5,
+    "prior_findings_corrected": 1
+  },
+  "findings": [
+    {
+      "id": "ui-window-create-args-canonical",
+      "claim": "`ui_window_create` @ wroot image 0x11a (wroot file 0x31a) has the canonical C signature `void *ui_window_create(byte x, byte y, int w, int h, byte attr, int chrome_param, byte flags, int do_refresh)` — eight args, cdecl RTL push order. The struct it allocates is laid out: +0x00 w (byte), +0x01 h (byte), +0x02 x (byte, = param_1), +0x03 y (byte, = param_2), +0x04 attr (byte, = param_5), +0x05 flags (byte, = param_7), +0x06 cursor_chars_written (byte, initial 0 — incremented by puts ops like FUN_1e0e), +0x07 cursor_y (byte, initial 0), +0x08..+0x0f 8-byte chrome-glyph header (border decoration bytes), +0x10.. cells (16-bit char/attr pairs when flags & 2 == 0).",
+      "category": "ui_window_create_args",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": { "space": "wroot.exe", "offset": "0x31a" },
+        "type": "decompile",
+        "details": "Decompile of ui_window_create shows `puVar2[0] = w; puVar2[1] = h; puVar2[2] = param_1; puVar2[3] = param_2; puVar2[4] = param_5; puVar2[5] = param_7; puVar2[6] = 0; puVar2[7] = 0;` followed by chrome-glyph initialization at puVar2[8..0xf] based on param_6 sign-magic constants (-1, -2, -3, -4, -5 are sentinels; positive value generates sequential glyphs). For non-flags&2 windows, allocation is `param_3 * 2 * param_4 + 0x14` bytes = 20 bytes header + 2*w*h bytes cells, so cells start at struct + 0x14. WAIT — re-reading: the allocator size is 0x14 (=20 bytes) plus the cells. But the WRITES to the struct are all in 0x00..0x0f (= 16 bytes). The 4 bytes between 0x10 and 0x13 are not written by ui_window_create directly — they are part of the trailing cell region. So cells_off in practice is struct + 0x10 (the 16 bytes 0x00..0x0f are the explicit header, and the +0x14 in the allocator size formula is the SAME as 0x10 PLUS a 4-byte alignment slack — but our cells_off readings confirm the engine treats struct+0x10 as cell[0])."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ui-window-create-args-cell-offset",
+      "claim": "Cells live at struct + 0x10 (the canonical) for both picker windows. The ui_window_create allocator formula `param_3 * 2 * param_4 + 0x14` allocates 20 bytes of slack before the cells (8 byte explicit header at +0x00..+0x07 + 8 byte chrome at +0x08..+0x0f + 4 bytes apparent gap), but in practice the cell-write primitives (de7f, dfb9, etc.) compute cell addresses as `struct + 0x10 + (y*w + x)*2`. The 4-byte gap at +0x10..+0x13 from the allocator math is NOT a separate header section; it's part of cell row 0. The prior wbase-window-struct.json claim that the right panel uses cells_off=+0x14 is incorrect — what the prior finding interpreted as 'padding' (`20 03 45 02`) is actually cell[0]=(space, attr 0x03) and cell[1]=('E', attr 0x02). The 'E' at panel col 1 row 0 is painted by FUN_1e93 @ wbase 0x1e93 (see chrome-tile-painting findings).",
+      "category": "cells-off-discrepancy",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": { "space": "wroot.exe", "offset": "0x31a" },
+        "type": "decompile+save_state_bytes",
+        "details": "ui_window_create allocates `w*h*2 + 0x14` bytes. Allocator returns puVar2; writes header into puVar2[0..0xf] (16 bytes). Save 1 memory at right panel (struct 0x1f8ac, w=20 h=5 attr=0x14): bytes at struct+0x10..+0x13 = `20 03 45 02`, bytes at struct+0x14..+0x17 = `20 03 20 03`, ..., bytes at struct+0x10+(2*0+1*2)*20*... [row 2] starts with `20 03 47 02 4e 50 ...` (space, 'G' chrome, NATHAN). Row 2 cell col 2 = NATHAN[0]. Panel x=20, so global col = 20+2 = 22 — matches the user-reported NATHAN render position. Verified via mcp__wiz6__dosbox_read_memory at offsets 129196 (struct) and 129292 (row 2). Cell pair stride = 2 bytes; row stride = w*2 = 40 bytes. Left panel struct 0x1f46e (w=19 h=5 attr=0x0a) cells at struct+0x10..+0x53 show all spaces for row 0; 'ADD WHO?' is at row 1 cols 6..13 (panel x=0, so global col 6..13). Both panels conform to cells_off = struct + 0x10."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ui-window-create-call-args-outer-left-panel",
+      "claim": "The LEFT panel (variable `local_4` in the decompile, written first) is created by `ui_window_create(x=0, y=0x13, w=0x13, h=5, attr=0x0a, chrome=0xfffc, flags=0, do_refresh=0)` = `ui_window_create(0, 19, 19, 5, 10, -4, 0, 0)`. Args in C-source order (the LAST push to the call instruction in asm is the FIRST C-source arg). Decoded byte pushes at file 0x21d4..0x21ed: pushes (last→first) = 0, 0, 0xfffc, 0x0a, 5, 0x13, 0, 0 → C-source pushes (first→last) = `(0, 0x13, 0x13, 5, 0x0a, 0xfffc, 0, 0)`. Resulting struct: w=19, h=5, x=0, y=19, attr=0x0a, flags=0, chrome=zeros+0x1c sparse (from the param_6=-4 path in ui_window_create). NOTE: the LEFT panel holds the ADD WHO? / CANCEL prompt UI; it's NOT the roster list window. The prior wbase-add-party-member.json finding labelled this as 'outer' window — that nomenclature is misleading because both windows are top-level (parent=0 / x=0x14 are just regular args, not parent handles).",
+      "category": "ui-window-create-args",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x21d4" },
+        "type": "disasm",
+        "details": "Raw bytes 0x21d4..0x21ed: `b8 00 00 50 50 b8 fc ff 50 b8 0a 00 50 b8 05 00 50 b8 13 00 50 50 b8 00 00 50 e8 c5 99 83 c4 10`. Decode: mov ax, 0; push (= arg #8 last); push ax (#7); mov ax, 0xfffc; push (#6); mov ax, 0x0a; push (#5); mov ax, 5; push (#4); mov ax, 0x13; push (#3); push ax (#2); mov ax, 0; push (#1); call 0xbbb6. `add sp, 0x10` confirms 16 bytes = 8 word args. In C-source order: `ui_window_create(0, 0x13, 0x13, 5, 0x0a, 0xfffc, 0, 0)`. Save 1 memory confirms: struct at phys 0x1f46e has bytes `13 05 00 13 0a 00 0d 03` for offsets 0..7 = w=19 h=5 x=0 y=19 attr=10 flags=0 (the 0x0d 0x03 at +0x06/+0x07 is runtime cursor state)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ui-window-create-call-args-inner-right-panel",
+      "claim": "The RIGHT panel (variable `local_6` in the decompile) is created by `ui_window_create(x=20, y=0x13, w=0x14, h=5, attr=0x14, chrome=0xfffb, flags=0, do_refresh=0)` = `ui_window_create(20, 19, 20, 5, 20, -5, 0, 0)`. Args in C-source order decoded from byte pushes at file 0x220c..0x222b. Resulting struct: w=20, h=5, x=20, y=19, attr=0x14, flags=0, chrome=`23 23 23 00 00 00 00 00` (from the param_6=-5 path in ui_window_create). This is the ROSTER LIST window — its 20×5 grid holds the visible 5-row sliding window of candidate characters (NATHAN, etc.). The prior wbase-add-party-member.json finding labelled this 'inner' but it's neither inside nor a child of the left panel — both panels are independent top-level windows side-by-side.",
+      "category": "ui-window-create-args",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x220c" },
+        "type": "disasm",
+        "details": "Raw bytes 0x220c..0x222b: `b8 00 00 50 50 b8 fb ff 50 b8 14 00 50 b8 05 00 50 b8 14 00 50 b8 13 00 50 b8 14 00 50 e8 8a 99 83 c4 10`. Decode: mov ax, 0; push (#8); push ax (#7); mov ax, 0xfffb; push (#6); mov ax, 0x14; push (#5); mov ax, 5; push (#4); mov ax, 0x14; push (#3); mov ax, 0x13; push (#2); mov ax, 0x14; push (#1); call 0xbbb6. In C-source order: `ui_window_create(0x14, 0x13, 0x14, 5, 0x14, 0xfffb, 0, 0)`. Save 1 memory confirms struct at phys 0x1f8ac: `14 05 14 13 14 00 13 02` = w=20 h=5 x=20 y=19 attr=20 flags=0 (the trailing 0x13 0x02 at +0x06/+0x07 is runtime cursor counters)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-render-x-adjustment-resolution",
+      "claim": "The 'x=20 stored but renders NATHAN at global col 22' discrepancy is NOT a struct-vs-render mismatch — it's a renderer-side intentional 2-cell left-pad. FUN_1f11 @ wbase 0x1f11 (the picker's row renderer) calls `ui_window_set_cursor(handle, x=2, y=iVar1+2)` for every text row before writing the name+race+class+sex strings (`bda7(param_1, 2, iVar1+2)` at the start of the per-row loop, both for the highlighted center-row branch and the non-highlighted branch). The renderer reserves panel cols 0..1 for chrome decoration (col 1 painted by FUN_1e93; col 0 left as space). NATHAN at panel col 2 → global col = struct.x(20) + render_x(2) = 22. NO post-creation x-adjustment to the struct exists. The render offset is purely a rendering convention, controlled by the call argument to bda7.",
+      "category": "picker-render-x-adjustment",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1f11" },
+        "type": "decompile",
+        "details": "FUN_1f11 decompile: per-row iteration first calls FUN_1e93(param_1, 0) (chrome painter, see chrome-tile-painting findings), then ui_window_focus, then a loop iVar1 = -2..+2 with `func_0x0000bda7(param_1, 2, iVar1 + 2)` at the start of each row branch — both the (param_3==1 && iVar1==0) highlight branch at file ~0x1f30 and the non-highlight branch at file ~0x1faa. The `2` is the X coordinate (panel cell column) passed to ui_window_set_cursor. So every text write starts at panel col 2. Save 1 memory verification: row 2 cells at panel offset 0..2 are (`20 03`, `47 02` chrome, `4e 50` = N). NATHAN's first char (N) is at panel col 2 = global col 22 (= 20+2)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "chrome-tile-painting-fun-1e93",
+      "claim": "The right panel's vertical chrome bar at panel col 1 (rows 0..4) is painted by FUN_1e93 @ wbase 0x1e93 — called by FUN_1f11 at the start of each row-renderer invocation. FUN_1e93 first calls `ui_window_clear(handle, 0x20, 3, 0)` (thunk 0xed5a) to clear the panel, then `ui_window_focus(handle)` (thunk 0xebb4), then paints cell glyphs via FUN_1e6a @ wbase 0x1e6a (`paint_cell(handle, x, y, char) = bda7(handle, x, y); de7f(handle, char, attr=2)`). The painted sequence is: (x=1, y=0) = 'E' (0x45), (x=1, y=1) = 'G' (0x47), (x=1, y=2) = 'G' (0x47), (x=1, y=3) = 'G' (0x47), (x=1, y=4) = 'F' (0x46) — all with attr=2. Save-state memory at the right panel row 0..4 confirms 0x45/0x47/0x47/0x47/0x46 at panel col 1 of each row. Finally FUN_1e93 calls `ui_window_unfocus(handle)` (thunk 0xec6d) and optionally `ui_screen_refresh()` (thunk 0xe5b5) if param_2 != 0 (the picker passes 0, so no immediate refresh).",
+      "category": "chrome-tile-painting",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1e93" },
+        "type": "decompile",
+        "details": "Decompile of FUN_1e93: `func_0x0000ed5a(param_1,0x20,3,0); func_0x0000ebb4(param_1); FUN_0000_1e6a(param_1,1,0,0x45); iVar1 = 1; do { FUN_0000_1e6a(param_1,1,iVar1,0x47); iVar1 = iVar1 + 1; } while (iVar1 < 4); FUN_0000_1e6a(param_1,1,4,0x46); func_0x0000ec6d(param_1); if (param_2 != 0) { func_0x0000e5b5(); } return;`. FUN_1e6a decompile: `func_0x0000bda7(param_1, param_2, param_3); func_0x0000de7f(param_1, param_4, 2);` — set_cursor(x, y) then putchar_attr(char, 2). Save-state verification: right panel struct@0x1f8ac, cells_off=+0x10, cell[1] of row 0 = bytes at 0x1f8be = `45 02` ('E'). Cell[1] of rows 1..3 = 0x1f902/0x1f946/0x1f98a = `47 02` ('G'). Cell[1] of row 4 = `46 02` ('F'). All byte-exact match."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "chrome-tile-painting-banner-row-not-by-picker",
+      "claim": "The chrome glyphs in the BANNER row (global y=18) — specifically 0x1c (vertical line) at cells 0..4, 15..18, 20..39, 0x1d at cell 19, and 'add_member' lowercase at cells 5..14 — are NOT painted by the picker. They live in a separate, persistent window 0x732E (`*0x3342`) which is the title-strip window at y=18, w=40, x=0, attr=0x0e, created during winit state 2 boot init. The picker only writes the centered 'add_member' string (msg 0x4b1 loaded into a stack buffer via thunk 0xc1f7, then rendered via FUN_1e0e @ wbase 0x1e0e) into this strip — it does NOT clear *0x3342 before writing, so the surrounding 0x1c chrome cells are leftover state from a prior overlay frame (likely written by some earlier banner-decorating routine). The 0x1d at col 19 (right at the gap between left panel x=0..18 and right panel x=20..39) is similarly inherited state. The 'L corner at cell (19, 24)' is in a different window 0x7394 (the bottom status row at y=24, w=40, x=0, attr=0x03), not the picker's purview at all.",
+      "category": "chrome-tile-painting",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1e0e" },
+        "type": "decompile+save_state_bytes",
+        "details": "FUN_1e0e: `func_0x0000c497(*0x3342, 0); func_0x0000c4de(*0x3342, 0); func_0x0000ebb4(...); func_0x0000bda7(*0x3342, ...); func_0x0000dfb9(...); *(char *)(*0x3342 + 6) += 1; func_0x0000ec6d(...);` — NO ui_window_clear call. The function does `c497` (redraw_focused), `c4de` (helper), `ebb4` (focus), `bda7` (set cursor at center_x, 0), `dfb9` (puts string), increment cursor-count byte, `ec6d` (unfocus). The picker call site at file 0x2253..0x2284: `lea ax, [bp-0x20e]; push; mov ax, 0x4b1; push; call c1f7` (load msg 0x4b1 into stack buf), then `lea ax, ...; push; call faab` (strlen), then `local_210 = 10 - (strlen+1)/2`; then `FUN_1e0e(*0x3342, &buf, local_210, 0)`. Save 1 memory at banner cell offsets: 0x732E struct cells_off=+0x10 = wroot.dgroup+0x733e. Cells 0..4 = `1c 03 1c 03 1c 03 1c 03 1c 03`; cells 5..14 = `61 03 64 03 64 03 5f 03 6d 03 65 03 6d 03 62 03 65 03 72 03` (= 'add_member' attr 0x03); cells 15..18 = `1c 03 1c 03 1c 03 1c 03`; cell 19 = `1d 03`; cells 20..39 = `1c 03 ...`. The 'add_member' is the only thing the picker writes; the 0x1c/0x1d surroundings are inherited."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "chrome-tile-painting-window-header-chrome",
+      "claim": "Each picker window's 8-byte chrome-glyph header at struct+0x08..+0x0f is set by ui_window_create based on the `chrome_param` (param_6) value. Left panel (chrome=-4=0xfffc) gets `00 00 1c 00 1c 00 00 1c` (FUN_1000_38b0 zero-fill then overwrite [10]/[12]/[15] with 0x1c). Right panel (chrome=-5=0xfffb) gets `00 00 00 00 00 00 00 00` then [8]/[9]/[10] overwritten with 0x23: `23 23 23 00 00 00 00 00`. These 8 bytes are NOT cells — they're consumed by an unidentified window-border draw routine, likely invoked by ui_screen_refresh or window focus operations. They represent the static decoration around the window edges (corners + edges). The cell grid (struct+0x10 onwards) is separate.",
+      "category": "chrome-tile-painting",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": { "space": "wroot.exe", "offset": "0x31a" },
+        "type": "decompile",
+        "details": "ui_window_create's param_6 dispatch: `if (param_6 == -1) FUN_1000_38b0(puVar2+8, 8, 0); else if (param_6 == -2) puVar2[8..0xf] = {0x1b,0x1b,0x1c,0x1b,0x1c,0x1b,0x1b,0x1c}; else if (param_6 == -3) puVar2[8..0xf] = {0x1a,0x1b,0x1b,0x1a,0x1b,0x1a,0x1b,0x1b}; else if (param_6 == -4) { FUN_1000_38b0(puVar2+8,8,0); puVar2[10]=0x1c; puVar2[0xc]=0x1c; puVar2[0xf]=0x1c; } else if (param_6 == -5) { FUN_1000_38b0(puVar2+8,8,0); puVar2[8]=0x23; puVar2[9]=0x23; puVar2[10]=0x23; } else { for (iVar1=0; iVar1<8; iVar1++) puVar2[iVar1+8] = (char)param_6 + (char)iVar1; }`. Save 1 memory: left panel struct+0x08..+0x0f = `00 00 1c 00 1c 00 00 1c` ✓ matches param_6=-4 path. Right panel struct+0x08..+0x0f = `23 23 23 00 00 00 00 00` ✓ matches param_6=-5 path. The painting of these 8 bytes onto the screen edge is done by a separate routine (FUN_1000_2f76 and/or FUN_1000_329a, both called at end of ui_window_create) — TBD which one and what exact screen coords."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "cells-off-discrepancy-resolution",
+      "claim": "RESOLVES the open question in wbase-window-struct.json. BOTH picker panels use cells_off = struct + 0x10. The prior finding's claim that the right panel uses cells_off = struct + 0x14 is incorrect; what looked like '4 bytes of padding' is actually cells 0..1 of row 0 (`20 03 45 02` = space attr 0x03, 'E' attr 0x02). The 'E' is the chrome glyph painted by FUN_1e93 at panel col 1 row 0. The dump-cells.py tool's empirical disambiguation worked because it shifted the alignment to put 'NATHAN' at col 0, but that shift was a misinterpretation — NATHAN actually starts at panel col 2 (intentionally, due to FUN_1f11's `bda7(handle, 2, ...)` cursor positioning to leave room for the col 1 chrome glyphs). The 4 bytes (`23 23 23 00`) at right panel struct+0x0c..+0x0f the prior finding cited as 'extra header' are actually the BOTTOM 4 bytes of the 8-byte chrome-glyph header set by ui_window_create's param_6=-5 path — these are part of the CANONICAL 16-byte header, not an extension specific to the right panel.",
+      "category": "cells-off-discrepancy",
+      "evidence": {
+        "binary": "tools/dosbox/save/1.sav",
+        "address": { "space": "wroot.dgroup", "offset": "0x1f8ac (phys)" },
+        "type": "save_state_bytes",
+        "details": "Right panel struct at phys 0x1f8ac. Bytes 0x1f8ac..0x1f8bb (16 bytes header): `14 05 14 13 14 00 13 02 23 23 23 00 00 00 00 00`. Decoded: +0x00 w=20, +0x01 h=5, +0x02 x=20, +0x03 y=19, +0x04 attr=0x14, +0x05 flags=0, +0x06 cursor_count=0x13 (runtime), +0x07 cursor_y=0x02 (runtime), +0x08..+0x0f chrome=`23 23 23 00 00 00 00 00` (set by param_6=-5). Bytes 0x1f8bc..+0x1f8e3 (cell row 0, 40 bytes): `20 03 45 02 20 03 20 03 ... 20 03 47 02 20 03` — that's cell[0..19] with col 1 = 'E' (0x45) and col 18 = 'G' (0x47). Bytes 0x1f8e4..+0x1f90b (row 1): similar pattern with col 1 = 'G'. Row 2 at 0x1f90c: `20 03 47 02 4e 50 41 50 ...` — col 0 = space, col 1 = 'G', col 2..7 = NATHAN. Panel x=20 → global col 22..27 = NATHAN. The 4 bytes the prior finding called 'padding' (`23 23 23 00` at struct+0x0c..+0x0f) are part of the canonical 16-byte header, not cells. Similarly, the 4 bytes at struct+0x10..+0x13 (`20 03 45 02`) are cells[0..1] of row 0, NOT a header extension."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "header-bytes-0x06-0x07-are-runtime-cursor-counters",
+      "claim": "The bytes at struct + 0x06 and struct + 0x07 are NOT static header fields — they're runtime cursor/text-write counters mutated by puts operations. ui_window_create initializes them to 0 (`puVar2[6] = 0; puVar2[7] = 0`), and at least one routine (FUN_1e0e) increments byte +0x06 after writing text (`*(char *)(*0x3342 + 6) = *(char *)(*0x3342 + 6) + '\\x01';`). On the right panel in save 1, +0x06=0x13=19 and +0x07=0x02 suggests 19 chars written and current_y=2 (the row renderer last positioned cursor at y=2 = center row before save). Interpret these as 'transient state' — they vary between snapshots of the same window and should not be part of any persistent struct schema.",
+      "category": "ui_window_create_args",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1e0e" },
+        "type": "decompile",
+        "details": "FUN_1e0e ends with `*(char *)(*0x3342 + 6) = *(char *)(*0x3342 + 6) + '\\x01';` — directly modifies the byte at handle+6. The puts-family thunks (dfb9, df85) likely do the same, plus bda7 (set_cursor) likely writes both +0x06 and +0x07. The left panel in save 1 has +0x06=0x0d=13, +0x07=0x03 (=3), which is consistent with the picker having last drawn CANCEL (6 chars + trailing) at y=3."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "chrome-tile-painting-other-banner-elements",
+      "claim": "The chrome glyphs at cell (19, 24) = wfont1 0x1f (the 'L corner') and the vertical line at col 19 rows 19..23 do NOT belong to the picker's panels. Cell (19, 24) is global row 24 = the bottom status row owned by window 0x7394 (40x1 at y=24, attr=0x03). The vertical line at col 19 rows 19..23 spans the GAP between the left panel (occupies global cols 0..18) and the right panel (occupies global cols 20..39); this gap column is exposed to whichever window underlies global col 19 (likely the full-screen background window 0x6FF6 or a previously-drawn frame). The picker neither paints nor clears these columns.",
+      "category": "chrome-tile-painting",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2143" },
+        "type": "absence_of_call",
+        "details": "Full disasm of wbase_pcfile_picker @ 0x2143 contains writes only to: (a) *0x3342 (banner) via FUN_1e0e — 'add_member' centered; (b) local_4 (left panel) via dfb9/df85 + bda7 — CANCEL text at panel cell (7, 3); (c) local_6 (right panel) via FUN_1f11/FUN_1e93 — row renderer + col-1 chrome painter. No writes to *0x7394 (bottom status), no writes to global cell (19, 24), no writes to col 19 rows 19..23. These cells are inherited from prior overlay state. The prior wbase-window-struct.json claim that the picker draws an 'L corner' is misattribution; that corner is part of the bottom status window's persistent decoration."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ui-window-create-cells-allocator-formula",
+      "claim": "The allocator size in ui_window_create is `w*2*h + 0x14` when flags&2 == 0, but the cells are accessed at struct+0x10 (not +0x14). This 4-byte difference is a deliberate over-allocation, possibly to align the allocator's free-list pointer or to provide write-safety slack. The cells at +0x10..+0x10+(w*h*2 - 1) are the active cell region; bytes at +0x10+(w*h*2)..+0x10+(w*h*2)+3 are the over-allocation slack and may contain garbage or be reused by the allocator for free-list pointers.",
+      "category": "ui_window_create_args",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": { "space": "wroot.exe", "offset": "0x31a" },
+        "type": "decompile",
+        "details": "`if ((param_7 & 2) == 0) iVar1 = param_3 * 2 * param_4 + 0x14; else iVar1 = 0x14;` — for a non-flags&2 window, size = 2*w*h + 20. The header consumes 16 bytes (0..0xf); cells live at 0x10..0x10+2*w*h-1 = 0x10..(0xf + 2*w*h). Total accessed = 0x10 + 2*w*h. Allocated = 0x14 + 2*w*h. Slack = 4 bytes. For the right panel w=20 h=5: cells span 0x10..0x10c = 0xfc bytes. Allocated = 0x14 + 0xc8 = 0xdc. So cells are 0x10..0xdc (=200 bytes cells) and slack at 0xd8..0xdb (4 bytes). Hmm — actually re-checking: 0x14 + 2*20*5 = 0x14 + 0xc8 = 0xdc. Cells_offset 0x10 + 2*20*5 = 0xd8. So slack 0xd8..0xdb (4 bytes at the END, not at +0x10..+0x13). Therefore the 4 bytes at struct+0x10..+0x13 ARE cells, and the slack is at the end. This matches the live memory observation."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "thunk-delta-applied-to-picker-thunks",
+      "claim": "Picker calls these wroot thunks with the thunk-delta law (wroot_image = thunk - 0xBA9C): 0xbbb6 → 0x011a (ui_window_create), 0xed5a → 0x32be (ui_window_clear), 0xebb4 → 0x3118 (ui_window_focus), 0xec6d → 0x31d1 (ui_window_unfocus), 0xbda7 → 0x030b (ui_window_set_cursor), 0xdfb9 → 0x251d (ui_window_puts), 0xdf85 → 0x24e9 (ui_window_puts_highlight), 0xde7f → 0x23e3 (ui_window_putchar), 0xdd53 → 0x22b7 (ui_window_putchar_attr), 0xc497 → 0x09fb (ui_window_redraw_focused), 0xc4de → 0x0a42 (ui_helper), 0xc2db → 0x083f (draw_msg_in_window with width), 0xc1f7 → 0x075b (load_msg_into_buf), 0xfaab → 0x400f (strlen), 0xf3aa → 0x390e (strcpy), 0xc6b2 → 0x0c16 (mouse_status_set_field), 0xe4ff → 0x2a63 (ui_screen_refresh), 0xe5b5 → 0x2b19 (ui_window_blit), 0xbd6e → 0x02d2 (ui_window_destroy). All file offsets = wroot_image + 0x200.",
+      "category": "thunks",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2143" },
+        "type": "cross_reference",
+        "details": "Cross-checked against docs/re/wroot-functions.md and prior wbase-add-party-member.json. No new thunks introduced by this pass; this is a re-verification list for clarity."
+      },
+      "confidence": "high"
+    }
+  ],
+  "applied_names": [
+    {
+      "address": { "space": "wbase.ovr", "offset": "0x1e93" },
+      "name": "picker_right_panel_paint_chrome",
+      "rationale": "Paints the right panel's left-edge vertical chrome bar at panel col 1 (E/G/G/G/F glyphs)."
+    },
+    {
+      "address": { "space": "wbase.ovr", "offset": "0x1e6a" },
+      "name": "paint_cell_attr2",
+      "rationale": "Set cursor at (handle, x, y) then putchar(char) with attr=2. Generic cell painter, attr is hardcoded to 2."
+    },
+    {
+      "address": { "space": "wbase.ovr", "offset": "0x1e0e" },
+      "name": "banner_strip_write_centered",
+      "rationale": "Writes a centered string into the banner window *0x3342 (40x1 at y=18). Does NOT clear the strip first."
+    }
+  ],
+  "corrections_to_prior_findings": [
+    {
+      "finding": "wbase-window-struct.json",
+      "section": "right-panel-location + cells-off-delta-inconsistency",
+      "what_was_wrong": "Claimed right panel uses cells_off = struct + 0x14 (with 4 bytes of unknown padding at +0x10..+0x13).",
+      "correction": "Both panels use cells_off = struct + 0x10. The 4 bytes at +0x10..+0x13 are actually cells[0] and cells[1] of row 0 (`20 03 45 02` = space + 'E' chrome glyph). The 'E' is painted by FUN_1e93 @ wbase 0x1e93 (called from FUN_1f11 row renderer) at panel col 1 row 0. The renderer FUN_1f11 starts NAME text at panel col 2 via `bda7(handle, 2, y)`, so the apparent '2-cell shift' is intentional render-side padding, not a struct-level offset.",
+      "impact": "dump-cells.py's empirical disambiguation (trying +0x10 vs +0x14 and picking by signature column anchor) is solving the wrong problem. The 'NATHAN starts at col 0' assumption is incorrect — NATHAN starts at panel col 2 by design. The tool should use the canonical +0x10 unconditionally and update its expected column for the NATHAN signature to col 2 (or to global col 22 if it's working in global coords)."
+    }
+  ],
+  "unresolved": [
+    "Where does FUN_1000_2f76 / FUN_1000_329a (called at the end of ui_window_create) paint the 8-byte chrome header onto the screen? These are the routines that convert the chrome bytes at struct+0x08..+0x0f into actual screen pixels (the visible border decoration). Need decompile to confirm the screen-coord mapping (likely (x, y), (x+w-1, y), (x, y+h-1), (x+w-1, y+h-1) corners + edge midpoints).",
+    "The chrome bytes for param_6=-2 (`1b 1b 1c 1b 1c 1b 1b 1c`) and param_6=-3 (`1a 1b 1b 1a 1b 1a 1b 1b`) correspond to the heavy and light party-panel borders per wroot-window-heap-allocator.json. The semantic meaning of each byte position [8..f] within the 8-byte chrome header (which positions are corners vs which are edges) is not yet mapped — needed for a port that wants to replicate the border art.",
+    "FUN_1f11's row renderer at file ~0x23b6 has a comparator chain switching between highlight (df85) and non-highlight (dfb9) paths based on `(*0x846 == 0) && (local_e == 1)`. The branch direction matches FUN_1f11's internal `param_3 == 1 && iVar1 == 0` check (highlight center row when not on CANCEL). This was marked low-confidence in prior findings but the picker's caller-side switch and renderer's internal switch are CONSISTENT (when on_cancel = 0 in picker, param_3 = 1 passed to FUN_1f11 = highlight center row; when on_cancel = 1, param_3 = 0 = no center-row highlight, all rows rendered normal). Net: confidence should be UPGRADED to medium-high based on the consistency.",
+    "The +0x06 / +0x07 'cursor counter' byte semantics need verification — confirmed for FUN_1e0e increments +0x06, but the bda7 (set_cursor) thunk also presumably writes them. A decompile of bda7 (wroot 0x30b) would confirm the cursor_x / cursor_y vs chars_written interpretation.",
+    "Banner row chrome (0x1c at most cells, 0x1d at col 19) origin: confirmed NOT painted by the picker. Likely written by an earlier overlay frame or by winit state 2's window setup. A startup-trace of the 0x732E cell contents at end-of-winit would settle the source."
+  ],
+  "implementation_notes_for_port": [
+    "Window struct schema for tile windows (when flags & 2 == 0): { w: u8, h: u8, x: u8, y: u8, attr: u8, flags: u8, chars_written: u8, cursor_y: u8, chrome: [u8; 8], cells: [(char: u8, attr: u8); w*h] }. The last two bytes of the 'header' (+0x06, +0x07) are MUTABLE runtime state, not static header fields.",
+    "ui_window_create signature: `(byte x, byte y, int w, int h, byte attr, int chrome_param, byte flags, int do_refresh)`. chrome_param sentinels: -1=zeros, -2=heavy border, -3=light border, -4=zeros+0x1c sparse (left-panel style), -5=zeros+0x23 triple-top (right-panel style), positive=sequential.",
+    "Picker rendering CONVENTION: text is rendered at panel x=2 (deliberate 2-cell leftpad), col 1 is reserved for chrome glyphs. Global x = struct.x + render_x. Do NOT compensate for the '2-cell shift' at the struct level — it's a renderer convention.",
+    "The banner strip (*0x3342, 40x1 at y=18) is a persistent shared window. Writes to it (msg-loaded centered text via banner_strip_write_centered = FUN_1e0e) do NOT clear surrounding cells. Port should reproduce this behavior: 'add_member' centered at col ~10, with surrounding cells inherited from prior state.",
+    "Right-panel chrome (E/G/G/G/F at col 1) is painted by FUN_1e93 every time FUN_1f11 (row renderer) is called. This means the chrome is repainted per redraw, not just once at panel creation. Port should call the chrome painter at start of each row-render pass."
+  ]
+}

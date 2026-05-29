@@ -487,6 +487,98 @@ runtime-computed).
 6. `FUN_1f11` row renderer's cancel-highlight branch direction —
    verify by DOSBox-X breakpoint during a live ADD PARTY MEMBER session.
 
+#### Picker internals (struct layout + render geometry)
+
+Findings: [`docs/re/findings/wbase-picker-internals.json`](findings/wbase-picker-internals.json).
+This section supersedes the speculative claims in the earlier "Open
+questions" list around the `cells_off` discrepancy and the "x=20 stored
+but renders at 22" mystery.
+
+**Canonical `ui_window_create` signature** (wroot image 0x11a):
+
+```c
+void *ui_window_create(
+  byte x, byte y, int w, int h, byte attr,
+  int chrome_param, byte flags, int do_refresh
+);
+```
+
+Eight args, cdecl, right-to-left push. Returns a struct pointer. Struct
+layout:
+
+|  Offset | Field                          |
+|--------:|--------------------------------|
+| `+0x00` | `w` (byte)                     |
+| `+0x01` | `h` (byte)                     |
+| `+0x02` | `x` (byte, = param x)          |
+| `+0x03` | `y` (byte, = param y)          |
+| `+0x04` | `attr` (byte, = param attr)    |
+| `+0x05` | `flags` (byte, = param flags)  |
+| `+0x06` | `cursor_chars_written` (byte)  |
+| `+0x07` | `cursor_y` (byte)              |
+| `+0x08..+0x0f` | 8-byte chrome-glyph header (border decoration) |
+| `+0x10..`     | cells (16-bit char/attr pairs) |
+
+Allocator size: `w * h * 2 + 0x14`. The `+0x14` looks like 20 bytes of
+slack but the cell-write primitives (`de7f`, `dfb9`) compute cell
+addresses as `struct + 0x10 + (y*w + x)*2` — i.e. cells **always** start
+at `struct + 0x10` for normal windows. The 4-byte gap in the allocator
+math (`0x14 - 0x10`) is at the END of the cell region, not the start.
+
+**Both picker panels use `cells_off = struct + 0x10`.** The earlier
+`wbase-window-struct.json` claim that the right panel uses `+0x14` was a
+mis-alignment: the "padding bytes" (`20 03 45 02`) it identified are
+actually `cell[0] = (space, attr 0x03)` and `cell[1] = ('E', attr 0x02 —
+the top scrollbar arrow)`.
+
+**Picker call sites:**
+
+```c
+// Left panel (the ADD WHO? / CANCEL prompt):
+ui_window_create(x=0, y=19, w=19, h=5, attr=0x0a, chrome=-4, flags=0, do_refresh=0);
+
+// Right panel (the roster list):
+ui_window_create(x=20, y=19, w=20, h=5, attr=0x14, chrome=-5, flags=0, do_refresh=0);
+```
+
+**Why NATHAN highlight renders at global cell 22 (not 20).** The row
+renderer `FUN_1f11` @ wbase 0x1f11 calls
+`ui_window_set_cursor(handle, x=2, y=row)` before writing each row's
+text — a deliberate 2-cell leftpad that reserves panel cols 0..1 for
+chrome (the scrollbar arrows painted by `FUN_1e93`). NATHAN at panel
+col 2 → global col 22 = struct.x(20) + render_x(2). No struct
+adjustment.
+
+**Chrome painting routines.**
+
+- `FUN_1e93` @ wbase 0x1e93 paints the right-panel scrollbar column:
+  'E' (top arrow, char 0x45) at row 0 col 1, 'G' (track, char 0x47) at
+  rows 1..3 col 1, 'F' (bottom arrow, char 0x46) at row 4 col 1 — all
+  via `FUN_1e6a(handle, x, y, char)` which calls thunks `bda7`
+  (`ui_window_set_cursor`) + `de7f` (`ui_window_putchar` with hardcoded
+  `attr=0x02`).
+- The banner row chrome (cells 0x5f / 0x1d / 0x23 at y=18) lives in a
+  **separate persistent window 0x732E** (the title strip — 40×1 at
+  y=18, attr=0x0e), NOT in the picker. The picker only writes the
+  centered "add\x5fmember" (msg 0x4b1) into this strip via
+  `FUN_1e0e`. The surrounding 0x1c / 0x1d chrome cells pre-exist from
+  prior overlay state.
+- The "L-corner at (19, 24)" cell similarly belongs to the bottom
+  status window `*0x7394` at y=24, NOT to the picker.
+
+**Naming note.** The prior `wbase-add-party-member.json` finding
+labelled the left panel as "outer" and the right panel as "inner" —
+misleading. Both windows are top-level (no parent handles); they're
+just two regular `ui_window_create` results. Treat them as `leftPanel`
++ `rightPanel` (which is what the port's cell-grid fixture uses).
+
+**Open follow-up.** The 8-byte chrome header at struct+0x08..+0x0f
+gets initialized by `ui_window_create` based on the `chrome_param`
+sentinel value (-4 / -5 / etc.). The routine that consumes these bytes
+to draw the per-window border decoration (likely invoked from
+`ui_screen_refresh`) is unidentified — `FUN_1000_2f76` /
+`FUN_1000_329a` in the allocator's tail are the candidates.
+
 ### State 7 — post-gameplay cleanup (`wbase_state7_post_gameplay_cleanup` @ 0x2de1)
 
 Reached after `boot_select_disk_for_content(1, 0)` (per ovl_install_table).
