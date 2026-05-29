@@ -2,13 +2,19 @@ import { Link, useParams } from 'react-router-dom';
 import styles from './CastleStub.module.css';
 
 const STUB_INFO: Record<string, { title: string; description: string }> = {
-  'choose-leader': {
-    title: 'Choose Leader',
-    description: 'Select a party member as leader. Transitions to WPCVW (state 0x11).',
+  'review-member': {
+    title: 'Review Member',
+    description: 'Pick a party member to inspect. Transitions to WPCVW (state 0x11).',
   },
-  'remove-party': {
-    title: 'Remove Party Member',
-    description: 'Send a member back to PCFILE.DBS. Requires party-state mutation.',
+  'dismiss-member': {
+    title: 'Dismiss Member',
+    description:
+      'Pick a party member to send back to PCFILE.DBS. The character stays in your roster; only the active-party slot is freed.',
+  },
+  'start-new-game': {
+    title: 'Start New Game',
+    description:
+      'Unloads the current party and picks a scenario. Engine: `wbase_load_or_quit(0)` followed by state 6 (gameplay).',
   },
   resume: {
     title: 'Resume Saved Game',

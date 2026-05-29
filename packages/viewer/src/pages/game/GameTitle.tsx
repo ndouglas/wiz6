@@ -33,10 +33,6 @@ export function GameTitle() {
   const skipRef = useRef(false);
   const [spritesByDesc, setSpritesByDesc] = useState<RenderedSprite[] | null>(null);
   const [titlepagRgba, setTitlepagRgba] = useState<Uint8ClampedArray | null>(null);
-  // Browser Web Audio policy requires a user gesture before any AudioContext
-  // can produce sound. We hold the intro on frame 0 until that gesture lands,
-  // so the SOUND04 / SOUND13 / SOUND14 transitions are actually audible.
-  const [started, setStarted] = useState(false);
   // Engine sound-table dump (MCP, 2026-05-24 — see TODO #Q-G) reveals
   // each sound's playback rate via the per-slot `duration` field at
   // DGROUP 0x3344+N*12+8. The loadSnd(url, {slotN}) call uses that to
@@ -112,11 +108,14 @@ export function GameTitle() {
     };
   }, []);
 
-  // RAF loop. Held until `started` so the intro doesn't auto-play silently
-  // — Web Audio is gesture-locked until the user clicks/types.
+  // RAF loop. Audio unlock is now installed at the AppShell root (any
+  // first keypress/click anywhere unlocks AudioContext for the whole
+  // session), so we can auto-start the intro instead of holding on a
+  // click-to-begin button. If the user lands here without having
+  // interacted yet, the early sound cues silently no-op until their
+  // first gesture — acceptable tradeoff vs. blocking the visual entirely.
   useEffect(() => {
     if (!spritesByDesc) return;
-    if (!started) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -185,13 +184,10 @@ export function GameTitle() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [spritesByDesc, titlepagRgba, navigate, started]);
+  }, [spritesByDesc, titlepagRgba, navigate]);
 
-  // Skip listener only after the intro has started — otherwise the click
-  // that starts the intro would also register as a skip and fast-forward
-  // through frame 0.
+  // Skip listener — any keypress or click fast-forwards the intro.
   useEffect(() => {
-    if (!started) return;
     const onSkip = () => {
       skipRef.current = true;
     };
@@ -201,7 +197,7 @@ export function GameTitle() {
       window.removeEventListener('keydown', onSkip);
       window.removeEventListener('mousedown', onSkip);
     };
-  }, [started]);
+  }, []);
 
   return (
     <main className={styles.page}>
@@ -219,23 +215,6 @@ export function GameTitle() {
           }}
           aria-label="Wizardry VI intro sequence"
         />
-        {!started && (
-          <button
-            type="button"
-            className={styles.startGate}
-            onClick={() => setStarted(true)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setStarted(true);
-              }
-            }}
-            aria-label="Begin Wizardry VI intro"
-          >
-            <span>Click to begin</span>
-            <kbd>browser audio requires a gesture before sound can play</kbd>
-          </button>
-        )}
       </div>
       <p className={styles.footer}>
         Click or press any key to skip ·

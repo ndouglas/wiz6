@@ -33,9 +33,9 @@ const PARITY_FLIP_MS = 500;
 
 const ROUTE_BY_SLOT: Record<number, { route: string; replay?: boolean }> = {
   0: { route: '/castle/add-party' },
-  1: { route: '/castle/choose-leader' },
-  2: { route: '/castle/character-menu' },
-  3: { route: '/castle/remove-party' },
+  1: { route: '/castle/review-member' },
+  2: { route: '/castle/dismiss-member' },
+  3: { route: '/castle/start-new-game' },
   4: { route: '/castle/resume' },
   5: { route: '/castle/character-menu' },
   // Slot 6 (GAME CONFIGURATION) in stock Wiz6 picked PC Speaker / AdLib / etc.
