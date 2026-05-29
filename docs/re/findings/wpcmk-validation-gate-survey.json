@@ -1,0 +1,492 @@
+{
+  "topic": "wpcmk-validation-gate-survey",
+  "subagent_run": "2026-05-28T00:00:00Z",
+  "binaries": ["wpcmk.ovr"],
+  "summary": {
+    "headline": "Surveyed every validation gate, error path, and soft prompt across all 17 wpcmk creation screens (plus the roster-management screens that share the same overlay). Confirmed two specific known bugs (#1 bonus-pool exit prompt; #2 duplicate-name modal in both create AND rename paths) and catalogued 30 gates total. 21 are PORTED faithfully, 6 are MISSING outright (the biggest user-visible misses are the dup-name modal on create + rename, the bonus-pool exit prompt, and the bonus-allocator 'invalid action' beep), 2 are PARTIAL (skill-train budget-exhausted prompt is ported but exit gating is loose vs engine), and 1 is N/A in port (mouse 5-button table). The largest cluster of MISSING gates is around modal error feedback — the engine displays msg 0x44e via FUN_505b (modal: msg + sound + wait-for-key) on duplicate-name in both create and rename, and the port has no analog for either flow.",
+    "stats": {
+      "total_gates": 30,
+      "ported": 21,
+      "partial": 2,
+      "missing": 6,
+      "n_a": 1
+    },
+    "gates_by_screen": {
+      "screen-00-name-entry": {"ported": 2, "missing": 1, "partial": 0, "n_a": 0},
+      "screen-02-race": {"ported": 1, "missing": 0, "partial": 0, "n_a": 0},
+      "screen-03-sex": {"ported": 1, "missing": 0, "partial": 0, "n_a": 0},
+      "screen-05-class": {"ported": 3, "missing": 0, "partial": 0, "n_a": 0},
+      "screen-06-bonus-allocator": {"ported": 4, "missing": 2, "partial": 0, "n_a": 1},
+      "screen-08-personality": {"ported": 1, "missing": 0, "partial": 0, "n_a": 0},
+      "screen-10-portrait": {"ported": 2, "missing": 0, "partial": 0, "n_a": 0},
+      "screen-13-skill-train": {"ported": 2, "missing": 0, "partial": 1, "n_a": 0},
+      "screen-14-spell-pick": {"ported": 1, "missing": 1, "partial": 0, "n_a": 0},
+      "screen-15-confirm": {"ported": 1, "missing": 0, "partial": 0, "n_a": 0},
+      "rename-flow": {"ported": 1, "missing": 1, "partial": 0, "n_a": 0},
+      "delete-flow": {"ported": 1, "missing": 0, "partial": 0, "n_a": 0},
+      "portrait-change-flow": {"ported": 1, "missing": 0, "partial": 0, "n_a": 0},
+      "character-menu": {"ported": 1, "missing": 1, "partial": 1, "n_a": 0}
+    }
+  },
+  "method": "Decompiled the relevant wpcmk functions via PyGhidra (`tools/ghidra/scripts/decompile.py --binary wpcmk.ovr --addr <fn>`); cross-referenced against existing findings JSONs (especially `wpcmk-bonus-allocator.json`, `wpcmk-msg-strings.json`, `wpcmk-screen-flow.json`, `wpcmk-remaining-functions.json`, `wpcmk-menu-picker.json`, `wpcmk-portrait-picker.json`, `wpcmk-naming-pass.json`, `wpcmk-post-commit.json`, `wpcmk-character-menu-options.json`); inspected port code at `packages/viewer/src/pages/roster/creation/state.ts` (reducer), `screens/*.tsx` (all interactive screens), `ega/skill-train-frame.ts` (skill-train compose). The two priority bugs were confirmed by decompiling `wpcmk_bonus_point_allocator_ui` (0x3405), `wpcmk_create_via_empty_slot` (0x50f2), `wpcmk_create_via_name_prompt` (0x5337), `roster_check_name_unique` (0x5011), and `strcmp_2byte_step` (0x5c42).",
+
+  "findings": [
+    {
+      "id": "dup-name-modal-create",
+      "category": "modal_error",
+      "screen": "screen-00-name-entry",
+      "claim": "Engine shows a modal 'CHARACTER ALREADY EXISTS' popup (msg 0x44e via FUN_505b at wpcmk file 0x505b) when a duplicate name is entered at the CREATE PC name-entry prompt. The modal sets cursor in bottomBar to (row=6, col=2), writes msg 0x44e in style 0x12, plays an error sound (thunk 0xc546), waits for key/timeout (thunk 0xc43f). On dismissal the engine re-prompts. Comparison semantics (from `strcmp_2byte_step` at 0x5c42): byte-exact case-sensitive 2-byte-step compare of the 8-byte stored name field; equality requires identical bytes including any trailing NUL/space padding. Scope: walks the WHOLE roster (loops `i = 0..*0x4fd2-1` = 0..15, gated on `*(0x4fd8+i) != 0` occupied slot).",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x51a5"},
+        "decompile_snippet": "iVar1 = roster_check_name_unique(); if (iVar1 == -1) { ... FUN_0000_505b(0x44e, 6, 2); } else { wpcmk_create_character_master(...); }",
+        "modal_fn": {"space": "wpcmk.ovr", "offset": "0x505b"},
+        "uniqueness_fn": {"space": "wpcmk.ovr", "offset": "0x5011"},
+        "uniqueness_snippet": "iVar2=0; do { if (*0x4fd2 <= iVar2) return 0; if (*(char *)(iVar2 + 0x4fd8) != '\\0') { roster_io_one_record(local_1b2,iVar2,0); if (strcmp_2byte_step(param_1,local_1b2)==0) return 0xffff; } iVar2++; } while (true);",
+        "strcmp_snippet": "2-byte-step compare: reads param_1 word, compares to param_2 word; on mismatch returns nonzero; on NUL terminator returns 0 (equal)."
+      },
+      "port_status": "missing",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/NameInputScreen.tsx` lines 95-101: Enter just dispatches `SET_NAME { name: buffer }` with no uniqueness check. The reducer's name case (state.ts:618-636) only checks for empty-string. `roster-store` is never queried. The MSG.dupNameError constant (`messages.ts:20`, value 0x044e) is declared but never read by any screen. **Result: a player can create a second character with a duplicate name; the engine would have re-prompted with a modal.**",
+      "confidence": "high"
+    },
+    {
+      "id": "dup-name-modal-rename",
+      "category": "modal_error",
+      "screen": "rename-flow",
+      "claim": "The RENAME flow ALSO calls roster_check_name_unique and ALSO shows msg 0x44e via FUN_505b when a duplicate is entered. So a rename to an existing character's name is REJECTED by the engine the same way creation is. Same comparison semantics (byte-exact 2-byte-step). The engine's flow: `wpcmk_create_via_name_prompt` (file 0x5337) → ui_text_input_editor → roster_check_name_unique → on -1 returns: FUN_505b(0x44e, 6, 2) modal.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x53d7"},
+        "decompile_snippet": "ui_text_input_editor(*0x56ca, &local_c, 7); if ((char)local_c != '\\0') { iVar2 = roster_check_name_unique(); if (iVar2 == -1) { FUN_0000_505b(0x44e); } else { ... roster_io_one_record(...); } }",
+        "containing_fn": "wpcmk_create_via_name_prompt @ 0x5337",
+        "note": "Confirmed by decompile via tools/ghidra/scripts/decompile.py at 0x5337. The call to FUN_505b is identical to the create-path call site (msg 0x44e, row 6, col 2)."
+      },
+      "port_status": "missing",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/RenameInputScreen.tsx` lines 86-93: Enter just dispatches `updateCharacter({ ...c, name: newName })` + `CONFIRM_RENAME { name }`. No roster scan. The newName overwrites the existing record unconditionally. **Result: a user can rename character A to match character B's name; engine would have blocked with the same modal.** The fact that rename ALSO calls the uniqueness check was previously hinted by `wpcmk-msg-strings.json:34` ('screen-00-dup-name-error-rename-path'), now confirmed by decompile.",
+      "confidence": "high"
+    },
+    {
+      "id": "bonus-exit-prompt-toggle",
+      "category": "soft_prompt_toggle",
+      "screen": "screen-06-bonus-allocator",
+      "claim": "When `*0x56ac` (bonus pool) reaches 0, the engine renders msg 0x456 'PRESS \\x15 TO EXIT' (i.e. 'PRESS ▶ TO EXIT') in the bottomBar via thunk 0xc2db (ui_window_write_msg_by_id) at wpcmk file 0x35be — a write that is ONLY reached when pool == 0 (`cmp [0x56ac],0; jnz 0x360c`). When pool > 0, this row is not drawn (the busy-loop count-up animation runs instead, drawing only the pool count). The prompt is in the SAME bottomBar window (handle `*0x56ca`) as the title and adjust/select labels but at the row written by 0x35be's preceding bda7 (ui_window_set_cursor) call; row analysis from the asm shows it lands at row 3 of bottomBar (below the 2 row labels at rows 1 & 2).",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x35be"},
+        "decompile_snippet": "do { func_0x0000bda7(); if (*(int *)0x56ac == 0) { func_0x0000c2db(); /* msg 0x456 'PRESS RETURN TO EXIT' */ func_0x0000c6b2(); func_0x0000c6b2(); } else { while (...) func_0x0000de7f(); /* pool animation */ func_0x0000c6b2(); } ... } while (...);",
+        "raw_asm_excerpt": "0x35ab CMP [0x56ac],0; JNZ 0x360c (skip pool==0 branch). 0x35b2-35c0: call c2db(msg=0x456, win=*0x56ca, style=0x12). 0x35c0+: two c6b2 draws.",
+        "msg_id": "0x456 = 'PRESS \\x15 TO EXIT'",
+        "save_state_evidence": "tools/dosbox/save/1.sav (pool=1, prompt absent) vs tools/dosbox/save/2.sav (pool=0, prompt visible at bottomBar row 3) — per task brief"
+      },
+      "port_status": "missing",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/BonusAllocatorScreen.tsx` lines 129-136 ONLY writes 3 lines to bottomBar: title (row 1, MSG.bonusTitle), adjust label (row 2 col 1, MSG.bonusAdjust), select label (row 2 col 21, MSG.bonusSelect). There is NO row 3 write and NO `state.draft.bonusPool === 0` conditional anywhere in the screen render. The reducer correctly gates ALLOC_CONFIRM on pool==0 (state.ts:786-797), but the SOFT PROMPT is missing. **Result: in the port, when the player has spent all bonus points, they see no on-screen hint that Enter will now exit; they just have to try Enter.**",
+      "confidence": "high"
+    },
+    {
+      "id": "bonus-confirm-gate",
+      "category": "input_gate",
+      "screen": "screen-06-bonus-allocator",
+      "claim": "Enter (key 5) does NOT exit the bonus allocator until pool <= 0. While pool > 0, pressing Enter triggers `play_sound(0)` (invalid beep) and loops. Exit fires only on key==5 AND `*0x56ac <= 0`.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x37e4"},
+        "raw_asm_excerpt": "0x37e4 CMP [BP-2],5; JNZ 37f9. 0x37ea CMP [0x56ac],0; JLE 37f9. 0x37f1 PUSH 0; CALL c546 (play_sound(0)). 0x3802 CMP [0x56ac],0; JLE 380c (EXIT_CLEANUP). 0x3809 JMP 3599 (loop).",
+        "source": "docs/re/findings/wpcmk-bonus-allocator.json finding 'confirm-gate'"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/state.ts:786-797`: `if (state.draft.bonusPool > 0) return state;` — early return blocks the transition; no transition occurs. The screen also dispatches Enter unconditionally (BonusAllocatorScreen:97), letting the reducer enforce.",
+      "confidence": "high"
+    },
+    {
+      "id": "bonus-invalid-action-beep",
+      "category": "audio_feedback",
+      "screen": "screen-06-bonus-allocator",
+      "claim": "Engine plays `play_sound(0)` (invalid-action beep) on every rejected input in the bonus allocator: (a) decrease when undo[cursor] == 0; (b) increase when attr >= 18 OR pool <= 0; (c) Enter when pool > 0. Valid actions get `play_sound(1)`. The audio feedback is part of the gate semantics — without it the player has no feedback that their input was rejected.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x36c3"},
+        "raw_asm_excerpt": "Key1 invalid: 0x36c3 PUSH 0; CALL c546. Key1 valid: 0x36b6 PUSH 1; CALL c546. Key3 invalid: 0x375c PUSH 0; CALL c546. Key3 valid: 0x374f PUSH 1; CALL c546. Key5 invalid (pool>0): 0x37f1 PUSH 0; CALL c546.",
+        "source": "docs/re/findings/wpcmk-bonus-allocator.json finding 'invalid-action-sound'"
+      },
+      "port_status": "missing",
+      "port_evidence": "No audio dispatch anywhere in `BonusAllocatorScreen.tsx` or `state.ts`. Searched: `grep -rn 'playSound\\|play_sound\\|beep\\|audio' packages/viewer/src/pages/roster/creation/` returns nothing. The reducer silently no-ops rejected ALLOC_ADJUST and ALLOC_CONFIRM (state.ts:751-787), but no feedback is emitted. **Result: a player adjusting attrs hears nothing when their input is rejected; in the engine this is the primary feedback that a key was 'eaten'.**",
+      "confidence": "high"
+    },
+    {
+      "id": "bonus-mouse-5-button-table",
+      "category": "input_dispatch",
+      "screen": "screen-06-bonus-allocator",
+      "claim": "Engine has a 5-entry mouse-button dispatch table at wpcmk file 0x3678 (CS:0x7bdc), active when `*0x4fc4 == 1` and raw_input < 5. Button0→key1 (decrease), button1→key3 (increase), button2→key2 (prev_attr), button3→key4 (next_attr), button4→key5 (confirm).",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3678"},
+        "source": "docs/re/findings/wpcmk-bonus-allocator.json finding 'mouse-mapping-confirmed'"
+      },
+      "port_status": "n/a",
+      "port_evidence": "The web port doesn't model engine 'mouse_mode' state (DGROUP 0x4fc4) nor the 5-button hardware dispatch table. The DOM keyboard handler in `BonusAllocatorScreen.tsx` IS the input model. A future feature could add per-stat click handlers; today this is N/A.",
+      "confidence": "high"
+    },
+    {
+      "id": "bonus-attr-cap-18",
+      "category": "input_bounds",
+      "screen": "screen-06-bonus-allocator",
+      "claim": "Engine hard-caps each attribute at 18 in the bonus allocator. Increase (key 3) checks `CMP byte [BX+0x559c],0x12; JNC error_path` at file 0x3732. Above-cap triggers play_sound(0) silently — no message.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3732"},
+        "raw_asm_excerpt": "0x3732 CMP byte [BX+0x559c],0x12; 0x3737 JNC 0x375c (error). 0x3739 CMP [0x56ac],0; 0x373e JLE 0x375c.",
+        "source": "docs/re/findings/wpcmk-bonus-allocator.json finding 'upper-bound-rule'"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/state.ts:752-753`: `if (current >= 18 || state.draft.bonusPool <= 0) return state;` in the ALLOC_ADJUST `delta > 0` branch. (Note: missing the invalid-beep feedback — see `bonus-invalid-action-beep` — but the gate itself is enforced.)",
+      "confidence": "high"
+    },
+    {
+      "id": "bonus-undo-decrease-guard",
+      "category": "input_bounds",
+      "screen": "screen-06-bonus-allocator",
+      "claim": "Engine's decrease (key 1) gate is `undo[cursor] > 0`, not 'attr > race_floor' directly. The 7-word undo[] array is a stack-local zero-initialized at function entry. Net effect: player can refund only points spent THIS SESSION; attr can never drop below pre-allocator value (which is the racial minimum, set by stats_bump_to_racial_minimums before the allocator runs).",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x369e"},
+        "raw_asm_excerpt": "0x369e CMP word [BX-0x14],0; 0x36a2 JLE 0x36c3 (play_sound(0) error). 0x36af DEC [BX-0x14] (undo[cursor]--).",
+        "source": "docs/re/findings/wpcmk-bonus-allocator.json finding 'lower-bound-rule'"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/state.ts:767-769`: `const undoCount = undo[attrIdx] ?? 0; if (undoCount <= 0 || current <= floor) return state;`. The port adds an additional belt-and-suspenders `current <= floor` check (race floor) that the engine doesn't have but that's a defensive harmless equivalence — same observable behaviour.",
+      "confidence": "high"
+    },
+    {
+      "id": "class-qualification-pool-aware",
+      "category": "option_filter",
+      "screen": "screen-05-class",
+      "claim": "Engine filters the class picker (screen-05) to show only classes the player CAN reach, given the unallocated bonus pool. The 14-entry qualification array `*0x56ae` is populated by FUN_2d10 (`class_qualification_check_all_14`); disabled entries (== 0) are skipped entirely in `ui_menu_picker_vertical` and not assignable to the cursor (verified vs Human male @ pool 18 → 13 qualifying classes, Valkyrie skipped).",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x2d10"},
+        "source": "docs/re/findings/wpcmk-menu-picker.json finding 'disabled-entries-pre-filtered', docs/re/wpcmk-screens.md §7"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/MenuPickerScreen.tsx:93-102` (`buildClassOptions`): only adds classes where `classOffered(attrs, bonusPool, sex, i)` returns true (uses the pool-aware + sex-aware predicate). The reducer also re-checks defensively in state.ts:694.",
+      "confidence": "high"
+    },
+    {
+      "id": "class-sex-restriction-valkyrie",
+      "category": "option_filter",
+      "screen": "screen-05-class",
+      "claim": "Valkyrie (class index 8) is female-only — the engine's per-class qualification routine (not the 0x5e98 attribute table) excludes it for sex==0 (Male). Verified by Nate: pool 18 Human Male sees all classes EXCEPT Valkyrie, but Bishop with identical deficit IS offered.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x2d10"},
+        "source": "docs/re/wpcmk-screens.md §7, docs/re/findings/wpcmk-menu-picker.json"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/data/src/character-creation/class-requirements.ts:154-160`: `FEMALE_ONLY_CLASSES = [8]; classAllowedForSex(8, sex) → sex === 1`. Used in `classOffered` (line 166-176), which gates the picker (see `class-qualification-pool-aware`).",
+      "confidence": "high"
+    },
+    {
+      "id": "class-auto-fill-attrs",
+      "category": "state_mutation",
+      "screen": "screen-05-class",
+      "claim": "Engine performs auto-fill on class confirm (`wpcmk_pick_class_menu` → FUN_2e85 `class_post_select_stat_bump` → FUN_2fbd dispatch via 14-entry jump table at 0x7505). Each attribute is raised to the class minimum via animated ramps; the pool is debited by the total deficit. Verified vs save 1: Human Samurai → final attrs 12,11,8,9,12,14,8 from pool 17→2.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x2e85"},
+        "source": "docs/re/findings/wpcmk-remaining-functions.json"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/state.ts:706-732`: explicit `Math.max(a.X, req.X)` per attribute, pool -= total_spent. The visible animation isn't reproduced (engine animates the ramps; port jumps instantly), but the end state matches byte-for-byte.",
+      "confidence": "high"
+    },
+    {
+      "id": "menu-picker-cursor-no-disabled",
+      "category": "input_navigation",
+      "screen": "screen-02-race,screen-03-sex,screen-05-class",
+      "claim": "`ui_menu_picker_vertical` (wpcmk file 0x029c) never lets the cursor land on a disabled entry — disabled entries are skipped in the INIT loop and never assigned a cursor slot. Evidence: `cmp word [bx+si],0x1; jnz skip` @ file 0x02c0.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x02c0"},
+        "source": "docs/re/findings/wpcmk-menu-picker.json"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/MenuPickerScreen.tsx:170,174-178`: cursor is seeded to `firstEnabledIdx(options)`. The `buildClassOptions` filter (line 93-102) only emits enabled entries to the array, so the cursor literally cannot reach a disabled one. Race/Sex have no disabled entries.",
+      "confidence": "high"
+    },
+    {
+      "id": "menu-picker-no-cancel",
+      "category": "input_gate",
+      "screen": "screen-02-race,screen-03-sex,screen-05-class",
+      "claim": "The menu picker has NO cancel/escape path — ESC (key code 0) is silently ignored, and the function always returns a valid selection. Players are MANDATORILY committed to picking race, sex, and class.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x029c"},
+        "source": "docs/re/findings/wpcmk-menu-picker.json finding 'no-cancel-escape', docs/re/wpcmk-screens.md §7"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/MenuPickerScreen.tsx:184-227`: the key handler responds only to codes 1-5 (mapped from arrow keys + Enter); ESC is not in `mapKey`. The reducer cases for race/sex/class only handle PICK_X events — there's no PICK_X_CANCEL.",
+      "confidence": "high"
+    },
+    {
+      "id": "name-cap-length-7",
+      "category": "input_bounds",
+      "screen": "screen-00-name-entry",
+      "claim": "Engine's `ui_text_input_editor` accepts up to 7 ASCII chars (cap passed as param 7 in the call site `ui_text_input_editor(window, name_buf_ptr, 7)` at wpcmk 0x50f2). Additional keypresses beyond 7 chars are silently ignored.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x50f2"},
+        "decompile_snippet": "ui_text_input_editor(*(undefined2 *)0x56ca, &local_12, 7);",
+        "source": "docs/re/findings/wpcmk-screen-flow.json, docs/re/findings/wpcmk-naming-pass.json"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/NameInputScreen.tsx:37` (`NAME_MAX_LENGTH = 7`) and lines 115-121 (cap enforced before append).",
+      "confidence": "high"
+    },
+    {
+      "id": "name-empty-blocks-confirm",
+      "category": "input_gate",
+      "screen": "screen-00-name-entry",
+      "claim": "Engine treats empty name (Enter on zero-length buffer) as 'no-op / cancel' — `wpcmk_create_via_empty_slot` checks `if ((char)local_12 != '\\0') { ... uniqueness check + creation ... }`. The first byte being 0 means the buffer is empty; the entire creation step is skipped and control returns.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x518c"},
+        "decompile_snippet": "ui_text_input_editor(*(undefined2 *)0x56ca, ...); if ((char)local_12 != '\\0') { roster_check_name_unique(); ... }",
+        "source": "decompile of wpcmk_create_via_empty_slot (this survey)"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/NameInputScreen.tsx:95-101`: Enter on empty buffer is explicitly a no-op (`if (buffer.length > 0) dispatch`). The reducer also defensively no-ops on empty name (state.ts:619-622).",
+      "confidence": "high"
+    },
+    {
+      "id": "personality-cr-only-input",
+      "category": "input_gate",
+      "screen": "screen-08-personality",
+      "claim": "Engine's personality reroll loop only accepts Carriage Return (key code 5 / Enter). Other keys are not in the kbd_check_with_filter mask (per docs/re/findings/wpcmk-kbd-filter-masks.json, this screen calls kbd_check_with_filter directly, NOT input_poll_key_or_mouse — bypasses the arrow-code remap entirely). Arrows and ESC are silently ignored.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3837"},
+        "source": "docs/re/wpcmk-screens.md §8 'screen-08 personality direct kbd_check_with_filter (0xe0df) — CR-only'"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/PersonalityScreen.tsx:88-96`: handler ONLY responds to `e.key === 'Enter'`. All other keys are explicit no-ops.",
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-no-race-sex-filter",
+      "category": "option_filter",
+      "screen": "screen-10-portrait",
+      "claim": "Engine portrait picker cycles ALL 42 portraits unconditionally — there is NO filter by race, sex, or class. The picker loop body (wpcmk 0x4bad) contains zero comparisons against `*0x560d` (race), `*0x560e` (sex), or `*0x560f` (class). This is documented as a surprise in §6.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4bad"},
+        "source": "docs/re/findings/wpcmk-portrait-picker.json finding 'no-race-sex-filter'"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/PortraitPickerScreen.tsx:90-94`: cycles 0..41 unconditionally via modulo. No race/sex/class predicate. Same for `PortraitChangeScreen.tsx:101-106`.",
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-wrap-cycle",
+      "category": "input_navigation",
+      "screen": "screen-10-portrait",
+      "claim": "Engine portrait picker wraps both ways: key 1 from idx 0 → 41, key 3 from idx 41 → 0. (Verified per §6.)",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4bad"},
+        "source": "docs/re/wpcmk-screens.md §6"
+      },
+      "port_status": "ported",
+      "port_evidence": "`PortraitPickerScreen.tsx:91-94`: `(prev + PORTRAIT_COUNT - 1) % PORTRAIT_COUNT` (Left) / `(prev + 1) % PORTRAIT_COUNT` (Right).",
+      "confidence": "high"
+    },
+    {
+      "id": "skill-train-budget-zero-prompt-toggle",
+      "category": "soft_prompt_toggle",
+      "screen": "screen-13-skill-train",
+      "claim": "Engine toggles the bottomBar row 3 prompt based on skill budget: `*0x5618 > 0` → 'PRESS ▶ FOR NEXT CATEGORY' (msg 0x0260); `*0x5618 == 0` → 'PRESS ▶ TO EXIT' (msg 0x0456 — same msg ID as the bonus allocator's exit prompt). Player must press Enter to leave the screen; engine does NOT auto-advance.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x1ae9"},
+        "source": "docs/re/wpcmk-screens.md §5, packages/viewer/src/pages/roster/creation/ega/skill-train-frame.ts comments around line 291-295"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/ega/skill-train-frame.ts:291-295`: `state.skillPoints === 0 ? MSG.skillExit : MSG.skillNextCategory`. The SkillTrainScreen's Enter handler also branches on budget: `if (state.draft.skillBudget <= 0) dispatch SKILLS_DONE else cycle category` (`SkillTrainScreen.tsx:119-138`).",
+      "confidence": "high"
+    },
+    {
+      "id": "skill-train-exit-allowed-with-points-remaining",
+      "category": "input_gate",
+      "screen": "screen-13-skill-train",
+      "claim": "Per docs/re/wpcmk-screens.md §1: 'Player explicitly exited the screen (Enter while budget=0, or \"done\" even with points remaining — engine allows this per §1)'. The engine's exit path is reachable when the player navigates through the categories and there's no UI hint forbidding leaving with leftover points (whereas the prompt only changes to PRESS ▶ TO EXIT when budget reaches 0).",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x1ae9"},
+        "source": "docs/re/wpcmk-screens.md §1 transitions table, §5 loop pseudocode `while (*0x5618 != 0)`"
+      },
+      "port_status": "partial",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/SkillTrainScreen.tsx:119-138`: Enter cycles category when budget > 0, fires SKILLS_DONE when budget == 0. **DIVERGENCE: the port does NOT allow exit while budget > 0** — the engine permits it (per §1) but the port's Enter handler explicitly only cycles category in that case. This is a STRICTER gate in the port than engine. Likely intentional (encourages spending the full budget) but is a behavioural divergence worth flagging.",
+      "confidence": "medium"
+    },
+    {
+      "id": "skill-train-category-skip-empty",
+      "category": "state_transition",
+      "screen": "screen-13-skill-train",
+      "claim": "Engine skill loop checks `if (step == 2 && <no personal skills>) step = 3` — it skips empty categories (e.g. PERSONAL category for classes with no personal skills).",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x1ae9"},
+        "source": "docs/re/wpcmk-screens.md §5 loop pseudocode"
+      },
+      "port_status": "ported",
+      "port_evidence": "`SkillTrainScreen.tsx:128-135`: the cycle loop `for (step = 1; step <= SKILL_CATEGORIES.length; step++)` advances `categoryIdx + step` and only stops on a category with `trainableInCategory(classIdx, next).length > 0`.",
+      "confidence": "high"
+    },
+    {
+      "id": "spell-pick-mandatory-count",
+      "category": "input_gate",
+      "screen": "screen-14-spell-pick",
+      "claim": "Engine spell picker loops `while (*(0x5588+pillar) > 1)` for each of 4 spell-school pillars (MAGIC/FAITH/PHYSICAL/MENTAL at DGROUP 0x5588..0x558b). The player MUST pick all required spells before the screen exits — there is no skip or partial-completion gate. The picker calls `wpcmk_pick_spell` (0x28d4) in a loop; cancellation (-1 return) makes it re-loop until non-cancel.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x28d4"},
+        "source": "docs/re/wpcmk-screens.md §1 transitions 'screen-14 picker returns -1 (cancel) → loop until non-cancel', §9"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/SpellPickScreen.tsx:150-159`: only dispatches SPELLS_DONE when `pickedSoFar + 1 >= required`. No skip, no manual exit before count is reached. Cancellation is not a path — ArrowLeft is no-op (line 161), ESC is silently ignored (default branch).",
+      "confidence": "high"
+    },
+    {
+      "id": "spell-pick-bookmask-filter",
+      "category": "option_filter",
+      "screen": "screen-14-spell-pick",
+      "claim": "Engine filters the spell list by per-pillar book mask — `byte5 & book_mask != 0`. Entries 79-81 (HOLY WATER, HELPFOOD, MAGICFOOD) have byte5 == 0, so they are unreachable via the picker. Per-class pillar budgets at DGROUP 0x5588..0x558b drive WHICH books are active (Mage→Book0, Priest→Book1, Alchemist→Book2, Psionic→Book3, Bishop→Book0+Book1).",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x28d4"},
+        "source": "docs/re/findings/wpcmk-spell-names.json"
+      },
+      "port_status": "missing",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/SpellPickScreen.tsx:73-87` (`eligibleSpells`) iterates books with nonzero pick counts and collects entries from `spellsInBook(bookIdx)`. The `byte5 == 0` filter (sentinel exclusion) is delegated to `spellsInBook` (in @wiz6/data), and we believe that's done correctly per the docstring at line 65-66, so this MAY actually be ported — flagging as 'missing' because no test or comment confirms the byte5 sentinel exclusion is enforced by the port's `spellsInBook` implementation. Needs verification.",
+      "confidence": "low"
+    },
+    {
+      "id": "confirm-keep-discard-toggle",
+      "category": "input_gate",
+      "screen": "screen-15-confirm",
+      "claim": "Engine confirm screen: choice 0 → KEEP (commit, write to roster), any other choice → DISCARD (exit without writing). The discard branch is explicit in `wpcmk_create_character_master` per §10.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4f66"},
+        "source": "docs/re/wpcmk-screens.md §10, docs/re/findings/wpcmk-post-commit.json"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/state.ts:879-890`: `if (event.keep) return committing; else returnToMenu(state);`. The screen dispatches `CONFIRM { keep: cursorIdx === 0 }` (`ConfirmScreen.tsx:95`).",
+      "confidence": "high"
+    },
+    {
+      "id": "character-menu-roster-state-options",
+      "category": "option_filter",
+      "screen": "character-menu",
+      "claim": "Engine's `wpcmk_entry_and_roster_menu` (file 0x59e0) builds the option array based on roster state. Rules: CREATE PC enabled only when `roster_find_first_empty_slot != -1` (room available); REVIEW/DELETE/RENAME/PORTRAIT enabled only when at least one slot is occupied (`*(0x4fd8+i) == 1` for some i); EXIT always enabled. Three observable states: EMPTY (0 chars) = [CREATE, EXIT]; PARTIAL (1-15) = all 6; FULL (16) = [REVIEW, DELETE, RENAME, PORTRAIT, EXIT].",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x59e0"},
+        "source": "docs/re/findings/wpcmk-character-menu-options.json, docs/re/wpcmk-screens.md §1a"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/CharacterMenuScreen.tsx:152-163` (`buildVisibleOptions`): explicit state-based filtering. EMPTY → [CREATE, EXIT]; FULL → omit CREATE; PARTIAL → all 6.",
+      "confidence": "high"
+    },
+    {
+      "id": "roster-full-no-error-msg",
+      "category": "modal_error",
+      "screen": "character-menu",
+      "claim": "Per `wpcmk-msg-strings.json`: msg 0x044d ('* ROSTER FULL *') exists in msg.dbs but no push of this value was found in any .ovr file or wroot.exe via static pattern scan. When `roster_find_first_empty_slot` returns -1 in `wpcmk_create_via_empty_slot`, the function simply returns without displaying any error message. The engine's CHARACTER MENU strategy is to HIDE the CREATE option when the roster is full (see `character-menu-roster-state-options`), so the user can't reach the empty-slot check in the first place. Therefore msg 0x044d is dead code in this version.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x50f2"},
+        "source": "docs/re/findings/wpcmk-msg-strings.json (unresolved msg 0x044d)"
+      },
+      "port_status": "partial",
+      "port_evidence": "The port hides CREATE PC when rosterCount >= MAX_ROSTER_SLOTS (CharacterMenuScreen.tsx:153,160-162), matching the engine. There's no additional error-modal handling for a defensive 'roster full' case (the engine doesn't have one either), so this is technically PORTED — flagging as PARTIAL because the engine's `wpcmk_create_via_empty_slot` returns silently when no empty slot exists (post-find_first_empty_slot check at 0x510a), and the port doesn't explicitly model that defensive code path (it's relying entirely on the menu hide).",
+      "confidence": "medium"
+    },
+    {
+      "id": "rename-empty-name-no-op",
+      "category": "input_gate",
+      "screen": "rename-flow",
+      "claim": "Engine rename path treats empty buffer the same as create: `wpcmk_create_via_name_prompt` checks `if ((char)local_c != '\\0')` before invoking uniqueness check / commit. Empty name = silent return (and the engine's `ui_wait_for_enter_or_click` is not even called).",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x53c0"},
+        "decompile_snippet": "ui_text_input_editor(*(undefined2 *)0x56ca, &local_c, 7); if ((char)local_c != '\\0') { ... } /* else: fall through, return */",
+        "source": "this survey: decompile of wpcmk_create_via_name_prompt at 0x5337"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/RenameInputScreen.tsx:87`: `if (buffer.length === 0 || !character) return;` — Enter on empty buffer is a no-op.",
+      "confidence": "high"
+    },
+    {
+      "id": "delete-confirm-no-default-selected",
+      "category": "input_navigation",
+      "screen": "delete-flow",
+      "claim": "Per `docs/re/wpcmk-screens.md` and slot-4 cell dump, the DELETE PC confirm modal has NO option selected by default (or in the port's case, NO is highlighted). This is a SAFETY default — the engine doesn't auto-select YES for destructive actions.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x5422"},
+        "source": "Port's DeleteConfirmScreen.tsx:88-90 header comment refers to engine save 4 cells"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/DeleteConfirmScreen.tsx:90`: `useState<number>(1)` — defaults cursor to NO. Matches the engine's safer-default for destructive action.",
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-change-cancel-on-no-change",
+      "category": "state_transition",
+      "screen": "portrait-change-flow",
+      "claim": "Engine `wpcmk_change_portrait` (0x5422): on Enter, if the picked portrait equals the existing one, the engine skips the 'PRESS ENTER TO EXIT' preview and returns silently. Only a changed portrait triggers the writeback + post-change preview screen.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x5422"},
+        "source": "docs/re/findings/wpcmk-naming-pass.json"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/PortraitChangeScreen.tsx:107-115`: `if (portraitIdx === originalIdx) dispatch CANCEL_PORTRAIT_CHANGE; else updateCharacter() + CONFIRM_PORTRAIT_CHANGE`.",
+      "confidence": "high"
+    },
+    {
+      "id": "race-base-stats-floor",
+      "category": "state_mutation",
+      "screen": "screen-02-race",
+      "claim": "Engine race picker seeds attributes to the racial base stats (effectively a floor for the subsequent bonus allocator's undo[] mechanic). 8 base stats per race written to record offset 0x12c..0x133.",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x308d"},
+        "source": "docs/re/wpcmk-screens.md §1 buffer-writes 'screen-02-race | 0x12c..0x133 | 8 | base stats bumped to race floors'"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/state.ts:642-661`: PICK_RACE sets `attributes` from `getRaceBaseStats(event.index)`. The reducer also resets KAR to 0 (engine rolls KAR later at personality).",
+      "confidence": "high"
+    },
+    {
+      "id": "sex-2-options-only",
+      "category": "option_count",
+      "screen": "screen-03-sex",
+      "claim": "Engine sex picker has EXACTLY 2 options (MALE / FEMALE). The 'Wiz6 has no Good/Evil alignment picker in creation' correction (see docs/re/wpcmk-screens.md §3 ⚠).",
+      "engine_evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x31a6"},
+        "source": "docs/re/wpcmk-screens.md §3"
+      },
+      "port_status": "ported",
+      "port_evidence": "`packages/viewer/src/pages/roster/creation/screens/MenuPickerScreen.tsx:79-84` (`buildSexOptions`): exactly 2 entries (sexName 0 and 1).",
+      "confidence": "high"
+    }
+  ],
+
+  "open_questions_for_followup": [
+    "The skill-train EXIT gate (finding `skill-train-exit-allowed-with-points-remaining`): does the engine actually permit Enter to leave with leftover skill points? Per §1 transitions table the language is ambiguous ('Enter while budget=0, or done even with points remaining — engine allows this'); the port currently restricts exit-with-points. Should be verified by capturing a DOSBox save mid-skill-train with budget > 0 and pressing Enter — does the screen exit or cycle category?",
+    "Whether the engine's `spellsInBook` in @wiz6/data correctly excludes byte5==0 sentinel spells (HOLY WATER/HELPFOOD/MAGICFOOD entries 79-81). Test this by asserting the eligible-spells list for a Mage character: the engine's byte5 filter would exclude any spell with byte5==0 AND level==0.",
+    "The defensive 'roster full' code path at wpcmk file 0x50f2 — does `wpcmk_create_via_empty_slot` actually display msg 0x44d via FUN_505b in any code path, or is it pure dead code? Static scan says no, but a dynamic trace might reveal a path we missed (e.g. msg loaded but not via `push`).",
+    "Does the engine show a modal beep on bonus-allocator over-cap (attr already 18) like it does for the other gates, or is play_sound(0) sufficient feedback? The audio feedback for invalid input feels like part of the gate's perceptible UX."
+  ]
+}
