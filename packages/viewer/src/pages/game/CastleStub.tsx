@@ -6,11 +6,6 @@ const STUB_INFO: Record<string, { title: string; description: string }> = {
     title: 'Review Member',
     description: 'Pick a party member to inspect. Transitions to WPCVW (state 0x11).',
   },
-  'dismiss-member': {
-    title: 'Dismiss Member',
-    description:
-      'Pick a party member to send back to PCFILE.DBS. The character stays in your roster; only the active-party slot is freed.',
-  },
   'start-new-game': {
     title: 'Start New Game',
     description:
