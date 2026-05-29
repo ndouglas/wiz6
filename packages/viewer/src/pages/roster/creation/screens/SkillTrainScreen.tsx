@@ -16,7 +16,9 @@
  *                          → PERSONAL → ACADEMIA → WEAPONRY.
  *   - ArrowLeft (key 1) → refund 1 point from the cursor skill (UNTRAIN_SKILL),
  *                          floor-gated by skillFloors[slot]. At-floor → beep.
- *   - Escape             → no-op (handled in Task 8 via house rule).
+ *   - Escape (no key code) → if engineFaithfulSkillExit house rule is ON,
+ *                          dispatches SKILLS_DONE (forfeit leftover budget).
+ *                          Default OFF: Escape is a no-op (stricter port UX).
  *
  * The portrait chosen in the previous screen is permanently baked into wfont2
  * at glyphs 0x48..0x50 — `patchFontSetWithPortrait` clones font2 with the
@@ -42,6 +44,7 @@ import {
   SKILL_CATEGORIES,
 } from '../ega/skill-train-frame.js';
 import { playInvalidActionBeep } from '../../../../lib/audio.js';
+import { getHouseRules } from '../../../../lib/house-rules-store.js';
 
 export interface SkillTrainScreenProps {
   state: CreationState;
@@ -129,6 +132,16 @@ export function SkillTrainScreen({
           const slot = trainable[cursorIdx];
           if (slot !== undefined && state.draft.skillBudget > 0) {
             dispatch({ type: 'TRAIN_SKILL', slot });
+          }
+          break;
+        }
+        case 'Escape': {
+          // House rule: if engineFaithfulSkillExit is ON, Escape forfeits any
+          // remaining budget and exits the screen — matches the engine. When
+          // OFF (default), Escape is a no-op — the port keeps a stricter UX
+          // because forfeiting skill points is almost always a mistake.
+          if (getHouseRules().engineFaithfulSkillExit) {
+            dispatch({ type: 'SKILLS_DONE' });
           }
           break;
         }

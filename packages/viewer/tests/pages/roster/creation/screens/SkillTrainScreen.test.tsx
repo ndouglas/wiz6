@@ -487,6 +487,62 @@ describe('SkillTrainScreen — Escape is silently ignored', () => {
 });
 
 // ---------------------------------------------------------------------------
+// engineFaithfulSkillExit house rule — Escape exits when rule is ON
+// ---------------------------------------------------------------------------
+
+import { setHouseRule, resetToDefaults } from '../../../../../src/lib/house-rules-store.js';
+
+describe('engineFaithfulSkillExit house rule', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    resetToDefaults();
+  });
+
+  it('does NOT dispatch SKILLS_DONE on Escape when rule is OFF (default)', () => {
+    // Default: engineFaithfulSkillExit = false → Escape is a no-op.
+    const state = makeSkillTrainState(5);
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <SkillTrainScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('dispatches SKILLS_DONE on Escape when rule is ON', () => {
+    setHouseRule('engineFaithfulSkillExit', true);
+
+    const state = makeSkillTrainState(5);
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <SkillTrainScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'SKILLS_DONE' });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Budget is displayed (smoke test — canvas content not directly inspectable,
 // but at least verifies the component doesn't throw with a given budget value)
 // ---------------------------------------------------------------------------
