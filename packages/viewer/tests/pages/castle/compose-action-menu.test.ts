@@ -1,0 +1,74 @@
+import { describe, it, expect } from 'vitest';
+import { composeActionMenu } from '../../../src/pages/castle/compose-action-menu.js';
+import type { MessageDb } from '@wiz6/data';
+
+function fakeDb(messages: Record<number, string>): MessageDb {
+  return {
+    indexedMessages: Object.entries(messages).map(([id, decodedText]) => ({
+      id: Number(id),
+      decodedText,
+    })),
+  } as unknown as MessageDb;
+}
+
+function actionDb(): MessageDb {
+  return fakeDb({
+    301: 'EQUIP',  302: 'SPELL', 303: 'TRADE', 304: 'ASSAY',
+    305: 'SWAG',   306: 'MERGE', 307: 'USE',   308: 'DROP',
+    309: 'SKILL',  310: 'EDIT',  311: 'REVIEW',
+    312: 'EXIT',
+  });
+}
+
+function rowString(win: { cells: Uint8Array; widthCells: number }, row: number): string {
+  let s = '';
+  for (let x = 0; x < win.widthCells; x++) {
+    s += String.fromCharCode(win.cells[(row * win.widthCells + x) * 2]!);
+  }
+  return s;
+}
+
+describe('composeActionMenu', () => {
+  it('returns a 40×4 TileWindow at screen (0, 160)', () => {
+    const win = composeActionMenu({ cursorIdx: 5, db: actionDb() });
+    expect(win.widthCells).toBe(40);
+    expect(win.heightCells).toBe(4);
+    expect(win.screenX).toBe(0);
+    expect(win.screenY).toBe(160);
+  });
+
+  it('renders the camp-mask subset: EQUIP/SPELL/ASSAY/SWAG/SKILL/EXIT only', () => {
+    const win = composeActionMenu({ cursorIdx: 5, db: actionDb() });
+    const text = rowString(win, 1) + rowString(win, 2);
+    for (const label of ['EQUIP', 'SPELL', 'ASSAY', 'SWAG', 'SKILL', 'EXIT']) {
+      expect(text).toContain(label);
+    }
+    for (const hidden of ['TRADE', 'MERGE', 'USE', 'DROP', 'EDIT', 'REVIEW']) {
+      expect(text).not.toContain(hidden);
+    }
+  });
+
+  it('places actions in 3×2 column-major grid (row 1 = top, row 2 = bottom)', () => {
+    const win = composeActionMenu({ cursorIdx: 5, db: actionDb() });
+    // From the engine save 2 dump:
+    //   row 1: "  EQUIP ASSAY SKILL"
+    //   row 2: "  SPELL SWAG  EXIT"
+    expect(rowString(win, 1).slice(0, 19)).toBe('  EQUIP ASSAY SKILL');
+    expect(rowString(win, 2).slice(0, 18)).toBe('  SPELL SWAG  EXIT');
+  });
+
+  it('highlights EXIT at attr 0x50 when cursorIdx=5', () => {
+    const win = composeActionMenu({ cursorIdx: 5, db: actionDb() });
+    // EXIT starts at row 2, col 14 (after "  SPELL SWAG  ").
+    const i = (2 * win.widthCells + 14) * 2;
+    expect(win.cells[i]).toBe(0x45); // 'E'
+    expect(win.cells[i + 1]).toBe(0x50); // highlight attr
+  });
+
+  it('does NOT highlight EXIT when cursor is on a different action', () => {
+    const win = composeActionMenu({ cursorIdx: 0, db: actionDb() });
+    const i = (2 * win.widthCells + 14) * 2;
+    expect(win.cells[i]).toBe(0x45); // 'E' still rendered
+    expect(win.cells[i + 1]).toBe(0x03); // plain attr
+  });
+});

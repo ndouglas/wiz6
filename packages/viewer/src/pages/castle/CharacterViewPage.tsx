@@ -27,7 +27,9 @@ const ENGINE_W = 320;
 const ENGINE_H = 200;
 const SCALE = 3;
 
-const CURSOR_EXIT = 11;
+// In the camp-mask-enabled action subset (6 entries: EQUIP/SPELL/ASSAY/SWAG/
+// SKILL/EXIT), EXIT is at packed index 5. See compose-action-menu.ts.
+const CURSOR_EXIT = 5;
 
 export function CharacterViewPage() {
   const navigate = useNavigate();

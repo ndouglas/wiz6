@@ -29,7 +29,7 @@ function mockMember(name: string, slot: number): ActivePartyMember {
 }
 
 describe('composeCharacterViewFrame', () => {
-  it('returns exactly 3 TileWindows (main, stats, party-row)', () => {
+  it('returns exactly 3 TileWindows (main, stats, action-menu)', () => {
     const db = fakeDb({
       301: 'EQUIP', 302: 'SPELL', 303: 'TRADE', 304: 'ASSAY',
       305: 'SWAG', 306: 'MERGE', 307: 'USE', 308: 'DROP',
@@ -39,7 +39,7 @@ describe('composeCharacterViewFrame', () => {
     const windows = composeCharacterViewFrame({
       members: [mockMember('NATHAN', 0)],
       currentSlot: 0,
-      cursorIdx: 11,
+      cursorIdx: 5,
       db,
     });
     expect(windows).toHaveLength(3);
@@ -50,7 +50,7 @@ describe('composeCharacterViewFrame', () => {
     const windows = composeCharacterViewFrame({
       members: [mockMember('NATHAN', 0)],
       currentSlot: 0,
-      cursorIdx: 11,
+      cursorIdx: 5,
       db,
     });
     const stats = windows.find((w) => w.screenX === 160 && w.screenY === 32);

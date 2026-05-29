@@ -673,7 +673,7 @@ function renderCreationReviewMember(fontSet: FontSet, palette: Palette): Uint8Cl
   const windows = composeCharacterViewFrame({
     members: [member],
     currentSlot: 0,
-    cursorIdx: 11, // EXIT
+    cursorIdx: 5, // EXIT in the camp-mask-packed action menu (6 enabled actions)
     db: msgDb,
   });
   return renderCreationFrame(windows, fontSet, palette);
@@ -787,14 +787,14 @@ const SCREENS: ScreenCase[] = [
   },
   {
     fixture: 'creation-review-member',
-    // SCAFFOLD baseline 35.24% — see TODO #042/#043/#044/#045. Engine: 3-col ×
-    // 2-row action menu under camp mask (6 actions visible); stats panel has
-    // portrait + AC + HP/SP + inventory list + party row bars. Scaffold:
-    // 2-col × 6-row all 12 actions disabled-rendered, name + race/sex/class +
-    // LVL placeholder + 8 attrs, name-only party row. RAISE THIS FLOOR as
-    // Phase B work lands (TARGET is 100); the floor is a regression guard so
-    // a parity regression below the current measured % blocks the commit.
-    floor: 35,
+    // Phase B progress: 37.07% (was 35.24%). Action menu now matches engine —
+    // 40×4 panel at y=20, 3-col × 2-row column-major packing of the camp-mask
+    // subset (EQUIP/SPELL/ASSAY/SWAG/SKILL/EXIT, with EXIT highlighted
+    // inverse). Remaining deltas: main panel stats column, ARMORCLASS sub-
+    // panel, inventory list, portrait blit, stats-panel layout. See TODO
+    // #044 (stats panel + inventory), #042 (dynamic mask wiring), #045 (the
+    // Phase B umbrella). RAISE THIS FLOOR as each delta closes.
+    floor: 37,
     render: renderCreationReviewMember,
   },
 ];
