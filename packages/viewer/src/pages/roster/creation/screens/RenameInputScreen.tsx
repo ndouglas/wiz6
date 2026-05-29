@@ -34,7 +34,9 @@ import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { patchFontSetWithPortrait } from '../ega/skill-train-frame.js';
 import { MSG, creationString } from '../messages.js';
 import { draftFromCharacter } from '../lib/draft-from-character.js';
-import { readRoster, updateCharacter } from '../../../../lib/roster-store.js';
+import { readRoster, updateCharacter, findDuplicateName } from '../../../../lib/roster-store.js';
+import { playInvalidActionBeep } from '../../../../lib/audio.js';
+import { composeModalFrame } from '../ega/modal-frame.js';
 
 const NAME_MAX_LENGTH = 7;
 
@@ -83,10 +85,20 @@ export function RenameInputScreen({
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       const { key } = e;
+      // Modal-active path: any key dismisses; nothing else happens.
+      if (state.modalErrorMsgId !== undefined) {
+        dispatch({ type: 'MODAL_DISMISS' });
+        return;
+      }
       if (key === 'Enter') {
         if (buffer.length === 0 || !character) return;
         // Uppercase to match engine name storage + creation flow's SET_NAME.
         const newName = buffer.toUpperCase();
+        if (findDuplicateName(newName, character.id)) {
+          playInvalidActionBeep();
+          dispatch({ type: 'SHOW_DUP_NAME_MODAL' });
+          return;
+        }
         updateCharacter({ ...character, name: newName });
         dispatch({ type: 'CONFIRM_RENAME', name: newName });
         return;
@@ -103,13 +115,20 @@ export function RenameInputScreen({
         setBuffer((prev) => (prev.length >= NAME_MAX_LENGTH ? prev : prev + key));
       }
     },
-    [buffer, character, dispatch],
+    [buffer, character, dispatch, state.modalErrorMsgId],
   );
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
+
+  // Auto-dismiss modal after 5 seconds.
+  useEffect(() => {
+    if (state.modalErrorMsgId === undefined) return;
+    const id = window.setTimeout(() => dispatch({ type: 'MODAL_DISMISS' }), 5000);
+    return () => window.clearTimeout(id);
+  }, [state.modalErrorMsgId, dispatch]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -149,9 +168,14 @@ export function RenameInputScreen({
   const fieldPad = NAME_MAX_LENGTH - buffer.length;
   if (fieldPad > 0) puts(bottomBar, ' '.repeat(fieldPad), 0x00);
 
+  const windows = [top, bottomBar, menuPanel];
+  if (state.modalErrorMsgId !== undefined) {
+    windows.push(composeModalFrame(db, state.modalErrorMsgId));
+  }
+
   return (
     <CreationCanvas
-      windows={[top, bottomBar, menuPanel]}
+      windows={windows}
       fontSet={fontSetWithPortrait}
       palette={pal}
     />
