@@ -89,6 +89,14 @@ describe('playInvalidActionBeep house rule', () => {
 });
 
 describe('engineFaithfulSkillExit house rule', () => {
+  it('is required by the schema', () => {
+    const { schemaVersion: _v, ...rest } = DEFAULT_HOUSE_RULES;
+    void _v;
+    expect(() =>
+      HouseRulesSchema.parse({ schemaVersion: 1, ...rest, engineFaithfulSkillExit: undefined }),
+    ).toThrow();
+  });
+
   it('stock value is true (engine allows exit with leftover points)', () => {
     expect(STOCK_HOUSE_RULES.engineFaithfulSkillExit).toBe(true);
   });
