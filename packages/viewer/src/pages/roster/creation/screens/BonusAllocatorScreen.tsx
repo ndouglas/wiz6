@@ -5,18 +5,17 @@
  * (STR/INT/PIE/VIT/DEX/SPD/PER). KAR (index 7) is NOT adjustable here.
  *
  * Key handlers per §4/§8:
- *   ArrowLeft  (code 1) → ALLOC_ADJUST {attr:cursor, delta:-1}
+ *   ArrowLeft  (code 1) → ALLOC_ADJUST {attr:cursor, delta:-1} (gated by canAdjustBonus)
  *   ArrowUp    (code 2) → cursor = cursor<=0 ? 6 : cursor-1  (wraps)
- *   ArrowRight (code 3) → ALLOC_ADJUST {attr:cursor, delta:+1}
+ *   ArrowRight (code 3) → ALLOC_ADJUST {attr:cursor, delta:+1} (gated by canAdjustBonus)
  *   ArrowDown  (code 4) → cursor = cursor>=6 ? 0 : cursor+1  (wraps)
- *   Enter      (code 5) → ALLOC_CONFIRM
+ *   Enter      (code 5) → ALLOC_CONFIRM (gated by canConfirmBonus)
  *
  * Enforcement:
- *   - Cap (18), floor (race base), pool guard: all live in the REDUCER (state.ts).
- *     This screen dispatches unconditionally — the reducer silently no-ops invalid moves.
- *   - Confirm gate (pool==0): also in the REDUCER (ALLOC_CONFIRM no-ops if pool > 0).
- *     Screen dispatches Enter → ALLOC_CONFIRM unconditionally.
- *   - No double-enforcement here.
+ *   - Cap (18), floor (race base), pool guard: checked via canAdjustBonus before dispatch.
+ *     Invalid adjusts play the invalid-action beep instead.
+ *   - Confirm gate (pool==0): checked via canConfirmBonus before dispatch.
+ *     Enter with pool > 0 plays the invalid-action beep instead.
  *
  * Render:
  *   - `top` window: title (MSG.bonusTitle 0x0460) + 7-row attr table + pool count
@@ -42,6 +41,8 @@ import { drawCharSheet } from '../ega/char-sheet.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { MSG, creationString } from '../messages.js';
 import { mapKey } from './ScreenProps.js';
+import { playInvalidActionBeep } from '../../../../lib/audio.js';
+import { canAdjustBonus, canConfirmBonus } from '../state.js';
 
 // ---------------------------------------------------------------------------
 // BonusAllocatorScreen component
@@ -88,17 +89,29 @@ export function BonusAllocatorScreen({
           setCursorPos((prev) => (prev >= 6 ? 0 : prev + 1));
           break;
         case 1: // ArrowLeft — decrease current attr
-          dispatch({ type: 'ALLOC_ADJUST', attr: cursor, delta: -1 });
+          if (canAdjustBonus(state, cursor, -1)) {
+            dispatch({ type: 'ALLOC_ADJUST', attr: cursor, delta: -1 });
+          } else {
+            playInvalidActionBeep();
+          }
           break;
         case 3: // ArrowRight — increase current attr
-          dispatch({ type: 'ALLOC_ADJUST', attr: cursor, delta: 1 });
+          if (canAdjustBonus(state, cursor, 1)) {
+            dispatch({ type: 'ALLOC_ADJUST', attr: cursor, delta: 1 });
+          } else {
+            playInvalidActionBeep();
+          }
           break;
-        case 5: // Enter — confirm (reducer gates on pool==0)
-          dispatch({ type: 'ALLOC_CONFIRM' });
+        case 5: // Enter — confirm (only with pool drained)
+          if (canConfirmBonus(state)) {
+            dispatch({ type: 'ALLOC_CONFIRM' });
+          } else {
+            playInvalidActionBeep();
+          }
           break;
       }
     },
-    [cursor, dispatch],
+    [state, cursor, dispatch],
   );
 
   useEffect(() => {

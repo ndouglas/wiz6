@@ -3,14 +3,14 @@
 // RTL tests for BonusAllocatorScreen (screen-06).
 //
 // §4 key model:
-//   ArrowLeft  (code 1) → ALLOC_ADJUST {attr:cursor, delta:-1}
+//   ArrowLeft  (code 1) → ALLOC_ADJUST {attr:cursor, delta:-1} (gated by canAdjustBonus)
 //   ArrowUp    (code 2) → cursor = cursor<=0 ? 6 : cursor-1  (wraps)
-//   ArrowRight (code 3) → ALLOC_ADJUST {attr:cursor, delta:+1}
+//   ArrowRight (code 3) → ALLOC_ADJUST {attr:cursor, delta:+1} (gated by canAdjustBonus)
 //   ArrowDown  (code 4) → cursor = cursor>=6 ? 0 : cursor+1  (wraps)
-//   Enter      (code 5) → ALLOC_CONFIRM
+//   Enter      (code 5) → ALLOC_CONFIRM (gated by canConfirmBonus; beep on rejection)
 //
-// Enforcement: reducer owns cap (18) / floor (race base) / pool (>0) guards.
-// The screen simply dispatches; it must NOT double-enforce.
+// Enforcement: predicates canAdjustBonus / canConfirmBonus gate dispatch; invalid
+// moves play the invalid-action beep instead of dispatching.
 //
 // Spec: docs/re/wpcmk-screens.md §4, §8
 
@@ -20,6 +20,7 @@
 // through), so all canvas-mounting and key-handling tests are unaffected.
 // ---------------------------------------------------------------------------
 import { vi } from 'vitest';
+import * as audio from '../../../../../src/lib/audio.js';
 
 vi.mock('@wiz6/parser', async (importActual) => {
   const actual = await importActual<typeof import('@wiz6/parser')>();
@@ -31,7 +32,7 @@ vi.mock('@wiz6/parser', async (importActual) => {
   };
 });
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
 import { puts } from '@wiz6/parser';
 import { WIZ6_MAIN } from '@wiz6/data';
@@ -197,8 +198,18 @@ describe('BonusAllocatorScreen — ArrowRight increases current attr', () => {
 // ---------------------------------------------------------------------------
 
 describe('BonusAllocatorScreen — ArrowLeft decreases current attr', () => {
-  it('ArrowLeft dispatches ALLOC_ADJUST {attr:0, delta:-1} when cursor is at STR (0)', () => {
-    const state = makeBonusState(5);
+  it('ArrowLeft dispatches ALLOC_ADJUST {attr:0, delta:-1} when cursor is at STR (0) and undo > 0', () => {
+    // Need undo[0] > 0 and current > floor so canAdjustBonus(state, 0, -1) returns true.
+    // Human race STR floor is 9; set str=10 (above floor) with undo[0]=1.
+    const base = makeBonusState(4); // pool: 5 - 1 spent on STR
+    const state: CreationState = {
+      ...base,
+      draft: {
+        ...base.draft,
+        attributes: { str: 10, int: 8, pie: 8, vit: 8, dex: 8, spd: 8, per: 8, kar: 0 },
+      },
+      scratch: { undo: [1, 0, 0, 0, 0, 0, 0] },
+    };
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
 
@@ -354,9 +365,10 @@ describe('BonusAllocatorScreen — Enter dispatches ALLOC_CONFIRM', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'ALLOC_CONFIRM' });
   });
 
-  it('Enter dispatches ALLOC_CONFIRM even when pool > 0 (reducer will no-op it)', () => {
-    // The screen should dispatch unconditionally and let the reducer gate.
-    const state = makeBonusState(5); // pool=5, reducer will no-op the confirm
+  it('Enter does NOT dispatch ALLOC_CONFIRM when pool > 0 (screen gates it; beeps instead)', () => {
+    // The screen checks canConfirmBonus — when pool > 0, the predicate is false,
+    // so the screen beeps and does NOT dispatch ALLOC_CONFIRM.
+    const state = makeBonusState(5); // pool=5, canConfirmBonus returns false
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
 
@@ -372,7 +384,7 @@ describe('BonusAllocatorScreen — Enter dispatches ALLOC_CONFIRM', () => {
 
     fireEvent.keyDown(window, { key: 'Enter' });
 
-    expect(dispatch).toHaveBeenCalledWith({ type: 'ALLOC_CONFIRM' });
+    expect(dispatch).not.toHaveBeenCalledWith({ type: 'ALLOC_CONFIRM' });
   });
 });
 
@@ -513,5 +525,98 @@ describe('bonus pool zero exit prompt', () => {
     const putsCalls = vi.mocked(puts).mock.calls;
     const exitPromptCall = putsCalls.find(([, text]) => text === 'PRESS ► TO EXIT');
     expect(exitPromptCall).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Invalid-action beep: predicate-gated dispatch with beep on rejection
+// ---------------------------------------------------------------------------
+
+describe('invalid-action beep', () => {
+  beforeEach(() => {
+    vi.spyOn(audio, 'playInvalidActionBeep').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('plays the beep on ALLOC_ADJUST that would no-op (increase STR at cap=18)', () => {
+    // STR=18, pool=5 — canAdjustBonus(state, 0, +1) returns false (current >= 18).
+    // Cursor starts at 0 (STR). ArrowRight should beep, NOT dispatch.
+    const state: CreationState = {
+      ...makeBonusState(5),
+      draft: {
+        ...makeBonusState(5).draft,
+        attributes: { str: 18, int: 8, pie: 8, vit: 8, dex: 8, spd: 8, per: 8, kar: 0 },
+      },
+    };
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <BonusAllocatorScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+
+    expect(audio.playInvalidActionBeep).toHaveBeenCalledOnce();
+    expect(dispatch).not.toHaveBeenCalledWith({ type: 'ALLOC_ADJUST', attr: 0, delta: 1 });
+  });
+
+  it('does NOT beep on a valid adjust (increase STR below cap, pool > 0)', () => {
+    // STR=12, pool=5 — canAdjustBonus(state, 0, +1) returns true.
+    // Cursor starts at 0 (STR). ArrowRight should dispatch, NOT beep.
+    const state: CreationState = {
+      ...makeBonusState(5),
+      draft: {
+        ...makeBonusState(5).draft,
+        attributes: { str: 12, int: 8, pie: 8, vit: 8, dex: 8, spd: 8, per: 8, kar: 0 },
+      },
+    };
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <BonusAllocatorScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'ALLOC_ADJUST', attr: 0, delta: 1 });
+    expect(audio.playInvalidActionBeep).not.toHaveBeenCalled();
+  });
+
+  it('plays the beep on ALLOC_CONFIRM when pool > 0 (canConfirmBonus returns false)', () => {
+    // pool=3 — canConfirmBonus returns false. Enter should beep, NOT dispatch ALLOC_CONFIRM.
+    const state = makeBonusState(3);
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <BonusAllocatorScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(audio.playInvalidActionBeep).toHaveBeenCalledOnce();
+    expect(dispatch).not.toHaveBeenCalledWith({ type: 'ALLOC_CONFIRM' });
   });
 });
