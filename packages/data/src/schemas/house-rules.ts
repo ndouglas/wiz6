@@ -26,6 +26,21 @@ export const HouseRulesSchema = z.object({
    * Category: creation. Default: TRUE (the first QoL we shipped).
    */
   pinMaxBonusRoll: z.boolean(),
+  /**
+   * When TRUE, the port plays SOUND00 ("clack") on rejected character-creation
+   * inputs (bonus decrease at floor, increase at cap, confirm with leftover
+   * points, duplicate-name commit, skill-untrain at floor). When FALSE,
+   * rejected actions are silent — useful if you find the engine's beep
+   * annoying. Category: creation. Default: TRUE (matches the engine).
+   */
+  playInvalidActionBeep: z.boolean(),
+  /**
+   * When TRUE, the skill-training screen allows exiting with leftover skill
+   * points (engine-faithful — the engine permits this). When FALSE, the
+   * screen blocks exit until budget==0 (port's stricter default). Category:
+   * creation. Default: FALSE (stricter UX).
+   */
+  engineFaithfulSkillExit: z.boolean(),
 });
 
 export type HouseRules = z.infer<typeof HouseRulesSchema>;
@@ -34,12 +49,16 @@ export type HouseRules = z.infer<typeof HouseRulesSchema>;
 export const STOCK_HOUSE_RULES: HouseRules = {
   schemaVersion: 1,
   pinMaxBonusRoll: false,
+  playInvalidActionBeep: true,
+  engineFaithfulSkillExit: true,
 };
 
 /** Recommended first-load defaults — includes the QoLs the project ships on. */
 export const DEFAULT_HOUSE_RULES: HouseRules = {
   schemaVersion: 1,
   pinMaxBonusRoll: true,
+  playInvalidActionBeep: true,
+  engineFaithfulSkillExit: false,
 };
 
 /**
@@ -76,5 +95,23 @@ export const HOUSE_RULES_META: readonly HouseRuleMeta[] = [
     stockValue: false,
     control: 'boolean',
     learnMoreUrl: '/explore/notes#bonus-point-lottery',
+  },
+  {
+    key: 'playInvalidActionBeep',
+    label: 'Beep on rejected inputs (creation)',
+    description:
+      'The engine plays a short "clack" sound (SOUND00) when you press a key that the character-creation screens reject — pushing an attribute past its 18 cap, pressing Enter to confirm bonus distribution with points still in the pool, typing a name that already exists in your roster, untraining a skill below its baseline value, and so on. Some players find the beep annoying. Turn OFF to make rejected actions silent. (The screens still reject the action; only the sound changes.)',
+    category: 'creation',
+    stockValue: true,
+    control: 'boolean',
+  },
+  {
+    key: 'engineFaithfulSkillExit',
+    label: 'Allow skill-train exit with leftover points',
+    description:
+      'On the SKILL POINTS screen during character creation, the original engine lets you press Escape to exit even if you have skill points remaining (forfeiting them). The port defaults to a stricter rule: you must spend the whole skill budget before you can leave. Turn ON to match the engine and allow forfeit-exits. Most players prefer the stricter default — forfeiting points is almost always a mistake, and the engine offers no warning.',
+    category: 'creation',
+    stockValue: true,
+    control: 'boolean',
   },
 ];

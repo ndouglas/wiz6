@@ -43,8 +43,8 @@ describe('HouseRulesSchema', () => {
 });
 
 describe('HOUSE_RULES_META', () => {
-  it('has one entry per house rule (currently 1)', () => {
-    expect(HOUSE_RULES_META).toHaveLength(1);
+  it('has one entry per house rule (currently 3)', () => {
+    expect(HOUSE_RULES_META).toHaveLength(3);
   });
 
   it('every meta entry has matching key in HouseRules', () => {
@@ -59,5 +59,48 @@ describe('HOUSE_RULES_META', () => {
       expect(m.label.length).toBeGreaterThan(0);
       expect(m.description.length).toBeGreaterThan(20);
     }
+  });
+});
+
+describe('playInvalidActionBeep house rule', () => {
+  it('is required by the schema', () => {
+    const { schemaVersion: _v, ...rest } = DEFAULT_HOUSE_RULES;
+    void _v;
+    // Missing the new key must fail validation
+    expect(() =>
+      HouseRulesSchema.parse({ schemaVersion: 1, ...rest, playInvalidActionBeep: undefined }),
+    ).toThrow();
+  });
+
+  it('stock value is true (engine plays the beep)', () => {
+    expect(STOCK_HOUSE_RULES.playInvalidActionBeep).toBe(true);
+  });
+
+  it('default value is true (default ON; users can disable)', () => {
+    expect(DEFAULT_HOUSE_RULES.playInvalidActionBeep).toBe(true);
+  });
+
+  it('appears in HOUSE_RULES_META', () => {
+    const entry = HOUSE_RULES_META.find((m) => m.key === 'playInvalidActionBeep');
+    expect(entry).toBeDefined();
+    expect(entry?.category).toBe('creation');
+    expect(entry?.control).toBe('boolean');
+  });
+});
+
+describe('engineFaithfulSkillExit house rule', () => {
+  it('stock value is true (engine allows exit with leftover points)', () => {
+    expect(STOCK_HOUSE_RULES.engineFaithfulSkillExit).toBe(true);
+  });
+
+  it('default value is false (port keeps stricter UX)', () => {
+    expect(DEFAULT_HOUSE_RULES.engineFaithfulSkillExit).toBe(false);
+  });
+
+  it('appears in HOUSE_RULES_META', () => {
+    const entry = HOUSE_RULES_META.find((m) => m.key === 'engineFaithfulSkillExit');
+    expect(entry).toBeDefined();
+    expect(entry?.category).toBe('creation');
+    expect(entry?.control).toBe('boolean');
   });
 });
