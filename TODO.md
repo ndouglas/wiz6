@@ -13,11 +13,19 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#028**
+Next free ID: **#029**
 
 ---
 
 ## Open
+
+- #028 [open] — Simplify ADD PARTY picker composer per the resolved struct model
+  - Per `docs/re/findings/wbase-picker-internals.json`: both picker panels use `cells_off = struct + 0x10` and the engine renders NATHAN at global col 22 because the row renderer leftpads cursor to x=2 (NOT because struct.x=22).
+  - Today: composer hardcodes `RIGHT_CELL_X = 22` and emits NATHAN at panel col 0, plus separate `middleStrip` + `scrollbar` windows. Mental model is wrong even though pixel output is correct.
+  - Simplification: set `RIGHT_CELL_X = 20`, shift right-panel cells right by 2 cols (scrollbar at col 1, NATHAN at col 2-7), drop the standalone `scrollbar` window and possibly the `middleStrip`.
+  - Also update `tools/parity/dump-cells.py --picker` to use `cells_off = struct + 0x10` unconditionally (drop the +0x14 path) and regenerate the fixture at `tools/parity/fixtures/cells/add-party-picker-1char.json`.
+  - Pixel parity should remain at 100% (verify before commit).
+  - Engine routine that paints chrome at cell 19 rows 19-23 (the right-edge line glyph 0x1c) is still unidentified — likely belongs to a window we haven't located. Document as open question during this refactor.
 
 - #019 [open] — wpcmk Phase 2 — Stages A–F COMPLETE; next: layout-refinement (now measurable via parity)
   - **Stage C (screens) COMPLETE** — `packages/viewer/src/pages/roster/creation/`: `state.ts` (pure flow reducer, §1 + characterMenu entry), `messages.ts` (§3 msg-id wiring), `screens/` (CharacterMenu, NameInput, MenuPicker[race/sex/class], BonusAllocator, Personality, PortraitPicker[placeholder pixels], SkillTrain, SpellPick, Confirm), `CreationPage.tsx` + `lib/build.ts`. Plan: `…-stage-c-screens.md`.
