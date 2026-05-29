@@ -16,6 +16,7 @@
 import { useEffect, useRef } from 'react';
 import type { FontSet, TileWindow } from '@wiz6/parser';
 import type { Palette } from '@wiz6/data';
+import { CanvasPresenter } from '../../../../lib/presenter.js';
 import { renderCreationFrame } from './render-frame.js';
 
 const ENGINE_W = 320;
@@ -39,16 +40,9 @@ export function CreationCanvas({ windows, fontSet, palette, scale = DEFAULT_SCAL
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return; // jsdom: getContext returns null — guard and bail
-
+    const presenter = new CanvasPresenter(canvas);
     const rgba = renderCreationFrame(windows, fontSet, palette);
-    // Allocate an ImageData (ArrayBuffer-backed) and copy into it — passing the
-    // Uint8ClampedArray directly trips the ArrayBufferLike/SharedArrayBuffer
-    // mismatch in the DOM lib types.
-    const img = new ImageData(ENGINE_W, ENGINE_H);
-    img.data.set(rgba);
-    ctx.putImageData(img, 0, 0);
+    presenter.present(rgba, ENGINE_W, ENGINE_H);
   }, [windows, fontSet, palette]);
 
   return (

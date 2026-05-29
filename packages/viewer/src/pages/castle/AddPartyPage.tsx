@@ -45,6 +45,7 @@ import {
   loadPortraitSet,
 } from '../../data-loader.js';
 import { loadCreationFontSet } from '../roster/creation/ega/assets.js';
+import { CanvasPresenter } from '../../lib/presenter.js';
 import { readRoster } from '../../lib/roster-store.js';
 import {
   readActiveParty,
@@ -224,6 +225,8 @@ export function AddPartyPage({ skipAssetLoad = false }: AddPartyPageProps) {
     if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
 
+    const presenter = new CanvasPresenter(canvas);
+
     const buf = composeCastleFrame(
       0, // parity 0 — picker is opened on a single rendered frame
       dragonscRgba,
@@ -246,9 +249,7 @@ export function AddPartyPage({ skipAssetLoad = false }: AddPartyPageProps) {
       renderTileWindow(win, buf, ENGINE_W, ENGINE_H, pickerFontSet, WIZ6_MAIN);
     }
 
-    const img = new ImageData(ENGINE_W, ENGINE_H);
-    img.data.set(buf);
-    ctx.putImageData(img, 0, 0);
+    presenter.present(buf, ENGINE_W, ENGINE_H);
   }, [
     skipAssetLoad,
     pickerFontSet,

@@ -14,6 +14,7 @@ import {
 } from '@wiz6/parser';
 import { loadEgaScreen } from '../../data-loader.js';
 import { loadSnd, playSnd, installAudioUnlockListener, type PlayableSnd } from '../../lib/audio.js';
+import { CanvasPresenter } from '../../lib/presenter.js';
 import styles from './GameTitle.module.css';
 
 const ENGINE_W = 320;
@@ -122,6 +123,7 @@ export function GameTitle() {
     if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
 
+    const presenter = new CanvasPresenter(canvas);
     let raf = 0;
 
     // Sub-frame counter for slowing the scroll phase. Outside scroll, we
@@ -173,11 +175,7 @@ export function GameTitle() {
       }
 
       const frameRgba = composeIntroFrame(stateRef.current, spritesByDesc, titlepagRgba);
-      // Allocate an ArrayBuffer-backed ImageData and copy in — passing the
-      // Uint8ClampedArray to the ctor trips the ArrayBufferLike DOM lib types.
-      const img = new ImageData(ENGINE_W, ENGINE_H);
-      img.data.set(frameRgba);
-      ctx.putImageData(img, 0, 0);
+      presenter.present(frameRgba, ENGINE_W, ENGINE_H);
 
       if (stateRef.current.phase === 'done') {
         navigate('/castle');

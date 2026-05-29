@@ -17,6 +17,7 @@ import {
 } from '@wiz6/parser';
 import { loadEgaScreen, loadFont, loadFont4bpp, loadPortraitSet } from '../../data-loader.js';
 import { readActiveParty } from '../../lib/active-party-store.js';
+import { CanvasPresenter } from '../../lib/presenter.js';
 import { readRoster } from '../../lib/roster-store.js';
 import { composeCastleFrame } from './castle-frame.js';
 import styles from './CastleScreen.module.css';
@@ -187,6 +188,7 @@ export function CastleScreen() {
     if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
 
+    const presenter = new CanvasPresenter(canvas);
     let raf = 0;
     let lastFlip = performance.now();
     let parity = 0;
@@ -209,11 +211,7 @@ export function CastleScreen() {
         activeMembers,
         portraitSet,
       );
-      // Allocate ArrayBuffer-backed ImageData + copy; passing the
-      // Uint8ClampedArray to the ctor trips the lib.dom ArrayBufferLike types.
-      const img = new ImageData(ENGINE_W, ENGINE_H);
-      img.data.set(buf);
-      ctx.putImageData(img, 0, 0);
+      presenter.present(buf, ENGINE_W, ENGINE_H);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
