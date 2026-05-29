@@ -26,6 +26,9 @@ import type { CreationState, CreationEvent } from '../state.js';
 import { createPersistentWindows } from '../ega/windows.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { MSG, creationString } from '../messages.js';
+import { findDuplicateName } from '../../../../lib/roster-store.js';
+import { playInvalidActionBeep } from '../../../../lib/audio.js';
+import { composeModalFrame } from '../ega/modal-frame.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -75,7 +78,7 @@ export interface NameInputScreenProps {
  * in the reducer — this component only dispatches SET_NAME.
  */
 export function NameInputScreen({
-  state: _state,
+  state,
   dispatch,
   fontSet,
   palette,
@@ -92,12 +95,22 @@ export function NameInputScreen({
     (e: KeyboardEvent) => {
       const { key } = e;
 
+      // Modal-active path: any key dismisses; nothing else happens.
+      if (state.modalErrorMsgId !== undefined) {
+        dispatch({ type: 'MODAL_DISMISS' });
+        return;
+      }
+
       if (key === 'Enter') {
         // Submit only if buffer is non-empty
-        if (buffer.length > 0) {
-          dispatch({ type: 'SET_NAME', name: buffer });
+        if (buffer.length === 0) return;
+        const name = buffer;
+        if (findDuplicateName(name)) {
+          playInvalidActionBeep();
+          dispatch({ type: 'SHOW_DUP_NAME_MODAL' });
+          return;
         }
-        // Empty buffer → no-op (spec: "empty+Enter does nothing")
+        dispatch({ type: 'SET_NAME', name });
         return;
       }
 
@@ -122,13 +135,20 @@ export function NameInputScreen({
 
       // All other keys (arrows, Tab, F-keys, etc.) → ignored
     },
-    [buffer, dispatch],
+    [buffer, dispatch, state.modalErrorMsgId],
   );
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
+
+  // Auto-dismiss the modal after 5 seconds (engine: wait_for_key_or_timeout).
+  useEffect(() => {
+    if (state.modalErrorMsgId === undefined) return;
+    const id = window.setTimeout(() => dispatch({ type: 'MODAL_DISMISS' }), 5000);
+    return () => window.clearTimeout(id);
+  }, [state.modalErrorMsgId, dispatch]);
 
   // -------------------------------------------------------------------------
   // Render
@@ -167,6 +187,9 @@ export function NameInputScreen({
 
   const pal = palette ?? WIZ6_MAIN;
   const windows = [top, bottomBar, menuPanel];
+  if (state.modalErrorMsgId !== undefined) {
+    windows.push(composeModalFrame(db, state.modalErrorMsgId));
+  }
 
   return <CreationCanvas windows={windows} fontSet={fontSet} palette={pal} />;
 }

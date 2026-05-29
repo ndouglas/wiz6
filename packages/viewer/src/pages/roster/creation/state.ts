@@ -225,6 +225,7 @@ export type CreationEvent =
   | { type: 'TRAIN_SKILL'; slot: number } // screen-13: spend 1 skill point on slot
   | { type: 'UNTRAIN_SKILL'; slot: number }   // screen-13: refund 1 skill point from slot (floor-gated)
   | { type: 'SKILLS_DONE' }              // screen-13: player done (budget exhausted or explicit)
+  | { type: 'SHOW_DUP_NAME_MODAL' }            // any screen: open the dup-name modal
   | { type: 'MODAL_DISMISS' }                 // any screen: dismiss modalErrorMsgId
   | { type: 'PICK_SPELL'; entry: number } // screen-14: select a spell entry index
   | { type: 'SPELLS_DONE' }             // screen-14: player done with spell picks
@@ -473,6 +474,12 @@ function returnToMenu(state: CreationState): CreationState {
  *    resting states anymore — 'cancelled' is an alias handled as return-to-menu.
  */
 export function creationReducer(state: CreationState, event: CreationEvent): CreationState {
+  // Show dup-name modal is screen-agnostic — set modalErrorMsgId to the
+  // "* CHARACTER ALREADY EXISTS *" message id (0x044e) and return.
+  if (event.type === 'SHOW_DUP_NAME_MODAL') {
+    return { ...state, modalErrorMsgId: 0x044e };
+  }
+
   // Modal dismiss is screen-agnostic — clear modalErrorMsgId and return.
   if (event.type === 'MODAL_DISMISS') {
     if (state.modalErrorMsgId === undefined) return state;

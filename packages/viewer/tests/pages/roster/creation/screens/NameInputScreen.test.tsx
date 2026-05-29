@@ -14,15 +14,18 @@
 //
 // Spec: docs/re/wpcmk-screens.md §1 (screen-00), CharacterSchema name max=7.
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
 import { WIZ6_MAIN } from '@wiz6/data';
 import { WichmannHill } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
+import type { Character } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../../../../../src/pages/roster/creation/state.js';
 import { initialCreationState } from '../../../../../src/pages/roster/creation/state.js';
 import { NameInputScreen } from '../../../../../src/pages/roster/creation/screens/NameInputScreen.js';
+import { writeRoster } from '../../../../../src/lib/roster-store.js';
+import * as audio from '../../../../../src/lib/audio.js';
 
 // ---------------------------------------------------------------------------
 // Minimal stubs
@@ -44,6 +47,8 @@ function stubDb(): MessageDb {
   const entries: Array<{ id: number; decodedText: string }> = [
     // screen-00: "CHARACTER NAME >"
     { id: 0x044c, decodedText: 'CHARACTER NAME >' },
+    // screen-00: "* CHARACTER ALREADY EXISTS *"
+    { id: 0x044e, decodedText: '* CHARACTER ALREADY EXISTS *' },
   ];
 
   return {
@@ -64,6 +69,25 @@ function makeNameState(): CreationState {
   const rng = new WichmannHill(3000, 1, 29999);
   return initialCreationState(rng);
 }
+
+// ---------------------------------------------------------------------------
+// Test fixtures for dup-name modal tests
+// ---------------------------------------------------------------------------
+
+function makeCharacter(id: string, name: string, level = 1): Character {
+  return {
+    id, name, race: 0, class: 0, sex: 0, level, xp: 0, gold: 0,
+    conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    dead: false, paralyzed: false,
+    attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, per: 50, kar: 50 },
+    schoolMana: [0, 0, 0, 0, 0, 0],
+    schoolManaMax: [0, 0, 0, 0, 0, 0],
+    skills: new Array(30).fill(0) as number[],
+    savedOldLevel: 0, reaction: 0,
+  };
+}
+
+const ID_A = '550e8400-e29b-41d4-a716-446655440000';
 
 // ---------------------------------------------------------------------------
 // Canvas mounting
@@ -407,5 +431,93 @@ describe('NameInputScreen — non-printable keys are ignored', () => {
     fireEvent.keyDown(window, { key: 'Enter' });
 
     expect(dispatch).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dup-name modal
+// ---------------------------------------------------------------------------
+
+describe('dup-name modal', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.spyOn(audio, 'playInvalidActionBeep').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('shows the modal (dispatches SHOW_DUP_NAME_MODAL) on Enter with duplicate name', () => {
+    writeRoster({ schemaVersion: 1, characters: [makeCharacter(ID_A, 'NATHAN')] });
+    const dispatch = vi.fn();
+    const state = { ...initialCreationState(new WichmannHill(3000, 1, 29999)), screen: 'name' as const };
+    render(
+      <NameInputScreen
+        state={state} dispatch={dispatch}
+        fontSet={STUB_FONT_SET} palette={WIZ6_MAIN} db={stubDb()}
+      />,
+    );
+    for (const ch of 'NATHAN') {
+      fireEvent.keyDown(window, { key: ch });
+    }
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'SHOW_DUP_NAME_MODAL' });
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'SET_NAME' }));
+    expect(audio.playInvalidActionBeep).toHaveBeenCalledOnce();
+  });
+
+  it('dispatches SET_NAME on Enter with unique name', () => {
+    writeRoster({ schemaVersion: 1, characters: [makeCharacter(ID_A, 'NATHAN')] });
+    const dispatch = vi.fn();
+    const state = { ...initialCreationState(new WichmannHill(3000, 1, 29999)), screen: 'name' as const };
+    render(
+      <NameInputScreen
+        state={state} dispatch={dispatch}
+        fontSet={STUB_FONT_SET} palette={WIZ6_MAIN} db={stubDb()}
+      />,
+    );
+    for (const ch of 'GANDALF') {
+      fireEvent.keyDown(window, { key: ch });
+    }
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'SET_NAME', name: 'GANDALF' });
+    expect(audio.playInvalidActionBeep).not.toHaveBeenCalled();
+  });
+
+  it('any key while modal is open dispatches MODAL_DISMISS', () => {
+    const dispatch = vi.fn();
+    const state = {
+      ...initialCreationState(new WichmannHill(3000, 1, 29999)),
+      screen: 'name' as const,
+      modalErrorMsgId: 0x044e,
+    };
+    render(
+      <NameInputScreen
+        state={state} dispatch={dispatch}
+        fontSet={STUB_FONT_SET} palette={WIZ6_MAIN} db={stubDb()}
+      />,
+    );
+    fireEvent.keyDown(window, { key: 'a' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'MODAL_DISMISS' });
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'SET_NAME' }));
+  });
+
+  it('auto-dismisses after 5 seconds', () => {
+    vi.useFakeTimers();
+    const dispatch = vi.fn();
+    const state = {
+      ...initialCreationState(new WichmannHill(3000, 1, 29999)),
+      screen: 'name' as const,
+      modalErrorMsgId: 0x044e,
+    };
+    render(
+      <NameInputScreen
+        state={state} dispatch={dispatch}
+        fontSet={STUB_FONT_SET} palette={WIZ6_MAIN} db={stubDb()}
+      />,
+    );
+    vi.advanceTimersByTime(5000);
+    expect(dispatch).toHaveBeenCalledWith({ type: 'MODAL_DISMISS' });
+    vi.useRealTimers();
   });
 });
