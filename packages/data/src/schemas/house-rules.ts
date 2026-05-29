@@ -41,6 +41,13 @@ export const HouseRulesSchema = z.object({
    * creation. Default: FALSE (stricter UX).
    */
   engineFaithfulSkillExit: z.boolean(),
+  /**
+   * When TRUE, the WPCVW EDIT submenu (rename, change portrait, change
+   * profession) appears in the camp REVIEW MEMBER action set. When FALSE,
+   * EDIT is camp-disabled (engine behavior — EDIT is only reachable from
+   * the dungeon in the original). Category: gameplay. Default: FALSE.
+   */
+  allowEditFromCamp: z.boolean(),
 });
 
 export type HouseRules = z.infer<typeof HouseRulesSchema>;
@@ -51,6 +58,7 @@ export const STOCK_HOUSE_RULES: HouseRules = {
   pinMaxBonusRoll: false,
   playInvalidActionBeep: true,
   engineFaithfulSkillExit: true,
+  allowEditFromCamp: false,
 };
 
 /** Recommended first-load defaults — includes the QoLs the project ships on. */
@@ -59,6 +67,7 @@ export const DEFAULT_HOUSE_RULES: HouseRules = {
   pinMaxBonusRoll: true,
   playInvalidActionBeep: true,
   engineFaithfulSkillExit: false,
+  allowEditFromCamp: false,
 };
 
 /**
@@ -112,6 +121,15 @@ export const HOUSE_RULES_META: readonly HouseRuleMeta[] = [
       'On the SKILL POINTS screen during character creation, the original engine lets you press Escape to exit even if you have skill points remaining (forfeiting them). The port defaults to a stricter rule: you must spend the whole skill budget before you can leave. Turn ON to match the engine and allow forfeit-exits. Most players prefer the stricter default — forfeiting points is almost always a mistake, and the engine offers no warning.',
     category: 'creation',
     stockValue: true,
+    control: 'boolean',
+  },
+  {
+    key: 'allowEditFromCamp',
+    label: 'Allow EDIT from camp REVIEW MEMBER',
+    description:
+      'In the original Wizardry VI, the EDIT submenu (rename, change portrait, change profession) is only available from the in-dungeon character view — camp REVIEW MEMBER disables it. The wiz6 dungeon is not yet ported, so this toggle lets you reach EDIT from the castle for now.',
+    category: 'gameplay',
+    stockValue: false,
     control: 'boolean',
   },
 ];
