@@ -1,5 +1,6 @@
 import { decodeSnd, SND_SAMPLE_RATE_HZ } from '@wiz6/parser';
 import { slotPlaybackRateHz as slotRateFromData } from '@wiz6/data';
+import { getHouseRules } from './house-rules-store.js';
 
 /**
  * Web Audio playback for Wiz6 `.snd` files.
@@ -129,4 +130,35 @@ export function isAudioReady(): boolean {
   if (!userHasGestured) return false;
   const ctx = maybeInitContext();
   return ctx?.state === 'running';
+}
+
+// Cached SOUND00 for the invalid-action beep. Loaded lazily on first call so
+// screens that don't trigger it pay no asset cost.
+let cachedInvalidActionBeep: PlayableSnd | null = null;
+let invalidActionBeepLoading: Promise<PlayableSnd | null> | null = null;
+
+/**
+ * Play the engine's "clack" sound (SOUND00) on a rejected character-creation
+ * input. Gated by the `playInvalidActionBeep` house rule — silent no-op when
+ * the rule is OFF. Also silent until the user has gestured (browser autoplay
+ * policy; same as `playSnd`).
+ *
+ * First call kicks off a one-time lazy fetch of `/sounds/sound00.json`; the
+ * actual sound plays from the second call onward (and on every call once the
+ * fetch resolves). The first rejected action being silent is an acceptable
+ * UX tradeoff vs. preloading on every screen.
+ */
+export function playInvalidActionBeep(): void {
+  if (!getHouseRules().playInvalidActionBeep) return;
+  if (cachedInvalidActionBeep) {
+    playSnd(cachedInvalidActionBeep);
+    return;
+  }
+  if (invalidActionBeepLoading) return; // load in flight; let it resolve
+  invalidActionBeepLoading = loadSnd('/sounds/sound00.json', { slotN: 0 })
+    .then((snd) => {
+      cachedInvalidActionBeep = snd;
+      return snd;
+    })
+    .catch(() => null);
 }
