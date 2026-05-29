@@ -27,11 +27,15 @@ import { creationString } from '../roster/creation/messages.js';
 
 const CELL_PX = 8;
 const PANEL_W = 40;
-const PANEL_H = 4;
+const PANEL_H = 5;
 const PANEL_X = 0;
 const PANEL_Y = 20 * CELL_PX; // 160
 const ATTR_BG = 0x03;
 const ATTR_HIGHLIGHT = 0x50;
+// wfont3 glyph 0x1e is the chrome bottom-border tile: 7 rows of palette[8] gray
+// + 1 row of palette[0] black. The engine paints it across the action menu's
+// last cell row, giving the strip its characteristic 1-px black baseline.
+const CHROME_BOTTOM_BORDER_CHAR = 0x1e;
 
 const ACTION_MSG_BASE = 301;
 const ACTION_EXIT_MSG_ID = 312;
@@ -91,6 +95,14 @@ export function composeActionMenu(view: ActionMenuView): TileWindow {
   // convention as the wpcmk character-menu bottomBar.
   w.invertHighlight = true;
   clearWindow(w, 0x20, ATTR_BG);
+
+  // Paint the chrome bottom-border row (last cell row) with the gray+1px-black
+  // glyph used by the engine to mark the very bottom of the screen.
+  for (let cx = 0; cx < PANEL_W; cx++) {
+    const idx = ((PANEL_H - 1) * PANEL_W + cx) * 2;
+    w.cells[idx] = CHROME_BOTTOM_BORDER_CHAR;
+    w.cells[idx + 1] = ATTR_BG;
+  }
 
   const actions = enabledActions(view.db);
   for (let i = 0; i < actions.length; i++) {

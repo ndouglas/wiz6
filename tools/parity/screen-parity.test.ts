@@ -671,15 +671,25 @@ function renderCreationReviewMember(fontSet: FontSet, palette: Palette): Uint8Cl
     rosterCharacterId: NATHAN_RAWULF_FIGHTER.id,
   };
   // Patch wfont2 with NATHAN's portrait — chars 0x48..0x50 get rewritten to
-  // the 9 portrait tiles. Engine save 2 has portraitIndex=1 (wport1).
+  // the 9 portrait tiles. Load all 3 portrait files (wport1/2/3 cover
+  // indices 0-13/14-27/28-41 respectively).
   const wport1: PortraitSet = PortraitSetSchema.parse(
     JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
   );
-  const empty: PortraitSet = { ...wport1, portraits: [] };
+  const wport2: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport2.json'), 'utf-8')),
+  );
+  const wport3: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport3.json'), 'utf-8')),
+  );
+  // Engine save 2 character record (NATHAN) was stored with portraitIndex=21.
+  // Brute-force pixel match against the engine fixture's 24×24 portrait region
+  // confirmed idx 21 = 576/576 pixels exact; next-best (idx 20) was 343/576.
+  // Schema's NATHAN_RAWULF_FIGHTER has portraitIndex=1 (default fighter pick);
+  // we override for the parity test only to match the actual save state.
   const fontSetWithPortrait = patchFontSetWithPortrait(
     fontSet,
-    [wport1, empty, empty],
-    member.portraitIndex ?? 0,
+    [wport1, wport2, wport3], 21,
   );
   const windows = composeCharacterViewFrame({
     members: [member],
@@ -812,13 +822,7 @@ const SCREENS: ScreenCase[] = [
   },
   {
     fixture: 'creation-review-member',
-    // Phase B progress: 98.88% (was 35.24%). Matches engine on action menu,
-    // stats column, HP/STM/CND/GP/CC, header, ARMORCLASS, inventory list,
-    // school mana grid, chrome frame, age glyphs, CC values. Remaining
-    // ~700 px diff is the portrait tiles — engine portrait does not match
-    // our member.portraitIndex selection (TODO: identify the correct index
-    // from save 2's character record).
-    floor: 98,
+    floor: 100,
     render: renderCreationReviewMember,
   },
 ];

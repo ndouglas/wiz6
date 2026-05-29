@@ -29,12 +29,23 @@ function rowString(win: { cells: Uint8Array; widthCells: number }, row: number):
 }
 
 describe('composeActionMenu', () => {
-  it('returns a 40×4 TileWindow at screen (0, 160)', () => {
+  it('returns a 40×5 TileWindow at screen (0, 160)', () => {
     const win = composeActionMenu({ cursorIdx: 5, db: actionDb() });
     expect(win.widthCells).toBe(40);
-    expect(win.heightCells).toBe(4);
+    // 5 cell rows: 4 for action labels + 1 for the engine's chrome bottom-border
+    // row (wfont3 glyph 0x1e = 7 px gray + 1 px black baseline).
+    expect(win.heightCells).toBe(5);
     expect(win.screenX).toBe(0);
     expect(win.screenY).toBe(160);
+  });
+
+  it('fills the last cell row with the chrome bottom-border glyph (0x1e @ attr 0x03)', () => {
+    const win = composeActionMenu({ cursorIdx: 5, db: actionDb() });
+    for (let cx = 0; cx < win.widthCells; cx++) {
+      const idx = (4 * win.widthCells + cx) * 2;
+      expect(win.cells[idx]).toBe(0x1e);
+      expect(win.cells[idx + 1]).toBe(0x03);
+    }
   });
 
   it('renders the camp-mask subset: EQUIP/SPELL/ASSAY/SWAG/SKILL/EXIT only', () => {
