@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "test": "pnpm -r --filter './packages/*' test && pnpm test:parity",
     "test:parity": "pnpm --filter @wiz6/parity test",
+    "test:diagnostics": "WIZ6_RUN_DIAGNOSTICS=1 pnpm -r --filter './packages/*' exec vitest run --passWithNoTests",
     "build": "pnpm -r --filter './packages/*' build",
     "typecheck": "pnpm -r --filter './packages/*' typecheck",
     "verify": "pnpm lint && pnpm typecheck && pnpm test",
