@@ -1,0 +1,337 @@
+{
+  "topic": "wbase-master-options-full",
+  "subagent_run": "2026-05-29T00:00:00Z",
+  "binaries": [
+    "wbase.ovr",
+    "wroot.exe",
+    "msg.dbs"
+  ],
+  "supersedes": [
+    "findings/wbase-main-menu.json (slot label assignments — this pass replaces the 'hypothesized' labels with msg.dbs-decoded text)"
+  ],
+  "do_not_modify": "docs/re/wbase-main-menu.md — promote findings prose only after parent review.",
+  "summary": "Resolves the three open questions on the wbase.ovr MASTER OPTIONS menu (state 4 @ wbase 0x2b36). Q1: ALL nine option labels (msg IDs 0x3ea..0x3f2) and the banner+filename msgs (0x3e8, 0x3e9) decoded from the existing extracted msg.json — they live within the 718-entry msg.hdr range we already extract. The 'IDs outside extracted range' worry in the canonical doc was incorrect (msg #1002..#1010 ARE in extracted/messages/msg.json). Q2: slot 3's load_or_quit(0) vs slot 4's load_or_quit(1) distinguishes START NEW GAME (mode 0, picks a scenario from list at DGROUP 0x502f) from RESUME SAVED GAME (mode 1, picks a saved game from two lists at DGROUP 0x3540 and 0x357c). Q6: slot 5's label IS the literal string 'CHARACTER MENU' (msg #1007); it is NOT context-dependent. The current TS port has slot 2 mislabeled as 'CHARACTER MENU' — slot 2's actual label is 'DISMISS MEMBER'. Two further hypothesized labels in the canonical doc were also wrong: slot 1 is 'REVIEW MEMBER' (not 'CHOOSE LEADER'); slot 3 is 'START NEW GAME' (not 'REMOVE/UNLOAD'). Enable predicates re-verified bit-for-bit against the disasm — current TS impl is correct. Visible order does NOT shift; the engine renders enabled slots in their slot-index order. No reorder.",
+  "method": "1) Read extracted/messages/msg.json — confirmed msg IDs 0x3e8..0x3f2 + 0x4b1..0x4bd decode to clean ASCII. 2) Disassembled wbase.ovr 0x2b36..0x2de0 with ndisasm; mapped the bp-relative option-enable array writes back to slot indices using the bp-0x28..bp-0x16 = slot 0..8 mapping established by the init loop at 0x2c21. 3) Decoded slot handlers at 0x2cf7/0x2d09/0x2d2d/0x2d5d/0x2d8a/0x2d51/0x2d94/0x2d9f/0x2d9d. 4) Dumped wbase_load_or_quit @ 0x1a0d and the dispatcher at 0x11a6 it tail-calls; identified the mode==0 vs mode==1 fork at 0x1219. 5) Dumped the dismiss helper at 0x25cc — confirmed it decrements party_size and shifts party-slot tables, i.e. classic dismiss-member semantics. 6) Cross-checked picker-title msg IDs 0x4b2/0x4b3 — 'review_who}' and 'dismiss_who}' confirm slot 1=REVIEW and slot 2=DISMISS independent of the option labels themselves.",
+  "findings": [
+    {
+      "id": "msg-labels-all-resolved",
+      "claim": "All nine MASTER OPTIONS labels (msg IDs 0x3ea..0x3f2 = decimal 1002..1010), the banner (0x3e9 = 1001), and the filename buffer (0x3e8 = 1000) are present in the extracted msg.json and decode to clean text. The canonical doc's worry that 'msg.hdr indexes 0..717 don't directly cover 1002..1010' is incorrect — the extracted msg.json includes 5161 indexed messages, with the 1002..1010 range fully covered (rangeIndex 23, bank 2).",
+      "category": "msg_decoding",
+      "evidence": {
+        "binary": "msg.dbs",
+        "type": "extracted_json_lookup",
+        "details": "Direct read of extracted/messages/msg.json — IDs 1000-1010 all present, decoded:",
+        "decoded": {
+          "0x3e8 (1000)": "\\x1b\\x08\\t\\n\\x0b\\r (control-char sequence — used as a filename buffer template at DGROUP 0x5066)",
+          "0x3e9 (1001)": "\\x7f__master_options__\\x7f (banner — \\x7f delim, underscores become spaces upon render: 'MASTER OPTIONS')",
+          "0x3ea (1002)": "ADD PARTY MEMBER",
+          "0x3eb (1003)": "REVIEW MEMBER",
+          "0x3ec (1004)": "DISMISS MEMBER",
+          "0x3ed (1005)": "START NEW GAME",
+          "0x3ee (1006)": "RESUME SAVED GAME",
+          "0x3ef (1007)": "CHARACTER MENU",
+          "0x3f0 (1008)": "GAME CONFIGURATION",
+          "0x3f1 (1009)": "SHOW TITLE PAGE",
+          "0x3f2 (1010)": "QUIT GAME"
+        }
+      },
+      "confidence": "high",
+      "implications": [
+        "Current TS impl in packages/parser/src/sim/main-menu.ts has THREE wrong labels: slot 1 'CHOOSE LEADER' → actually REVIEW MEMBER; slot 2 'CHARACTER MENU' → actually DISMISS MEMBER (this is the duplicate-label bug the user reported); slot 3 'REMOVE PARTY MEMBER' → actually START NEW GAME.",
+        "Slot 5 stays as 'CHARACTER MENU' — that label IS correct in the current code. The duplicate vanishes once slot 2 is corrected."
+      ]
+    },
+    {
+      "id": "slot-5-character-menu-not-context-dependent",
+      "claim": "Slot 5's label is literally 'CHARACTER MENU' (msg #1007), unchanged across all party states. The canonical doc's hypothesis that the label might change between 'CHARACTER MENU' and 'MAKE CHARACTER' depending on party size is incorrect — the engine renders msg(baseMsgId + slot_index) once per loop iteration via wbase_menu_select_loop @ 0x25c, with no per-slot label-rewrite path. The slot's DESTINATION (state 0x10 = WPCMK = the character-creation/maintenance overlay) is consistent regardless of party size, and that overlay decides internally whether to land the user on the create-new-character or edit-existing-character submenu.",
+      "category": "msg_decoding",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {
+          "space": "wbase.ovr",
+          "offset": "0x2cc4"
+        },
+        "type": "disasm_review",
+        "details": "Menu select-loop call: `push 0x3ea (base msg ID); push window; call 0x25c` at wbase 0x2cc4..0x2ccb. wbase_menu_select_loop iterates enabled slots and renders msg(0x3ea + slot_index) with no conditional re-binding. Slot 5 always loads msg 0x3ef = 'CHARACTER MENU'. Verified in disasm: no second writer to the slot-5 cell (bp-0x1e) anywhere in the option-filter region (0x2c21..0x2c9b)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "slot-2-is-dismiss-member-not-character-menu",
+      "claim": "Slot 2's handler at wbase 0x2d2d calls wbase_pick_party_member with picker-title msg #1203 ('dismiss_who}'), then on a successful pick calls helper @ wbase 0x25cc which: (a) marks the picked party member's PCFILE entry as available (*0x4fd8[char_idx] := 1), (b) decrements party_size, (c) shifts all party-slot tables (0x43e8 character records, 0x43dc slot→PCFILE map, 0x43d0 portrait-id map) down to fill the removed slot, (d) clears both party-panel windows, (e) redraws remaining slots. This is classic dismiss-member behavior, NOT a 'character submenu'. The canonical doc's 'character_submenu(picked)' label was a wrong guess.",
+      "category": "slot_behavior",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {
+          "space": "wbase.ovr",
+          "offset": "0x25cc"
+        },
+        "type": "disasm_decode",
+        "details": "wbase 0x25cc..0x2681 (FUN_25cc): bx = [picked*2 + 0x43dc] (PCFILE index of the picked party member); [bx + 0x4fd8] := 1 (mark available); dec [0x43ce] (party_size--). Then a memmove-style loop @ 0x25f0..0x2634 shifts party records 0x1b0 bytes per slot. Followed by clear/redraw of party-panel windows *0x4fba and *0x4fb8 at 0x2636..0x267a. The picker title msg #1203 = 'dismiss_who}' at extracted/messages/msg.json clinches the semantics independent of the implementation."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "slot-1-is-review-member-not-choose-leader",
+      "claim": "Slot 1's handler at wbase 0x2d09 calls wbase_pick_party_member with picker-title msg #1202 ('review_who}'), then on a successful pick sets *0x363a := 0x11 (WPCVW = view player character) and *0x4fce := 4 (next-state cache: come back to main menu). The 'CHOOSE LEADER' hypothesis in the canonical doc was wrong — leader selection is not a Wiz6 main-menu function. Slot 1 is 'REVIEW MEMBER' (msg #1003) and it routes to WPCVW for a read-only character-sheet view.",
+      "category": "slot_behavior",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {
+          "space": "wbase.ovr",
+          "offset": "0x2d09"
+        },
+        "type": "disasm_decode",
+        "details": "wbase 0x2d09: push 0x4b2; call 0x26c7 (wbase_pick_party_member). Then on non-cancel (cmp ax,0xffff; jnz +12): mov [0x363a],0x11; mov [0x4fce],4; mov [bp-0xa],1. Picker title msg #1202 = 'review_who}'."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "slot-3-is-start-new-game",
+      "claim": "Slot 3's handler at wbase 0x2d5d iterates ALL party slots i in [0..party_size), looks up PCFILE index = [i*2 + 0x43dc], marks PCFILE[idx] := 1 (available — i.e. unloads the character from the party but keeps it in PCFILE.DBS), then calls wbase_load_or_quit(0). The mode-0 path inside wbase_load_or_quit's tail-call to 0x11a6 selects a SCENARIO from the list at DGROUP 0x502f via cross-overlay thunk 0xc772 — i.e. it presents the new-game scenario picker. Mode-1 (slot 4 — RESUME SAVED GAME) instead populates two lists at DGROUP 0x3540 and 0x357c (presumably the saved-games and disk-labels lists). The msg #1005 label 'START NEW GAME' is consistent: unloading the party then picking a scenario is exactly 'start a new game with this party-free PCFILE'.",
+      "category": "slot_behavior",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {
+          "space": "wbase.ovr",
+          "offset": "0x11a6"
+        },
+        "type": "disasm_decode",
+        "details": "wbase_load_or_quit @ 0x1a0d takes one word arg (mode). It first calls 0xedb (a 'continue?'-style confirmation that returns 0xffff on user-cancel; cancel routes the engine to state 3 = QUIT). On confirm, it tail-calls 0x11a6(mode). At wbase 0x1219: `cmp [bp+0x4], 0; jnz 0x123c`. Mode 0 (taken when arg==0) takes the 0x121f branch: `push 1; push 0x502f; call 0xc772 (cross-overlay thunk for option-list builder); push ax; lea ax,[bp-0x222]; call 0xf3aa`. Mode 1 takes 0x123c: builds two strings of length 0x3a from DGROUP 0x3540 and 0x357c via call 0xc71e (which I suspect is strncpy or similar). The 0x502f vs 0x3540/0x357c lists are structurally different — DGROUP 0x502f is the source of one-shot scenario filenames; 0x3540/0x357c are the saved-game tables. Both paths converge to state 6 (dungeon) on success at wbase 0x1a44."
+      },
+      "confidence": "high",
+      "open_followups": [
+        "What exactly is at DGROUP 0x502f, 0x3540, 0x357c? Verifying these via a runtime DOSBox-X scan would let us name them precisely (scenario_master_list, saved_games_list_a/b). Not blocking for the port — slot 3 just needs to be wired to 'a START NEW path' regardless of internal list layout."
+      ]
+    },
+    {
+      "id": "complete-slot-table",
+      "claim": "Final 9-slot table — msg ID, label, enable predicate, handler, destination — fully resolved.",
+      "category": "slot_table",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "type": "synthesis",
+        "details": "Combined disasm + msg.json lookup. All entries below are HIGH confidence."
+      },
+      "table": [
+        {
+          "slot": 0,
+          "msg_id": "0x3ea",
+          "label": "ADD PARTY MEMBER",
+          "handler_file_offset": "0x2cf7",
+          "handler_name": "wbase_option0_add_party_member",
+          "enable_predicate": "pcFileHasUnloadedChars && partySize <= 5",
+          "predicate_disasm_bytes": "scan loop 0x2c61..0x2c81 sets options[0]=1 iff any *0x4fd8[i]==1; then cmp [0x43ce],5; jng skip; mov options[0],0",
+          "destination": "loop",
+          "side_effects": "calls wbase_add_party_member_action @ 0x253a; if party_size becomes 6, resets caller's cursor offset to 3"
+        },
+        {
+          "slot": 1,
+          "msg_id": "0x3eb",
+          "label": "REVIEW MEMBER",
+          "handler_file_offset": "0x2d09",
+          "handler_name": "wbase_option1_review_member",
+          "enable_predicate": "partySize >= 1",
+          "predicate_disasm_bytes": "cmp [0x43ce],1; jnl 0x2c50; mov options[1]=0; mov options[2]=0",
+          "destination": "state-0x11 (WPCVW)",
+          "side_effects": "picker title msg 0x4b2 ('review_who}'); on accept sets *0x363a=0x11, *0x4fce=4"
+        },
+        {
+          "slot": 2,
+          "msg_id": "0x3ec",
+          "label": "DISMISS MEMBER",
+          "handler_file_offset": "0x2d2d",
+          "handler_name": "wbase_option2_dismiss_member",
+          "enable_predicate": "partySize >= 1",
+          "predicate_disasm_bytes": "same as slot 1 (cmp [0x43ce],1; jnl skip; both options[1] and options[2] disabled)",
+          "destination": "loop",
+          "side_effects": "picker title msg 0x4b3 ('dismiss_who}'); on accept calls dismiss helper @ 0x25cc which decrements party_size and shifts tables"
+        },
+        {
+          "slot": 3,
+          "msg_id": "0x3ed",
+          "label": "START NEW GAME",
+          "handler_file_offset": "0x2d5d",
+          "handler_name": "wbase_option3_start_new_game",
+          "enable_predicate": "partySize >= 2",
+          "predicate_disasm_bytes": "cmp [0x43ce],2; jnl 0x2c5c; mov options[3]=0",
+          "destination": "state-6 (dungeon) on confirm, else state-3 (QUIT) on confirm-cancel, else stays in loop on picker-cancel",
+          "side_effects": "marks all current party members' PCFILE entries as available (effectively un-parties them), then calls wbase_load_or_quit(0) → scenario picker"
+        },
+        {
+          "slot": 4,
+          "msg_id": "0x3ee",
+          "label": "RESUME SAVED GAME",
+          "handler_file_offset": "0x2d8a",
+          "handler_name": "wbase_option4_resume_saved_game",
+          "enable_predicate": "partySize == 0",
+          "predicate_disasm_bytes": "cmp [0x43ce],0; jng 0x2c9b; mov options[4]=0  — i.e. disable iff party_size>0; equivalent to enable iff party_size<=0",
+          "destination": "state-6 (dungeon) on confirm, else state-3 (QUIT) on confirm-cancel, else stays in loop on picker-cancel",
+          "side_effects": "calls wbase_load_or_quit(1) directly with no party-unload — keeps current (empty) party state and routes to the saved-game picker"
+        },
+        {
+          "slot": 5,
+          "msg_id": "0x3ef",
+          "label": "CHARACTER MENU",
+          "handler_file_offset": "0x2d51",
+          "handler_name": "wbase_option5_character_menu",
+          "enable_predicate": "always enabled (true)",
+          "predicate_disasm_bytes": "no writer to options[5] (bp-0x1e) anywhere in 0x2c3a..0x2c9b",
+          "destination": "state-0x10 (WPCMK)",
+          "side_effects": "calls wbase_unload_all_party_members @ 0x2a70; mov *0x363a=0x10 (no *0x4fce write — exits loop directly)"
+        },
+        {
+          "slot": 6,
+          "msg_id": "0x3f0",
+          "label": "GAME CONFIGURATION",
+          "handler_file_offset": "0x2d94",
+          "handler_name": "wbase_option6_game_configuration",
+          "enable_predicate": "always enabled",
+          "predicate_disasm_bytes": "no writer",
+          "destination": "loop (config submenu runs in-process; returns control to main menu)",
+          "side_effects": "mov *0x4fce=4 (return to state 4 after submenu); call wbase_state18_config_submenu @ 0x3151 directly (NOT a state-transition path — synchronous call)"
+        },
+        {
+          "slot": 7,
+          "msg_id": "0x3f1",
+          "label": "SHOW TITLE PAGE",
+          "handler_file_offset": "0x2d9f",
+          "handler_name": "wbase_option7_show_title_page",
+          "enable_predicate": "always enabled",
+          "predicate_disasm_bytes": "no writer",
+          "destination": "state-1 (winit title page)",
+          "side_effects": "call 0x2a70 (unload all party members); call 0x2a83 (FUN_2a83 — extra cleanup, unidentified); mov *0x363a=1"
+        },
+        {
+          "slot": 8,
+          "msg_id": "0x3f2",
+          "label": "QUIT GAME",
+          "handler_file_offset": "0x2dad",
+          "handler_name": "wbase_option8_quit_game",
+          "enable_predicate": "always enabled",
+          "predicate_disasm_bytes": "no writer",
+          "destination": "state-3 (QUIT)",
+          "side_effects": "call 0x2a70 (unload); call 0x2a83 (FUN_2a83 cleanup); mov *0x363a=3"
+        }
+      ]
+    },
+    {
+      "id": "enable-predicates-bit-exact-verified",
+      "claim": "Each of the four conditional-disable blocks in wbase 0x2c3a..0x2c9b was verified bit-for-bit against the disasm. The four jng/jnl comparators were checked individually for direction (signed comparison: jng = SF^OF | ZF, jnl = !(SF^OF)). No flipped comparators. The current TS impl in packages/parser/src/sim/main-menu.ts isOptionEnabled() matches the engine exactly.",
+      "category": "enable_predicates",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {
+          "space": "wbase.ovr",
+          "offset": "0x2c3a"
+        },
+        "type": "disasm_review",
+        "details": "Bp-relative slot mapping: bp-0x28=slot0, bp-0x26=slot1, bp-0x24=slot2, bp-0x22=slot3, bp-0x20=slot4, bp-0x1e=slot5, bp-0x1c=slot6, bp-0x1a=slot7, bp-0x18=slot8, bp-0x16=terminator (0xffff). Established by the init loop @ 0x2c21..0x2c38: ax=i, bx=ax<<1, [bx+bp-0x28]=1, for i=0..8. Disable blocks: (a) cmp [0x43ce],1; jnl skip; mov options[1]=0, options[2]=0 → slots 1,2 enabled iff party_size>=1. (b) cmp [0x43ce],2; jnl skip; mov options[3]=0 → slot 3 enabled iff party_size>=2. (c) scan loop sets options[0]=1 iff any PCFILE[i]==1; then cmp [0x43ce],5; jng skip; mov options[0]=0 → slot 0 enabled iff pcFileHasUnloadedChars AND party_size<=5. (d) cmp [0x43ce],0; jng skip; mov options[4]=0 → slot 4 enabled iff party_size<=0 (i.e. ==0)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "visible-order-no-shift",
+      "claim": "The visible menu's order is exactly MAIN_MENU_OPTIONS.filter(enabled), preserved in slot-index order. The select-loop widget at wbase 0x25c reads the options[] array in index order, renders msg(baseMsgId + slot_index) for each enabled cell, and emits cancel/back/etc. for disabled cells. No reordering based on party size or any other state.",
+      "category": "render_order",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {
+          "space": "wbase.ovr",
+          "offset": "0x25c"
+        },
+        "type": "disasm_review",
+        "details": "wbase_menu_select_loop iterates options[] from index 0 until it hits the 0xffff terminator at index 9. There is no per-iteration index transform. The 'shifts around' the user perceived is just the slot-0/slot-4/slot-1/slot-2/slot-3 enable flips as party_size changes: empty party shows {0,4,5,6,7,8}; party of 1 shows {0,1,2,5,6,7,8}; party of 2-5 shows {0,1,2,3,5,6,7,8}; party of 6 shows {1,2,3,5,6,7,8} (slot 0 disabled by party_size>5; slot 4 disabled once party_size>0)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "load-or-quit-mode-semantics",
+      "claim": "wbase_load_or_quit(mode) at wbase 0x1a0d is a two-stage dispatch. Stage 1: 0xedb — a 'continue?' confirmation that opens a small dialog at (19,*) (window dims 0xa wide x 5 tall, attr 0xff). It returns 0xffff if the user cancels, in which case the engine routes to state 3 (QUIT) — that's the 'are you sure you want to exit?' path. Stage 2: 0x11a6(mode) is the actual mode-sensitive picker. Mode 0: presents a scenario list sourced from DGROUP 0x502f (a list of one-shot install-base scenario filenames); mode 1: presents a saved-games list built from DGROUP 0x3540 (filenames) and DGROUP 0x357c (display labels). Both modes return 0xffff if the user cancels (stays in main menu), else commit to state 6 (dungeon). The mode-arg is read once at wbase 0x1219 via `cmp [bp+0x4],0; jnz +29`.",
+      "category": "load_or_quit_semantics",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {
+          "space": "wbase.ovr",
+          "offset": "0x1219"
+        },
+        "type": "disasm_decode",
+        "details": "Mode-0 branch (0x121f..0x1239): push 1; push 0x502f; call 0xc772 (cross-overlay thunk; per thunk-delta law, thunk 0xc772 = wroot image 0x0cd6 = wroot file 0xed6 — this resolves to a wroot utility for building option lists from a packed string array). Result pushed; format-string call to 0xf3aa (likely sprintf-style). Then jmp 0x134c (skip the mode-1 block). Mode-1 branch (0x123c..): two paired calls to 0xc71e (a strncpy-like utility, length 0x3a = 58) with sources DGROUP 0x3540 and DGROUP 0x357c into local-frame buffers; then formats both via 0xf3aa. The mode arg is only consulted at this one site — no other branches in 0x11a6 read [bp+0x4]."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "msg-0x3e8-filename-buffer-template",
+      "claim": "msg #1000 (0x3e8) is NOT a user-visible string — it decodes to the byte sequence \\x1b\\x08\\t\\n\\x0b\\r (control chars 0x1b/0x08/0x09/0x0a/0x0b/0x0d). The wbase prelude loads it into a 11-byte buffer at DGROUP 0x5066 via load_msg_into_buf(0x3e8, 0x5066). This is almost certainly a filename TEMPLATE — the byte sequence is consistent with a DOS-style 8.3 filename where the slots get overwritten by per-asset code at the right offsets. The MON08.PIC decoration loader at wbase prelude is the immediate consumer.",
+      "category": "filename_buffer",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {
+          "space": "wbase.ovr",
+          "offset": "0x2b3c"
+        },
+        "type": "disasm_decode",
+        "details": "wbase 0x2b3c: push 0x5066 (buffer addr); push 0x3e8 (msg ID); call 0xc1f7 (load_msg_into_buf thunk). The msg decodes to a 6-byte sequence of low-ASCII control bytes — not a printable string. The next call at 0x2b4a is wbase_load_font_table_entry(8,4), which loads MON08.PIC into a font/asset slot — consistent with the buffer being used as a filename template."
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Confirm by reading the buffer at 0x5066 during state 4 entry via DOSBox-X to see if it gets overwritten before the asset load, and if so, what the final filename is. Not blocking for the port — wbase's asset path is already wired (MON08.PIC)."
+      ]
+    },
+    {
+      "id": "msg-0x3e9-banner-format-chars",
+      "claim": "msg #1001 (0x3e9) is the banner-strip text 'MASTER OPTIONS' wrapped in a format: \\x7f__master_options__\\x7f. The \\x7f bytes are likely a per-banner control-char delimiter consumed by the banner renderer (wbase_render_banner_label @ 0x1d6). The underscores delimit word boundaries — the renderer likely strips both and uppercases the inner text.",
+      "category": "banner_format",
+      "evidence": {
+        "binary": "msg.dbs",
+        "type": "extracted_json_lookup",
+        "details": "extracted/messages/msg.json entry for id 1001: '\\x7f__master_options__\\x7f'. Other banner messages in nearby IDs (0x4b1='add_member', 0x4b2='review_who}', 0x4b3='dismiss_who}', 0x8d3='loading_game\\x17\\x17\\x17') show consistent control-char/punctuation framing — appears to be a per-banner format protocol that the wbase_render_banner_label thunk decodes."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "the_bug_in_the_ts_port": {
+    "file": "packages/parser/src/sim/main-menu.ts",
+    "current_labels_wrong": {
+      "slot_1": {
+        "current": "CHOOSE LEADER",
+        "correct": "REVIEW MEMBER",
+        "reason": "Picker title is 'review_who}', destination is WPCVW (view char sheet). 'CHOOSE LEADER' was a guess by the prior RE pass."
+      },
+      "slot_2": {
+        "current": "CHARACTER MENU",
+        "correct": "DISMISS MEMBER",
+        "reason": "This is the duplicate-label bug the user reported. Slot 2's picker title is 'dismiss_who}', and the handler at 0x25cc is a textbook dismiss-member: marks PCFILE entry available, decrements party_size, shifts tables down. NOT a 'character submenu'."
+      },
+      "slot_3": {
+        "current": "REMOVE PARTY MEMBER",
+        "correct": "START NEW GAME",
+        "reason": "Slot 3 marks ALL party members' PCFILE entries as available, then calls load_or_quit(0) which routes to a scenario picker. The 'remove party member' role is filled by slot 2 (DISMISS MEMBER), which dismisses ONE picked member. Slot 3 is the 'start a fresh game with an unloaded party' button — msg #1005 = literal 'START NEW GAME'."
+      }
+    },
+    "current_labels_correct": {
+      "slot_0": "ADD PARTY MEMBER",
+      "slot_4": "RESUME SAVED GAME",
+      "slot_5": "CHARACTER MENU",
+      "slot_6": "GAME CONFIGURATION",
+      "slot_7": "SHOW TITLE PAGE",
+      "slot_8": "QUIT GAME"
+    },
+    "msg_ids_correct": "All nine msgId fields (0x3ea..0x3f2) in MAIN_MENU_OPTIONS are correct.",
+    "enable_predicates_correct": "All nine enable predicates in isOptionEnabled() match the engine bit-for-bit.",
+    "destinations_correct": "All nine destination fields match — they were derived from disasm in the original RE pass, not from the (sometimes wrong) label guesses.",
+    "recommended_fix": "In packages/parser/src/sim/main-menu.ts MAIN_MENU_OPTIONS, change three label strings: slot 1 → 'REVIEW MEMBER', slot 2 → 'DISMISS MEMBER', slot 3 → 'START NEW GAME'. Update the docstring on slot 5 (currently says label may be context-dependent — it isn't). The destinations and enable predicates need no change."
+  },
+  "unresolved": [
+    "Exact contents of DGROUP 0x502f (scenario master list) and DGROUP 0x3540/0x357c (saved-game tables) — not blocking for the port; could be useful for the future 'multiple scenarios' / 'saved games browser' work.",
+    "FUN_2a83 @ wbase 0x2a83 — called from slots 7 and 8 between unload-all and state-write. Not identified; likely a deeper cleanup (window-stack pop, free per-overlay buffers). Worth a follow-up pass.",
+    "The config-submenu (state 0x18) options — still uncovered. Open question #3 in the canonical doc. Out of scope for this RE pass; left for a future subagent."
+  ],
+  "recommendations_for_canonical_doc_promotion": [
+    "Promote the resolved 9-slot label table (replacing the 'hypothesis' column with confirmed labels). The new labels go into the canonical doc at docs/re/wbase-main-menu.md's 'Per-option handler behaviors and transitions' table.",
+    "Close open questions Q1 (label IDs decoded), Q2 (load_or_quit mode semantics), and Q6 (slot 5 not context-dependent). The remaining open questions Q3 (config submenu), Q4 (MON08.PIC indexing), Q5 (init_decoration descriptors) are unaffected by this pass.",
+    "Update the 'Visible label vs. slot mapping' note — the first-launch (party_size=0) order is now: ADD PARTY MEMBER, RESUME SAVED GAME, CHARACTER MENU, GAME CONFIGURATION, SHOW TITLE PAGE, QUIT GAME (6 items). This matches what a user would see and what the user described.",
+    "Lower the doc's 'Open Questions' section's 'CHARACTER MENU vs MAKE CHARACTER' speculation — slot 5 is unambiguously 'CHARACTER MENU' regardless of party state.",
+    "Add a 'msg.dbs ID range is broader than 718' clarification — the extracted msg.json covers 5161 indexed messages across IDs 100..18961, with the full main-menu range fully decoded. Prior worries about IDs being 'outside the extracted range' were unfounded."
+  ]
+}

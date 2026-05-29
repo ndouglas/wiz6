@@ -100,4 +100,5 @@ Track which JSON files have had their findings promoted, so we know what's stale
 <!-- promoted (file → canonical doc, date):
 - wbase-add-party-member.json → docs/re/wbase-main-menu.md "Slot 0 — ADD PARTY MEMBER (deep dive)" section, 2026-05-28
 - wbase-picker-internals.json → docs/re/wbase-main-menu.md "Picker internals (struct layout + render geometry)" subsection, 2026-05-28 (also supersedes the cells-off-delta claim in wbase-window-struct.json)
+- wbase-master-options-full.json → docs/re/wbase-main-menu.md per-option-handler table + Open questions 1/2/6 resolved, 2026-05-29 (also corrects three label hypotheses for slots 1/2/3 that were carried in packages/parser/src/sim/main-menu.ts)
 -->

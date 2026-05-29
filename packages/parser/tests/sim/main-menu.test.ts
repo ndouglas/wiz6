@@ -35,9 +35,13 @@ describe('MAIN_MENU_OPTIONS', () => {
     expect(MAIN_MENU_OPTIONS.map((o) => o.slot)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
-  it('has the canonical user-visible labels for the 6 first-launch slots', () => {
+  it('labels match extracted msg.json verbatim (0x3ea..0x3f2)', () => {
     expect(MAIN_MENU_OPTIONS[0]!.label).toBe('ADD PARTY MEMBER');
+    expect(MAIN_MENU_OPTIONS[1]!.label).toBe('REVIEW MEMBER');
+    expect(MAIN_MENU_OPTIONS[2]!.label).toBe('DISMISS MEMBER');
+    expect(MAIN_MENU_OPTIONS[3]!.label).toBe('START NEW GAME');
     expect(MAIN_MENU_OPTIONS[4]!.label).toBe('RESUME SAVED GAME');
+    expect(MAIN_MENU_OPTIONS[5]!.label).toBe('CHARACTER MENU');
     expect(MAIN_MENU_OPTIONS[6]!.label).toBe('GAME CONFIGURATION');
     expect(MAIN_MENU_OPTIONS[7]!.label).toBe('SHOW TITLE PAGE');
     expect(MAIN_MENU_OPTIONS[8]!.label).toBe('QUIT GAME');
@@ -97,9 +101,9 @@ describe('visibleMenuOptions', () => {
     const visible = visibleMenuOptions(PARTIAL_PARTY);
     const slots = visible.map((o) => o.slot);
     expect(slots).toContain(0); // ADD: still room + has unloaded
-    expect(slots).toContain(1); // CHOOSE LEADER
-    expect(slots).toContain(2); // CHARACTER MENU (party variant)
-    expect(slots).toContain(3); // REMOVE: party >= 2
+    expect(slots).toContain(1); // REVIEW MEMBER
+    expect(slots).toContain(2); // DISMISS MEMBER
+    expect(slots).toContain(3); // START NEW GAME: party >= 2
     expect(slots).not.toContain(4); // RESUME: party already loaded
     expect(slots).toContain(5);
     expect(slots).toContain(6);

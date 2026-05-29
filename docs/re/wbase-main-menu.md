@@ -202,17 +202,19 @@ jump table at runtime `0x7667` (file ~0x3103) and another at runtime
 
 ### Per-option handler behaviors and transitions
 
-| Slot | msg ID | Label (hypothesis)                           | Handler behavior                                                                          | State transition          |
-| ---- | -----: | -------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------- |
-| 0    |  0x3ea | **ADD PARTY MEMBER**                         | `wbase_add_party_member_action` — picks from PCFILE.DBS, copies char data into party slot | continues loop            |
-| 1    |  0x3eb | (CHOOSE LEADER?)                             | `pick_party_member(msg 0x4b2)`; if picked: state 0x11 + next-state 4                      | → state 0x11 (WPCVW)      |
-| 2    |  0x3ec | (CHARACTER MENU?)                            | `pick_party_member(msg 0x4b3)`; if picked: `character_submenu(picked)`                    | continues loop            |
-| 3    |  0x3ed | (REMOVE/UNLOAD?)                             | Mark all party char slots as "available" in `*0x4fd8`, then `load_or_quit(0)`             | depends on `load_or_quit` |
-| 4    |  0x3ee | **RESUME SAVED GAME**                        | `load_or_quit(1)` — load saved game with "resume" semantics                               | → state 6 (game) or 3     |
-| 5    |  0x3ef | **CHARACTER MENU** (probably MAKE CHARACTER) | `unload_all_party_members()`; state := 0x10                                               | → state 0x10 (WPCMK)      |
-| 6    |  0x3f0 | **GAME CONFIGURATION**                       | next-state 4 cached; call `wbase_state18_config_submenu` directly                         | stays in wbase            |
-| 7    |  0x3f1 | **SHOW TITLE PAGE**                          | `unload_all_party_members()`; `FUN_2a83()`; state := 1                                    | → state 1 (winit title)   |
-| 8    |  0x3f2 | **QUIT GAME**                                | `unload_all_party_members()`; `FUN_2a83()`; state := 3                                    | → state 3 (QUIT)          |
+Labels resolved verbatim from `extracted/messages/msg.json` (ids 0x3ea..0x3f2 = decimal 1002..1010). See `docs/re/findings/wbase-master-options-full.json` for the full evidence trail. Three of the original hypothesised labels were wrong (slots 1, 2, 3); slot 5 is unambiguously "CHARACTER MENU" and is NOT context-dependent.
+
+| Slot | msg ID | Label                | Handler behavior                                                                          | State transition          |
+| ---- | -----: | -------------------- | ----------------------------------------------------------------------------------------- | ------------------------- |
+| 0    |  0x3ea | **ADD PARTY MEMBER** | `wbase_add_party_member_action` — picks from PCFILE.DBS, copies char data into party slot | continues loop            |
+| 1    |  0x3eb | **REVIEW MEMBER**    | `pick_party_member(msg 0x4b2 "review_who}")`; if picked: state 0x11 + next-state 4        | → state 0x11 (WPCVW)      |
+| 2    |  0x3ec | **DISMISS MEMBER**   | `pick_party_member(msg 0x4b3 "dismiss_who}")`; if picked: dismiss helper @ 0x25cc (marks PCFILE avail, decrements party_size, shifts tables) | continues loop |
+| 3    |  0x3ed | **START NEW GAME**   | Unloads entire party (marks every slot avail in `*0x4fd8`), then `wbase_load_or_quit(0)` → scenario picker (list at DGROUP 0x502f via thunk 0xc772) | → state 6 (game) or 3 |
+| 4    |  0x3ee | **RESUME SAVED GAME**| `wbase_load_or_quit(1)` — saved-game picker (lists at DGROUP 0x3540 and 0x357c)           | → state 6 (game) or 3     |
+| 5    |  0x3ef | **CHARACTER MENU**   | `unload_all_party_members()`; state := 0x10. Label is the literal string at msg #1007 — NOT context-dependent. The WPCMK overlay decides internally whether to show create-new vs edit-existing. | → state 0x10 (WPCMK) |
+| 6    |  0x3f0 | **GAME CONFIGURATION** | next-state 4 cached; call `wbase_state18_config_submenu` directly                       | stays in wbase            |
+| 7    |  0x3f1 | **SHOW TITLE PAGE**  | `unload_all_party_members()`; `FUN_2a83()`; state := 1                                    | → state 1 (winit title)   |
+| 8    |  0x3f2 | **QUIT GAME**        | `unload_all_party_members()`; `FUN_2a83()`; state := 3                                    | → state 3 (QUIT)          |
 
 **Visible label vs. slot mapping (first launch, party_size=0):** slots 0,
 4, 5, 6, 7, 8 = 6 options. Matching the user-described menu items in order:
@@ -702,16 +704,20 @@ wmaze.
 
 ## Open questions
 
-1. **What text is at msg IDs 0x3ea..0x3f2?** The `load_msg_into_buf` thunk
-   (wroot 0x75b) takes a 16-bit msg ID. Our extracted msg.hdr indexes
-   0..717 don't directly cover 1002..1010. The ID-to-section/offset
-   encoding inside `load_msg_into_buf` needs decoding (or a DOSBox-X trace
-   of the buffer contents during state 4).
+~~1. **What text is at msg IDs 0x3ea..0x3f2?**~~ **Resolved** 2026-05-29 — the
+   extracted `msg.json` already covers ids 1002..1010 (range index 23, bank 2).
+   The "msg.hdr indexes 0..717" worry was a miscount; msg.json contains 5161
+   indexed messages. Labels promoted to the per-option-handler table above.
+   Evidence: `docs/re/findings/wbase-master-options-full.json` (finding
+   `msg-labels-all-resolved`).
 
-2. **Slot 3's purpose.** Conditional on party_size >= 2 (unusual), unloads
-   all party members then calls `wbase_load_or_quit(0)`. Either "NEW GAME
-   (restart)" or "RESUME but with party already loaded — load DIFFERENT
-   save". Reading `wbase_load_or_quit`'s mode-handling would clarify.
+~~2. **Slot 3's purpose.**~~ **Resolved** 2026-05-29 — slot 3 is
+   **START NEW GAME** (msg #1005). Handler unloads the whole party then calls
+   `wbase_load_or_quit(0)` which selects the scenario-picker path (list at
+   DGROUP 0x502f via cross-overlay thunk 0xc772). Mode 0 = scenario list;
+   mode 1 (slot 4) = saved-games list (DGROUP 0x3540 + 0x357c). Evidence:
+   `docs/re/findings/wbase-master-options-full.json` (finding
+   `slot-3-is-start-new-game`).
 
 3. **wbase config submenu (state 0x18) options.** The 9-slot dispatch at
    runtime 0x7667 / file ~0x3103 hasn't been decoded. Likely contains
@@ -726,10 +732,10 @@ wmaze.
    renders 0x7b..0x7d. The mapping from these IDs to MON08.PIC descriptor
    numbers is the missing link to a byte-exact reimplementation.
 
-6. **Slot 5 → "CHARACTER MENU" vs. "MAKE CHARACTER".** State 0x10 is
-   WPCMK.OVR which is character creation. The original Wiz6 main menu has
-   "CHARACTER MENU" as a label — that label may map to WPCMK only when the
-   party is empty (no existing character to view/edit), with the same
-   menu slot showing a different label or behavior when party is populated.
-   Confirming requires reading the actual msg #1007 text in different
-   game contexts.
+~~6. **Slot 5 → "CHARACTER MENU" vs. "MAKE CHARACTER".**~~ **Resolved** 2026-05-29
+   — the label is literally `'CHARACTER MENU'` (msg #1007) regardless of party
+   state. There is no per-slot label-rewrite path in the menu render loop. The
+   "duplicate CHARACTER MENU" bug the user observed was actually slot 2's TS
+   label being wrong (it should be **DISMISS MEMBER**, not "CHARACTER MENU").
+   Evidence: `docs/re/findings/wbase-master-options-full.json` (findings
+   `slot-5-character-menu-not-context-dependent` and `msg-labels-all-resolved`).

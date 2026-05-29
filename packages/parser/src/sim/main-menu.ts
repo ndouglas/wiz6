@@ -47,21 +47,20 @@ export interface MainMenuOption {
 
 /**
  * Read-only spec of all 9 main-menu slots. Order matches the engine's array.
- * Label text is taken from the user-supplied screenshot; the msgId is the
- * engine's reference (msg 0x3ea..0x3f2). Some labels are context-dependent —
- * e.g. slot 5 may display as "MAKE CHARACTER" when partySize == 0 and
- * "CHARACTER MENU" otherwise — we display the simpler "CHARACTER MENU" for now.
+ * Labels are verbatim from `extracted/messages/msg.json` ids 0x3ea..0x3f2 —
+ * not context-dependent. The earlier doc speculation that slot 5 might
+ * sometimes render as "MAKE CHARACTER" was wrong; verified vs the engine.
  */
 export const MAIN_MENU_OPTIONS: readonly MainMenuOption[] = [
-  { slot: 0, label: 'ADD PARTY MEMBER', msgId: 0x3ea, destination: 'loop' },
-  { slot: 1, label: 'CHOOSE LEADER', msgId: 0x3eb, destination: 'state-0x11' },
-  { slot: 2, label: 'CHARACTER MENU', msgId: 0x3ec, destination: 'loop' },
-  { slot: 3, label: 'REMOVE PARTY MEMBER', msgId: 0x3ed, destination: 'loop' },
-  { slot: 4, label: 'RESUME SAVED GAME', msgId: 0x3ee, destination: 'state-6' },
-  { slot: 5, label: 'CHARACTER MENU', msgId: 0x3ef, destination: 'state-0x10' },
+  { slot: 0, label: 'ADD PARTY MEMBER',   msgId: 0x3ea, destination: 'loop' },
+  { slot: 1, label: 'REVIEW MEMBER',      msgId: 0x3eb, destination: 'state-0x11' },
+  { slot: 2, label: 'DISMISS MEMBER',     msgId: 0x3ec, destination: 'loop' },
+  { slot: 3, label: 'START NEW GAME',     msgId: 0x3ed, destination: 'state-6' },
+  { slot: 4, label: 'RESUME SAVED GAME',  msgId: 0x3ee, destination: 'state-6' },
+  { slot: 5, label: 'CHARACTER MENU',     msgId: 0x3ef, destination: 'state-0x10' },
   { slot: 6, label: 'GAME CONFIGURATION', msgId: 0x3f0, destination: 'state-0x18' },
-  { slot: 7, label: 'SHOW TITLE PAGE', msgId: 0x3f1, destination: 'state-1' },
-  { slot: 8, label: 'QUIT GAME', msgId: 0x3f2, destination: 'state-3' },
+  { slot: 7, label: 'SHOW TITLE PAGE',    msgId: 0x3f1, destination: 'state-1' },
+  { slot: 8, label: 'QUIT GAME',          msgId: 0x3f2, destination: 'state-3' },
 ];
 
 /**
