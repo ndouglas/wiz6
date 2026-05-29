@@ -83,6 +83,28 @@ const ATTR_AC_SEP = 0x01;            // wfont1 0x1c     — separator
 const ATTR_AC_VALUE_ZERO = 0x30;     // palette[3]      — slot value when 0
 const ATTR_AC_VALUE_NONZERO = 0x70;  // palette[7]      — slot value when non-zero
 
+// Window-chrome glyphs (wfont1, attr 0x01). All chars + positions decoded
+// from save 2's main-panel cell dump.
+const ATTR_CHROME = 0x01;
+const CHROME_TOP_LEFT = 0x01;
+const CHROME_TOP_HORZ = 0x02;
+const CHROME_TOP_RIGHT = 0x03;
+const CHROME_LEFT_VERT = 0x04;
+const CHROME_RIGHT_VERT = 0x05;
+const CHROME_BOT_LEFT = 0x06;
+const CHROME_BOT_HORZ = 0x07;
+const CHROME_BOT_RIGHT = 0x08;
+const CHROME_T_LEFT = 0x09;     // left edge T-junction (rows 4, 13, 15, 17)
+const CHROME_T_RIGHT = 0x0a;    // right edge T-junction (rows 4, 8)
+const CHROME_T_BOT = 0x0b;      // bottom T-junction (row 19 at cols 2/10/12/20/37)
+const CHROME_INNER_HORZ = 0x0c; // inner horizontal line
+const CHROME_INNER_VERT = 0x0d; // inner vertical line
+const CHROME_CROSS_X = 0x0e;    // crossroad junction (variant 1)
+const CHROME_CROSS_T_UP = 0x0f; // T-up junction (rows 13, 15, 17 at col 20)
+const CHROME_CROSS_T_DN = 0x10; // T-down junction (rows 15, 17 at cols 2/10/12)
+const CHROME_AC_ICON_SEP = 0x1c;// vertical separator between AC icons (row 6)
+const CHROME_AC_BOTTOM_T = 0x21;// special junction at (8, 20)
+
 /** Default body-AC values when the character record doesn't carry bodyAc.
  *  Per CharacterSchema docs: stock value = [0, 0, 10, 10, 10, 10, 10]
  *  (Magical, Head, Chest, Legs, Hands, Feet, Encumbrance/Shield) — but the
@@ -226,6 +248,89 @@ function drawHeader(w: TileWindow, member: ActivePartyMember, db: MessageDb): vo
   puts(w, rpad(0, 10), ATTR_EXPMKS_VALUE);
 }
 
+/** Set the cell at (row, col) to (char, attr) directly — bypassing the
+ *  cursor-advancing puts(). Used for chrome where positions are sparse. */
+function setCell(w: TileWindow, col: number, row: number, char: number, attr: number): void {
+  const i = (row * w.widthCells + col) * 2;
+  w.cells[i] = char;
+  w.cells[i + 1] = attr;
+}
+
+function drawChrome(w: TileWindow): void {
+  // Row 0: top border = 0x01 0x02×38 0x03
+  setCell(w, 0, 0, CHROME_TOP_LEFT, ATTR_CHROME);
+  for (let x = 1; x <= 38; x++) setCell(w, x, 0, CHROME_TOP_HORZ, ATTR_CHROME);
+  setCell(w, 39, 0, CHROME_TOP_RIGHT, ATTR_CHROME);
+
+  // Rows 1-18 col 0: left vertical (with T-junctions at rows 4, 13, 15, 17)
+  // Rows 1-18 col 39: right vertical (with T-junctions at rows 4, 8)
+  for (let y = 1; y <= 18; y++) {
+    const isLeftT = y === 4 || y === 13 || y === 15 || y === 17;
+    setCell(w, 0, y, isLeftT ? CHROME_T_LEFT : CHROME_LEFT_VERT, ATTR_CHROME);
+    const isRightT = y === 4 || y === 8;
+    setCell(w, 39, y, isRightT ? CHROME_T_RIGHT : CHROME_RIGHT_VERT, ATTR_CHROME);
+  }
+
+  // Row 4: horizontal separator under header. 0x0c × 19 with 0x0e at col 20.
+  for (let x = 1; x <= 19; x++) setCell(w, x, 4, CHROME_INNER_HORZ, ATTR_CHROME);
+  setCell(w, 20, 4, CHROME_CROSS_X, ATTR_CHROME);
+  for (let x = 21; x <= 38; x++) setCell(w, x, 4, CHROME_INNER_HORZ, ATTR_CHROME);
+
+  // Col 20 rows 5-18: inner vertical (mostly 0x0d, special at rows 8/13/15/17)
+  for (let y = 5; y <= 18; y++) {
+    let ch: number = CHROME_INNER_VERT;
+    if (y === 8) ch = CHROME_AC_BOTTOM_T;
+    else if (y === 13 || y === 15 || y === 17) ch = CHROME_CROSS_T_UP;
+    setCell(w, 20, y, ch, ATTR_CHROME);
+  }
+
+  // Row 8 cols 21-38: horizontal separator under AC values. 0x0c × 16 with
+  // 0x0e at col 37, 0x0c at col 38.
+  for (let x = 21; x <= 36; x++) setCell(w, x, 8, CHROME_INNER_HORZ, ATTR_CHROME);
+  setCell(w, 37, 8, CHROME_CROSS_X, ATTR_CHROME);
+  setCell(w, 38, 8, CHROME_INNER_HORZ, ATTR_CHROME);
+
+  // Col 37 rows 9-18: inner vertical (with 0x0e at row 8 handled above)
+  for (let y = 9; y <= 18; y++) {
+    setCell(w, 37, y, CHROME_INNER_VERT, ATTR_CHROME);
+  }
+
+  // Row 13: horizontal separator. 0x0c × 19 with 0x0e at cols 2, 10, 12 and
+  // 0x0f at col 20.
+  for (let x = 1; x <= 19; x++) {
+    const ch =
+      x === 2 || x === 10 || x === 12 ? CHROME_CROSS_X : CHROME_INNER_HORZ;
+    setCell(w, x, 13, ch, ATTR_CHROME);
+  }
+  setCell(w, 20, 13, CHROME_CROSS_T_UP, ATTR_CHROME);
+
+  // Rows 15, 17: same horizontal pattern as row 13 but with 0x10 (T-down)
+  // at cols 2, 10, 12 instead of 0x0e.
+  for (const y of [15, 17]) {
+    for (let x = 1; x <= 19; x++) {
+      const ch =
+        x === 2 || x === 10 || x === 12 ? CHROME_CROSS_T_DN : CHROME_INNER_HORZ;
+      setCell(w, x, y, ch, ATTR_CHROME);
+    }
+    setCell(w, 20, y, CHROME_CROSS_T_UP, ATTR_CHROME);
+  }
+
+  // Rows 14, 16, 18 cols 2, 10, 12: school mana cell verticals (0x0d).
+  for (const y of [14, 16, 18]) {
+    for (const x of [2, 10, 12]) {
+      setCell(w, x, y, CHROME_INNER_VERT, ATTR_CHROME);
+    }
+  }
+
+  // Row 19: bottom border. 0x06, mixed 0x07/0x0b, 0x08.
+  setCell(w, 0, 19, CHROME_BOT_LEFT, ATTR_CHROME);
+  for (let x = 1; x <= 38; x++) {
+    const isT = x === 2 || x === 10 || x === 12 || x === 20 || x === 37;
+    setCell(w, x, 19, isT ? CHROME_T_BOT : CHROME_BOT_HORZ, ATTR_CHROME);
+  }
+  setCell(w, 39, 19, CHROME_BOT_RIGHT, ATTR_CHROME);
+}
+
 function drawArmorClass(w: TileWindow, member: ActivePartyMember): void {
   // Row 5: "ARMORCLASS" cols 21-30 attr 0xf0; total (2 chars) cols 32-33
   // attr 0x40; " " 34 attr 0xf0; "(" 35 attr 0xf0; "+" 36 attr 0x90; "0"
@@ -301,6 +406,7 @@ export function composeMainPanel(view: MainPanelView): TileWindow {
     heightCells: PANEL_H,
   });
   clearWindow(w, 0x20, ATTR_BG);
+  drawChrome(w);
   drawHeader(w, view.member, view.db);
   drawStatsColumn(w, view.member);
   drawHpStmCndGpCc(w, view.member);
