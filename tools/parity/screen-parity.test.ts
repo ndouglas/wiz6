@@ -670,11 +670,21 @@ function renderCreationReviewMember(fontSet: FontSet, palette: Palette): Uint8Cl
     portraitSlotId: 0,
     rosterCharacterId: NATHAN_RAWULF_FIGHTER.id,
   };
+  // NATHAN's equipped inventory in engine save 2, in display order. Each row
+  // pairs the item name with the wfont0 body-slot glyph the engine renders
+  // at col 38. TODO: derive from scenario.dbs item lookup once available.
   const windows = composeCharacterViewFrame({
     members: [member],
     currentSlot: 0,
     cursorIdx: 5, // EXIT in the camp-mask-packed action menu (6 enabled actions)
     db: msgDb,
+    inventory: [
+      { name: 'LONGSWORD',       iconChar: 0x02 },
+      { name: 'LEATHER CUIRASS', iconChar: 0x2a },
+      { name: 'FUR LEGGING',     iconChar: 0x2d },
+      { name: 'SANDALS',         iconChar: 0x2f },
+      { name: 'BUCKLER SHIELD',  iconChar: 0x27 },
+    ],
   });
   return renderCreationFrame(windows, fontSet, palette);
 }
@@ -794,7 +804,7 @@ const SCREENS: ScreenCase[] = [
     // values (col 4 + cols 5-7 rows 2-3), ARMORCLASS sub-panel (rows 5-7),
     // inventory list (rows 9-13), school mana grid (rows 14-18), chrome
     // frame, derived CC values. See TODO #044, #042, #045.
-    floor: 67,
+    floor: 76,
     render: renderCreationReviewMember,
   },
 ];

@@ -23,7 +23,7 @@
 import type { TileWindow } from '@wiz6/parser';
 import type { ActivePartyMember, MessageDb } from '@wiz6/data';
 import { composeActionMenu } from './compose-action-menu.js';
-import { composeMainPanel } from './compose-main-panel.js';
+import { composeMainPanel, type InventoryItem } from './compose-main-panel.js';
 
 export interface CharacterViewView {
   members: ReadonlyArray<ActivePartyMember>;
@@ -32,13 +32,15 @@ export interface CharacterViewView {
   /** Action-menu cursor index 0..5 into the camp-enabled subset; 5 = EXIT. */
   cursorIdx: number;
   db: MessageDb;
+  /** Inventory list to render in the main panel; defaults to empty. */
+  inventory?: ReadonlyArray<InventoryItem>;
 }
 
 export function composeCharacterViewFrame(view: CharacterViewView): TileWindow[] {
   const current = view.members[view.currentSlot];
   if (!current) return [];
   return [
-    composeMainPanel({ member: current, db: view.db }),
+    composeMainPanel({ member: current, db: view.db, inventory: view.inventory }),
     composeActionMenu({ cursorIdx: view.cursorIdx, db: view.db }),
   ];
 }

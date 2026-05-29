@@ -74,6 +74,17 @@ const SCHOOL_ICON_CHARS: ReadonlyArray<number> = [
 const ATTR_SCHOOL_ICON = 0x02;       // wfont2 — school glyph cell
 const ATTR_MANA_SLASH = 0x90;        // palette[9] — separator
 
+// Inventory list (rows 9-13 cols 21-38).
+const ATTR_INV_MARGIN = 0x40;        // palette[4] left-margin "selected-row" marker
+const ATTR_INV_NAME = 0x90;          // palette[9] item-name chars
+const ATTR_INV_PAD = 0x10;           // palette[1] trailing-space pad after the name
+const ATTR_INV_ICON = 0x04;          // wfont0 highlighted — body-slot equip icon
+const INV_NAME_COL = 22;
+const INV_NAME_WIDTH = 15;           // cols 22..36 inclusive
+const INV_ICON_COL = 38;
+const INV_FIRST_ROW = 9;
+const INV_MAX_ROWS = 5;              // rows 9..13
+
 // ARMORCLASS sub-panel (rows 5-7 cols 21-38).
 const ATTR_AC_LABEL = 0xf0;          // palette[15]      — "ARMORCLASS", parens, mid space
 const ATTR_AC_TOTAL = 0x40;          // palette[4]       — total AC number
@@ -130,9 +141,22 @@ const STAT_LABELS: ReadonlyArray<{ label: string; value: (m: ActivePartyMember) 
   { label: 'KAR', value: (m) => m.attributes.kar },
 ];
 
+/** A single equipped-item row in the WPCVW inventory list. */
+export interface InventoryItem {
+  /** Display name, truncated/padded to 15 chars when rendered. */
+  name: string;
+  /** Body-slot glyph (wfont0 char) — e.g. 0x02 weapon, 0x2a body, 0x2d legs,
+   *  0x2f feet, 0x27 shield. Maps from the item's `equipSlot` field. */
+  iconChar: number;
+}
+
 export interface MainPanelView {
   member: ActivePartyMember;
   db: MessageDb;
+  /** Inventory list to render in rows 9-13 (max 5). Defaults to empty.
+   *  Runtime callers omit this until we have a scenario.dbs item-name
+   *  lookup; the parity test passes the fixture's known 5 items. */
+  inventory?: ReadonlyArray<InventoryItem>;
 }
 
 /** Right-align `value` to width `n`, space-pad on the left. */
@@ -371,6 +395,29 @@ function drawArmorClass(w: TileWindow, member: ActivePartyMember): void {
   }
 }
 
+function drawInventoryList(w: TileWindow, items: ReadonlyArray<InventoryItem>): void {
+  for (let i = 0; i < Math.min(items.length, INV_MAX_ROWS); i++) {
+    const { name, iconChar } = items[i]!;
+    const row = INV_FIRST_ROW + i;
+    // Left margin indicator (selected-row uses 0x50; non-selected uses 0x40).
+    setCursor(w, INV_NAME_COL - 1, row);
+    puts(w, ' ', ATTR_INV_MARGIN);
+    // Item name at cols 22..(22 + nameLen - 1) attr 0x90.
+    const namePart = name.slice(0, INV_NAME_WIDTH);
+    setCursor(w, INV_NAME_COL, row);
+    puts(w, namePart, ATTR_INV_NAME);
+    // Trailing padding at attr 0x10 from name end to col 36.
+    const padCount = INV_NAME_WIDTH - namePart.length;
+    if (padCount > 0) {
+      setCursor(w, INV_NAME_COL + namePart.length, row);
+      puts(w, ' '.repeat(padCount), ATTR_INV_PAD);
+    }
+    // Body-slot icon at col 38 attr 0x04 (wfont0 highlight).
+    setCursor(w, INV_ICON_COL, row);
+    puts(w, String.fromCharCode(iconChar), ATTR_INV_ICON);
+  }
+}
+
 function drawSchoolManaGrid(w: TileWindow, member: ActivePartyMember): void {
   // Each school cell: icon at col {1 or 11}, current at col {5 or 15}, slash
   // at col {6 or 16}, max at col {9 or 19}. Rows 14, 16, 18 hold the three
@@ -411,6 +458,7 @@ export function composeMainPanel(view: MainPanelView): TileWindow {
   drawStatsColumn(w, view.member);
   drawHpStmCndGpCc(w, view.member);
   drawArmorClass(w, view.member);
+  drawInventoryList(w, view.inventory ?? []);
   drawSchoolManaGrid(w, view.member);
   return w;
 }
