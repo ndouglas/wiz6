@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { composeMainPanel } from '../../../src/pages/castle/compose-main-panel.js';
-import type { ActivePartyMember } from '@wiz6/data';
+import type { ActivePartyMember, MessageDb } from '@wiz6/data';
+
+function fakeDb(): MessageDb {
+  return { indexedMessages: [] } as unknown as MessageDb;
+}
 
 function mockMember(): ActivePartyMember {
   return {
@@ -26,7 +30,7 @@ function cellAt(win: { cells: Uint8Array; widthCells: number }, row: number, col
 
 describe('composeMainPanel', () => {
   it('returns a 40×20 TileWindow at screen (0, 0)', () => {
-    const win = composeMainPanel({ member: mockMember() });
+    const win = composeMainPanel({ member: mockMember(), db: fakeDb() });
     expect(win.widthCells).toBe(40);
     expect(win.heightCells).toBe(20);
     expect(win.screenX).toBe(0);
@@ -34,7 +38,7 @@ describe('composeMainPanel', () => {
   });
 
   it('renders STR label at row 5 col 1 with yellow-highlight attr 0x50', () => {
-    const win = composeMainPanel({ member: mockMember() });
+    const win = composeMainPanel({ member: mockMember(), db: fakeDb() });
     expect(cellAt(win, 5, 1).char).toBe(0x53); // 'S'
     expect(cellAt(win, 5, 1).attr).toBe(0x50);
     expect(cellAt(win, 5, 2).char).toBe(0x54); // 'T'
@@ -42,7 +46,7 @@ describe('composeMainPanel', () => {
   });
 
   it('renders STR value right-aligned at cols 5-6 with white-highlight attr 0x10', () => {
-    const win = composeMainPanel({ member: mockMember() });
+    const win = composeMainPanel({ member: mockMember(), db: fakeDb() });
     // NATHAN has str=16; value renders as "16" at cols 5-6.
     expect(cellAt(win, 5, 5).char).toBe(0x31); // '1'
     expect(cellAt(win, 5, 5).attr).toBe(0x10);
@@ -50,14 +54,14 @@ describe('composeMainPanel', () => {
   });
 
   it('right-pads single-digit values with a space at col 5', () => {
-    const win = composeMainPanel({ member: mockMember() });
+    const win = composeMainPanel({ member: mockMember(), db: fakeDb() });
     // INT=8 → col 5 = ' ', col 6 = '8'
     expect(cellAt(win, 6, 5).char).toBe(0x20); // ' '
     expect(cellAt(win, 6, 6).char).toBe(0x38); // '8'
   });
 
   it('renders all 8 attribute rows STR..KAR from rows 5 through 12', () => {
-    const win = composeMainPanel({ member: mockMember() });
+    const win = composeMainPanel({ member: mockMember(), db: fakeDb() });
     const expected = ['STR', 'INT', 'PIE', 'VIT', 'DEX', 'SPD', 'PER', 'KAR'];
     for (let i = 0; i < expected.length; i++) {
       const label = expected[i]!;

@@ -19,7 +19,13 @@
  */
 
 import { createTileWindow, clearWindow, setCursor, puts, type TileWindow } from '@wiz6/parser';
-import type { ActivePartyMember } from '@wiz6/data';
+import type { ActivePartyMember, MessageDb } from '@wiz6/data';
+import {
+  creationString,
+  RACE_NAME_BASE,
+  CLASS_NAME_BASE,
+  SEX_NAME_BASE,
+} from '../roster/creation/messages.js';
 
 const PANEL_W = 40;
 const PANEL_H = 20;
@@ -36,6 +42,14 @@ const ATTR_GP_VALUE = 0x50;         // palette[5] yellow — GP value
 const ATTR_CC_LABEL = 0x80;         // palette[8]        — CC label
 const ATTR_CC_VALUE = 0x90;         // palette[9]        — CC value
 const ATTR_CND_HEALTHY = 0x01;      // wfont1 glyph 0x2f — healthy "/" indicator
+const ATTR_NAME = 0x50;             // palette[5] yellow — character name
+const ATTR_RACE_CLASS = 0x10;       // palette[1] white  — race/class/LVL value
+const ATTR_RNK_LABEL = 0xb0;        // palette[11]       — RNK label
+const ATTR_RNK_VALUE = 0x30;        // palette[3]        — RNK value (e.g. NONE)
+const ATTR_EXPMKS_LABEL = 0xe0;     // palette[14]       — EXP / MKS labels
+const ATTR_EXPMKS_VALUE = 0x60;     // palette[6]        — EXP / MKS values
+const ATTR_LVL_LABEL = 0x80;        // palette[8]        — LVL label
+const ATTR_LVL_VALUE = 0x90;        // palette[9]        — LVL value
 
 const STATS_LABEL_COL = 1;
 const STATS_VALUE_COL = 5; // right edge of 2-char value at col 6
@@ -55,6 +69,7 @@ const STAT_LABELS: ReadonlyArray<{ label: string; value: (m: ActivePartyMember) 
 
 export interface MainPanelView {
   member: ActivePartyMember;
+  db: MessageDb;
 }
 
 /** Right-align `value` to width `n`, space-pad on the left. */
@@ -129,6 +144,47 @@ function drawHpStmCndGpCc(w: TileWindow, member: ActivePartyMember): void {
   puts(w, '  0', ATTR_CC_VALUE);
 }
 
+function drawHeader(w: TileWindow, member: ActivePartyMember, db: MessageDb): void {
+  // Row 1: NAME at cols 4-9 attr 0x50, RACE at cols 13-20 attr 0x10, RNK
+  // label at cols 25-27 attr 0xb0, RNK value (e.g. NONE) at cols 35-38 attr 0x30.
+  // Engine race format is "{sex_letter}-{race_name}", e.g. "M-RAWULF".
+  const sex = creationString(db, SEX_NAME_BASE + member.sex);
+  const race = creationString(db, RACE_NAME_BASE + member.race);
+  const cls = creationString(db, CLASS_NAME_BASE + member.class);
+  const sexLetter = sex ? sex.charAt(0) : '?';
+  const sexRace = `${sexLetter}-${race}`;
+
+  setCursor(w, 4, 1);
+  puts(w, member.name, ATTR_NAME);
+  setCursor(w, 13, 1);
+  puts(w, sexRace, ATTR_RACE_CLASS);
+  setCursor(w, 25, 1);
+  puts(w, 'RNK', ATTR_RNK_LABEL);
+  setCursor(w, 35, 1);
+  puts(w, 'NONE', ATTR_RNK_VALUE);
+
+  // Row 2: CLASS at cols 13-19 attr 0x10, EXP label cols 25-27 attr 0xe0,
+  // EXP value right-aligned cols 29-38 (10 wide) attr 0x60.
+  setCursor(w, 13, 2);
+  puts(w, cls, ATTR_RACE_CLASS);
+  setCursor(w, 25, 2);
+  puts(w, 'EXP', ATTR_EXPMKS_LABEL);
+  setCursor(w, 29, 2);
+  puts(w, rpad(member.xp, 10), ATTR_EXPMKS_VALUE);
+
+  // Row 3: LVL label cols 13-15 attr 0x80, LVL value cols 17-19 (3 wide)
+  // attr 0x90, MKS label cols 25-27 attr 0xe0, MKS value right-aligned cols
+  // 29-38 attr 0x60 (placeholder 0 — MKS not on schema).
+  setCursor(w, 13, 3);
+  puts(w, 'LVL', ATTR_LVL_LABEL);
+  setCursor(w, 17, 3);
+  puts(w, rpad(member.level, 3), ATTR_LVL_VALUE);
+  setCursor(w, 25, 3);
+  puts(w, 'MKS', ATTR_EXPMKS_LABEL);
+  setCursor(w, 29, 3);
+  puts(w, rpad(0, 10), ATTR_EXPMKS_VALUE);
+}
+
 export function composeMainPanel(view: MainPanelView): TileWindow {
   const w = createTileWindow({
     screenX: PANEL_X,
@@ -137,6 +193,7 @@ export function composeMainPanel(view: MainPanelView): TileWindow {
     heightCells: PANEL_H,
   });
   clearWindow(w, 0x20, ATTR_BG);
+  drawHeader(w, view.member, view.db);
   drawStatsColumn(w, view.member);
   drawHpStmCndGpCc(w, view.member);
   return w;

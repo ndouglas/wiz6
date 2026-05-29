@@ -787,14 +787,14 @@ const SCREENS: ScreenCase[] = [
   },
   {
     fixture: 'creation-review-member',
-    // Phase B progress: 45.90% (was 35.24%). Now matches engine on action
-    // menu (40×4 @ y=20, camp-mask 3×2 grid), STR..KAR stats column
-    // (yellow labels / white values), HP/STM/CND/GP/CC column (HP cur/max,
-    // STM percentage, CND healthy "/", GP gold, CC placeholder). Remaining
-    // deltas: header (name/race/class/LVL/portrait), ARMORCLASS sub-panel,
-    // inventory list, school mana grid, chrome frame, derived CC values.
-    // See TODO #044, #042, #045. RAISE THIS FLOOR as each delta closes.
-    floor: 45,
+    // Phase B progress: 51.81% (was 35.24%). Matches engine on action menu,
+    // STR..KAR stats column, HP/STM/CND/GP/CC vitals column, and header
+    // (NAME / sex-race / CLASS / LVL / RNK NONE / EXP / MKS labels + values).
+    // Remaining deltas: portrait tiles (cols 1-3 rows 1-3), age glyphs +
+    // values (col 4 + cols 5-7 rows 2-3), ARMORCLASS sub-panel (rows 5-7),
+    // inventory list (rows 9-13), school mana grid (rows 14-18), chrome
+    // frame, derived CC values. See TODO #044, #042, #045.
+    floor: 51,
     render: renderCreationReviewMember,
   },
 ];

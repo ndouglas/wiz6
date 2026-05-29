@@ -38,7 +38,7 @@ export function composeCharacterViewFrame(view: CharacterViewView): TileWindow[]
   const current = view.members[view.currentSlot];
   if (!current) return [];
   return [
-    composeMainPanel({ member: current }),
+    composeMainPanel({ member: current, db: view.db }),
     composeActionMenu({ cursorIdx: view.cursorIdx, db: view.db }),
   ];
 }
