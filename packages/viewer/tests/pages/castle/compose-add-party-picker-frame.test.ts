@@ -95,7 +95,9 @@ describe('composeAddPartyPickerFrame', () => {
       cursorIdx: 1,
       onCancel: false,
     };
-    const [left, right] = composeAddPartyPickerFrame(view, db);
+    const windows = composeAddPartyPickerFrame(view, db);
+    const left = windows.find((w) => w.widthCells === 19 && w.heightCells === 5)!;
+    const right = windows.find((w) => w.widthCells === 20 && w.heightCells === 5)!;
     expect(findHighlightCells(right!).length).toBeGreaterThan(0);
     expect(findHighlightCells(left!).length).toBe(0);
   });
@@ -106,7 +108,9 @@ describe('composeAddPartyPickerFrame', () => {
       cursorIdx: 0,
       onCancel: true,
     };
-    const [left, right] = composeAddPartyPickerFrame(view, db);
+    const windows = composeAddPartyPickerFrame(view, db);
+    const left = windows.find((w) => w.widthCells === 19 && w.heightCells === 5)!;
+    const right = windows.find((w) => w.widthCells === 20 && w.heightCells === 5)!;
     expect(findHighlightCells(left!).length).toBeGreaterThan(0);
     expect(findHighlightCells(right!).length).toBe(0);
   });
@@ -117,7 +121,9 @@ describe('composeAddPartyPickerFrame', () => {
       cursorIdx: 0,
       onCancel: false,
     };
-    const [, right] = composeAddPartyPickerFrame(view, db);
+    const right = composeAddPartyPickerFrame(view, db).find(
+      (w) => w.widthCells === 20 && w.heightCells === 5,
+    )!;
     // With 1 candidate, only the center row should contain any uppercase NAME chars.
     let contentRows = 0;
     for (let r = 0; r < right!.heightCells; r++) {
@@ -139,7 +145,9 @@ describe('composeAddPartyPickerFrame', () => {
   it('cursor row stays centered when scrolled', () => {
     const candidates = Array.from({ length: 10 }, (_, i) => makeChar(`id${i}`, `NM${i}`));
     const view = { candidates, cursorIdx: 7, onCancel: false };
-    const [, right] = composeAddPartyPickerFrame(view, db);
+    const right = composeAddPartyPickerFrame(view, db).find(
+      (w) => w.widthCells === 20 && w.heightCells === 5,
+    )!;
     const hl = findHighlightCells(right!);
     expect(hl.length).toBeGreaterThan(0);
     // The highlighted row should be the center row of the 5-row panel.

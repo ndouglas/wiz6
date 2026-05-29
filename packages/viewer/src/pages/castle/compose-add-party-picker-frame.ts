@@ -49,10 +49,48 @@ const LEFT_CELL_Y = 19;
 const LEFT_W = 19;
 const LEFT_H = 5;
 
-const RIGHT_CELL_X = 20;
+// Note: the engine renders the right panel shifted 2 cells right from where
+// the cell-grid fixture's struct (x=20) would place it — empirically NATHAN
+// highlight lands at global cells 22-27, not 20-25. The struct in memory says
+// x=20 but the engine adjusts at render time (mechanism unclear; possibly an
+// overlapping struct we haven't found). Using x=22 here to match engine pixel
+// output. The cells_off issue noted in wbase-window-struct.json findings is
+// also part of this — see TODO #027.
+const RIGHT_CELL_X = 22;
 const RIGHT_CELL_Y = 19;
 const RIGHT_W = 20;
 const RIGHT_H = 5;
+
+// Banner replacement at cell row 18 (above the left+right panels). When the
+// picker is open the engine renders "ADD MEMBER" here in plain wfont3 text
+// instead of the castle-frame's fancy "MASTER OPTIONS" banner. We overlay a
+// full-width window that clears the row and writes the title centered at
+// cells 5-14 (verified against engine pixel data y=145-150).
+const BANNER_CELL_X = 0;
+const BANNER_CELL_Y = 18;
+const BANNER_W = 40;
+const BANNER_H = 1;
+const BANNER_TITLE = 'ADD MEMBER';
+const BANNER_TITLE_COL = 5; // empirical: engine cells with content are 5-14.
+
+// Middle strip covering cells 19-20 of picker rows 19-23. Engine has a
+// thin border line at c19; we cover both 19 and 20 here to hide
+// composeCastleFrame's pane bleed-through.
+const MIDDLE_CELL_X = 19;
+const MIDDLE_CELL_Y = 19;
+const MIDDLE_W = 2; // cells 19, 20
+const MIDDLE_H = 5;
+
+// Scrollbar column at cell 21 — engine renders ▲ at row 0 (red), track in
+// rows 1-3, ▼ at row 4 (red). Chars in wfont2: 'E'=▲, 'G'=track, 'F'=▼.
+const SCROLLBAR_CELL_X = 21;
+const SCROLLBAR_CELL_Y = 19;
+const SCROLLBAR_W = 1;
+const SCROLLBAR_H = 5;
+const SCROLLBAR_TOP = 0x45; // 'E'
+const SCROLLBAR_TRACK = 0x47; // 'G'
+const SCROLLBAR_BOTTOM = 0x46; // 'F'
+const SCROLLBAR_ARROW_ATTR = 0x02; // wfont2 (the engine font for the scrollbar tiles)
 
 
 /** Background fill attr for blank cells in both panels. */
@@ -212,19 +250,71 @@ function composeRightPanel(view: AddPartyPickerView, db: MessageDb): TileWindow 
   return w;
 }
 
+/** "ADD MEMBER" banner that replaces composeCastleFrame's "MASTER OPTIONS"
+ *  at cell row 18 when the picker is open. */
+function composeBanner(): TileWindow {
+  const w = createTileWindow({
+    screenX: BANNER_CELL_X * CELL_PX,
+    screenY: BANNER_CELL_Y * CELL_PX,
+    widthCells: BANNER_W,
+    heightCells: BANNER_H,
+  });
+  clearWindow(w, 0x20, ATTR_BG);
+  setCursor(w, BANNER_TITLE_COL, 0);
+  puts(w, BANNER_TITLE, ATTR_BG);
+  return w;
+}
+
+/** Middle strip covering cells 19-21 of the picker rows, hiding the underlying
+ *  menu pane's option-label bleed-through. */
+function composeMiddleStrip(): TileWindow {
+  const w = createTileWindow({
+    screenX: MIDDLE_CELL_X * CELL_PX,
+    screenY: MIDDLE_CELL_Y * CELL_PX,
+    widthCells: MIDDLE_W,
+    heightCells: MIDDLE_H,
+  });
+  clearWindow(w, 0x20, ATTR_BG);
+  return w;
+}
+
+/** Scrollbar column at cell 21 with ▲ / track / ▼ glyphs.
+ *  Per engine: top row = 'E' (red ▲), middle rows = 'G' (track), bottom = 'F' (red ▼). */
+function composeScrollbar(): TileWindow {
+  const w = createTileWindow({
+    screenX: SCROLLBAR_CELL_X * CELL_PX,
+    screenY: SCROLLBAR_CELL_Y * CELL_PX,
+    widthCells: SCROLLBAR_W,
+    heightCells: SCROLLBAR_H,
+  });
+  clearWindow(w, SCROLLBAR_TRACK, SCROLLBAR_ARROW_ATTR);
+  setCursor(w, 0, 0);
+  puts(w, String.fromCharCode(SCROLLBAR_TOP), SCROLLBAR_ARROW_ATTR);
+  setCursor(w, 0, 4);
+  puts(w, String.fromCharCode(SCROLLBAR_BOTTOM), SCROLLBAR_ARROW_ATTR);
+  return w;
+}
+
 /**
- * Build the two TileWindows that make up the ADD PARTY picker frame.
- * Pure function: no I/O, no DOM. The returned windows are byte-exact (modulo
- * documented engine-residual cells) against the engine's live cell memory.
+ * Build the TileWindows that make up the ADD PARTY picker frame.
+ * Pure function: no I/O, no DOM.
  *
- * KNOWN GAP (#027 in TODO.md): the engine renders an "ADD MEMBER" title
- * strip at cell row 18, cells 5-14, via a direct-pixel path that doesn't
- * populate any cell array. Reproducing it requires identifying the engine
- * routine; for now this remains a ~3-4% pixel-parity gap.
+ * Paint order (first → last, bottom → top):
+ *   banner       — replaces composeCastleFrame's "MASTER OPTIONS" at row 18
+ *   leftPanel    — "ADD WHO?" + CANCEL prompt
+ *   middleStrip  — hides menu-pane bleed-through at cells 19-20
+ *   scrollbar    — ▲ track ▼ glyphs at cell 21
+ *   rightPanel   — candidate list (starts at cell 22)
  */
 export function composeAddPartyPickerFrame(
   view: AddPartyPickerView,
   db: MessageDb,
 ): TileWindow[] {
-  return [composeLeftPanel(view), composeRightPanel(view, db)];
+  return [
+    composeBanner(),
+    composeLeftPanel(view),
+    composeMiddleStrip(),
+    composeScrollbar(),
+    composeRightPanel(view, db),
+  ];
 }

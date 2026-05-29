@@ -136,9 +136,11 @@ describe('ADD PARTY picker — cell-grid parity', () => {
       { candidates: [nathan()], cursorIdx: 0, onCancel: false },
       db,
     );
-    expect(windows).toHaveLength(2);
-
-    // Match composer outputs to fixture window keys by dimensions.
+    // The composer emits multiple TileWindows now (banner + leftPanel +
+    // middleStrip + rightPanel). We only verify the cells of the left and
+    // right picker panels — the banner and middle strip exist to mask
+    // bleed-through from the underlying castle frame and are tested by the
+    // pixel-parity test in tools/parity/add-party-parity.test.ts.
     const left = windows.find(
       (w) => w.widthCells === fixture.leftPanel!.w && w.heightCells === fixture.leftPanel!.h,
     );
@@ -151,6 +153,12 @@ describe('ADD PARTY picker — cell-grid parity', () => {
     // Screen position: fixture stores x/y in CELL coords; composer emits PIXEL
     // coords (cells × 8). Mismatched screenX/screenY puts the windows in the
     // wrong place — invisible to a cells-only comparison, so we check it here.
+    //
+    // Note on rightPanel.x: the struct in memory says x=20, but engine pixel
+    // data shows NATHAN highlight at global cells 22-27. The fixture's
+    // rightPanel.x was hand-corrected to 22 to match engine render. See
+    // TODO #027 for the underlying mechanism. Pixel parity (in
+    // tools/parity/add-party-parity.test.ts) is the ground truth for this offset.
     expect(left!.screenX).toBe(fixture.leftPanel!.x * 8);
     expect(left!.screenY).toBe(fixture.leftPanel!.y * 8);
     expect(right!.screenX).toBe(fixture.rightPanel!.x * 8);
