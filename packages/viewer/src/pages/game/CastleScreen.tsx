@@ -16,7 +16,7 @@ import {
   type MainMenuContext,
 } from '@wiz6/parser';
 import { loadEgaScreen, loadFont, loadFont4bpp, loadPortraitSet } from '../../data-loader.js';
-import { readActiveParty } from '../../lib/active-party-store.js';
+import { availableRosterFor, readActiveParty } from '../../lib/active-party-store.js';
 import { CanvasPresenter } from '../../lib/presenter.js';
 import { readRoster } from '../../lib/roster-store.js';
 import { composeCastleFrame } from './castle-frame.js';
@@ -70,9 +70,17 @@ export function CastleScreen() {
   //    closes the tab or navigates away. We keep slot 8 in the engine-model
   //    MAIN_MENU_OPTIONS for engine-faithfulness, just hide it here.
   const visible = useMemo(() => {
+    const activeParty = readActiveParty();
+    const roster = readRoster();
+    // Engine semantics for pcFileHasUnloadedChars: any PCFILE entry marked
+    // "available" — i.e. a roster character that is NOT currently in the
+    // active party. Checking just `roster.characters.length > 0` is wrong
+    // because it leaves ADD PARTY MEMBER visible even when every roster
+    // character is already loaded (AddPartyPage then bounces back instantly,
+    // making the menu look broken).
     const ctx: MainMenuContext = {
-      partySize: readActiveParty().members.length,
-      pcFileHasUnloadedChars: readRoster().characters.length > 0,
+      partySize: activeParty.members.length,
+      pcFileHasUnloadedChars: availableRosterFor(roster.characters, activeParty).length > 0,
     };
     return visibleMenuOptions(ctx).filter((opt) => opt.slot !== 8);
   }, []);

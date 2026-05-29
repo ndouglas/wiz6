@@ -114,3 +114,47 @@ test('ADD PARTY MEMBER picker adds a roster character to active party', async ({
   expect(party.members[0].id).toBe(ID_A);
   expect(party.members[0].rosterCharacterId).toBe(ID_A);
 });
+
+test('ADD PARTY MEMBER is hidden when every roster character is already in the active party', async ({ page }) => {
+  // Seed: NATHAN is in the roster AND already in the active party.
+  // pcFileHasUnloadedChars must compute false (nothing left to add); slot 0
+  // must not appear in the menu.
+  const nathan = makeNathan();
+  const nathanInParty = { ...nathan, portraitSlotId: 0, rosterCharacterId: nathan.id };
+
+  await page.goto('/');
+  await page.evaluate(
+    async ({ char, member }) => {
+      const json = JSON.stringify({ schemaVersion: 1, characters: [char] });
+      const cs = new CompressionStream('gzip');
+      const writer = cs.writable.getWriter();
+      void writer.write(new TextEncoder().encode(json));
+      void writer.close();
+      const gz = new Uint8Array(await new Response(cs.readable).arrayBuffer());
+      let s = '';
+      for (let i = 0; i < gz.length; i++) s += String.fromCharCode(gz[i]!);
+      window.localStorage.setItem('wiz6:roster', btoa(s));
+      window.localStorage.setItem(
+        'wiz6:active-party',
+        JSON.stringify({ schemaVersion: 1, members: [member] }),
+      );
+    },
+    { char: nathan, member: nathanInParty },
+  );
+
+  await page.goto('/castle');
+  await page.waitForSelector('canvas', { timeout: 10_000 });
+  await page.waitForTimeout(500);
+
+  // First visible slot should NOT be slot 0 (ADD PARTY MEMBER). Press Enter
+  // and confirm the route is NOT /castle/add-party. The visible-menu screen
+  // reader text in CastleScreen says "Currently selected: <label>." — match
+  // on the aria text via accessibility tree to know which slot is first.
+  const srOnly = await page.locator('[aria-label="Wizardry VI castle entrance"]').first();
+  await expect(srOnly).toBeVisible();
+  await page.keyboard.press('Enter');
+  // Allow whatever navigation to happen.
+  await page.waitForTimeout(500);
+  const url = page.url();
+  expect(url).not.toContain('/castle/add-party');
+});
