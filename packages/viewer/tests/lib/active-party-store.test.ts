@@ -4,6 +4,7 @@ import {
   writeActiveParty,
   addMember,
   dismissAllMembers,
+  dismissMember,
   availableRosterFor,
 } from '../../src/lib/active-party-store.js';
 import type { ActiveParty, Character, Roster } from '@wiz6/data';
@@ -78,5 +79,52 @@ describe('active-party-store', () => {
     };
     const result = availableRosterFor(roster.characters, readActiveParty());
     expect(result.map((c) => c.id)).toEqual([ID(2)]);
+  });
+});
+
+const ID_A = '550e8400-e29b-41d4-a716-446655440000';
+const ID_B = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+
+describe('dismissMember', () => {
+  it('removes the member at the given slot index', () => {
+    addMember(makeChar(ID_A, 'NATHAN'));
+    addMember(makeChar(ID_B, 'GANDALF'));
+    expect(readActiveParty().members).toHaveLength(2);
+    dismissMember(0);
+    const after = readActiveParty();
+    expect(after.members).toHaveLength(1);
+    expect(after.members[0]!.name).toBe('GANDALF');
+  });
+
+  it('preserves remaining members after dismiss in original relative order', () => {
+    addMember(makeChar(ID_A, 'NATHAN'));
+    addMember(makeChar(ID_B, 'GANDALF'));
+    dismissMember(1); // dismiss GANDALF, NATHAN should remain
+    const after = readActiveParty();
+    expect(after.members).toHaveLength(1);
+    expect(after.members[0]!.name).toBe('NATHAN');
+  });
+
+  it('is a no-op on out-of-range slotIndex (negative)', () => {
+    addMember(makeChar(ID_A, 'NATHAN'));
+    dismissMember(-1);
+    expect(readActiveParty().members).toHaveLength(1);
+  });
+
+  it('is a no-op on out-of-range slotIndex (>= length)', () => {
+    addMember(makeChar(ID_A, 'NATHAN'));
+    dismissMember(5);
+    expect(readActiveParty().members).toHaveLength(1);
+  });
+
+  it('frees the dismissed portraitSlotId for re-allocation on next add', () => {
+    addMember(makeChar(ID_A, 'NATHAN'));   // gets portraitSlotId 0
+    addMember(makeChar(ID_B, 'GANDALF'));  // gets portraitSlotId 1
+    dismissMember(0); // dismiss NATHAN, portraitSlotId 0 freed
+    addMember(makeChar('11111111-1111-1111-1111-111111111111', 'TREON'));
+    const after = readActiveParty();
+    // TREON should pick up portraitSlotId 0 (smallest free).
+    const treon = after.members.find((m) => m.name === 'TREON')!;
+    expect(treon.portraitSlotId).toBe(0);
   });
 });

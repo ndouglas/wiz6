@@ -60,6 +60,29 @@ export function dismissAllMembers(): void {
   writeActiveParty(emptyParty());
 }
 
+/**
+ * Dismiss the party member at `slotIndex` (0..members.length-1). Splices the
+ * array and writes back. No-op if `slotIndex` is out of range.
+ *
+ * Engine reference: dismiss helper @ wbase.ovr 0x25cc. The engine marks the
+ * PCFILE entry available + decrements party_size + rep-movsw shifts the
+ * 0x1b0-byte character records down to fill the gap. In our model the roster
+ * character stays untouched in `wiz6:roster`; we just splice the active-party
+ * array. The dismissed member's `portraitSlotId` is implicitly freed —
+ * `allocatePortraitSlotId` reclaims the smallest available id on the next
+ * `addMember` call.
+ *
+ * Findings: docs/re/findings/wbase-party-pickers-and-dismiss.json
+ * (dismiss-helper-memmove-math, dismiss-helper-no-equipment-or-spell-side-effects).
+ */
+export function dismissMember(slotIndex: number): void {
+  const p = readActiveParty();
+  if (slotIndex < 0 || slotIndex >= p.members.length) return;
+  const next = [...p.members];
+  next.splice(slotIndex, 1);
+  writeActiveParty({ ...p, members: next });
+}
+
 /** Filter a roster down to characters not currently in the active party. */
 export function availableRosterFor(
   roster: ReadonlyArray<Character>,
