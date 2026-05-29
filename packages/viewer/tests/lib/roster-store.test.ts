@@ -6,6 +6,7 @@ import {
   removeCharacter,
   updateCharacter,
   syncFromSave,
+  findDuplicateName,
 } from '../../src/lib/roster-store.js';
 import type { Character, Roster, Save } from '@wiz6/data';
 
@@ -92,5 +93,48 @@ describe('roster-store', () => {
   it('readRoster returns empty + warning on corrupt data', () => {
     window.localStorage.setItem('wiz6:roster', 'totally-bogus');
     expect(readRoster()).toEqual({ schemaVersion: 1, characters: [] });
+  });
+});
+
+describe('findDuplicateName', () => {
+  // beforeEach already clears localStorage at the top of this file.
+
+  it('returns undefined for an empty roster', () => {
+    expect(findDuplicateName('NATHAN')).toBeUndefined();
+  });
+
+  it('returns the matching character when name exists', () => {
+    writeRoster({
+      schemaVersion: 1,
+      characters: [makeCharacter(ID_A, 'NATHAN'), makeCharacter(ID_B, 'GANDALF')],
+    });
+    expect(findDuplicateName('NATHAN')?.id).toBe(ID_A);
+  });
+
+  it('is case-sensitive (engine byte-exact compare)', () => {
+    writeRoster({
+      schemaVersion: 1,
+      characters: [makeCharacter(ID_A, 'NATHAN')],
+    });
+    expect(findDuplicateName('nathan')).toBeUndefined();
+    expect(findDuplicateName('Nathan')).toBeUndefined();
+    expect(findDuplicateName('NATHAN')).toBeDefined();
+  });
+
+  it('excludeId skips the named character (rename use case)', () => {
+    writeRoster({
+      schemaVersion: 1,
+      characters: [makeCharacter(ID_A, 'NATHAN'), makeCharacter(ID_B, 'GANDALF')],
+    });
+    expect(findDuplicateName('NATHAN', ID_A)).toBeUndefined();
+    expect(findDuplicateName('GANDALF', ID_A)?.id).toBe(ID_B);
+  });
+
+  it('returns the first match if duplicates exist in storage', () => {
+    writeRoster({
+      schemaVersion: 1,
+      characters: [makeCharacter(ID_A, 'NATHAN'), makeCharacter(ID_B, 'NATHAN')],
+    });
+    expect(findDuplicateName('NATHAN')?.id).toBe(ID_A);
   });
 });

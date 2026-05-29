@@ -54,6 +54,20 @@ export function updateCharacter(c: Character): void {
 }
 
 /**
+ * Find a roster character whose name byte-exactly matches `name`. Optionally
+ * skip the character with id `excludeId` (used by the rename flow so a
+ * character can keep its own name). Returns undefined if no match.
+ *
+ * Engine reference: `roster_check_name_unique` @ wpcmk.ovr 0x5011 walks
+ * PCFILE slots 0..15 with `strcmp_2byte_step`, returning -1 on collision.
+ * The compare is byte-exact (case-sensitive ASCII).
+ */
+export function findDuplicateName(name: string, excludeId?: string): Character | undefined {
+  const r = readRoster();
+  return r.characters.find((c) => c.name === name && c.id !== excludeId);
+}
+
+/**
  * Sync roster entries from a save's party members. For each member that
  * carries a `rosterCharacterId`, find the matching roster entry by id and
  * replace it with the member's snapshot (stripped of `rosterCharacterId`).
