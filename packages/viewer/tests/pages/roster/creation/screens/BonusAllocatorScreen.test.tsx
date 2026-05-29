@@ -14,8 +14,26 @@
 //
 // Spec: docs/re/wpcmk-screens.md §4, §8
 
-import { describe, it, expect, vi } from 'vitest';
+// ---------------------------------------------------------------------------
+// Module-level mock: wrap `puts` from @wiz6/parser with vi.fn so we can
+// inspect calls in the exit-prompt tests. The real puts still runs (call-
+// through), so all canvas-mounting and key-handling tests are unaffected.
+// ---------------------------------------------------------------------------
+import { vi } from 'vitest';
+
+vi.mock('@wiz6/parser', async (importActual) => {
+  const actual = await importActual<typeof import('@wiz6/parser')>();
+  return {
+    ...actual,
+    puts: vi.fn((win: import('@wiz6/parser').TileWindow, text: string, attr: number) =>
+      actual.puts(win, text, attr),
+    ),
+  };
+});
+
+import { describe, it, expect } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
+import { puts } from '@wiz6/parser';
 import { WIZ6_MAIN } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
@@ -43,6 +61,7 @@ const STUB_FONT_SET: FontSet = {
  *   0x0454 = "↑↓ ADJUSTS ABILITY"
  *   0x0455 = "←→ SELECTS ABILITY"
  *   0x0453 = "BONUS"
+ *   0x0456 = "PRESS ▶ TO EXIT"  (MSG.skillExit — exit prompt shown when pool == 0)
  */
 function stubDb(): MessageDb {
   const entries: Array<{ id: number; decodedText: string }> = [
@@ -50,6 +69,7 @@ function stubDb(): MessageDb {
     { id: 0x0454, decodedText: '↑↓ ADJUSTS ABILITY' },
     { id: 0x0455, decodedText: '←→ SELECTS ABILITY' },
     { id: 0x0453, decodedText: 'BONUS' },
+    { id: 0x0456, decodedText: 'PRESS ► TO EXIT' },
   ];
 
   return {
@@ -439,5 +459,59 @@ describe('BonusAllocatorScreen — ESC is silently ignored', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
 
     expect(dispatch).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Exit prompt (MSG.skillExit = 0x0456) in bottomBar row 3 when pool == 0
+// ---------------------------------------------------------------------------
+
+describe('bonus pool zero exit prompt', () => {
+  it('renders the exit prompt in bottomBar when bonusPool === 0', () => {
+    // State with all bonus points spent — pool is drained.
+    const state = makeFullyAllocatedState(); // bonusPool = 0
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb(); // includes 0x0456 → "PRESS ► TO EXIT"
+
+    vi.mocked(puts).mockClear();
+
+    render(
+      <BonusAllocatorScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    // Verify puts was called with the exit prompt text (MSG.skillExit = 0x0456).
+    const putsCalls = vi.mocked(puts).mock.calls;
+    const exitPromptCall = putsCalls.find(([, text]) => text === 'PRESS ► TO EXIT');
+    expect(exitPromptCall).toBeDefined();
+  });
+
+  it('does NOT render the exit prompt when bonusPool > 0', () => {
+    // State with points remaining — pool is NOT drained.
+    const state = makeBonusState(3); // bonusPool = 3
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    vi.mocked(puts).mockClear();
+
+    render(
+      <BonusAllocatorScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    // Verify puts was NOT called with the exit prompt text.
+    const putsCalls = vi.mocked(puts).mock.calls;
+    const exitPromptCall = putsCalls.find(([, text]) => text === 'PRESS ► TO EXIT');
+    expect(exitPromptCall).toBeUndefined();
   });
 });

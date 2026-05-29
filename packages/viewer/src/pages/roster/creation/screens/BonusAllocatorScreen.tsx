@@ -135,6 +135,20 @@ export function BonusAllocatorScreen({
   setCursor(bottomBar, 21, 2);
   puts(bottomBar, creationString(db, MSG.bonusSelect), 0x03);
 
+  // When the pool is drained, render the engine's "PRESS ▶ TO EXIT" prompt
+  // centered in bottomBar row 3 (verified vs wpcmk.ovr 0x35be — same msg.dbs
+  // id 0x0456 as the skill-train exit prompt). The confirm gate itself lives
+  // in the reducer (ALLOC_CONFIRM no-ops when bonusPool > 0).
+  if (state.draft.bonusPool === 0) {
+    const exitText = creationString(db, MSG.skillExit);
+    setCursor(
+      bottomBar,
+      Math.max(0, Math.floor((bottomBar.widthCells - exitText.length) / 2)),
+      3,
+    );
+    puts(bottomBar, exitText, 0x03);
+  }
+
   const windows = [top, bottomBar];
 
   return <CreationCanvas windows={windows} fontSet={fontSet} palette={pal} />;
