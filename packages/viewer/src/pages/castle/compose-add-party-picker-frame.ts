@@ -61,17 +61,26 @@ const RIGHT_CELL_Y = 19;
 const RIGHT_W = 20;
 const RIGHT_H = 5;
 
-// Banner replacement at cell row 18 (above the left+right panels). When the
-// picker is open the engine renders "ADD MEMBER" here in plain wfont3 text
-// instead of the castle-frame's fancy "MASTER OPTIONS" banner. We overlay a
-// full-width window that clears the row and writes the title centered at
-// cells 5-14 (verified against engine pixel data y=145-150).
+// Banner replacement at cell row 18. The engine fills the entire row with
+// the underscore tile (0x5f at wfont3, attr 0x03) and overlays the picker
+// title using **wfont2** (attr 0x12 — styled-with-border tile sprites,
+// same font that composeCastleFrame uses for "MASTER OPTIONS"). Text is
+// 'add\x5fmember' (lowercase 'add' + underscore separator + 'member') —
+// wfont2's lowercase glyphs render as the engine's bordered-tile letter
+// style. Positioned at cells 5-14 (verified against engine pixel data).
 const BANNER_CELL_X = 0;
 const BANNER_CELL_Y = 18;
 const BANNER_W = 40;
 const BANNER_H = 1;
-const BANNER_TITLE = 'ADD MEMBER';
-const BANNER_TITLE_COL = 5; // empirical: engine cells with content are 5-14.
+// Lowercase chars 'a','d','d', '\x5f' (underscore separator), 'm','e','m','b','e','r'
+// — these are the styled-with-border tile sprites in wfont3 (the same path
+// composeCastleFrame uses for "master\x5foptions"). centeredPuts internally
+// converts attr 0x12 → 0x03 (wfont3); we pass attr 0x03 directly here.
+const BANNER_TITLE = 'add\x5fmember';
+const BANNER_TITLE_COL = 5;
+const BANNER_TITLE_ATTR = 0x03;
+const BANNER_FILL_CHAR = 0x5f;
+const BANNER_FILL_ATTR = 0x03;
 
 // Middle strip covering cells 19-20 of picker rows 19-23. Engine has a
 // thin border line at c19; we cover both 19 and 20 here to hide
@@ -251,7 +260,14 @@ function composeRightPanel(view: AddPartyPickerView, db: MessageDb): TileWindow 
 }
 
 /** "ADD MEMBER" banner that replaces composeCastleFrame's "MASTER OPTIONS"
- *  at cell row 18 when the picker is open. */
+ *  at cell row 18.
+ *
+ *  Engine layout when picker is open:
+ *   - Cells 0-19 (left half): 0x5f underscore tile fill (matches the
+ *     castle-frame banner's underscore-bar style) with the title overlaid.
+ *   - Cells 20-39 (right half): plain gray (0x20 space at attr 0x03) — the
+ *     picker erases the underscore fill on the right half of the row.
+ */
 function composeBanner(): TileWindow {
   const w = createTileWindow({
     screenX: BANNER_CELL_X * CELL_PX,
@@ -259,9 +275,16 @@ function composeBanner(): TileWindow {
     widthCells: BANNER_W,
     heightCells: BANNER_H,
   });
-  clearWindow(w, 0x20, ATTR_BG);
+  // Fill with 0x5f tile (black top + black bottom + gray middle) — matches
+  // composeCastleFrame's banner-bar style. Engine has a different bottom-line
+  // treatment at cells 20-39 (black top + GRAY bottom, mechanism TBD — see
+  // TODO #027). Using 0x5f for the full row gives a 160-px diff at y=151
+  // but the right-half-bottom-line is visually subtle and the picker is
+  // otherwise pixel-correct.
+  clearWindow(w, BANNER_FILL_CHAR, BANNER_FILL_ATTR);
+  // Title overlay (cells 5-14).
   setCursor(w, BANNER_TITLE_COL, 0);
-  puts(w, BANNER_TITLE, ATTR_BG);
+  puts(w, BANNER_TITLE, BANNER_TITLE_ATTR);
   return w;
 }
 

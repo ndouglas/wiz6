@@ -150,9 +150,11 @@ describe('ADD PARTY picker pixel-parity vs committed engine fixture', () => {
     // open the picker. visibleMenuOptions returns slot 0 first in this state.
     const selectedIdx = menuOptions.findIndex((opt) => opt.slot === 0);
 
-    // Compose the castle background.
+    // Compose the castle background. parity=1 — water overlays ON; the
+    // engine fixture was captured at the parity=1 phase per the castle
+    // animation cadence.
     const ours = composeCastleFrame(
-      0, // parity 0
+      1,
       dragonscRgba,
       mon08Pic,
       mon08Decoded,
@@ -196,6 +198,6 @@ describe('ADD PARTY picker pixel-parity vs committed engine fixture', () => {
     expect(
       result.matchPct,
       `add-party-picker: ${result.matchPct.toFixed(2)}% (${result.diffCount} px differ) — see /tmp/parity-diff-add-party-picker.png`,
-    ).toBeGreaterThanOrEqual(97);
+    ).toBeGreaterThanOrEqual(99.5);
   });
 });
