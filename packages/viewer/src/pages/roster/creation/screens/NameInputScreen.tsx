@@ -143,10 +143,12 @@ export function NameInputScreen({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  // Auto-dismiss the modal after 5 seconds (engine: wait_for_key_or_timeout).
+  // Auto-dismiss the modal after ~500ms (engine: wait_for_key_or_timeout). The
+  // engine's lowest timeout setting (~10 ticks @ 20Hz on a 486DX/33) maps to
+  // roughly half a second of wall-clock — keep that feel, not a 5-second pause.
   useEffect(() => {
     if (state.modalErrorMsgId === undefined) return;
-    const id = window.setTimeout(() => dispatch({ type: 'MODAL_DISMISS' }), 5000);
+    const id = window.setTimeout(() => dispatch({ type: 'MODAL_DISMISS' }), 500);
     return () => window.clearTimeout(id);
   }, [state.modalErrorMsgId, dispatch]);
 

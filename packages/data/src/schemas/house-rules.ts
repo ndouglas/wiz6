@@ -27,7 +27,7 @@ export const HouseRulesSchema = z.object({
    */
   pinMaxBonusRoll: z.boolean(),
   /**
-   * When TRUE, the port plays SOUND00 ("clack") on rejected character-creation
+   * When TRUE, the port plays SOUND00 ("ding") on rejected character-creation
    * inputs (bonus decrease at floor, increase at cap, confirm with leftover
    * points, duplicate-name commit, skill-untrain at floor). When FALSE,
    * rejected actions are silent — useful if you find the engine's beep
@@ -100,7 +100,7 @@ export const HOUSE_RULES_META: readonly HouseRuleMeta[] = [
     key: 'playInvalidActionBeep',
     label: 'Beep on rejected inputs (creation)',
     description:
-      'The engine plays a short "clack" sound (SOUND00) when you press a key that the character-creation screens reject — pushing an attribute past its 18 cap, pressing Enter to confirm bonus distribution with points still in the pool, typing a name that already exists in your roster, untraining a skill below its baseline value, and so on. Some players find the beep annoying. Turn OFF to make rejected actions silent. (The screens still reject the action; only the sound changes.)',
+      'The engine plays a short "ding" sound (SOUND00) when you press a key that the character-creation screens reject — pushing an attribute past its 18 cap, pressing Enter to confirm bonus distribution with points still in the pool, typing a name that already exists in your roster, untraining a skill below its baseline value, and so on. Some players find the ding annoying. Turn OFF to make rejected actions silent. (The screens still reject the action; only the sound changes.)',
     category: 'creation',
     stockValue: true,
     control: 'boolean',

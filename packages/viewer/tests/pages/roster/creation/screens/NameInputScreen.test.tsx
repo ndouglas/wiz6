@@ -522,7 +522,7 @@ describe('dup-name modal', () => {
     expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'SET_NAME' }));
   });
 
-  it('auto-dismisses after 5 seconds', () => {
+  it('auto-dismisses after ~500ms', () => {
     vi.useFakeTimers();
     const dispatch = vi.fn();
     const state = {
@@ -536,7 +536,7 @@ describe('dup-name modal', () => {
         fontSet={STUB_FONT_SET} palette={WIZ6_MAIN} db={stubDb()}
       />,
     );
-    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(500);
     expect(dispatch).toHaveBeenCalledWith({ type: 'MODAL_DISMISS' });
     vi.useRealTimers();
   });

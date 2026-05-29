@@ -138,15 +138,15 @@ let cachedInvalidActionBeep: PlayableSnd | null = null;
 let invalidActionBeepLoading: Promise<PlayableSnd | null> | null = null;
 
 /**
- * Play the engine's "clack" sound (SOUND00) on a rejected character-creation
+ * Play the engine's "ding" sound (SOUND00) on a rejected character-creation
  * input. Gated by the `playInvalidActionBeep` house rule — silent no-op when
  * the rule is OFF. Also silent until the user has gestured (browser autoplay
  * policy; same as `playSnd`).
  *
- * First call kicks off a one-time lazy fetch of `/sounds/sound00.json`; the
- * actual sound plays from the second call onward (and on every call once the
- * fetch resolves). The first rejected action being silent is an acceptable
- * UX tradeoff vs. preloading on every screen.
+ * First call kicks off a one-time lazy fetch of `/sounds/sound00.snd` and
+ * plays once it resolves; subsequent calls play immediately from the cache.
+ * If multiple calls overlap before the first fetch resolves, only the first
+ * one plays — we don't queue.
  */
 export function playInvalidActionBeep(): void {
   if (!getHouseRules().playInvalidActionBeep) return;
@@ -154,10 +154,11 @@ export function playInvalidActionBeep(): void {
     playSnd(cachedInvalidActionBeep);
     return;
   }
-  if (invalidActionBeepLoading) return; // load in flight; let it resolve
-  invalidActionBeepLoading = loadSnd('/sounds/sound00.json', { slotN: 0 })
+  if (invalidActionBeepLoading) return; // load in flight; don't queue another play
+  invalidActionBeepLoading = loadSnd('/sounds/sound00.snd', { slotN: 0 })
     .then((snd) => {
       cachedInvalidActionBeep = snd;
+      if (snd) playSnd(snd);
       return snd;
     })
     .catch(() => null);
