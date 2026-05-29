@@ -1,0 +1,545 @@
+{
+  "topic": "wpcvw-character-view-ux",
+  "subagent_run": "2026-05-29T00:00:00Z",
+  "binaries": ["wpcvw.ovr"],
+  "summary": "Full RE of the UX surface of state 0x11 (wpcvw_view_main_loop @ wpcvw 0x67f6) — the interactive character-sheet shown to the player. Documents: (1) the three windows created on entry (right-side stats panel + full-screen main-panel + bottom party-row), (2) the 11-option main menu CAST/EQUIP/etc with its labels actually being EQUIP/SPELL/TRADE/ASSAY/SWAG/MERGE/USE/DROP/SKILL/EDIT/REVIEW (per indexed msg table id 301-311), (3) the full dispatch table at file 0x6b8a (wpcvw runtime delta = 0x4564, same as wpcmk) mapping picker index → handler offset, (4) the context-sensitive enable mask for *0x4fce==4 (camp) vs *0x4fce==0xd (in-combat) vs default (dungeon), (5) the per-character disables (gold==0+inv_empty=>TRADE off, inv_count==0=>ASSAY/USE/DROP off, inv_count<2=>MERGE off, !is_active=>SPELL/USE off), (6) the EDIT submenu (RENAME/CHANGE PORTRAIT/CHANGE PROFESSION/REPLACE/EX) at 0x671f with msg-base 650, (7) name-edit at 0x6674 calling ui_text_input_editor (max 7 chars), (8) PORTRAIT-change flow at 0x63bc (was misnamed 'identify_shop_or_temple' in prior pass), (9) state 0x16 (bulk levelup) handler at 0xb4ac that calls wpcvw_per_character_levelup_loop for every party member — which IS partially interactive (level_pick_new_spells_loop prompts YES/NO per spell). **Major correction to prior findings**: case-5 cursed-item-lockout in wpcvw-naming-pass was wrong — the cursed flag check (0x40|0x02|0x01) is actually in case **7 (DROP)**, not case 5 (which is MERGE). The DROP handler calls inventory_equip_or_unequip (0x17f7) AFTER the cursed-check passes; that misnaming suggests the function is a unequip-then-drop wrapper, NOT a pure equip toggle. Also: prior finding said DROP doesn't check cursed bits — actually the OPPOSITE is true (DROP does check 0x01|0x02|0x40).",
+  "method": "(a) ndisasm -b 16 wpcvw.ovr to read raw bytes 0x6800-0x6bd0 for view-main-loop control flow + dispatch; (b) PyGhidra DecompInterface on wpcvw_view_main_loop (file 0x67f6), wpcvw_edit_submenu (0x671f), wpcvw_edit_name (0x6674), wpcvw_per_character_levelup_loop (0xb362), wpcvw_apply_levelup (0xb220), state-0x16 handler at 0xb4ac, ui_menu_picker_grid (0x6c), ui_pick_inventory_item (0x1a48), ui_render_full_character_sheet (0x4e94), ui_render_character_stats_panel (0xf47); (c) Python search of wpcvw.ovr for the jump table by trying all 16-bit deltas — found wpcvw runtime delta = 0x4564 (SAME as wpcmk), table at file 0x6b8a, order = picker_index → handler_file_offset; (d) cross-reference with indexedMessages in extracted/messages/msg.json — msg ids 301-311 give EQUIP/SPELL/TRADE/ASSAY/SWAG/MERGE/USE/DROP/SKILL/EDIT/REVIEW; msg 650-654 give EDIT submenu RENAME/CHANGE PORTRAIT/CHANGE PROFESSION/REPLACE/EX; msg 1112-1128 give portrait-change + name-edit prompts; (e) prior finding cross-references: wbase-party-pickers-and-dismiss.json defines state-0x11 entry mechanics (already implemented); wpcvw-naming-pass.json defines 90 function names — this pass uses ~30 of them and corrects 1.",
+  "wpcvw_runtime_delta_discovery": {
+    "claim": "wpcvw.ovr runtime delta is 0x4564 (identical to wpcmk.ovr's delta documented in CLAUDE.md). Confirmed by finding the 11-entry jump table at file 0x6b8a containing handler offsets {0x6a17, 0x6a29, 0x6a3e, 0x6a50, 0x6b3d, 0x6b1a, 0x6ae8, 0x6a86, 0x6b4e, 0x6b2c, 0x6b5c} each offset by +0x4564 to their CS:runtime values referenced by the `jmp word [cs:bx+0xb0ee]` dispatch at file 0x6ba8. The table values are u16 little-endian at file offsets 0x6b8a, 0x6b8c, 0x6b8e, ... 0x6b9e.",
+    "verification": "python3 -c 'import struct; d=open(\"original/wpcvw.ovr\",\"rb\").read(); ws=[struct.unpack(\"<H\",d[0x6b8a+2*i:0x6b8a+2*i+2])[0] for i in range(11)]; assert all(0x6a00 <= ((w-0x4564)&0xffff) <= 0x6c00 for w in ws)'",
+    "implication_for_findings_in_this_file": "All CS-disp16 references inside wpcvw asm (e.g. jump tables, condition-icon table at cs:0x532, class-dispatch tables at cs:-NNNN) need (CS_offset - 0x4564) to get file offset. Update CLAUDE.md overlay-delta table when this is promoted."
+  },
+  "findings": [
+    {
+      "id": "view-three-window-layout",
+      "claim": "wpcvw_view_main_loop @ wpcvw 0x67f6 creates EXACTLY THREE windows on entry, in this order: (1) **STATS-PANEL** (stored at global `*0x5752`): x=20, y=4, w=20, h=16, attr=0x1a — the right-side stats panel where ui_render_character_stats_panel writes portrait+name+race+sex+AC+HP/SP+level+class+armor-class+gold; (2) **MAIN-PANEL** (local var `[bp-4]` aka local_4): x=0, y=0, w=40, h=20, attr=0x14 — the full-screen foreground window that holds the inventory grid + ACTION menu picker; this is also the picker's host window; (3) **PARTY-ROW** (local var `[bp-2]` aka local_6): x=0, y=20, w=40, h=4, attr=0x0f — the bottom mini-portrait strip (party row). Window 2 (MAIN-PANEL) is created AFTER the STATS-PANEL but they're spatially disjoint (rows 0-19 vs the stats-panel inside rows 4-19 columns 20-39); the stats-panel sits inside the full-screen window's right half. After all three are created, the engine unfocuses *0x4fb2 (persistent menu/banner) and clears global *0x57fc (some redraw-suppress flag).",
+      "category": "wpcvw_layout",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6814"},
+        "type": "disasm",
+        "details": "ndisasm of file 0x6814-0x689d shows three sequential ui_window_create calls (target 0xbbb6 = wroot's ui_window_create thunk). Args (cdecl, pushed right-to-left): Window 1 push sequence at 0x6811-0x682d → (x=0x14, y=4, w=0x14, h=0x10, attr=0x1a, chrome=0xffff, flags=0, refresh=0); return stored at `mov [0x5752], ax` (0x6834). Window 2 push sequence at 0x685d-0x6873 → (x=0, y=0, w=0x28, h=0x14, attr=0x14, chrome=0xffff, 0, 0); stored at `mov [bp-2], ax` (0x687a). Window 3 push sequence at 0x687d-0x6899 → (x=0, y=0x14, w=0x28, h=4, attr=0xf, chrome=0xffff, 0, 0); stored at `mov [bp-4], ax` (Ghidra local_6). ui_window_create signature from docs/re/wbase-main-menu.md: (x, y, w, h, attr, chrome, flags, refresh)."
+      },
+      "confidence": "high",
+      "supersedes": "wpcvw-view-main-window-geometry in wbase-party-pickers-and-dismiss.json (the prior finding had window-2/3 mixed up and noted uncertainty about the h=0x28 value — it was actually the second window's w=0x28 with h=0x14, not h=0x28)."
+    },
+    {
+      "id": "view-main-render-call",
+      "claim": "Per loop iteration, after window setup, the view calls `ui_render_full_character_sheet(slot, mainPanel, statsPanel)` at wpcvw 0x4e94. This is a 9-line composite renderer that: (1) clears the STATS-PANEL with fill=0x20 attr=3, (2) clears the MAIN-PANEL with fill=0x20 attr=3, (3) refreshes via func_0x0000ebb4, (4) calls ui_draw_character_sheet_borders (file 0xea0? prior pass — TODO confirm), (5) calls ui_render_character_stats_panel @ wpcvw 0xf47 (the 1.8KB stats renderer with portrait + name + race + AC + HP/SP), (6) calls ui_render_inventory_panel @ wpcvw 0x6c81 (renders the inventory grid + 6 attribute values + AC), (7) calls func_0x0000ec6d on stats panel (unfocus / commit), (8) calls func_0x0000e4ff (final composite/blit).",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x4e94"},
+        "type": "decompile",
+        "details": "Ghidra decompile of ui_render_full_character_sheet shows exactly those 8 function calls in order. The 5th call uses 0xf47 = ui_render_character_stats_panel (per wpcvw-naming-pass.json fn-stats-render), the 6th uses 0x6c81 = ui_render_inventory_panel (per fn-inventory-render)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "view-main-menu-options",
+      "claim": "The main action menu has exactly **11 options** (indices 0-10) plus an implicit EXIT (index 11). The labels come from the indexed message table at id 301-311 (msg.json `indexedMessages` keyed by `id`): **0=EQUIP, 1=SPELL, 2=TRADE, 3=ASSAY, 4=SWAG, 5=MERGE, 6=USE, 7=DROP, 8=SKILL, 9=EDIT, 10=REVIEW**, and the picker treats result==11 as EXIT (handled at 0x6bad: `cmp ax, 0xb / jnc 0x6bad / cmp [bp-0x6], 0xb / jz exit_cleanup`). The picker is `ui_menu_picker_grid` (file 0x6c) called with `(window=local_4, msg_base=0x12d=301, mask_ptr=[bp-0x24], x_base=2, y_base=1, x_step=6, cols=2, attr=5, init_cursor=count_of_enabled)`. Layout: 2 cols × 6 rows (so up to 12 cells visible, 11 used). Cursor moves with arrow keys (1=UP, 2=LEFT, 3=DOWN, 4=RIGHT), Enter (key code 5) commits. Mouse click sets cursor and commits via `*0x4fc4 == 1`.",
+      "category": "menu_dispatch",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x69dd"},
+        "type": "disasm",
+        "details": "ndisasm at 0x69dd: push 0xb (count); lea [bp-0x24]; push; call menu_count_enabled_entries (0x1681); add sp,4; push ax (init_cursor=enabled count). Then push 5 (attr); push 2 (cols); push 6 (x_step); push 1 (y_base); push 2 (x_base); push lea [bp-0x24] (mask); push 0x12d (msg_base); push [bp-4] (window=local_4 — main-panel from window-layout finding); call ui_menu_picker_grid; add sp, 0x12. Picker labels resolved via `python3 -c 'import json; d=json.load(open(\"extracted/messages/msg.json\")); by_id={m[\"id\"]:m for m in d[\"indexedMessages\"]}; [print(k, by_id.get(k,{}).get(\"decodedText\")) for k in range(0x12d, 0x139)]'` → EQUIP/SPELL/TRADE/ASSAY/SWAG/MERGE/USE/DROP/SKILL/EDIT/REVIEW/EXIT."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "view-dispatch-table-location",
+      "claim": "The picker-result → action-handler jump table lives at **file 0x6b8a** in wpcvw.ovr — 11 little-endian u16 entries totaling 22 bytes. The table is referenced by `jmp word [cs:bx+0xb0ee]` at file 0x6ba8 (with bx = 2*picker_result). Each entry is a CS-runtime address; subtract the wpcvw runtime delta 0x4564 to get the file offset of each handler. Dispatch ORDER (picker_index → handler_file_offset / function): **0 EQUIP → 0x6a17 (call 0x8e35 = wpcvw_unequip_all_and_recompute — likely misnamed, may be EQUIP-from-pool); 1 SPELL → 0x6a29 (call FUN_416d, unnamed in prior pass — likely 'cast spell out of combat'); 2 TRADE → 0x6a3e (call 0x513e = wpcvw_give_to_party_member); 3 ASSAY → 0x6a50 (call ui_pick_inventory_item with msg 0x1c2='ASSAY WHICH ITEM?' then 0x7160 = wpcvw_item_inspect_and_use); 4 SWAG → 0x6b3d (call 0x1db3 = wpcvw_show_pool_inventory — name fits 'SWAG' = pool/share treasure); 5 MERGE → 0x6b1a (call FUN_5826, unnamed — stack-merging for ammo/scrolls/potions); 6 USE → 0x6ae8 (call ui_pick_inventory_item with msg 0x190='USE WHICH ITEM?' then 0x4a5b = wpcvw_item_drop_or_give_dispatch — likely misnamed, is the USE-per-item-type dispatch); 7 DROP → 0x6a86 (call ui_pick_inventory_item with msg 0x192='DROP WHICH ITEM?' then cursed-flag check, then 0x17f7 = inventory_equip_or_unequip); 8 SKILL → 0x6b4e (call 0x4d36, unnamed in prior pass — scans skills[0x451c+0x11..+0x16] for available skills then shows picker); 9 EDIT → 0x6b2c (call 0x671f = wpcvw_edit_submenu); 10 REVIEW → 0x6b5c (call ui_pick_party_member with msg 0x1f4='REVIEW WHO?' then sets *0x43cc to new leader slot, *0x57fc:=0).**",
+      "category": "menu_dispatch",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6b8a"},
+        "type": "disasm",
+        "details": "Python search: `for delta in range(0,0x10000): if {h+delta for h in {0x6a17,...}} matches any 22-byte block — delta=0x4564 at file 0x6b8a, order=[0x6a17, 0x6a29, 0x6a3e, 0x6a50, 0x6b3d, 0x6b1a, 0x6ae8, 0x6a86, 0x6b4e, 0x6b2c, 0x6b5c]`. ndisasm at file 0x6ba8: `2E FF A7 EE B0` = `jmp word [cs:bx+0xb0ee]`. CS:0xb0ee + 0x4564 file delta → file 0xb0ee - 0x4564 = ... wait, the displacement 0xb0ee references the runtime CS address of the table. Runtime CS:0xb0ee = file_offset 0x6b8a → delta = 0xb0ee - 0x6b8a = 0x4564. Confirmed."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "view-context-mask-from-camp",
+      "claim": "When state 0x11 is entered from camp / wbase main menu (`*0x4fce == 4` — see wpcvw-view-main-loop-immediate-state-overwrite finding), the engine DISABLES most destructive actions. Asm at file 0x68e9-0x6929: first zero all 11 mask slots, then enable indices **0 (EQUIP), 1 (SPELL), 3 (ASSAY), 4 (SWAG), 8 (SKILL), 10 (REVIEW)**, then also clear `[bp-0x26]` (a separate flag, possibly the EXIT/cancel availability). So the camp view is EQUIP/SPELL/ASSAY/SWAG/SKILL/REVIEW/EXIT — 7 enabled options. **Cross-check needed** — this means EDIT (rename/portrait/class) is NOT available from camp's REVIEW MEMBER; that's surprising because users typically expect those from a 'review' screen. The user's lived recollection should be authoritative here.",
+      "category": "menu_mask",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x68e9"},
+        "type": "disasm",
+        "details": "asm at 0x68e9-0x6929: `cmp word [0x4fce], 4 / jnz +0x3b / for si=0..0xa: [bp-0x24 + 2*si] := 0` (clear all 11 mask slots); then `[bp-0x24]:=1 (mask[0]=EQUIP); [bp-0x1e]:=1 (mask[3]=ASSAY); [bp-0x14]:=1 (mask[8]=SKILL); [bp-0x10]:=1 (mask[10]=REVIEW); [bp-0x22]:=1 (mask[1]=SPELL); [bp-0x1c]:=1 (mask[4]=SWAG); [bp-0x26]:=0`. Mask offsets verified by the init loop at 0x68d3 which writes `[bp-0x24 + 2*si] := 1` for si=0..0xa (11 entries), so [bp-0x24]=idx0..[bp-0x10]=idx10."
+      },
+      "confidence": "high",
+      "open_followups": [
+        "Q: Does the original wiz6 game UI actually hide TRADE/USE/DROP/MERGE/EDIT options when viewing a character from camp's REVIEW MEMBER? User lived recollection > asm reading here, but the asm is unambiguous so I expect yes."
+      ]
+    },
+    {
+      "id": "view-context-mask-from-combat",
+      "claim": "When state 0x11 is entered with `*0x4fce == 0xd` (combat-related state — possibly post-combat treasure or combat-pause), the mask is set differently: enabled = **0 (EQUIP), 1 (SPELL), 3 (ASSAY), 4 (SWAG), 7 (DROP), 8 (SKILL)**. This is a 6-action set, REPLACING REVIEW with DROP compared to the camp set. The TRADE/USE/MERGE/EDIT options remain disabled. EDIT being disabled in combat makes sense (no time to rename or change class mid-fight); the addition of DROP is curious — possibly for unloading inventory weight during combat? **Mark as medium-confidence — the *0x4fce==0xd context is the WMEXE state (combat action resolution) per CLAUDE.md state machine, but it's not obvious when the player would enter VIEW PC during combat. May actually be the post-combat TREASURE flow (state 0xf) reading *0x4fce instead.**",
+      "category": "menu_mask",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x692b"},
+        "type": "disasm",
+        "details": "asm at 0x692b-0x696b: `cmp word [0x4fce], 0xd / jnz +0x39 / for si=0..0xa: [bp-0x24 + 2*si] := 0 / [bp-0x24]:=1 (EQUIP); [bp-0x16]:=1 (DROP); [bp-0x1e]:=1 (ASSAY); [bp-0x14]:=1 (SKILL); [bp-0x22]:=1 (SPELL); [bp-0x1c]:=1 (SWAG); [bp-0x26]:=0`."
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Q: Under what conditions does *0x4fce == 0xd at WPCVW entry? State 0xd is wmexe (combat action resolution); does that overlay invoke wpcvw? Or does *0x4fce hold a different sentinel for 'just-finished-combat' that happens to equal 0xd?"
+      ]
+    },
+    {
+      "id": "view-context-mask-default-dungeon",
+      "claim": "Default branch (*0x4fce neither 4 nor 0xd, typically 5 = wmaze/dungeon): ALL 11 actions enabled before per-character disables apply. This is the in-dungeon VIEW PC mode invoked via wmaze hotkey — the full set of actions is available. The per-character disable rules then apply: (i) party_size < 2 (`*0x43ce < 2`) disables mask[2]=TRADE and mask[10]=REVIEW; (ii) `slot+0x4594 == 0` (inventory count zero) disables mask[3]=ASSAY, mask[6]=USE, mask[7]=DROP; (iii) `slot+0x4594 < 2` (need 2+ items to merge) disables mask[5]=MERGE; (iv) gold == 0 AND inventory empty disables mask[2]=TRADE (redundant with i if alone, but covers party_size>=2 case where char has nothing to trade); (v) `wpcvw_is_character_active(slot) == 0` (sex==0 OR dead OR paralyzed/stone) disables mask[1]=SPELL, mask[6]=USE.",
+      "category": "menu_mask",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x68ce"},
+        "type": "disasm",
+        "details": "asm at 0x68ce-0x69d4: `[bp-0x26]:=1` then init loop sets all 11 mask slots to 1; then 4fce==4 branch / 4fce==0xd branch (above) / fallthrough (default). Then disable checks: 0x696b cmp [0x43ce], 2 / jnl skip / [bp-0x10]:=0 (REVIEW) / [bp-0x20]:=0 (TRADE); 0x697c cmp byte [bx+0x4594], 0 / jnz / [bp-0x1e]:=0 (ASSAY), [bp-0x16]:=0 (DROP), [bp-0x18]:=0 (USE); 0x699a cmp byte [bx+0x4594], 2 / jnc / [bp-0x1a]:=0 (MERGE); 0x69a6 gold-hi & gold-lo & inv-count == 0 / [bp-0x20]:=0 (TRADE); 0x69c0 call wpcvw_is_character_active (0x5b11) / test ax / jnz / [bp-0x22]:=0 (SPELL), [bp-0x18]:=0 (USE)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "view-menu-loop-shape",
+      "claim": "The view main loop is a top-of-function `while (true)` that: (1) renders the full character sheet via ui_render_full_character_sheet (which redraws portrait+stats+inventory each cycle, allowing the picker to overlay menu labels on the main panel), (2) re-evaluates the 11-entry enable mask each iteration (so mask reflects current gold/inv-count/conditions even after actions modify them), (3) calls ui_menu_picker_grid which blocks on input, (4) if picker returns 0..10, jumps into per-action handler via the cs:0xb0ee jump table; each handler returns and falls through to `jmp 0x6bad` which loops back to render (UNLESS picker returned 0xb=EXIT, in which case it calls wpcvw_state_0x11_exit_cleanup @ 0x5b4a and returns). The handlers are responsible for clearing/redrawing the main panel themselves if they show sub-windows; the outer loop unconditionally re-renders on the next iteration so transient sub-UIs don't need to clean up perfectly.",
+      "category": "menu_dispatch",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x68bf"},
+        "type": "disasm",
+        "details": "Loop body at 0x68bf: push slot, [bp-2] (mainPanel), [bp-4] (statsPanel); call ui_render_full_character_sheet (0x4e94). 0x68ce mask init. 0x68e9, 0x692b, default — context-mask branches. 0x696b-0x69d4 per-character disables. 0x69d5 call func_0x0000e2a8 (some redraw helper). 0x69dd-0x6a0b picker call. 0x6a11 store result. 0x6a14 jmp 0x6ba0 → dispatch table. After each case-handler: jmp 0x6bad → cmp [bp-0x6], 0xb / jz 0x6bb6 (exit-cleanup) / jmp 0x68bf (loop back to render)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "view-exit-cleanup",
+      "claim": "EXIT path: when picker returns 0xb (cancel/Enter on the EXIT entry — picker treats 11 as 'option 11', which the dispatch SKIPS via `cmp ax, 0xb / jnc 0x6bad / cmp [bp-0x6], 0xb / jz 0x6bb6`), code at file 0x6bb6 calls: (1) `func_0x0000bd6e(*0x5752, 0)` — destroy the STATS-PANEL (window 1); (2) push [bp-2] (mainPanel local_4), [bp-4] (partyRow local_6); call wpcvw_state_0x11_exit_cleanup @ 0x5b4a. The cleanup function (already documented in wbase-party-pickers-and-dismiss.json#wpcvw-exit-cleanup-cleanup-only) destroys those two remaining windows and refocuses/redraws *0x4fb2 based on what state we're returning to. Critically: *0x363a was ALREADY overwritten from *0x4fce at the FIRST instruction of view_main_loop, so the EXIT path does NOT need to set a return state — the dispatcher just returns to the outer state-machine, which immediately picks up the pre-armed state.",
+      "category": "state_transition",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6bb6"},
+        "type": "disasm",
+        "details": "ndisasm at 0x6bb6-0x6bd4: push 0; push [0x5752]; call ui_window_destroy (0xbd6e thunk); add sp,4; push [bp-2]; push [bp-4]; call wpcvw_state_0x11_exit_cleanup (0x5b4a); add sp,4; pop si; mov sp,bp; pop bp; ret. Cross-reference: wbase-party-pickers-and-dismiss.json finding wpcvw-exit-cleanup-cleanup-only documents the cleanup function's body."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "edit-submenu-options",
+      "claim": "The EDIT submenu (case 9 from main menu, calls wpcvw_edit_submenu @ 0x671f) is a 5-option grid menu: **0=RENAME CHARACTER (msg 650), 1=CHANGE PORTRAIT (msg 651), 2=CHANGE PROFESSION (msg 652), 3=REPLACE CHARACTER (msg 653) — FORCE-DISABLED at runtime, 4=EX (EXIT — msg 654 'EX')**. The submenu loops just like the main menu — picker returns option, handler is called, picker is shown again — until option 4 is picked. The mask at the start of each iteration sets [0..4]=1 then forces [3]:=0 (the REPLACE CHARACTER option is always disabled — possibly only available from wpcmk). The picker uses (window=mainPanel_param_2, msg_base=0x28a=650, mask, x_base=2, y_base=1, x_step=0x12, cols=2, attr=5).",
+      "category": "edit_submenu",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x671f"},
+        "type": "decompile",
+        "details": "Ghidra decompile: `local_1a[0..4] := 1; local_1a[3] := 0; local_10 := 0xffff; uVar1 = menu_count_enabled(local_1a, 4); local_6 = ui_menu_picker_grid(param_2, 0x28a, local_1a, 2, 1, 0x12, 2, 5, uVar1); if (local_6 == 0) wpcvw_edit_name(param_2, param_3); else if (local_6 == 1) wpcvw_identify_shop_or_temple(param_2, param_3); else if (local_6 == 2) wpcvw_class_change_execute(param_1, param_2, param_3); ui_render_full_character_sheet(param_1, param_2, param_3); while (local_6 != 4);`. Note count is 4 (not 5) because the picker iterates the mask until it sees the 0xffff terminator at local_1a[5] OR reaches count=4. msg lookup via indexedMessages[650..654] = RENAME CHARACTER / CHANGE PORTRAIT / CHANGE PROFESSION / REPLACE CHARACTER / EX."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "edit-name-flow",
+      "claim": "RENAME flow (EDIT submenu option 0): wpcvw_edit_name @ wpcvw 0x6674. Clears+borders the main-panel window. Shows msg 0x468 ('NEW NAME >') at position (1, 1). Calls `ui_text_input_editor` @ wpcvw 0x4ef5 with a 7-char (`uStack_a = 7`) max-length buffer, cursor at (5, 7) inside the window. If the user commits a non-empty name (`local_c[0] != 0`), calls func_0x0000f3aa (probably strcpy thunk) to copy the buffer to `slot * 0x1b0 + 0x43e8` (the character-record name field — confirmed by wpcvw-naming-pass bss_layout: name at +0x0). If the user cancels (empty), name is unchanged.",
+      "category": "name_edit",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6674"},
+        "type": "decompile",
+        "details": "Ghidra decompile: window clear+border (func_0x0000ed5a, func_0x0000e4ff), cursor set (func_0x0000bda7(window, 1, 1)), put msg 0x468 (func_0x0000c2db(0x468, window)), then ui_text_input_editor(...) with uStack_a=7 (max chars), uStack_8=5 (cursor_x), pppuStack_6=0 (initial cursor pos in buf), local_c=stack buffer. After: if first byte of local_c != 0, strcpy(slot*0x1b0+0x43e8, local_c). Cross-ref: msg lookup in extracted/messages/msg.json indexedMessages by id 0x468 → 'NEW NAME >'."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "edit-portrait-flow",
+      "claim": "CHANGE PORTRAIT flow (EDIT submenu option 1): wpcvw_identify_shop_or_temple @ wpcvw 0x63bc — **THE FUNCTION NAME IN PRIOR PASS IS WRONG**. This is the portrait-change screen, NOT identify/shop/temple. It creates a new window with the same geometry as the stats-panel (x=0x14, y=4, w=0x14, h=0x10, attr=0x1e), draws borders, shows msg 0x458 (' TO REVIEW PORTRAITS') at row 1 and msg 0x459 ('PRESS  TO SELECT') at row 2, then enters a loop that: (1) loads a portrait via `portrait_load_from_disk` @ 0x6229 whenever the on-disk portrait index differs from the displayed one (compares `slot+0x4584` vs the per-overlay last-shown global), (2) calls `ui_render_identify_or_shop_row` @ 0x6347 to draw the portrait at (6, 8), (3) polls input via input_poll_key_or_mouse_with_blink. The portrait index advances on arrow keys (need to RE the input handler at later asm — left/right cycle through the portraits pool). Commits the chosen portrait by updating slot+0x4584. **Subagent caution**: function 0x6347 named `ui_render_identify_or_shop_row` is also misnamed — it's the portrait-row renderer.",
+      "category": "portrait_change",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x63bc"},
+        "type": "decompile",
+        "details": "Decompile body: ui_window_create(0x14, 4, 0x14, 0x10, 0x1e, ...); window clear+border+focus; put msg 0x458 at (1,9); put msg 0x459 at (1,0xc); then loop: if (*(byte*)(slot*0x1b0 + 0x4584) != local_6) { local_4 = *(slot*2 + 0x43d0); local_6 = slot+0x4584; portrait_load_from_disk(); } ui_render_identify_or_shop_row(6, 8, slot, slot); input_poll_key_or_mouse_with_blink. msg 0x458/0x459 lookup → 'TO REVIEW PORTRAITS' / 'PRESS TO SELECT'."
+      },
+      "confidence": "high",
+      "implications": [
+        "Function rename needed: 0x63bc 'wpcvw_identify_shop_or_temple' → 'wpcvw_change_portrait' or similar.",
+        "Function rename needed: 0x6347 'ui_render_identify_or_shop_row' → 'ui_render_portrait_at_xy' or similar."
+      ]
+    },
+    {
+      "id": "edit-class-change-flow",
+      "claim": "CHANGE PROFESSION flow (EDIT submenu option 2): wpcvw_class_change_execute @ wpcvw 0x6054. **Already fully documented in wpcvw-naming-pass.json finding 'fn-class-change-tax'** (level reset to 1, XP wipe, save old level cap into *0x4597 which throttles future stat/HP/skill gains until current_level >= old_level). Cross-reference, no new claims here.",
+      "category": "class_change",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6054"},
+        "type": "cross-reference",
+        "details": "See wpcvw-naming-pass.json#fn-class-change-tax."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "edit-replace-character-disabled",
+      "claim": "REPLACE CHARACTER (EDIT submenu option 3) is **always force-disabled** by the explicit `local_1a[3] := 0` in wpcvw_edit_submenu — it appears as a greyed/skipped entry but cannot be picked. **Hypothesis**: this slot was intended to be a 'dismiss + replace with another from PCFILE.DBS' shortcut, but the feature was either cut or moved to wbase's MASTER OPTIONS slot 2 (DISMISS MEMBER) + slot 0 (ADD PARTY MEMBER). Confidence: medium — the SUBMENU label suggests intent, but the disable is hard-coded.",
+      "category": "edit_submenu",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x671f"},
+        "type": "decompile",
+        "details": "Decompile sets `local_1a[3] := 0` immediately after the all-enable loop. The label 'REPLACE CHARACTER' (msg 653) suggests intent."
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Q: Was REPLACE CHARACTER ever functional in earlier Wiz6 builds? Check the Martydill RE repo for any older binary versions that show this menu option active."
+      ]
+    },
+    {
+      "id": "action-equip-flow",
+      "claim": "EQUIP action (main menu option 0): handler at file 0x6a17 calls FUN_8e35 (named `wpcvw_unequip_all_and_recompute` in prior pass — likely **misnamed**, this should be the 'pick item from pool/inventory and equip it' flow). Args pushed: slot, item_x_pos, item_y_pos (from the picker's coordinate). Receives no msg_id and no prompt — suggests it has its own internal sub-UI (likely shows the inventory grid + equip-slot prompt). **Function name correction recommended after deeper RE**.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6a17"},
+        "type": "disasm",
+        "details": "ndisasm at 0x6a17: push [bp+4] (slot); push [bp-4] (mainPanel x?); push [bp-2] (cursor y?); call 0x8e35; add sp,6; jmp 0x6bad. Function name from prior wpcvw-naming-pass.json: 'wpcvw_unequip_all_and_recompute' — this contradicts the EQUIP label."
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Q: Is FUN_8e35 actually an EQUIP-flow or an UNEQUIP-ALL? RE the function body in detail. The naming-pass entry may have been mistaken."
+      ]
+    },
+    {
+      "id": "action-spell-flow",
+      "claim": "SPELL action (main menu option 1, 'cast spell out of combat'): handler at file 0x6a29 calls FUN_416d (unnamed in prior pass) with 4 args: extra_arg from `[bp-0x26]` (the mystery slot the per-iteration mask init writes to), slot, x_pos, y_pos. The extra `[bp-0x26]` arg is a key signal — most other actions take only (slot, x, y). Likely a 'spell book level / context' indicator. Need RE on FUN_416d.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6a29"},
+        "type": "disasm",
+        "details": "ndisasm at 0x6a29: push [bp-0x26]; push [bp+4]; push [bp-4]; push [bp-2]; call 0x416d; add sp,8; jmp 0x6bad."
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Q: What is FUN_416d? It's the SPELL action. RE function body — does it open a spell-selection sub-menu, take a target, then call spell_apply?"
+      ]
+    },
+    {
+      "id": "action-drop-cursed-check-correction",
+      "claim": "**CORRECTION TO PRIOR FINDING**: wpcvw-naming-pass.json#fn-cursed-item-lockout claims 'Unequip (0x67f6 case 5) is blocked when item flag byte ... has bits 0x01, 0x02, or 0x40 set'. After resolving the dispatch table (delta=0x4564), this is actually **case 7 (DROP)**, not case 5 (MERGE). The DROP path at file 0x6a86 checks `bx+0x442f & 0x43` (where 0x43 = 0x40 | 0x02 | 0x01) — if any bit set, calls play_sound(0) (deny beep) and skips the drop; else calls inventory_equip_or_unequip @ 0x17f7. So the cursed-flag block applies to DROP, and the prior doc's claim that 'DROP doesn't check any of these — it's the only escape from a cursed item' is **wrong** (or at minimum doesn't apply to the DROP picker option in wpcvw's view-main-menu).",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6a86"},
+        "type": "disasm",
+        "details": "ndisasm at 0x6a86-0x6ae5: push 0; push [bp+4]; push 0x192 (DROP WHICH ITEM?); push [bp-4]; push [bp-2]; call 0x1a48 (ui_pick_inventory_item); add sp,0xa; mov [0x43ca], ax; cmp ax, 0xffff; jz 0x6ae5 (cancel); bx = slot*0x1b0 + (item_idx << 3); al = [bx+0x442f]; test al, 0x01; jnz beep; test al, 0x02; jnz beep; test al, 0x40; jz drop_ok; beep: push 0; call play_sound (0xc546); add sp,2; jmp 0x6ae5; drop_ok: push [0x43ca]; push [bp+4]; call 0x17f7 (inventory_equip_or_unequip); add sp,4; jmp 0x6ae5. Cross-ref: wpcvw-naming-pass.json#fn-cursed-item-lockout (mislabeled as 'case 5')."
+      },
+      "confidence": "high",
+      "supersedes": "wpcvw-naming-pass.json#fn-cursed-item-lockout (case 5 → case 7 correction; DROP doesn't check claim is wrong)"
+    },
+    {
+      "id": "action-review-leader-switch",
+      "claim": "REVIEW action (main menu option 10): handler at file 0x6b5c. Calls ui_pick_party_member @ wroot (or wpcvw 0x4419? — Ghidra resolved to wpcvw 0x4419 — TODO confirm) with args (slot, msg 0x1f4='REVIEW WHO?', x, y). The picker returns either the chosen slot or 0xffff (cancel). If cancel: leaves *0x43cc unchanged; else: updates the LOCAL `[bp+4]` to the new slot (so subsequent renders show the new character) AND `mov *0x43cc, [bp+4]` AND `mov *0x57fc, 0`. This is the in-place leader-switch — the next loop iteration shows the new character's sheet WITHOUT exiting back to state 4. **Critical UX detail**: REVIEW does NOT exit the view; it just changes which character is shown. This is the camp-equivalent of paging through party members.",
+      "category": "leader_switch",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6b5c"},
+        "type": "disasm",
+        "details": "ndisasm at 0x6b5c-0x6b88: push [bp+4]; push 0x1f4; push [bp-4]; push [bp-2]; call 0x4419 (ui_pick_party_member per wpcvw-naming-pass); add sp,8; mov [0x43cc], ax; cmp ax, 0xffff; jz 0x6b82 (cancel path: mov ax, [bp+4]; mov [0x43cc], ax — preserve current); else: mov [bp+4], ax (update local slot); mov word [0x57fc], 0; jmp 0x6bad. msg 0x1f4='REVIEW WHO?' from indexedMessages."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "view-input-keys",
+      "claim": "Input keys (from ui_menu_picker_grid @ wpcvw 0x6c, which the view loop uses): arrow keys move the cursor (1=UP/prev row, 2=LEFT/prev col, 3=DOWN/next row, 4=RIGHT/next col), key code 5 commits the selection. Mouse click triggers commit (sets `*0x4fc4 == 1` global). The picker also handles cursor blinking via `input_poll_key_or_mouse_with_blink` (wroot thunk @ 0xe2a8 → image 0x67e2... or similar). The ESC / Backspace key for 'cancel/exit' is NOT mapped — the only way to exit the view is to PICK the EXIT entry (option 11). The cursor wraps within the 2-column × 6-row grid: rightmost column right-arrow does nothing; leftmost column left-arrow does nothing; bottom row down-arrow does nothing (no wrap-around).",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6c"},
+        "type": "decompile",
+        "details": "Ghidra decompile of ui_menu_picker_grid: while loop calling input_poll_key_or_mouse_with_blink(0x553e, 0x3598). If `*0x4fc4 == 1` (mouse): break with iVar2 as cursor. If iVar2==1 (UP): if param_9 >= param_7 (cols), cursor -= cols. If iVar2==2 (LEFT): if (param_9 % param_7) > 0, cursor -= 1. If iVar2==3 (DOWN): if (param_9 + cols) < count, cursor += cols. If iVar2==4 (RIGHT): if (param_9 % cols) < cols-1 AND (param_9+1) < count, cursor += 1. Loop while iVar2 != 5 (Enter)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "view-stats-panel-contents",
+      "claim": "ui_render_character_stats_panel @ wpcvw 0xf47 (1.8KB function — too large to summarize completely) renders into window 1 (`*0x5752` at x=20,y=4,w=20,h=16). Layout (from decompile of opening section): (1) **Mini-portrait** at top-left, 3 chars wide × 3 rows tall, drawn at columns 1-3 rows 1-3 using a portrait offset computed from `(*(int*)(slot*2+0x43d0) * 9 + 0x48)` — the 0x43d0 word-table is a per-slot portrait-id, multiplied by 9 (chars-per-portrait-row) plus 0x48 (table base into a font/portrait sheet). (2) **Name** at col 4, row 1 using ui_print_at_xy. (3) **Race** (msg from `slot+0x4586` + 0x8c offset table) at col 13, row 1. (4) **Sex** at col 14, row 2 (msg `slot+0x4585 + 100`). (5) **Class** at col 13, row 2 (msg `slot+0x4587 + 0x78`). (6) **Three condition icons** at col 5-7 row 3 (priority-ordered from +0x4580 condition array — calls FUN_e34b 3 times). (7) **Level** at row 3 col 9 (`slot+0x440c`). (8) **HP/SP** values starting around col 3 row 8/9 (`slot+0x440e` for current). (9) **Race-class composite for portrait/info** at later rows. **The renderer mostly uses ui_print_msg_at_xy (FUN_dd53) and ui_print_msg_with_byte_arg (FUN_c041) for numerical fields.**",
+      "category": "panel_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0xf47"},
+        "type": "decompile",
+        "details": "Decompile body excerpt: `local_58 = *(int *)(param_2 * 2 + 0x43d0) * 9 + 0x48; for iVar4 in 0..3: bda7(window, 1, iVar4+1); for iVar5 in 0..3: de7f(window, iVar4*3 + local_58 + iVar5, 2);` (portrait). Then ui_print_at_xy(window, 4, 1, slot*0x1b0+0x43e8, 5) — name. Then more bda7/c041/c2db sequences for race/sex/class/AC/HP/SP/level."
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Q: The stats panel has 1.8KB of code — only the first ~30% is partly understood. Need a follow-up RE to map every field. Lower-priority: most info matches the prior CLAUDE.md / wpcvw-naming-pass description (portrait + name + race + sex + AC + HP/SP + level + class + gold), but exact coordinates of each field are not yet committed."
+      ]
+    },
+    {
+      "id": "view-inventory-panel-contents",
+      "claim": "ui_render_inventory_panel @ wpcvw 0x6c81 renders into window 2 (the full-screen mainPanel local_4 at x=0,y=0,w=40,h=20). It displays: (1) **AC** at top — `slot+0x4548 / slot+0x4549` (per fn-inventory-render in prior pass — 2-byte combined AC value), (2) **6 attribute values** STR/INT/PIE/VIT/DEX/SPD at `slot+0x4514..+0x4519`, (3) **the inventory grid** — slot+0x4594 = item count, items at `slot+0x4428..+0x4498` (22 slots × 8 bytes each per existing CLAUDE.md / character-record finding). Per the prior pass: stride is 8 bytes per item, 22 slots, fields at +0 (id u16), +2 (count), +3 (charges), +5 (uses?), +0x4 (state/equipped), +0x7 (flag byte at +0x442f within slot). Without dedicated RE this pass relies on prior wpcvw-naming-pass#fn-inventory-render.",
+      "category": "panel_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6c81"},
+        "type": "cross-reference",
+        "details": "Function named ui_render_inventory_panel in wpcvw-naming-pass.json#fn-inventory-render. Detailed field offsets cross-referenced from wpcvw-naming-pass.json#fn-bss-layout. This subagent did not re-RE the inventory panel layout — see open follow-ups for the gap."
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Q: Exact coordinates of each inventory cell within the 40-wide window — is it a 2x11 grid? A 1x22 list? Per Wiz6 screenshot lore it's a 2-column × 11-row list with item icons + names. RE the function body for the cell-render loop."
+      ]
+    },
+    {
+      "id": "party-row-renderer",
+      "claim": "Window 3 (the bottom party row, x=0,y=20,w=40,h=4) contains the **PARTY MEMBER MINI-ROW** rendered per-slot by `party_member_ui_render` @ wpcvw 0x465 (per wpcvw-naming-pass#fn-party-row-render). Each slot occupies columns 7*N..7*N+6 (7-char-wide cells, 6 party members fit). Per the prior finding, each cell shows: (1) name (padded to 7 chars), (2) sex/race icon, (3) HP bar (scaled), (4) SP bar, (5) primary + secondary weapon icons, (6) condition icon (priority-worst of 10 slots at +0x4500..+0x4513 — see condition-array finding). The mini-portrait row is drawn during ui_render_full_character_sheet's call to ui_draw_character_sheet_borders + the renderer. The currently-VIEWED character's cell is highlighted (TODO confirm exact highlight mechanic).",
+      "category": "party_row",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x465"},
+        "type": "cross-reference",
+        "details": "Function 0x465 named party_member_ui_render in wpcvw-naming-pass.json#fn-party-row-render. Detailed condition-priority table at cs:0x532 (per prior pass)."
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Q: When the player selects REVIEW WHO? and switches leader, does the party-row highlight follow the new leader? The view loop re-renders the sheet each iteration but the party-row may or may not depend on *0x43cc."
+      ]
+    },
+    {
+      "id": "state-0x16-bulk-levelup",
+      "claim": "State 0x16 (post-combat bulk LEVEL UP) handler at wpcvw 0xb4ac. Body: (1) pre-arms *0x4fce := 5 and *0x363a := 5 (return to wmaze dungeon state 5 after this state completes), (2) loads msg 0x12c (=300, 'USE' — hm, may be repurposed as a generic level-up window title — TODO check), (3) iterates `for slot = 0 .. *0x43ce-1: wpcvw_per_character_levelup_loop(slot)` (every party member), (4) unfocuses windows *0x4fb0, *0x3342, *0x4fb2 (the camp banner / persistent menu windows), (5) redraws *0x3342. **Critically, this state IS partially interactive**: wpcvw_per_character_levelup_loop (file 0xb362) creates two windows (one full-screen + one 40-wide x 4-tall bottom strip), runs a `while (xp >= threshold)` loop, each iteration calling wpcvw_apply_levelup (file 0xb220) which in turn calls level_pick_new_spells_loop (file 0xa3be) — that function shows a YES/NO confirm prompt for each spell offered. So state 0x16 BLOCKS waiting for player input on each new spell learned across the party. The state-0x16 dispatch in wpcvw's entry stub (file 0x2a `call 0xb4ac`) returns when ALL party members finish leveling up.",
+      "category": "level_up",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0xb4ac"},
+        "type": "disasm",
+        "details": "ndisasm at 0xb4ac-0xb4d1: push bp; mov bp, sp; sub sp, 4; mov word [0x4fce], 5; mov word [0x363a], 5; push 0x553e; push 0x12c; call load_msg (0xc1f7); add sp,4; mov word [bp-2], 0; jmp 0xb4dd. Loop 0xb4d3-0xb4e4: push [bp-2]; call 0xb362 (wpcvw_per_character_levelup_loop); add sp,2; inc [bp-2]; cmp [bp-2], [0x43ce]; jl back. Then 0xb4e6-0xb4fd: push [0x4fb0]; call func_ec6d (unfocus); pop cx; push [0x3342]; call func_ec6d; pop cx; push [0x4fb2]; call func_ec6d; pop cx; push 0; push [0x3342]; call func_c497 (redraw); add sp,4. Sub-function 0xb220 wpcvw_apply_levelup decompiled — calls level_pick_new_spells_loop if `*(slot+0x4590) != 0` (spells-to-learn count, set by level_roll_spells_to_learn = rng(6)+5 per existing finding)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "state-0x16-window-layout",
+      "claim": "During state 0x16, wpcvw_per_character_levelup_loop creates TWO windows per character: (1) FULL-SCREEN backdrop at x=0,y=0,w=0x28=40,h=0x14=20,attr=0x14 (same as view-main's local_4); (2) BOTTOM STRIP at x=0x14,y=4,w=0x28,h=0xf,attr=0xffff — wait — checking arg order: from decompile `func_0x0000bbb6(0,0x14,0x28,4,0xf,0xffff,0,0)` — cdecl right-to-left, so args in C-source order are (x=0,y=0x14,w=0x28,h=4,attr=0xf,chrome=0xffff,flags=0,refresh=0) → second window at (0, 20, 40, 4, attr=0xf) = the same party-row geometry as the view-main loop. So state-0x16 reuses the view's bottom-party-row position. The full-screen window holds the character's stats + the 'YOU LEVELED UP! / NEW SPELL: BLAH BLAH / LEARN? YES/NO' prompts; the bottom strip continues to show the party row.",
+      "category": "level_up",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0xb362"},
+        "type": "decompile",
+        "details": "Ghidra decompile of wpcvw_per_character_levelup_loop opening: `local_4a = func_0x0000bbb6(0, 0, 0x28, 0x14, 0x14, 0xffff, 0, 0)` (window 1: full-screen); `func_0x0000bbb6(0, 0x14, 0x28, 4, 0xf, 0xffff, 0, 0)` (window 2: bottom party row)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "level-up-interactive-prompts",
+      "claim": "Within wpcvw_apply_levelup (file 0xb220), the per-character level-up flow is: (1) increment `slot+0x440c` (level), (2) decrement `slot+0x4597` (saved-old-level cap — once current_level >= old_level, sets 4597:=0 to release the throttle), (3) calls level_update_high_water_mark, (4) re-renders char sheet, (5) clears+borders main window, (6) loads msg 0x1392 (=5010) into *0x558e (likely 'LEVELED UP!' or similar), (7) does some string-build via func_0x0000c05d into a 0x5e-byte buffer at *0x558e starting with the character name, (8) loads class-specific level-up msg `*(slot+0x4587) + 0x78` (class index + offset 0x78), (9) calls ui_show_modal_msg_window (which BLOCKS for player keypress), (10) calls level_stat_increase_roller (file 0xb004), level_hp_sp_regen_tick (file 0xa7bd), level_recompute_ac_and_level_cap (file 0xaa94), level_roll_spells_to_learn (file 0xa529), (11) if (slot+0x4590) != 0: calls level_pick_new_spells_loop (file 0xa3be — interactive YES/NO per spell), (12) class_specific_hook (file 0xac9d), (13) for cond_idx = 0..3: while (slot + cond_idx + 0x4500) != 0: level_post_condition_or_spell_roll(slot). So per-level the player sees: title window, level-up message popup (one keypress to dismiss), then for each new spell — a YES/NO prompt. The whole flow blocks until the player dismisses each modal.",
+      "category": "level_up",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0xb220"},
+        "type": "decompile",
+        "details": "Ghidra decompile of wpcvw_apply_levelup shows the exact sequence. ui_show_modal_msg_window (file 0xa352) is documented as a blocking modal in wpcvw-naming-pass.json. level_pick_new_spells_loop is fn-spell-learn-on-levelup in prior pass."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wpcvw-runtime-delta-meta",
+      "claim": "**Discovery worth promoting to CLAUDE.md**: wpcvw.ovr's runtime delta (CS-disp16 offset → file_offset translation) is `0x4564` — IDENTICAL to wpcmk.ovr. This is unsurprising since both overlays load into the same wroot code segment and have similar header layouts. Use `file_offset = CS_offset - 0x4564` for any CS-disp16 in wpcvw's asm. CLAUDE.md's overlay delta table should add wpcvw row.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6b8a"},
+        "type": "disasm",
+        "details": "See wpcvw_runtime_delta_discovery section at top of this file. Verified by jump-table dispatch at file 0x6ba8."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "inv-picker-msg-prompts",
+      "claim": "When an action requires picking an item from inventory, the picker is `ui_pick_inventory_item` @ wpcvw 0x1a48. It takes a msg_id for the prompt label. Used msg IDs (cross-referenced via indexedMessages): **0x190 (=400) 'USE WHICH ITEM?'** for USE; **0x192 (=402) 'DROP WHICH ITEM?'** for DROP; **0x1c2 (=450) 'ASSAY WHICH ITEM?'** for ASSAY; **0x198 (=408) 'USE ON WHICH ITEM?'** for USE-on-item sub-target. Cancel return value is 0xffff (stored in *0x43ca after the call; cancel paths jump to merge label).",
+      "category": "inventory_picker",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1a48"},
+        "type": "disasm",
+        "details": "Case handlers at 0x6a50 (ASSAY → 0x1c2), 0x6a86 (DROP → 0x192), 0x6ae8 (USE → 0x190). Each pushes msg_id then calls 0x1a48. Result stored at [0x43ca]; checked against 0xffff for cancel. msg lookup in extracted/messages/msg.json indexedMessages by id."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-action-implementation",
+      "claim": "SKILL action (main menu option 8): handler at file 0x6b4e calls FUN_4d36 (unnamed in prior pass). The function opens a window at (4, 0x14, 0x14, 0x10) = x=4,y=20,w=20,h=16 — wait, args pushed: 0,0,0xffff,0x19,0x10,0x14,0x4,0x14 → x=0x14,y=4,w=0x14,h=0x10,attr=0x19 — same geometry as the stats panel but with attr=0x19 instead of 0x1a. It iterates skill indices 0x11..0x16 (5 skills) checking `slot+0x451c+idx` (per-skill flag); counts available skills; then probably shows a picker for the player to pick a skill to apply (e.g., 'PICK LOCK', 'SEARCH', etc.). **Need deeper RE** — name should be `wpcvw_skill_menu`.",
+      "category": "skill_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x4d36"},
+        "type": "disasm",
+        "details": "ndisasm at 0x4d36-0x4d8a: push bp; mov bp,sp; sub sp,0x34; mov word [bp-0x1a],0; mov word [bp-0x34],0; mov word [bp-2],0x11; loop: bx = slot*0x1b0 + [bp-2]; cmp byte [bx+0x451c], 0; jna skip; mov [bp-0x34], 1; inc [bp-2]; cmp [bp-2], 0x16; jl loop. Then ui_window_create call with attr=0x19. Note skill range 0x11..0x15 inclusive (5 entries)."
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Q: What are skill indices 0x11..0x15? Per wpcvw-naming-pass#fn-bss-layout the skills array is 14 entries (the doc says '14 skill levels'). Likely the first 0x11=17 are 'background skills' and 0x11..0x15 are 'active skills' (pick-lock, search, swim, climb, intuit). RE the skill-name table in extracted/messages or wroot data."
+      ]
+    },
+    {
+      "id": "merge-action-stub",
+      "claim": "MERGE action (main menu option 5): handler at file 0x6b1a calls FUN_5826 (unnamed in prior pass). Args: slot, x, y. Almost certainly the inventory-stack-merge flow: combines multiple stacks of the same item (e.g. arrows, scrolls, potions) into one. Disabled when inventory count < 2.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x5826"},
+        "type": "disasm",
+        "details": "ndisasm at 0x6b1a-0x6b29: push [bp+4]; push [bp-4]; push [bp-2]; call 0x5826; add sp,6; jmp 0x6bad. Mask disable at 0x699a-0x69a1: cmp byte [bx+0x4594], 2; jnc skip; [bp-0x1a]:=0 — disables MERGE if inv_count < 2."
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Q: RE FUN_5826 body to confirm it's stack-merge. May also need to know UX: does it pick TWO items, or pick one item then auto-merge with all compatible stacks?"
+      ]
+    },
+    {
+      "id": "swag-action-pool-display",
+      "claim": "SWAG action (main menu option 4): handler at file 0x6b3d calls wpcvw_show_pool_inventory @ 0x1db3 (named in prior pass). This is the 'view the shared party pool/loot' UI — items not assigned to any character. Per Wiz6 lore, SWAG holds dropped/treasure items waiting to be picked up; a player can move them into a character's inventory or leave them. **Open**: confirm 0x1db3 displays the pool grid and allows pick-up. Args: slot, x, y.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1db3"},
+        "type": "cross-reference",
+        "details": "Function 0x1db3 named wpcvw_show_pool_inventory in wpcvw-naming-pass.json. Handler at file 0x6b3d: push [bp+4]; push [bp-4]; push [bp-2]; call 0x1db3."
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Q: Does SWAG allow picking items up into character inventory, or is it read-only? RE 0x1db3 body."
+      ]
+    },
+    {
+      "id": "trade-action-give",
+      "claim": "TRADE action (main menu option 2): handler at file 0x6a3e calls `wpcvw_give_to_party_member` @ 0x513e (named in prior pass with full 32-bit gold transfer logic). This is the give-gold-or-item flow: prompts for target character, then prompts for what to give. Disabled when gold==0 AND inv_count==0 AND when party_size < 2.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x513e"},
+        "type": "cross-reference",
+        "details": "Function 0x513e named wpcvw_give_to_party_member in wpcvw-naming-pass.json#fn-give-gold-32bit. Handler at file 0x6a3e."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "assay-action-identify",
+      "claim": "ASSAY action (main menu option 3): handler at file 0x6a50 calls ui_pick_inventory_item (msg 0x1c2='ASSAY WHICH ITEM?') then `wpcvw_item_inspect_and_use` @ 0x7160 (named in prior pass — likely actually IDENTIFY/inspect rather than 'use' — name correction needed). The flow shows the item's stats (uncovered fields based on character's identify skill?). Disabled when inv_count==0.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6a50"},
+        "type": "disasm",
+        "details": "ndisasm at 0x6a50-0x6a83: push 0 (param_5=0 → use char inventory not pool); push [bp+4]; push 0x1c2; push [bp-4]; push [bp-2]; call 0x1a48 (ui_pick_inventory_item); add sp,0xa; mov [0x43ca],ax; cmp ax,0xffff; jz cancel; push 0; push [0x43ca]; push [bp+4]; push [bp-4]; call 0x7160; add sp,8; jmp merge."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "use-action-item-type-dispatch",
+      "claim": "USE action (main menu option 6): handler at file 0x6ae8 calls ui_pick_inventory_item (msg 0x190='USE WHICH ITEM?') then `wpcvw_item_drop_or_give_dispatch` @ 0x4a5b (named in prior pass — name is wrong, this is actually the item-type USE-dispatch per the wpcvw doc). The function contains a switch table over item-type comparisons (item id 0x18b, 0x193, etc.) — different item types trigger different effects (heal, identify, light, etc.). May prompt for a TARGET item via msg 0x198='USE ON WHICH ITEM?' (e.g., 'Use Identify scroll ON which item?'). Disabled when inv_count==0 OR character is not active.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x4a5b"},
+        "type": "decompile",
+        "details": "0x4a5b decompile contains explicit `cmp word [bx+0x4428], 0x18b / 0x193 / ...` — per-item-id branches. Each branch may invoke a different sub-handler. Calls ui_pick_inventory_item again with msg 0x198 for the target-on item picker. Handler at 0x6ae8 case is the entry."
+      },
+      "confidence": "high",
+      "implications": [
+        "Function rename: 0x4a5b 'wpcvw_item_drop_or_give_dispatch' → 'wpcvw_item_use_dispatch'."
+      ]
+    },
+    {
+      "id": "view-from-state-5-dungeon",
+      "claim": "When entered from in-dungeon (state 5 → state 0x11 → ... → state 5), per the view-main-loop's `*0x363a := *0x4fce` first-instruction (already documented in wbase-party-pickers-and-dismiss.json), the next-state is wmaze (5). The exit cleanup function handles state-5 return via `func_0x0000c4de(*0x4fb2)` (unfocus the persistent dungeon banner) and `func_0x0000ebb4()` (refocus / refresh). So from dungeon, EXIT returns the player directly to dungeon movement — no intermediate menu.",
+      "category": "state_transition",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x5b4a"},
+        "type": "cross-reference",
+        "details": "See wbase-party-pickers-and-dismiss.json#wpcvw-exit-cleanup-cleanup-only for cleanup body details."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "condition-array-readonly-from-view",
+      "claim": "The 10-condition array at `slot+0x450a..+0x4513` (per wpcvw-naming-pass#fn-condition-array) is **read-only** from the WPCVW VIEW screen — no menu option modifies conditions. Conditions are inflicted/cured elsewhere (combat, spells, healers, sleep). The view simply displays the worst-priority condition icon in the stats panel + the party row. The +0x450c (dead) and +0x450d (paralyzed/stone) bytes are checked separately by wpcvw_is_character_active (file 0x5b11) to determine if SPELL and USE are enabled.",
+      "category": "condition_display",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0xf47"},
+        "type": "cross-reference",
+        "details": "Stats panel renderer (0xf47) calls FUN_e34b (condition-priority-render) three times for cond array. wpcvw_is_character_active (0x5b11) reads +0x450c, +0x450d, +0x4589 (sex). No write to +0x450a..+0x4513 found in WPCVW view-main-loop or its case handlers."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "view-entry-default-cursor",
+      "claim": "The picker's initial cursor position on first entry is set to `enabled_count` (the COUNT of enabled options, NOT 0 or the EXIT entry). Asm at 0x69e5: `call menu_count_enabled_entries; push ax` — the count IS the cursor init. This means: if 7 options are enabled, the cursor starts AT position 7 (which would be the 7th enabled option). The first entry to the picker has `[bp-4] := 0` (set at function entry — wait, the param_1 cursor arg comes from `[bp-4]`, but local_4 is the second window, not a cursor...). **Need re-check** — the picker's last-pushed arg is `[bp-4]`. But [bp-4] is local_4 (the main-panel window handle). So `param_9` = window handle? No — the picker signature has param_9 as cursor and param_1 as window. The LAST pushed = param_1 (window). So the window arg IS [bp-4] = mainPanel. The 9th pushed arg (first push, param_9) is `ax` from menu_count_enabled. So **the initial cursor is set to enabled_count** — pointing past the last enabled entry — which the picker code then clamps internally. **Or** it's intentionally placed on EXIT (because the count-of-enabled-among-11 entries is typically 11 when all enabled or 7 when from camp, both of which point at EXIT if EXIT is the 12th entry). TODO confirm against picker internals.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x69e5"},
+        "type": "disasm",
+        "details": "ndisasm at 0x69dd-0x6a0b: count=0xb pushed; lea [bp-0x24] pushed; call menu_count_enabled (returns count of 1's in the 11-entry mask); add sp,4 (clean count args); push ax (use the count as cursor init). This is the LAST push before the cursor arg... wait, picker args are 9, this is one of them. Re-reading: 9 pushes after 0x69e5. Push ax (count) at 0x69eb is arg 8 = param_8 = attr? No: 0x69eb push ax = param_9 cursor (first push). Then 5 (attr), 2 (cols), 6 (xstep), 1 (y), 2 (x), lea [bp-0x24] (mask), 0x12d (msg), [bp-4] (window). So cursor = enabled_count. UX impact: cursor starts on the LAST enabled option (because count - 1 would be the last index, but count itself points one past — picker likely clamps via the wrap-around logic)."
+      },
+      "confidence": "low",
+      "open_followups": [
+        "Q: Verify with live DOSBox-X that the initial cursor is on EXIT (or last enabled option). The asm says 'cursor=enabled_count' which is past the last entry — picker may clamp to last, or to 0, or to EXIT."
+      ]
+    },
+    {
+      "id": "view-render-message-buffer",
+      "claim": "On entry, wpcvw_view_main_loop loads msg 0x12c (=300, 'USE') into the global message buffer at *0x553e. This is the menu's STATUS/PROMPT buffer that some renderers use as a default. Reading 'USE' as the title is odd — likely msg 300 is actually a status line or empty/placeholder string that gets overwritten by the picker before display. **Lower-confidence — needs cross-verification with the picker's title rendering.**",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6803"},
+        "type": "disasm",
+        "details": "ndisasm at 0x6803-0x680e: mov ax, 0x553e; push ax; mov ax, 0x12c; push ax; call func_c1f7 (load_msg_into_buf); add sp, 4. msg 0x12c lookup in indexedMessages → 'USE' (just the verb, perhaps repurposed as a default prompt)."
+      },
+      "confidence": "low"
+    }
+  ],
+  "cross_references": [
+    "wbase-party-pickers-and-dismiss.json — entry mechanics (state-0x11 dispatch, *0x43cc, *0x4fce pre-arm), exit cleanup body",
+    "wpcvw-naming-pass.json — 90 function names; key entries: fn-class-change-tax (CHANGE PROFESSION mechanics), fn-stat-increase-roller (LEVEL UP stat bump), fn-hp-sp-regen-on-levelup, fn-spell-learn-on-levelup (interactive YES/NO prompts), fn-bss-layout (character record offsets)",
+    "docs/re/wpcvw-character-view.md — narrative overview; class-change tax + stat-increase three-try filter are documented in detail",
+    "extracted/messages/msg.json — indexedMessages by id: 301-311 main menu labels, 650-654 EDIT submenu labels, 1112-1128 portrait+name-edit prompts, 400/402/450/500 inventory-picker prompts",
+    "CLAUDE.md — overlay delta table (needs wpcvw row added: delta=0x4564, same as wpcmk)"
+  ],
+  "implementation_blocking_facts_top_5": [
+    "1. **Three windows** are created on view entry: STATS-PANEL (right half x=20,y=4,w=20,h=16,attr=0x1a) stored at GLOBAL *0x5752; MAIN-PANEL (full-screen x=0,y=0,w=40,h=20,attr=0x14) as local; PARTY-ROW (bottom x=0,y=20,w=40,h=4,attr=0x0f) as local. The picker is hosted in the MAIN-PANEL window.",
+    "2. **11-option menu** labels are EQUIP/SPELL/TRADE/ASSAY/SWAG/MERGE/USE/DROP/SKILL/EDIT/REVIEW (msg ids 301-311, indexed); plus EXIT (option 12, msg 312) as implicit cancel.",
+    "3. **Context-sensitive enable mask**: when entered from camp (*0x4fce==4), only EQUIP/SPELL/ASSAY/SWAG/SKILL/REVIEW are enabled (read-only-ish view). From dungeon (*0x4fce==5 / default), ALL 11 enabled subject to per-character disables (gold/inv/active checks). Combat-related (*0x4fce==0xd): EQUIP/SPELL/ASSAY/SWAG/DROP/SKILL.",
+    "4. **EDIT submenu** has 5 entries (msg 650-654: RENAME/CHANGE PORTRAIT/CHANGE PROFESSION/REPLACE/EX); REPLACE is ALWAYS force-disabled. RENAME calls ui_text_input_editor with max-len 7. CHANGE PORTRAIT cycles through portrait pool with left/right arrows. CHANGE PROFESSION applies the class-change tax (level-reset + XP-wipe + saved-old-level cap).",
+    "5. **EXIT mechanism**: the view's first statement is `*0x363a := *0x4fce` (pre-arm next state). EXIT just calls cleanup (destroy 3 windows + refocus persistent banner). The dispatcher returns to whatever state is now in *0x363a (4 from camp, 5 from dungeon, etc.). REVIEW WHO option does NOT exit — it changes the viewed character in place."
+  ],
+  "open_questions_top_5": [
+    "Q1: **What is FUN_416d?** The SPELL action handler — likely 'cast spell out of combat'. The 4-arg signature (extra arg from [bp-0x26]) is unusual.",
+    "Q2: **What is FUN_8e35 really?** Prior pass named it 'wpcvw_unequip_all_and_recompute' but it's wired as the EQUIP action handler. Either the name is wrong, or EQUIP triggers a temporary unequip-all before re-equipping. Needs RE.",
+    "Q3: **What is FUN_5826?** The MERGE action handler — likely inventory stack merger. UX details unknown.",
+    "Q4: **Does *0x4fce==0xd actually happen at view entry?** State 0xd is wmexe (combat action resolution). The 0xd-context mask logic exists in code but it's not obvious when/how wpcvw is invoked from combat. Could be post-combat treasure (state 0xf) reading 0xd as a stale value.",
+    "Q5: **Initial picker cursor position** is set to `enabled_count` — which points past the last entry. Picker likely clamps but the actual visible cursor position needs DOSBox-X verification."
+  ],
+  "function_renames_recommended": [
+    "0x4a5b: wpcvw_item_drop_or_give_dispatch → wpcvw_item_use_dispatch (per-item-type USE switch table; this is the USE handler in main menu case 6, not drop/give)",
+    "0x63bc: wpcvw_identify_shop_or_temple → wpcvw_change_portrait (this is the EDIT submenu's CHANGE PORTRAIT screen, not an identify/temple flow)",
+    "0x6347: ui_render_identify_or_shop_row → ui_render_portrait_at_xy (helper for the portrait-change screen)",
+    "0x4d36: FUN_4d36 → wpcvw_skill_menu (SKILL action; scans skill slots 0x11..0x15 and opens a skill picker)",
+    "Verify 0x8e35 (EQUIP action target) — current name 'wpcvw_unequip_all_and_recompute' may be misapplied",
+    "Verify 0x17f7 (DROP action target after cursed check) — current name 'inventory_equip_or_unequip' may actually be an unequip-then-drop wrapper"
+  ],
+  "unresolved": [
+    "8 functions wired into the view-main-menu remain unnamed or partially-RE'd (FUN_416d for SPELL, FUN_5826 for MERGE, FUN_4d36 for SKILL, FUN_4d36 contents, the picker's exact init-cursor behavior with overflow values, the *0x4fce==0xd entry context, the SWAG (0x1db3) interactive vs read-only mode, the level-up's per-class hook 0xac9d body).",
+    "Stats panel (0xf47) rendering coordinates are only ~30% mapped — name/race/class/sex/AC/HP/SP/level positions need to be pixel-mapped to ports.",
+    "Inventory panel (0x6c81) cell-grid coordinates not RE'd in this pass — relies on prior cross-reference.",
+    "Party-row highlight mechanic for the currently-viewed character not RE'd in this pass."
+  ],
+  "next_steps": [
+    "Promote wpcvw runtime delta 0x4564 to CLAUDE.md overlay-delta table (alongside winit=0x3DB7, wpcmk=0x4564).",
+    "Generate a DOSBox-X save state with the game in state 0x11 to enable live verification (the existing 13 save states are all in state 0x10).",
+    "Run pixel-parity / cell-grid parity on the wpcvw view as the canonical port reference once the engine save is captured.",
+    "Follow-up RE pass on FUN_416d (SPELL), FUN_5826 (MERGE), FUN_4d36 (SKILL) to fill the action-handler matrix.",
+    "Confirm the action-handler name corrections (4a5b, 63bc, 6347) via deeper decompile RE before promoting to canonical doc."
+  ]
+}

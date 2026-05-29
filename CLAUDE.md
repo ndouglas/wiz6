@@ -87,6 +87,7 @@ ghidraRun "$(pwd)/tools/ghidra/wiz6.gpr"
 |-------------|--------------:|--------------------------------------------|
 | `winit.ovr` |        0x3DB7 | `file_offset = CS_offset − 0x3DB7`         |
 | `wpcmk.ovr` |        0x4564 | `file_offset = CS_offset − 0x4564`         |
+| `wpcvw.ovr` |        0x4564 | `file_offset = CS_offset − 0x4564`         |
 
 How to confirm a new overlay's delta: find any in-file table referenced by a CS-disp16 instruction (e.g., `2e ff a7 <disp16>` jump-table dispatch), then `delta = disp16 − file_offset_of_table`. Verify by reading that disp16 from physical memory at `(wroot_phys_base + file_offset)` — wpcmk's table at file 0x4a6d is at phys 0x11299 in save 1, which is wroot_seg(0x82C) × 16 + 0x8FD1. Add new overlay deltas to this table when you find them.
 

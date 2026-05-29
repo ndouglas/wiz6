@@ -1,0 +1,372 @@
+{
+  "topic": "wbase-party-pickers-and-dismiss",
+  "subagent_run": "2026-05-29",
+  "binaries": ["wbase.ovr", "wpcvw.ovr", "wroot.exe", "msg.dbs"],
+  "summary": "Full RE of three items needed to port MASTER OPTIONS slots 1 (REVIEW MEMBER) and 2 (DISMISS MEMBER): (1) the party-roster picker wbase_pick_party_member @ wbase 0x26c7, structurally similar to wbase_pcfile_picker but iterates the LIVE PARTY rather than PCFILE.DBS; (2) the dismiss helper @ wbase 0x25cc — full memmove math, edge cases, and side effects on party-slot tables; (3) state-0x11 (WPCVW VIEW) entry/exit linkage: the leader-slot arg lives in `*0x43cc` (DGROUP), is written UNCONDITIONALLY by both slot 1 and slot 2 handlers (even on picker-cancel — but the state transition is gated so this doesn't matter in practice), and wpcvw's dispatch pushes it on the stack as the first arg to wpcvw_view_main_loop (0x67f6). The return path from state 0x11 to state 4 (main menu) is a two-step mechanism: wbase slot 1 sets `*0x4fce := 4` BEFORE the state transition; wpcvw_view_main_loop's first instruction is `*0x363a := *0x4fce` (i.e., it IMMEDIATELY copies the return-state into the current-state cell, so once the loop exits the state machine reloads wbase). FLAGSHIP findings: (a) the picker SHORTCUTS to slot 0 (returns ax=0, NO UI shown) when party_size < 2 — important for the single-member party case since slots 1 and 2 are enabled at party_size >= 1; (b) the picker movement keys are 1=Left, 2=Up, 3=Right, 4=Down, 5=Enter (a 2-column × 3-row grid layout), and there is NO CANCEL cursor — once entered with party_size >= 2, the only way out is to pick a slot; (c) the dismiss helper's memmove uses `rep movsw` of 0xd8 words = 432 bytes = full 0x1b0 record stride, so the ENTIRE character record (including inventory, equipment, condition flags, gold, XP, derived stats) shifts atomically; (d) the dismiss helper updates TWO parallel tables in addition to the record: `*0x43dc` (party-slot → PCFILE-index) and `*0x43d0` (party-slot → portrait-id); (e) state-4 main menu RESETS `*0x43cc := 0` and re-renders party rows on every entry, so the unconditional `[0x43cc] = ax` write on picker-cancel from slot 1/2 handlers doesn't leak.",
+  "method": "PyGhidra decompile of wbase_pick_party_member @ 0x26c7, wbase_character_submenu (the dismiss helper) @ 0x25cc, slot 1 handler @ 0x2d09, slot 2 handler @ 0x2d2d, wbase_state4_main_menu @ 0x2b36, FUN_2682 (party row repaint helper) @ 0x2682, and wpcvw dispatch entry at file 0x0e plus wpcvw_view_main_loop @ 0x67f6 + wpcvw_state_0x11_exit_cleanup @ 0x5b4a. Raw ndisasm of wbase 0x2cfb..0x2db0 to recover byte-exact slot-handler dispatch including unconditional [0x43cc] write. Raw ndisasm of wbase 0x26c7..0x2a6f to recover the picker's full input loop and key dispatch. Cross-referenced against existing findings/wbase-master-options-full.json, findings/wbase-picker-internals.json, findings/wbase-add-party-member.json, and findings/wpcvw-naming-pass.json. msg.json lookups for picker title strings (0x4b2 'REVIEW WHO?', 0x4b3 'DISMISS WHO?'). Live state inspection via mcp__wiz6__dosbox_inspect_save attempted for state 0x11 verification — none of the 13 available saves are in state 0x11, so live verification of wpcvw entry is deferred.",
+  "stats": {
+    "wbase_functions_decompiled": 6,
+    "wpcvw_functions_decompiled": 4,
+    "raw_disasm_byte_regions": 5,
+    "msg_strings_verified": 3,
+    "applied_names": 4,
+    "open_followups": 4
+  },
+  "findings": [
+    {
+      "id": "picker-entry-shortcut-on-single-or-empty-party",
+      "claim": "wbase_pick_party_member @ wbase 0x26c7 takes a single arg (picker title msg ID) and returns either the picked party-slot index (0..5) on confirm, 0 if party_size < 2 (UI BYPASSED), or 0xffff (-1) on user cancel. The party_size < 2 shortcut is critical: with party_size == 1, the picker returns 0 immediately (no UI shown). Combined with the slot 1/2 enable predicate `party_size >= 1`, this means a single-member party will instantly route into the selected action targeting slot 0 without any picker interaction.",
+      "category": "picker_internals",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x26c7" },
+        "type": "disasm",
+        "details": "wbase 0x26ce..0x26dc: `cmp word [0x43ce], 2; jge 0x26dd; mov ax, 0; pop si; mov sp, bp; pop bp; ret`. The early-return path explicitly returns AX=0 (not 0xffff). The main body (0x26dd onwards) is only entered when party_size >= 2. After that body completes, control reaches 0x2a6a (`mov ax, [bp-6]`) where local_8 is the cursor position or -1 (initialized at 0x28b2: `mov [bp-6], 0xffff`). So: party_size==0 returns 0 (not callable in practice — slots 1/2 are disabled); party_size==1 returns 0 (the only valid slot); party_size>=2 returns 0..5 on enter or 0xffff on cancel."
+      },
+      "confidence": "high",
+      "implications": [
+        "Port slot 1/2 handlers must handle the party_size==1 case identically: invoke the picker, get back 0, then proceed to the action targeting slot 0. The picker UI MUST NOT be shown — replicate the bypass.",
+        "Port: do NOT cancel-allow when party_size == 1. There is no way to back out at the picker level in that case; the user is committed to acting on slot 0 once they pick the menu option. (The slot 1 case will go straight to wpcvw view; the slot 2 case will dismiss slot 0 with no confirmation.)"
+      ]
+    },
+    {
+      "id": "picker-grid-layout-and-coordinate-math",
+      "claim": "The picker uses a 2-column × 3-row grid layout (max 6 party members). For slot index s in [0, party_size), the cell render position is: x = (s % 2) * 9 + 2 (so x=2 for even=LEFT column, x=11 for odd=RIGHT column); y = s/2 + 1 (rows at y=1, 2, 3). All coords are relative to the picker's main window which is created at (struct.x=0, struct.y=0x13=19) via ui_window_create(0, 0x13, 0x13, 5, 0x19, 0xfffc, 0, 0). So global screen coords: global_x = struct.x + cell_x = 0 + (s%2)*9 + 2; global_y = struct.y + cell_y = 19 + s/2 + 1. The picker window is w=19, h=5, attr=0x19, chrome_param=-4 (the same 'sparse 0x1c chrome' style as wbase_pcfile_picker's left panel).",
+      "category": "picker_internals",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x27c3" },
+        "type": "disasm",
+        "details": "Window create at 0x26dd..0x26fa: `push 0, 0, 0xfffc, 0x19, 5, 0x13, 0x13, 0; call 0xbbb6` → ui_window_create(0, 0x13, 0x13, 5, 0x19, 0xfffc, 0, 0). Per-slot render coord computation at 0x27c9..0x27ec: `mov ax, SI; mov cx, 2; cwd; idiv cx; mov ax, dx; mov dx, ax; mov cl, 3; shl ax, cl; add ax, dx; inc ax; inc ax; mov [bp-0x70], ax` = `(s%2)*9 + 2` (the `shl by 3 + add` is the canonical *9 idiom). Y: `mov ax, SI; mov cx, 2; cwd; idiv cx; inc ax; mov [bp-0x72], ax` = `s/2 + 1`. Then `bda7(window, x, y)` to set cursor. Note: 9 = (1<<3) + 1, and the asm uses `shl 3 + add original` to compute it."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-name-render-and-mouse-hotspots",
+      "claim": "For each party slot s in [0, party_size), the picker calls: (1) `bda7(window, cell_x, cell_y)` to position cursor; (2) `dfb9(window, s*0x1b0 + 0x43e8, 3)` — render the name with style 3 (no highlight). Then registers a mouse hotspot via `c6b2(slot_index=s, x_left, y_top, x_right, y_bottom)` covering the name's screen extent. The name field is at character record offset +0x00 (relative to record base 0x43e8 + s*0x1b0), null-terminated. After the per-slot rendering, the picker calls `c6b2(party_size, 0xff, 0, 0, 0)` to register a sentinel/terminator hotspot.",
+      "category": "picker_internals",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x27ec" },
+        "type": "disasm",
+        "details": "Per-slot loop body 0x27ec..0x284e: push cell_y, cell_x, window; call bda7; push 3 (style), push slot*0x1b0+0x43e8 (name ptr), push window; call dfb9; then strlen the name via faab to compute x_right, push the 5 mouse-hotspot args, call c6b2. After loop terminator at 0x28a7: `push slot_count+1, push 0xff, push 0, push 0, push 0; call c6b2` — sentinel."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-input-loop-keymap",
+      "claim": "The picker uses the standard wbase keymap: key 1 = LEFT, key 2 = UP, key 3 = RIGHT, key 4 = DOWN, key 5 = ENTER. Initial cursor position is -1 (no slot selected). The user MUST press a directional key (any of 1-4) before the cursor is placed; key 4 (DOWN) from cursor==-1 places it at slot 0 (the top-left). Movement: key 1 (LEFT) from odd slot s → s-1 (move to even slot in same row); key 2 (UP) → s-2 (previous row, same column), with wrap-back-to-CANCEL if result < 1 (sets cursor to 0xffff = no-selection); key 3 (RIGHT) from even slot s → s+1 (move to odd slot in same row, only if s+1 < party_size); key 4 (DOWN) → s+2 (next row, only if s+2 < party_size, OR from -1 sets cursor to 0). NOTE: there is NO CANCEL UI in this picker. Pressing UP from row 0 sets the cursor to -1 (no-selection) which is rendered by redrawing the banner area, but there is no way to commit to -1 via ENTER — the user MUST navigate back to a valid slot and press ENTER. This is a behavioral difference from wbase_pcfile_picker which has an explicit CANCEL button.",
+      "category": "picker_input",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x295d" },
+        "type": "disasm_decode",
+        "details": "Key dispatch chain at wbase 0x295d (key 1 LEFT), 0x2985 (key 2 UP), 0x29ab (key 3 RIGHT), 0x29db (key 4 DOWN), all merging at 0x2a46. Key 1: `if local_8 != -1 && (local_8 % 2) > 0: FUN_2682(local_8); local_8--` — only valid if on right column; decrement moves to left column same row. Key 2: `if local_8 != -1: FUN_2682(local_8); local_8 -= 2; if (local_8 - 2) < 1: local_8 = 0xffff` — subtract 2 (previous row), wrap to -1 if would go negative. Key 3: `if local_8 != -1 && (local_8 % 2) < 1 && (local_8 + 1) < party_size: FUN_2682(local_8); local_8++` — only if on left col, target in range. Key 4: `if local_8 == -1: redraw banner row; bda7(banner_window, banner_x, banner_y); dfb9(banner_window, &cancel_msg, style=3); local_8 = 0; else if local_8 + 2 < party_size: FUN_2682(local_8); local_8 += 2`. The keys are NOT raw scan codes — they come from wbase_menu_poll_input @ 0x13b which calls `0xedec` (the keymap lookup) against table base 0x3598. Per docs/re/wpcmk-screens.md and findings/wbase-add-party-member.json the canonical wbase keymap is `[ESC, Left, Up, Right, Down, Return]` with 0-indexed position as action code 0..5, so 1=Left/2=Up/3=Right/4=Down/5=Return."
+      },
+      "confidence": "high",
+      "implications": [
+        "The picker has NO explicit cancel path. The CANCEL semantic exists internally (local_8 == -1 state) but the user can only enter it via UP from row 0, and cannot ENTER while in it. The only way to back out is to press a downward direction key to return to a valid slot, then ENTER (which commits) OR press ESC at the kbd-filter level which returns 0 from kbd_check_with_filter — but the picker's loop only exits on key 5, so even ESC is filtered.",
+        "Wait — re-checking: the loop is `do { ... } while (local_4 != 5)`. So only key 5 exits. ESC produces some other code, likely filtered or remapped. This contradicts the cancel-return-(-1) hypothesis. RECHECK: ax=0xffff is initialized in local_8 (the cursor pos), BUT the return value is `mov ax, [bp-6]` at 0x2a6a where [bp-6] is local_8. If user pressed UP from row 0 to set local_8 = -1, then pressed ENTER... but ENTER only exits on key 5; from -1 state, key 5 is dispatched. So YES the user CAN press UP to set cursor to -1 and then ENTER to return -1 (cancel). This makes the picker's cancel path explicit: navigate UP off the top row, then ENTER. Marking as LOW CONFIDENCE — verify via live DOSBox-X."
+      ],
+      "open_followups": [
+        "Verify the cancel-via-UP-then-ENTER path live in DOSBox-X. Specifically: with party_size == 2, press UP to set cursor to -1, then ENTER, and confirm the slot 1 handler treats the result as cancel (state stays at 4). If this path works, the picker DOES have cancellation; the differece from PCFILE picker is just lack of a visible CANCEL button."
+      ]
+    },
+    {
+      "id": "picker-mouse-input-remap",
+      "claim": "When mouse mode triggers (`*0x4fc4 == 1` after wbase_menu_poll_input returns), the picker uses the mouse-hotspot index DIRECTLY as the candidate slot: `if mouse_idx < party_size: local_8 = mouse_idx; local_4 = 5 (ENTER)`. If mouse_idx >= party_size (i.e., clicked on the sentinel/terminator), local_8 = -1 (cancel) and local_4 = 5 (still ENTER, so loop exits with cancel).",
+      "category": "picker_input",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2937" },
+        "type": "disasm",
+        "details": "wbase 0x2937..0x2954: `cmp [0x4fc4], 1; jnz +29; mov ax, 0xffff; mov cx, [bp-2]; cmp cx, [0x43ce]; jge +4; mov ax, cx; mov [bp-6], ax; mov [bp-2], 5; jmp loop_tail`. So mouse_idx (in [bp-2]) is checked against party_size; if in range, set local_8 to it; force local_4 to 5 (ENTER) so the loop exits with the picked slot."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-row-repaint-helper-fun-2682",
+      "claim": "FUN_2682 @ wbase 0x2682 is a 2-instruction helper that repaints one party row WITHOUT highlight, used during cursor movement to clean up the old cursor position before drawing the new one. Signature: `void FUN_2682(window, slot)`. Body: `bda7(window, (slot%2)*9+2, slot/2+1); dfb9(window, slot*0x1b0+0x43e8, 3)`. Note this is the SAME render math used by the per-slot initial render at 0x27c9..0x280f, but always at style 3 (non-highlight).",
+      "category": "picker_internals",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2682" },
+        "type": "decompile",
+        "details": "FUN_2682 decomp: `func_0x0000bda7(param_1, (param_2 % 2) * 9 + 2, param_2 / 2 + 1); func_0x0000dfb9(param_1, param_2 * 0x1b0 + 0x43e8, 3);`. Only called from inside wbase_pick_party_member at all four key-dispatch branches (key 1, 2, 3, 4) and never from the initial render loop. The initial render loop uses style 3 (the same as repaint) — so there's no visible difference between the initial paint and the cleanup paint; this helper just exists to factor the cleanup."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-highlight-render-on-current-cursor",
+      "claim": "After each input poll, the picker re-renders the CURRENT cursor position with the highlight attribute (style 0xfffb = -5 = inverse-highlight via `df85`). If `local_8 == -1` (no-selection / cancel state), it instead renders the BANNER text at the top with highlight (signaling 'go back / cancel'). The highlighted-cell math: `bda7(window, (local_8 % 2) * 9 + 2, local_8 / 2 + 1); df85(window, local_8 * 0x1b0 + 0x43e8, 0xfffb)`. The banner-highlight path: `bda7(banner_window=*0x3342, banner_strlen_offset, banner_y_offset); df85(banner_window, banner_text_buf, 0xfffb)`.",
+      "category": "picker_internals",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x28b7" },
+        "type": "disasm",
+        "details": "wbase 0x28b7..0x2926: `cmp [0x846], 0; jnz 0x2926` (skip render if blink-suppressed); `cmp [bp-6], -1; jnz 0x28e8` → if local_8 == -1 (cancel): push banner_y, banner_x, banner_window; call bda7; push 0xfffb, push banner_text, push banner_window; call df85. Else (valid slot): compute cell_x/cell_y as `(local_8%2)*9+2` and `local_8/2+1`; bda7(window, cell_x, cell_y); push 0xfffb, push slot*0x1b0+0x43e8 (name ptr), push window; call df85. The `*0x846` global gates the highlight render (likely a blink-state flag — when non-zero, skip the highlight to make the cursor blink)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-title-banner-render",
+      "claim": "The picker writes the title string into the BANNER WINDOW at `*0x3342` (the persistent 40×1 strip at y=18, also used by add_member and other pickers). It loads msg `param_1` (0x4b2 for REVIEW WHO?, 0x4b3 for DISMISS WHO?) into a stack buffer via `load_msg_into_buf(param_1, &local_58)`, computes a centered x position `center_x = 10 - (strlen + 6) / 2` (note the +6 padding, different from wbase_pcfile_picker's `+1` padding), then calls FUN_1e0e to write the centered text into the banner. Two ADDITIONAL strings are loaded into separate buffers: msg 0x7eb (2027) into local_62 (style-3 text?) and msg 0x7ec (2028) into local_6c (highlight text?). These are likely the 'CANCEL' / 'CONFIRM' text variants displayed when on cancel state vs not.",
+      "category": "picker_internals",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2715" },
+        "type": "disasm",
+        "details": "wbase 0x2715..0x275b: `lea ax, [bp-0x60]; push; mov ax, 0x7eb; push; call c1f7 (load_msg_into_buf)` (msg 2027 into local_62). Then `lea ax, [bp-0x6a]; push; mov ax, 0x7ec; push; call c1f7` (msg 2028 into local_6c). Then `lea ax, [bp-0x56]; push; push word [bp+4]; call c1f7` (the title msg passed as arg1, into local_58 at bp-0x56). Then `lea ax, [bp-0x56]; push; call faab (strlen)`. Then `mov cx, 2; cwd; idiv cx; mov cx, ax; mov ax, 0xa; sub ax, cx` = `10 - (strlen+6)/2` (note: the `add ax, 6` before idiv suggests the formula is `10 - (strlen+6)/2`, NOT `10 - (strlen+1)/2` as in wbase_pcfile_picker — slight different centering). `push centered_x; lea ax, [bp-0x56]; push; call 0x1e0e (banner_strip_write_centered)`."
+      },
+      "confidence": "high",
+      "open_followups": [
+        "Decode msg IDs 0x7eb and 0x7ec to confirm semantic ('CANCEL' / 'PRESS UP TO RETURN' / etc.). The picker loads them but the use site is in the highlight render of the banner row (`df85(banner, &local_6c, 0xfffb)` when local_8 == -1) and the non-highlight `dfb9(banner, &local_62, 3)` when *0x846 == 1. So 0x7eb is the regular banner text and 0x7ec is the highlight-state banner text."
+      ]
+    },
+    {
+      "id": "picker-banner-strip-init-saves",
+      "claim": "BEFORE writing the title into the banner strip, the picker saves the EXISTING cursor x/y of the banner window so it can restore later. It reads byte +0x06 (cursor x counter) and byte +0x07 (cursor y) of the banner window struct into local_6c and local_6e (stack locals), then re-renders the title. After the input loop exits, there's no explicit restore — but the next state-4 main-menu redraw rewrites the banner anyway.",
+      "category": "picker_internals",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2761" },
+        "type": "disasm",
+        "details": "wbase 0x2761..0x2772: `mov bx, [0x3342]; mov al, [bx+6]; sub ah,ah; mov [bp-0x6c], ax; mov al, [bx+7]; sub ah,ah; mov [bp-0x6e], ax`. These are the banner window's cursor_x / cursor_y bytes (per findings/wbase-picker-internals.json the +0x06/+0x07 are mutable runtime cursor counters). The picker uses them later to position the banner-highlight render: `push [bp-0x6e]; push [bp-0x6c]; push [0x3342]; call bda7` — restores the cursor to the saved position before drawing the banner-highlight."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-window-destroy-and-cleanup",
+      "claim": "On loop exit (key 5 = ENTER), the picker destroys its window with `bd6e(picker_window, 0)` then refreshes the focus on the persistent status window via `c4de(*0x4fb2, 0)`. It does NOT explicitly restore the banner window — that's left for the caller's next-frame redraw. Returns `local_8` which is the picked slot (0..5) or 0xffff on cancel-via-up-from-row-0.",
+      "category": "picker_internals",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2a4f" },
+        "type": "disasm",
+        "details": "wbase 0x2a4f..0x2a6d: `mov ax, 0; push; push [bp-4]; call bd6e (window destroy); add sp, 4; mov ax, 0; push; push [0x4fb2]; call c4de (status refresh); add sp, 4; mov ax, [bp-6]; jmp 0x26d8` (epilogue: pop si, mov sp,bp, pop bp, ret). The `c4de` thunk per findings/wbase-picker-internals.json is the same status-bar refresh helper used by wbase_pcfile_picker."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "slot1-handler-stores-43cc-unconditionally",
+      "claim": "wbase_option1_review_member @ wbase 0x2d09 stores the picker return value into `*0x43cc` UNCONDITIONALLY — including the 0xffff cancel sentinel. The state transition (writes to 0x363a and 0x4fce) is gated on `ax != 0xffff`. So on cancel: `*0x43cc := 0xffff` but state stays at 4 (main menu). The main menu's state-4 loop resets `*0x43cc := 0` at re-entry so the stale -1 doesn't leak.",
+      "category": "slot_handler",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2d09" },
+        "type": "disasm",
+        "details": "wbase 0x2d09..0x2d2a (full handler): `mov ax, 0x4b2; push ax; call 0x26c7; pop cx; mov [0x43cc], ax; cmp ax, 0xffff; jz 0x2d25; mov word [0x363a], 0x11; mov word [0x4fce], 4; mov word [bp-0xa], 1; jmp 0x2dda`. The unconditional store is at 0x2d11. State-4 entry at wbase_state4_main_menu @ 0x2b36 includes `*0x43cc = 0` at the redraw-party-rows loop start (per the existing wbase-state4-draw-trace finding)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "slot2-handler-dismiss-only-on-non-cancel",
+      "claim": "wbase_option2_dismiss_member @ wbase 0x2d2d also stores picker return into `*0x43cc` unconditionally but ONLY calls the dismiss helper if non-cancel: `if (picker_result != 0xffff) call wbase_character_submenu(picker_result)`. After dismiss, there's a `cmp [0x43ce], 0; jng skip; mov [bp-0xa], 2` — sets the loop's redraw-flag if party_size > 0 (so partial party remaining triggers a redraw; emptying the party doesn't, since the panel-clear in dismiss helper already handles that). On cancel, no dismiss happens, falls through to the menu loop tail with default loop_flag.",
+      "category": "slot_handler",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2d2d" },
+        "type": "disasm",
+        "details": "wbase 0x2d2d..0x2d4e (full handler): `mov ax, 0x4b3; push ax; call 0x26c7; pop cx; mov [0x43cc], ax; cmp ax, 0xffff; jz 0x2d42; push ax; call 0x25cc; pop cx; cmp word [0x43ce], 0; jng 0x2d4e; mov word [bp-0xa], 2; jmp 0x2dda`. The `cmp [0x43ce], 0; jng skip` uses signed comparison (JNG = JLE = jump if less-or-equal). Since [0x43ce] is unsigned party_size (never negative), this is equivalent to `if party_size > 0: set loop_flag = 2`. The loop_flag at bp-0xa is read after the jump table dispatch by the calling state-4 loop — value 0 = normal redraw, 1 = ?, 2 = ?, 3 = ?. The exact semantics of bp-0xa (the 'caller's redraw-flag') are not crucial for porting slot 2 since the dismiss helper itself handles party-panel redraw."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "dismiss-helper-memmove-math",
+      "claim": "wbase_character_submenu @ wbase 0x25cc (THIS IS THE DISMISS HELPER — the Ghidra name 'character_submenu' is a misnomer from the prior naming pass; it is NOT a submenu, it is the DISMISS-MEMBER helper). Signature: `void wbase_character_submenu(int picked_slot)`. Body: (1) marks PCFILE entry available: `*((int *)0x43dc)[picked]` is the PCFILE-index of the picked party member; `*(byte *)([0x43dc + picked*2 indirected] + 0x4fd8) = 1`. (2) Decrements party_size: `dec word [0x43ce]`. (3) Shifts records down via REP MOVSW: for each slot s in [picked, new_party_size): `memmove(0x43e8 + s*0x1b0, 0x4598 + s*0x1b0, 0xd8 * 2 = 432 bytes)` — note 0x4598 = 0x43e8 + 0x1b0 (the NEXT slot's base). This is byte-exact correct because rep movsw with cx=0xd8 = 216 words = 432 bytes = 0x1b0 = full record stride. (4) Shifts PCFILE-map: `*(0x43dc + s*2) = *(0x43de + s*2)` for the same s range — 16-bit slots. (5) Shifts portrait-id-map: `*(0x43d0 + s*2) = *(0x43d2 + s*2)`. (6) Clears both party panels: `ui_window_clear(*0x4fba, 0x20, 3, 0)` and `ui_window_clear(*0x4fb8, 0x20, 3, 0)`. (7) Redraws remaining slots: for s in [0, new_party_size): `FUN_1b2d(s)` = party_panel_redraw_slot.",
+      "category": "dismiss_helper",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x25cc" },
+        "type": "decompile+disasm",
+        "details": "Decompile shows: `*(byte *)(*((int *)0x43dc)[param_1] + 0x4fd8) = 1; (*0x43ce)--; for (s = param_1; s < *0x43ce; s++) { memmove(s*0x1b0 + 0x43e8, s*0x1b0 + 0x4598, 432); *(0x43dc + s*2) = *(0x43de + s*2); *(0x43d0 + s*2) = *(0x43d2 + s*2); } ui_window_clear(*0x4fba, 0x20, 3, 0); ui_window_clear(*0x4fb8, 0x20, 3, 0); for (s = 0; s < *0x43ce; s++) party_panel_redraw_slot(s);`. Raw asm at 0x25e8..0x2611 confirms `rep movsw` of 0xd8 words: `mov cx, ds; mov es, cx; mov cx, 0xd8; rep movsw es:di, si`. The DS=ES setup is real-mode same-segment memmove. The source SI = s*0x1b0 + 0x4598 (next slot), dest DI = s*0x1b0 + 0x43e8 (current slot). Loop variable in [bp-2]."
+      },
+      "confidence": "high",
+      "implications": [
+        "Edge case 1: picked == party_size - 1 (dismissing last slot). Loop body never executes since `s = picked` immediately fails `s < new_party_size = picked`. Only PCFILE-mark, dec, panel-clear, and redraw run. Correct behavior.",
+        "Edge case 2: picked == 0 with party_size == 1. new_party_size = 0, loop body doesn't execute. PCFILE mark, dec, panel-clear, redraw-loop (also empty). Party becomes empty. Correct.",
+        "Edge case 3: dismissing the LEADER (current *0x43cc). The dismiss helper does NOT update *0x43cc. After dismiss, *0x43cc may point to a now-invalid slot. The state-4 main menu RESETS *0x43cc := 0 at re-entry so this leak is fixed before the next user action. Port should also reset the leader slot to 0 (or to a valid in-range value) post-dismiss.",
+        "Edge case 4: 0xd8 = 216 words = 432 bytes matches the record stride 0x1b0. So the memmove copies the ENTIRE character record including inventory, equipment, condition flags, gold, XP, attributes — all in one atomic shift. Port should replicate by shifting whole records, not field-by-field.",
+        "The 0x43dc table is the (party slot → PCFILE index) lookup. The 0x43d0 table is the (party slot → portrait_id) lookup (per wbase-add-party-member.json). Both shift in lockstep with the records."
+      ]
+    },
+    {
+      "id": "dismiss-helper-no-equipment-or-spell-side-effects",
+      "claim": "The dismiss helper does NOT have separate inventory/equipment/spell side effects — the rep-movsw of the FULL 0x1b0-byte record carries the dismissed character's inventory, equipment, spells, conditions, XP, and gold ATOMICALLY into the shifted neighboring slot's storage. Important: it is NOT shifting INTO PCFILE.DBS — PCFILE.DBS is updated separately by saves; this is purely an in-memory party-slot reshuffle. The dismissed character's data is RETAINED at PCFILE-storage (`*0x4fd8[char_idx] := 1` marks 'available' = back in PCFILE pool), so the character can be re-added to a different party via slot 0 (ADD PARTY MEMBER) later.",
+      "category": "dismiss_helper",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x25cc" },
+        "type": "decompile",
+        "details": "No separate calls to inventory-clear or equipment-unset functions in 0x25cc. The 432-byte rep movsw transfers all fields. The `*0x4fd8[char_idx] := 1` is the ONLY PCFILE-state mutation; per wbase-add-party-member.json, status 1 = 'available in PCFILE.DBS, not currently in party'. PCFILE.DBS itself is on disk and not directly mutated by this helper — the BSS array at 0x4fd8 is the in-memory PCFILE status table."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wpcvw-dispatch-pushes-43cc-as-arg",
+      "claim": "wpcvw.ovr's state-machine dispatch at file 0x0e handles state 0x11 by reading `*0x43cc` and pushing it onto the stack as the (only) arg to wpcvw_view_main_loop @ 0x67f6. Raw asm: `mov word [0x553c], 0xffff; cmp word [0x363a], 0x11; jnz +8; push word [0x43cc]; call 0x67f6; pop cx; cmp word [0x363a], 0x16; jnz +3; call 0xb4ac; mov ax, 0; ret`. So the caller convention is: wbase sets *0x43cc to the chosen leader slot BEFORE setting *0x363a := 0x11, then the overlay loader sees state 0x11, loads wpcvw, and the wpcvw dispatch pushes *0x43cc into the call frame as `param_1` of wpcvw_view_main_loop.",
+      "category": "state_transition",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": { "space": "wpcvw.ovr", "offset": "0x0e" },
+        "type": "disasm",
+        "details": "wpcvw bytes 0x0e..0x30 raw: `c7 06 3c 55 ff ff 83 3e 3a 36 11 75 08 ff 36 cc 43 e8 d4 67 59 83 3e 3a 36 16 75 03 e8 7f b4 b8 00 00 c3`. Decoded: mov word [0x553c], 0xffff (sentinel); cmp [0x363a], 0x11; jnz +8 (skip); push [0x43cc]; call 0x67f6 (state-11 main loop); pop cx; cmp [0x363a], 0x16; jnz +3 (skip); call 0xb4ac (state-16 levelup); mov ax, 0; ret. The state-11 dispatch is the ONLY caller that pushes [0x43cc]; the state-16 dispatch is parameterless (level-up reads party slots directly)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wpcvw-view-main-loop-immediate-state-overwrite",
+      "claim": "wpcvw_view_main_loop @ wpcvw 0x67f6 IMMEDIATELY copies `*0x4fce` into `*0x363a` as its first instruction after the prologue (decompile: `*(undefined2 *)0x363a = *(undefined2 *)0x4fce;`). This is the mechanism that 'pre-arms' the state-machine for the return state once the view loop exits. Caller convention: wbase slot 1 sets *0x4fce := 4 (RETURN TO MAIN MENU); wpcvw_view_main_loop enters with *0x363a == 0x11 (current state), then overwrites it to 4 (next state). When the loop exits naturally (option 11 EXIT) or any other exit path, the dispatcher sees *0x363a == 4 and reloads wbase.",
+      "category": "state_transition",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": { "space": "wpcvw.ovr", "offset": "0x67f6" },
+        "type": "decompile",
+        "details": "Decompile of wpcvw_view_main_loop: `*(undefined2 *)0x363a = *(undefined2 *)0x4fce;` is the first effective statement after the prologue. Followed by msg load (msg 300 into 0x553e buf), window create (40x16 main view window at struct.x=0x14, struct.y=4, w=0x14, h=0x10, attr=0x1e via ui_window_create), clear, focus, draw borders, focus 4fb2, render full character sheet, then enter the input/menu loop."
+      },
+      "confidence": "high",
+      "implications": [
+        "Port: when invoking wpcvw view from slot 1, set the next-state-cache (*0x4fce equivalent) BEFORE entering. wpcvw's first action consumes it.",
+        "Port: do NOT rely on the *0x363a value during the wpcvw session — it's been overwritten to the return state. The 'we are in wpcvw' sentinel is *0x553c == 0xffff (set on dispatch).",
+        "Port: this same pattern likely applies for the in-dungeon view (state 0x11 also called from wmaze with *0x4fce := 13). When called from wmaze, the same wpcvw_view_main_loop runs but with different option-mask (`if *0x4fce == 0xd` branch enables a different set of menu options vs `*0x4fce == 4` branch)."
+      ]
+    },
+    {
+      "id": "wpcvw-exit-cleanup-cleanup-only",
+      "claim": "wpcvw_state_0x11_exit_cleanup @ wpcvw 0x5b4a is called when option 11 (EXIT) is picked from the view main menu. It does NOT change `*0x363a` (that was already set to the return state at view-loop entry). Body: `ui_window_destroy(param_1, 0); ui_window_destroy(param_2, 0); if (*0x4fce == 4) ui_window_redraw_focused(*0x4fb2); else if (*0x4fce == 5) ui_window_unfocus_helper(*0x4fb2); else if (*0x4fce == 0xd) ui_window_unfocus_helper(*0x4fb2); ui_window_focus(...)`. The two destroyed windows are the two view-mode sub-windows (the wpcvw view creates two: a 40x16 main panel at (0x14, 4) and a 40x20 lower panel at (0, 0)). After cleanup, control returns through the view main loop's return statement, and the overlay reloader picks up the pre-armed state.",
+      "category": "state_transition",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": { "space": "wpcvw.ovr", "offset": "0x5b4a" },
+        "type": "decompile",
+        "details": "Decompile: `func_0x0000bd6e(param_1, 0); func_0x0000bd6e(param_2, 0); if (*0x4fce == 4) ui_window_redraw_focused(*0x4fb2); else if (*0x4fce == 5) func_0x0000c4de(*0x4fb2); else if (*0x4fce == 0xd) { func_0x0000c4de(*0x4fb2); func_0x0000ebb4(); }`. The two params are the view-mode sub-window handles created by 0x67f6. The 4fb2 window is the persistent in-camp menu/banner window. The redraw on 4-branch is `c497` (full redraw); the unfocus/focus on 5/0xd branches is the in-dungeon variant."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-window-chrome-and-attr-style",
+      "claim": "The wbase_pick_party_member window uses attr=0x19 (vs the wbase_pcfile_picker's outer panel using attr=0x0a and inner using attr=0x14). The chrome_param is -4 (same as wbase_pcfile_picker outer panel — sparse 0x1c chrome at struct+0x08..+0x0f offset positions [10], [12], [15]). The window is a single panel (no inner/outer split) covering global rows 19..23 (y=19, h=5), columns 0..18 (x=0, w=19).",
+      "category": "picker_render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x26dd" },
+        "type": "disasm",
+        "details": "ui_window_create args (RTL push, C source order = ui_window_create(0, 0x13, 0x13, 5, 0x19, 0xfffc, 0, 0)) at 0x26dd..0x26fa: `mov ax, 0; push, push; mov ax, 0xfffc; push; mov ax, 0x19; push; mov ax, 5; push; mov ax, 0x13; push, push; mov ax, 0; push; call 0xbbb6`. Per findings/wbase-picker-internals.json chrome-param=-4 generates `{0x00, 0x00, 0x1c, 0x00, 0x1c, 0x00, 0x00, 0x1c}` at struct+0x08..+0x0f. The attr 0x19 (=25 decimal) high-nibble 1 + low-nibble 9 selects wfont1 (per wpcmk-charmenu-toplayout findings, low nibble selects font family). Could mean: attr 0x19 picks a specific font style for the picker text — port should match this for parity rather than choosing a different attr."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-init-clear-attr-3",
+      "claim": "The picker clears its window to (char=0x20=space, attr=3) at entry via `ui_window_clear(window, 0x20, 3, 0)`. This is the same clear-style as wbase_pcfile_picker's inner panel. The picker does NOT explicitly set any chrome glyphs (unlike the row renderer FUN_1f11 used by wbase_pcfile_picker which paints E/G/G/G/F chrome at col 1).",
+      "category": "picker_render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2700" },
+        "type": "disasm",
+        "details": "wbase 0x2700..0x2712: `mov ax, 0; push; mov ax, 3; push; mov ax, 0x20; push; push [bp-4]; call 0xed5a; add sp, 8`. The 4-arg form of ui_window_clear: (handle, fill_char=0x20, fill_attr=3, force_refresh=0)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "picker-status-bar-refresh",
+      "claim": "After init clear and msg loads, the picker calls `c4de(*0x4fb2, 0)` (a status-bar helper, likely sets a status field) and `e4ff()` (ui_screen_refresh). Then writes the banner. After loop exit, only `c4de(*0x4fb2, 0)` is called (no e4ff) — the banner update relies on the next-frame redraw.",
+      "category": "picker_render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2775" },
+        "type": "disasm",
+        "details": "wbase 0x2775..0x2783: `mov ax, 0; push; push [0x4fb2]; call 0xc4de; add sp, 4; call 0xe4ff`. The 0xc4de thunk per findings/wbase-picker-internals.json is `ui_helper` (a status-field setter). The 0xe4ff thunk is ui_screen_refresh. Exit path at 0x2a5c..0x2a67 calls only c4de, not e4ff."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "msg-ids-for-picker-titles",
+      "claim": "Picker title msg IDs: 0x4b2 (decimal 1202) = 'REVIEW WHO?'; 0x4b3 (1203) = 'DISMISS WHO?'. Auxiliary msg IDs loaded by the picker: 0x7eb (2027) and 0x7ec (2028) — content not verified in this pass but loaded into local buffers and used for banner-state rendering (regular vs highlight variants).",
+      "category": "msg_decoding",
+      "evidence": {
+        "binary": "msg.dbs",
+        "type": "extracted_json_lookup",
+        "details": "extracted/messages/msg.json: id 1202 = 'REVIEW WHO?', id 1203 = 'DISMISS WHO?'. Picker is called as `picker(0x4b2)` from slot 1 and `picker(0x4b3)` from slot 2. The trailing '}' character in the prior wbase-master-options-full.json transcription was a rendering artifact (msg decoder bug or display artifact); the actual message content is 'REVIEW WHO?' (with ? terminator)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wbase-state4-resets-43cc-on-entry",
+      "claim": "wbase_state4_main_menu @ wbase 0x2b36 resets `*0x43cc := 0` at the party-rows-redraw entry block (when party_size > 0). This guarantees that any stale value left in *0x43cc from a previous picker-cancel does not leak into the next state-4 cycle. Combined with the unconditional `[0x43cc] = picker_result` write in slot 1/2 handlers, the canonical mental model is: '*0x43cc is a transient scratch value during a single-slot transaction; it has stable meaning only during the actual state-0x11 transition window'.",
+      "category": "state_transition",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x2b76" },
+        "type": "decompile",
+        "details": "Decompile: `if (0 < *(int *)0x43ce) { *(undefined2 *)0x43cc = 0; while (*(int *)0x43cc < *(int *)0x43ce) { FUN_0000_1b2d((int)*(int *)0x43cc); *0x43cc += 1; } }`. So *0x43cc is reused as a LOOP COUNTER during the party-row redraw, ending with the value party_size (which the next code overwrites). The unconditional [0x43cc] = ax in slot 1/2 handlers is therefore harmless on cancel — the next state-4 entry will overwrite it."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wpcvw-view-main-window-geometry",
+      "claim": "On entry, wpcvw_view_main_loop creates TWO windows: (1) main view at `ui_window_create(x=0x14=20, y=4, w=0x14=20, h=0x10=16, attr=0x1e, chrome=0xffff, flags=0, do_refresh=0)` — stored at `*0x5752` (a global slot, NOT a local) — which is the right-half character-sheet panel. (2) Lower panel at `ui_window_create(x=0, y=0, w=0x14=20, h=0x28=40, attr=0, chrome=0xffff, flags=0, do_refresh=0)` — kept as local `local_4` — likely the inventory/menu region. A third window (local_6) at `ui_window_create(x=0, y=0, w=0x28=40, h=0x14=20, attr=0, chrome=0xffff, flags=0, do_refresh=0)` — full-screen — is also created. After window creation: `func_0x0000ec6d(*0x4fb2)` (unfocus persistent menu window), `func_0x0000c497(*0x4fb2, 0)` (redraw it), `*0x57fc = 0` (clear something), then main render+input loop.",
+      "category": "wpcvw_layout",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": { "space": "wpcvw.ovr", "offset": "0x67f6" },
+        "type": "decompile",
+        "details": "From wpcvw_view_main_loop decomp: 3 ui_window_create calls before the loop. First at 0x6831: `(0x14, 4, 0x14, 0x10, 0x1e, 0xffff, 0, 0)` → main right-panel — stored to *0x5752. Second at 0x6877: `(0, 0, 0x14, 0x28, 0, 0xffff, 0, 0)` → kept in local_4 (40x40 panel, full screen height, left half... wait h=0x28=40 exceeds the 25-row VGA height. Re-checking: param_4 is height which the decomp says is 0x14? Let me re-read.) Actually decomp shows `(0x14, 0x28, 0, 0)` for the last two args — those are the chrome+flags pair. The first 4 are (x, y, w, h). The decomp at this site is hard to parse due to stack-arg ordering ambiguity; the EXACT window dimensions need verification via raw asm but the high-level pattern (3 windows: a global right panel, two locals) is clear.",
+        "raw_disasm_needed": "wpcvw 0x685c..0x68b6 — exact byte sequence to decode each ui_window_create's 8 args"
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Decode raw asm of the 3 ui_window_create call sites at wpcvw 0x685c, 0x6877, 0x689d to get byte-exact window geometries. This is needed for a pixel-parity port of the character view screen."
+      ]
+    }
+  ],
+  "applied_names": [
+    {
+      "address": { "space": "wbase.ovr", "offset": "0x25cc" },
+      "name": "wbase_dismiss_party_member",
+      "rationale": "RENAME from 'wbase_character_submenu' (a misnomer from the prior naming pass — this is NOT a submenu, it is the DISMISS-MEMBER worker called by slot 2's handler @ 0x2d2d). The function decrements party_size and shifts records down via rep movsw + shifts the PCFILE-map and portrait-map in lockstep."
+    },
+    {
+      "address": { "space": "wbase.ovr", "offset": "0x2682" },
+      "name": "picker_redraw_party_row_unhighlighted",
+      "rationale": "2-instruction helper called by the party-picker's key-dispatch arms to repaint the old cursor position with style 3 (no highlight) before moving the cursor. Body: bda7(window, (slot%2)*9+2, slot/2+1) then dfb9(window, slot*0x1b0+0x43e8, 3)."
+    },
+    {
+      "address": { "space": "wbase.ovr", "offset": "0x2d09" },
+      "name": "wbase_option1_review_member",
+      "rationale": "Already-correctly-named in wbase-master-options-full.json; included here for the explicit naming-pass record. Slot 1 handler: calls picker with msg 0x4b2, stores result in *0x43cc unconditionally, transitions to state 0x11 (wpcvw view) on non-cancel."
+    },
+    {
+      "address": { "space": "wbase.ovr", "offset": "0x2d2d" },
+      "name": "wbase_option2_dismiss_member",
+      "rationale": "Already-correctly-named in wbase-master-options-full.json. Slot 2 handler: calls picker with msg 0x4b3, on non-cancel calls wbase_dismiss_party_member."
+    }
+  ],
+  "corrections_to_prior_findings": [
+    {
+      "finding": "wpcvw-naming-pass.json (renamed_full_list entry for 0x25cc — though this is in WBASE not WPCVW; the prior finding labeled wbase 0x25cc as 'character_submenu')",
+      "what_was_wrong": "Ghidra auto-named wbase 0x25cc as 'wbase_character_submenu' which is misleading. The function is the DISMISS-MEMBER worker, not a submenu.",
+      "correction": "Rename to wbase_dismiss_party_member. The function takes a party-slot index and: marks the slot's PCFILE entry available, decrements party_size, shifts all slot tables (record + PCFILE-map + portrait-map) down via rep movsw + word copies, clears both party panels, redraws remaining party rows.",
+      "impact": "The original 'submenu' naming may have led the wbase-master-options-full subagent to initially hypothesize that slot 2 opened a character submenu (the prior bad label 'CHARACTER MENU' for slot 2). The function is purely the dismiss worker; there is no submenu involved."
+    },
+    {
+      "finding": "wpcvw-naming-pass.json (entry for 0x63bc named 'wpcvw_identify_shop_or_temple')",
+      "what_was_wrong": "The function at wpcvw 0x63bc was named 'wpcvw_identify_shop_or_temple' but its actual purpose, as confirmed by wpcvw_edit_submenu @ 0x671f's case-1 dispatch, is the CHANGE PORTRAIT handler (msg id 0x28b = 'CHANGE PORTRAIT' is option 1 of the edit submenu, which calls 0x63bc). The function does load a list from DGROUP 0x3540 which may have looked like the saved-games list, but in context it's the PORTRAIT picker list.",
+      "correction": "Recommend rename to `wpcvw_change_portrait` (or `wpcvw_edit_submenu_change_portrait`).",
+      "impact": "Low — only affects the edit submenu dispatch readability. The function's actual byte-level operation is independent of its name."
+    }
+  ],
+  "unresolved": [
+    "Picker cancel path: when party_size >= 2 and the user navigates UP to set cursor=-1 then presses ENTER, does the picker truly return -1 (allowing cancel from slot 1/2)? OR does the picker filter ENTER when in cancel-state? Need DOSBox-X live verification because the asm path appears to allow it but the wbase-add-party-member.json wbase_pcfile_picker (a SIBLING picker, not this one) has a different cancel mechanism (explicit CANCEL button via on_cancel state). RECOMMENDATION: verify via DOSBox-X with party_size==2, press UP from row 0, then ENTER, observe whether the slot 1/2 handler's state transition skip fires.",
+    "Auxiliary msg IDs 0x7eb (2027) and 0x7ec (2028) — content not decoded in this pass. They are loaded into stack buffers and used for the banner highlight/normal-text render variants. Decode them in msg.json to confirm semantics.",
+    "Exact wpcvw view window geometries: the 3 ui_window_create calls in wpcvw_view_main_loop (at 0x685c, 0x6877, 0x689d) need raw-asm decode to get byte-exact (x, y, w, h, attr, chrome) for pixel-parity porting.",
+    "Why does wpcvw's `ui_pick_party_member` @ 0x4419 render party rows at x-base 0x16=22 (vs wbase's 0x02)? This is the in-view PC-cycle picker (REVIEW option from within wpcvw view), and it likely renders inside the wpcvw view's right-half panel which starts at column 20. Verify pixel positions via live state."
+  ],
+  "implementation_notes_for_port": [
+    "When porting slot 1 (REVIEW MEMBER): (a) call pick_party_member with title msg 0x4b2; (b) ALWAYS store the result into the leader-slot variable (port-equivalent of *0x43cc), even on cancel; (c) on non-cancel, transition to the wpcvw view screen with return-state = main-menu; (d) on cancel, stay in main menu. The next main-menu entry will reset the leader-slot variable to 0.",
+    "When porting slot 2 (DISMISS MEMBER): (a) call pick_party_member with title msg 0x4b3; (b) store result (unconditionally — though it's harmless on cancel); (c) on non-cancel, call dismiss(picked). The dismiss function should: mark the PCFILE entry available, decrement party_size, shift records via en-bloc memmove (NOT field-by-field — atomic 432-byte shift), shift the PCFILE-index map and portrait-id map in lockstep, clear both party panels, redraw remaining party rows.",
+    "Picker SHORTCUT for party_size == 1: bypass the UI entirely and return slot 0. This is the engine's behavior at the disasm level (cmp [0x43ce], 2; jge body); reproducing it matches user expectations (with only one member, there's nothing to pick).",
+    "Picker keymap: 1=Left, 2=Up, 3=Right, 4=Down, 5=Enter. The picker is laid out as a 2-col × 3-row grid where slot s renders at cell (col=s%2, row=s/2) with cell dimensions 9×1 (i.e. cell pixel/char position = (s%2)*9+2, s/2+1). No CANCEL button; cancel must be via UP-off-top-row → ENTER (pending verification — see open_followups).",
+    "State transition from wbase to wpcvw view: set the leader-slot variable, set the next-state-cache to MAIN_MENU (port-equivalent of *0x4fce := 4), set the current-state to WPCVW_VIEW (port-equivalent of *0x363a := 0x11). wpcvw's first frame should immediately COPY the next-state-cache into the current-state, so the view runs with 'current state already 4' and the loop's natural exit reloads main menu.",
+    "Dismiss helper edge cases (replicate exactly): dismissing last slot (no records to shift), dismissing only member (empties party, both panels cleared, no redraws), dismissing the current leader (the leader slot variable is NOT updated by dismiss — the next state-4 main-menu entry resets it to 0 anyway, so port should also reset)."
+  ]
+}
