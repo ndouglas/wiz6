@@ -39,13 +39,6 @@ Next free ID: **#055**
   - `packages/data/src/schemas/house-rules.ts` — `HOUSE_RULES_META.pinMaxBonusRoll.description` is ~500 words explaining the bonus-roll grind. The card it links to (`/explore/notes#bonus-point-lottery` in EngineeringNotes.tsx around line 108) already has the full pitch + math.
   - Trim the META description to 2-3 sentences (pitch + the "see linked card" hand-off). Keep the `learnMoreUrl` intact so the rich card is one click away.
 
-- #050 [open] — CLAUDE.md: prompt to suggest new QoL toggles when ideas come up
-  - Add a behavioural note to `CLAUDE.md` so that whenever a "this would be a nice QoL toggle" thought surfaces during work (e.g. "the engine grinds X for no good reason"), Claude proposes adding it to `HOUSE_RULES_META`. Today QoLs only get added if Nate explicitly asks.
-
-- #049 [open] — CLAUDE.md: prompt to suggest new engineering notes when finding interesting things
-  - Add a behavioural note to `CLAUDE.md` so that whenever an interesting RE finding emerges (a quirky mechanic, a buried debug switch, a surprising formula), Claude proposes a new Engineering Notes card (`packages/viewer/src/pages/EngineeringNotes.tsx` + `data/note-index.ts`).
-  - Pair with #050 — both are about converting incidental findings into shippable user-facing content rather than burying them in commits.
-
 - #048 [open] — Engineering-note permalinks don't scroll to the anchor
   - `/explore/notes` (`EngineeringNotes.tsx`) and the inline `<RECommentary>` cards: clicking a link like `/explore/notes#bonus-point-lottery` loads the page but does NOT scroll to the matching `<h2 id="bonus-point-lottery">`.
   - Likely cause: SPA navigation via react-router-dom does not trigger the browser's native hash-fragment scroll. Need a `useEffect(() => { if (hash) document.getElementById(hash.slice(1))?.scrollIntoView() }, [hash])` somewhere — either page-level (EngineeringNotes) or a global router-level scroll-to-hash hook.

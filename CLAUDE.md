@@ -109,6 +109,8 @@ How to confirm a new overlay's delta: find any in-file table referenced by a CS-
   - End-to-end (e2e) tests via Playwright — manual feature smoke; not in default CI.
   - **Pixel-parity tolerance defaults to 0.** Widening it (e.g. to handle animation drift in a known area) should be a deliberate, documented choice — prefer per-region overrides over global tolerance lift. The current `compareRgba` only supports a single global `tolerance`; if a future screen has localized drift, extend the API with named regions rather than relaxing the whole comparison (see TODO).
 - **Manual smoke test before declaring a screen port done.** `pnpm dev:viewer`, click through the feature in a browser, eyeball the result. The pixel-parity test should make this fast (if it passes ≥99%, the browser will look right) — but the manual click is the final sanity check that the page loads, key handling works, and navigation goes where it should.
+- **Surface interesting findings as Engineering Notes cards.** When RE turns up something a player would actually find cool (a buried debug switch, an absurd mechanic, a 1-in-400 grind that explains community lore, a formula that's wrong vs the manual), don't just bury it in a commit or a `docs/re/findings/*.json`. Propose adding it as a card in `packages/viewer/src/pages/EngineeringNotes.tsx` + `packages/viewer/src/data/note-index.ts`. The notes pages are the user-facing payoff for the RE work — they should grow organically as findings happen, not in batches. Ask Nate before writing, but raise the suggestion proactively rather than waiting to be asked.
+- **Surface QoL-toggle ideas as House Rules entries.** When work surfaces a "the engine grinds X for no good reason" or "this rejected-input beep is annoying, players would love to disable it" thought, propose adding a new entry to `HOUSE_RULES_META` in `packages/data/src/schemas/house-rules.ts`. Default = matches the engine (stock UX), toggle ships in `/settings`. Same pattern: ask before implementing but raise the idea proactively — Nate adds these one at a time and the queue should come from work-in-progress observations, not a separate brainstorming session.
 
 ## Parity testing — `tools/parity/`
 
@@ -228,6 +230,14 @@ Tile-window cell-grid parity (`dump-cells.py` → `cells/*.json`) validates the 
 - **Checklist when porting any screen with highlights:** for each highlight cell, RE the draw routine to confirm the attr sign (colored vs inverse) — don't infer colour from the cell. Then **eyeball the rendered colours against the engine framebuffer** (`pnpm tsx tools/parity/decode-screen.ts --save N --out x.png` — now positionally correct), not just the cell parity. The render formula itself is locked by `packages/parser/tests/ui/tile-window.test.ts` (highlight path).
 
 This bit us twice: a global fg/bg inversion, then the menu-vs-charsheet split — both with green byte-exact cell parity while the colours were wrong.
+
+### Row 199 is black — wfont1/wfont3 glyph `0x1e` is the screen baseline
+
+When a ported screen hits ~99.5% parity with 320 stray pixels at the very bottom (`y=199` solid black across the entire width, rows 192-198 still gray): the engine's bottommost UI window is one cell row TALLER than the visible content, and the extra row is filled with chrome glyph `0x1e` at the window's background attr. Glyph `0x1e` in both `wfont1` and `wfont3` is 7 rows of palette[8] (gray) + 1 row of palette[0] (black). It's the engine's universal screen baseline.
+
+The grep that proved it: scan every `wfont1`/`wfont3` glyph for "rows 0..6 all gray, row 7 all black" — exactly one match in each font, both at codepoint `0x1e`. Saved hours of staring at `compose-action-menu.ts` wondering where the rogue row was coming from.
+
+Pattern when porting: if the engine fixture has black at `y=199` (check via `idxRaw[(199*320 + x)]`) and your window doesn't reach that row, add a chrome bottom-border row to whichever window touches the screen edge. See `packages/viewer/src/pages/castle/compose-action-menu.ts` for the canonical implementation.
 
 ## Audio (Wiz6 sound system)
 
