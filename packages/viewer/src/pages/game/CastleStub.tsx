@@ -2,10 +2,6 @@ import { Link, useParams } from 'react-router-dom';
 import styles from './CastleStub.module.css';
 
 const STUB_INFO: Record<string, { title: string; description: string }> = {
-  'review-member': {
-    title: 'Review Member',
-    description: 'Pick a party member to inspect. Transitions to WPCVW (state 0x11).',
-  },
   'start-new-game': {
     title: 'Start New Game',
     description:
