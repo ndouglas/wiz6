@@ -448,6 +448,7 @@ function returnToMenu(state: CreationState): CreationState {
     cursor: 0,
     scratch: {},
     rosterIndex: null,
+    modalErrorMsgId: undefined,
   };
 }
 
