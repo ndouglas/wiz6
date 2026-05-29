@@ -14,8 +14,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { WIZ6_MAIN, type MessageDb, type PortraitSet } from '@wiz6/data';
-import { loadMessageDb as defaultLoadMessageDb, loadPortraitSet } from '../../data-loader.js';
+import { WIZ6_MAIN, type MessageDb } from '@wiz6/data';
+import { loadMessageDb as defaultLoadMessageDb } from '../../data-loader.js';
 import { loadCreationFontSet } from '../roster/creation/ega/assets.js';
 import type { FontSet } from '@wiz6/parser';
 import { dismissMember, readActiveParty } from '../../lib/active-party-store.js';
@@ -29,7 +29,6 @@ export function DismissMemberPage() {
   const members = useMemo(() => readActiveParty().members, []);
   const [fontSet, setFontSet] = useState<FontSet | null>(null);
   const [db, setDb] = useState<MessageDb | null>(null);
-  const [_portraits, setPortraits] = useState<PortraitSet[]>([]);
 
   useEffect(() => {
     if (members.length === 0) {
@@ -46,15 +45,13 @@ export function DismissMemberPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const [fs, m, p] = await Promise.all([
+        const [fs, m] = await Promise.all([
           loadCreationFontSet(),
           defaultLoadMessageDb('/messages/msg.json'),
-          loadPortraitSet('/portraits/wport1.json').catch(() => null),
         ]);
         if (cancelled) return;
         setFontSet(fs);
         setDb(m);
-        if (p) setPortraits([p]);
       } catch (err: unknown) {
         if (!cancelled) console.error('[DismissMemberPage] asset load failed:', err);
       }
