@@ -29,12 +29,11 @@ function mockMember(name: string, slot: number): ActivePartyMember {
 }
 
 describe('composeCharacterViewFrame', () => {
-  it('returns exactly 3 TileWindows (main, stats, action-menu)', () => {
+  it('returns exactly 2 TileWindows (main + action-menu) — stats panel omitted (engine leaves it empty in state-0x11)', () => {
     const db = fakeDb({
       301: 'EQUIP', 302: 'SPELL', 303: 'TRADE', 304: 'ASSAY',
       305: 'SWAG', 306: 'MERGE', 307: 'USE', 308: 'DROP',
       309: 'SKILL', 310: 'EDIT', 311: 'REVIEW', 312: 'EXIT',
-      0x64: 'HUMAN', 0x78: 'FIGHTER', 0x8c: 'MALE',
     });
     const windows = composeCharacterViewFrame({
       members: [mockMember('NATHAN', 0)],
@@ -42,18 +41,18 @@ describe('composeCharacterViewFrame', () => {
       cursorIdx: 5,
       db,
     });
-    expect(windows).toHaveLength(3);
+    expect(windows).toHaveLength(2);
   });
 
-  it('places the stats panel at (160, 32)', () => {
-    const db = fakeDb({ 0x64: 'HUMAN', 0x78: 'FIGHTER', 0x8c: 'MALE' });
+  it('places main panel at (0, 0) and action menu at (0, 160)', () => {
+    const db = fakeDb({ 312: 'EXIT' });
     const windows = composeCharacterViewFrame({
       members: [mockMember('NATHAN', 0)],
       currentSlot: 0,
       cursorIdx: 5,
       db,
     });
-    const stats = windows.find((w) => w.screenX === 160 && w.screenY === 32);
-    expect(stats).toBeDefined();
+    expect(windows.find((w) => w.screenX === 0 && w.screenY === 0)).toBeDefined();
+    expect(windows.find((w) => w.screenX === 0 && w.screenY === 160)).toBeDefined();
   });
 });

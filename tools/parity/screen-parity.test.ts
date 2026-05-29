@@ -787,14 +787,15 @@ const SCREENS: ScreenCase[] = [
   },
   {
     fixture: 'creation-review-member',
-    // Phase B progress: 37.07% (was 35.24%). Action menu now matches engine —
-    // 40×4 panel at y=20, 3-col × 2-row column-major packing of the camp-mask
-    // subset (EQUIP/SPELL/ASSAY/SWAG/SKILL/EXIT, with EXIT highlighted
-    // inverse). Remaining deltas: main panel stats column, ARMORCLASS sub-
-    // panel, inventory list, portrait blit, stats-panel layout. See TODO
-    // #044 (stats panel + inventory), #042 (dynamic mask wiring), #045 (the
-    // Phase B umbrella). RAISE THIS FLOOR as each delta closes.
-    floor: 37,
+    // Phase B progress: 41.93% (was 35.24%). Action menu matches engine; main
+    // panel STR..KAR stats column renders yellow-on-black labels with white
+    // right-aligned values; stats-panel composer omitted (engine leaves it
+    // empty in state-0x11). Remaining deltas: header (name/race/class/LVL),
+    // HP/STM/CND/GP/CC column, ARMORCLASS sub-panel, inventory list, school
+    // mana grid, portrait blit, chrome frame. See TODO #044 (main panel
+    // content), #042 (dynamic mask wiring), #045 (Phase B umbrella). RAISE
+    // THIS FLOOR as each delta closes.
+    floor: 41,
     render: renderCreationReviewMember,
   },
 ];
