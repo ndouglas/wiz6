@@ -106,6 +106,7 @@ How to confirm a new overlay's delta: find any in-file table referenced by a CS-
   - `*.diagnostic.test.ts` (informational) — excluded from default CI; runnable via `pnpm test:diagnostics`. Cell-grid parity tests live here — they validate intermediate data structures and are useful for debugging pixel-parity failures, but they can pass while the rendered output is visually wrong (e.g. windows at incorrect screen coords). Don't promote a diagnostic to a gate without a clear reason.
   - Component tests with `skipAssetLoad` (weak) — should be flagged in the test file's docstring if they don't verify rendering, only key handling.
   - End-to-end (e2e) tests via Playwright — manual feature smoke; not in default CI.
+  - **Pixel-parity tolerance defaults to 0.** Widening it (e.g. to handle animation drift in a known area) should be a deliberate, documented choice — prefer per-region overrides over global tolerance lift. The current `compareRgba` only supports a single global `tolerance`; if a future screen has localized drift, extend the API with named regions rather than relaxing the whole comparison (see TODO).
 - **Manual smoke test before declaring a screen port done.** `pnpm dev:viewer`, click through the feature in a browser, eyeball the result. The pixel-parity test should make this fast (if it passes ≥99%, the browser will look right) — but the manual click is the final sanity check that the page loads, key handling works, and navigation goes where it should.
 
 ## Parity testing — `tools/parity/`

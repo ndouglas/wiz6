@@ -13,11 +13,16 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#029**
+Next free ID: **#030**
 
 ---
 
 ## Open
+
+- #029 [open] — Per-region pixel tolerances in `compareRgba`
+  - Currently `compareRgba(ours, eng, { tolerance: N })` applies one global tolerance. All parity tests today use `tolerance: 0` (strict gate).
+  - When a future ported screen has localized animation drift (e.g. water tiles, particle effects) that we can't reproduce byte-exact, we'll want named-region overrides: `regions: [{ name, x, y, w, h, tolerance }]` with `defaultTolerance` for everything else.
+  - Implement when the first such screen lands. CLAUDE.md test-layer convention already documents this as the preferred approach over globally lifting tolerance.
 
 - #028 [open] — Simplify ADD PARTY picker composer per the resolved struct model
   - Per `docs/re/findings/wbase-picker-internals.json`: both picker panels use `cells_off = struct + 0x10` and the engine renders NATHAN at global col 22 because the row renderer leftpads cursor to x=2 (NOT because struct.x=22).
