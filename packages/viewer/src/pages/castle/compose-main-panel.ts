@@ -74,6 +74,24 @@ const SCHOOL_ICON_CHARS: ReadonlyArray<number> = [
 const ATTR_SCHOOL_ICON = 0x02;       // wfont2 — school glyph cell
 const ATTR_MANA_SLASH = 0x90;        // palette[9] — separator
 
+// ARMORCLASS sub-panel (rows 5-7 cols 21-38).
+const ATTR_AC_LABEL = 0xf0;          // palette[15]      — "ARMORCLASS", parens, mid space
+const ATTR_AC_TOTAL = 0x40;          // palette[4]       — total AC number
+const ATTR_AC_MOD = 0x90;            // palette[9]       — "+0" modifier
+const ATTR_AC_ICON = 0x04;           // wfont0 highlight — slot icons (y..~)
+const ATTR_AC_SEP = 0x01;            // wfont1 0x1c     — separator
+const ATTR_AC_VALUE_ZERO = 0x30;     // palette[3]      — slot value when 0
+const ATTR_AC_VALUE_NONZERO = 0x70;  // palette[7]      — slot value when non-zero
+
+/** Default body-AC values when the character record doesn't carry bodyAc.
+ *  Per CharacterSchema docs: stock value = [0, 0, 10, 10, 10, 10, 10]
+ *  (Magical, Head, Chest, Legs, Hands, Feet, Encumbrance/Shield) — but the
+ *  WPCVW panel renders 6 slots in the order:
+ *  [Magical, Head, Chest, Legs, Hands, Feet] = [0, 10, 10, 10, 10, 10]
+ *  (per save 2 dump). Engine flattens the schema's leading double-0.
+ */
+const AC_DEFAULTS = [0, 10, 10, 10, 10, 10] as const;
+
 const STATS_LABEL_COL = 1;
 const STATS_VALUE_COL = 5; // right edge of 2-char value at col 6
 const STATS_VALUE_WIDTH = 2;
@@ -208,6 +226,46 @@ function drawHeader(w: TileWindow, member: ActivePartyMember, db: MessageDb): vo
   puts(w, rpad(0, 10), ATTR_EXPMKS_VALUE);
 }
 
+function drawArmorClass(w: TileWindow, member: ActivePartyMember): void {
+  // Row 5: "ARMORCLASS" cols 21-30 attr 0xf0; total (2 chars) cols 32-33
+  // attr 0x40; " " 34 attr 0xf0; "(" 35 attr 0xf0; "+" 36 attr 0x90; "0"
+  // 37 attr 0x90; ")" 38 attr 0xf0.
+  setCursor(w, 21, 5);
+  puts(w, 'ARMORCLASS', ATTR_AC_LABEL);
+  const total = rpad(member.derivedAc ?? 10, 2);
+  setCursor(w, 32, 5);
+  puts(w, total, ATTR_AC_TOTAL);
+  setCursor(w, 34, 5);
+  puts(w, ' (', ATTR_AC_LABEL);
+  setCursor(w, 36, 5);
+  puts(w, '+0', ATTR_AC_MOD);
+  setCursor(w, 38, 5);
+  puts(w, ')', ATTR_AC_LABEL);
+
+  // Row 6: 6 slot icons at chars 0x79..0x7e, interleaved with wfont1
+  // separator 0x1c. Layout: col 22=icon0, col 23=sep, col 25=icon1, col 26=sep, ...
+  // Pattern: cols (22+3*i) → icon (wfont0 char 0x79+i attr 0x04);
+  //          cols (23+3*i) → separator wfont1 0x1c attr 0x01 (skip last).
+  for (let i = 0; i < 6; i++) {
+    const iconCol = 22 + i * 3;
+    setCursor(w, iconCol, 6);
+    puts(w, String.fromCharCode(0x79 + i), ATTR_AC_ICON);
+    if (i < 5) {
+      setCursor(w, iconCol + 1, 6);
+      puts(w, String.fromCharCode(0x1c), ATTR_AC_SEP);
+    }
+  }
+
+  // Row 7: 6 AC values, 2-char right-aligned. Cols (22+3*i)..(23+3*i).
+  // Value 0 → attr 0x30 (red/dim); value >0 → attr 0x70.
+  for (let i = 0; i < 6; i++) {
+    const v = member.bodyAc?.[i] ?? AC_DEFAULTS[i] ?? 0;
+    const attr = v === 0 ? ATTR_AC_VALUE_ZERO : ATTR_AC_VALUE_NONZERO;
+    setCursor(w, 22 + i * 3, 7);
+    puts(w, rpad(v, 2), attr);
+  }
+}
+
 function drawSchoolManaGrid(w: TileWindow, member: ActivePartyMember): void {
   // Each school cell: icon at col {1 or 11}, current at col {5 or 15}, slash
   // at col {6 or 16}, max at col {9 or 19}. Rows 14, 16, 18 hold the three
@@ -246,6 +304,7 @@ export function composeMainPanel(view: MainPanelView): TileWindow {
   drawHeader(w, view.member, view.db);
   drawStatsColumn(w, view.member);
   drawHpStmCndGpCc(w, view.member);
+  drawArmorClass(w, view.member);
   drawSchoolManaGrid(w, view.member);
   return w;
 }
