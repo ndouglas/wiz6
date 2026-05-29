@@ -231,6 +231,19 @@ function drawHpStmCndGpCc(w: TileWindow, member: ActivePartyMember): void {
   puts(w, '  0', ATTR_CC_VALUE);
 }
 
+function drawPortraitTiles(w: TileWindow): void {
+  // Portrait is a 3×3 grid at rows 1-3 cols 1-3, glyphs 0x48..0x50 (wfont2).
+  // The character's portrait must be patched into wfont2 at those glyph
+  // slots by the caller (via patchFontSetWithPortrait); we just write the
+  // cell positions here.
+  const ATTR_PORTRAIT = 0x02;
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      setCell(w, 1 + c, 1 + r, 0x48 + r * 3 + c, ATTR_PORTRAIT);
+    }
+  }
+}
+
 function drawHeader(w: TileWindow, member: ActivePartyMember, db: MessageDb): void {
   // Row 1: NAME at cols 4-9 attr 0x50, RACE at cols 13-20 attr 0x10, RNK
   // label at cols 25-27 attr 0xb0, RNK value (e.g. NONE) at cols 35-38 attr 0x30.
@@ -454,6 +467,7 @@ export function composeMainPanel(view: MainPanelView): TileWindow {
   });
   clearWindow(w, 0x20, ATTR_BG);
   drawChrome(w);
+  drawPortraitTiles(w);
   drawHeader(w, view.member, view.db);
   drawStatsColumn(w, view.member);
   drawHpStmCndGpCc(w, view.member);

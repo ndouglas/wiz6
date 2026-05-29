@@ -670,14 +670,25 @@ function renderCreationReviewMember(fontSet: FontSet, palette: Palette): Uint8Cl
     portraitSlotId: 0,
     rosterCharacterId: NATHAN_RAWULF_FIGHTER.id,
   };
-  // NATHAN's equipped inventory in engine save 2, in display order. Each row
-  // pairs the item name with the wfont0 body-slot glyph the engine renders
-  // at col 38. TODO: derive from scenario.dbs item lookup once available.
+  // Patch wfont2 with NATHAN's portrait — chars 0x48..0x50 get rewritten to
+  // the 9 portrait tiles. Engine save 2 has portraitIndex=1 (wport1).
+  const wport1: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  );
+  const empty: PortraitSet = { ...wport1, portraits: [] };
+  const fontSetWithPortrait = patchFontSetWithPortrait(
+    fontSet,
+    [wport1, empty, empty],
+    member.portraitIndex ?? 0,
+  );
   const windows = composeCharacterViewFrame({
     members: [member],
     currentSlot: 0,
     cursorIdx: 5, // EXIT in the camp-mask-packed action menu (6 enabled actions)
     db: msgDb,
+    // NATHAN's equipped inventory in engine save 2, in display order. Each
+    // row pairs the item name with the wfont0 body-slot glyph the engine
+    // renders at col 38. TODO: derive from scenario.dbs item lookup.
     inventory: [
       { name: 'LONGSWORD',       iconChar: 0x02 },
       { name: 'LEATHER CUIRASS', iconChar: 0x2a },
@@ -686,7 +697,7 @@ function renderCreationReviewMember(fontSet: FontSet, palette: Palette): Uint8Cl
       { name: 'BUCKLER SHIELD',  iconChar: 0x27 },
     ],
   });
-  return renderCreationFrame(windows, fontSet, palette);
+  return renderCreationFrame(windows, fontSetWithPortrait, palette);
 }
 
 // ─── Screen table ──────────────────────────────────────────────────────────────
