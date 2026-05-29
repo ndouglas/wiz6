@@ -13,27 +13,49 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#046**
+Next free ID: **#055**
 
 ---
 
 ## Open
 
-- #045 [open] — Phase B: pixel-parity for WPCVW state-0x11 character view
-  - Capture a state-0x11 save in DOSBox-X: title → castle → add 1+ members → REVIEW MEMBER → pick → save to slot 14. Then `pnpm tsx tools/parity/gen-fixture.ts --save 14 --name creation-review-member`.
-  - Add a `creation-review-member` parity case to `tools/parity/screen-parity.test.ts` (floor 100%).
-  - When the parity test runs, expect deltas in the stats panel (PORTRAIT not yet rendered; AC/HP/SP missing; placeholder LVL row) and party row (HP/SP bars, condition icon, weapon icons not rendered).
-  - Use deltas to drive #044, #042, etc.
+- #054 [open] — Audit CHARACTER MENU functional completeness
+  - How much of the wpcmk CHARACTER MENU port is functionally equivalent to the engine vs scaffold? Pixel-parity is byte-exact on the rendered cells, but REVIEW/DELETE/RENAME/PORTRAIT actions are partly stubbed (per #019 deferred polish notes).
+  - Method: walk each option in the engine via DOSBox-X, compare to the port flow-by-flow; file gaps as discrete TODOs. Output: a `docs/re/findings/wpcmk-functional-audit.json` with verified/stubbed/missing per action.
 
-- #044 [open] — Tighten WPCVW stats panel against engine fixture
-  - Current scaffold (`compose-stats-panel.ts`) renders: centered name, race/sex, class, LVL placeholder, 8 attributes right-aligned. Real engine layout: portrait at top, then name + race/class/sex header, then AC + HP/SP, then attributes.
-  - Needs: portrait rendering (read portraitSlotId, blit from PortraitSet); AC/HP/SP fields (CharacterSchema has hpCurrent/hpMax/staminaCurrent/staminaMax optionally — also need derived AC computation).
-  - Depends on #045 fixture.
+- #053 [open] — Visual-fidelity bucket (HD upgrade exploration)
+  - AI-upscaled tiles / sprites / fonts (Real-ESRGAN or similar on the extracted assets, ship alongside originals via a toggle).
+  - Custom shaders (#030 already tracks the WebGL presenter — this would be the content side: CRT, dither smoothing, depth-of-field for the dungeon view).
+  - Additional AI-generated portraits (extend the 42-slot grid; need a portrait gallery UX for picking).
+  - Additional AI-generated textures for specific areas (dungeon biomes, environment art).
+  - All four ideas are gated on the asset-format migration (#031) and the shader presenter (#030).
 
-- #043 [open] — WPCVW party row: HP/SP bars, condition icon, weapon icons
-  - Scaffold (`compose-party-row.ts`) renders name only. Engine renders 5+ fields per slot: HP bar, SP bar, condition icon, primary weapon, secondary weapon, sex/race glyph.
-  - Per finding `wpcvw-naming-pass.json#fn-party-row-render` at wpcvw 0x465. Needs per-glyph mapping from the captured fixture.
-  - Depends on #045 fixture.
+- #052 [open] — Profession-list 2-column nav: Up/Down within column, Left/Right between
+  - `packages/viewer/src/pages/roster/creation/screens/MenuPickerScreen.tsx` handles the class-select screen. When the list flows into two columns (the 11-class layout), the current keyboard nav probably wraps top-to-bottom across all entries instead of treating the columns as a 2D grid.
+  - Target UX: ArrowUp/Down stays inside the active column; ArrowLeft/Right hops to the matching row of the adjacent column. Mirrors the engine's grid picker semantics.
+  - Verify whether this needs to apply to RACE picker too (also has columnar layout).
+
+- #051 [open] — Shorten the bonus-points QoL description
+  - `packages/data/src/schemas/house-rules.ts` — `HOUSE_RULES_META.pinMaxBonusRoll.description` is ~500 words explaining the bonus-roll grind. The card it links to (`/explore/notes#bonus-point-lottery` in EngineeringNotes.tsx around line 108) already has the full pitch + math.
+  - Trim the META description to 2-3 sentences (pitch + the "see linked card" hand-off). Keep the `learnMoreUrl` intact so the rich card is one click away.
+
+- #050 [open] — CLAUDE.md: prompt to suggest new QoL toggles when ideas come up
+  - Add a behavioural note to `CLAUDE.md` so that whenever a "this would be a nice QoL toggle" thought surfaces during work (e.g. "the engine grinds X for no good reason"), Claude proposes adding it to `HOUSE_RULES_META`. Today QoLs only get added if Nate explicitly asks.
+
+- #049 [open] — CLAUDE.md: prompt to suggest new engineering notes when finding interesting things
+  - Add a behavioural note to `CLAUDE.md` so that whenever an interesting RE finding emerges (a quirky mechanic, a buried debug switch, a surprising formula), Claude proposes a new Engineering Notes card (`packages/viewer/src/pages/EngineeringNotes.tsx` + `data/note-index.ts`).
+  - Pair with #050 — both are about converting incidental findings into shippable user-facing content rather than burying them in commits.
+
+- #048 [open] — Engineering-note permalinks don't scroll to the anchor
+  - `/explore/notes` (`EngineeringNotes.tsx`) and the inline `<RECommentary>` cards: clicking a link like `/explore/notes#bonus-point-lottery` loads the page but does NOT scroll to the matching `<h2 id="bonus-point-lottery">`.
+  - Likely cause: SPA navigation via react-router-dom does not trigger the browser's native hash-fragment scroll. Need a `useEffect(() => { if (hash) document.getElementById(hash.slice(1))?.scrollIntoView() }, [hash])` somewhere — either page-level (EngineeringNotes) or a global router-level scroll-to-hash hook.
+
+- #047 [open] — gitignore `tools/dosbox/dosbox-autodrive.log`
+  - DOSBox-X auto-creates this log when launched; it's per-run/local state and shouldn't be tracked. Single-line `.gitignore` addition.
+
+- #046 [open] — Remove the "browser audio requires a gesture" user-facing message
+  - Audio is unlocked silently on first keydown/pointerdown by `packages/viewer/src/lib/audio.ts` — the gesture-requirement is plumbing, not something the user needs to read about.
+  - Locate the visible banner/toast that announces this and delete it. The unlock logic in `App.tsx` / `GameTitle.tsx` / `audio.ts` stays — only the user-facing notice goes.
 
 - #042 [open] — Confirm WPCVW action menu disabled-attr against fixture
   - Scaffold uses attr 0x07 (dim gray) for disabled actions. Engine may render disabled with a different attr or not render them at all. Check against a fixture where `*0x4fce == 4` (camp/read-only) so some actions ARE disabled and visible.
