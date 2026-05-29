@@ -175,6 +175,19 @@ export interface CreationState {
    * and cleared on EXIT_REVIEW. Null on all non-review screens.
    */
   rosterIndex: number | null;
+  /**
+   * Snapshotted skill values at skillTrain screen entry. `UNTRAIN_SKILL`
+   * cannot decrement a slot below `skillFloors[slot]` — the floor is the
+   * baseline the player walked in with (race/class init + any prior
+   * skill-init grants). Empty (zeroed) on non-skillTrain screens.
+   */
+  skillFloors: number[];
+  /**
+   * When set, the active screen renders an engine-style error-modal overlay.
+   * Value is the msg.dbs id to display (e.g. 0x044e = "* CHARACTER ALREADY
+   * EXISTS *"). Cleared on `MODAL_DISMISS`.
+   */
+  modalErrorMsgId?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +223,9 @@ export type CreationEvent =
   | { type: 'ACCEPT_PERSONALITY' }        // screen-08: player accepts karma roll
   | { type: 'PICK_PORTRAIT'; index: number }  // screen-10: confirm portrait 0..41
   | { type: 'TRAIN_SKILL'; slot: number } // screen-13: spend 1 skill point on slot
+  | { type: 'UNTRAIN_SKILL'; slot: number }   // screen-13: refund 1 skill point from slot (floor-gated)
   | { type: 'SKILLS_DONE' }              // screen-13: player done (budget exhausted or explicit)
+  | { type: 'MODAL_DISMISS' }                 // any screen: dismiss modalErrorMsgId
   | { type: 'PICK_SPELL'; entry: number } // screen-14: select a spell entry index
   | { type: 'SPELLS_DONE' }             // screen-14: player done with spell picks
   | { type: 'CONFIRM'; keep: boolean }   // screen-15: KEEP (true) or DISCARD (false)
@@ -272,6 +287,7 @@ export function initialCreationState(
     scratch: {},
     pinMaxBonusRoll: opts?.pinMaxBonusRoll ?? false,
     rosterIndex: null,
+    skillFloors: new Array(30).fill(0) as number[],
   };
 }
 
@@ -457,6 +473,12 @@ function returnToMenu(state: CreationState): CreationState {
  *    resting states anymore — 'cancelled' is an alias handled as return-to-menu.
  */
 export function creationReducer(state: CreationState, event: CreationEvent): CreationState {
+  // Modal dismiss is screen-agnostic — clear modalErrorMsgId and return.
+  if (event.type === 'MODAL_DISMISS') {
+    if (state.modalErrorMsgId === undefined) return state;
+    return { ...state, modalErrorMsgId: undefined };
+  }
+
   // Global: CANCEL returns to characterMenu from any non-terminal screen
   if (event.type === 'CANCEL') {
     // From exit terminal, CANCEL has no effect (already exited)
@@ -829,9 +851,14 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
           ...state,
           draft: { ...state.draft, portrait: event.index },
         };
-        // Determine next screen based on already-rolled skill budget
         const nextScreen = screenAfterCharSheet(s);
-        return { ...s, screen: nextScreen };
+        // Snapshot the entry-time skill values as the untrain floor at the
+        // moment we enter skillTrain. The user can train UP and back DOWN to
+        // these floors, but not below — they represent baseline grants from
+        // race/class init that pre-date this allocation phase.
+        const skillFloors =
+          nextScreen === 'skillTrain' ? [...s.draft.skills] : s.skillFloors;
+        return { ...s, screen: nextScreen, skillFloors };
       }
       return state;
     }
@@ -851,6 +878,23 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
         return {
           ...state,
           draft: { ...state.draft, skills, skillBudget: newBudget },
+        };
+      }
+
+      if (event.type === 'UNTRAIN_SKILL') {
+        // Floor = skillFloors[slot] (snapshotted at skillTrain entry).
+        // Refund 1 point if above the floor; no-op (identical state) otherwise.
+        // The screen plays the invalid-action beep on the no-op path via
+        // `canUntrainSkill` BEFORE dispatching, so the reducer stays pure.
+        const slot = event.slot;
+        const cur = state.draft.skills[slot] ?? 0;
+        const floor = state.skillFloors[slot] ?? 0;
+        if (cur <= floor) return state;
+        const skills = [...state.draft.skills];
+        skills[slot] = cur - 1;
+        return {
+          ...state,
+          draft: { ...state.draft, skills, skillBudget: state.draft.skillBudget + 1 },
         };
       }
 
@@ -921,4 +965,50 @@ export function creationReducer(state: CreationState, event: CreationEvent): Cre
       return state;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Pure predicates for screens to check before dispatching.
+// Screens use these to decide whether to play the invalid-action beep — the
+// reducer can't because it must stay pure (no I/O).
+// ---------------------------------------------------------------------------
+
+/** Returns true if UNTRAIN_SKILL on `slot` would actually decrement.
+ *  Screens beep on false. */
+export function canUntrainSkill(state: CreationState, slot: number): boolean {
+  const cur = state.draft.skills[slot] ?? 0;
+  const floor = state.skillFloors[slot] ?? 0;
+  return cur > floor;
+}
+
+/** Returns true if ALLOC_ADJUST{attr, delta} would actually mutate state.
+ *  Screens beep on false. Mirrors the gate logic in the bonusAllocator case. */
+export function canAdjustBonus(state: CreationState, attr: number, delta: number): boolean {
+  if (attr < 0 || attr > 6) return false;
+  const key = ATTR_KEYS[attr];
+  if (!key) return false;
+  const current = state.draft.attributes[key];
+  if (delta > 0) {
+    if (current >= 18) return false;
+    if (state.draft.bonusPool <= 0) return false;
+    return true;
+  }
+  if (delta < 0) {
+    const undo = (state.scratch['undo'] as number[] | undefined) ?? new Array(7).fill(0) as number[];
+    const undoCount = undo[attr] ?? 0;
+    const floor = (state.draft.race === null)
+      ? 0
+      : ((): number => {
+          const base = getRaceBaseStats(state.draft.race);
+          return base[key];
+        })();
+    if (undoCount <= 0 || current <= floor) return false;
+    return true;
+  }
+  return false;
+}
+
+/** Returns true if ALLOC_CONFIRM would advance (pool drained). */
+export function canConfirmBonus(state: CreationState): boolean {
+  return state.draft.bonusPool === 0;
 }

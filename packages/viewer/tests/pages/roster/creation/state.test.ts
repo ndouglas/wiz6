@@ -911,3 +911,109 @@ describe('TRAIN_SKILL event decrements skill budget', () => {
     expect(s1.screen).toBe('skillTrain');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 4: skillFloors snapshot + UNTRAIN_SKILL + MODAL_DISMISS
+// ---------------------------------------------------------------------------
+
+describe('skillFloors snapshot at portrait → skillTrain', () => {
+  it('captures draft.skills at the moment screen becomes skillTrain', () => {
+    const rng = new WichmannHill(3000, 1, 29999);
+    const s0 = initialCreationState(rng);
+    const stateOnPortrait = {
+      ...s0,
+      screen: 'portrait' as const,
+      draft: {
+        ...s0.draft,
+        class: 0, // Fighter — non-caster
+        skillBudget: 5,
+        skills: [3, 0, 0, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      },
+      skillFloors: new Array(30).fill(0) as number[],
+    };
+    const next = creationReducer(stateOnPortrait, { type: 'PICK_PORTRAIT', index: 0 });
+    expect(next.screen).toBe('skillTrain');
+    expect(next.skillFloors).toEqual([3, 0, 0, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  });
+});
+
+describe('UNTRAIN_SKILL', () => {
+  it('decrements skill and increments budget when above floor', () => {
+    const rng = new WichmannHill(3000, 1, 29999);
+    const s0 = initialCreationState(rng);
+    const skills = new Array(30).fill(0) as number[];
+    skills[2] = 5; // floor = 3, current = 5 → trainable to 4 then 3, no further
+    const state = {
+      ...s0,
+      screen: 'skillTrain' as const,
+      draft: { ...s0.draft, skillBudget: 1, skills },
+      skillFloors: (() => {
+        const f = new Array(30).fill(0) as number[];
+        f[2] = 3;
+        return f;
+      })(),
+    };
+    const next = creationReducer(state, { type: 'UNTRAIN_SKILL', slot: 2 });
+    expect(next.draft.skills[2]).toBe(4);
+    expect(next.draft.skillBudget).toBe(2);
+  });
+
+  it('is a no-op when at or below floor', () => {
+    const rng = new WichmannHill(3000, 1, 29999);
+    const s0 = initialCreationState(rng);
+    const skills = new Array(30).fill(0) as number[];
+    skills[2] = 3;
+    const state = {
+      ...s0,
+      screen: 'skillTrain' as const,
+      draft: { ...s0.draft, skillBudget: 0, skills },
+      skillFloors: (() => {
+        const f = new Array(30).fill(0) as number[];
+        f[2] = 3;
+        return f;
+      })(),
+    };
+    const next = creationReducer(state, { type: 'UNTRAIN_SKILL', slot: 2 });
+    expect(next).toBe(state); // identical reference: no-op
+  });
+
+  it('round-trip TRAIN then UNTRAIN returns to original state', () => {
+    const rng = new WichmannHill(3000, 1, 29999);
+    const s0 = initialCreationState(rng);
+    const skills = new Array(30).fill(0) as number[];
+    skills[5] = 4;
+    const state = {
+      ...s0,
+      screen: 'skillTrain' as const,
+      draft: { ...s0.draft, skillBudget: 3, skills: [...skills] },
+      skillFloors: (() => {
+        const f = new Array(30).fill(0) as number[];
+        f[5] = 4;
+        return f;
+      })(),
+    };
+    let next = creationReducer(state, { type: 'TRAIN_SKILL', slot: 5 });
+    expect(next.draft.skills[5]).toBe(5);
+    expect(next.draft.skillBudget).toBe(2);
+    next = creationReducer(next, { type: 'UNTRAIN_SKILL', slot: 5 });
+    expect(next.draft.skills[5]).toBe(4);
+    expect(next.draft.skillBudget).toBe(3);
+  });
+});
+
+describe('MODAL_DISMISS', () => {
+  it('clears modalErrorMsgId when set', () => {
+    const rng = new WichmannHill(3000, 1, 29999);
+    const s0 = initialCreationState(rng);
+    const state = { ...s0, modalErrorMsgId: 0x044e };
+    const next = creationReducer(state, { type: 'MODAL_DISMISS' });
+    expect(next.modalErrorMsgId).toBeUndefined();
+  });
+
+  it('is a no-op when modalErrorMsgId is unset', () => {
+    const rng = new WichmannHill(3000, 1, 29999);
+    const s0 = initialCreationState(rng);
+    const next = creationReducer(s0, { type: 'MODAL_DISMISS' });
+    expect(next).toBe(s0);
+  });
+});
