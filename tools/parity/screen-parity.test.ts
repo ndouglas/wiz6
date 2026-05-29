@@ -32,9 +32,10 @@ import { composeSkillTrainFrame, patchFontSetWithPortrait } from '../../packages
 import { composeReviewPickerFrame } from '../../packages/viewer/src/pages/roster/creation/ega/review-picker-frame.js';
 import { highlightRange } from '../../packages/viewer/src/pages/roster/creation/ega/highlight.js';
 import { drawCharSheet } from '../../packages/viewer/src/pages/roster/creation/ega/char-sheet.js';
+import { composeCharacterViewFrame } from '../../packages/viewer/src/pages/castle/compose-character-view-frame.js';
 import { blankDraft } from '../../packages/viewer/src/pages/roster/creation/state.js';
 import { draftFromCharacter } from '../../packages/viewer/src/pages/roster/creation/lib/draft-from-character.js';
-import type { Character } from '../../packages/data/src/index.js';
+import type { ActivePartyMember, Character } from '../../packages/data/src/index.js';
 import { raceName, className, creationString, MSG } from '../../packages/viewer/src/pages/roster/creation/messages.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { compareRgba, writeDiffPng } from './diff-image.js';
@@ -654,6 +655,30 @@ function renderReviewCharacter(fontSet: FontSet, palette: Palette): Uint8Clamped
   return renderCreationFrame([top, bottomBar, menuPanel], fontSetWithPortrait, palette);
 }
 
+// ─── REVIEW MEMBER (WPCVW state 0x11) helper ───────────────────────────────────
+// Engine fixture state (save 2): NATHAN, FIGHTER, M-RAWULF; cursor on EXIT
+// (action idx 11). The scaffold renders a 2-col × 6-row action menu with all 12
+// entries (EQUIP..REVIEW + EXIT), most disabled — engine actually renders 3-col
+// × 2-row with the camp context mask hiding TRADE/MERGE/USE/DROP/EDIT/REVIEW.
+// This case is the REGRESSION FLOOR — current match % is much less than 100,
+// driving the Phase B layout/portrait/inventory iterations tracked in TODO
+// #042/#043/#044/#045.
+
+function renderCreationReviewMember(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  const member: ActivePartyMember = {
+    ...NATHAN_RAWULF_FIGHTER,
+    portraitSlotId: 0,
+    rosterCharacterId: NATHAN_RAWULF_FIGHTER.id,
+  };
+  const windows = composeCharacterViewFrame({
+    members: [member],
+    currentSlot: 0,
+    cursorIdx: 11, // EXIT
+    db: msgDb,
+  });
+  return renderCreationFrame(windows, fontSet, palette);
+}
+
 // ─── Screen table ──────────────────────────────────────────────────────────────
 // `floor` = current measured match % minus a small margin. TARGET is 100.
 
@@ -759,6 +784,18 @@ const SCREENS: ScreenCase[] = [
     fixture: 'creation-portrait-done',
     floor: 100, // pixel-exact — post-change preview (char sheet with new portrait + "PRESS ▶ TO EXIT")
     render: renderPortraitDone,
+  },
+  {
+    fixture: 'creation-review-member',
+    // SCAFFOLD baseline 35.24% — see TODO #042/#043/#044/#045. Engine: 3-col ×
+    // 2-row action menu under camp mask (6 actions visible); stats panel has
+    // portrait + AC + HP/SP + inventory list + party row bars. Scaffold:
+    // 2-col × 6-row all 12 actions disabled-rendered, name + race/sex/class +
+    // LVL placeholder + 8 attrs, name-only party row. RAISE THIS FLOOR as
+    // Phase B work lands (TARGET is 100); the floor is a regression guard so
+    // a parity regression below the current measured % blocks the commit.
+    floor: 35,
+    render: renderCreationReviewMember,
   },
 ];
 
