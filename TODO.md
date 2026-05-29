@@ -13,11 +13,65 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#032**
+Next free ID: **#046**
 
 ---
 
 ## Open
+
+- #045 [open] — Phase B: pixel-parity for WPCVW state-0x11 character view
+  - Capture a state-0x11 save in DOSBox-X: title → castle → add 1+ members → REVIEW MEMBER → pick → save to slot 14. Then `pnpm tsx tools/parity/gen-fixture.ts --save 14 --name creation-review-member`.
+  - Add a `creation-review-member` parity case to `tools/parity/screen-parity.test.ts` (floor 100%).
+  - When the parity test runs, expect deltas in the stats panel (PORTRAIT not yet rendered; AC/HP/SP missing; placeholder LVL row) and party row (HP/SP bars, condition icon, weapon icons not rendered).
+  - Use deltas to drive #044, #042, etc.
+
+- #044 [open] — Tighten WPCVW stats panel against engine fixture
+  - Current scaffold (`compose-stats-panel.ts`) renders: centered name, race/sex, class, LVL placeholder, 8 attributes right-aligned. Real engine layout: portrait at top, then name + race/class/sex header, then AC + HP/SP, then attributes.
+  - Needs: portrait rendering (read portraitSlotId, blit from PortraitSet); AC/HP/SP fields (CharacterSchema has hpCurrent/hpMax/staminaCurrent/staminaMax optionally — also need derived AC computation).
+  - Depends on #045 fixture.
+
+- #043 [open] — WPCVW party row: HP/SP bars, condition icon, weapon icons
+  - Scaffold (`compose-party-row.ts`) renders name only. Engine renders 5+ fields per slot: HP bar, SP bar, condition icon, primary weapon, secondary weapon, sex/race glyph.
+  - Per finding `wpcvw-naming-pass.json#fn-party-row-render` at wpcvw 0x465. Needs per-glyph mapping from the captured fixture.
+  - Depends on #045 fixture.
+
+- #042 [open] — Confirm WPCVW action menu disabled-attr against fixture
+  - Scaffold uses attr 0x07 (dim gray) for disabled actions. Engine may render disabled with a different attr or not render them at all. Check against a fixture where `*0x4fce == 4` (camp/read-only) so some actions ARE disabled and visible.
+
+- #041 [open] — WPCVW in-place REVIEW WHO action (re-pick character while in view)
+  - Engine: REVIEW (action 10 in the 11-action menu) opens `ui_pick_party_member` from inside the view; on commit it swaps `*0x43cc` and continues the view loop. Per finding `wpcvw-character-view-ux.json`.
+  - Will reuse the PartyMemberPicker component.
+
+- #040 [open] — Port WPCVW EDIT submenu (rename, change portrait, change class)
+  - 5-option submenu at wpcvw 0x671f; option 3 (REPLACE) force-disabled. Per finding `wpcvw-character-view-ux.json`.
+  - Sub-flows: name-edit (`ui_text_input_editor` max 7 chars), portrait cycle (`portrait_load_from_disk` 0x6229), class change (already-documented `class_change_apply` — destructive XP wipe).
+  - Simplest of the 11 actions — good first action-port.
+
+- #039 [open] — Port WPCVW EQUIP action
+  - Inventory item-equip flow. Needs the inventory grid rendered first (currently scaffold-only).
+
+- #038 [open] — Port WPCVW USE action
+  - Item-use dispatch table at wpcvw 0x4a5b. Per-item-id branches for scrolls/wands/etc.
+  - Open follow-up from `wpcvw-character-view-ux.json`: the per-item-id table needs decoding.
+
+- #037 [open] — Port WPCVW DROP action
+  - Drop-from-inventory + cursed-flag check (corrected from prior `wpcvw-naming-pass.json#fn-cursed-item-lockout`).
+
+- #036 [open] — Port WPCVW TRADE action
+  - Give-to-party-member, 32-bit gold transfer. Engine: 0x513e.
+
+- #035 [open] — Port WPCVW ASSAY action
+  - Inspect-and-use. Engine: 0x7160. Picker msg 0x1c2.
+
+- #034 [open] — Port WPCVW SWAG action
+  - Body unknown — engine FUN @ 0x?. Open follow-up in `wpcvw-character-view-ux.json`.
+
+- #033 [open] — Port WPCVW MERGE action
+  - Body in FUN_5826. Open follow-up RE in `wpcvw-character-view-ux.json`.
+
+- #032 [open] — Port WPCVW SKILL + SPELL actions
+  - SPELL: FUN_416d (4 args including mystery `[bp-0x26]`). SKILL: FUN_4d36 (scans `slot+0x451c+{0x11..0x15}` for 5 active skills).
+  - Both have open follow-up RE in `wpcvw-character-view-ux.json` — body decoding incomplete.
 
 - #031 [open] — Asset format migration: JSON → spritesheets
   - JSON encoding bloats binary glyph/portrait/PIC data by 10-30×. Glyphs are 32 bytes binary; the JSON form is ~600+ bytes. Network cost on every viewer load.
