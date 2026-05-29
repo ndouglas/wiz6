@@ -1,0 +1,15 @@
+{
+  "name": "@wiz6/wfont-tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/pngjs": "^6.0.5",
+    "pngjs": "^7.0.0",
+    "vitest": "^2.1.0"
+  }
+}

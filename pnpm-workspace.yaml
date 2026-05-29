@@ -1,3 +1,4 @@
 packages:
   - 'packages/*'
   - 'tools/parity'
+  - 'tools/wfont'
