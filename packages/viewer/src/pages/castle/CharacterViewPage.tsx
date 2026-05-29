@@ -12,13 +12,17 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { WIZ6_MAIN, type ActivePartyMember, type MessageDb } from '@wiz6/data';
+import { WIZ6_MAIN, type ActivePartyMember, type MessageDb, type PortraitSet } from '@wiz6/data';
 import {
   renderTileWindow,
   type FontSet,
 } from '@wiz6/parser';
-import { loadMessageDb as defaultLoadMessageDb } from '../../data-loader.js';
+import {
+  loadMessageDb as defaultLoadMessageDb,
+  loadPortraitSet as defaultLoadPortraitSet,
+} from '../../data-loader.js';
 import { loadCreationFontSet } from '../roster/creation/ega/assets.js';
+import { patchFontSetWithPortrait } from '../roster/creation/ega/skill-train-frame.js';
 import { readActiveParty } from '../../lib/active-party-store.js';
 import { CanvasPresenter } from '../../lib/presenter.js';
 import { composeCharacterViewFrame } from './compose-character-view-frame.js';
@@ -38,6 +42,7 @@ export function CharacterViewPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [fontSet, setFontSet] = useState<FontSet | null>(null);
   const [db, setDb] = useState<MessageDb | null>(null);
+  const [portraits, setPortraits] = useState<PortraitSet[] | null>(null);
 
   const members = useMemo<ActivePartyMember[]>(() => readActiveParty().members, []);
   const validSlot = Number.isFinite(slotIdx) && slotIdx >= 0 && slotIdx < members.length;
@@ -51,13 +56,17 @@ export function CharacterViewPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const [fs, m] = await Promise.all([
+        const [fs, m, w1, w2, w3] = await Promise.all([
           loadCreationFontSet(),
           defaultLoadMessageDb('/messages/msg.json'),
+          defaultLoadPortraitSet('/portraits/wport1.json'),
+          defaultLoadPortraitSet('/portraits/wport2.json'),
+          defaultLoadPortraitSet('/portraits/wport3.json'),
         ]);
         if (cancelled) return;
         setFontSet(fs);
         setDb(m);
+        setPortraits([w1, w2, w3]);
       } catch (err: unknown) {
         if (!cancelled) console.error('[CharacterViewPage] asset load failed:', err);
       }
@@ -80,13 +89,19 @@ export function CharacterViewPage() {
 
   // Paint loop — static; no animations in the scaffold.
   useEffect(() => {
-    if (!validSlot || !fontSet || !db) return;
+    if (!validSlot || !fontSet || !db || !portraits) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
     const presenter = new CanvasPresenter(canvas);
+    const member = members[slotIdx]!;
+    const fontSetWithPortrait = patchFontSetWithPortrait(
+      fontSet,
+      portraits,
+      member.portraitIndex ?? 0,
+    );
     const windows = composeCharacterViewFrame({
       members,
       currentSlot: slotIdx,
@@ -96,13 +111,13 @@ export function CharacterViewPage() {
     const buf = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
     buf.fill(0);
     for (const w of windows) {
-      renderTileWindow(w, buf, ENGINE_W, ENGINE_H, fontSet, WIZ6_MAIN);
+      renderTileWindow(w, buf, ENGINE_W, ENGINE_H, fontSetWithPortrait, WIZ6_MAIN);
     }
     presenter.present(buf, ENGINE_W, ENGINE_H);
-  }, [validSlot, fontSet, db, members, slotIdx]);
+  }, [validSlot, fontSet, db, portraits, members, slotIdx]);
 
   if (!validSlot) return null;
-  if (!fontSet || !db) return <div>Loading…</div>;
+  if (!fontSet || !db || !portraits) return <div>Loading…</div>;
 
   return (
     <main>
