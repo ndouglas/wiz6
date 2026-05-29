@@ -484,6 +484,26 @@ describe('dup-name modal', () => {
     expect(audio.playInvalidActionBeep).not.toHaveBeenCalled();
   });
 
+  it('catches lowercase duplicate (case-insensitive uppercasing before dup check)', () => {
+    writeRoster({ schemaVersion: 1, characters: [makeCharacter(ID_A, 'NATHAN')] });
+    const dispatch = vi.fn();
+    const state = { ...initialCreationState(new WichmannHill(3000, 1, 29999)), screen: 'name' as const };
+    render(
+      <NameInputScreen
+        state={state} dispatch={dispatch}
+        fontSet={STUB_FONT_SET} palette={WIZ6_MAIN} db={stubDb()}
+      />,
+    );
+    // Type lowercase. The display layer renders uppercase anyway; the dup check
+    // must also normalize before comparing against the all-uppercase roster.
+    for (const ch of 'nathan') {
+      fireEvent.keyDown(window, { key: ch });
+    }
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'SHOW_DUP_NAME_MODAL' });
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'SET_NAME' }));
+  });
+
   it('any key while modal is open dispatches MODAL_DISMISS', () => {
     const dispatch = vi.fn();
     const state = {

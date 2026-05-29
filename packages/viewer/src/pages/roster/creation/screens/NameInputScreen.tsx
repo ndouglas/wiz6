@@ -104,7 +104,7 @@ export function NameInputScreen({
       if (key === 'Enter') {
         // Submit only if buffer is non-empty
         if (buffer.length === 0) return;
-        const name = buffer;
+        const name = buffer.toUpperCase();
         if (findDuplicateName(name)) {
           playInvalidActionBeep();
           dispatch({ type: 'SHOW_DUP_NAME_MODAL' });
