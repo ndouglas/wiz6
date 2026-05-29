@@ -51,6 +51,29 @@ const ATTR_EXPMKS_VALUE = 0x60;     // palette[6]        — EXP / MKS values
 const ATTR_LVL_LABEL = 0x80;        // palette[8]        — LVL label
 const ATTR_LVL_VALUE = 0x90;        // palette[9]        — LVL value
 
+// School mana grid (rows 14-18). 6 schools × 2 colors: icon at attr 0x02
+// (wfont2 glyph), value at the school's distinctive attr below, slash at
+// attr 0x90. Layout: schools 0/1/2 (Fire/Water/Air) in the left column,
+// 3/4/5 (Earth/Mental/Divine) in the right column. Verified from save 2.
+const SCHOOL_VALUE_ATTRS: ReadonlyArray<number> = [
+  0x40, // 0 Fire
+  0x20, // 1 Water
+  0x30, // 2 Air
+  0x60, // 3 Earth
+  0x70, // 4 Mental
+  0x50, // 5 Divine
+];
+const SCHOOL_ICON_CHARS: ReadonlyArray<number> = [
+  0x23, // 0 Fire   '#'
+  0x24, // 1 Water  '$'
+  0x25, // 2 Air    '%'
+  0x26, // 3 Earth  '&'
+  0x27, // 4 Mental '''
+  0x28, // 5 Divine '('
+];
+const ATTR_SCHOOL_ICON = 0x02;       // wfont2 — school glyph cell
+const ATTR_MANA_SLASH = 0x90;        // palette[9] — separator
+
 const STATS_LABEL_COL = 1;
 const STATS_VALUE_COL = 5; // right edge of 2-char value at col 6
 const STATS_VALUE_WIDTH = 2;
@@ -185,6 +208,33 @@ function drawHeader(w: TileWindow, member: ActivePartyMember, db: MessageDb): vo
   puts(w, rpad(0, 10), ATTR_EXPMKS_VALUE);
 }
 
+function drawSchoolManaGrid(w: TileWindow, member: ActivePartyMember): void {
+  // Each school cell: icon at col {1 or 11}, current at col {5 or 15}, slash
+  // at col {6 or 16}, max at col {9 or 19}. Rows 14, 16, 18 hold the three
+  // pairs (left col schools 0/1/2, right col schools 3/4/5). Separator
+  // rows 15 + 17 are chrome (wfont1) and are deferred to a future slice.
+  const rows = [14, 16, 18];
+  for (let i = 0; i < 6; i++) {
+    const row = rows[i % 3]!;
+    const isLeft = i < 3;
+    const iconCol = isLeft ? 1 : 11;
+    const curCol = isLeft ? 5 : 15;
+    const slashCol = isLeft ? 6 : 16;
+    const maxCol = isLeft ? 9 : 19;
+    const valueAttr = SCHOOL_VALUE_ATTRS[i]!;
+    const iconChar = SCHOOL_ICON_CHARS[i]!;
+
+    setCursor(w, iconCol, row);
+    puts(w, String.fromCharCode(iconChar), ATTR_SCHOOL_ICON);
+    setCursor(w, curCol, row);
+    puts(w, String(member.schoolMana[i] ?? 0), valueAttr);
+    setCursor(w, slashCol, row);
+    puts(w, '/', ATTR_MANA_SLASH);
+    setCursor(w, maxCol, row);
+    puts(w, String(member.schoolManaMax[i] ?? 0), valueAttr);
+  }
+}
+
 export function composeMainPanel(view: MainPanelView): TileWindow {
   const w = createTileWindow({
     screenX: PANEL_X,
@@ -196,5 +246,6 @@ export function composeMainPanel(view: MainPanelView): TileWindow {
   drawHeader(w, view.member, view.db);
   drawStatsColumn(w, view.member);
   drawHpStmCndGpCc(w, view.member);
+  drawSchoolManaGrid(w, view.member);
   return w;
 }

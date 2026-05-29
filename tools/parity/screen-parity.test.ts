@@ -794,7 +794,7 @@ const SCREENS: ScreenCase[] = [
     // values (col 4 + cols 5-7 rows 2-3), ARMORCLASS sub-panel (rows 5-7),
     // inventory list (rows 9-13), school mana grid (rows 14-18), chrome
     // frame, derived CC values. See TODO #044, #042, #045.
-    floor: 51,
+    floor: 54,
     render: renderCreationReviewMember,
   },
 ];
