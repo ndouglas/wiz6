@@ -14,7 +14,9 @@
  *   - Enter (key 5)      → "PRESS ▶ FOR NEXT CATEGORY" — advance category.
  *                          Skips empty categories. Wraps WEAPONRY → PHYSICAL
  *                          → PERSONAL → ACADEMIA → WEAPONRY.
- *   - ArrowLeft / Escape → no-op (no untrain).
+ *   - ArrowLeft (key 1) → refund 1 point from the cursor skill (UNTRAIN_SKILL),
+ *                          floor-gated by skillFloors[slot]. At-floor → beep.
+ *   - Escape             → no-op (handled in Task 8 via house rule).
  *
  * The portrait chosen in the previous screen is permanently baked into wfont2
  * at glyphs 0x48..0x50 — `patchFontSetWithPortrait` clones font2 with the
@@ -32,12 +34,14 @@ import type { Palette, PortraitSet } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
+import { canUntrainSkill } from '../state.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import {
   composeSkillTrainFrame,
   patchFontSetWithPortrait,
   SKILL_CATEGORIES,
 } from '../ega/skill-train-frame.js';
+import { playInvalidActionBeep } from '../../../../lib/audio.js';
 
 export interface SkillTrainScreenProps {
   state: CreationState;
@@ -109,6 +113,18 @@ export function SkillTrainScreen({
         case 'ArrowDown':
           setCursorIdx((prev) => Math.min(trainable.length - 1, prev + 1));
           break;
+        case 'ArrowLeft': {
+          // Refund 1 point from the cursor skill (floor = skillFloors[slot]).
+          // Mirrors the bonus-allocator's bidirectional pattern.
+          const slot = trainable[cursorIdx];
+          if (slot === undefined) break;
+          if (canUntrainSkill(state, slot)) {
+            dispatch({ type: 'UNTRAIN_SKILL', slot });
+          } else {
+            playInvalidActionBeep();
+          }
+          break;
+        }
         case 'ArrowRight': {
           const slot = trainable[cursorIdx];
           if (slot !== undefined && state.draft.skillBudget > 0) {
@@ -140,7 +156,7 @@ export function SkillTrainScreen({
           break;
       }
     },
-    [trainable, cursorIdx, categoryIdx, classIdx, state.draft.skillBudget, dispatch],
+    [trainable, cursorIdx, categoryIdx, classIdx, state, dispatch],
   );
 
   useEffect(() => {

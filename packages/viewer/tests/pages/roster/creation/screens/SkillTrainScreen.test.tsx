@@ -16,7 +16,7 @@
 //
 // Spec: docs/re/wpcmk-screens.md §5, §8
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
 import { WIZ6_MAIN, availableSkillSlots } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
@@ -25,6 +25,7 @@ import type { CreationState, CreationEvent } from '../../../../../src/pages/rost
 import { initialCreationState } from '../../../../../src/pages/roster/creation/state.js';
 import { WichmannHill } from '@wiz6/data';
 import { SkillTrainScreen } from '../../../../../src/pages/roster/creation/screens/SkillTrainScreen.js';
+import * as audio from '../../../../../src/lib/audio.js';
 
 // ---------------------------------------------------------------------------
 // Minimal stubs
@@ -105,8 +106,17 @@ function stubDb(): MessageDb {
  * Class = 0 (Fighter), skillBudget = 2 by default.
  * Fighter trainable slots per CLASS_SKILL_AVAILABILITY[0]:
  *   `111111111001000000000011100000` → slots 0,1,2,3,4,5,6,7,8,11,23,24,25
+ *
+ * Optional overrides:
+ *   skills      — 30-element array (replaces the default all-zeros)
+ *   skillFloors — 30-element array (replaces the default all-zeros)
  */
-function makeSkillTrainState(skillBudget = 2, classIdx = 0): CreationState {
+function makeSkillTrainState(
+  skillBudget = 2,
+  classIdx = 0,
+  skills?: number[],
+  skillFloors?: number[],
+): CreationState {
   const rng = new WichmannHill(3000, 1, 29999);
   const s = initialCreationState(rng);
 
@@ -125,8 +135,9 @@ function makeSkillTrainState(skillBudget = 2, classIdx = 0): CreationState {
       },
       bonusPool: 0,
       skillBudget,
-      skills: new Array(30).fill(0) as number[],
+      skills: skills ?? (new Array(30).fill(0) as number[]),
     },
+    skillFloors: skillFloors ?? (new Array(30).fill(0) as number[]),
   };
 }
 
@@ -356,12 +367,56 @@ describe('SkillTrainScreen — ArrowUp moves cursor to prev trainable slot', () 
 });
 
 // ---------------------------------------------------------------------------
-// ArrowLeft is a no-op (no skill point removal)
+// ArrowLeft → UNTRAIN_SKILL when slot is above floor; beep + no dispatch at floor
 // ---------------------------------------------------------------------------
 
-describe('SkillTrainScreen — ArrowLeft does not dispatch', () => {
-  it('ArrowLeft does not dispatch any event', () => {
-    const state = makeSkillTrainState();
+describe('SkillTrainScreen — UNTRAIN_SKILL via ArrowLeft', () => {
+  beforeEach(() => {
+    vi.spyOn(audio, 'playInvalidActionBeep').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('dispatches UNTRAIN_SKILL on ArrowLeft when slot is above floor', () => {
+    // Fighter, cursorIdx=0 → WEAPONRY slot 0 (SWORD).
+    // Set skills[0]=5, skillFloors[0]=3 → above floor → should dispatch.
+    const skills = new Array(30).fill(0) as number[];
+    skills[0] = 5;
+    const skillFloors = new Array(30).fill(0) as number[];
+    skillFloors[0] = 3;
+
+    const state = makeSkillTrainState(2, 0, skills, skillFloors);
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <SkillTrainScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+
+    // cursorIdx=0 → first trainable WEAPONRY slot for Fighter = slot 0 (SWORD)
+    const firstSlot = availableSkillSlots(0).filter((s) => s >= 0 && s <= 9)[0]!;
+    expect(dispatch).toHaveBeenCalledWith({ type: 'UNTRAIN_SKILL', slot: firstSlot });
+    expect(audio.playInvalidActionBeep).not.toHaveBeenCalled();
+  });
+
+  it('beeps and does NOT dispatch when slot is at floor', () => {
+    // Fighter, cursorIdx=0 → WEAPONRY slot 0 (SWORD).
+    // Set skills[0]=3, skillFloors[0]=3 → at floor → beep, no dispatch.
+    const skills = new Array(30).fill(0) as number[];
+    skills[0] = 3;
+    const skillFloors = new Array(30).fill(0) as number[];
+    skillFloors[0] = 3;
+
+    const state = makeSkillTrainState(2, 0, skills, skillFloors);
     const dispatch = vi.fn<[CreationEvent], void>();
     const db = stubDb();
 
@@ -378,6 +433,30 @@ describe('SkillTrainScreen — ArrowLeft does not dispatch', () => {
     fireEvent.keyDown(window, { key: 'ArrowLeft' });
 
     expect(dispatch).not.toHaveBeenCalled();
+    expect(audio.playInvalidActionBeep).toHaveBeenCalledOnce();
+  });
+
+  it('beeps and does NOT dispatch when skills[slot] < floor', () => {
+    // Defensive: if somehow skills[0]=0 and floor=0, also at floor → beep.
+    // Default makeSkillTrainState has all skills=0, all floors=0 → at floor.
+    const state = makeSkillTrainState(2, 0);
+    const dispatch = vi.fn<[CreationEvent], void>();
+    const db = stubDb();
+
+    render(
+      <SkillTrainScreen
+        state={state}
+        dispatch={dispatch}
+        fontSet={STUB_FONT_SET}
+        palette={WIZ6_MAIN}
+        db={db}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(audio.playInvalidActionBeep).toHaveBeenCalledOnce();
   });
 });
 
