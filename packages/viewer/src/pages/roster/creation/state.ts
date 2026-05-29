@@ -996,12 +996,7 @@ export function canAdjustBonus(state: CreationState, attr: number, delta: number
   if (delta < 0) {
     const undo = (state.scratch['undo'] as number[] | undefined) ?? new Array(7).fill(0) as number[];
     const undoCount = undo[attr] ?? 0;
-    const floor = (state.draft.race === null)
-      ? 0
-      : ((): number => {
-          const base = getRaceBaseStats(state.draft.race);
-          return base[key];
-        })();
+    const floor = raceFlorFor(state, attr);
     if (undoCount <= 0 || current <= floor) return false;
     return true;
   }
