@@ -31,7 +31,13 @@ const PANEL_W = 40;
 const PANEL_H = 20;
 const PANEL_X = 0;
 const PANEL_Y = 0;
-const ATTR_BG = 0x03;
+// Engine default background for the main panel is attr 0x00 (palette[0]=black
+// on highlight path), NOT the gray attr 0x03 we use elsewhere. Verified from
+// save 2 cell dump: 80 space cells have attr 0x00. Only the AC icon-row gaps
+// and the rightmost col 38 of rows 14-18 use attr 0x03 — see drawArmorClass
+// and the small extras below.
+const ATTR_BG = 0x00;
+const ATTR_AC_GAP = 0x03;            // space attr in AC icon row inter-icon cells
 const ATTR_STAT_LABEL = 0x50;       // palette[5] yellow — STR..KAR labels
 const ATTR_STAT_VALUE = 0x10;       // palette[1] white  — STR..KAR values
 const ATTR_VITAL_LABEL = 0x40;      // palette[4] green  — HP / STM / CND labels
@@ -157,6 +163,12 @@ export interface MainPanelView {
    *  Runtime callers omit this until we have a scenario.dbs item-name
    *  lookup; the parity test passes the fixture's known 5 items. */
   inventory?: ReadonlyArray<InventoryItem>;
+  /** Carrying-capacity values (current / max). Omit to render only the
+   *  "CC" label. Derivation from STR + inventory weight is TODO. */
+  cc?: { current: number; max: number };
+  /** Years-since-birth (row 2) and the engine's "secondAge" / age2 counter
+   *  (row 3) displayed next to the portrait. Omit to skip rendering. */
+  age?: { years: number; second: number };
 }
 
 /** Right-align `value` to width `n`, space-pad on the left. */
@@ -219,16 +231,36 @@ function drawHpStmCndGpCc(w: TileWindow, member: ActivePartyMember): void {
   puts(w, rpad(member.gold, 7), ATTR_GP_VALUE);
 
   // CC row 12 — "CC" at cols 10-11, " 29" at cols 13-15, "/" at col 16, "213"
-  // at cols 17-19. Carrying capacity is a derived field not on the schema;
-  // scaffold renders "  0/  0" until the derivation lands (TODO follow-up).
+  // at cols 17-19. Caller supplies CC values via view.cc since they are a
+  // derived field not on CharacterSchema (carrying weight + STR-based max).
   setCursor(w, 10, 12);
   puts(w, 'CC', ATTR_CC_LABEL);
+}
+
+/** Render the CC (carrying-capacity) value pair when supplied by the caller. */
+function drawCcValues(w: TileWindow, cc: { current: number; max: number } | undefined): void {
+  if (!cc) return;
   setCursor(w, 13, 12);
-  puts(w, '  0', ATTR_CC_VALUE);
+  puts(w, rpad(cc.current, 3), ATTR_CC_VALUE);
   setCursor(w, 16, 12);
   puts(w, '/', ATTR_CC_LABEL);
   setCursor(w, 17, 12);
-  puts(w, '  0', ATTR_CC_VALUE);
+  puts(w, rpad(cc.max, 3), ATTR_CC_VALUE);
+}
+
+function drawAgeFields(w: TileWindow, age: { years: number; second: number }): void {
+  // Row 2 col 4: wfont0 glyph 0x1e attr 0x50 (age indicator), cols 5-7 value
+  // right-aligned in 3 chars attr 0xe0 (palette[14]).
+  // Row 3 col 4: wfont0 glyph 0x1f attr 0x50, cols 5-7 value attr 0xc0.
+  const ATTR_AGE_INDICATOR = 0x50;
+  const ATTR_AGE_YEARS = 0xe0;
+  const ATTR_AGE_SECOND = 0xc0;
+  setCell(w, 4, 2, 0x1e, ATTR_AGE_INDICATOR);
+  setCursor(w, 5, 2);
+  puts(w, rpad(age.years, 3), ATTR_AGE_YEARS);
+  setCell(w, 4, 3, 0x1f, ATTR_AGE_INDICATOR);
+  setCursor(w, 5, 3);
+  puts(w, rpad(age.second, 3), ATTR_AGE_SECOND);
 }
 
 function drawPortraitTiles(w: TileWindow): void {
@@ -368,6 +400,19 @@ function drawChrome(w: TileWindow): void {
   setCell(w, 39, 19, CHROME_BOT_RIGHT, ATTR_CHROME);
 }
 
+/** Cells where the engine uses attr 0x03 (gray bg) instead of the default
+ *  attr 0x00 (black). Verified from save 2 cell dump. */
+function drawBackgroundExtras(w: TileWindow): void {
+  // AC icon row 6: gaps between icons + after the last icon.
+  for (const c of [21, 24, 27, 30, 33, 36, 38]) {
+    setCell(w, c, 6, 0x20, ATTR_AC_GAP);
+  }
+  // School-mana rows: rightmost col 38.
+  for (const r of [14, 15, 16, 17, 18]) {
+    setCell(w, 38, r, 0x20, ATTR_AC_GAP);
+  }
+}
+
 function drawArmorClass(w: TileWindow, member: ActivePartyMember): void {
   // Row 5: "ARMORCLASS" cols 21-30 attr 0xf0; total (2 chars) cols 32-33
   // attr 0x40; " " 34 attr 0xf0; "(" 35 attr 0xf0; "+" 36 attr 0x90; "0"
@@ -466,11 +511,14 @@ export function composeMainPanel(view: MainPanelView): TileWindow {
     heightCells: PANEL_H,
   });
   clearWindow(w, 0x20, ATTR_BG);
+  drawBackgroundExtras(w);
   drawChrome(w);
   drawPortraitTiles(w);
+  if (view.age) drawAgeFields(w, view.age);
   drawHeader(w, view.member, view.db);
   drawStatsColumn(w, view.member);
   drawHpStmCndGpCc(w, view.member);
+  drawCcValues(w, view.cc);
   drawArmorClass(w, view.member);
   drawInventoryList(w, view.inventory ?? []);
   drawSchoolManaGrid(w, view.member);

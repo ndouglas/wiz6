@@ -34,13 +34,23 @@ export interface CharacterViewView {
   db: MessageDb;
   /** Inventory list to render in the main panel; defaults to empty. */
   inventory?: ReadonlyArray<InventoryItem>;
+  /** Carrying-capacity values (current / max). Omit to skip rendering. */
+  cc?: { current: number; max: number };
+  /** Age values displayed next to the portrait. Omit to skip rendering. */
+  age?: { years: number; second: number };
 }
 
 export function composeCharacterViewFrame(view: CharacterViewView): TileWindow[] {
   const current = view.members[view.currentSlot];
   if (!current) return [];
   return [
-    composeMainPanel({ member: current, db: view.db, inventory: view.inventory }),
+    composeMainPanel({
+      member: current,
+      db: view.db,
+      inventory: view.inventory,
+      cc: view.cc,
+      age: view.age,
+    }),
     composeActionMenu({ cursorIdx: view.cursorIdx, db: view.db }),
   ];
 }
