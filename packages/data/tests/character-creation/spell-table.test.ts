@@ -21,3 +21,22 @@ describe('spellsInBook', () => {
     expect(spellsInBook(3).length).toBe(25);
   });
 });
+
+describe('spellsInBook excludes sentinel entries (byte5 === 0)', () => {
+  it('does not include entries 79, 80, 81 (all bookIdx values)', () => {
+    for (const bookIdx of [0, 1, 2, 3]) {
+      const list = spellsInBook(bookIdx);
+      const indices = list.map((e) => e.entryIdx);
+      expect(indices).not.toContain(79);
+      expect(indices).not.toContain(80);
+      expect(indices).not.toContain(81);
+    }
+  });
+
+  it('SPELL_TABLE itself has 82 entries (sentinels included for indexing)', () => {
+    expect(SPELL_TABLE.length).toBe(82);
+    expect(SPELL_TABLE[79]!.byte5).toBe(0);
+    expect(SPELL_TABLE[80]!.byte5).toBe(0);
+    expect(SPELL_TABLE[81]!.byte5).toBe(0);
+  });
+});
