@@ -82,13 +82,23 @@ const BANNER_TITLE_ATTR = 0x03;
 const BANNER_FILL_CHAR = 0x5f;
 const BANNER_FILL_ATTR = 0x03;
 
-// Middle strip covering cells 19-20 of picker rows 19-23. Engine has a
-// thin border line at c19; we cover both 19 and 20 here to hide
-// composeCastleFrame's pane bleed-through.
+// Right-edge vertical line at cell 19 across picker rows 19-23. Engine
+// renders wfont1 char 0x1c (a tile whose cols 0-6 are gray and col 7 is
+// black — produces a vertical black line at the right edge of cell 19).
 const MIDDLE_CELL_X = 19;
 const MIDDLE_CELL_Y = 19;
-const MIDDLE_W = 2; // cells 19, 20
+const MIDDLE_W = 1; // just cell 19
 const MIDDLE_H = 5;
+const MIDDLE_CHAR = 0x1c;
+const MIDDLE_ATTR = 0x01; // wfont1 chrome
+
+// Corner tile at cell (19, 24) — wfont1 char 0x1f closes the L: col 7 all
+// black (continuing the right-edge line) + row 7 all black (joining the
+// status row's bottom-line at y=199).
+const CORNER_CELL_X = 19;
+const CORNER_CELL_Y = 24;
+const CORNER_CHAR = 0x1f;
+const CORNER_ATTR = 0x01;
 
 // Scrollbar column at cell 21 — engine renders ▲ at row 0 (red), track in
 // rows 1-3, ▼ at row 4 (red). Chars in wfont2: 'E'=▲, 'G'=track, 'F'=▼.
@@ -275,21 +285,31 @@ function composeBanner(): TileWindow {
     widthCells: BANNER_W,
     heightCells: BANNER_H,
   });
-  // Fill with 0x5f tile (black top + black bottom + gray middle) — matches
-  // composeCastleFrame's banner-bar style. Engine has a different bottom-line
-  // treatment at cells 20-39 (black top + GRAY bottom, mechanism TBD — see
-  // TODO #027). Using 0x5f for the full row gives a 160-px diff at y=151
-  // but the right-half-bottom-line is visually subtle and the picker is
-  // otherwise pixel-correct.
-  clearWindow(w, BANNER_FILL_CHAR, BANNER_FILL_ATTR);
+  // Cells 0-18: 0x5f tile at wfont3 (black top + black bottom + gray middle) —
+  // same banner-bar tile that composeCastleFrame uses for MASTER OPTIONS.
+  // Cell 19: 0x1d tile at wfont3 (banner bar PLUS right-edge vertical line) —
+  // joins the row's underscore-bar style with the middleStrip's vertical line
+  // at cell 19.
+  // Cells 20-39: 0x23 tile at wfont1 (black top + gray rest, no bottom-line) —
+  // the chrome frame tile the engine uses on the right half of the banner row
+  // to clip the underscore bar's bottom-line where the picker takes over.
+  for (let cx = 0; cx < 19; cx++) {
+    setCursor(w, cx, 0);
+    puts(w, String.fromCharCode(0x5f), 0x03); // wfont3 underscore
+  }
+  setCursor(w, 19, 0);
+  puts(w, String.fromCharCode(0x1d), 0x03); // wfont3 underscore + right edge
+  for (let cx = 20; cx < BANNER_W; cx++) {
+    setCursor(w, cx, 0);
+    puts(w, String.fromCharCode(0x23), 0x01); // wfont1 top-edge chrome tile
+  }
   // Title overlay (cells 5-14).
   setCursor(w, BANNER_TITLE_COL, 0);
   puts(w, BANNER_TITLE, BANNER_TITLE_ATTR);
   return w;
 }
 
-/** Middle strip covering cells 19-21 of the picker rows, hiding the underlying
- *  menu pane's option-label bleed-through. */
+/** Right-edge vertical line at cell 19, picker rows 19-23. wfont1 char 0x1c. */
 function composeMiddleStrip(): TileWindow {
   const w = createTileWindow({
     screenX: MIDDLE_CELL_X * CELL_PX,
@@ -297,7 +317,20 @@ function composeMiddleStrip(): TileWindow {
     widthCells: MIDDLE_W,
     heightCells: MIDDLE_H,
   });
-  clearWindow(w, 0x20, ATTR_BG);
+  clearWindow(w, MIDDLE_CHAR, MIDDLE_ATTR);
+  return w;
+}
+
+/** Corner tile at cell (19, 24) — wfont1 0x1f. Closes the L by adding the
+ *  bottom-row black line under the status-row's bottom edge. */
+function composeCorner(): TileWindow {
+  const w = createTileWindow({
+    screenX: CORNER_CELL_X * CELL_PX,
+    screenY: CORNER_CELL_Y * CELL_PX,
+    widthCells: 1,
+    heightCells: 1,
+  });
+  clearWindow(w, CORNER_CHAR, CORNER_ATTR);
   return w;
 }
 
@@ -325,9 +358,10 @@ function composeScrollbar(): TileWindow {
  * Paint order (first → last, bottom → top):
  *   banner       — replaces composeCastleFrame's "MASTER OPTIONS" at row 18
  *   leftPanel    — "ADD WHO?" + CANCEL prompt
- *   middleStrip  — hides menu-pane bleed-through at cells 19-20
+ *   middleStrip  — right-edge vertical line at cell 19 (wfont1 0x1c)
  *   scrollbar    — ▲ track ▼ glyphs at cell 21
  *   rightPanel   — candidate list (starts at cell 22)
+ *   corner       — bottom-right L-tile at cell (19, 24) (wfont1 0x1f)
  */
 export function composeAddPartyPickerFrame(
   view: AddPartyPickerView,
@@ -339,5 +373,6 @@ export function composeAddPartyPickerFrame(
     composeMiddleStrip(),
     composeScrollbar(),
     composeRightPanel(view, db),
+    composeCorner(),
   ];
 }

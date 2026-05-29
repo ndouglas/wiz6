@@ -198,6 +198,6 @@ describe('ADD PARTY picker pixel-parity vs committed engine fixture', () => {
     expect(
       result.matchPct,
       `add-party-picker: ${result.matchPct.toFixed(2)}% (${result.diffCount} px differ) — see /tmp/parity-diff-add-party-picker.png`,
-    ).toBeGreaterThanOrEqual(99.5);
+    ).toBeGreaterThanOrEqual(100);
   });
 });
