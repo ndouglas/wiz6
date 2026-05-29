@@ -205,6 +205,78 @@ def cmd_default(save_path, out_path):
         render_human(name, win)
 
 
+def scan_for_windows(b: bytes):
+    """Scan the full Memory blob for plausible TileWindow structs.
+
+    A candidate offset must satisfy:
+      - byte[0] (w) in [1, 40]
+      - byte[1] (h) in [1, 25]
+      - byte[2] (x) in [0, 39]
+      - byte[3] (y) in [0, 24]
+      - x + w <= 40, y + h <= 25
+      - cells region (struct+0x10 .. struct+0x10+w*h*2) fits inside the blob
+      - score = fraction of cell-chars (even offsets in cell region) that are
+        printable ASCII (0x20..0x7e). Discard candidates with score < 0.5.
+
+    Per docs/re/findings/wbase-picker-internals.json the canonical cells_off
+    is struct+0x10 unconditionally; this scan uses that.
+
+    Note: the score deliberately counts only printable ASCII (0x20..0x7e),
+    not control codes — null bytes are too common in memory and would push
+    too much garbage into the top of the result list. Real wiz6 UI windows
+    are dense with space (0x20) padding + ASCII text, so they comfortably
+    score >= 0.7. The control-code chrome glyphs (0x00..0x1f) used by
+    framing tiles are sparse enough that excluding them from the score
+    doesn't disqualify real windows.
+
+    Returns: list of (struct_off, w, h, x, y, attr, preview, score) tuples
+    sorted by descending score then ascending offset.
+    """
+    candidates = []
+    n = len(b)
+    upper = n - 0x10
+    if upper <= 0:
+        return candidates
+    for off in range(0, upper):
+        w = b[off]
+        h = b[off + 1]
+        x = b[off + 2]
+        y = b[off + 3]
+        attr = b[off + 4]
+        if not (1 <= w <= 40 and 1 <= h <= 25):
+            continue
+        if not (0 <= x <= 39 and 0 <= y <= 24):
+            continue
+        if x + w > 40 or y + h > 25:
+            continue
+        cells_off = off + 0x10
+        cells_len = w * h * 2
+        if cells_off + cells_len > n:
+            continue
+        chars = b[cells_off:cells_off + cells_len:2]
+        if not chars:
+            continue
+        hits = sum(1 for c in chars if 0x20 <= c <= 0x7e)
+        score = hits / len(chars)
+        if score < 0.5:
+            continue
+        # Preview of row 0: ASCII printables only, others as '.'.
+        row0_chars = b[cells_off:cells_off + w * 2:2]
+        preview = ''.join(chr(c) if 0x20 <= c < 0x7f else '.' for c in row0_chars)
+        candidates.append((off, w, h, x, y, attr, preview, score))
+    candidates.sort(key=lambda c: (-c[7], c[0]))
+    return candidates
+
+
+def cmd_scan(save_path):
+    b = mem(save_path)
+    cands = scan_for_windows(b)
+    print(f"Found {len(cands)} candidate window structs (score >= 0.5):\n")
+    for off, w, h, x, y, attr, preview, score in cands[:50]:
+        print(f"  off=0x{off:x} {w}x{h}@({x},{y}) attr=0x{attr:02x} score={score:.2f}")
+        print(f"    row0: {preview!r}")
+
+
 def cmd_picker(save_path, out_path):
     """Find the wbase ADD PARTY MEMBER picker's two panels by content-signature
     scan, and emit a fixture with the same shape as the wpcmk fixtures."""
@@ -243,8 +315,16 @@ def main():
         help="extract the wbase ADD PARTY MEMBER picker's leftPanel + rightPanel "
              "by content-signature scan instead of the fixed wpcmk handles",
     )
+    parser.add_argument(
+        "--scan",
+        action="store_true",
+        help="scan the entire Memory blob for plausible TileWindow structs "
+             "(heuristic: valid w/h/x/y + printable-ish cell content)",
+    )
     args = parser.parse_args()
-    if args.picker:
+    if args.scan:
+        cmd_scan(args.save)
+    elif args.picker:
         cmd_picker(args.save, args.out)
     else:
         cmd_default(args.save, args.out)
