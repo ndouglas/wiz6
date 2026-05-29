@@ -13,11 +13,22 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#030**
+Next free ID: **#032**
 
 ---
 
 ## Open
+
+- #031 [open] — Asset format migration: JSON → spritesheets
+  - JSON encoding bloats binary glyph/portrait/PIC data by 10-30×. Glyphs are 32 bytes binary; the JSON form is ~600+ bytes. Network cost on every viewer load.
+  - Plan: pre-built PNG spritesheets for wfont/wport/PIC with a small JSON metadata file. Keep JSON form for decoder development.
+  - Touches extractor pipeline (`packages/cli`), loaders (`packages/viewer/src/data-loader.ts`), test fixtures.
+  - Defer until we have measured load-time pain or want to ship to mobile.
+
+- #030 [open] — WebGL presenter for shader / HD rendering
+  - Implement a second `Presenter` backend (alongside `CanvasPresenter`) that takes RGBA and runs it through a WebGL pipeline. Enables CRT shaders, scanline effects, scale-up filters, HD-asset compositing.
+  - Touches only `packages/viewer/src/lib/presenter.ts` (+ a new `WebGLPresenter.ts` and possibly a hook for component-level opt-in); composers are unaffected.
+  - Blocked on: concrete need (no shader experiment in flight yet).
 
 - #029 [open] — Per-region pixel tolerances in `compareRgba`
   - Currently `compareRgba(ours, eng, { tolerance: N })` applies one global tolerance. All parity tests today use `tolerance: 0` (strict gate).
