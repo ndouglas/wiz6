@@ -30,6 +30,9 @@ const ReviewMemberPage = lazy(() =>
 const CharacterViewPage = lazy(() =>
   import('./pages/castle/CharacterViewPage.js').then((m) => ({ default: m.CharacterViewPage })),
 );
+const PcFilePage = lazy(() =>
+  import('./pages/pc-file/PcFilePage.js').then((m) => ({ default: m.PcFilePage })),
+);
 
 const Landing = lazy(() => import('./pages/Landing.js').then((m) => ({ default: m.Landing })));
 const MonstersPage = lazy(() =>
@@ -99,6 +102,7 @@ export const routes = (
       <Route path="/castle/review-member/:slotIdx" element={<CharacterViewPage />} />
       <Route path="/castle/:stub" element={<CastleStub />} />
       <Route path="/roster" element={<RosterView />} />
+      <Route path="/pc-file" element={<PcFilePage />} />
     </Route>
     <Route path="/settings" element={<SettingsPage />} />
     <Route path="/explore" element={<ExploreLayout />}>
