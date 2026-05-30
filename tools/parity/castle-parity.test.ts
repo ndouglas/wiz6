@@ -84,8 +84,12 @@ interface CastleCase {
 }
 
 // NATHAN from engine save 1 (verified via dosbox_read_struct):
-//   portraitIndex=9, class=0 (Fighter), race=9, level=1, sex=0,
-//   hp 7/7, sp 108/108, attributes [STR=16, INT=8, PIE=12, VIT=10, DEX=8, SPD=8, PER=10, KAR=18].
+//   class=0 (Fighter), race=9, level=1, sex=0, hp 7/7, sp 108/108,
+//   attributes [STR=16, INT=8, PIE=12, VIT=10, DEX=8, SPD=8, PER=10, KAR=18].
+//   portraitIndex=21 — the RENDERED portrait selector at record +0x19c
+//   (→ wport2 #7), verified by pixel-matching the engine portrait region. The
+//   struct's `portrait_index` (+0x1ac)=9 is the creation default (spd+1), NOT
+//   the rendered portrait.
 const ENGINE_SAVE_1_NATHAN: ActivePartyMember = {
   id: '00000000-0000-4000-8000-000000000001',
   name: 'NATHAN',
@@ -109,7 +113,7 @@ const ENGINE_SAVE_1_NATHAN: ActivePartyMember = {
   sex: 0,
   portraitSlotId: 0,
   rosterCharacterId: '00000000-0000-4000-8000-000000000001',
-  portraitIndex: 9,
+  portraitIndex: 21,
   hpCurrent: 7,
   hpMax: 7,
   staminaCurrent: 108,
@@ -118,7 +122,7 @@ const ENGINE_SAVE_1_NATHAN: ActivePartyMember = {
 };
 
 // NUG2 from engine save 2 slot 1 (verified via dosbox_read_struct):
-//   portraitIndex=10, class=9 (Bishop), race=1 (Elf), level=1, sex=0,
+//   portraitIndex=6 (record +0x19c → wport1 #6), class=9 (Bishop), race=1 (Elf), level=1, sex=0,
 //   hp 5/5, sp 63/63, attributes [STR=7,INT=15,PIE=15,VIT=7,DEX=9,SPD=9,PER=8,KAR=2],
 //   schoolMana [3,3,0,0,0,0]. Slot 1 → RIGHT panel column.
 const ENGINE_SAVE_2_NUG2: ActivePartyMember = {
@@ -144,7 +148,7 @@ const ENGINE_SAVE_2_NUG2: ActivePartyMember = {
   sex: 0,
   portraitSlotId: 1,
   rosterCharacterId: '00000000-0000-4000-8000-000000000002',
-  portraitIndex: 10,
+  portraitIndex: 6,
   hpCurrent: 5,
   hpMax: 5,
   staminaCurrent: 63,
@@ -171,7 +175,7 @@ const ENGINE_NUG3: ActivePartyMember = {
   skills: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0],
   reaction: 16, sex: 0, portraitSlotId: 2,
   rosterCharacterId: '00000000-0000-4000-8000-000000000003',
-  portraitIndex: 9, hpCurrent: 2, hpMax: 2, staminaCurrent: 102, staminaMax: 102, age: 6998,
+  portraitIndex: 8, hpCurrent: 2, hpMax: 2, staminaCurrent: 102, staminaMax: 102, age: 6998,
 };
 const ENGINE_NUG4: ActivePartyMember = {
   id: '00000000-0000-4000-8000-000000000004', name: 'NUG4', race: 5, class: 6,
@@ -182,7 +186,7 @@ const ENGINE_NUG4: ActivePartyMember = {
   skills: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 8, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0],
   reaction: 28, sex: 0, portraitSlotId: 3,
   rosterCharacterId: '00000000-0000-4000-8000-000000000004',
-  portraitIndex: 15, hpCurrent: 1, hpMax: 1, staminaCurrent: 45, staminaMax: 45, age: 6671,
+  portraitIndex: 14, hpCurrent: 1, hpMax: 1, staminaCurrent: 45, staminaMax: 45, age: 6671,
 };
 const ENGINE_NUG5: ActivePartyMember = {
   id: '00000000-0000-4000-8000-000000000005', name: 'NUG5', race: 10, class: 3,
@@ -193,7 +197,7 @@ const ENGINE_NUG5: ActivePartyMember = {
   skills: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 10, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   reaction: 8, sex: 0, portraitSlotId: 4,
   rosterCharacterId: '00000000-0000-4000-8000-000000000005',
-  portraitIndex: 9, hpCurrent: 5, hpMax: 5, staminaCurrent: 90, staminaMax: 90, age: 6853,
+  portraitIndex: 22, hpCurrent: 5, hpMax: 5, staminaCurrent: 90, staminaMax: 90, age: 6853,
 };
 const ENGINE_NUG6: ActivePartyMember = {
   id: '00000000-0000-4000-8000-000000000006', name: 'NUG6', race: 1, class: 9,
@@ -204,7 +208,7 @@ const ENGINE_NUG6: ActivePartyMember = {
   skills: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0, 6, 0],
   reaction: 36, sex: 0, portraitSlotId: 5,
   rosterCharacterId: '00000000-0000-4000-8000-000000000006',
-  portraitIndex: 10, hpCurrent: 3, hpMax: 3, staminaCurrent: 63, staminaMax: 63, age: 6638,
+  portraitIndex: 40, hpCurrent: 3, hpMax: 3, staminaCurrent: 63, staminaMax: 63, age: 6638,
 };
 
 // N=3/4/5 built from the 6-char roster: roster still has unloaded chars, so
@@ -241,19 +245,18 @@ const CASES: CastleCase[] = [
   // empirical hold-over) to y=48 (panel row 1, where the engine actually
   // draws it).
   {
-    // 98.20% with Task 2 (port of FUN_1b2d panel-cell render + portrait moved
-    // from y=13 to y=48 panel-row 1). Up from 97.21% baseline. The remaining
-    // ~1.8% diff is concentrated in panel cells col 0..3 rows 6..8 of the
-    // LEFT slot-0 area: the wport-extracted 24×24 portrait sprite does NOT
-    // match the engine's 32×24 portrait rendering (TODO #061: dcf2 coord
-    // transform still unresolved; TODO #026: wport extraction is wrong shape).
-    // The class-symbol / status-icon cells render in the correct positions
-    // with the correct font glyphs — the engine's color choice for those
-    // cells (palette index 4 dark red vs ours palette index 3 magenta) is
-    // also a small contributor to the remaining diff.
+    // 98.85% (was 98.20%). The PORTRAIT now matches the engine pixel-exactly:
+    // the decode (renderTextRun4bpp 3×3 tiles) was always correct — the bug was
+    // the portrait INDEX. The rendered portrait selector lives at character
+    // record offset 0x19c (NATHAN=21 → wport2 #7), NOT the field at 0x1ac that
+    // the struct mislabels `portrait_index` (=9 = spd+1, the creation default).
+    // Verified: brute-forcing the engine portrait region vs all 42 wport
+    // portraits matched wport2 #7 at 576/576. (#026 portrait gap RESOLVED.)
     //
-    // Target 100% is gated on TODO #026 + #061 — when the portrait blit
-    // produces engine-faithful pixels, raise this floor accordingly.
+    // The remaining ~1.1% diff is NOT the portrait — it's the FUN_1b2d status
+    // area (engine draws a bow + "OK" where we draw "%"): the status/condition
+    // icon glyphs are still wrong. That's a separate FUN_1b2d render issue, not
+    // #026. Raise this floor toward 100 once the status area is fixed.
     fixture: 'castle-1-members',
     floor: 98,
     parity: 1,
@@ -261,12 +264,13 @@ const CASES: CastleCase[] = [
     members: [ENGINE_SAVE_1_NATHAN],
     selectedIdx: 0,
   },
-  // castle-2-members: NATHAN (LEFT/Fighter) + NUG2 (RIGHT/Bishop). The wport
-  // portrait gap (TODO #061/#026) now affects TWO portraits, so the floor is
-  // lower than N=1. Conservative floor; tighten to the measured value below.
+  // castle-2-members: NATHAN (LEFT/Fighter) + NUG2 (RIGHT/Bishop). Portraits now
+  // pixel-match (correct portrait indices from record +0x19c). The residual
+  // (~1.6%) is the FUN_1b2d status-area glyphs (bow + "OK" vs "%"), per member —
+  // a separate issue from the (now-resolved) #026 portrait gap.
   {
     fixture: 'castle-2-members',
-    floor: 97,
+    floor: 98,
     parity: 1,
     context: TWO_MEMBER_CONTEXT,
     members: [ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2],
@@ -277,7 +281,7 @@ const CASES: CastleCase[] = [
   // (selectedIdx 0). Conservative floors; tightened to measured values below.
   {
     fixture: 'castle-3-members',
-    floor: 95,
+    floor: 97,
     parity: 1,
     context: UNLOADED_CONTEXT_3,
     members: [ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2, ENGINE_NUG3],
@@ -285,7 +289,7 @@ const CASES: CastleCase[] = [
   },
   {
     fixture: 'castle-4-members',
-    floor: 94,
+    floor: 96,
     parity: 1,
     context: UNLOADED_CONTEXT_4,
     members: [ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2, ENGINE_NUG3, ENGINE_NUG4],
@@ -293,7 +297,7 @@ const CASES: CastleCase[] = [
   },
   {
     fixture: 'castle-5-members',
-    floor: 92,
+    floor: 95,
     parity: 1,
     context: UNLOADED_CONTEXT_5,
     members: [ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2, ENGINE_NUG3, ENGINE_NUG4, ENGINE_NUG5],
@@ -303,7 +307,7 @@ const CASES: CastleCase[] = [
   // START NEW GAME (selectedIdx 2 in the visible menu).
   {
     fixture: 'castle-6-members',
-    floor: 91,
+    floor: 95,
     parity: 1,
     context: SIX_MEMBER_CONTEXT,
     members: [

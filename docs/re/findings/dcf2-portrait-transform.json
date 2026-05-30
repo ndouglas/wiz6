@@ -1,0 +1,107 @@
+{
+  "topic": "dcf2-portrait-transform",
+  "subagent_run": "2026-05-30T17:00:00Z",
+  "binaries": ["wroot.exe", "wbase.ovr", "ega.drv"],
+  "summary": "dcf2 (wbase thunk 0xdcf2 -> wroot image 0x2256 / file 0x2456) is NOT a screen blit and applies NO coordinate transform. It is a generic RAM->RAM staging copy that writes a row-block into one of FOUR offscreen 'resource bank' segments (font/portrait banks). Its 4 args are: (buf, bank_selector, dest_row, n_rows). The wbase portrait caller passes (stack_buf, 2, portrait_id*9+0x48, 9). So dcf2 copies the 9x32-byte (=288-byte, 4bpp-planar-on-disk) portrait into bank #2 (runtime segment 0x5187 in save 4) at BYTE offset (dest_row * row_stride), where row_stride = 0x20 (32) in EGA/T16 modes or 0x10 (16) in CGA/HRC modes (chosen by video flags at wroot img 0x1b4e / 0x1b50). Length copied = n_rows * row_stride. NO scaling, NO transpose, NO plane-combination, NO screen positioning happens in dcf2 -- it is byte-for-byte rep movsb. The arg the prior finding called 'X=2' is the BANK SELECTOR (index into the 4-segment table at wroot img 0x1b68..0x1b74), NOT a screen X. The arg called 'Y' is a destination ROW INDEX inside the bank, NOT a screen Y. This fully explains the castle-fixture mismatch (Y=72 in the dcf2 call vs screen-Y~13, stride-9-rows vs screen-stride-60px): those are TWO DIFFERENT coordinate systems. dcf2 only stacks the six 9-row portrait blocks into the bank at row 72,81,90,99,108,117; the actual screen draw (with its own X/Y/stride/scale) is performed downstream by a SEPARATE routine (the EGA-driver font/sprite draw that reads this bank). dcf2 itself is the analog of font_load_into_page (the routine immediately preceding it at wroot img ~0x21c0), which DOS-reads a whole resource file into the same bank segments; together they form the 'load/patch resource bank' pair. Adjacent error string at file 0x243a is 'I/O error loading font', confirming these banks are font/glyph/portrait resource RAM, not video pages.",
+  "method": "Confirmed the wbase near-call thunk target arithmetically: at wbase file 0xc23 the instruction E8 cc d0 (rel16=0xd0cc, next=0xc26) targets 0xdcf2; per the thunk-delta law 0xdcf2 - 0xBA9C = 0x2256 (wroot image) = file 0x2456. PyGhidra headless decompile of wroot.exe failed to recognize a function at 0x2256 (auto-analysis missed it; force-disasm under program_context is read-only so could not persist), so the routine was read with ndisasm -b 16 on raw file bytes at 0x2456 (prologue 55 8b ec confirms a function entry). Verified the 4-segment bank table and video flags by reading save 4 live memory via the MCP: wroot img 0x1b4e = 01 00 (EGA flag set -> stride stays 0x20); bank table at wroot img 0x1b68 = segments 0x5086, 0x5187, 0x5288, 0x5389 (4 consecutive ~4KB banks, paragraph stride 0x101). Read bank #2 (seg 0x5187) physical memory: contents are 8-byte glyph bitmaps (e.g. 18 18 24 24 18 18 18 00), confirming it is a font/glyph/portrait resource bank, not a screen buffer.",
+  "stats": {
+    "wroot_image_offset": "0x2256",
+    "wroot_file_offset": "0x2456",
+    "bank_count": 4,
+    "bank_segment_table_image_offset": "0x1b68",
+    "row_stride_ega": 32,
+    "row_stride_cga": 16
+  },
+  "decompiled_c": "// dcf2 @ wroot image 0x2256 (file 0x2456). Reconstructed from ndisasm; matches asm exactly.\n// cdecl 16-bit; args pushed right-to-left: caller dcf2(buf, bank_sel, dest_row, n_rows)\n//   [bp+0x4] = buf       (FAR? no -- near ptr; ds-relative source)\n//   [bp+0x6] = bank_sel  (1..4; selects offscreen bank segment; 0 => no-op return)\n//   [bp+0x8] = dest_row  (destination ROW index inside the bank)\n//   [bp+0x0a]= n_rows    (number of rows to copy)\nvoid dcf2(void *buf, unsigned bank_sel, unsigned dest_row, unsigned n_rows) {\n    if (bank_sel == 0) return;                 // 0x225d: or ax,ax / jz -> ret\n    unsigned stride = 0x20;                     // 0x2266: cx = 32\n    if (*(char*)(CS+0x1b4e) != 1 &&             // EGA flag\n        *(char*)(CS+0x1b50) != 1)               // (second video flag)\n        stride >>= 1;                           // 0x2279: D1E9 = shr cx,1 -> 16 (CGA/HRC)\n    unsigned seg;                               // 0x227b..0x2293: dec-ax cascade selects bank\n    switch (bank_sel) {                         //   sel 1 -> [cs:0x1b68], 2 -> [cs:0x1b6c],\n        case 1: seg = *(u16*)(CS+0x1b68); break;//   3 -> [cs:0x1b70], else -> [cs:0x1b74]\n        case 2: seg = *(u16*)(CS+0x1b6c); break;\n        case 3: seg = *(u16*)(CS+0x1b70); break;\n        default: seg = *(u16*)(CS+0x1b74); break;\n    }\n    // es = seg; di = dest_row * stride; cx = n_rows * stride; si = buf\n    unsigned count = n_rows * stride;           // 0x229b: ax=[bp+0xa]; mul cl -> cx\n    unsigned di    = dest_row * stride;         // 0x22a3: ax=[bp+8]; mul bl(=stride) -> di\n    rep_movsb(/*es:*/seg, /*di*/di, /*ds:*/buf, /*cx*/count); // ds:si -> es:di\n    return;\n}",
+  "findings": [
+    {
+      "id": "dcf2-is-bank-staging-copy-not-screen-blit",
+      "claim": "dcf2 is a RAM->RAM rep-movsb that copies n_rows*stride bytes from `buf` (ds:si) into offscreen bank segment #bank_sel (es:di) at byte offset dest_row*stride. It performs NO scaling, NO transpose, NO plane combination, and NO screen-coordinate math. It is the in-memory analog of the file-read-into-bank routine immediately preceding it.",
+      "category": "render",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": { "space": "wroot.exe", "offset": "0x2256" },
+        "type": "disasm",
+        "details": "Full body at file 0x2456: 55 8b ec (prologue) / 1e 06 56 57 (push ds,es,si,di) / 8b 46 06 0b c0 75 02 eb 49 (if [bp+6]==0 -> ret) / b9 20 00 (cx=0x20) / 2e 80 3e 4e 1b 01 74 0a / 2e 80 3e 50 1b 01 74 02 / d1 e9 (shr cx,1 if neither video flag) / 2e 8b 1e 68 1b 48 74 15 / 2e 8b 1e 6c 1b 48 74 0d / 2e 8b 1e 70 1b 48 74 05 / 2e 8b 1e 74 1b (bank-select cascade by dec ax) / 8e c3 (es=bx) / 51 (push cx) / 8b 46 0a f6 e1 8b c8 (cx = [bp+0xa]*cl) / 5b (pop bx=stride) / 8b 46 08 f6 e3 8b f8 (di = [bp+8]*bl) / 8b 76 04 (si=[bp+4]) / f3 a4 (rep movsb) / 5f 5e 07 1f 8b e5 5d c3 (epilogue+ret). The destination is es:di in an offscreen segment, source is ds:si=buf; this is a pure block copy."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "dcf2-arg-semantics-corrected",
+      "claim": "dcf2's 4 args are (buf, bank_sel, dest_row, n_rows) -- NOT (buf, X, Y, rows). The prior finding's 'X=2' is the BANK SELECTOR (1..4 index into the 4-segment bank table); 'Y' is a destination ROW INDEX inside the selected bank; 'rows' is correct (n_rows). bank_sel==0 makes dcf2 a no-op.",
+      "category": "render",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": { "space": "wroot.exe", "offset": "0x225d" },
+        "type": "disasm",
+        "details": "[bp+6] (the wbase 'X=2') is used ONLY as a 1-based index in the dec-ax/jz cascade at 0x227b-0x2293 to pick one of FOUR segment words at cs:0x1b68/0x1b6c/0x1b70/0x1b74 -- it never participates in any pixel-coordinate arithmetic. [bp+8] (the wbase 'Y') is multiplied by the row stride (0x20 or 0x10) to form di, the destination BYTE offset within the bank. [bp+0xa] (rows=9) is multiplied by stride to form the copy length. The hardcoded wbase X=2 therefore means 'use bank #2'."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "four-resource-banks-not-video-pages",
+      "claim": "The 4 segments selected by bank_sel are font/glyph/portrait RESOURCE banks in conventional RAM, not EGA screen pages or per-plane buffers. In save 4 they are 0x5086, 0x5187, 0x5288, 0x5389 (four ~4KB banks, paragraph stride 0x101). Bank #2 (0x5187) holds 8-byte glyph bitmaps. The companion routine at wroot img ~0x21c0 DOS-reads whole resource files into these same banks and emits the error string 'I/O error loading font' on failure.",
+      "category": "data",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": { "space": "wroot.exe", "offset": "0x1b68" },
+        "type": "live_memory",
+        "details": "MCP read of save 4 wroot img 0x1b68 = '86 50 00 01 87 51 00 01 88 52 00 01 89 53 00 1c' -> word segments 0x5086,0x5187,0x5288,0x5389. MCP read of phys 0x51870 (seg 0x5187:0) returned glyph bitmaps incl '18 18 24 24 18 18 18 00' / '5a 3c 3c 3c 3c 5a 18 00' (classic 8x8 font glyph rows). Error string at wroot file 0x243a = '\\r\\nI/O error loading font\\r\\n$' (bytes 0d 0a 49 2f 4f 20 65 72 72 6f 72 ...). The preceding routine at file 0x23c0 uses int 21h AH=3Fh (8b 5e 04 b4 3f cd 21) reading cx bytes into ds:dx=0 of the selected bank -- i.e. load-file-into-bank."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "row-stride-video-mode-gating",
+      "claim": "Row stride is 0x20 (32 bytes) for EGA and T16 video modes, 0x10 (16 bytes) for CGA and HRC modes, chosen by two video flags at wroot img 0x1b4e and 0x1b50. If EITHER flag == 1 the stride stays 32; otherwise it is halved to 16. This matches the on-disk portrait stride (32 bytes/row EGA, 16 bytes/row CGA) reported in the wbase finding.",
+      "category": "config",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": { "space": "wroot.exe", "offset": "0x2266" },
+        "type": "disasm",
+        "details": "cx=0x20; cmp byte[cs:0x1b4e],1 / jz keep; cmp byte[cs:0x1b50],1 / jz keep; shr cx,1 (D1E9). Live save 4: [cs:0x1b4e]=01 (EGA) so stride=32. The same flag pair gates the sibling load routine (which uses cx=0x1000 halved -> 0x800 for the full-bank read length)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "dest-row-portrait-stacking-is-bank-internal",
+      "claim": "The wbase Y arg = portrait_id*9 + 0x48 stacks the six 9-row portrait blocks at bank ROWS 72,81,90,99,108,117 (each portrait occupying 9 consecutive rows of the bank, byte offset row*32). This is a layout INSIDE the resource bank, not a screen layout. The on-screen portrait position (screen-Y~13, inter-portrait stride ~60px in the castle fixture) is produced LATER by the bank-reading draw routine, which applies the real screen coordinate transform. dcf2 contributes none of that geometry.",
+      "category": "render",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": { "space": "wroot.exe", "offset": "0x22a3" },
+        "type": "disasm",
+        "details": "di = [bp+8] * stride. For portrait_id 0..5 the caller's [bp+8] = id*9+0x48 = 72,81,90,99,108,117, giving bank byte offsets 0x900,0xa20,0xb40,0xc60,0xd80,0xea0 (9*32=288 bytes apart). The destination is contiguous bank RAM; nothing in dcf2 converts these to VGA/EGA scan addresses or applies the *6.67 vertical scale the fixture implies. The screen transform must be located in the downstream EGA-driver draw routine that consumes bank #2."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "screen-transform-location-open",
+      "claim": "OPEN: dcf2 stages portraits into resource bank #2 but does NOT draw them. The routine that reads bank #2 and blits a 9-row portrait block to screen (applying screen X, the ~Y=13 base, the ~60px inter-portrait stride, and any vertical scaling) is a SEPARATE function -- most likely in ega.drv (loaded at phys_base 0x72258 in save 4) or a wroot font/sprite-draw helper that takes (bank_row, screen_x, screen_y). That routine is where the coordinate transform and any scaling live, and it is the next RE target for portrait-blit parity.",
+      "category": "render",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": { "space": "ega.drv", "offset": "0x0" },
+        "type": "fixture_mismatch",
+        "details": "dcf2 proven to be a non-transforming bank copy (see other findings), yet the castle fixture shows portraits at screen-Y~13 with ~60px stride. Since dcf2 cannot account for this, the geometry is downstream. ega.drv is the loaded video driver (segment map: phys_base 0x72258). Recommend: set a DOSBox-X execution breakpoint on the bank-2-reading draw call during a castle redraw (state 4 / FUN_11a6 castle-redraw loop in wbase) to identify the draw routine and its screen-coord args."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "answers_to_task_questions": {
+    "1_signature_and_args": "dcf2(buf, bank_sel, dest_row, n_rows). The prior 'X=2' is bank_sel (offscreen-bank index 1..4); 'Y' is dest_row (row index INSIDE the bank); 'rows'=n_rows is correct. bank_sel==0 => early return.",
+    "2_on_screen_dimensions": "dcf2 produces NO on-screen pixels. It copies a 9-row x 32-byte (288-byte) block verbatim into bank RAM. No scaling/transpose/reshape occurs here. The on-disk portrait stays 9 rows x 32 bytes (EGA, 4bpp planar = 64 px wide) / 9 x 16 (CGA). On-screen dimensions are determined by the downstream draw routine, which the fixture suggests stretches/places each 9-row block to ~60px-stride positions starting near screen-Y 13 -- that math is NOT in dcf2.",
+    "3_pixel_plane_layout": "dcf2 does not unpack planes -- it is a byte copy. The 4bpp-planar EGA layout (and how planes combine to palette indices) is handled by whatever loaded the .EGA file and by the draw routine, not by dcf2. For a TS port, dcf2 maps to: bankBuffer.set(srcBytes, dest_row*stride) -- a plain memcpy into a per-bank Uint8Array.",
+    "4_coordinate_transform": "There is NO coordinate transform in dcf2. The Y=72 vs screen-Y~13 and stride-9 vs stride-60 mismatches are because dcf2's args are bank-internal (bank index + row offset), an entirely different space from screen pixels. The screen transform happens in the downstream bank-draw routine (open finding, likely ega.drv).",
+    "5_scaling": "dcf2 does NO vertical stretch or row replication. count = n_rows*stride is an exact-length copy. Any apparent ~6.67x vertical stretch on screen is applied by the downstream draw routine, not dcf2.",
+    "ts_port_note": "To replicate dcf2 exactly in TS: maintain 4 bank byte-arrays; stride = (egaMode || t16Mode) ? 32 : 16; if bank_sel==0 no-op; else banks[bank_sel-1].set(buf.subarray(0, n_rows*stride), dest_row*stride). The portrait's actual on-screen rendering is a SEPARATE routine that must still be RE'd (the bank #2 -> VRAM draw)."
+  },
+  "open_questions": [
+    "Identify and RE the downstream routine that reads resource bank #2 and draws a 9-row portrait block to screen -- this is where screen X, the Y~13 base, the ~60px inter-portrait stride, and any vertical scaling live. Likely in ega.drv (save 4 phys_base 0x72258) or a wroot font/sprite draw helper.",
+    "Confirm whether the on-disk WPORTn.EGA portrait is 4bpp PLANAR (4 plane-rows interleaved) or 4bpp packed within the 32-byte row, and where planes are combined -- dcf2 is plane-agnostic so this is decided by the loader + draw routine.",
+    "Verify dcf2 arg interpretation dynamically: breakpoint wbase 0xc23 callsite, single-step into wroot 0x2256, and confirm bank_sel=2 selects seg 0x5187 and di=72*32 at the rep movsb."
+  ],
+  "corrects": [
+    "wbase-party-portrait-blit.json#dcf2-coordinate-uncertainty -- RESOLVED: dcf2 applies no coordinate transform; the X/Y args are bank-index/bank-row, not screen coords. The fixture mismatch is because the screen geometry is in a downstream draw routine, not dcf2.",
+    "wbase-party-portrait-blit.json args labeled (X=2, Y=..., rows=9) should be relabeled (bank_sel=2, dest_row=..., n_rows=9)."
+  ]
+}
