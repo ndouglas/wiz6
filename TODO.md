@@ -13,11 +13,23 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#063**
+Next free ID: **#066**
 
 ---
 
 ## Open
+
+- #063 [open] — DOSBox-X MCP: Linux + Windows ports of input/window/screenshot helpers
+  - macOS-only v1 shipped (Swift helper at `packages/mcp/helper/`). Linux (xdotool + ImageMagick), Windows (SendInput + screenshot APIs) follow the same TS module shape but ship a different helper binary.
+  - The TS façades (`packages/mcp/src/dosbox/{input,window,screenshot}.ts`) are platform-agnostic; only the helper child process differs.
+
+- #064 [open] — DOSBox-X MCP: drive the debugger (re-open `pause/resume/step/run_until/breakpoints` stubs)
+  - The 9 debugger-driving stubs in `tools/control.ts` + `tools/breakpoints.ts` remain stubs after the dynamic-driving work — that work routes around the debugger entirely.
+  - Two viable paths: (a) node-pty + a vt100 screen scraper of DOSBox-X's ncurses debugger UI; (b) patch DOSBox-X to expose a TCP debug port.
+  - Path (b) is cleaner long-term; cost is maintaining a fork.
+
+- #065 [open] — Visual regression harness for headless playthroughs
+  - Once dynamic-driving is exercised in real use (`pnpm test:integration`), capture reference screenshot sequences for known game flows. Re-run the same sequence in CI; diff each frame against the reference. Catches gameplay-flow regressions the existing pixel-parity tests don't (they cover isolated frames, not transitions).
 
 - #061 [open] — Capture castle-N-members fixtures for N=2..6 + parity tests
   - We only have `castle-one-member` today; populated-party rendering for 2-6 members is untested. Add fixtures via `pnpm tsx tools/parity/gen-fixture.ts --save N --name castle-N-members` after building each save state in DOSBox-X (ensure PCFILE retains at least one available char so ADD PARTY MEMBER stays gated correctly).

@@ -1,23 +1,24 @@
 // Phase 5 — Control tools.
 //
-// Every tool here is a NotImplementedError stub. The blocker is the same
-// across all of them: driving DOSBox-X's interactive debugger requires a
-// pty + vt100 screen scraper (because the debugger is ncurses-rendered),
-// OR a DOSBox-X patch exposing a TCP debug port. Neither is in scope for
-// the v1 server. See:
+// `dosbox_send_input` is REAL — it drives DOSBox-X by synthesising macOS key
+// events via a long-lived Swift helper child process. See dosbox/input.ts and
+// dosbox/helper-client.ts.
+//
+// The remaining tools (pause/resume/step/step_over/run_until) are still stubs
+// because they require driving DOSBox-X's interactive ncurses debugger, which
+// needs either node-pty + a vt100 screen scraper OR a DOSBox-X patch exposing
+// a TCP debug port. Neither is in scope for v1. See:
 //
 //   - docs/superpowers/specs/2026-05-23-dosbox-mcp.md § "Bridge to DOSBox-X"
 //   - packages/mcp/src/debugger-console.ts top-of-file rationale
 //   - TODO.md #Q-G (dynamic-driving backend)
-//
-// The stubs are loud, identical, and clearly signposted so an agent that
-// hits one knows exactly what they're waiting on.
 
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import type { McpContext } from '../context.js';
-import { errorResult } from '../tool-result.js';
+import { getHelperClient, type McpContext } from '../context.js';
+import { sendMacro } from '../dosbox/input.js';
+import { errorResult, jsonResult, safeHandler } from '../tool-result.js';
 
 const BLOCKED_MESSAGE =
   'Blocked on Phase 9 dynamic-driving backend. DOSBox-X uses an ncurses ' +
@@ -34,12 +35,25 @@ export function registerControlTools(server: McpServer, _ctx: McpContext): void 
   server.registerTool(
     'dosbox_send_input',
     {
-      description: '[STUB] Send a key macro to the running emulator. ' + BLOCKED_MESSAGE,
+      description:
+        'Send a key macro to the running DOSBox-X window. Tokens are ' +
+        'whitespace-delimited (e.g. "down down enter") and case-insensitive ' +
+        'aliases like "down" → ArrowDown are recognised. Quoted segments ' +
+        '("hello") are expanded to per-character keystrokes. The DOSBox-X ' +
+        'window is focused for the duration of the call and prior focus is ' +
+        'restored on exit.',
       inputSchema: {
         keys: z.string().describe('Key macro string, e.g. "down down enter".'),
       },
     },
-    stub('dosbox_send_input'),
+    safeHandler(async ({ keys }) => {
+      try {
+        await sendMacro(getHelperClient(), keys);
+        return jsonResult({ ok: true, keysSent: keys });
+      } catch (e) {
+        return errorResult(`dosbox_send_input: ${(e as Error).message}`);
+      }
+    }),
   );
 
   server.registerTool(

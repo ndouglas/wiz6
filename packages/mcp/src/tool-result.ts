@@ -33,11 +33,13 @@ export function errorResult(message: string, details?: unknown): JsonToolResult 
 
 /**
  * Wrap a tool handler so any thrown error becomes a clean isError result
- * instead of crashing the JSON-RPC dispatch.
+ * instead of crashing the JSON-RPC dispatch. The result type is generic so
+ * image-returning tools (e.g. `dosbox_screenshot`) can return `ImageToolResult`
+ * alongside the more common `JsonToolResult`.
  */
-export function safeHandler<Args>(
-  fn: (args: Args) => JsonToolResult | Promise<JsonToolResult>,
-): (args: Args) => Promise<JsonToolResult> {
+export function safeHandler<Args, R extends JsonToolResult | ImageToolResult = JsonToolResult>(
+  fn: (args: Args) => R | Promise<R>,
+): (args: Args) => Promise<R | JsonToolResult> {
   return async (args: Args) => {
     try {
       return await fn(args);
@@ -46,6 +48,24 @@ export function safeHandler<Args>(
         err instanceof Error ? `${err.name}: ${err.message}` : String(err);
       return errorResult(message);
     }
+  };
+}
+
+/**
+ * MCP image content block. Returned by `imageResult` for tools that surface
+ * binary captures like screenshots. The MCP SDK accepts this alongside text
+ * content blocks in the tool-result `content` array.
+ */
+export interface ImageToolResult {
+  [key: string]: unknown;
+  content: { type: 'image'; mimeType: string; data: string }[];
+  isError?: boolean;
+}
+
+/** Format a binary image result (PNG, etc.). `bytes` is base64-encoded. */
+export function imageResult(bytes: Buffer, mimeType: string): ImageToolResult {
+  return {
+    content: [{ type: 'image', mimeType, data: bytes.toString('base64') }],
   };
 }
 
