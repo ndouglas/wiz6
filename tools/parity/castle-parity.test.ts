@@ -117,6 +117,47 @@ const ENGINE_SAVE_1_NATHAN: ActivePartyMember = {
   age: 6925,
 };
 
+// NUG2 from engine save 2 slot 1 (verified via dosbox_read_struct):
+//   portraitIndex=10, class=9 (Bishop), race=1 (Elf), level=1, sex=0,
+//   hp 5/5, sp 63/63, attributes [STR=7,INT=15,PIE=15,VIT=7,DEX=9,SPD=9,PER=8,KAR=2],
+//   schoolMana [3,3,0,0,0,0]. Slot 1 → RIGHT panel column.
+const ENGINE_SAVE_2_NUG2: ActivePartyMember = {
+  id: '00000000-0000-4000-8000-000000000002',
+  name: 'NUG2',
+  race: 1,
+  class: 9,
+  level: 1,
+  savedOldLevel: 0,
+  xp: 0,
+  gold: 0,
+  conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  dead: false,
+  paralyzed: false,
+  attributes: { str: 7, int: 15, pie: 15, vit: 7, dex: 9, spd: 9, per: 8, kar: 2 },
+  schoolMana: [3, 3, 0, 0, 0, 0],
+  schoolManaMax: [3, 3, 0, 0, 0, 0],
+  skills: [
+    0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+    0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 6, 0, 6, 0,
+  ],
+  reaction: 12,
+  sex: 0,
+  portraitSlotId: 1,
+  rosterCharacterId: '00000000-0000-4000-8000-000000000002',
+  portraitIndex: 10,
+  hpCurrent: 5,
+  hpMax: 5,
+  staminaCurrent: 63,
+  staminaMax: 63,
+  age: 7180,
+};
+
+// castle-2-members: NATHAN slot 0 (LEFT) + NUG2 slot 1 (RIGHT). Both chars in
+// party → roster empty → pcFileHasUnloadedChars=false (no ADD PARTY MEMBER;
+// START NEW GAME appears since partySize>=2). REVIEW MEMBER is the highlighted
+// top-left option (selectedIdx 0).
+const TWO_MEMBER_CONTEXT: MainMenuContext = { partySize: 2, pcFileHasUnloadedChars: false };
+
 const CASES: CastleCase[] = [
   // parity=1 (water overlays ON) matches main-menu; parity=0 matches main-menu-2.
   {
@@ -160,6 +201,17 @@ const CASES: CastleCase[] = [
     parity: 1,
     context: ONE_MEMBER_CONTEXT,
     members: [ENGINE_SAVE_1_NATHAN],
+    selectedIdx: 0,
+  },
+  // castle-2-members: NATHAN (LEFT/Fighter) + NUG2 (RIGHT/Bishop). The wport
+  // portrait gap (TODO #061/#026) now affects TWO portraits, so the floor is
+  // lower than N=1. Conservative floor; tighten to the measured value below.
+  {
+    fixture: 'castle-2-members',
+    floor: 97,
+    parity: 1,
+    context: TWO_MEMBER_CONTEXT,
+    members: [ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2],
     selectedIdx: 0,
   },
 ];
