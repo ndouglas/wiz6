@@ -37,12 +37,19 @@ remaining interactive effort.
 - `3.sav` = party_size 0 (clobbered).
 
 **What's left** (Tasks 4-6):
-- Task 4: capture `castle-2-members` fixture from `2.sav` (`gen-fixture.ts --save 2`), read both char records (`dosbox_read_struct`), add N=2 parity case (LEFT+RIGHT, context partySize:2 / pcFileHasUnloadedChars:false — roster empty so "ADD PARTY MEMBER" gone, "START NEW GAME" present).
-- Task 5: **create 4 characters**, build castle-{3,4,5,6} saves + fixtures + parity. (Or descope — confirm with Nate.)
+- ✅ **Task 4 DONE** (session 4, branch `castle-fixtures-n2plus`): `castle-2-members` fixture captured from `2.sav` + N=2 parity case added — **97.10% match** (floor 97; the ~2.9% gap is the wport portrait issue × 2 portraits, TODO #061/#026). All 4 parity cases green. Committed (not yet merged to main).
+- **Task 5 (remaining): create 4 characters**, build castle-{3,4,5,6} saves + fixtures + parity, on branch `castle-fixtures-n2plus`. Roster has only NATHAN+NUG2; need 4 more via Wiz6 character creation (CHARACTER MENU). **Resume in a focused session** — this is multi-step interactive work.
 - Task 6: finalize TODOs (#024, #061, #062, #026).
-- Follow-up: the committed `wiz6.conf` mapperfile path is absolute-to-this-machine (matches the conf's existing style); `build-castle-saves.ts` still uses the old blind-macro approach — update it to single keys + rely on AX focus, or drive interactively.
 
-**Adjust expectations**: realistic parity floors are **~96-99%**, not 100%, until the wport-extractor fix (TODO #061/#026).
+### 🕹️ DOSBox driving pattern that works (session 4, post-restart — IMPORTANT)
+Driving is reliable now, but the MCP `withFocusedDosbox` **restores focus to the prior app after each call**, which is too fast for *guest* keys (Enter/arrows) to register (the screenshot's F9 is a mapper *host* action + its poll keeps DOSBox frontmost, so screenshots always work). The reliable loop:
+1. `osascript -e 'tell application "System Events" to set frontmost of (first process whose name contains "dosbox") to true'` — force DOSBox frontmost ONCE.
+2. Then use **only MCP tools** (`dosbox_send_input`, `dosbox_screenshot`) — both restore-to-DOSBox while it's frontmost, so focus stays put. `dosbox_screenshot` returns the PNG inline (no Bash needed → no focus theft).
+3. **Re-run the osascript force-frontmost after ANY Bash command** (Bash foregrounds the terminal and steals focus).
+- Menu nav was finicky to map blind — screenshot after EVERY navigation step before pressing Enter (don't batch `down down enter`; the castle menu's cursor behavior surprised me once and opened ADD PARTY MEMBER unexpectedly).
+- Better follow-up: make `withFocusedDosbox` NOT restore focus during a driving session (or hold frontmost), so the force-frontmost dance is unnecessary. `build-castle-saves.ts` still uses old blind macros — rewrite to single keys.
+
+**Adjust expectations**: realistic parity floors are **~96-99%**, not 100%, until the wport-extractor fix (TODO #061/#026). N=1=98.2%, N=2=97.1%.
 
 
 
