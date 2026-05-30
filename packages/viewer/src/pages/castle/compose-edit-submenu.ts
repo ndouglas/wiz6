@@ -76,7 +76,14 @@ export function composeEditSubmenuInto(mainPanel: TileWindow, view: EditSubmenuV
         : i === view.cursorIdx
           ? ATTR_HIGHLIGHT
           : ATTR_ENABLED;
+    // Pad the label to fill its picker slot — clears any underlying
+    // char-sheet content in the gap between entries. The last entry (EX)
+    // sits at the screen edge with only 2 cells available; clamp padding
+    // to whatever fits before the window's right edge.
+    const maxWidth = mainPanel.widthCells - x;
+    const slotWidth = Math.min(X_STEP, maxWidth);
+    const padded = label.padEnd(slotWidth);
     setCursor(mainPanel, x, y);
-    puts(mainPanel, label, attr);
+    puts(mainPanel, padded, attr);
   }
 }

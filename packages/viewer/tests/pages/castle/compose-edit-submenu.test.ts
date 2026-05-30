@@ -68,4 +68,18 @@ describe('composeEditSubmenuInto', () => {
     expect(attrAt(w.cells, 40, 20, 1)).toBe(0x03); // CHGPROF
     expect(attrAt(w.cells, 40, 38, 1)).toBe(0x03); // EX
   });
+
+  it('pads each label to fill its picker slot (clears gaps between entries)', () => {
+    const w = freshPanel();
+    composeEditSubmenuInto(w, { cursorIdx: 0, db: stubDb });
+    // Right after "RENAME CHARACTER" (16 chars at cols 2-17), cols 18 and 19
+    // should be space chars with attr 0x50 (still highlighted, padded).
+    expect(w.cells[(1 * 40 + 18) * 2]).toBe(0x20);       // space char
+    expect(w.cells[(1 * 40 + 18) * 2 + 1]).toBe(0x50);   // highlight attr (cursor on idx 0)
+    expect(w.cells[(1 * 40 + 19) * 2]).toBe(0x20);
+    // Right after "CHANGE PROFESSION" (17 chars at cols 20-36), col 37 should
+    // be a space with attr 0x03 (non-cursor enabled).
+    expect(w.cells[(1 * 40 + 37) * 2]).toBe(0x20);
+    expect(w.cells[(1 * 40 + 37) * 2 + 1]).toBe(0x03);
+  });
 });
