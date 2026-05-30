@@ -20,7 +20,15 @@ public func findWindow(appName: String) -> Response {
     return .failure("no window matched appName=\(appName)")
 }
 
-/// Bring the app that owns `windowId` to the front.
+/// Bring the app that owns `windowId` to the front — reliably.
+///
+/// `NSRunningApplication.activate()` is subject to macOS focus-stealing
+/// prevention: when another app is active (e.g. the user's editor, or even a
+/// shell command that briefly foregrounds the terminal), it silently no-ops and
+/// the synthetic key events never reach DOSBox. So after the best-effort
+/// AppKit activate we also force the app frontmost via the Accessibility API
+/// (`AXFrontmost`) — the same mechanism System Events `set frontmost` uses,
+/// authorized by the helper's existing Accessibility grant.
 public func focusWindow(windowId: UInt32) -> Response {
     let options: CGWindowListOption = [.optionIncludingWindow]
     guard let infoList = CGWindowListCopyWindowInfo(options, CGWindowID(windowId)) as? [[String: Any]],
@@ -29,13 +37,16 @@ public func focusWindow(windowId: UInt32) -> Response {
     else {
         return .failure("window \(windowId) not found")
     }
-    guard let app = NSRunningApplication(processIdentifier: pid_t(ownerPid)) else {
-        return .failure("no running app for pid \(ownerPid)")
+    // Best-effort AppKit activate (succeeds when we're already foreground-eligible).
+    NSRunningApplication(processIdentifier: pid_t(ownerPid))?.activate(options: [.activateIgnoringOtherApps])
+    // Reliable path: set the application's AXFrontmost attribute, which brings
+    // it forward even when another app currently holds focus.
+    let axApp = AXUIElementCreateApplication(pid_t(ownerPid))
+    let err = AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+    if err != .success {
+        return .failure("AX set frontmost failed (err \(err.rawValue)) for pid \(ownerPid)")
     }
-    if app.activate(options: [.activateIgnoringOtherApps]) {
-        return .success()
-    }
-    return .failure("activate() returned false for pid \(ownerPid)")
+    return .success()
 }
 
 /// Return the bundle identifier of the currently-frontmost application.
