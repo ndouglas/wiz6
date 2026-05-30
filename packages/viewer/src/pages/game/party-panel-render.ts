@@ -2,41 +2,39 @@
  * composePartyPanel — TS port of engine FUN_1b2d @ wbase.ovr 0x1b2d
  * (party_panel_redraw_slot).
  *
- * Per the corrected RE in
- * docs/re/findings/wbase-party-panel-redraw.json (2026-05-30):
+ * The per-slot panel layout was verified by dumping the live LEFT/RIGHT panel
+ * window cells from save 2 (NATHAN slot 0, NUG2 slot 1) — see the ground-truth
+ * table in `castle-frame.ts`. Each slot occupies a 7-wide × 4-tall block laid
+ * out as three vertical panes (matching the user's description of the screen):
  *
- *   - Even slots (0, 2, 4) render into the LEFT panel window (handle at
- *     DGROUP 0x4fba); odd slots (1, 3, 5) into the RIGHT panel window
- *     (DGROUP 0x4fb8).
- *   - Panel row within the chosen window = (slot / 2) * 4. Each slot occupies
- *     4 rows: row+0 (name), row+1 (eq-tile + class symbol), row+2 (condition
- *     icon), row+3 (status icon + 3x3 colored bar at cols 0..2 rows 1..3).
- *   - Class symbol is a DIRECT char-offset, NOT a table lookup: the cells at
- *     col 3-4 of row+1 are `class*2 + 0x3a` and `class*2 + 0x3a + 1`
- *     (this corrected the plan's "class table at 0x3a, 14 entries" claim —
- *     see finding `class-symbol-not-a-table`).
- *   - Colored-bar grid is a 3x3 block of glyphs (chars 2..10) at cols 0..2,
- *     rows row+1..row+3. Glyph at (row r in [0,3), col c in [0,3)) is
- *     `r*3 + 2 + c`.
- *   - Status icon: looked up in 14-entry u16 table at DGROUP 0x526, indexed by
- *     byte at record +0x4589. Overrides: if conditions[2] (death/ash) != 0
- *     and table-lookup returned 0, force icon=1; if conditions[3]
- *     (paralyzed/stone) != 0 and icon < 2, force icon=2.
- *   - Condition icon: scan conditions[0..9] for non-zero entries; for each
- *     non-zero condition[i], read severity from 10-entry u16 table at DGROUP
- *     0x532. Highest severity wins (sentinel 0xffff = signed -1 acts as
- *     "no icon"). Final character = severity + 0x25, drawn at (col 3, row+2).
+ *   row+0 .................. NAME (7 cells, attr 0x03 / wfont3)
+ *   rows row+1..row+3:
+ *     cols 0..2 ........... PORTRAIT (3×3 wport tiles; blitted separately in
+ *                           castle-frame.ts, covers these cells)
+ *     col 3..4, row+1 ..... EQUIPMENT (right-hand / left-hand item glyphs;
+ *                           empty hands = 0x25/0x26, attr 0x04 / wfont4)
+ *     col 3..4, row+2 ..... CLASS symbol (0x3a + class*2 [+1], attr 0x01)
+ *     col 3,   row+3 ...... STATUS icon  (icon + 0x25, attr 0x01)
+ *     col 4,   row+3 ...... CONDITION icon (severity + 0x25, attr 0x03;
+ *                           none → cleared space)
+ *     col 5,   rows 1..3 .. HP bar     (red,    FUN_1a4c base 0x56, attr 0x01)
+ *     col 6,   rows 1..3 .. STAMINA bar (yellow, FUN_1a4c base 0x63, attr 0x01)
  *
- * Open question (low confidence, per
- * docs/re/findings/wbase-party-portrait-blit.json `dcf2-coordinate-uncertainty`):
- *   The dcf2 thunk's Y-coordinate transform is unresolved. FUN_0b0e calls
- *   `dcf2(buf, 2, portrait_id*9+0x48, 9)` with Y=72 for portrait_id=0, but
- *   the engine fixture shows the portrait inside the panel (cells col 0..2,
- *   rows 1..3 of the panel window — i.e. screen y=48-71 for slot 0).
- *   castle-frame.ts compensates with empirical Y_BASE=48 to match the
- *   fixture; the dcf2 transform itself remains TODO #061.
+ * Even slots (0,2,4) render into the LEFT panel window (DGROUP 0x4fba), odd
+ * slots (1,3,5) into the RIGHT (DGROUP 0x4fb8); panel row = (slot/2)*4.
  *
- * Spec: docs/superpowers/specs/2026-05-30-castle-party-panel-rerender-design.md
+ * The HP/stamina bars are FUN_1a4c (decoded in
+ * docs/re/findings/wbase-party-panel-redraw.json as the "equipment-tile" calls
+ * — that label was WRONG: the two calls are the vertical HP and stamina bars,
+ * confirmed against the cell dump: base 0x56 (HP) / 0x63 (stamina), and a full
+ * bar [base+12, base+8, base+3] = [0x62,0x5e,0x59] / [0x6f,0x6b,0x66] matches
+ * the live cells exactly). The class-symbol direct-offset finding
+ * (`class-symbol-not-a-table`) is confirmed; the row/col assignments in the
+ * finding's other claims were off-by-one vs the cell dump and are superseded
+ * by the table above.
+ *
+ * Status/condition icon tables are unchanged from the finding (DGROUP 0x526 /
+ * 0x532).
  */
 
 import type { ActivePartyMember } from '@wiz6/data';
@@ -77,6 +75,19 @@ const PANEL_ROW_STRIDE = 4;
 /** Sentinel for "no condition icon to render" — internal to this module. */
 const NO_CONDITION_ICON = -1;
 
+/** FUN_1a4c base glyph for the HP (red) bar. Full bar = [+12,+8,+3]. */
+const HP_BAR_BASE = 0x56;
+/** FUN_1a4c base glyph for the stamina (yellow) bar. */
+const STAMINA_BAR_BASE = 0x63;
+
+/**
+ * Empty-hands equipment glyphs (right hand, left hand), attr 0x04 / wfont4.
+ * `ActivePartyMember` carries no equipment yet, so every member renders the
+ * empty-hands sprite. When the schema grows right-/left-hand item fields,
+ * map the equipped item type to its 2-cell glyph pair here (TODO).
+ */
+const EMPTY_HANDS: readonly [number, number] = [0x25, 0x26];
+
 /** Result of FUN_1b2d for one party slot. Renderable cell data — no
  *  pixel buffer here, that's the consumer's job. */
 export interface PartyPanel {
@@ -87,25 +98,26 @@ export interface PartyPanel {
   fields: {
     /** Slot's display name (max 7 cells per engine's pad loop). */
     name: string;
-    /** 3-row × 3-col grid of colored-bar glyph codes (chars 2..10). */
-    coloredBar: number[][];
+    /** Equipment 2-cell row (right hand, left hand) at (col 3-4, row+1).
+     *  Empty hands = [0x25, 0x26]. */
+    equipment: [number, number];
+    /** Class-symbol 2-cell row at (col 3-4, row+2). `[0x3a + class*2, +1]`. */
+    classSymbol: [number, number];
     /**
-     * Status icon glyph code. The engine renders `icon + 0x25` at (col 3,
-     * row+3). 0xffff sentinel from the table means "no glyph" — but per the
-     * decompile, the engine still draws `0xffff + 0x25 = 0x24` (mod 256)
-     * which is a benign filler. We mirror the raw lookup; consumers decide
-     * whether to suppress the draw.
+     * Status icon glyph code (the raw icon index; consumer draws `icon + 0x25`
+     * at col 3, row+3, attr 0x01). Healthy = 0 → glyph 0x25.
      */
     statusIcon: number;
     /**
      * Condition severity icon (signed int from CONDITION_SEVERITY_TABLE).
-     * NO_CONDITION_ICON (-1) means "no glyph — draw 3 spaces" per the
-     * `condition-severity-table` finding's else branch. Any non-negative
-     * value `s` means the engine draws char `s + 0x25` at (col 3, row+2).
+     * NO_CONDITION_ICON (-1) means "no condition — leave the cleared cell".
+     * Any non-negative `s` → consumer draws char `s + 0x25` at (col 4, row+3).
      */
     conditionIcon: number;
-    /** Class-symbol 2-cell row. `[class*2 + 0x3a, class*2 + 0x3b]`. */
-    classSymbol: [number, number];
+    /** HP bar (red): 3 vertical cells [top, mid, bottom] at col 5, rows 1..3. */
+    hpBar: [number, number, number];
+    /** Stamina bar (yellow): 3 vertical cells at col 6, rows 1..3. */
+    staminaBar: [number, number, number];
   };
 }
 
@@ -122,42 +134,71 @@ export function composePartyPanel(slot: number, member: ActivePartyMember): Part
   const panelRow = Math.floor(slot / 2) * PANEL_ROW_STRIDE;
 
   const name = member.name;
-  const coloredBar = composeColoredBarGrid();
   const statusIcon = composeStatusIcon(member);
   const conditionIcon = composeConditionIcon(member.conditions);
   const classSymbol: [number, number] = [
     (member.class * 2 + 0x3a) & 0xff,
     (member.class * 2 + 0x3a + 1) & 0xff,
   ];
+  const hpBar = composeBar(member.hpCurrent ?? 0, member.hpMax ?? 0, HP_BAR_BASE);
+  const staminaBar = composeBar(
+    member.staminaCurrent ?? 0,
+    member.staminaMax ?? 0,
+    STAMINA_BAR_BASE,
+  );
 
   return {
     column,
     panelRow,
     fields: {
       name,
-      coloredBar,
+      equipment: [EMPTY_HANDS[0], EMPTY_HANDS[1]],
+      classSymbol,
       statusIcon,
       conditionIcon,
-      classSymbol,
+      hpBar,
+      staminaBar,
     },
   };
 }
 
 /**
- * 3-row × 3-col colored-bar grid. Engine writes char `row*3 + 2 + col` at
- * each cell (cols 0..2, rows row+1..row+3). The 9 chars 2..10 are the
- * colored-bar segment glyphs in wfont1/wfont3.
+ * FUN_1a4c — render a vertical 3-cell fill bar showing `cur/max` as a level.
+ *
+ * Step 1 (level): `value = 0` if `cur <= 0`, else
+ * `min(min(floor(cur*100/max), 10) + 1, 10)` — a full bar (cur==max) → 10.
+ * Step 2 (glyphs): the 3 cells are [top, mid, bottom] initialised to
+ * [base+9, base+4, base+0] (the empty glyphs), then filled bottom-up:
+ *   value ≤ 3 → bottom = base+value
+ *   value ≤ 7 → bottom = base+3, mid = base+(value-3)+4
+ *   else      → bottom = base+3, mid = base+8, top = base+(value-7)+9
+ * Full (value 10): [base+12, base+8, base+3].
+ *
+ * Verified against the live cell dump: HP base 0x56 full → [0x62,0x5e,0x59];
+ * stamina base 0x63 full → [0x6f,0x6b,0x66].
  */
-function composeColoredBarGrid(): number[][] {
-  const grid: number[][] = [];
-  for (let r = 0; r < 3; r++) {
-    const row: number[] = [];
-    for (let c = 0; c < 3; c++) {
-      row.push(r * 3 + 2 + c);
-    }
-    grid.push(row);
+function composeBar(cur: number, max: number, base: number): [number, number, number] {
+  let value: number;
+  if (cur <= 0 || max <= 0) {
+    value = 0;
+  } else {
+    const inner = Math.min(Math.floor((cur * 100) / max), 10);
+    value = Math.min(inner + 1, 10);
   }
-  return grid;
+  let top = base + 9;
+  let mid = base + 4;
+  let bottom = base + 0;
+  if (value <= 3) {
+    bottom = base + value;
+  } else if (value <= 7) {
+    bottom = base + 3;
+    mid = base + (value - 3) + 4;
+  } else {
+    bottom = base + 3;
+    mid = base + 8;
+    top = base + (value - 7) + 9;
+  }
+  return [top & 0xff, mid & 0xff, bottom & 0xff];
 }
 
 /**

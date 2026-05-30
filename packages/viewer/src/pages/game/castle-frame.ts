@@ -145,6 +145,7 @@ export function composeCastleFrame(
   wfont1: Font4bpp | null = null,
   partyMembers: ReadonlyArray<ActivePartyMember> = [],
   portraitSets: ReadonlyArray<PortraitSet> | null = null,
+  wfont4: Font4bpp | null = null,
 ): Uint8ClampedArray {
   const buf = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
 
@@ -245,17 +246,24 @@ export function composeCastleFrame(
   }
 
   // Active-party info panels — FUN_1b2d @ wbase 0x1b2d. For each active
-  // member, compose the panel-cell content (name, colored bar, class symbol,
-  // condition + status icons) into the appropriate LEFT or RIGHT panel
-  // window, then blit the portrait on top (FUN_0b0e overwrites the colored
-  // bar at panel cells col 0..2, rows 1..3 of the slot's block).
+  // member, compose the panel-cell content into the appropriate LEFT or RIGHT
+  // panel window, then blit the portrait on top (FUN_0b0e overwrites cols
+  // 0..2, rows 1..3 of the slot's block — the portrait pane).
   //
-  // Per docs/re/findings/wbase-party-panel-redraw.json:
-  //   - LEFT panel = window handle at DGROUP 0x4fba; screen (8,40) - (64,136)
-  //   - RIGHT panel = window handle at DGROUP 0x4fb8; screen (256,40) - (312,136)
-  //   - 7 cells wide × 12 cells tall each
+  // Ground truth (live cell dump from save 2, NATHAN slot 0 / NUG2 slot 1):
+  //   row+0 .............. name (attr 0x03)
+  //   col 3-4, row+1 ..... equipment (attr 0x04 / wfont4; empty hands 0x25/0x26)
+  //   col 3-4, row+2 ..... class symbol (attr 0x01 / wfont1)
+  //   col 3,   row+3 ..... status icon (attr 0x01)
+  //   col 4,   row+3 ..... condition icon (attr 0x03; cleared if none)
+  //   col 5,   rows 1-3 .. HP bar (attr 0x01, FUN_1a4c base 0x56)
+  //   col 6,   rows 1-3 .. stamina bar (attr 0x01, base 0x63)
+  //   cols 0-2, rows 1-3 . portrait (blitted below, covers these cells)
+  //
+  // LEFT panel = DGROUP 0x4fba @ cell (1,5) = screen (8,40), 7×12 cells.
+  // RIGHT panel = DGROUP 0x4fb8 @ cell (32,5) = screen (256,40).
   if (wfont3 && partyMembers.length > 0) {
-    const fontSet = { font0: wfont0, font1: wfont1, font3: wfont3 };
+    const fontSet = { font0: wfont0, font1: wfont1, font3: wfont3, font4: wfont4 };
     const leftPanel = createTileWindow({ screenX: 8, screenY: 40, widthCells: 7, heightCells: 12 });
     const rightPanel = createTileWindow({ screenX: 256, screenY: 40, widthCells: 7, heightCells: 12 });
     // Engine clears each panel to (0x20, 0x03) before redrawing slots — match
@@ -268,43 +276,42 @@ export function composeCastleFrame(
       const panel = composePartyPanel(slot, member);
       const win = panel.column === 'left' ? leftPanel : rightPanel;
       const row = panel.panelRow;
+      const f = panel.fields;
 
-      // Row+0: name at col 0, attr 3 (wfont3). Engine pads to 7 cells with
-      // 0x20 (already done by clearWindow above).
+      // Row+0: name at col 0, attr 0x03 (wfont3). clearWindow already padded
+      // the rest of the row with 0x20.
       setCursor(win, 0, row);
-      puts(win, panel.fields.name, 0x03);
+      puts(win, f.name, 0x03);
 
-      // Rows row+1..row+3, cols 0..2: 3x3 colored-bar grid (chars 2..10).
-      // Attr 0x03 = wfont3 per the colored-bar finding.
-      for (let r = 0; r < 3; r++) {
-        for (let c = 0; c < 3; c++) {
-          setCursor(win, c, row + 1 + r);
-          const glyph = panel.fields.coloredBar[r]![c]!;
-          puts(win, String.fromCharCode(glyph), 0x03);
-        }
-      }
-
-      // Row+1, cols 3-4: class symbol (2 cells of consecutive font glyphs).
-      // Engine uses attr=1 here for these (wfont1) per the decompile
-      // (`func_de7f(uVar4, classByte*2+0x3a+i & 0xff, 1)` — third arg = attr).
+      // Middle pane (cols 3-4): equipment / class / status+condition.
+      // Equipment (right + left hand), attr 0x04 / wfont4.
       setCursor(win, 3, row + 1);
-      puts(win, String.fromCharCode(panel.fields.classSymbol[0]), 0x01);
+      puts(win, String.fromCharCode(f.equipment[0]), 0x04);
       setCursor(win, 4, row + 1);
-      puts(win, String.fromCharCode(panel.fields.classSymbol[1]), 0x01);
+      puts(win, String.fromCharCode(f.equipment[1]), 0x04);
 
-      // Row+2, col 3: condition icon. If NO_CONDITION_ICON (-1), engine draws
-      // 3 space cells instead of an icon.
-      if (panel.fields.conditionIcon === NO_CONDITION_ICON) {
-        setCursor(win, 3, row + 2);
-        puts(win, '   ', 0x03);
-      } else {
-        setCursor(win, 3, row + 2);
-        puts(win, String.fromCharCode((panel.fields.conditionIcon + 0x25) & 0xff), 0x03);
+      // Class symbol (2 consecutive glyphs), attr 0x01 / wfont1.
+      setCursor(win, 3, row + 2);
+      puts(win, String.fromCharCode(f.classSymbol[0]), 0x01);
+      setCursor(win, 4, row + 2);
+      puts(win, String.fromCharCode(f.classSymbol[1]), 0x01);
+
+      // Status icon (col 3), attr 0x01 / wfont1. Engine writes `icon + 0x25`.
+      setCursor(win, 3, row + 3);
+      puts(win, String.fromCharCode((f.statusIcon + 0x25) & 0xff), 0x01);
+      // Condition icon (col 4), attr 0x03. NO_CONDITION_ICON → leave cleared.
+      if (f.conditionIcon !== NO_CONDITION_ICON) {
+        setCursor(win, 4, row + 3);
+        puts(win, String.fromCharCode((f.conditionIcon + 0x25) & 0xff), 0x03);
       }
 
-      // Row+3, col 3: status icon. Engine writes `icon + 0x25`.
-      setCursor(win, 3, row + 3);
-      puts(win, String.fromCharCode((panel.fields.statusIcon + 0x25) & 0xff), 0x03);
+      // Right pane: vertical HP bar (col 5) + stamina bar (col 6), attr 0x01.
+      for (let r = 0; r < 3; r++) {
+        setCursor(win, 5, row + 1 + r);
+        puts(win, String.fromCharCode(f.hpBar[r]!), 0x01);
+        setCursor(win, 6, row + 1 + r);
+        puts(win, String.fromCharCode(f.staminaBar[r]!), 0x01);
+      }
     }
 
     renderTileWindow(leftPanel, buf, ENGINE_W, ENGINE_H, fontSet, WIZ6_MAIN);

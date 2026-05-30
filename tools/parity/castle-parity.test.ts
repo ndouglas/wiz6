@@ -239,38 +239,27 @@ const CASES: CastleCase[] = [
     selectedIdx: 0,
   },
   // castle-1-members: NATHAN solo, ADD PARTY MEMBER highlighted (selectedIdx=0).
-  // Captured from engine save 1. Per Task 2 the FUN_1b2d info-panel rendering
-  // (name label + colored bar + class symbol + status/condition icons) is
-  // ported in; the portrait blit position is corrected from y=13 (a spurious
-  // empirical hold-over) to y=48 (panel row 1, where the engine actually
-  // draws it).
+  // Captured from engine save 1.
   {
-    // 98.85% (was 98.20%). The PORTRAIT now matches the engine pixel-exactly:
-    // the decode (renderTextRun4bpp 3×3 tiles) was always correct — the bug was
-    // the portrait INDEX. The rendered portrait selector lives at character
-    // record offset 0x19c (NATHAN=21 → wport2 #7), NOT the field at 0x1ac that
-    // the struct mislabels `portrait_index` (=9 = spd+1, the creation default).
-    // Verified: brute-forcing the engine portrait region vs all 42 wport
-    // portraits matched wport2 #7 at 576/576. (#026 portrait gap RESOLVED.)
-    //
-    // The remaining ~1.1% diff is NOT the portrait — it's the FUN_1b2d status
-    // area (engine draws a bow + "OK" where we draw "%"): the status/condition
-    // icon glyphs are still wrong. That's a separate FUN_1b2d render issue, not
-    // #026. Raise this floor toward 100 once the status area is fixed.
+    // 99.64%. The full per-member panel is now pixel-exact (portrait +
+    // equipment + class + status/condition + HP/stamina bars — all verified
+    // against the live cell dump from save 2). The remaining 232px are the
+    // ANIMATED fountain/dragon (x214-242, y52-117): this fixture was captured
+    // at a different water-animation phase than our parity=1 render. castle-2..6
+    // capture the fountain at the parity=1 phase (→ 100%); only castle-1 differs.
+    // The residual is an animation-phase artifact, not a render bug — addressed
+    // by multi-reference frame matching (TODO #C / parity any-of-N).
     fixture: 'castle-1-members',
-    floor: 98,
+    floor: 99,
     parity: 1,
     context: ONE_MEMBER_CONTEXT,
     members: [ENGINE_SAVE_1_NATHAN],
     selectedIdx: 0,
   },
-  // castle-2-members: NATHAN (LEFT/Fighter) + NUG2 (RIGHT/Bishop). Portraits now
-  // pixel-match (correct portrait indices from record +0x19c). The residual
-  // (~1.6%) is the FUN_1b2d status-area glyphs (bow + "OK" vs "%"), per member —
-  // a separate issue from the (now-resolved) #026 portrait gap.
+  // castle-2-members: NATHAN (LEFT/Fighter) + NUG2 (RIGHT/Bishop). Pixel-exact.
   {
     fixture: 'castle-2-members',
-    floor: 98,
+    floor: 100,
     parity: 1,
     context: TWO_MEMBER_CONTEXT,
     members: [ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2],
@@ -278,10 +267,10 @@ const CASES: CastleCase[] = [
   },
   // castle-{3,4,5}-members: party built up from the 6-char roster (NATHAN, NUG2,
   // NUG3..). Roster still has unloaded chars → ADD PARTY MEMBER highlighted
-  // (selectedIdx 0). Conservative floors; tightened to measured values below.
+  // (selectedIdx 0). All pixel-exact.
   {
     fixture: 'castle-3-members',
-    floor: 97,
+    floor: 100,
     parity: 1,
     context: UNLOADED_CONTEXT_3,
     members: [ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2, ENGINE_NUG3],
@@ -289,7 +278,7 @@ const CASES: CastleCase[] = [
   },
   {
     fixture: 'castle-4-members',
-    floor: 96,
+    floor: 100,
     parity: 1,
     context: UNLOADED_CONTEXT_4,
     members: [ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2, ENGINE_NUG3, ENGINE_NUG4],
@@ -297,17 +286,17 @@ const CASES: CastleCase[] = [
   },
   {
     fixture: 'castle-5-members',
-    floor: 95,
+    floor: 100,
     parity: 1,
     context: UNLOADED_CONTEXT_5,
     members: [ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2, ENGINE_NUG3, ENGINE_NUG4, ENGINE_NUG5],
     selectedIdx: 0,
   },
   // castle-6-members: full party, roster empty → no ADD PARTY MEMBER; cursor on
-  // START NEW GAME (selectedIdx 2 in the visible menu).
+  // START NEW GAME (selectedIdx 2 in the visible menu). Pixel-exact.
   {
     fixture: 'castle-6-members',
-    floor: 95,
+    floor: 100,
     parity: 1,
     context: SIX_MEMBER_CONTEXT,
     members: [
@@ -325,6 +314,7 @@ describe('castle (main menu) pixel-parity vs committed fixtures', () => {
   let wfont3: Font4bpp;
   let wfont1: Font4bpp;
   let wfont0: Font;
+  let wfont4: Font4bpp;
   let portraitSets: PortraitSet[];
 
   beforeAll(() => {
@@ -344,6 +334,9 @@ describe('castle (main menu) pixel-parity vs committed fixtures', () => {
     );
     wfont0 = FontSchema.parse(
       JSON.parse(readFileSync(join(ROOT, 'extracted', 'fonts', 'wfont0.json'), 'utf-8')),
+    );
+    wfont4 = Font4bppSchema.parse(
+      JSON.parse(readFileSync(join(ROOT, 'extracted', 'fonts', 'wfont4.json'), 'utf-8')),
     );
     portraitSets = [1, 2, 3].map((n) =>
       PortraitSetSchema.parse(
@@ -369,6 +362,7 @@ describe('castle (main menu) pixel-parity vs committed fixtures', () => {
         wfont1,
         c.members,
         c.members.length > 0 ? portraitSets : null,
+        wfont4,
       );
       const eng = engineRgba(c.fixture);
       const result = compareRgba(ours, eng, { tolerance: 0 });

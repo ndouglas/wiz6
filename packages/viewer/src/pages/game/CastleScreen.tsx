@@ -55,6 +55,7 @@ export function CastleScreen() {
   const [wfont3, setWfont3] = useState<Font4bpp | null>(null);
   const [wfont1, setWfont1] = useState<Font4bpp | null>(null);
   const [wfont0, setWfont0] = useState<Font | null>(null);
+  const [wfont4, setWfont4] = useState<Font4bpp | null>(null);
   const [portraitSets, setPortraitSets] = useState<PortraitSet[] | null>(null);
 
   // Active-party snapshot — read once on mount. The store is localStorage-backed
@@ -168,6 +169,20 @@ export function CastleScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    loadFont4bpp('/fonts/wfont4.json')
+      .then((font) => {
+        if (!cancelled) setWfont4(font);
+      })
+      .catch(() => {
+        /* leave null */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Load all 3 wport sets (wport1=0..13, wport2=14..27, wport3=28..41).
   // composeCastleFrame picks the right set per member's portraitIndex.
   useEffect(() => {
@@ -221,6 +236,7 @@ export function CastleScreen() {
         wfont1,
         activeMembers,
         portraitSets,
+        wfont4,
       );
       presenter.present(buf, ENGINE_W, ENGINE_H);
       raf = requestAnimationFrame(tick);
@@ -234,6 +250,7 @@ export function CastleScreen() {
     wfont3,
     wfont1,
     wfont0,
+    wfont4,
     visible,
     activeMembers,
     portraitSets,

@@ -79,15 +79,25 @@ describe('composePartyPanel', () => {
     expect(p.fields.classSymbol).toEqual([0x40, 0x41]);
   });
 
-  it('produces a 3x3 colored-bar grid (9 glyph codes)', () => {
+  it('produces empty-hands equipment glyphs (no equipment schema yet)', () => {
     const p = composePartyPanel(0, nathanFighter());
-    // Per finding `colored-bar-3x3`: cell at row iVar2, col iVar3 gets char
-    // (iVar2*3 + 2 + iVar3) for iVar2 in [0,3), iVar3 in [0,3).
-    expect(p.fields.coloredBar).toEqual([
-      [2, 3, 4],
-      [5, 6, 7],
-      [8, 9, 10],
-    ]);
+    expect(p.fields.equipment).toEqual([0x25, 0x26]);
+  });
+
+  it('full HP renders a full red bar [0x62,0x5e,0x59] (FUN_1a4c base 0x56)', () => {
+    // From the live cell dump (save 2, NATHAN col 5, rows 1..3): full bar.
+    const p = composePartyPanel(0, nathanFighter({ hpCurrent: 7, hpMax: 7 }));
+    expect(p.fields.hpBar).toEqual([0x62, 0x5e, 0x59]);
+  });
+
+  it('full stamina renders a full yellow bar [0x6f,0x6b,0x66] (base 0x63)', () => {
+    const p = composePartyPanel(0, nathanFighter({ staminaCurrent: 108, staminaMax: 108 }));
+    expect(p.fields.staminaBar).toEqual([0x6f, 0x6b, 0x66]);
+  });
+
+  it('zero HP renders an empty red bar [base+9, base+4, base+0]', () => {
+    const p = composePartyPanel(0, nathanFighter({ hpCurrent: 0, hpMax: 7 }));
+    expect(p.fields.hpBar).toEqual([0x56 + 9, 0x56 + 4, 0x56]);
   });
 
   it('dead override picks status icon 1 even when status_byte is 0', () => {
