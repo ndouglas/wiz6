@@ -162,6 +162,7 @@ export { rollBonus, MAX_BONUS_POINTS } from './character-creation/bonus-roll.js'
 export {
   computeDerivedStats,
   computeCarryCapacityMax,
+  resolveCarryCapacityMax,
   CLASS_ENCUMBRANCE_FORMULAS,
   DERIVED_STATS_FAERIE_RACE,
   AGE_RNG_OFFSET,

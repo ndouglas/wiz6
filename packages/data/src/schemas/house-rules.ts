@@ -152,5 +152,6 @@ export const HOUSE_RULES_META: readonly HouseRuleMeta[] = [
     category: 'gameplay',
     stockValue: false,
     control: 'boolean',
+    learnMoreUrl: '/explore/notes#carry-capacity-frozen',
   },
 ];

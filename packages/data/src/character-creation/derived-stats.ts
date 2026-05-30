@@ -227,6 +227,26 @@ export function computeCarryCapacityMax(str: number, vit: number, raceIdx: numbe
 }
 
 /**
+ * Resolve a character's effective max carry capacity, honoring the
+ * `recomputeCarryCapacity` house rule.
+ *
+ * Call this at EVERY site that needs the cap — it is deliberately recomputed on
+ * each call, never cached. When `recompute` is true the cap is derived from the
+ * character's CURRENT STR/VIT/race, so it tracks attribute gains. When false it
+ * returns the value frozen at creation (faithful to the original-game bug where
+ * the cap never updates), falling back to a fresh derivation only when nothing
+ * was persisted (e.g. characters created before the field was stored).
+ */
+export function resolveCarryCapacityMax(
+  c: { attributes: { str: number; vit: number }; race: number; encumbranceMax?: number | undefined },
+  recompute: boolean,
+): number {
+  const derived = computeCarryCapacityMax(c.attributes.str, c.attributes.vit, c.race);
+  if (recompute) return derived;
+  return c.encumbranceMax ?? derived;
+}
+
+/**
  * Compute derived stats for a character at creation.
  *
  * Mirrors `age_encumbrance_and_hp_roll` (wpcmk.ovr file 0x4589) and

@@ -21,7 +21,7 @@ import {
   applyClassChange,
   eligibleClasses,
   WichmannHill,
-  computeCarryCapacityMax,
+  resolveCarryCapacityMax,
   type ActivePartyMember,
   type MessageDb,
   type PortraitSet,
@@ -250,20 +250,11 @@ export function CharacterViewPage() {
       years: Math.floor((member.age ?? 0) / 365),
       second: 1,
     };
-    // Carrying capacity: record +0x20/+0x22 are tenths of a pound → /10 for
-    // the on-screen value. The `recomputeCarryCapacity` house rule decides the
-    // source: ON → derive from CURRENT STR/VIT/race so the cap tracks attribute
-    // gains; OFF → use the value frozen at creation (faithful to the engine bug
-    // where carry capacity never updates). Either way, fall back to deriving it
-    // when no value was persisted (characters created before it was stored).
-    const derivedCarryMax = computeCarryCapacityMax(
-      member.attributes.str,
-      member.attributes.vit,
-      member.race,
-    );
-    const carryMax = getHouseRules().recomputeCarryCapacity
-      ? derivedCarryMax
-      : (member.encumbranceMax ?? derivedCarryMax);
+    // Carrying capacity: record +0x20/+0x22 are tenths of a pound → /10 for the
+    // on-screen value. resolveCarryCapacityMax honors the recomputeCarryCapacity
+    // house rule (ON → derive from current STR/VIT; OFF → frozen-at-creation,
+    // the engine bug) and recomputes on every read.
+    const carryMax = resolveCarryCapacityMax(member, getHouseRules().recomputeCarryCapacity);
     const cc = {
       current: Math.floor((member.encumbranceCurrent ?? 0) / 10),
       max: Math.floor(carryMax / 10),

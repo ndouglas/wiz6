@@ -201,6 +201,13 @@ export const NOTE_INDEX: NoteIndexEntry[] = [
       'For hours we chased LUT transforms and sample rates to fix the .snd Huffman decoder. Output looked perfect statistically — centred at 128, 32 quantized levels, plausible mean diff. The bug was 2 bytes of misalignment at the start.',
     tags: ['audio', 'bug'],
   },
+  {
+    id: 'carry-capacity-frozen',
+    title: 'Carry Capacity Is Rolled Once And Never Updated Again',
+    pitch:
+      "A character's carrying-capacity limit is computed once, at creation, from STR/VIT. The engine then never recomputes it — train STR from 10 to 18 over a dozen levels and your carry limit is still your level-1 self's.",
+    tags: ['character-progression', 'bug', 'engine'],
+  },
 ];
 
 export function findNote(id: string): NoteIndexEntry | undefined {
