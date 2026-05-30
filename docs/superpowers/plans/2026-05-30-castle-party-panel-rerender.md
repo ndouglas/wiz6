@@ -2,6 +2,24 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## ⚠️ PICKUP NOTE — resuming from a prior session (2026-05-30)
+
+Tasks **1, 2, and 3 are DONE** on branch `castle-rerender` (worktree at `~/.config/superpowers/worktrees/wiz6/castle-rerender`):
+
+- Commit `0e07387` — Task 1 part A: fixed `dosbox_launch` MCP tool. Default `breakAtStart=false`; honor the flag. Pre-fix, every launch tripped the macOS isatty gate. **Tasks 4-5 need a fresh Claude Code session for the MCP child to load this fix.**
+- Commit `f4e63d0` — Task 1 part B: RE findings `wbase-party-panel-redraw.json` + `wbase-party-portrait-blit.json` with decoded 0x526 / 0x532 tables + LEFT/RIGHT split + dcf2 coordinate mystery (low confidence).
+- Commit `ee2296d` — Task 2: ported FUN_1b2d → `packages/viewer/src/pages/game/party-panel-render.ts`. castle-1-members parity at **98.20%** (floor 98, not 100). **Remaining ~1.8% is the wport portrait sprite asset mismatch** — engine renders 32×24 portraits, our extracted wport is 24×24. The dcf2 thunk transforms the on-disk 64×9 EGA-planar format to 32×24 on-screen; our wport extractor doesn't honor that transform. Reaching 100% requires a separate wport-extractor fix (file as a TODO if not already).
+- Commit `1512acd` — Task 3: `tools/parity/build-castle-saves.ts` self-contained script + README workflow.
+
+**What's left** (Tasks 4-6 below):
+- Task 4: build castle-2-members fixture via MCP-driven script + N=2 parity test. **Likely floor ≈ 98%** (same wport gap × 2 members).
+- Task 5: build castle-{3,4,5,6}-members fixtures + parity tests.
+- Task 6: finalize TODOs (#024, #061, #062, #026).
+
+**Adjust expectations**: the original plan targeted 100% parity floors. After Task 2's discovery, **realistic floors are ~96-99%** until a separate wport-extractor task (open as TODO) bumps them to 100%. The "wbase-party-portrait-blit.json" finding documents the dcf2 transform mystery in detail.
+
+
+
 **Goal:** Dogfood the new DOSBox-X MCP to build N=1..6 party-member save states, capture engine fixtures, re-RE the FUN_1b2d info panel + correct portrait-blit coords, port per-member info panels in TS, and lift castle pixel-parity to 100% for all six N values.
 
 **Architecture:** Sequential by N. Stage 0 validates the MCP works end-to-end + runs the PyGhidra RE pass. Stage 1 lifts the existing 1-member parity to 100% (porting FUN_1b2d for slot 0 LEFT column). Stages 2-6 add N=2..6 fixtures via an MCP-orchestrating script + extend parity tests. Stage 7 finalizes (rename existing fixture, close TODOs).
