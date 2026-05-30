@@ -3,6 +3,9 @@ import { RosterSchema, type Character, type Roster, type Save } from '@wiz6/data
 
 const KEY = 'wiz6:roster';
 
+/** The PC File maps to PCFILE.DBS, which has 16 character slots. */
+export const PC_FILE_CAPACITY = 16;
+
 function emptyRoster(): Roster {
   return { schemaVersion: 1, characters: [] };
 }
@@ -26,11 +29,15 @@ export function writeRoster(roster: Roster): void {
   window.localStorage.setItem(KEY, encodeRosterBase64(validated));
 }
 
-/** Append a character. Throws if `c.id` already exists in the roster. */
+/** Append a character. Throws if `c.id` already exists in the roster, or if the
+ *  PC File is already at capacity (16 slots — mirrors PCFILE.DBS slot count). */
 export function addCharacter(c: Character): void {
   const r = readRoster();
   if (r.characters.some((x) => x.id === c.id)) {
     throw new Error(`roster already contains character ${c.id}`);
+  }
+  if (r.characters.length >= PC_FILE_CAPACITY) {
+    throw new Error(`PC File is full (${PC_FILE_CAPACITY} characters)`);
   }
   writeRoster({ ...r, characters: [...r.characters, c] });
 }

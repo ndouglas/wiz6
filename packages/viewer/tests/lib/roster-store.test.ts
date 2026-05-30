@@ -94,6 +94,15 @@ describe('roster-store', () => {
     window.localStorage.setItem('wiz6:roster', 'totally-bogus');
     expect(readRoster()).toEqual({ schemaVersion: 1, characters: [] });
   });
+
+  it('addCharacter throws when the PC File already holds 16 characters', () => {
+    for (let i = 0; i < 16; i++) {
+      const uuid = `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
+      addCharacter(makeCharacter(uuid, `N${i}`));
+    }
+    const uuid16 = `00000000-0000-4000-8000-${String(16).padStart(12, '0')}`;
+    expect(() => addCharacter(makeCharacter(uuid16, 'N16'))).toThrow(/full|16/i);
+  });
 });
 
 describe('findDuplicateName', () => {
