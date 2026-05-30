@@ -1,0 +1,93 @@
+{
+  "topic": "carry-capacity-formula",
+  "subagent_run": "2026-05-30T00:00:00Z",
+  "binaries": ["wpcmk.ovr"],
+  "summary": "Decoded the exact formula for a character's MAX CARRYING CAPACITY (character record +0x22, u16 LE, tenths of a pound). It is a deterministic function of STR and VIT (plus a Faerie-race adjustment); KAR/class are irrelevant. Computed at character creation in wpcmk's stat-finalize routine (file 0x47F0..0x4878) into the staging buffer slot 0x5492, which the bulk staging->record copy (wpcmk file 0x1b, invoked at 0x4FAB) writes to record +0x22. There is NO direct [bx+0x440a] write site and the value is NOT recomputed at level-up (the wpcvw level-up path at file 0xA7BD..0xA8FC only touches +0x4400/+0x4402/+0x4404/+0x4406 = HP/STM, never +0x440a). Formula validated to reproduce all 6 data points in tools/dosbox/save/6.sav EXACTLY.",
+  "formula_pseudocode": [
+    "// STR, VIT are the character's FINAL attributes (post race+bonus allocation).",
+    "// record +0x22 = encumbranceMax = carry capacity, in tenths of a pound.",
+    "base = (2*STR + VIT) * 3            // engine: shl(STR,1)+VIT, then *3 via (x + x<<1)",
+    "if (STR >= 16) base += STR          // engine: cmp [bp-8],0x0f ; jng  (STR > 15)",
+    "if (STR >= 18) base += STR          // engine: cmp [bp-8],0x11 ; jng  (STR > 17)",
+    "cap = base * 15                     // engine: (base << 4) - base = base*15",
+    "if (race == 5 /* Faerie */) {",
+    "    cap = (cap * 2) / 3             // engine: shl ax,1 ; mov cx,3 ; cwd ; idiv cx",
+    "}",
+    "encumbranceMax = cap"
+  ],
+  "notes_on_inputs": [
+    "KAR is irrelevant: NUG2 (KAR=2) and NUG6 (KAR=10) are otherwise identical and both yield 945. Confirmed; KAR is not referenced.",
+    "Class is irrelevant for carry capacity (it IS used for the sibling HP/encumbrance-base ROLL, but that lands in record +0x18/+0x1a, not +0x22).",
+    "The original task table mislabeled NUG5 with VIT=14; the real record attributes are [10,10,6,10,14,8,9,17] so VIT=10 (the 14 is DEX). With VIT=10 the formula matches without any special-casing.",
+    "Faerie (race index 5) applies *2/3 to the capacity (NOT the /3 that the GOLD formula uses). This is the only race adjustment.",
+    "Pre-existing note in packages/data/src/character-creation/derived-stats.ts labels the 0x5492 staging value 'goldInitial = (STR*2+VIT)*3*15, /3 Faerie'. That is a MISLABEL: 0x5492 is the carry-capacity field (record +0x22), and the Faerie factor is *2/3, not /3. The record 'gold' field is at a different offset and is 0 for all 6 freshly-created chars."
+  ],
+  "findings": [
+    {
+      "id": "carry-cap-compute-site",
+      "claim": "Carry capacity is computed at wpcmk file 0x47F0..0x4878 and stored to staging buffer offset 0x5492 (DGROUP-relative), which maps to character record +0x22.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x47F0" },
+        "type": "disassembly_trace",
+        "details": "0x47F0 mov ax,[bp-8](STR); 0x47F3 shl ax,1; 0x47F5 add ax,[bp-0xa](VIT) -> 2*STR+VIT; 0x47F8 mov dx,ax; 0x47FA shl ax,1; 0x47FC add ax,dx -> *3; 0x47FE mov [bp-6],ax. 0x4828 cmp [bp-8],0x0f ; jng 0x4834 ; else add [bp-6],STR. 0x4834 cmp [bp-8],0x11 ; jng 0x4840 ; else add [bp-6],STR. 0x4858 mov ax,[bp-6]; mov dx,ax; mov cl,4; shl ax,cl; sub ax,dx -> base*15. 0x4863 mov [0x5492],ax. 0x4866 cmp byte [0x560d],0x5 ; jnz 0x4878 ; (Faerie) 0x486D shl ax,1; mov cx,3; cwd; idiv cx; 0x4875 mov [0x5492],ax. NOTE: ndisasm renders the D1E0 'shl ax,1' bytes as 'shl ax,0x0' (cosmetic disassembler artifact); the opcode is a 1-bit left shift."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "faerie-race-check",
+      "claim": "The Faerie adjustment keys on the class/race selection byte [DGROUP 0x560d] == 5 (Faerie race index), applying *2/3 to the capacity.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x4866" },
+        "type": "disassembly",
+        "details": "cmp byte [0x560d],0x5 ; jnz over the *2/3 block. Faerie race index = 5 confirmed against race-base-stats.json. The applied transform is shl ax,1 (x2) then idiv cx with cx=3 (signed /3), i.e. cap = cap*2/3."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "staging-to-record-copy",
+      "claim": "The staging buffer at DGROUP 0x5470 is the in-memory character record image; offset +0x22 within it (0x5492) is copied verbatim to record +0x22 (abs DGROUP 0x440a for slot 0) by the bulk record write at wpcmk file 0x1b, invoked from creation-finalize at file 0x4FAB.",
+      "category": "character_creation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x4FA7" },
+        "type": "disassembly",
+        "details": "0x4FA7 mov ax,0x5470 ; push ; push [bp+6](slot) ; push (=0x5470) ; call 0x1b. Routine 0x1b multiplies the slot index by record size [0x4fd0]=0x1b0 and writes the 0x5470 staging block out as the record. Parallel layout means staging+0x22 -> record+0x22."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "no-440a-write-and-no-levelup-recompute",
+      "claim": "There is no instruction in any binary that writes record +0x22 via a [reg+0x440a] displacement; the only +0x440a accesses are reads (display of carry capacity). The wpcvw level-up routine recomputes HP/STM (+0x4400/+0x4402/+0x4404/+0x4406) but never +0x440a, so carry capacity is fixed at creation.",
+      "category": "character_record",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": { "space": "wpcvw.ovr", "offset": "0x0C78" },
+        "type": "absence_and_xref",
+        "details": "ndisasm scan across all .ovr + wroot.exe: 0x440a appears only as 'mov ax,[bx+0x440a]' reads at wmexe 0x010A, wpcvw 0x0C78 and 0x15DD (carry-cap % display / max read). The wpcvw class-dispatch roll at 0xA7BD..0xA8FC writes only the HP/STM fields."
+      },
+      "confidence": "high"
+    }
+  ],
+  "validation": {
+    "save": "tools/dosbox/save/6.sav",
+    "field": "character_record +0x22 (encumbrance_max, u16 LE, tenths of a pound)",
+    "note": "Attributes are the REAL per-record values read via dosbox_read_struct (order STR,INT,PIE,VIT,DEX,SPD,PER,KAR). NUG5 VIT is 10, not 14 as in the original task table.",
+    "rows": [
+      { "char": "NATHAN", "STR": 16, "VIT": 10, "race": 9,  "faerie": false, "base": 142, "computed": 2130, "actual": 2130, "match": true },
+      { "char": "NUG2",   "STR": 7,  "VIT": 7,  "race": 1,  "faerie": false, "base": 63,  "computed": 945,  "actual": 945,  "match": true },
+      { "char": "NUG3",   "STR": 10, "VIT": 12, "race": 7,  "faerie": false, "base": 96,  "computed": 1440, "actual": 1440, "match": true },
+      { "char": "NUG4",   "STR": 3,  "VIT": 6,  "race": 5,  "faerie": true,  "base": 36,  "computed": 360,  "actual": 360,  "match": true },
+      { "char": "NUG5",   "STR": 10, "VIT": 10, "race": 10, "faerie": false, "base": 90,  "computed": 1350, "actual": 1350, "match": true },
+      { "char": "NUG6",   "STR": 7,  "VIT": 7,  "race": 1,  "faerie": false, "base": 63,  "computed": 945,  "actual": 945,  "match": true }
+    ],
+    "result": "6/6 exact match"
+  },
+  "unresolved": [
+    "Faerie *2/3 confirmed only by the single Faerie data point (NUG4). The asm is unambiguous (shl ax,1 then idiv cx,3), so confidence is high, but a second Faerie character would be a nice cross-check.",
+    "STR>=16/>=18 bonus confirmed by NATHAN (STR=16, +16 once). No STR>=18 sample present; the >=18 branch (cmp 0x11, second +STR) is read from asm but not exercised by the data set."
+  ]
+}

@@ -13,7 +13,7 @@
  * | +0x01c        | 0x548c    | (VIT*2+STR)*3 + VIT bonus   | weightMin=stamina       |
  * | +0x01e        | 0x548e    | same as +0x1c               | weightMax=stamina       |
  * | +0x020        | 0x5490    | 0 (constant)                | —             |
- * | +0x022        | 0x5492    | (STR*2+VIT)*3*15 (/3 Faerie)| goldInitial   |
+ * | +0x022        | 0x5492    | (STR*2+VIT)*3*15 (+STR≥16/18); ×2/3 Faerie | carryCapacityMax (record +0x22) |
  * | +0x024        | 0x5494    | 1 (constant)                | level         |
  * | +0x026        | 0x5496    | 1 (constant)                | xp            |
  *
@@ -52,16 +52,22 @@
  * Stock char hp_cur values: THESUS=8∈[6..10], TEMPEST=9∈[6..10], LYSANDR=5∈[3..6],
  *   NOBAL=4∈[4..7], TREON=4∈[2..4], PENTAG=2∈[2..4].
  *
- * ## Gold formula: (STR*2+VIT)*3*15, ÷3 for Faerie
- * Symmetric to the HP formula but uses STR as the primary stat (wpcmk 0x47F0..0x4875):
+ * ## Carrying-capacity formula (record +0x22): (STR*2+VIT)*3*15, ×2/3 for Faerie
+ * Symmetric to the HP formula but uses STR as the primary stat (wpcmk 0x47F0..0x4878):
  *   base = (STR*2+VIT)*3
  *   if STR >= 16: base += STR
  *   if STR >= 18: base += STR (additional)
- *   goldInitial = base * 15   (non-Faerie)
- *   goldInitial = base * 5    (Faerie, race index 5: engine does *15 then ÷3)
+ *   cap = base * 15          (non-Faerie)
+ *   cap = base * 15 * 2 / 3  (Faerie, race index 5: engine shl ax,1 then idiv cx=3)
  *
- * Perfectly matches all 6 stock chars at pcfile+0x022:
- * THESUS=2700, TEMPEST=1800, LYSANDR=1125, NOBAL=1035, TREON=1440, PENTAG=1350.
+ * NOTE: this was previously mislabeled "Gold formula"/`goldInitial`. It is the
+ * MAX CARRYING CAPACITY (record +0x22), not gold. (Real starting gold is a
+ * different field and is 0 for a freshly-created character.) The Faerie factor
+ * was also wrong here (÷3); the engine doubles then divides → ×2/3.
+ *
+ * Matches all 6 stock chars at pcfile+0x022 (non-Faerie) and the live records
+ * NATHAN=2130, NUG2=945, NUG3=1440, NUG4(Faerie)=360, NUG5=1350, NUG6=945 —
+ * see docs/re/findings/carry-capacity-formula.json.
  */
 
 export interface DerivedStats {
@@ -113,10 +119,18 @@ export interface DerivedStats {
    */
   hpInitial: number;
   /**
-   * Initial gold. (STR*2+VIT)*3 * 15; ÷3 (i.e. ×5) for Faerie.
-   * Stored at staging+0x022. Verified against all 6 stock chars.
+   * Maximum carrying capacity (character record +0x22, in tenths of a pound).
+   * `base = (STR*2+VIT)*3; +STR if STR>=16; +STR if STR>=18; cap = base*15`;
+   * Faerie (race 5) → `cap*2/3`. Verified 6/6 against engine save records
+   * (NATHAN 2130, NUG2 945, NUG3 1440, NUG4 360, NUG5 1350, NUG6 945) — see
+   * docs/re/findings/carry-capacity-formula.json.
+   *
+   * NOTE: this was previously (mis)named `goldInitial`. It is NOT gold — the
+   * record's gold field is a different offset and is 0 for a freshly-created
+   * character. The old name caused the carry-capacity value to be rendered in
+   * the GP slot of the character sheet.
    */
-  goldInitial: number;
+  carryCapacityMax: number;
   /** Character level at creation: always 1. Written to staging+0x024. */
   level: 1;
   /**
@@ -190,6 +204,29 @@ export const DERIVED_STATS_FAERIE_RACE = 5;
 export const AGE_RNG_OFFSET = 0x19aa; // 6570
 
 /**
+ * Max carrying capacity (character record +0x22, tenths of a pound) from STR,
+ * VIT, and race. Deterministic (no RNG), so renderers can derive it for
+ * characters created before `encumbranceMax` was persisted.
+ *
+ *   base = (STR*2 + VIT)*3;  +STR if STR>=16;  +STR if STR>=18
+ *   cap  = base * 15;  Faerie (race 5): cap = cap*2/3
+ *
+ * Verified 6/6 against engine save records (NATHAN 2130, NUG2 945, NUG3 1440,
+ * NUG4 360, NUG5 1350, NUG6 945) — docs/re/findings/carry-capacity-formula.json.
+ * [wpcmk 0x47F0..0x4878; Faerie ×2/3 at 0x4866: shl ax,1 then idiv cx=3]
+ */
+export function computeCarryCapacityMax(str: number, vit: number, raceIdx: number): number {
+  let base = (str * 2 + vit) * 3;
+  if (str >= 16) base += str;
+  if (str >= 18) base += str;
+  let cap = base * 15;
+  if (raceIdx === DERIVED_STATS_FAERIE_RACE) {
+    cap = Math.floor((cap * 2) / 3);
+  }
+  return cap;
+}
+
+/**
  * Compute derived stats for a character at creation.
  *
  * Mirrors `age_encumbrance_and_hp_roll` (wpcmk.ovr file 0x4589) and
@@ -239,19 +276,9 @@ export function computeDerivedStats(
   if (vit >= 16) staminaBase += vit;
   if (vit >= 18) staminaBase += vit;
 
-  // -------------------------------------------------------------------------
-  // Gold: (STR*2+VIT)*3 * 15 (÷3 for Faerie)   [wpcmk 0x47F0..0x4875]
-  // -------------------------------------------------------------------------
-  let goldBase = (str * 2 + vit) * 3;
-  if (str >= 16) goldBase += str;
-  if (str >= 18) goldBase += str;
-
-  // Engine: shl ax,4; sub ax,dx → ax*16 - ax = ax*15.
-  let goldInitial = goldBase * 15;
-  // Faerie (race 5): engine divides by 3 via `idiv cx` with cx=3.
-  if (raceIdx === DERIVED_STATS_FAERIE_RACE) {
-    goldInitial = Math.floor(goldInitial / 3);
-  }
+  // Max carrying capacity (record +0x22). Pure fn so renderers can derive it
+  // for characters created before it was persisted (see computeCarryCapacityMax).
+  const carryCapacityMax = computeCarryCapacityMax(str, vit, raceIdx);
 
   // -------------------------------------------------------------------------
   // Level and XP are always 1 at creation   [wpcmk 0x4ddd: 0x5494=1, 0x5496=1]
@@ -264,7 +291,7 @@ export function computeDerivedStats(
     weightMax: staminaBase,
     stamina: staminaBase,
     hpInitial: encumbranceBase,  // HP = same class-dispatch roll as encumbranceBase
-    goldInitial,
+    carryCapacityMax,
     level: 1,
     xp: 0,
   };

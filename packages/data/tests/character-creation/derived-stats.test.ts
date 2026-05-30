@@ -351,16 +351,17 @@ describe('weightMin/Max = stamina (same (VIT*2+STR)*3+bonus value)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// goldInitial  (the Faerie-multiplier field at staging+0x022)
+// carryCapacityMax (record +0x22) — verified 6/6 vs engine records.
+// (Previously mislabeled `goldInitial`; see carry-capacity-formula.json.)
 // ---------------------------------------------------------------------------
 
-describe('goldInitial = (STR*2+VIT)*3 * 15, ÷3 for Faerie', () => {
-  it('non-Faerie: goldInitial = (STR*2+VIT)*3 * 15', () => {
+describe('carryCapacityMax = (STR*2+VIT)*3*15 (+STR≥16/≥18 bonus), ×2/3 for Faerie', () => {
+  it('non-Faerie: carryCapacityMax = (STR*2+VIT)*3 * 15', () => {
     const rng = makeFixedRng(0);
     // PLAIN_ATTRS: STR=10, VIT=10
     // base = (20+10)*3 = 90; 90*15 = 1350
     const result = computeDerivedStats(rng, 0, 0, PLAIN_ATTRS);
-    expect(result.goldInitial).toBe(1350);
+    expect(result.carryCapacityMax).toBe(1350);
   });
 
   it('matches stock THESUS (STR=18, VIT=12, race=0): expected 2700', () => {
@@ -368,7 +369,7 @@ describe('goldInitial = (STR*2+VIT)*3 * 15, ÷3 for Faerie', () => {
     const attrs = { str: 18, int: 8, pie: 8, vit: 12, dex: 10, spd: 9, per: 10, kar: 0 };
     // base = (36+12)*3 = 144; STR>=16: +18→162; STR>=18: +18→180; 180*15=2700
     const result = computeDerivedStats(rng, 0, 0, attrs);
-    expect(result.goldInitial).toBe(2700);
+    expect(result.carryCapacityMax).toBe(2700);
   });
 
   it('matches stock TEMPEST (STR=13, VIT=14, race=0): expected 1800', () => {
@@ -376,7 +377,7 @@ describe('goldInitial = (STR*2+VIT)*3 * 15, ÷3 for Faerie', () => {
     const attrs = { str: 13, int: 10, pie: 6, vit: 14, dex: 7, spd: 7, per: 10, kar: 0 };
     // base = (26+14)*3 = 120; STR<16: no bonus; 120*15=1800
     const result = computeDerivedStats(rng, 0, 0, attrs);
-    expect(result.goldInitial).toBe(1800);
+    expect(result.carryCapacityMax).toBe(1800);
   });
 
   it('matches stock LYSANDR (STR=7, VIT=11, race=0): expected 1125', () => {
@@ -384,16 +385,17 @@ describe('goldInitial = (STR*2+VIT)*3 * 15, ÷3 for Faerie', () => {
     const attrs = { str: 7, int: 10, pie: 7, vit: 11, dex: 14, spd: 12, per: 10, kar: 0 };
     // base = (14+11)*3 = 75; 75*15=1125
     const result = computeDerivedStats(rng, 3, 0, attrs);
-    expect(result.goldInitial).toBe(1125);
+    expect(result.carryCapacityMax).toBe(1125);
   });
 
-  it('Faerie (raceIdx=5): goldInitial = (STR*2+VIT)*3 * 15 / 3 = base * 5', () => {
+  it('Faerie (raceIdx=5): carryCapacityMax = base*15 * 2/3', () => {
     const rng = makeFixedRng(0);
     const nonFaerie = computeDerivedStats(rng, 0, 0, PLAIN_ATTRS);
     const faerie    = computeDerivedStats(makeFixedRng(0), 0, 5, PLAIN_ATTRS);
-    // Faerie: 1350/3=450 (i.e. base*5 instead of base*15)
-    expect(faerie.goldInitial).toBe(450);
-    expect(faerie.goldInitial).toBe(Math.floor(nonFaerie.goldInitial / 3));
+    // Faerie: 1350 * 2/3 = 900. (Engine: shl ax,1 then idiv cx=3.) Validated by
+    // NUG4 (Faerie STR3 VIT6): 540*2/3 = 360 = its record +0x22.
+    expect(faerie.carryCapacityMax).toBe(900);
+    expect(faerie.carryCapacityMax).toBe(Math.floor((nonFaerie.carryCapacityMax * 2) / 3));
   });
 });
 
@@ -408,7 +410,7 @@ describe('DerivedStats return shape', () => {
     const expected: (keyof DerivedStats)[] = [
       'age', 'encumbranceMin', 'encumbranceMax',
       'weightMin', 'weightMax', 'stamina', 'hpInitial',
-      'goldInitial', 'level', 'xp',
+      'carryCapacityMax', 'level', 'xp',
     ];
     for (const key of expected) {
       expect(result).toHaveProperty(key);

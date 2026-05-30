@@ -21,6 +21,7 @@ import {
   applyClassChange,
   eligibleClasses,
   WichmannHill,
+  computeCarryCapacityMax,
   type ActivePartyMember,
   type MessageDb,
   type PortraitSet,
@@ -250,15 +251,16 @@ export function CharacterViewPage() {
       second: 1,
     };
     // Carrying capacity: record +0x20/+0x22 are tenths of a pound → /10 for
-    // the on-screen value. Only render when the member actually has the data
-    // (older rosters created before encumbrance was computed omit it).
-    const cc =
-      member.encumbranceMax != null
-        ? {
-            current: Math.floor((member.encumbranceCurrent ?? 0) / 10),
-            max: Math.floor(member.encumbranceMax / 10),
-          }
-        : undefined;
+    // the on-screen value. Prefer the persisted encumbranceMax; fall back to
+    // deriving it from STR/VIT/race so characters created before it was
+    // persisted still show CC (the formula is deterministic).
+    const carryMax =
+      member.encumbranceMax ??
+      computeCarryCapacityMax(member.attributes.str, member.attributes.vit, member.race);
+    const cc = {
+      current: Math.floor((member.encumbranceCurrent ?? 0) / 10),
+      max: Math.floor(carryMax / 10),
+    };
 
     const baseWindows = composeCharacterViewFrame({
       members,
@@ -269,7 +271,7 @@ export function CharacterViewPage() {
       db,
       includeEditFromCamp,
       age,
-      ...(cc ? { cc } : {}),
+      cc,
     });
 
     const overlays: TileWindow[] = [];

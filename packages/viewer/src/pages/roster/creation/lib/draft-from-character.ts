@@ -37,7 +37,9 @@ export function draftFromCharacter(character: Character): DraftState {
       secondAge: 1,
       hpInitial: character.hpMax ?? character.hpCurrent ?? 0,
       stamina:   character.staminaMax ?? character.staminaCurrent ?? 0,
-      goldInitial: character.gold,
+      // carryCapacityMax (record +0x22) — was mislabeled goldInitial and
+      // incorrectly sourced from character.gold; pull from the real field.
+      carryCapacityMax: character.encumbranceMax ?? 0,
       level: character.level,
       xp: character.xp,
     },

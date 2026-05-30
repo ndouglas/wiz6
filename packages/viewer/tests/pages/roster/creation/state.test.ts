@@ -568,7 +568,7 @@ describe('screen-06 → screen-07 → screen-08 (bonusAllocator → derived-stat
     expect(s.draft.derived.xp).toBe(0);
     expect(s.draft.derived.stamina).toBeGreaterThan(0);
     expect(s.draft.derived.hpInitial).toBeGreaterThan(0);
-    expect(s.draft.derived.goldInitial).toBeGreaterThan(0);
+    expect(s.draft.derived.carryCapacityMax).toBeGreaterThan(0);
   });
 
   it('ALLOC_ADJUST caps attribute at 18', () => {
@@ -868,7 +868,7 @@ describe('determinism test', () => {
     expect(draft1.derived.age).toBe(draft2.derived.age);
     expect(draft1.derived.stamina).toBe(draft2.derived.stamina);
     expect(draft1.derived.hpInitial).toBe(draft2.derived.hpInitial);
-    expect(draft1.derived.goldInitial).toBe(draft2.derived.goldInitial);
+    expect(draft1.derived.carryCapacityMax).toBe(draft2.derived.carryCapacityMax);
     expect(draft1.skillBudget).toBe(draft2.skillBudget);
   });
 });
