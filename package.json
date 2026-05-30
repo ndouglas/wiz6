@@ -16,7 +16,7 @@
     "verify": "pnpm lint && pnpm typecheck && pnpm test",
     "dev:viewer": "pnpm --filter @wiz6/viewer dev",
     "wiz6": "tsx packages/cli/src/bin/wiz6.ts",
-    "extract": "pnpm wiz6 extract --all"
+    "extract": "pnpm wiz6 extract --all && tsx packages/viewer/scripts/generate-gallery.ts && tsx packages/viewer/scripts/generate-stock-preset.ts"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

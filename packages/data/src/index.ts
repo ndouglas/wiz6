@@ -118,6 +118,14 @@ export {
   type HouseRuleMeta,
 } from './schemas/house-rules.js';
 export {
+  PresetSchema,
+  PresetsFileSchema,
+  PcFileJsonSchema,
+  type Preset,
+  type PresetsFile,
+  type PcFileJson,
+} from './schemas/preset.js';
+export {
   RACE_BASE_STATS,
   getRaceBaseStats,
   type RaceBaseStats,

@@ -1,6 +1,37 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, vi } from 'vitest';
+
+// jsdom's Blob (v25) does not implement .text() or .arrayBuffer() — polyfill them.
+if (typeof Blob !== 'undefined' && typeof (Blob.prototype as { text?: unknown }).text === 'undefined') {
+  (Blob.prototype as { text?: () => Promise<string> }).text = function (this: Blob): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(this);
+    });
+  };
+}
+if (typeof Blob !== 'undefined' && typeof (Blob.prototype as { arrayBuffer?: unknown }).arrayBuffer === 'undefined') {
+  (Blob.prototype as { arrayBuffer?: () => Promise<ArrayBuffer> }).arrayBuffer = function (this: Blob): Promise<ArrayBuffer> {
+    return new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(this);
+    });
+  };
+}
 import { cleanup } from '@testing-library/react';
+
+// jsdom does not implement URL.createObjectURL / revokeObjectURL. Stub them so
+// vi.spyOn(URL, 'createObjectURL') works in export tests without throwing.
+if (typeof URL.createObjectURL === 'undefined') {
+  (URL as unknown as { createObjectURL: (obj: unknown) => string }).createObjectURL = (_obj: unknown) => 'blob:stub';
+}
+if (typeof URL.revokeObjectURL === 'undefined') {
+  (URL as unknown as { revokeObjectURL: (url: string) => void }).revokeObjectURL = (_url: string) => undefined;
+}
 
 // Ensure React Testing Library DOM is cleaned up after every test.
 // (Auto-cleanup may not fire in all ESM + jsdom configurations.)
