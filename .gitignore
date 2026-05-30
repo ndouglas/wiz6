@@ -45,6 +45,9 @@ tools/ghidra/wiz6.lock*
 # DOSBox-X save states (user playthrough artifacts)
 tools/dosbox/save/
 
+# DOSBox-X capture dir (transient screenshots/WAVs from interactive/dev runs)
+tools/dosbox/capture/
+
 # Playwright e2e artifacts (reports, test results, captured PNGs)
 packages/viewer/playwright-report/
 packages/viewer/test-results/
