@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PcFilePage } from '../../../src/pages/pc-file/PcFilePage.js';
 import { setStockPreset } from '../../../src/lib/presets-store.js';

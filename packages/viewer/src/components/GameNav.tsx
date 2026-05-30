@@ -5,6 +5,7 @@ const LINKS: { label: string; to: string; end?: boolean }[] = [
   { label: 'Title', to: '/', end: true },
   { label: 'Castle', to: '/castle' },
   { label: 'Roster', to: '/roster' },
+  { label: 'PC File', to: '/pc-file' },
 ];
 
 export function GameNav() {
