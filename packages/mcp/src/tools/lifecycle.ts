@@ -14,6 +14,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { DebuggerConsole, DebuggerUnavailableError } from '../debugger-console.js';
 import type { McpContext } from '../context.js';
 import { errorResult, jsonResult, safeHandler } from '../tool-result.js';
+import { resetSlotTracking } from '../dosbox/state.js';
 
 const launchSchema = {
   savestate: z
@@ -96,6 +97,10 @@ export function registerLifecycleTools(server: McpServer, ctx: McpContext): void
         exitSignal: null,
         startedAt: Date.now(),
       });
+      // DOSBox-X re-reads `saveslot=` from the [dosbox] config section on
+      // each launch (defaults to 1). Re-anchor our slot-pointer tracker so
+      // save/load chord cycling starts from the right slot.
+      resetSlotTracking(1);
       return jsonResult({
         pid,
         status: 'running',

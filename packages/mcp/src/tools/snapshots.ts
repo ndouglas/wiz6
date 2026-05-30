@@ -3,8 +3,8 @@
 // All four tools are REAL:
 //   - `dosbox_list_saves`: filesystem listing under tools/dosbox/save/.
 //   - `dosbox_save_state` / `dosbox_load_state`: drive DOSBox-X's stock
-//     Ctrl+F4/F5/F6 save-state chords via the Swift helper.
-//   - `dosbox_screenshot`: send Ctrl+F5 to DOSBox-X, poll the captures
+//     F12+./F12+,/F12+s/F12+l host-key chords via the Swift helper.
+//   - `dosbox_screenshot`: send F12+p to DOSBox-X, poll the captures
 //     directory for the newest PNG, return the bytes inline.
 //
 // The dynamic-driving tools depend on a running DOSBox-X window on macOS —
@@ -66,12 +66,12 @@ export function registerSnapshotTools(server: McpServer, ctx: McpContext): void 
     'dosbox_save_state',
     {
       description:
-        'Save DOSBox-X state to slot N (0..9) by driving Ctrl+F4 (cycle) and ' +
-        'Ctrl+F5 (save) on the focused window. Waits for tools/dosbox/save/' +
-        'N.sav mtime to advance before returning. Prior window focus is ' +
-        'restored on exit.',
+        'Save DOSBox-X state to slot N (1..10) by driving F12+. (cycle next) / ' +
+        'F12+, (cycle prev) to navigate, then F12+s (save) on the focused window. ' +
+        'Waits for tools/dosbox/save/N.sav mtime to advance before returning. ' +
+        'Prior window focus is restored on exit.',
       inputSchema: {
-        slot: z.number().int().nonnegative().describe('Save slot index (0..9).'),
+        slot: z.number().int().min(1).max(10).describe('Save slot index (1..10).'),
         source: z
           .string()
           .optional()
@@ -92,11 +92,11 @@ export function registerSnapshotTools(server: McpServer, ctx: McpContext): void 
     'dosbox_load_state',
     {
       description:
-        'Load DOSBox-X state from slot N (0..9) by driving Ctrl+F4 (cycle) ' +
-        'and Ctrl+F6 (load) on the focused window. Prior window focus is ' +
-        'restored on exit.',
+        'Load DOSBox-X state from slot N (1..10) by driving F12+. / F12+, ' +
+        '(cycle) and F12+l (load) on the focused window. Prior window focus ' +
+        'is restored on exit.',
       inputSchema: {
-        slot: z.number().int().nonnegative().describe('Save slot index (0..9).'),
+        slot: z.number().int().min(1).max(10).describe('Save slot index (1..10).'),
       },
     },
     safeHandler(async ({ slot }): Promise<JsonToolResult> => {
@@ -113,8 +113,8 @@ export function registerSnapshotTools(server: McpServer, ctx: McpContext): void 
     'dosbox_screenshot',
     {
       description:
-        'Capture the current DOSBox-X frame as PNG. Drives Ctrl+F5 on the ' +
-        'focused window, polls [render] captures= from tools/dosbox/wiz6.conf ' +
+        'Capture the current DOSBox-X frame as PNG. Drives F12+p on the ' +
+        'focused window, polls captures= from tools/dosbox/wiz6.conf ' +
         'for the newest .png, and returns the bytes inline as an image content ' +
         'block. Prior window focus is restored on exit.',
       inputSchema: {

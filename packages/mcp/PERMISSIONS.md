@@ -17,37 +17,43 @@ macOS CGEvent injection to drive a visible DOSBox-X window. This requires
 ## DOSBox-X capture directory
 
 The screenshot tool reads PNGs from DOSBox-X's captures directory, configured
-via `[render] captures=` in `tools/dosbox/wiz6.conf`. If unset, defaults to
+via `captures=` in `tools/dosbox/wiz6.conf`. If unset, defaults to
 `~/Documents/DOSBox-X`.
 
 Recommended: set an explicit path under the repo for cleaner cleanup:
 
 ```ini
-[render]
+[dosbox]
 captures = /Users/you/Projects/wiz6/tools/dosbox/captures
 ```
 
 The MCP server reads this at startup.
 
-## Save-state key chords
+## Save-state and screenshot key chords (DOSBox-X 2026.05.02, macOS)
 
-DOSBox-X's stock save/load key chords:
+On macOS, DOSBox-X uses **F12 as the "host key"** (default for non-Windows
+builds — see `dosbox-x.reference.full.conf` and the `Select host key` item
+under the `Main` menu). The save/load/screenshot bindings are host-key chords:
+F12 must be HELD while the action key is pressed.
 
-| Chord | Action |
-|---|---|
-| Ctrl+F4 | cycle to next save slot |
-| Ctrl+F5 | save state to current slot / screenshot |
-| Ctrl+F6 | load state from current slot |
+| Chord | Action | Mapper event |
+|---|---|---|
+| F12+s | Save state to active slot | `savestate` |
+| F12+l | Load state from active slot | `loadstate` |
+| F12+. | Cycle to next slot | `nextslot` |
+| F12+, | Cycle to previous slot | `prevslot` |
+| F12+p | Take screenshot | `scrshot` |
 
-If your DOSBox-X build uses different chords (some forks rebind these), update
-the `CYCLE_KEY` / `SAVE_KEY` / `LOAD_KEY` constants in
-`packages/mcp/src/dosbox/state.ts`. To check your bindings: in DOSBox-X, open
-the Mapper Editor (Ctrl+F1 or via the menu) and inspect `key_save` / `key_load` /
-`key_capslot`.
+These were verified by reading the running app's Capture menu items via
+AppleScript. DOSBox-X exposes no direct "save to slot N" chords; slots must
+be navigated via cycle presses. The MCP server tracks the current slot
+internally so consecutive saves to different slots only cycle the necessary
+delta. `dosbox_launch` resets the tracker to slot 1 (the DOSBox-X startup
+default from `saveslot = 1`).
 
-NOTE: Ctrl+F5 is used by stock DOSBox-X for BOTH screenshot and save-state
-(context-dependent). If your build resolves them to different chords, update
-the constants in `screenshot.ts` and `state.ts` accordingly.
+If you've rebound any of these in the Mapper Editor (Main → Mapper editor,
+or F12+M while DOSBox-X is focused), update the corresponding constants in
+`packages/mcp/src/dosbox/state.ts` and `screenshot.ts`.
 
 ## Verifying the setup
 
