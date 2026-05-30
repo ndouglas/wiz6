@@ -38,6 +38,8 @@ export interface CharacterViewView {
   cc?: { current: number; max: number };
   /** Age values displayed next to the portrait. Omit to skip rendering. */
   age?: { years: number; second: number };
+  /** When true, EDIT joins the camp action subset. */
+  includeEditFromCamp?: boolean;
 }
 
 export function composeCharacterViewFrame(view: CharacterViewView): TileWindow[] {
@@ -51,6 +53,10 @@ export function composeCharacterViewFrame(view: CharacterViewView): TileWindow[]
       cc: view.cc,
       age: view.age,
     }),
-    composeActionMenu({ cursorIdx: view.cursorIdx, db: view.db }),
+    composeActionMenu({
+      cursorIdx: view.cursorIdx,
+      db: view.db,
+      includeEditFromCamp: view.includeEditFromCamp === true,
+    }),
   ];
 }

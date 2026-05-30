@@ -242,6 +242,7 @@ export function CharacterViewPage() {
       // an overlay is up the bottom strip is covered (or its cursor is moot).
       cursorIdx: state.kind === 'action-menu' ? state.cursorIdx : 0,
       db,
+      includeEditFromCamp,
     });
 
     const overlays: TileWindow[] = [];
