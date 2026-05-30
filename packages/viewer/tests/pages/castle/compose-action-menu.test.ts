@@ -83,3 +83,41 @@ describe('composeActionMenu', () => {
     expect(win.cells[i + 1]).toBe(0x03); // plain attr
   });
 });
+
+const stubDb = {
+  indexedMessages: [
+    { id: 301, decodedText: 'EQUIP' },
+    { id: 302, decodedText: 'SPELL' },
+    { id: 304, decodedText: 'ASSAY' },
+    { id: 305, decodedText: 'SWAG' },
+    { id: 309, decodedText: 'SKILL' },
+    { id: 310, decodedText: 'EDIT' },
+    { id: 312, decodedText: 'EXIT' },
+  ],
+} as unknown as MessageDb;
+
+function charsAt(cells: Uint8Array, w: number, col: number, row: number, n: number): string {
+  let out = '';
+  for (let i = 0; i < n; i++) out += String.fromCharCode(cells[(row * w + col + i) * 2] ?? 0);
+  return out;
+}
+
+describe('composeActionMenu — includeEditFromCamp', () => {
+  it('does NOT include EDIT by default', () => {
+    const w = composeActionMenu({ cursorIdx: 0, db: stubDb });
+    let bigBlob = '';
+    for (let r = 0; r < w.heightCells; r++) {
+      bigBlob += charsAt(w.cells, w.widthCells, 0, r, w.widthCells) + '\n';
+    }
+    expect(bigBlob).not.toContain('EDIT');
+  });
+
+  it('includes EDIT when includeEditFromCamp=true', () => {
+    const w = composeActionMenu({ cursorIdx: 0, db: stubDb, includeEditFromCamp: true });
+    let bigBlob = '';
+    for (let r = 0; r < w.heightCells; r++) {
+      bigBlob += charsAt(w.cells, w.widthCells, 0, r, w.widthCells) + '\n';
+    }
+    expect(bigBlob).toContain('EDIT');
+  });
+});

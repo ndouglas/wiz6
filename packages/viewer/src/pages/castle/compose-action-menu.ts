@@ -58,15 +58,32 @@ const GRID_ROWS = 2;
  */
 const CAMP_ENABLED_INDICES: readonly number[] = [0, 1, 3, 4, 8];
 
+/**
+ * Camp context-mask extended with EDIT (action index 9 = msg 310). Used when
+ * the character view is opened from the camp's EDIT submenu so the player can
+ * still reach EDIT without backing out of the view.
+ */
+const CAMP_PLUS_EDIT_INDICES: readonly number[] = [0, 1, 3, 4, 8, 9];
+
 export interface ActionMenuView {
-  /** Index (0..5) of the currently-highlighted enabled action. EXIT is 5. */
+  /** Index of the currently-highlighted enabled action. EXIT is the last index. */
   cursorIdx: number;
   db: MessageDb;
+  /**
+   * When true, append EDIT (msg 310) to the camp action set. Used when the
+   * character view is reached via the camp EDIT submenu so the player can
+   * re-open EDIT directly from the view. Defaults to false.
+   */
+  includeEditFromCamp?: boolean;
 }
 
-/** Returns the list of (msgId, label) for the camp-enabled actions in order. */
-function enabledActions(db: MessageDb): Array<{ msgId: number; label: string }> {
-  const list = CAMP_ENABLED_INDICES.map((i) => {
+/** Returns the list of (msgId, label) for the enabled actions in order. */
+function enabledActions(
+  db: MessageDb,
+  includeEdit: boolean,
+): Array<{ msgId: number; label: string }> {
+  const indices = includeEdit ? CAMP_PLUS_EDIT_INDICES : CAMP_ENABLED_INDICES;
+  const list = indices.map((i) => {
     const msgId = ACTION_MSG_BASE + i;
     return { msgId, label: creationString(db, msgId) };
   });
@@ -104,7 +121,7 @@ export function composeActionMenu(view: ActionMenuView): TileWindow {
     w.cells[idx + 1] = ATTR_BG;
   }
 
-  const actions = enabledActions(view.db);
+  const actions = enabledActions(view.db, view.includeEditFromCamp === true);
   for (let i = 0; i < actions.length; i++) {
     const { label } = actions[i]!;
     if (!label) continue;
