@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PcFilePage } from '../../../src/pages/pc-file/PcFilePage.js';
 import { setStockPreset } from '../../../src/lib/presets-store.js';
@@ -42,5 +42,50 @@ describe('PcFilePage', () => {
     render(<MemoryRouter><PcFilePage /></MemoryRouter>);
     expect(screen.queryByRole('button', { name: /party/i })).toBeNull();
     expect(screen.queryByRole('link', { name: /party/i })).toBeNull();
+  });
+
+  it('copying a preset character adds it to the PC File (fresh id, de-duped by name)', () => {
+    render(<MemoryRouter><PcFilePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: /copy THESUS/i }));
+    // PC File pane now lists THESUS
+    const pcfile = screen.getByRole('region', { name: /pc file/i });
+    expect(within(pcfile).getByText('THESUS')).toBeInTheDocument();
+    // copying again is skipped (name dedupe) — still one THESUS in PC File
+    fireEvent.click(screen.getByRole('button', { name: /copy THESUS/i }));
+    expect(within(pcfile).getAllByText('THESUS')).toHaveLength(1);
+  });
+
+  it('Save as preset snapshots the PC File into a new custom preset', () => {
+    render(<MemoryRouter><PcFilePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: /copy THESUS/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save as preset/i }));
+    // a prompt/name field appears; submit "My Set"
+    fireEvent.change(screen.getByLabelText(/preset name/i), { target: { value: 'My Set' } });
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    expect(screen.getByText('My Set')).toBeInTheDocument();
+  });
+
+  it('delete removes a custom preset but not the Stock preset', () => {
+    render(<MemoryRouter><PcFilePage /></MemoryRouter>);
+    // first, create a custom preset via save-as-preset
+    fireEvent.click(screen.getByRole('button', { name: /copy THESUS/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save as preset/i }));
+    fireEvent.change(screen.getByLabelText(/preset name/i), { target: { value: 'DeleteMe' } });
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    expect(screen.getByText('DeleteMe')).toBeInTheDocument();
+    // delete the custom preset
+    fireEvent.click(screen.getByRole('button', { name: /delete DeleteMe/i }));
+    expect(screen.queryByText('DeleteMe')).toBeNull();
+    // Stock still present (no delete button for it)
+    expect(screen.queryByRole('button', { name: /delete Stock Characters/i })).toBeNull();
+  });
+
+  it('copy all from preset copies every character in that preset', () => {
+    setStockPreset([mk('THESUS'), mk('ERIN')]);
+    render(<MemoryRouter><PcFilePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: /copy all from Stock Characters/i }));
+    const pcfile = screen.getByRole('region', { name: /pc file/i });
+    expect(within(pcfile).getByText('THESUS')).toBeInTheDocument();
+    expect(within(pcfile).getByText('ERIN')).toBeInTheDocument();
   });
 });
