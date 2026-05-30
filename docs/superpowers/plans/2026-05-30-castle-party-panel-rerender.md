@@ -2,31 +2,45 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-## ⚠️ PICKUP NOTE — updated 2026-05-30 (session 2: merged to main + blocker found)
+## ⚠️ PICKUP NOTE — updated 2026-05-30 (session 3: DOSBox driving FIXED + merged)
 
-Tasks **1, 2, 3 are DONE and MERGED TO MAIN** (merge commit `91b5f18`). The
-`castle-rerender` branch + worktree are retired. Continue Tasks 4-6 from main
-(spin a fresh worktree off main when you start).
+Tasks **1, 2, 3 DONE** (merge `91b5f18`). **The DOSBox-X MCP driving layer is now
+FIXED and merged to main** (commits `e39ca66`, `4bff860`, `ba4992e`). Continue
+Tasks 4-6 from main.
 
-Done so far:
-- `0e07387` — Task 1A: `dosbox_launch` honors `breakAtStart=false` (skips the macOS isatty debugger gate). **Now on main** — a fresh CC session's MCP child will have it.
-- `f4e63d0` — Task 1B: RE findings `wbase-party-panel-redraw.json` + `wbase-party-portrait-blit.json`.
-- `ee2296d` — Task 2: ported FUN_1b2d → `party-panel-render.ts`. castle-1-members parity **98.20%** (floor 98). Remaining ~1.8% is the wport portrait asset gap (engine 32×24 vs our 24×24; dcf2 transform unresolved — TODO #061/#026).
-- `1512acd` — Task 3: `tools/parity/build-castle-saves.ts` + README.
-- `0f73398` — added `captures=` to `wiz6.conf` (MCP screenshot tool needs it) + gitignored `tools/dosbox/capture/`.
-- `6b35a47` + follow-up — `debugger-console.test.ts` no longer reads the mutable `save/3.sav` (it was clobbered); it now **synthesizes** a tiny `Memory` ZIP at test time with the anchor at a known offset (deterministic, no DOSBox). Added folder-level guardrail `CLAUDE.md` files to `tools/dosbox/`, `packages/mcp/tests/`, `tools/parity/`, `original/`.
+### ✅ Driving layer fixed (session 3 — the big unblock)
 
-### 🚧 BLOCKER discovered (read before Tasks 4-5)
+Session 2's "blocker" turned out to be **macOS focus**, not the input helper logic:
+- The flaky chords / "keys don't reach DOSBox" were caused by DOSBox-X **not being the frontmost window** — whatever was frontmost (VS Code, or a shell command that briefly foregrounds the terminal) ate the synthetic keystrokes. `NSRunningApplication.activate()` silently no-ops under macOS focus-stealing prevention.
+- Fixes shipped:
+  - `e39ca66` — screenshot **write-race** fixed (read the PNG only after its size is stable; it was reading 0 bytes mid-write).
+  - `4bff860` — **single-key mapper** (`tools/dosbox/mapper-wiz6.map`, wired via `mapperfile_sdl2` *absolute path*): F9=screenshot, F5=save, F6=load, F7=prevslot, F8=nextslot (guest F5-F10 unbound). Replaces the unreliable F12 host-key chords. `screenshot.ts`/`state.ts` now send single keys.
+  - `ba4992e` — helper `focusWindow` now **force-frontmosts via the Accessibility API** (`AXFrontmost`), so `send_input`/`screenshot`/`save_state` reliably reach DOSBox regardless of what's active. Validated: works with VS Code frontmost.
+- Also: **deleted `/Applications/dosbox-x.app`** (a redundant SDL1 build that shared bundle id `com.dosbox-x` with the SDL2 cask — a contributing confound). Only the SDL2 cask remains.
 
-Session 2 tried to drive DOSBox via MCP and found:
-- `dosbox_launch` is **broken until you restart CC** — the fix shipped to main this session but the *running* MCP child predates it and can't reload. **Restart Claude Code so the new MCP child picks up `0e07387`.**
-- **F12-modifier chords don't reliably deliver through the input helper.** `dosbox_screenshot` (F12+p) worked once then never; `dosbox_save_state` (F12+s) fired but wrote to DOSBox's *default* slot/dir (repo-root `save/1.sav`), not the requested slot. Plain single keystrokes (`dosbox_send_input "enter"`) work fine. **Re-test the chords after restart;** if they still misfire, fix the Swift helper's chord sequencing (hold-modifier + key) before the save-building, or drive blind and verify via `dosbox_inspect_save` party_size.
-- Saves 2,3,4 currently hold `party_size=0` abandoned attempts — rebuild them.
+**🔁 RESTART CLAUDE CODE before driving:** the running MCP child still holds the *old* helper binary + old TS. After a restart the child picks up the new helper (AX focus) + single-key code, and driving via the MCP tools is reliable with no manual frontmosting.
 
-**What's left** (Tasks 4-6 below):
-- Task 4: build castle-2-members save + fixture + N=2 parity test. **Likely floor ≈ 96-98%** (wport gap × members).
-- Task 5: build castle-{3,4,5,6}-members fixtures + parity tests.
+### Validated end-to-end (session 3)
+- F9 screenshot — repeatable (3/3 valid PNGs). F8 cycles slots (1→2→3). F5 saves to `tools/dosbox/save/N.sav` (correct dir; saveremark=false).
+- **Built `2.sav` = N=2 party** (NATHAN slot0/LEFT + NUG2 slot1/RIGHT — confirms even→LEFT/odd→RIGHT). `dosbox_inspect_save 2` → party_size 2.
+- Capture screenshots by triggering `dosbox_screenshot` (or send F9) then `Read` the newest PNG in `tools/dosbox/capture/`.
+
+### ⚠️ Roster only has 2 characters (NATHAN, NUG2)
+N=2 is the roster max. **N=3..6 require creating new characters** via Wiz6's
+character-creation flow (MASTER OPTIONS → CHARACTER MENU; note: entering
+CHARACTER MENU disbands the current party back to the roster). This is the main
+remaining interactive effort.
+
+### Save-state slots (current contents)
+- `1.sav` = party_size 0 (clobbered during validation; rebuild NATHAN-only if the castle-1 fixture needs regen — the committed `castle-1-members.{idx.gz,png}` doesn't need it).
+- `2.sav` = **N=2 (NATHAN+NUG2)** — keep, this is the castle-2 source.
+- `3.sav` = party_size 0 (clobbered).
+
+**What's left** (Tasks 4-6):
+- Task 4: capture `castle-2-members` fixture from `2.sav` (`gen-fixture.ts --save 2`), read both char records (`dosbox_read_struct`), add N=2 parity case (LEFT+RIGHT, context partySize:2 / pcFileHasUnloadedChars:false — roster empty so "ADD PARTY MEMBER" gone, "START NEW GAME" present).
+- Task 5: **create 4 characters**, build castle-{3,4,5,6} saves + fixtures + parity. (Or descope — confirm with Nate.)
 - Task 6: finalize TODOs (#024, #061, #062, #026).
+- Follow-up: the committed `wiz6.conf` mapperfile path is absolute-to-this-machine (matches the conf's existing style); `build-castle-saves.ts` still uses the old blind-macro approach — update it to single keys + rely on AX focus, or drive interactively.
 
 **Adjust expectations**: realistic parity floors are **~96-99%**, not 100%, until the wport-extractor fix (TODO #061/#026).
 
