@@ -63,7 +63,7 @@ const EMPTY_ITEM: PcfileInventoryItem = {
  */
 export function characterToPcfileSlot(c: Character, slotIndex: number): PcfileSlot {
   const raw = new Array<number>(432).fill(0);
-  raw[OFF_RENDERED_PORTRAIT] = c.portraitIndex & 0xff;
+  raw[OFF_RENDERED_PORTRAIT] = (c.portraitIndex ?? 0) & 0xff;
   raw[OFF_SEX] = c.sex & 0xff;
 
   return {
