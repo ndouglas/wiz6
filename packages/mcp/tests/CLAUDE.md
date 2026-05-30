@@ -13,9 +13,14 @@ when the save dir happened to be absent, masking the breakage.
 
 ## Instead
 
-- Vendor a **stable, committed** `.sav` under `packages/mcp/tests/fixtures/`,
-  decoupled from the workspace (mirrors the repo's `test-fixtures/original/`
-  pattern for game binaries).
-- Gate save-dependent tests with `skipIf(!existsSync(FIXTURE))` so they skip
-  cleanly until the fixture is vendored — never point them at a disposable slot
-  just to make the test "run".
+- **Prefer synthesizing** the minimal artifact the code under test actually
+  needs, at test time. `SaveStateBridge` only reads the `Memory` entry out of a
+  save-state ZIP and searches it, so `debugger-console.test.ts` builds a tiny
+  ZIP whose `Memory` member is `[filler][known pattern at a known offset]
+  [filler]` — deterministic, no DOSBox, no committed binary, and it asserts the
+  *exact* offset rather than "> 0".
+- If you genuinely need a **real** captured save (an end-to-end integration
+  smoke), vendor a stable, committed `.sav` under `packages/mcp/tests/fixtures/`
+  (decoupled from the workspace, mirroring `test-fixtures/original/`) and gate
+  it `skipIf(!existsSync(FIXTURE))`. Never point a test at a disposable
+  `tools/dosbox/save/N.sav` slot just to make it "run".

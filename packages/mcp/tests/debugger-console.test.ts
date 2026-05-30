@@ -1,6 +1,8 @@
-import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 
 import {
   DebuggerConsole,
@@ -15,23 +17,46 @@ import {
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
 const EXTRACT_SCRIPT = join(REPO_ROOT, 'tools', 'parity', 'extract.py');
-// Vendored, STABLE mid-intro save-state fixture: wroot.exe loaded, the
-// SOUND00.SND filename-table anchor present (~9 s into the intro autodrive).
-//
-// This MUST NOT point at tools/dosbox/save/*.sav. Those slots are a mutable
-// DOSBox workspace — gameplay and the castle build-saves runs clobber them
-// (slot 3 in particular is reused for the N=3 castle fixture), so a test that
-// reads them passes or fails depending on whatever was last saved. Capture
-// this fixture once and commit it under tests/fixtures/ (decoupled from the
-// workspace, mirroring test-fixtures/original/). Until it is vendored these
-// tests skip rather than bind to a disposable save. See TODO #066.
-const SAVE_STATE = join(__dirname, 'fixtures', 'boot-state.sav');
+// SaveStateBridge reads the `Memory` entry out of a DOSBox-X save state (a ZIP)
+// and does byte-offset find/dump on it. The test only needs *a blob containing
+// a known pattern at a known offset* — not a real 240 KB emulator save, and
+// emphatically not a tools/dosbox/save/*.sav workspace slot (those are mutable
+// scratch: gameplay and the castle build-saves runs clobber them, and slot 3 is
+// reused for the N=3 castle fixture). So we synthesize a minimal save at test
+// time — a ZIP whose `Memory` member is [0x40 filler][SOUND00.SND\0][filler].
+// Deterministic, tiny, no DOSBox, never clobbered; lets us assert the EXACT
+// offset rather than just "> 0".
+const ANCHOR_OFFSET = 0x40;
+const TMP_DIR = mkdtempSync(join(tmpdir(), 'mcp-savebridge-'));
+const SAVE_STATE = join(TMP_DIR, 'memory-fixture.sav');
+// Built via python3 (already required by extract.py and by SaveStateBridge).
+// If python3 is unavailable the build fails and the bridge tests skip — the
+// bridge can't run without it anyway.
+const buildFixture = spawnSync(
+  'python3',
+  [
+    '-c',
+    [
+      'import zipfile, sys',
+      'blob = b"\\x00" * 0x40 + b"SOUND00.SND\\x00" + b"\\xff" * 0x10',
+      'with zipfile.ZipFile(sys.argv[1], "w") as z:',
+      '    z.writestr("Memory", blob)',
+    ].join('\n'),
+    SAVE_STATE,
+  ],
+  { encoding: 'utf8' },
+);
 const WIZ6_CONF = join(REPO_ROOT, 'tools', 'dosbox', 'wiz6.conf');
 const DOSBOX_PATH =
   '/opt/homebrew/Caskroom/dosbox-x-app/2026.05.02/dosbox-x-sdl2/dosbox-x.app/Contents/MacOS/dosbox-x';
 
-const haveSaveState = existsSync(SAVE_STATE) && existsSync(EXTRACT_SCRIPT);
+const haveSaveState =
+  buildFixture.status === 0 && existsSync(SAVE_STATE) && existsSync(EXTRACT_SCRIPT);
 const haveDosbox = existsSync(DOSBOX_PATH) && existsSync(WIZ6_CONF);
+
+afterAll(() => {
+  rmSync(TMP_DIR, { recursive: true, force: true });
+});
 
 // The 12-byte ASCII template the engine uses to build per-slot SOUND filenames.
 // "SOUND00.SND" + NUL = 53 4f 55 4e 44 30 30 2e 53 4e 44 00.
@@ -135,19 +160,17 @@ describe('DebuggerConsole API surface', () => {
   });
 });
 
-describe('SaveStateBridge — read memory from a DOSBox-X save state', () => {
+describe('SaveStateBridge — read memory from a synthetic save state', () => {
   it.skipIf(!haveSaveState)(
-    'reads the SOUND00.SND filename template back from a boot-time save state',
+    'finds the SOUND00.SND template at its known offset and reads it back',
     () => {
       const bridge = new SaveStateBridge(EXTRACT_SCRIPT, SAVE_STATE);
-      // 1. Locate the template by byte-pattern search. This is the same
-      //    technique tools/parity uses to bind seg:off pairs to runtime
-      //    structures without needing DOS-loader knowledge.
+      // findPattern shells extract.py and parses the phys=0x.. offset. We
+      // planted the template at ANCHOR_OFFSET, so the result is exact.
       const offset = bridge.findPattern('53 4f 55 4e 44 30 30 2e 53 4e 44 00');
-      expect(offset).toBeGreaterThan(0);
-      // 2. Read 12 bytes there and verify they match the expected template.
+      expect(offset).toBe(ANCHOR_OFFSET);
+      // readPhysical dumps that 12-byte range back verbatim.
       const bytes = bridge.readPhysical(offset, 12);
-      expect(bytes.length).toBe(12);
       expect(Array.from(bytes)).toEqual(Array.from(SOUND00_TEMPLATE));
     },
   );

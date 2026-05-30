@@ -2,21 +2,33 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-## ⚠️ PICKUP NOTE — resuming from a prior session (2026-05-30)
+## ⚠️ PICKUP NOTE — updated 2026-05-30 (session 2: merged to main + blocker found)
 
-Tasks **1, 2, and 3 are DONE** on branch `castle-rerender` (worktree at `~/.config/superpowers/worktrees/wiz6/castle-rerender`):
+Tasks **1, 2, 3 are DONE and MERGED TO MAIN** (merge commit `91b5f18`). The
+`castle-rerender` branch + worktree are retired. Continue Tasks 4-6 from main
+(spin a fresh worktree off main when you start).
 
-- Commit `0e07387` — Task 1 part A: fixed `dosbox_launch` MCP tool. Default `breakAtStart=false`; honor the flag. Pre-fix, every launch tripped the macOS isatty gate. **Tasks 4-5 need a fresh Claude Code session for the MCP child to load this fix.**
-- Commit `f4e63d0` — Task 1 part B: RE findings `wbase-party-panel-redraw.json` + `wbase-party-portrait-blit.json` with decoded 0x526 / 0x532 tables + LEFT/RIGHT split + dcf2 coordinate mystery (low confidence).
-- Commit `ee2296d` — Task 2: ported FUN_1b2d → `packages/viewer/src/pages/game/party-panel-render.ts`. castle-1-members parity at **98.20%** (floor 98, not 100). **Remaining ~1.8% is the wport portrait sprite asset mismatch** — engine renders 32×24 portraits, our extracted wport is 24×24. The dcf2 thunk transforms the on-disk 64×9 EGA-planar format to 32×24 on-screen; our wport extractor doesn't honor that transform. Reaching 100% requires a separate wport-extractor fix (file as a TODO if not already).
-- Commit `1512acd` — Task 3: `tools/parity/build-castle-saves.ts` self-contained script + README workflow.
+Done so far:
+- `0e07387` — Task 1A: `dosbox_launch` honors `breakAtStart=false` (skips the macOS isatty debugger gate). **Now on main** — a fresh CC session's MCP child will have it.
+- `f4e63d0` — Task 1B: RE findings `wbase-party-panel-redraw.json` + `wbase-party-portrait-blit.json`.
+- `ee2296d` — Task 2: ported FUN_1b2d → `party-panel-render.ts`. castle-1-members parity **98.20%** (floor 98). Remaining ~1.8% is the wport portrait asset gap (engine 32×24 vs our 24×24; dcf2 transform unresolved — TODO #061/#026).
+- `1512acd` — Task 3: `tools/parity/build-castle-saves.ts` + README.
+- `0f73398` — added `captures=` to `wiz6.conf` (MCP screenshot tool needs it) + gitignored `tools/dosbox/capture/`.
+- `6b35a47` + follow-up — `debugger-console.test.ts` no longer reads the mutable `save/3.sav` (it was clobbered); it now **synthesizes** a tiny `Memory` ZIP at test time with the anchor at a known offset (deterministic, no DOSBox). Added folder-level guardrail `CLAUDE.md` files to `tools/dosbox/`, `packages/mcp/tests/`, `tools/parity/`, `original/`.
+
+### 🚧 BLOCKER discovered (read before Tasks 4-5)
+
+Session 2 tried to drive DOSBox via MCP and found:
+- `dosbox_launch` is **broken until you restart CC** — the fix shipped to main this session but the *running* MCP child predates it and can't reload. **Restart Claude Code so the new MCP child picks up `0e07387`.**
+- **F12-modifier chords don't reliably deliver through the input helper.** `dosbox_screenshot` (F12+p) worked once then never; `dosbox_save_state` (F12+s) fired but wrote to DOSBox's *default* slot/dir (repo-root `save/1.sav`), not the requested slot. Plain single keystrokes (`dosbox_send_input "enter"`) work fine. **Re-test the chords after restart;** if they still misfire, fix the Swift helper's chord sequencing (hold-modifier + key) before the save-building, or drive blind and verify via `dosbox_inspect_save` party_size.
+- Saves 2,3,4 currently hold `party_size=0` abandoned attempts — rebuild them.
 
 **What's left** (Tasks 4-6 below):
-- Task 4: build castle-2-members fixture via MCP-driven script + N=2 parity test. **Likely floor ≈ 98%** (same wport gap × 2 members).
+- Task 4: build castle-2-members save + fixture + N=2 parity test. **Likely floor ≈ 96-98%** (wport gap × members).
 - Task 5: build castle-{3,4,5,6}-members fixtures + parity tests.
 - Task 6: finalize TODOs (#024, #061, #062, #026).
 
-**Adjust expectations**: the original plan targeted 100% parity floors. After Task 2's discovery, **realistic floors are ~96-99%** until a separate wport-extractor task (open as TODO) bumps them to 100%. The "wbase-party-portrait-blit.json" finding documents the dcf2 transform mystery in detail.
+**Adjust expectations**: realistic parity floors are **~96-99%**, not 100%, until the wport-extractor fix (TODO #061/#026).
 
 
 
