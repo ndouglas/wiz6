@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { compareRgba, writeDiffPng } from './diff-image.js';
+import { compareRgba, compareRgbaMulti, writeDiffPng } from './diff-image.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -133,6 +133,58 @@ describe('compareRgba', () => {
     // x=3 comes before x=5 in scan order
     expect(result.firstDiffs[0]!.x).toBe(3);
     expect(result.firstDiffs[1]!.x).toBe(5);
+  });
+});
+
+// ─── compareRgbaMulti tests ──────────────────────────────────────────────────
+
+describe('compareRgbaMulti (a pixel passes if it matches ANY reference)', () => {
+  it('100% when target equals the only reference', () => {
+    const t = makeBuffer(10, 20, 30);
+    const r = makeBuffer(10, 20, 30);
+    expect(compareRgbaMulti(t, [r], { tolerance: 0 }).matchPct).toBe(100);
+  });
+
+  it('100% when each pixel matches at least one of two references', () => {
+    const base = makeBuffer(0, 0, 0);
+    // ref0 differs from target at (5,5); ref1 differs at (9,9). Target matches
+    // ref1 at (5,5) and ref0 at (9,9) → every pixel matches SOME reference.
+    const target = base;
+    const ref0 = withPixel(base, 5, 5, 255, 0, 0);
+    const ref1 = withPixel(base, 9, 9, 0, 255, 0);
+    const res = compareRgbaMulti(target, [ref0, ref1], { tolerance: 0 });
+    expect(res.diffCount).toBe(0);
+    expect(res.matchPct).toBe(100);
+  });
+
+  it('flags a pixel that matches NO reference', () => {
+    const base = makeBuffer(0, 0, 0);
+    const target = withPixel(base, 2, 2, 7, 7, 7); // unique value
+    const ref0 = withPixel(base, 2, 2, 1, 1, 1);
+    const ref1 = withPixel(base, 2, 2, 9, 9, 9);
+    const res = compareRgbaMulti(target, [ref0, ref1], { tolerance: 0 });
+    expect(res.diffCount).toBe(1);
+    expect(res.firstDiffs[0]).toMatchObject({ x: 2, y: 2 });
+  });
+
+  it('throws when no references are supplied', () => {
+    const t = makeBuffer(0, 0, 0);
+    expect(() => compareRgbaMulti(t, [])).toThrow(/at least one reference/);
+  });
+
+  it('throws on a reference length mismatch', () => {
+    const t = makeBuffer(0, 0, 0);
+    const bad = new Uint8Array(320 * 100 * 4);
+    expect(() => compareRgbaMulti(t, [bad])).toThrow(/length mismatch/);
+  });
+
+  it('matches compareRgba exactly for a single reference', () => {
+    const a = makeBuffer(0, 0, 0);
+    const b = withPixel(a, 10, 20, 255, 255, 255);
+    const single = compareRgba(a, b, { tolerance: 0 });
+    const multi = compareRgbaMulti(a, [b], { tolerance: 0 });
+    expect(multi.diffCount).toBe(single.diffCount);
+    expect(multi.matchPct).toBe(single.matchPct);
   });
 });
 

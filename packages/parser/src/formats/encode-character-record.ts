@@ -12,7 +12,7 @@ import type { PcfileSlot } from '@wiz6/data';
  *
  * Unmapped bytes (preserved verbatim from `raw`):
  *   +0x118..+0x121  10 bytes  unknown_0x118 (class-dependent school capacity flags)
- *   +0x19c          1 byte    unknown_0x19c (non-zero for some chars; purpose unknown)
+ *   +0x19c          1 byte    rendered_portrait_index (global 0..41; the drawn portrait)
  *   +0x1a0          1 byte    high_water_level (class-title threshold count)
  *   +0x1a1          1 byte    sex (not decoded by PcfileSlot — carried in raw only)
  *   +0x1a2..+0x1a5  4 bytes   unknown_0x1a2 (always 0 in stock chars)
@@ -150,7 +150,7 @@ export function encodeCharacterRecord(slot: PcfileSlot): Uint8Array {
     out[0x188 + sp] = slot.spellSlotsKnown[sp]!;
   }
 
-  // --- +0x19c: unknown_0x19c (1 byte) — preserved from raw ---
+  // --- +0x19c: rendered_portrait_index (global 0..41) — preserved from raw ---
   // --- +0x19d: race — u8 ---
   out[0x19d] = slot.race;
 

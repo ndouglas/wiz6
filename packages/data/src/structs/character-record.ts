@@ -483,12 +483,19 @@ export const CHARACTER_RECORD: BssStruct = {
       description: '20-byte sparse region at +0x188 (abs 0x4570). All-zero for non-casters. Casters have sparse nonzero values at school-aligned positions. Likely spell-known counts or spell-slot tracking.',
     },
     {
-      name: 'unknown_0x19c',
+      name: 'rendered_portrait_index',
       offset: 0x19c,
-      // UNKNOWN: 1 byte at abs 0x4584. All stock chars = 0.
-      // One byte gap between spell_slots_known (+0x188..+0x19b) and race (+0x19d).
+      // HIGH CONFIDENCE: abs 0x4584. The GLOBAL portrait index (0..41) the
+      // engine actually renders for this character — file = idx/14, in-file =
+      // idx%14 (wport1=0..13, wport2=14..27, wport3=28..41). Verified against
+      // live save-state records + pixel-matching the rendered portrait region:
+      //   NATHAN=21 (wport2 #7), NUG2=6 (wport1 #6), NUG3=8, NUG6=40 (wport3 #12).
+      // This is NOT `portrait_index` (+0x1ab) — that field is the creation
+      // DEFAULT (spd+1) and does not track the rendered portrait. Stock chars in
+      // a freshly-loaded pcfile read 0 here until the party/runtime path
+      // populates it; the value is authoritative in save-state memory.
       type: { kind: 'scalar', scalar: 'u8' },
-      description: '1 unknown byte at +0x19c (abs 0x4584). Zero for all stock chars.',
+      description: 'Global rendered portrait index 0..41 (file=idx/14, in-file=idx%14) at +0x19c (abs 0x4584). The portrait the engine draws — NOT the creation default at +0x1ab. Verified: NATHAN=21, NUG2=6, NUG3=8, NUG6=40.',
     },
     {
       name: 'race',
@@ -595,12 +602,14 @@ export const CHARACTER_RECORD: BssStruct = {
       name: 'portrait_index',
       offset: 0x1ab,
       // MEDIUM CONFIDENCE: abs 0x4593 = base 0x43e8 + +0x1ab.
-      // Values vary per character and align with portrait indices 0-13 (14 available portraits).
+      // This is the creation DEFAULT, computed as spd+1 at character creation
+      // (`inc al; mov [char_base+0x1ab], al` — see portrait-pools finding). It
+      // is NOT the portrait the engine renders — that is the global index at
+      // +0x19c (`rendered_portrait_index`). Confirmed: NATHAN spd=8 → this
+      // field=9, but the rendered portrait is global 21 (+0x19c).
       // Stock: THESUS=10, TEMPEST=8, LYSANDR=13, NOBAL=10, TREON=9, PENTAG=7.
-      // Portrait selection code in wpcmk.ovr accesses this offset.
-      // Range 7..13 for stock chars; THESUS and NOBAL share portrait 10.
       type: { kind: 'scalar', scalar: 'u8' },
-      description: 'Portrait index (0..13). At +0x1ab (abs 0x4593). Selected at character creation; 14 portraits available. Stock: THESUS=10,TEMPEST=8,LYSANDR=13,NOBAL=10,TREON=9,PENTAG=7.',
+      description: 'Creation-default portrait byte (spd+1) at +0x1ab (abs 0x4593). NOT the rendered portrait — see rendered_portrait_index (+0x19c). Stock: THESUS=10,TEMPEST=8,LYSANDR=13,NOBAL=10,TREON=9,PENTAG=7.',
     },
     {
       name: 'inventory_count',
