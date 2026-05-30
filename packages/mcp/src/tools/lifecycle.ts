@@ -26,7 +26,14 @@ const launchSchema = {
   breakAtStart: z
     .boolean()
     .optional()
-    .describe('Pass -break-start to dosbox-x (debugger pauses at first instruction). Default true.'),
+    .default(false)
+    .describe(
+      'When true, dosbox-x boots into the ncurses debugger paused at the first instruction. ' +
+        'Default false. Note: on macOS the debugger is gated behind isatty(stdin); with ' +
+        'breakAtStart=true from a piped child process (the realistic MCP case) the launch ' +
+        'will fail with DebuggerUnavailableError. The dynamic tools (send_input, screenshot, ' +
+        'save_state, load_state) route around the debugger entirely and work without it.',
+    ),
   timeLimitSeconds: z
     .number()
     .int()
@@ -63,6 +70,7 @@ export function registerLifecycleTools(server: McpServer, ctx: McpContext): void
       const console_ = new DebuggerConsole({
         configPath: ctx.configPath,
         cwd: ctx.repoRoot,
+        breakAtStart: args.breakAtStart,
         ...(args.timeLimitSeconds !== undefined && { timeLimitSeconds: args.timeLimitSeconds }),
       });
       try {

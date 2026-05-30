@@ -8,6 +8,7 @@ import {
   MACOS_TTY_GATE_MESSAGE,
   SaveStateBridge,
   bpCommand,
+  buildDosboxArgs,
   formatSegOff,
   memdumpBinCommand,
 } from '../src/debugger-console.js';
@@ -60,6 +61,48 @@ describe('command serialization', () => {
     expect(() => memdumpBinCommand(0, 0, 0)).toThrow(RangeError);
     expect(() => memdumpBinCommand(0, 0, -1)).toThrow(RangeError);
     expect(() => memdumpBinCommand(0, 0, 1.5)).toThrow(RangeError);
+  });
+});
+
+describe('buildDosboxArgs — argv builder', () => {
+  it('omits -break-start by default (breakAtStart unset)', () => {
+    const args = buildDosboxArgs({ configPath: '/tmp/wiz6.conf' });
+    expect(args).not.toContain('-break-start');
+    // The core flags must still be present.
+    expect(args).toEqual(['-conf', '/tmp/wiz6.conf', '-nogui', '-nomenu']);
+  });
+
+  it('omits -break-start when breakAtStart is explicitly false', () => {
+    const args = buildDosboxArgs({ configPath: '/tmp/wiz6.conf', breakAtStart: false });
+    expect(args).not.toContain('-break-start');
+  });
+
+  it('includes -break-start when breakAtStart is true', () => {
+    const args = buildDosboxArgs({ configPath: '/tmp/wiz6.conf', breakAtStart: true });
+    expect(args).toContain('-break-start');
+    // -break-start must come BEFORE -nogui to match the original argv order
+    // (dosbox-x is order-sensitive for some flags, and the original POC
+    // shipped with this ordering).
+    const breakIdx = args.indexOf('-break-start');
+    const noguiIdx = args.indexOf('-nogui');
+    expect(breakIdx).toBeGreaterThan(-1);
+    expect(noguiIdx).toBeGreaterThan(breakIdx);
+  });
+
+  it('appends -time-limit when timeLimitSeconds is set', () => {
+    const args = buildDosboxArgs({ configPath: '/tmp/wiz6.conf', timeLimitSeconds: 30 });
+    const idx = args.indexOf('-time-limit');
+    expect(idx).toBeGreaterThan(-1);
+    expect(args[idx + 1]).toBe('30');
+  });
+
+  it('appends extraArgs verbatim', () => {
+    const args = buildDosboxArgs({
+      configPath: '/tmp/wiz6.conf',
+      extraArgs: ['-fastlaunch', '-fullscreen'],
+    });
+    expect(args).toContain('-fastlaunch');
+    expect(args).toContain('-fullscreen');
   });
 });
 
