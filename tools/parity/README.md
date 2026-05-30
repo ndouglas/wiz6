@@ -524,3 +524,36 @@ All 4 tests pass in < 30ms:
 - **Save-file format**: dump the saved-game-in-memory snapshot, compare to the on-disk format.
 - **RNG sequences**: dump RNG state at known checkpoints, validate our RNG reimplementation produces identical sequences.
 - **Maze data**: dump the loaded maze grid, compare to our parsed view.
+
+## Building castle-N-members fixtures (live DOSBox-X required)
+
+These engine-ground-truth fixtures need DOSBox-X save states with N=1..6 party
+members. To regenerate them:
+
+1. Ensure macOS Accessibility permission is granted to the parent app running
+   this script — see `packages/mcp/PERMISSIONS.md` for the one-time setup.
+
+2. Build saves:
+   ```
+   pnpm tsx tools/parity/build-castle-saves.ts --slots 1,2,3,4,5,6
+   ```
+   Idempotent — skips slots whose .sav already exists.
+
+3. Capture fixtures from each save:
+   ```
+   pnpm tsx tools/parity/gen-fixture.ts --save 1 --name castle-1-members
+   pnpm tsx tools/parity/gen-fixture.ts --save 2 --name castle-2-members
+   # ... etc through --save 6 --name castle-6-members
+   ```
+
+4. Commit the resulting `.idx.gz` + `.png` files.
+
+Notes:
+- The script is empirical-timing based; if Wiz6 menu transitions are slow on
+  your machine, tune the `*_WAIT_MS` constants at the top.
+- The script LAUNCHES DOSBox-X internally for each slot — don't have DOSBox-X
+  already running when you invoke it.
+- macOS Accessibility permission is required; the helper child process posts
+  CGEvent keyboard events to whichever window is focused.
+- The script imports the MCP helper modules directly (no JSON-RPC layer); it
+  does not require the `wiz6-mcp` server to be running.

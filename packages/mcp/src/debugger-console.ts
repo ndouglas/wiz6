@@ -91,6 +91,35 @@ export interface DebuggerConsoleOptions {
   timeLimitSeconds?: number;
   /** Working directory the child runs in. Defaults to process.cwd(). */
   cwd?: string;
+  /**
+   * When true, pass `-break-start` to dosbox-x so the interactive debugger
+   * pauses at the first instruction. On macOS this requires a real TTY
+   * (dosbox-x's isatty gate refuses otherwise) and will throw
+   * DebuggerUnavailableError when run as a piped child process. Default
+   * false: the dynamic tools (send_input/screenshot/save_state/load_state)
+   * route around the debugger entirely, so the realistic default is to
+   * launch dosbox-x without engaging it.
+   */
+  breakAtStart?: boolean;
+}
+
+/**
+ * Build the dosbox-x argv vector from launch options. Exported so callers
+ * (and tests) can verify the exact flags being passed without spawning a
+ * child process.
+ */
+export function buildDosboxArgs(opts: DebuggerConsoleOptions): string[] {
+  return [
+    '-conf',
+    opts.configPath,
+    ...(opts.breakAtStart === true ? ['-break-start'] : []),
+    '-nogui',
+    '-nomenu',
+    ...(opts.timeLimitSeconds !== undefined
+      ? ['-time-limit', opts.timeLimitSeconds.toString()]
+      : []),
+    ...(opts.extraArgs ?? []),
+  ];
 }
 
 /**
@@ -170,17 +199,8 @@ export class DebuggerConsole {
       return this.launchPromise;
     }
     const dosboxPath = this.opts.dosboxPath ?? DEFAULT_DOSBOX_X_PATH;
-    const args = [
-      '-conf',
-      this.opts.configPath,
-      '-break-start',
-      '-nogui',
-      '-nomenu',
-      ...(this.opts.timeLimitSeconds !== undefined
-        ? ['-time-limit', this.opts.timeLimitSeconds.toString()]
-        : []),
-      ...(this.opts.extraArgs ?? []),
-    ];
+    const args = buildDosboxArgs(this.opts);
+    const breakAtStart = this.opts.breakAtStart === true;
 
     this.launchPromise = new Promise<void>((resolve, reject) => {
       const child = spawn(dosboxPath, args, {
@@ -197,23 +217,30 @@ export class DebuggerConsole {
         this.exitSignal = signal;
       });
 
-      const onChunk = (chunk: Buffer): void => {
-        const text = chunk.toString('utf8');
-        this.stdoutBuffer += text;
-        if (!this.ttyGateTripped && this.stdoutBuffer.includes(MACOS_TTY_GATE_MESSAGE)) {
-          this.ttyGateTripped = true;
-          reject(
-            new DebuggerUnavailableError(
-              'DOSBox-X refused to start its interactive debugger because stdin is not a controlling TTY. ' +
-                'This is the documented macOS isatty() gate. Use the SaveStateBridge backend ' +
-                '(tools/parity/extract.py) for memory reads, or wrap DOSBox-X in a pty (node-pty) ' +
-                'plus an ncurses screen scraper if dynamic driving is required.',
-            ),
-          );
-        }
-      };
-      child.stdout?.on('data', onChunk);
-      child.stderr?.on('data', onChunk);
+      // Only watch for the macOS isatty gate when we actually asked for the
+      // debugger. Without -break-start, dosbox-x never engages the debugger
+      // and the gate message never appears, so the watcher would just be
+      // dead weight (and risks false positives if dosbox-x emits the
+      // documented message for some other reason in the future).
+      if (breakAtStart) {
+        const onChunk = (chunk: Buffer): void => {
+          const text = chunk.toString('utf8');
+          this.stdoutBuffer += text;
+          if (!this.ttyGateTripped && this.stdoutBuffer.includes(MACOS_TTY_GATE_MESSAGE)) {
+            this.ttyGateTripped = true;
+            reject(
+              new DebuggerUnavailableError(
+                'DOSBox-X refused to start its interactive debugger because stdin is not a controlling TTY. ' +
+                  'This is the documented macOS isatty() gate. Use the SaveStateBridge backend ' +
+                  '(tools/parity/extract.py) for memory reads, or wrap DOSBox-X in a pty (node-pty) ' +
+                  'plus an ncurses screen scraper if dynamic driving is required.',
+              ),
+            );
+          }
+        };
+        child.stdout?.on('data', onChunk);
+        child.stderr?.on('data', onChunk);
+      }
 
       // Give the child a short grace window to surface the gate message.
       // If the gate message hasn't appeared within ~3 s, assume the debugger

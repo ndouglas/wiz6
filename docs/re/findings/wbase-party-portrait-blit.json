@@ -1,0 +1,98 @@
+{
+  "topic": "wbase-party-portrait-blit",
+  "subagent_run": "2026-05-30T01:35:00Z",
+  "binaries": ["wbase.ovr", "wroot.exe"],
+  "summary": "FUN_0b0e @ wbase 0x0b0e is the SOLE portrait-blit routine called from wbase. Two callers verified by PyGhidra: the add-action helper (slot 0 main menu) at 0x2599, and the castle-redraw all-slots loop inside FUN_11a6 at 0x17b6. Both call FUN_0b0e(record_byte, portrait_id). Inside FUN_0b0e the routine: (1) selects portrait file by video-mode bit in *0x4fc6: bit 0 -> WPORT1.EGA (template 0x5003), bit 1 -> WPORT1.CGA (0x500e), bit 2 -> WPORT1.HRC variant (0x5019), bit 3 -> WPORT1.T16 (0x5024). Stride: 0x20 (32 bytes/row) for EGA/T16, 0x10 (16 bytes/row) for CGA/HRC. (2) Sets filename digit = (record_byte/14) + '1' (selects file 1/2/3 of three portrait files). (3) Seeks file to `(record_byte % 14) * stride * 9`. (4) Reads `stride * 9` bytes into stack buffer. (5) Calls thunk dcf2(buf, X=2, Y=portrait_id*9 + 0x48, rows=9). All three numeric args to dcf2 are unambiguous in the disasm: X is hardcoded immediate 2, Y is portrait_id*9+0x48, rows is 9. Portrait dimensions on-disk: 9 rows tall × 32 bytes wide (EGA) = 64 pixels wide in 4bpp planar; 9 rows × 16 bytes (CGA) = 64 pixels wide in 2bpp. NO sibling routine exists in wbase that blits portraits at a different X. The user-recollection 'portraits 3-left + 3-right' is a misattribution: it refers to the INFO-PANEL split (FUN_1b2d) which DOES split LEFT/RIGHT, but portraits themselves all blit at X=2.",
+  "method": "PyGhidra decompile + raw disasm of FUN_0b0e (44 lines C / ~70 instructions). PyGhidra dcf2-callsite scan in wbase.ovr: 1 hit. PyGhidra FUN_0b0e-callsite scan in wbase.ovr: 2 hits (0x2599, 0x17b6). Cross-checked second caller (FUN_11a6 castle-redraw loop) — pushes same arg pair (record_byte, portrait_id). Portrait file sizes verified from disk: wport1.ega = 4096 bytes (14 × 288 + 64 header/pad), wport1.cga = 2048 bytes (14 × 144 + 32 header/pad).",
+  "stats": {
+    "callers_in_wbase": 2,
+    "dcf2_callers_in_wbase": 1,
+    "video_modes_supported": 4,
+    "portraits_per_file": 14,
+    "portrait_files_per_set": 3
+  },
+  "findings": [
+    {
+      "id": "single-column-portrait-blit",
+      "claim": "FUN_0b0e blits portraits at HARDCODED X=2 in the dcf2 call. There is no second blit routine for a right column. Both wbase callers of FUN_0b0e (slot-0 add at 0x2599 and castle-redraw-all at 0x17b6) pass `(record_byte, portrait_id)` — neither passes a separate X arg.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x0c1a" },
+        "type": "disasm",
+        "details": "Raw disasm at 0x0c0a-0x0c23: `MOV AX,0x9; PUSH AX; (compute Y = [bp+0x6]*9 + 0x48); PUSH AX; MOV AX,0x2; PUSH AX; LEA AX,[BP + 0xfec7]; PUSH AX; CALL 0x0000:dcf2; ADD SP,0x8`. The X arg `MOV AX,0x2` is an IMMEDIATE, not a register or memory operand. No code path within FUN_0b0e modifies this immediate."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "y-stride-9-base-0x48",
+      "claim": "Portraits are stacked vertically at Y = portrait_id * 9 + 0x48. For portrait_ids 0..5: Y = 72, 81, 90, 99, 108, 117. The Y arg passed to dcf2 is computed at 0x0c0b-0x0c19: `MOV AX,[BP+0x6]; MOV DX,AX; MOV CL,3; SHL AX,CL; ADD AX,DX; ADD AX,0x48; PUSH AX` — i.e. AX = (param_2 << 3) + param_2 + 0x48 = param_2 * 9 + 0x48.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x0c0b" },
+        "type": "disasm",
+        "details": "Y-multiplier-of-9 confirmed by SHL+ADD pattern (x<<3 + x = x*9). The +0x48 base is a literal immediate ADD AX,0x48 instruction."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "portrait-on-disk-pixel-dims-64x9",
+      "claim": "Each on-disk portrait is 9 rows × 64 pixels (= 9 × 32 bytes EGA in 4bpp planar, or 9 × 16 bytes CGA in 2bpp). This is the engine-faithful raw format, NOT the 24×24 wport sprite extraction. There are 14 portraits per file × 3 files (WPORTn.EGA n=1..3) = 42 portraits total per video mode. Each file is 14 × stride × 9 = 4032 bytes (EGA) / 2016 bytes (CGA) of portrait data, with the remaining bytes (64 EGA / 32 CGA) being file header or padding.",
+      "category": "data",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x0b8a" },
+        "type": "disasm",
+        "details": "FUN_0b0e at 0x0b8a-0x0b9c: `MOV AX,[BP+0x4]; MOV CX,0xe; CWD; IDIV CX; ADD AX,0x31; MOV [BP-0x11],AL; MOV [BP+0x4],DX` — divides record_byte by 14 (0xe), uses quotient as filename digit (offset by '1'), uses remainder as the portrait index within file. Then at 0x0bcd: `IMUL [BP-0x18]; SHL AX,3; ADD AX,DX` = (portrait_idx * stride) * 9 = file seek offset. File sizes (wport1.ega = 4096, wport1.cga = 2048) confirm 14-portrait layout: 14 * 32 * 9 = 4032 = 0xfc0 (EGA), 14 * 16 * 9 = 2016 (CGA)."
+      },
+      "confidence": "high",
+      "corrects": "TODO #026 ('engine-faithful 64×9 portraits') — the dimensions ARE 64×9 in raw bytes, but the on-screen rendered portrait dimensions depend on how dcf2 interprets the buffer. If dcf2 unpacks 4bpp planar EGA to 64 pixels wide × 9 rows tall and blits to a fixed screen position, the on-screen result is 64×9. The 24×24 wport sprites we currently use are an EXTRACTOR misinterpretation — the raw engine portraits are 64×9."
+    },
+    {
+      "id": "video-mode-dispatch",
+      "claim": "Portrait file selection is gated by *0x4fc6 (video mode bitmask). Bit 0 set: use template at DGROUP 0x5003 (WPORT?.EGA), stride=0x20. Bit 1: template 0x500e (WPORT?.CGA per existing wpcmk finding), stride=0x10. Bit 2: template 0x5019 (WPORT?.HRC?), stride=0x10. Bit 3: template 0x5024 (WPORT?.T16), stride=0x20. If NO bit is set, FUN_0b0e returns immediately without rendering (no-op for unknown video mode).",
+      "category": "config",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x0b15" },
+        "type": "disasm",
+        "details": "Test/jz pattern: TEST [0x4fc6],0x1 / JZ; TEST [0x4fc6],0x2 / JZ; TEST [0x4fc6],0x4 / JZ; TEST [0x4fc6],0x8 / JZ skip-to-ret. Each branch loads a DIFFERENT filename template via func_f3aa (strcpy) into local buffer at [BP-0x16]. The four templates at DGROUP 0x5003/0x500e/0x5019/0x5024 are 11-char filenames per the wpcmk-portrait-picker finding ('WPORT1.EGA', 'WPORT1.CGA', etc.)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "dcf2-coordinate-uncertainty",
+      "claim": "OPEN QUESTION: dcf2's interpretation of its X/Y args is NOT proven. The disasm shows it called as `dcf2(buf, X=2, Y=portrait_id*9+0x48, rows=9)`. Two hypotheses: (a) X/Y are absolute screen-pixel coords — but the castle-one-member fixture shows portraits at Y≈13, not Y=72, suggesting this is wrong; (b) X/Y are CELL coords or RELATIVE coords inside an implicit portrait window — the engine may have set up a portrait-window before this call that re-bases the coordinate system. The current viewer's empirical `PORTRAIT_BLIT_X=6, Y_BASE=13, STRIDE=60` in castle-frame.ts was derived from pixel-pick of the engine fixture and does NOT match the dcf2 args directly, which is a hard signal that dcf2 transforms its coords somehow. NEEDS: decompile thunk-target wroot:0x2256 (= 0xdcf2 - 0xBA9C) to understand dcf2's actual signature and coord interpretation; OR set a DOSBox-X execution breakpoint just before the dcf2 call and inspect register/stack state at that point.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x0c23" },
+        "type": "fixture_mismatch",
+        "details": "Engine fixture (castle-one-member) shows slot-0 portrait at screen Y≈13. FUN_0b0e disasm pushes Y=0x48=72 for portrait_id=0. The 59-pixel gap (72-13) is unexplained. Possible mechanisms: dcf2 may add a window-base Y offset; dcf2's Y arg may be a 'logical' Y that gets divided/transformed; or the portrait window may be positioned such that the dcf2 Y=72 lands at screen Y=13 (i.e. window_y = -59). The fixture suggests STRIDE=60 between portraits but dcf2 produces stride=9 — another order-of-magnitude mismatch. This needs a follow-on RE pass on dcf2 itself."
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "no-right-column-blit-routine",
+      "claim": "Exhaustive search in wbase.ovr for additional dcf2 callers (PyGhidra) returned exactly 1 hit (0x0c23, inside FUN_0b0e). Exhaustive search for FUN_0b0e callers returned 2 hits (0x2599 add-action, 0x17b6 castle-redraw loop). NO 'right-column portrait blit' routine exists in wbase. Any visual interpretation of '3 portraits on right' must come from either: (a) the info-panel split (FUN_1b2d's two windows at *0x4fba LEFT and *0x4fb8 RIGHT), or (b) the panel-rendered class symbols / equipment tiles which are 'character-shaped' enough to be mistaken for portraits at a glance.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x0c23" },
+        "type": "callsite_scan_negative",
+        "details": "PyGhidra script enumerated all CALL instructions in wbase.ovr's code section; filtering for targets ending in 'dcf2' produced one match. Filtering for targets ending in '0b0e' produced two matches."
+      },
+      "confidence": "high"
+    }
+  ],
+  "open_questions": [
+    "Decompile wroot 0x2256 (= thunk 0xdcf2 - 0xBA9C) to understand dcf2's actual signature and coordinate interpretation. This is the critical missing piece for portrait-blit parity.",
+    "Verify the X=2/Y=portrait_id*9+0x48 args via DOSBox-X stepping at wbase 0x0c1a-0x0c23 with breakpoint, OR via dosbox_set_breakpoint + dosbox_get_registers when those MCP tools become real (TODO #064).",
+    "Why does the fixture show STRIDE=60 between portraits when dcf2 stride=9? Maybe dcf2 internally multiplies Y by ~7 (vertical-cell scaling factor)? Maybe each portrait is rendered 60 pixels tall (vertical stretch by 6.67x)?"
+  ],
+  "supersedes": "wbase-add-party-member.json#portrait-blit-y-stacking (REFINES rather than overturns — the Y=portrait_id*9+0x48 formula is correct as the dcf2 ARG, but the on-screen pixel coords are transformed by dcf2 in a way not yet RE'd)",
+  "corrects": [
+    "TODO #026 wording — the engine portrait dimensions ARE 9 rows × 64 pixels wide in raw on-disk bytes; the misinterpretation is that the rendered on-screen size may differ (pending dcf2 RE)"
+  ]
+}

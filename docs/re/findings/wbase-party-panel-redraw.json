@@ -1,0 +1,148 @@
+{
+  "topic": "wbase-party-panel-redraw",
+  "subagent_run": "2026-05-30T01:30:00Z",
+  "binaries": ["wbase.ovr", "wroot.exe"],
+  "summary": "FUN_1b2d @ wbase 0x1b2d (party_panel_redraw_slot) renders ONE party slot's info panel. The slot's parity-bit selects the LEFT vs RIGHT panel window: even slots (0,2,4) draw into the window handle at DGROUP 0x4fba, odd slots (1,3,5) draw into DGROUP 0x4fb8. Each panel is 3 slot-blocks tall; the panel-row base is row = (slot/2)*4. Each block renders: (row+0) the 3-char name at col 0, (row+1) the equipment-tile row (FUN_1a4c at col 1), (row+2) the class symbol + condition icon (col 3 / col 2), (row+3) the status icon (col 3), and a 3x3 ornament/colored-bar grid (cols 0..2 at rows row+1..row+3). Lookup tables: status icon at DGROUP 0x526 (14 u16 entries, indexed by char byte at record offset 0x4589 in slot record). Condition severity at DGROUP 0x532 (10 u16 entries, indexed 0..9 over condition flag bytes at slot+0x450a..+0x4513). Class-symbol character offset = class_byte*2 + 0x3a (NOT a lookup table — a base-char offset; FUN_1b2d draws chars [class*2+0x3a] and [class*2+0x3a+1] as a 2-cell row). Equipment-tile slots at slot_record+0x4400/0x4402 (item 1) and slot_record+0x4404/0x4406 (item 2) — rendered via FUN_1a4c with base sprite chars 0x56 and 0x63. Supersedes wbase-add-party-member.json#portrait-blit-y-stacking only in that *the panel layout* (text/icons/equipment) is split LEFT/RIGHT — portraits themselves remain single-column (X=2) per FUN_0b0e; the visual 3-portraits-on-each-side perception is from the panel split, not from a second portrait blit.",
+  "method": "PyGhidra decompile of FUN_1b2d (93 lines), FUN_0b0e (44 lines), FUN_1a4c (raw disasm; Ghidra's decomp lost stack frame). Decoded lookup tables from save state 3.sav (DGROUP base 0x18048) via dosbox_read_memory. Found the same tables verbatim in wroot.exe at file offsets 0xffba (class — but it's NOT a class lookup, see below), 0x104a6 (status+condition combined). DGROUP_file_offset_in_wroot = 0xff80.",
+  "stats": {
+    "wbase_functions_analyzed": 3,
+    "lookup_tables_decoded": 2,
+    "wroot_thunks_referenced": 3,
+    "tables_found_in_wroot_exe": 2
+  },
+  "findings": [
+    {
+      "id": "panel-window-split",
+      "claim": "FUN_1b2d splits even/odd party slots into LEFT (window handle at DGROUP 0x4fba) vs RIGHT (DGROUP 0x4fb8) panel windows. Decompile: `if (param_1 % 2 == 0) uVar6 = *(undefined2 *)0x4fba; else uVar6 = *(undefined2 *)0x4fb8;`. All subsequent ui_window_set_cursor + ui_window_putchar calls in this function use uVar6 as the window handle.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1b2d" },
+        "type": "decompile",
+        "details": "Decompiled lines 1-7 of FUN_1b2d. The two window handles are populated at window-create time elsewhere in wbase (likely in the state-4 main-menu init); FUN_1b2d treats them as already-existing."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "panel-row-formula",
+      "claim": "Within the chosen panel window, the row base for slot N is `(N/2) * 4`. The panel is 4 rows tall per slot: row+0 (name), row+1 (equipment-tile row + class-symbol col 3), row+2 (condition icon col 3), row+3 (status icon col 3 + 3-char colored bar). Three slots per panel (cols 0/2/4 on LEFT, cols 1/3/5 on RIGHT) gives 12 panel rows total.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1b3e" },
+        "type": "decompile",
+        "details": "Decompile: `iVar1 = (param_1 / 2) * 4;` then `func_bda7(uVar6, 0, iVar1)` and subsequent cursor sets at `iVar1+1`, `iVar1+2`, `iVar1+3`. Slot 0 -> row 0, slot 2 -> row 4, slot 4 -> row 8. Same offsets for odd slots in the right window."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "name-render",
+      "claim": "The slot's name string is printed at cursor (col 0, row iVar1) via `func_dfb9(window, name_buf=slot*0x1b0+0x43e8, attr=3)`. After that, a padding loop pads to 7 cells: while `func_faab(name_buf) < 7`, call `func_de7f(window, 0x20, 3)` (3-space writes) — but the actual padding count cells/iteration is 3, so the loop runs ((7 - name_len)/3) times. This produces a fixed 7-cell name field even for short names.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1b5c" },
+        "type": "decompile",
+        "details": "Decompile lines 9-12: `func_bda7(uVar6,0,iVar1); func_dfb9(uVar6, param_1*0x1b0+0x43e8, 3); for (iVar2 = func_faab(param_1*0x1b0+0x43e8); iVar2 < 7; iVar2 = iVar2 + 1) func_de7f(uVar6, 0x20, 3);`. Note: the loop counter increments by 1 per pad call but the pad call writes 3 chars — the loop is technically buggy / over-pads. We'll mirror the engine's behavior exactly when porting.",
+        "needs": "Verify pad-loop end state visually in engine fixtures — may overshoot 7 chars in some name lengths."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "colored-bar-3x3",
+      "claim": "A 3-row by 3-col 'colored bar' / ornament grid is drawn at (cols 0..2) rows (iVar1+1, iVar1+2, iVar1+3). Each cell at row iVar1+iVar2+1, col iVar3 gets character `iVar2*3 + 2 + iVar3` (i.e. chars 2,3,4 / 5,6,7 / 8,9,10). These 9 character codes are the ornament glyphs in wfont1/wfont3 — likely colored bar segments.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1b8c" },
+        "type": "decompile",
+        "details": "Decompile lines 27-36: nested do-while loops. Outer iVar2 ∈ [0,3), inner iVar3 ∈ [0,3). Cursor set per outer-row to (0, iVar1+iVar2+1); each inner iteration writes ONE char via `func_de7f(uVar6, iVar2*3 + 2 + iVar3 & 0xff)` (single-char write — count defaults to 1)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "status-icon-table",
+      "claim": "Status icon table lives at DGROUP 0x526, 14 u16 entries. Indexed by the byte at slot_record+0x4589 (status_byte field). The lookup returns an icon index (0..N or -1) which is then mapped to a font character code via `icon + 0x25`. If the status_byte lookup returns 0 but slot+0x450c (death/ash flag) is non-zero, force icon=1; if (icon < 2) and slot+0x450d (other-flag) is non-zero, force icon=2. Final char = icon + 0x25, drawn at (col 3, row iVar1+3) with count=1.",
+      "category": "data",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": { "space": "wroot.exe", "offset": "0x104a6" },
+        "type": "byte_pattern_match",
+        "details": "Raw bytes at wroot file offset 0x104a6 (= DGROUP_file_offset 0xff80 + 0x526) and verified at runtime via dosbox_read_memory of save 3.sav at phys 0x1856e (DGROUP_base 0x18048 + 0x526): `00 00 01 00 03 00 04 00 04 00 00 00 ff ff ff ff ff ff ff ff 06 00 07 00 08 00 08 00`. Decoded as 14 u16 LE: [0x0000, 0x0001, 0x0003, 0x0004, 0x0004, 0x0000, 0xffff, 0xffff, 0xffff, 0xffff, 0x0006, 0x0007, 0x0008, 0x0008]. The 4 consecutive 0xffff entries (indices 6..9) overlap with the start of the condition table at 0x532 — see condition-severity-table finding."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "condition-severity-table",
+      "claim": "Condition severity table lives at DGROUP 0x532, 10 u16 entries. The party-panel iterates iVar2 from 0..9 and reads `conditions[iVar2] = slot_record + 0x450a + iVar2` (1 byte each). If conditions[i] != 0, the severity is `*(int*)(0x532 + i*2)`. The highest severity wins (local_4 = max over i of severity if condition[i] set). Sentinel 0xffff is interpreted as signed -1 — so conditions with sentinel severity never override the initial local_4 = -1, effectively excluding them from the condition-icon selection (they're shown via the status icon instead). If local_4 stays -1 (no condition with valid severity), draw 3 space cells at (col 3, row iVar1+2); else draw the char `local_4 + 0x25` (count=1) at the same cell.",
+      "category": "data",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": { "space": "wroot.exe", "offset": "0x104b2" },
+        "type": "byte_pattern_match",
+        "details": "Raw bytes at wroot file offset 0x104b2 (= DGROUP_file_offset 0xff80 + 0x532) and via dosbox_read_memory of save 3.sav at phys 0x1857a: `ff ff ff ff ff ff ff ff 06 00 07 00 08 00 08 00 07 00 05 00`. Decoded as 10 u16 LE: [0xffff, 0xffff, 0xffff, 0xffff, 0x0006, 0x0007, 0x0008, 0x0008, 0x0007, 0x0005]. Conditions at indices 0..3 are sentinel (lethal/inactive states handled by status icon); conditions at indices 4..9 have decreasing-severity icon chars 0x25+0x06=0x2b ('+'), 0x25+0x07=0x2c (','), 0x25+0x08=0x2d ('-'), 0x25+0x08=0x2d, 0x25+0x07=0x2c, 0x25+0x05=0x2a ('*')."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "class-symbol-not-a-table",
+      "claim": "There is NO class-symbol *lookup table* at DGROUP 0x3a. The plan's 'class table at 0x3a, 14 entries' claim was based on a misread of the C decompile. The decompile shows `func_de7f(window, (class_byte * 2) + i + 0x3a, 1)` for i in [0,2). This is NOT `*(int*)(class*2 + 0x3a)` — it is `(class*2 + 0x3a + i)` passed DIRECTLY as the character code. So the class symbol is a 2-cell row of CONSECUTIVE font glyphs starting at glyph `class_byte*2 + 0x3a`. Drawn at (col 3, row iVar1+1) for cell 0 and (col 4, row iVar1+1) for cell 1 (cursor auto-advances after each putchar). Effective class-symbol glyph IDs: class=0 -> chars 0x3a/0x3b, class=1 -> 0x3c/0x3d, class=2 -> 0x3e/0x3f, ..., class=13 -> 0x54/0x55.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1c52" },
+        "type": "decompile",
+        "details": "Decompile lines 64-70: `iVar2 = 0; do { uVar5 = 0x1d29; func_de7f(uVar4, (uint)*(byte *)(param_1*0x1b0+0x4587)*2 + iVar2 + 0x3a & 0xff, 1); iVar2 = iVar2 + 1; uVar4 = uVar5; } while (iVar2 < 2);`. No `*(int*)(...)` dereference — the value is the char code itself. Cross-checked by attempting to read 14 u16 at DGROUP 0x3a from save 3.sav: got `99 00 a7 00 00 00 00 00 00 00 68 00 80 00 90 00 00 00 d8 00 c0 00 b0 00 00 00 00 00` — these are NOT class-symbol glyph indices but some other DGROUP variables (e.g. linked-list pointers or BSS state); the bytes happen to live there but are unrelated to class rendering.",
+        "needs": "Confirm by rendering: class=0 (WARRIOR) should produce chars 0x3a 0x3b at col 3-4 of row iVar1+1."
+      },
+      "confidence": "high",
+      "supersedes_plan_claim": "class-table-at-0x3a-14-entries"
+    },
+    {
+      "id": "equipment-tile-render-calls",
+      "claim": "Two equipment-tile rows are rendered via FUN_1a4c. Call signature: FUN_1a4c(arg1, arg2, col, item_lo_word, item_hi_word, base_sprite_char). From FUN_1b2d at the end of the function: `FUN_1a4c(5, 5, iVar1+1, *(0x4400+slot_base), *(0x4402+slot_base), 0x56); FUN_1a4c(6, 6, iVar1+1, *(0x4404+slot_base), *(0x4406+slot_base), 99);`. So equipment 1 reads (lo, hi) from slot+0x4400/0x4402, draws starting at col 1 + ??? with base sprite 0x56. Equipment 2 reads (lo, hi) from slot+0x4404/0x4406 with base sprite 0x63 (= 99 dec).",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1cc8" },
+        "type": "decompile",
+        "details": "Decompile lines 86-89 (the last two calls in FUN_1b2d). The first two args (both 5 in call 1, both 6 in call 2) are window/sub-window identifiers — the FUN_1a4c body's first call is `func_f9ba(item_lo*100, item_hi, ...)` (32-bit multiply/divide), which computes a percentage-like value, then it chooses one of 3 sprite chars from a local 3-element table based on the value range (≤3, 4..7, ≥8). It then calls `func_bda7(arg1, arg2, col+i)` then `func_de7f(arg1, char, 1)` for i ∈ [0,3) — 3 sprite cells per equipment-tile."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun-1a4c-tile-formula",
+      "claim": "FUN_1a4c(p1, p2, col, item_lo, item_hi, base_char) renders a 3-cell horizontal row of sprite chars at cursor positions (col, col+1, col+2). Step 1: value = ((item_lo * 100 / item_hi) clamp [0,10]) + 1 then clamp at 10; if item_lo == 0, value = 0. Step 2: 3 char slots [cell0=base+9, cell1=base+4, cell2=base+0]. Step 3: if value ≤ 3: cell2 = base + value (so cells [base+9, base+4, base+value]); else if value ≤ 7: cell2 = base+3; cell1 = base + (value-3) + 4; else: cell2 = base+3; cell1 = base+8; cell0 = base + (value-7) + 9. Step 4: for i in [0,3) draw `func_de7f(window_p1, cells[i], 1)` at (p2, col+i) cursor.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x1a4c" },
+        "type": "disasm",
+        "details": "Raw disassembly of FUN_1a4c at file 0x1a4c..0x1b2c. Ghidra's C decompile lost the stack frame and showed an infinite loop; the raw disasm is unambiguous. Key instruction blocks: 0x1a52-0x1a72: idiv to compute (item_lo*100)/item_hi, +1, clamp to 10, force-0-if-item_lo-zero. 0x1a8b-0x1aeb: initialize three byte slots [bp-5/-4/-3] from base_char+9/+4/+0 then redistribute via value-range branches. 0x1af3-0x1b27: render loop drawing 3 sprite cells via func_bda7 + func_de7f. The (5,5,...) call sequence (window=5, col-arg=5, col_base=iVar1+1) suggests window 5 is a sub-window distinct from uVar6 — see open-question equipment-window-handles."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun-0b0e-is-single-column-portrait-blit",
+      "claim": "FUN_0b0e is the ONLY portrait-blit caller in wbase.ovr (verified via PyGhidra dcf2-callsite scan: 1 caller at 0x0c23). It always blits at X=2 in screen coords, Y = portrait_id * 9 + 0x48 (rows 0x48=72 through 0x75=117 for portrait IDs 0..5). NO sibling routine exists that blits at a different X (e.g. X=160 for a right-column). The user's recollection of '3 portraits left + 3 right' refers to the INFO PANEL split (FUN_1b2d's LEFT/RIGHT windows), NOT a portrait-coordinate split. Portraits stack vertically on the LEFT only.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": { "space": "wbase.ovr", "offset": "0x0c23" },
+        "type": "disasm_callsite_scan",
+        "details": "PyGhidra scan of all CALL instructions in wbase.ovr targeting 0xdcf2 returned exactly one hit: 0x0c23 (inside FUN_0b0e). The push sequence at 0x0c07-0x0c22 is `push 9; push (party_slot*9 + 0x48); push 2; push buf; call dcf2` — X arg (third push from top, second arg cdecl after buf) is the immediate 2, NOT a variable. Confirms single-column blit."
+      },
+      "confidence": "high",
+      "corrects": "wbase-add-party-member.json#portrait-blit-y-stacking (was already correct; the *plan's* doubt about it was wrong)"
+    }
+  ],
+  "open_questions": [
+    "What does the equipment-tile percentage-mapping (FUN_1a4c) actually represent? Hypothesis: condition of equipment (HP/max-HP) — 3 cells render a 'bar' showing usage level. Need a save state with damaged equipment to confirm.",
+    "Is there a separate routine that draws character portraits on the RIGHT column for some rendered state (e.g. character-view screen via wpcvw)? Not in wbase's castle redraw path, but worth checking for parity-test save states from non-castle contexts.",
+    "What does the 0x4589 status_byte field actually encode? Plan said 'sex|race composite' — needs verification against pcfile-dbs schemas."
+  ],
+  "supersedes_plan_claim": [
+    "class-table-at-0x3a-14-entries (no table — direct char offset)",
+    "fun-0b0e-multi-column-portrait (single-column at X=2 confirmed)"
+  ]
+}
