@@ -43,8 +43,8 @@ describe('HouseRulesSchema', () => {
 });
 
 describe('HOUSE_RULES_META', () => {
-  it('has one entry per house rule (currently 3)', () => {
-    expect(HOUSE_RULES_META).toHaveLength(3);
+  it('has one entry per house rule (currently 4)', () => {
+    expect(HOUSE_RULES_META).toHaveLength(4);
   });
 
   it('every meta entry has matching key in HouseRules', () => {
@@ -110,5 +110,30 @@ describe('engineFaithfulSkillExit house rule', () => {
     expect(entry).toBeDefined();
     expect(entry?.category).toBe('creation');
     expect(entry?.control).toBe('boolean');
+  });
+});
+
+describe('allowEditFromCamp house rule', () => {
+  it('is part of the schema', () => {
+    const parsed = HouseRulesSchema.parse({
+      schemaVersion: 1,
+      pinMaxBonusRoll: false,
+      playInvalidActionBeep: true,
+      engineFaithfulSkillExit: false,
+      allowEditFromCamp: true,
+    });
+    expect(parsed.allowEditFromCamp).toBe(true);
+  });
+
+  it('defaults to false in STOCK and DEFAULT', () => {
+    expect(STOCK_HOUSE_RULES.allowEditFromCamp).toBe(false);
+    expect(DEFAULT_HOUSE_RULES.allowEditFromCamp).toBe(false);
+  });
+
+  it('has a HOUSE_RULES_META entry', () => {
+    const meta = HOUSE_RULES_META.find((m) => m.key === 'allowEditFromCamp');
+    expect(meta).toBeDefined();
+    expect(meta?.category).toBe('gameplay');
+    expect(meta?.stockValue).toBe(false);
   });
 });

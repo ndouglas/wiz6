@@ -206,6 +206,7 @@ export {
   spellsInBook,
   type SpellEntry,
 } from './character-creation/spell-table.js';
+export { applyClassChange } from './character-actions/index.js';
 
 // Wichmann-Hill RNG — byte-perfect port of the engine's rng_advance / rng_sample /
 // rng_next_bounded chain (wroot image 0x25b9 / 0x2556 / 0x9e2).
