@@ -1,17 +1,22 @@
 import Foundation
 
-// JSON-over-stdio loop. One line in, one line out.
-// Real commands ship in later tasks; this scaffold just echoes.
-
-private func jsonString(_ s: String) -> String {
-    let data = try! JSONSerialization.data(withJSONObject: s, options: [.fragmentsAllowed])
-    return String(data: data, encoding: .utf8)!
-}
-
 let stdout = FileHandle.standardOutput
 
 while let line = readLine(strippingNewline: true) {
     if line.isEmpty { continue }
-    let response = "{\"ok\":true,\"echo\":\(jsonString(line))}\n"
-    stdout.write(response.data(using: .utf8)!)
+    do {
+        let req = try decodeRequest(line)
+        let resp: Response
+        switch req {
+        case .ping:
+            resp = .success()
+        case .keyDown, .keyUp, .findWindow, .focusWindow, .getFrontmost, .restoreFrontmost:
+            // Real handlers in later tasks.
+            resp = .failure("not yet implemented")
+        }
+        stdout.write(Data(encodeResponse(resp).utf8))
+    } catch {
+        let err = encodeResponse(.failure("decode error: \(error)"))
+        stdout.write(Data(err.utf8))
+    }
 }
