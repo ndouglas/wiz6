@@ -1,5 +1,27 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, vi } from 'vitest';
+
+// jsdom's Blob (v25) does not implement .text() or .arrayBuffer() — polyfill them.
+if (typeof Blob !== 'undefined' && typeof (Blob.prototype as { text?: unknown }).text === 'undefined') {
+  (Blob.prototype as { text?: () => Promise<string> }).text = function (this: Blob): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(this);
+    });
+  };
+}
+if (typeof Blob !== 'undefined' && typeof (Blob.prototype as { arrayBuffer?: unknown }).arrayBuffer === 'undefined') {
+  (Blob.prototype as { arrayBuffer?: () => Promise<ArrayBuffer> }).arrayBuffer = function (this: Blob): Promise<ArrayBuffer> {
+    return new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(this);
+    });
+  };
+}
 import { cleanup } from '@testing-library/react';
 
 // Ensure React Testing Library DOM is cleaned up after every test.
