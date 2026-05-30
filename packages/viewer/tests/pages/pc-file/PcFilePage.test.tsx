@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PcFilePage } from '../../../src/pages/pc-file/PcFilePage.js';
 import { setStockPreset } from '../../../src/lib/presets-store.js';
+import { charactersToDbsBytes } from '../../../src/lib/pc-file-io.js';
 
 const mk = (name: string) => ({
   id: name,
@@ -87,5 +88,47 @@ describe('PcFilePage', () => {
     const pcfile = screen.getByRole('region', { name: /pc file/i });
     expect(within(pcfile).getByText('THESUS')).toBeInTheDocument();
     expect(within(pcfile).getByText('ERIN')).toBeInTheDocument();
+  });
+
+  // Task 11: import + export
+
+  it('import → "Add as preset" creates a new preset with the imported characters', async () => {
+    render(<MemoryRouter><PcFilePage /></MemoryRouter>);
+    const bytes = charactersToDbsBytes([{ ...mk('GANDALF') }]);
+    const file = new File([bytes], 'party.dbs');
+    fireEvent.change(screen.getByLabelText(/import file/i), { target: { files: [file] } });
+    // chooser appears with two options
+    const addBtn = await screen.findByRole('button', { name: /add as preset/i });
+    fireEvent.click(addBtn);
+    // a preset named "Imported" should appear in the Presets section
+    expect(screen.getByText('Imported')).toBeInTheDocument();
+  });
+
+  it('import → "Load into PC File" replaces the PC File contents (empty PC File, no confirm needed)', async () => {
+    render(<MemoryRouter><PcFilePage /></MemoryRouter>);
+    const bytes = charactersToDbsBytes([{ ...mk('GANDALF') }]);
+    const file = new File([bytes], 'party.dbs');
+    fireEvent.change(screen.getByLabelText(/import file/i), { target: { files: [file] } });
+    // chooser appears
+    const loadBtn = await screen.findByRole('button', { name: /load into pc file/i });
+    fireEvent.click(loadBtn);
+    const pcfile = screen.getByRole('region', { name: /pc file/i });
+    expect(within(pcfile).getByText('GANDALF')).toBeInTheDocument();
+  });
+
+  it('export PC File (.json) triggers URL.createObjectURL (download mechanism)', () => {
+    render(<MemoryRouter><PcFilePage /></MemoryRouter>);
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:x');
+    fireEvent.click(screen.getByRole('button', { name: /export.*json/i }));
+    expect(create).toHaveBeenCalled();
+    create.mockRestore();
+  });
+
+  it('export PC File (.dbs) triggers URL.createObjectURL (download mechanism)', () => {
+    render(<MemoryRouter><PcFilePage /></MemoryRouter>);
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:x');
+    fireEvent.click(screen.getByRole('button', { name: /export.*dbs/i }));
+    expect(create).toHaveBeenCalled();
+    create.mockRestore();
   });
 });

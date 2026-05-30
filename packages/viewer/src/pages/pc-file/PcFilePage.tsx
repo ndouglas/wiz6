@@ -1,8 +1,18 @@
 import { useState, useCallback } from 'react';
 import { readPresets, addPreset, deletePreset, copyCharactersToPcFile } from '../../lib/presets-store.js';
-import { readRoster } from '../../lib/roster-store.js';
+import { readRoster, writeRoster } from '../../lib/roster-store.js';
+import { charactersToJsonBlob, charactersToDbsBytes, parseImport } from '../../lib/pc-file-io.js';
 import type { Character } from '@wiz6/data';
 import styles from './PcFilePage.module.css';
+
+function download(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export function PcFilePage() {
   const [presets, setPresets] = useState(() => readPresets());
@@ -10,6 +20,7 @@ export function PcFilePage() {
   const [namingPreset, setNamingPreset] = useState(false);
   const [presetName, setPresetName] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingImport, setPendingImport] = useState<Character[] | null>(null);
 
   const refresh = useCallback(() => {
     setPresets(readPresets());
@@ -36,6 +47,41 @@ export function PcFilePage() {
     setPresetName('');
     refresh();
   }, [presetName, pcFile, refresh]);
+
+  const onImportFile = useCallback(async (file: File) => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    try {
+      setPendingImport(parseImport(file.name, bytes));
+    } catch (e) {
+      setNotice(`Import failed: ${(e as Error).message}`);
+    }
+  }, []);
+
+  const addImportAsPreset = useCallback(() => {
+    if (!pendingImport) return;
+    addPreset('Imported', pendingImport);
+    setPendingImport(null);
+    refresh();
+  }, [pendingImport, refresh]);
+
+  const loadImportIntoPcFile = useCallback(() => {
+    if (!pendingImport) return;
+    if (pcFile.length && !confirm('Replace the current PC File?')) return;
+    writeRoster({ schemaVersion: 1, characters: pendingImport.slice(0, 16) });
+    setPendingImport(null);
+    refresh();
+  }, [pendingImport, pcFile, refresh]);
+
+  const exportPcFileJson = useCallback(() => {
+    download(charactersToJsonBlob(pcFile), 'pcfile.json');
+  }, [pcFile]);
+
+  const exportPcFileDbs = useCallback(() => {
+    const bytes = charactersToDbsBytes(pcFile);
+    // Ensure we have a plain ArrayBuffer (not SharedArrayBuffer) for Blob construction.
+    const buf: ArrayBuffer = bytes.buffer instanceof ArrayBuffer ? bytes.buffer : new Uint8Array(bytes).buffer;
+    download(new Blob([buf]), 'PCFILE.DBS');
+  }, [pcFile]);
 
   return (
     <div className={styles.page}>
@@ -83,14 +129,52 @@ export function PcFilePage() {
             {notice}
           </p>
         )}
+        {/* Hidden file input for import */}
+        <input
+          type="file"
+          aria-label="import file"
+          accept=".json,.dbs"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void onImportFile(file);
+            // reset so re-selecting the same file triggers onChange again
+            e.target.value = '';
+          }}
+        />
+        {/* Import chooser — visible when a file has been parsed */}
+        {pendingImport && (
+          <div className={styles.importChooser} role="dialog" aria-label="Import chooser">
+            <p>Imported {pendingImport.length} character(s). What would you like to do?</p>
+            <button onClick={addImportAsPreset}>Add as preset</button>
+            <button onClick={loadImportIntoPcFile}>Load into PC File</button>
+            <button onClick={() => setPendingImport(null)}>Cancel</button>
+          </div>
+        )}
         <ul>
           {pcFile.map((c) => (
-            <li key={c.id}>{c.name}</li>
+            <li key={c.id}>
+              {c.name}{' '}
+              <button
+                aria-label={`export ${c.name} as json`}
+                onClick={() => download(charactersToJsonBlob([c]), `${c.name}.json`)}
+              >
+                export (.json)
+              </button>
+            </li>
           ))}
         </ul>
-        <button aria-label="Save as preset" onClick={() => setNamingPreset(true)}>
-          Save as preset
-        </button>
+        <div className={styles.actions}>
+          <button aria-label="Save as preset" onClick={() => setNamingPreset(true)}>
+            Save as preset
+          </button>
+          <button aria-label="Export PC File as JSON" onClick={exportPcFileJson}>
+            Export (.json)
+          </button>
+          <button aria-label="Export PC File as DBS" onClick={exportPcFileDbs}>
+            Export (.dbs)
+          </button>
+        </div>
         {namingPreset && (
           <div>
             <label>

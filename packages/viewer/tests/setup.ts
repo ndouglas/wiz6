@@ -24,6 +24,15 @@ if (typeof Blob !== 'undefined' && typeof (Blob.prototype as { arrayBuffer?: unk
 }
 import { cleanup } from '@testing-library/react';
 
+// jsdom does not implement URL.createObjectURL / revokeObjectURL. Stub them so
+// vi.spyOn(URL, 'createObjectURL') works in export tests without throwing.
+if (typeof URL.createObjectURL === 'undefined') {
+  (URL as unknown as { createObjectURL: (obj: unknown) => string }).createObjectURL = (_obj: unknown) => 'blob:stub';
+}
+if (typeof URL.revokeObjectURL === 'undefined') {
+  (URL as unknown as { revokeObjectURL: (url: string) => void }).revokeObjectURL = (_url: string) => undefined;
+}
+
 // Ensure React Testing Library DOM is cleaned up after every test.
 // (Auto-cleanup may not fire in all ESM + jsdom configurations.)
 afterEach(() => {
