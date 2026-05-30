@@ -30,13 +30,13 @@ function makeFighter(overrides: Partial<ActivePartyMember> = {}): ActivePartyMem
     schoolManaMax: [0, 0, 0, 0, 0, 0],
     skills: new Array(30).fill(0),
     reaction: 50,
-    inventory: new Array(22).fill({ itemId: 0, quantity: 0, identifiedMask: 0, equipped: false, charges: 0 }),
+    inventory: new Array(22).fill({ itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 }),
     equipment: [0, 1, 255, 255, 255, 255, 255, 255], // weapon + shield equipped
     sex: 0,
     portraitSlotId: 0,
     rosterCharacterId: '00000000-0000-4000-8000-000000000000',
     ...overrides,
-  } as ActivePartyMember;
+  };
 }
 
 describe('applyClassChange', () => {
@@ -55,9 +55,11 @@ describe('applyClassChange', () => {
     expect(result.savedOldLevel).toBe(7);
   });
 
-  it('caps savedOldLevel at 250 (engine 0xfa)', () => {
+  it('level >= 250 sets savedOldLevel to 0 (engine releases the throttle for extreme levels)', () => {
     const result = applyClassChange(new ZeroRng(), makeFighter({ level: 999 }), 1);
-    expect(result.savedOldLevel).toBe(250);
+    expect(result.savedOldLevel).toBe(0);
+    // Lock the strict `<` comparison: level == 250 already trips the threshold.
+    expect(applyClassChange(new ZeroRng(), makeFighter({ level: 250 }), 1).savedOldLevel).toBe(0);
   });
 
   it('changes the class to the new id', () => {

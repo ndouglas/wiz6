@@ -6,7 +6,9 @@
  * and docs/re/wpcvw-character-view.md):
  *
  *   1. *0x4587 := new_class            (class byte set)
- *   2. *0x4597 := min(*0x440c, 250)    (saved-old-level cap; 0xfa)
+ *   2. *0x4597 := *0x440c IF *0x440c < 250 ELSE 0   (saved-old-level: stores
+ *      the level you came from, but ZEROES if you were at the engine's
+ *      throttle-release threshold; cap value 0xfa = 250)
  *   3. *0x440c := 1                    (level reset)
  *   4. *0x4588 := 0                    (high-water-mark reset — not modeled)
  *   5. *0x43f4/6 := 0                  (XP wiped)
@@ -25,8 +27,9 @@
 import type { ActivePartyMember } from '../schemas/active-party.js';
 import { computeDerivedStats, type Rng } from '../character-creation/derived-stats.js';
 
-const SAVED_OLD_LEVEL_CAP = 250; // engine 0xfa
+const SAVED_OLD_LEVEL_THRESHOLD = 250; // engine 0xfa — at this level or above, savedOldLevel is set to 0 (throttle released)
 const NUM_EQUIPMENT_SLOTS = 8;
+const EQUIPMENT_EMPTY = 255; // sentinel value in the equipment array for an empty body slot
 
 export function applyClassChange(
   rng: Rng,
@@ -34,14 +37,15 @@ export function applyClassChange(
   newClassId: number,
 ): ActivePartyMember {
   const derived = computeDerivedStats(rng, newClassId, member.race, member.attributes);
+  const savedOldLevel = member.level < SAVED_OLD_LEVEL_THRESHOLD ? member.level : 0;
 
   return {
     ...member,
     class: newClassId,
     level: 1,
     xp: 0,
-    savedOldLevel: Math.min(member.level, SAVED_OLD_LEVEL_CAP),
-    equipment: new Array(NUM_EQUIPMENT_SLOTS).fill(255),
+    savedOldLevel,
+    equipment: new Array(NUM_EQUIPMENT_SLOTS).fill(EQUIPMENT_EMPTY),
     hpCurrent: derived.hpInitial,
     hpMax: derived.hpInitial,
     staminaCurrent: derived.stamina,
