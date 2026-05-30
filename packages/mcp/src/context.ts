@@ -14,6 +14,7 @@ import {
 } from '@wiz6/data';
 import { loadSymbolIndex } from './symbols-loader.js';
 import { DebuggerConsole, SaveStateBridge } from './debugger-console.js';
+import { HelperClient } from './dosbox/helper-client.js';
 
 export interface McpContextOptions {
   /** Repo-root path used to locate `tools/parity/extract.py` + `tools/dosbox/save/`. */
@@ -125,4 +126,14 @@ export class McpContext {
   listSessions(): readonly LaunchedSession[] {
     return Array.from(this.sessions_.values());
   }
+}
+
+// Lazy HelperClient singleton — created on first dynamic-tool call, persists
+// across tool invocations for the lifetime of the MCP server. If no agent ever
+// calls send_input/screenshot/save_state/load_state, the Swift helper child
+// process never spawns.
+let _helperClient: HelperClient | null = null;
+export function getHelperClient(): HelperClient {
+  if (_helperClient === null) _helperClient = new HelperClient();
+  return _helperClient;
 }

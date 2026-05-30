@@ -1,33 +1,34 @@
 // Phase 8 — Snapshot tools.
 //
-// `dosbox_list_saves` is REAL (filesystem listing). Everything that requires
-// the running emulator (save_state, load_state, screenshot) is a STUB because
-// it depends on Phase 9 dynamic driving — DOSBox-X writes save states in
-// response to a debugger command we can't issue without the pty bridge.
+// All four tools are REAL:
+//   - `dosbox_list_saves`: filesystem listing under tools/dosbox/save/.
+//   - `dosbox_save_state` / `dosbox_load_state`: drive DOSBox-X's stock
+//     Ctrl+F4/F5/F6 save-state chords via the Swift helper.
+//   - `dosbox_screenshot`: send Ctrl+F5 to DOSBox-X, poll the captures
+//     directory for the newest PNG, return the bytes inline.
 //
-// Decoding the existing CPU + Memory + VGA blobs out of a .sav for offline
-// inspection is feasible without dynamic driving, but the user-facing
-// screenshot tool needs *the current frame* which is buried in the VGA
-// blob and isn't yet parsed.
+// The dynamic-driving tools depend on a running DOSBox-X window on macOS —
+// they spawn a long-lived Swift helper to synthesise CGEvent key events and
+// focus the DOSBox-X window. See dosbox/{helper-client,input,window,
+// screenshot,state}.ts.
 
 import { existsSync, readdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import type { McpContext } from '../context.js';
-import { errorResult, jsonResult, safeHandler, type JsonToolResult } from '../tool-result.js';
-
-const SAVE_STUB_MESSAGE =
-  'Writing a fresh save state requires sending the save command to a running ' +
-  'DOSBox-X debugger. That needs the Phase 9 dynamic-driving backend.';
-const LOAD_STUB_MESSAGE =
-  'Loading a save state mid-run requires driving the debugger. Phase 9 ' +
-  'backend dependency. As a workaround, configure the autoload-on-boot slot ' +
-  'in tools/dosbox/wiz6.conf and re-launch via dosbox_launch.';
-const SCREENSHOT_STUB_MESSAGE =
-  'Screenshots require decoding the VGA framebuffer from the save-state hardware ' +
-  'blob (separate from the Memory blob). That parser is not yet written.';
+import { getHelperClient, type McpContext } from '../context.js';
+import { resolveCapturesDir } from '../dosbox/captures-dir.js';
+import { captureScreenshot } from '../dosbox/screenshot.js';
+import { loadStateFromSlot, saveStateToSlot } from '../dosbox/state.js';
+import {
+  errorResult,
+  imageResult,
+  jsonResult,
+  safeHandler,
+  type ImageToolResult,
+  type JsonToolResult,
+} from '../tool-result.js';
 
 export function registerSnapshotTools(server: McpServer, ctx: McpContext): void {
   server.registerTool(
@@ -64,37 +65,75 @@ export function registerSnapshotTools(server: McpServer, ctx: McpContext): void 
   server.registerTool(
     'dosbox_save_state',
     {
-      description: '[STUB] Create a new save state. ' + SAVE_STUB_MESSAGE,
+      description:
+        'Save DOSBox-X state to slot N (0..9) by driving Ctrl+F4 (cycle) and ' +
+        'Ctrl+F5 (save) on the focused window. Waits for tools/dosbox/save/' +
+        'N.sav mtime to advance before returning. Prior window focus is ' +
+        'restored on exit.',
       inputSchema: {
-        slot: z.number().int().nonnegative().describe('Save slot index.'),
+        slot: z.number().int().nonnegative().describe('Save slot index (0..9).'),
         source: z
           .string()
           .optional()
-          .describe('Optional human label for the save.'),
+          .describe('Optional human label for the save. Currently informational.'),
       },
     },
-    () => errorResult('dosbox_save_state: not implemented in v1. ' + SAVE_STUB_MESSAGE),
+    safeHandler(async ({ slot }): Promise<JsonToolResult> => {
+      try {
+        await saveStateToSlot(getHelperClient(), slot, ctx.savesDir);
+        return jsonResult({ ok: true, slot, path: join(ctx.savesDir, `${slot}.sav`) });
+      } catch (e) {
+        return errorResult(`dosbox_save_state: ${(e as Error).message}`);
+      }
+    }),
   );
 
   server.registerTool(
     'dosbox_load_state',
     {
-      description: '[STUB] Restore a save state in a running DOSBox-X. ' + LOAD_STUB_MESSAGE,
+      description:
+        'Load DOSBox-X state from slot N (0..9) by driving Ctrl+F4 (cycle) ' +
+        'and Ctrl+F6 (load) on the focused window. Prior window focus is ' +
+        'restored on exit.',
       inputSchema: {
-        slot: z.number().int().nonnegative(),
+        slot: z.number().int().nonnegative().describe('Save slot index (0..9).'),
       },
     },
-    () => errorResult('dosbox_load_state: not implemented in v1. ' + LOAD_STUB_MESSAGE),
+    safeHandler(async ({ slot }): Promise<JsonToolResult> => {
+      try {
+        await loadStateFromSlot(getHelperClient(), slot);
+        return jsonResult({ ok: true, slot });
+      } catch (e) {
+        return errorResult(`dosbox_load_state: ${(e as Error).message}`);
+      }
+    }),
   );
 
   server.registerTool(
     'dosbox_screenshot',
     {
-      description: '[STUB] Capture the current frame as PNG. ' + SCREENSHOT_STUB_MESSAGE,
+      description:
+        'Capture the current DOSBox-X frame as PNG. Drives Ctrl+F5 on the ' +
+        'focused window, polls [render] captures= from tools/dosbox/wiz6.conf ' +
+        'for the newest .png, and returns the bytes inline as an image content ' +
+        'block. Prior window focus is restored on exit.',
       inputSchema: {
-        save: z.string(),
+        save: z
+          .string()
+          .optional()
+          .describe(
+            'Currently informational — screenshots capture the live emulator frame, not a save state.',
+          ),
       },
     },
-    () => errorResult('dosbox_screenshot: not implemented in v1. ' + SCREENSHOT_STUB_MESSAGE),
+    safeHandler(async (): Promise<ImageToolResult | JsonToolResult> => {
+      try {
+        const capturesDir = resolveCapturesDir(ctx.configPath);
+        const bytes = await captureScreenshot(getHelperClient(), capturesDir);
+        return imageResult(bytes, 'image/png');
+      } catch (e) {
+        return errorResult(`dosbox_screenshot: ${(e as Error).message}`);
+      }
+    }),
   );
 }
