@@ -2,6 +2,19 @@
  * Input layer — resolves logical key names to macOS virtual key codes + flags,
  * sends key events via the Swift helper.
  *
+ * Two key-event shapes are supported:
+ *
+ *  1) CGEventFlags-modified key (Shift, Ctrl, Alt, Cmd). Resolved into a
+ *     single (keyCode, flags) pair; the helper posts one keyDown + one keyUp
+ *     with the modifier carried as a CGEventFlag.
+ *
+ *  2) Host-key combo (`F12+...`, `Host+...`). DOSBox-X 2026.05.02 on macOS
+ *     uses F12 as its **host key** — a regular key that must be physically
+ *     held while the action key is pressed (NOT a CGEventFlag bit). For these
+ *     we synthesize a 4-step sequence: keyDown(host) → keyDown(target) →
+ *     keyUp(target) → keyUp(host), with a small hold delay between each step
+ *     so the emulator's keyboard polling registers all four edges.
+ *
  * Spec: docs/superpowers/specs/2026-05-30-dosbox-mcp-dynamic-driving-design.md
  */
 
@@ -21,6 +34,12 @@ const MODIFIER_FLAGS: Record<string, number> = {
   Cmd: FLAG_COMMAND,
   Command: FLAG_COMMAND,
 };
+
+/** Tokens that mean "DOSBox-X host key" (the F12 chord prefix on macOS). */
+const HOST_TOKENS = new Set(['Host', 'F12']);
+
+/** Virtual key code for the host key (F12 on macOS DOSBox-X builds). */
+const HOST_KEY_CODE = 0x6f;
 
 // Map of logical key names → macOS virtual key codes. Authoritative for the project.
 const KEY_CODES: Record<string, number> = {
@@ -44,6 +63,9 @@ const KEY_CODES: Record<string, number> = {
   // Digits
   '0': 0x1d, '1': 0x12, '2': 0x13, '3': 0x14, '4': 0x15,
   '5': 0x17, '6': 0x16, '7': 0x1a, '8': 0x1c, '9': 0x19,
+  // Punctuation (US layout). Comma/period are used by DOSBox-X for slot cycling.
+  ',': 0x2b, '.': 0x2f, '/': 0x2c, ';': 0x29, "'": 0x27,
+  '[': 0x21, ']': 0x1e, '\\': 0x2a, '-': 0x1b, '=': 0x18, '`': 0x32,
 };
 
 // Short macro aliases — case-insensitive.
@@ -64,15 +86,23 @@ const MACRO_ALIASES: Record<string, string> = {
 export interface ResolvedKey {
   keyCode: number;
   flags: number;
+  /** True iff the spec contained a host-key token (F12/Host). When set, the
+   *  sender must wrap the press in a held host-key chord. */
+  hostHeld: boolean;
 }
 
 export function resolveKey(spec: string): ResolvedKey {
-  // Split modifier+key, e.g. "Ctrl+F5" → ["Ctrl", "F5"].
+  // Split modifier+key, e.g. "Ctrl+F5" → ["Ctrl", "F5"], "F12+S" → ["F12", "S"].
   const parts = spec.split('+');
   const keyName = parts[parts.length - 1]!;
   const modifierParts = parts.slice(0, -1);
   let flags = 0;
+  let hostHeld = false;
   for (const m of modifierParts) {
+    if (HOST_TOKENS.has(m)) {
+      hostHeld = true;
+      continue;
+    }
     const f = MODIFIER_FLAGS[m];
     if (f === undefined) throw new Error(`unknown modifier: ${m}`);
     flags |= f;
@@ -81,11 +111,11 @@ export function resolveKey(spec: string): ResolvedKey {
   if (keyName.length === 1 && keyName >= 'A' && keyName <= 'Z') {
     const kc = KEY_CODES[keyName.toLowerCase()];
     if (kc === undefined) throw new Error(`unknown key: ${keyName}`);
-    return { keyCode: kc, flags: flags | FLAG_SHIFT };
+    return { keyCode: kc, flags: flags | FLAG_SHIFT, hostHeld };
   }
   const kc = KEY_CODES[keyName];
   if (kc === undefined) throw new Error(`unknown key: ${keyName}`);
-  return { keyCode: kc, flags };
+  return { keyCode: kc, flags, hostHeld };
 }
 
 export function parseMacro(macro: string): string[] {
@@ -119,12 +149,56 @@ export function parseMacro(macro: string): string[] {
 
 export interface SendMacroOptions {
   interKeyDelayMs?: number;
+  /** Override the keyDown→keyUp hold delay. Mostly for tests. */
+  holdMs?: number;
 }
 
-export async function sendKey(client: HelperClient, spec: string): Promise<void> {
-  const { keyCode, flags } = resolveKey(spec);
+export interface SendKeyOptions {
+  /** Milliseconds to hold each press before releasing. Default 25. */
+  holdMs?: number;
+}
+
+/** Default keyDown→keyUp hold in ms. DOSBox-X's keyboard polling is
+ *  cycle-based; without a small hold, chord edges arrive in the same poll
+ *  window and the emulator may miss the keypress. 25ms is comfortably above
+ *  the ~16ms vsync of most builds. */
+const DEFAULT_HOLD_MS = 25;
+
+async function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return;
+  await new Promise((r) => setTimeout(r, ms));
+}
+
+export async function sendKey(
+  client: HelperClient,
+  spec: string,
+  opts: SendKeyOptions = {},
+): Promise<void> {
+  const holdMs = opts.holdMs ?? DEFAULT_HOLD_MS;
+  const { keyCode, flags, hostHeld } = resolveKey(spec);
+  if (hostHeld) {
+    // Host-key chord: F12 must be physically held during the target press,
+    // because DOSBox-X reads the host key as a regular key (NOT a CGEventFlag).
+    // Sequence: down(host) → wait → down(target) → wait → up(target) → wait → up(host).
+    const hostDown = await client.send({ op: 'keyDown', keyCode: HOST_KEY_CODE, flags: 0 });
+    if (!hostDown.ok) throw new Error(`sendKey: host keyDown failed: ${hostDown.error ?? '?'}`);
+    await sleep(holdMs);
+    try {
+      const down = await client.send({ op: 'keyDown', keyCode, flags });
+      if (!down.ok) throw new Error(`sendKey: keyDown failed: ${down.error ?? '?'}`);
+      await sleep(holdMs);
+      const up = await client.send({ op: 'keyUp', keyCode, flags });
+      if (!up.ok) throw new Error(`sendKey: keyUp failed: ${up.error ?? '?'}`);
+      await sleep(holdMs);
+    } finally {
+      // Always release the host key even if the target press failed.
+      await client.send({ op: 'keyUp', keyCode: HOST_KEY_CODE, flags: 0 });
+    }
+    return;
+  }
   const down = await client.send({ op: 'keyDown', keyCode, flags });
   if (!down.ok) throw new Error(`sendKey: keyDown failed: ${down.error ?? '?'}`);
+  await sleep(holdMs);
   const up = await client.send({ op: 'keyUp', keyCode, flags });
   if (!up.ok) throw new Error(`sendKey: keyUp failed: ${up.error ?? '?'}`);
 }
@@ -136,8 +210,10 @@ export async function sendMacro(
 ): Promise<void> {
   const delayMs = opts.interKeyDelayMs ?? 30;
   const keys = parseMacro(macro);
+  const keyOpts: SendKeyOptions = {};
+  if (opts.holdMs !== undefined) keyOpts.holdMs = opts.holdMs;
   for (const k of keys) {
-    await sendKey(client, k);
+    await sendKey(client, k, keyOpts);
     if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
   }
 }
