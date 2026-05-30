@@ -30,6 +30,7 @@ import { computeDerivedStats, type Rng } from '../character-creation/derived-sta
 const SAVED_OLD_LEVEL_THRESHOLD = 250; // engine 0xfa — at this level or above, savedOldLevel is set to 0 (throttle released)
 const NUM_EQUIPMENT_SLOTS = 8;
 const EQUIPMENT_EMPTY = 255; // sentinel value in the equipment array for an empty body slot
+const ITEM_FLAG_BIT_TO_CLEAR_ON_CLASS_CHANGE = 0x01; // engine FUN_8e35 clears this per item — likely the "equipped" or "stuck" marker
 
 export function applyClassChange(
   rng: Rng,
@@ -45,6 +46,10 @@ export function applyClassChange(
     level: 1,
     xp: 0,
     savedOldLevel,
+    inventory: member.inventory?.map((item) => ({
+      ...item,
+      flags: item.flags & ~ITEM_FLAG_BIT_TO_CLEAR_ON_CLASS_CHANGE,
+    })),
     equipment: new Array(NUM_EQUIPMENT_SLOTS).fill(EQUIPMENT_EMPTY),
     hpCurrent: derived.hpInitial,
     hpMax: derived.hpInitial,

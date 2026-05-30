@@ -125,6 +125,21 @@ describe('applyClassChange', () => {
     expect(result.rosterCharacterId).toBe('a-roster-uuid');
   });
 
+  it('clears bit 0x01 of every inventory item flag byte (engine FUN_8e35)', () => {
+    const before = makeFighter({
+      inventory: new Array(22).fill({
+        itemId: 100, weight: 5, equipSlot: 0, spriteIdx: 1, quantity: 1,
+        flags: 0x07, // 0x01 (equipped/cursed?) + 0x02 + 0x04
+      }),
+    });
+    const result = applyClassChange(new ZeroRng(), before, 1);
+    // Every item should have bit 0x01 cleared; other bits preserved.
+    for (const item of result.inventory ?? []) {
+      expect(item.flags & 0x01).toBe(0);
+      expect(item.flags & 0x06).toBe(0x06); // 0x02 + 0x04 preserved
+    }
+  });
+
   it('chained class-change at level 1 sets savedOldLevel=1 (engine-faithful — throttle escape exploit)', () => {
     const r1 = applyClassChange(new ZeroRng(), makeFighter({ level: 7 }), 1);
     expect(r1.savedOldLevel).toBe(7);

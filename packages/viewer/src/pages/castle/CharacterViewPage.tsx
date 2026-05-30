@@ -164,9 +164,15 @@ export function CharacterViewPage() {
       if (next.kind === 'commit-class-change') {
         const m = members[slotIdx];
         if (m) {
-          // Static boot triple (3000, 1, 29999) — same seed the creation page uses
-          // for derived-stats rolls when no per-session seed is set.
-          const rng = new WichmannHill(3000, 1, 29999);
+          // Per-call random seed so multiple class changes produce different rolls.
+          // The engine uses a deterministic RNG state that survives across sessions;
+          // matching that exactly is unnecessary for a QoL-toggled flow. Seeds must
+          // be positive nonzero (WichmannHill default range is large).
+          const rng = new WichmannHill(
+            Math.floor(Math.random() * 30000) + 1,
+            Math.floor(Math.random() * 30000) + 1,
+            Math.floor(Math.random() * 30000) + 1,
+          );
           const changed = applyClassChange(rng, m, next.newClassId);
           updateActiveMember(slotIdx, changed);
           setMembers(readActiveParty().members);
