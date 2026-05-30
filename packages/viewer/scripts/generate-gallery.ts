@@ -7,7 +7,10 @@ import { RosterSchema, type Character, type Roster } from '@wiz6/data';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..', '..');
-const PCFILE = join(REPO, 'original', 'pcfile.dbs');
+// Read the PRISTINE vendored copy, not `original/` — that's the live DOSBox
+// workspace and gets mutated by gameplay, which would churn the generated
+// gallery from transient save data. (Matches generate-stock-preset.ts.)
+const PCFILE = join(REPO, 'test-fixtures', 'original', 'pcfile.dbs');
 const OUT = join(HERE, '..', 'public', 'gallery', 'characters.json');
 
 function slotUuid(n: number): string {
