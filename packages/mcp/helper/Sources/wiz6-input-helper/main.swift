@@ -14,8 +14,14 @@ while let line = readLine(strippingNewline: true) {
             resp = postKeyDown(keyCode: kc, flags: fl)
         case .keyUp(let kc, let fl):
             resp = postKeyUp(keyCode: kc, flags: fl)
-        case .findWindow, .focusWindow, .getFrontmost, .restoreFrontmost:
-            resp = .failure("not yet implemented")
+        case .findWindow(let name):
+            resp = findWindow(appName: name)
+        case .focusWindow(let wid):
+            resp = focusWindow(windowId: wid)
+        case .getFrontmost:
+            resp = getFrontmost()
+        case .restoreFrontmost(let bid):
+            resp = restoreFrontmost(bundleId: bid)
         }
         stdout.write(Data(encodeResponse(resp).utf8))
     } catch {
