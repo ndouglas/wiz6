@@ -50,6 +50,7 @@ export {
 export { decodePcfile } from './formats/pcfile.js';
 export { encodeCharacterRecord } from './formats/encode-character-record.js';
 export { pcfileSlotToCharacter, characterToPcfileSlot } from './formats/pcfile-character-bridge.js';
+export { encodePcfile, charactersToDecodedPcfile } from './formats/encode-pcfile.js';
 
 export {
   slugify,
