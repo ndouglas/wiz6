@@ -15,11 +15,17 @@ import {
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
 const EXTRACT_SCRIPT = join(REPO_ROOT, 'tools', 'parity', 'extract.py');
-// 3.sav is from mid-intro (~9 s into the autodrive run); wroot.exe is loaded
-// and the SOUND00.SND filename-table anchor is present. 1.sav by contrast is
-// from very early boot (before wroot started) — used in server.test.ts for
-// the DGROUP-rejection path.
-const SAVE_STATE = join(REPO_ROOT, 'tools', 'dosbox', 'save', '3.sav');
+// Vendored, STABLE mid-intro save-state fixture: wroot.exe loaded, the
+// SOUND00.SND filename-table anchor present (~9 s into the intro autodrive).
+//
+// This MUST NOT point at tools/dosbox/save/*.sav. Those slots are a mutable
+// DOSBox workspace — gameplay and the castle build-saves runs clobber them
+// (slot 3 in particular is reused for the N=3 castle fixture), so a test that
+// reads them passes or fails depending on whatever was last saved. Capture
+// this fixture once and commit it under tests/fixtures/ (decoupled from the
+// workspace, mirroring test-fixtures/original/). Until it is vendored these
+// tests skip rather than bind to a disposable save. See TODO #066.
+const SAVE_STATE = join(__dirname, 'fixtures', 'boot-state.sav');
 const WIZ6_CONF = join(REPO_ROOT, 'tools', 'dosbox', 'wiz6.conf');
 const DOSBOX_PATH =
   '/opt/homebrew/Caskroom/dosbox-x-app/2026.05.02/dosbox-x-sdl2/dosbox-x.app/Contents/MacOS/dosbox-x';

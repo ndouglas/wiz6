@@ -13,11 +13,15 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#066**
+Next free ID: **#067**
 
 ---
 
 ## Open
+
+- #066 [open] — Vendor a stable boot-state save fixture for `debugger-console.test.ts`
+  - The SaveStateBridge tests need a mid-intro save state (wroot.exe loaded, SOUND00.SND filename-table anchor present). They were bound to `tools/dosbox/save/3.sav` — a mutable workspace slot that gets clobbered by gameplay and by the castle build-saves runs (slot 3 is reused for the N=3 castle fixture). Decoupled in 2026-05-30: the test now reads `packages/mcp/tests/fixtures/boot-state.sav` and skips until it exists.
+  - Action: when DOSBox driving is unblocked (MCP launch fix on main + session restart), capture a ~9 s-into-intro save state and commit it at that path. Verify `extract.py find <save> --pattern '53 4f 55 4e 44 30 30 2e 53 4e 44 00'` returns a positive offset.
 
 - #063 [open] — DOSBox-X MCP: Linux + Windows ports of input/window/screenshot helpers
   - macOS-only v1 shipped (Swift helper at `packages/mcp/helper/`). Linux (xdotool + ImageMagick), Windows (SendInput + screenshot APIs) follow the same TS module shape but ship a different helper binary.
