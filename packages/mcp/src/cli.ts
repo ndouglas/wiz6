@@ -16,6 +16,7 @@
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { startServer } from './server.js';
+import { shutdownHelper } from './context.js';
 
 function logJson(event: Record<string, unknown>): void {
   process.stderr.write(`${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`);
@@ -26,12 +27,22 @@ async function main(): Promise<void> {
   const { server } = await startServer(transport, { cwd: process.cwd() });
   logJson({ level: 'info', msg: 'wiz6-mcp started', cwd: process.cwd() });
 
+  let shuttingDown = false;
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     logJson({ level: 'info', msg: 'shutting down', signal });
     try {
       await server.close();
     } catch (err) {
-      logJson({ level: 'error', msg: 'shutdown error', err: String(err) });
+      logJson({ level: 'error', msg: 'shutdown error (server.close)', err: String(err) });
+    }
+    try {
+      // Reap the long-lived Swift helper child so it doesn't outlive us. No-op
+      // if no tool ever spawned it.
+      await shutdownHelper();
+    } catch (err) {
+      logJson({ level: 'error', msg: 'shutdown error (helper)', err: String(err) });
     }
     process.exit(0);
   };

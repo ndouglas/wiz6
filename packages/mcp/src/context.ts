@@ -137,3 +137,21 @@ export function getHelperClient(): HelperClient {
   if (_helperClient === null) _helperClient = new HelperClient();
   return _helperClient;
 }
+
+/**
+ * Tear down the lazy HelperClient if it was spawned. Idempotent — safe to
+ * call from a process-shutdown handler even if no tool ever invoked the
+ * helper. The CLI wires this into its SIGINT/SIGTERM path so the Swift
+ * child doesn't outlive the MCP server.
+ */
+export async function shutdownHelper(): Promise<void> {
+  if (_helperClient === null) return;
+  const c = _helperClient;
+  _helperClient = null;
+  await c.shutdown();
+}
+
+/** Test-only: reset the singleton without shutting down (use sparingly). */
+export function _resetHelperClientForTests(): void {
+  _helperClient = null;
+}
