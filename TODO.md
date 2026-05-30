@@ -31,18 +31,6 @@ Next free ID: **#066**
 - #065 [open] — Visual regression harness for headless playthroughs
   - Once dynamic-driving is exercised in real use (`pnpm test:integration`), capture reference screenshot sequences for known game flows. Re-run the same sequence in CI; diff each frame against the reference. Catches gameplay-flow regressions the existing pixel-parity tests don't (they cover isolated frames, not transitions).
 
-- #061 [open] — Capture castle-N-members fixtures for N=2..6 + parity tests
-  - We only have `castle-one-member` today; populated-party rendering for 2-6 members is untested. Add fixtures via `pnpm tsx tools/parity/gen-fixture.ts --save N --name castle-N-members` after building each save state in DOSBox-X (ensure PCFILE retains at least one available char so ADD PARTY MEMBER stays gated correctly).
-  - For each N, add a CASES entry to `tools/parity/castle-parity.test.ts` modeled on the castle-one-member case (use `dosbox_read_struct` to pull the engine's per-member `character_record` at each slot's BSS offset).
-  - These will catch portrait-coord regressions for slots 1..5 (PORTRAIT_BLIT_Y_STRIDE is currently guessed at 60).
-  - Per Nate's recall the engine layout is 3 left + 3 right; the multi-member fixtures will reveal the actual column-split coords. Will overturn or confirm the existing `portrait-blit-y-stacking` finding (and TODO #026's 64×9 claim).
-
-- #062 [open] — Re-RE castle party-panel layout; overturn portrait-blit-y-stacking + 64×9 claims
-  - The existing finding `docs/re/findings/wbase-add-party-member.json#portrait-blit-y-stacking` says portraits are stacked single-column at X=2, Y=slot*9+72. The castle-one-member fixture shows the engine puts slot 0 at the TOP (Y≈13), not Y=72. The current `PORTRAIT_BLIT_X=6, Y_BASE=13, STRIDE=60` in `castle-frame.ts` is empirical from the fixture, not from RE.
-  - TODO #026 ("engine-faithful 64×9 portraits") is also based on a finding that misreads the engine — the rendered portraits are clearly ~24×24, not 64×9. Likely confused on-disk encoding (which packs 4 bit-planes) with on-screen dimensions.
-  - Need a focused PyGhidra pass on the wbase routines that draw the party panel: FUN_0b0e (portrait blit — re-RE the coord math), FUN_1b2d (per-member info-panel renderer), and any sibling routines for the right-column slots (3..5).
-  - Output: corrected findings in `docs/re/findings/`, updated castle-frame.ts coords, blocks lifting castle-one-member parity floor from 97 to 100.
-
 - #058 [open] — PartyMemberPicker keyboard nav: match CharacterMenu column-major 2-row layout
   - Surfaced during #040 smoke (2026-05-29). The picker currently uses a 2-col × 3-row row-major grid; with 1-2 active party members, ArrowUp/Down have nowhere to go and the picker feels like it only responds to ArrowLeft/Right.
   - Refactor to mirror `CharacterMenuScreen`'s column-major 2-row layout (ceil(N/2) cols × 2 rows). Up/Down moves rows, Left/Right hops cols. Keep the LEFT-from-col-0 → CANCEL toggle.
@@ -201,20 +189,15 @@ Next free ID: **#066**
   - Needs an RE subagent pass on `wbase_character_submenu` to identify per-member options. Then a sibling spec/plan to `2026-05-28-add-party-member-design.md`.
   - Spec referenced this as the per-member inverse of ADD.
 
-- #024 [open] — Right-side party-panel rendering (`FUN_1b2d`)
-  - Engine `FUN_1b2d` @ wbase 0x1b2d draws per-member info panels on the right side of MASTER OPTIONS: name, status icon, condition icons, class symbol, two equipment-tile slots.
-  - Blocked on RE of the `0x526` (status icon lookup) and `0x532` (condition severity lookup) tables and the equipment-tile rendering path.
-  - Currently CastleScreen renders portraits on the LEFT only (Task 7); the RIGHT side stays empty.
-
 - #025 [open] — `msg.dbs` ID-to-text decoding for IDs ≥ 718
   - `load_msg_into_buf` (wroot 0x75b) has an ID → section/offset encoding not yet reversed. Our `extracted/messages/msg.json` covers IDs 0..717.
   - Blocks reading exact engine strings for any msg ID > 717. Picker titles (0x4b1 / 0x4b6 / 0x4b7), race/class/sex enum strings (bases 100/120/140), and many other UI labels live in the unmapped range.
   - ADD PARTY MEMBER uses fixture-captured strings (`save/1.sav` cells), so this isn't blocking the feature — but a proper decode would let the picker render strings from the msg DB rather than hardcoded constants in the composer.
 
-- #026 [open] — Engine-faithful 64×9 party portraits (currently 24×24 wport sprites)
-  - Per `docs/re/findings/wbase-add-party-member.json`, engine `FUN_0b0e` reads 9 rows × 32 bytes per portrait from `WPORT*.EGA` (= 64 pixels wide × 9 rows tall). Our castle-side blit uses the 24×24 portrait sprites from `extracted/portraits/wport*.json` instead.
-  - To match engine pixel-exact: extend the portrait extractor to also produce the 64×9 castle-side variant (or compute it on the fly from raw WPORT bytes), then update `blitPortrait` in `castle-frame.ts` to use it.
-  - Visual functional today (portraits show), but not engine-faithful for the castle-side rendering.
+- #026 [open] — Engine-faithful party portraits (the SOLE remaining castle-parity gap → 100%)
+  - Castle panels blit 24×24 portraits from `extracted/portraits/wport*.json`, but the engine draws ~32×24 on-screen via the `dcf2` transform of the on-disk 64×9 EGA-planar format. (The earlier "64×9 on-screen" reading was wrong — that's the raw encoding, not screen dims; corrected in `docs/re/findings/wbase-party-portrait-blit.json`.)
+  - Verified the only mismatch: in the committed castle-{1..6}-members parity fixtures, every differing pixel is inside a portrait sprite — gate/menu/names/class-symbols/HP-SP bars are pixel-exact. It caps parity at ~98% (N=1) down to ~91% (N=6), ≈1.4%/portrait.
+  - Fix: extend the wport extractor (or compute on the fly from raw WPORT bytes via the dcf2 transform) to produce the engine's on-screen 32×24 portrait; update `party-panel-render.ts`/`castle-frame.ts` to blit it; then raise the `castle-{1..6}-members` floors in `tools/parity/castle-parity.test.ts` toward 100.
 
 - #021 [open] — Per-class bonus-allocator AUTO-FILL animation
   - End-state implemented (commit 9c7879b): `PICK_CLASS` snaps attributes to `max(race_base, class_min)` and deducts the deficit from the pool. Verified vs the engine save (NATHAN/Samurai/pool 17→2).
