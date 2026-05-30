@@ -1,10 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { createTileWindow } from '@wiz6/parser';
-import { composeEditSubmenuInto } from '../../../src/pages/castle/compose-edit-submenu.js';
+import { composeEditSubmenu } from '../../../src/pages/castle/compose-edit-submenu.js';
 import type { MessageDb } from '@wiz6/data';
 
-// Minimal MessageDb stub: returns the literal string for any msgId we
-// reference. Keeps the test independent of the JSON.
 const STUB_LABELS: Record<number, string> = {
   650: 'RENAME',
   651: 'CHGPORT',
@@ -19,10 +16,6 @@ const stubDb = {
   })),
 } as unknown as MessageDb;
 
-function freshPanel() {
-  return createTileWindow({ screenX: 0, screenY: 0, widthCells: 40, heightCells: 20 });
-}
-
 function attrAt(cells: Uint8Array, w: number, col: number, row: number): number {
   return cells[(row * w + col) * 2 + 1] ?? 0;
 }
@@ -35,13 +28,17 @@ function charsAt(cells: Uint8Array, w: number, col: number, row: number, n: numb
   return out;
 }
 
-describe('composeEditSubmenuInto', () => {
-  it('renders 5 entries in column-major order at the engine\'s picker coords', () => {
-    const w = freshPanel();
-    composeEditSubmenuInto(w, { cursorIdx: 0, db: stubDb });
+describe('composeEditSubmenu', () => {
+  it('produces a 40x5 window at the bottom-strip position (y=160)', () => {
+    const w = composeEditSubmenu({ cursorIdx: 0, db: stubDb });
     expect(w.widthCells).toBe(40);
-    // Column-major: index 0 at (2, 1), index 1 at (2, 2), index 2 at (20, 1),
-    // index 3 at (20, 2), index 4 at (38, 1).
+    expect(w.heightCells).toBe(5);
+    expect(w.screenX).toBe(0);
+    expect(w.screenY).toBe(160);
+  });
+
+  it('renders 5 entries in column-major order at the engine\'s picker coords', () => {
+    const w = composeEditSubmenu({ cursorIdx: 0, db: stubDb });
     expect(charsAt(w.cells, 40, 2, 1, 6)).toBe('RENAME');
     expect(charsAt(w.cells, 40, 2, 2, 7)).toBe('CHGPORT');
     expect(charsAt(w.cells, 40, 20, 1, 7)).toBe('CHGPROF');
@@ -50,36 +47,27 @@ describe('composeEditSubmenuInto', () => {
   });
 
   it('REPLACE entry uses the dimmed disabled attr (0x70)', () => {
-    const w = freshPanel();
-    composeEditSubmenuInto(w, { cursorIdx: 0, db: stubDb });
+    const w = composeEditSubmenu({ cursorIdx: 0, db: stubDb });
     expect(attrAt(w.cells, 40, 20, 2)).toBe(0x70);
   });
 
   it('cursor highlight (attr 0x50) lands on the selected entry', () => {
-    const w = freshPanel();
-    composeEditSubmenuInto(w, { cursorIdx: 0, db: stubDb });
+    const w = composeEditSubmenu({ cursorIdx: 0, db: stubDb });
     expect(attrAt(w.cells, 40, 2, 1)).toBe(0x50);
   });
 
   it('non-cursor enabled entries use attr 0x03', () => {
-    const w = freshPanel();
-    composeEditSubmenuInto(w, { cursorIdx: 0, db: stubDb });
-    expect(attrAt(w.cells, 40, 2, 2)).toBe(0x03); // CHGPORT
-    expect(attrAt(w.cells, 40, 20, 1)).toBe(0x03); // CHGPROF
-    expect(attrAt(w.cells, 40, 38, 1)).toBe(0x03); // EX
+    const w = composeEditSubmenu({ cursorIdx: 0, db: stubDb });
+    expect(attrAt(w.cells, 40, 2, 2)).toBe(0x03);
+    expect(attrAt(w.cells, 40, 20, 1)).toBe(0x03);
+    expect(attrAt(w.cells, 40, 38, 1)).toBe(0x03);
   });
 
   it('pads each label to fill its picker slot (clears gaps between entries)', () => {
-    const w = freshPanel();
-    composeEditSubmenuInto(w, { cursorIdx: 0, db: stubDb });
-    // Right after "RENAME CHARACTER" (16 chars at cols 2-17), cols 18 and 19
-    // should be space chars with attr 0x50 (still highlighted, padded).
-    expect(w.cells[(1 * 40 + 18) * 2]).toBe(0x20);       // space char
-    expect(w.cells[(1 * 40 + 18) * 2 + 1]).toBe(0x50);   // highlight attr (cursor on idx 0)
-    expect(w.cells[(1 * 40 + 19) * 2]).toBe(0x20);
-    // Right after "CHANGE PROFESSION" (17 chars at cols 20-36), col 37 should
-    // be a space with attr 0x03 (non-cursor enabled).
-    expect(w.cells[(1 * 40 + 37) * 2]).toBe(0x20);
-    expect(w.cells[(1 * 40 + 37) * 2 + 1]).toBe(0x03);
+    const w = composeEditSubmenu({ cursorIdx: 0, db: stubDb });
+    // Right after "RENAME" (6 chars at cols 2-7), col 8 should be a space
+    // with attr 0x50 (still highlighted, padded to slot width).
+    expect(w.cells[(1 * 40 + 8) * 2]).toBe(0x20);
+    expect(w.cells[(1 * 40 + 8) * 2 + 1]).toBe(0x50);
   });
 });

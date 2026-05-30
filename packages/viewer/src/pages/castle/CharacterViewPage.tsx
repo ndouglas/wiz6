@@ -36,7 +36,7 @@ import { readActiveParty, updateActiveMember } from '../../lib/active-party-stor
 import { getHouseRules } from '../../lib/house-rules-store.js';
 import { CanvasPresenter } from '../../lib/presenter.js';
 import { composeCharacterViewFrame } from './compose-character-view-frame.js';
-import { composeEditSubmenuInto } from './compose-edit-submenu.js';
+import { composeEditSubmenu } from './compose-edit-submenu.js';
 import { composeRenamePrompt } from './compose-rename-prompt.js';
 import { composePortraitChange } from './compose-portrait-change.js';
 import { composeClassPicker } from './compose-class-picker.js';
@@ -253,15 +253,8 @@ export function CharacterViewPage() {
 
     const overlays: TileWindow[] = [];
     if (state.kind === 'edit-submenu') {
-      // Write submenu labels INTO the main panel (engine-faithful) — the
-      // engine picker mutates the host window's cells rather than opening
-      // a fresh overlay, which keeps the character sheet visible underneath.
-      // baseWindows[0] is the main panel (see composeCharacterViewFrame).
-      const panel = baseWindows[0];
-      if (panel) {
-        panel.invertHighlight = true; // cursor highlight uses inverse
-        composeEditSubmenuInto(panel, { cursorIdx: state.cursorIdx, db });
-      }
+      // Replace the bottom-strip action menu with the EDIT submenu.
+      baseWindows[1] = composeEditSubmenu({ cursorIdx: state.cursorIdx, db });
     } else if (state.kind === 'rename') {
       overlays.push(composeRenamePrompt({ buffer: state.buffer, db }));
     } else if (state.kind === 'portrait') {
