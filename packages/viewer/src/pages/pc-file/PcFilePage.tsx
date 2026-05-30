@@ -22,8 +22,8 @@ export function PcFilePage() {
         <h2>PC File</h2>
         <ul>{pcFile.map((c) => <li key={c.id}>{c.name}</li>)}</ul>
         <p className={styles.note}>
-          Use the castle&apos;s ADD MEMBER screen to bring characters into your group — it reads
-          these characters, exactly like the original game.
+          To add these to your party, use the castle&apos;s ADD PARTY MEMBER — it reads this PC
+          File, exactly like the original game.
         </p>
       </section>
     </div>

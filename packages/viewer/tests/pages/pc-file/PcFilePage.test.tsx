@@ -33,13 +33,14 @@ beforeEach(() => {
 describe('PcFilePage', () => {
   it('renders the Presets and PC File panes and the Stock preset', () => {
     render(<MemoryRouter><PcFilePage /></MemoryRouter>);
-    expect(screen.getByText(/presets/i)).toBeInTheDocument();
-    expect(screen.getByText(/pc file/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /presets/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /pc file/i })).toBeInTheDocument();
     expect(screen.getByText('THESUS')).toBeInTheDocument();
   });
 
-  it('shows no "add to party" control (party is engine-only)', () => {
+  it('shows no "add to party" control (party is engine-only; informational note is allowed)', () => {
     render(<MemoryRouter><PcFilePage /></MemoryRouter>);
-    expect(screen.queryByText(/party/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /party/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /party/i })).toBeNull();
   });
 });
