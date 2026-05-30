@@ -26,6 +26,7 @@ import {
   renderTileWindow,
   type MainMenuOption,
 } from '@wiz6/parser';
+import { composePartyPanel, NO_CONDITION_ICON } from './party-panel-render.js';
 
 const ENGINE_W = 320;
 const ENGINE_H = 200;
@@ -34,16 +35,27 @@ const ENGINE_H = 200;
 const PORTRAIT_TILE_PX = 8;
 const PORTRAIT_TILES_PER_SIDE = 3;
 
-/** Engine X for the left-side party-portrait column. Empirical from the
- *  castle-one-member fixture; the prior RE finding's X=2 / Y=slot*9+72 model
- *  is wrong (see TODO #061). */
-const PORTRAIT_BLIT_X = 6;
-/** Engine Y baseline for portrait slot 0. Empirical from castle-one-member;
- *  prior RE finding said 0x48=72 which placed slot 0 at the screen middle. */
-const PORTRAIT_BLIT_Y_BASE = 13;
-/** Engine Y stride between portrait slots. Unverified — only 1-member fixture
- *  exists today; stride is a guess pending fixtures for 2-6 members (#029). */
-const PORTRAIT_BLIT_Y_STRIDE = 60;
+/** Engine X for the party-portrait column. Empirical from the
+ *  castle-1-members fixture: portrait blits at panel cell col 0 of the
+ *  LEFT panel window (screenX=8) — i.e. x=8 in screen coords.
+ *
+ *  TODO #061: dcf2's coord transform is still unresolved. The disasm shows
+ *  FUN_0b0e calling `dcf2(buf, X=2, Y=portrait_id*9+0x48, rows=9)`, but the
+ *  fixture's actual on-screen position is X=8 / Y=48 (for portrait_id=0).
+ *  This is the empirical match — see
+ *  docs/re/findings/wbase-party-portrait-blit.json#dcf2-coordinate-uncertainty.
+ */
+const PORTRAIT_BLIT_X_LEFT = 8;
+/** Right panel mirror — screenX=256. */
+const PORTRAIT_BLIT_X_RIGHT = 256;
+/** Engine Y baseline for portrait slot 0. The portrait blits into panel row
+ *  1 (rows 1..3 of the slot's 4-row block, overlapping the colored-bar
+ *  grid which FUN_1b2d writes underneath). Panel window starts at screenY=40
+ *  so row 1 = screen y=48. */
+const PORTRAIT_BLIT_Y_BASE = 48;
+/** Engine Y stride between portrait slots in the SAME panel column. Each
+ *  slot's panel block is 4 rows tall = 32 px. */
+const PORTRAIT_BLIT_Y_STRIDE = 32;
 /** Portraits per wport file (wport1=0..13, wport2=14..27, wport3=28..41). */
 const PORTRAITS_PER_SET = 14;
 
@@ -232,15 +244,89 @@ export function composeCastleFrame(
     }
   }
 
-  // Active-party portraits — engine FUN_0b0e blits each member's portrait at
-  // (X=2, Y=portraitSlotId*9 + 0x48) on the left-side party panel. Portraits
-  // 0..13 live in wport1, 14..27 in wport2, 28..41 in wport3 — pick the right
-  // set per portraitIndex; within the set, the entry index is portraitIndex %
-  // PORTRAITS_PER_SET. We only draw when portraitSets has been loaded AND
-  // there's at least one active member, so the empty-party castle parity
-  // fixtures (which pass the defaults) remain byte-exact.
+  // Active-party info panels — FUN_1b2d @ wbase 0x1b2d. For each active
+  // member, compose the panel-cell content (name, colored bar, class symbol,
+  // condition + status icons) into the appropriate LEFT or RIGHT panel
+  // window, then blit the portrait on top (FUN_0b0e overwrites the colored
+  // bar at panel cells col 0..2, rows 1..3 of the slot's block).
+  //
+  // Per docs/re/findings/wbase-party-panel-redraw.json:
+  //   - LEFT panel = window handle at DGROUP 0x4fba; screen (8,40) - (64,136)
+  //   - RIGHT panel = window handle at DGROUP 0x4fb8; screen (256,40) - (312,136)
+  //   - 7 cells wide × 12 cells tall each
+  if (wfont3 && partyMembers.length > 0) {
+    const fontSet = { font0: wfont0, font1: wfont1, font3: wfont3 };
+    const leftPanel = createTileWindow({ screenX: 8, screenY: 40, widthCells: 7, heightCells: 12 });
+    const rightPanel = createTileWindow({ screenX: 256, screenY: 40, widthCells: 7, heightCells: 12 });
+    // Engine clears each panel to (0x20, 0x03) before redrawing slots — match
+    // that so empty cells render as wfont3 0x20 (solid gray space).
+    clearWindow(leftPanel, 0x20, 0x03);
+    clearWindow(rightPanel, 0x20, 0x03);
+
+    for (let slot = 0; slot < partyMembers.length; slot++) {
+      const member = partyMembers[slot]!;
+      const panel = composePartyPanel(slot, member);
+      const win = panel.column === 'left' ? leftPanel : rightPanel;
+      const row = panel.panelRow;
+
+      // Row+0: name at col 0, attr 3 (wfont3). Engine pads to 7 cells with
+      // 0x20 (already done by clearWindow above).
+      setCursor(win, 0, row);
+      puts(win, panel.fields.name, 0x03);
+
+      // Rows row+1..row+3, cols 0..2: 3x3 colored-bar grid (chars 2..10).
+      // Attr 0x03 = wfont3 per the colored-bar finding.
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 3; c++) {
+          setCursor(win, c, row + 1 + r);
+          const glyph = panel.fields.coloredBar[r]![c]!;
+          puts(win, String.fromCharCode(glyph), 0x03);
+        }
+      }
+
+      // Row+1, cols 3-4: class symbol (2 cells of consecutive font glyphs).
+      // Engine uses attr=1 here for these (wfont1) per the decompile
+      // (`func_de7f(uVar4, classByte*2+0x3a+i & 0xff, 1)` — third arg = attr).
+      setCursor(win, 3, row + 1);
+      puts(win, String.fromCharCode(panel.fields.classSymbol[0]), 0x01);
+      setCursor(win, 4, row + 1);
+      puts(win, String.fromCharCode(panel.fields.classSymbol[1]), 0x01);
+
+      // Row+2, col 3: condition icon. If NO_CONDITION_ICON (-1), engine draws
+      // 3 space cells instead of an icon.
+      if (panel.fields.conditionIcon === NO_CONDITION_ICON) {
+        setCursor(win, 3, row + 2);
+        puts(win, '   ', 0x03);
+      } else {
+        setCursor(win, 3, row + 2);
+        puts(win, String.fromCharCode((panel.fields.conditionIcon + 0x25) & 0xff), 0x03);
+      }
+
+      // Row+3, col 3: status icon. Engine writes `icon + 0x25`.
+      setCursor(win, 3, row + 3);
+      puts(win, String.fromCharCode((panel.fields.statusIcon + 0x25) & 0xff), 0x03);
+    }
+
+    renderTileWindow(leftPanel, buf, ENGINE_W, ENGINE_H, fontSet, WIZ6_MAIN);
+    renderTileWindow(rightPanel, buf, ENGINE_W, ENGINE_H, fontSet, WIZ6_MAIN);
+  }
+
+  // Active-party portrait blits — engine FUN_0b0e overwrites panel cells
+  // (col 0..2, row 1..3 of each slot's block) with a 24×24 wport sprite.
+  // Drawn AFTER the panel render so the portrait covers the colored-bar
+  // glyphs underneath (matching the engine's render order).
+  //
+  // Portraits 0..13 live in wport1, 14..27 in wport2, 28..41 in wport3 —
+  // pick the right set per portraitIndex; within the set, the entry index
+  // is portraitIndex % PORTRAITS_PER_SET. We only draw when portraitSets has
+  // been loaded so the empty-party fixtures (defaults) remain byte-exact.
+  //
+  // X for even slots = PORTRAIT_BLIT_X_LEFT (LEFT panel); odd = RIGHT.
+  // Y = panel cell row 1 of the slot's block = (slot/2)*4 + 1 cells →
+  //     (slot/2)*32 + PORTRAIT_BLIT_Y_BASE pixels.
   if (portraitSets && portraitSets.length > 0 && partyMembers.length > 0) {
-    for (const member of partyMembers) {
+    for (let slot = 0; slot < partyMembers.length; slot++) {
+      const member = partyMembers[slot]!;
       const portraitIndex = member.portraitIndex ?? 0;
       const setIdx = Math.floor(portraitIndex / PORTRAITS_PER_SET);
       const localIdx = portraitIndex % PORTRAITS_PER_SET;
@@ -250,8 +336,9 @@ export function composeCastleFrame(
           `composeCastleFrame: member ${member.name} portraitIndex ${portraitIndex} maps to wport${setIdx + 1} which is not loaded`,
         );
       }
-      const y = member.portraitSlotId * PORTRAIT_BLIT_Y_STRIDE + PORTRAIT_BLIT_Y_BASE;
-      blitPortrait(buf, set, localIdx, PORTRAIT_BLIT_X, y);
+      const x = slot % 2 === 0 ? PORTRAIT_BLIT_X_LEFT : PORTRAIT_BLIT_X_RIGHT;
+      const y = Math.floor(slot / 2) * PORTRAIT_BLIT_Y_STRIDE + PORTRAIT_BLIT_Y_BASE;
+      blitPortrait(buf, set, localIdx, x, y);
     }
   }
 

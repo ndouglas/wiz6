@@ -135,18 +135,28 @@ const CASES: CastleCase[] = [
     members: [],
     selectedIdx: 0,
   },
-  // castle-one-member: NATHAN in party slot 0 (portraitSlotId=0), REVIEW MEMBER
-  // highlighted (selectedIdx=1 because ADD PARTY MEMBER is at idx 0 and is still
-  // visible since NUG2 is in PCFILE). Captured from engine save 1.
-  // Starts as a regression floor of 0 — the test exists primarily to surface the
-  // diff so the render path can be brought to parity (TODO #028 follow-up).
-  // castle-one-member: NATHAN solo, ADD PARTY MEMBER highlighted (selectedIdx=0).
-  // 97.21% — remaining ~3% is the per-member info panel (name label + HP bar +
-  // class icons, engine FUN_1b2d, not yet ported — #024). Floor 97 as regression
-  // marker; target 100 once #024 lands.
+  // castle-1-members: NATHAN solo, ADD PARTY MEMBER highlighted (selectedIdx=0).
+  // Captured from engine save 1. Per Task 2 the FUN_1b2d info-panel rendering
+  // (name label + colored bar + class symbol + status/condition icons) is
+  // ported in; the portrait blit position is corrected from y=13 (a spurious
+  // empirical hold-over) to y=48 (panel row 1, where the engine actually
+  // draws it).
   {
-    fixture: 'castle-one-member',
-    floor: 97,
+    // 98.20% with Task 2 (port of FUN_1b2d panel-cell render + portrait moved
+    // from y=13 to y=48 panel-row 1). Up from 97.21% baseline. The remaining
+    // ~1.8% diff is concentrated in panel cells col 0..3 rows 6..8 of the
+    // LEFT slot-0 area: the wport-extracted 24×24 portrait sprite does NOT
+    // match the engine's 32×24 portrait rendering (TODO #061: dcf2 coord
+    // transform still unresolved; TODO #026: wport extraction is wrong shape).
+    // The class-symbol / status-icon cells render in the correct positions
+    // with the correct font glyphs — the engine's color choice for those
+    // cells (palette index 4 dark red vs ours palette index 3 magenta) is
+    // also a small contributor to the remaining diff.
+    //
+    // Target 100% is gated on TODO #026 + #061 — when the portrait blit
+    // produces engine-faithful pixels, raise this floor accordingly.
+    fixture: 'castle-1-members',
+    floor: 98,
     parity: 1,
     context: ONE_MEMBER_CONTEXT,
     members: [ENGINE_SAVE_1_NATHAN],
