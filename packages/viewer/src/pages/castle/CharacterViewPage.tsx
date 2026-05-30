@@ -241,6 +241,25 @@ export function CharacterViewPage() {
       state.kind === 'portrait' ? state.previewIdx : (member.portraitIndex ?? 0);
     const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, portraits, portraitToShow);
 
+    // Header age fields (next to the portrait): row 2 = age in years
+    // (record age_counter is in game-DAYS → /365), row 3 = the engine's
+    // "secondAge" counter, which is 1 for every finalised character (it is
+    // not a persisted record field; creation sets it to 1).
+    const age = {
+      years: Math.floor((member.age ?? 0) / 365),
+      second: 1,
+    };
+    // Carrying capacity: record +0x20/+0x22 are tenths of a pound → /10 for
+    // the on-screen value. Only render when the member actually has the data
+    // (older rosters created before encumbrance was computed omit it).
+    const cc =
+      member.encumbranceMax != null
+        ? {
+            current: Math.floor((member.encumbranceCurrent ?? 0) / 10),
+            max: Math.floor(member.encumbranceMax / 10),
+          }
+        : undefined;
+
     const baseWindows = composeCharacterViewFrame({
       members,
       currentSlot: slotIdx,
@@ -249,6 +268,8 @@ export function CharacterViewPage() {
       cursorIdx: state.kind === 'action-menu' ? state.cursorIdx : 0,
       db,
       includeEditFromCamp,
+      age,
+      ...(cc ? { cc } : {}),
     });
 
     const overlays: TileWindow[] = [];

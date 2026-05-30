@@ -40,7 +40,13 @@ export function buildCharacterFromDraft(draft: DraftState): Character {
   // level and xp come from derived stats (computeDerivedStats fires at ALLOC_CONFIRM).
   const level = draft.derived.level ?? 1;
   const xp    = draft.derived.xp    ?? 0;
-  const gold  = draft.derived.goldInitial ?? 0;
+  // Engine-faithful: a finalised character ends creation with 0 gold — the
+  // rolled starting gold (draft.derived.goldInitial) is consumed buying the
+  // auto-issued starting equipment (verified: engine NATHAN/NUG records all
+  // have gold=0 + 5 starting items). We don't model the equipment purchase
+  // itself yet, so we just zero the gold to match the engine's end state
+  // rather than persist the pre-equipment goldInitial.
+  const gold  = 0;
   // HP, stamina, and age — needed by the review char-sheet renderer (and the
   // in-game stat panel). Default to 0 if a partial draft is committed.
   const hpInitial = draft.derived.hpInitial ?? 0;
