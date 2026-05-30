@@ -13,11 +13,24 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#058**
+Next free ID: **#061**
 
 ---
 
 ## Open
+
+- #058 [open] — PartyMemberPicker keyboard nav: match CharacterMenu column-major 2-row layout
+  - Surfaced during #040 smoke (2026-05-29). The picker currently uses a 2-col × 3-row row-major grid; with 1-2 active party members, ArrowUp/Down have nowhere to go and the picker feels like it only responds to ArrowLeft/Right.
+  - Refactor to mirror `CharacterMenuScreen`'s column-major 2-row layout (ceil(N/2) cols × 2 rows). Up/Down moves rows, Left/Right hops cols. Keep the LEFT-from-col-0 → CANCEL toggle.
+  - File: `packages/viewer/src/components/PartyMemberPicker.tsx` (+ `compose-party-member-picker-frame.ts` for the new cell positions). Re-RE the engine's actual picker geometry before changing — the wbase finding says 2x3 but the engine UX may differ in practice; verify against a fixture.
+
+- #059 [open] — Cursor position reset on ESC/Cancel in EDIT-submenu sub-flows
+  - Per #040 final-review and Nate's smoke: ESC from `edit-submenu` returns to `action-menu` with `cursorIdx: 0`; N in `profession-confirm` returns to `profession-picker` with `cursorIdx: 0`. The user loses their selected position.
+  - Resolve by carrying the "return cursor" through the reducer's state shape (e.g., `edit-submenu` remembers which action menu index it came from; `profession-confirm` remembers picker cursor). Minor UX; not blocking.
+
+- #060 [open] — Character-creation spell selection screens render incorrectly (slots 1, 2, 3, and slot 4 = post-spell-select save-this-character prompt)
+  - Surfaced during #040 smoke (2026-05-29). The SpellPick screens in the wpcmk creation flow (`packages/viewer/src/pages/roster/creation/screens/SpellPick*.tsx` + composers) are visually broken for the first 4 character slots; the post-selection "save this character" prompt is also broken at slot 4.
+  - Pre-existing, unrelated to #040. Investigate which composer is misaligned and whether it's a per-slot or universal regression.
 
 - #054 [open] — Audit CHARACTER MENU functional completeness
   - How much of the wpcmk CHARACTER MENU port is functionally equivalent to the engine vs scaffold? Pixel-parity is byte-exact on the rendered cells, but REVIEW/DELETE/RENAME/PORTRAIT actions are partly stubbed (per #019 deferred polish notes).
