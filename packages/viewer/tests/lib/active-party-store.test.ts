@@ -6,8 +6,9 @@ import {
   dismissAllMembers,
   dismissMember,
   availableRosterFor,
+  updateActiveMember,
 } from '../../src/lib/active-party-store.js';
-import type { ActiveParty, Character, Roster } from '@wiz6/data';
+import type { ActiveParty, ActivePartyMember, Character, Roster } from '@wiz6/data';
 
 function makeChar(id: string, name: string): Character {
   return {
@@ -126,5 +127,67 @@ describe('dismissMember', () => {
     // TREON should pick up portraitSlotId 0 (smallest free).
     const treon = after.members.find((m) => m.name === 'TREON')!;
     expect(treon.portraitSlotId).toBe(0);
+  });
+});
+
+function fakeMember(overrides: Partial<ActivePartyMember> = {}): ActivePartyMember {
+  return {
+    id: '00000000-0000-4000-8000-000000000001',
+    name: 'AAA',
+    race: 0,
+    class: 0,
+    level: 1,
+    savedOldLevel: 0,
+    xp: 0,
+    gold: 0,
+    conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    dead: false,
+    paralyzed: false,
+    attributes: { str: 10, int: 10, pie: 10, vit: 10, dex: 10, spd: 10, per: 10, kar: 10 },
+    schoolMana: [0, 0, 0, 0, 0, 0],
+    schoolManaMax: [0, 0, 0, 0, 0, 0],
+    skills: new Array(30).fill(0),
+    reaction: 50,
+    sex: 0,
+    portraitSlotId: 0,
+    rosterCharacterId: '00000000-0000-4000-8000-000000000001',
+    ...overrides,
+  } as ActivePartyMember;
+}
+
+describe('updateActiveMember', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('patches the named fields of the member at slotIndex', () => {
+    writeActiveParty({
+      schemaVersion: 1,
+      members: [fakeMember({ name: 'OLD' })],
+    });
+    updateActiveMember(0, { name: 'NEW' });
+    expect(readActiveParty().members[0]?.name).toBe('NEW');
+  });
+
+  it('preserves other members untouched', () => {
+    writeActiveParty({
+      schemaVersion: 1,
+      members: [fakeMember({ name: 'AAA' }), fakeMember({ name: 'BBB', id: '00000000-0000-4000-8000-000000000002' })],
+    });
+    updateActiveMember(0, { name: 'CCC' });
+    const m = readActiveParty().members;
+    expect(m[0]?.name).toBe('CCC');
+    expect(m[1]?.name).toBe('BBB');
+  });
+
+  it('is a no-op on out-of-range slotIndex', () => {
+    writeActiveParty({ schemaVersion: 1, members: [fakeMember({ name: 'AAA' })] });
+    updateActiveMember(5, { name: 'NEW' });
+    expect(readActiveParty().members[0]?.name).toBe('AAA');
+  });
+
+  it('throws when the patch produces an invalid member (schema rejects)', () => {
+    writeActiveParty({ schemaVersion: 1, members: [fakeMember()] });
+    expect(() => updateActiveMember(0, { name: '' })).toThrow();
   });
 });

@@ -83,6 +83,28 @@ export function dismissMember(slotIndex: number): void {
   writeActiveParty({ ...p, members: next });
 }
 
+/**
+ * Patch a subset of fields on the active-party member at `slotIndex`.
+ * No-op when out of range. Throws if the resulting record fails the
+ * ActivePartySchema validation (e.g., empty name).
+ *
+ * Used by the WPCVW EDIT submenu sub-flows (rename, portrait change,
+ * profession change) to write through to localStorage. The corresponding
+ * roster character is NOT updated by this helper — that's tracked as
+ * TODO #056 (active ↔ roster sync).
+ */
+export function updateActiveMember(
+  slotIndex: number,
+  patch: Partial<ActivePartyMember>,
+): void {
+  const p = readActiveParty();
+  if (slotIndex < 0 || slotIndex >= p.members.length) return;
+  const current = p.members[slotIndex]!;
+  const next = [...p.members];
+  next[slotIndex] = { ...current, ...patch };
+  writeActiveParty({ ...p, members: next });
+}
+
 /** Filter a roster down to characters not currently in the active party. */
 export function availableRosterFor(
   roster: ReadonlyArray<Character>,
