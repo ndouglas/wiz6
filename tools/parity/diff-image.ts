@@ -143,6 +143,96 @@ export function compareRgba(
   return { width, height, total, diffCount, matchPct, firstDiffs };
 }
 
+/**
+ * Multi-reference comparator: a pixel "matches" if it is within tolerance of
+ * the corresponding pixel in ANY of the supplied reference buffers.
+ *
+ * This is the `match(all($target, any($refs)))` semantics — the tool for
+ * comparing a single captured frame against an animation that has more than
+ * one valid phase. Render every phase, pass them all as `refs`, and a pixel
+ * passes if it equals the captured frame in *some* phase. Because the phases
+ * are identical everywhere except the animated regions, the per-pixel slack is
+ * automatically confined to those regions — static content must still match
+ * every reference identically.
+ *
+ * Use it, e.g., for the castle fountain (two parity phases) or to match a
+ * dungeon viewport against any frame of its animation loop.
+ *
+ * @param target The single frame under test (e.g. our render, or the fixture).
+ * @param refs   One or more reference frames; pixel passes if it matches any.
+ * @param opts   Options (tolerance, default 8).
+ */
+export function compareRgbaMulti(
+  target: Uint8Array | Uint8ClampedArray | number[],
+  refs: ReadonlyArray<Uint8Array | Uint8ClampedArray | number[]>,
+  opts?: DiffOptions,
+): DiffResult {
+  const tolerance = opts?.tolerance ?? 8;
+
+  if (refs.length === 0) {
+    throw new Error('compareRgbaMulti: need at least one reference buffer');
+  }
+  for (let r = 0; r < refs.length; r++) {
+    if (refs[r]!.length !== target.length) {
+      throw new Error(
+        `compareRgbaMulti: buffer length mismatch — target=${target.length}, refs[${r}]=${refs[r]!.length}`,
+      );
+    }
+  }
+  if (target.length % 4 !== 0) {
+    throw new Error(`compareRgbaMulti: buffer length ${target.length} is not a multiple of 4`);
+  }
+
+  const total = target.length / 4;
+  const width = 320;
+  const height = Math.round(total / width);
+  if (width * height !== total) {
+    throw new Error(`compareRgbaMulti: buffer has ${total} pixels which is not exactly 320×N`);
+  }
+
+  let diffCount = 0;
+  const firstDiffs: PixelDiff[] = [];
+  const MAX_FIRST = 10;
+
+  for (let i = 0; i < total; i++) {
+    const base = i * 4;
+    const tr = target[base]!;
+    const tg = target[base + 1]!;
+    const tb = target[base + 2]!;
+    const ta = target[base + 3]!;
+
+    let matched = false;
+    for (let r = 0; r < refs.length; r++) {
+      const ref = refs[r]!;
+      if (
+        Math.abs(tr - ref[base]!) <= tolerance &&
+        Math.abs(tg - ref[base + 1]!) <= tolerance &&
+        Math.abs(tb - ref[base + 2]!) <= tolerance &&
+        Math.abs(ta - ref[base + 3]!) <= tolerance
+      ) {
+        matched = true;
+        break;
+      }
+    }
+
+    if (!matched) {
+      diffCount++;
+      if (firstDiffs.length < MAX_FIRST) {
+        const r0 = refs[0]!;
+        firstDiffs.push({
+          x: i % width,
+          y: Math.floor(i / width),
+          a: [tr, tg, tb, ta],
+          b: [r0[base]!, r0[base + 1]!, r0[base + 2]!, r0[base + 3]!],
+        });
+      }
+    }
+  }
+
+  const matchPct = ((total - diffCount) / total) * 100;
+  return { width, height, total, diffCount, matchPct, firstDiffs };
+}
+
 // ─── Diff PNG writer ─────────────────────────────────────────────────────────
 
 /**

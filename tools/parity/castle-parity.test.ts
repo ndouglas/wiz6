@@ -44,7 +44,7 @@ import {
 import { composeCastleFrame } from '../../packages/viewer/src/pages/game/castle-frame.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { indicesToRgba } from './decode-screen.js';
-import { compareRgba, writeDiffPng } from './diff-image.js';
+import { compareRgba, compareRgbaMulti, writeDiffPng } from './diff-image.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -247,10 +247,11 @@ const CASES: CastleCase[] = [
     // ANIMATED fountain/dragon (x214-242, y52-117): this fixture was captured
     // at a different water-animation phase than our parity=1 render. castle-2..6
     // capture the fountain at the parity=1 phase (→ 100%); only castle-1 differs.
-    // The residual is an animation-phase artifact, not a render bug — addressed
-    // by multi-reference frame matching (TODO #C / parity any-of-N).
+    // The residual was an animation-phase artifact, not a render bug — resolved
+    // by multi-reference frame matching (compareRgbaMulti): the fixture passes
+    // if each pixel matches EITHER parity phase we render.
     fixture: 'castle-1-members',
-    floor: 99,
+    floor: 100,
     parity: 1,
     context: ONE_MEMBER_CONTEXT,
     members: [ENGINE_SAVE_1_NATHAN],
@@ -350,22 +351,35 @@ describe('castle (main menu) pixel-parity vs committed fixtures', () => {
   for (const c of CASES) {
     it(`${c.fixture} (parity=${c.parity}): RGB match ≥ ${c.floor}% (regression floor; target 100)`, () => {
       const menuOptions = visibleMenuOptions(c.context);
-      const ours = composeCastleFrame(
-        c.parity,
-        dragonscRgba,
-        mon08Pic,
-        mon08Decoded,
-        wfont3,
-        wfont0,
-        menuOptions,
-        c.selectedIdx,
-        wfont1,
-        c.members,
-        c.members.length > 0 ? portraitSets : null,
-        wfont4,
-      );
+      const render = (parity: 0 | 1): Uint8ClampedArray =>
+        composeCastleFrame(
+          parity,
+          dragonscRgba,
+          mon08Pic,
+          mon08Decoded,
+          wfont3,
+          wfont0,
+          menuOptions,
+          c.selectedIdx,
+          wfont1,
+          c.members,
+          c.members.length > 0 ? portraitSets : null,
+          wfont4,
+        );
+      const ours = render(c.parity);
       const eng = engineRgba(c.fixture);
-      const result = compareRgba(ours, eng, { tolerance: 0 });
+      // The per-member panels are parity-independent; the ONLY parity-gated
+      // content is the animated water/fountain. The castle-N fixtures were
+      // captured from arbitrary saves, so their fountain phase doesn't always
+      // line up with a single parity tick. Match the fixture against BOTH phases
+      // (any-of) so an arbitrary capture phase isn't penalised, while static
+      // content (panels, gate, menu) must still match identically in both. The
+      // empty-party main-menu fixtures stay strict single-phase (floor 100) —
+      // they are the discrete-phase ground truth.
+      const result =
+        c.members.length > 0
+          ? compareRgbaMulti(eng, [render(0), render(1)], { tolerance: 0 })
+          : compareRgba(ours, eng, { tolerance: 0 });
 
       try {
         writeFileSync(
