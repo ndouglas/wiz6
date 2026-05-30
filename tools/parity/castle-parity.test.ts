@@ -158,6 +158,64 @@ const ENGINE_SAVE_2_NUG2: ActivePartyMember = {
 // top-left option (selectedIdx 0).
 const TWO_MEMBER_CONTEXT: MainMenuContext = { partySize: 2, pcFileHasUnloadedChars: false };
 
+// NUG3..NUG6 (engine save 6 slots 2..5, verified via dosbox_read_struct). All
+// level 1, sex 0, no conditions. Even slots (0,2,4) render LEFT, odd (1,3,5)
+// RIGHT. skills/attributes are carried for fidelity but don't affect the castle
+// panel render (portrait + name + class symbol + HP/SP bars + status icons do).
+const ENGINE_NUG3: ActivePartyMember = {
+  id: '00000000-0000-4000-8000-000000000003', name: 'NUG3', race: 7, class: 1,
+  level: 1, savedOldLevel: 0, xp: 0, gold: 0,
+  conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], dead: false, paralyzed: false,
+  attributes: { str: 10, int: 15, pie: 6, vit: 12, dex: 10, spd: 8, per: 6, kar: 3 },
+  schoolMana: [3, 0, 0, 3, 0, 0], schoolManaMax: [3, 0, 0, 3, 0, 0],
+  skills: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0],
+  reaction: 16, sex: 0, portraitSlotId: 2,
+  rosterCharacterId: '00000000-0000-4000-8000-000000000003',
+  portraitIndex: 9, hpCurrent: 2, hpMax: 2, staminaCurrent: 102, staminaMax: 102, age: 6998,
+};
+const ENGINE_NUG4: ActivePartyMember = {
+  id: '00000000-0000-4000-8000-000000000004', name: 'NUG4', race: 5, class: 6,
+  level: 1, savedOldLevel: 0, xp: 0, gold: 0,
+  conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], dead: false, paralyzed: false,
+  attributes: { str: 3, int: 11, pie: 6, vit: 6, dex: 15, spd: 14, per: 18, kar: 6 },
+  schoolMana: [0, 0, 0, 0, 0, 0], schoolManaMax: [0, 0, 0, 0, 0, 0],
+  skills: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 8, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0],
+  reaction: 28, sex: 0, portraitSlotId: 3,
+  rosterCharacterId: '00000000-0000-4000-8000-000000000004',
+  portraitIndex: 15, hpCurrent: 1, hpMax: 1, staminaCurrent: 45, staminaMax: 45, age: 6671,
+};
+const ENGINE_NUG5: ActivePartyMember = {
+  id: '00000000-0000-4000-8000-000000000005', name: 'NUG5', race: 10, class: 3,
+  level: 1, savedOldLevel: 0, xp: 0, gold: 0,
+  conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], dead: false, paralyzed: false,
+  attributes: { str: 10, int: 10, pie: 6, vit: 10, dex: 14, spd: 8, per: 9, kar: 17 },
+  schoolMana: [0, 0, 0, 0, 0, 0], schoolManaMax: [0, 0, 0, 0, 0, 0],
+  skills: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 10, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  reaction: 8, sex: 0, portraitSlotId: 4,
+  rosterCharacterId: '00000000-0000-4000-8000-000000000005',
+  portraitIndex: 9, hpCurrent: 5, hpMax: 5, staminaCurrent: 90, staminaMax: 90, age: 6853,
+};
+const ENGINE_NUG6: ActivePartyMember = {
+  id: '00000000-0000-4000-8000-000000000006', name: 'NUG6', race: 1, class: 9,
+  level: 1, savedOldLevel: 0, xp: 0, gold: 0,
+  conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], dead: false, paralyzed: false,
+  attributes: { str: 7, int: 15, pie: 15, vit: 7, dex: 9, spd: 9, per: 8, kar: 10 },
+  schoolMana: [3, 0, 0, 0, 0, 4], schoolManaMax: [3, 0, 0, 0, 0, 4],
+  skills: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0, 6, 0],
+  reaction: 36, sex: 0, portraitSlotId: 5,
+  rosterCharacterId: '00000000-0000-4000-8000-000000000006',
+  portraitIndex: 10, hpCurrent: 3, hpMax: 3, staminaCurrent: 63, staminaMax: 63, age: 6638,
+};
+
+// N=3/4/5 built from the 6-char roster: roster still has unloaded chars, so
+// ADD PARTY MEMBER is visible + highlighted (selectedIdx 0).
+const UNLOADED_CONTEXT_3: MainMenuContext = { partySize: 3, pcFileHasUnloadedChars: true };
+const UNLOADED_CONTEXT_4: MainMenuContext = { partySize: 4, pcFileHasUnloadedChars: true };
+const UNLOADED_CONTEXT_5: MainMenuContext = { partySize: 5, pcFileHasUnloadedChars: true };
+// N=6: full party, roster empty → no ADD PARTY MEMBER; cursor on START NEW GAME
+// (index 2 of the visible menu REVIEW/DISMISS/START NEW/...).
+const SIX_MEMBER_CONTEXT: MainMenuContext = { partySize: 6, pcFileHasUnloadedChars: false };
+
 const CASES: CastleCase[] = [
   // parity=1 (water overlays ON) matches main-menu; parity=0 matches main-menu-2.
   {
@@ -213,6 +271,46 @@ const CASES: CastleCase[] = [
     context: TWO_MEMBER_CONTEXT,
     members: [ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2],
     selectedIdx: 0,
+  },
+  // castle-{3,4,5}-members: party built up from the 6-char roster (NATHAN, NUG2,
+  // NUG3..). Roster still has unloaded chars → ADD PARTY MEMBER highlighted
+  // (selectedIdx 0). Conservative floors; tightened to measured values below.
+  {
+    fixture: 'castle-3-members',
+    floor: 95,
+    parity: 1,
+    context: UNLOADED_CONTEXT_3,
+    members: [ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2, ENGINE_NUG3],
+    selectedIdx: 0,
+  },
+  {
+    fixture: 'castle-4-members',
+    floor: 94,
+    parity: 1,
+    context: UNLOADED_CONTEXT_4,
+    members: [ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2, ENGINE_NUG3, ENGINE_NUG4],
+    selectedIdx: 0,
+  },
+  {
+    fixture: 'castle-5-members',
+    floor: 92,
+    parity: 1,
+    context: UNLOADED_CONTEXT_5,
+    members: [ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2, ENGINE_NUG3, ENGINE_NUG4, ENGINE_NUG5],
+    selectedIdx: 0,
+  },
+  // castle-6-members: full party, roster empty → no ADD PARTY MEMBER; cursor on
+  // START NEW GAME (selectedIdx 2 in the visible menu).
+  {
+    fixture: 'castle-6-members',
+    floor: 91,
+    parity: 1,
+    context: SIX_MEMBER_CONTEXT,
+    members: [
+      ENGINE_SAVE_1_NATHAN, ENGINE_SAVE_2_NUG2, ENGINE_NUG3,
+      ENGINE_NUG4, ENGINE_NUG5, ENGINE_NUG6,
+    ],
+    selectedIdx: 2,
   },
 ];
 
