@@ -13,7 +13,7 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#055**
+Next free ID: **#058**
 
 ---
 
@@ -53,14 +53,21 @@ Next free ID: **#055**
 - #042 [open] — Confirm WPCVW action menu disabled-attr against fixture
   - Scaffold uses attr 0x07 (dim gray) for disabled actions. Engine may render disabled with a different attr or not render them at all. Check against a fixture where `*0x4fce == 4` (camp/read-only) so some actions ARE disabled and visible.
 
+- #057 [open] — Verify REPLACE disabled-entry attr in WPCVW EDIT submenu
+  - `compose-edit-submenu.ts` uses attr 0x07 (dimmed gray) for the REPLACE row by analogy. Confirm against a captured engine fixture (depends on #055).
+
+- #056 [open] — Active-party ↔ roster sync on edits + dismiss
+  - When an active member is renamed / has their portrait or class changed via the WPCVW EDIT submenu, the linked roster character is NOT updated. On dismiss, edits are lost.
+  - Mirror the engine's PCFILE writeback: on `dismissMember`, copy the active member's name/portraitIndex/class/level/xp/savedOldLevel back to the roster character (looked up via `rosterCharacterId`).
+
+- #055 [blocked] — Capture WPCVW EDIT screen engine fixtures + add pixel-parity tests
+  - Blocked on either dungeon traversal (state-0x11 reachable with `*0x4fce==5`) or MCP dynamic-driving capability (#017 v2) that lets us poke the context byte and capture saves at EDIT submenu / RENAME prompt / PORTRAIT change / CLASS picker.
+  - Promote composer cell-grid assertions to pixel-parity gates once fixtures land.
+  - Verify the REPLACE disabled-attr (currently 0x07 by analogy) against the engine.
+
 - #041 [open] — WPCVW in-place REVIEW WHO action (re-pick character while in view)
   - Engine: REVIEW (action 10 in the 11-action menu) opens `ui_pick_party_member` from inside the view; on commit it swaps `*0x43cc` and continues the view loop. Per finding `wpcvw-character-view-ux.json`.
   - Will reuse the PartyMemberPicker component.
-
-- #040 [open] — Port WPCVW EDIT submenu (rename, change portrait, change class)
-  - 5-option submenu at wpcvw 0x671f; option 3 (REPLACE) force-disabled. Per finding `wpcvw-character-view-ux.json`.
-  - Sub-flows: name-edit (`ui_text_input_editor` max 7 chars), portrait cycle (`portrait_load_from_disk` 0x6229), class change (already-documented `class_change_apply` — destructive XP wipe).
-  - Simplest of the 11 actions — good first action-port.
 
 - #039 [open] — Port WPCVW EQUIP action
   - Inventory item-equip flow. Needs the inventory grid rendered first (currently scaffold-only).
