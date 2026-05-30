@@ -46,13 +46,36 @@ export class HelperClient {
 
   private ensureStarted(): void {
     if (this.child !== null) return;
-    this.child = this.spawnFn();
-    this.child.stdout?.setEncoding('utf8');
-    this.child.stdout?.on('data', (chunk: string) => this.onData(chunk));
-    this.child.on('error', (err) => {
-      const resolver = this.pending.shift();
-      if (resolver) resolver({ ok: false, error: `helper spawn error: ${err.message}` });
+    const child = this.spawnFn();
+    this.child = child;
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => this.onData(chunk));
+    child.on('error', (err) => {
+      // Spawn-time error (e.g. ENOENT). Flush every pending caller — the
+      // child won't deliver a response and the 'exit' handler may not fire
+      // if the process never came up.
+      this.flushPending(`helper spawn error: ${err.message}`);
     });
+    child.on('exit', (code, signal) => {
+      // The Swift helper terminated. Any pending request will never get a
+      // response. Reject them all with an actionable error and clear our
+      // child reference so the next `send` re-spawns.
+      if (this.child === child) {
+        this.flushPending(
+          `helper exited (code=${code}, signal=${signal ?? 'null'}) before responding`,
+        );
+        this.child = null;
+        this.buf = '';
+      }
+    });
+  }
+
+  /** Reject all pending request callbacks with the given error and clear the queue. */
+  private flushPending(errMsg: string): void {
+    const pending = this.pending.splice(0);
+    for (const resolve of pending) {
+      resolve({ ok: false, error: errMsg });
+    }
   }
 
   private onData(chunk: string): void {
@@ -81,10 +104,14 @@ export class HelperClient {
 
   async shutdown(): Promise<void> {
     if (this.child === null) return;
-    this.child.stdin?.end();
-    this.child.kill('SIGTERM');
+    const child = this.child;
+    // Clear `this.child` BEFORE killing so the 'exit' handler doesn't
+    // double-flush — by the time exit fires, `this.child !== child` and the
+    // handler bails out.
     this.child = null;
-    this.pending = [];
+    this.flushPending('helper shutdown');
     this.buf = '';
+    child.stdin?.end();
+    child.kill('SIGTERM');
   }
 }

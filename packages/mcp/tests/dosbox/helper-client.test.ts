@@ -23,6 +23,17 @@ function spawnFakeHelper(): ReturnType<typeof spawn> {
   `]);
 }
 
+// A fake "helper" that exits immediately after receiving the first request
+// without ever writing a response — exercises the child-exit handler.
+function spawnFakeHelperThatExits(): ReturnType<typeof spawn> {
+  return spawn('node', ['-e', `
+    process.stdin.setEncoding('utf8');
+    process.stdin.once('data', () => {
+      process.exit(7);
+    });
+  `]);
+}
+
 describe('HelperClient', () => {
   let client: HelperClient | null = null;
 
@@ -48,5 +59,24 @@ describe('HelperClient', () => {
     const res = await client.send({ op: 'bogus' as 'ping' });
     expect(res.ok).toBe(false);
     expect(res.error).toBe('unknown');
+  });
+
+  it('rejects pending callers with an actionable error when the helper exits unexpectedly', async () => {
+    client = new HelperClient(spawnFakeHelperThatExits);
+    const res = await client.send({ op: 'ping' });
+    expect(res.ok).toBe(false);
+    // Should mention "helper exited" and include the exit code (7).
+    expect(res.error ?? '').toMatch(/helper exited/);
+    expect(res.error ?? '').toMatch(/code=7/);
+  });
+
+  it('rejects pending callers with "shutdown" when shutdown() is called mid-flight', async () => {
+    client = new HelperClient(spawnFakeHelperThatExits);
+    const pending = client.send({ op: 'ping' });
+    await client.shutdown();
+    const res = await pending;
+    expect(res.ok).toBe(false);
+    expect(res.error ?? '').toMatch(/shutdown|helper exited/);
+    client = null; // prevent afterEach double-shutdown
   });
 });
