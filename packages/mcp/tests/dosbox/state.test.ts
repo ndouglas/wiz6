@@ -54,10 +54,10 @@ function countTargetKeyDowns(calls: unknown[], keyCode: number): number {
   return n;
 }
 
-const KEYCODE_PERIOD = 0x2f; // F12+.  = next slot
-const KEYCODE_COMMA = 0x2b; // F12+,  = prev slot
-const KEYCODE_S = 0x01;     // F12+s  = save
-const KEYCODE_L = 0x25;     // F12+l  = load
+const KEYCODE_NEXTSLOT = 0x64; // F8 (nextslot) macOS keycode
+const KEYCODE_PREVSLOT = 0x62; // F7 (prevslot) macOS keycode
+const KEYCODE_SAVE = 0x60;     // F5 (savestate) macOS keycode
+const KEYCODE_LOAD = 0x61;     // F6 (loadstate) macOS keycode
 
 describe('saveStateToSlot', () => {
   it('focuses, cycles slot, sends save chord, verifies mtime advanced', async () => {
@@ -69,7 +69,7 @@ describe('saveStateToSlot', () => {
       const { client } = fakeClient({
         onTargetKeyDown: (keyCode) => {
           // Bump the save-file mtime when the SAVE chord lands.
-          if (keyCode === KEYCODE_S) {
+          if (keyCode === KEYCODE_SAVE) {
             const now = Date.now() / 1000;
             utimesSync(savePath, now, now);
           }
@@ -111,7 +111,7 @@ describe('saveStateToSlot', () => {
       utimesSync(savePath, 0, 0);
       const { client, calls } = fakeClient({
         onTargetKeyDown: (keyCode) => {
-          if (keyCode === KEYCODE_S) {
+          if (keyCode === KEYCODE_SAVE) {
             const now = Date.now() / 1000;
             utimesSync(savePath, now, now);
           }
@@ -119,8 +119,8 @@ describe('saveStateToSlot', () => {
       });
       await saveStateToSlot(client, 5, dir, { pollIntervalMs: 5, timeoutMs: 1000 });
       // 1 -> 5 forward = 4 next-slot presses, 0 prev-slot presses.
-      expect(countTargetKeyDowns(calls, KEYCODE_PERIOD)).toBe(4);
-      expect(countTargetKeyDowns(calls, KEYCODE_COMMA)).toBe(0);
+      expect(countTargetKeyDowns(calls, KEYCODE_NEXTSLOT)).toBe(4);
+      expect(countTargetKeyDowns(calls, KEYCODE_PREVSLOT)).toBe(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -137,7 +137,7 @@ describe('saveStateToSlot', () => {
       utimesSync(path7, 0, 0);
       const { client, calls } = fakeClient({
         onTargetKeyDown: (keyCode) => {
-          if (keyCode === KEYCODE_S) {
+          if (keyCode === KEYCODE_SAVE) {
             const now = Date.now() / 1000;
             utimesSync(path5, now, now);
             utimesSync(path7, now, now);
@@ -146,14 +146,14 @@ describe('saveStateToSlot', () => {
       });
       // First save: 1 -> 5  (4 forward cycles)
       await saveStateToSlot(client, 5, dir, { pollIntervalMs: 5, timeoutMs: 1000 });
-      const cyclesAfterFirst = countTargetKeyDowns(calls, KEYCODE_PERIOD);
+      const cyclesAfterFirst = countTargetKeyDowns(calls, KEYCODE_NEXTSLOT);
       expect(cyclesAfterFirst).toBe(4);
       expect(getTrackedSlot()).toBe(5);
 
       // Second save: 5 -> 7  (2 forward cycles ONLY — must not re-cycle from 1).
       await saveStateToSlot(client, 7, dir, { pollIntervalMs: 5, timeoutMs: 1000 });
-      expect(countTargetKeyDowns(calls, KEYCODE_PERIOD)).toBe(cyclesAfterFirst + 2);
-      expect(countTargetKeyDowns(calls, KEYCODE_COMMA)).toBe(0);
+      expect(countTargetKeyDowns(calls, KEYCODE_NEXTSLOT)).toBe(cyclesAfterFirst + 2);
+      expect(countTargetKeyDowns(calls, KEYCODE_PREVSLOT)).toBe(0);
       expect(getTrackedSlot()).toBe(7);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -168,7 +168,7 @@ describe('saveStateToSlot', () => {
       utimesSync(path, 0, 0);
       const { client, calls } = fakeClient({
         onTargetKeyDown: (keyCode) => {
-          if (keyCode === KEYCODE_S) {
+          if (keyCode === KEYCODE_SAVE) {
             const now = Date.now() / 1000;
             utimesSync(path, now, now);
           }
@@ -176,12 +176,12 @@ describe('saveStateToSlot', () => {
       });
       // Save to slot 3 from slot 1: 2 forward cycles.
       await saveStateToSlot(client, 3, dir, { pollIntervalMs: 5, timeoutMs: 1000 });
-      const cyclesAfterSave = countTargetKeyDowns(calls, KEYCODE_PERIOD);
+      const cyclesAfterSave = countTargetKeyDowns(calls, KEYCODE_NEXTSLOT);
       expect(cyclesAfterSave).toBe(2);
       // Load from same slot: 0 cycles.
       await loadStateFromSlot(client, 3);
-      expect(countTargetKeyDowns(calls, KEYCODE_PERIOD)).toBe(cyclesAfterSave);
-      expect(countTargetKeyDowns(calls, KEYCODE_L)).toBe(1);
+      expect(countTargetKeyDowns(calls, KEYCODE_NEXTSLOT)).toBe(cyclesAfterSave);
+      expect(countTargetKeyDowns(calls, KEYCODE_LOAD)).toBe(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -196,7 +196,7 @@ describe('saveStateToSlot', () => {
       resetSlotTracking(9);
       const { client, calls } = fakeClient({
         onTargetKeyDown: (keyCode) => {
-          if (keyCode === KEYCODE_S) {
+          if (keyCode === KEYCODE_SAVE) {
             const now = Date.now() / 1000;
             utimesSync(path1, now, now);
           }
@@ -204,8 +204,8 @@ describe('saveStateToSlot', () => {
       });
       await saveStateToSlot(client, 1, dir, { pollIntervalMs: 5, timeoutMs: 1000 });
       // 9 -> 1: forward = 2 (9->10->1), backward = 8. Forward wins.
-      expect(countTargetKeyDowns(calls, KEYCODE_PERIOD)).toBe(2);
-      expect(countTargetKeyDowns(calls, KEYCODE_COMMA)).toBe(0);
+      expect(countTargetKeyDowns(calls, KEYCODE_NEXTSLOT)).toBe(2);
+      expect(countTargetKeyDowns(calls, KEYCODE_PREVSLOT)).toBe(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -217,7 +217,7 @@ describe('loadStateFromSlot', () => {
     const { client, calls } = fakeClient({});
     await loadStateFromSlot(client, 3);
     // Load chord landed once.
-    expect(countTargetKeyDowns(calls, KEYCODE_L)).toBe(1);
+    expect(countTargetKeyDowns(calls, KEYCODE_LOAD)).toBe(1);
     expect(getTrackedSlot()).toBe(3);
   });
 });

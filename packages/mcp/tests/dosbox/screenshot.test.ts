@@ -37,17 +37,16 @@ describe('findNewestPngSince', () => {
 });
 
 describe('captureScreenshot', () => {
-  it('focuses DOSBox, sends F12+P, returns the newest PNG bytes', async () => {
+  it('focuses DOSBox, sends F9, returns the newest PNG bytes', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'wiz6-screenshot-test-'));
     try {
       const fake: Partial<HelperClient> = {
         send: vi.fn(async (req): Promise<HelperResponse> => {
           if ((req as { op: string }).op === 'getFrontmost') return { ok: true, bundleId: 'com.apple.Terminal' };
           if ((req as { op: string }).op === 'findWindow') return { ok: true, windowId: 1 };
-          // Simulate DOSBox writing a PNG when the host-key chord lands the
-          // P keyDown (keyCode 0x23). The first keyDown is F12 (host), the
-          // second is the target P — match on the latter.
-          if ((req as { op: string; keyCode?: number }).op === 'keyDown' && (req as { keyCode?: number }).keyCode === 0x23) {
+          // Simulate DOSBox writing a PNG when the F9 screenshot key lands
+          // (keyCode 0x65 — single bare key, no host-key chord).
+          if ((req as { op: string; keyCode?: number }).op === 'keyDown' && (req as { keyCode?: number }).keyCode === 0x65) {
             const png = join(dir, 'snap.png');
             writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
           }
@@ -75,7 +74,7 @@ describe('captureScreenshot', () => {
           // Reproduce the write-race: DOSBox creates the file (mtime advances)
           // but flushes the PNG bytes a moment later. A naive reader that reads
           // on first sight gets 0 bytes.
-          if (r.op === 'keyDown' && r.keyCode === 0x23) {
+          if (r.op === 'keyDown' && r.keyCode === 0x65) {
             writeFileSync(png, Buffer.alloc(0));
             // Flush real bytes well after the poll loop is already running
             // (sendKey's chord sleeps are ~75ms), so the poller genuinely sees

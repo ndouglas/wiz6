@@ -17,10 +17,11 @@ import { withFocusedDosbox } from './window.js';
 import { sendKey } from './input.js';
 import type { HelperClient } from './helper-client.js';
 
-// Lowercase 'p' deliberately — DOSBox-X's SDL mapper matches the keysym
-// (SDLK_p) regardless of the menu label's visual case. Adding Shift would
-// produce a different keysym and the chord would miss.
-const SCREENSHOT_KEY = 'F12+p';
+// Single bare key (no F12 host-key chord): our custom mapper
+// (tools/dosbox/mapper-wiz6.map) rebinds hand_scrshot to F9. Synthetic
+// held-modifier chords are unreliable on macOS; a plain keypress is not.
+// DOSBox-X must be frontmost to receive it.
+const SCREENSHOT_KEY = 'F9';
 
 export function findNewestPngSince(dir: string, sinceMs: number): string | null {
   let bestPath: string | null = null;

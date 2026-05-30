@@ -1,18 +1,21 @@
 /**
  * State layer — save/load DOSBox-X state to/from a specific slot.
  *
- * DOSBox-X 2026.05.02 on macOS uses the **host-key chord** model with F12 as
- * the host key (verified by reading the Capture menu of the running app):
+ * DOSBox-X is driven via a custom SDL2 mapper file
+ * (tools/dosbox/mapper-wiz6.map, wired in via `mapperfile_sdl2`) that rebinds
+ * the save-state actions to BARE single keys — no F12 host-key chord. Synthetic
+ * held-modifier chords proved unreliable on macOS (they intermittently drop the
+ * action); single unmodified keypresses are reliable. The bindings:
  *
- *   - F12+S  : save state to active slot
- *   - F12+L  : load state from active slot
- *   - F12+.  : cycle to next slot
- *   - F12+,  : cycle to previous slot
+ *   - F5 : save state to active slot   (hand_savestate)
+ *   - F6 : load state from active slot (hand_loadstate)
+ *   - F8 : cycle to next slot          (hand_nextslot)
+ *   - F7 : cycle to previous slot      (hand_prevslot)
  *
- * Direct-slot chords (e.g. "Save to slot 5") do NOT exist in 2026.05.02 — the
- * per-slot UI items in Capture → Select save slot have NO keyboard
- * accelerators. We therefore have to navigate to the target slot via the
- * cycle chord and then issue save/load.
+ * Direct-slot selection does NOT exist — navigate to the target slot via the
+ * cycle keys, then save/load. NOTE: DOSBox-X must be the frontmost window for
+ * synthetic key events to reach it (macOS focus-stealing prevention); the
+ * caller must ensure focus before driving.
  *
  * DOSBox-X starts on **slot 1** (1-indexed; default from `saveslot = 1` in
  * the [dosbox] config section) and prints `Active save slot: 1 [Empty]` at
@@ -37,10 +40,10 @@ import type { HelperClient } from './helper-client.js';
 const MIN_SLOT = 1;
 const MAX_SLOT = 10;
 
-const NEXT_SLOT_KEY = 'F12+.';
-const PREV_SLOT_KEY = 'F12+,';
-const SAVE_KEY = 'F12+s';
-const LOAD_KEY = 'F12+l';
+const NEXT_SLOT_KEY = 'F8';
+const PREV_SLOT_KEY = 'F7';
+const SAVE_KEY = 'F5';
+const LOAD_KEY = 'F6';
 
 const SLOT_COUNT = MAX_SLOT - MIN_SLOT + 1;
 
