@@ -13,11 +13,23 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#061**
+Next free ID: **#063**
 
 ---
 
 ## Open
+
+- #061 [open] — Capture castle-N-members fixtures for N=2..6 + parity tests
+  - We only have `castle-one-member` today; populated-party rendering for 2-6 members is untested. Add fixtures via `pnpm tsx tools/parity/gen-fixture.ts --save N --name castle-N-members` after building each save state in DOSBox-X (ensure PCFILE retains at least one available char so ADD PARTY MEMBER stays gated correctly).
+  - For each N, add a CASES entry to `tools/parity/castle-parity.test.ts` modeled on the castle-one-member case (use `dosbox_read_struct` to pull the engine's per-member `character_record` at each slot's BSS offset).
+  - These will catch portrait-coord regressions for slots 1..5 (PORTRAIT_BLIT_Y_STRIDE is currently guessed at 60).
+  - Per Nate's recall the engine layout is 3 left + 3 right; the multi-member fixtures will reveal the actual column-split coords. Will overturn or confirm the existing `portrait-blit-y-stacking` finding (and TODO #026's 64×9 claim).
+
+- #062 [open] — Re-RE castle party-panel layout; overturn portrait-blit-y-stacking + 64×9 claims
+  - The existing finding `docs/re/findings/wbase-add-party-member.json#portrait-blit-y-stacking` says portraits are stacked single-column at X=2, Y=slot*9+72. The castle-one-member fixture shows the engine puts slot 0 at the TOP (Y≈13), not Y=72. The current `PORTRAIT_BLIT_X=6, Y_BASE=13, STRIDE=60` in `castle-frame.ts` is empirical from the fixture, not from RE.
+  - TODO #026 ("engine-faithful 64×9 portraits") is also based on a finding that misreads the engine — the rendered portraits are clearly ~24×24, not 64×9. Likely confused on-disk encoding (which packs 4 bit-planes) with on-screen dimensions.
+  - Need a focused PyGhidra pass on the wbase routines that draw the party panel: FUN_0b0e (portrait blit — re-RE the coord math), FUN_1b2d (per-member info-panel renderer), and any sibling routines for the right-column slots (3..5).
+  - Output: corrected findings in `docs/re/findings/`, updated castle-frame.ts coords, blocks lifting castle-one-member parity floor from 97 to 100.
 
 - #058 [open] — PartyMemberPicker keyboard nav: match CharacterMenu column-major 2-row layout
   - Surfaced during #040 smoke (2026-05-29). The picker currently uses a 2-col × 3-row row-major grid; with 1-2 active party members, ArrowUp/Down have nowhere to go and the picker feels like it only responds to ArrowLeft/Right.

@@ -55,7 +55,7 @@ export function CastleScreen() {
   const [wfont3, setWfont3] = useState<Font4bpp | null>(null);
   const [wfont1, setWfont1] = useState<Font4bpp | null>(null);
   const [wfont0, setWfont0] = useState<Font | null>(null);
-  const [portraitSet, setPortraitSet] = useState<PortraitSet | null>(null);
+  const [portraitSets, setPortraitSets] = useState<PortraitSet[] | null>(null);
 
   // Active-party snapshot — read once on mount. The store is localStorage-backed
   // and our flow always navigates away from CastleScreen to mutate it (the ADD/
@@ -168,16 +168,19 @@ export function CastleScreen() {
     };
   }, []);
 
-  // Load the wport1 portrait set for blitting active-party portraits. We only
-  // load wport1 (portraits 0..13) here — higher portrait indices won't blit
-  // until we expand to wport2/wport3, matching the engine's progressive load.
+  // Load all 3 wport sets (wport1=0..13, wport2=14..27, wport3=28..41).
+  // composeCastleFrame picks the right set per member's portraitIndex.
   useEffect(() => {
     let cancelled = false;
-    loadPortraitSet('/portraits/wport1.json')
-      .then((ps) => {
-        if (!cancelled) setPortraitSet(ps);
+    Promise.all([
+      loadPortraitSet('/portraits/wport1.json'),
+      loadPortraitSet('/portraits/wport2.json'),
+      loadPortraitSet('/portraits/wport3.json'),
+    ])
+      .then((sets) => {
+        if (!cancelled) setPortraitSets(sets);
       })
-      .catch((err) => console.warn('failed to load portrait set', err));
+      .catch((err) => console.warn('failed to load portrait sets', err));
     return () => {
       cancelled = true;
     };
@@ -217,7 +220,7 @@ export function CastleScreen() {
         selectedIdxRef.current,
         wfont1,
         activeMembers,
-        portraitSet,
+        portraitSets,
       );
       presenter.present(buf, ENGINE_W, ENGINE_H);
       raf = requestAnimationFrame(tick);
@@ -233,7 +236,7 @@ export function CastleScreen() {
     wfont0,
     visible,
     activeMembers,
-    portraitSet,
+    portraitSets,
   ]);
 
   // Keyboard navigation: ↑/↓ wrap-around through visible options; Enter activates.

@@ -34,12 +34,18 @@ const ENGINE_H = 200;
 const PORTRAIT_TILE_PX = 8;
 const PORTRAIT_TILES_PER_SIDE = 3;
 
-/** Engine X for the left-side party-portrait column (per FUN_0b0e). */
-const PORTRAIT_BLIT_X = 2;
-/** Engine Y baseline for portrait slot 0 (per FUN_0b0e: Y = slot*9 + 0x48). */
-const PORTRAIT_BLIT_Y_BASE = 0x48;
-/** Engine Y stride between portrait slots (per FUN_0b0e). */
-const PORTRAIT_BLIT_Y_STRIDE = 9;
+/** Engine X for the left-side party-portrait column. Empirical from the
+ *  castle-one-member fixture; the prior RE finding's X=2 / Y=slot*9+72 model
+ *  is wrong (see TODO #061). */
+const PORTRAIT_BLIT_X = 6;
+/** Engine Y baseline for portrait slot 0. Empirical from castle-one-member;
+ *  prior RE finding said 0x48=72 which placed slot 0 at the screen middle. */
+const PORTRAIT_BLIT_Y_BASE = 13;
+/** Engine Y stride between portrait slots. Unverified — only 1-member fixture
+ *  exists today; stride is a guess pending fixtures for 2-6 members (#029). */
+const PORTRAIT_BLIT_Y_STRIDE = 60;
+/** Portraits per wport file (wport1=0..13, wport2=14..27, wport3=28..41). */
+const PORTRAITS_PER_SET = 14;
 
 /**
  * Blit one wport portrait (3×3 4bpp tiles → 24×24 pixels) at (dstX, dstY).
@@ -54,11 +60,12 @@ function blitPortrait(
   dstX: number,
   dstY: number,
 ): void {
-  // Resolve which portrait in the set. The CastleScreen receives a single
-  // PortraitSet (wport1) which holds 14 portraits; portraitIndex values that
-  // fall outside this set silently no-op (no engine partial draw).
   const portrait = portraitSet.portraits[portraitIndex];
-  if (!portrait) return;
+  if (!portrait) {
+    throw new Error(
+      `blitPortrait: portraitIndex ${portraitIndex} out of range for set with ${portraitSet.portraits.length} portraits`,
+    );
+  }
   for (let ty = 0; ty < PORTRAIT_TILES_PER_SIDE; ty++) {
     for (let tx = 0; tx < PORTRAIT_TILES_PER_SIDE; tx++) {
       const glyph = portrait.tiles[ty * PORTRAIT_TILES_PER_SIDE + tx];
@@ -110,8 +117,9 @@ function blitPortrait(
  * @param selectedIdx    Index into `menuOptions` of the highlighted entry.
  * @param wfont1         wfont1 (4bpp panel-edge font), or null.
  * @param partyMembers   Active-party members to blit portraits for. Default: empty.
- * @param portraitSet    Loaded wport portrait set (default: null → no blit, used
- *                       by the empty-party castle parity fixtures).
+ * @param portraitSets   Loaded wport portrait sets [wport1, wport2, wport3] holding
+ *                       portraits 0..13 / 14..27 / 28..41 respectively. Default null
+ *                       (no blit, used by the empty-party castle parity fixtures).
  */
 export function composeCastleFrame(
   parity: number,
@@ -124,7 +132,7 @@ export function composeCastleFrame(
   selectedIdx: number,
   wfont1: Font4bpp | null = null,
   partyMembers: ReadonlyArray<ActivePartyMember> = [],
-  portraitSet: PortraitSet | null = null,
+  portraitSets: ReadonlyArray<PortraitSet> | null = null,
 ): Uint8ClampedArray {
   const buf = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
 
@@ -225,15 +233,25 @@ export function composeCastleFrame(
   }
 
   // Active-party portraits — engine FUN_0b0e blits each member's portrait at
-  // (X=2, Y=portraitSlotId*9 + 0x48) on the left-side party panel. We only
-  // draw when both a portraitSet has been loaded AND there's at least one
-  // active member, so the empty-party castle parity fixtures (which pass the
-  // defaults) remain byte-exact.
-  if (portraitSet && partyMembers.length > 0) {
+  // (X=2, Y=portraitSlotId*9 + 0x48) on the left-side party panel. Portraits
+  // 0..13 live in wport1, 14..27 in wport2, 28..41 in wport3 — pick the right
+  // set per portraitIndex; within the set, the entry index is portraitIndex %
+  // PORTRAITS_PER_SET. We only draw when portraitSets has been loaded AND
+  // there's at least one active member, so the empty-party castle parity
+  // fixtures (which pass the defaults) remain byte-exact.
+  if (portraitSets && portraitSets.length > 0 && partyMembers.length > 0) {
     for (const member of partyMembers) {
       const portraitIndex = member.portraitIndex ?? 0;
+      const setIdx = Math.floor(portraitIndex / PORTRAITS_PER_SET);
+      const localIdx = portraitIndex % PORTRAITS_PER_SET;
+      const set = portraitSets[setIdx];
+      if (!set) {
+        throw new Error(
+          `composeCastleFrame: member ${member.name} portraitIndex ${portraitIndex} maps to wport${setIdx + 1} which is not loaded`,
+        );
+      }
       const y = member.portraitSlotId * PORTRAIT_BLIT_Y_STRIDE + PORTRAIT_BLIT_Y_BASE;
-      blitPortrait(buf, portraitSet, portraitIndex, PORTRAIT_BLIT_X, y);
+      blitPortrait(buf, set, localIdx, PORTRAIT_BLIT_X, y);
     }
   }
 
