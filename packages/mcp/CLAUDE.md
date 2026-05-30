@@ -14,29 +14,29 @@ when another app (your editor, or even a shell command that briefly foregrounds
 the terminal) is active. Symptoms when this bites: "keys don't reach DOSBox",
 "works once then stops", screenshots return 0 bytes or stale frames.
 
-Fixes already in place:
-- `Window.swift focusWindow` now also sets the app's **`AXFrontmost`** attribute
-  (the System Events `set frontmost` mechanism) — reliable regardless of what's
-  active. Screenshots work because of this + the screenshot poll keeps DOSBox
-  frontmost long enough.
-- **BUT** `withFocusedDosbox` restores focus to the prior app after each call,
-  which is too fast for *guest* keys (Enter/arrows) to register. (F9/F5/etc.
-  are mapper *host* actions processed on the raw event, so they're more robust.)
+Fixes in place:
+- `Window.swift focusWindow` sets the app's **`AXFrontmost`** attribute (the
+  System Events `set frontmost` mechanism) — reliable even when another app is
+  active.
+- `withFocusedDosbox` **does NOT restore prior focus** — it leaves DOSBox
+  frontmost. The old restore flipped focus back to the editor after each call,
+  which dropped guest keys (Enter/arrows) before the emulator processed them
+  and caused a DOSBox<->editor flicker. Removed (530368b).
 
-### Reliable driving loop (until withFocusedDosbox stops restoring focus)
-1. Force DOSBox frontmost **once**:
-   `osascript -e 'tell application "System Events" to set frontmost of (first process whose name contains "dosbox") to true'`
-2. Then use **only MCP tools** — `dosbox_send_input` + `dosbox_screenshot` both
-   restore-to-DOSBox while it's frontmost, so focus stays put. `dosbox_screenshot`
-   returns the PNG inline (no Bash → no focus theft).
-3. **Re-run the force-frontmost after ANY Bash command** (Bash foregrounds the
-   terminal and steals focus from DOSBox).
-4. Screenshot **before every Enter** when navigating menus — don't batch
-   `down down enter` blind; the castle menu cursor can surprise you.
+### Driving (just use the MCP tools)
+Each `dosbox_send_input` / `dosbox_screenshot` call AX-force-frontmosts DOSBox
+and **leaves it frontmost**, so synthetic keys land and there's no flicker — no
+`osascript` dance needed. DOSBox stays frontmost after driving; click back to
+your editor when done.
+- Still screenshot **before every Enter** when mapping unfamiliar menus — don't
+  batch `down down enter` blind; the castle menu cursor can surprise you.
+- If a guest key ever misses right after a focus change, the AX-force may need a
+  beat to settle: a redundant `dosbox_screenshot` (it polls) or a repeat send
+  before the key covers it.
 
-Follow-up worth doing: make `withFocusedDosbox` hold DOSBox frontmost for the
-duration of a driving session (don't restore), so the force-frontmost dance is
-unnecessary and `build-castle-saves.ts` can drive unattended.
+NOTE: changes to this layer need a Claude Code restart to reach the running MCP
+child. `build-castle-saves.ts` still uses old blind macros — rewrite to single
+keys; it can now drive unattended since focus is no longer restored.
 
 ## Single-key mapper (NOT F12 chords)
 
