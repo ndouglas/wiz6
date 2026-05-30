@@ -51,3 +51,6 @@ packages/viewer/test-results/
 packages/viewer/e2e/**/*.png
 
 tools/dosbox/dosbox-autodrive.log
+
+# Worktrees
+.claude/worktrees/
