@@ -21,7 +21,7 @@ import {
   applyClassChange,
   eligibleClasses,
   WichmannHill,
-  computeCarryCapacityMax,
+  resolveCarryCapacityMax,
   type ActivePartyMember,
   type MessageDb,
   type PortraitSet,
@@ -250,13 +250,11 @@ export function CharacterViewPage() {
       years: Math.floor((member.age ?? 0) / 365),
       second: 1,
     };
-    // Carrying capacity: record +0x20/+0x22 are tenths of a pound → /10 for
-    // the on-screen value. Prefer the persisted encumbranceMax; fall back to
-    // deriving it from STR/VIT/race so characters created before it was
-    // persisted still show CC (the formula is deterministic).
-    const carryMax =
-      member.encumbranceMax ??
-      computeCarryCapacityMax(member.attributes.str, member.attributes.vit, member.race);
+    // Carrying capacity: record +0x20/+0x22 are tenths of a pound → /10 for the
+    // on-screen value. resolveCarryCapacityMax honors the recomputeCarryCapacity
+    // house rule (ON → derive from current STR/VIT; OFF → frozen-at-creation,
+    // the engine bug) and recomputes on every read.
+    const carryMax = resolveCarryCapacityMax(member, getHouseRules().recomputeCarryCapacity);
     const cc = {
       current: Math.floor((member.encumbranceCurrent ?? 0) / 10),
       max: Math.floor(carryMax / 10),

@@ -43,8 +43,8 @@ describe('HouseRulesSchema', () => {
 });
 
 describe('HOUSE_RULES_META', () => {
-  it('has one entry per house rule (currently 4)', () => {
-    expect(HOUSE_RULES_META).toHaveLength(4);
+  it('has one entry per house rule (currently 5)', () => {
+    expect(HOUSE_RULES_META).toHaveLength(5);
   });
 
   it('every meta entry has matching key in HouseRules', () => {
@@ -121,6 +121,7 @@ describe('allowEditFromCamp house rule', () => {
       playInvalidActionBeep: true,
       engineFaithfulSkillExit: false,
       allowEditFromCamp: true,
+      recomputeCarryCapacity: false,
     });
     expect(parsed.allowEditFromCamp).toBe(true);
   });
@@ -135,5 +136,30 @@ describe('allowEditFromCamp house rule', () => {
     expect(meta).toBeDefined();
     expect(meta?.category).toBe('gameplay');
     expect(meta?.stockValue).toBe(false);
+  });
+});
+
+describe('recomputeCarryCapacity house rule', () => {
+  it('is required by the schema', () => {
+    const { schemaVersion: _v, ...rest } = DEFAULT_HOUSE_RULES;
+    void _v;
+    expect(() =>
+      HouseRulesSchema.parse({ schemaVersion: 1, ...rest, recomputeCarryCapacity: undefined }),
+    ).toThrow();
+  });
+
+  it('stock value is false (engine bug: carry capacity frozen at creation)', () => {
+    expect(STOCK_HOUSE_RULES.recomputeCarryCapacity).toBe(false);
+  });
+
+  it('default value is true (fix the bug — cap tracks STR/VIT)', () => {
+    expect(DEFAULT_HOUSE_RULES.recomputeCarryCapacity).toBe(true);
+  });
+
+  it('appears in HOUSE_RULES_META as a gameplay rule', () => {
+    const entry = HOUSE_RULES_META.find((m) => m.key === 'recomputeCarryCapacity');
+    expect(entry).toBeDefined();
+    expect(entry?.category).toBe('gameplay');
+    expect(entry?.stockValue).toBe(false);
   });
 });

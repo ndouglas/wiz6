@@ -1390,6 +1390,51 @@ return NO_EFFECT`}
       { label: 'snd-format.md', href: '/explore/docs/snd-format.md' },
     ],
   },
+  {
+    id: 'carry-capacity-frozen',
+    title: 'Carry Capacity Is Rolled Once And Never Updated Again',
+    tags: ['character-progression', 'bug', 'engine'],
+    pitch:
+      "A character's carrying-capacity limit is computed once, at creation, from STR/VIT. The engine then never recomputes it — train STR from 10 to 18 over a dozen levels and your carry limit is still your level-1 self's.",
+    body: (
+      <>
+        <ProseRow>
+          When you create a character, Wiz6 rolls a maximum carrying capacity from
+          STR and VIT and stores it in the character record at offset{' '}
+          <Code>+0x22</Code>:
+        </ProseRow>
+        <CodeBlock>{`base = (STR*2 + VIT) * 3
+if STR >= 16: base += STR
+if STR >= 18: base += STR
+cap = base * 15            ; Faerie (race 5): cap = cap * 2/3`}</CodeBlock>
+        <ProseRow>
+          That value is written exactly once. We traced every path that rewrites the
+          character record on level-up and class re-init: they update HP and stamina
+          (record <Code>+0x18</Code>/<Code>+0x1a</Code> and <Code>+0x1c</Code>/
+          <Code>+0x1e</Code>) but <em>never</em> touch the carry-capacity field at{' '}
+          <Code>+0x22</Code>. There is no other writer — the cap is frozen the moment
+          the character is rolled.
+        </ProseRow>
+        <ProseRow>
+          So a Fighter who starts at STR 10 (cap 135 lb) and trains up to STR 18 over
+          a dozen levels — which the creation formula would value at ~261 lb, nearly
+          double — keeps the carry limit of their level-1 self for the entire game.
+          The stat that most directly governs how much you can haul is the one input
+          the engine forgets to re-read.
+        </ProseRow>
+        <Aside title="Fixable in House Rules">
+          We carry the real formula (verified 6-for-6 against save-state records), so
+          the port can just recompute the cap from current STR/VIT whenever it's
+          needed. The <Code>recomputeCarryCapacity</Code> house rule does exactly that:
+          ON (default) recomputes on every check so the cap tracks your stats; OFF
+          reproduces the original frozen-at-creation behavior.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'wpcvw-character-view.md', href: '/explore/docs/wpcvw-character-view.md' },
+    ],
+  },
 ];
 
 const ALL_TAGS: Tag[] = [

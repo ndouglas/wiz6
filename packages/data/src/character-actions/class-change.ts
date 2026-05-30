@@ -17,9 +17,11 @@
  *   8. FUN_8e35 (recompute derived)    (re-derives AC, stamina, etc.; ALSO unequips all)
  *
  * Age is NOT recomputed — it's set once at creation and persists across class
- * changes. HP/encumbrance/stamina are re-rolled via the same `computeDerivedStats`
- * fn used at character creation (the engine's class re-init reuses the same
- * roll path); current = max for a freshly re-classed character.
+ * changes. HP and stamina are re-rolled via the same `computeDerivedStats` fn
+ * used at character creation; current = max for a freshly re-classed character.
+ * Max carrying capacity depends only on STR/VIT/race (never class), so it is
+ * unchanged by a class change — we recompute it from `carryCapacityMax` (same
+ * value) and preserve the already-carried weight (encumbranceCurrent).
  *
  * Spec: docs/superpowers/specs/2026-05-29-wpcvw-edit-submenu-design.md
  */
@@ -55,7 +57,9 @@ export function applyClassChange(
     hpMax: derived.hpInitial,
     staminaCurrent: derived.stamina,
     staminaMax: derived.stamina,
-    encumbranceCurrent: derived.encumbranceMax,
-    encumbranceMax: derived.encumbranceMax,
+    // Carry capacity is STR/VIT/race-derived (class-independent), so unchanged
+    // by a class change; recompute it (same value) and keep the carried weight.
+    encumbranceCurrent: member.encumbranceCurrent ?? 0,
+    encumbranceMax: derived.carryCapacityMax,
   };
 }
