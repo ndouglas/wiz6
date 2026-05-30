@@ -48,6 +48,16 @@ export const HouseRulesSchema = z.object({
    * the dungeon in the original). Category: gameplay. Default: FALSE.
    */
   allowEditFromCamp: z.boolean(),
+  /**
+   * When TRUE, a character's maximum carrying capacity is recomputed from their
+   * CURRENT STR/VIT/race whenever it's displayed, so it tracks attribute gains.
+   * When FALSE, it stays frozen at the value rolled at creation — faithfully
+   * reproducing an original-game bug: the engine sets carry capacity (record
+   * +0x22) once at creation and NEVER updates it as STR/VIT rise on level-up
+   * (the wpcvw level-up path only writes HP/STM, never +0x440a). Category:
+   * gameplay. Default: TRUE (fix the bug).
+   */
+  recomputeCarryCapacity: z.boolean(),
 });
 
 export type HouseRules = z.infer<typeof HouseRulesSchema>;
@@ -59,6 +69,7 @@ export const STOCK_HOUSE_RULES: HouseRules = {
   playInvalidActionBeep: true,
   engineFaithfulSkillExit: true,
   allowEditFromCamp: false,
+  recomputeCarryCapacity: false,
 };
 
 /** Recommended first-load defaults — includes the QoLs the project ships on. */
@@ -68,6 +79,7 @@ export const DEFAULT_HOUSE_RULES: HouseRules = {
   playInvalidActionBeep: true,
   engineFaithfulSkillExit: false,
   allowEditFromCamp: false,
+  recomputeCarryCapacity: true,
 };
 
 /**
@@ -128,6 +140,15 @@ export const HOUSE_RULES_META: readonly HouseRuleMeta[] = [
     label: 'Allow EDIT from camp REVIEW MEMBER',
     description:
       'In the original Wizardry VI, the EDIT submenu (rename, change portrait, change profession) is only available from the in-dungeon character view — camp REVIEW MEMBER disables it. The wiz6 dungeon is not yet ported, so this toggle lets you reach EDIT from the castle for now.',
+    category: 'gameplay',
+    stockValue: false,
+    control: 'boolean',
+  },
+  {
+    key: 'recomputeCarryCapacity',
+    label: 'Recompute carry capacity from current STR',
+    description:
+      "A character's maximum carrying capacity is rolled once, at creation, from STR/VIT/race ((STR*2+VIT)*3, +STR at STR≥16/≥18, ×15; Faerie ×2/3). The original engine then NEVER updates it — no matter how much STR or VIT you gain on level-up, the cap stays frozen at its creation value (the level-up code only ever rewrites HP and stamina, never the carry-capacity field). So a character who trains STR from 10 to 18 over many levels keeps the carry limit of their level-1 self. When this is ON, the cap is recomputed from current attributes wherever it's shown, so it grows with your stats. Turn OFF to faithfully reproduce the original bug.",
     category: 'gameplay',
     stockValue: false,
     control: 'boolean',

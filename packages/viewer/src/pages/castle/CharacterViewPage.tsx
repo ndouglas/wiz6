@@ -251,12 +251,19 @@ export function CharacterViewPage() {
       second: 1,
     };
     // Carrying capacity: record +0x20/+0x22 are tenths of a pound → /10 for
-    // the on-screen value. Prefer the persisted encumbranceMax; fall back to
-    // deriving it from STR/VIT/race so characters created before it was
-    // persisted still show CC (the formula is deterministic).
-    const carryMax =
-      member.encumbranceMax ??
-      computeCarryCapacityMax(member.attributes.str, member.attributes.vit, member.race);
+    // the on-screen value. The `recomputeCarryCapacity` house rule decides the
+    // source: ON → derive from CURRENT STR/VIT/race so the cap tracks attribute
+    // gains; OFF → use the value frozen at creation (faithful to the engine bug
+    // where carry capacity never updates). Either way, fall back to deriving it
+    // when no value was persisted (characters created before it was stored).
+    const derivedCarryMax = computeCarryCapacityMax(
+      member.attributes.str,
+      member.attributes.vit,
+      member.race,
+    );
+    const carryMax = getHouseRules().recomputeCarryCapacity
+      ? derivedCarryMax
+      : (member.encumbranceMax ?? derivedCarryMax);
     const cc = {
       current: Math.floor((member.encumbranceCurrent ?? 0) / 10),
       max: Math.floor(carryMax / 10),
