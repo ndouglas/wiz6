@@ -119,7 +119,7 @@ describe('PcFilePage', () => {
   it('export PC File (.json) triggers URL.createObjectURL (download mechanism)', () => {
     render(<MemoryRouter><PcFilePage /></MemoryRouter>);
     const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:x');
-    fireEvent.click(screen.getByRole('button', { name: /export.*json/i }));
+    fireEvent.click(screen.getByRole('button', { name: /export pc file as json/i }));
     expect(create).toHaveBeenCalled();
     create.mockRestore();
   });
@@ -127,7 +127,34 @@ describe('PcFilePage', () => {
   it('export PC File (.dbs) triggers URL.createObjectURL (download mechanism)', () => {
     render(<MemoryRouter><PcFilePage /></MemoryRouter>);
     const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:x');
-    fireEvent.click(screen.getByRole('button', { name: /export.*dbs/i }));
+    fireEvent.click(screen.getByRole('button', { name: /export pc file as dbs/i }));
+    expect(create).toHaveBeenCalled();
+    create.mockRestore();
+  });
+
+  // Fix 1: visible Import button
+  it('visible Import button triggers the hidden file input click', () => {
+    render(<MemoryRouter><PcFilePage /></MemoryRouter>);
+    const importInput = screen.getByLabelText(/import file/i) as HTMLInputElement;
+    const clickSpy = vi.spyOn(importInput, 'click').mockImplementation(() => {});
+    fireEvent.click(screen.getByRole('button', { name: /import/i }));
+    expect(clickSpy).toHaveBeenCalled();
+    clickSpy.mockRestore();
+  });
+
+  // Fix 2: per-preset export
+  it('per-preset Export (.json) triggers URL.createObjectURL', () => {
+    render(<MemoryRouter><PcFilePage /></MemoryRouter>);
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:x');
+    fireEvent.click(screen.getByRole('button', { name: /export stock characters json/i }));
+    expect(create).toHaveBeenCalled();
+    create.mockRestore();
+  });
+
+  it('per-preset Export (.dbs) triggers URL.createObjectURL', () => {
+    render(<MemoryRouter><PcFilePage /></MemoryRouter>);
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:x');
+    fireEvent.click(screen.getByRole('button', { name: /export stock characters dbs/i }));
     expect(create).toHaveBeenCalled();
     create.mockRestore();
   });

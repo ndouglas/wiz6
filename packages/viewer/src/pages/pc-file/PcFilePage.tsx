@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { readPresets, addPreset, deletePreset, copyCharactersToPcFile } from '../../lib/presets-store.js';
 import { readRoster, writeRoster } from '../../lib/roster-store.js';
 import { charactersToJsonBlob, charactersToDbsBytes, parseImport } from '../../lib/pc-file-io.js';
@@ -17,6 +17,7 @@ function download(blob: Blob, filename: string): void {
 export function PcFilePage() {
   const [presets, setPresets] = useState(() => readPresets());
   const [pcFile, setPcFile] = useState<Character[]>(() => readRoster().characters);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [namingPreset, setNamingPreset] = useState(false);
   const [presetName, setPresetName] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
@@ -87,6 +88,11 @@ export function PcFilePage() {
     <div className={styles.page}>
       <section className={styles.presets} aria-label="Presets">
         <h2>Presets</h2>
+        <div className={styles.actions}>
+          <button aria-label="Import" onClick={() => importInputRef.current?.click()}>
+            Import .dbs / .json…
+          </button>
+        </div>
         {presets.map((p) => (
           <div key={p.id} className={styles.preset}>
             <h3>
@@ -95,6 +101,22 @@ export function PcFilePage() {
               {' '}
               <button aria-label={`copy all from ${p.name}`} onClick={() => copy(p.characters)}>
                 copy all →
+              </button>
+              <button
+                aria-label={`export ${p.name} json`}
+                onClick={() => download(charactersToJsonBlob(p.characters), `${p.name}.json`)}
+              >
+                Export (.json)
+              </button>
+              <button
+                aria-label={`export ${p.name} dbs`}
+                onClick={() => {
+                  const bytes = charactersToDbsBytes(p.characters);
+                  const buf: ArrayBuffer = bytes.buffer instanceof ArrayBuffer ? bytes.buffer : new Uint8Array(bytes).buffer;
+                  download(new Blob([buf]), `${p.name}.DBS`);
+                }}
+              >
+                Export (.dbs)
               </button>
               {!p.readOnly && (
                 <button
@@ -129,8 +151,9 @@ export function PcFilePage() {
             {notice}
           </p>
         )}
-        {/* Hidden file input for import */}
+        {/* Hidden file input for import — triggered by the visible Import button in the Presets pane */}
         <input
+          ref={importInputRef}
           type="file"
           aria-label="import file"
           accept=".json,.dbs"
