@@ -2,11 +2,23 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-## ⚠️ PICKUP NOTE — updated 2026-05-30 (session 3: DOSBox driving FIXED + merged)
+## ✅ PLAN COMPLETE — 2026-05-30 (Tasks 1-6 all done, merged to main)
 
-Tasks **1, 2, 3 DONE** (merge `91b5f18`). **The DOSBox-X MCP driving layer is now
-FIXED and merged to main** (commits `e39ca66`, `4bff860`, `ba4992e`). Continue
-Tasks 4-6 from main.
+All six castle fixtures (`castle-{1..6}-members`) are built and parity-tested
+(8/8 green); the DOSBox-X MCP driving layer is fixed (single-key mapper + AX
+force-frontmost + no focus-restore + screenshot write-race). Everything merged
+to main. **Only remaining work is TODO #026** — the wport portrait asset is the
+sole castle-parity gap (caps N=1 at 98.2% down to N=6 at 91.4%; every diff pixel
+is inside a portrait sprite). Fixing the wport extractor lifts all floors → 100%.
+
+Measured parity: N=1 98.2%, N=2 97.1%, N=3 95.6%, N=4 94.3%, N=5 92.8%, N=6 91.4%.
+
+---
+
+### Historical notes (sessions 1-3 — kept for context)
+
+Tasks **1, 2, 3 DONE** (merge `91b5f18`). The DOSBox-X MCP driving layer fixed
+and merged to main (commits `e39ca66`, `4bff860`, `ba4992e`).
 
 ### ✅ Driving layer fixed (session 3 — the big unblock)
 
