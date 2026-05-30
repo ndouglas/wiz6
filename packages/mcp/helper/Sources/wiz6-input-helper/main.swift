@@ -10,8 +10,11 @@ while let line = readLine(strippingNewline: true) {
         switch req {
         case .ping:
             resp = .success()
-        case .keyDown, .keyUp, .findWindow, .focusWindow, .getFrontmost, .restoreFrontmost:
-            // Real handlers in later tasks.
+        case .keyDown(let kc, let fl):
+            resp = postKeyDown(keyCode: kc, flags: fl)
+        case .keyUp(let kc, let fl):
+            resp = postKeyUp(keyCode: kc, flags: fl)
+        case .findWindow, .focusWindow, .getFrontmost, .restoreFrontmost:
             resp = .failure("not yet implemented")
         }
         stdout.write(Data(encodeResponse(resp).utf8))
