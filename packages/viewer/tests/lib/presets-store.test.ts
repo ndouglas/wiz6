@@ -6,10 +6,15 @@ import {
 import { writeRoster, readRoster } from '../../src/lib/roster-store.js';
 
 // Use proper UUIDs — CharacterSchema requires z.string().uuid()
-const UUID_S1 = '00000000-0000-4000-8000-000000000001';
-const UUID_A  = '00000000-0000-4000-8000-000000000002';
-const UUID_B  = '00000000-0000-4000-8000-000000000003';
-const UUID_X  = '00000000-0000-4000-8000-000000000004';
+const UUID_S1   = '00000000-0000-4000-8000-000000000001';
+const UUID_A    = '00000000-0000-4000-8000-000000000002';
+const UUID_B    = '00000000-0000-4000-8000-000000000003';
+const UUID_X    = '00000000-0000-4000-8000-000000000004';
+const UUID_NEW  = '00000000-0000-4000-8000-000000000099';
+// UUIDs for the 16-character full-roster scenario
+const FULL_UUIDS = Array.from({ length: 16 }, (_, i) =>
+  `00000000-0000-4000-8000-${String(i + 10).padStart(12, '0')}`,
+);
 
 const mk = (id: string, name: string) => ({
   id, name, race: 0, class: 0, level: 1, savedOldLevel: 0, xp: 0, gold: 0,
@@ -19,7 +24,10 @@ const mk = (id: string, name: string) => ({
   reaction: 50, sex: 0 as const, portraitIndex: 0,
 });
 
-beforeEach(() => window.localStorage.clear());
+beforeEach(() => {
+  window.localStorage.clear();
+  setStockPreset([]);
+});
 
 describe('presets-store', () => {
   it('readPresets includes the built-in read-only Stock preset first', () => {
@@ -45,5 +53,14 @@ describe('presets-store', () => {
     expect(res.added).toEqual(['BETA']);
     expect(res.skippedDuplicate).toEqual(['ALPHA']);
     expect(readRoster().characters.map((c) => c.name).sort()).toEqual(['ALPHA', 'BETA']);
+  });
+
+  it('copyCharactersToPcFile reports skippedFull when roster is already at 16 characters', () => {
+    const fullRoster = FULL_UUIDS.map((id, i) => mk(id, `CHAR${i.toString().padStart(2, '0')}`));
+    writeRoster({ schemaVersion: 1, characters: fullRoster });
+    const res = copyCharactersToPcFile([mk(UUID_NEW, 'NEWGUY')]);
+    expect(res.skippedFull).toEqual(['NEWGUY']);
+    expect(res.added).toEqual([]);
+    expect(readRoster().characters).toHaveLength(16);
   });
 });
