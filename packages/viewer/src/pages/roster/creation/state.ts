@@ -149,7 +149,8 @@ export interface DraftState {
     stamina: number;
     encumbranceMin: number;
     encumbranceMax: number;
-    goldInitial: number;
+    /** Max carrying capacity (record +0x22). Previously mislabeled goldInitial. */
+    carryCapacityMax: number;
     level: number;
     xp: number;
   }>;
@@ -355,7 +356,7 @@ function fireDerivedStats(state: CreationState): CreationState {
         stamina: derived.stamina,
         encumbranceMin: derived.encumbranceMin,
         encumbranceMax: derived.encumbranceMax,
-        goldInitial: derived.goldInitial,
+        carryCapacityMax: derived.carryCapacityMax,
         level: derived.level,
         xp: derived.xp,
       },

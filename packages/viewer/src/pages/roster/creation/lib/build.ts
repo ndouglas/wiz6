@@ -40,7 +40,14 @@ export function buildCharacterFromDraft(draft: DraftState): Character {
   // level and xp come from derived stats (computeDerivedStats fires at ALLOC_CONFIRM).
   const level = draft.derived.level ?? 1;
   const xp    = draft.derived.xp    ?? 0;
-  const gold  = draft.derived.goldInitial ?? 0;
+  // Engine-faithful: a finalised character ends creation with 0 gold — the
+  // rolled starting gold is consumed buying the auto-issued starting equipment
+  // (verified: engine NATHAN/NUG records all have gold=0 + 5 starting items).
+  // We don't model the equipment purchase yet, so we just zero the gold to
+  // match the engine's end state. (The old code put draft.derived.goldInitial
+  // here — but that value was actually the carry capacity, mislabeled; it is
+  // now `carryCapacityMax` and feeds encumbranceMax below.)
+  const gold  = 0;
   // HP, stamina, and age — needed by the review char-sheet renderer (and the
   // in-game stat panel). Default to 0 if a partial draft is committed.
   const hpInitial = draft.derived.hpInitial ?? 0;
@@ -91,6 +98,11 @@ export function buildCharacterFromDraft(draft: DraftState): Character {
     staminaCurrent: stamina,
     staminaMax: stamina,
     age,
+    // Max carrying capacity (record +0x22), STR/VIT-derived. encumbranceCurrent
+    // starts at 0 — we don't model starting-equipment item weights yet (gold is
+    // likewise zeroed above), so the character carries nothing on paper.
+    encumbranceMax: draft.derived.carryCapacityMax ?? 0,
+    encumbranceCurrent: 0,
   };
 
   // CharacterSchema.parse validates and applies .default(0) for sex etc.
