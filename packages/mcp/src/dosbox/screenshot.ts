@@ -56,11 +56,21 @@ export async function captureScreenshot(
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const path = findNewestPngSince(capturesDir, since);
-      if (path !== null) return readFileSync(path);
+      if (path !== null) {
+        // The file's mtime advances at *creation*, before DOSBox-X has
+        // flushed the PNG bytes. Reading on first sight yields a 0-byte (or
+        // truncated) image. Wait until the size is non-zero AND unchanged
+        // across one poll interval, then read the fully-written file.
+        const size1 = statSync(path).size;
+        if (size1 > 0) {
+          await new Promise((r) => setTimeout(r, pollIntervalMs));
+          if (statSync(path).size === size1) return readFileSync(path);
+        }
+      }
       await new Promise((r) => setTimeout(r, pollIntervalMs));
     }
     throw new Error(
-      `DOSBox-X did not write a screenshot — verify [render] captures= in tools/dosbox/wiz6.conf and that the path is writable.`,
+      `DOSBox-X did not write a screenshot — verify [dosbox] captures= in tools/dosbox/wiz6.conf and that the path is writable.`,
     );
   });
 }

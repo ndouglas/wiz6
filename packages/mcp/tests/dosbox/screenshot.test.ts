@@ -62,6 +62,40 @@ describe('captureScreenshot', () => {
     }
   });
 
+  it('waits for the PNG to finish writing (never returns a 0-byte read)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wiz6-screenshot-test-'));
+    try {
+      const png = join(dir, 'snap.png');
+      const full = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+      const fake: Partial<HelperClient> = {
+        send: vi.fn(async (req): Promise<HelperResponse> => {
+          const r = req as { op: string; keyCode?: number };
+          if (r.op === 'getFrontmost') return { ok: true, bundleId: 'com.apple.Terminal' };
+          if (r.op === 'findWindow') return { ok: true, windowId: 1 };
+          // Reproduce the write-race: DOSBox creates the file (mtime advances)
+          // but flushes the PNG bytes a moment later. A naive reader that reads
+          // on first sight gets 0 bytes.
+          if (r.op === 'keyDown' && r.keyCode === 0x23) {
+            writeFileSync(png, Buffer.alloc(0));
+            // Flush real bytes well after the poll loop is already running
+            // (sendKey's chord sleeps are ~75ms), so the poller genuinely sees
+            // the empty file first.
+            setTimeout(() => writeFileSync(png, full), 200);
+          }
+          return { ok: true };
+        }),
+      };
+      const bytes = await captureScreenshot(fake as HelperClient, dir, {
+        pollIntervalMs: 10,
+        timeoutMs: 2000,
+      });
+      expect(bytes.length).toBe(full.length);
+      expect(bytes.slice(0, 8)).toEqual(full.slice(0, 8));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('times out with actionable error when no PNG appears', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'wiz6-screenshot-test-'));
     try {
