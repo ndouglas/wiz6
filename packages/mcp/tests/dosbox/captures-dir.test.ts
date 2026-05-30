@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { resolveCapturesDir } from '../../src/dosbox/captures-dir.js';
 
 describe('resolveCapturesDir', () => {
-  it('reads `[render] captures=` from a wiz6.conf file', () => {
+  it('reads `[dosbox] captures=` from a wiz6.conf file', () => {
     const dir = mkdtempSync(join(tmpdir(), 'wiz6-captures-test-'));
     try {
       const conf = join(dir, 'wiz6.conf');
@@ -13,11 +13,27 @@ describe('resolveCapturesDir', () => {
         '[sdl]',
         'output = opengl',
         '',
-        '[render]',
+        '[dosbox]',
+        'machine = svga_s3',
         'captures = /tmp/my-captures',
-        'aspect = true',
       ].join('\n'));
       expect(resolveCapturesDir(conf)).toBe('/tmp/my-captures');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores captures= in non-[dosbox] sections', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wiz6-captures-test-'));
+    try {
+      const conf = join(dir, 'wiz6.conf');
+      writeFileSync(conf, [
+        '[render]',
+        'captures = /wrong/section',
+        '[dosbox]',
+        'captures = /right/section',
+      ].join('\n'));
+      expect(resolveCapturesDir(conf)).toBe('/right/section');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -27,7 +43,7 @@ describe('resolveCapturesDir', () => {
     const dir = mkdtempSync(join(tmpdir(), 'wiz6-captures-test-'));
     try {
       const conf = join(dir, 'wiz6.conf');
-      writeFileSync(conf, '[render]\naspect = true\n');
+      writeFileSync(conf, '[dosbox]\nmachine = svga_s3\n');
       const got = resolveCapturesDir(conf);
       expect(got).toMatch(/Documents\/DOSBox-X$/);
     } finally {

@@ -1,7 +1,8 @@
 /**
  * Locate the directory where DOSBox-X writes screenshot captures. Reads
- * `[render] captures=` from a wiz6.conf-style ini file; falls back to the
- * DOSBox-X default `~/Documents/DOSBox-X`.
+ * `[dosbox] captures=` from a wiz6.conf-style ini file; falls back to the
+ * DOSBox-X default `~/Documents/DOSBox-X`. Per dosbox-x.reference.full.conf,
+ * `captures =` lives in the `[dosbox]` section, not `[render]`.
  *
  * Spec: docs/superpowers/specs/2026-05-30-dosbox-mcp-dynamic-driving-design.md
  */
@@ -17,14 +18,14 @@ export function resolveCapturesDir(confPath: string): string {
     throw new Error(`captures path: wiz6.conf not found at ${confPath}`);
   }
   const lines = readFileSync(confPath, 'utf-8').split('\n');
-  let inRender = false;
+  let inDosbox = false;
   for (const raw of lines) {
     const line = raw.trim();
     if (line.startsWith('[') && line.endsWith(']')) {
-      inRender = line === '[render]';
+      inDosbox = line === '[dosbox]';
       continue;
     }
-    if (!inRender) continue;
+    if (!inDosbox) continue;
     const eq = line.indexOf('=');
     if (eq < 0) continue;
     const key = line.slice(0, eq).trim();
