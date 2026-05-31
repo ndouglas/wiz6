@@ -1,6 +1,6 @@
 {
   "topic": "spell-realm-colors",
-  "summary": "The character-creation spell picker colours each spell's realm name (FIRE/WATER/AIR/EARTH/MENTAL/DIVINE) by the spell's school index via a 6-word table at wroot.exe file offset 0xff84: [4, 2, 3, 6, 7, 5]. The on-screen attr is nibble<<4 (wfont0 highlight path, low-nibble 0). FIRE=0x40, WATER=0x20, AIR=0x30, EARTH=0x60, MENTAL=0x70, DIVINE=0x50.",
+  "summary": "The character-creation spell picker colours each spell's realm name by the spell's school index via a 6-word table at wroot.exe file offset 0xff84: [4, 2, 3, 6, 7, 5]. The on-screen attr is nibble<<4 (wfont0 highlight path, low-nibble 0). FIRE=0x40, WATER=0x20, AIR=0x30, EARTH=0x60, MENTAL=0x70, MAGIC=0x50. All six were pixel-verified on screen by navigating the picker's 3x2 school grid (left/right switches column, up/down moves within column). NOTE: school 5's display name is MAGIC (msg.dbs 0x0f73), not DIVINE; the 6 realm names are msg.dbs 0x0f6e..0x0f73 = FIRE/WATER/AIR/EARTH/MENTAL/MAGIC.",
   "confidence": "high",
   "findings": [
     {
@@ -28,17 +28,15 @@
       "confidence": "high"
     },
     {
-      "claim": "Front half is confirmed across TWO caster classes. A Priest (M-Human) was also created and its creation spell pool is identical to the Mage's: exactly three spells FIRE/WATER/AIR (schools 0/1/2), clamping at AIR. Both classes' realm labels match the table's first three entries.",
+      "claim": "All six realm colours are pixel-verified on screen. The picker is a SCHOOL GRID of all six schools (the school-mana icons on the character sheet); the cursor index 0..5 == school index. Per the binary (idiv 3 at wpcmk 0x2459, see spell-picker-eligibility.json), the grid is 3 columns x 2 rows: row0 = FIRE(0)/WATER(1)/AIR(2), row1 = EARTH(3)/MENTAL(4)/MAGIC(5). LEFT/RIGHT step +/-3 (between the two rows); UP/DOWN step +/-1 within a row (mod-3 clamped). My earlier 'clamp at AIR' was just the end of the top row's within-row movement — I had never pressed RIGHT (which jumps +3 to EARTH). All six schools are navigable even when the class has no selectable spell there (the spell name renders blank).",
       "evidence": {
-        "method": "Full character-creation drive in DOSBox-X (CREATE PC -> Human -> Male -> Priest -> bonus -> karma -> portrait -> skills -> spell picker). Scrolled the pool; it offered FIRE (pos0), WATER (pos1), AIR (pos2) and clamped.",
-        "implication": "The level-1 creation picker only exposes schools 0-2, so EARTH/MENTAL/DIVINE realms cannot be captured at creation by any class. The in-game cast/learn screens (higher-level spells) are where the back-half colours would render; that screen is not yet ported."
-      },
-      "confidence": "high"
-    },
-    {
-      "claim": "Back half (Earth=0x60 green, Mental=0x70 cyan, Divine=0x50 yellow) is taken from the same table. It cannot be captured at character creation (see above), but the table is the engine's authoritative source and its front half is now verified across two classes — a coincidental match on schools 0-2 in a school-indexed 6-word table is overwhelmingly unlikely.",
-      "evidence": {
-        "note": "Raw-offset grep for a code xref (0xfd84/0xff84) was inconclusive because the table's DS-relative offset differs from its file offset; the realm draw lives in the wpcmk spell picker (ui_train_attribute_picker_grid @ wpcmk 0x229c) and applies the colour via a wroot helper."
+        "method": "Drove a Mage to the picker, then navigated the school grid: from FIRE, RIGHT -> EARTH (green, ARMOR SHIELD), DOWN -> MENTAL (cyan, SLEEP), DOWN -> MAGIC (yellow, blank). Pixel-picked each realm label from the engine framebuffer.",
+        "results": [
+          "school 3 EARTH  -> palette idx 6 (85,255,85 bright green)  -> attr 0x60  (table nibble 6) MATCH",
+          "school 4 MENTAL -> palette idx 7 (85,255,255 bright cyan)  -> attr 0x70  (table nibble 7) MATCH",
+          "school 5 MAGIC  -> palette idx 5 (255,255,85 bright yellow)-> attr 0x50  (table nibble 5) MATCH"
+        ],
+        "implication": "The full table [4,2,3,6,7,5] is now behaviourally verified 6/6. The realm NAME for school 5 is MAGIC (msg.dbs 0x0f73), not DIVINE."
       },
       "confidence": "high"
     }
