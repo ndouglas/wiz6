@@ -43,7 +43,9 @@ import { useState } from 'react';
 import {
   initialCreationState,
   creationReducer,
+  mergeInjectedState,
 } from './state.js';
+import type { CreationState, DraftState } from './state.js';
 import { loadCreationFontSet } from './ega/assets.js';
 import { loadMessageDb as defaultLoadMessageDb, loadPortraitSet as defaultLoadPortraitSet } from '../../../data-loader.js';
 import { addCharacter, readRoster } from '../../../lib/roster-store.js';
@@ -110,7 +112,7 @@ export interface CreationPageProps {
    * without driving the full keydown flow.
    * Must NOT be used in production — undefined in all production paths.
    */
-  _testInitialState?: import('./state.js').CreationState;
+  _testInitialState?: CreationState;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,10 +178,17 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
   // not in the dependency array — changing seed after mount has no effect.
   const rng = useMemo(() => seedToRng(seed), []);
 
-  const [state, dispatch] = useReducer(creationReducer, undefined, () =>
-    _testInitialState ??
-    initialCreationState(rng, { pinMaxBonusRoll: getHouseRules().pinMaxBonusRoll }),
-  );
+  const [state, dispatch] = useReducer(creationReducer, undefined, () => {
+    if (_testInitialState) return _testInitialState;
+    const base = initialCreationState(rng, { pinMaxBonusRoll: getHouseRules().pinMaxBonusRoll });
+    // E2E-only: a Playwright test may inject a starting { screen, draft } via a
+    // window global. Guarded by import.meta.env.DEV so Vite strips it from prod.
+    if (import.meta.env.DEV) {
+      const injected = (globalThis as { __WIZ6_E2E_STATE__?: Partial<CreationState> & { draft?: Partial<DraftState> } }).__WIZ6_E2E_STATE__;
+      if (injected) return mergeInjectedState(base, injected);
+    }
+    return base;
+  });
 
   // -------------------------------------------------------------------------
   // Asset loading

@@ -9,6 +9,7 @@ import {
   initialCreationState,
   creationReducer,
   blankDraft,
+  mergeInjectedState,
 } from '../../../../src/pages/roster/creation/state.js';
 import type { CreationState } from '../../../../src/pages/roster/creation/state.js';
 
@@ -1015,5 +1016,24 @@ describe('MODAL_DISMISS', () => {
     const s0 = initialCreationState(rng);
     const next = creationReducer(s0, { type: 'MODAL_DISMISS' });
     expect(next).toBe(s0);
+  });
+});
+
+describe('mergeInjectedState', () => {
+  const base = () => initialCreationState(new WichmannHill(3000, 1, 29999));
+
+  it('returns base unchanged when injected is undefined', () => {
+    const b = base();
+    expect(mergeInjectedState(b, undefined)).toBe(b);
+  });
+
+  it('overlays screen + draft fields, preserving the base rng and untouched draft fields', () => {
+    const b = base();
+    const merged = mergeInjectedState(b, { screen: 'spellPick', draft: { name: 'MAGE', class: 1 } });
+    expect(merged.screen).toBe('spellPick');
+    expect(merged.draft.name).toBe('MAGE');
+    expect(merged.draft.class).toBe(1);
+    expect(merged.rng).toBe(b.rng);
+    expect(merged.draft.skills).toEqual(b.draft.skills);
   });
 });
