@@ -41,8 +41,12 @@ Next free ID: **#066**
   - Resolve by carrying the "return cursor" through the reducer's state shape (e.g., `edit-submenu` remembers which action menu index it came from; `profession-confirm` remembers picker cursor). Minor UX; not blocking.
 
 - #060 [open] — Character-creation spell selection screens render incorrectly (slots 1, 2, 3, and slot 4 = post-spell-select save-this-character prompt)
-  - Surfaced during #040 smoke (2026-05-29). The SpellPick screens in the wpcmk creation flow (`packages/viewer/src/pages/roster/creation/screens/SpellPick*.tsx` + composers) are visually broken for the first 4 character slots; the post-selection "save this character" prompt is also broken at slot 4.
-  - Pre-existing, unrelated to #040. Investigate which composer is misaligned and whether it's a per-slot or universal regression.
+  - Surfaced during #040 smoke (2026-05-29). `packages/viewer/src/pages/roster/creation/screens/SpellPickScreen.tsx` (geometry in `ega/windows.ts`).
+  - RE (2026-05-30, `docs/re/findings/wpcmk-spell-picker-geometry.json`): the window GEOMETRY is byte-exact correct (spellOuter 160,32 20x16 0x16; spellInner 168,56 19x8 0x17 — created in the grid-picker at wpcmk file 0x229c). **Not a geometry bug.** The bug is CONTENT/LAYOUT:
+    - Outer panel is missing its frame chrome (top/sep H-rules at rows 0/2, V-rule borders); engine title "SPELLS" is at row 1 (port: row 0); engine "COST" label + value at **row 14** (port: "COST: N" at row 1).
+    - Inner list: engine draws 6 entries via the generic grid-picker (read as spell-SCHOOL rows + CANCEL, confidence medium); port renders a flat list of individual spell names. **Open question: school-based picker vs scrollable spell list** — resolve before re-implementing.
+    - "SELECT A NEW SPELL FOR YOUR SPELLBOOK" (msg 703) renders in the bottom bar, not the panel; port omits it.
+  - No pixel-parity fixture exists for spell-pick (why it shipped broken); `SpellPickScreen.test.tsx` only checks canvas-mount + keys. Next: capture the engine spell-pick screen(s) via DOSBox (drive a Mage/Bishop creation) to resolve the school-vs-list model AND gate the fix, then re-implement the panel chrome/title/cost/bottom-bar + inner content, add a pixel-parity test.
 
 - #054 [open] — Audit CHARACTER MENU functional completeness
   - How much of the wpcmk CHARACTER MENU port is functionally equivalent to the engine vs scaffold? Pixel-parity is byte-exact on the rendered cells, but REVIEW/DELETE/RENAME/PORTRAIT actions are partly stubbed (per #019 deferred polish notes).
