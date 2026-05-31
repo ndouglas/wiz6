@@ -93,7 +93,7 @@ How to confirm a new overlay's delta: find any in-file table referenced by a CS-
 
 ## Project conventions
 
-- **Worktrees over branches**. Standing prefs: `~/.config/superpowers/worktrees/wiz6/<branch-name>/`. The using-git-worktrees skill handles setup.
+- **Avoid worktrees — use feature branches in the main checkout.** Don't create git worktrees for wiz6 work; branch off `main` in place instead. Reasons: (1) we work on one large project at a time, so parallel-isolation buys little; (2) per-worktree preview environments proliferate and are only differentiated by port number — confusing; (3) the DOSBox-X MCP is cwd-bound to the main checkout, so worktrees split DOSBox/fixture work from code. If a skill (using-git-worktrees / subagent-driven-development) wants a worktree, override it: stay in the main checkout on a feature branch.
 - **Subagent-driven development** when executing plans. Don't ask, just do it.
 - **TDD discipline**: failing test first, minimal implementation, then refactor. The viewer/parser/data tests all follow this pattern.
 - **All decoder code is pure** (no I/O) and lives in `packages/parser/src/formats/`. File-I/O wrappers go in `packages/cli/src/extractors/`. CLI subcommand dispatch in `packages/cli/src/commands/extract.ts`.
