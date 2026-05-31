@@ -214,6 +214,7 @@ export {
 export {
   SPELL_TABLE,
   spellsInBook,
+  spellCost,
   type SpellEntry,
 } from './character-creation/spell-table.js';
 export {

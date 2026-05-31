@@ -1,99 +1,85 @@
 /**
  * SpellPickScreen — screen-14: spell picking for caster classes.
  *
- * Only shown for classes where `classIsCaster(classIdx)` is true:
- *   Mage (1), Priest (2), Alchemist (5), Psionic (7), Bishop (9).
+ * Two-level state machine:
+ *   GRID mode   — 3×2 school grid (6 schools, cursor 0..5).
+ *   SUB-LIST mode — per-school spell list with highlighted selection.
  *
- * Eligible spells: union of `spellsInBook(bookIdx)` for each book in the
- * class's `CLASS_SPELLBOOKS` entry with a nonzero pick count. For single-book
- * casters (Mage/Priest/Alchemist/Psionic) this is one book. For Bishop it is
- * Mage book + Priest book.
+ * Grid layout (idiv-3): row = school/3, col = school%3.
+ *   row0 = schools {0,1,2}, row1 = schools {3,4,5}.
  *
- * Pick count required: sum of `CLASS_SPELLBOOKS[classIdx]`.
- *   Mage:      CLASS_SPELLBOOKS[1] = [2,0,0,0] → 2 picks
- *   Priest:    CLASS_SPELLBOOKS[2] = [0,2,0,0] → 2 picks
- *   Alchemist: CLASS_SPELLBOOKS[5] = [0,0,2,0] → 2 picks
- *   Psionic:   CLASS_SPELLBOOKS[7] = [0,0,0,2] → 2 picks
- *   Bishop:    CLASS_SPELLBOOKS[9] = [1,1,0,0] → 2 picks (1 from each)
+ * Navigation (key codes from mapKey: 1=left,2=up,3=right,4=down,5=enter,0=esc):
+ *
+ * GRID mode:
+ *   up (2):    school-1 if col > 0
+ *   down (4):  school+1 if col < 2
+ *   left (1):  school-3 if school >= 3
+ *   right (3): school+3 if school < 3
+ *   enter (5): enter sub-list if grid[school].length > 0
+ *   esc (0):   no-op
+ *
+ * SUB-LIST mode:
+ *   up (2):    spellIdx-1, clamp >= 0
+ *   down (4):  spellIdx+1, clamp <= list.length-1
+ *   enter (5): dispatch PICK_SPELL; if done → SPELLS_DONE, else → grid
+ *   left (1) or esc (0): return to grid
  *
  * Reducer contract (state.ts):
  *   PICK_SPELL {entry} → appends to draft.spellPicks[], does NOT auto-advance.
  *   SPELLS_DONE         → advances screen to 'confirm'.
- *   The SCREEN is responsible for dispatching SPELLS_DONE when picks === required.
- *
- * Key handlers per §8 (same code scheme as all wpcmk screens):
- *   ArrowUp    (code 2) → cursor = prev eligible spell (clamp, no wrap)
- *   ArrowDown  (code 4) → cursor = next eligible spell (clamp, no wrap)
- *   ArrowRight (code 3) → dispatch PICK_SPELL { entry: <cursor entryIdx> };
- *                         then SPELLS_DONE if picks == required
- *   Enter      (code 5) → same as ArrowRight
- *   ArrowLeft  (code 1) → no-op (no spell removal)
- *   Escape     (code 0) → silently ignored per §8
- *
- * Render:
- *   Uses two temporary windows (§2):
- *     spellOuter — 20×16 @ (160,32)  attr 0x16 — outer panel: title + pick count
- *     spellInner — 19×8  @ (168,56)  attr 0x17 — inner grid: spell list with cursor
- *   Also renders the persistent top (stat panel) window.
- *   Title from MSG.spellsTitle (0x02bc), cost label from MSG.cost (0x0f75).
- *   Spell names from spellName(db, entryIdx) = msg (0xfa0 + entryIdx).
  *
  * Spec: docs/re/wpcmk-screens.md §5, §8, §9
+ *       docs/re/findings/spell-picker-eligibility.json
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { setCursor, puts } from '@wiz6/parser';
-import { CLASS_SPELLBOOKS, spellsInBook, SPELL_TABLE, WIZ6_MAIN } from '@wiz6/data';
+import { creationSpellGrid, creationPickCount, spellCost, WIZ6_MAIN } from '@wiz6/data';
 import type { Palette } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
 import { createPersistentWindows, createSpellPickWindows } from '../ega/windows.js';
 import { composeSpellPanel, REALM_NAMES } from '../ega/compose-spell-panel.js';
+import { drawSchoolCursor } from '../ega/compose-school-cursor.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { MSG, creationString, spellName } from '../messages.js';
 import { mapKey } from './ScreenProps.js';
 
 // ---------------------------------------------------------------------------
-// Eligible spell derivation
+// Exported pure navigation helpers (tested directly)
 // ---------------------------------------------------------------------------
 
 /**
- * Derive the list of eligible spells for a caster class.
+ * Grid-mode: compute the next school index after a key press.
+ * school 0..5, grid col = school%3, row = school/3 (integer).
  *
- * Returns a flat array of `{ entryIdx, bookIdx }` pairs, ordered by
- * book then by entryIdx within each book.
- * Sentinel entries (byte5 === 0, level === 0) are excluded by spellsInBook.
- *
- * For a single-book caster (Mage/Priest/Alchemist/Psionic) this is a list
- * from one book. For Bishop (Mage+Priest books) entries from both books are
- * included. A spell that appears in multiple active books is listed once per
- * book appearance (per engine's per-book filter behaviour).
+ * code 1 = left  → school-3 if school >= 3, else clamp
+ * code 2 = up    → school-1 if col > 0, else clamp
+ * code 3 = right → school+3 if school < 3, else clamp
+ * code 4 = down  → school+1 if col < 2, else clamp
+ * other  → unchanged
  */
-function eligibleSpells(classIdx: number): Array<{ entryIdx: number; bookIdx: number }> {
-  const books = CLASS_SPELLBOOKS[classIdx];
-  if (!books) return [];
-
-  const result: Array<{ entryIdx: number; bookIdx: number }> = [];
-  for (let bookIdx = 0; bookIdx < 4; bookIdx++) {
-    const pickCount = books[bookIdx] ?? 0;
-    if (pickCount === 0) continue;
-    const spells = spellsInBook(bookIdx);
-    for (const { entryIdx } of spells) {
-      result.push({ entryIdx, bookIdx });
-    }
-  }
-  return result;
+export function gridNextSchool(school: number, code: number): number {
+  const col = school % 3;
+  if (code === 2) return col > 0 ? school - 1 : school;          // up
+  if (code === 4) return col < 2 ? school + 1 : school;          // down
+  if (code === 1) return school >= 3 ? school - 3 : school;      // left
+  if (code === 3) return school < 3 ? school + 3 : school;       // right
+  return school;
 }
 
 /**
- * Total starter-spell picks required for the class.
- * Sum of all nonzero values in CLASS_SPELLBOOKS[classIdx].
+ * Sub-list mode: compute the next spell index after a key press.
+ *
+ * code 2 = up   → max(0, idx-1)
+ * code 4 = down → min(len-1, idx+1)
+ * other  → unchanged
  */
-function totalPicksRequired(classIdx: number): number {
-  const books = CLASS_SPELLBOOKS[classIdx];
-  if (!books) return 0;
-  return books.reduce<number>((sum, count) => sum + count, 0);
+export function sublistNextIdx(idx: number, len: number, code: number): number {
+  if (code === 2) return Math.max(0, idx - 1);
+  if (code === 4) return Math.min(Math.max(0, len - 1), idx + 1);
+  return idx;
 }
 
 // ---------------------------------------------------------------------------
@@ -112,9 +98,8 @@ export interface SpellPickScreenProps {
  * SpellPickScreen — renders screen-14: class-specific spell picking.
  *
  * Dumb component. Pick accounting (appending to spellPicks[]) lives in the
- * reducer. This component tracks only the local cursor position, computes
- * how many picks have been made, and dispatches SPELLS_DONE when the
- * required count is reached.
+ * reducer. This component tracks the school cursor, grid/sublist mode, and
+ * dispatches SPELLS_DONE when the required count is reached.
  */
 export function SpellPickScreen({
   state,
@@ -124,12 +109,14 @@ export function SpellPickScreen({
   db,
 }: SpellPickScreenProps) {
   const classIdx = state.draft.class ?? 0;
-  const spells = eligibleSpells(classIdx);
-  const required = totalPicksRequired(classIdx);
+  const grid = creationSpellGrid(classIdx);
+  const required = creationPickCount(classIdx);
   const pickedSoFar = state.draft.spellPicks.length;
 
-  // Cursor: index into the `spells` array.
-  const [cursorIdx, setCursorIdx] = useState<number>(0);
+  // Two-level state machine state.
+  const [school, setSchool] = useState<number>(0);
+  const [mode, setMode] = useState<'grid' | 'sublist'>('grid');
+  const [spellIdx, setSpellIdx] = useState<number>(0);
 
   // -------------------------------------------------------------------------
   // Key handler
@@ -138,32 +125,55 @@ export function SpellPickScreen({
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       const code = mapKey(e);
-      if (code === null) return;
-
-      switch (code) {
-        case 2: // ArrowUp — prev spell (clamp, no wrap)
-          setCursorIdx((prev) => Math.max(0, prev - 1));
-          break;
-        case 4: // ArrowDown — next spell (clamp, no wrap)
-          setCursorIdx((prev) => Math.min(spells.length - 1, prev + 1));
-          break;
-        case 3: // ArrowRight — pick spell
-        case 5: { // Enter — same as ArrowRight
-          const spell = spells[cursorIdx];
-          if (spell === undefined) break;
-          dispatch({ type: 'PICK_SPELL', entry: spell.entryIdx });
-          // After this pick, check if we've reached the required count
-          if (pickedSoFar + 1 >= required) {
-            dispatch({ type: 'SPELLS_DONE' });
-          }
-          break;
+      // Escape (null) in sublist mode → return to grid (cancel selection).
+      if (code === null) {
+        if (mode === 'sublist') {
+          setMode('grid');
+          setSpellIdx(0);
         }
-        case 1: // ArrowLeft — no-op (no spell removal)
-        default:
-          break;
+        return;
+      }
+
+      if (mode === 'grid') {
+        if (code === 1 || code === 2 || code === 3 || code === 4) {
+          setSchool((s) => gridNextSchool(s, code));
+        } else if (code === 5) {
+          // enter → drill into sub-list if school has spells
+          const list = grid[school];
+          if (list && list.length > 0) {
+            setMode('sublist');
+            setSpellIdx(0);
+          }
+        }
+        // esc (null) and unknown keys → no-op in grid
+      } else {
+        // sublist mode
+        const list = grid[school] ?? [];
+        if (code === 2 || code === 4) {
+          // up/down — move within sub-list
+          setSpellIdx((idx) => sublistNextIdx(idx, list.length, code));
+        } else if (code === 5) {
+          // enter — pick spell
+          const spell = list[spellIdx];
+          if (spell !== undefined) {
+            dispatch({ type: 'PICK_SPELL', entry: spell.entryIdx });
+            if (pickedSoFar + 1 >= required) {
+              dispatch({ type: 'SPELLS_DONE' });
+            } else {
+              // Return to grid for next pick.
+              setMode('grid');
+              setSpellIdx(0);
+            }
+          }
+        } else if (code === 1) {
+          // left — cancel, return to grid
+          setMode('grid');
+          setSpellIdx(0);
+        }
+        // esc (null) is handled above the grid/sublist branch (sets mode→grid)
       }
     },
-    [cursorIdx, spells, dispatch, pickedSoFar, required],
+    [mode, school, spellIdx, grid, dispatch, pickedSoFar, required],
   );
 
   useEffect(() => {
@@ -175,32 +185,24 @@ export function SpellPickScreen({
   // Render
   // -------------------------------------------------------------------------
 
-  // Engine layout: a scrollable single-spell DETAIL view (NOT a flat list).
-  // The cursor browses one spell at a time; the panel shows its name, realm,
-  // level pips, and cost, with a scrollbar in the inner window's col 0.
   const pal = palette ?? WIZ6_MAIN;
   const { top, bottomBar } = createPersistentWindows();
   const { outer, inner } = createSpellPickWindows();
 
-  const cur = spells[cursorIdx];
-  const curName = cur ? spellName(db, cur.entryIdx) || `SPELL ${cur.entryIdx}` : '';
-  // Realm (element) from the spell table's school index (0=Fire … 5=Divine).
-  const entry = cur ? SPELL_TABLE[cur.entryIdx] : undefined;
-  const realm = entry ? REALM_NAMES[entry.school] ?? '' : '';
-  // COST stays blank: the engine shows no SP cost when LEARNING a starter spell
-  // at creation (verified against the fixture) — cost is an in-game cast-time
-  // concept, not a creation one. The pip bar is the engine's fixed decorative
-  // bar (not spell-level based), handled by composeSpellPanel's default.
-  // NOTE: temporary single-spell adapter onto the new list/sub-list contract —
-  // Task 5 reworks this screen into the grid⇄sub-list state machine. For now we
-  // render the browsed spell as a one-entry grid-browse list (no highlight, no
-  // COST), preserving the existing behaviour.
+  const list = grid[school] ?? [];
+  const sel = mode === 'sublist' ? spellIdx : null;
+
   composeSpellPanel(outer, inner, {
-    realm,
-    spellNames: curName ? [curName] : [],
-    selectedIdx: null,
-    cost: null,
+    realm: REALM_NAMES[school] ?? '',
+    spellNames: list.map((s) => spellName(db, s.entryIdx) || `SPELL ${s.entryIdx}`),
+    selectedIdx: sel,
+    cost:
+      sel !== null && list[sel] != null
+        ? String(spellCost(list[sel]!.entry))
+        : null,
   });
+
+  drawSchoolCursor(top, school);
 
   // Bottom-bar prompt (engine renders msg 0x2bf here, not inside the panel).
   const prompt =

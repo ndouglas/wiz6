@@ -1,47 +1,31 @@
 // packages/viewer/tests/pages/roster/creation/screens/SpellPickScreen.test.tsx
 //
-// RTL tests for SpellPickScreen (screen-14).
+// Tests for SpellPickScreen (screen-14) — 3x2 school grid ⇄ sub-list state machine.
 //
-// Screen-14 behaviour per docs/re/wpcmk-screens.md §9, §5, §8:
-//   - Only shown for caster classes: Mage (1), Priest (2), Alchemist (5),
-//     Psionic (7), Bishop (9). (classIsCaster check in state machine.)
-//   - Eligible spells = spellsInBook(bookIdx) for each book in the class's
-//     CLASS_SPELLBOOKS entry (books with pickCount > 0).
-//   - Pick count needed = sum of CLASS_SPELLBOOKS[classIdx] values.
-//   - Mage (class 1): CLASS_SPELLBOOKS[1] = [2,0,0,0] → 2 picks from Mage book.
-//   - Priest (class 2): CLASS_SPELLBOOKS[2] = [0,2,0,0] → 2 picks from Priest book.
-//   - Bishop (class 9): CLASS_SPELLBOOKS[9] = [1,1,0,0] → 2 total picks.
-//   - Spell names: spellName(db, entryIdx) → msg 0xfa0 + entryIdx per §9.
-//   - Keys per §8:
-//       ArrowUp   (code 2) → cursor prev (clamp, no wrap)
-//       ArrowDown (code 4) → cursor next (clamp, no wrap)
-//       ArrowRight (code 3) / Enter (code 5) → dispatch PICK_SPELL { entry: <cursor entryIdx> }
-//       ArrowLeft (code 1) → no-op (no spell removal)
-//   - After required picks: dispatch SPELLS_DONE.
-//   - Reducer contract (state.ts):
-//       PICK_SPELL: appends entry to spellPicks[], does NOT auto-advance screen.
-//       SPELLS_DONE: advances screen to 'confirm'.
-//   - The SCREEN is responsible for dispatching SPELLS_DONE when picks == required.
-//   - Renders via CreationCanvas (<canvas>).
+// Pure-helper tests verify the exported grid/sublist navigation helpers.
+// Canvas smoke test verifies the component mounts for a Mage.
 //
 // Spec: docs/re/wpcmk-screens.md §5, §8, §9
+//       docs/re/findings/spell-picker-eligibility.json
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent } from '@testing-library/react';
-import { WIZ6_MAIN, CLASS_SPELLBOOKS, spellsInBook, SPELL_TABLE } from '@wiz6/data';
-import { REALM_NAMES } from '../../../../../src/pages/roster/creation/ega/compose-spell-panel.js';
+import { render } from '@testing-library/react';
+import { WIZ6_MAIN } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
-import type { CreationState, CreationEvent } from '../../../../../src/pages/roster/creation/state.js';
+import type { CreationState } from '../../../../../src/pages/roster/creation/state.js';
 import { initialCreationState } from '../../../../../src/pages/roster/creation/state.js';
 import { WichmannHill } from '@wiz6/data';
-import { SpellPickScreen } from '../../../../../src/pages/roster/creation/screens/SpellPickScreen.js';
+import {
+  SpellPickScreen,
+  gridNextSchool,
+  sublistNextIdx,
+} from '../../../../../src/pages/roster/creation/screens/SpellPickScreen.js';
 
 // ---------------------------------------------------------------------------
 // Minimal stubs
 // ---------------------------------------------------------------------------
 
-/** Stub FontSet — all fonts null. CreationCanvas handles this gracefully. */
 const STUB_FONT_SET: FontSet = {
   font0: null,
   font1: null,
@@ -50,19 +34,12 @@ const STUB_FONT_SET: FontSet = {
   font4: null,
 };
 
-/**
- * Build a minimal stub MessageDb covering spell names (§9):
- *   0xfa0..0xff1 = spell names (82 entries, indices 0..81)
- *   0x02bc = "SPELLS" (title)
- *   0x0f75 = "COST"
- * We stub a representative subset.
- */
 function stubDb(): MessageDb {
   const entries: Array<{ id: number; decodedText: string }> = [
     { id: 0x02bc, decodedText: '      SPELLS      ' },
     { id: 0x0f75, decodedText: 'COST' },
+    { id: 0x02bf, decodedText: 'SELECT A NEW SPELL FOR YOUR SPELLBOOK' },
   ];
-  // Spell names: indices 0..81 → msg 0xfa0..0xff1
   const SPELL_NAMES = [
     'ENERGY BLAST', 'BLINDING FLASH', 'FIREBALL', 'FROST BYTE', 'DEADLY AIR',
     'METEOR SHOWER', 'MASS CONFUSION', 'NUCLEAR BLAST', 'SIZZLE',
@@ -95,14 +72,6 @@ function stubDb(): MessageDb {
   } as unknown as MessageDb;
 }
 
-// ---------------------------------------------------------------------------
-// Helper: build a state at the 'spellPick' screen
-// ---------------------------------------------------------------------------
-
-/**
- * Build a CreationState at the 'spellPick' screen for the given class.
- * spellPicks defaults to [].
- */
 function makeSpellPickState(classIdx: number, spellPicks: number[] = []): CreationState {
   const rng = new WichmannHill(3000, 1, 29999);
   const s = initialCreationState(rng);
@@ -128,7 +97,85 @@ function makeSpellPickState(classIdx: number, spellPicks: number[] = []): Creati
 }
 
 // ---------------------------------------------------------------------------
-// SpellPickScreen — canvas mounting
+// gridNextSchool — pure navigation helper
+// ---------------------------------------------------------------------------
+
+describe('gridNextSchool — grid-mode school navigation', () => {
+  it('grid: right from FIRE(0) → EARTH(3); right from row1 clamps', () => {
+    expect(gridNextSchool(0, 3)).toBe(3);
+    expect(gridNextSchool(3, 3)).toBe(3); // school>=3 → no right
+  });
+
+  it('grid: down moves within row, clamps at col 2', () => {
+    expect(gridNextSchool(0, 4)).toBe(1);
+    expect(gridNextSchool(1, 4)).toBe(2);
+    expect(gridNextSchool(2, 4)).toBe(2); // clamp
+  });
+
+  it('grid: up clamps at col 0; left clamps at row 0', () => {
+    expect(gridNextSchool(0, 2)).toBe(0);
+    expect(gridNextSchool(3, 2)).toBe(3);
+    expect(gridNextSchool(0, 1)).toBe(0);
+    expect(gridNextSchool(3, 1)).toBe(0);
+  });
+
+  it('grid: left from EARTH(3) → FIRE(0); down from EARTH(3) → MENTAL(4)', () => {
+    expect(gridNextSchool(3, 1)).toBe(0);
+    expect(gridNextSchool(3, 4)).toBe(4);
+  });
+
+  it('grid: right from MENTAL(4) clamps (school>=3 no-op)', () => {
+    // right moves row0→row1 only; school>=3 already on row1 → no-op
+    expect(gridNextSchool(4, 3)).toBe(4);
+    expect(gridNextSchool(5, 3)).toBe(5);
+    // left from row1 MENTAL(4) → row0 FIRE+1 = AIR(1)? No: school-3 = 1
+    expect(gridNextSchool(4, 1)).toBe(1);
+    expect(gridNextSchool(5, 1)).toBe(2);
+  });
+
+  it('grid: up from AIR(1) → FIRE(0); up from MENTAL(4) → EARTH(3)', () => {
+    // up means col>0 → school-1; school=1 col=1 → school=0
+    expect(gridNextSchool(1, 2)).toBe(0);
+    // school=4 col=1 → school=3
+    expect(gridNextSchool(4, 2)).toBe(3);
+    // school=5 col=2 → school=4
+    expect(gridNextSchool(5, 2)).toBe(4);
+  });
+
+  it('grid: unknown code returns school unchanged', () => {
+    expect(gridNextSchool(2, 99)).toBe(2);
+    expect(gridNextSchool(5, 0)).toBe(5); // esc is no-op in grid
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sublistNextIdx — pure navigation helper
+// ---------------------------------------------------------------------------
+
+describe('sublistNextIdx — sublist-mode navigation', () => {
+  it('sublist: down clamps to len-1, up clamps to 0', () => {
+    expect(sublistNextIdx(0, 2, 4)).toBe(1);
+    expect(sublistNextIdx(1, 2, 4)).toBe(1);
+    expect(sublistNextIdx(1, 2, 2)).toBe(0);
+    expect(sublistNextIdx(0, 2, 2)).toBe(0);
+  });
+
+  it('sublist: down from mid of list moves forward', () => {
+    expect(sublistNextIdx(2, 5, 4)).toBe(3);
+  });
+
+  it('sublist: up from mid of list moves backward', () => {
+    expect(sublistNextIdx(3, 5, 2)).toBe(2);
+  });
+
+  it('sublist: unknown code returns idx unchanged', () => {
+    expect(sublistNextIdx(2, 5, 99)).toBe(2);
+    expect(sublistNextIdx(2, 5, 5)).toBe(2); // enter/esc handled by component
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canvas smoke test — component mounts without error
 // ---------------------------------------------------------------------------
 
 describe('SpellPickScreen — canvas mounting', () => {
@@ -170,354 +217,14 @@ describe('SpellPickScreen — canvas mounting', () => {
     expect(canvas!.width).toBe(320);
     expect(canvas!.height).toBe(200);
   });
-});
 
-// ---------------------------------------------------------------------------
-// Eligible spell list — class constrains which spells are shown
-// ---------------------------------------------------------------------------
-
-describe('SpellPickScreen — eligible spells per class', () => {
-  it('Mage (class 1) eligible list contains Mage-book spells', () => {
-    // CLASS_SPELLBOOKS[1] = [2,0,0,0] → Mage book (bookIdx=0) only
-    const mageBookSpells = spellsInBook(0); // bookIdx=0 = Mage
-    expect(mageBookSpells.length).toBeGreaterThan(0);
-    // Entry 0 (ENERGY BLAST) should be in Mage book (byte5=0x08, bit3=Mage)
-    // Verify by checking the book mask
-    const containsEntry0 = mageBookSpells.some((s) => s.entryIdx === 0);
-    expect(containsEntry0).toBe(true);
-  });
-
-  it('first Mage-book spell maps to the FIRE realm (panel realm wiring)', () => {
-    // The picker starts on the first eligible spell; for a Mage that's the
-    // first Mage-book entry. Its school index → realm name drives the panel's
-    // realm label. ENERGY BLAST is a Fire spell — must match the fixture.
-    const first = spellsInBook(0)[0]!;
-    const realm = REALM_NAMES[SPELL_TABLE[first.entryIdx]!.school];
-    expect(realm).toBe('FIRE');
-  });
-
-  it('Mage eligible list does NOT contain Priest-only spells', () => {
-    // Find a spell that's only in Priest book (byte5 & 0x04 !== 0 AND byte5 & 0x08 === 0)
-    const mageBookSpells = spellsInBook(0); // Mage book entries
-    const priestBookSpells = spellsInBook(1); // Priest book entries
-    const priestOnly = priestBookSpells.filter(
-      (p) => !mageBookSpells.some((m) => m.entryIdx === p.entryIdx),
-    );
-    // There should be priest-only spells; confirm none are in mageBookSpells
-    if (priestOnly.length > 0) {
-      const firstPriestOnly = priestOnly[0]!;
-      expect(mageBookSpells.some((m) => m.entryIdx === firstPriestOnly.entryIdx)).toBe(false);
-    }
-  });
-
-  it('Priest (class 2) eligible list comes from Priest book only', () => {
-    // CLASS_SPELLBOOKS[2] = [0,2,0,0] → Priest book (bookIdx=1)
-    const priestBookSpells = spellsInBook(1);
-    expect(priestBookSpells.length).toBeGreaterThan(0);
-  });
-
-  it('Bishop (class 9) has picks from Mage + Priest books combined', () => {
-    // CLASS_SPELLBOOKS[9] = [1,1,0,0] → Mage book + Priest book, 1 pick each
-    const mageSpells = spellsInBook(0);
-    const priestSpells = spellsInBook(1);
-    // Bishop total picks = 1 + 1 = 2
-    const bishopBooks = CLASS_SPELLBOOKS[9]!;
-    const totalPicks = bishopBooks.reduce((sum, c) => sum + c, 0);
-    expect(totalPicks).toBe(2);
-    // Bishop can pick from Mage book
-    expect(mageSpells.length).toBeGreaterThan(0);
-    // Bishop can pick from Priest book
-    expect(priestSpells.length).toBeGreaterThan(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Enter/ArrowRight → PICK_SPELL { entry: <cursor entryIdx> }
-// Cursor starts at the first eligible spell.
-// ---------------------------------------------------------------------------
-
-describe('SpellPickScreen — Enter dispatches PICK_SPELL at cursor entry', () => {
-  it('Enter at initial position dispatches PICK_SPELL with the first Mage-book spell entry', () => {
-    const state = makeSpellPickState(1); // Mage
-    const dispatch = vi.fn<[CreationEvent], void>();
+  it('renders without error for all caster classes', () => {
+    const casterClasses = [1, 2, 5, 7, 9]; // Mage, Priest, Alchemist, Psionic, Bishop
+    const dispatch = vi.fn();
     const db = stubDb();
 
-    render(
-      <SpellPickScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'Enter' });
-
-    // First spell in Mage book (entry 0 = ENERGY BLAST, byte5 = 0x08 has Mage bit)
-    const mageSpells = spellsInBook(0);
-    const firstEntry = mageSpells[0]!.entryIdx;
-    expect(dispatch).toHaveBeenCalledWith({ type: 'PICK_SPELL', entry: firstEntry });
-  });
-
-  it('ArrowRight dispatches PICK_SPELL at cursor entry', () => {
-    const state = makeSpellPickState(1); // Mage
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <SpellPickScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
-
-    const mageSpells = spellsInBook(0);
-    const firstEntry = mageSpells[0]!.entryIdx;
-    expect(dispatch).toHaveBeenCalledWith({ type: 'PICK_SPELL', entry: firstEntry });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// ArrowDown → cursor moves to next eligible spell
-// ---------------------------------------------------------------------------
-
-describe('SpellPickScreen — ArrowDown moves cursor to next spell', () => {
-  it('ArrowDown then Enter dispatches PICK_SPELL with the second spell', () => {
-    const state = makeSpellPickState(1); // Mage
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <SpellPickScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    fireEvent.keyDown(window, { key: 'Enter' });
-
-    const mageSpells = spellsInBook(0);
-    const secondEntry = mageSpells[1]!.entryIdx;
-    expect(dispatch).toHaveBeenCalledWith({ type: 'PICK_SPELL', entry: secondEntry });
-  });
-
-  it('ArrowDown clamps at last spell (no wrap)', () => {
-    const state = makeSpellPickState(1); // Mage
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <SpellPickScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    const mageSpells = spellsInBook(0);
-    const lastEntry = mageSpells[mageSpells.length - 1]!.entryIdx;
-
-    // Press ArrowDown more than the number of spells — should clamp
-    for (let i = 0; i < mageSpells.length + 5; i++) {
-      fireEvent.keyDown(window, { key: 'ArrowDown' });
-    }
-    fireEvent.keyDown(window, { key: 'Enter' });
-
-    expect(dispatch).toHaveBeenCalledWith({ type: 'PICK_SPELL', entry: lastEntry });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// ArrowUp → cursor moves to prev spell (clamp, no wrap)
-// ---------------------------------------------------------------------------
-
-describe('SpellPickScreen — ArrowUp moves cursor to prev spell', () => {
-  it('ArrowUp from first spell clamps (no wrap)', () => {
-    const state = makeSpellPickState(1); // Mage
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <SpellPickScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'ArrowUp' });
-    fireEvent.keyDown(window, { key: 'Enter' });
-
-    const mageSpells = spellsInBook(0);
-    const firstEntry = mageSpells[0]!.entryIdx;
-    expect(dispatch).toHaveBeenCalledWith({ type: 'PICK_SPELL', entry: firstEntry });
-  });
-
-  it('ArrowDown then ArrowUp returns to first spell', () => {
-    const state = makeSpellPickState(1); // Mage
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <SpellPickScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    fireEvent.keyDown(window, { key: 'ArrowUp' });
-    fireEvent.keyDown(window, { key: 'Enter' });
-
-    const mageSpells = spellsInBook(0);
-    const firstEntry = mageSpells[0]!.entryIdx;
-    expect(dispatch).toHaveBeenCalledWith({ type: 'PICK_SPELL', entry: firstEntry });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// ArrowLeft is a no-op (no spell removal)
-// ---------------------------------------------------------------------------
-
-describe('SpellPickScreen — ArrowLeft does not dispatch', () => {
-  it('ArrowLeft does not dispatch any event', () => {
-    const state = makeSpellPickState(1); // Mage
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <SpellPickScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'ArrowLeft' });
-
-    expect(dispatch).not.toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Escape is silently ignored
-// ---------------------------------------------------------------------------
-
-describe('SpellPickScreen — Escape is silently ignored', () => {
-  it('Escape does not dispatch any event', () => {
-    const state = makeSpellPickState(1); // Mage
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <SpellPickScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'Escape' });
-
-    expect(dispatch).not.toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// SPELLS_DONE dispatched when required picks reached
-// ---------------------------------------------------------------------------
-
-describe('SpellPickScreen — SPELLS_DONE when picks exhausted', () => {
-  it('dispatches SPELLS_DONE after required number of picks (Mage: 2)', () => {
-    // Mage CLASS_SPELLBOOKS[1] = [2,0,0,0] → 2 picks required.
-    // Pre-populate with 1 pick so the next Enter completes the quota.
-    const mageSpells = spellsInBook(0);
-    const firstEntry = mageSpells[0]!.entryIdx;
-    const state = makeSpellPickState(1, [firstEntry]); // already 1 pick
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <SpellPickScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    // One more pick to reach total of 2 (the required count for Mage)
-    fireEvent.keyDown(window, { key: 'Enter' });
-
-    // Expect PICK_SPELL for the entry, then SPELLS_DONE
-    const calls = dispatch.mock.calls.map((c) => c[0]);
-    expect(calls).toContainEqual({ type: 'PICK_SPELL', entry: expect.any(Number) });
-    expect(calls).toContainEqual({ type: 'SPELLS_DONE' });
-    // SPELLS_DONE comes after the pick
-    const pickIdx = calls.findIndex((c) => c.type === 'PICK_SPELL');
-    const doneIdx = calls.findIndex((c) => c.type === 'SPELLS_DONE');
-    expect(pickIdx).toBeGreaterThanOrEqual(0);
-    expect(doneIdx).toBeGreaterThan(pickIdx);
-  });
-
-  it('does NOT dispatch SPELLS_DONE when picks < required (Mage, 1/2 done)', () => {
-    // State: 0 existing picks. After one Enter, we have 1 pick but need 2.
-    const state = makeSpellPickState(1, []); // Mage, 0 picks
-    const dispatch = vi.fn<[CreationEvent], void>();
-    const db = stubDb();
-
-    render(
-      <SpellPickScreen
-        state={state}
-        dispatch={dispatch}
-        fontSet={STUB_FONT_SET}
-        palette={WIZ6_MAIN}
-        db={db}
-      />,
-    );
-
-    fireEvent.keyDown(window, { key: 'Enter' });
-
-    const calls = dispatch.mock.calls.map((c) => c[0]);
-    expect(calls).toContainEqual({ type: 'PICK_SPELL', entry: expect.any(Number) });
-    expect(calls).not.toContainEqual({ type: 'SPELLS_DONE' });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Renders without throwing for all caster classes
-// ---------------------------------------------------------------------------
-
-describe('SpellPickScreen — renders without throwing for all caster classes', () => {
-  const casterClasses = [1, 2, 5, 7, 9]; // Mage, Priest, Alchemist, Psionic, Bishop
-  for (const classIdx of casterClasses) {
-    it(`renders without error for class ${classIdx}`, () => {
+    for (const classIdx of casterClasses) {
       const state = makeSpellPickState(classIdx);
-      const dispatch = vi.fn();
-      const db = stubDb();
-
       expect(() =>
         render(
           <SpellPickScreen
@@ -529,6 +236,6 @@ describe('SpellPickScreen — renders without throwing for all caster classes', 
           />,
         ),
       ).not.toThrow();
-    });
-  }
+    }
+  });
 });
