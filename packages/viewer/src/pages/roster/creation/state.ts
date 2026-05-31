@@ -186,9 +186,10 @@ export interface CreationState {
   /**
    * When set, the active screen renders an engine-style error-modal overlay.
    * Value is the msg.dbs id to display (e.g. 0x044e = "* CHARACTER ALREADY
-   * EXISTS *"). Cleared on `MODAL_DISMISS`.
+   * EXISTS *"). Cleared on `MODAL_DISMISS` (reducers set it back to `undefined`,
+   * so the type allows explicit `undefined` under exactOptionalPropertyTypes).
    */
-  modalErrorMsgId?: number;
+  modalErrorMsgId?: number | undefined;
 }
 
 // ---------------------------------------------------------------------------

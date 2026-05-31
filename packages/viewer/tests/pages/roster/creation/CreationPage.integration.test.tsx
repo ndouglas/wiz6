@@ -514,12 +514,16 @@ describe('CreationPage — Mage caster path (via state injection)', () => {
 
     await waitForLoaded(container);
 
-    // At spellPick: Mage needs 2 picks.
-    // SpellPickScreen: Enter picks the cursor spell; auto-dispatches SPELLS_DONE when picks=required.
-    // First Enter: picks spell 0 (pickedSoFar=0, required=2 → 0+1=1 < 2, no SPELLS_DONE)
-    // Second Enter: picks spell 1 (pickedSoFar=1, required=2 → 1+1=2 >= 2 → SPELLS_DONE)
-    fireEvent.keyDown(window, { key: 'Enter' });
-    fireEvent.keyDown(window, { key: 'Enter' });
+    // At spellPick: Mage needs 2 picks. The picker is a TWO-LEVEL grid — the cursor
+    // starts on FIRE (school 0). ENTER drills into a school's sub-list; ENTER on a
+    // spell picks it (and a picked spell drops out of its list, so the 2 picks must
+    // be DISTINCT). Pick ENERGY BLAST (FIRE), then ArrowDown to WATER and pick its
+    // first spell → 2/2 → SPELLS_DONE → confirm.
+    fireEvent.keyDown(window, { key: 'Enter' });     // drill into FIRE sub-list
+    fireEvent.keyDown(window, { key: 'Enter' });     // pick ENERGY BLAST (1/2) → back to grid
+    fireEvent.keyDown(window, { key: 'ArrowDown' }); // FIRE(0) → WATER(1) (within top row)
+    fireEvent.keyDown(window, { key: 'Enter' });     // drill into WATER sub-list
+    fireEvent.keyDown(window, { key: 'Enter' });     // pick WATER spell 0 (2/2) → SPELLS_DONE
 
     // Now at confirm screen. Enter → CONFIRM { keep: true } → committing
     fireEvent.keyDown(window, { key: 'Enter' });
