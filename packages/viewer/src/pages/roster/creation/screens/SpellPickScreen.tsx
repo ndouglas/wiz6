@@ -42,14 +42,14 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { clearWindow, setCursor, puts } from '@wiz6/parser';
+import { setCursor, puts } from '@wiz6/parser';
 import { CLASS_SPELLBOOKS, spellsInBook, WIZ6_MAIN } from '@wiz6/data';
 import type { Palette } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
 import { createPersistentWindows, createSpellPickWindows } from '../ega/windows.js';
-import { highlightRow } from '../ega/highlight.js';
+import { composeSpellPanel } from '../ega/compose-spell-panel.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { MSG, creationString, spellName } from '../messages.js';
 import { mapKey } from './ScreenProps.js';
@@ -175,52 +175,26 @@ export function SpellPickScreen({
   // Render
   // -------------------------------------------------------------------------
 
-  const { top } = createPersistentWindows();
-  const { outer, inner } = createSpellPickWindows();
+  // Engine layout: a scrollable single-spell DETAIL view (NOT a flat list).
+  // The cursor browses one spell at a time; the panel shows its name, realm,
+  // level pips, and cost, with a scrollbar in the inner window's col 0.
   const pal = palette ?? WIZ6_MAIN;
+  const { top, bottomBar } = createPersistentWindows();
+  const { outer, inner } = createSpellPickWindows();
 
-  // --- outer window: title + pick count ---
-  clearWindow(outer, 0x20 /* space */, 0x16);
-  const titleText = creationString(db, MSG.spellsTitle);
-  if (titleText) {
-    setCursor(outer, 0, 0);
-    puts(outer, titleText, outer.cells[1] ?? 0x16);
-  }
-  // Show "COST" label and remaining picks
-  const costLabel = creationString(db, MSG.cost);
-  const remainingPicks = Math.max(0, required - pickedSoFar);
-  const picksLine = costLabel
-    ? `${costLabel}: ${remainingPicks}`
-    : `PICKS: ${remainingPicks}`;
-  setCursor(outer, 0, 1);
-  puts(outer, picksLine, outer.cells[1] ?? 0x16);
+  const cur = spells[cursorIdx];
+  const curName = cur ? spellName(db, cur.entryIdx) || `SPELL ${cur.entryIdx}` : '';
+  // TODO #060: per-spell realm (element), COST, and level pips aren't in our
+  // schemas yet (need scenario.dbs spell metadata). Render the correct layout +
+  // the spell name now; leave realm/cost blank until that data is wired.
+  composeSpellPanel(outer, inner, { spellName: curName, realm: '', cost: null });
 
-  // --- inner window: spell list with cursor highlight ---
-  clearWindow(inner, 0x20 /* space */, 0x17);
-  const maxRows = inner.heightCells;
-  // Scroll the visible window around the cursor so it stays visible
-  const startRow = Math.max(0, Math.min(cursorIdx, spells.length - maxRows));
+  // Bottom-bar prompt (engine renders msg 0x2bf here, not inside the panel).
+  const prompt =
+    creationString(db, MSG.selectNewSpell) || 'SELECT A NEW SPELL FOR YOUR SPELLBOOK';
+  setCursor(bottomBar, Math.floor((bottomBar.widthCells - prompt.length) / 2), 1);
+  puts(bottomBar, prompt, 0x03);
 
-  for (let i = 0; i < maxRows; i++) {
-    const spellIdx = startRow + i;
-    if (spellIdx >= spells.length) break;
-    const { entryIdx } = spells[spellIdx]!;
-    const name = spellName(db, entryIdx);
-    const displayName = name || `SPELL ${entryIdx}`;
-
-    setCursor(inner, 0, i);
-    puts(inner, displayName, inner.cells[1] ?? 0x17);
-
-    // Highlight cursor row
-    if (spellIdx === cursorIdx) {
-      highlightRow(inner, i, 5);
-    }
-  }
-
-  // --- top: brief status ---
-  setCursor(top, 0, 0);
-  puts(top, 'SPELL SELECTION', top.cells[1] ?? 0x14);
-
-  const windows = [top, outer, inner];
+  const windows = [top, bottomBar, outer, inner];
   return <CreationCanvas windows={windows} fontSet={fontSet} palette={pal} />;
 }
