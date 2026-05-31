@@ -311,7 +311,12 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
       case 'race':
       case 'sex':
       case 'class':
-        return <MenuPickerScreen {...sharedProps} />;
+        // key=state.screen forces a fresh mount (and cursor reset) on each
+        // race→sex→class transition. Without it, React reuses the same
+        // MenuPickerScreen instance and preserves the stale cursorIdx (e.g.
+        // cursor from race=Elf index 1 carries over to sex screen, selecting
+        // FEMALE instead of MALE). This is a product-correctness fix.
+        return <MenuPickerScreen key={state.screen} {...sharedProps} />;
 
       case 'bonusAllocator':
         return <BonusAllocatorScreen {...sharedProps} />;
