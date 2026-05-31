@@ -32,6 +32,9 @@ function text(w: TileWindow, x: number, y: number, s: string, attr: number): voi
   puts(w, s, attr);
 }
 
+/** Spell `school` index (0..5, from SPELL_TABLE) → realm display name. */
+export const REALM_NAMES = ['FIRE', 'WATER', 'AIR', 'EARTH', 'MENTAL', 'DIVINE'] as const;
+
 /** Realm → highlight attr (low-nibble 0 = wfont0 highlight path; high nibble = colour). */
 export const REALM_ATTR: Record<string, number> = {
   FIRE: 0x40,   // red

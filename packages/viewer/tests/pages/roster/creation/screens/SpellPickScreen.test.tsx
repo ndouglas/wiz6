@@ -28,7 +28,8 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
-import { WIZ6_MAIN, CLASS_SPELLBOOKS, spellsInBook } from '@wiz6/data';
+import { WIZ6_MAIN, CLASS_SPELLBOOKS, spellsInBook, SPELL_TABLE } from '@wiz6/data';
+import { REALM_NAMES } from '../../../../../src/pages/roster/creation/ega/compose-spell-panel.js';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../../../../../src/pages/roster/creation/state.js';
@@ -184,6 +185,15 @@ describe('SpellPickScreen — eligible spells per class', () => {
     // Verify by checking the book mask
     const containsEntry0 = mageBookSpells.some((s) => s.entryIdx === 0);
     expect(containsEntry0).toBe(true);
+  });
+
+  it('first Mage-book spell maps to the FIRE realm (panel realm wiring)', () => {
+    // The picker starts on the first eligible spell; for a Mage that's the
+    // first Mage-book entry. Its school index → realm name drives the panel's
+    // realm label. ENERGY BLAST is a Fire spell — must match the fixture.
+    const first = spellsInBook(0)[0]!;
+    const realm = REALM_NAMES[SPELL_TABLE[first.entryIdx]!.school];
+    expect(realm).toBe('FIRE');
   });
 
   it('Mage eligible list does NOT contain Priest-only spells', () => {
