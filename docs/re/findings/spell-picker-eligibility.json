@@ -1,0 +1,130 @@
+{
+  "topic": "spell-picker-eligibility",
+  "subagent_run": "2026-05-31",
+  "binaries": ["original/wpcmk.ovr"],
+  "summary": "Cracked the navigation model AND the eligibility filter for the character-creation SPELL PICKER. NAVIGATION: a 3-column x 2-row grid of the SIX schools (Fire/Water/Air/Earth/Mental/Divine), cursor index [bp-0x40] in 0..5 maps directly to school 0..5 (top row = schools 0,1,2; bottom row = 3,4,5). LEFT/RIGHT keys (codes 1/3) move +/-3 (between rows); UP/DOWN keys (codes 2/4) move +/-1 within a row (mod-3 clamped). All six school cells are reachable regardless of whether any spell is selectable there. ELIGIBILITY: two-stage. Stage 1 (per-book master list, built once in wpcmk_train_skill_pillar @0x28d4 loop 0x2956..0x29a7): an entry of the 82-entry spell table at DGROUP+0xde (stride 6) is eligible iff (byte5 & bookMask) != 0 AND level <= 1. bookMask is 0x8/0x4/0x2/0x1 for Mage/Priest/Alchemist/Psionic (set per book arg at 0x28df..0x2903). The level cap is the HARDCODED CONSTANT 1 (mov word [bp-0x8],0x1 @0x2947), not the character level. Stage 2 (per-school view builder @0x2186): for the selected school cell, filter the stage-1 list down to entries whose school byte == selected school. A school with zero matching entries shows a BLANK spell name (per-school list count 0 -> nothing rendered). This is exactly why a level-1 Mage saw content only in some schools and a blank entry where the school had no level-1 spell of that book. The per-book pick counter at DGROUP+0x5588+bookIdx IS decremented after each successful pick (dec byte [bx+0x5588] @0x2af6).",
+  "method": "Full linear disasm of original/wpcmk.ovr via `ndisasm -b 16` (origin 0, consistent listing). Located the two references to immediate 0x00de (spell-table base) at file 0x2ac0 and 0x21a4. Traced wpcmk_train_skill_pillar prologue at file 0x28d4 and followed its book-arg switch, master-list build loop, the navigation key dispatch, the per-school list builder at 0x2186, and the render/input helper at 0x21db. Decoded the nav jump table: the dispatch `2e ff a7 9c6d` (jmp [cs:bx+0x6d9c]) is a CS-relative table; applying the wpcmk overlay delta (CS_offset - 0x4564 = file_offset) puts the table at file 0x2838. Cross-checked the level-cap and book-mask predicate against the decoded spell table (packages/data/src/character-creation/spell-table.ts) in python.",
+  "findings": [
+    {
+      "id": "nav-grid-3x2-schools",
+      "claim": "The picker cursor is a single index [bp-0x40] over a 3-column x 2-row grid of the SIX schools. Cell index == school index (0..5): top row = schools 0,1,2 (Fire/Water/Air), bottom row = schools 3,4,5 (Earth/Mental/Divine). The render at 0x2459 computes col = idx mod 3 (x = col*2 + 0xe), row = idx div 3 (y = row*... + 1) -- confirming 3 columns x 2 rows. All six cells are always reachable.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x2459"},
+        "type": "raw_disasm",
+        "details": "0x245d: mov ax,[bp-0x40]; mov cx,3; cwd; idiv cx; mov ax,dx (=idx%3); shl; add 0xe -> column x. 0x246e: mov ax,[bp-0x40]; idiv cx; (ax = idx/3) -> row y. The cursor cell index is passed as the school arg to the per-school list builder at 0x24eb (push [bp-0x40] -> call 0x2186), so cell index IS school index."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "nav-key-dispatch",
+      "claim": "Keyboard codes from the kbd filter (1=left,2=up,3=right,4=down,5=enter,0=esc) are dispatched at 0x264c. LEFT (1) -> 0x2577: moves cursor by -3 (idx-3 if >=0) = move UP one grid row. RIGHT (3) -> 0x25eb: moves by +3 (idx+3 if <6, else -1/cancel) = move DOWN one grid row. UP (2) -> 0x25bb: dec idx if (idx mod 3) > 0 = move LEFT within row. DOWN (4) -> 0x261c: inc idx if (idx mod 3)+1 < 3 = move RIGHT within row. So the LEFT/RIGHT key pair walks BETWEEN the two rows (the +/-3 axis) and UP/DOWN walks WITHIN a row of 3 (the +/-1 axis). ENTER (5) confirms the highlighted spell in the current school.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x264c"},
+        "type": "raw_disasm",
+        "details": "0x264c: cmp ax,1; jz 0x2577. 0x2654: cmp ax,2; jz 0x25bb. 0x265c: cmp ax,3; jz 0x25eb. 0x2661: cmp ax,4; jz 0x261c. LEFT handler 0x2598: ax=[bp-0x40]; sub 3; jl skip; else add [bp-0x40],-3. RIGHT 0x2605: ax+=3; cmp 6; jnl set -1 else store. UP 0x25c1: ax=idx; idiv 3; ax=dx(mod); cmp 0; jng skip; else dec [bp-0x40]. DOWN 0x2622: ax=(idx mod 3)+1; cmp 3; jnl skip; else inc [bp-0x40].",
+        "comparator_note": "LEFT uses `jl` (skip if idx-3 < 0), RIGHT uses `jnl` against 6, UP uses `jng` against (idx mod 3), DOWN uses `jnl` against 3. These signed comparators are easy to misread; behavior (clamp at grid edges, all 6 cells visitable) is the high-confidence claim. Recommend a DOSBox breakpoint at 0x2459 to watch [bp-0x40] if exact edge-wrap matters."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "eligibility-stage1-master-list",
+      "claim": "The per-book MASTER eligible list is built once in wpcmk_train_skill_pillar (file 0x28d4) by the loop at 0x2956..0x29a7 over all 82 spell-table entries (idx 0..0x51, stride 6, base DGROUP+0xde). An entry is eligible iff BOTH: (1) (byte5 & bookMask) != 0  [byte5 is entry+0x5 = [bx+0xe3]]; AND (2) level <= 1  [level is entry+0x1 = [bx+0xdf]]. Eligible indices are appended to the list struct at DGROUP+0x55f8. There is no school filter at this stage and no per-character-level term: the level cap is the literal constant 1.",
+      "category": "eligibility",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x2956"},
+        "type": "raw_disasm",
+        "details": "Loop idx in [bp-0x2], terminates at idx<0x52 (0x29a1: cmp ax,0x52; jl 0x2956). 0x295b..0x2961: bx = idx*6 (shl/add/shl). 0x2963: al=[bx+0xe3] (byte5); test [bp-0xa],ax; jz 0x299e (skip if no book bit). 0x296e: al=[bx+0xdf] (level); cmp ax,[bp-0x8]; jg 0x299e (skip if level > cap). 0x2980: call 0xe34b(list@[bp-0x18], idx) -> test ax; jnz skip (dedup). 0x298a..0x2998: call 0xe31d (append) to list at 0x55f8; inc [bp-0x4] (count). 0x29a9: if count==0, 0x29af re-inits the list node (push 0xc = 12-byte node size; call 0xfedc) -- the 0xc here is the list element size, NOT a message id.",
+        "comparator_note": "Level comparator 0x2974: `cmp ax,[bp-0x8]; jg 0x299e` = skip if level > cap. Since spell levels are 1..7 (no level-0 castables; entries 79-81 are byte5=0 sentinels), level<=1 means exactly level==1. JG (signed greater) verified twice; HIGH confidence."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "eligibility-level-cap-constant-1",
+      "claim": "The level cap is a HARDCODED CONSTANT 1, written exactly once and read exactly once. It is NOT derived from the character's level or class. Creation therefore only ever offers level-1 spells.",
+      "category": "eligibility",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x2947"},
+        "type": "raw_disasm",
+        "details": "0x2947: mov word [bp-0x8],0x1 (the only write to [bp-0x8]). Sole read at 0x2974 (cmp ax,[bp-0x8] in the eligibility loop). grep over the full disasm confirms no other access to [bp-0x8]."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "eligibility-book-mask-source",
+      "claim": "The book bitmask [bp-0xa] is selected from the book argument (arg3 = [bp+0x8] = book index) via a 4-way switch at 0x28df..0x2921. The cmp/jz wiring (verified, and the caller's book-index ordering confirmed): book 0 (Mage) -> mask 0x8; book 1 (Priest) -> mask 0x4; book 2 (Alchemist) -> mask 0x1; book 3 (Psionic) -> mask 0x2. The mask is ANDed with each entry's byte5. The aux word [bp-0xc] (0x1c/0x1a/0x19/0x1b for books 0/1/2/3) is a secondary per-book index (likely a book name/string id), not used by the eligibility predicate.",
+      "category": "eligibility",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x28df"},
+        "type": "raw_disasm",
+        "details": "0x28da: ax=[bp+0x8] (book index). 0x290f: cmp ax,0; jz 0x28df. 0x2914: cmp ax,1; jz 0x28eb. 0x2919: cmp ax,2; jz 0x2903. 0x291e: cmp ax,3; jz 0x28f7. Branch bodies: 0x28df sets {[bp-0xa]=0x8,[bp-0xc]=0x1c}; 0x28eb={0x4,0x1a}; 0x28f7={0x2,0x1b}; 0x2903={0x1,0x19}. So index0->0x8, index1->0x4, index2->0x1, index3->0x2. Caller wpcmk_create_character_master (0x4e47) loops book index [bp-2]=0..3 (0x4f13: cmp ax,4; jl) reading byte [bx+0x5588] and pushing bx (the index) as arg3 (0x4efc: push bx; 0x4f05: call 0x28d4). Per-class handlers fix the index<->book mapping: Alchemist @0x498f sets [0x558a] (index 2), Psionic @0x49cc sets [0x558b] (index 3), Mage @0x492d [0x5588], Priest @0x4952 [0x5589]. Therefore Alchemist(idx2)->mask 0x1 and Psionic(idx3)->mask 0x2, definitively."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "byte5-low-bits-contradiction",
+      "claim": "FLAG FOR PARENT -- genuine unresolved contradiction. The engine routes Alchemist (book index 2) through mask 0x1 and Psionic (book index 3) through mask 0x2. But spell-table.ts/spell-schools.ts document byte5 bit1(0x2)=Alchemist, bit0(0x1)=Psionic, AND assert Alchemist is the book lacking Fire. Over the 82 entries: mask 0x2 covers {Water,Air,Earth,Mental,Divine} (NO Fire); mask 0x1 covers all six schools. So the engine gives the book-index-2 caster (which the flag-byte layout identifies as Alchemist) a Fire-inclusive pool (mask 0x1), while the no-Fire pool (mask 0x2) goes to book-index-3 (Psionic). This is INCONSISTENT with the doc's 'Alchemist has no Fire' claim. Resolution requires one of: (a) the byte5 low-bit labels are swapped (bit0=Alchemist, bit1=Psionic) -- but then the no-Fire book flips to Psionic; (b) the doc's which-book-lacks-Fire attribution is wrong. The byte-exact engine facts (Mage=0x8, Priest=0x4, Alchemist-idx2=0x1, Psionic-idx3=0x2) are HIGH confidence; the reconciliation is not.",
+      "category": "eligibility",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x2903"},
+        "type": "raw_disasm + cross_reference",
+        "details": "Engine masks: index2->0x1 (branch 0x2903), index3->0x2 (branch 0x28f7), confirmed against the flag-byte writers (Alchemist=0x558a=idx2, Psionic=0x558b=idx3). Spell-table all-school analysis (python over spell-table.ts RAW): mask 0x8/0x4 -> all six; mask 0x2 -> no Fire; mask 0x1 -> all six. Recommend DOSBox-X verification: create an Alchemist, observe which schools surface selectable level-1 spells, and compare to mask 0x1 (all six incl Fire) vs mask 0x2 (no Fire)."
+      },
+      "confidence": "high",
+      "note": "PARENT REVIEW (2026-05-31): RESOLVED, raised to high. Re-disassembled the switch directly (wpcmk 0x290f dispatch → 0x2903 sets mask 0x1 for index2, 0x28f7 sets 0x2 for index3) and confirmed the flag-byte→class mapping (Alchemist=0x558a=idx2, Psionic=0x558b=idx3). Engine is certain: Alchemist→mask 0x1 (bit0), Psionic→mask 0x2 (bit1). The suggested dynamic check is INCONCLUSIVE: scanning spell-table.ts, no level-1 Fire spell has bit0 set (the only bit0 Fire spells are entries 1 & 4, levels 2 & 4), so a level-1 Alchemist's Fire cell is blank regardless of which mask is used — the disasm is the only clean evidence. CONCLUSION: spell-table.ts/spell-schools.ts have the Alchemist/Psionic byte5 bit labels SWAPPED (they say bit1=Alchemist/bit0=Psionic; engine uses bit0=Alchemist/bit1=Psionic). The data package + any spellsInBook(Alchemist|Psionic) consumers must be corrected to match."
+    },
+    {
+      "id": "eligibility-stage2-per-school",
+      "claim": "The per-school view list is built by the function at 0x2186, called with the selected school cell (arg [bp+0x4]) and an output buffer ([bp+0x6]). It loops idx 0..0x51 and appends idx to the output iff BOTH: (1) entry.school (== [bx+0xde]) == selected school; AND (2) the master eligible-list membership test 0xe34b(list@0x55f8, idx) returns 1. It returns the per-school count. When the selected school has zero matching entries the count is 0 and NO spell name is rendered -- the inner window row is blank. This is the source of the empirically observed BLANK spell-name entry in a school that has no level-1 spell for the class's book.",
+      "category": "eligibility",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x2186"},
+        "type": "raw_disasm",
+        "details": "0x21a2: al=[bx+0xde] (entry.school, bx=idx*6); cmp ax,[bp+0x4] (selected school); jnz 0x21cc (skip). 0x21ad: push si(idx); push 0x55f8; call 0xe34b; cmp ax,1; jnz 0x21cc (skip if not in master list). 0x21bd..0x21c9: store si into out buffer [bp+0x6][count]; inc count [bp-0x2]. 0x21cd: cmp si,0x52; jl loop. Returns count in ax. Caller at 0x24e7..0x24f4: lea ax,[bp-0x32]; push [bp-0x40](school); call 0x2186; mov [bp-0xa],ax (= per-school count). The render/input helper 0x21db then iterates si=-3..3 and prints name [bp+0xe][[bp+8]+si] only when the slot is within count [bp+0xc]; an empty count yields no printed spell name."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pick-counter-decrement",
+      "claim": "After a successful spell pick, the per-book pick counter at DGROUP+0x5588+bookIdx IS decremented (confirming the spell-schools.ts loop-until-zero claim). The pick-apply block at 0x2af0..0x2b01 reads the chosen entry (school/level/b2 from [bx+0xde/0xdf/0xe0]), accumulates per-school mana into the arrays at DGROUP+0x5498/0x549a, then dec byte [bx+0x5588] where bx=[bp+0x8] (book index), then calls back to the outer loop.",
+      "category": "eligibility",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x2af6"},
+        "type": "raw_disasm",
+        "details": "0x2af3: mov bx,[bp+0x8] (book index). 0x2af6: dec byte [bx+0x5588]. Preceding 0x2ab2..0x2aef: al=[bx+0xdf](level+1 via inc @0x2aba), al=[bx+0xde](school) -> [bp-0x4], al=[bx+0xe0](b2); per-school mana arrays [bx+0x5498] (current) and [bx+0x549a] (cap) updated. The chosen index comes from the per-school list at [bp-0x32]+[bp-0x3a], converted to *6 at 0x2aa8."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "predicate-vs-empirical-crosscheck",
+      "claim": "Applying the predicate (byte5 & bookMask) && level==1 to the decoded 82-entry table, with the ENGINE masks (Mage=0x8, Priest=0x4, idx2=0x1, idx3=0x2), the level-1 schools are: Mage(0x8) -> {Fire,Water,Earth,Mental}; Priest(0x4) -> {Water,Mental,Divine}; mask 0x1 -> all-six contributors; mask 0x2 -> excludes Fire. The user's empirical 'only schools 0/1/2 with a blank Air' (level-1 Mage AND level-1 Priest) is consistent: navigating the TOP grid row (cells 0,1,2 = Fire/Water/Air) with the within-row key, a level-1 Mage sees Fire+Water content and a BLANK Air cell (no level-1 Mage Air spell). The bottom row (Earth/Mental/Divine) is reached with the other key pair. The blank-school behaviour is the load-bearing observation; the exact per-school content depends on the byte5-low-bit contradiction (see byte5-low-bits-contradiction).",
+      "category": "verification",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x2956"},
+        "type": "cross_reference",
+        "details": "python evaluation of the predicate over packages/data/src/character-creation/spell-table.ts RAW bytes. Note: this MATCHES the asm predicate but does NOT match a naive 'only schools 0/1/2' reading -- the resolution is the 3x2 grid navigation: the user only walked one row of three school cells."
+      },
+      "confidence": "high"
+    }
+  ],
+  "port_impact": {
+    "current_port_wrong_because": "spell-schools.ts CLASS_SCHOOLS / SPELLBOOK_SCHOOLS assume the picker offers ALL spells in the class's book(s) (~33 for Mage). The engine filters to level==1 only, yielding ~5-7 spells, and presents them across a fixed 6-school 3x2 grid where empty schools show a blank cell.",
+    "correct_predicate": "selectable iff (entry.byte5 & bookMask) != 0 AND entry.level == 1. ENGINE bookMask by book INDEX (the flag-byte index, Mage=0/Priest=1/Alchemist=2/Psionic=3): index0->0x8, index1->0x4, index2->0x1, index3->0x2. NOTE this means Alchemist uses mask 0x1 and Psionic uses mask 0x2 -- the OPPOSITE of what spell-schools.ts' spellsInBook() assumes; reconcile via the byte5-low-bits-contradiction finding before wiring the port's Alchemist/Psionic pools. Group the result by school for the per-cell view; render blank for schools with no match. The grid always shows all 6 schools.",
+    "navigation": "single cursor 0..5 over a 3-col x 2-row school grid; one key pair steps +/-3 (rows), the other +/-1 within a row (mod-3 clamped); enter selects the highlighted spell in the current school; esc cancels."
+  },
+  "unresolved": [
+    "byte5 low-bit semantics: engine routes Alchemist(idx2)->mask 0x1 and Psionic(idx3)->mask 0x2, contradicting the spell-table.ts/spell-schools.ts labelling (bit1=Alchemist, bit0=Psionic) and the 'Alchemist has no Fire' attribution. RESOLVE DYNAMICALLY (create an Alchemist in DOSBox, check whether Fire level-1 spells are offered). See finding byte5-low-bits-contradiction. Mask bit positions per book index (idx0=0x8,idx1=0x4,idx2=0x1,idx3=0x2) are byte-exact certain.",
+    "Whether any class/level path raises the level cap above 1 elsewhere (e.g. a different caller of wpcmk_train_skill_pillar). The cap is constant 1 inside this function; not audited across all callers.",
+    "Exact within-row vs between-row key labels (left/right vs up/down) depend on the kbd filter's code->key mapping; codes 1/2/3/4 are dispatched as documented but the physical arrow assignment should be eyeballed in DOSBox if it matters for the port's key handling."
+  ]
+}

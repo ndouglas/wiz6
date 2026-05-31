@@ -28,7 +28,7 @@
       "confidence": "high"
     },
     {
-      "claim": "All six realm colours are pixel-verified on screen. The picker is a 3x2 SCHOOL GRID (the six school-mana icons on the character sheet); the cursor moves with arrows: up/down within a column, left/right between columns. Grid layout = [[FIRE(0), EARTH(3)], [WATER(1), MENTAL(4)], [AIR(2), MAGIC(5)]]. My earlier 'clamp at AIR' was just the bottom of the left column — I had never pressed RIGHT. All six schools are navigable even when the class has no selectable spell in that school (the spell name simply renders blank).",
+      "claim": "All six realm colours are pixel-verified on screen. The picker is a SCHOOL GRID of all six schools (the school-mana icons on the character sheet); the cursor index 0..5 == school index. Per the binary (idiv 3 at wpcmk 0x2459, see spell-picker-eligibility.json), the grid is 3 columns x 2 rows: row0 = FIRE(0)/WATER(1)/AIR(2), row1 = EARTH(3)/MENTAL(4)/MAGIC(5). LEFT/RIGHT step +/-3 (between the two rows); UP/DOWN step +/-1 within a row (mod-3 clamped). My earlier 'clamp at AIR' was just the end of the top row's within-row movement — I had never pressed RIGHT (which jumps +3 to EARTH). All six schools are navigable even when the class has no selectable spell there (the spell name renders blank).",
       "evidence": {
         "method": "Drove a Mage to the picker, then navigated the school grid: from FIRE, RIGHT -> EARTH (green, ARMOR SHIELD), DOWN -> MENTAL (cyan, SLEEP), DOWN -> MAGIC (yellow, blank). Pixel-picked each realm label from the engine framebuffer.",
         "results": [
