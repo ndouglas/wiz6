@@ -216,6 +216,11 @@ export {
   spellsInBook,
   type SpellEntry,
 } from './character-creation/spell-table.js';
+export {
+  creationSpellGrid,
+  creationPickCount,
+  type CreationSpell,
+} from './character-creation/creation-spell-grid.js';
 export { applyClassChange } from './character-actions/index.js';
 
 // Wichmann-Hill RNG — byte-perfect port of the engine's rng_advance / rng_sample /
