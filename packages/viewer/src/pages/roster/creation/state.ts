@@ -294,6 +294,25 @@ export function initialCreationState(
   };
 }
 
+/**
+ * Overlay a JSON-serializable partial state (e.g. an e2e injection of
+ * { screen, draft }) onto a freshly-built base state. The base supplies the
+ * live `rng` (a WichmannHill instance, NOT JSON-serializable) and all default
+ * fields; the partial overlays screen + selected draft fields. Returns `base`
+ * unchanged when `injected` is falsy.
+ */
+export function mergeInjectedState(
+  base: CreationState,
+  injected: (Partial<CreationState> & { draft?: Partial<DraftState> }) | undefined,
+): CreationState {
+  if (!injected) return base;
+  return {
+    ...base,
+    ...injected,
+    draft: { ...base.draft, ...(injected.draft ?? {}) },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
