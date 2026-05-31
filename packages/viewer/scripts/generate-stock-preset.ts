@@ -9,7 +9,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..', '..');
 // Read from test-fixtures (pristine), not original/ (mutable DOSBox workspace).
 const PCFILE = join(REPO, 'test-fixtures', 'original', 'pcfile.dbs');
-const OUT_DIR = join(HERE, '..', 'public', 'presets');
+// Write into the Vite publicDir (repo-root `extracted/`, per viewer vite.config),
+// NOT packages/viewer/public/ — that dir is never served, so the asset 404'd in
+// prod and the Stock preset showed empty. (Same fix applied to generate-gallery.)
+const OUT_DIR = join(REPO, 'extracted', 'presets');
 const OUT = join(OUT_DIR, 'stock.json');
 
 /**

@@ -1,15 +1,35 @@
 // packages/viewer/src/lib/presets-store.ts
-import { PresetsFileSchema, type Preset, type Character } from '@wiz6/data';
+import { PresetsFileSchema, PcFileJsonSchema, type Preset, type Character } from '@wiz6/data';
 import { readRoster, writeRoster, PC_FILE_CAPACITY } from './roster-store.js';
 
 const KEY = 'wiz6:presets';
 const STOCK_ID = 'stock';
+const STOCK_ASSET_URL = '/presets/stock.json';
 
 let stockCharacters: Character[] = [];
 
 /** Install the built-in Stock characters (loaded from /presets/stock.json at app start). */
 export function setStockPreset(characters: Character[]): void {
   stockCharacters = characters;
+}
+
+/**
+ * Fetch + install the built-in Stock preset from the served asset. Idempotent:
+ * a no-op once Stock is populated. Safe to call from both the app shell (at
+ * startup) and any page that needs Stock present — pages must call this and
+ * then re-read, because `setStockPreset` resolves asynchronously and a page
+ * that read `readPresets()` at mount would otherwise show Stock empty.
+ */
+export async function loadStockFromAsset(): Promise<void> {
+  if (stockCharacters.length > 0) return;
+  try {
+    const res = await fetch(STOCK_ASSET_URL);
+    if (!res.ok) throw new Error(`${STOCK_ASSET_URL} → HTTP ${res.status}`);
+    const json = await res.json();
+    setStockPreset(PcFileJsonSchema.parse(json).characters);
+  } catch (e) {
+    console.warn('[presets-store] stock preset load failed', e);
+  }
 }
 
 function stockPreset(): Preset {
@@ -48,6 +68,21 @@ export function addPreset(name: string, characters: Character[]): Preset {
 export function deletePreset(id: string): void {
   if (id === STOCK_ID) throw new Error('the Stock preset is read-only and cannot be deleted');
   writeStored(readStored().filter((p) => p.id !== id));
+}
+
+/**
+ * Remove one character (by id) from a custom preset. The built-in Stock preset
+ * is read-only and cannot be edited. No-op if the preset or character is absent.
+ */
+export function removeCharacterFromPreset(presetId: string, characterId: string): void {
+  if (presetId === STOCK_ID) throw new Error('the Stock preset is read-only and cannot be edited');
+  const stored = readStored();
+  const idx = stored.findIndex((p) => p.id === presetId);
+  if (idx < 0) return;
+  const preset = stored[idx]!;
+  const next = [...stored];
+  next[idx] = { ...preset, characters: preset.characters.filter((c) => c.id !== characterId) };
+  writeStored(next);
 }
 
 export interface CopyResult { added: string[]; skippedDuplicate: string[]; skippedFull: string[]; }

@@ -90,6 +90,32 @@ describe('PcFilePage', () => {
     expect(within(pcfile).getByText('ERIN')).toBeInTheDocument();
   });
 
+  it('delete removes a character from the PC File', () => {
+    render(<MemoryRouter><PcFilePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: /copy THESUS/i }));
+    const pcfile = screen.getByRole('region', { name: /pc file/i });
+    expect(within(pcfile).getByText('THESUS')).toBeInTheDocument();
+    fireEvent.click(within(pcfile).getByRole('button', { name: /delete THESUS from pc file/i }));
+    expect(within(pcfile).queryByText('THESUS')).toBeNull();
+  });
+
+  it('delete removes a character from a custom preset (Stock chars have no per-char delete)', () => {
+    setStockPreset([mk('THESUS'), mk('ERIN')]); // before render so the component sees both
+    render(<MemoryRouter><PcFilePage /></MemoryRouter>);
+    // copy both into the PC File, then snapshot as a custom preset 'Squad'
+    fireEvent.click(screen.getByRole('button', { name: /copy all from Stock Characters/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save as preset/i }));
+    fireEvent.change(screen.getByLabelText(/preset name/i), { target: { value: 'Squad' } });
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    // the custom preset 'Squad' now has THESUS + ERIN; delete ERIN from it
+    fireEvent.click(screen.getByRole('button', { name: /delete ERIN from Squad/i }));
+    expect(screen.queryByRole('button', { name: /delete ERIN from Squad/i })).toBeNull();
+    // THESUS still in Squad
+    expect(screen.getByRole('button', { name: /delete THESUS from Squad/i })).toBeInTheDocument();
+    // Stock preset chars have NO per-char delete
+    expect(screen.queryByRole('button', { name: /delete THESUS from Stock Characters/i })).toBeNull();
+  });
+
   // Task 11: import + export
 
   it('import → "Add as preset" creates a new preset with the imported characters', async () => {
