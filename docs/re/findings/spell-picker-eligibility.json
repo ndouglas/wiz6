@@ -81,6 +81,17 @@
       "note": "PARENT REVIEW (2026-05-31): RESOLVED, raised to high. Re-disassembled the switch directly (wpcmk 0x290f dispatch → 0x2903 sets mask 0x1 for index2, 0x28f7 sets 0x2 for index3) and confirmed the flag-byte→class mapping (Alchemist=0x558a=idx2, Psionic=0x558b=idx3). Engine is certain: Alchemist→mask 0x1 (bit0), Psionic→mask 0x2 (bit1). The suggested dynamic check is INCONCLUSIVE: scanning spell-table.ts, no level-1 Fire spell has bit0 set (the only bit0 Fire spells are entries 1 & 4, levels 2 & 4), so a level-1 Alchemist's Fire cell is blank regardless of which mask is used — the disasm is the only clean evidence. CONCLUSION: spell-table.ts/spell-schools.ts have the Alchemist/Psionic byte5 bit labels SWAPPED (they say bit1=Alchemist/bit0=Psionic; engine uses bit0=Alchemist/bit1=Psionic). The data package + any spellsInBook(Alchemist|Psionic) consumers must be corrected to match."
     },
     {
+      "id": "nav-two-level-mode-and-cost",
+      "claim": "PARENT ADDITION (2026-05-31, DOSBox-X empirical): navigation is TWO-LEVEL, which the static disasm summary did not surface. (1) SCHOOL-GRID mode: arrows move the 3x2 school cursor; the inner window LISTS all of the current school's level-1 spells (names only, no cursor); the COST box is BLANK. (2) ENTER on a non-empty school drills into SPELL-SUBLIST mode: the first spell is highlighted (inverse bar) and the COST box shows that spell's cost. UP/DOWN then move the SPELL cursor within the school's list (not the school grid); COST updates per spell. A second ENTER commits the highlighted spell (decrements the per-book counter); ESC returns to school-grid mode. The COST value is the spell-table entry's b2 byte (entry+0x2): ENERGY BLAST b2=2, CHILLING TOUCH b2=2, TERROR b2=3 — all match the on-screen COST. So COST is per-spell and IS shown (only in sublist mode); the earlier 'COST always blank at creation' note was wrong (it was observed at grid-browse level).",
+      "category": "navigation",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "type": "dynamic_dosbox + cross_reference",
+        "details": "Loaded the Mage spell-picker save, navigated to WATER (school 1, 2 spells). At grid level WATER showed 'CHILLING TOUCH'+'TERROR' with blank COST. ENTER -> CHILLING TOUCH highlighted, COST=2. DOWN -> TERROR highlighted, COST=3 (DOWN moved the SPELL cursor, not to the AIR school). Cost byte confirmed against spell-table.ts: entries 9 (CHILLING TOUCH) b2=2, 11 (TERROR) b2=3. The mode flag is likely the state the static-disasm key dispatch (0x264c) keys off; not isolated statically but behaviour is unambiguous."
+      },
+      "confidence": "high"
+    },
+    {
       "id": "eligibility-stage2-per-school",
       "claim": "The per-school view list is built by the function at 0x2186, called with the selected school cell (arg [bp+0x4]) and an output buffer ([bp+0x6]). It loops idx 0..0x51 and appends idx to the output iff BOTH: (1) entry.school (== [bx+0xde]) == selected school; AND (2) the master eligible-list membership test 0xe34b(list@0x55f8, idx) returns 1. It returns the per-school count. When the selected school has zero matching entries the count is 0 and NO spell name is rendered -- the inner window row is blank. This is the source of the empirically observed BLANK spell-name entry in a school that has no level-1 spell for the class's book.",
       "category": "eligibility",
