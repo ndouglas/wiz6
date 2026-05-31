@@ -32,26 +32,32 @@ function text(w: TileWindow, x: number, y: number, s: string, attr: number): voi
   puts(w, s, attr);
 }
 
-/** Spell `school` index (0..5, from SPELL_TABLE) → realm display name. */
-export const REALM_NAMES = ['FIRE', 'WATER', 'AIR', 'EARTH', 'MENTAL', 'DIVINE'] as const;
+/**
+ * Spell `school` index (0..5, from SPELL_TABLE) → realm display name.
+ * Names are msg.dbs entries 0x0f6e + school (FIRE/WATER/AIR/EARTH/MENTAL/MAGIC) —
+ * verified on-screen in the creation picker. Note school 5 displays as "MAGIC",
+ * not "DIVINE" (the spell-schools.ts RE comment's "Divine" label is the internal
+ * school name; the engine shows MAGIC).
+ */
+export const REALM_NAMES = ['FIRE', 'WATER', 'AIR', 'EARTH', 'MENTAL', 'MAGIC'] as const;
 
 /**
  * Realm → highlight attr (low-nibble 0 = wfont0 highlight path; high nibble = colour).
  *
  * Colours come from the engine's school→colour-nibble table at wroot.exe file
  * offset 0xff84 — six words `[4, 2, 3, 6, 7, 5]` indexed by spell school (0=Fire
- * … 5=Divine), so attr = nibble<<4. Verified against live DOSBox-X captures of
- * the creation spell picker: FIRE/WATER/AIR were pixel-picked from the engine
- * framebuffer and match the table's first three entries exactly (3/3). See
+ * … 5=Magic), so attr = nibble<<4. All six were pixel-picked from live DOSBox-X
+ * captures of the creation spell picker (navigating the 3×2 school grid with
+ * left/right/up/down) and match the table exactly (6/6). See
  * docs/re/findings/spell-realm-colors.json.
  */
 export const REALM_ATTR: Record<string, number> = {
   FIRE: 0x40,   // bright red     (school 0) — capture-verified
   WATER: 0x20,  // bright blue    (school 1) — capture-verified
   AIR: 0x30,    // bright magenta (school 2) — capture-verified
-  EARTH: 0x60,  // bright green   (school 3)
-  MENTAL: 0x70, // bright cyan    (school 4)
-  DIVINE: 0x50, // bright yellow  (school 5)
+  EARTH: 0x60,  // bright green   (school 3) — capture-verified
+  MENTAL: 0x70, // bright cyan    (school 4) — capture-verified
+  MAGIC: 0x50,  // bright yellow  (school 5) — capture-verified
 };
 
 export interface SpellPanelView {
