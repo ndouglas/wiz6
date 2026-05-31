@@ -3,15 +3,32 @@
  * (spellOuter 20×16 @160,32 attr 0x16; spellInner 19×8 @168,56 attr 0x17) to
  * pixel-match the engine.
  *
- * The engine picker is a SCROLLABLE SINGLE-SPELL DETAIL view (NOT a flat list):
- *   - spellOuter draws the frame chrome + "SPELLS" title (row 1), a level-pip
- *     bar + the realm name in colour (row 12), and a "COST" label + value box
- *     (row 14).
- *   - spellInner draws a vertical scrollbar in col 0 and the current spell's
- *     name at row 3, col 1.
- * Cell layout reverse-engineered from a live save (game_state 0x10), see
- * docs/re/findings/wpcmk-spell-picker-geometry.json + the committed fixture
- * tools/parity/fixtures/engine/creation-spell-pick.png.
+ * The engine picker is a 3×2 SCHOOL GRID that drills into a per-school spell
+ * sub-list. The PANEL (these two windows) renders one of two states:
+ *
+ *   - GRID-BROWSE (`selectedIdx === null`): the current school's level-1 spell
+ *     names listed down the inner window (row 3 onward), no highlight bar, COST
+ *     box BLANK. Each name is plain black-on-gray text (wfont3). Empty list →
+ *     no names (blank interior).
+ *   - SUB-LIST (`selectedIdx === i`): the same name list, but the i-th name is
+ *     drawn as a full-width highlight bar — coloured text (realm colour) on a
+ *     black background — and the COST box shows the selected spell's cost in the
+ *     realm colour.
+ *
+ * Layout (inner 19×8): scrollbar in col 0; spell names start at row 3, col 1,
+ * one row per spell. The highlight bar spans cols 1..17 (col 0 keeps the
+ * scrollbar, col 18 stays gray).
+ *
+ * spellOuter draws the frame chrome + "SPELLS" title (row 1), a level-pip bar +
+ * the realm name in colour (row 12), and a "COST" label + value box (row 14).
+ *
+ * Cell layout reverse-engineered from live saves + committed fixtures under
+ * tools/parity/fixtures/engine/ (creation-spell-pick / -grid-water / -grid-air /
+ * -grid-earth / -sublist-chill / -sublist-terror). Highlight render mode
+ * (coloured-text-on-black, NOT inverse) confirmed by pixel-picking the chill/
+ * terror fixtures: highlighted name = realm-colour stroke (idx 2 = WATER blue)
+ * on black (idx 0). See docs/re/findings/spell-realm-colors.json + the
+ * "highlight attr SIGN" checklist in CLAUDE.md.
  *
  * Render order: outer first, then inner on top (inner overdraws the interior).
  */
@@ -61,17 +78,25 @@ export const REALM_ATTR: Record<string, number> = {
 };
 
 export interface SpellPanelView {
-  /** Spell display name, e.g. "ENERGY BLAST". */
-  spellName: string;
-  /** Realm/element name, e.g. "FIRE". */
+  /** Current school's realm display name, e.g. "WATER". */
   realm: string;
+  /** The school's level-1 spell names, in display order. Empty → blank list. */
+  spellNames: string[];
+  /** Sub-list mode: index of the highlighted spell. Grid-browse mode: null. */
+  selectedIdx: number | null;
+  /** COST value text (≤3 chars) for the selected spell; only shown when selectedIdx !== null. */
+  cost?: string | null;
   /** 6-glyph level-pip bar (chars). Defaults to the full bar 0x18..0x1d. */
   pips?: number[];
-  /** COST value text (≤3 chars), or null/empty for blank box. */
-  cost?: string | null;
 }
 
 const DEFAULT_PIPS = [0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d];
+
+/** First inner row a spell name lands on (col 1). */
+const NAME_ROW0 = 3;
+/** Inner highlight bar extent (cols, inclusive). Col 0 = scrollbar, col 18 = gray edge. */
+const BAR_X0 = 1;
+const BAR_X1 = 17;
 
 /**
  * Fill the outer (20×16) + inner (19×8) spell-picker windows for `view`.
@@ -80,6 +105,7 @@ const DEFAULT_PIPS = [0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d];
 export function composeSpellPanel(outer: TileWindow, inner: TileWindow, view: SpellPanelView): void {
   const pips = view.pips ?? DEFAULT_PIPS;
   const realmAttr = REALM_ATTR[view.realm] ?? 0x40;
+  const inSubList = view.selectedIdx !== null && view.selectedIdx !== undefined;
 
   // ---- spellOuter (20 wide × 16 tall) ----
   // r0: top frame rule
@@ -112,24 +138,31 @@ export function composeSpellPanel(outer: TileWindow, inner: TileWindow, view: Sp
   pips.slice(0, 6).forEach((ch, i) => cell(outer, 3 + i, 12, ch, 0x50));
   cell(outer, 9, 12, 0x05, 0x01);
   cell(outer, 10, 12, 0x04, 0x01);
-  const realm = view.realm.slice(0, 4).padEnd(4, ' ');
-  for (let i = 0; i < 4; i++) {
-    const c = realm.charCodeAt(i);
-    cell(outer, 11 + i, 12, c === 0x20 ? 0x20 : c, c === 0x20 ? 0x00 : realmAttr);
+  // Realm name left-aligned at col 11, full length (realm colour on black);
+  // trailing cells to col 18 are black (wfont0 highlight, colour idx 0).
+  const realm = view.realm.slice(0, 8);
+  for (let i = 0; i < 8; i++) {
+    const cx = 11 + i;
+    if (cx > 18) break;
+    if (i < realm.length) cell(outer, cx, 12, realm.charCodeAt(i), realmAttr);
+    else cell(outer, cx, 12, 0x20, 0x00);
   }
-  fillRow(outer, 15, 18, 12, 0x20, 0x00);
   cell(outer, 19, 12, 0x05, 0x01);
   // r13: divider below realm row
   const r13 = [0x17, 0x07, 0x0b, 0x07, 0x07, 0x18, 0x0c, 0x0c, 0x0c, 0x0a, 0x06, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x08];
   r13.forEach((ch, x) => cell(outer, x, 13, ch, 0x01));
-  // r14: "COST" label (cols 1-4) + value box (cols 6-8)
+  // r14: "COST" label (cols 1-4) + value box (cols 6-8). Value shown only in sub-list mode.
   cell(outer, 0, 14, 0x05, 0x01);
   text(outer, 1, 14, 'COST', 0x03);
   cell(outer, 5, 14, 0x04, 0x01);
-  const cost = (view.cost ?? '').slice(0, 3);
+  // COST value box (cols 6-8): the digit is RIGHT-aligned to col 8, in the realm
+  // colour on black (wfont0 highlight). Blank in grid-browse mode.
+  const cost = inSubList ? (view.cost ?? '').slice(0, 3) : '';
+  const costPadded = cost.padStart(3, '\0'); // sentinel for "blank" slots
   for (let i = 0; i < 3; i++) {
-    const c = i < cost.length ? cost.charCodeAt(i) : 0x20;
-    cell(outer, 6 + i, 14, c, i < cost.length ? 0x03 : 0x00);
+    const ch = costPadded.charCodeAt(i);
+    if (ch !== 0) cell(outer, 6 + i, 14, ch, realmAttr);
+    else cell(outer, 6 + i, 14, 0x20, 0x00);
   }
   cell(outer, 9, 14, 0x05, 0x01);
   fillRow(outer, 10, 19, 14, 0x20, 0x03);
@@ -142,11 +175,28 @@ export function composeSpellPanel(outer: TileWindow, inner: TileWindow, view: Sp
   fillRow(outer, 10, 19, 15, 0x20, 0x03);
 
   // ---- spellInner (19 wide × 8 tall) ----
-  // background spaces (attr 0x03), scrollbar in col 0 (wfont2 glyphs), name row 3
+  // background spaces (attr 0x03 = gray), scrollbar in col 0 (wfont2 glyphs).
   for (let y = 0; y < 8; y++) fillRow(inner, 0, 18, y, 0x20, 0x03);
   // scrollbar: up-arrow (0x45), track (0x47×5), down-arrow (0x46); row 7 blank
   const bar = [0x45, 0x47, 0x47, 0x47, 0x47, 0x47, 0x46];
   bar.forEach((ch, y) => cell(inner, 0, y, ch, 0x02));
-  // current spell name at row 3, col 1
-  text(inner, 1, 3, view.spellName, 0x03);
+
+  // spell names, one per row. The list scrolls so the *anchor* spell sits on
+  // NAME_ROW0: grid-browse anchors the first spell (offset 0); sub-list anchors
+  // the SELECTED spell (offset = selectedIdx). Confirmed against the chill
+  // (idx 0 → row 3) and terror (idx 1 → CHILLING@row2, TERROR@row3) fixtures.
+  const anchor = inSubList ? (view.selectedIdx as number) : 0;
+  view.spellNames.forEach((name, i) => {
+    const row = NAME_ROW0 + (i - anchor);
+    if (row < 0 || row > 6) return; // interior is rows 0..6 (row 7 is the scrollbar trailer)
+    if (inSubList && view.selectedIdx === i) {
+      // Highlight bar: realm-colour text on black across cols 1..17 (wfont0).
+      // Lay the full bar black first, then the name glyphs on top.
+      fillRow(inner, BAR_X0, BAR_X1, row, 0x20, realmAttr);
+      text(inner, 1, row, name.slice(0, BAR_X1 - BAR_X0 + 1), realmAttr);
+    } else {
+      // Plain row: black-on-gray text (wfont3).
+      text(inner, 1, row, name, 0x03);
+    }
+  });
 }

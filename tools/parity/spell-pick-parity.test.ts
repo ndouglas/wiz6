@@ -64,7 +64,7 @@ describe('creation spell-pick panel pixel-parity', () => {
 
   it('spell panel region matches the engine fixture (ENERGY BLAST / FIRE)', () => {
     const { outer, inner } = createSpellPickWindows();
-    composeSpellPanel(outer, inner, { spellName: 'ENERGY BLAST', realm: 'FIRE' });
+    composeSpellPanel(outer, inner, { realm: 'FIRE', spellNames: ['ENERGY BLAST'], selectedIdx: null });
     const ours = renderCreationFrame([outer, inner], fontSet, WIZ6_MAIN);
     const eng = engineRgba('creation-spell-pick');
     // Panel rect: spellOuter @ (160,32), 160×128 px.

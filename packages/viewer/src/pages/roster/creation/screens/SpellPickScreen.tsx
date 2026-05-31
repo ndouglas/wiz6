@@ -191,7 +191,16 @@ export function SpellPickScreen({
   // at creation (verified against the fixture) — cost is an in-game cast-time
   // concept, not a creation one. The pip bar is the engine's fixed decorative
   // bar (not spell-level based), handled by composeSpellPanel's default.
-  composeSpellPanel(outer, inner, { spellName: curName, realm, cost: null });
+  // NOTE: temporary single-spell adapter onto the new list/sub-list contract —
+  // Task 5 reworks this screen into the grid⇄sub-list state machine. For now we
+  // render the browsed spell as a one-entry grid-browse list (no highlight, no
+  // COST), preserving the existing behaviour.
+  composeSpellPanel(outer, inner, {
+    realm,
+    spellNames: curName ? [curName] : [],
+    selectedIdx: null,
+    cost: null,
+  });
 
   // Bottom-bar prompt (engine renders msg 0x2bf here, not inside the panel).
   const prompt =
