@@ -82,6 +82,8 @@ export const MSG = {
   portraitForWhom: 0x0463,
   /** screen-14 title: "      SPELLS      " */
   spellsTitle: 0x02bc,
+  /** screen-14 bottom-bar prompt: "SELECT A NEW SPELL FOR YOUR SPELLBOOK" (msg 703) */
+  selectNewSpell: 0x02bf,
   /** screen-14: "COST" */
   cost: 0x0f75,
 } as const;
