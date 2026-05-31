@@ -1,6 +1,9 @@
-import { useState, useCallback, useRef } from 'react';
-import { readPresets, addPreset, deletePreset, copyCharactersToPcFile } from '../../lib/presets-store.js';
-import { readRoster, writeRoster } from '../../lib/roster-store.js';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import {
+  readPresets, addPreset, deletePreset, copyCharactersToPcFile,
+  removeCharacterFromPreset, loadStockFromAsset,
+} from '../../lib/presets-store.js';
+import { readRoster, writeRoster, removeCharacter } from '../../lib/roster-store.js';
 import { charactersToJsonBlob, charactersToDbsBytes, parseImport } from '../../lib/pc-file-io.js';
 import type { Character } from '@wiz6/data';
 import styles from './PcFilePage.module.css';
@@ -27,6 +30,16 @@ export function PcFilePage() {
     setPresets(readPresets());
     setPcFile(readRoster().characters);
   }, []);
+
+  // The Stock preset loads asynchronously from a served asset; if a cold
+  // deep-link to /pc-file mounted before that fetch resolved, Stock would be
+  // empty. Only then do we load it and re-read — when Stock is already
+  // populated (the common case) this is a no-op, so no async state update.
+  useEffect(() => {
+    if (readPresets()[0]?.characters.length === 0) {
+      void loadStockFromAsset().then(refresh);
+    }
+  }, [refresh]);
 
   const copy = useCallback(
     (chars: Character[]) => {
@@ -137,6 +150,17 @@ export function PcFilePage() {
                   <button aria-label={`copy ${c.name}`} onClick={() => copy([c])}>
                     copy →
                   </button>
+                  {!p.readOnly && (
+                    <button
+                      aria-label={`delete ${c.name} from ${p.name}`}
+                      onClick={() => {
+                        removeCharacterFromPreset(p.id, c.id);
+                        refresh();
+                      }}
+                    >
+                      delete
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -183,6 +207,15 @@ export function PcFilePage() {
                 onClick={() => download(charactersToJsonBlob([c]), `${c.name}.json`)}
               >
                 export (.json)
+              </button>
+              <button
+                aria-label={`delete ${c.name} from pc file`}
+                onClick={() => {
+                  removeCharacter(c.id);
+                  refresh();
+                }}
+              >
+                delete
               </button>
             </li>
           ))}

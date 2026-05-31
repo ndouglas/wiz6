@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   readPresets, addPreset, deletePreset, copyCharactersToPcFile, setStockPreset,
+  removeCharacterFromPreset,
 } from '../../src/lib/presets-store.js';
 import { writeRoster, readRoster } from '../../src/lib/roster-store.js';
 
@@ -62,6 +63,16 @@ describe('presets-store', () => {
     expect(res.skippedFull).toEqual(['NEWGUY']);
     expect(res.added).toEqual([]);
     expect(readRoster().characters).toHaveLength(16);
+  });
+
+  it('removeCharacterFromPreset removes one character from a custom preset; Stock is read-only', () => {
+    const p = addPreset('Squad', [mk(UUID_A, 'ALPHA'), mk(UUID_B, 'BETA')]);
+    removeCharacterFromPreset(p.id, UUID_A);
+    const after = readPresets().find((x) => x.id === p.id)!;
+    expect(after.characters.map((c) => c.name)).toEqual(['BETA']);
+    // Stock preset cannot be edited.
+    const stockId = readPresets()[0]!.id;
+    expect(() => removeCharacterFromPreset(stockId, UUID_S1)).toThrow(/read-only|stock/i);
   });
 
   it('parses the generated stock.json shape', () => {

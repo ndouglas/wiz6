@@ -11,7 +11,11 @@ const REPO = join(HERE, '..', '..', '..');
 // workspace and gets mutated by gameplay, which would churn the generated
 // gallery from transient save data. (Matches generate-stock-preset.ts.)
 const PCFILE = join(REPO, 'test-fixtures', 'original', 'pcfile.dbs');
-const OUT = join(HERE, '..', 'public', 'gallery', 'characters.json');
+// Write into the Vite publicDir (repo-root `extracted/`, per viewer vite.config),
+// NOT packages/viewer/public/ — that dir is never served by Vite, so this asset
+// 404'd in prod (fell through to index.html). The Docker build runs the full
+// `pnpm -w run extract` so this lands in dist/.
+const OUT = join(REPO, 'extracted', 'gallery', 'characters.json');
 
 function slotUuid(n: number): string {
   // Deterministic UUID v4-shaped (4xxx + 8/9/a/bxxx) from slot index, so

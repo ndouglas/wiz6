@@ -14,8 +14,12 @@ COPY . .
 # Install deps. Use frozen-lockfile to ensure deterministic builds.
 RUN pnpm install --frozen-lockfile
 
-# Run extractors. Requires original/ to be committed (see Task A1).
-RUN pnpm wiz6 extract --all
+# Run the full extract: the CLI extractors (sounds/pics/fonts/…) PLUS the
+# generate-gallery / generate-stock-preset scripts — all writing into the Vite
+# publicDir (repo-root `extracted/`). Using `pnpm -w run extract` (not just
+# `wiz6 extract --all`) is what gets /gallery/characters.json and
+# /presets/stock.json into dist/; otherwise they 404 in prod.
+RUN pnpm -w run extract
 
 # Build the viewer. Vite's publicDir is set to ./extracted at the repo
 # root, so the build output already includes the extracted JSON files

@@ -5,8 +5,7 @@ import { ClearStateButton } from './components/ClearStateButton.js';
 import { MuteToggle } from './components/MuteToggle.js';
 import { SettingsLink } from './components/SettingsLink.js';
 import { installAudioUnlockListener } from './lib/audio.js';
-import { setStockPreset } from './lib/presets-store.js';
-import { PcFileJsonSchema } from '@wiz6/data';
+import { loadStockFromAsset } from './lib/presets-store.js';
 import './theme/theme.css';
 
 export function AppShell() {
@@ -17,14 +16,8 @@ export function AppShell() {
   useEffect(() => installAudioUnlockListener(), []);
 
   // Load the built-in Stock preset from the generated static asset at startup.
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/presets/stock.json')
-      .then((r) => r.json())
-      .then((j) => { if (!cancelled) setStockPreset(PcFileJsonSchema.parse(j).characters); })
-      .catch((e) => console.warn('stock preset load failed', e));
-    return () => { cancelled = true; };
-  }, []);
+  // (Idempotent + centralized in the store so pages can also ensure it loaded.)
+  useEffect(() => { void loadStockFromAsset(); }, []);
 
   return (
     <>
