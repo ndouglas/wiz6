@@ -33,19 +33,14 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { setCursor, puts } from '@wiz6/parser';
-import { creationSpellGrid, creationPickCount, spellCost, WIZ6_MAIN } from '@wiz6/data';
+import { creationPickCount, WIZ6_MAIN } from '@wiz6/data';
 import type { Palette, PortraitSet } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
-import { createPersistentWindows, createSpellPickWindows } from '../ega/windows.js';
-import { composeSpellPanel, REALM_NAMES } from '../ega/compose-spell-panel.js';
-import { drawCharSheet } from '../ega/char-sheet.js';
 import { patchFontSetWithPortrait } from '../ega/skill-train-frame.js';
-import { drawSchoolCursor } from '../ega/compose-school-cursor.js';
+import { composeSpellScreenFrame, pickableGrid } from '../ega/compose-spell-screen-frame.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
-import { MSG, creationString, spellName } from '../messages.js';
 import { mapKey } from './ScreenProps.js';
 
 // ---------------------------------------------------------------------------
@@ -84,6 +79,9 @@ export function sublistNextIdx(idx: number, len: number, code: number): number {
   return idx;
 }
 
+// `pickableGrid` (per-school list minus already-picked spells) lives in
+// compose-spell-screen-frame.ts so the component and the parity test share it.
+
 // ---------------------------------------------------------------------------
 // SpellPickScreen component
 // ---------------------------------------------------------------------------
@@ -114,7 +112,9 @@ export function SpellPickScreen({
   portraits = [],
 }: SpellPickScreenProps) {
   const classIdx = state.draft.class ?? 0;
-  const grid = creationSpellGrid(classIdx);
+  // Already-picked spells drop out of their school's list (a spell can't be
+  // learned twice), so each of the required picks must be a distinct spell.
+  const grid = pickableGrid(classIdx, state.draft.spellPicks);
   const required = creationPickCount(classIdx);
   const pickedSoFar = state.draft.spellPicks.length;
 
@@ -197,36 +197,12 @@ export function SpellPickScreen({
     () => patchFontSetWithPortrait(fontSet, portraits, state.draft.portrait),
     [fontSet, portraits, state.draft.portrait],
   );
-  const { top, bottomBar } = createPersistentWindows();
-  const { outer, inner } = createSpellPickWindows();
 
-  // The persistent stat panel (header, HP/STM, the 6 school-mana icons, portrait
-  // region) must be drawn before the school cursor overdraws its icon — this is
-  // the whole left side of the screen, identical to the other creation screens.
-  drawCharSheet(top, state.draft, db);
-
-  const list = grid[school] ?? [];
-  const sel = mode === 'sublist' ? spellIdx : null;
-
-  composeSpellPanel(outer, inner, {
-    realm: REALM_NAMES[school] ?? '',
-    spellNames: list.map((s) => spellName(db, s.entryIdx) || `SPELL ${s.entryIdx}`),
-    selectedIdx: sel,
-    cost:
-      sel !== null && list[sel] != null
-        ? String(spellCost(list[sel]!.entry))
-        : null,
-  });
-
-  // School cursor overdraws the current school's mana icon (after the char sheet).
-  drawSchoolCursor(top, school);
-
-  // Bottom-bar prompt (engine renders msg 0x2bf here, not inside the panel).
-  const prompt =
-    creationString(db, MSG.selectNewSpell) || 'SELECT A NEW SPELL FOR YOUR SPELLBOOK';
-  setCursor(bottomBar, Math.floor((bottomBar.widthCells - prompt.length) / 2), 1);
-  puts(bottomBar, prompt, 0x03);
-
-  const windows = [top, bottomBar, outer, inner];
+  // Compose all four windows via the shared frame builder — the SAME path the
+  // full-screen parity test renders, so the component and the gate stay locked.
+  const windows = composeSpellScreenFrame(
+    { draft: state.draft, school, mode, spellIdx },
+    db,
+  );
   return <CreationCanvas windows={windows} fontSet={fontSetWithPortrait} palette={pal} />;
 }

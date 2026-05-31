@@ -34,21 +34,15 @@ import {
   Font4bppSchema,
   MessageDbSchema,
   PortraitSetSchema,
-  creationSpellGrid,
-  spellCost,
 } from '../../packages/data/src/index.js';
 import type { Font, Font4bpp, Palette, MessageDb, PortraitSet } from '../../packages/data/src/index.js';
-import { setCursor, puts, type FontSet } from '../../packages/parser/src/index.js';
+import type { FontSet } from '../../packages/parser/src/index.js';
 import type { DraftState } from '../../packages/viewer/src/pages/roster/creation/state.js';
 import { blankDraft } from '../../packages/viewer/src/pages/roster/creation/state.js';
 import { loadCreationFontSet } from '../../packages/viewer/src/pages/roster/creation/ega/assets.js';
 import { renderCreationFrame } from '../../packages/viewer/src/pages/roster/creation/ega/render-frame.js';
-import { createPersistentWindows, createSpellPickWindows } from '../../packages/viewer/src/pages/roster/creation/ega/windows.js';
-import { composeSpellPanel, REALM_NAMES } from '../../packages/viewer/src/pages/roster/creation/ega/compose-spell-panel.js';
-import { drawCharSheet } from '../../packages/viewer/src/pages/roster/creation/ega/char-sheet.js';
-import { drawSchoolCursor } from '../../packages/viewer/src/pages/roster/creation/ega/compose-school-cursor.js';
 import { patchFontSetWithPortrait } from '../../packages/viewer/src/pages/roster/creation/ega/skill-train-frame.js';
-import { MSG, creationString, spellName } from '../../packages/viewer/src/pages/roster/creation/messages.js';
+import { composeSpellScreenFrame } from '../../packages/viewer/src/pages/roster/creation/ega/compose-spell-screen-frame.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { compareRgba, writeDiffPng } from './diff-image.js';
 import { indicesToRgba } from './decode-screen.js';
@@ -131,53 +125,14 @@ function renderSpellScreen(
   draft: DraftState,
   sc: SpellCase,
 ): Uint8ClampedArray {
+  // Render through the SAME shared composer the live SpellPickScreen uses, so
+  // this gate validates the component's actual render path (not a parallel one).
   const fontSetWithPortrait = mageFontSet(fontSet, draft.portrait);
-  const { top, bottomBar } = createPersistentWindows();
-  const { outer, inner } = createSpellPickWindows();
-
-  drawCharSheet(top, draft, db);
-
-  // Portrait: 3×3 tile glyphs (0x48..0x50, attr 0x02 = wfont2) at top cells
-  // (1,1)..(3,3). The patched wfont2 carries the portrait's 9 tiles at those
-  // glyph slots — same mechanism as the other char-sheet creation screens.
-  for (let r = 0; r < 3; r++) {
-    setCursor(top, 1, 1 + r);
-    puts(
-      top,
-      String.fromCharCode(0x48 + r * 3) +
-        String.fromCharCode(0x48 + r * 3 + 1) +
-        String.fromCharCode(0x48 + r * 3 + 2),
-      0x02,
-    );
-  }
-
-  const grid = creationSpellGrid(draft.class ?? 0);
-  const list = grid[sc.school] ?? [];
-  const sel = sc.mode === 'sublist' ? sc.selectedIdx : null;
-
-  composeSpellPanel(outer, inner, {
-    realm: REALM_NAMES[sc.school] ?? '',
-    spellNames: list.map((s) => spellName(db, s.entryIdx) || `SPELL ${s.entryIdx}`),
-    selectedIdx: sel,
-    cost:
-      sel !== null && list[sel] != null ? String(spellCost(list[sel]!.entry)) : null,
-  });
-
-  // The grid cursor (solid highlight block over the school's mana icon) is only
-  // drawn in GRID mode. In SUB-LIST mode the player has drilled into a school,
-  // so the engine leaves that school's icon in its normal multi-colour glyph
-  // (verified: grid-water cell(1,16) = solid 0x05 block; sublist-chill same cell
-  // = the checkered FIRE/WATER icon glyph).
-  if (sc.mode === 'grid') {
-    drawSchoolCursor(top, sc.school);
-  }
-
-  const prompt =
-    creationString(db, MSG.selectNewSpell) || 'SELECT A NEW SPELL FOR YOUR SPELLBOOK';
-  setCursor(bottomBar, Math.floor((bottomBar.widthCells - prompt.length) / 2), 1);
-  puts(bottomBar, prompt, 0x03);
-
-  return renderCreationFrame([top, bottomBar, outer, inner], fontSetWithPortrait, palette);
+  const windows = composeSpellScreenFrame(
+    { draft, school: sc.school, mode: sc.mode, spellIdx: sc.selectedIdx ?? 0 },
+    db,
+  );
+  return renderCreationFrame(windows, fontSetWithPortrait, palette);
 }
 
 const CASES: SpellCase[] = [

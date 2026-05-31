@@ -515,14 +515,15 @@ describe('CreationPage — Mage caster path (via state injection)', () => {
     await waitForLoaded(container);
 
     // At spellPick: Mage needs 2 picks. The picker is a TWO-LEVEL grid — the cursor
-    // starts on FIRE (school 0, which has the level-1 spell ENERGY BLAST). ENTER on a
-    // school drills into its sub-list; ENTER on a spell picks it and (until the budget
-    // is met) returns to the grid for the next pick. So each pick = two Enters.
-    // Pick ENERGY BLAST twice to satisfy the 2-pick budget → SPELLS_DONE → confirm.
-    fireEvent.keyDown(window, { key: 'Enter' }); // drill into FIRE sub-list
-    fireEvent.keyDown(window, { key: 'Enter' }); // pick ENERGY BLAST (1/2) → back to grid
-    fireEvent.keyDown(window, { key: 'Enter' }); // drill into FIRE again
-    fireEvent.keyDown(window, { key: 'Enter' }); // pick ENERGY BLAST (2/2) → SPELLS_DONE
+    // starts on FIRE (school 0). ENTER drills into a school's sub-list; ENTER on a
+    // spell picks it (and a picked spell drops out of its list, so the 2 picks must
+    // be DISTINCT). Pick ENERGY BLAST (FIRE), then ArrowDown to WATER and pick its
+    // first spell → 2/2 → SPELLS_DONE → confirm.
+    fireEvent.keyDown(window, { key: 'Enter' });     // drill into FIRE sub-list
+    fireEvent.keyDown(window, { key: 'Enter' });     // pick ENERGY BLAST (1/2) → back to grid
+    fireEvent.keyDown(window, { key: 'ArrowDown' }); // FIRE(0) → WATER(1) (within top row)
+    fireEvent.keyDown(window, { key: 'Enter' });     // drill into WATER sub-list
+    fireEvent.keyDown(window, { key: 'Enter' });     // pick WATER spell 0 (2/2) → SPELLS_DONE
 
     // Now at confirm screen. Enter → CONFIRM { keep: true } → committing
     fireEvent.keyDown(window, { key: 'Enter' });

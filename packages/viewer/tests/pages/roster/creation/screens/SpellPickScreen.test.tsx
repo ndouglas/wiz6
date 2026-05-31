@@ -21,6 +21,7 @@ import {
   gridNextSchool,
   sublistNextIdx,
 } from '../../../../../src/pages/roster/creation/screens/SpellPickScreen.js';
+import { pickableGrid } from '../../../../../src/pages/roster/creation/ega/compose-spell-screen-frame.js';
 
 // ---------------------------------------------------------------------------
 // Minimal stubs
@@ -171,6 +172,27 @@ describe('sublistNextIdx — sublist-mode navigation', () => {
   it('sublist: unknown code returns idx unchanged', () => {
     expect(sublistNextIdx(2, 5, 99)).toBe(2);
     expect(sublistNextIdx(2, 5, 5)).toBe(2); // enter/esc handled by component
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pickableGrid — dedup of already-picked spells
+// ---------------------------------------------------------------------------
+
+describe('pickableGrid — already-picked spells drop out of the list', () => {
+  it('Mage with no picks: FIRE has ENERGY BLAST (entry 0)', () => {
+    const g = pickableGrid(1, []);
+    expect(g[0].map((s) => s.entryIdx)).toEqual([0]);
+  });
+
+  it('picking ENERGY BLAST (entry 0) empties the FIRE school — cannot pick it twice', () => {
+    const g = pickableGrid(1, [0]);
+    expect(g[0]).toEqual([]); // FIRE now empty
+    expect(g[1].map((s) => s.entryIdx)).toEqual([9, 11]); // WATER unaffected
+  });
+
+  it('picking the first WATER spell (entry 9) leaves only TERROR (11) in WATER', () => {
+    expect(pickableGrid(1, [9])[1].map((s) => s.entryIdx)).toEqual([11]);
   });
 });
 
