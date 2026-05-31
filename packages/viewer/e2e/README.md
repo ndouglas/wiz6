@@ -1,8 +1,8 @@
 # Viewer e2e (Playwright)
 
-Real-browser screen driving + canvas pixel-parity. **Deliberate-run, NOT in
-default CI** (per the project convention `*.e2e` = manual feature smoke) — run
-pre-merge for touched screens.
+Real-browser screen driving + canvas pixel-parity. **Runs in CI** via
+`.github/workflows/test.yml` (push to `main` + every PR), alongside the unit/
+parity suites — and runnable locally any time (below).
 
 ## Run
 
