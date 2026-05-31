@@ -90,7 +90,10 @@ export function AddPartyPage({ skipAssetLoad = false }: AddPartyPageProps) {
   const [wfont0, setWfont0] = useState<Font | null>(null);
   const [wfont1, setWfont1] = useState<Font4bpp | null>(null);
   const [wfont3, setWfont3] = useState<Font4bpp | null>(null);
-  const [portraitSet, setPortraitSet] = useState<PortraitSet | null>(null);
+  // All three portrait sets [wport1, wport2, wport3] — composeCastleFrame picks
+  // the right set per party member by portraitIndex/14, so a single set would
+  // leave members with portraits ≥14 blank.
+  const [portraitSets, setPortraitSets] = useState<PortraitSet[]>([]);
 
   // Picker assets — message db + the wpcmk-creation font set for the overlay.
   // (Picker uses wfont0 for the highlight path; bg-fill cells go through
@@ -146,9 +149,13 @@ export function AddPartyPage({ skipAssetLoad = false }: AddPartyPageProps) {
     loadFont('/fonts/wfont0.json').then((f) => !cancelled && setWfont0(f)).catch(() => {});
     loadFont4bpp('/fonts/wfont1.json').then((f) => !cancelled && setWfont1(f)).catch(() => {});
     loadFont4bpp('/fonts/wfont3.json').then((f) => !cancelled && setWfont3(f)).catch(() => {});
-    loadPortraitSet('/portraits/wport1.json')
-      .then((ps) => !cancelled && setPortraitSet(ps))
-      .catch((err) => console.warn('failed to load portrait set', err));
+    Promise.all([
+      loadPortraitSet('/portraits/wport1.json'),
+      loadPortraitSet('/portraits/wport2.json'),
+      loadPortraitSet('/portraits/wport3.json'),
+    ])
+      .then((sets) => !cancelled && setPortraitSets(sets))
+      .catch((err) => console.warn('failed to load portrait sets', err));
 
     void (async () => {
       try {
@@ -238,7 +245,7 @@ export function AddPartyPage({ skipAssetLoad = false }: AddPartyPageProps) {
       selectedIdx,
       wfont1,
       activeMembers,
-      portraitSet,
+      portraitSets,
     );
 
     const pickerWindows = composeAddPartyPickerFrame(
@@ -263,7 +270,7 @@ export function AddPartyPage({ skipAssetLoad = false }: AddPartyPageProps) {
     visible,
     selectedIdx,
     activeMembers,
-    portraitSet,
+    portraitSets,
     candidates,
     cursorIdx,
     onCancel,

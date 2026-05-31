@@ -162,13 +162,13 @@ export interface MainPanelView {
   /** Inventory list to render in rows 9-13 (max 5). Defaults to empty.
    *  Runtime callers omit this until we have a scenario.dbs item-name
    *  lookup; the parity test passes the fixture's known 5 items. */
-  inventory?: ReadonlyArray<InventoryItem>;
+  inventory?: ReadonlyArray<InventoryItem> | undefined;
   /** Carrying-capacity values (current / max). Omit to render only the
    *  "CC" label. Derivation from STR + inventory weight is TODO. */
-  cc?: { current: number; max: number };
+  cc?: { current: number; max: number } | undefined;
   /** Years-since-birth (row 2) and the engine's "secondAge" / age2 counter
    *  (row 3) displayed next to the portrait. Omit to skip rendering. */
-  age?: { years: number; second: number };
+  age?: { years: number; second: number } | undefined;
 }
 
 /** Right-align `value` to width `n`, space-pad on the left. */
