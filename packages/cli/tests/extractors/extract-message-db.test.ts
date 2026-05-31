@@ -17,8 +17,11 @@ describe('extractMessageDb', () => {
     tree[0] = 0x41; tree[2] = 0x42;
     writeFileSync(treePath, tree);
 
-    // One length-prefixed record: length=2, payload=0x55 -> ABABABAB.
-    writeFileSync(dbsPath, new Uint8Array([0x02, 0x55]));
+    // One record in the [rec_len][decoded_len][payload] format: rec_len=2 (the
+    // decoded_len byte + 1 payload byte), decoded_len=8 (emit 8 chars), payload
+    // 0x55 = 0b01010101 → tree L=A, R=B → "ABABABAB". (The old 2-byte
+    // [len][payload] form predates the decoded_len byte and decodes to 0 records.)
+    writeFileSync(dbsPath, new Uint8Array([0x02, 0x08, 0x55]));
 
     // Empty msg.hdr (count=0).
     writeFileSync(indexPath, new Uint8Array([0x00, 0x00]));
