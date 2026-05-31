@@ -43,13 +43,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { setCursor, puts } from '@wiz6/parser';
-import { CLASS_SPELLBOOKS, spellsInBook, WIZ6_MAIN } from '@wiz6/data';
+import { CLASS_SPELLBOOKS, spellsInBook, SPELL_TABLE, WIZ6_MAIN } from '@wiz6/data';
 import type { Palette } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
 import { createPersistentWindows, createSpellPickWindows } from '../ega/windows.js';
-import { composeSpellPanel } from '../ega/compose-spell-panel.js';
+import { composeSpellPanel, REALM_NAMES } from '../ega/compose-spell-panel.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { MSG, creationString, spellName } from '../messages.js';
 import { mapKey } from './ScreenProps.js';
@@ -184,10 +184,14 @@ export function SpellPickScreen({
 
   const cur = spells[cursorIdx];
   const curName = cur ? spellName(db, cur.entryIdx) || `SPELL ${cur.entryIdx}` : '';
-  // TODO #060: per-spell realm (element), COST, and level pips aren't in our
-  // schemas yet (need scenario.dbs spell metadata). Render the correct layout +
-  // the spell name now; leave realm/cost blank until that data is wired.
-  composeSpellPanel(outer, inner, { spellName: curName, realm: '', cost: null });
+  // Realm (element) from the spell table's school index (0=Fire … 5=Divine).
+  const entry = cur ? SPELL_TABLE[cur.entryIdx] : undefined;
+  const realm = entry ? REALM_NAMES[entry.school] ?? '' : '';
+  // COST stays blank: the engine shows no SP cost when LEARNING a starter spell
+  // at creation (verified against the fixture) — cost is an in-game cast-time
+  // concept, not a creation one. The pip bar is the engine's fixed decorative
+  // bar (not spell-level based), handled by composeSpellPanel's default.
+  composeSpellPanel(outer, inner, { spellName: curName, realm, cost: null });
 
   // Bottom-bar prompt (engine renders msg 0x2bf here, not inside the panel).
   const prompt =
