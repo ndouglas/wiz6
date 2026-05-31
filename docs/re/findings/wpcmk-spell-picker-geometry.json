@@ -1,0 +1,171 @@
+{
+  "topic": "wpcmk-spell-picker-geometry",
+  "subagent_run": "2026-05-30",
+  "binaries": ["original/wpcmk.ovr"],
+  "summary": "Verified the exact engine geometry of the character-creation SPELL PICKER windows (screen-14, driven by ui_train_attribute_picker_grid at wpcmk file 0x229c). Two temporary windows are created on the stack, both discarded after the function returns. The port values for spellOuter and spellInner are CORRECT for position, size, and attr. No changes needed to those fields. Also mapped the call chain: wpcmk_create_character_master (0x4e47) → wpcmk_train_skill_pillar (0x28d4) → ui_train_attribute_picker_grid (0x229c). The persistent windows [0x546e] and [0x56ca] are passed into wpcmk_train_skill_pillar but ui_train_attribute_picker_grid creates its own two overlay windows. Content layout for both windows documented.",
+  "method": "Raw byte disassembly of wpcmk.ovr. Located the two ui_window_create thunk calls (0xbbb6 → wroot image 0x011a) in ui_train_attribute_picker_grid (0x229c) at file offsets 0x22bf and 0x22e5. Decoded the cdecl push sequences for each call (8 pushes in reverse order: x_col, y_row, w_cells, h_cells, attr, border_style, flags2, flags1). Cross-checked arg convention against the already-verified menuPanel window (x=21, y=7, w=19, h=13, attr=0x15 from wpcmk-window-layouts.json). Traced content layout functions 0x1cb2 (outer window border + SPELLS title) and 0x1c37 (inner window spell-school list) by following calls from ui_train_attribute_picker_grid. Confirmed arg ordering for bda7 (cursor-position thunk) is bda7(window, col, row) from the known COST-label cursor call at 0x20d7 (col=1, row=14 — makes positional sense for outer window row 14 of 16). Traced the full call chain to confirm which persistent and temporary windows receive which content.",
+  "ui_window_create_arg_convention": {
+    "confirmed_by": "menuPanel cross-check (wpcmk-window-layouts.json 0x5a57: push 0x15=21, push 7, push 0x13=19, push 0xd=13, push 0x15, push 0xffff → x=21, y=7, w=19, h=13, attr=0x15) and both spell-picker calls below",
+    "push_order_cdecl": [
+      "arg8 (flags1, always 0)",
+      "arg7 (flags2, always 0)",
+      "arg6 (border_style, 0xffff=plain)",
+      "arg5 (attr byte)",
+      "arg4 (h_cells)",
+      "arg3 (w_cells)",
+      "arg2 (y_row in screen cells)",
+      "arg1 (x_col in screen cells)"
+    ],
+    "cell_to_pixel": "8px per cell (EGA mode D, 320x200 with 40-column text)"
+  },
+  "call_chain": {
+    "wpcmk_create_character_master": "0x4e47 → outer loop calls wpcmk_train_skill_pillar (0x28d4) for each pillar with pts>0",
+    "wpcmk_train_skill_pillar": {
+      "file_offset": "0x28d4",
+      "args": "(top_win=[0x546e] 40x20, bottomBar_win=[0x56ca] 40x5, pillar_idx)",
+      "call_site": "0x4f05 in wpcmk_create_character_master",
+      "push_before_call": "0x4efc: push BX (pillar_idx); 0x4efd: push [0x56ca] (bottomBar); 0x4f01: push [0x546e] (top_win)",
+      "note": "Passes the two PERSISTENT windows, NOT the temporary spell-picker windows"
+    },
+    "ui_train_attribute_picker_grid": {
+      "file_offset": "0x229c",
+      "args": "(top_win=[0x546e], bottomBar_win=[0x56ca], flag=0)",
+      "call_site": "0x2a49 in an inner function within wpcmk_train_skill_pillar",
+      "note": "Creates its OWN two temporary overlay windows on the stack"
+    }
+  },
+  "findings": [
+    {
+      "id": "spell-outer-window",
+      "claim": "The OUTER spell-picker window (spellOuter) is created at wpcmk file 0x22bf with geometry: x_col=20, y_row=4, w_cells=20, h_cells=16, attr=0x16, border=0xffff (plain). Handle stored at [bp-2] (stack-local in ui_train_attribute_picker_grid). In pixels: screenX=160, screenY=32, widthPx=160, heightPx=128.",
+      "category": "window_geometry",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x22bf"},
+        "type": "raw_disasm",
+        "details": "Push sequence before call at 0x22bf (cdecl: first pushed = last arg; reading outward from call): 0x22be: 50 (push ax=0x14=20 = x_col); 0x22ba: 50 (push ax=0x04=4 = y_row); 0x22b6: 50 (push ax=0x14=20 = w_cells); 0x22b2: 50 (push ax=0x10=16 = h_cells); 0x22ae: 50 (push ax=0x16 = attr); 0x22aa: 50 (push ax=0xffff = border); 0x22a6: 50 (push ax=0 = flags2); 0x22a5: 50 (push ax=0 = flags1). Return stored: 0x22c5: 89 46 fe = mov [bp-2], ax. Call site bytes: e8 f4 98. Verified via python byte scan of original/wpcmk.ovr."
+      },
+      "geometry": {
+        "x_col": 20, "y_row": 4,
+        "w_cells": 20, "h_cells": 16,
+        "x_px": 160, "y_px": 32,
+        "w_px": 160, "h_px": 128,
+        "attr": "0x16",
+        "border": "0xffff (plain/no border chars)",
+        "coord_system": "screen_absolute"
+      },
+      "handle": "[bp-2] stack-local in ui_train_attribute_picker_grid 0x229c",
+      "port_value_status": "CORRECT — port's spellOuter (screenX=160, screenY=32, widthCells=20, heightCells=16, attr=0x16) matches exactly",
+      "confidence": "high"
+    },
+    {
+      "id": "spell-inner-window",
+      "claim": "The INNER spell-picker window (spellInner) is created at wpcmk file 0x22e5 with geometry: x_col=21, y_row=7, w_cells=19, h_cells=8, attr=0x17, border=0xffff (plain). Handle stored at [bp-4] (stack-local). In pixels: screenX=168, screenY=56, widthPx=152, heightPx=64.",
+      "category": "window_geometry",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x22e5"},
+        "type": "raw_disasm",
+        "details": "Push sequence before call at 0x22e5 (cdecl): 0x22e4: 50 (push ax=0x15=21 = x_col); 0x22e0: 50 (push ax=0x07=7 = y_row); 0x22dc: 50 (push ax=0x13=19 = w_cells); 0x22d8: 50 (push ax=0x08=8 = h_cells); 0x22d4: 50 (push ax=0x17 = attr); 0x22d0: 50 (push ax=0xffff = border); 0x22cc: 50 (push ax=0 = flags2); 0x22cb: 50 (push ax=0 = flags1). Return stored: 0x22eb: 89 46 fc = mov [bp-4], ax. Call site bytes: e8 ce 98. Verified via python byte scan."
+      },
+      "geometry": {
+        "x_col": 21, "y_row": 7,
+        "w_cells": 19, "h_cells": 8,
+        "x_px": 168, "y_px": 56,
+        "w_px": 152, "h_px": 64,
+        "attr": "0x17",
+        "border": "0xffff (plain/no border chars)",
+        "coord_system": "screen_absolute"
+      },
+      "handle": "[bp-4] stack-local in ui_train_attribute_picker_grid 0x229c",
+      "port_value_status": "CORRECT — port's spellInner (screenX=168, screenY=56, widthCells=19, heightCells=8, attr=0x17) matches exactly",
+      "confidence": "high"
+    },
+    {
+      "id": "menupanel-crosscheck",
+      "claim": "Cross-check of ui_window_create arg convention against the known menuPanel window (19x13 at cell 21,7, attr=0x15 — confirmed correct by wpcmk-window-layouts.json). The call at wpcmk 0x5a57 pushes: 0x5a57: push 0x15=21 (x_col), 7 (y_row), 0x13=19 (w_cells), 0xd=13 (h_cells), 0x15 (attr), 0xffff (border), 0, 0. This confirms the arg ordering used to decode spellOuter and spellInner above.",
+      "category": "arg_convention_verification",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x5a57"},
+        "type": "raw_disasm + cross-reference",
+        "details": "menuPanel geometry x=21, y=7, w=19, h=13, attr=0x15 confirmed in wpcmk-window-layouts.json (high confidence). The spell-picker windows use the SAME call convention: arg1=x_col pushed last. Spell-picker inner window shares x=21, y=7 starting position with menuPanel (intentional — they occupy the same screen area on different screens)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "outer-window-content-layout",
+      "claim": "The OUTER window (20x16) content is drawn by the function at wpcmk 0x1cb2. Row layout: row 0 = H-rule frame top (chars 0x0e TL corner at x=0, 0x0c horizontal x=1..18, 0x0a TR corner at x=19); row 1 = V-rules (0x0d at x=0, 0x05 at x=19) with 'SPELLS' title (msg 700=0x2bc) at col=1; row 2 = H-rule separator (0x15 left, 0x0c horizontal, 0x13 right); rows 3-13 = spell school grid cells and additional content; row 14 = COST label (msg 3957=0x0f75) at col=1 with its value at col=10. All content coords are window-relative (outer window origin = screen cell 20,4).",
+      "category": "content_layout",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x1cb2"},
+        "type": "raw_disasm",
+        "details": "0x1cde: push 0x0e, push 0, push 0, push [bp+4]; call 0x0689 (ui_put_styled_char_at) = putChar(outer, x=0, y=0, 0x0e). 0x1cf3: putChar(outer, x=19, y=0, 0x0a). 0x1d08: putChar(outer, x=0, y=2, 0x15). 0x1d1d: putChar(outer, x=19, y=2, 0x13). Loop 0x1d23..0x1d4f: SI=1..18: putChar(outer, x=SI, y=0, 0x0c); putChar(outer, x=SI, y=2, 0x0c). 0x1d5c: putChar(outer, x=0, y=1, 0x0d). 0x1d74: putChar(outer, x=19, y=1, 0x05). 0x1d82: bda7(outer, col=1, row=1). 0x1d93: c2db(msg=700=SPELLS, outer, width=18). COST: 0x20d7: push 0x0e=14, push 0x01=1, push [bp+4]; bda7(outer, col=1, row=14) -> 0x20ec: c2db(msg=3957=COST, outer, width=18). 0x20fd: bda7(outer, col=10, row=14) (value position). Called from ui_train_attribute_picker_grid at 0x2306: ff 76 fe (push [bp-2] = outer window handle)."
+      },
+      "outer_window_row_layout": {
+        "row_0": "H-rule frame top: corners 0x0e (x=0) and 0x0a (x=19), 0x0c horizontal rules x=1..18",
+        "row_1": "SPELLS title (msg 700) at col=1 width=18, flanked by V-rules 0x0d (x=0) and 0x05 (x=19)",
+        "row_2": "H-rule separator: 0x15 (x=0), 0x0c horizontal x=1..18, 0x13 (x=19)",
+        "rows_3_to_13": "Spell school cell grid and additional content (partially decoded; see ui_render_skill_grid_entry at 0x2424 context)",
+        "row_14": "COST label: 'COST' (msg 3957) at col=1 (width=18); cost value at col=10",
+        "row_15": "Likely bottom frame rule (not fully decoded in this pass)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "inner-window-content-layout",
+      "claim": "The INNER window (19x8) content is drawn by the function at wpcmk 0x1c37, called from ui_train_attribute_picker_grid at 0x2311 with the inner window ([bp-4]) as its arg. Function 0x1c37: (1) clears the inner window with char=0x20/attr=3 (wfont3 gray fill); (2) calls ui_window_focus; (3) renders 6 spell-school entries as a vertical list using function 0x0b1b, placing entry N at cursor position (col=0, row=N) for N=0..5 within the inner window. Entry 0 uses DGROUP offset 0x45; entries 1-5 use DGROUP offset 0x47. The inner window does NOT have its own drawn frame border — its 19x8 cell area is used entirely for the spell school list. Rows 6-7 likely hold the CANCEL entry and/or empty rows.",
+      "category": "content_layout",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x1c37"},
+        "type": "raw_disasm",
+        "details": "0x1c4a: call 0xed5a (clear inner with 0x20/attr=3). 0x1c53: call 0xebb4 (ui_window_focus). Cell 0: 0x1c5a-0x1c63: push 0x45, push 0, push 0, push [bp+4]; call 0x0b1b -> 0x0b1b(inner, col=0, row=0, dgroup_offset=0x45). Loop SI=1..5 at 0x1c6c-0x1c83: push 0x47, push SI, push 0, push [bp+4]; call 0x0b1b -> 0x0b1b(inner, col=0, row=SI, dgroup_offset=0x47). Loop terminates at si<6 (0x1c80: cmp SI, 6; 0x1c82: jl). 0x0b1b body: bda7(window, [bp+6]=col, [bp+8]=row) then de7f(window, byte([bp+0a]), 2). Called from ui_train_attribute_picker_grid at 0x2311: push 0x0001 then ff 76 fc (push [bp-4] = inner window).",
+        "bda7_arg_order_evidence": "Confirmed bda7(window, col, row) from COST cursor call at 0x20d7: push 14(row), push 1(col), push [bp+4]; call bda7 -> COST at col=1, row=14. Col=1 (leftmost content col) matches the c2db width=18 print that follows. Row=14 in 20x16 outer window is near bottom — plausible for COST summary row."
+      },
+      "inner_window_row_layout": {
+        "row_0": "Spell school entry 0 (DGROUP+0x45 label) at col=0",
+        "row_1": "Spell school entry 1 (DGROUP+0x47) at col=0",
+        "row_2": "Spell school entry 2 at col=0",
+        "row_3": "Spell school entry 3 at col=0",
+        "row_4": "Spell school entry 4 at col=0",
+        "row_5": "Spell school entry 5 at col=0",
+        "rows_6_7": "CANCEL option and/or empty (not decoded in this pass)"
+      },
+      "note_on_2x3_grid_claim": "wpcmk-skill-train.json claimed '6-cell grid (2 rows x 3 cols)' based on navigation key deltas (+/-3 for down/up, +/-1 for left/right). The raw ASM in 0x1c37 shows all 6 cells at col=0, rows=0..5 — a vertical list. The +/-3 navigation delta may index a LOGICAL 2x3 structure (skipping 3 list entries = next row in a 2-column display), or the decompile-inferred key dispatch was misread. This warrants a separate verification pass (e.g. DOSBox breakpoint at 0x1c37 or cell-grid dump from a save at this screen). Mark medium confidence on the grid-vs-list layout question.",
+      "confidence": "high (cell positions) / medium (visual grid layout vs list)"
+    },
+    {
+      "id": "port-values-verdict",
+      "claim": "The port's current (unverified) values for spellOuter and spellInner are CORRECT for all fields. No geometry changes needed.",
+      "category": "verification",
+      "evidence": {
+        "binary": "original/wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x22bf"},
+        "type": "direct_byte_comparison",
+        "details": "Port: spellOuter screenX=160px=col20✓, screenY=32px=row4✓, widthCells=20✓, heightCells=16✓, attr=0x16✓. Port: spellInner screenX=168px=col21✓, screenY=56px=row7✓, widthCells=19✓, heightCells=8✓, attr=0x17✓. All 10 fields match the engine bytes exactly."
+      },
+      "port_spellOuter": {
+        "screenX_px": 160, "screenY_px": 32,
+        "widthCells": 20, "heightCells": 16,
+        "attr": "0x16",
+        "engine_match": true
+      },
+      "port_spellInner": {
+        "screenX_px": 168, "screenY_px": 56,
+        "widthCells": 19, "heightCells": 8,
+        "attr": "0x17",
+        "engine_match": true
+      },
+      "confidence": "high"
+    }
+  ],
+  "open_questions": [
+    "Visual grid layout of inner window: the ASM places all 6 spell-school entries at (col=0, row=0..5) — a vertical single-column list — but wpcmk-skill-train.json's decompile inferred a '2x3 grid' from +/-3 key navigation. These could be reconciled if the engine renders a VISUAL 2x3 grid by writing wider-field entries (each school occupying multiple cols), using the col=0 cursor pos as just the leftmost of a multi-col cell. Verification: DOSBox breakpoint at 0x0b1b or cell dump from a save at the spell-picker screen would settle this.",
+    "DGROUP offsets 0x45 and 0x47 in 0x1c37: these are passed to de7f(window, byte(offset), 2) in 0x0b1b. Whether 0x45 is the start of a spell-school array and 0x47 = 0x45+2 (stride=2, entry size=2) needs live-memory verification. If stride=2: entry[N] = DGROUP + 0x45 + N*2.",
+    "Rows 6-7 of inner window: content of CANCEL and any bottom row not decoded in this pass.",
+    "The SELECT A NEW SPELL message (msg 703) is written at 0x29fa in wpcmk_train_skill_pillar with bda7(bottomBar=[0x56ca], col=1, row=1). This goes into the PERSISTENT 40x5 bottom-bar window, NOT into the temporary spell-picker windows. The port should render this string in the bottom bar, not in spellOuter.",
+    "Row 15 of outer window not decoded: likely a bottom frame H-rule mirroring row 0. Not critical for port."
+  ]
+}
