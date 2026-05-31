@@ -1,0 +1,47 @@
+{
+  "topic": "spell-realm-colors",
+  "summary": "The character-creation spell picker colours each spell's realm name (FIRE/WATER/AIR/EARTH/MENTAL/DIVINE) by the spell's school index via a 6-word table at wroot.exe file offset 0xff84: [4, 2, 3, 6, 7, 5]. The on-screen attr is nibble<<4 (wfont0 highlight path, low-nibble 0). FIRE=0x40, WATER=0x20, AIR=0x30, EARTH=0x60, MENTAL=0x70, DIVINE=0x50.",
+  "confidence": "high",
+  "findings": [
+    {
+      "claim": "school->colour-nibble table is 6 words at wroot.exe file 0xff84 = [4,2,3,6,7,5], indexed by spell school 0..5 (Fire,Water,Air,Earth,Mental,Divine). Realm attr = nibble<<4.",
+      "evidence": {
+        "binary": "original/wroot.exe",
+        "file_offset": "0xff84",
+        "image_offset": "0xfd84",
+        "raw_bytes": "04 00 02 00 03 00 06 00 07 00 05 00",
+        "context": "Sits in a block of small word-tables (preceding word at 0xff82 = 0x0005; following words at 0xff90 = 06 06 03 07 ...). Exactly 6 entries, matching the 6 spell schools."
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "Front half of the table (Fire/Water/Air) is behaviourally verified: pixel-picked from live DOSBox-X engine framebuffers of the creation spell picker (Mage, M-Elf), each maps to the table-predicted palette index exactly.",
+      "evidence": {
+        "method": "Loaded the parked spell-picker save (game_state 0x10), scrolled the Mage's 3-spell pool, screenshotted each. Pixel-picked the realm-label text colour in the spellOuter r12 region (screen x248-300, y128-136) and matched against WIZ6_MAIN palette (AC-chained-through-DAC RGB).",
+        "results": [
+          "ENERGY BLAST -> FIRE  -> palette idx 4 (255,85,85 bright red)    -> attr 0x40  (table nibble 4) MATCH",
+          "CHILLING TOUCH/TERROR -> WATER -> palette idx 2 (85,85,255 bright blue) -> attr 0x20 (table nibble 2) MATCH",
+          "(unnamed) -> AIR -> palette idx 3 (255,85,255 bright magenta) -> attr 0x30 (table nibble 3) MATCH"
+        ],
+        "captures": "tools/dosbox/capture/wroot_057.png (FIRE), wroot_060.png (WATER), wroot_058.png (AIR) — disposable scratch, not committed"
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "Front half is confirmed across TWO caster classes. A Priest (M-Human) was also created and its creation spell pool is identical to the Mage's: exactly three spells FIRE/WATER/AIR (schools 0/1/2), clamping at AIR. Both classes' realm labels match the table's first three entries.",
+      "evidence": {
+        "method": "Full character-creation drive in DOSBox-X (CREATE PC -> Human -> Male -> Priest -> bonus -> karma -> portrait -> skills -> spell picker). Scrolled the pool; it offered FIRE (pos0), WATER (pos1), AIR (pos2) and clamped.",
+        "implication": "The level-1 creation picker only exposes schools 0-2, so EARTH/MENTAL/DIVINE realms cannot be captured at creation by any class. The in-game cast/learn screens (higher-level spells) are where the back-half colours would render; that screen is not yet ported."
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "Back half (Earth=0x60 green, Mental=0x70 cyan, Divine=0x50 yellow) is taken from the same table. It cannot be captured at character creation (see above), but the table is the engine's authoritative source and its front half is now verified across two classes — a coincidental match on schools 0-2 in a school-indexed 6-word table is overwhelmingly unlikely.",
+      "evidence": {
+        "note": "Raw-offset grep for a code xref (0xfd84/0xff84) was inconclusive because the table's DS-relative offset differs from its file offset; the realm draw lives in the wpcmk spell picker (ui_train_attribute_picker_grid @ wpcmk 0x229c) and applies the colour via a wroot helper."
+      },
+      "confidence": "high"
+    }
+  ],
+  "prior_error": "packages/.../compose-spell-panel.ts REALM_ATTR was previously best-guess: WATER 0x10, AIR 0xf0, MENTAL 0xd0, DIVINE 0xe0 were all wrong; only FIRE 0x40 and (coincidentally) EARTH 0x60 were correct."
+}
