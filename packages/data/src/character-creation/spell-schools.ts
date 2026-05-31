@@ -41,14 +41,18 @@
  *
  * ### Spellbook → Schools — DIRECTLY from the spell table
  * The 82-entry spell table at DGROUP+0xde stores per-spell `byte5` as a
- * 4-bit book-membership bitmask: bit 3 = Mage, bit 2 = Priest, bit 1 =
- * Alchemist, bit 0 = Psionic. Grouping the 82 entries by which book(s)
- * each appears in:
+ * 4-bit book-membership bitmask: bit 3 = Mage (0x08), bit 2 = Priest (0x04),
+ * bit 1 = Psionic (0x02), bit 0 = Alchemist (0x01). Engine-verified by the
+ * wpcmk book->mask switch (docs/re/findings/spell-picker-eligibility.json).
+ * The earlier 'bit1=Alchemist/bit0=Psionic, Alchemist lacks Fire' labelling
+ * was backwards: it is PSIONIC that lacks Fire.
+ *
+ * Grouping the 82 entries by which book(s) each appears in:
  *
  *   - Mage book      (mask 0x08): 33 spells, all 6 schools
  *   - Priest book    (mask 0x04): 33 spells, all 6 schools
- *   - Alchemist book (mask 0x02): 32 spells, 5 schools (NO Fire)
- *   - Psionic book   (mask 0x01): 25 spells, all 6 schools
+ *   - Alchemist book (mask 0x01): 25 spells, all 6 schools
+ *   - Psionic book   (mask 0x02): 32 spells, 5 schools (NO Fire)
  *
  * The earlier reading of "Mage covers Fire/Water/Air/Earth/Mental but not
  * Divine" came from cross-validating stock-character schoolMana values
@@ -133,21 +137,25 @@ export const CLASS_SPELLBOOKS: readonly (readonly [SpellbookPickCount, Spellbook
  *
  * Derived DIRECTLY from the 82-entry spell table at DGROUP+0xde, parsed in
  * `docs/re/findings/spell-school-assignment.json`. Each spell entry has a
- * `byte5` field that is a 4-bit book-membership bitmask (bit 3 = Mage,
- * bit 2 = Priest, bit 1 = Alchemist, bit 0 = Psionic). For each book we
- * collected the schools of all spells with that book's bit set.
+ * `byte5` field that is a 4-bit book-membership bitmask (bit 3 = Mage (0x08),
+ * bit 2 = Priest (0x04), bit 1 = Psionic (0x02), bit 0 = Alchemist (0x01)).
+ * Engine-verified by the wpcmk book->mask switch
+ * (docs/re/findings/spell-picker-eligibility.json). The earlier
+ * 'bit1=Alchemist/bit0=Psionic, Alchemist lacks Fire' labelling was backwards:
+ * it is PSIONIC that lacks Fire. For each book we collected the schools of all
+ * spells with that book's bit set.
  *
- * Result: three of four books cover ALL six schools. Only Alchemist lacks
+ * Result: three of four books cover ALL six schools. Only Psionic lacks
  * Fire entirely. Stock characters showing narrower per-school mana totals
  * (e.g., NOBAL Priest with Mental+Divine only) reflect the PLAYER'S PICKS
  * at creation, not the book's available spell pool.
  */
 export const SPELLBOOK_SCHOOLS: readonly (readonly boolean[])[] = [
   //  Fire   Water  Air    Earth  Mental Divine    spells in book
-  [ true,  true,  true,  true,  true,  true  ], // 0 Mage       — 33 spells
-  [ true,  true,  true,  true,  true,  true  ], // 1 Priest     — 33 spells
-  [ false, true,  true,  true,  true,  true  ], // 2 Alchemist  — 32 spells (no Fire)
-  [ true,  true,  true,  true,  true,  true  ], // 3 Psionic    — 25 spells
+  [ true,  true,  true,  true,  true,  true  ], // 0 Mage      (mask 0x08) — all 6
+  [ true,  true,  true,  true,  true,  true  ], // 1 Priest    (mask 0x04) — all 6
+  [ true,  true,  true,  true,  true,  true  ], // 2 Alchemist (mask 0x01) — all 6 (25 spells)
+  [ false, true,  true,  true,  true,  true  ], // 3 Psionic   (mask 0x02) — no Fire (32 spells)
 ];
 
 /**

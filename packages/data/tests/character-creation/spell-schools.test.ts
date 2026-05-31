@@ -143,12 +143,12 @@ describe('Spellbook coverage (from byte5 bitmask scan of 82-entry spell table)',
     expect(SPELLBOOK_SCHOOLS[1]).toEqual([true, true, true, true, true, true]);
   });
 
-  it('Alchemist book covers 5 schools (no Fire)', () => {
-    expect(SPELLBOOK_SCHOOLS[2]).toEqual([false, true, true, true, true, true]);
+  it('Alchemist book covers all 6 schools (mask 0x01, engine-verified)', () => {
+    expect(SPELLBOOK_SCHOOLS[2]).toEqual([true, true, true, true, true, true]);
   });
 
-  it('Psionic book covers all 6 schools', () => {
-    expect(SPELLBOOK_SCHOOLS[3]).toEqual([true, true, true, true, true, true]);
+  it('Psionic book covers 5 schools — no Fire (mask 0x02, engine-verified)', () => {
+    expect(SPELLBOOK_SCHOOLS[3]).toEqual([false, true, true, true, true, true]);
   });
 });
 
@@ -199,12 +199,12 @@ describe('Caster school access derived from spellbook coverage', () => {
     expect(classCastingSchools(2)).toEqual([0, 1, 2, 3, 4, 5]);
   });
 
-  it('Alchemist (5) has access to 5 schools via Alchemist book (no Fire)', () => {
-    expect(classCastingSchools(5)).toEqual([1, 2, 3, 4, 5]);
+  it('Alchemist (5) has access to all 6 schools via Alchemist book (engine-verified)', () => {
+    expect(classCastingSchools(5)).toEqual([0, 1, 2, 3, 4, 5]);
   });
 
-  it('Psionic (7) has access to all 6 schools via Psionic book', () => {
-    expect(classCastingSchools(7)).toEqual([0, 1, 2, 3, 4, 5]);
+  it('Psionic (7) has access to 5 schools via Psionic book — no Fire (engine-verified)', () => {
+    expect(classCastingSchools(7)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it('Bishop (9) has access to all 6 schools (Mage book ∪ Priest book)', () => {
@@ -247,6 +247,11 @@ describe('classSpellbooks', () => {
   it('Fighter returns []', () => {
     expect(classSpellbooks(0)).toEqual([]);
   });
+});
+
+it('Alchemist (class 5) can cast Fire; Psionic (class 7) cannot — engine-verified', () => {
+  expect(classCanCastSchool(5, 0)).toBe(true);
+  expect(classCanCastSchool(7, 0)).toBe(false);
 });
 
 // ── Edge cases ──

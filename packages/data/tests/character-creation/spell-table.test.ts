@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SPELL_TABLE, spellsInBook } from '../../src/character-creation/spell-table.js';
+import { SPELL_TABLE, spellsInBook, spellCost } from '../../src/character-creation/spell-table.js';
 
 describe('SPELL_TABLE', () => {
   it('has 82 entries', () => {
@@ -14,12 +14,24 @@ describe('spellsInBook', () => {
   it('Priest (book 1) returns 33 spells', () => {
     expect(spellsInBook(1).length).toBe(33);
   });
-  it('Alchemist (book 2) returns 32 spells', () => {
-    expect(spellsInBook(2).length).toBe(32);
+  it('Alchemist (book 2) returns 25 spells', () => {
+    expect(spellsInBook(2).length).toBe(25);
   });
-  it('Psionic (book 3) returns 25 spells', () => {
-    expect(spellsInBook(3).length).toBe(25);
+  it('Psionic (book 3) returns 32 spells', () => {
+    expect(spellsInBook(3).length).toBe(32);
   });
+});
+
+it('Alchemist book (idx 2) uses byte5 bit0 (mask 0x1) — engine-verified', () => {
+  expect(spellsInBook(2).some((s) => s.entryIdx === 0)).toBe(false); // ENERGY BLAST byte5=0x08 (Mage only)
+  expect(spellsInBook(2).every((s) => (s.entry.byte5 & 0x1) !== 0)).toBe(true);
+});
+it('Psionic book (idx 3) uses byte5 bit1 (mask 0x2) — engine-verified', () => {
+  expect(spellsInBook(3).every((s) => (s.entry.byte5 & 0x2) !== 0)).toBe(true);
+});
+it('spellCost returns the SP cost (b2): ENERGY BLAST=2, TERROR=3', () => {
+  expect(spellCost(SPELL_TABLE[0]!)).toBe(2);   // ENERGY BLAST
+  expect(spellCost(SPELL_TABLE[11]!)).toBe(3);  // TERROR
 });
 
 describe('spellsInBook excludes sentinel entries (byte5 === 0)', () => {

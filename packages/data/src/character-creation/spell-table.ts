@@ -3,11 +3,13 @@
  * Each entry: [school, level, b2, b3, b4, byte5].
  *   - school: 0=Fire .. 5=Divine
  *   - level: 1..7 (spell tier)
- *   - byte5: 4-bit book bitmask. bit 3=Mage, bit 2=Priest, bit 1=Alchemist, bit 0=Psionic
- *   - b2, b3, b4: spell-effect parameters, not decoded yet
+ *   - byte5: 4-bit book bitmask. bit 3=Mage, bit 2=Priest, bit 1=Psionic, bit 0=Alchemist
+ *   - b2: SP cost of the spell (shown as COST in the creation picker)
+ *   - b3, b4: spell-effect parameters, not decoded yet
  * Last 3 entries (79..81) are sentinels with byte5=0.
  *
- * Source: docs/re/findings/spell-school-assignment.json
+ * Source: docs/re/findings/spell-school-assignment.json,
+ *         docs/re/findings/spell-picker-eligibility.json
  */
 export interface SpellEntry {
   school: number;
@@ -122,12 +124,17 @@ function buildTable(): readonly SpellEntry[] {
 
 export const SPELL_TABLE: readonly SpellEntry[] = buildTable();
 
-/** Filter SPELL_TABLE by book bitmask (1=Psionic, 2=Alchemist, 4=Priest, 8=Mage).
+/** Filter SPELL_TABLE by book bitmask (8=Mage, 4=Priest, 1=Alchemist, 2=Psionic).
  *  Sentinel entries (byte5 === 0) are excluded. */
 export function spellsInBook(bookIdx: number): Array<{ entryIdx: number; entry: SpellEntry }> {
-  const mask = [8, 4, 2, 1][bookIdx];
+  const mask = [8, 4, 1, 2][bookIdx];
   if (mask === undefined) return [];
   return SPELL_TABLE
     .map((entry, entryIdx) => ({ entryIdx, entry }))
     .filter(({ entry }) => (entry.byte5 & mask) !== 0 && entry.school < 6);
+}
+
+/** SP cost of a spell (the b2 byte), shown as COST in the creation picker. */
+export function spellCost(entry: SpellEntry): number {
+  return entry.b2;
 }
