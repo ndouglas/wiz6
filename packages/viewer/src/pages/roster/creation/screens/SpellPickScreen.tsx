@@ -32,15 +32,17 @@
  *       docs/re/findings/spell-picker-eligibility.json
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { setCursor, puts } from '@wiz6/parser';
 import { creationSpellGrid, creationPickCount, spellCost, WIZ6_MAIN } from '@wiz6/data';
-import type { Palette } from '@wiz6/data';
+import type { Palette, PortraitSet } from '@wiz6/data';
 import type { FontSet } from '@wiz6/parser';
 import type { MessageDb } from '@wiz6/data';
 import type { CreationState, CreationEvent } from '../state.js';
 import { createPersistentWindows, createSpellPickWindows } from '../ega/windows.js';
 import { composeSpellPanel, REALM_NAMES } from '../ega/compose-spell-panel.js';
+import { drawCharSheet } from '../ega/char-sheet.js';
+import { patchFontSetWithPortrait } from '../ega/skill-train-frame.js';
 import { drawSchoolCursor } from '../ega/compose-school-cursor.js';
 import { CreationCanvas } from '../ega/CreationCanvas.js';
 import { MSG, creationString, spellName } from '../messages.js';
@@ -92,6 +94,8 @@ export interface SpellPickScreenProps {
   fontSet: FontSet;
   palette: Palette;
   db: MessageDb;
+  /** [wport1, wport2, wport3]. Falls back gracefully (no portrait) if empty. */
+  portraits?: PortraitSet[];
 }
 
 /**
@@ -107,6 +111,7 @@ export function SpellPickScreen({
   fontSet,
   palette,
   db,
+  portraits = [],
 }: SpellPickScreenProps) {
   const classIdx = state.draft.class ?? 0;
   const grid = creationSpellGrid(classIdx);
@@ -186,8 +191,19 @@ export function SpellPickScreen({
   // -------------------------------------------------------------------------
 
   const pal = palette ?? WIZ6_MAIN;
+  // Portrait is rendered via a font2 patch (same mechanism as the other
+  // char-sheet screens), keyed on the draft's portrait index.
+  const fontSetWithPortrait = useMemo(
+    () => patchFontSetWithPortrait(fontSet, portraits, state.draft.portrait),
+    [fontSet, portraits, state.draft.portrait],
+  );
   const { top, bottomBar } = createPersistentWindows();
   const { outer, inner } = createSpellPickWindows();
+
+  // The persistent stat panel (header, HP/STM, the 6 school-mana icons, portrait
+  // region) must be drawn before the school cursor overdraws its icon — this is
+  // the whole left side of the screen, identical to the other creation screens.
+  drawCharSheet(top, state.draft, db);
 
   const list = grid[school] ?? [];
   const sel = mode === 'sublist' ? spellIdx : null;
@@ -202,6 +218,7 @@ export function SpellPickScreen({
         : null,
   });
 
+  // School cursor overdraws the current school's mana icon (after the char sheet).
   drawSchoolCursor(top, school);
 
   // Bottom-bar prompt (engine renders msg 0x2bf here, not inside the panel).
@@ -211,5 +228,5 @@ export function SpellPickScreen({
   puts(bottomBar, prompt, 0x03);
 
   const windows = [top, bottomBar, outer, inner];
-  return <CreationCanvas windows={windows} fontSet={fontSet} palette={pal} />;
+  return <CreationCanvas windows={windows} fontSet={fontSetWithPortrait} palette={pal} />;
 }

@@ -317,7 +317,7 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
         return <SkillTrainScreen {...sharedProps} portraits={portraits} />;
 
       case 'spellPick':
-        return <SpellPickScreen {...sharedProps} />;
+        return <SpellPickScreen {...sharedProps} portraits={portraits} />;
 
       case 'confirm':
         return <ConfirmScreen {...sharedProps} portraits={portraits} />;
