@@ -35,14 +35,23 @@ function text(w: TileWindow, x: number, y: number, s: string, attr: number): voi
 /** Spell `school` index (0..5, from SPELL_TABLE) → realm display name. */
 export const REALM_NAMES = ['FIRE', 'WATER', 'AIR', 'EARTH', 'MENTAL', 'DIVINE'] as const;
 
-/** Realm → highlight attr (low-nibble 0 = wfont0 highlight path; high nibble = colour). */
+/**
+ * Realm → highlight attr (low-nibble 0 = wfont0 highlight path; high nibble = colour).
+ *
+ * Colours come from the engine's school→colour-nibble table at wroot.exe file
+ * offset 0xff84 — six words `[4, 2, 3, 6, 7, 5]` indexed by spell school (0=Fire
+ * … 5=Divine), so attr = nibble<<4. Verified against live DOSBox-X captures of
+ * the creation spell picker: FIRE/WATER/AIR were pixel-picked from the engine
+ * framebuffer and match the table's first three entries exactly (3/3). See
+ * docs/re/findings/spell-realm-colors.json.
+ */
 export const REALM_ATTR: Record<string, number> = {
-  FIRE: 0x40,   // red
-  WATER: 0x10,  // blue
-  AIR: 0xf0,    // white/bright
-  EARTH: 0x60,  // brown/cyan-ish
-  MENTAL: 0xd0, // magenta
-  DIVINE: 0xe0, // yellow
+  FIRE: 0x40,   // bright red     (school 0) — capture-verified
+  WATER: 0x20,  // bright blue    (school 1) — capture-verified
+  AIR: 0x30,    // bright magenta (school 2) — capture-verified
+  EARTH: 0x60,  // bright green   (school 3)
+  MENTAL: 0x70, // bright cyan    (school 4)
+  DIVINE: 0x50, // bright yellow  (school 5)
 };
 
 export interface SpellPanelView {
