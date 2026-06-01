@@ -116,8 +116,13 @@ Next free ID: **#066**
   - The castle + character-view screens render the face directly from `member.portraitIndex`. The engine's RENDERED portrait is the `+0x19c` selector (e.g. THESUS=0), distinct from the persisted `+0x1ac` `portrait_index` field (THESUS=10) — the SP1 "NATHAN gotcha". SP1/SP2 parity + e2e all inject/assert the rendered value, so they don't prove the real roster→active-party pipeline populates `portraitIndex` with `+0x19c`.
   - Verify how `addMember`/the pcfile extractor sources `portraitIndex`; if it's `+0x1ac`, real parties render the wrong face. Add a test driving the real add-member flow (not injected state) and pixel-check the portrait.
 
-- #039 [open] — Port WPCVW EQUIP action
-  - Inventory item-equip flow. The inventory list is now rendered (SP2, 2026-06-01); EQUIP still needs the equip/unequip flow + the equipped-vs-carried distinction. Handler is currently a no-op.
+- #070 [open] — EQUIP follow-ups (live-verify the MEDIUM-confidence bits)
+  - EQUIP shipped 2026-06-01 (the re-equip wizard: equip-logic.ts + equip-wizard + compose-equip-picker, pixel-gated by `equip-slot0`, e2e-driven). These RE bits are implemented per the findings but NOT live-verified (stock fighter gear / single fixture don't exercise them):
+  - (1) **Phase-3 grants** (`applyPhase3Grants`): codes 9/10 (resist floor 4) are no-ops (no schema field); magnitudes/directions of codes 11-13 (cure/−365 XP/+rng(d6+2) HP) + attr bumps want a live DOSBox equip of grant-bearing gear. (2) **monk/ninja base-AC** martial-arts skill index in `computeBaseAc` is a guess (fighter never hits it). (3) **bodyAc byte-wrap**: equipping a 0-AC weapon + 1-AC shield wraps the weapon AC slot to 0xFF (engine-faithful byte decrement) — not pixel-verified (the slot-0 fixture is pre-commit). (4) **mid-navigation prompt semantics**: only the slot-0 *initial* frame is pixel-pinned (prompt NONE while cursor on the candidate); whether the prompt tail tracks the cursor live needs a 2+-candidate-slot fixture (THESUS can't — no slot has ≥2 candidates). (5) **bit0/bit1 persistence** is unit-tested (round-trip) but a live equip+save+reload in DOSBox would confirm.
+  - Drive the engine (fresh boot + send_input + save_state ≤9; load_state/screenshot chords were flaky 2026-06-01) for a grant-bearing, multi-candidate character to close these.
+
+- #071 [open] — House Rule idea: friendlier per-item EQUIP
+  - The engine EQUIP is a re-equip-from-scratch wizard (Phase-1 strips everything, then you re-pick all 8 slots in order). Faithful but tedious. Candidate HOUSE_RULES toggle: a per-item equip/unequip (pick an item → equip to its slot) instead of the full wizard. Default = engine wizard. Per the House Rules convention in CLAUDE.md — raise with Nate before implementing.
 
 - #038 [open] — Port WPCVW USE action
   - Item-use dispatch table at wpcvw 0x4a5b. Per-item-id branches for scrolls/wands/etc.

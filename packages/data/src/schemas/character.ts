@@ -39,7 +39,13 @@ export const InventoryItemSchema = z.object({
   itemId: U16,
   /** Weight in encumbrance units. Cached from scenario.dbs at pick-up. */
   weight: U8,
-  /** Body-slot category. 0=1H_weapon, 1=2H_staff, 2=thrown, 3=ranged, 5=cloak, 6=head, 7=body, 8=legs, 9=hands, 10=feet, 11=shield, 12=scroll, 13=spell_scroll. Cached from scenario.dbs. */
+  /** Body-slot category (cached scenario byte 60). Mapped to a body slot by
+   *  `bodySlotForItem` (equipment/equip-logic.ts), per the verified jump table in
+   *  docs/re/findings/wpcvw-equip-action.json#equip-slot-to-body-slot-map:
+   *  0,1,2,3,0xc,0x10→weapon(body0); 4=ranged→off-hand(body1); 5=cloak; 6=head;
+   *  7=body/chest; 8=legs; 9=hands; 0xa=feet; 0xb=shield→off-hand; 0xd-0xf→off-hand
+   *  iff dual-wield flag; ≥0x11→not equippable (scroll/consumable). NOTE: ranged is
+   *  equipSlot **4**, not 3 (3 is a weapon-family slot → body0). */
   equipSlot: U8,
   /** Sprite sheet index. Cached from scenario.dbs. */
   spriteIdx: U8,

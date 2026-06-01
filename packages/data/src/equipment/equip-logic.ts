@@ -156,7 +156,6 @@ export function computeAc(member: Character, scenarioDb: ScenarioDb): AcResult {
 /** Attribute keys in code-order (Phase-3 grant codes 1..8 → index code−1). */
 const ATTRIBUTE_KEYS = ['str', 'int', 'pie', 'vit', 'dex', 'spd', 'per', 'kar'] as const;
 const ATTRIBUTE_CAP = 0x14;
-const RESIST_FLOOR = 4;
 
 /**
  * Phase-3 special equip-granted bumps, keyed on the grant code at item record
