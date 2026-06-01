@@ -31,10 +31,9 @@ Next free ID: **#066**
 - #065 [open] — Visual regression harness for headless playthroughs
   - Once dynamic-driving is exercised in real use (`pnpm test:integration`), capture reference screenshot sequences for known game flows. Re-run the same sequence in CI; diff each frame against the reference. Catches gameplay-flow regressions the existing pixel-parity tests don't (they cover isolated frames, not transitions).
 
-- #058 [open] — PartyMemberPicker keyboard nav: match CharacterMenu column-major 2-row layout
-  - Surfaced during #040 smoke (2026-05-29). The picker currently uses a 2-col × 3-row row-major grid; with 1-2 active party members, ArrowUp/Down have nowhere to go and the picker feels like it only responds to ArrowLeft/Right.
-  - Refactor to mirror `CharacterMenuScreen`'s column-major 2-row layout (ceil(N/2) cols × 2 rows). Up/Down moves rows, Left/Right hops cols. Keep the LEFT-from-col-0 → CANCEL toggle.
-  - File: `packages/viewer/src/components/PartyMemberPicker.tsx` (+ `compose-party-member-picker-frame.ts` for the new cell positions). Re-RE the engine's actual picker geometry before changing — the wbase finding says 2x3 but the engine UX may differ in practice; verify against a fixture.
+- #067 [open] — AddPartyPage omits wfont4 in its castle-scene composite
+  - `AddPartyPage.tsx` calls `composeCastleFrame(...)` with only 12 args (missing the 13th, `wfont4`), so equipment glyphs in the party-panel portraits behind the ADD picker render wrong. Surfaced 2026-06-01 while fixing the same omission in `PartyMemberPicker.tsx` (the REVIEW/DISMISS picker fix) — there the browser e2e caught it via a 204px diff. `CastleScreen.tsx` and the fixed `PartyMemberPicker.tsx` both load + pass `wfont4`; AddPartyPage should too.
+  - Fix is a 1-line analog (add wfont4 state + loader + the 13th arg). No pixel-parity gate exists for the ADD picker yet (only a cell fixture), so capture a `add-party-picker` engine fixture + parity test when fixing, or verify by browser e2e like the REVIEW picker.
 
 - #059 [open] — Cursor position reset on ESC/Cancel in EDIT-submenu sub-flows
   - Per #040 final-review and Nate's smoke: ESC from `edit-submenu` returns to `action-menu` with `cursorIdx: 0`; N in `profession-confirm` returns to `profession-picker` with `cursorIdx: 0`. The user loses their selected position.
