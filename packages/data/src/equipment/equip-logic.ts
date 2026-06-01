@@ -146,3 +146,106 @@ export function computeAc(member: Character, scenarioDb: ScenarioDb): AcResult {
   }
   return { derivedAc: base, bodyAc };
 }
+
+/** Attribute keys in code-order (Phase-3 grant codes 1..8 → index code−1). */
+const ATTRIBUTE_KEYS = ['str', 'int', 'pie', 'vit', 'dex', 'spd', 'per', 'kar'] as const;
+const ATTRIBUTE_CAP = 0x14;
+const RESIST_FLOOR = 4;
+
+/**
+ * Phase-3 special equip-granted bumps, keyed on the grant code at item record
+ * byte 0x44. Applied per selected (equipped) inventory item.
+ *
+ * MEDIUM-confidence, unexercised by stock gear (stock fighter gear has grant
+ * code 0 = no-op) — see wpcvw-equip-internals.json#phase3-special-grant-table;
+ * flagged for live verification.
+ *
+ * Codes:
+ *   1..8  → bump attributes[code−1] (STR..KAR), capped at 0x14.
+ *   9     → raise a resist/save floor to 4 (engine +0x4591). No schema field; no-op here.
+ *   10    → raise a resist/save floor to 4 (engine +0x4592). No schema field; no-op here.
+ *   11    → CURE/CLEANSE: clear all conditions (10-byte condition array) + clear dead/paralyzed.
+ *   12    → XP/value adjustment: subtract 365 from xp (clamped ≥ 0).
+ *   13    → permanent HP boost rng(d6) [0..5] + 2 → +2..7 to hpMax and hpCurrent.
+ *           Requires `rng` (returns 0..5); a no-op when rng is absent.
+ */
+export function applyPhase3Grants(
+  member: Character,
+  selections: ReadonlyArray<number | null>,
+  scenarioDb: ScenarioDb,
+  rng?: () => number,
+): void {
+  const inv = member.inventory ?? [];
+  for (const invIdx of selections) {
+    if (invIdx == null) continue;
+    const it = inv[invIdx];
+    if (!it || it.itemId <= 0) continue;
+    const code = scenarioDb.items[it.itemId]?.bytes[0x44] ?? 0;
+    if (code <= 0) continue;
+    if (code <= 8) {
+      const key = ATTRIBUTE_KEYS[code - 1];
+      if (key) member.attributes[key] = Math.min((member.attributes[key] ?? 0) + 1, ATTRIBUTE_CAP);
+      continue;
+    }
+    switch (code) {
+      case 9: // resist/save floor (+0x4591) — no schema field; no-op.
+      case 10: // resist/save floor (+0x4592) — no schema field; no-op.
+        break;
+      case 11: // CURE/CLEANSE-ALL: clear all conditions.
+        if (member.conditions) member.conditions = member.conditions.map(() => 0);
+        member.dead = false;
+        member.paralyzed = false;
+        break;
+      case 12: // XP/value adjustment: subtract 365.
+        if (member.xp != null) member.xp = Math.max(member.xp - 365, 0);
+        break;
+      case 13: // permanent HP boost: rng(d6)[0..5] + 2.
+        if (rng) {
+          const boost = rng() + 2;
+          if (member.hpMax != null) member.hpMax += boost;
+          if (member.hpCurrent != null) member.hpCurrent += boost;
+        }
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+/**
+ * Full re-equip commit: Phase-1 reset, apply per-slot selections, recompute AC,
+ * apply Phase-3 grants. Immutable — returns a clone, never mutates `member`.
+ * RE: wpcvw-equip-action.json #equip-write-mutation +
+ * #equip-screen-is-reequip-wizard; wpcvw-equip-internals.json
+ * #bit0-equipped-vs-cursed-overload-and-persistence + #phase3-special-grant-table.
+ *
+ * Phase-1: equipment ← [0xff × 8]; every inventory item `flags &= 0xfe`
+ *          (clear bit0 = equipped/cursed-low; PRESERVE bit1 0x02 = genuine curse).
+ * Apply:   for each non-null selections[bodySlot] (an inventory index):
+ *          equipment[bodySlot] = invIdx; that item `flags |= 0x01`.
+ * AC:      recompute via computeAc → derivedAc + bodyAc.
+ * Phase-3: applyPhase3Grants (see helper; MEDIUM-confidence, unexercised by stock gear).
+ */
+export function applyEquipSelections(
+  member: Character,
+  selections: ReadonlyArray<number | null>,
+  scenarioDb: ScenarioDb,
+  rng?: () => number,
+): Character {
+  const m: Character = structuredClone(member);
+  const inv = m.inventory ?? [];
+  m.equipment = Array(BODY_SLOT_COUNT).fill(0xff);
+  for (const it of inv) it.flags &= 0xfe; // Phase-1: clear bit0, keep bit1.
+  for (let bodySlot = 0; bodySlot < BODY_SLOT_COUNT; bodySlot++) {
+    const invIdx = selections[bodySlot];
+    if (invIdx == null) continue;
+    m.equipment[bodySlot] = invIdx;
+    const it = inv[invIdx];
+    if (it) it.flags |= 0x01;
+  }
+  const ac = computeAc(m, scenarioDb);
+  m.derivedAc = ac.derivedAc;
+  m.bodyAc = ac.bodyAc;
+  applyPhase3Grants(m, selections, scenarioDb, rng);
+  return m;
+}

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bodySlotForItem, bitTest, itemEligible, equipCandidates, computeAc, computeBaseAc } from '../../src/equipment/equip-logic.js';
+import { bodySlotForItem, bitTest, itemEligible, equipCandidates, computeAc, computeBaseAc, applyEquipSelections } from '../../src/equipment/equip-logic.js';
 import { ScenarioDbSchema, type ScenarioDb, type Character } from '../../src/index.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..'); // repo root
@@ -121,5 +121,34 @@ describe('computeAc', () => {
     expect(computeBaseAc({ ...thesus(), attributes: { ...thesus().attributes, spd: 16 } })).toBe(9);
     expect(computeBaseAc({ ...thesus(), attributes: { ...thesus().attributes, spd: 18 } })).toBe(8);
     expect(computeBaseAc({ ...thesus(), race: 5 })).toBe(8);
+  });
+});
+
+describe('applyEquipSelections', () => {
+  it('applies selections to the equipment array + sets equipped bit0', () => {
+    const m = thesus(); const db = realScenarioDb();
+    const sel = [0, 4, null, null, 1, 2, null, 3]; // weapon, shield(off-hand), chest, legs, feet
+    const out = applyEquipSelections(m, sel, db);
+    expect(out.equipment).toEqual([0, 4, 0xff, 0xff, 1, 2, 0xff, 3]);
+    expect(out.inventory![0]!.flags & 0x01).toBe(1);  // LONGSWORD equipped (slot 0)
+    expect(out.inventory![3]!.flags & 0x01).toBe(1);  // SANDALS equipped (slot 7 → inv idx 3)
+    expect(out.inventory![5]!.flags & 0x01).toBe(0);  // unselected inv idx 5 → not equipped
+  });
+  it('Phase-1 clears equipped bit0 but PRESERVES a genuine curse bit1', () => {
+    const m = thesus(); m.inventory![0]!.flags = 0x03; const db = realScenarioDb(); // bit0+bit1 set
+    const out = applyEquipSelections(m, emptySelections(), db);
+    expect(out.inventory![0]!.flags & 0x02).toBe(0x02); // curse preserved
+    expect(out.inventory![0]!.flags & 0x01).toBe(0);    // equipped cleared (nothing selected)
+  });
+  it('recomputes AC (cuirass in chest lowers bodyAc)', () => {
+    const m = thesus(); const db = realScenarioDb();
+    const out = applyEquipSelections(m, [null,null,null,null,1,null,null,null], db);
+    expect(out.bodyAc![3]).toBe(10 - db.items[135]!.bytes[0x46]!); // chest slot dropped
+    expect(out.derivedAc).toBe(10);
+  });
+  it('does not mutate the input member', () => {
+    const m = thesus(); const before = JSON.stringify(m);
+    applyEquipSelections(m, [0,null,null,null,null,null,null,null], realScenarioDb());
+    expect(JSON.stringify(m)).toBe(before);
   });
 });
