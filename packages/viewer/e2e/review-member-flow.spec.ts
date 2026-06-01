@@ -414,3 +414,60 @@ test('ASSAY flow mounted-canvas matches assay-picker + assay-longsword', async (
   await waitForNonBlankCanvas(page, 'canvas', 500, 10_000);
   await expectCanvasMatchesFixture(page, 'review-member-view');
 });
+
+// ---------------------------------------------------------------------------
+// Mounted-app pixel parity for the read-only SKILL viewer.
+//
+// Drives the REAL CharacterViewPage's SKILL flow against the committed engine
+// fixtures skill-viewer-{weaponry,physical,academia}. Gates the MOUNTED wiring
+// (skillViewerRows visibility, skillName resolution, dynamic skillTabEntries,
+// hasPersonalSkills gating) against engine ground truth.
+//
+// Action menu (3-member party, EDIT off): 7 entries
+//   [EQUIP,SPELL,ASSAY,SWAG,SKILL,REVIEW,EXIT] — column-major 2-row.
+// EXIT = idx 6. ArrowLeft (idx>=2 ? idx-2) → 4 = SKILL. Enter → viewer (WEAPONRY).
+//
+// Tab nav: the viewer opens on WEAPONRY (cat 0), cursor on the first picker
+// entry (PHYSICAL). The reducer resets the cursor to 0 on a category switch, so
+// to land on the cursor positions the physical/academia fixtures captured we
+// drive an extra arrow:
+//   WEAPONRY (cat0, cursor0=PHYSICAL)
+//     → Enter → PHYSICAL (cat1, cursor0=WEAPONRY) → ArrowDown → cursor1=ACADEMIA  [= physical fixture]
+//     → Enter → ACADEMIA (cat3, cursor0=WEAPONRY) → ArrowRight → cursor2=EXIT      [= academia fixture]
+//     → Enter (EXIT) → back to the action menu.
+// THESUS WEAPONRY skills: SWORD(slot1)=10, SHIELD(slot8)=2 — must match the
+// fixtures (rendered with those values). See screen-parity.test.ts renderSkillViewer.
+// ---------------------------------------------------------------------------
+test('SKILL viewer mounted-canvas matches engine fixtures (3 categories + exit)', async ({ page }) => {
+  const skills = new Array(30).fill(0) as number[];
+  skills[1] = 10; // SWORD
+  skills[8] = 2;  // SHIELD
+  const skillMembers = [{ ...VIEW_THESUS, skills }, VIEW_MEMBERS[1]!, VIEW_MEMBERS[2]!];
+
+  await page.addInitScript((members) => {
+    window.localStorage.setItem(
+      'wiz6:active-party',
+      JSON.stringify({ schemaVersion: 1, members }),
+    );
+  }, skillMembers);
+
+  await page.goto('/castle/review-member/0');
+  await waitForNonBlankCanvas(page, 'canvas', 500, 20_000);
+
+  // Action menu, cursor on EXIT (idx 6). ArrowLeft → SKILL (idx 4). Enter → viewer.
+  await pressKeys(page, ['ArrowLeft', 'Enter']);
+  await expectCanvasMatchesFixture(page, 'skill-viewer-weaponry');
+
+  // → PHYSICAL view, cursor driven to ACADEMIA (matches the physical fixture).
+  await pressKeys(page, ['Enter', 'ArrowDown']);
+  await expectCanvasMatchesFixture(page, 'skill-viewer-physical');
+
+  // → ACADEMIA view, cursor driven to EXIT (matches the academia fixture).
+  await pressKeys(page, ['Enter', 'ArrowRight']);
+  await expectCanvasMatchesFixture(page, 'skill-viewer-academia');
+
+  // Enter on EXIT → back to the action menu (read-only: party unchanged).
+  await pressKeys(page, ['Enter']);
+  await page.waitForTimeout(200);
+  await expectCanvasMatchesFixture(page, 'review-member-view');
+});
