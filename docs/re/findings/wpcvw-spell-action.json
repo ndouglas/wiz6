@@ -1,0 +1,143 @@
+{
+  "topic": "wpcvw-spell-action",
+  "subagent_run": "2026-06-01T00:00:00Z",
+  "binaries": ["wpcvw.ovr"],
+  "summary": "Full static RE of the wpcvw character-view SPELL action ('cast spell out of combat' from the character sheet, main-menu index 1, handler file 0x6a29). The handler calls FUN_416d (file 0x416d, now named wpcvw_view_spell_action) with 4 args (partyRowWin, mainPanelWin, slot, MODE). MODE is the mystery [bp-0x26] arg from prior pass: it is a CAST-vs-BROWSE flag. MODE==0 (camp 4fce==4 and combat 4fce==0xd contexts) => OPEN SPELLBOOK READ-ONLY, no cast, no SP/HP change. MODE!=0 (dungeon 4fce==5 / default) => CAST FOR REAL: pick spell, deduct mana + HP, apply effect. The picker is wpcvw_show_spellbook @ 0x32a6 — a TWO-LEVEL school-grid (3x2 of 6 schools) -> spell-sublist picker, the wpcvw-local sibling of the creation picker (wpcmk 0x28d4) and the dungeon/combat pickers (wpops 0x1ee6 / wdopt 0x2699). It returns a packed value: chosen spell-table index in *0x578e, power-level in *0x578a. FUN_416d then: (1) splits the encoded value (idiv 0x100 -> power high, idx low), (2) deducts MANA = spell.cost(+0xe0) * power from char.mana_by_school[spell.school(+0xde)] at record +0x4410, (3) deducts an HP/fatigue overcast cost = power + spell.level(+0xdf)-derived from record +0x4404 with negative-clamp-to-0 that on collapse sets a knockout status byte +0x450c = 6+rng(6), (4) dispatches to one of 18 out-of-combat spell-effect handlers via the jumptable dispatcher at 0x25d8 (key table file 0x2b54, 18 spell IDs; handler ptrs follow). The 18 castable-out-of-combat spells: STAMINA, CURE PARALYSIS, CURE POISON, LEVITATE, DIRECTION, ARMORPLATE, CURE STONE, CURE LESSER CND, DETECT SECRET, IDENTIFY, SANE MIND, HEAL WOUNDS, ENCHANTED BLADE, MAGIC SCREEN, REMOVE CURSE, RESURRECTION, HELPFOOD, MAGICFOOD. Effects mutate the TARGET character record (HP +0x4400/cap +0x4402, condition counters +0x450c..+0x450f, poison +0x458c, VIT +0x4517, status +0x4589/+0x450c, age +0x440e) or set party-wide combat-buff globals (ARMORPLATE -> *0x4ecc/+0x4ece; ENCHANTED BLADE -> *0x4ed0/+0x4ed2; MAGIC SCREEN -> *0x4ed4/+0x4ed6; etc). RELATIONSHIP TO DUNGEON CAST (state 0x13 / wdopt 0x39cc): SIBLINGS sharing the same DATA MODEL (same 82-entry spell table at DGROUP+0xde stride 6; same mana=cost*level deduction; same HP-overcast-with-knockout cost; same spell roster) but DIFFERENT code — wpcvw has its own picker (0x32a6) and its own 18-entry effect dispatcher (0x25d8) embedded in the overlay; wdopt has its own picker (0x2699) + 20-entry dispatcher (0x1af0/0x64f6). They are NOT the same machinery and do not call each other. SCOPE: SPELL naturally decomposes into 3 seams — (A) the two-level spellbook picker widget [HIGH on structure, needs-live on exact known-spell enumeration + cost-bar render], (B) the cost/cast core in FUN_416d [HIGH], (C) the 18 effect handlers [HIGH on dispatch + ~6 decoded handlers, needs-more-RE on the remaining ~12 bodies].",
+  "method": "(a) ndisasm -b 16 of original/wpcvw.ovr at file offsets (origin 0 via -k 0,OFF) to read FUN_416d (0x416d-0x42b2), the SPELL handler stub (0x6a29), the effect dispatcher (0x25d8) + its scasw jumptable (0x2b9e), and individual effect handlers (0x2910 HEAL, 0x296a RESURRECTION, 0x2737 CURE-PARALYSIS, 0x277e CURE-POISON, 0x2651 ARMORPLATE). (b) PyGhidra DecompInterface (tools/ghidra/scripts/decompile.py) on wpcvw_show_spellbook (0x32a6) and inventory_transfer_to_party_member==effect-dispatcher (0x25d8). (c) Applied the wpcvw runtime delta 0x4564 to translate the scasw key table from runtime CS:0x70b8 to file 0x2b54 — that turned garbage 'keys' (0xebfe...) into clean spell IDs (0x0a,0x0f,0x1a,...,0x51). (d) Resolved the 18 spell IDs to names via extracted/messages/msg.json indexedMessages id = 0xFA0 + spell_idx (per spell-name labeling scheme in wpcmk-spell-names.json). (e) Cross-referenced wpcmk-spell-picker (spell-picker-eligibility.json), the 82-entry spell table layout DGROUP+0xde stride6 (+0=school,+1=level,+2=cost), and wdopt-naming-pass.json (state-0x13 dungeon-cast sibling) for the mana/HP cost formulas and roster comparison.",
+  "wpcvw_runtime_delta_used": "0x4564 (file_offset = CS_offset - 0x4564); confirmed prior in wpcvw-character-view-ux.json and used here to locate the spell key/handler table at file 0x2b54 from the runtime scasw base CS:0x70b8.",
+  "findings": [
+    {
+      "id": "fun-416d-role-and-mode-arg",
+      "claim": "FUN_416d @ wpcvw file 0x416d is the view-SPELL action ('cast spell out of combat'), call it wpcvw_view_spell_action. cdecl-near, 4 args: [bp+4]=partyRow window, [bp+6]=mainPanel window, [bp+8]=slot (target/caster char index), [bp+0xa]=MODE. **The mystery [bp-0x26] arg from the prior pass is MODE: a CAST-vs-BROWSE flag.** Body: (1) clears mainPanel ([bp+6]) fill=0x20 attr=3, sets cursor (1,8), prints msg 0x2bd, commits. (2) `cmp [bp+0xa],0` @0x41b8 — if MODE==0: call wpcvw_show_spellbook([bp+4],[bp+6],slot, 0) (browse mode), set *0x553c=0xffff, RETURN with NO cast (no SP/HP change, no effect). if MODE!=0: call wpcvw_show_spellbook(...,1) (cast mode); if it returns 0xffff (cancel) return; else the returned spell value is in *0x578e (id) / *0x578a (power) and FUN_416d proceeds to deduct cost + apply effect (see fun-416d-cost-and-cast).",
+      "category": "spell_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x416d"},
+        "type": "disasm",
+        "details": "Handler stub @0x6a29: push [bp-0x26]; push [bp+4](slot); push [bp-4](mainPanel); push [bp-2](partyRow); call 0x416d (E8 35D7 -> 0x6a38+0xD735 mod 0x10000 = 0x416d, wpcvw-LOCAL not a thunk); add sp,8. In callee, args reverse to [bp+4]=partyRow [bp+6]=mainPanel [bp+8]=slot [bp+0xa]=MODE. 0x416d-0x418e clear+refresh [bp+6]; 0x418f-0x41b1 cursor(1,8)+msg 0x2bd+commit. 0x41b8 `cmp word [bp+0xa],0`; jnz 0x41da. 0x41be branch (MODE==0): push 0; push [bp+8]; push [bp+6]; push [bp+4]; call 0x32a6; *0x553c:=0xffff; jmp end 0x42af. 0x41da branch (MODE!=0): push 1 (mode); push [bp+8]; push [bp+6]; push [bp+4]; call 0x32a6; mov [bp-2],ax; cmp ax,0xffff; jz end. The MODE source: per wpcvw-character-view-ux.json view-context masks, camp(4fce==4) and combat(4fce==0xd) set [bp-0x26]:=0; default/dungeon(4fce==5) leaves [bp-0x26]:=1."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "mode-meaning-browse-vs-cast",
+      "claim": "MODE (param_4 to wpcvw_show_spellbook) is read at 0x3958 inside the picker AFTER a spell is highlighted+confirmed: `cmp word [bp+0xa],0`. MODE==0 => destroy both picker windows and RETURN the chosen value immediately (no cast-detail/power-bar window) — a read-only 'review my spellbook' browse. MODE!=0 => fall through into the cast-detail sub-flow (call 0x2c3b, render the interactive power/cost bar window via the case-1/case-2 adjust handlers, etc.) and return the packed (power<<8 | idx)-style value for the caller to actually cast. **This is why the SPELL option behaves differently from camp/combat (just opens the book) vs the dungeon (actually casts) — confirmed by the MODE plumbing matching the context masks.** NEEDS-LIVE: confirm in DOSBox that camp's VIEW PC > SPELL is genuinely read-only (no SP spent).",
+      "category": "spell_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x3958"},
+        "type": "disasm",
+        "details": "0x3958 `cmp word [bp+0xa],0`; jnz 0x3984. 0x395e (MODE==0): *0x553c:=0xffff; ui_window_destroy([bp-2]); ui_window_destroy([bp-4]); mov ax,[bp-0x34](chosen value); jmp 0x36da (return). 0x3984 (MODE!=0): call 0x2c3b on [bp-4], then the cast-detail render + interactive cost-bar loop. Cross-ref: FUN_416d's own MODE branch at 0x41b8 also gates whether the cost-deduct/effect-apply block runs at all, so MODE==0 is double-guarded as no-op.",
+        "comparator_note": "MODE is a 0-vs-nonzero test (jnz), not a signed compare; unambiguous."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "show-spellbook-two-level-picker",
+      "claim": "wpcvw_show_spellbook @ wpcvw file 0x32a6 (Ghidra-named) is the out-of-combat spell picker: a TWO-LEVEL widget structurally identical to the creation picker (wpcmk 0x28d4) and the dungeon/combat pickers. Level 1 = a 3-column x 2-row SCHOOL grid (cursor `local_42`, cell index 0..5 = school 0..5 Fire/Water/Air/Earth/Mental/Divine; render col=idx%3*2+0xe, row=idx/3*10+1; sentinel local_42==0xffff = top 'cancel/header' cell). Level 2 = after ENTER on a non-empty school, a SPELL SUBLIST of that school's known spells, with a cost/power bar. Two windows: (a) full-screen-ish at x=0x14,y=4,w=0x14,h=0x10,attr=0x16 (local_4); (b) inner list at x=0x15,y=7,w=0x13,h=8,attr=0x17 (local_6). Nav keys (codes 1=UP/-3,2=LEFT/-1,3=DOWN/+3,4=RIGHT/+1, mod-3 clamped; 5=ENTER) match the creation picker's key dispatch. Spell names rendered as msg id = spell_idx + 4000 (0xFA0). Returns 0xffff on cancel; otherwise an encoded chosen value (spell idx + power) consumed via globals *0x578e (id) and *0x578a (power).",
+      "category": "spell_picker",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x32a6"},
+        "type": "decompile",
+        "details": "Ghidra decompile: local_4=ui_window_create(0x14,4,0x14,0x10,0x16); local_6=ui_window_create(0x15,7,0x13,8,...,0x17); ui_draw_spellbook_borders/sub_borders; per-school grid loop (6 cells) printing names via msg 4000+idx; ENTER drill-down sets local_42 to the school cell then iterates the school's spell sublist; cost/known indicators rendered; *0x578e:=chosen id @0x3dd4; *0x578a:=power. Two-level nav cross-confirmed against spell-picker-eligibility.json nav-two-level-mode-and-cost (same 3x2 grid + sublist + cost-byte shape). The decompile's lower jumptable (cases 0..3) is the cost-bar adjust handler and is partly garbled by Ghidra — structure is clear, exact byte-twiddle in case 3 is unreliable.",
+        "comparator_note": "Within-row/between-row key direction mirrors the creation picker; exact arrow labels are the kbd-filter's concern (codes 1-4 dispatched as documented)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun-416d-cost-and-cast",
+      "claim": "When MODE!=0 and a spell is chosen, FUN_416d (0x41fe-0x42ac) does: (1) split the picker result `[bp-2]` via `cwd; idiv 0x100` -> [bp-6]=power (high byte, the selected power-level), [bp-4]=spell_idx (low byte). (2) MANA DEDUCT: bx=spell_idx*6; cost=al=[bx+0xe0] (spell-table b2/cost byte); ax = cost * [bp-6](power); then bx=slot*0x1b0 + ([bx+0xde]==school)*..; `sub [bx+0x4410],ax` — deducts from the per-school mana pool at record+0x4410 (mana_by_school[school]). (3) HP/FATIGUE OVERCAST DEDUCT: a roll (call 0xc47e == rng) + [bx+0xdf](spell level) + [bp-6](power); `sub [bx+0x4404],ax`; if result < 0: clamp `[bx+0x4404]:=0` AND set knockout status `[bx+0x450c] := 6 + rng(6)` (the same collapse mechanic wdopt uses). (4) EFFECT: push slot, [bp-4], [bp-6], *0x578e(spell id), [bp+4], [bp+6]; call 0x25d8 (effect dispatcher). **The affordability model is CAST-AND-PAY, not block: there is no pre-check that the caster can afford it — the picker shows cost but the deduction is unconditional and overcast can knock the caster out.**",
+      "category": "spell_cast",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x41fe"},
+        "type": "disasm",
+        "details": "0x41fe *0x553c:=0xffff. 0x41fe-0x4207: mov cx,0x100; cwd; idiv cx; [bp-6]:=ax(power); [bp-4]:=dx(idx). 0x420e-0x4216: bx from dx; al=[bx+0xe0](cost). 0x421c imul [bp-6]; push ax. 0x4220 ax=0x1b0; imul [bp+8](slot)->cx; 0x4228 al=[bx+0xde](school); add cx,school-scaled; bx=cx; 0x423b `sub [bx+0x4410],ax` (mana_by_school). 0x423f push [bp-6]; call 0xc47e(rng); 0x4254 al=[bx+0xdf](level); add ax,cx; add ax,[bp-6]; 0x4263 bx=0x1b0*slot; 0x426c `sub [bx+0x4404],ax`; 0x4270 cmp [bx+0x4404],0; jnl 0x4296; 0x4277 [bx+0x4404]:=0; 0x427d call 0xc47e; add ax,6; 0x4292 [bx+0x450c]:=al (knockout status 6+rng). 0x4296-0x42ac: push slot,[bp-4],[bp-6],*0x578e,[bp+4],[bp+6]; call 0x25d8. Cross-ref wdopt-naming-pass.json fn-state-13-handler: identical mana=cost*level and HP=(rng+level+curlevel) clamp-to-0 + status:=6+rng(6).",
+        "comparator_note": "HP-clamp comparator is `cmp [bx+0x4404],0 / jnl 0x4296` (skip clamp if HP>=0); standard, high confidence."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "effect-dispatcher-and-table",
+      "claim": "The out-of-combat spell-effect dispatcher is at wpcvw file 0x25d8 (Ghidra mis-named inventory_transfer_to_party_member). Args: [bp+4]=mainPanel, [bp+6]=spell_id (the *0x578e value, the dispatch KEY), [bp+8]=power, [bp+0xa]=slot. It scasw-searches a key table for the spell id, then jmp's to the matching handler. **Key table at file 0x2b54** (runtime CS:0x70b8 - delta 0x4564), 18 entries: spell IDs 0x0a,0x0f,0x1a,0x1e,0x26,0x29,0x2e,0x33,0x35,0x36,0x39,0x40,0x44,0x46,0x49,0x4d,0x50,0x51. Parallel handler-pointer table immediately follows (di+0x22 after match). Handler file offsets (delta-translated): 0x26da,0x2737,0x277e,0x2686,0x2698,0x2651,0x27e8,0x28a4,0x25e6,0x2ac7,0x285d,0x2910,0x261e,0x26a5,0x2b0b,0x296a,0x29c6,0x2a5e. Names (msg 4000+id): STAMINA, CURE PARALYSIS, CURE POISON, LEVITATE, DIRECTION, ARMORPLATE, CURE STONE, CURE LESSER CND, DETECT SECRET, IDENTIFY, SANE MIND, HEAL WOUNDS, ENCHANTED BLADE, MAGIC SCREEN, REMOVE CURSE, RESURRECTION, HELPFOOD, MAGICFOOD. These are the 18 spells castable OUT OF COMBAT from the character view; spell IDs NOT in this table fall through the scasw (no handler) -> no effect (the in-combat-only / offensive spells).",
+      "category": "spell_effects",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x2b9e"},
+        "type": "disasm",
+        "details": "Dispatch @0x2b9e: push es; es:=cs; di:=0x70b8; cx:=0x13; repne scasw (search ax==spell_id); cx:=[es:di+0x22]; jmp cx (FF E1 at 0x2bb3). Delta-translate 0x70b8-0x4564=file 0x2b54. python read of 18 u16 keys at 0x2b54 -> [0x0a,0x0f,0x1a,0x1e,0x26,0x29,0x2e,0x33,0x35,0x36,0x39,0x40,0x44,0x46,0x49,0x4d,0x50,0x51]; handler table at 0x2b54+0x24 -> runtime CS values translated to file offsets above. Names via extracted/messages/msg.json indexedMessages[0xFA0+id]. The 'castable out of combat' membership = presence in this 18-entry key table (the engine's filter for which known spells can be cast from the view).",
+        "comparator_note": "scasw with cx=0x13=19 nominally scans 19 words but the 19th word is the first handler pointer (tables abut); 18 are real spell IDs."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "castable-filter-known-and-in-table",
+      "claim": "Two-stage castability: (Stage A, PICKER) the spellbook picker only lists spells the character KNOWS — spell knowledge is stored as per-byte values in the character record (NO bitmaps; see character-record-spells-and-gaps.json), enumerated by the spell-list builder that feeds the picker's school sublists (render loop near wpcvw file 0x982f, cross-ref). (Stage B, CAST) the effect dispatcher 0x25d8 only has handlers for the 18 IDs in the file-0x2b54 table; any other known spell selected would deduct cost but produce no effect — so the engine's real 'castable out of combat' set is the INTERSECTION of (known) AND (in the 18-entry effect table). NEEDS-MORE-RE: the exact known-spell enumeration (which record bytes the picker reads to build each school's sublist) was not fully traced this pass — the picker's local_34[] list is filled from a per-school known-spell source that should be decoded to confirm the picker hides non-castable-here spells vs lists them and fizzles.",
+      "category": "spell_eligibility",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x32a6"},
+        "type": "decompile + cross_reference",
+        "details": "show_spellbook builds local_34[] per-school spell-index list and renders names msg 4000+idx; the cost gate at the sublist (compares record+0x4410 mana_by_school vs cost, df85 highlight if affordable, c041 if not) colors un-affordable spells but (per fun-416d-cost-and-cast) does NOT block the cast. character-record-spells-and-gaps.json no-spell-bitmaps: spell knowledge is per-byte (0=unknown, nonzero=rank), read individually at wpcvw 0x982f. Whether the picker also filters to the 18-castable-here set BEFORE listing, or lists all known + relies on the dispatcher to no-op, is the open question.",
+        "comparator_note": "n/a"
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "effect-heal-wounds",
+      "claim": "HEAL WOUNDS (id 0x40) handler @ file 0x2910: rolls dice via 0x2530(slot,7,slot) -> 0x2501 (rng combine), then `add [bx+0x4400],ax` (current HP) with bx=slot*0x1b0; caps at max HP [bx+0x4402] (`cmp/jng` then clamp). Mutates: char.cur_hp (+0x4400), bounded by char.max_hp (+0x4402).",
+      "category": "spell_effects",
+      "evidence": {"binary": "wpcvw.ovr", "address": {"space": "wpcvw.ovr", "offset": "0x2910"}, "type": "disasm", "details": "0x2910 push slot; push 7; push slot; call 0x2530; movsw x2; call 0x2501 -> ax=roll; 0x293b ax=0x1b0*[bp+0xa](slot); bx=ax; 0x2944 `add [bx+0x4400],ax`; 0x294c cmp [bx+0x4400],[bx+0x4402]; jng; clamp to [bx+0x4402]."},
+      "confidence": "high"
+    },
+    {
+      "id": "effect-resurrection",
+      "claim": "RESURRECTION (id 0x4d) handler @ file 0x296a: requires char status [bx+0x4589]==3 (dead). VIT-gated survival: compares (level-derived) against (0x12 - VIT[bx+0x4517]); if survives, DECREMENT VIT [bx+0x4517] (resurrection cost!), clear status [bx+0x4589]:=0, set cur_hp [bx+0x4400]:=1, set SP/mana [bx+0x4404]:= max_hp[bx+0x4406]/10, INCREMENT age [bx+0x440e]. Mutates: status, VIT (permanent loss), HP, SP, age.",
+      "category": "spell_effects",
+      "evidence": {"binary": "wpcvw.ovr", "address": {"space": "wpcvw.ovr", "offset": "0x296a"}, "type": "disasm", "details": "0x2972 cmp byte [bx+0x4589],3; jnz fail. 0x2983 al=[bx+0x4517](VIT); cx=0x12-VIT; cmp survival; jng fail. 0x2995 dec byte [bx+0x4517](VIT); [bx+0x4589]:=0; [bx+0x4400]:=1; ax=[bx+0x4406]/10 -> [bx+0x4404]; inc word [bx+0x440e](age)."},
+      "confidence": "high"
+    },
+    {
+      "id": "effect-cure-paralysis",
+      "claim": "CURE PARALYSIS (id 0x0f) handler @ file 0x2737: reduces condition counter [bx+0x450d] by a power-scaled amount (subtracts power*9-ish from the counter), floored at 0, then re-renders. Mutates: condition byte +0x450d.",
+      "category": "spell_effects",
+      "evidence": {"binary": "wpcvw.ovr", "address": {"space": "wpcvw.ovr", "offset": "0x2737"}, "type": "disasm", "details": "0x273f al=[bx+0x450d]; cx = power*9 (shl 3 + power); sub al-cx -> [bp-2]; if <0 clamp 0; [bx+0x450d]:=al; then re-render call 0x255f. bx=slot*0x1b0."},
+      "confidence": "high"
+    },
+    {
+      "id": "effect-cure-poison",
+      "claim": "CURE POISON (id 0x1a) handler @ file 0x277e: reduces poison level [bx+0x458c] by power (floored 0; if drops to <=0 also clears condition byte [bx+0x450f]:=0), then further reduces [bx+0x450f]-related counter. Mutates: poison level +0x458c, condition +0x450f.",
+      "category": "spell_effects",
+      "evidence": {"binary": "wpcvw.ovr", "address": {"space": "wpcvw.ovr", "offset": "0x277e"}, "type": "disasm", "details": "0x2786 al=[bx+0x458c](poison); sub power; if <=0 clamp 0 + [bx+0x450f]:=0; store [bx+0x458c]. Then 0x27a8 al=[bx+0x450f]; sub (power*4-ish); clamp; store."},
+      "confidence": "high"
+    },
+    {
+      "id": "effect-armorplate-party-buff",
+      "claim": "ARMORPLATE (id 0x29) handler @ file 0x2651: does NOT touch the character record — it writes to PARTY-WIDE combat-buff GLOBALS *0x4ecc (duration accumulator, += power-scaled) and *0x4ece (magnitude via 0x2588). This is a temporary AC buff applied at the party/combat-state level, not a persisted character field. Other buff-type spells follow the same pattern at adjacent globals: ENCHANTED BLADE (id 0x44) -> *0x4ed0/+0x4ed2 (handler 0x261e); HEAL... no; MAGIC SCREEN (id 0x46) -> *0x4ed4/+0x4ed6 (handler 0x26a5 / dispatcher path 0x261e..). These global buff slots at *0x4ecc.. are the out-of-combat-cast precast buffs that carry into the next combat.",
+      "category": "spell_effects",
+      "evidence": {"binary": "wpcvw.ovr", "address": {"space": "wpcvw.ovr", "offset": "0x2651"}, "type": "disasm", "details": "0x2651 ax=power*0x19-ish; `add [0x4ecc],ax`; push 0; push [0x4ece]; push (power-derived); call 0x2588; [0x4ece]:=ax. Mirror blocks: 0x25e6 (id 0x35 DETECT SECRET) +0x4edc; 0x261e (id 0x44 ENCH BLADE) [0x4ed0]/[0x4ed2]; 0x2698 (id 0x26 DIRECTION) ...; pattern = global buff timer+magnitude pair, NOT a record field."},
+      "confidence": "medium"
+    },
+    {
+      "id": "relationship-to-dungeon-cast",
+      "claim": "The wpcvw view-SPELL (FUN_416d) and the dungeon cast-spell path (state 0x13, wdopt_state_13_spell_cast @ wdopt 0x39cc) are SIBLINGS, not the same machinery. SHARED (the DATA MODEL): same 82-entry spell table at DGROUP+0xde stride 6 (+0=school,+1=level,+2=cost); same MANA deduction = cost(+0xe0) * power-level from mana_by_school (record +0x4410); same HP-overcast cost = (rng + level + power) subtracted from record +0x4404 with negative-clamp-to-0 and knockout status := 6+rng(6); overlapping spell roster. DIFFERENT (the CODE): wpcvw has its OWN picker (wpcvw_show_spellbook 0x32a6) embedded in the overlay and its OWN 18-entry scasw effect dispatcher (0x25d8, table 0x2b54); wdopt has its OWN picker (wdopt_spell_school_picker 0x2699, a near-clone of wpops 0x1ee6) and its OWN 20-entry jumptable dispatcher (wdopt 0x1af0, table 0x64f6). Neither calls the other. So out-of-combat casting is implemented in TWO places that share the spell table + cost laws but duplicate the picker + effect logic. wpops (combat, state 0x0c) is the third sibling. NEEDS-LIVE/MORE-RE: confirm whether wpcvw's 18-handler set is a SUBSET of wdopt's 20 (the 2 extra in wdopt are likely DIRECTION/locate or light variants only meaningful in the dungeon).",
+      "category": "cross_overlay",
+      "evidence": {"binary": "wpcvw.ovr", "address": {"space": "wpcvw.ovr", "offset": "0x25d8"}, "type": "cross_reference", "details": "wpcvw cost/cast in fun-416d-cost-and-cast (0x41fe-0x42ac). wdopt per wdopt-naming-pass.json fn-state-13-handler/fn-spell-school-picker/fn-spell-effect-dispatcher: mana=cost*level, HP=(rng+level+curlevel) clamp0 + status:=6+rng(6), picker 0x2699 clone of wpops 0x1ee6, dispatcher 0x1af0 table 0x64f6 (20 entries). The cost/HP laws are byte-identical; the picker/dispatcher code is overlay-local and distinct."},
+      "confidence": "high"
+    },
+    {
+      "id": "scope-assessment",
+      "claim": "SCOPE: SPELL naturally DECOMPOSES into 3 seams for the port. SEAM A — two-level spellbook PICKER widget (wpcvw_show_spellbook 0x32a6): a school-grid(3x2)->spell-sublist picker with cost/known coloring. HIGH on structure (windows, nav keys, msg ids, two-level mode); NEEDS-MORE-RE on the exact known-spell enumeration source bytes and the cost/power-bar interactive sub-window (case 0..3 adjust handler is Ghidra-garbled). This widget is SHARED in spirit with the creation picker (already RE'd, spell-picker-eligibility.json) and the wpops/wdopt pickers — a single reusable component should serve all four. SEAM B — cost/cast CORE (FUN_416d cost block): HIGH and small (split packed value, mana=cost*power, HP overcast clamp+knockout, dispatch). Identical to wdopt's core — port once, parameterize by picker+dispatcher. SEAM C — the 18 EFFECT handlers (table 0x2b54 -> bodies 0x25e6..0x2b0b): HIGH on dispatch + ~6 decoded bodies (HEAL, RESURRECTION, CURE PARALYSIS, CURE POISON, ARMORPLATE/buff-pattern); NEEDS-MORE-RE on ~12 remaining bodies (STAMINA, LEVITATE, DIRECTION, CURE STONE, CURE LESSER CND, DETECT SECRET, IDENTIFY, SANE MIND, ENCHANTED BLADE, MAGIC SCREEN, REMOVE CURSE, HELPFOOD, MAGICFOOD) — each is short (most 30-120 bytes) and mutates either a character-record condition/status field or a party-wide buff global. RECOMMENDATION: port as 3 components (picker widget shared with creation/wdopt/wpops; cost-core shared with wdopt; per-spell effect table) rather than one monolith.",
+      "category": "scope",
+      "evidence": {"binary": "wpcvw.ovr", "address": {"space": "wpcvw.ovr", "offset": "0x416d"}, "type": "cross_reference", "details": "Decomposition follows the natural call seams: FUN_416d -> (show_spellbook picker) + (cost block) + (0x25d8 effect dispatch -> 18 handlers). Picker/cost are shared with wdopt; effects are wpcvw-local. Confidence per-seam noted inline."},
+      "confidence": "high"
+    }
+  ],
+  "unresolved": [
+    "Known-spell enumeration: which character-record bytes the picker reads to populate each school's sublist (local_34[]) was not fully traced — render loop is near wpcvw 0x982f and reads per-byte spell knowledge (no bitmaps per character-record-spells-and-gaps.json), but the exact source array + whether the picker pre-filters to the 18-castable-here IDs is open. Decode wpcvw 0x982f and the local_34 fill in show_spellbook.",
+    "12 of 18 effect-handler bodies not yet decoded (STAMINA 0x26da, LEVITATE 0x2686, DIRECTION 0x2698, CURE STONE 0x27e8, CURE LESSER CND 0x28a4, DETECT SECRET 0x25e6, IDENTIFY 0x2ac7, SANE MIND 0x285d, ENCHANTED BLADE 0x261e, MAGIC SCREEN 0x26a5, REMOVE CURSE 0x2b0b, HELPFOOD 0x29c6, MAGICFOOD 0x2a5e). Each is short; decode to map exact record/global mutations.",
+    "Whether camp's VIEW PC > SPELL is truly read-only (MODE==0 no-cast) needs a DOSBox confirm — the static plumbing says yes (SP unchanged) but should be eyeballed.",
+    "wpcvw 18-handler set vs wdopt 20-handler set: confirm wpcvw is a subset and identify wdopt's 2 extra (likely dungeon-only locate/light).",
+    "show_spellbook power/cost interactive bar (cast-detail sub-window, MODE!=0): the case-0..3 adjust handler in the 0x32a6 decompile is Ghidra-garbled; the power-level selection mechanic (how *0x578a power is chosen/clamped, the 0x578a:=0x11 init seen at 0x3542) needs a clean disasm pass."
+  ]
+}
