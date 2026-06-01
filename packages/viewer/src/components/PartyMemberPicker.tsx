@@ -116,6 +116,7 @@ export function PartyMemberPicker({
   const [wfont0, setWfont0] = useState<Font | null>(null);
   const [wfont1, setWfont1] = useState<Font4bpp | null>(null);
   const [wfont3, setWfont3] = useState<Font4bpp | null>(null);
+  const [wfont4, setWfont4] = useState<Font4bpp | null>(null);
   const [portraitSets, setPortraitSets] = useState<PortraitSet[]>([]);
 
   // The menu state the engine had when the picker opened: the main-menu grid
@@ -184,6 +185,7 @@ export function PartyMemberPicker({
     loadFont('/fonts/wfont0.json').then((f) => !cancelled && setWfont0(f)).catch(() => {});
     loadFont4bpp('/fonts/wfont1.json').then((f) => !cancelled && setWfont1(f)).catch(() => {});
     loadFont4bpp('/fonts/wfont3.json').then((f) => !cancelled && setWfont3(f)).catch(() => {});
+    loadFont4bpp('/fonts/wfont4.json').then((f) => !cancelled && setWfont4(f)).catch(() => {});
     Promise.all([
       loadPortraitSet('/portraits/wport1.json'),
       loadPortraitSet('/portraits/wport2.json'),
@@ -221,6 +223,7 @@ export function PartyMemberPicker({
       wfont1,
       members,
       portraitSets,
+      wfont4,
     );
 
     const view: PartyMemberPickerView = { title, members, cursor };
@@ -241,6 +244,7 @@ export function PartyMemberPicker({
     wfont3,
     wfont0,
     wfont1,
+    wfont4,
     visible,
     portraitSets,
   ]);

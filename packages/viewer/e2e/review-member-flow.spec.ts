@@ -8,6 +8,8 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { pressKeys, expectCanvasMatchesFixture } from './lib/drive.js';
+import { waitForNonBlankCanvas } from './lib/canvas.js';
 
 const ID_A = '550e8400-e29b-41d4-a716-446655440000';
 const ID_B = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
@@ -64,7 +66,9 @@ test('REVIEW MEMBER picker opens character view + EXIT returns to castle', async
   await page.waitForSelector('canvas', { timeout: 10_000 });
   await page.waitForTimeout(500);
 
-  // Picker cursor on slot 0 (NATHAN). Enter.
+  // Reworked picker starts cursor on EXIT (-1). ArrowDown moves EXIT → slot 0
+  // (NATHAN), then Enter commits that member.
+  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
 
   await page.waitForURL('**/castle/review-member/0', { timeout: 5_000 });
@@ -84,4 +88,87 @@ test('REVIEW MEMBER picker opens character view + EXIT returns to castle', async
   expect(partyJson).not.toBeNull();
   const party = JSON.parse(partyJson!);
   expect(party.members).toHaveLength(2);
+});
+
+// ---------------------------------------------------------------------------
+// Mounted-app pixel parity for the REVIEW WHO? picker.
+//
+// Drives the REAL ReviewMemberPage → PartyMemberPicker against the committed
+// engine fixtures `review-who-exit` (cursor on EXIT, -1) and `review-who-member`
+// (cursor on slot 0). The vitest parity test composes the frame directly; this
+// verifies the MOUNTED canvas renders the same pixels.
+//
+// The 3 injected members MUST match the parity test's MEMBERS exactly (the
+// canvas renders name/portraitIndex/hp/stamina/class, so those must be
+// identical). See tools/parity/party-member-picker-parity.test.ts.
+// ---------------------------------------------------------------------------
+
+/** Mirror of party-member-picker-parity.test.ts `member()` — schema-valid
+ *  ActivePartyMember with the fields that affect the rendered picker frame. */
+function parityMember(
+  idx: number,
+  name: string,
+  portraitIndex: number,
+  hp: number,
+  stamina: number,
+  age: number,
+  race: number,
+  klass: number,
+) {
+  return {
+    id: `00000000-0000-4000-8000-00000000000${idx + 1}`,
+    name,
+    race,
+    class: klass,
+    level: 1,
+    savedOldLevel: 0,
+    xp: 0,
+    gold: 0,
+    conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    dead: false,
+    paralyzed: false,
+    attributes: { str: 10, int: 10, pie: 10, vit: 10, dex: 10, spd: 10, per: 10, kar: 10 },
+    schoolMana: [0, 0, 0, 0, 0, 0],
+    schoolManaMax: [0, 0, 0, 0, 0, 0],
+    skills: new Array(30).fill(0),
+    reaction: 0,
+    sex: 0,
+    portraitSlotId: idx,
+    rosterCharacterId: `00000000-0000-4000-8000-00000000000${idx + 1}`,
+    portraitIndex,
+    hpCurrent: hp,
+    hpMax: hp,
+    staminaCurrent: stamina,
+    staminaMax: stamina,
+    age,
+  };
+}
+
+const PARITY_MEMBERS = [
+  parityMember(0, 'THESUS', 0, 8, 126, 6590, 0, 0),
+  parityMember(1, 'TEMPEST', 22, 9, 123, 7405, 10, 0),
+  parityMember(2, 'LYSANDR', 20, 5, 87, 7265, 8, 3),
+];
+
+test('REVIEW WHO? picker mounted-canvas matches engine fixtures (EXIT + member)', async ({
+  page,
+}) => {
+  // Inject the active party BEFORE navigation, mirroring how gotoCreation seeds
+  // __WIZ6_E2E_STATE__. The store key is plain JSON ({schemaVersion, members}).
+  await page.addInitScript((members) => {
+    window.localStorage.setItem(
+      'wiz6:active-party',
+      JSON.stringify({ schemaVersion: 1, members }),
+    );
+  }, PARITY_MEMBERS);
+
+  await page.goto('/castle/review-member');
+  await waitForNonBlankCanvas(page, 'canvas', 500, 20_000);
+
+  // Cursor starts on EXIT (-1).
+  await expectCanvasMatchesFixture(page, 'review-who-exit');
+
+  // ArrowDown: EXIT (-1) → slot 0 (THESUS highlighted).
+  await pressKeys(page, ['ArrowDown']);
+  await expectCanvasMatchesFixture(page, 'review-who-member');
 });
