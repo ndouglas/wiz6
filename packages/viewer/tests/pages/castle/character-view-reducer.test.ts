@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   reduceCharacterView,
   nextActionCursor,
+  skillTabEntries,
+  SKILL_EXIT,
   type CharacterViewState,
   type CharacterViewEvent,
   type EquipInfo,
@@ -294,5 +296,63 @@ describe('reduceCharacterView — profession-confirm', () => {
     const state: CharacterViewState = { kind: 'profession-confirm', newClassId: 1, cursorYes: true };
     const next = reduceCharacterView(state, { type: 'TYPE', key: 'N' }, baseEnabled);
     expect(next.kind).toBe('profession-picker');
+  });
+});
+
+describe('skillTabEntries (dynamic: available categories minus current, + EXIT)', () => {
+  // No personal skills (THESUS): available = WEAPONRY/PHYSICAL/ACADEMIA.
+  it('WEAPONRY view → [PHYSICAL, ACADEMIA, EXIT] (matches the engine capture)', () => {
+    expect(skillTabEntries(0, false)).toEqual([1, 3, SKILL_EXIT]);
+  });
+  it('PHYSICAL view → [WEAPONRY, ACADEMIA, EXIT]', () => {
+    expect(skillTabEntries(1, false)).toEqual([0, 3, SKILL_EXIT]);
+  });
+  it('ACADEMIA view → [WEAPONRY, PHYSICAL, EXIT]', () => {
+    expect(skillTabEntries(3, false)).toEqual([0, 1, SKILL_EXIT]);
+  });
+  it('with personal skills, PERSONAL appears (WEAPONRY view → [PHYSICAL,PERSONAL,ACADEMIA,EXIT])', () => {
+    expect(skillTabEntries(0, true)).toEqual([1, 2, 3, SKILL_EXIT]);
+  });
+});
+
+describe('reduceCharacterView — SKILL viewer (read-only, dynamic tabs)', () => {
+  const skillMenu: CharacterViewState = {
+    kind: 'action-menu',
+    cursorIdx: 4, // SKILL
+    campEntries: ['EQUIP', 'SPELL', 'ASSAY', 'SWAG', 'SKILL', 'EXIT'],
+  };
+  const noPersonal = { hasPersonalSkills: false };
+
+  it('ENTER on SKILL opens the viewer on WEAPONRY (category 0, cursor 0)', () => {
+    const next = reduceCharacterView(skillMenu, { type: 'ENTER' }, baseEnabled);
+    expect(next).toEqual({ kind: 'skill-viewer', category: 0, cursor: 0 });
+  });
+
+  it('arrows move the entry cursor without changing the displayed category', () => {
+    // WEAPONRY entries [PHYSICAL,ACADEMIA,EXIT] render column-major 2-row:
+    // PHYSICAL(c0r0), ACADEMIA(c0r1), EXIT(c1r0). Down → ACADEMIA (cursor 1).
+    const s: CharacterViewState = { kind: 'skill-viewer', category: 0, cursor: 0 };
+    const next = reduceCharacterView(s, { type: 'ARROW_DOWN' }, baseEnabled, undefined, undefined, noPersonal);
+    expect(next).toEqual({ kind: 'skill-viewer', category: 0, cursor: 1 });
+  });
+
+  it('ENTER on a category entry switches the displayed category (cursor → 0)', () => {
+    // WEAPONRY view, cursor 1 = ACADEMIA → switch to ACADEMIA.
+    const s: CharacterViewState = { kind: 'skill-viewer', category: 0, cursor: 1 };
+    const next = reduceCharacterView(s, { type: 'ENTER' }, baseEnabled, undefined, undefined, noPersonal);
+    expect(next).toEqual({ kind: 'skill-viewer', category: 3, cursor: 0 });
+  });
+
+  it('ENTER on the EXIT entry returns to the action menu', () => {
+    // WEAPONRY entries [PHYSICAL,ACADEMIA,EXIT]; cursor 2 = EXIT.
+    const s: CharacterViewState = { kind: 'skill-viewer', category: 0, cursor: 2 };
+    const next = reduceCharacterView(s, { type: 'ENTER' }, baseEnabled, undefined, undefined, noPersonal);
+    expect(next.kind).toBe('action-menu');
+  });
+
+  it('ESC returns to the action menu', () => {
+    const s: CharacterViewState = { kind: 'skill-viewer', category: 3, cursor: 1 };
+    const next = reduceCharacterView(s, { type: 'ESCAPE' }, baseEnabled, undefined, undefined, noPersonal);
+    expect(next.kind).toBe('action-menu');
   });
 });

@@ -38,6 +38,14 @@ export type CharacterViewState =
   //     resolve the item directly. RE: docs/re/findings/wpcvw-assay-action.json.
   | { kind: 'assay-picker'; cursor: number }
   | { kind: 'assay-display'; itemIdx: number }
+  // SKILL (read-only skill-level viewer). `category` = the displayed category
+  //   (0..3); `cursor` = index into the DYNAMIC tab-picker entry list
+  //   (`skillTabEntries(category, hasPersonalSkills)` = available categories
+  //   minus the current one, then EXIT). Arrows move `cursor` over the
+  //   column-major 2-row entry grid; ENTER on a category re-renders that
+  //   category (the list updates only on ENTER); ENTER on EXIT / ESC returns to
+  //   the action menu. RE: docs/re/findings/wpcvw-skill-action.json (read-only).
+  | { kind: 'skill-viewer'; category: number; cursor: number }
   | { kind: 'commit-rename'; name: string }
   | { kind: 'commit-portrait'; portraitIndex: number }
   | { kind: 'commit-class-change'; newClassId: number }
@@ -137,12 +145,39 @@ export function nextActionCursor(idx: number, key: string, n: number): number {
   }
 }
 
+/** SKILL viewer category indices (0..3) + the EXIT picker entry sentinel. */
+export const SKILL_CATEGORY_COUNT = 4;
+export const SKILL_EXIT = 4; // EXIT entry value in the tab picker.
+
+/**
+ * Per-member info the SKILL viewer's tab picker needs but the reducer can't
+ * compute purely. `hasPersonalSkills` gates the PERSONAL category tab (the
+ * engine hides it unless the character has personal skills). Supplied by the
+ * page from the member's skill data.
+ */
+export interface SkillInfo {
+  hasPersonalSkills: boolean;
+}
+
+/**
+ * The DYNAMIC tab-picker entries for the SKILL viewer, in display order: all
+ * available categories EXCEPT the currently-displayed one, then EXIT. Available
+ * = WEAPONRY/PHYSICAL/ACADEMIA always, PERSONAL only when `hasPersonalSkills`.
+ * Verified against the engine captures (WEAPONRY view → [PHYSICAL,ACADEMIA,EXIT]
+ * for a no-personal-skills char). RE: docs/re/findings/wpcvw-skill-action.json.
+ */
+export function skillTabEntries(category: number, hasPersonalSkills: boolean): number[] {
+  const available = [0, 1, ...(hasPersonalSkills ? [2] : []), 3];
+  return [...available.filter((c) => c !== category), SKILL_EXIT];
+}
+
 export function reduceCharacterView(
   state: CharacterViewState,
   event: CharacterViewEvent,
   flags: EditEnableFlags,
   equip?: EquipInfo,
   assay?: AssayInfo,
+  skill?: SkillInfo,
 ): CharacterViewState {
   switch (state.kind) {
     case 'action-menu': {
@@ -163,7 +198,12 @@ export function reduceCharacterView(
           // Engine opens the picker with the cursor on NONE (carried count).
           return { kind: 'assay-picker', cursor: assay.carried.length };
         }
-        return state; // SPELL/SWAG/SKILL/REVIEW handlers are SP3
+        if (label === 'SKILL') {
+          // Open the read-only viewer on WEAPONRY (category 0), cursor on the
+          // first picker entry. The page computes the rows + hasPersonalSkills.
+          return { kind: 'skill-viewer', category: 0, cursor: 0 };
+        }
+        return state; // SPELL/SWAG/REVIEW handlers are SP3
       }
       const key =
         event.type === 'ARROW_LEFT' ? 'ArrowLeft' :
@@ -302,6 +342,27 @@ export function reduceCharacterView(
       if (event.type === 'ENTER' || event.type === 'ESCAPE') {
         return { kind: 'action-menu', cursorIdx: 0, campEntries: [] };
       }
+      return state;
+    }
+    case 'skill-viewer': {
+      // ESC exits to the action menu (cursor on EXIT, hydrated by the page).
+      if (event.type === 'ESCAPE') return { kind: 'action-menu', cursorIdx: 0, campEntries: [] };
+      const entries = skillTabEntries(state.category, skill?.hasPersonalSkills ?? false);
+      if (event.type === 'ENTER') {
+        // Commit the cursored entry: EXIT leaves; a category re-renders to that
+        // category (the displayed list updates only on ENTER), cursor → 0.
+        const entry = entries[state.cursor] ?? SKILL_EXIT;
+        if (entry === SKILL_EXIT) return { kind: 'action-menu', cursorIdx: 0, campEntries: [] };
+        return { kind: 'skill-viewer', category: entry, cursor: 0 };
+      }
+      const key =
+        event.type === 'ARROW_LEFT' ? 'ArrowLeft' :
+        event.type === 'ARROW_RIGHT' ? 'ArrowRight' :
+        event.type === 'ARROW_UP' ? 'ArrowUp' :
+        event.type === 'ARROW_DOWN' ? 'ArrowDown' : '';
+      // Entries render column-major 2-row (same geometry as the action menu),
+      // so reuse nextActionCursor over the dynamic entry count.
+      if (key) return { ...state, cursor: nextActionCursor(state.cursor, key, entries.length) };
       return state;
     }
     default:
