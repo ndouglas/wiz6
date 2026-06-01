@@ -47,7 +47,7 @@ import {
 } from './state.js';
 import type { CreationState, DraftState } from './state.js';
 import { loadCreationFontSet } from './ega/assets.js';
-import { loadMessageDb as defaultLoadMessageDb, loadPortraitSet as defaultLoadPortraitSet } from '../../../data-loader.js';
+import { loadMessageDb as defaultLoadMessageDb, loadPortraitSet as defaultLoadPortraitSet, loadScenarioDb as defaultLoadScenarioDb } from '../../../data-loader.js';
 import { addCharacter, readRoster } from '../../../lib/roster-store.js';
 import { getHouseRules } from '../../../lib/house-rules-store.js';
 import { buildCharacterFromDraft } from './lib/build.js';
@@ -244,13 +244,24 @@ export function CreationPage({ seed = Date.now(), loaders, _testInitialState }: 
     if (state.screen === 'committing') {
       if (!committingFired.current) {
         committingFired.current = true;
-        try {
-          const character = buildCharacterFromDraft(state.draft);
-          addCharacter(character);
-        } catch (err: unknown) {
-          console.error('[CreationPage] buildCharacterFromDraft failed:', err);
-        }
-        dispatch({ type: 'COMMIT_DONE' });
+        // Load the scenario DB so the class STARTING KIT can be issued (it
+        // resolves each item's weight/equipSlot/spriteIdx). If the load fails,
+        // build without a kit (empty inventory) rather than blocking creation.
+        void (async () => {
+          let scenarioDb;
+          try {
+            scenarioDb = await defaultLoadScenarioDb('/scenario/scenario.json');
+          } catch (err: unknown) {
+            console.error('[CreationPage] scenario load failed (starting kit skipped):', err);
+          }
+          try {
+            const character = buildCharacterFromDraft(state.draft, scenarioDb);
+            addCharacter(character);
+          } catch (err: unknown) {
+            console.error('[CreationPage] buildCharacterFromDraft failed:', err);
+          }
+          dispatch({ type: 'COMMIT_DONE' });
+        })();
       }
     } else {
       // Reset the guard whenever we leave the committing screen.

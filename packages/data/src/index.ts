@@ -158,6 +158,12 @@ export {
   type SkillRow,
 } from './character-view/skill-viewer.js';
 export {
+  STARTING_KITS,
+  INVENTORY_SLOTS,
+  buildStartingInventory,
+  startingEncumbrance,
+} from './character-creation/starting-equipment.js';
+export {
   CARRIED_CAP,
   BAG_CAP,
   BAG_BASE,

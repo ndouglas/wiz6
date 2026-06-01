@@ -12,7 +12,13 @@
  * The `id` is generated via `crypto.randomUUID()`.
  */
 
-import { CharacterSchema, type Character } from '@wiz6/data';
+import {
+  CharacterSchema,
+  buildStartingInventory,
+  startingEncumbrance,
+  type Character,
+  type ScenarioDb,
+} from '@wiz6/data';
 import type { DraftState } from '../state.js';
 
 /**
@@ -30,7 +36,7 @@ import type { DraftState } from '../state.js';
  * @throws ZodError if the draft is invalid (should not happen for a
  *   well-formed completed draft; this surfaces bugs early).
  */
-export function buildCharacterFromDraft(draft: DraftState): Character {
+export function buildCharacterFromDraft(draft: DraftState, scenarioDb?: ScenarioDb): Character {
   const id = crypto.randomUUID();
 
   // Clamp attributes to U8 range (0..255) — the bonus allocator already
@@ -40,13 +46,12 @@ export function buildCharacterFromDraft(draft: DraftState): Character {
   // level and xp come from derived stats (computeDerivedStats fires at ALLOC_CONFIRM).
   const level = draft.derived.level ?? 1;
   const xp    = draft.derived.xp    ?? 0;
-  // Engine-faithful: a finalised character ends creation with 0 gold — the
-  // rolled starting gold is consumed buying the auto-issued starting equipment
-  // (verified: engine NATHAN/NUG records all have gold=0 + 5 starting items).
-  // We don't model the equipment purchase yet, so we just zero the gold to
-  // match the engine's end state. (The old code put draft.derived.goldInitial
-  // here — but that value was actually the carry capacity, mislabeled; it is
-  // now `carryCapacityMax` and feeds encumbranceMax below.)
+  // The class STARTING KIT is now issued (see `inventory` below) — and per the
+  // RE (docs/re/findings/creation-starting-equipment.json) the kit is FREE (gold
+  // is NOT consumed). Starting gold itself remains UNRESOLVED: that finding's
+  // "+0x22 = gold = vit*15" claim is wrong (record +0x22 is the carry capacity —
+  // THESUS's +0x22=2700 == encumbranceMax, not gold; see derived-stats.ts). The
+  // true gold field/formula isn't pinned, so we keep 0 for now (TODO).
   const gold  = 0;
   // HP, stamina, and age — needed by the review char-sheet renderer (and the
   // in-game stat panel). Default to 0 if a partial draft is committed.
@@ -64,6 +69,14 @@ export function buildCharacterFromDraft(draft: DraftState): Character {
   // schoolMana and schoolManaMax: 6 zeros (set later by class-mana init)
   const schoolMana    = new Array(6).fill(0) as number[];
   const schoolManaMax = new Array(6).fill(0) as number[];
+
+  // Starting equipment — the engine issues a hardcoded per-class kit (5 carried
+  // items, none auto-equipped) at creation. Needs the scenario DB to resolve
+  // each item's weight/equipSlot/spriteIdx/flags. Absent it (e.g. unit tests
+  // that don't pass scenarioDb), the inventory is left empty (old behavior).
+  // RE: docs/re/findings/creation-starting-equipment.json.
+  const inventory = scenarioDb ? buildStartingInventory(draft.class ?? 0, scenarioDb) : undefined;
+  const encumbranceCurrent = inventory ? startingEncumbrance(inventory) : 0;
 
   const raw = {
     id,
@@ -99,10 +112,13 @@ export function buildCharacterFromDraft(draft: DraftState): Character {
     staminaMax: stamina,
     age,
     // Max carrying capacity (record +0x22), STR/VIT-derived. encumbranceCurrent
-    // starts at 0 — we don't model starting-equipment item weights yet (gold is
-    // likewise zeroed above), so the character carries nothing on paper.
+    // is the summed weight of the starting kit (engine: give_one_item's weight
+    // accumulator) — 0 if no scenarioDb was supplied.
     encumbranceMax: draft.derived.carryCapacityMax ?? 0,
-    encumbranceCurrent: 0,
+    encumbranceCurrent,
+    // Starting inventory (the class kit). Omitted when no scenarioDb → schema
+    // leaves it absent (empty), preserving the prior behavior.
+    ...(inventory ? { inventory } : {}),
   };
 
   // CharacterSchema.parse validates and applies .default(0) for sex etc.

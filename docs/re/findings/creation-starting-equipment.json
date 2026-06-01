@@ -1,0 +1,209 @@
+{
+  "topic": "creation-starting-equipment",
+  "subagent_run": "2026-06-01T00:00:00Z",
+  "binaries": ["wpcmk.ovr", "wroot.exe", "scenario.dbs"],
+  "summary": "Full STATIC RE of how a newly-CREATED character receives STARTING EQUIPMENT, plus the decoded per-class kit table. KEY RESULT: the starting kit is NOT from newgame.dbs — it is a HARDCODED 14-class dispatch table inside wpcmk.ovr (the character-creation overlay). The creation-master routine wpcmk_create_character_master (file 0x4e47) zeroes the on-disk record buffer at DGROUP 0x5470, initializes the inventory-count word at 0x561c=0 and all 8 equipment-array bytes at 0x5580=0xFF, then calls wpcmk_issue_class_kit (file 0x3c49). That dispatcher reads the class byte at DGROUP 0x560f and a 14-entry CS-relative jump table at file 0x3dea (CS 0x834e, wpcmk delta 0x4564) selects a per-class case that hardcodes FIVE item ids and pushes them to a give-5-items helper (file 0x3bfb), which forwards each non-zero id to give_one_item (file 0x3aec). give_one_item loads the item's full record from scenario.dbs (via the wroot record loader thunk 0xc31e, table=1) and writes an 8-byte inventory slot at DGROUP 0x54b0 (record +0x40): item_id, weight (cached from scenario rec), pad, equip_slot, sprite_idx, a rolled quantity (from the scenario record's stack dice), and a flags byte translated from the scenario record's item-flags; it increments the count at 0x561c and accumulates total weight into the encumbrance accumulator at 0x5490. AUTO-EQUIP: NONE — every starting item is CARRIED only; the equipment array (0x5580 = rec +0x110) is left all-0xFF after init, so no slot is auto-equipped and the equipped-flag (inventory flags bit0) is never set at creation. GOLD: set in the HP/derived-stats routine (~file 0x4700, gold store at 0x4863) as gold = derivedVitalityRoll*15 written to rec +0x22 (DGROUP 0x5492), with class 5 (Alchemist, gated on byte 0x560d==5) getting gold/3. The kit is FREE (no gold deduction) and gold is NOT zeroed by issuing the kit — so the task's premise that 'rolled gold is consumed buying the kit, ending at 0' is WRONG: a freshly created character ends creation with NONZERO gold and the 5 carried items. KIT is purely CLASS-based (only the class byte at 0x560f indexes the table); race/sex/alignment do NOT affect item selection. The full 14-class kit table is decoded below and matches all 4 distinct stock-character class kits byte-exact (Fighter=THESUS/TEMPEST, Thief=LYSANDR, Priest=NOBAL, Mage=TREON/PENTAG).",
+  "method": "ndisasm -b 16 of wpcmk.ovr. Located the inventory write by searching for references to the creation buffer's inventory base (rec +0x40 -> 0x5470+0x40 = 0x54b0) and count (rec +0x1ac -> 0x561c). Found give_one_item @ 0x3aec (writes 0x54b0 + count*8, increments 0x561c, accumulates weight to 0x5490). Its single caller give_5_items @ 0x3bfb (loops 5 args, pushes each non-zero id). Its single caller wpcmk_issue_class_kit @ 0x3c49 (reads class at 0x560f, CS-disp16 dispatch `jmp word [cs:bx+0x834e]` -> 14-entry word table at file 0x3dea, wpcmk delta 0x4564). Decoded each of the 14 per-class cases (each pushes 5 immediate item ids in reverse C-arg order). The dispatcher's single caller is wpcmk_create_character_master @ 0x4e47 (call at 0x4ed8), confirming the kit is issued during creation. Equipment-init and count-init found in the buffer-reset routine at 0x4e0c (`mov byte [0x561c],0`, loop `mov byte [bx+0x5580],0xff` x8). Gold found in the HP/derived routine (gold store at 0x4863, `[bp-6]*15 -> [0x5492]`, Alchemist /3 gated on `[0x560d]==5`). Item ids mapped to names via extracted/scenario/scenario.json (500-item table). All four distinct stock-class kits cross-checked against character-record-inventory-equipment.json stock data (byte-exact). wbase.ovr overlay delta (0x4564) derived from its three CS-disp16 dispatches (see finding wbase-delta).",
+  "findings": [
+    {
+      "id": "kit-not-from-newgame-dbs",
+      "claim": "The per-class starting kit is a HARDCODED table inside wpcmk.ovr — it does NOT come from newgame.dbs. newgame.dbs is not read by wpcmk at all (confirmed by prior pass newgame-dbs-record-fields.json: wpcmk has 0 int21h, no DBS strings except PCFILE.DBS). The only data fetched per item is the item's own scenario.dbs record (for weight/slot/sprite/flags/quantity), via the wroot record loader. The item-id LISTS themselves are immediate operands in wpcmk code.",
+      "category": "creation_flow",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3c57"},
+        "type": "disasm",
+        "details": "Each class case is a run of `mov ax,IMM16; push ax` x5 then `call 0x3bfb`. e.g. Fighter (0x3c57): push 0x8d(141),0x82(130),0x84(132),0x87(135),0x08(8); call give_5_items. The item ids are immediates in the .ovr code segment, not loaded from any DB. Searched wbase.ovr for the Fighter kit u16 sequence (8,135,132,130,141) and individual ids: 135/132/130/141 have ZERO occurrences in wbase — confirming the kit is not a wbase/newgame table either."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "issue-kit-dispatcher",
+      "claim": "wpcmk_issue_class_kit @ wpcmk file 0x3c49 is the routine that selects the kit. It reads the class byte at DGROUP 0x560f, multiplies by 2, and dispatches via a 14-entry CS-relative word jump table: `cmp ax,0xe; jnc default(0x3e13); shl bx,1; jmp word [cs:bx+0x834e]`. The table is at file 0x3dea (CS 0x834e; wpcmk delta 0x4564 => file = CS-0x4564). Out-of-range class (>=14) falls to the no-op default at 0x3e13 (ret). Each in-range entry jumps to a per-class case that pushes 5 item ids and calls give_5_items (0x3bfb).",
+      "category": "menu_dispatch",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3c49"},
+        "type": "disasm",
+        "details": "0x3c4f mov al,[0x560f] (class byte); sub ah,ah; jmp 0x3e06; 0x3e06 cmp ax,0xe; jnc 0x3e13; shl bx,1; 0x3e0e jmp word near [cs:bx-0x7cb2] (= [cs:bx+0x834e] unsigned). 14 word entries at file 0x3dea: 0x81bb 0x81d8 0x81f5 0x8212 0x822f 0x824c 0x8269 0x8286 0x82a3 0x82c0 0x82dd 0x82fa 0x8316 0x8332 -> file offsets 0x3c57 0x3c74 0x3c91 0x3cae 0x3ccb 0x3ce8 0x3d05 0x3d22 0x3d3f 0x3d5c 0x3d79 0x3d96 0x3db2 0x3dce (classes 0..13)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "give-5-items-helper",
+      "claim": "give_5_items @ wpcmk file 0x3bfb takes 5 item-id args ([bp+4..bp+0xc] = arg1..arg5), copies them to locals [bp-0xc..bp-4], then loops i=0..4: if arg(i) > 0, push it and call give_one_item (0x3aec). So a 0 item id is skipped (most classes pass 5 ids, none are 0; the helper supports fewer-than-5 kits via 0 padding).",
+      "category": "creation_flow",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3bfb"},
+        "type": "disasm",
+        "details": "0x3c01-0x3c1c copy [bp+4..0xc] to [bp-0xc..-4]; 0x3c1f local i=0; loop: bx=i*2+bp; cmp word [bx-0xc],0; jng skip; push [bx-0xc]; call 0x3aec; inc i; cmp i,5; jl loop. The 5 args are pushed by each class case in reverse (push arg5 first), so C-order arg1..arg5 matches the kit list order given below."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "give-one-item-writer",
+      "claim": "give_one_item @ wpcmk file 0x3aec is the routine that writes one inventory slot in the creation buffer. arg [bp+4] = item_id. It (1) loads the full item record from scenario.dbs via func_0x0000c31e(table=1, &buf=[bp-0x4c], item_id, 0) [= wroot scenario record loader], (2) computes slot pointer = 0x54b0 + count*8 where count is the byte at 0x561c, (3) writes the 8-byte inventory slot: [+0]=item_id (from [bp+4]), [+2]=weight word (from scenario rec [bp-0x2e]), [+4]=equip_slot (scenario rec byte [bp-0x10]), [+5]=sprite_idx (scenario rec byte [bp-0xf]), [+6]=quantity (computed = recByte[0x16]*recByte[0x17] + recWord[0x14], i.e. the item's stack/charge dice roll), [+7]=flags=0 then OR'd from scenario item-flags byte [bp-0x11]: rec&0x08->slot|=0x04, rec&0x04->|=0x08, rec&0x10->|=0x10, rec&0x20->|=0x20, rec&0x02->|=0x40, (4) increments count at 0x561c, (5) recomputes total carried weight into encumbrance accumulator 0x5490 by summing weight*max(qty,1) over all current inventory slots.",
+      "category": "creation_flow",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3aec"},
+        "type": "disasm",
+        "details": "0x3af1 push 0; push [bp+4]; lea ax,[bp-0x4c]; push; push 1; call 0xc31e (scenario_load_record table=1). 0x3b07 al=[0x561c]; ah=0; shl x3 (=*8); add 0x54b0; -> [bp-0x4e] slot ptr. 0x3b18 inc byte [0x561c]. 0x3b1c quantity = [bp-0x36]*[bp-0x35] + [bp-0x38] -> [bx+6]. 0x3b35 [bx]=item_id. 0x3b3d/0x3b46 [bx+4]=[bp-0x10], [bx+5]=[bp-0xf]. 0x3b4f [bx+2]=[bp-0x2e] (weight word). 0x3b5b [bx+7]=0; then flag-translate block 0x3b5f-0x3bb3 (test scenario flags byte [bp-0x11] bits 0x08/0x04/0x10/0x20/0x02 -> set inventory flags 0x04/0x08/0x10/0x20/0x40). 0x3bb4 weight-accumulate loop into [0x5490]. The 8-byte slot layout exactly matches character-record-inventory-equipment.json item-slot-layout."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "issued-from-creation-master",
+      "claim": "The kit is issued during character creation: wpcmk_issue_class_kit (0x3c49) has exactly ONE caller — wpcmk_create_character_master @ file 0x4e47, at call site 0x4ed8 (`call 0x3c49`). The master also runs the buffer-reset routine (file 0x4e0c) that zeroes the inventory count and inits the equipment array BEFORE the kit is issued, and the HP/derived/gold routine. After the kit, master continues to the skill-training pillars and the KEEP/DISCARD confirmation menu, then roster_io_one_record writes the 432-byte record (including the inventory just built) to PCFILE.DBS (per wpcmk-post-commit.json).",
+      "category": "creation_flow",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4ed8"},
+        "type": "disasm",
+        "details": "callers-of-0x3c49 scan = single hit at 0x4ed8 (inside master 0x4e47). master prologue 0x4e47: lea/memzero 0x5470..0x5470+0x1b0 via 0xf34c, copy name via 0xf3aa, ... 0x4ed5 call 0x4bad; 0x4ed8 call 0x3c49 (issue kit); 0x4edb call 0xdf7. The on-disk record IS the in-memory record (pcfile-dbs.md), so the inventory built at 0x54b0 = rec +0x40 persists to PCFILE and is loaded verbatim into the live BSS slot at 0x4428."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "count-and-equip-init",
+      "claim": "Before issuing the kit, the creation buffer's inventory-count word at DGROUP 0x561c is set to 0 and all 8 equipment-array bytes at DGROUP 0x5580 (= record +0x110) are set to 0xFF. The count (0x561c) maps to record +0x1ac (inventory_count) and the equipment array (0x5580) to record +0x110 (equip_slots[8]). Note: the engine tracks the running count as a WORD at 0x561c during build, but the persisted record byte at +0x1ac is a u8 (count <= 22 always fits).",
+      "category": "creation_flow",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4e20"},
+        "type": "disasm",
+        "details": "0x4e20 mov byte [0x561c],0; 0x4e25 i=0; loop: mov byte [bx+0x5580],0xff; inc i; cmp i,8; jl loop (8-byte equip array init to 0xFF). 0x5470 (buf base) + 0x110 = 0x5580 (equip), + 0x1ac = 0x561c (count). Matches character-record-inventory-equipment.json equipment-array-offset (+0x110, 0xFF=empty) and inventory-count-offset (+0x1ac)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "no-auto-equip",
+      "claim": "Starting items are CARRIED ONLY — NONE are auto-equipped at creation. The equipment array (0x5580 = rec +0x110) is initialized to all-0xFF and is NEVER written again in the kit path (give_one_item touches only the inventory grid 0x54b0, count 0x561c, and weight 0x5490 — no write to 0x5580). The inventory flags byte's equipped-bit (bit0) is never set during creation. This matches all 6 stock characters having equipment = [0xFF x8] and equip_count(+0x1ad)=0 (character-record-inventory-equipment.json). The player must EQUIP items manually after creation (wpcvw EQUIP action). So THESUS's LONGSWORD/CUIRASS/LEGGING/SANDALS/SHIELD are all CARRIED, not equipped.",
+      "category": "creation_flow",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4e2a"},
+        "type": "byte_scan",
+        "details": "Only reference to 0x5580 in wpcmk is the init-to-0xFF loop at 0x4e2d (`mov byte [bx+0x5580],0xff`). give_one_item (0x3aec) body has no store to 0x5580 / [bx+0x44f8] and never sets inventory-flag bit0 (only bits 0x04/0x08/0x10/0x20/0x40). Stock-char evidence: all equipment arrays = 255x8, equip_count 0."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "weight-and-encumbrance",
+      "claim": "Item weights ARE cached into each inventory slot (slot byte +2, from the scenario record's weight word) and the character's CURRENT encumbrance IS computed from the kit. give_one_item, after adding each item, recomputes the encumbrance accumulator at DGROUP 0x5490 by summing weight * max(quantity,1) across all current inventory slots. 0x5490 = creation buffer 0x5470 + 0x20 = record +0x20 (the field pcfile-dbs.md tentatively labels sp_cur; this RE shows the creation code writes the running CARRIED-WEIGHT total there during kit build — but note the HP/derived routine at 0x4852 ALSO writes 0 to 0x5490 before the kit runs, and give_one_item overwrites it during the kit; the final persisted value is the summed kit weight). Per-item weight examples (scenario.dbs): LONGSWORD=50, LEATHER CUIRASS=140, FUR LEGGING=50, SANDALS=15, BUCKLER SHIELD=40 (Fighter total ~295).",
+      "category": "creation_flow",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3bb4"},
+        "type": "disasm",
+        "details": "0x3bb4 mov word [0x5490],0; i=0 loop to count(0x561c): bx=i*8; al=[bx+0x54b6] (slot +6 = quantity); if<1 set 1; ax=[bx+0x54b2] (slot +2 = weight); imul qty; add [0x5490]. So [0x5490] = sum(weight*max(qty,1)). 0x54b0=inv base, +2=weight(0x54b2), +6=qty(0x54b6). Weight per item cached at slot+2 by give_one_item (0x3b4f). CONFIDENCE NOTE medium on whether 0x5490 is the persisted encumbranceCurrent field vs an intermediate display value — record +0x20 is labeled sp_cur (MEDIUM) in pcfile-dbs.md; reconcile with a live read."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "starting-gold",
+      "claim": "Starting gold = a Vitality/level-derived roll * 15, written to record +0x22 (DGROUP 0x5492). Class 5 (Alchemist, gated on the class byte at 0x560d == 5) receives gold/3 (poorest class). The kit is FREE — gold is NOT deducted by issuing equipment, and gold is NOT zeroed. Therefore a freshly created character ends creation with NONZERO gold plus the 5 carried items. (This CONTRADICTS the working assumption that rolled gold is spent on the kit and ends at 0; stock THESUS shows gold=2700 at +0x22, consistent with retained-then-grown gold, not zeroed.) The exact source attribute for the *15 multiplier ([bp-6]) is computed in the HP/derived routine from class-specific level/vitality rolls (jump table at file ~0x47da); the precise pre-multiply value is medium-confidence.",
+      "category": "creation_flow",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x4858"},
+        "type": "disasm",
+        "details": "0x4858 ax=[bp-6]; dx=ax; shl ax,4 (=*16); sub ax,dx (=*15); mov [0x5492],ax. 0x4866 cmp byte [0x560d],5; jnz skip; idiv 3; mov [0x5492],ax. 0x5492 = buf 0x5470 + 0x22 = record +0x22 (gold, MEDIUM in pcfile-dbs.md). No `sub`/`mov ...,0` to 0x5492 anywhere in the kit path -> gold not consumed by the kit. [bp-6] derived at 0x47df-0x47fe from [bp-8]/[bp-0xa] (class-specific level/HP/VIT rolls)."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "kit-is-class-only",
+      "claim": "The starting kit depends ONLY on class. The dispatcher reads exclusively the class byte at DGROUP 0x560f to index the table; there is no read of race (rec +0x19f region), sex (rec +0x1a0), or alignment anywhere in wpcmk_issue_class_kit / give_5_items / give_one_item. Item quantity/flags vary only by the item's own scenario.dbs record, not by character demographics. (Class-eligibility masks in scenario records are NOT consulted at kit-issue time — the hardcoded kit is assumed class-legal by construction.)",
+      "category": "creation_flow",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3c4f"},
+        "type": "disasm",
+        "details": "0x3c4f mov al,[0x560f] is the ONLY demographic read in the dispatch. No reference to race/sex/alignment DGROUP fields in 0x3c49..0x3e16, 0x3bfb..0x3c48, or 0x3aec..0x3bfa. The Alchemist gold/3 special-case (0x560d==5) is the only class-conditioned numeric, and it affects gold, not items."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "per-class-kit-table",
+      "claim": "The complete decoded per-class starting-item table (class -> [item_id...], all CARRIED, none auto-equipped). Order is the give-order (arg1..arg5). All four distinct stock-character class kits match byte-exact: class 0 Fighter = THESUS/TEMPEST; class 3 Thief = LYSANDR; class 2 Priest = NOBAL; class 1 Mage = TREON/PENTAG. The other 10 classes are derived statically from the same table mechanism (high confidence — identical encoding). Quantities for stackables (arrows, bullets, shuriken, scrolls, thrown daggers) are rolled per-item from each item's scenario.dbs stack dice at issue time, so they are NOT fixed in the kit table.",
+      "category": "creation_flow",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": {"space": "wpcmk.ovr", "offset": "0x3c57"},
+        "type": "disasm",
+        "details": "Decoded from the 14 per-class cases (file 0x3c57..0x3de4), item ids verified against extracted/scenario/scenario.json names and against character-record-inventory-equipment.json stock data.",
+        "table": [
+          {"class": 0,  "name": "Fighter",   "case_file_offset": "0x3c57", "item_ids": [8, 135, 132, 130, 141],   "item_names": ["LONGSWORD", "LEATHER CUIRASS", "FUR LEGGING", "SANDALS", "BUCKLER SHIELD"]},
+          {"class": 1,  "name": "Mage",      "case_file_offset": "0x3c74", "item_ids": [18, 122, 123, 130, 335],  "item_names": ["STAFF", "ROBES (U)", "ROBES (L)", "SANDALS", "MAGIC MISSILE"]},
+          {"class": 2,  "name": "Priest",    "case_file_offset": "0x3c91", "item_ids": [24, 122, 123, 130, 316],  "item_names": ["QUARTERSTAFF", "ROBES (U)", "ROBES (L)", "SANDALS", "LT. HEAL"]},
+          {"class": 3,  "name": "Thief",     "case_file_offset": "0x3cae", "item_ids": [6, 120, 121, 131, 27],    "item_names": ["CUTLASS", "CLOTH SHIRT", "CLOTH PANTS", "BUSKINS", "DIRK"]},
+          {"class": 4,  "name": "Ranger",    "case_file_offset": "0x3ccb", "item_ids": [31, 33, 126, 127, 131],   "item_names": ["SHORT BOW", "ELM ARROW", "SUEDE DOUBLET", "SUEDE PANTS", "BUSKINS"]},
+          {"class": 5,  "name": "Alchemist", "case_file_offset": "0x3ce8", "item_ids": [18, 122, 123, 130, 326],  "item_names": ["STAFF", "ROBES (U)", "ROBES (L)", "SANDALS", "STINK BOMB"]},
+          {"class": 6,  "name": "Bard",      "case_file_offset": "0x3d05", "item_ids": [29, 30, 120, 121, 55],    "item_names": ["SLING", "BULLET STONE", "CLOTH SHIRT", "CLOTH PANTS", "LUTE"]},
+          {"class": 7,  "name": "Psionic",   "case_file_offset": "0x3d22", "item_ids": [1, 122, 123, 130, 241],   "item_names": ["DAGGER", "ROBES (U)", "ROBES (L)", "SANDALS", "SHADOW CLOAK"]},
+          {"class": 8,  "name": "Valkyrie",  "case_file_offset": "0x3d3f", "item_ids": [22, 124, 125, 130, 138],  "item_names": ["SPEAR", "FUR HALTER", "CHAMOIS SKIRT", "SANDALS", "LEATHER HELM"]},
+          {"class": 9,  "name": "Bishop",    "case_file_offset": "0x3d5c", "item_ids": [24, 122, 123, 130, 163],  "item_names": ["QUARTERSTAFF", "ROBES (U)", "ROBES (L)", "SANDALS", "MITRE"]},
+          {"class": 10, "name": "Lord",      "case_file_offset": "0x3d79", "item_ids": [9, 133, 134, 131, 143],   "item_names": ["BROADSWORD", "QUILT TUNIC", "QUILT LEGGING", "BUSKINS", "STEEL HELM"]},
+          {"class": 11, "name": "Samurai",   "case_file_offset": "0x3d96", "item_ids": [10, 4, 122, 123, 130],    "item_names": ["KATANA", "WAKIZASHI", "ROBES (U)", "ROBES (L)", "SANDALS"]},
+          {"class": 12, "name": "Monk",      "case_file_offset": "0x3db2", "item_ids": [25, 47, 122, 123, 130],   "item_names": ["BO", "SHURIKEN", "ROBES (U)", "ROBES (L)", "SANDALS"]},
+          {"class": 13, "name": "Ninja",     "case_file_offset": "0x3dce", "item_ids": [47, 160, 158, 159, 161],  "item_names": ["SHURIKEN", "NINJA COWL", "NINJA GARB (U)", "NINJA GARB (L)", "TABI BOOTS"]}
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wbase-delta",
+      "claim": "wbase.ovr overlay delta = 0x4564 (file_offset = CS_offset - 0x4564) — same delta as wpcvw.ovr/wpcmk.ovr. Derived from all three CS-disp16 dispatch instructions in wbase.ovr.",
+      "category": "overlay_relocation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x2dd5"},
+        "type": "disasm",
+        "details": "Three `2e ff a7 <disp16>` (jmp word [cs:bx+disp16]) dispatches: (1) file 0x2dd5 disp 0x731f -> table file 0x2dbb (0x731f-0x4564), entries decode to handler files 0x2cf7/0x2d09/0x2d2d/0x2d5d/0x2d8a/0x2d51/0x2d94/0x2d9f/0x2dad (all clean code addrs); (2) file 0x311b disp 0x7667 -> table file 0x3103, handlers 0x306b/0x3081/0x3094/0x30a9/0x30be/0x30d3; (3) file 0x3785 disp 0x7cd1 -> table file 0x376d, handlers 0x3690/0x36a9/0x36d9/0x36f2/0x370a/0x3714. All three resolve to contiguous valid-code offsets ONLY at delta 0x4564 (deltas 0x4565/0x4566/0x4567 produce garbage/out-of-range handler offsets). Verified across 3 independent dispatch sites."
+      },
+      "confidence": "high"
+    }
+  ],
+  "cross_references": [
+    "docs/re/findings/character-record-inventory-equipment.json — 8-byte inventory slot layout (item_id/weight/pad/equip_slot/sprite_idx/quantity/flags), equipment array +0x110 (0xFF=empty), inventory_count +0x1ac; stock-char kits used here as ground-truth cross-check (THESUS/TEMPEST=Fighter, LYSANDR=Thief, NOBAL=Priest, TREON/PENTAG=Mage)",
+    "docs/re/findings/wpcmk-post-commit.json — creation-master commit flow: confirmation menu (msg 0x44f/0x45a), roster_io_one_record writes 432-byte record from buffer 0x5470 to PCFILE.DBS",
+    "docs/re/findings/wpcmk-class-skill-grants.json — sibling hardcoded per-class table mechanism (skill grants) using the same class byte at 0x560f and a 14-entry jump table; same code style as the kit dispatcher",
+    "docs/re/findings/newgame-dbs-record-fields.json — confirms wpcmk does NOT read newgame.dbs; the kit is hardcoded, not table-driven from that file",
+    "docs/re/pcfile-dbs.md — on-disk record IS the in-memory record (no translation); creation buffer 0x5470 = record start, inventory +0x40, equip +0x110, count +0x1ac, gold +0x22",
+    "docs/re/scenario-dbs.md — scenario.dbs item records (loaded per-item via wroot loader thunk 0xc31e table=1) supply weight/equip_slot/sprite_idx/flags/quantity-dice; item names in extracted/scenario/scenario.json"
+  ],
+  "function_renames_recommended": [
+    "wpcmk.ovr 0x4e47: -> wpcmk_create_character_master (already named in prior pass; confirmed it calls the kit issuer at 0x4ed8)",
+    "wpcmk.ovr 0x3c49: -> wpcmk_issue_class_kit (reads class 0x560f, dispatches 14-entry kit table at 0x3dea)",
+    "wpcmk.ovr 0x3bfb: -> wpcmk_give_5_items (forwards up to 5 non-zero item ids to give_one_item)",
+    "wpcmk.ovr 0x3aec: -> wpcmk_give_one_item (loads scenario record, writes one 8-byte inventory slot at 0x54b0, increments count 0x561c, accumulates weight 0x5490)",
+    "wpcmk.ovr 0x4e0c: -> wpcmk_reset_creation_buffer_inventory (count=0 at 0x561c, equip array=0xFF x8 at 0x5580)"
+  ],
+  "port_guidance": {
+    "summary": "To make buildCharacterFromDraft engine-faithful: (1) issue the class kit from the table below (carried, NOT equipped); (2) for each item id, look up weight/equipSlot/spriteIdx/flags from the scenario item table and build the 8-byte inventory slot (quantity = the item's stack/charge dice roll for stackables, else 0); (3) set inventoryCount = number of kit items (5 for all stock classes); (4) leave equipment[] all empty (0xFF) — no auto-equip; (5) set encumbranceCurrent = sum(weight * max(qty,1)); (6) set gold to NONZERO (vitality-roll*15, Alchemist /3) — do NOT zero gold. The current port's `gold = 0` and empty inventory are both WRONG vs the engine.",
+    "kit_by_class_id": {
+      "0": [8, 135, 132, 130, 141],
+      "1": [18, 122, 123, 130, 335],
+      "2": [24, 122, 123, 130, 316],
+      "3": [6, 120, 121, 131, 27],
+      "4": [31, 33, 126, 127, 131],
+      "5": [18, 122, 123, 130, 326],
+      "6": [29, 30, 120, 121, 55],
+      "7": [1, 122, 123, 130, 241],
+      "8": [22, 124, 125, 130, 138],
+      "9": [24, 122, 123, 130, 163],
+      "10": [9, 133, 134, 131, 143],
+      "11": [10, 4, 122, 123, 130],
+      "12": [25, 47, 122, 123, 130],
+      "13": [47, 160, 158, 159, 161]
+    }
+  },
+  "unresolved": [
+    "Gold formula multiplier source: gold = [bp-6]*15 (Alchemist /3) is confirmed, but [bp-6] is computed in the HP/derived routine (file ~0x47df) from class-specific level/HP/VIT rolls via its own jump table at file 0x47da; the exact attribute(s) feeding the *15 are medium-confidence. Recommend a live DOSBox creation trace (create one of each class, read rec +0x22) to nail the exact gold-by-class range.",
+    "Whether the running carried-weight value written to 0x5490 (=rec +0x20) is the persisted encumbranceCurrent or an intermediate (rec +0x20 is labeled sp_cur MEDIUM in pcfile-dbs.md). The HP/derived routine writes 0 to 0x5490 just before the kit; give_one_item then overwrites it with summed weight. Need a live read of a freshly-created char's rec +0x20 to confirm it persists as carried weight vs being overwritten by an SP calc later in master.",
+    "Stackable quantities (ELM ARROW, BULLET STONE, SHURIKEN, DIRK, scrolls, STINK BOMB) are rolled per-item from the scenario record's stack dice at give time (give_one_item quantity = recByte[0x16]*recByte[0x17] + recWord[0x14]); the exact scenario-record byte offsets for those dice were read relative to the [bp-0x4c] buffer base and are medium-confidence — cross-check against scenario-dbs.md item-record field map (e.g. LYSANDR's DIRK shows qty=9, NOBAL's LT.HEAL qty=3).",
+    "The 0x560d byte used for the Alchemist gold/3 gate vs the 0x560f byte used for the kit dispatch: both appear to be the class byte in the creation working set, but the 2-byte separation suggests 0x560d/0x560e/0x560f may be a small class/subclass/alignment triplet. Confirm 0x560d==class and not a separate field with a live read."
+  ]
+}
