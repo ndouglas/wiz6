@@ -67,10 +67,26 @@ cursor position, the banner layout, and the cancel-via-Up model**.
 symptom (cancel/exit felt unclear with small parties) is explained by the missing EXIT
 affordance, fixed here. Close #058 as part of this work.
 
+## Rendering: composite over the castle scene (discovered during planning)
+
+The engine keeps the live castle scene visible *behind* the picker — `ui_window_create`
+overlays the picker windows on top of the gate/fountain/party-portraits screen (confirmed in
+the captured screenshots). **Our current `PartyMemberPicker` instead clears to black
+(`buf.fill(0)`) and draws only the picker windows** — so the full-screen pixel-parity fixtures
+will never match a black background.
+
+The fix must therefore composite the picker over the castle frame, exactly like the sibling
+`AddPartyPage` already does: render `composeCastleFrame(parity=0, …, members, portraitSets)`
+into the buffer, then overlay the picker windows (`renderTileWindow`) on top. The shared
+picker widget loads the castle assets (mon08, dragonsc, wfont0/1/3, all three portrait sets)
+the same way `AddPartyPage` does. This also keeps the party portraits (which the picker sits
+below) on screen, matching the engine.
+
 ## The fix
 
 One shared widget, two consumers (`ReviewMemberPage`, `DismissMemberPage`) — no per-page
-divergence.
+divergence. The widget mirrors `AddPartyPage`'s structure: own the cursor state machine, load
+castle + picker assets, compose the castle frame, overlay the picker windows.
 
 1. **Composer** (`compose-party-member-picker-frame.ts`):
    - Render the banner as title (centered with the `+6` padding) **plus** the EXIT indicator,
@@ -110,8 +126,10 @@ pickers in both cursor states** — 4 fixtures total, tolerance 0:
   `down down enter` path for DISMISS WHO?. Capture at ≥2 members so the grid is non-trivial;
   3 members exercises a second row.
 - Build via `build-saves` (Accessibility terminal) → `gen-fixture` → commit `.idx.gz`/`.png`.
-- **Parity tests** compare our composed RGBA to each fixture pixel-for-pixel (tolerance 0),
-  per the project's "every ported screen needs a pixel-exact parity test" rule.
+- **Parity tests** compose the FULL screen — `composeCastleFrame(…, members, portraitSets)`
+  then the picker overlay windows — and compare to each fixture pixel-for-pixel (tolerance 0),
+  per the project's "every ported screen needs a pixel-exact parity test" rule. (The fixtures
+  are full 320×200 frames: castle scene + party portraits + picker overlay.)
 - **Browser e2e**: one drive through REVIEW WHO? asserting the canvas vs `review-who-exit`
   (the mounted-app gate, per `docs/driving-based-testing.md`).
 - Update the existing component tests (`PartyMemberPicker.test.tsx`) to the new cursor model;
