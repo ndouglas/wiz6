@@ -1,0 +1,58 @@
+{
+  "topic": "wpcvw-skill-names",
+  "subagent_run": "2026-06-01T00:00:00Z",
+  "binaries": ["wpcvw.ovr"],
+  "summary": "Parent-derived correction (HIGH confidence, binary-anchored) extracted while scoping the SKILL-viewer port (#032). Resolves TWO things the wpcvw-skill-action pass flagged as unresolved/medium, and CORRECTS existing shipped data. (1) The wpcvw SKILL viewer's per-slot skill NAME is msg id (0x157c + slot) drawn DIRECTLY (1:1, no table indirection) — confirmed by ndisasm of the render loop at wpcvw file 0xa285 (`mov ax,[bp-2] (slot); add ax,0x157c; push; call draw_msg_in_window`). So skill slot N's name = msg(5500 + N). The authoritative 30-slot name map (dumped from extracted/messages/msg.json indexedMessages 5500..5529) is: 0 WAND&DAGGER, 1 SWORD, 2 AXE, 3 MACE&FLAIL, 4 POLE&STAFF, 5 THROWING, 6 SLING, 7 BOWS, 8 SHIELD, 9 HANDS&FEET, 10 SWIMMING, 11 SCOUTING, 12 MUSIC, 13 ORATORY, 14 LEGERDEMAIN, 15 SKULDUGGERY, 16 NINJUTSU, 17 DEFENSE, 18 SPEED, 19 MOVEMENT, 20 AIM, 21 POWER, 22 ARTIFACTS, 23 MYTHOLOGY, 24 SCRIBE, 25 ALCHEMY, 26 THEOLOGY, 27 THEOSOPHY, 28 THAUMATURGY, 29 KIRIJUTSU. This CONTRADICTS the speculative martydill SKILL_INDEX_MAP currently in packages/data/src/character-creation/class-skill-availability.ts (SKILL_SLOT_NAMES) and the index-map comment in packages/data/src/schemas/pcfile.ts: the WEAPONRY block (0-9) is entirely reordered, and the slots our map marks as 'holes' (10, 17-21) are REAL skills (SWIMMING + the whole PERSONAL category DEFENSE/SPEED/MOVEMENT/AIM/POWER). The 4-category slot ranges (WEAPONRY 0..9, PHYSICAL 10..16, PERSONAL 17..21, ACADEMIA 22..29) now read naturally with the correct names. (2) The SKILL viewer's trailing line is `draw_msg_in_window(0x159a)` + value `[bx+0x4590]`; msg 0x159a = 'SKILL POINTS'. So record byte +0x4590 (struct +0x1a8) is the SKILL-POINTS value displayed here. The character-record struct (packages/data/src/structs/character-record.ts) already models +0x1a8 but names it `spells_to_learn` ('Set to rng(6)+5 on level-up') — the same byte is labeled 'SKILL POINTS' by the SKILL screen. Reconcile: either the byte is a shared level-up bonus pool used for both spell-learning and skill-points, or one of the two RE labels is wrong; the SKILL-screen LABEL ('SKILL POINTS') is binary-certain for the display.",
+  "method": "ndisasm -b 16 (via dd skip) of wpcvw.ovr at the SKILL category renderer's per-slot name loop (file 0xa25d-0xa2e6) and trailing skill-points line (0xa2e9-0xa339). Confirmed the name msg id is computed as `slot + 0x157c` (literal add, 1:1) and the level is `record[charSlot*0x1b0 + 0x451c + slot]`. Resolved all msg ids against extracted/messages/msg.json indexedMessages (id->decodedText): 0x157c+slot for names (5500..5529), 0x159a=5530='SKILL POINTS' for the trailing label. Cross-checked the visibility gate `cmp word [slot*2 + 0x57fe],1` (per-class availability table) and category slot-ranges against wpcvw-skill-action.json.",
+  "findings": [
+    {
+      "id": "skill-names-are-msg-5500-plus-slot-1to1",
+      "claim": "In the wpcvw SKILL viewer (wpcvw_render_skill_category @ 0x9dfb), each visible skill row draws its NAME via draw_msg_in_window with msg id = (skill_slot + 0x157c), i.e. msg(5500 + slot), computed by a literal `add ax,0x157c` on the slot index — a DIRECT 1:1 mapping, NOT a table-of-msg-ids indirection. Therefore the engine's canonical skill-slot -> name table is exactly the 30 contiguous messages 5500..5529. The authoritative map (slot: NAME): 0 WAND&DAGGER, 1 SWORD, 2 AXE, 3 MACE&FLAIL, 4 POLE&STAFF, 5 THROWING, 6 SLING, 7 BOWS, 8 SHIELD, 9 HANDS&FEET, 10 SWIMMING, 11 SCOUTING, 12 MUSIC, 13 ORATORY, 14 LEGERDEMAIN, 15 SKULDUGGERY, 16 NINJUTSU, 17 DEFENSE, 18 SPEED, 19 MOVEMENT, 20 AIM, 21 POWER, 22 ARTIFACTS, 23 MYTHOLOGY, 24 SCRIBE, 25 ALCHEMY, 26 THEOLOGY, 27 THEOSOPHY, 28 THAUMATURGY, 29 KIRIJUTSU.",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0xa285"},
+        "type": "disasm",
+        "details": "ndisasm 0xa285-0xa28f: FF76F4 push [bp-0xc]; FF7604 push [bp+4] (window); 8B46FE mov ax,[bp-2] (slot); 057C15 add ax,0x157c; 50 push ax; E84C20 call 0xc2db (draw_msg_in_window, wroot image 0x083f per skill-names.json). The slot counter [bp-2] increments 0xa2db over the category's slot range; visibility gated at 0xa264 `cmp word [bx+0x57fe],1` (bx=slot*2). msg ids resolved from extracted/messages/msg.json indexedMessages 5500..5529."
+      },
+      "confidence": "high",
+      "supersedes": "packages/data/src/character-creation/class-skill-availability.ts SKILL_SLOT_NAMES (martydill speculative order) + the index-map comment in packages/data/src/schemas/pcfile.ts skills field — both have the WEAPONRY block (0-9) reordered and treat slots 10/17-21 as holes when they are real skills (SWIMMING, DEFENSE/SPEED/MOVEMENT/AIM/POWER)."
+    },
+    {
+      "id": "skill-name-map-corrects-existing-speculative-map",
+      "claim": "The authoritative engine map differs materially from the shipped speculative SKILL_SLOT_NAMES. Key diffs: slot 0 engine WAND&DAGGER (was 'Sword'); slot 1 SWORD (was 'Axe'); slot 2 AXE (was 'Polearm'); slot 4 POLE&STAFF (was 'Dagger'); slot 5 THROWING (was 'Staff & Wand'); slot 7 BOWS (was 'Modern Weapons'); slot 8 SHIELD (was 'Bow'); slot 9 HANDS&FEET (was 'Thrown Weapons'); slot 10 SWIMMING (was hole); slot 11 SCOUTING (was 'Sling'); slot 13 ORATORY (was 'Music'); slots 17-21 DEFENSE/SPEED/MOVEMENT/AIM/POWER (were ALL holes — the entire PERSONAL category was missing); slot 22 ARTIFACTS (was 'Scouting'). Slots 3, 14, 15, 16, 23-29 happen to match. CONSEQUENCE: any stock-character 'validation' that named skills via the old map is mislabeled — e.g. THESUS(Fighter) skills[1]=10 is SWORD (not 'Axe'); a level-1 Fighter with Sword 10 is sensible. The pcfile.ts skills-field comment's index map must be replaced with this one.",
+      "category": "data_correction",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0xa285"},
+        "type": "cross-reference",
+        "details": "Diff computed slot-by-slot between msg(5500+slot) and SKILL_SLOT_NAMES in class-skill-availability.ts. The category ranges from wpcvw-skill-action.json (WEAPONRY 0..9, PHYSICAL 10..16, PERSONAL 17..21, ACADEMIA 22..29) read coherently with the engine names (e.g. PERSONAL = DEFENSE/SPEED/MOVEMENT/AIM/POWER, ACADEMIA = ARTIFACTS/MYTHOLOGY/SCRIBE/ALCHEMY/THEOLOGY/THEOSOPHY/THAUMATURGY/KIRIJUTSU)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-points-byte-0x4590-label",
+      "claim": "The SKILL viewer's trailing line (rendered after the category's skill rows, at window row 0xe) prints the literal message 0x159a = 'SKILL POINTS' followed by the value of record byte +0x4590 (struct offset +0x1a8). So +0x4590 is the SKILL-POINTS value as the engine labels it on this screen. The character-record struct already maps +0x1a8 but under the name `spells_to_learn` with description 'Spells to learn this level. Set to rng(6)+5 on level-up.' These two RE labels apply to the SAME byte and must be reconciled: candidate explanations are (a) a single 'level-up bonus points' pool reused as both the spell-learn budget and the skill-points budget at level-up, or (b) one prior label is a misread. The SKILL-screen display label is binary-certain ('SKILL POINTS'); the level-up write semantics (rng(6)+5) come from a different (level-up) code path and were not re-verified here. Recommend a DOSBox-X read of +0x4590 across stock chars + a level-up trace to settle whether it is one overloaded counter or two.",
+      "category": "data_correction",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0xa301"},
+        "type": "disasm",
+        "details": "ndisasm 0xa2fa-0xa339: B89A15 mov ax,0x159a; push; push window; call 0xc2db (draw_msg_in_window) -> msg 0x159a='SKILL POINTS'. Then cursor row 0xe col 0x10; B8B001 mov ax,0x1b0; F76E08 imul [bp+8] (charSlot); 8A879045 mov al,[bx+0x4590]; call 0xc041 (draw-number). struct +0x1a8 = abs 0x4590 (base 0x43e8). character-record.ts currently names +0x1a8 'spells_to_learn'."
+      },
+      "confidence": "high"
+    }
+  ],
+  "cross_references": [
+    "docs/re/findings/wpcvw-skill-action.json — the SKILL viewer RE (this file resolves its unresolved items: the 0x157c name table and the +0x4590 label)",
+    "packages/data/src/character-creation/class-skill-availability.ts — SKILL_SLOT_NAMES (speculative, now superseded) + CLASS_SKILL_AVAILABILITY (the [10,7,5,8] bit-groups == the 4 category ranges, still valid)",
+    "packages/data/src/schemas/pcfile.ts + packages/data/src/structs/character-record.ts — skills field (index-map comment to replace) + +0x1a8 'spells_to_learn' (to reconcile with 'SKILL POINTS')",
+    "extracted/messages/msg.json — indexedMessages 5500..5529 (skill names), 5530 ('SKILL POINTS')"
+  ],
+  "function_renames_recommended": [],
+  "unresolved": [
+    "Whether record byte +0x4590 (+0x1a8) is ONE overloaded level-up bonus pool (used as both 'spells to learn' and 'skill points') or whether the prior 'spells_to_learn' label was a misread of a different byte. Settle via DOSBox-X: read +0x4590 across the 6 stock chars (all reportedly 0) and trace a level-up.",
+    "The creation skill-train screen (#022) and any /roster skill display currently use the speculative SKILL_SLOT_NAMES; updating to the authoritative msg-5500 map may change rendered labels there — re-verify those screens after the data fix.",
+    "msg ids 5500..5529 live in indexedMessages (the >717 keyed table); confirm these decode cleanly (a couple of weaponry names like POLE&STAFF / WAND&DAGGER suggest combined-skill categories rather than 1 weapon = 1 skill)."
+  ]
+}
