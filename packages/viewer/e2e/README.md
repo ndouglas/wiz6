@@ -4,6 +4,9 @@ Real-browser screen driving + canvas pixel-parity. **Runs in CI** via
 `.github/workflows/test.yml` (push to `main` + every PR), alongside the unit/
 parity suites — and runnable locally any time (below).
 
+> Canonical convergence guide (both surfaces, when to promote a drive to a gate):
+> [`docs/driving-based-testing.md`](../../../docs/driving-based-testing.md).
+
 ## Run
 
 ```bash

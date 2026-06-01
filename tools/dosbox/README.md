@@ -5,6 +5,9 @@ fixture capture don't re-drive from scratch. **Recipes are the committed
 library** (`state-catalog.ts`); `tools/dosbox/save/*.sav` are gitignored,
 disposable, built on demand.
 
+> Canonical convergence guide (both surfaces, when to promote a drive to a gate):
+> [`docs/driving-based-testing.md`](../../docs/driving-based-testing.md).
+
 ## Build a state
 
 ```bash
