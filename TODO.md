@@ -19,11 +19,6 @@ Next free ID: **#075**
 
 ## Open
 
-- #074 [open] — Starting GOLD at character creation (unresolved formula)
-  - **Context:** the per-class STARTING EQUIPMENT is now issued at creation (DONE 2026-06-01 — `@wiz6/data` `character-creation/starting-equipment.ts` (`STARTING_KITS` + `buildStartingInventory` + `startingEncumbrance`), wired into `buildCharacterFromDraft` + `CreationPage`; RE `docs/re/findings/creation-starting-equipment.json`; kit verified byte-exact vs stock chars; Fighter kit weight 295 == THESUS encumbranceCurrent). Created chars now get their 5 carried items (none auto-equipped) + correct encumbranceCurrent.
-  - **Remaining:** created chars still get **gold = 0**. The RE finding's gold claim ("+0x22 = gold = vit*15") is WRONG — record +0x22 is the CARRY CAPACITY (THESUS +0x22=2700 == encumbranceMax; `derived-stats.ts` already corrected this mislabel). So the true starting-gold field/formula is unpinned. RE the actual gold record offset + creation roll (the prior "consumed buying the kit → 0" assumption is ALSO contradicted: the kit is FREE). Until then `build.ts` keeps gold 0.
-  - Also nice-to-have: a full-creation e2e (drive CREATE PC → commit → assert the roster char has the kit inventory) — currently gated at unit level (`build.test.ts` + `starting-equipment.test.ts`).
-
 - #063 [open] — DOSBox-X MCP: Linux + Windows ports of input/window/screenshot helpers
   - macOS-only v1 shipped (Swift helper at `packages/mcp/helper/`). Linux (xdotool + ImageMagick), Windows (SendInput + screenshot APIs) follow the same TS module shape but ship a different helper binary.
   - The TS façades (`packages/mcp/src/dosbox/{input,window,screenshot}.ts`) are platform-agnostic; only the helper child process differs.

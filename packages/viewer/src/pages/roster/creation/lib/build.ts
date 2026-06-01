@@ -46,12 +46,12 @@ export function buildCharacterFromDraft(draft: DraftState, scenarioDb?: Scenario
   // level and xp come from derived stats (computeDerivedStats fires at ALLOC_CONFIRM).
   const level = draft.derived.level ?? 1;
   const xp    = draft.derived.xp    ?? 0;
-  // The class STARTING KIT is now issued (see `inventory` below) — and per the
-  // RE (docs/re/findings/creation-starting-equipment.json) the kit is FREE (gold
-  // is NOT consumed). Starting gold itself remains UNRESOLVED: that finding's
-  // "+0x22 = gold = vit*15" claim is wrong (record +0x22 is the carry capacity —
-  // THESUS's +0x22=2700 == encumbranceMax, not gold; see derived-stats.ts). The
-  // true gold field/formula isn't pinned, so we keep 0 for now (TODO).
+  // Starting gold is 0 for EVERY created character (confirmed by Nate's
+  // recollection — all classes start broke; gold is earned through play). The
+  // class STARTING KIT (see `inventory` below) is issued for FREE — gold is not
+  // consumed. (Aside: the creation-starting-equipment finding's "+0x22 = gold =
+  // vit*15" claim is wrong — record +0x22 is the carry capacity, THESUS's
+  // +0x22=2700 == encumbranceMax; see derived-stats.ts.)
   const gold  = 0;
   // HP, stamina, and age — needed by the review char-sheet renderer (and the
   // in-game stat panel). Default to 0 if a partial draft is committed.
