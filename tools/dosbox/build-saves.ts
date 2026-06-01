@@ -39,7 +39,10 @@ const DOSBOX_BIN =
 // Empirical timing constants — tune if transitions mis-fire.
 const BOOT_WAIT_MS = 5000;
 const SHUTDOWN_WAIT_MS = 2000;
-const TITLE_DISMISS = 'enter enter enter';
+// A single Enter dismisses the title/credits → MASTER OPTIONS (verified via the
+// MCP). Extra Enters here would fire on MASTER OPTIONS (cursor on ADD PARTY
+// MEMBER) and corrupt the creation flow — so dismiss with exactly ONE.
+const TITLE_DISMISS = 'enter';
 const AFTER_TITLE_WAIT_MS = 1500;
 
 // ── DOSBox-X lifecycle ────────────────────────────────────────────────────
