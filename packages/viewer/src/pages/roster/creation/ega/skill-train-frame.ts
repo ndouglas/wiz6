@@ -298,6 +298,52 @@ export function composeSkillTrainFrame(
   }
 
   // --- skillTrain window: frame + category header + skill rows + footer ---
+  const skillTrain = composeSkillPanelWindow({
+    categoryIdx: view.categoryIdx,
+    rows: view.trainableInCategory.map((slot) => ({
+      slot,
+      name: skillName(db, slot) || `SKILL ${slot}`,
+      value: view.draft.skills[slot] ?? 0,
+    })),
+    skillPoints: view.skillPoints,
+    cursorIdx: view.cursorIdx,
+    cursorState: view.cursorState ?? 'active',
+    db,
+  });
+
+  return [top, bottomBar, menuPanel, skillTrain];
+}
+
+// ---------------------------------------------------------------------------
+// composeSkillPanelWindow — the shared 20×16 skill panel
+// ---------------------------------------------------------------------------
+
+/** One row in the skill panel: slot index, display name, and value (0..50). */
+export interface SkillPanelRow {
+  slot: number;
+  name: string;
+  value: number;
+}
+
+/**
+ * Build the 20×16 skill panel window (the `skillTrain` struct @ 160,32) shared
+ * by the creation SKILL-TRAIN screen and the read-only wpcvw camp SKILL viewer.
+ * Byte-exact per the slot-1 cell dump. The caller supplies the visible rows
+ * (name + value), the category index (drives header/icon/name-color), the
+ * footer "SKILL POINTS" value, and the selection-cursor mode:
+ *   - 'active'   → 'd' (0x64 attr 0x40) at (15, 3+cursorIdx) — creation's live cursor.
+ *   - 'residual' → ' ' (0x20 attr 0x70) at that cell — creation's post-exit marker.
+ *   - 'none'     → no cursor (the read-only SKILL viewer; pass cursorIdx -1).
+ */
+export function composeSkillPanelWindow(opts: {
+  categoryIdx: number;
+  rows: readonly SkillPanelRow[];
+  skillPoints: number;
+  cursorIdx: number;
+  cursorState: 'active' | 'residual' | 'none';
+  db: MessageDb;
+}): TileWindow {
+  const { categoryIdx, rows, skillPoints, cursorIdx, cursorState, db } = opts;
   const skillTrain = createSkillTrainWindow();
   clearWindow(skillTrain, 0x20, 0x03);
 
@@ -307,7 +353,7 @@ export function composeSkillTrainFrame(
   writeCell(skillTrain, 19, 0, 0x0a, 0x01);
 
   // Row 1: category header with per-category icon brackets (attr 0x04, wfont4).
-  const cat = SKILL_CATEGORIES[view.categoryIdx]!;
+  const cat = SKILL_CATEGORIES[categoryIdx]!;
   writeCell(skillTrain, 0, 1, 0x0d, 0x01);
   writeCell(skillTrain, 2, 1, cat.iconLeft, 0x04);
   const catName = skillCatName(db, cat.msgOffset);
@@ -336,39 +382,31 @@ export function composeSkillTrainFrame(
     writeCell(skillTrain, 19, y, 0x05, 0x01);
   }
 
-  // Rows 3..(3 + N - 1): skill entries. Name attr is per-category. Bonus is
+  // Rows 3..(3 + N - 1): skill entries. Name attr is per-category. Value is
   // right-aligned in cols 16..18 (width 3) at attr 0x10.
   const nameAttr = cat.nameAttr;
-  for (let i = 0; i < view.trainableInCategory.length; i++) {
+  for (let i = 0; i < rows.length; i++) {
     const y = 3 + i;
-    const slot = view.trainableInCategory[i]!;
-    const name = skillName(db, slot) || `SKILL ${slot}`;
-    const bonus = view.draft.skills[slot] ?? 0;
+    const { name, value } = rows[i]!;
     setCursor(skillTrain, 1, y);
     puts(skillTrain, name, nameAttr);
     // Cols name.length+1..15 stay as the black-fill skeleton already written.
-    // Cols 16..18: width-3 right-aligned bonus value (spaces + digits) at attr 0x10.
-    const bonusStr = String(Math.max(0, bonus)).padStart(3, ' ');
+    // Cols 16..18: width-3 right-aligned value (spaces + digits) at attr 0x10.
+    const valStr = String(Math.max(0, value)).padStart(3, ' ');
     for (let x = 0; x < 3; x++) {
-      writeCell(skillTrain, 16 + x, y, bonusStr.charCodeAt(x), 0x10);
+      writeCell(skillTrain, 16 + x, y, valStr.charCodeAt(x), 0x10);
     }
   }
 
-  // Selection cursor — see SkillTrainView.cursorState. After the player exits
-  // skill-train (e.g. confirm screen), the engine clears the 'd' but keeps a
-  // gray-space at attr 0x70 marking the last position; we reproduce that.
-  if (view.cursorIdx >= 0 && view.cursorIdx < view.trainableInCategory.length) {
-    const mode = view.cursorState ?? 'active';
-    if (mode === 'active') {
-      writeCell(skillTrain, 15, 3 + view.cursorIdx, CURSOR_CHAR, CURSOR_ATTR);
-    } else if (mode === 'residual') {
-      writeCell(skillTrain, 15, 3 + view.cursorIdx, 0x20, 0x70);
+  // Selection cursor (creation only; the viewer passes 'none').
+  if (cursorIdx >= 0 && cursorIdx < rows.length) {
+    if (cursorState === 'active') {
+      writeCell(skillTrain, 15, 3 + cursorIdx, CURSOR_CHAR, CURSOR_ATTR);
+    } else if (cursorState === 'residual') {
+      writeCell(skillTrain, 15, 3 + cursorIdx, 0x20, 0x70);
     }
     // 'none' leaves the default black-fill cell in place.
   }
-
-  // Pad any unused row slots (after the last skill, before row 12) with the
-  // default gray fill — clearWindow already did this; nothing to do.
 
   // Row 12: empty spacer.
   writeCell(skillTrain, 0, 12, 0x0d, 0x01);
@@ -385,7 +423,7 @@ export function composeSkillTrainFrame(
   setCursor(skillTrain, 1, 14);
   puts(skillTrain, 'SKILL POINTS', 0x90);
   for (let x = 13; x < 16; x++) writeCell(skillTrain, x, 14, 0x00, 0x01);
-  const ptsStr = String(Math.max(0, view.skillPoints)).padStart(3, ' ');
+  const ptsStr = String(Math.max(0, skillPoints)).padStart(3, ' ');
   for (let x = 0; x < 3; x++) {
     writeCell(skillTrain, 16 + x, 14, ptsStr.charCodeAt(x), 0x10);
   }
@@ -396,5 +434,5 @@ export function composeSkillTrainFrame(
   for (let x = 1; x < 19; x++) writeCell(skillTrain, x, 15, 0x07, 0x01);
   writeCell(skillTrain, 19, 15, 0x08, 0x01);
 
-  return [top, bottomBar, menuPanel, skillTrain];
+  return skillTrain;
 }

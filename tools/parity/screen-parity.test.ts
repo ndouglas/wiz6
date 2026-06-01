@@ -37,12 +37,14 @@ import { composeMainPanel } from '../../packages/viewer/src/pages/castle/compose
 import { composeEquipPicker } from '../../packages/viewer/src/pages/castle/compose-equip-picker.js';
 import { composeInventoryPicker } from '../../packages/viewer/src/pages/castle/compose-inventory-picker.js';
 import { composeAssayDisplay } from '../../packages/viewer/src/pages/castle/compose-assay-display.js';
+import { composeSkillViewer } from '../../packages/viewer/src/pages/castle/compose-skill-viewer.js';
+import { skillTabEntries } from '../../packages/viewer/src/pages/castle/character-view-reducer.js';
 import { buildInventoryItems, scenarioItemName } from '../../packages/viewer/src/pages/castle/item-display.js';
-import { equipCandidates, assayItem } from '../../packages/data/src/index.js';
+import { equipCandidates, assayItem, skillViewerRows } from '../../packages/data/src/index.js';
 import { blankDraft } from '../../packages/viewer/src/pages/roster/creation/state.js';
 import { draftFromCharacter } from '../../packages/viewer/src/pages/roster/creation/lib/draft-from-character.js';
 import type { ActivePartyMember, Character } from '../../packages/data/src/index.js';
-import { raceName, className, creationString, MSG } from '../../packages/viewer/src/pages/roster/creation/messages.js';
+import { raceName, className, creationString, MSG, skillName } from '../../packages/viewer/src/pages/roster/creation/messages.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { compareRgba, writeDiffPng } from './diff-image.js';
 import { indicesToRgba } from './decode-screen.js';
@@ -1081,6 +1083,97 @@ function renderAssayDisplay(fontSet: FontSet, palette: Palette): Uint8ClampedArr
   return renderCreationFrame([mainPanel, ...popup], fontSetWithPortrait, palette);
 }
 
+// ─── SKILL VIEWER (wpcvw camp SKILL; read-only skill-level browser) helper ─────
+// Engine fixtures (saves 5/6/7): THESUS in a 3-member party, SKILL viewer open
+// on each available category. The left char sheet is composeMainPanel; the right
+// half is the 20×16 skill panel (covering the AC grid + inventory), and the
+// action-menu strip is replaced by the dynamic category-tab picker. THESUS has
+// SWORD(slot1)=10 + SHIELD(slot8)=2; all other skills 0; skill points 0.
+// RE: docs/re/findings/wpcvw-skill-action.json + wpcvw-skill-names.json.
+
+function renderSkillViewer(
+  fontSet: FontSet,
+  palette: Palette,
+  category: number,
+  cursor: number,
+): Uint8ClampedArray {
+  const skills = new Array(30).fill(0) as number[];
+  skills[1] = 10; // SWORD
+  skills[8] = 2;  // SHIELD
+
+  const emptySlot = { itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 };
+  const inventory = [
+    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },
+    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 0 },
+    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0, quantity: 0, flags: 0 },
+    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0, quantity: 0, flags: 0 },
+    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0, quantity: 0, flags: 0 },
+    ...Array.from({ length: 17 }, () => ({ ...emptySlot })),
+  ];
+
+  const thesus: ActivePartyMember = {
+    id: '00000000-0000-0000-0000-000000000001',
+    name: 'THESUS',
+    race: 0, class: 0, sex: 0,
+    level: 1, savedOldLevel: 0, xp: 0, gold: 0,
+    conditions: new Array(10).fill(0) as number[],
+    dead: false, paralyzed: false,
+    attributes: { str: 18, int: 8, pie: 8, vit: 12, dex: 10, spd: 9, per: 8, kar: 14 },
+    schoolMana: new Array(6).fill(0) as number[],
+    schoolManaMax: new Array(6).fill(0) as number[],
+    skills,
+    reaction: 50,
+    portraitIndex: 10,
+    hpCurrent: 8, hpMax: 8, staminaCurrent: 126, staminaMax: 126,
+    encumbranceCurrent: 295, encumbranceMax: 2700,
+    age: 18 * 365 + 100,
+    portraitSlotId: 0,
+    rosterCharacterId: '00000000-0000-0000-0000-000000000001',
+    inventory,
+  };
+
+  const wport1: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  );
+  const wport2: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport2.json'), 'utf-8')),
+  );
+  const wport3: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport3.json'), 'utf-8')),
+  );
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, wport2, wport3], 0);
+
+  const scenarioDb = ScenarioDbSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_SCENARIO, 'scenario.json'), 'utf-8')),
+  );
+
+  const carryMax = resolveCarryCapacityMax(thesus, false);
+  const mainPanel = composeMainPanel({
+    member: thesus,
+    db: msgDb,
+    inventory: buildInventoryItems(thesus, scenarioDb),
+    cc: { current: Math.floor((thesus.encumbranceCurrent ?? 0) / 10), max: Math.floor(carryMax / 10) },
+    age: { years: 18, second: 1 },
+  });
+
+  const hasPersonalSkills = skills.slice(17, 22).some((v) => v > 0); // false for THESUS
+  const rows = skillViewerRows(thesus, category).map((r) => ({
+    slot: r.slot,
+    name: skillName(msgDb, r.slot) || r.name,
+    level: r.level,
+  }));
+  const viewer = composeSkillViewer({
+    category,
+    rows,
+    skillPoints: 0,
+    tabEntries: skillTabEntries(category, hasPersonalSkills),
+    cursor,
+    db: msgDb,
+  });
+
+  return renderCreationFrame([mainPanel, ...viewer], fontSetWithPortrait, palette);
+}
+
 // ─── Screen table ──────────────────────────────────────────────────────────────
 // `floor` = current measured match % minus a small margin. TARGET is 100.
 
@@ -1211,6 +1304,27 @@ const SCREENS: ScreenCase[] = [
     fixture: 'assay-longsword',
     floor: 100, // ASSAY stat popup — 20×12 LONGSWORD inspect block + "PRESS ↵ TO EXIT" strip
     render: renderAssayDisplay,
+  },
+  {
+    // SKILL viewer, WEAPONRY (cat 0). Tabs [PHYSICAL,ACADEMIA,EXIT], cursor on
+    // PHYSICAL. THESUS WEAPONRY: SWORD=10, SHIELD=2, rest of slots 0-8 = 0.
+    fixture: 'skill-viewer-weaponry',
+    floor: 100,
+    render: (f, p) => renderSkillViewer(f, p, 0, 0),
+  },
+  {
+    // SKILL viewer, PHYSICAL (cat 1). Tabs [WEAPONRY,ACADEMIA,EXIT], cursor on
+    // ACADEMIA (entry 1). Fighter PHYSICAL = SCOUTING only (slot 11), level 0.
+    fixture: 'skill-viewer-physical',
+    floor: 100,
+    render: (f, p) => renderSkillViewer(f, p, 1, 1),
+  },
+  {
+    // SKILL viewer, ACADEMIA (cat 3). Tabs [WEAPONRY,PHYSICAL,EXIT], cursor on
+    // EXIT (entry 2). Fighter ACADEMIA = ARTIFACTS/MYTHOLOGY/SCRIBE, all 0.
+    fixture: 'skill-viewer-academia',
+    floor: 100,
+    render: (f, p) => renderSkillViewer(f, p, 3, 2),
   },
 ];
 

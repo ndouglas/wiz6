@@ -44,7 +44,10 @@ Drove DOSBox camp → REVIEW MEMBER (THESUS) → SKILL via MCP; committed 3 fixt
 - Row visibility within a category matches `skillViewerRows` (THESUS WEAPONRY shows only SWORD=10/SHIELD=2 + the 0-level trainable ones; PHYSICAL only SCOUTING; ACADEMIA ARTIFACTS/MYTHOLOGY/SCRIBE).
 - PERSONAL category panel NOT captured (no class in the test party trains it) — defer to Stage 6.
 
-### Stage 2 — Composer (pixel-targeted to the captured fixtures) — Status: Not Started
+### Stage 2 — Composer (pixel-targeted to the captured fixtures) — Status: COMPLETE
+Extracted `composeSkillPanelWindow` from `composeSkillTrainFrame` (the shared 20×16 skill panel; creation parity unchanged) and built `compose-skill-viewer.ts`: the panel (reused) + a dynamic tab-picker strip (categories-minus-current + EXIT, x_step 10, inverse highlight). `composeMainPanel` underneath. **All 3 fixtures pass at 100% pixel-parity** (`skill-viewer-{weaponry,physical,academia}` in `screen-parity.test.ts`) — first run, no iteration needed (reuse + corrected names/colors lined up). 885 viewer + 79 parity tests green; tsc clean.
+
+(original Stage 2 plan:)
 **Goal:** `packages/viewer/src/pages/castle/compose-skill-viewer.ts` → `TileWindow[]`.
 - The 20×16 right-half panel at (col 20, row 4) attr 0x19 + chrome (mirror `compose-assay-display`'s chrome scaffold; this window is taller).
 - Category title row (centered + flank icons); per-row NAME (col 1, per-category color) + LEVEL (right-aligned); "SKILL POINTS" + value line.
