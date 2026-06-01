@@ -134,8 +134,11 @@ Next free ID: **#066**
 - #036 [open] — Port WPCVW TRADE action
   - Give-to-party-member, 32-bit gold transfer. Engine: 0x513e.
 
-- #035 [open] — Port WPCVW ASSAY action
-  - Inspect-and-use. Engine: 0x7160. Picker msg 0x1c2.
+- #072 [open] — ASSAY follow-ups (verify MEDIUM bits + the inventory-picker nav order)
+  - ASSAY shipped 2026-06-01 (read-only inspect: assayItem descriptor + compose-inventory-picker + compose-assay-display, pixel-gated by `assay-picker` + `assay-longsword`, e2e-driven). Not-yet-verified:
+  - (1) **Inventory-picker cursor order**: our `nextInventoryCursor` has NONE *after* the items (ArrowUp from NONE → the LAST item; 5 ups to reach the top item). But a manual engine capture showed a single `up` from NONE landing on the TOP item (LONGSWORD). The two cursor-state pixel fixtures don't pin the intermediate nav, so this may be backwards vs the engine. Capture a 2nd picker fixture with the cursor on a specific item (drive `up` once from NONE, save) to pin the nav order, then fix `nextInventoryCursor` if needed. **This is the reusable picker** (USE #038 / DROP #037 will inherit the nav) — worth getting right.
+  - (2) **MEDIUM descriptor bits** (unexercised by LONGSWORD): non-sword `attackModes` (cats 1-4 are best-guess), the `curse` line (no cursed stock item assayed), the `resistances` averaging (all-zero for LONGSWORD), and 2HAND-vs-1HAND for a genuine two-handed weapon. Assay a weapon/armor with those properties (live DOSBox) to confirm.
+  - The reusable `compose-inventory-picker` + `nextInventoryCursor` are READY for USE (#038) / DROP (#037).
 
 - #034 [open] — Port WPCVW SWAG action
   - Body unknown — engine FUN @ 0x?. Open follow-up in `wpcvw-character-view-ux.json`.
