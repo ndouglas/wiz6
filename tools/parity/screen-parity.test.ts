@@ -38,6 +38,7 @@ import { composeEquipPicker } from '../../packages/viewer/src/pages/castle/compo
 import { composeInventoryPicker } from '../../packages/viewer/src/pages/castle/compose-inventory-picker.js';
 import { composeAssayDisplay } from '../../packages/viewer/src/pages/castle/compose-assay-display.js';
 import { composeSkillViewer } from '../../packages/viewer/src/pages/castle/compose-skill-viewer.js';
+import { composeSwagBag } from '../../packages/viewer/src/pages/castle/compose-swag-bag.js';
 import { skillTabEntries } from '../../packages/viewer/src/pages/castle/character-view-reducer.js';
 import { buildInventoryItems, scenarioItemName } from '../../packages/viewer/src/pages/castle/item-display.js';
 import { equipCandidates, assayItem, skillViewerRows } from '../../packages/data/src/index.js';
@@ -1174,6 +1175,74 @@ function renderSkillViewer(
   return renderCreationFrame([mainPanel, ...viewer], fontSetWithPortrait, palette);
 }
 
+// ─── SWAG BAG (wpcvw camp SWAG; interactive stash manager) helper ──────────────
+// Engine fixtures (saves 5/6): THESUS SWAG BAG. `swag-empty` = empty bag, menu
+// [ADD, EXIT]; `swag-longsword` = bag [LONGSWORD] after an ADD, menu
+// [ADD,REMOVE,DROP,EXIT]. Cursor on EXIT in both. Left = composeMainPanel; the
+// popup covers the right panel (AC grid + inventory). Cells byte-exact from
+// dump-cells.py --header 0x14,0x10,0x14,4,0x19.
+
+function renderSwagBag(
+  fontSet: FontSet,
+  palette: Palette,
+  bagItems: { name: string; icon: number }[],
+  menu: { label: string; enabled: boolean }[],
+  cursor: number,
+): Uint8ClampedArray {
+  const emptySlot = { itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 };
+  const inventory = [
+    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },
+    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 0 },
+    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0, quantity: 0, flags: 0 },
+    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0, quantity: 0, flags: 0 },
+    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0, quantity: 0, flags: 0 },
+    ...Array.from({ length: 17 }, () => ({ ...emptySlot })),
+  ];
+  const thesus: ActivePartyMember = {
+    id: '00000000-0000-0000-0000-000000000001',
+    name: 'THESUS',
+    race: 0, class: 0, sex: 0,
+    level: 1, savedOldLevel: 0, xp: 0, gold: 0,
+    conditions: new Array(10).fill(0) as number[],
+    dead: false, paralyzed: false,
+    attributes: { str: 18, int: 8, pie: 8, vit: 12, dex: 10, spd: 9, per: 8, kar: 14 },
+    schoolMana: new Array(6).fill(0) as number[],
+    schoolManaMax: new Array(6).fill(0) as number[],
+    skills: new Array(30).fill(0) as number[],
+    reaction: 50,
+    portraitIndex: 10,
+    hpCurrent: 8, hpMax: 8, staminaCurrent: 126, staminaMax: 126,
+    encumbranceCurrent: 295, encumbranceMax: 2700,
+    age: 18 * 365 + 100,
+    portraitSlotId: 0,
+    rosterCharacterId: '00000000-0000-0000-0000-000000000001',
+    inventory,
+  };
+  const wport1: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  );
+  const wport2: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport2.json'), 'utf-8')),
+  );
+  const wport3: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport3.json'), 'utf-8')),
+  );
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, wport2, wport3], 0);
+  const scenarioDb = ScenarioDbSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_SCENARIO, 'scenario.json'), 'utf-8')),
+  );
+  const carryMax = resolveCarryCapacityMax(thesus, false);
+  const mainPanel = composeMainPanel({
+    member: thesus,
+    db: msgDb,
+    inventory: buildInventoryItems(thesus, scenarioDb),
+    cc: { current: Math.floor((thesus.encumbranceCurrent ?? 0) / 10), max: Math.floor(carryMax / 10) },
+    age: { years: 18, second: 1 },
+  });
+  const swag = composeSwagBag({ bagItems, menu, cursor });
+  return renderCreationFrame([mainPanel, ...swag], fontSetWithPortrait, palette);
+}
+
 // ─── Screen table ──────────────────────────────────────────────────────────────
 // `floor` = current measured match % minus a small margin. TARGET is 100.
 
@@ -1325,6 +1394,26 @@ const SCREENS: ScreenCase[] = [
     fixture: 'skill-viewer-academia',
     floor: 100,
     render: (f, p) => renderSkillViewer(f, p, 3, 2),
+  },
+  {
+    // SWAG BAG, empty. Menu [ADD, EXIT] (REMOVE/DROP hidden), cursor on EXIT
+    // (visible index 1).
+    fixture: 'swag-empty',
+    floor: 100,
+    render: (f, p) => renderSwagBag(f, p, [], [
+      { label: 'ADD', enabled: true }, { label: 'REMOVE', enabled: false },
+      { label: 'DROP', enabled: false }, { label: 'EXIT', enabled: true },
+    ], 1),
+  },
+  {
+    // SWAG BAG with LONGSWORD (icon 0x02). Menu [ADD,REMOVE,DROP,EXIT], cursor
+    // on EXIT (visible index 3).
+    fixture: 'swag-longsword',
+    floor: 100,
+    render: (f, p) => renderSwagBag(f, p, [{ name: 'LONGSWORD', icon: 0x02 }], [
+      { label: 'ADD', enabled: true }, { label: 'REMOVE', enabled: true },
+      { label: 'DROP', enabled: true }, { label: 'EXIT', enabled: true },
+    ], 3),
   },
 ];
 

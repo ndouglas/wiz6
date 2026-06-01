@@ -277,6 +277,54 @@ def cmd_scan(save_path):
         print(f"    row0: {preview!r}")
 
 
+def find_windows_by_header(b: bytes, w, h, x, y, attr):
+    """Find every struct offset whose 5-byte header == (w,h,x,y,attr).
+
+    Use this for windows the printable-ASCII `--scan` rejects — e.g. wpcvw
+    popups (ASSAY/SKILL/SWAG) whose interior is mostly black-fill chrome (0x00)
+    rather than text, so they score < 0.5. The header is specific enough that
+    matches are almost always the real struct(s) (live + any retained copy).
+    """
+    hdr = bytes([w & 0xff, h & 0xff, x & 0xff, y & 0xff, attr & 0xff])
+    offs, start = [], 0
+    while True:
+        off = b.find(hdr, start)
+        if off < 0:
+            break
+        offs.append(off)
+        start = off + 1
+    return offs
+
+
+def cmd_header(save_path, out_path, hdr_spec, cells_delta):
+    b = mem(save_path)
+    parts = [int(p, 0) for p in hdr_spec.split(",")]
+    if len(parts) != 5:
+        raise SystemExit("--header expects W,H,X,Y,ATTR (e.g. 0x14,0x10,0x14,4,0x19)")
+    w, h, x, y, attr = parts
+    deltas = [cells_delta] if cells_delta is not None else [0x10, 0x14]
+    offs = find_windows_by_header(b, w, h, x, y, attr)
+    print(f"Found {len(offs)} struct(s) matching header {w}x{h}@({x},{y}) attr=0x{attr:02x}\n")
+    out = {"save": save_path.name, "windows": {}}
+    for i, struct_off in enumerate(offs):
+        for delta in deltas:
+            if struct_off + delta + w * h * 2 > len(b):
+                continue
+            win = read_window_at(b, struct_off, delta)
+            name = f"hdr{i}_0x{struct_off:x}_d{delta:#x}"
+            win["_struct_off"] = f"0x{struct_off:x}"
+            win["_cells_off_delta"] = f"0x{delta:x}"
+            out["windows"][name] = win
+            render_human(name, win)
+    if out_path is not None:
+        persist = {"save": out["save"], "windows": {
+            n: {k: v for k, v in w_.items() if not k.startswith("_")}
+            for n, w_ in out["windows"].items()
+        }}
+        out_path.write_text(json.dumps(persist))
+        print(f"\nwrote {out_path}")
+
+
 def cmd_picker(save_path, out_path):
     """Find the wbase ADD PARTY MEMBER picker's two panels by content-signature
     scan, and emit a fixture with the same shape as the wpcmk fixtures."""
@@ -321,8 +369,23 @@ def main():
         help="scan the entire Memory blob for plausible TileWindow structs "
              "(heuristic: valid w/h/x/y + printable-ish cell content)",
     )
+    parser.add_argument(
+        "--header",
+        metavar="W,H,X,Y,ATTR",
+        help="find structs by their exact 5-byte header (e.g. 0x14,0x10,0x14,4,0x19 "
+             "for the SWAG/SKILL popup). Bypasses the printable-ASCII --scan filter — "
+             "use for chrome-heavy wpcvw popups.",
+    )
+    parser.add_argument(
+        "--cells-delta",
+        type=lambda s: int(s, 0),
+        default=None,
+        help="cells offset from the struct base (default: try both 0x10 and 0x14).",
+    )
     args = parser.parse_args()
-    if args.scan:
+    if args.header:
+        cmd_header(args.save, args.out, args.header, args.cells_delta)
+    elif args.scan:
         cmd_scan(args.save)
     elif args.picker:
         cmd_picker(args.save, args.out)
