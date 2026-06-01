@@ -33,7 +33,10 @@ import { composeReviewPickerFrame } from '../../packages/viewer/src/pages/roster
 import { highlightRange } from '../../packages/viewer/src/pages/roster/creation/ega/highlight.js';
 import { drawCharSheet } from '../../packages/viewer/src/pages/roster/creation/ega/char-sheet.js';
 import { composeCharacterViewFrame } from '../../packages/viewer/src/pages/castle/compose-character-view-frame.js';
-import { buildInventoryItems } from '../../packages/viewer/src/pages/castle/item-display.js';
+import { composeMainPanel } from '../../packages/viewer/src/pages/castle/compose-main-panel.js';
+import { composeEquipPicker } from '../../packages/viewer/src/pages/castle/compose-equip-picker.js';
+import { buildInventoryItems, scenarioItemName } from '../../packages/viewer/src/pages/castle/item-display.js';
+import { equipCandidates } from '../../packages/data/src/index.js';
 import { blankDraft } from '../../packages/viewer/src/pages/roster/creation/state.js';
 import { draftFromCharacter } from '../../packages/viewer/src/pages/roster/creation/lib/draft-from-character.js';
 import type { ActivePartyMember, Character } from '../../packages/data/src/index.js';
@@ -836,6 +839,96 @@ function renderReviewMemberView(fontSet: FontSet, palette: Palette): Uint8Clampe
   return renderCreationFrame(windows, fontSetWithPortrait, palette);
 }
 
+// ─── EQUIP SLOT-PICKER (WPCVW state 0x11, body slot 0) helper ──────────────────
+// Engine fixture (save slot 9, same base state as review-member-view): THESUS
+// after choosing EQUIP and entering the per-slot wizard for body slot 0 (PRIMARY
+// WEAPON). The character sheet is identical to review-member-view; the EQUIP
+// overlay adds (1) a candidate-row highlight on LONGSWORD (the only slot-0
+// candidate) in the inventory list, and (2) a bottom prompt bar reading
+// "SELECT PRIMARY WEAPON > NONE" (the row-cursor hovers candidate 0 while the
+// committed selection is still NONE). Verified vs the equip-slot0 fixture, which
+// differs from review-member-view in exactly two regions (inventory row 9 +
+// the bottom strip).
+
+function renderEquipSlot0(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  const emptySlot = { itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 };
+  const inventory = [
+    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },   // LONGSWORD
+    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 0 },  // LEATHER CUIRASS
+    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0, quantity: 0, flags: 0 },  // FUR LEGGING
+    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0, quantity: 0, flags: 0 }, // SANDALS
+    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0, quantity: 0, flags: 0 }, // BUCKLER SHIELD
+    ...Array.from({ length: 17 }, () => ({ ...emptySlot })),
+  ];
+
+  const thesus: ActivePartyMember = {
+    id: '00000000-0000-0000-0000-000000000001',
+    name: 'THESUS',
+    race: 0, class: 0, sex: 0,
+    level: 1, savedOldLevel: 0, xp: 0, gold: 0,
+    conditions: new Array(10).fill(0) as number[],
+    dead: false, paralyzed: false,
+    attributes: { str: 18, int: 8, pie: 8, vit: 12, dex: 10, spd: 9, per: 8, kar: 14 },
+    schoolMana: new Array(6).fill(0) as number[],
+    schoolManaMax: new Array(6).fill(0) as number[],
+    skills: new Array(30).fill(0) as number[],
+    reaction: 50,
+    portraitIndex: 10,
+    hpCurrent: 8, hpMax: 8, staminaCurrent: 126, staminaMax: 126,
+    encumbranceCurrent: 295, encumbranceMax: 2700,
+    age: 18 * 365 + 100,
+    portraitSlotId: 0,
+    rosterCharacterId: '00000000-0000-0000-0000-000000000001',
+    inventory,
+  };
+
+  const wport1: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  );
+  const wport2: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport2.json'), 'utf-8')),
+  );
+  const wport3: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport3.json'), 'utf-8')),
+  );
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, wport2, wport3], 0);
+
+  const scenarioDb = ScenarioDbSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_SCENARIO, 'scenario.json'), 'utf-8')),
+  );
+
+  const carryMax = resolveCarryCapacityMax(thesus, false);
+
+  // Main panel (character sheet) — identical to review-member-view, but no
+  // action-menu strip (the EQUIP prompt bar replaces it).
+  const mainPanel = composeMainPanel({
+    member: thesus,
+    db: msgDb,
+    inventory: buildInventoryItems(thesus, scenarioDb),
+    cc: { current: Math.floor((thesus.encumbranceCurrent ?? 0) / 10), max: Math.floor(carryMax / 10) },
+    age: { years: 18, second: 1 },
+  });
+
+  // Slot-0 candidates via the engine equip-logic, resolved to display names.
+  const candidateIdxs = equipCandidates(thesus, 0, scenarioDb, Array(8).fill(null));
+  const candidates = candidateIdxs.map((i) => ({
+    name: scenarioItemName(scenarioDb, inventory[i]!.itemId),
+  }));
+
+  // Fixture state: row-cursor on candidate 0 (LONGSWORD highlighted), committed
+  // selection NONE (prompt tail shows NONE).
+  const equip = composeEquipPicker({
+    db: msgDb,
+    bodySlot: 0,
+    slotTitle: 'PRIMARY WEAPON',
+    candidates,
+    cursor: 0,
+    selection: null,
+  });
+
+  return renderCreationFrame([mainPanel, ...equip], fontSetWithPortrait, palette);
+}
+
 // ─── Screen table ──────────────────────────────────────────────────────────────
 // `floor` = current measured match % minus a small margin. TARGET is 100.
 
@@ -951,6 +1044,11 @@ const SCREENS: ScreenCase[] = [
     fixture: 'review-member-view',
     floor: 100, // 3-member party — THESUS char sheet + resolved equipment + 7-entry menu, EXIT highlighted
     render: renderReviewMemberView,
+  },
+  {
+    fixture: 'equip-slot0',
+    floor: 100, // EQUIP wizard, body slot 0 — LONGSWORD candidate highlighted + "SELECT PRIMARY WEAPON > NONE" bar
+    render: renderEquipSlot0,
   },
 ];
 
