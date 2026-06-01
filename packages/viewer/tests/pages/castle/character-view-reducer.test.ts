@@ -5,9 +5,14 @@ import {
   type CharacterViewState,
   type CharacterViewEvent,
   type EquipInfo,
+  type AssayInfo,
 } from '../../../src/pages/castle/character-view-reducer.js';
 
 const baseEnabled = { rename: true, portrait: true, profession: true };
+
+// Assay info for tests: 3 carried items at inventory indices [2, 5, 9] (in
+// display order — the i-th carried item maps to carried[i]). NONE == 3.
+const assayInfo: AssayInfo = { carried: [2, 5, 9] };
 
 // Equip closure for tests: slot 0 has candidate inv-idxs [3, 7], slot 4 has
 // candidate inv-idx [1]; all other slots empty. Independent of selections
@@ -217,6 +222,63 @@ describe('reduceCharacterView — EQUIP wizard', () => {
   it('Escape cancels → action-menu (selections discarded)', () => {
     const s: CharacterViewState = { kind: 'equip-wizard', slot: 0, selections: [3, null, null, null, null, null, null, null], cursor: 0 };
     const next = reduceCharacterView(s, { type: 'ESCAPE' }, baseEnabled, equipInfo);
+    expect(next.kind).toBe('action-menu');
+  });
+});
+
+describe('reduceCharacterView — ASSAY picker / display', () => {
+  const assayMenu: CharacterViewState = {
+    kind: 'action-menu',
+    cursorIdx: 2, // ASSAY
+    campEntries: ['EQUIP', 'SPELL', 'ASSAY', 'SWAG', 'SKILL', 'EXIT'],
+  };
+
+  it('Enter on ASSAY → assay-picker with cursor on NONE (== carried count)', () => {
+    const next = reduceCharacterView(assayMenu, { type: 'ENTER' }, baseEnabled, undefined, assayInfo);
+    expect(next.kind).toBe('assay-picker');
+    if (next.kind === 'assay-picker') expect(next.cursor).toBe(3); // NONE
+  });
+
+  it('Up/Down move the cursor over [items…, NONE], clamped', () => {
+    const s: CharacterViewState = { kind: 'assay-picker', cursor: 3 };
+    const up = reduceCharacterView(s, { type: 'ARROW_UP' }, baseEnabled, undefined, assayInfo);
+    expect(up.kind === 'assay-picker' && up.cursor).toBe(2);
+    const up0 = reduceCharacterView({ kind: 'assay-picker', cursor: 0 }, { type: 'ARROW_UP' }, baseEnabled, undefined, assayInfo);
+    expect(up0.kind === 'assay-picker' && up0.cursor).toBe(0); // clamp top
+    const down = reduceCharacterView({ kind: 'assay-picker', cursor: 0 }, { type: 'ARROW_DOWN' }, baseEnabled, undefined, assayInfo);
+    expect(down.kind === 'assay-picker' && down.cursor).toBe(1);
+    const downMax = reduceCharacterView({ kind: 'assay-picker', cursor: 3 }, { type: 'ARROW_DOWN' }, baseEnabled, undefined, assayInfo);
+    expect(downMax.kind === 'assay-picker' && downMax.cursor).toBe(3); // clamp at NONE
+  });
+
+  it('Enter on NONE (cursor == count) → action-menu (page rehydrates to EXIT)', () => {
+    const s: CharacterViewState = { kind: 'assay-picker', cursor: 3 };
+    const next = reduceCharacterView(s, { type: 'ENTER' }, baseEnabled, undefined, assayInfo);
+    expect(next.kind).toBe('action-menu');
+  });
+
+  it('Enter on an item → assay-display with that item inventory index', () => {
+    const s: CharacterViewState = { kind: 'assay-picker', cursor: 1 };
+    const next = reduceCharacterView(s, { type: 'ENTER' }, baseEnabled, undefined, assayInfo);
+    expect(next.kind).toBe('assay-display');
+    if (next.kind === 'assay-display') expect(next.itemIdx).toBe(5); // carried[1]
+  });
+
+  it('Escape on picker → action-menu', () => {
+    const s: CharacterViewState = { kind: 'assay-picker', cursor: 1 };
+    const next = reduceCharacterView(s, { type: 'ESCAPE' }, baseEnabled, undefined, assayInfo);
+    expect(next.kind).toBe('action-menu');
+  });
+
+  it('Enter on assay-display → action-menu', () => {
+    const s: CharacterViewState = { kind: 'assay-display', itemIdx: 5 };
+    const next = reduceCharacterView(s, { type: 'ENTER' }, baseEnabled, undefined, assayInfo);
+    expect(next.kind).toBe('action-menu');
+  });
+
+  it('Escape on assay-display → action-menu', () => {
+    const s: CharacterViewState = { kind: 'assay-display', itemIdx: 5 };
+    const next = reduceCharacterView(s, { type: 'ESCAPE' }, baseEnabled, undefined, assayInfo);
     expect(next.kind).toBe('action-menu');
   });
 });

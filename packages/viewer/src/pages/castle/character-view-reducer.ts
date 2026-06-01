@@ -14,6 +14,7 @@
  */
 
 import { nextEquipCursor, nextPopulatedSlot } from './equip-wizard-reducer.js';
+import { nextInventoryCursor } from './compose-inventory-picker.js';
 
 export type CharacterViewState =
   | { kind: 'action-menu'; cursorIdx: number; campEntries: ReadonlyArray<string> }
@@ -28,6 +29,15 @@ export type CharacterViewState =
   // (NONE/skip). `cursor` is the row-cursor over [candidates, SKIP] where SKIP
   // == candidate count for `slot`. RE: docs/re/findings/wpcvw-equip-action.json.
   | { kind: 'equip-wizard'; slot: number; selections: ReadonlyArray<number | null>; cursor: number }
+  // ASSAY (inspect a carried item). Two-step sub-flow:
+  //   assay-picker → pick a carried item from [items…, NONE] (cursor over the
+  //     vertical carried-item list; NONE == carried count). Initial cursor is on
+  //     NONE (matches the engine's assay-picker fixture). Up/Down navigate.
+  //   assay-display → read-only inspect popup for the picked item. `itemIdx` is
+  //     the member's INVENTORY index (not the picker cursor) so the page can
+  //     resolve the item directly. RE: docs/re/findings/wpcvw-assay-action.json.
+  | { kind: 'assay-picker'; cursor: number }
+  | { kind: 'assay-display'; itemIdx: number }
   | { kind: 'commit-rename'; name: string }
   | { kind: 'commit-portrait'; portraitIndex: number }
   | { kind: 'commit-class-change'; newClassId: number }
@@ -61,6 +71,22 @@ export interface EditEnableFlags {
  */
 export interface EquipInfo {
   candidatesFor: (slot: number, selections: ReadonlyArray<number | null>) => ReadonlyArray<number>;
+}
+
+/**
+ * Carried-item info the ASSAY picker needs but the reducer can't compute purely
+ * (it depends on the member's inventory). The page supplies `carried`: the
+ * member's carried-item INVENTORY indices in PICKER DISPLAY ORDER (the same
+ * order the page feeds to composeInventoryPicker's `items`). The reducer uses
+ * the list LENGTH for cursor clamping / the NONE position and the list itself
+ * to translate the picker cursor → inventory index on commit (`carried[cursor]`).
+ *
+ * Contract: the i-th element of `carried` is the inventory index of the i-th
+ * item shown in the picker. The page MUST build `carried` from the same ordered
+ * scan it uses for the picker `items` so cursor → invIdx stays consistent.
+ */
+export interface AssayInfo {
+  carried: ReadonlyArray<number>;
 }
 
 const BODY_SLOT_COUNT = 8;
@@ -116,6 +142,7 @@ export function reduceCharacterView(
   event: CharacterViewEvent,
   flags: EditEnableFlags,
   equip?: EquipInfo,
+  assay?: AssayInfo,
 ): CharacterViewState {
   switch (state.kind) {
     case 'action-menu': {
@@ -132,7 +159,11 @@ export function reduceCharacterView(
           if (slot === null) return { kind: 'commit-equip', selections };
           return { kind: 'equip-wizard', slot, selections, cursor: 0 };
         }
-        return state; // SPELL/ASSAY/SWAG/SKILL/REVIEW handlers are SP3
+        if (label === 'ASSAY' && assay) {
+          // Engine opens the picker with the cursor on NONE (carried count).
+          return { kind: 'assay-picker', cursor: assay.carried.length };
+        }
+        return state; // SPELL/SWAG/SKILL/REVIEW handlers are SP3
       }
       const key =
         event.type === 'ARROW_LEFT' ? 'ArrowLeft' :
@@ -244,6 +275,32 @@ export function reduceCharacterView(
         const slot = nextPopulatedSlot(state.slot, (s) => equip.candidatesFor(s, selections).length > 0);
         if (slot === null) return { kind: 'commit-equip', selections };
         return { kind: 'equip-wizard', slot, selections, cursor: 0 };
+      }
+      return state;
+    }
+    case 'assay-picker': {
+      // ESC cancels back to the action menu (cursor on EXIT, hydrated by the
+      // page's action-menu rehydration).
+      if (event.type === 'ESCAPE') return { kind: 'action-menu', cursorIdx: 0, campEntries: [] };
+      if (!assay) return state;
+      const count = assay.carried.length;
+      if (event.type === 'ARROW_UP' || event.type === 'ARROW_DOWN') {
+        const key = event.type === 'ARROW_UP' ? 'ArrowUp' : 'ArrowDown';
+        return { ...state, cursor: nextInventoryCursor(state.cursor, key, count) };
+      }
+      if (event.type === 'ENTER') {
+        // cursor == count is the NONE position → cancel back to the action menu.
+        if (state.cursor === count) return { kind: 'action-menu', cursorIdx: 0, campEntries: [] };
+        const itemIdx = assay.carried[state.cursor];
+        if (itemIdx === undefined) return state;
+        return { kind: 'assay-display', itemIdx };
+      }
+      return state;
+    }
+    case 'assay-display': {
+      // Read-only inspect popup. ENTER or ESC dismisses back to the action menu.
+      if (event.type === 'ENTER' || event.type === 'ESCAPE') {
+        return { kind: 'action-menu', cursorIdx: 0, campEntries: [] };
       }
       return state;
     }
