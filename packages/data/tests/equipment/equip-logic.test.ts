@@ -99,6 +99,22 @@ describe('equipCandidates (THESUS + real scenario.dbs)', () => {
     sel[0] = 0;
     expect(equipCandidates(m, 1, db, sel)).not.toContain(0);
   });
+
+  it('a pole weapon (equipSlot 3) with a 2H sprite-type blocks the off-hand slot', () => {
+    const m = thesus();
+    m.inventory![0] = { ...invSlot(8, 3), spriteIdx: 0xb }; // pole weapon, 2H sprite/type byte
+    const sel = emptySelections();
+    sel[0] = 0; // pole weapon chosen for the main-weapon slot
+    expect(equipCandidates(m, 1, realScenarioDb(), sel)).toEqual([]); // off-hand disqualified
+  });
+
+  it('a pole weapon with a non-2H sprite-type does NOT block the off-hand', () => {
+    const m = thesus();
+    m.inventory![0] = { ...invSlot(8, 3), spriteIdx: 0x01 }; // pole, but not a 2H sprite/type
+    const sel = emptySelections();
+    sel[0] = 0;
+    expect(equipCandidates(m, 1, realScenarioDb(), sel)).toContain(4); // BUCKLER still offered
+  });
 });
 
 describe('computeAc', () => {

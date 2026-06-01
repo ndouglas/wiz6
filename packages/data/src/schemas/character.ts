@@ -155,7 +155,10 @@ export const CharacterSchema = z.object({
   inventory: z.array(InventoryItemSchema).length(22).optional(),
   /**
    * Equipment body-slot array: 8 inventory indices or 255=empty.
-   * Slots: [0]=weapon [1]=shield [2]=head [3]=body [4]=legs [5]=hands [6]=feet [7]=cloak.
+   * Slots: [0]=weapon [1]=off-hand/shield [2]=cloak [3]=head [4]=chest/body [5]=legs
+   * [6]=hands [7]=feet. (Corrected from the prior off-by-one — the verified order is
+   * weapon/offhand/cloak/head/chest/legs/hands/feet; see
+   * docs/re/findings/wpcvw-equip-action.json#equip-slot-to-body-slot-map.)
    * At record +0x110 (abs 0x44f8). Optional for backwards-compatibility.
    */
   equipment: z.array(U8).length(8).optional(),

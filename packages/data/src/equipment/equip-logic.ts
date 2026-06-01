@@ -67,10 +67,14 @@ export function equipCandidates(
     const weaponIdx = priorSelections[0];
     if (weaponIdx != null) {
       const w = inv[weaponIdx];
-      const wBytes = w ? (scenarioDb.items[w.itemId]?.bytes ?? []) : [];
+      // Off-hand is disqualified if the equipped main weapon is two-handed: either
+      // the explicit flag 0x08, OR a pole weapon (equipSlot 3) whose sprite/type
+      // byte (+0x442d = inventory `spriteIdx`, cached scenario byte 61) is in the
+      // "occupies both hands" set. RE: wpcvw-equip-action.json#equip-two-handed-and-shield-exclusivity.
       if (
         w &&
-        (((w.flags & ITEM_FLAG_TWO_HANDED) !== 0) || TWO_HAND_WEAPON_TYPES.has(wBytes[0x2d] ?? -1))
+        (((w.flags & ITEM_FLAG_TWO_HANDED) !== 0) ||
+          (w.equipSlot === 3 && TWO_HAND_WEAPON_TYPES.has(w.spriteIdx)))
       )
         return [];
     }
