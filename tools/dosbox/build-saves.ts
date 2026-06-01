@@ -80,8 +80,15 @@ export async function buildRecipe(
     await new Promise((r) => setTimeout(r, AFTER_TITLE_WAIT_MS));
 
     // Settle-poll helper: captures until N consecutive frames are byte-identical.
+    // Best-effort settle between steps: static transitions settle in well under
+    // a second; animated screens (blinking name-input cursor, etc.) never freeze,
+    // so cap the wait at 2.5s and proceed (the transition is done by then).
     const settle = (): Promise<Buffer> =>
-      waitForStableFrame(() => captureScreenshot(client, capturesDir), { stableCount: 3 });
+      waitForStableFrame(() => captureScreenshot(client, capturesDir), {
+        stableCount: 3,
+        timeoutMs: 2500,
+        onTimeout: 'return',
+      });
 
     // Wait for the title dismiss to land and the main menu to stabilize.
     await settle();

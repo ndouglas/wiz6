@@ -12,11 +12,18 @@ describe('waitForStableFrame', () => {
     expect(out.equals(buf('c'))).toBe(true);
   });
 
-  it('throws on timeout when frames never stabilize', async () => {
+  it('best-effort by default: returns the last frame on timeout (animated screens never freeze)', async () => {
+    let i = 0;
+    const capture = async () => buf(`f${i++}`); // always different (e.g. a blinking cursor)
+    const out = await waitForStableFrame(capture, { stableCount: 3, intervalMs: 0, timeoutMs: 30 });
+    expect(out.toString()).toMatch(/^f\d+$/); // returned the most recent frame, did not throw
+  });
+
+  it('onTimeout:throw still throws when a frozen frame is required', async () => {
     let i = 0;
     const capture = async () => buf(String(i++)); // always different
     await expect(
-      waitForStableFrame(capture, { stableCount: 3, intervalMs: 0, timeoutMs: 50 }),
+      waitForStableFrame(capture, { stableCount: 3, intervalMs: 0, timeoutMs: 50, onTimeout: 'throw' }),
     ).rejects.toThrow(/stabilize/i);
   });
 });
