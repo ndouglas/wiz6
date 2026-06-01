@@ -22,7 +22,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WIZ6_MAIN, FontSchema, Font4bppSchema, MessageDbSchema, PortraitSetSchema, classOffered, getRaceBaseStats } from '../../packages/data/src/index.js';
+import { WIZ6_MAIN, FontSchema, Font4bppSchema, MessageDbSchema, PortraitSetSchema, ScenarioDbSchema, classOffered, getRaceBaseStats, resolveCarryCapacityMax } from '../../packages/data/src/index.js';
 import type { Font, Font4bpp, Palette, MessageDb, PortraitSet } from '../../packages/data/src/index.js';
 import { setCursor, puts, type FontSet } from '../../packages/parser/src/index.js';
 import { loadCreationFontSet } from '../../packages/viewer/src/pages/roster/creation/ega/assets.js';
@@ -33,6 +33,7 @@ import { composeReviewPickerFrame } from '../../packages/viewer/src/pages/roster
 import { highlightRange } from '../../packages/viewer/src/pages/roster/creation/ega/highlight.js';
 import { drawCharSheet } from '../../packages/viewer/src/pages/roster/creation/ega/char-sheet.js';
 import { composeCharacterViewFrame } from '../../packages/viewer/src/pages/castle/compose-character-view-frame.js';
+import { buildInventoryItems } from '../../packages/viewer/src/pages/castle/item-display.js';
 import { blankDraft } from '../../packages/viewer/src/pages/roster/creation/state.js';
 import { draftFromCharacter } from '../../packages/viewer/src/pages/roster/creation/lib/draft-from-character.js';
 import type { ActivePartyMember, Character } from '../../packages/data/src/index.js';
@@ -60,6 +61,7 @@ function mainRoot(): string {
 const EXTRACTED_FONTS = join(mainRoot(), 'extracted', 'fonts');
 const EXTRACTED_MESSAGES = join(mainRoot(), 'extracted', 'messages');
 const EXTRACTED_PORTRAITS = join(mainRoot(), 'extracted', 'portraits');
+const EXTRACTED_SCENARIO = join(mainRoot(), 'extracted', 'scenario');
 const FIXTURES_ENGINE = join(mainRoot(), 'tools', 'parity', 'fixtures', 'engine');
 
 // ─── Loaders ───────────────────────────────────────────────────────────────────
@@ -714,6 +716,126 @@ function renderCreationReviewMember(fontSet: FontSet, palette: Palette): Uint8Cl
   return renderCreationFrame(windows, fontSetWithPortrait, palette);
 }
 
+// ─── REVIEW MEMBER (3-member party; WPCVW state 0x11, in-castle) helper ────────
+// Engine fixture (save slot 9): THESUS in a 3-member party (THESUS/TEMPEST/
+// LYSANDR). Only THESUS (slot 0) is rendered by the character sheet; the other
+// two exist solely so members.length === 3, which makes REVIEW appear in the
+// action menu (7 entries: EQUIP/SPELL/ASSAY/SWAG/SKILL/REVIEW/EXIT, column-major
+// EQUIP,ASSAY,SKILL,EXIT top / SPELL,SWAG,REVIEW bottom). Cursor on EXIT (idx 6).
+//
+// Inventory is resolved through buildInventoryItems(thesus, scenarioDb) — the
+// real itemId→name + equipSlot→icon lookup, NOT a hardcoded list. THESUS's 5
+// equipped items are LONGSWORD/LEATHER CUIRASS/FUR LEGGING/SANDALS/BUCKLER SHIELD.
+//
+// Portrait: rendered index 0 (the +0x19c selector; the +0x1ac portrait_index
+// field is 10 — the SP1 NATHAN gotcha — verified by pixel-matching the portrait
+// region). cc = 29/270 (encumbranceCurrent 295 → 29; encumbranceMax 2700 → 270).
+
+function makeStubMember(name: string, portraitSlotId: number): ActivePartyMember {
+  return {
+    id: `00000000-0000-0000-0000-00000000000${portraitSlotId + 2}`,
+    name,
+    race: 0,
+    class: 0,
+    sex: 0,
+    level: 1,
+    savedOldLevel: 0,
+    xp: 0,
+    gold: 0,
+    conditions: new Array(10).fill(0) as number[],
+    dead: false,
+    paralyzed: false,
+    attributes: { str: 15, int: 11, pie: 8, vit: 12, dex: 12, spd: 14, per: 8, kar: 0 },
+    schoolMana: new Array(6).fill(0) as number[],
+    schoolManaMax: new Array(6).fill(0) as number[],
+    skills: new Array(30).fill(0) as number[],
+    reaction: 50,
+    portraitIndex: 0,
+    hpCurrent: 8,
+    hpMax: 8,
+    staminaCurrent: 100,
+    staminaMax: 100,
+    age: 6570,
+    portraitSlotId,
+  };
+}
+
+function renderReviewMemberView(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // THESUS's 5 equipped items, in the on-disk inventory slot shape so
+  // buildInventoryItems resolves name (scenario.dbs items[id].name1) + icon
+  // (equipSlot→wfont0 glyph). The schema requires exactly 22 slots; pad the rest.
+  const emptySlot = { itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 };
+  const inventory = [
+    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },   // LONGSWORD
+    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 0 },  // LEATHER CUIRASS
+    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0, quantity: 0, flags: 0 },  // FUR LEGGING
+    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0, quantity: 0, flags: 0 }, // SANDALS
+    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0, quantity: 0, flags: 0 }, // BUCKLER SHIELD
+    ...Array.from({ length: 17 }, () => ({ ...emptySlot })),
+  ];
+
+  const thesus: ActivePartyMember = {
+    id: '00000000-0000-0000-0000-000000000001',
+    name: 'THESUS',
+    race: 0,    // Human
+    class: 0,   // Fighter
+    sex: 0,     // Male
+    level: 1,
+    savedOldLevel: 0,
+    xp: 0,
+    gold: 0,
+    conditions: new Array(10).fill(0) as number[],
+    dead: false,
+    paralyzed: false,
+    attributes: { str: 18, int: 8, pie: 8, vit: 12, dex: 10, spd: 9, per: 8, kar: 14 },
+    schoolMana: new Array(6).fill(0) as number[],
+    schoolManaMax: new Array(6).fill(0) as number[],
+    skills: new Array(30).fill(0) as number[],
+    reaction: 50,
+    portraitIndex: 10, // +0x1ac field (not the rendered portrait — see below)
+    hpCurrent: 8,
+    hpMax: 8,
+    staminaCurrent: 126,
+    staminaMax: 126,
+    encumbranceCurrent: 295,
+    encumbranceMax: 2700, // 2700 tenths → 270 lb cc max (matches fixture)
+    age: 18 * 365 + 100,  // 18 years on the char-sheet
+    portraitSlotId: 0,
+    rosterCharacterId: '00000000-0000-0000-0000-000000000001',
+  };
+
+  const members = [thesus, makeStubMember('TEMPEST', 1), makeStubMember('LYSANDR', 2)];
+
+  // wfont2 gets THESUS's rendered portrait (the +0x19c selector = 0), not the
+  // +0x1ac portrait_index field (10). Load all 3 portrait files; slot 0 → wport1.
+  const wport1: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  );
+  const wport2: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport2.json'), 'utf-8')),
+  );
+  const wport3: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport3.json'), 'utf-8')),
+  );
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, wport2, wport3], 0);
+
+  const scenarioDb = ScenarioDbSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_SCENARIO, 'scenario.json'), 'utf-8')),
+  );
+
+  const carryMax = resolveCarryCapacityMax(thesus, false);
+  const windows = composeCharacterViewFrame({
+    members: [{ ...thesus, inventory }, members[1]!, members[2]!],
+    currentSlot: 0,
+    cursorIdx: 6, // EXIT in the 7-entry menu (EQUIP,SPELL,ASSAY,SWAG,SKILL,REVIEW,EXIT)
+    db: msgDb,
+    inventory: buildInventoryItems({ ...thesus, inventory }, scenarioDb),
+    cc: { current: Math.floor((thesus.encumbranceCurrent ?? 0) / 10), max: Math.floor(carryMax / 10) },
+    age: { years: 18, second: 1 },
+  });
+  return renderCreationFrame(windows, fontSetWithPortrait, palette);
+}
+
 // ─── Screen table ──────────────────────────────────────────────────────────────
 // `floor` = current measured match % minus a small margin. TARGET is 100.
 
@@ -824,6 +946,11 @@ const SCREENS: ScreenCase[] = [
     fixture: 'creation-review-member',
     floor: 100,
     render: renderCreationReviewMember,
+  },
+  {
+    fixture: 'review-member-view',
+    floor: 100, // 3-member party — THESUS char sheet + resolved equipment + 7-entry menu, EXIT highlighted
+    render: renderReviewMemberView,
   },
 ];
 
