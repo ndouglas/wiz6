@@ -106,10 +106,14 @@ Next free ID: **#066**
 
 - #041 [open] — WPCVW in-place REVIEW WHO action (re-pick character while in view)
   - Engine: REVIEW (action 10 in the 11-action menu) opens `ui_pick_party_member` from inside the view; on commit it swaps `*0x43cc` and continues the view loop. Per finding `wpcvw-character-view-ux.json`.
-  - Will reuse the PartyMemberPicker component.
+  - SP2 (2026-06-01) now RENDERS + navigates the REVIEW entry (shown when party_size≥2); only the ENTER *handler* (re-pick) remains. Will reuse the PartyMemberPicker component.
+
+- #068 [open] — Verify remaining WPCVW inventory equipSlot→icon glyphs
+  - SP2's `item-display.ts` `equipSlotIcon` map is fixture-verified only for the fighter-kit slots: 0=0x02 (1H weapon), 7=0x2a (body), 8=0x2d (legs), 10=0x2f (feet), 11=0x27 (shield). The other equipSlots (1=2H_staff, 2=thrown, 3=ranged, 5=cloak, 6=head, 9=hands, 12/13=scrolls) fall back to the weapon glyph 0x02 (best-effort, UNVERIFIED).
+  - Capture a fixture with a character carrying cloak/head/hands/scroll/2H/ranged items, then fill the verified glyphs + add a parity case. Until then those item types render the wrong inventory icon.
 
 - #039 [open] — Port WPCVW EQUIP action
-  - Inventory item-equip flow. Needs the inventory grid rendered first (currently scaffold-only).
+  - Inventory item-equip flow. The inventory list is now rendered (SP2, 2026-06-01); EQUIP still needs the equip/unequip flow + the equipped-vs-carried distinction. Handler is currently a no-op.
 
 - #038 [open] — Port WPCVW USE action
   - Item-use dispatch table at wpcvw 0x4a5b. Per-item-id branches for scrolls/wands/etc.
