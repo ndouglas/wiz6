@@ -1,0 +1,145 @@
+{
+  "topic": "wpcvw-equip-internals",
+  "subagent_run": "2026-06-01T00:00:00Z",
+  "binaries": ["wpcvw.ovr", "wroot.exe"],
+  "summary": "Closes the 5 open questions left by wpcvw-equip-action.json with STATIC decompilation only (no DOSBox). KEY RESULTS: (1) The eligibility check func_0x0000e34b is NOT intra-overlay — it is a cross-overlay thunk to wroot image 0x28af (file 0x2aaf), which is a pure GENERIC BIT-TEST: `return mask[value>>3] & (1<<(value&7))`. FUN_835e calls it 3x with the char's CLASS, RACE and SEX/ALIGNMENT byte as the bit index and a pointer into the loaded scenario item record as the mask base; the masks live at item-record bytes 54 (classMask, 14-bit), 56 (raceMask) and 58 (sex/alignmentMask). Item flag 0x40 (CLASS_LOCKED) is NOT tested in the equip-offer path at all — equip eligibility is 100% data-driven through these three bitmasks; 0x40 is only tested in the DROP handler. (2) FUN_884f is a 14-way class-dispatched derived-stat recompute: BASE AC = 10 (a constant written to +0x4548), then -1 per high-SPD threshold (SPD>=16 and >=18), -2 if race byte == 5, and for monk-like classes (0xc/0xd) a further reduction by (level/2 capped 20) + skill[+0x452c]/10. AC SIGN CONFIRMED: lower = better; equipped armor AC bonuses are SUBTRACTED. (3) Per-item stat application: the committed item's scenario record (loaded via func_0x0000c31e = wroot generic record-loader, image 0x0882) feeds AC bonus from record byte 0x46 (subtracted from +0x4549 for weapons body0/1, from +0x4548+bodySlot for armor 2..7), the 8-byte weapon block from record 0x2e..0x35 -> +bodySlot*0x10+0x44dc, damage from byte 0x47, dmg-type from byte 0x3c, dice from bytes 0x18/0x1a, weapon flags byte 0x48, a 14-byte skill-bonus array from record 0x20, skill caps from bytes 0x42/0x43, and the Phase-3 grant code from byte 0x44. (4) Phase-3 5-entry special-grant jump table at file 0x97d7 (CS 0xdd3b) resolved: grant codes 9..13 set resist fields +0x4591/+0x4592, clear status/condition arrays, adjust the 32-bit XP/value field +0x43f0, and add a rng(d6+2) HP boost to +0x4400/+0x4402. (5) bit0 IS reused: on disk it is the low CURSED bit, at runtime it is ALSO the 'equipped' marker — same physical bit. The pcfile.dbs record is a VERBATIM copy of the 0x1b0 BSS record (no field translation on save/load), so the equipped bit0 IS persisted to disk. The DROP handler at 0x6a86 refuses to drop anything with flags & 0x43 (bits 0|1|6), so an equipped item (bit0=1) cannot be dropped — internally consistent, but means an equipped item is indistinguishable on disk from a bit0-cursed item.",
+  "method": "PyGhidra DecompInterface (decompile.py, abs project dir) on FUN_8e35, FUN_835e, FUN_884f, FUN_86d2; cross-overlay thunk resolution via the thunk-delta law (CS_offset - 0xBA9C = wroot image, +0x200 = wroot file) for func_0x0000e34b (0xe34b->image 0x28af), func_0x0000c31e (0xc31e->image 0x0882); decompiled those wroot targets by physical addr (0x128af / 0x10882). Raw ndisasm at exact file offsets for FUN_835e tail (e34b call sites + arg offsets), the FUN_8e35 stat-apply region (item-record field bp-offsets vs the c31e dest buffer at bp-0x128), the DROP handler 0x6a86 (cursed mask), and python byte-reads of the FUN_884f class jump table (file 0x8929) and Phase-3 grant table (file 0x97d7). wpcvw overlay delta = 0x4564 (file = CS - 0x4564). Persistence confirmed from pcfile-dbs.md (verbatim 0x1b0 record copy) + wbase-main-menu.md/wpcmk-screens.md save paths.",
+  "findings": [
+    {
+      "id": "e34b-is-wroot-bittest-thunk",
+      "claim": "func_0x0000e34b (the class/race/sex eligibility check) is a CROSS-OVERLAY THUNK, not intra-overlay wpcvw code (wpcvw.ovr is only 0xbb82 bytes; 0xe34b is past EOF, and the call is an E8 rel16 landing in a BSS thunk). Applying the thunk-delta law: 0xe34b - 0xBA9C = wroot image 0x28af = wroot file 0x2aaf = FUN_1000_28af. It is a PURE GENERIC BIT-TEST: `bool bit_test(byte *mask /*param_1*/, uint value /*param_2*/) { return (mask[value>>3] & (1 << (value & 7))) != 0; }`. So eligibility for an item in a slot = (classMask bit[char.class] set) AND (raceMask bit[char.race] set) AND (sexMask bit[char.sex/align] set). No range guard — value is a small enum (class 0..13, race 0..~10, sex 0..few).",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0x2aaf"},
+        "type": "decompile",
+        "details": "wroot FUN_1000_28af decomp: `return (*(byte *)((param_2 >> 3) + param_1) & '\\x01' << ((byte)param_2 & 7)) != 0;`. Reached from wpcvw FUN_835e via `E8 32 5D` at file 0x8616 (target CS 0xe34b). Thunk law: 0xe34b - 0xBA9C = 0x28af image; +0x200 = 0x2aaf file. Verified the known anchor 0xbbb6-0xBA9C=0x11a=ui_window_create using the same law."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "e34b-call-sites-and-mask-offsets",
+      "claim": "FUN_835e calls e34b three times in series (all must return 1 to offer the item). The three calls are: e34b(mask=&record[0x36], value = char byte +0x4587 [CLASS]); e34b(mask=&record[0x38], value = char byte +0x4585 [RACE per naming-pass field list]); e34b(mask=&record[0x3a], value = char byte +0x4586 [SEX/ALIGNMENT]). Mapping record offsets to the on-disk scenario item record (74 bytes): record+0x36 = byte 54 = classMask (u16, 14-bit, classes 0..13); record+0x38 = byte 56 = raceMask; record+0x3a = byte 58 = sex/alignment mask. This AGREES with scenario-dbs.md (byte54=classMask high-conf, byte56=race mask, byte58=sex). The item is appended to the candidate list ONLY if all three bit-tests pass. NOTE: the char field-name pairing (+0x4585/+0x4586 = race/sex-or-alignment) carries the doc's own ambiguity at this byte cluster (wpcvw field list says +0x4585 race, +0x4586 alignment, +0x4587 class) — the ASM pairing (class<->byte54, +0x4585<->byte56, +0x4586<->byte58) is exact regardless of the human label.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x8603"},
+        "type": "disasm",
+        "details": "FUN_835e loads the item record into [bp-0x52] via call 0xc31e (file 0x85fd, args table=1, dest, item_id=[bx+0x4428], 0). Then: 0x8611 push [bx+0x4587]; 0x8612 lea ax,[bp-0x1c]; call 0xe34b; cmp ax,1. 0x8629 push [bx+0x4585]; lea ax,[bp-0x1a]; call 0xe34b. 0x8647 push [bx+0x4586]; lea ax,[bp-0x18]; call 0xe34b. Buffer base bp-0x52; bp-0x1c = record+0x36 (=byte54), bp-0x1a = record+0x38 (=byte56), bp-0x18 = record+0x3a (=byte58). All three `cmp ax,1; jnz skip` gate the `mov [bx+si],ax; inc count` append at 0x865d."
+      },
+      "confidence": "high",
+      "supersedes": "wpcvw-equip-action.json#equip-cursed-and-class-guards open question (func_0x0000e34b identity + which item fields encode allowed class/sex/race)"
+    },
+    {
+      "id": "flag-0x40-not-tested-in-equip",
+      "claim": "Item flag 0x40 (CLASS_LOCKED) is REDUNDANT / unused in the equip-offer path. There is no `and/test 0x40` anywhere in FUN_835e or FUN_8e35. Equip eligibility is enforced exclusively by the three e34b bitmask tests (classMask/raceMask/sexMask read from the scenario item record). Flag 0x40 is tested only in the DROP handler (file 0x6a86, `test ax,0x40`), where it contributes to the drop-block mask 0x43. So 0x40 governs whether a class-locked item can be DROPPED, not whether it can be EQUIPPED — and equip-eligibility being mask-driven means a class-locked item simply never appears as a candidate for an ineligible class.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6ac9"},
+        "type": "disasm",
+        "details": "DROP handler 0x6a86: `8A872F44 mov al,[bx+0x442f]` (flags); `A90100 test ax,0x1; jnz refuse`; `A90200 test ax,0x2; jnz refuse`; `A94000 test ax,0x40; jz allow`. Effective block mask = 0x01|0x02|0x40 = 0x43. No 0x40 test exists in the equip path (grep of FUN_835e 0x835e..0x8672 and FUN_8e35 0x8e35..0x9571 finds only the e34b bit-tests + the 0x04/0x08 weapon-shape tests)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun884f-base-ac-formula-and-sign",
+      "claim": "FUN_884f (file 0x884f, derived_stats_recompute_for_class) is a 14-way CLASS-dispatched recompute. Head: `class = char[+0x4587]; if (class < 0xe) jmp class_table[class]` (jump table at file 0x8929, CS 0xce8d). Each per-class stub (0x8866..0x8927) is a thin trampoline: it pushes two per-class data-table pointers (two parallel 15-byte tables in the data segment, e.g. class0 -> 0x5195 & 0x51a4) plus the char slot, calls FUN_86d2 (the per-class SKILL-LEVEL initializer that writes the 14 skill bytes at +0x453a), then `jmp 0x8952` to the COMMON TAIL. The common tail computes BASE AC: `*(+0x4548) = 10` (constant); `if VIT/SPD-thresholds...`; specifically `if char[+0x4519] >= 0x10: AC-=1; if >= 0x12: AC-=1` (high SPD), `if char[+0x4585] == 5: AC-=2` (a specific race), and for classes 0xc/0xd (monk/ninja-like): AC -= ((level<0x15 ? level/2 : 0x14) + char[+0x452c]/10). Then it BROADCASTS the base AC to the positional AC bytes: `for s in 3..7: *(+0x4548+s) = *(+0x4548)` and zeroes +0x4549/+0x454a. AC SIGN: lower = better (standard Wiz convention) — the base is 10 and every modifier here SUBTRACTS, and per-item armor bonuses are subtracted (see per-item finding). FUN_aa94 (the level-up/combat AC recompute) is a SEPARATE function using different class tables (cs:-0xf9e/-0xed6); both write +0x4548.",
+      "category": "derived_stat_recompute",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x8952"},
+        "type": "decompile",
+        "details": "Head dispatch decomp: `uVar3 = char[+0x4587]; if (uVar3 < 0xe) (*code*)(uVar3*2 - 0x3173)()`. Class table @ file 0x8929 (CS 0xce8d) read: 14 entries -> stubs 0x8866/0x88ca/0x88f0/0x8916/0x887a/0x88ca/0x8916/0x88dd/0x887a/0x88f0/0x888e/0x88a2/0x8903/0x88b6. Stub example (class0, file 0x8866): push 0x51a4; push 0x5195; push [bp+4]; call 0x86d2; jmp 0x8952. Common tail: `*(+0x4548)=10; if(char[+0x4519]>0xf) AC--; if(>0x11) AC--; if(char[+0x4585]==5){AC--;AC--;} if(class==0xc||0xd){ c=(level<0x15? level/2:0x14); AC -= c + char[+0x452c]/10; }`. Broadcast loop: `iStack_4=3; do *(+0x4548+iStack_4)=*(+0x4548); while(<8)`. FUN_86d2: writes skill levels +0x453a from the two per-class tables, scaled by class-change-capped level."
+      },
+      "confidence": "high",
+      "supersedes": "wpcvw-equip-action.json#equip-ac-and-weapon-recompute open followup (AC subtract-vs-add sign; base-by-class)"
+    },
+    {
+      "id": "per-item-record-field-offsets",
+      "claim": "On a committed equip (FUN_8e35), the chosen item's scenario record is loaded via func_0x0000c31e(table=1, dest=&buf, item_id, 0) into a stack buffer at bp-0x128, and these EXACT record byte offsets are consumed (offset = 0x128 - |bp_disp|): AC bonus = record byte 0x46 (subtracted: weapons body0/1 do `*(+0x4549) -= byte0x46`, armor body2..7 do `*(+0x4548 + bodySlot) -= byte0x46`); grant code (Phase-3) = record byte 0x44 (stored to auStack_32[bodySlot]); weapon to-hit/skill block = record bytes 0x2e..0x35 (8 bytes -> +bodySlot*0x10+0x44dc); a +0x44e5 byte = record 0x40; +0x44e4 = record 0x41; damage value = record byte 0x47 (applied as byte*-5 to +0x44e6: if dmg-type byte 0x3c == 4 it SETS, else ACCUMULATES); dice low/high words = record 0x18/0x1a (-> +0x44d8/+0x44da); weapon flags = record byte 0x48 (-> +0x44e7); a 14-byte skill-bonus array = record bytes 0x20..0x2d (applied via skill_set_level_indexed for skill index 1..13); skill caps = record bytes 0x42/0x43 (max'd into +0x458a / +0x458b). The per-hand STR-based swing bump (+0x44e2 += STR/5 [+5 for class 0xc/0xd]) is computed from the CHARACTER's STR field +0x4539, not the item. Enough to reproduce AC and weapon-derived stats for a known item by reading scenario.dbs item-record bytes 0x18,0x1a,0x20-0x2d,0x2e-0x35,0x3c,0x40,0x41,0x42,0x43,0x44,0x46,0x47,0x48.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x9300"},
+        "type": "disasm",
+        "details": "c31e dest = lea ax,[bp-0x128] (file 0x92f7); call 0xc31e (file 0x9300). Field reads: 0x9306 [bp-0xe4]=rec0x44 -> auStack_32[bodySlot]. Weapon-AC: 0x9329 [bp-0xe2]=rec0x46, `sub [bx+0x4549],al` (bx=slot*0x1b0). Weapon block: 0x9359 loop [bx-0xfa]=rec0x2e.. -> [bx+0x44dc..]. +0x44e5: [bp-0xe8]=rec0x40 (0x934b). +0x44e4: [bp-0xe7]=rec0x41 (0x9413). Damage: 0x9417 cmp [bp-0xec]=rec0x3c,4; al=[bp-0xe1]=rec0x47, *-5 -> [bx+0x44e6] (set if type==4 else accumulate). Dice: [bp-0x110]=rec0x18 -> +0x44d8; [bp-0x10e]=rec0x1a -> +0x44da (0x9454/0x945c). Weapon flags: [bp-0xe0]=rec0x48 -> +0x44e7 (0x9464). Armor-AC (else branch): 0x94b9 [bp-0xe2]=rec0x46, `sub [bx+0x4548],al` (bx=slot*0x1b0+bodySlot). Skill array: 0x94d5 loop [bx-0x108]=rec0x20.. -> call 0x8690 (skill_set_level_indexed) idx 1..0xd. Caps: 0x9500 [bp-0xe6]=rec0x42 max-> +0x458a; 0x9518 [bp-0xe5]=rec0x43 max-> +0x458b. STR swing: 0x9389 al=[bx+0x4539]/5 added to +0x44e2 (+5 if class 0xc/0xd)."
+      },
+      "confidence": "high",
+      "supersedes": "wpcvw-equip-action.json#equip-ac-and-weapon-recompute open followup (exact field meanings of local_e4/e6/e3/+0x44dc block)"
+    },
+    {
+      "id": "c31e-is-wroot-record-loader",
+      "claim": "func_0x0000c31e (the scenario-record loader used by both FUN_835e and FUN_8e35 to fetch an item record) is a cross-overlay thunk to wroot image 0x0882 (file 0x0a82) = FUN_1000_0882, a GENERIC per-table record reader: signature load_record(table_id /*param_1*/, dest /*param_2*/, record_id /*param_3*/, mode /*param_4: 0=read,1=write*/). It seeks via crt_dos_lseek using a per-table record-size word at data 0x3300+table*2 and a per-table base offset at 0x3048+table*4 (32-bit), reads/writes that many bytes from fd *(0x842), and for some tables (flag at 0x3338+table) decodes via FUN_1000_29d9. For table 1 (items) the record size is the scenario item-record size (74 bytes); record_id is the item_id (char inventory item word at +0x4428). So 'table 1' == the scenario.dbs item table; the dest buffer is the 74-byte raw record whose field offsets are enumerated in per-item-record-field-offsets.",
+      "category": "file_io",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0x0a82"},
+        "type": "decompile",
+        "details": "Thunk law: 0xc31e - 0xBA9C = 0x0882 image = 0x0a82 file. FUN_1000_0882 decomp: per-table record-id remap (cases 2/3/4/5/7/8 add a table-specific base byte), then crt_dos_lseek(*(0x842), record_id * recsize[table] + base32[table], 0); if (decode_flag[table]==0) crt_read_via_fd(fd, dest, recsize[table]) [mode 0] or crt_write_via_fd [mode 1]; else read into scratch then FUN_1000_29d9(scratch,dest). recsize table at image 0x3300, base32 at 0x3048/0x304a, fd handle at 0x842."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun835e-candidate-collection-mechanics",
+      "claim": "FUN_835e candidate collection per body slot (param_2 = target body slot 0..7): for each inventory item i (i < inv_count at +0x4594) it (1) reads equip_slot = item[i] byte +0x442c (cached scenario byte 60); (2) if equip_slot < 0x11 dispatches via CS jump table at file 0x844a (CS 0xc9ae) to a stub that sets [bp-6]=target_body_slot; >=0x11 goes to an out-of-range handler at 0x8474 (scroll/consumable, no equip). EQUIP-SLOT -> BODY-SLOT (verified): slots 0/1/2/3/0xc/0x10 -> body0 if filling slot0, OR body1 if filling slot1 AND item flags&0x04 (thrown/dual-wield); slot 4 -> body1; 5 -> body2; 6 -> body3; 7 -> body4; 8 -> body5; 9 -> body6; 0xa -> body7; 0xb -> body1; 0xd/0xe/0xf -> body1 only if flags&0x04 (else not equippable). After computing the target, the SHIELD/2H EXCLUSIVITY block (0x8479, only when param_2==1): it loads the currently-equipped MAIN WEAPON equipment[0] (+0x44f8) and, when that weapon's equip_slot==3 (pole) , compares the weapon's sprite/type byte +0x442d against {0xb,0x16,0xd,0x17,0xc,0x53}; a non-matching set disqualifies the off-hand candidate ([bp-6]=0xffff). It also disqualifies any item whose own equip_slot==4 from body1, and disqualifies the already-equipped item (it skips an item whose inventory index equals an existing equipment[] entry). Only if target == param_2 AND the 3 e34b checks pass is i appended. EMPTY/SKIP is not a stored candidate — it is the cursor index -1 in FUN_8e35's picker; collecting 0 candidates simply skips the slot's picker (the `if (0 < count)` guard).",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x844a"},
+        "type": "disasm",
+        "details": "Jump table file 0x844a (CS-0x4564 to file): slots 0/1/2/3/0xc/0x10 -> stub 0x83b1 (cmp [bp+6],0 -> body0; cmp [bp+6],1 & test flags&0x04 -> body1); 4 -> 0x83ea (body1); 5 -> 0x83f2 (body2); 6 -> 0x83fa (body3); 7 -> 0x8402 (body4); 8 -> 0x8409 (body5); 9 -> 0x8410 (body6); 0xa -> 0x8417 (body7); 0xb -> 0x841e (body1); 0xd/0xe/0xf -> 0x8425 (test flags&0x04 -> body1). Exclusivity 0x8479: if [bp+6]==1: ax=equipment[0]@+0x44f8; if !=0xff: if equipped-item +0x442c==3 then compare equipped +0x442d in {0xb,0x16,0xd,0x17,0xc,0x53}; mismatch -> [bp-6]=0xffff. 0x8556/0x8598: if item +0x442c==4 disqualify. 0x85a9 loop: for s 0..7 if equipment[s]==i then [bp-6]=0xffff (already equipped). 0x85d2 cmp [bp-6],[bp+6] gate."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "phase3-special-grant-table",
+      "claim": "PHASE-3 applies equip-granted bumps keyed on grant code = item record byte 0x44 (stored per slot in auStack_32). Codes 1..8 bump attribute (code-1) at +0x4514 (the 6+ attributes STR..SPD/...) capped at 0x14. Codes 9..13 dispatch the 5-entry special-grant jump table at file 0x97d7 (CS 0xdd3b), resolved as: code 9 -> file 0x96f1: raise resist/save byte +0x4591 to a floor of 4 (set to 4 if currently <4). code 10 -> 0x9708: raise +0x4592 to floor 4. code 11 -> 0x971f: zero +0x4589 (a status/condition byte) AND zero the 10-byte condition array +0x450a..+0x4513 AND touch +0x4402 (a CURE/CLEANSE-ALL: clears poison/disease/etc. conditions). code 12 -> 0x9767: read 32-bit field +0x43f0 (the XP/value counter low/high), call FUN_f9ba (32-bit arith with consts 0x16d), and if above a threshold (0x12) subtract 0x16d (i.e. 365) from +0x43f0 — an XP/value adjustment grant. code 13 -> 0x97b6: roll rng(5) [-> d6, range 0..5], +2, then ADD that to +0x4402 AND +0x4400 (a permanent MAX+CUR HP boost of 2..7). After applying, FUN_8e35 decrements the item quantity (inventory_decrement_quantity) and re-renders the full sheet — so these are CONSUMED-ON-EQUIP one-shot grants (the picker msg base is 0x17d). Most stock gear has grant byte 0x44 == 0, so this loop is a no-op for normal equipment.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x97d7"},
+        "type": "disasm",
+        "details": "FUN_8e35 phase3: `if (0 < auStack_32[slot]) { picker msg 0x17d; if (confirm==1) { if (code<9) attr[code-1]++ (cap 0x14 @ +0x4514); else if (code-9<5) (*code*)((code-9)*2 + 0xdd3b)(); inventory_decrement_quantity; render } }`. Table @ file 0x97d7 (CS 0xdd3b): [0]CS0xdc55=file0x96f1, [1]0xdc6c=0x9708, [2]0xdc83=0x971f, [3]0xdccb=0x9767, [4]0xdd1a=0x97b6. 0x96f1: cmp [bx+0x4591],4; if <4 mov 4. 0x9708: same on +0x4592. 0x971f: mov [bx+0x4589],0; loop s 0..9 mov [bx+0x450a+s],0; reads +0x4402. 0x9767: ax/dx = [bx+0x43f0/0x43f2]; call 0xf9ba(.,0x16d); if >threshold add 0xfe93/-1 (== -0x16d) to +0x43f0/2. 0x97b6: push 5; call 0xc47e (rng); ax+=2; add to +0x4402 and +0x4400."
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Q: Exact field semantics of +0x4591/+0x4592 (resist/save categories) and +0x4589 vs the +0x450a..+0x4513 condition array are inferred from the bump pattern; cross-check against the character-record condition-flags map. The XP-subtract grant (code 12, -365 to +0x43f0) is unusual — could be a 'training cost' or a class-specific XP penalty; identity of FUN_f9ba's 0x16d operand (365? a day count?) unconfirmed. Needs a live equip of a grant-bearing item to confirm direction/magnitude."
+      ]
+    },
+    {
+      "id": "bit0-equipped-vs-cursed-overload-and-persistence",
+      "claim": "RESOLVED STATICALLY: item flag bit0 (0x01) is a SINGLE physical bit that means BOTH 'cursed-low-bit' on disk AND 'equipped' at runtime — there is no separate equipped bit. EQUIP PHASE 1 clears it on every item (`flags &= 0xFE`), and a committed equip re-sets it on the chosen item (`flags |= 1`). The pcfile.dbs character record is a VERBATIM 0x1b0-byte copy of the in-memory BSS record (pcfile-dbs.md: 'the on-disk record IS the in-memory record', confirmed by the wbase load path `rep movsw 0xd8 words` straight from file buffer to BSS, and the wpcmk save path writing 432 bytes back). The inventory item-flags byte sits at record +0x40 + i*8 + 7 both on disk and in BSS. THEREFORE the runtime 'equipped' bit0 IS PERSISTED to pcfile.dbs on save (transient only between EQUIP and the next save). CONSEQUENCE: after EQUIP, an equipped item has bit0=1 on disk; the DROP handler's `& 0x43` test (bits 0|1|6) then reads bit0=1 as 'cannot drop' for equipped items — which is the intended 'you cannot drop equipped gear' behavior, achieved by overloading the cursed-low-bit. The REAL cursed designation that survives independent of equip-state is bit1 (0x02): scenario/character data marks cursed items with 0x02 (or 0x03), and PHASE-1's `&= 0xFE` leaves bit1 untouched, so genuine cursed-ness (bit1) is never corrupted by re-equipping. RISK/CAVEAT: if any stock or scenario item ships with bit0=1 meaning 'cursed' WITHOUT bit1 also set, PHASE-1 would silently clear that curse on the EQUIP screen. We found no such item in stock data (stock cursed checks use `& 0x03` and the only observed cursed flags are 0x00/0x04/0x08), and cursed items are conventionally 0x02/0x03, so the overload appears safe — but this corner (bit0-only cursed item through the equip screen) is NOT proven and should be confirmed with a live DOSBox equip + save round-trip on a known cursed item.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x8e35"},
+        "type": "decompile",
+        "details": "PHASE1: `for i<inv_count: *(slot*0x1b0+i*8+0x442f) &= 0xfe`. Equip write: `*(slot*0x1b0+idx*8+0x442f) |= 1` (file 0x92ea `or byte [bx+0x442f],0x1`). DROP handler 0x6a86: test 0x1 / test 0x2 / test 0x40, any -> refuse (mask 0x43). Persistence: pcfile-dbs.md line 43 'The on-disk record IS the in-memory record... BSS slot holds an exact copy'; wbase-main-menu.md 0x25b5 `mov cx,0xd8; rep movsw` (0x1b0 bytes); wpcmk-screens.md screen-16-save 'Write 432 bytes to PCFILE.DBS slot'; character-level-field.json `rep movsw 0xd8 words ... disk[+N] == BSS[+N] for all N`. Item flags byte = inventory(+0x40) + i*8 + 7, in both spaces. CURSED-via-0x02: character-record-inventory-equipment.json item-flags-byte (0x01/0x02 = CURSED, unequip checks `and 0x03`)."
+      },
+      "confidence": "medium",
+      "open_followups": [
+        "Q (needs live DOSBox): equip an item then SAVE and reload — confirm the equipped bit0 survives in pcfile.dbs and the item shows as equipped after reload. Q: take a known cursed item (flags with 0x02) into the EQUIP screen, confirm PHASE-1's &0xfe does NOT clear its cursed-ness (bit1) and it remains undroppable. Q: confirm no shipped item uses bit0-alone as 'cursed' (would be wiped by PHASE-1)."
+      ]
+    }
+  ],
+  "cross_references": [
+    "docs/re/findings/wpcvw-equip-action.json — parent pass: EQUIP 3-phase wizard, body-slot map, equip-write mutation; THIS file closes its 5 open questions/unresolved items",
+    "docs/re/scenario-dbs.md — item table 500x74-byte records; byte54=classMask (this pass confirms via e34b), byte56=race mask, byte58=sex mask (this pass confirms the e34b pairing). Per-item equip fields (AC=byte0x46, dice=0x18/0x1a, weapon block 0x2e-0x35, skill array 0x20, caps 0x42/0x43, grant 0x44, dmg 0x47/type 0x3c, wflags 0x48) are NEW and not yet in scenario-dbs.md's item-record table",
+    "docs/re/pcfile-dbs.md — verbatim 0x1b0 record on disk == BSS; basis for the bit0-persistence conclusion",
+    "docs/re/findings/character-record-inventory-equipment.json — item flags byte (0x01/0x02 cursed, 0x04 thrown, 0x08 2H, 0x40 class-locked); this pass confirms the DROP mask is 0x43 and that equip is mask-driven not 0x40-driven",
+    "docs/re/findings/wroot-naming-pass.json — char field cluster +0x4585/+0x4586/+0x4587 (race/align/class), FUN_aa94 (separate combat-AC recompute)",
+    "docs/re/wroot-functions.md / findings/wroot-naming-pass.json — thunk targets: image 0x28af (e34b=bit_test), image 0x0882 (c31e=record loader)"
+  ],
+  "function_renames_recommended": [
+    "wroot FUN_1000_28af (image 0x28af / file 0x2aaf): bittest_mask (generic mask[v>>3] & (1<<(v&7)))",
+    "wroot FUN_1000_0882 (image 0x0882 / file 0x0a82): scenario_load_record (table_id, dest, record_id, mode) — generic per-table reader/writer",
+    "wpcvw FUN_86d2: wpcvw_init_class_skill_levels (per-class skill-level init from two data tables)"
+  ],
+  "unresolved": [
+    "All items proven statically; the bit0 persistence/cursed-overload conclusion and the Phase-3 grant directions are flagged confidence: medium and want a live DOSBox equip + save round-trip to confirm (see bit0 and phase3 open_followups).",
+    "Char field human-labels at +0x4585/+0x4586 (race vs sex/alignment) carry the docs' own ambiguity; the ASM mask pairing (byte54/56/58) is exact regardless.",
+    "FUN_f9ba (called by Phase-3 grant code 12 with operand 0x16d=365) not fully identified — likely a 32-bit signed mul/div helper; the -365 adjustment to the XP/value field +0x43f0 is unusual and unconfirmed in meaning.",
+    "Per-slot title messages (0x15e/0x167 family) and skill sub-picker prompt (0x17c/0x17d) still not resolved to text in msg.json (out of scope this pass)."
+  ]
+}
