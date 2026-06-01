@@ -39,11 +39,13 @@ const PORTRAIT_TILES_PER_SIDE = 3;
  *  castle-1-members fixture: portrait blits at panel cell col 0 of the
  *  LEFT panel window (screenX=8) — i.e. x=8 in screen coords.
  *
- *  TODO #061: dcf2's coord transform is still unresolved. The disasm shows
- *  FUN_0b0e calling `dcf2(buf, X=2, Y=portrait_id*9+0x48, rows=9)`, but the
- *  fixture's actual on-screen position is X=8 / Y=48 (for portrait_id=0).
- *  This is the empirical match — see
- *  docs/re/findings/wbase-party-portrait-blit.json#dcf2-coordinate-uncertainty.
+ *  (Resolved.) The `dcf2(buf, 2, portrait_id*9+0x48, 9)` call in FUN_0b0e is
+ *  NOT a screen blit — dcf2 is a RAM→RAM tile-bank loader (its args are
+ *  bank_sel / dest_row / n_rows, not X / Y). It stages the portrait's 9 tiles
+ *  into an offscreen resource bank; the actual on-screen draw (this X=8/Y=48
+ *  geometry, verified pixel-exact vs the castle-{1..6} fixtures) is performed
+ *  downstream by the standard tile renderer. There was never a coord transform
+ *  to reproduce — see docs/re/findings/dcf2-portrait-transform.json.
  */
 const PORTRAIT_BLIT_X_LEFT = 8;
 /** Right panel mirror — screenX=256. */

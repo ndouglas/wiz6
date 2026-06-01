@@ -209,11 +209,6 @@ Next free ID: **#066**
   - Blocks reading exact engine strings for any msg ID > 717. Picker titles (0x4b1 / 0x4b6 / 0x4b7), race/class/sex enum strings (bases 100/120/140), and many other UI labels live in the unmapped range.
   - ADD PARTY MEMBER uses fixture-captured strings (`save/1.sav` cells), so this isn't blocking the feature — but a proper decode would let the picker render strings from the msg DB rather than hardcoded constants in the composer.
 
-- #026 [open] — Engine-faithful party portraits (the SOLE remaining castle-parity gap → 100%)
-  - Castle panels blit 24×24 portraits from `extracted/portraits/wport*.json`, but the engine draws ~32×24 on-screen via the `dcf2` transform of the on-disk 64×9 EGA-planar format. (The earlier "64×9 on-screen" reading was wrong — that's the raw encoding, not screen dims; corrected in `docs/re/findings/wbase-party-portrait-blit.json`.)
-  - Verified the only mismatch: in the committed castle-{1..6}-members parity fixtures, every differing pixel is inside a portrait sprite — gate/menu/names/class-symbols/HP-SP bars are pixel-exact. It caps parity at ~98% (N=1) down to ~91% (N=6), ≈1.4%/portrait.
-  - Fix: extend the wport extractor (or compute on the fly from raw WPORT bytes via the dcf2 transform) to produce the engine's on-screen 32×24 portrait; update `party-panel-render.ts`/`castle-frame.ts` to blit it; then raise the `castle-{1..6}-members` floors in `tools/parity/castle-parity.test.ts` toward 100.
-
 - #021 [open] — Per-class bonus-allocator AUTO-FILL animation
   - End-state implemented (commit 9c7879b): `PICK_CLASS` snaps attributes to `max(race_base, class_min)` and deducts the deficit from the pool. Verified vs the engine save (NATHAN/Samurai/pool 17→2).
   - The engine ANIMATES the ramp: `wpcmk_pick_class_menu` exit calls FUN_2e85 → FUN_2fbd which dispatches via the 14-entry jump table at wpcmk CS `0x7505` (= file `0x2FA1`) to a per-class routine that increments attrs one-at-a-time with sound + per-frame redraw. Need to:

@@ -428,22 +428,34 @@ Signature: `portrait_blit_per_slot(record_byte, portrait_id)`.
   row-within-file index).
 - `crt_open` → `lseek(remainder * row_size * 9)` → read `row_size * 9`
   bytes → `crt_close`.
-- Blits via thunk `0xdcf2` (unnamed in `wroot-naming-pass`) to screen
-  `(X=2, Y = portrait_id*9 + 0x48, rows=9)`.
+- Stages the portrait into an offscreen resource bank via thunk `0xdcf2`:
+  `dcf2(buf, bank_sel=2, dest_row=portrait_id*9 + 0x48, n_rows=9)`. dcf2 is
+  **not a screen blit** — it is a RAM→RAM `rep movsb` that copies the 9 tiles
+  into bank #2 at byte offset `dest_row * row_stride`. The earlier reading of
+  its args as screen `(X=2, Y, rows)` was wrong: they are `(bank_sel, dest_row,
+  n_rows)` — `X=2` is the bank selector. The actual on-screen draw happens
+  downstream in the standard tile renderer (which reads this bank). See
+  `docs/re/findings/dcf2-portrait-transform.json`.
 
-**Y position uses portrait_id, NOT party_slot.** So a freed party slot
-leaves its portrait Y-slot empty until the next add refills it (the
-allocator at `0xc2c` returns the smallest free portrait_id in
+**Bank staging row uses portrait_id, NOT party_slot.** The `dest_row`
+(`portrait_id*9 + 0x48`) keys each portrait's 9-tile block into the bank by
+portrait_id, so a freed party slot leaves its staged block until the next add
+refills it (the allocator at `0xc2c` returns the smallest free portrait_id in
 `*0x43d0[0..party_size-1]`).
 
-| portrait_id | screen Y |
-|------------:|---------:|
-| 0           | 0x48 (72)|
-| 1           | 0x51 (81)|
-| 2           | 0x5a (90)|
-| 3           | 0x63 (99)|
-| 4           | 0x6c (108)|
-| 5           | 0x75 (117)|
+| portrait_id | bank dest_row |
+|------------:|--------------:|
+| 0           | 0x48 (72)     |
+| 1           | 0x51 (81)     |
+| 2           | 0x5a (90)     |
+| 3           | 0x63 (99)     |
+| 4           | 0x6c (108)    |
+| 5           | 0x75 (117)    |
+
+**On-screen geometry** (the downstream tile draw, verified pixel-exact vs the
+`castle-{1..6}` fixtures): each portrait is 24×24 — a 3×3 grid of 8×8 4bpp
+tiles — drawn at X=8 (even/LEFT slots) or X=256 (odd/RIGHT), Y =
+`(party_slot/2)*32 + 48`.
 
 #### `party_panel_redraw_slot` (`FUN_1b2d`) @ wbase 0x1b2d
 

@@ -91,7 +91,8 @@
     "Verify the X=2/Y=portrait_id*9+0x48 args via DOSBox-X stepping at wbase 0x0c1a-0x0c23 with breakpoint, OR via dosbox_set_breakpoint + dosbox_get_registers when those MCP tools become real (TODO #064).",
     "Why does the fixture show STRIDE=60 between portraits when dcf2 stride=9? Maybe dcf2 internally multiplies Y by ~7 (vertical-cell scaling factor)? Maybe each portrait is rendered 60 pixels tall (vertical stretch by 6.67x)?"
   ],
-  "supersedes": "wbase-add-party-member.json#portrait-blit-y-stacking (REFINES rather than overturns — the Y=portrait_id*9+0x48 formula is correct as the dcf2 ARG, but the on-screen pixel coords are transformed by dcf2 in a way not yet RE'd)",
+  "superseded_by": "dcf2-portrait-transform.json — CORRECTS the #dcf2-coordinate-uncertainty open question: dcf2 is a RAM→RAM tile-bank loader, NOT a screen blit. Its args are (buf, bank_sel, dest_row, n_rows), not (buf, X, Y, rows); 'X=2' is the bank selector and 'Y=portrait_id*9+0x48' is a bank dest-row, not a screen coord. There is no dcf2 coordinate transform. Portraits are plain 24×24 (3×3 8×8 tiles) drawn downstream at X=8/256, Y=(slot/2)*32+48 — verified pixel-exact vs the castle-{1..6} fixtures.",
+  "supersedes": "wbase-add-party-member.json#portrait-blit-y-stacking (REFINES rather than overturns — the portrait_id*9+0x48 formula is correct as the dcf2 ARG, but it is a bank dest-row, not a screen Y; see superseded_by)",
   "corrects": [
     "TODO #026 wording — the engine portrait dimensions ARE 9 rows × 64 pixels wide in raw on-disk bytes; the misinterpretation is that the rendered on-screen size may differ (pending dcf2 RE)"
   ]
