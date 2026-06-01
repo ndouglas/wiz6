@@ -29,8 +29,10 @@ Done: `@wiz6/data` `character-view/swag-bag.ts` (`carriedCount`/`bagCount`, `car
 - **Bound carried-scans to slots 0-9** so bag items don't leak into other pickers: `scanCarried` (CharacterViewPage) + `equipCandidates` (equip-logic) should iterate only the carried region. Add tests that a bag-resident item is excluded.
 **Tests:** counts, lists, guards, gating, each mutation (carried compaction + equipment fixup, bag compaction, destroy), round-trips.
 
-### Stage 2 — Composer — Status: Not Started
-`compose-swag-bag.ts`: the 20×16 "SWAG BAG" popup (title + bag rows: name + qty/icon + empty rows) + the 3-option ADD/REMOVE/DROP picker strip (with dynamic disables greyed/hidden). Reuse `compose-inventory-picker` for the ADD (carried) + REMOVE/DROP (bag) sub-pickers.
+### Stage 2 — Composer — Status: IN PROGRESS (~96.6%, WIP committed; not yet gated/wired)
+`compose-swag-bag.ts` first pass (popup chrome reused from ASSAY's window family + title band + bag item rows; dynamic ADD/REMOVE/DROP/EXIT menu strip modeled on the action menu). Measured **96.66% (empty) / 96.37% (populated)** vs the fixtures — structure correct; the remaining diffs are concentrated in **(a) the title-band row glyphs** and **(b) the right-edge scrollbar** (the engine draws a wfont2 scrollbar widget; a 0x45/0x47/0x46 @ attr 0x02 guess LOWERED parity, so the exact glyphs/rows differ).
+**BLOCKER to 100%:** need the SWAG popup's **exact cell layout** — `dump-cells.py --scan` doesn't surface the wpcvw popup window, and guessing glyphs is unreliable. Next: extract the popup cells (extend `dump-cells` to find the wpcvw SWAG window struct, or decode the framebuffer region glyph-by-glyph), match the title band + scrollbar, then add the `swag-empty`/`swag-longsword` parity cases (currently reverted to keep the gate suite at 100%) and tighten to 0-diff. The composer is committed (clearly headed WIP) but NOT yet wired into the page.
+Sub-pickers (ADD/REMOVE/DROP "which item?") reuse `compose-inventory-picker` (gated by ASSAY) — no separate composer needed.
 
 ### Stage 3 — Reducer + page wiring — Status: Not Started
 Reducer sub-flow: `swag-menu` (ADD/REMOVE/DROP/EXIT cursor) → `swag-add-picker`/`swag-remove-picker`/`swag-drop-picker` → commit intents (`commit-swag-add/remove/drop`) → back to `swag-menu`. Beep-and-stay on refused ADD (equipped) / DROP (class-locked). Wire into `CharacterViewPage` (mutate via swag-bag, persist, re-render).
