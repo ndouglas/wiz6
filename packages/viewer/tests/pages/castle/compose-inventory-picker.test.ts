@@ -4,16 +4,23 @@ import {
   nextInventoryCursor,
 } from '../../../src/pages/castle/compose-inventory-picker.js';
 
-describe('nextInventoryCursor (items + NONE; NONE index == itemCount)', () => {
-  it('Down advances through items, lands on NONE, clamps there', () => {
-    expect(nextInventoryCursor(0, 'ArrowDown', 5)).toBe(1);
-    expect(nextInventoryCursor(4, 'ArrowDown', 5)).toBe(5); // → NONE
-    expect(nextInventoryCursor(5, 'ArrowDown', 5)).toBe(5); // clamp at NONE
+// Engine-exact nav (RE: ui_pick_inventory_item @ wpcvw 0x1a48). NONE = index
+// itemCount; NONE sits OUTSIDE both ends — entering from NONE (either dir) lands
+// on the TOP item (#072). 5 items → indices 0..4, NONE = 5.
+describe('nextInventoryCursor (engine-exact; NONE index == itemCount)', () => {
+  it('Up-from-NONE jumps to the TOP item (#072 fix)', () => {
+    expect(nextInventoryCursor(5, 'ArrowUp', 5)).toBe(0);
   });
-  it('Up retreats off NONE onto items, clamps at 0', () => {
-    expect(nextInventoryCursor(5, 'ArrowUp', 5)).toBe(4); // NONE → last item
-    expect(nextInventoryCursor(1, 'ArrowUp', 5)).toBe(0);
-    expect(nextInventoryCursor(0, 'ArrowUp', 5)).toBe(0); // clamp at first item
+  it('Down-from-NONE also enters at the TOP item (engine quirk)', () => {
+    expect(nextInventoryCursor(5, 'ArrowDown', 5)).toBe(0);
+  });
+  it('Up on an item moves up; from item 0 → NONE', () => {
+    expect(nextInventoryCursor(3, 'ArrowUp', 5)).toBe(2);
+    expect(nextInventoryCursor(0, 'ArrowUp', 5)).toBe(5); // top → NONE
+  });
+  it('Down on an item moves down; from the last item → NONE', () => {
+    expect(nextInventoryCursor(1, 'ArrowDown', 5)).toBe(2);
+    expect(nextInventoryCursor(4, 'ArrowDown', 5)).toBe(5); // last → NONE
   });
   it('with 0 items, only NONE (0) exists', () => {
     expect(nextInventoryCursor(0, 'ArrowDown', 0)).toBe(0);

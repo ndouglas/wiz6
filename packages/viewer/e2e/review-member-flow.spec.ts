@@ -376,11 +376,8 @@ test('EQUIP wizard mounted-canvas matches equip-slot0 + persists equipment', asy
 //
 // Picker order (THESUS, inventory itemId>0 scan): [LONGSWORD(0), LEATHER
 // CUIRASS(1), FUR LEGGING(2), SANDALS(3), BUCKLER SHIELD(4)], NONE at index 5.
-// The picker opens with the cursor on NONE (5). To inspect LONGSWORD (the
-// `assay-longsword` fixture's item), the cursor must reach index 0 — five
-// ArrowUps from NONE (5→4→3→2→1→0). A SINGLE ArrowUp lands on index 4 =
-// BUCKLER SHIELD (the carried-item list is bottom-anchored at NONE), NOT
-// LONGSWORD — so we drive all the way up to index 0.
+// The picker opens with the cursor on NONE. Per the engine nav (#072), a single
+// ArrowUp from NONE jumps to the TOP item = LONGSWORD (index 0).
 // ---------------------------------------------------------------------------
 test('ASSAY flow mounted-canvas matches assay-picker + assay-longsword', async ({ page }) => {
   await page.addInitScript((members) => {
@@ -400,9 +397,8 @@ test('ASSAY flow mounted-canvas matches assay-picker + assay-longsword', async (
   // Mounted ASSAY picker (cursor on NONE) must match the engine fixture.
   await expectCanvasMatchesFixture(page, 'assay-picker');
 
-  // Drive the cursor up to LONGSWORD (index 0): five ArrowUps from NONE (5).
-  // (One ArrowUp would land on index 4 = BUCKLER SHIELD.)
-  await pressKeys(page, ['ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowUp', 'Enter']);
+  // ArrowUp from NONE → TOP item = LONGSWORD (index 0); Enter inspects it.
+  await pressKeys(page, ['ArrowUp', 'Enter']);
 
   // Mounted inspect popup for LONGSWORD must match the engine fixture.
   await expectCanvasMatchesFixture(page, 'assay-longsword');
@@ -482,9 +478,9 @@ test('SKILL viewer mounted-canvas matches engine fixtures (3 categories + exit)'
 // Action menu (3-member party): [EQUIP,SPELL,ASSAY,SWAG,SKILL,REVIEW,EXIT],
 // column-major 2-row. EXIT=6. SWAG=3 (c1r1): Left(6→4) Left(4→2) Down(2→3).
 // SWAG menu (empty bag): [ADD, EXIT] (REMOVE/DROP hidden), cursor on EXIT (1).
-//   ArrowUp → ADD (0), Enter → add-picker (cursor on NONE = carried count 5).
-//   Our nextInventoryCursor: 5 ArrowUps from NONE → index 0 = LONGSWORD; Enter
-//   commits → bag=[LONGSWORD], menu becomes [ADD,REMOVE,DROP,EXIT], cursor EXIT.
+//   ArrowUp → ADD (0), Enter → add-picker (cursor on NONE). Per the engine nav
+//   (#072), ArrowUp from NONE → TOP item = LONGSWORD (index 0); Enter commits →
+//   bag=[LONGSWORD], menu becomes [ADD,REMOVE,DROP,EXIT], cursor EXIT.
 // ---------------------------------------------------------------------------
 test('SWAG BAG mounted-canvas matches fixtures + persists the carried→bag move', async ({ page }) => {
   await page.addInitScript((members) => {
@@ -498,10 +494,10 @@ test('SWAG BAG mounted-canvas matches fixtures + persists the carried→bag move
   await pressKeys(page, ['ArrowLeft', 'ArrowLeft', 'ArrowDown', 'Enter']);
   await expectCanvasMatchesFixture(page, 'swag-empty');
 
-  // ADD (ArrowUp → ADD, Enter → picker), then 5 ArrowUps from NONE → LONGSWORD,
+  // ADD (ArrowUp → ADD, Enter → picker), then ArrowUp from NONE → LONGSWORD,
   // Enter commits the carried→bag move. Resulting bag-with-LONGSWORD must match.
   await pressKeys(page, ['ArrowUp', 'Enter']);
-  await pressKeys(page, ['ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowUp', 'Enter']);
+  await pressKeys(page, ['ArrowUp', 'Enter']);
   await expectCanvasMatchesFixture(page, 'swag-longsword');
 
   // Persisted: LONGSWORD (id 8) moved to bag slot 10; carried compacted (slot 0

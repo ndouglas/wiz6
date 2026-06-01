@@ -242,16 +242,18 @@ describe('reduceCharacterView — ASSAY picker / display', () => {
     if (next.kind === 'assay-picker') expect(next.cursor).toBe(3); // NONE
   });
 
-  it('Up/Down move the cursor over [items…, NONE], clamped', () => {
-    const s: CharacterViewState = { kind: 'assay-picker', cursor: 3 };
-    const up = reduceCharacterView(s, { type: 'ARROW_UP' }, baseEnabled, undefined, assayInfo);
-    expect(up.kind === 'assay-picker' && up.cursor).toBe(2);
-    const up0 = reduceCharacterView({ kind: 'assay-picker', cursor: 0 }, { type: 'ARROW_UP' }, baseEnabled, undefined, assayInfo);
-    expect(up0.kind === 'assay-picker' && up0.cursor).toBe(0); // clamp top
+  it('Up/Down move the cursor over [items…, NONE] (engine nav, #072)', () => {
+    // carried = [2,5,9] → 3 items, NONE = 3.
+    const fromNoneUp = reduceCharacterView({ kind: 'assay-picker', cursor: 3 }, { type: 'ARROW_UP' }, baseEnabled, undefined, assayInfo);
+    expect(fromNoneUp.kind === 'assay-picker' && fromNoneUp.cursor).toBe(0); // NONE → top
+    const top = reduceCharacterView({ kind: 'assay-picker', cursor: 0 }, { type: 'ARROW_UP' }, baseEnabled, undefined, assayInfo);
+    expect(top.kind === 'assay-picker' && top.cursor).toBe(3); // top → NONE
     const down = reduceCharacterView({ kind: 'assay-picker', cursor: 0 }, { type: 'ARROW_DOWN' }, baseEnabled, undefined, assayInfo);
     expect(down.kind === 'assay-picker' && down.cursor).toBe(1);
-    const downMax = reduceCharacterView({ kind: 'assay-picker', cursor: 3 }, { type: 'ARROW_DOWN' }, baseEnabled, undefined, assayInfo);
-    expect(downMax.kind === 'assay-picker' && downMax.cursor).toBe(3); // clamp at NONE
+    const last = reduceCharacterView({ kind: 'assay-picker', cursor: 2 }, { type: 'ARROW_DOWN' }, baseEnabled, undefined, assayInfo);
+    expect(last.kind === 'assay-picker' && last.cursor).toBe(3); // last → NONE
+    const fromNoneDown = reduceCharacterView({ kind: 'assay-picker', cursor: 3 }, { type: 'ARROW_DOWN' }, baseEnabled, undefined, assayInfo);
+    expect(fromNoneDown.kind === 'assay-picker' && fromNoneDown.cursor).toBe(0); // NONE → top
   });
 
   it('Enter on NONE (cursor == count) → action-menu (page rehydrates to EXIT)', () => {

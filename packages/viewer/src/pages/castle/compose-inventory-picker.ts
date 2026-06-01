@@ -139,13 +139,30 @@ export function composeInventoryPicker(view: InventoryPickerView): TileWindow[] 
 }
 
 /**
- * Pure navigation helper for the inventory-item picker's cursor. The cursor
- * runs over [items…, NONE] where the NONE index == itemCount. The carried-item
- * list is vertical, so Up/Down move the cursor; it clamps at both ends.
+ * Pure navigation helper for the inventory-item picker's cursor. We represent
+ * the NONE/skip position as index `itemCount`; items are 0..itemCount-1.
+ *
+ * Engine-exact (RE: `ui_pick_inventory_item` @ wpcvw 0x1a48, decompiled — NONE
+ * is `local_a == -1`). NONE sits OUTSIDE both ends of the list, and entering
+ * the list from NONE (either direction) lands on the TOP item:
+ *   - From NONE: BOTH Up and Down → item 0 (the top).
+ *   - Up on item i: → i-1; from item 0 → NONE.
+ *   - Down on item i: → i+1; from the last item → NONE.
+ * (Previously this clamped ±1 with NONE last, so Up-from-NONE wrongly hit the
+ * LAST item — see #072. Now matches the engine.)
  */
 export function nextInventoryCursor(cursor: number, key: string, itemCount: number): number {
-  const max = itemCount; // NONE is at index itemCount
-  if (key === 'ArrowDown') return Math.min(max, cursor + 1);
-  if (key === 'ArrowUp') return Math.max(0, cursor - 1);
+  const NONE = itemCount;
+  if (itemCount <= 0) return NONE; // no items → stay on NONE
+  if (key === 'ArrowUp') {
+    if (cursor === NONE) return 0;     // NONE → top
+    if (cursor === 0) return NONE;     // top → NONE
+    return cursor - 1;                 // up one
+  }
+  if (key === 'ArrowDown') {
+    if (cursor === NONE) return 0;     // NONE → top (engine: down-from-NONE also enters at the top)
+    if (cursor === itemCount - 1) return NONE; // last → NONE
+    return cursor + 1;                 // down one
+  }
   return cursor;
 }
