@@ -68,6 +68,21 @@ function nextEnabled(idx: number, enabled: ReadonlyArray<number>, dir: 1 | -1): 
   return enabled[j] ?? idx;
 }
 
+/**
+ * Action-menu navigation. Column-major 2-row grid: entry `idx` at column
+ * floor(idx/2), row idx%2. EXIT is the last entry (idx n-1). Verified by live
+ * DOSBox capture 2026-06-01.
+ */
+export function nextActionCursor(idx: number, key: string, n: number): number {
+  switch (key) {
+    case 'ArrowLeft':  return idx >= 2 ? idx - 2 : idx;
+    case 'ArrowRight': return idx + 2 < n ? idx + 2 : idx;
+    case 'ArrowUp':    return idx % 2 === 1 ? idx - 1 : idx;
+    case 'ArrowDown':  return idx % 2 === 0 && idx + 1 < n ? idx + 1 : idx;
+    default:           return idx;
+  }
+}
+
 export function reduceCharacterView(
   state: CharacterViewState,
   event: CharacterViewEvent,
@@ -80,14 +95,15 @@ export function reduceCharacterView(
         const label = state.campEntries[state.cursorIdx];
         if (label === 'EXIT') return { kind: 'exit-castle' };
         if (label === 'EDIT') return { kind: 'edit-submenu', cursorIdx: 0 };
-        return state; // other actions not wired yet
+        return state; // EQUIP/SPELL/ASSAY/SWAG/SKILL/REVIEW handlers are SP3
       }
-      // Arrow nav over the camp entries (no wrap).
-      if (event.type === 'ARROW_LEFT' && state.cursorIdx > 0) {
-        return { ...state, cursorIdx: state.cursorIdx - 1 };
-      }
-      if (event.type === 'ARROW_RIGHT' && state.cursorIdx < state.campEntries.length - 1) {
-        return { ...state, cursorIdx: state.cursorIdx + 1 };
+      const key =
+        event.type === 'ARROW_LEFT' ? 'ArrowLeft' :
+        event.type === 'ARROW_RIGHT' ? 'ArrowRight' :
+        event.type === 'ARROW_UP' ? 'ArrowUp' :
+        event.type === 'ARROW_DOWN' ? 'ArrowDown' : '';
+      if (key) {
+        return { ...state, cursorIdx: nextActionCursor(state.cursorIdx, key, state.campEntries.length) };
       }
       return state;
     }
