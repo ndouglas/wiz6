@@ -14,11 +14,16 @@
  * 305/309 + 312). The picker packs them column-major into a 3-col × 2-row
  * grid (the engine arg `cols=2` is "max col index", giving 3 columns 0..2).
  *
- * Scaffold renders the camp subset only — context-mask wiring + cursor
- * movement across non-EXIT entries is TODO #042 follow-up.
+ * Renders the camp action subset: EQUIP/SPELL/ASSAY/SWAG/SKILL, plus REVIEW when
+ * `includeReview` (party_size ≥ 2), plus EDIT when `includeEditFromCamp` (house
+ * rule), plus EXIT — packed column-major into the grid. Cursor movement is the
+ * column-major 2-row nav in character-view-reducer.ts (`nextActionCursor`).
+ * Pixel-gated by `review-member-view` (2+ members) and `creation-review-member`
+ * (1 member) in screen-parity.test.ts. The dynamic context mask (combat/dungeon
+ * variants) is still TODO #042.
  *
  * RE: docs/re/findings/wpcvw-character-view-ux.json (view-main-menu-options,
- * view-input-keys). Engine fixture: tools/parity/fixtures/engine/creation-review-member.png.
+ * view-input-keys, view-context-mask-from-camp).
  */
 
 import { createTileWindow, clearWindow, setCursor, puts, type TileWindow } from '@wiz6/parser';

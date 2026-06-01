@@ -112,6 +112,10 @@ Next free ID: **#066**
   - SP2's `item-display.ts` `equipSlotIcon` map is fixture-verified only for the fighter-kit slots: 0=0x02 (1H weapon), 7=0x2a (body), 8=0x2d (legs), 10=0x2f (feet), 11=0x27 (shield). The other equipSlots (1=2H_staff, 2=thrown, 3=ranged, 5=cloak, 6=head, 9=hands, 12/13=scrolls) fall back to the weapon glyph 0x02 (best-effort, UNVERIFIED).
   - Capture a fixture with a character carrying cloak/head/hands/scroll/2H/ranged items, then fill the verified glyphs + add a parity case. Until then those item types render the wrong inventory icon.
 
+- #069 [open] — Verify active-party `portraitIndex` is the rendered selector (+0x19c), not the stored field (+0x1ac)
+  - The castle + character-view screens render the face directly from `member.portraitIndex`. The engine's RENDERED portrait is the `+0x19c` selector (e.g. THESUS=0), distinct from the persisted `+0x1ac` `portrait_index` field (THESUS=10) — the SP1 "NATHAN gotcha". SP1/SP2 parity + e2e all inject/assert the rendered value, so they don't prove the real roster→active-party pipeline populates `portraitIndex` with `+0x19c`.
+  - Verify how `addMember`/the pcfile extractor sources `portraitIndex`; if it's `+0x1ac`, real parties render the wrong face. Add a test driving the real add-member flow (not injected state) and pixel-check the portrait.
+
 - #039 [open] — Port WPCVW EQUIP action
   - Inventory item-equip flow. The inventory list is now rendered (SP2, 2026-06-01); EQUIP still needs the equip/unequip flow + the equipped-vs-carried distinction. Handler is currently a no-op.
 

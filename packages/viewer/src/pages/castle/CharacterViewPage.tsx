@@ -196,10 +196,11 @@ export function CharacterViewPage() {
       // those fields here on transition.
 
       if (next.kind === 'action-menu') {
-        setState({
-          ...next,
-          campEntries: campEntriesFor(includeEditFromCamp, members.length >= 2),
-        });
+        // Returning to the action menu (e.g. ESC/EX from the EDIT submenu) lands
+        // the cursor on EXIT, matching the engine's view-open default — same as
+        // the initial state and the class-change return path above.
+        const entries = campEntriesFor(includeEditFromCamp, members.length >= 2);
+        setState({ ...next, cursorIdx: entries.length - 1, campEntries: entries });
         return;
       }
 

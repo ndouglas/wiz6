@@ -75,9 +75,9 @@ test('REVIEW MEMBER picker opens character view + EXIT returns to castle', async
   await page.waitForSelector('canvas', { timeout: 10_000 });
   await page.waitForTimeout(500);
 
-  // EXIT — the character view is a real action menu now (cursor starts on EQUIP,
-  // not EXIT), so Escape is the exit: reducer maps ESCAPE → exit-castle in the
-  // action-menu state (character-view-reducer.ts), which navigates to /castle.
+  // EXIT — the action menu's cursor starts on EXIT (engine default), and Escape
+  // exits regardless: the reducer maps ESCAPE → exit-castle in the action-menu
+  // state (character-view-reducer.ts), which navigates to /castle.
   await page.keyboard.press('Escape');
 
   await page.waitForURL('**/castle', { timeout: 5_000 });
