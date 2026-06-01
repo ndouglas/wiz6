@@ -23,6 +23,7 @@ import {
   equipCandidates,
   applyEquipSelections,
   assayItem,
+  skillViewerRows,
   WichmannHill,
   resolveCarryCapacityMax,
   type ActivePartyMember,
@@ -51,13 +52,17 @@ import { composeProfessionConfirm } from './compose-profession-confirm.js';
 import { composeEquipPicker } from './compose-equip-picker.js';
 import { composeInventoryPicker } from './compose-inventory-picker.js';
 import { composeAssayDisplay } from './compose-assay-display.js';
+import { composeSkillViewer } from './compose-skill-viewer.js';
+import { skillName } from '../roster/creation/messages.js';
 import {
   reduceCharacterView,
+  skillTabEntries,
   type CharacterViewState,
   type CharacterViewEvent,
   type EditEnableFlags,
   type EquipInfo,
   type AssayInfo,
+  type SkillInfo,
 } from './character-view-reducer.js';
 import type { TileWindow } from '@wiz6/parser';
 
@@ -191,7 +196,12 @@ export function CharacterViewPage() {
       // so carried[cursor] ↔ items[cursor].
       const assayInfo: AssayInfo | undefined =
         member && scenarioDb ? { carried: scanCarried(member, scenarioDb).carried } : undefined;
-      const next = reduceCharacterView(state, ev, EDIT_FLAGS, equipInfo, assayInfo);
+      // SKILL viewer: the dynamic tab picker hides PERSONAL unless the member has
+      // a personal skill (slots 17..21 level > 0). The reducer can't read skills.
+      const skillInfo: SkillInfo | undefined = member
+        ? { hasPersonalSkills: (member.skills ?? []).slice(17, 22).some((v) => v > 0) }
+        : undefined;
+      const next = reduceCharacterView(state, ev, EDIT_FLAGS, equipInfo, assayInfo, skillInfo);
 
       // ---- Resolve intent states (side effects) ----------------------------
       if (next.kind === 'exit-castle') {
@@ -405,6 +415,28 @@ export function CharacterViewPage() {
           }),
         );
       }
+    } else if (state.kind === 'skill-viewer' && member) {
+      // Read-only SKILL viewer: the skill panel (right half) + the dynamic
+      // category-tab picker strip, over the char sheet. Rows from skillViewerRows
+      // (visible iff class-can-train OR level>0); names via the message DB.
+      const hasPersonalSkills = (member.skills ?? []).slice(17, 22).some((v) => v > 0);
+      const rows = skillViewerRows(member, state.category).map((r) => ({
+        slot: r.slot,
+        name: skillName(db, r.slot) || r.name,
+        level: r.level,
+      }));
+      overlays.push(
+        ...composeSkillViewer({
+          category: state.category,
+          rows,
+          // Skill-points (+0x1a8) is not yet surfaced on ActivePartyMember; it is
+          // 0 for the stock party. TODO #032 Stage 3: add the schema field.
+          skillPoints: 0,
+          tabEntries: skillTabEntries(state.category, hasPersonalSkills),
+          cursor: state.cursor,
+          db,
+        }),
+      );
     }
 
     const windows = [...baseWindows, ...overlays];
