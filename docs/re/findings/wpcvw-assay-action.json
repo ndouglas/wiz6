@@ -1,0 +1,135 @@
+{
+  "topic": "wpcvw-assay-action",
+  "subagent_run": "2026-06-01T00:00:00Z",
+  "binaries": ["wpcvw.ovr", "wroot.exe"],
+  "summary": "Full STATIC RE of the ASSAY action (character-view main-menu option 3, state 0x11). ASSAY is a READ-ONLY ITEM INSPECTION screen. Flow: (1) the dispatch handler at wpcvw file 0x6a50 calls ui_pick_inventory_item (0x1a48) with prompt msg 0x1c2 ('ASSAY WHICH ITEM?') to pick one carried item; cancel (0xffff) is a no-op return to the view loop. (2) On a pick it calls wpcvw_item_inspect_display @ file 0x7160 (prior pass mis-named 'wpcvw_item_inspect_and_use' — there is NO use/activation here) with args (window=mainPanel [bp-4], slot, item_idx, mode=0). (3) That function loads the FULL scenario item record via the wroot record loader func_0x0000c31e(table=1, &buf@bp-0x50, item_id=char_inv[+0x4428], 0) — the SAME loader EQUIP uses — opens a 20x12 popup window at (x=0x14,y=8,w=0x14,h=0xc,attr=0x19), draws chrome, prints the item's NAME1 (scenario record bytes 0..15, the identified/canonical name) centered, prints a category label from the type byte (record 0x3c) indexing msg table 0x60e..0x61e (WEAPON(S/E/T/L)/MISSILE/MISC/HELMET/BODY ARMOR/LEG ARMOR/GAUNTLETS/BOOTS/SHIELD/MAGICAL/SPECIAL), then a per-category set of stat lines: equip-slot (1HAND/2HAND/HEAD/BODY/LEGS/HANDS/FEET msgs 0x1c9..0x1d0), AC (msg 0x1c4), weight 'LB' (msg 0x1c5), DAMAGE/TOHIT/REGEN (0x1d2/0x1d3/0x1d4) for weapons, a 6-value resistance grid (averaged pairs of record bytes 0x1f..0x2a, capped 99) with letter headers from packed msgs 0x1c6/0x1c8, a CURSE: line (0x1d1) when the curse byte is set, a SPECIAL POWER: line (0x1d5) with effect names SLEEP/PARALYZE/POISON/STONE/SHRED/DRAIN/CRITICAL/KNOCKOUT (0x1d6..0x1dd), and a USABLE-BY / 'UNUSABLE' (msg 0x61f) line driven by the SAME three e34b class/race/sex bitmask tests EQUIP uses (record masks at bytes 0x36/0x38/0x3a vs char +0x4585/+0x4586/+0x4587). (4) It then enters a key-wait loop (input_poll_key_or_mouse_with_blink; commit on Enter/'\r' or mouse) and on dismiss destroys the popup (func_0x0000bd6e) and returns. NO RNG call, NO skill check, NO writes to the character record or inventory — ASSAY does NOT identify, does NOT flip name1/name2, does NOT consume charges, does NOT mutate anything. There is NO item identify mechanic in ASSAY at all: the engine simply reads the scenario record (which always carries the true name1) and dumps the full stat block. The 'mode' arg gates a DIFFERENT branch (mode != 0, an icon/sprite grid render keyed on type via a CS jump table at file 0x74af) used by other callers; ASSAY always passes mode=0 (the text-inspect branch). ASSAY-vs-USE boundary: ASSAY (index 3) = read-only inspect+wait; USE (index 6, handler 0x6ae8 -> 0x4a5b, prompt msg 0x190) is the separate activation path. Confidence high for the read-only/no-identify conclusion (no record-store, RNG, or flag-flip instruction exists in 0x7160); medium for a few exact record-byte offsets of the weapon-stat lines.",
+  "method": "ndisasm -b 16 of wpcvw.ovr at the ASSAY handler stub (0x6a50-0x6a86) and the display function 0x7160-0x7d80; PyGhidra DecompInterface (decompile.py, absolute project dir) on wpcvw_item_inspect_and_use @ 0x7160 for control-flow shape; grep of the whole 0x7160-0x7d40 body for record-store instructions (mov [bx+0x44xx]), RNG calls (0xc47e/0xc46b), and flag-mutating and/or byte ops (none found -> read-only); msg-string resolution via extracted/messages/msg.json indexedMessages for ids 0x1c2..0x1df, 0x60e..0x61f, 0x61f. wpcvw overlay delta = 0x4564 (file = CS - 0x4564). Cross-overlay thunks resolved via the thunk-delta law: func_0x0000c31e -> wroot image 0x0882 = scenario_load_record (per wpcvw-equip-internals.json), func_0x0000e34b -> wroot image 0x28af = bittest_mask (per wpcvw-equip-internals.json). Record-byte<->bp-offset mapping uses the verified buffer base lea ax,[bp-0x50] at file 0x7182 (record_byte = 0x50 - |bp_disp|); NOTE Ghidra's decompile labeled the buffer bp-0x52 and so its local_* names are offset by 2 from the raw bp-disp used in the evidence below.",
+  "findings": [
+    {
+      "id": "assay-handler-entry",
+      "claim": "ASSAY action (character-view main-menu option 3) handler at wpcvw file 0x6a50. It pushes args and calls ui_pick_inventory_item (0x1a48) with prompt msg 0x1c2 ('ASSAY WHICH ITEM?'), C-order args (window=[bp-2] partyRow, window=[bp-4] mainPanel, msg=0x1c2, slot=[bp+4], extra=0). The picker result is stored to global *0x43ca and compared to 0xffff; on cancel (0xffff) it jumps straight to the view-loop continuation (jmp 0x6bad) — a no-op. On a valid pick it calls wpcvw_item_inspect_display @ 0x7160 with C-order args (window=[bp-4] mainPanel, slot=[bp+4], item_idx=*0x43ca, mode=0), then jmp 0x6bad. So ASSAY = pick one carried item -> show inspect popup -> return.",
+      "category": "menu_dispatch",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6a50"},
+        "type": "disasm",
+        "details": "ndisasm 0x6a50-0x6a85: push 0; push [bp+4]; push 0x1c2; push [bp-4]; push [bp-2]; call 0x1a48 (ui_pick_inventory_item); add sp,0xa; mov [0x43ca],ax; cmp ax,0xffff; jz 0x6a83 (cancel -> fallthrough to jmp 0x6bad); else push 0; push [0x43ca]; push [bp+4]; push [bp-4]; call 0x7160; add sp,8; jmp 0x6bad. msg 0x1c2='ASSAY WHICH ITEM?' (indexedMessages). Picker/cancel convention identical to USE(0x6ae8,msg 0x190) and DROP(0x6a86,msg 0x192) per wpcvw-character-view-ux.json#inv-picker-msg-prompts."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "assay-is-read-only-no-identify",
+      "claim": "ASSAY is READ-ONLY and has NO identify mechanic. The display function 0x7160 contains NO write to the character/inventory record (no `mov [bx+0x44xx]`, no `or byte`/`and byte` to any inventory flag, no charge decrement), NO RNG call (0xc47e/0xc46b absent), and NO skill read/check. It does not flip an 'identified' flag, does not reveal/swap name1<->name2, does not consume charges. The only memory written is local stack (display formatting buffers + the popup window). Therefore: there is no ARTIFACTS/scholar/KARMA skill check, no per-item identify difficulty, and no state change of any kind. Items are inspected against their canonical scenario record every time. (The unidentified-name a.k.a. name2 mechanic — used for MONSTERS in combat — is NOT exercised by item ASSAY; the item display always prints name1.)",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x7160"},
+        "type": "disasm",
+        "details": "grep of ndisasm 0x7160..0x7d40: the only `imul [bp+6]`/`[bx+0x44xx]` accesses are READS (0x717e push [bx+0x4428]=item_id; 0x77ae/0x77cc/0x77ea read char +0x4585/+0x4587/+0x4586 for the usable-by check; 0x7332 cmp [bp+ ...]). No store to bx+0x44xx, no `or/and byte [bx+...]`, no call to the RNG thunks 0xc47e/0xc46b, no e34b->write. Contrast EQUIP (0x8e35) which does `or byte [bx+0x442f],1` and AC subtracts — ASSAY has none. Conclusion: read-only inspection.",
+        "type_note": "absence-of-instruction evidence (grep of full function body)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "assay-display-function-and-window",
+      "claim": "The display function wpcvw_item_inspect_display @ wpcvw 0x7160 (rename from prior 'wpcvw_item_inspect_and_use' — no 'use' path exists). Signature (cdecl): (param_1=window/mainPanel @bp+4, param_2=char slot @bp+6, param_3=inventory item index @bp+8, param_4=mode @bp+0xa). It computes bx=slot*0x1b0 + item_idx*8, reads the inventory item id at +0x4428, and loads the full 74-byte scenario item record into a stack buffer at bp-0x50 via func_0x0000c31e(table=1, &buf, item_id, 0) [= wroot scenario_load_record, image 0x0882]. It then creates a popup window via func_0x0000bbb6 with args (x=0x14, y=8, w=0x14, h=0xc, attr=0x19, chrome=0xffff, 0, 0) = a 20-col x 12-row window at column 20, row 8 (right/center of screen, OVER the main panel), handle stored at [bp-6]. It draws a custom border (calls to 0x6bd5 styled-char drawer for corners/edges, with internal divider rows at y=2,5,7,9) and fills the interior with spaces (0xde7f loop). ASSAY callers always pass mode (param_4) = 0.",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x7160"},
+        "type": "disasm",
+        "details": "0x716e imul [bp+6]; [bp+8]<<3 added; 0x717e push [bx+0x4428]; 0x7182 lea ax,[bp-0x50]; push; push 1; call 0xc31e (scenario_load_record table 1); 0x71a1-0x71ad push 0,0,0xffff,0x19,0xc,0x14,8,0x14; call 0xbbb6 (ui_window_create); mov [bp-6],ax. Window geometry (x=0x14,y=8,w=0x14,h=0xc,attr=0x19). Border via repeated 0x6bd5 calls; interior space-fill via 0xde7f loop 1..0x13 (file 0x7335). c31e thunk -> wroot image 0x0882 per wpcvw-equip-internals.json#c31e-is-wroot-record-loader (74-byte item record)."
+      },
+      "confidence": "high",
+      "supersedes": "wpcvw-character-view-ux.json#view-dispatch-table-location label '0x7160 = wpcvw_item_inspect_and_use' (no use/activation; rename to wpcvw_item_inspect_display)"
+    },
+    {
+      "id": "assay-shows-name1-not-name2",
+      "claim": "ASSAY prints the item's NAME1 — the identified/canonical scenario name (scenario item record bytes 0..15) — NOT an unidentified name2. The display centers and prints the record buffer starting at byte 0 (&buf @ bp-0x50) via the highlight-string thunk func_0x0000dfb9, with centering computed from func_0x0000faab (string length): x = 10 - (len+1)/2 at row 3. There is no conditional that swaps to a name2 pointer (no read of the record at byte 16 as a string for the title). Because the record is loaded fresh from scenario.dbs (which always holds the true name1 at bytes 0..15 per scenario-dbs.md), and because no identify flag is consulted, ASSAY always reveals the item's true name + full stats. (Items therefore have no in-game 'unidentified' obfuscation in this screen — the name2 alt-name slot in the scenario item record is not used by ASSAY.)",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x7382"},
+        "type": "disasm",
+        "details": "0x7382 lea ax,[bp-0x50] (record byte0); call 0xfaab (strlen); (len+1)/2; 0x7393 ax=10-half (center x); call 0xbda7 (cursor); 0x73a6 lea ax,[bp-0x50]; push 3 (attr); call 0xdfb9 (print highlight string) at row 3. Only df85/dd53 string prints elsewhere use the 0x558e format buffer (message text), never the record name2 slot at +16. scenario-dbs.md: item record bytes 0..15 = name1 (identified), optional name2 in remaining bytes — name2 is not read here."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "assay-item-type-category-label",
+      "claim": "The item TYPE/CATEGORY byte is scenario record byte 0x3c (read as [bp-0x14]). It indexes a 17-entry message label table at id 0x60e..0x61e for the header category line: 0=WEAPON (S), 1=WEAPON (E), 2=WEAPON (T), 3=WEAPON (L), 4=MISSILE, 5=MISC. ITEM, 6=HELMET, 7=BODY ARMOR, 8=LEG ARMOR, 9=GAUNTLETS, 10=BOOTS, 11=SHIELD, 12=MAGICAL, 13=MAGICAL, 14=SPECIAL, 15=SPECIAL, 16=MAGICAL (msg base 0x60e + type). This same type byte drives a CS jump table at file 0x74af (`jmp word [cs:bx-0x45ed]` at 0x74d9, bx=type*2) that selects WHICH set of stat-display flags ([bp-0x54]..[bp-0x6e]) to enable for that category — e.g. weapons enable damage/tohit/regen + the weapon-AC line; armor enables the slot+AC lines; magical/special enable the special-power and resistance lines. NOTE this 'type' byte (0x3c) is the DISPLAY category enum and is distinct from `equipSlot` (record byte 60) used by EQUIP; the prior equip pass labeled byte 0x3c 'dmg-type' from a different read site — here it is unambiguously the inspect-category index into msg 0x60e.",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x74e7"},
+        "type": "disasm",
+        "details": "0x74e7 push 0x558e (fmt buf); 0x74eb mov al,[bp-0x14]; 0x74f0 add ax,0x60e; push; call 0xc1f7 (load_msg by id) -> centered print at row 3 (the category label). 0x73f9 mov al,[bp-0x14]; jmp 0x74d1; 0x74d1 shl bx,1; jmp word [cs:bx-0x45ed] (type jump table @ file 0x74af; file=CS-0x4564). Each branch (0x7401..0x74ad) sets the [bp-0x54..-0x6e] display-flag booleans. msg 0x60e..0x61e resolved via indexedMessages = WEAPON(S/E/T/L)/MISSILE/MISC. ITEM/HELMET/BODY ARMOR/LEG ARMOR/GAUNTLETS/BOOTS/SHIELD/MAGICAL/MAGICAL/SPECIAL/SPECIAL/MAGICAL."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "assay-displayed-fields-and-labels",
+      "claim": "The text-inspect (mode==0) panel renders a category-driven set of labeled stat lines. Confirmed field labels (msg ids): AC (0x1c4), weight 'LB' (0x1c5), 'PS' (0x1c3, likely price/sell or piece-of-set), equip slot 1HAND/2HAND (0x1c9/0x1ca) and HEAD/BODY/LEGS/HANDS/FEET (0x1cc..0x1d0) with a blank (0x1cb), DAMAGE (0x1d2), TOHIT (0x1d3), REGEN (0x1d4), CURSE: (0x1d1), SPECIAL POWER: (0x1d5) followed by an effect name from SLEEP/PARALYZE/POISON/STONE/SHRED/DRAIN/CRITICAL/KNOCKOUT (0x1d6..0x1dd). Two packed single-char header strings drive a resistance/save grid: 0x1c6 ('HEDGHFLDFRM' — 11 chars) and 0x1c8 ('FMPTRABPVBLSMN' — 14 chars) are per-column letter headers; the grid VALUES are six numbers computed by averaging consecutive pairs of scenario record bytes 0x1f..0x2a ( (b[0x1f]+b[0x20])/2, (b[0x21]+b[0x22])/2, (b[0x23]+b[0x24])/2, (b[0x25]+b[0x26])/2, (b[0x27]+b[0x28])/2, (b[0x29]+b[0x2a])/2 ), each clamped to a max of 99, printed in a 6-iteration loop. The usable-by line shows either the eligible-class text or 'UNUSABLE' (msg 0x61f). The numeric weapon fields (DAMAGE/TOHIT/REGEN) and AC are read from the loaded record's weapon/AC bytes (cross-ref EQUIP's record map: AC=byte 0x46, dmg=byte 0x47, dice 0x18/0x1a, weapon block 0x2e..0x35) — the exact byte each printed line pulls is medium-confidence (a few are copied through intermediate locals).",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x76b5"},
+        "type": "disasm",
+        "details": "Resistance grid (Ghidra decompile + raw 0x76b5): local_7c[0..5] = (rec[+0x1f]+rec[+0x20])/2 ... (rec[+0x29]+rec[+0x2a])/2 [bp-0x31..-0x26 = record 0x1f..0x2a]; per element `if (<100) v else 99`; 6-iter print loop with cursor(0xbda7)+label(0xc1f7)+value(0xc041). Labels: msgs 0x1c3..0x1dd resolved via indexedMessages: PS/AC/LB/<packed>/MF/<packed>/1HAND/2HAND/<sp>/HEAD/BODY/LEGS/HANDS/FEET/CURSE:/DAMAGE/TOHIT/REGEN/SPECIAL POWER:/SLEEP/PARALYZE/POISON/STONE/SHRED/DRAIN/CRITICAL/KNOCKOUT. CURSE: line at 0x7d2c-0x7d65 gated on [bp-0x11] (curse byte) != 0, msg 0x1d1."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "assay-usable-by-restriction-line",
+      "claim": "ASSAY shows a USABLE-BY / 'UNUSABLE' line computed by the SAME class/race/sex eligibility test EQUIP uses. It re-reads the character's class (+0x4587), race-mask field (+0x4585) and sex/alignment field (+0x4586) and calls func_0x0000e34b (= wroot bittest_mask, image 0x28af) three times against the loaded item record's mask fields at record bytes 0x36/0x38/0x3a (buffer bp-0x18/-0x1a/-0x16). If all three bit-tests pass it formats an eligible-by message (msg index from a 0x558e-buffer build, e.g. weapon-class text); if any fails it prints 'UNUSABLE' (msg 0x61f) and sets a flag ([bp-2]=9). This is purely informational (no eligibility-driven mutation). Matches the equip candidate-collector gating (wpcvw-equip-internals.json#e34b-call-sites-and-mask-offsets) — same masks, same function, here used only to render the line.",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x77a9"},
+        "type": "disasm",
+        "details": "0x77ae al=[bx+0x4585]; lea ax,[bp-0x18]; call 0xe34b; cmp ax,1; jnz 0x7800. 0x77cc al=[bx+0x4587]; lea ax,[bp-0x1a]; call 0xe34b; jnz 0x7800. 0x77ea al=[bx+0x4586]; lea ax,[bp-0x16]; call 0xe34b; jz 0x7815 (usable). 0x7800 push 0x558e; push 0x61f ('UNUSABLE'); call 0xc1f7; [bp-2]:=9. 0x7815 builds the usable text into 0x558e from [bp-0x7c]+0x157c. e34b = wroot image 0x28af bittest_mask; masks at record bytes 0x36/0x38/0x3a per wpcvw-equip-internals.json."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "assay-input-loop-and-exit",
+      "claim": "After rendering, ASSAY enters a blocking key-wait loop and on dismissal destroys the popup and returns. The loop polls func_0x0000c6de (mouse?) and func_0x0000e0df / func_0x0000e1c0 (keyboard); it exits when a click is seen OR a key returns 1 with the char == '\\r' (0x0d, Enter). It then calls func_0x0000bd6e(window) to destroy the popup window [bp-6] and returns to the ASSAY handler, which jmp's back to the view main loop (which re-renders the character sheet). There is no per-key dispatch to a USE/activate path, no secondary picker, no commit-to-record. So the only interaction is 'press Enter (or click) to close'.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x7160"},
+        "type": "decompile",
+        "details": "Ghidra decompile tail of the mode==0 branch: `do { iVar6 = func_0x0000c6de(); if (iVar6!=0) iVar4=0; iVar6 = func_0x0000e0df(); if (iVar6==1 && (cVar3=func_0x0000e1c0())=='\\r') iVar4=0; } while (iVar4 != 0); func_0x0000bd6e(); return;`. func_0x0000bd6e = ui_window_destroy (wroot thunk, cf. wpcvw-character-view-ux.json#view-exit-cleanup). No use/activation call."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "assay-vs-use-boundary",
+      "claim": "ASSAY (main-menu index 3) and USE (index 6) are entirely separate actions. ASSAY = read-only inspect (handler 0x6a50 -> display 0x7160, prompt msg 0x1c2). USE = activation (handler 0x6ae8 -> func 0x4a5b, prompt msg 0x190 'USE WHICH ITEM?', per wpcvw-character-view-ux.json#view-dispatch-table-location and #inv-picker-msg-prompts). The prior pass's phrase 'inspect-and-use' for ASSAY is incorrect — ASSAY never activates an item. Both are gated off when the character's inventory count is 0 (slot+0x4594==0 disables masks 3/6/7 per #view-context-mask-default-dungeon), but they invoke different handlers and different target functions.",
+      "category": "menu_dispatch",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6a50"},
+        "type": "disasm",
+        "details": "ASSAY handler 0x6a50 -> 0x7160 (this pass, read-only). USE handler 0x6ae8 -> 0x4a5b (separate, per wpcvw-character-view-ux.json#view-dispatch-table-location). Distinct prompts msg 0x1c2 vs 0x190. No code path links 0x7160 to 0x4a5b."
+      },
+      "confidence": "high",
+      "supersedes": "wpcvw-character-view-ux.json#view-dispatch-table-location characterization of ASSAY/0x7160 as 'inspect-and-use'"
+    }
+  ],
+  "cross_references": [
+    "docs/re/findings/wpcvw-character-view-ux.json — dispatch table (ASSAY=0x6a50, target 0x7160, prompt 0x1c2), picker msg prompts, per-character ASSAY disable (inv_count==0)",
+    "docs/re/findings/wpcvw-equip-action.json + wpcvw-equip-internals.json — shared item-record loader func_0x0000c31e (wroot 0x0882 scenario_load_record, 74-byte item record), e34b bittest_mask (wroot 0x28af), record field map (AC 0x46, masks 0x36/0x38/0x3a, weapon block 0x2e..0x35, dice 0x18/0x1a, dmg 0x47)",
+    "docs/re/scenario-dbs.md — item record: bytes 0..15 name1/optional name2, byte 60 equipSlot, byte 54 classMask; this pass adds: byte 0x3c = inspect category enum (->msg 0x60e), bytes 0x1f..0x2a = resistance/save pairs averaged for the assay grid",
+    "extracted/messages/msg.json — ASSAY display labels: 0x1c2..0x1dd, category table 0x60e..0x61e, UNUSABLE 0x61f"
+  ],
+  "function_renames_recommended": [
+    "0x7160: wpcvw_item_inspect_and_use -> wpcvw_item_inspect_display (read-only item ASSAY/inspect renderer; param_4=mode selects text vs icon-grid; NO use/activation)"
+  ],
+  "unresolved": [
+    "Exact record-byte source for each printed weapon line (DAMAGE/TOHIT/REGEN) and AC/weight — several are copied through intermediate stack locals; medium-confidence mapping pending a cross-check vs the EQUIP record map and a live DOSBox assay of a known weapon (e.g. LONGSWORD) to read the rendered numbers.",
+    "The two packed single-char header strings 0x1c6 ('HEDGHFLDFRM') and 0x1c8 ('FMPTRABPVBLSMN') are per-column letter headers for resistance/save categories; the exact category each letter denotes (and whether the 6-value averaged grid maps to specific resist types) is not decoded — likely overlaps the monster saveTable/extendedSaves categories in scenario-dbs.md (TBD there too).",
+    "msg 0x1c6 decodes as 'HEDGHFLDFRM' in extracted/messages — verify this is a header/letter-strip and not a mis-decoded control template.",
+    "mode != 0 (icon/sprite-grid) branch of 0x7160 is used by some OTHER caller (not ASSAY); its caller and purpose were out of scope (ASSAY always passes mode=0)."
+  ]
+}
