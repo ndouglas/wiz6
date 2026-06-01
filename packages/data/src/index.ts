@@ -194,6 +194,17 @@ export {
   STARTER_SPELLS_ARE_PLAYER_SELECTED,
 } from './character-creation/starter-spells.js';
 export {
+  BODY_SLOT_COUNT,
+  bitTest,
+  bodySlotForItem,
+  itemEligible,
+  equipCandidates,
+  computeBaseAc,
+  computeAc,
+  applyEquipSelections,
+  type AcResult,
+} from './equipment/equip-logic.js';
+export {
   CLASS_SPELLBOOKS,
   SPELLBOOK_NAMES,
   SPELLBOOK_SCHOOLS,
