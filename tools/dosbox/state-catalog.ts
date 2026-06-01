@@ -93,9 +93,39 @@ function makeCastleRecipe(n: number): SaveStateRecipe {
 
 const CASTLE_RECIPES: readonly SaveStateRecipe[] = [1, 2, 3, 4, 5, 6].map(makeCastleRecipe);
 
+// Party-member picker reachers (REVIEW MEMBER = MASTER OPTIONS slot 1,
+// DISMISS MEMBER = slot 2). Built on castle-3 (3 fixed PCFILE chars →
+// deterministic). After castle-3 the cursor is on ADD PARTY MEMBER (slot 0).
+//   review-who-exit:    down enter        → REVIEW WHO?, cursor on EXIT (-1)
+//   review-who-member:  down enter / down → cursor on slot 0
+//   dismiss-who-exit:   down down enter   → DISMISS WHO?, cursor on EXIT (-1)
+//   dismiss-who-member: down down enter / down → cursor on slot 0
+function makePickerRecipe(
+  name: string,
+  toOption: string,
+  extra: readonly string[],
+  picker: 'REVIEW' | 'DISMISS',
+): SaveStateRecipe {
+  return {
+    name,
+    description:
+      `${picker} WHO? picker over a 3-member castle (deterministic PCFILE chars). ` +
+      `Reaches ${name.endsWith('member') ? 'cursor-on-slot-0' : 'cursor-on-EXIT'}.`,
+    steps: [...makeCastleRecipe(3).steps, toOption, ...extra],
+  };
+}
+
+const PICKER_RECIPES: readonly SaveStateRecipe[] = [
+  makePickerRecipe('review-who-exit', 'down enter', [], 'REVIEW'),
+  makePickerRecipe('review-who-member', 'down enter', ['down'], 'REVIEW'),
+  makePickerRecipe('dismiss-who-exit', 'down down enter', [], 'DISMISS'),
+  makePickerRecipe('dismiss-who-member', 'down down enter', ['down'], 'DISMISS'),
+];
+
 export const STATE_CATALOG: readonly SaveStateRecipe[] = [
   ...SEED_CATALOG,
   ...CASTLE_RECIPES,
+  ...PICKER_RECIPES,
 ];
 
 export function findRecipe(name: string): SaveStateRecipe | undefined {
