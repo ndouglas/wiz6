@@ -13,7 +13,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { WIZ6_MAIN, type MessageDb } from '@wiz6/data';
+import { type MessageDb } from '@wiz6/data';
 import { loadMessageDb as defaultLoadMessageDb } from '../../data-loader.js';
 import { loadCreationFontSet } from '../roster/creation/ega/assets.js';
 import type { FontSet } from '@wiz6/parser';
@@ -66,7 +66,6 @@ export function ReviewMemberPage() {
       title={title}
       members={members}
       fontSet={fontSet}
-      palette={WIZ6_MAIN}
       onCommit={(slotIdx) => navigate(`/castle/review-member/${slotIdx}`)}
       onCancel={() => navigate('/castle')}
     />
