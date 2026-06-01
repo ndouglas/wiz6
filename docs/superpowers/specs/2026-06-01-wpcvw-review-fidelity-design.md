@@ -63,10 +63,13 @@ view; saved to DOSBox slot 9 (cursor on EXIT). The screen:
    it into a shared helper if it's currently inline in the test.
 
 ### Mission 5 — action menu (entries + nav + initial cursor)
-1. **Add REVIEW** to the stock camp entries → `['EQUIP','SPELL','ASSAY','SWAG','SKILL','REVIEW',
-   'EXIT']` (7). REVIEW is *rendered* now with a **no-op** ENTER handler (its REVIEW-WHO
-   re-pick behavior is #041 / SP3, like the other unported actions). The EDIT house-rule
-   (non-stock) inserts EDIT before EXIT in the 8-entry case — not engine-gated.
+1. **Add REVIEW conditionally** — the engine's camp mask enables REVIEW (index 10) but
+   **party_size < 2 disables it** (`view-context-mask-default-dungeon` finding; confirmed by the
+   existing 1-member `creation-review-member` fixture having 6 entries vs the captured 3-member
+   view's 7). So: 1 member → `[EQUIP,SPELL,ASSAY,SWAG,SKILL,EXIT]` (6); 2+ members →
+   `[...,SKILL,REVIEW,EXIT]` (7). REVIEW is *rendered* with a **no-op** ENTER handler (its
+   REVIEW-WHO re-pick is #041 / SP3). The EDIT house-rule (non-stock) inserts EDIT before EXIT.
+   Both the render list (compose-action-menu) and the reducer's `campEntries` must stay in sync.
 2. **Column-major 2-row nav** in the reducer's `action-menu` case. Extract a pure
    `nextActionCursor(idx, key, n)` (testable like SP1's `nextCursor`):
    - `Left`: `idx-2` if `idx >= 2` (prev column, same row); else stay.
