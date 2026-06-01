@@ -1,0 +1,159 @@
+{
+  "topic": "wpcvw-swag-action",
+  "subagent_run": "2026-06-01T00:00:00Z",
+  "binaries": ["wpcvw.ovr", "wroot.exe"],
+  "summary": "Full STATIC RE of the SWAG action (character-view main-menu option 4, state 0x11). SWAG is NOT a read-only viewer and NOT a shared party-pool — it is an INTERACTIVE per-character 'SWAG BAG' manager. The dispatch handler at wpcvw file 0x6b3d calls wpcvw_show_pool_inventory @ file 0x1db3 with (slot=[bp+4], mainPanel=[bp-4], partyRow=[bp-2]). That function opens a 20x16 popup window at (x=0x14,y=4,w=0x14,h=0x10,attr=0x19) titled 'SWAG BAG' (msg 0x2ee), draws a custom border + an inner column divider, then renders the CURRENT bag contents (one row per item: name, quantity, sprite/icon) and runs a 3-option ADD/REMOVE/DROP picker (msg base 0x2ef, picker grid 2x1) in a loop until EXIT (option 3). KEY DATA-MODEL FACT: the bag is NOT a separate global buffer — it is the SECOND HALF of the SAME 22-slot, 8-byte-per-item character inventory array at +0x4428. Slots 0..9 are the CARRIED inventory (count u8 at +0x4594, cap 10); slots 10..21 are the SWAG BAG (count u8 at +0x4595, cap 12), addressed as (idx+10)*8+0x4428. A parallel 16-byte-stride per-item name/string cache exists at DGROUP 0x5692 (bag display names) and 0x55de/0x56a2 (carried/bag name caches). ACTIONS: (0) ADD ('PUT WHICH ITEM IN SWAG BAG?' msg 0x2f8) picks a CARRIED item; if it is NOT equipped (flags bit0==0) it copies the 8-byte item record from carried slot -> bag slot[bag_count], increments +0x4595, then calls inventory_equip_or_unequip(idx) to remove it from the carried list; if equipped (bit0==1) it beeps (play_sound 0) and refuses. (1) REMOVE ('REMOVE WHICH ITEM?' msg 0x2f9) picks a BAG item, copies it back to carried slot[+0x4594], increments +0x4594, then inventory_remove_pool_slot compacts the bag and decrements +0x4595. (2) DROP ('DROP WHICH ITEM?' msg 0x2fa) picks a BAG item; if it is NOT class-locked (flags bit6 / 0x40 == 0) it is permanently DESTROYED via inventory_remove_pool_slot (no carried-side copy); class-locked items beep and refuse. (3) EXIT clears the window and returns. SWAG therefore MUTATES the character record: it moves items between the +0x4428 carried region and the +0x4428 bag region and adjusts the two counts +0x4594/+0x4595, and DROP destroys items. This is verified by explicit byte-copy loops + count inc/dec, contrasted with ASSAY which has none. DISABLE/GATING: ADD disabled if bag_count>=12 OR carried_count==0; REMOVE disabled if bag_count==0 OR carried_count>=10; DROP disabled if bag_count==0 (comparators read raw, high confidence). DATA-MODEL IMPLICATION FOR THE PORT: NO party-pool model is needed. The bag is purely PER-CHARACTER and lives in the existing inventory array's upper 12 slots — a faithful port only needs to (a) model the +0x4428 inventory as 22 slots split 10+12 with two counts (+0x4594 carried, +0x4595 bag), and (b) wire the ADD/REMOVE/DROP transfers. This CORRECTS the prior finding (character-record-inventory-equipment.json#equip-pool-count-offset) that guessed +0x4595 'likely tracks equipment slots in use' — it is the SWAG BAG item count. It also CORRECTS the prior label of 0x1db3 as a 'show_pool_inventory' read-only viewer (it is interactive). Confidence high for control-flow, action semantics, the carried/bag split, counts, caps, and mutation byte-copies; medium for the exact field meaning of a few display-only byte reads (sprite/icon at +0x442d, qty at +0x442e).",
+  "method": "ndisasm -b 16 of wpcvw.ovr at the SWAG handler 0x6b3d (confirmed call -> 0x1db3 by decoding the E8 rel16: file 0x6b46 rel 0xb26a -> 0x1db3, args push [bp+4]/[bp-4]/[bp-2]); PyGhidra DecompInterface (decompile.py, absolute project dir, GHIDRA_INSTALL_DIR set) on wpcvw_show_pool_inventory @ 0x1db3 (full body) and inventory_remove_pool_slot @ 0x1963; raw ndisasm of the menu-disable comparator block 0x21f0-0x2245 to lock the cap/gate directions (cmp byte [bx+0x4595]/[bx+0x4594] vs imm with jnc/jc/jz/jnz). Message strings resolved via extracted/messages/msg.json indexedMessages: 0x2ee='     SWAG BAG     ', 0x2ef/0x2f0/0x2f1=ADD/REMOVE/DROP, 0x2f8='PUT WHICH ITEM IN SWAG BAG?', 0x2f9='REMOVE WHICH ITEM?', 0x2fa='DROP WHICH ITEM?'. wpcvw overlay delta = 0x4564 (file = CS - 0x4564). Inventory-array layout (22 slots x 8 bytes at +0x4428, flags byte +7) cross-referenced from character-record-inventory-equipment.json; carried count +0x4594, bag count +0x4595. Cross-overlay thunks per the thunk-delta law: func_0x0000c31e -> wroot scenario_load_record (image 0x0882), func_0x0000bbb6 -> ui_window_create, func_0x0000c546 -> play_sound, func_0x0000bd6e -> ui_window_destroy, ui_pick_inventory_item @ wpcvw 0x1a48.",
+  "findings": [
+    {
+      "id": "swag-handler-entry-and-target",
+      "claim": "SWAG action (character-view main-menu option 4) handler at wpcvw file 0x6b3d. It pushes (push [bp+4]=slot, push [bp-4]=mainPanel, push [bp-2]=partyRow) and calls wpcvw_show_pool_inventory @ file 0x1db3 (an E8 rel16 near-call within the overlay). Args are C-order (slot, mainPanel, partyRow) = (param_3, param_2, param_1) in the decompile. Unlike ASSAY/USE/DROP, SWAG does NOT pre-pick an item via ui_pick_inventory_item before entering the function — 0x1db3 runs its own ADD/REMOVE/DROP sub-menu loop. After 0x1db3 returns it falls through to jmp 0x6bad (loop back to the view main render).",
+      "category": "menu_dispatch",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6b3d"},
+        "type": "disasm",
+        "details": "wpcvw 0x6b3d bytes: ff7604 (push [bp+4]) ff76fc (push [bp-4]) ff76fe (push [bp-2]) e8 6a b2 (call rel16). Call instr at file 0x6b46, rel16 = 0xb26a -> target (0x6b49 + (signed)0xb26a) & 0xffff = 0x1db3. add sp,6; jmp 0x6bad. Target named wpcvw_show_pool_inventory in wpcvw-naming-pass.json#0x1db3 (rename recommended: wpcvw_swag_bag_manager). Dispatch slot 4 = SWAG per wpcvw-character-view-ux.json#view-dispatch-table-location (table @ file 0x6b8a, entry 4 = 0x6b3d)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "swag-is-the-per-character-swag-bag-not-a-party-pool",
+      "claim": "SWAG manages a per-character 'SWAG BAG', which is the SECOND HALF of the SAME 22-slot inventory array at +0x4428 — NOT a separate shared/party-pool global. Carried inventory = slots 0..9 (count u8 at +0x4594, cap 10); SWAG BAG = slots 10..21 (count u8 at +0x4595, cap 12). Every bag access in 0x1db3 indexes (bag_idx + 10)*8 + 0x4428 (the decompile computes local_1e = local_4 + 10 and reads *(slot*0x1b0 + local_1e*8 + 0x4428)), and the bag count is read/written exclusively at slot*0x1b0 + 0x4595. There is no DGROUP party-pool buffer involved — all four args are about THIS character's record. The only DGROUP buffers touched are per-item display-NAME caches (0x5692 = bag-display names, 0x55de/0x56a2 = carried/bag name caches), 16-byte stride per item, which mirror the moves but hold rendered text not item data.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1db3"},
+        "type": "decompile",
+        "details": "Bag-display loop: `for (local_4=0; local_4 < *(byte*)(slot*0x1b0 + 0x4595); local_4++){ local_1e = local_4 + 10; ... *(slot*0x1b0 + local_1e*8 + 0x4428) ... }`. Carried count compared at +0x4594, bag count at +0x4595. ADD copies carried slot[idx] -> bag slot[bag_count] both inside +0x4428 of the SAME slot record. Inventory layout (22 slots x 8 bytes at +0x4428, 8-byte fields) per character-record-inventory-equipment.json#inv-grid. No `mov ax,[DGROUP_pool]` / shared buffer read exists in the function body."
+      },
+      "confidence": "high",
+      "supersedes": "character-record-inventory-equipment.json#equip-pool-count-offset ('+0x4595 likely tracks equipment slots in use') — it is the SWAG BAG item count (slots 10..21 of +0x4428)."
+    },
+    {
+      "id": "swag-window-and-bag-render",
+      "claim": "wpcvw_show_pool_inventory @ 0x1db3 creates ONE popup window via func_0x0000bbb6 (ui_window_create) with args (x=0x14, y=4, w=0x14, h=0x10, attr=0x19, chrome=0xffff, 0, 0) = a 20-col x 16-row window at column 20 row 4 (same geometry/attr as the ASSAY popup and the SKILL menu). Handle stored in local_6. It draws a custom border via ui_put_styled_char_at corners/edges + an inner vertical divider at column 0x11 and horizontal divider rows at y=2 and y=0xf, prints the title msg 0x2ee (' SWAG BAG ') centered at row 1 (via func_0x0000c2db then ui_putchar_with_style padding), then loops over the bag (count +0x4595) printing one row per item starting at row 3 (local_4+3): the item NAME (highlight string at col 9, built once per (re)entry via the scenario record load + format into the 0x5692+local_4*0x10 cache), a quantity field at col 0x12 (de7f with value (record byte +0x442d)+1) and, when *(0xcc + item.equip_slot[+0x442c])==1, a charges/quantity number at col 0xe from +0x442e (c041). Empty rows (count..0xb) are space-filled. The render is read-only against the record; mutation happens only in the action branches below.",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1db3"},
+        "type": "decompile",
+        "details": "local_6 = func_0x0000bbb6(0x14,4,0x14,0x10,0x19,0xffff,0,0). Border via ui_put_styled_char_at(local_6, ...) corner glyphs 0xe/0xa/0xb/0x8, edges 0xc/0xd/7/5, dividers at col 0x11 and rows 2/0xf. Title: func_0x0000c2db(0x2ee) then two ui_putchar_with_style(local_6) at (x=1,y=2)/(x=0x11,y=2) padding. Per-item: bda7 cursor(local_4+3, col), df85 highlight name from 0x5692+local_4*0x10, c041 qty from +0x442e gated on *(0xcc + [bx+0x442c])==1, de7f icon from ([bx+0x442d]+1). msg 0x2ee=' SWAG BAG ' (indexedMessages)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "swag-three-action-menu",
+      "claim": "After rendering the bag, SWAG runs a 3-option picker via ui_menu_picker_grid(window=mainPanel param_2, msg_base=0x2ef, mask=local_1c, x_base=2, y_base=1, x_step=8, cols=2, attr=5, init_cursor=count_enabled). Options (msg ids): 0=ADD (0x2ef), 1=REMOVE (0x2f0), 2=DROP (0x2f1); the picker's option 3 = EXIT (the outer loop is `do { ... } while (local_8 != 3)`). The menu loops: after each action the bag re-renders and the picker is shown again until EXIT. So SWAG is a persistent interactive sub-screen, not a one-shot.",
+      "category": "menu_dispatch",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1db3"},
+        "type": "decompile",
+        "details": "`uVar5 = menu_count_enabled_entries(local_1c,3); local_8 = ui_menu_picker_grid(param_2,0x2ef,local_1c,2,1,8,2,5,uVar5);` then `if (local_8 != 0) break; ... if (local_8 != 1) break; ... if (local_8 != 2) break; ... } while (local_8 != 3);`. msg 0x2ef/0x2f0/0x2f1 = ADD/REMOVE/DROP (indexedMessages). Picker = ui_menu_picker_grid @ wpcvw 0x6c per wpcvw-character-view-ux.json#view-input-keys."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "swag-add-action-mutation",
+      "claim": "ADD (option 0): prompts msg 0x2f8 ('PUT WHICH ITEM IN SWAG BAG?') and calls ui_pick_inventory_item(param_1, param_2, 0x2f8, ..., 0) to pick a CARRIED item (result stored to global *0x43ca; 0xffff = cancel = no-op). On a valid pick it tests the item's flags byte (+0x442f) bit0: if (flags & 1) == 0 (NOT equipped) it MOVES the item: copies the 8-byte item record from carried slot[*0x43ca] (slot*0x1b0 + *0x43ca*8 + 0x4428) into bag slot[bag_count] (slot*0x1b0 + (bag_count+10)*8 + 0x4428) via a 4-word rep-movsw, copies the 16-byte display-name cache (0x55de carried -> 0x5692 bag), INCREMENTS the bag count +0x4595, then calls inventory_equip_or_unequip(*0x43ca, slot) to drop the item out of the carried list (which compacts the carried side and decrements +0x4594), and re-renders the inventory panel. If (flags & 1) != 0 (the item is currently EQUIPPED) it instead beeps via func_0x0000c546(0) (play_sound deny) and does NOT move it. So ADD = move one non-equipped carried item into the bag. This is a record mutation.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1db3"},
+        "type": "decompile",
+        "details": "ADD branch (local_8==0): ui_pick_inventory_item(param_1,param_2,0x2f8); *0x43ca=result; if (result != -1) { if ((*(byte*)(slot*0x1b0 + *0x43ca*8 + 0x442f) & 1)==0) { local_1e = *(byte*)(slot*0x1b0+0x4595)+10; src=slot*0x1b0+*0x43ca*8+0x4428; dst=slot*0x1b0+local_1e*8+0x4428; rep-movsw 4 words (8 bytes) src->dst; func_0x0000f3aa(0x5692+bag_count*0x10, 0x55de+*0x43ca*0x10) [name cache copy]; (*(char*)(slot*0x1b0+0x4595))++; inventory_equip_or_unequip(*0x43ca, slot); ui_render_inventory_panel(param_1,slot); } else { func_0x0000c546(0); /* beep */ } }. msg 0x2f8='PUT WHICH ITEM IN SWAG BAG?'. inventory_equip_or_unequip @ wpcvw 0x17f7 (also the DROP/unequip wrapper per wpcvw-character-view-ux.json#action-drop-cursed-check)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "swag-remove-action-mutation",
+      "claim": "REMOVE (option 1): prompts msg 0x2f9 ('REMOVE WHICH ITEM?') and calls ui_pick_inventory_item(local_6, param_2, 0x2f9, slot, 1) to pick a BAG item (the trailing 1 selects the bag list; result local_20, 0xffff=cancel). On a valid pick it MOVES the item back to carried: computes bag slot (local_20+10), copies the 8-byte record from bag slot[local_20] into carried slot[carried_count] (slot*0x1b0 + carried_count*8 + 0x4428) via 4-word rep-movsw, copies the name cache (0x5692 bag -> 0x55de carried), INCREMENTS carried count +0x4594, then calls inventory_remove_pool_slot(slot, local_20) which decrements +0x4595 and compacts the bag, then re-renders the inventory panel. So REMOVE = move one bag item back into carried inventory. Record mutation.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1db3"},
+        "type": "decompile",
+        "details": "REMOVE branch (local_8==1): local_20 = ui_pick_inventory_item(local_6,param_2,0x2f9,param_3,1); if (local_20 != -1) { local_1e=local_20+10; src=slot*0x1b0+local_1e*8+0x4428; dst=slot*0x1b0+*(byte*)(slot*0x1b0+0x4594)*8+0x4428; rep-movsw 4 words src->dst; func_0x0000f3aa(0x55de+carried_count*0x10, 0x5692+local_20*0x10); (*(char*)(slot*0x1b0+0x4594))++; inventory_remove_pool_slot(slot, local_20); ui_render_inventory_panel(param_1,slot); }. msg 0x2f9='REMOVE WHICH ITEM?'. inventory_remove_pool_slot @ wpcvw 0x1963 (see swag-remove-pool-slot-compactor)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "swag-drop-action-destroys-item",
+      "claim": "DROP (option 2): prompts msg 0x2fa ('DROP WHICH ITEM?') and calls ui_pick_inventory_item(local_6, param_2, 0x2fa, slot, 1) to pick a BAG item (result local_20). On a valid pick it tests the bag item's flags byte (+0x442f at (local_20+10)*8) bit6 (0x40 = CLASS_LOCKED): if (flags & 0x40) == 0 it PERMANENTLY DESTROYS the item via inventory_remove_pool_slot(slot, local_20) (decrement +0x4595 + compact, NO carried-side copy); if class-locked it beeps via func_0x0000c546(0) and refuses. NOTE: unlike the carried DROP handler (view-menu option 7 at 0x6a86, which blocks on mask 0x43 = bits 0|1|6), the bag DROP only blocks on bit6 (0x40); it does NOT block equipped (bit0) or cursed-bit1 (0x02) — because items in the bag are by definition unequipped (ADD refuses equipped items), and cursedness is not re-checked for bag drops. So a cursed (bit1) item that is sitting in the bag CAN be destroyed via SWAG DROP, but a class-locked (bit6) one cannot. Record mutation (destructive).",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1db3"},
+        "type": "decompile",
+        "details": "DROP branch (local_8==2): local_20 = ui_pick_inventory_item(local_6,param_2,0x2fa,param_3,1); if (local_20 != -1) { local_1e=local_20+10; if ((*(byte*)(slot*0x1b0+local_1e*8+0x442f) & 0x40)==0) inventory_remove_pool_slot(slot, local_20); else func_0x0000c546(0); }. msg 0x2fa='DROP WHICH ITEM?'. Contrast carried DROP mask 0x43 (wpcvw-character-view-ux.json#action-drop-cursed-check-correction)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "swag-remove-pool-slot-compactor",
+      "claim": "inventory_remove_pool_slot(slot=param_1, idx=param_2) @ wpcvw 0x1963 is the bag compactor used by both REMOVE and DROP. It DECREMENTS the bag count +0x4595, then for local_4 = idx .. new_bag_count-1 shifts each bag entry down by one: copies the 8-byte item record from bag slot[local_4+1] (slot*0x1b0 + (local_4+10)*8 + 0x4430) into bag slot[local_4] (... + 0x4428), and shifts the parallel display-name cache (0x56a2 source -> 0x5692 dest, 16-byte stride). It does NOT touch the carried list. This confirms the bag is a contiguous, compacted list of slots 10..21 with count +0x4595.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1963"},
+        "type": "decompile",
+        "details": "`*(char*)(slot*0x1b0+0x4595) -= 1; for (local_4=idx; local_4 < *(byte*)(slot*0x1b0+0x4595); local_4++){ iVar6=(local_4+10)*8; rep-movsw 4 words from (slot*0x1b0+iVar6+0x4430) to (slot*0x1b0+iVar6+0x4428); func_0x0000f3aa(local_4*0x10+0x5692, local_4*0x10+0x56a2); }`. Raw: file 0x1973 `fe 8f 95 45` = dec byte [bx+0x4595]; file 0x199B add ax,0x4430 (next-slot ptr) per character-record-inventory-equipment.json#inv-grid evidence."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "swag-menu-disable-gating-and-caps",
+      "claim": "The 3-option mask (local_1c) is rebuilt each loop: all enabled, then per-condition disables (raw comparators, high confidence): ADD (local_1c[0]) disabled if bag_count(+0x4595) >= 0xc (12 = bag full) OR carried_count(+0x4594) == 0 (nothing to add). REMOVE (local_1c[1]) disabled if bag_count == 0 (bag empty) OR carried_count >= 0xa (10 = carried full). DROP (local_1c[2]) disabled if bag_count == 0 (bag empty). This pins the slot geometry: CARRIED inventory holds 10 items max (slots 0..9), SWAG BAG holds 12 items max (slots 10..21), summing to the 22-slot +0x4428 array. There is NO per-character gating beyond these count conditions (no class/race/active check); SWAG itself is enabled in the camp menu mask and the dungeon/combat masks (per wpcvw-character-view-ux.json view-context-mask findings).",
+      "category": "menu_mask",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x21fa"},
+        "type": "disasm",
+        "details": "ndisasm 0x21fa-0x222b: `cmp byte [bx+0x4595],0xc; jnc 0x2208` (bag>=12 -> disable ADD); `cmp byte [bx+0x4594],0x0; jnz 0x220d` (carried!=0 -> skip); `mov [bp-0x1a],0` (ADD off). `cmp byte [bx+0x4595],0x0; jz 0x221b` (bag empty -> disable REMOVE); `cmp byte [bx+0x4594],0xa; jc 0x2220` (carried<10 -> skip); `mov [bp-0x18],0` (REMOVE off). `cmp byte [bx+0x4595],0x0; jnz 0x222c` (bag!=0 -> skip); `mov [bp-0x16],0` (DROP off). local_1c[0]=bp-0x1a, [1]=bp-0x18, [2]=bp-0x16. bx=slot*0x1b0."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "swag-exit-and-cleanup",
+      "claim": "EXIT (picker option 3): the outer `do { } while (local_8 != 3)` terminates; the function clears the mainPanel interior (func_0x0000ed5a(param_2, 0x20, 3, 0) = fill space attr 3) and destroys the SWAG popup window via func_0x0000bd6e(local_6, 1) (ui_window_destroy), then returns to the SWAG handler at 0x6b3d, which jmp's back to the view main loop (re-render). No state word (*0x363a / *0x4fce) is written by SWAG — it stays in state 0x11.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1db3"},
+        "type": "decompile",
+        "details": "Tail: `func_0x0000ed5a(param_2,0x20,3,0); func_0x0000bd6e(local_6,1); return;`. func_0x0000bd6e = ui_window_destroy (wroot thunk, cf. wpcvw-character-view-ux.json#view-exit-cleanup). No *0x363a/*0x4fce store in the body."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "swag-vs-trade-and-drop-boundary",
+      "claim": "SWAG (index 4) is the per-character STASH manager; it is distinct from TRADE (index 2, handler 0x6a3e -> 0x513e, the inter-character give) and from the carried-inventory DROP (index 7, handler 0x6a86 -> cursed-mask check -> 0x17f7). SWAG's ADD/REMOVE move items between THIS character's carried (slots 0..9) and bag (slots 10..21) lists only; SWAG's DROP destroys a bag item. No SWAG path transfers to another party member or to a shared buffer. So 'SWAG' = the character's personal overflow/stash bag, not loot-sharing.",
+      "category": "menu_dispatch",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6b3d"},
+        "type": "cross-reference",
+        "details": "SWAG handler 0x6b3d -> 0x1db3 (this pass). TRADE 0x6a3e -> 0x513e (wpcvw_give_to_party_member per wpcvw-character-view-ux.json#view-dispatch-table-location). Carried DROP 0x6a86 -> 0x17f7. All SWAG record accesses target param_3's own +0x4428 array (carried 0..9 / bag 10..21); no cross-character or DGROUP-pool write."
+      },
+      "confidence": "high"
+    }
+  ],
+  "cross_references": [
+    "docs/re/findings/wpcvw-character-view-ux.json — dispatch table (SWAG=index 4, handler 0x6b3d -> 0x1db3), picker conventions, view-context masks (SWAG enabled in camp/dungeon/combat), carried DROP cursed mask 0x43 (option 7)",
+    "docs/re/findings/character-record-inventory-equipment.json — inventory array +0x4428 (22 slots x 8 bytes, flags byte +7: 0x01/0x02 cursed, 0x40 class-locked), carried count +0x4594; THIS pass proves +0x4595 = SWAG BAG count (slots 10..21), correcting the 'equipment slots in use' guess at #equip-pool-count-offset",
+    "docs/re/findings/wpcvw-assay-action.json — sibling read-only action (contrast: ASSAY has NO mutation; SWAG mutates the record)",
+    "docs/re/findings/wpcvw-equip-internals.json — shared scenario_load_record (func_0x0000c31e -> wroot 0x0882), item flags overload (bit0=equipped/cursed-low, bit6/0x40=class-locked), inventory_equip_or_unequip @ 0x17f7",
+    "docs/re/findings/wpcvw-naming-pass.json — 0x1db3=wpcvw_show_pool_inventory (rename to wpcvw_swag_bag_manager), 0x1963=inventory_remove_pool_slot",
+    "extracted/messages/msg.json — SWAG strings: 0x2ee 'SWAG BAG', 0x2ef ADD, 0x2f0 REMOVE, 0x2f1 DROP, 0x2f8 'PUT WHICH ITEM IN SWAG BAG?', 0x2f9 'REMOVE WHICH ITEM?', 0x2fa 'DROP WHICH ITEM?'"
+  ],
+  "function_renames_recommended": [
+    "wpcvw 0x1db3: wpcvw_show_pool_inventory -> wpcvw_swag_bag_manager (interactive per-character SWAG BAG add/remove/drop manager; NOT a read-only viewer, NOT a party pool)",
+    "wpcvw 0x1963: inventory_remove_pool_slot -> inventory_remove_swag_bag_slot (decrement +0x4595 + compact bag slots 10..21)"
+  ],
+  "unresolved": [
+    "Display-only byte semantics: the per-row icon at col 0x12 uses (item byte +0x442d)+1 (sprite_idx cached from scenario.dbs) and the col-0xe number uses +0x442e (quantity/charges) gated on *(0xcc + [bx+0x442c])==1 (a per-equip-slot 'show-charges' flag table at DGROUP 0xcc). The exact meaning of the 0xcc-indexed flag table and whether the +0x442e value is quantity vs charges in the bag view is medium-confidence (display only — does not affect the mutation model).",
+    "Confirm with live DOSBox: ADD an equipped item (should beep/refuse), ADD a normal item (should move to bag + vanish from carried), DROP a bag item (should destroy), and verify the carried/bag counts (+0x4594/+0x4595) and the +0x4428 slot contents after each. Static analysis is unambiguous on the mutations but a round-trip would confirm the f3aa name-cache copies and the inventory_equip_or_unequip carried-side compaction.",
+    "Whether a cursed (bit1/0x02) item can reach the SWAG BAG at all: ADD only refuses bit0 (equipped); a cursed-but-unequipped item with bit1 set is moveable into the bag and then DROP-destroyable (bag DROP only checks bit6). Confirm no carried-side guard blocks ADD of a cursed item (none seen in 0x1db3, but the carried picker ui_pick_inventory_item filtering was not re-RE'd here)."
+  ]
+}

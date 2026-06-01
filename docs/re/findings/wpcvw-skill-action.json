@@ -1,0 +1,125 @@
+{
+  "topic": "wpcvw-skill-action",
+  "subagent_run": "2026-06-01T00:00:00Z",
+  "binaries": ["wpcvw.ovr", "wroot.exe"],
+  "summary": "Full STATIC RE of the SKILL action (character-view main-menu option 8, state 0x11). SKILL is a READ-ONLY SKILL-LEVEL VIEWER organized as a 4-category tabbed browser — it is NOT a 'use a skill' action and has NO effects. Flow: (1) the dispatch handler at wpcvw file 0x6b4e calls wpcvw_skill_viewer @ file 0x4d36 with args (window=mainPanel [bp-4], slot [bp+4]); on return it jmp's straight back to the view loop (0x6bad). (2) 0x4d36 pre-scans the character's skills[0x11..0x15] (record +0x451c+{0x11..0x15} = the PERSONAL category's slot range) to set a 'has-personal-skills' flag [bp-0x34], builds a 5-entry enable mask [bp-0x18..] for the 5 category tabs (WEAPONRY/PHYSICAL/PERSONAL/ACADEMIA/EXIT), opens a 20-col x 16-row window via ui_window_create (x=0x14,y=4,w=0x14,h=0x10,attr=0x19), then runs an interactive loop: render the currently-selected category via wpcvw_render_skill_category @ 0x9dfb, then show a 2-col grid picker (ui_menu_picker_grid @ file 0x6c) with category labels from msg base 600 (WEAPONRY=600,PHYSICAL=601,PERSONAL=602,ACADEMIA=603,EXIT=604). The picker just selects which category TAB to view; the loop repeats until the cursor lands on EXIT (category index 4), then destroys the window (ui_window_destroy) and returns. (3) wpcvw_render_skill_category @ 0x9dfb reads the character's class at record +0x4587, dispatches a per-class jump table (classes 0..0xd) to build the per-class skill-availability table at wpcvw global 0x57fe (via item_compute_usability_bitmaps @ 0x982f — a row is enabled if the class CAN learn that skill OR the char already has >0 in it), draws window chrome, then for the selected category's skill-slot range ([bp-0x8]..[bp-0xa]: WEAPONRY=0..9, PHYSICAL=0xa..0x10, PERSONAL=0x11..0x15, ACADEMIA=0x16..0x1d) prints, per ENABLED slot, the skill NAME (msg id from a CS table at 0x157c indexed by slot, via draw_msg_in_window) and the skill LEVEL read from record +0x451c+slot (the skills[30] array, cap 50), then a final 'skill points' line: label msg from CS table 0x159a + value = record byte +0x4590 (skill-points-remaining). The category enum + slot ranges + name-row attrs match wpcmk's character-creation skill-train table EXACTLY (WEAPONRY/PHYSICAL/PERSONAL/ACADEMIA, ranges 0..9/0xa..0x10/0x11..0x15/0x16..0x1d) — SKILL is the read-only sibling of the creation skill-train screen. NO write to the skill array (record +0x451c..) exists in either 0x4d36 or 0x9dfb, NO RNG call (0xc47e/0xc46b absent), NO skill check / roll, NO record mutation of any kind: this is purely a display. (Contrast the wpcmk SKILL-TRAIN screen which uses the same category layout but DOES adjust skill levels via ←→; the wpcvw view picker's ←→/↑↓ keys ONLY move the category-tab cursor.) Disable: SKILL is enabled in the camp mask (*0x4fce==4 enables indices 0/1/3/4/8/10) and the combat mask (*0x4fce==0xd enables 0/1/3/4/7/8); no additional per-character gate was found (unlike EQUIP/ASSAY/USE/DROP which gate on inv_count). Confidence high for the read-only/no-mutation conclusion and the category layout (cross-validated against wpcmk); medium for the exact identity of a couple of cross-overlay render thunks and the per-class jump-table targets (not individually decompiled).",
+  "method": "ndisasm -b 16 (via dd skip) of wpcvw.ovr at the SKILL dispatch handler 0x6b4e and the viewer 0x4d36-0x4e93, plus the renderer 0x9dfb head (class dispatch @0x9e10) and the skill enumeration/render loop 0xa176-0xa340. PyGhidra DecompInterface (decompile.py with absolute project dir, GHIDRA_INSTALL_DIR set) on the intra-overlay helpers 0x9dfb (ui_render_spell_school_picker — name is from a prior pass and is misleading; it is the per-class skill-category renderer), 0x1681 (menu_count_enabled_entries), 0x6c (ui_menu_picker_grid), and 0x982f (mislabeled item_compute_usability_bitmaps — actually the per-class skill-availability table builder for global 0x57fe). 0x4d36 itself is NOT a Ghidra-recognized function (reached only via this overlay's call) so it was read from raw ndisasm. wpcvw overlay delta = 0x4564 (file = CS - 0x4564). Cross-overlay thunks resolved via the thunk-delta law (wroot_image = thunk - 0xBA9C): 0xbbb6->0x011a ui_window_create, 0xbd6e->0x02d2 ui_window_destroy, 0xbda7->0x030b (set-cursor), 0xc041->0x05a5 (draw-number), 0xc2db->0x083f draw_msg_in_window (per skill-names.json), 0xc1f7->0x075b (load+draw msg by id), 0xed5a->0x32be (window region clear/fill), 0xe5b5->0x2b19 (refresh/blit), 0xfaab->0x400f (strlen). Message strings resolved via extracted/messages/msg.json indexedMessages: menu labels 301-311 (8=SKILL), category labels 600-604. Skills layout cross-referenced against character-record-extended-map-v2.json (skills[14->30] at +0x451c, cap 0x32) and skill-names.json (msg id = table index + 0xfa0). Absence-of-store/RNG verified by grepping the full 0x4d36..0x4e93 and 0x9dfb..0xa340 ndisasm for stores to +0x451c/+0x4590 and RNG thunks (none).",
+  "findings": [
+    {
+      "id": "skill-handler-entry",
+      "claim": "SKILL action (character-view main-menu option 8) handler at wpcvw file 0x6b4e. It pushes (slot=[bp+4], window=[bp-4]) and calls wpcvw_skill_viewer @ file 0x4d36 (E8DFE1 -> 0x4d36), then add sp,4; jmp 0x6bad (back to the view main loop). There is NO inventory picker and NO prompt message for SKILL — unlike ASSAY/USE/DROP, the handler hands off directly to 0x4d36 which manages its own window + picker. (The code immediately following at 0x6b5c that pushes msg 0x1f4 and calls 0x4419 belongs to a DIFFERENT case in the dispatch jump table, not SKILL.)",
+      "category": "menu_dispatch",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6b4e"},
+        "type": "disasm",
+        "details": "ndisasm 0x6b4e: FF7604 push [bp+0x4]; FF76FC push [bp-0x4]; E8DFE1 call 0x4d36; 83C404 add sp,0x4; EB51 jmp 0x6bad. Dispatch table @ file 0x6b8a entry 8 -> 0x6b4e per wpcvw-character-view-ux.json#view-dispatch-table-location. msg 309='SKILL' (indexedMessages id 309)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-is-read-only-no-mutation",
+      "claim": "SKILL is READ-ONLY. Neither wpcvw_skill_viewer @ 0x4d36 nor wpcvw_render_skill_category @ 0x9dfb contains ANY write to the character skill array (no `mov [bx+0x451c],..`), to the skill-points byte (+0x4590), or any other character-record store; NO RNG call (thunks 0xc47e/0xc46b absent); NO skill roll/check. The only memory written is stack locals + the wpcvw global skill-availability table at 0x57fe (recomputed each render) + the popup window. The skill LEVEL is only ever READ (0xa2b9 `mov al,[bx+0x451c]`). Therefore SKILL grants nothing, spends no skill points, invokes no skill, and changes no state — it is a pure display. (This is the read-only counterpart of the wpcmk SKILL-TRAIN screen, which uses the identical 4-category layout but DOES write skill levels via ←→ during character creation.)",
+      "category": "character_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x4d36"},
+        "type": "disasm",
+        "details": "grep of ndisasm over 0x4d36..0x4e93 and 0x9dfb..0xa340 for `mov [..0x451c],`/`mov byte [..451c`/`..0x4590],`/`call 0xc47x`/`call 0xc46x`/`or byte`/`and byte`: ZERO matches. The only +0x451c access is the READ at 0x9dfb's render loop (0xa2b9: B8B001 mov ax,0x1b0; F76E08 imul [bp+0x8]; 0346FE add ax,[bp-0x2]; 8BD8 mov bx,ax; 8A871C45 mov al,[bx+0x451c]). The store at 0xa2d6 (8900 mov [bx+si],ax) targets the param_5 local row->skill map buffer [bp+0xc], NOT the record. Contrast wpcvw skill_roll_check @ file 0xa4c1 which DOES `mov [bx+0x451c],al` (per character-record-extended-map-v2.json) — that is a different, non-SKILL-menu code path."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-viewer-window-and-tab-loop",
+      "claim": "wpcvw_skill_viewer @ wpcvw 0x4d36 (rename from FUN_4d36). Signature (cdecl): (param_1=window/mainPanel @bp+4, param_2=slot @bp+6). It (a) pre-scans skills[0x11..0x15] (record +0x451c+{0x11..0x15}, the PERSONAL range): loop [bp-2]=0x11..0x15, bx=slot*0x1b0+[bp-2], if [bx+0x451c]!=0 set [bp-0x34]:=1 ('has personal skills'). (b) opens a window via ui_window_create(0xbbb6) with C-order pushes 0,0,0xffff,0x19,0x10,0x14,4,0x14 = (x=0x14, y=4, w=0x14, h=0x10, attr=0x19, chrome=0xffff, 0, 0) -> a 20-col x 16-row popup at column 20, row 4, handle [bp-4]. (c) builds a 5-entry tab enable-mask: [bp-0x18+i*2]:=1 for i=0..4, then clears [bp-0x1a]th entry (the current tab). (d) enters the tab loop: call wpcvw_render_skill_category(0x9dfb)(window,?,slot,tab=[bp-0x1a],&rowmap=[bp-0x30]); count enabled tabs via menu_count_enabled_entries(0x1681); show ui_menu_picker_grid(0x6c)(window,msg_base=0x258=600,mask=&[bp-0x18],x=2,y=1,xstep=0xa,cols=2,attr=5,init=[bp-0x32]) -> selected tab into [bp-0x1a]; loop while [bp-0x1a] != 4. On tab==4 (EXIT) it clears the region (0xed5a) and destroys the window (ui_window_destroy 0xbd6e) and returns. So SKILL = open a window -> show a 2-col category picker (WEAPONRY/PHYSICAL/PERSONAL/ACADEMIA/EXIT) -> render the chosen category's skills -> repeat until EXIT.",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x4d36"},
+        "type": "disasm",
+        "details": "ndisasm 0x4d36: scan loop 0x4d4b-0x4d6b ([bp-2]=0x11, bx=slot*0x1b0+[bp-2], cmp byte [bx+0x451c],0; inc; cmp 0x16; jl) sets [bp-0x34]:=1. 0x4d72-0x4d8a pushes 0,0,0xffff,0x19,0x10,0x14,0x4,0x14; call 0xbbb6 (ui_window_create); mov [bp-4],ax. 0x4dac-0x4dc8 fills [bp-0x18+i*2]:=1 i=0..4. 0x4da3 call 0x9dfb (render). 0x4e01/0x4e15 call 0x1681 (count). 0x4e3a-0x4e5f pushes [bp-0x32],5,2,0xa,1,2,&[bp-0x18],0x258,[bp+4]; call 0x6c (picker); mov [bp-0x1a],ax; 0x4e65 cmp [bp-0x1a],4; jz exit else jmp 0x4d93 (re-render). 0x4e7a call 0xed5a (clear); 0x4e87 call 0xbd6e (destroy). ui_window_create=0xbbb6->wroot image 0x011a; ui_window_destroy=0xbd6e->0x02d2."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-category-tabs-and-labels",
+      "claim": "The picker tabs are the FOUR skill categories plus EXIT, with labels from message base 600: 600='WEAPONRY', 601='PHYSICAL', 602='PERSONAL', 603='ACADEMIA', 604='EXIT'. The picker passes msg_base 0x258 (=600) so option i renders msg 600+i. This is the same 4-category taxonomy as the wpcmk character-creation SKILL-TRAIN screen. The category index selected (0..3, or 4=EXIT) drives wpcvw_render_skill_category's per-category branch.",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x4e55"},
+        "type": "disasm",
+        "details": "0x4e55 mov ax,0x258 (msg_base 600) pushed to ui_menu_picker_grid. extracted/messages/msg.json indexedMessages: 600='WEAPONRY', 601='PHYSICAL', 602='PERSONAL', 603='ACADEMIA', 604='EXIT'. (msg 605-610, e.g. 605='YOU EARNED A SKILL BONUS!', 606='<arrows> ADJUSTS SKILL', 610='ASSIGN INITIAL SKILL BONUS', belong to the wpcmk creation skill-train flow and are NOT used by the wpcvw read-only viewer.) Cross-ref wpcmk-skill-category-icons.json: same WEAPONRY/PHYSICAL/PERSONAL/ACADEMIA categories, same slot ranges."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-category-render-and-enumeration",
+      "claim": "wpcvw_render_skill_category @ wpcvw 0x9dfb (rename from the misleading 'ui_render_spell_school_picker'). Signature (cdecl): (param_1=window @bp+4, param_2=?, slot @bp+8, category @bp+0xa, rowmap_out @bp+0xc). It reads the character class at record +0x4587 (al=[slot*0x1b0+0x4587]), and if class < 0xe dispatches a per-class jump table (jmp via table near 0x9fb3) where each class-branch calls item_compute_usability_bitmaps @ 0x982f to populate the per-class skill-availability tables at wpcvw globals 0x57fe (and 0x5812, ...). It then draws window chrome (0x6bd5/0x6c58 styled-char drawers) and selects the category's skill-slot range from a 4-way branch on `category`: cat 0 WEAPONRY -> slots 0x0..0x9 (icons 0x01/0x01, nameAttr 0x2); cat 1 PHYSICAL -> 0xa..0x10 (icons 0x24/0x25, attr 0xe); cat 2 PERSONAL -> 0x11..0x15 (icons 0x24/0x25, attr 0xc); cat 3 ACADEMIA -> 0x16..0x1d (icons 0x21/0x21, attr 0xb). For each slot in [start..end], IF the availability table is enabled (cmp word [slot*2 + 0x57fe],1), it: sets cursor (0xbda7), prints the skill NAME via draw_msg_in_window(0xc2db)(msgIdTable[0x157c + slot]) at col 1, prints the skill LEVEL via draw-number(0xc041)( record byte +0x451c+slot ) at col 0x10, and records the slot into rowmap_out[row]. After the slot loop it prints one trailing line at row 0xe: a 'skill points' label (msgIdTable[0x159a]) + value = record byte +0x4590 (skill-points remaining). The window-relative skill-row range and the per-category start/end/attr exactly match wpcmk's skill-train table (wpcmk-skill-category-icons.json#wpcmk-skilltrain-cat-table: WEAPONRY 0..9 attr0x20, PHYSICAL 0xa..0x10 attr0xe0, PERSONAL 0x11..0x15 attr0xc0, ACADEMIA 0x16..0x1d attr0xb0 — note wpcvw uses the low nibble 0x2/0xe/0xc/0xb).",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x9dfb"},
+        "type": "disasm",
+        "details": "0x9e02 imul 0x1b0 by [bp+8]; 0x9e0a mov al,[bx+0x4587] (class); 0x9e10 jmp 0x9fb3 (class jump-table). Class-branch e.g. 0x9e26 call 0x982f (avail-table builder). Category 4-way branch 0xa20f: cmp ax,0/1/2/3 -> 0xa1a3/0xa1be/0xa1d9/0xa1f4 each set [bp-0x8]=start,[bp-0xa]=end,[bp-0xc]=nameAttr,[bp-0x4]/[bp-0x6]=icons: cat0 start0 end9 attr2 icons1/1; cat1 start0xa end0x10 attr0xe icons0x24/0x25; cat2 start0x11 end0x15 attr0xc icons0x24/0x25; cat3 start0x16 end0x1d attr0xb icons0x21/0x21. Render loop 0xa25d-0xa2e6: cmp word [slot*2+0x57fe],1; jnz skip; cursor(0xbda7); draw_msg_in_window(0xc2db)(ax=slot+0x157c) (name); cursor; draw-number(0xc041)( al=[slot*0x1b0... +0x451c] = skill level ); store slot to [bp+0xc][row]. Trailing line 0xa2e9-0xa330: cursor row0xe; draw msg [0x159a]; draw-number( [slot... +0x4590] ). 0x6c58 = styled-char-at variant; 0xc2db=draw_msg_in_window (image 0x083f per skill-names.json)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-availability-table-builder",
+      "claim": "The per-class skill-availability table at wpcvw global 0x57fe (and siblings 0x5812, ...) is built by item_compute_usability_bitmaps @ wpcvw 0x982f (MISLABELED by Ghidra — it is the skill-row visibility builder, not item usability). For each skill slot it sets table[slot]=1 IF EITHER the class's static availability string has '1' at that position OR the character already has a nonzero level at record +0x451c+slot (i.e. show a skill row if the class can learn it OR the char has invested in it). The four table/string pairs correspond to the four record skill sub-ranges (+0x451c, +0x4526, +0x452d, ...). This is why a class's SKILL view shows exactly its learnable skills plus any the character already has. (This builder is the wpcvw analogue of the wpcmk creation availability bitmap; the static per-class availability strings are the same data modeled in packages/data class-skill-availability.)",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x982f"},
+        "type": "decompile",
+        "details": "Ghidra decompile of 0x982f: for(local_4=0; local_4<strlen(param_2); local_4++){ table[local_4*2 + 0x57fe] = (param_2[local_4]=='1' || record[slot*0x1b0 + local_4 + 0x451c]!=0) ? 1 : 0; } then a second block writing 0x5812 keyed on +0x4526, a third keyed on +0x452d, etc. (one per category string arg param_2..param_5). The only store target is 0x57fe-family globals; NO record write. Render loop in 0x9dfb gates on `cmp word [slot*2+0x57fe],1`."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-picker-is-tab-navigation-not-skill-action",
+      "claim": "The picker invoked by SKILL is ui_menu_picker_grid @ wpcvw file 0x6c — the SAME standard grid picker used by the main view menu and EDIT submenu. Its arrow keys (1=UP,2=LEFT,3=DOWN,4=RIGHT) ONLY move the cursor among the category tabs; Enter (key code 5) / mouse commits the selected category. It returns the selected mask index (the category 0..4). There is NO per-skill selection, NO ←→ skill-level adjustment (that exists only in the wpcmk creation skill-train screen), and NO 'invoke skill' branch. wpcvw_skill_viewer simply re-renders the newly-selected category and loops; selecting EXIT (4) ends the loop. Thus the only interaction in SKILL is browsing the four read-only category panels.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6c"},
+        "type": "decompile",
+        "details": "Ghidra decompile of ui_menu_picker_grid @ 0x6c: builds the visible cell list from the enable mask, then a do/while polling input_poll_key_or_mouse_with_blink; key 1/2/3/4 call ui_grid_set_cursor_compute and adjust param_9 (cursor); mouse (*0x4fc4==1) sets cursor and breaks; loop exits when key==5 (Enter); returns aiStack_24[param_9] (selected mask index). No record access, no skill mutation. 0x4d36 stores the return to [bp-0x1a] and loops until ==4."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "skill-disable-conditions",
+      "claim": "SKILL (mask index 8) is enabled in BOTH context masks state 0x11 reads: camp (*0x4fce==4 enables indices 0/1/3/4/8/10) and combat/treasure (*0x4fce==0xd enables 0/1/3/4/7/8) per wpcvw-character-view-ux.json#view-context-mask-from-camp / #view-context-mask-from-combat. No ADDITIONAL per-character gate on SKILL was found in the dispatch/mask code — unlike EQUIP/ASSAY/USE/DROP which gate on inventory count (+0x4594==0). SKILL is always available when the view is shown for an active character. (If a class/character has no learnable skills, the render simply shows empty/partial category panels — the screen still opens; no early-out was observed.)",
+      "category": "menu_dispatch",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x68e9"},
+        "type": "disasm",
+        "details": "Per wpcvw-character-view-ux.json mask-eval at file 0x68e9-0x6929: camp enables {0,1,3,4,8,10}; combat enables {0,1,3,4,7,8}; index 8 (SKILL) set in both. No inv_count or condition test gates index 8 specifically. (Spot-check: the inv-count==0 disable in #view-context-mask-default-dungeon affects masks 3/6/7, not 8.)"
+      },
+      "confidence": "medium"
+    }
+  ],
+  "cross_references": [
+    "docs/re/findings/wpcvw-character-view-ux.json — dispatch table (SKILL=index 8 -> handler 0x6b4e -> 0x4d36), context masks (SKILL enabled in camp *0x4fce==4 and combat *0x4fce==0xd), picker ui_menu_picker_grid @ 0x6c shape",
+    "docs/re/findings/wpcvw-assay-action.json — sibling read-only action; same window/cursor/draw-number/draw-msg thunks (0xbda7/0xc041/0xc2db), same read-only proof method (absence of record stores + RNG)",
+    "docs/re/findings/character-record-extended-map-v2.json — skills[30] at record +0x451c..+0x4539 (cap 0x32=50); skill_roll_check @ file 0xa4c1 reads/writes +0x451c (NOT a SKILL-menu path)",
+    "docs/re/findings/skill-names.json — skill name msg_id = table index + 0xfa0; 82-entry skill master table at wroot file 0x1005e; SKILL_SLOT_NAMES 30-slot positions + hole slots (10,17-21); used to label the rows the wpcvw viewer draws",
+    "docs/re/findings/wpcmk-skill-category-icons.json + wpcmk-skill-train-layout.json — the SAME 4-category layout (WEAPONRY/PHYSICAL/PERSONAL/ACADEMIA), per-category slot ranges (0..9 / 0xa..0x10 / 0x11..0x15 / 0x16..0x1d), icons, and name attrs; wpcvw SKILL is the read-only sibling of the wpcmk creation skill-train screen",
+    "packages/data/src/schemas/character.ts + pcfile.ts — skills: z.array(U8).length(30) already models the full slot space the viewer iterates; class-skill-availability.ts models the per-class availability strings the 0x57fe builder consumes",
+    "extracted/messages/msg.json — category labels 600-604 (WEAPONRY/PHYSICAL/PERSONAL/ACADEMIA/EXIT); menu label 309=SKILL; skill names 4000+"
+  ],
+  "function_renames_recommended": [
+    "0x4d36: FUN_4d36 -> wpcvw_skill_viewer (read-only 4-category skill-level browser invoked by SKILL menu option 8; opens window, runs category-tab picker loop, NO mutation)",
+    "0x9dfb: ui_render_spell_school_picker -> wpcvw_render_skill_category (renders one skill category's rows: name + level read from record +0x451c+slot, filtered by per-class availability table 0x57fe; trailing skill-points line from +0x4590; the prior 'spell_school_picker' name is misleading — this is the SKILL viewer's category renderer)",
+    "0x982f: item_compute_usability_bitmaps -> wpcvw_build_skill_availability_table (builds the 0x57fe-family per-class skill-row visibility tables: enable a row if class string has '1' OR char skill level >0; NOT item usability)"
+  ],
+  "unresolved": [
+    "Exact targets of the per-class jump table in wpcvw_render_skill_category @ 0x9dfb (class 0..0xd branches) were not individually decompiled — each branch pushes 4-5 CS-relative pointers (e.g. 0x52da/0x52d4/0x52cc/0x52c1 for one class) that are the per-class availability strings passed to 0x982f. Confirming each class's string content (and reconciling it with packages/data class-skill-availability) is a medium-confidence follow-up; recommend a DOSBox-X SKILL-view on a known class to read the rendered rows.",
+    "The CS-relative skill-name msg-id table at wpcvw 0x157c (indexed by skill slot, passed to draw_msg_in_window) and the skill-points label at 0x159a were inferred from the call shape (draw_msg_in_window(slot + 0x157c)). The exact msg ids each slot maps to were not dumped from the CS data; cross-check against skill-names.json (msg = index + 0xfa0) and a live render.",
+    "record byte +0x4590 (abs 0x4590, struct offset +0x1a8) = skill-points-remaining shown on the trailing line is NOT YET modeled in packages/data pcfile.ts (it currently maps +0x1ab portrait, +0x1ac inv_count, +0x1ad page2_count, +0x1af savedOldLevel, but +0x1a8 is unmapped). A faithful SKILL-screen port needs this byte added to the character schema. Recommend a DOSBox-X read across stock chars to confirm semantics (likely the unspent skill-bonus points pool).",
+    "Whether the wpcvw SKILL view can ever SPEND the +0x4590 skill points (it only displays them here) — within state 0x11 it is read-only; skill-point spending is the wpcmk creation/level-up flow. Confirmed no spend path in 0x4d36/0x9dfb."
+  ]
+}
