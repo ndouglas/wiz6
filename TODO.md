@@ -146,9 +146,13 @@ Next free ID: **#066**
 - #033 [open] — Port WPCVW MERGE action
   - Body in FUN_5826. Open follow-up RE in `wpcvw-character-view-ux.json`.
 
-- #032 [open] — Port WPCVW SKILL + SPELL actions
-  - SPELL: FUN_416d (4 args including mystery `[bp-0x26]`). SKILL: FUN_4d36 (scans `slot+0x451c+{0x11..0x15}` for 5 active skills).
-  - Both have open follow-up RE in `wpcvw-character-view-ux.json` — body decoding incomplete.
+- #073 [open] — Port camp WPCVW SPELL — read-only spellbook viewer (RE done; build is a fresh-session effort)
+  - Fully RE'd 2026-06-01 (`docs/re/findings/wpcvw-spell-action.json`). The camp/character-view SPELL (MODE==0, `*0x4fce==4`) is **read-only**: a two-level picker (3×2 SCHOOL grid → per-school spell sublist with a cost/power bar) showing the character's KNOWN spells — NO cast, NO SP/HP change, NO effect. Same UI shape as the character-creation spell-picker (`packages/viewer/.../roster/creation` spell-pick) — REUSE/adapt it. Engine: handler 0x6a29 → FUN_416d (MODE arg) → picker `wpcvw_show_spellbook` @ 0x32a6.
+  - Build = (ASSAY-sized): reducer sub-states (school-grid → spell-sublist, read-only) + a spellbook composer (reuse creation picker) + CharacterViewPage wiring + pixel-parity + e2e. Prerequisites: **(a)** a focused RE pass on the **known-spell enumeration** (which character-record bytes hold *learned* spells — distinct from the creation "available-at-creation" field; flagged open in the finding); **(b)** a **caster fixture** — the current test party (THESUS/TEMPEST/LYSANDR = fighter/fighter/thief) has empty spellbooks, so add a spell-caster (mage/priest/etc. from PCFILE) + a new capture recipe.
+  - The CAST machinery (mana/HP-overcast cost core FUN_416d MODE!=0, the 18-entry effect dispatch @ 0x25d8, knockout-on-overcast, record mutations) is the **dungeon** cast path (state 0x13, wdopt — a sibling sharing the data model) — a SEPARATE future task, NOT part of the camp viewer.
+
+- #032 [open] — Port WPCVW SKILL action
+  - SKILL: FUN_4d36 (scans `slot+0x451c+{0x11..0x15}` for 5 active skills). Open follow-up RE in `wpcvw-character-view-ux.json` — body decoding incomplete. (SPELL split out to #073 — its RE is done.)
 
 - #031 [open] — Asset format migration: JSON → spritesheets
   - JSON encoding bloats binary glyph/portrait/PIC data by 10-30×. Glyphs are 32 bytes binary; the JSON form is ~600+ bytes. Network cost on every viewer load.
