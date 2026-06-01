@@ -22,6 +22,7 @@ import {
   eligibleClasses,
   equipCandidates,
   applyEquipSelections,
+  assayItem,
   WichmannHill,
   resolveCarryCapacityMax,
   type ActivePartyMember,
@@ -48,12 +49,15 @@ import { composePortraitChange } from './compose-portrait-change.js';
 import { composeClassPicker } from './compose-class-picker.js';
 import { composeProfessionConfirm } from './compose-profession-confirm.js';
 import { composeEquipPicker } from './compose-equip-picker.js';
+import { composeInventoryPicker } from './compose-inventory-picker.js';
+import { composeAssayDisplay } from './compose-assay-display.js';
 import {
   reduceCharacterView,
   type CharacterViewState,
   type CharacterViewEvent,
   type EditEnableFlags,
   type EquipInfo,
+  type AssayInfo,
 } from './character-view-reducer.js';
 import type { TileWindow } from '@wiz6/parser';
 
@@ -74,6 +78,29 @@ function campEntriesFor(includeEdit: boolean, includeReview: boolean): ReadonlyA
   if (includeEdit) out.push('EDIT');
   out.push('EXIT');
   return out;
+}
+
+/**
+ * Single ordered scan of a member's inventory for carried items (itemId > 0),
+ * producing BOTH the reducer's `carried` (inventory indices) and the picker's
+ * `items` ({name}) in the SAME order. The contract the reducer relies on:
+ * carried[cursor] is the inventory index of items[cursor].
+ */
+function scanCarried(
+  member: ActivePartyMember,
+  scenarioDb: ScenarioDb,
+): { carried: number[]; items: { name: string }[] } {
+  const carried: number[] = [];
+  const items: { name: string }[] = [];
+  const inv = member.inventory ?? [];
+  for (let i = 0; i < inv.length; i++) {
+    const slot = inv[i];
+    if (slot && slot.itemId > 0) {
+      carried.push(i);
+      items.push({ name: scenarioItemName(scenarioDb, slot.itemId) });
+    }
+  }
+  return { carried, items };
 }
 
 function eventFromKey(e: KeyboardEvent): CharacterViewEvent | null {
@@ -158,7 +185,13 @@ export function CharacterViewPage() {
         member && scenarioDb
           ? { candidatesFor: (slot, sel) => equipCandidates(member, slot, scenarioDb, sel) }
           : undefined;
-      const next = reduceCharacterView(state, ev, EDIT_FLAGS, equipInfo);
+      // ASSAY picker needs the carried-item inventory indices in picker display
+      // order — the reducer can't scan inventory purely. Built from the SAME
+      // ordered scan that feeds composeInventoryPicker's items (see scanCarried),
+      // so carried[cursor] ↔ items[cursor].
+      const assayInfo: AssayInfo | undefined =
+        member && scenarioDb ? { carried: scanCarried(member, scenarioDb).carried } : undefined;
+      const next = reduceCharacterView(state, ev, EDIT_FLAGS, equipInfo, assayInfo);
 
       // ---- Resolve intent states (side effects) ----------------------------
       if (next.kind === 'exit-castle') {
@@ -348,6 +381,30 @@ export function CharacterViewPage() {
           selection: null,
         }),
       );
+    } else if (state.kind === 'assay-picker' && member) {
+      // ASSAY picker: overlay the carried-item picker (prompt bar replaces the
+      // action-menu strip + row-cursor highlight) on the char sheet. Items come
+      // from the SAME ordered scan as the reducer's `carried` (scanCarried), so
+      // the cursor lines up with what the reducer translates on ENTER.
+      const { items } = scanCarried(member, scenarioDb);
+      overlays.push(
+        ...composeInventoryPicker({
+          prompt: 'ASSAY WHICH ITEM?',
+          items,
+          cursor: state.cursor,
+        }),
+      );
+    } else if (state.kind === 'assay-display' && member) {
+      // ASSAY inspect popup: read-only stat block for the picked inventory item,
+      // over the char sheet, with a "PRESS ↵ TO EXIT" strip replacing the menu.
+      const item = (member.inventory ?? [])[state.itemIdx];
+      if (item) {
+        overlays.push(
+          ...composeAssayDisplay({
+            descriptor: assayItem(item.itemId, member, scenarioDb),
+          }),
+        );
+      }
     }
 
     const windows = [...baseWindows, ...overlays];

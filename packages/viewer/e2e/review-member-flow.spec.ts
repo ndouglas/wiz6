@@ -357,3 +357,60 @@ test('EQUIP wizard mounted-canvas matches equip-slot0 + persists equipment', asy
   expect(equipment![0]).toBe(0); // LONGSWORD inv idx in weapon slot
   expect(equipment![0]).not.toBe(0xff);
 });
+
+// ---------------------------------------------------------------------------
+// Mounted-app pixel parity for the ASSAY flow (picker → inspect popup).
+//
+// Drives the REAL CharacterViewPage's ASSAY flow against the committed engine
+// fixtures `assay-picker` (carried-item picker, cursor on NONE) and
+// `assay-longsword` (read-only stat popup for LONGSWORD). This gates the
+// MOUNTED wiring (scanCarried ordered scan → carried/items alignment,
+// scenarioDb load, assayItem descriptor) against engine ground truth — the
+// runtime-wiring class of bug the vitest renderAssayPicker/renderAssayDisplay
+// parity tests can't catch.
+//
+// Action menu (3-member party, EDIT off): 7 entries
+//   [EQUIP,SPELL,ASSAY,SWAG,SKILL,REVIEW,EXIT] — column-major 2-row.
+// EXIT = idx 6 (initial cursor). nextActionCursor ArrowLeft = idx>=2 ? idx-2.
+//   6 → 4 (SKILL) → 2 (ASSAY): two ArrowLefts land on ASSAY.
+//
+// Picker order (THESUS, inventory itemId>0 scan): [LONGSWORD(0), LEATHER
+// CUIRASS(1), FUR LEGGING(2), SANDALS(3), BUCKLER SHIELD(4)], NONE at index 5.
+// The picker opens with the cursor on NONE (5). To inspect LONGSWORD (the
+// `assay-longsword` fixture's item), the cursor must reach index 0 — five
+// ArrowUps from NONE (5→4→3→2→1→0). A SINGLE ArrowUp lands on index 4 =
+// BUCKLER SHIELD (the carried-item list is bottom-anchored at NONE), NOT
+// LONGSWORD — so we drive all the way up to index 0.
+// ---------------------------------------------------------------------------
+test('ASSAY flow mounted-canvas matches assay-picker + assay-longsword', async ({ page }) => {
+  await page.addInitScript((members) => {
+    window.localStorage.setItem(
+      'wiz6:active-party',
+      JSON.stringify({ schemaVersion: 1, members }),
+    );
+  }, VIEW_MEMBERS);
+
+  await page.goto('/castle/review-member/0');
+  await waitForNonBlankCanvas(page, 'canvas', 500, 20_000);
+
+  // Action menu, cursor on EXIT (idx 6). ArrowLeft ×2 → ASSAY (idx 2). Enter
+  // opens the picker with the cursor on NONE.
+  await pressKeys(page, ['ArrowLeft', 'ArrowLeft', 'Enter']);
+
+  // Mounted ASSAY picker (cursor on NONE) must match the engine fixture.
+  await expectCanvasMatchesFixture(page, 'assay-picker');
+
+  // Drive the cursor up to LONGSWORD (index 0): five ArrowUps from NONE (5).
+  // (One ArrowUp would land on index 4 = BUCKLER SHIELD.)
+  await pressKeys(page, ['ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowUp', 'Enter']);
+
+  // Mounted inspect popup for LONGSWORD must match the engine fixture.
+  await expectCanvasMatchesFixture(page, 'assay-longsword');
+
+  // Enter dismisses the popup → back to the action menu (cursor on EXIT). The
+  // canvas is non-blank and is NOT the popup (the assay-longsword pixels gone).
+  await pressKeys(page, ['Enter']);
+  await page.waitForTimeout(200);
+  await waitForNonBlankCanvas(page, 'canvas', 500, 10_000);
+  await expectCanvasMatchesFixture(page, 'review-member-view');
+});
