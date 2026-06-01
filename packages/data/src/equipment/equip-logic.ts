@@ -86,3 +86,63 @@ export function equipCandidates(
   }
   return out;
 }
+
+export interface AcResult {
+  derivedAc: number;
+  bodyAc: number[];
+}
+
+/**
+ * Base AC (the +0x4548 byte) before any equipped items are applied.
+ * RE: wpcvw-equip-internals.json #fun884f-base-ac-formula-and-sign. Lower = better.
+ * Base 10; −1 if SPD≥16; −1 more if SPD≥18; −2 if race==5; monk/ninja (class 0xc/0xd)
+ * −(min(floor(level/2),20) + floor(skill/10)).
+ */
+export function computeBaseAc(member: Character): number {
+  let ac = 10;
+  const spd = member.attributes.spd;
+  if (spd >= 16) ac -= 1;
+  if (spd >= 18) ac -= 1;
+  if (member.race === 5) ac -= 2;
+  if (member.class === 0xc || member.class === 0xd) {
+    const lvl = Math.min(Math.floor(member.level / 2), 20);
+    // martial-arts skill index UNVERIFIED (fighter THESUS never hits this branch).
+    const skill = Math.floor((member.skills[0] ?? 0) / 10);
+    ac -= lvl + skill;
+  }
+  return ac;
+}
+
+/**
+ * Engine-faithful AC recompute (FUN_884f base + per-item byte-0x46 subtraction).
+ * RE: wpcvw-equip-internals.json #fun884f-base-ac-formula-and-sign +
+ * #per-item-record-field-offsets; wpcvw-equip-action.json #equip-ac-and-weapon-recompute.
+ *
+ * Engine AC array lives at +0x4548 (8 bytes). The base recompute writes
+ * `*(+0x4548)=base`, zeroes +0x4549/+0x454a, and broadcasts `for s in 3..7:
+ * *(+0x4548+s)=base`. We surface this as the schema's split fields:
+ *   - derivedAc = +0x4548 (record +0x160)
+ *   - bodyAc[0..6] = +0x4549..+0x454f (record +0x161..+0x167)
+ * so the unequipped base array is `[0,0,base,base,base,base,base]`.
+ *
+ * Per equipped item the AC bonus (scenario item byte 0x46) is SUBTRACTED:
+ *   - weapons (body 0/1): `*(+0x4549) -= byte0x46` → bodyAc[0]
+ *   - armor   (body 2..7): `*(+0x4548 + bodySlot) -= byte0x46` → bodyAc[bodySlot-1]
+ */
+export function computeAc(member: Character, scenarioDb: ScenarioDb): AcResult {
+  const base = computeBaseAc(member);
+  const bodyAc = [0, 0, base, base, base, base, base];
+  const equip = member.equipment ?? [];
+  const inv = member.inventory ?? [];
+  for (let bodySlot = 0; bodySlot < BODY_SLOT_COUNT; bodySlot++) {
+    const invIdx = equip[bodySlot];
+    if (invIdx === undefined || invIdx === 0xff) continue;
+    const item = inv[invIdx];
+    if (!item || item.itemId <= 0) continue;
+    const acBonus = scenarioDb.items[item.itemId]?.bytes[0x46] ?? 0;
+    // weapons (body0/1) → bodyAc[0]; armor (body2..7) → bodyAc[bodySlot-1].
+    const acIdx = bodySlot <= 1 ? 0 : bodySlot - 1;
+    bodyAc[acIdx] = (bodyAc[acIdx] ?? base) - acBonus;
+  }
+  return { derivedAc: base, bodyAc };
+}

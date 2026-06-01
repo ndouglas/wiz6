@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bodySlotForItem, bitTest, itemEligible, equipCandidates } from '../../src/equipment/equip-logic.js';
+import { bodySlotForItem, bitTest, itemEligible, equipCandidates, computeAc, computeBaseAc } from '../../src/equipment/equip-logic.js';
 import { ScenarioDbSchema, type ScenarioDb, type Character } from '../../src/index.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..'); // repo root
@@ -98,5 +98,28 @@ describe('equipCandidates (THESUS + real scenario.dbs)', () => {
     const sel = emptySelections();
     sel[0] = 0;
     expect(equipCandidates(m, 1, db, sel)).not.toContain(0);
+  });
+});
+
+describe('computeAc', () => {
+  it('THESUS unequipped → derivedAc 10, bodyAc [0,0,10,10,10,10,10] (engine anchor)', () => {
+    expect(computeAc(thesus(), realScenarioDb())).toEqual({ derivedAc: 10, bodyAc: [0, 0, 10, 10, 10, 10, 10] });
+  });
+  it('equipping LEATHER CUIRASS (chest, body4) lowers that slot AC by its byte-0x46 bonus', () => {
+    const m = thesus();
+    m.equipment = [0xff, 0xff, 0xff, 0xff, 1, 0xff, 0xff, 0xff]; // inv idx 1 (cuirass) in body4
+    const cuirassAc = realScenarioDb().items[135]!.bytes[0x46]!;
+    const { bodyAc } = computeAc(m, realScenarioDb());
+    // body4 → the bodyAc index for armor slots (derive from the anchor mapping).
+    // Assert the chest slot dropped by cuirassAc and the others stayed at base 10.
+    const baseline = [0, 0, 10, 10, 10, 10, 10];
+    const changed = bodyAc.map((v, i) => v - baseline[i]!);
+    expect(changed.filter((d) => d !== 0)).toEqual([-cuirassAc]); // exactly one slot changed, by -cuirassAc
+  });
+  it('computeBaseAc: SPD≥16 −1, ≥18 −2, race 5 −2', () => {
+    expect(computeBaseAc({ ...thesus(), attributes: { ...thesus().attributes, spd: 9 } })).toBe(10);
+    expect(computeBaseAc({ ...thesus(), attributes: { ...thesus().attributes, spd: 16 } })).toBe(9);
+    expect(computeBaseAc({ ...thesus(), attributes: { ...thesus().attributes, spd: 18 } })).toBe(8);
+    expect(computeBaseAc({ ...thesus(), race: 5 })).toBe(8);
   });
 });
