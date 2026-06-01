@@ -77,10 +77,11 @@ Iterate composer to 0-diff vs all three. Don't lower tolerance.
 ### Stage 5 — e2e + manual smoke — Status: COMPLETE
 Playwright e2e in `review-member-flow.spec.ts`: REVIEW MEMBER → SKILL → drive WEAPONRY/PHYSICAL/ACADEMIA (with the extra arrow to reach each fixture's captured cursor) + EXIT, each `expectCanvasMatchesFixture`. 6/6 e2e pass — the mounted-app pixel parity IS the driving-based smoke (a human eyeball via `pnpm dev:viewer` is still nice-to-have but the pixel match is strong).
 
-### Stage 6 — Verify MEDIUM bits (DOSBox) — Status: Not Started
-- Confirm `+0x4590` semantics across stock chars (unspent skill-bonus pool?).
-- Confirm the `0x157c` per-slot msg-id name table + per-class availability strings vs `class-skill-availability.ts`.
-- Confirm initial category/tabCursor on view entry.
+### Stage 6 — Verify MEDIUM bits — Status: Partial
+- **PERSONAL fixture: WON'T DO** — Nate confirmed (2026-06-01) NO class exposes the PERSONAL category, so `skills[17..21]` is never > 0 and the `hasPersonalSkills` gate never opens. The PERSONAL tab is unreachable in practice; our handling is engine-faithful dormant code (mirrors `composeSkillTrainFrame`). No capture possible/needed.
+- Confirm `+0x4590` semantics across stock chars (unspent skill-bonus pool? reconcile `spells_to_learn` vs "SKILL POINTS") + surface the field on `ActivePartyMember`.
+- Promote the 3 function renames (0x4d36/0x9dfb/0x982f) into `docs/re/wpcvw-*.md`.
+- Confirm the engine's exact post-switch tab cursor-init (cosmetic; reducer resets to 0).
 
 ## Notes
 - Read-only ⇒ no `commit-*` intent needed; `skill-viewer` is purely presentational (like `assay-display`), ESC/EXIT → action-menu.

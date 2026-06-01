@@ -168,7 +168,11 @@ Next free ID: **#066**
     - **Stage 3 (reducer + page):** `skill-viewer` state + dynamic `skillTabEntries` (categories-minus-current + EXIT, PERSONAL gated by `hasPersonalSkills`); wired into `CharacterViewPage`.
     - **Stage 4 (fixtures):** drove DOSBox → committed `skill-viewer-{weaponry,physical,academia}` engine fixtures.
     - **Stage 5 (e2e):** mounted-app drive through 3 categories + EXIT, all pixel-match.
-  - **Stage 6 (verify MEDIUM bits) — REMAINING follow-ups:** (a) capture a **PERSONAL** category fixture (needs a class that trains DEFENSE/SPEED/MOVEMENT/AIM/POWER — none of THESUS/TEMPEST/LYSANDR do; monk/ninja/valkyrie?) to exercise the `hasPersonalSkills` gate live; (b) **surface the `+0x1a8` skill-points field** on `ActivePartyMember` (currently defaults 0; reconcile the struct's `spells_to_learn` label vs the screen's "SKILL POINTS" — `docs/re/findings/wpcvw-skill-names.json`); (c) promote the 3 function renames (0x4d36/0x9dfb/0x982f) into `docs/re/wpcvw-*.md`; (d) confirm the engine's exact post-switch tab cursor-init (cosmetic; our reducer resets to 0).
+  - **Stage 6 (verify MEDIUM bits) — REMAINING follow-ups:**
+    - (a) ~~capture a PERSONAL category fixture~~ **WON'T DO (confirmed by Nate 2026-06-01): NO class exposes the PERSONAL category.** No character ever gets `skills[17..21] > 0`, so the `hasPersonalSkills` gate never opens and the PERSONAL tab is never offered. Our composer/reducer still handle it defensively (engine-faithful dormant code, mirroring `composeSkillTrainFrame`'s preserved-but-never-shown PERSONAL entry) — no fixture is capturable or needed.
+    - (b) **surface the `+0x1a8` skill-points field** on `ActivePartyMember` (currently defaults 0; reconcile the struct's `spells_to_learn` label vs the screen's "SKILL POINTS" — `docs/re/findings/wpcvw-skill-names.json`).
+    - (c) promote the 3 function renames (0x4d36/0x9dfb/0x982f) into `docs/re/wpcvw-*.md`.
+    - (d) confirm the engine's exact post-switch tab cursor-init (cosmetic; our reducer resets to 0).
 
 - #031 [open] — Asset format migration: JSON → spritesheets
   - JSON encoding bloats binary glyph/portrait/PIC data by 10-30×. Glyphs are 32 bytes binary; the JSON form is ~600+ bytes. Network cost on every viewer load.
