@@ -1487,6 +1487,76 @@ return <MenuPickerScreen key={state.screen} {...sharedProps} />;`}
       </>
     ),
   },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'skill-name-map-correction',
+    title: 'The Skill Names Hiding In Plain Sight',
+    tags: ['reimplementation', 'undocumented', 'character-progression'],
+    pitch:
+      'The community skill-slot map (and ours, copied from it) had the weapon skills reordered and five slots marked as empty "holes." The engine settles it in one instruction — and those holes are real skills: DEFENSE, SPEED, MOVEMENT, AIM, POWER.',
+    body: (
+      <>
+        <ProseRow>
+          A Wiz6 character record stores 30 skill levels in a flat array. But which
+          array slot is which skill? The widely-cited community RE (martydill&rsquo;s
+          open-source repo) published an ordering &mdash; Sword, Axe, Polearm, &hellip;
+          &mdash; and we copied it, cross-checking it against a few stock characters&rsquo;
+          nonzero values. It looked right. It wasn&rsquo;t.
+        </ProseRow>
+        <ProseRow>
+          The engine ends the argument in a single instruction. When the SKILL viewer
+          draws a row, it computes the name&rsquo;s message id straight from the slot:
+        </ProseRow>
+        <CodeBlock>
+{`mov ax,[bp-2]      ; ax = skill slot (0..29)
+add ax,0x157c      ; msg id = 5500 + slot   <-- 1:1, no lookup table
+push ax
+call draw_msg_in_window`}
+        </CodeBlock>
+        <ProseRow>
+          So slot N&rsquo;s name is just message <Code>5500 + N</Code>. Dump those 30
+          messages and the real map falls out &mdash; and it disagrees with the
+          community map in two big ways. The weapon block is reordered, and{' '}
+          <strong>five slots everyone marked as &ldquo;holes&rdquo; are real skills</strong>:
+        </ProseRow>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Slot</th>
+              <th>Community map</th>
+              <th>Engine (msg 5500+slot)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>0</td><td>Sword</td><td><strong>WAND&amp;DAGGER</strong></td></tr>
+            <tr><td>1</td><td>Axe</td><td><strong>SWORD</strong></td></tr>
+            <tr><td>8</td><td>Bow</td><td><strong>SHIELD</strong></td></tr>
+            <tr><td>9</td><td>Thrown Weapons</td><td><strong>HANDS&amp;FEET</strong></td></tr>
+            <tr><td>17&ndash;21</td><td><em>(holes)</em></td><td><strong>DEFENSE / SPEED / MOVEMENT / AIM / POWER</strong></td></tr>
+            <tr><td>22</td><td>Scouting</td><td><strong>ARTIFACTS</strong></td></tr>
+          </tbody>
+        </table>
+        <ProseRow>
+          The fix even makes the stock data read better: THESUS, a level-1 Fighter,
+          has <Code>10</Code> in slot 1. The old map called that &ldquo;Axe.&rdquo; The
+          engine calls it <strong>SWORD</strong> &mdash; exactly what a starting
+          fighter should be good at.
+        </ProseRow>
+        <Aside title="The lesson">
+          A cross-check against stock data can <em>agree</em> with a wrong map &mdash;
+          coincidence is cheap when the bitmaps are sparse. The ground truth was in the
+          binary the whole time: follow the bytes the engine actually draws, not the
+          map that happens to fit. An entire skill category (PERSONAL) was missing from
+          the community model.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'findings: wpcvw-skill-names.json', href: '/explore/docs/findings/wpcvw-skill-names.json' },
+      { label: 'findings: wpcvw-skill-action.json', href: '/explore/docs/findings/wpcvw-skill-action.json' },
+    ],
+  },
 ];
 
 const ALL_TAGS: Tag[] = [

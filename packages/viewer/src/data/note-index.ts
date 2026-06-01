@@ -215,6 +215,13 @@ export const NOTE_INDEX: NoteIndexEntry[] = [
       'Our reimplementation drew the RACE, SEX, and PROFESSION pickers with one React component — so its cursor leaked between them: choosing ELF silently rolled a female mage. Every unit test passed; only driving the real browser caught it.',
     tags: ['reimplementation', 'bug', 'character-creation'],
   },
+  {
+    id: 'skill-name-map-correction',
+    title: 'The Skill Names Hiding In Plain Sight',
+    pitch:
+      'The community skill-slot map (and ours, copied from it) had the weapon skills reordered and five slots marked as empty "holes." The engine settles it in one instruction — and those holes are real skills: DEFENSE, SPEED, MOVEMENT, AIM, POWER.',
+    tags: ['reimplementation', 'undocumented', 'character-progression'],
+  },
 ];
 
 export function findNote(id: string): NoteIndexEntry | undefined {
