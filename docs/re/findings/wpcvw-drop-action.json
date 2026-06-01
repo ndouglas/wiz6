@@ -1,0 +1,123 @@
+{
+  "topic": "wpcvw-drop-action",
+  "subagent_run": "2026-06-01T00:00:00Z",
+  "binaries": ["wpcvw.ovr", "wroot.exe"],
+  "summary": "Full STATIC RE of the DROP action (character-view main-menu option 7, state 0x11). DROP is DESTRUCTIVE and has NO confirmation dialog and NO message popup of any kind. Flow: (1) the dispatch handler at wpcvw file 0x6a86 calls ui_pick_inventory_item (0x1a48) with prompt msg 0x192 ('DROP WHICH ITEM?'); cancel (0xffff) is a no-op return to the view loop (jmp 0x6bad). (2) On a pick it stores the picked inventory index to global *0x43ca, then computes bx = slot*0x1b0 + item_idx*8 and reads the per-item FLAGS byte at +0x442f (NOT the scenario record — this is the in-BSS character-record inventory-item flags byte). It runs THREE sequential bit tests: test 0x01, test 0x02, test 0x40. If ANY of those bits is set the drop is REFUSED: it calls the play-sound thunk 0xc546 with arg 0 (= rejection beep, wroot play_sound image 0xaaa / phys 0x10aaa) and jmp 0x6bad — NO message text, NO popup, just a beep and return to the menu loop. The effective block mask is 0x43 = bit0|bit1|bit6. SEMANTICS of the bits (cross-ref wpcvw-equip-internals.json + character-record-inventory-equipment.json): bit0 (0x01) = equipped-marker AND low cursed bit (a single overloaded physical bit: EQUIP sets it on the equipped item, so an equipped item is undroppable); bit1 (0x02) = the durable CURSED designation (survives independent of equip state); bit6 (0x40) = CLASS_LOCKED. So DROP refuses: equipped items, cursed items, and class-locked items. (3) If all three bits are clear, it calls inventory_equip_or_unequip(slot=[bp+4], item_idx=*0x43ca) @ file 0x17f7 with cdecl args, then jmp 0x6bad. That function UNEQUIPS-then-REMOVES-and-COMPACTS: PASS A scans the 8 equipment slots (+0x44f8[0..7]); for any slot whose equipped-index == item_idx it UNDOES that slot's equip-derived stats (weapon hands slots 0/1 -> call 0x16c0 weapon-stat reset to bare-hands baseline; helmet slot 2 -> zero +0x454a; armor slots 3..7 -> reset positional AC byte +0x4548+slot back to base AC +0x4548), then writes 0xff (empty) to equipment[slot]. PASS B does the actual remove+compact: zero the item id at +0x4428+item_idx*8, DECREMENT the inventory count at +0x4594, then for every inventory index from item_idx up to count it shifts THREE parallel arrays down by one entry: the 8-byte inventory item record (rep movsw 4 words from +0x4428+(i+1)*8 to +0x4428+i*8), a 16-byte item-name string cache (strcpy 0x55de+i<<4 <- 0x55ee+i<<4), and a 2-byte word array (+0x567e[i] <- +0x5680[i]); and it FIXES UP equipment indices that pointed past the removed slot (any equipment[s]==i+1 -> i). The dropped item is DESTROYED (overwritten/compacted out) — it does NOT go to a ground pool or a stash. There is no AC-refund math beyond the per-slot unequip reset, which is the exact inverse of EQUIP's per-item apply. (4) DROP is DISABLED entirely when the character's inventory count (slot+0x4594) == 0 (mask[7] cleared in the dungeon-default mask; DROP is also available in the *0x4fce==0xd combat mask but NOT the camp mask). Confidence high for the handler flow, the 0x43 mask, the beep-no-message refusal, and the unequip+compact mutations (all confirmed by raw ndisasm); medium only for the exact meaning of each refused bit (cross-referenced from prior findings, not re-derived here) and for the 0x567e parallel-array's semantic role.",
+  "method": "ndisasm -b 16 of wpcvw.ovr at the DROP handler (0x6a86-0x6ae5), inventory_equip_or_unequip (0x17f7-0x1962 raw, plus PyGhidra decompile via decompile.py with absolute --project-dir), and the weapon-unequip helper (0x16c0-0x16f6). NOTE: ndisasm prints the byte D1E1 (shl cx,1) as 'shl cx,0x0' and D1E0/D1E3 similarly — these are a display bug; the real shift count is 1, so three D1E1 in a row = <<3 = item_idx*8 (verified by xxd at 0x6aaf = d1e1 d1e1 d1e1 03c1). The unequip dispatch jump table at file 0x1851 (reached via 'jmp word [cs:bx+0x5db5]' at 0x1869; CS 0x5db5 - 0x4564 delta = file 0x1851) was decoded with a python struct read: 8 entries -> file 0x181f(x2)/0x182d/0x183c(x5). Cross-overlay thunks resolved via the thunk-delta law (CS_offset - 0xBA9C = wroot image, +0x200 = wroot file): 0xc546 -> image 0xaaa = play_sound (matches CLAUDE.md play-sound entry wroot phys 0x10AAA); 0xf3aa -> image 0x390e = strcpy (per wroot-functions.md). Bit semantics and the inv-count==0 disable are cross-referenced from wpcvw-equip-internals.json (DROP mask 0x43, bit0 equipped/cursed overload), wpcvw-character-view-ux.json#view-context-mask-default-dungeon (slot+0x4594==0 disables DROP), and character-record-inventory-equipment.json (flags byte 0x01/0x02 cursed, 0x40 class-locked). wpcvw overlay delta = 0x4564 (file = CS - 0x4564).",
+  "findings": [
+    {
+      "id": "drop-handler-entry-and-cursed-check",
+      "claim": "DROP action (character-view main-menu option 7) handler at wpcvw file 0x6a86. It pushes cdecl args (extra=0, slot=[bp+4], msg=0x192 'DROP WHICH ITEM?', window=[bp-4] mainPanel, window=[bp-2] partyRow) and calls ui_pick_inventory_item (0x1a48); add sp,0xa; stores the result to global *0x43ca; cmp ax,0xffff; on cancel (0xffff) jz 0x6ae5 -> jmp 0x6bad (no-op return to view loop). On a valid pick it computes bx = slot([bp+4])*0x1b0 + item_idx(*0x43ca)*8 and reads the per-item FLAGS byte al=[bx+0x442f] (sub ah,ah). It then runs three guards in series: test ax,0x1 (jnz refuse); test ax,0x2 (jnz refuse); test ax,0x40 (jz allow). Effective block mask = 0x01|0x02|0x40 = 0x43. If allowed (all three bits clear) -> push *0x43ca; push [bp+4]; call 0x17f7 (inventory_equip_or_unequip); add sp,4; jmp 0x6bad. So DROP = pick one carried item -> (cursed/equipped/class-locked guard) -> unequip+remove+compact -> return.",
+      "category": "menu_dispatch",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6a86"},
+        "type": "disasm",
+        "details": "ndisasm 0x6a86-0x6ae5: mov ax,0; push; push [bp+4]; mov ax,0x192; push; push [bp-4]; push [bp-2]; call 0x1a48; add sp,0xa; mov [0x43ca],ax; cmp ax,0xffff; jz 0x6ae5. 0x6aa5: mov ax,0x1b0; imul [bp+4]; mov cx,[0x43ca]; D1E1 D1E1 D1E1 (=shl cx,1 x3 = cx<<3, verified xxd 0x6aaf=d1e1 d1e1 d1e1 03c1); add ax,cx; mov bx,ax; mov al,[bx+0x442f]; sub ah,ah; test ax,0x1; jnz 0x6ace; test ax,0x2; jnz 0x6ace; test ax,0x40; jz 0x6ad8. Refuse path 0x6ace: mov ax,0; push; call 0xc546; pop cx; jmp 0x6ae5. Allow path 0x6ad8: push [0x43ca]; push [bp+4]; call 0x17f7; add sp,4. 0x6ae5: jmp 0x6bad. msg 0x192='DROP WHICH ITEM?'; picker/cancel convention identical to ASSAY(0x6a50,msg 0x1c2) and USE(0x6ae8,msg 0x190)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "drop-refusal-is-beep-only-no-message",
+      "claim": "When the cursed/equipped/class-locked guard FAILS (flags & 0x43 != 0), DROP is SILENTLY REFUSED with only a SOUND EFFECT and no on-screen text. The refuse path (0x6ace) calls the play-sound thunk func_0x0000c546 with arg 0 (play sound slot 0 = the standard rejection beep) then jmp 0x6ae5 -> jmp 0x6bad back to the menu loop. There is NO ui_window_create, NO message-print (no msg-id load / no 'YOU CANNOT DROP A CURSED ITEM' string), NO popup, and NO second picker. The view main loop simply re-renders the sheet and re-shows the action picker. So the player's only feedback that a drop was refused is the beep — the item stays in inventory unchanged. func_0x0000c546 resolves via the thunk-delta law to wroot image 0xaaa (CLAUDE.md: play-sound entry at wroot phys 0x10AAA, param N indexes the runtime sound table at DGROUP 0x3344).",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6ace"},
+        "type": "disasm",
+        "details": "0x6ace: mov ax,0; push ax; call 0xc546; pop cx; jmp 0x6ae5. Thunk law: 0xc546 - 0xBA9C = 0xaaa image -> wroot phys 0x10aaa = play_sound (CLAUDE.md Audio section). No 0xbbb6 (ui_window_create) or 0xc1f7 (load_msg) call exists between 0x6a86 and 0x6ae5. Contrast ASSAY which builds a 20x12 popup; DROP-refuse builds nothing."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "drop-refused-bit-semantics",
+      "claim": "The byte tested is the in-BSS character-record INVENTORY-ITEM flags byte at +0x442f (= inventory base +0x4428 + item_idx*8 + 7), NOT the scenario item record. The three blocking bits are: bit0 (0x01) = the equipped-marker, which is the SAME physical bit as the low cursed bit (overloaded — EQUIP sets bit0 on the chosen item via `or byte [bx+0x442f],1`, so any currently-equipped item reads bit0=1 and is undroppable); bit1 (0x02) = the durable CURSED designation (set in scenario/character data for genuinely cursed items, untouched by equip toggles); bit6 (0x40) = CLASS_LOCKED. Therefore DROP refuses (with a beep) an item that is equipped, cursed, or class-locked. NOTE: because bit0 is overloaded as equipped+cursed-low, the engine cannot distinguish 'equipped' from 'bit0-only-cursed' at the DROP site — both block. The comparator here is unambiguous (test+jnz/jz, not a magnitude compare), so the direction is high-confidence; the BIT MEANINGS are cross-referenced from prior findings (not re-derived) and so are medium-confidence — recommend a live DOSBox DROP attempt on a known equipped item and a known cursed item to confirm the beep-and-no-removal behavior and the bit attribution.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6ab9"},
+        "type": "disasm",
+        "details": "0x6ab9 mov al,[bx+0x442f] (bx = slot*0x1b0 + item_idx*8). Tests test ax,0x1 / 0x2 / 0x40. Bit map cross-ref: wpcvw-equip-internals.json#bit0-equipped-vs-cursed-overload-and-persistence (EQUIP `or [bx+0x442f],1` = equipped, also low cursed bit; bit1=durable cursed); character-record-inventory-equipment.json (item flags byte: 0x01/0x02 = CURSED, 0x40 = class-locked); wpcvw-equip-internals.json#flag-0x40-not-tested-in-equip (0x40 tested ONLY here in DROP, governs droppability of class-locked gear). Inventory item layout: 8 bytes/item at +0x4428, flags at byte 7 = +0x442f; verified the same stride/offset is used by EQUIP's e34b/apply paths."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "drop-no-confirmation-dialog",
+      "claim": "DROP has NO confirmation dialog and NO 'DROP X?' prompt. After the picker returns a valid item index and the guard passes, the handler calls inventory_equip_or_unequip(0x17f7) IMMEDIATELY and unconditionally — there is no intervening ui_window_create, no yes/no picker, no message. The only player interaction is the item-pick itself (the picker invoked with msg 0x192). The destruction is irreversible from the UI (no undo). This matches the engine's general pattern of treating the inventory picker selection as the commit point.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6ad8"},
+        "type": "disasm",
+        "details": "Allow path 0x6ad8: push [0x43ca]; push [bp+4]; call 0x17f7; add sp,4; (0x6ae5) jmp 0x6bad. No ui_window_create (0xbbb6), no yes/no picker (no 0x1a48 second call), no load_msg (0xc1f7) between the guard pass and the 0x17f7 call. Compare ASSAY which DOES open a popup before its wait-loop; DROP opens nothing."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "drop-target-is-unequip-then-remove",
+      "claim": "func_0x000017f7 (recommend rename inventory_unequip_and_remove; carried as 'inventory_equip_or_unequip' from the ux pass) is the DROP worker. cdecl signature: (slot @bp+4, item_idx @bp+6). PASS A (file 0x1804-0x187e): loops local_4 = 0..7 over the character's 8 EQUIPMENT slots at +0x44f8; for each slot whose equipped-index byte ([bx+0x44f8+local_4]) == item_idx, it UNDOES that slot's equip-derived stats via a per-body-slot jump table (file 0x1851, 8 entries) and then writes 0xff to equipment[local_4] (mark empty). Jump-table targets: slots 0 and 1 (weapon hands) -> 0x181f = call 0x16c0(item_idx, local_4) [weapon-stat reset, see drop-weapon-unequip-reset]; slot 2 (helmet) -> 0x182d = `mov byte [slot*0x1b0 + 0x454a],0` (zero the head AC byte); slots 3,4,5,6,7 -> 0x183c = `al=[slot*0x1b0+0x4548] (base AC); [slot*0x1b0+local_4+0x4548]=al` (reset that positional AC byte to base, removing the armor's AC bonus). This PASS A is the inverse of EQUIP's per-item AC/weapon application — DROP unequips the item (recomputing AC and weapon stats to the bare baseline) BEFORE removing it. Only AFTER PASS A completes (local_4 reaches 8) does PASS B run.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x17f7"},
+        "type": "disasm",
+        "details": "0x17f7 push bp; mov bp,sp; sub sp,4. PASS A loop 0x1804: mov ax,0x1b0; imul [bp+4]; add ax,[bp-4]; mov bx,ax; al=[bx+0x44f8]; sub ah,ah; cmp ax,[bp+6]; jnz 0x187e (next). On match 0x181a: ax=[bp-4]; jmp 0x1861 -> cmp ax,8; jnc 0x186e; xchg ax,bx; shl bx,1; jmp word [cs:bx+0x5db5] (table file 0x1851; CS-0x4564). Table (python struct read): [0]/[1]=file 0x181f, [2]=0x182d, [3..7]=0x183c. 0x181f: push [bp-4]; push [bp+4]; call 0x16c0; add sp,4; jmp 0x186e. 0x182d: imul; mov bx; mov byte [bx+0x454a],0; jmp 0x186e. 0x183c: imul; mov bx; al=[bx+0x4548]; add bx,[bp-4]; mov [bx+0x4548],al; jmp 0x186e. 0x186e: imul; add ax,[bp-4]; mov bx; mov byte [bx+0x44f8],0xff (mark empty). 0x187e inc [bp-4]; cmp 8; jnl 0x188c (PASS B) else loop. Inverse-of-EQUIP cross-ref: wpcvw-equip-internals.json#per-item-record-field-offsets (armor AC subtract +0x4548+bodySlot; weapon AC +0x4549; weapon block +0x44dc)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "drop-weapon-unequip-reset",
+      "claim": "func_0x000016c0 (recommend rename inventory_reset_weapon_slot) is called by PASS A for weapon hands (body slots 0/1) to reset that hand's weapon-derived stat block back to the bare-hands baseline. cdecl args (slot @bp+4, bodySlot @bp+6). It targets the per-hand block at base = slot*0x1b0 + bodySlot*0x10: zeroes +0x44e5 and +0x44e4 (the rec0x40/rec0x41 carried bytes); zeroes the 8-byte to-hit/skill block +0x44dc..+0x44e3 (loop 0..7); sets +0x44e6=0 (damage), +0x44da=2 and +0x44db=2 (dice defaults), +0x44d8=0 (dice word), +0x44e7=0x20 (default weapon flags). Then it RECOMPUTES the unarmed STR-swing baseline from the CHARACTER's STR-related bytes: ax=char[+0x4525]/5 ([bp-2]) and char[+0x4539]/5 ([bp-4]); for monk-like classes (char[+0x4587]==0xc or 0xd) it sets +0x44db (dice) = ([bp-2]/3)+2 and OR's +0x44e7 with 0x40 and sets +0x44e2 (swing) = [bp-4]+5; for other classes it conditionally writes +0x44db = ([bp-2]/4)+1 (if [bp-2]>0, OR'ing +0x44e7 with 0x40) and +0x44e2 = [bp-4] (if [bp-4]>0). This is exactly the inverse of EQUIP's weapon-apply (which copied the item's rec bytes 0x2e..0x35/0x47/0x48/dice into this same block plus the STR swing bump) — so dropping an equipped weapon correctly returns the character to unarmed combat stats.",
+      "category": "derived_stat_recompute",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x16c0"},
+        "type": "disasm",
+        "details": "0x16c0: base = slot*0x1b0 + (bodySlot<<4). mov byte [bx+0x44e5],0; [bx+0x44e4],0. Loop i=0..7: [base+i+0x44dc]=0. Then [bx+0x44e6]=0; [bx+0x44da]=2; [bx+0x44db]=2; word[bx+0x44d8]=0; [bx+0x44e7]=0x20. STR recompute: al=[bx+0x4525]; idiv 5 -> [bp-2]; al=[bx+0x4539]; idiv 5 -> [bp-4]. cmp [bx+0x4587],0xd jz / cmp 0xc jnz 0x179c. Monk branch 0x1770: ax=[bp-2]/3; inc;inc; [base+0x44db]=al; or [base+0x44e7],0x40; ax=[bp-4]+5; [base+0x44e2]=al. Else 0x179c: if [bp-2]>0: ax=[bp-2]/4+1; [base+0x44db]=al; or [base+0x44e7],0x40. if [bp-4]>0: [base+0x44e2]=[bp-4]. Inverse of EQUIP per-item-record-field-offsets weapon block + STR swing (+0x44e2 += STR/5 [+5 monk])."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "drop-remove-and-compact",
+      "claim": "PASS B of func_0x000017f7 (file 0x188c-0x1962) performs the actual REMOVAL + ARRAY COMPACTION. (1) zero the dropped item's id word at slot*0x1b0 + item_idx*8 + 0x4428. (2) DECREMENT the inventory count byte at slot*0x1b0 + 0x4594 (`dec byte [bx+0x4594]`). (3) compaction loop for j = item_idx .. (new count): for each j it shifts THREE parallel arrays down by one entry: (a) the 8-byte inventory item record via `rep movsw` cx=4 from src=+0x4428+(j+1)*8 to dst=+0x4428+j*8; (b) a 16-byte item-name string cache via strcpy(dst=0x55de + j<<4, src=0x55ee + j<<4) [0xf3aa = wroot strcpy]; (c) a 2-byte word array via `[0x567e + j*2] = [0x5680 + j*2]`; AND (d) it FIXES UP equipment indices: for each equipment slot s 0..7, if equipment[+0x44f8+s] == j+1 it rewrites it to j (so equipment pointers that referenced items above the removed slot stay valid after the shift). The loop continues while j < the (decremented) count at +0x4594. NET: the dropped item is DESTROYED (its slot overwritten by the next item, the tail left with the count decremented). The item does NOT go to a ground/floor pool, a shared stash, or a 'dropped items' list — there is no such write; it is simply removed and the inventory packed. This is the canonical 'delete element i from a packed array and decrement length' with three sibling arrays kept in sync.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x188c"},
+        "type": "disasm",
+        "details": "0x188c: bx = slot*0x1b0 + item_idx*8; mov word [bx+0x4428],0. 0x18a5: bx=slot*0x1b0; dec byte [bx+0x4594]. 0x18b1: [bp-2]=item_idx ([bp+6]); jmp 0x1947 (loop cond). Body 0x18ba: cx=[bp-2]<<3 (D1E1 x3); si=slot*0x1b0+cx+0x4430 (src=next item); di=slot*0x1b0+cx+0x4428 (dst=this item); es=ds; cx=4; rep movsw. 0x18ea: ax=[bp-2]<<4; push 0x55ee+ax (src name); push 0x55de+ax (dst name); call 0xf3aa (strcpy); add sp,4. 0x1905: bx=[bp-2]<<1; ax=[bx+0x5680]; [bx+0x567e]=ax. 0x1914 inner loop local_4=0..7: bx=slot*0x1b0+local_4; al=[bx+0x44f8]; if ax == [bp-2]+1 then [bx+0x44f8]=byte [bp-2]. 0x1944 inc [bp-2]. Cond 0x1947: bx=slot*0x1b0; al=[bx+0x4594]; cmp ax,[bp-2]; jng 0x195d (done) else jmp 0x18ba. Tail 0x195d: pop si/di; mov sp,bp; pop bp; ret. 0xf3aa = wroot image 0x390e = strcpy (wroot-functions.md). No write to any external ground/pool buffer anywhere in 0x17f7-0x1962."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "drop-disable-when-inventory-empty",
+      "claim": "DROP (main-menu mask index 7) is force-DISABLED when the character carries no items: the dungeon-default mask code at file 0x697c does `cmp byte [bx+0x4594],0 / jnz skip / [bp-0x16]:=0` (clears mask[7]=DROP, alongside mask[3]=ASSAY and mask[6]=USE) when the inventory count at slot+0x4594 == 0. DROP is ENABLED in the dungeon-default mask (all 11) and in the combat mask (*0x4fce==0xd: indices 0/1/3/4/7/8 enabled), but NOT in the camp mask (*0x4fce==4: indices 0/1/3/4/8/10 — DROP absent). No other per-character gating applies to DROP specifically (gold/party-size/active-state gate TRADE/MERGE/SPELL/USE, not DROP). So a DROP can only be initiated when (context allows DROP) AND (inventory count > 0).",
+      "category": "menu_mask",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x697c"},
+        "type": "disasm",
+        "details": "Per wpcvw-character-view-ux.json#view-context-mask-default-dungeon: 0x697c cmp byte [bx+0x4594],0 / jnz / [bp-0x1e]:=0 (ASSAY idx3), [bp-0x16]:=0 (DROP idx7), [bp-0x18]:=0 (USE idx6). Mask-offset->index mapping from the init loop (#main-menu-options): [bp-0x24]=idx0 .. [bp-0x10]=idx10, so [bp-0x16]=idx7=DROP. Combat mask (#view-context-mask-from-combat) includes DROP; camp mask (#view-context-mask-from-camp) does not."
+      },
+      "confidence": "high"
+    }
+  ],
+  "cross_references": [
+    "docs/re/findings/wpcvw-character-view-ux.json — dispatch table (DROP=0x6a86 case 7, prompt msg 0x192), per-character DROP disable (slot+0x4594==0 clears mask[7]), camp/combat/dungeon context masks; the ux pass already noted DROP's cursed-check is in case 7 and calls 0x17f7",
+    "docs/re/findings/wpcvw-equip-internals.json — bit0 equipped/cursed overload + persistence, flag 0x40 tested only in DROP (mask 0x43), per-item EQUIP apply (the inverse of this DROP unequip), c31e/e34b thunk identities; 0x17f7 named there as inventory_equip_or_unequip",
+    "docs/re/findings/character-record-inventory-equipment.json — inventory item layout (8 bytes/item at +0x4428, flags at byte 7 = +0x442f; 0x01/0x02 = cursed, 0x40 = class-locked), equipment array +0x44f8 (8 slots, 0xff=empty), inventory count +0x4594, AC bytes +0x4548..",
+    "docs/re/findings/wpcvw-assay-action.json — sibling action (ASSAY, read-only); same picker (0x1a48) + cancel-0xffff convention, same inv-count==0 disable; useful contrast (ASSAY opens a popup, DROP shows none)",
+    "extracted/messages/msg.json — DROP prompt msg 0x192 'DROP WHICH ITEM?'; NO refusal/confirmation message id is referenced by the DROP path (refusal is a beep only)",
+    "CLAUDE.md Audio section + docs/re/snd-format.md — play-sound entry wroot phys 0x10AAA (= thunk 0xc546, image 0xaaa); DROP refusal plays sound slot 0"
+  ],
+  "function_renames_recommended": [
+    "wpcvw 0x17f7: inventory_equip_or_unequip -> inventory_unequip_and_remove (DROP worker: PASS A unequips the item from any equipment slot and reverses its AC/weapon stat bonuses; PASS B zeroes the id, decrements count +0x4594, and compacts the 3 parallel inventory arrays + fixes equipment indices). Despite the carried 'equip_or_unequip' name it does NOT equip — it only removes.",
+    "wpcvw 0x16c0: inventory_reset_weapon_slot (zeroes a weapon hand's derived-stat block at +bodySlot*0x10+0x44dc.. and recomputes the unarmed STR-swing baseline; the inverse of EQUIP's weapon apply)"
+  ],
+  "unresolved": [
+    "Bit attribution (0x01 equipped/cursed-low, 0x02 durable-cursed, 0x40 class-locked) is cross-referenced from prior findings, not re-derived in this pass; the DROP comparator itself (test+jnz/jz) is unambiguous so the BLOCK condition (flags & 0x43) is certain, but a live DOSBox DROP attempt on (a) a known equipped item, (b) a known cursed item, (c) a class-locked item would confirm each bit blocks and that the only feedback is a beep + the item remaining in inventory.",
+    "The 2-byte parallel array at +0x567e/+0x5680 that the compaction shifts alongside the item records and name cache is of unknown semantic role (likely a per-inventory-slot cached value — e.g. precomputed price, encumbrance, or a sprite/icon index); identity not pursued this pass (it is shifted in lockstep so its exact meaning does not affect DROP correctness, but the port must shift it too).",
+    "The item-name string cache base 0x55de (16-byte entries) and the '0x55ee = 0x55de + 0x10' src offset imply entry stride 0x10 and an 8-entry table per character context; whether this cache is per-character or a single transient render cache populated by the sheet renderer was not confirmed (out of scope — DROP just keeps it in sync).",
+    "Whether a dropped item is recoverable anywhere in the game world (ground tile pickup, etc.) — STATICALLY there is no ground-pool write in 0x17f7, so within this overlay the drop is a destroy; a cross-overlay 'item on floor' system (if any in wmaze) was not investigated."
+  ]
+}

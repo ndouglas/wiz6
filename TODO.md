@@ -128,8 +128,10 @@ Next free ID: **#066**
   - Item-use dispatch table at wpcvw 0x4a5b. Per-item-id branches for scrolls/wands/etc.
   - Open follow-up from `wpcvw-character-view-ux.json`: the per-item-id table needs decoding.
 
-- #037 [open] — Port WPCVW DROP action
-  - Drop-from-inventory + cursed-flag check (corrected from prior `wpcvw-naming-pass.json#fn-cursed-item-lockout`).
+- #037 [open] — Port WPCVW DROP action (RE done; dungeon-only — banked pending dungeon char-view)
+  - **Fully RE'd 2026-06-01** (`docs/re/findings/wpcvw-drop-action.json`). Handler @ wpcvw 0x6a86: picker (msg 0x192 'DROP WHICH ITEM?', reuses the ASSAY inventory picker) → guard `flags & 0x43` on the inventory-item flags byte +0x442f (bit0=equipped/cursed-low, bit1=durable-cursed, bit6=class-locked): if any set → **beep (sound slot 0), NO message, NO popup, item stays, back to action menu**. Otherwise `0x17f7` unequips-then-removes: PASS A reverses the equipped item's AC/weapon stats (no-op for droppable items since equipped ⇒ bit0 ⇒ blocked); PASS B zeroes the id, `dec` count +0x4594, and **compacts** the inventory + 2 parallel arrays, fixing up equipment indices > the removed slot. **No confirmation dialog**; item is DESTROYED (no ground pool). Renames: 0x17f7→`inventory_unequip_and_remove`, 0x16c0→`inventory_reset_weapon_slot`.
+  - **NOT camp-reachable**: DROP (index 7) is absent from the camp context mask (`*0x4fce==4` = EQUIP/SPELL/ASSAY/SWAG/SKILL/REVIEW); it's only in the dungeon-default + combat masks. Our `CharacterViewPage` is the camp view, so a faithful port has no reachable home until the **dungeon character-view** lands (the #055 cluster — blocked on dungeon traversal / MCP dynamic-driving for fixtures). Alternative when revisiting: an `allowDropFromCamp` HOUSE_RULES toggle (default OFF), mirroring `allowEditFromCamp`.
+  - **Port build (when unblocked)** = ASSAY-sized: reducer `drop-picker` sub-state (reuse `nextInventoryCursor` + `compose-inventory-picker`, prompt 'DROP WHICH ITEM?') + `commit-drop`/`drop-refused` intents + a pure `dropItem(member, invIdx)` in `@wiz6/data` (compact inventory[22], clear tail, reindex equipment[]) + `isDroppable(item)=(flags&0x43)===0` + pixel-parity + e2e. The reusable inventory picker (from ASSAY) + the unequip/AC inverse of `applyEquipSelections` are READY.
 
 - #036 [open] — Port WPCVW TRADE action
   - Give-to-party-member, 32-bit gold transfer. Engine: 0x513e.
