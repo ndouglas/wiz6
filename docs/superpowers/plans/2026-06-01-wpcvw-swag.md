@@ -35,8 +35,15 @@ Done: `@wiz6/data` `character-view/swag-bag.ts` (`carriedCount`/`bagCount`, `car
 ### Stage 3 — Reducer + page wiring — Status: Not Started
 Reducer sub-flow: `swag-menu` (ADD/REMOVE/DROP/EXIT cursor) → `swag-add-picker`/`swag-remove-picker`/`swag-drop-picker` → commit intents (`commit-swag-add/remove/drop`) → back to `swag-menu`. Beep-and-stay on refused ADD (equipped) / DROP (class-locked). Wire into `CharacterViewPage` (mutate via swag-bag, persist, re-render).
 
-### Stage 4 — Engine fixtures + pixel-parity — Status: Not Started
-Drive DOSBox: open SWAG (empty bag), ADD an item, capture the bag-with-item + each sub-picker. Commit fixtures + parity test at tol 0. (Stock THESUS bag starts empty — drive an ADD to populate.)
+### Stage 4a — Engine fixtures CAPTURED (2026-06-01) — Status: COMPLETE
+Committed `swag-empty` (empty bag, dynamic menu [ADD, EXIT]) + `swag-longsword` (bag=[LONGSWORD] after an ADD, menu [ADD,REMOVE,DROP,EXIT]). Confirmed model:
+- SWAG BAG popup = the same 20×16 @ (col20,row4,attr0x19) window as ASSAY/SKILL; title "SWAG BAG" + flank bag-icons (row 0); bag item rows (name near col 1) + a right-edge scrollbar; black interior.
+- The 3-option menu is on the bottom strip (replacing the action menu): dynamic disables HIDE options (empty bag → only ADD+EXIT). Column-major 2-row, x_step 8: ADD(c0r0), REMOVE(c0r1), DROP(c1r0), EXIT(c1r1). Cursor on EXIT at entry.
+- ADD/REMOVE/DROP sub-pickers = the standard `compose-inventory-picker` (prompts msg 0x2f8/0x2f9/0x2fa) — already gated by ASSAY; no separate fixtures needed.
+- **Side-finding:** the picker nav `up`-from-NONE → TOP item (confirms #072: our `nextInventoryCursor` is backwards). Tracked in #072; not fixed here.
+
+### Stage 4b — pixel-parity test — Status: Not Started
+`screen-parity.test.ts` cases for `swag-empty` + `swag-longsword` at tol 0 (after the composer).
 
 ### Stage 5 — e2e + manual smoke — Status: Not Started
 Mounted-app drive: SWAG → ADD a carried item → REMOVE / DROP → assert canvas + persisted inventory.
