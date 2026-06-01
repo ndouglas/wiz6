@@ -31,7 +31,7 @@ const CREATE_PC_PROLOGUE: readonly string[] = ['down down enter', 'up left left 
 // of its size, then 'enter' exits the screen.
 const DRAIN = 'right right right right right right right right right right enter';
 
-export const STATE_CATALOG: readonly SaveStateRecipe[] = [
+const SEED_CATALOG: readonly SaveStateRecipe[] = [
   {
     name: 'mage-spellpick',
     description:
@@ -67,7 +67,35 @@ export const STATE_CATALOG: readonly SaveStateRecipe[] = [
     ],
     settleMs: 300,
   },
-  // castle-1..6 are appended in Task 4 (migrated from build-castle-saves.ts).
+];
+
+// Castle recipes: MASTER OPTIONS with N party members (deterministic — uses
+// fixed PCFILE characters). Ported from build-castle-saves.ts per-member loop:
+//   enter → pick ADD PARTY MEMBER
+//   enter → pick first PCFILE char
+//   up up up → re-anchor cursor on ADD PARTY MEMBER
+// Each 3-macro block is a separate step so the builder settles between them.
+function makeCastleRecipe(n: number): SaveStateRecipe {
+  const steps: string[] = [];
+  for (let i = 0; i < n; i++) {
+    steps.push('enter');       // pick ADD PARTY MEMBER
+    steps.push('enter');       // pick first PCFILE char
+    steps.push('up up up');    // re-anchor cursor on ADD PARTY MEMBER
+  }
+  return {
+    name: `castle-${n}`,
+    description:
+      `Castle / MASTER OPTIONS with ${n} party member${n === 1 ? '' : 's'} ` +
+      `(fixed PCFILE chars → deterministic).`,
+    steps,
+  };
+}
+
+const CASTLE_RECIPES: readonly SaveStateRecipe[] = [1, 2, 3, 4, 5, 6].map(makeCastleRecipe);
+
+export const STATE_CATALOG: readonly SaveStateRecipe[] = [
+  ...SEED_CATALOG,
+  ...CASTLE_RECIPES,
 ];
 
 export function findRecipe(name: string): SaveStateRecipe | undefined {
