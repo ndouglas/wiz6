@@ -17,6 +17,7 @@ type Tag =
   | 'maze'
   | 'intro'
   | 'engine'
+  | 'reimplementation'
   | 'resolved-2026-05-25';
 
 interface Note {
@@ -1435,6 +1436,57 @@ cap = base * 15            ; Faerie (race 5): cap = cap * 2/3`}</CodeBlock>
       { label: 'wpcvw-character-view.md', href: '/explore/docs/wpcvw-character-view.md' },
     ],
   },
+  {
+    id: 'cursor-leak-three-screens',
+    title: 'The Cursor That Leaked Through Three Screens',
+    tags: ['reimplementation', 'bug', 'character-creation'],
+    pitch:
+      'Our reimplementation drew the RACE, SEX, and PROFESSION pickers with one React component — so its cursor leaked between them: choosing ELF silently rolled a female mage. Every unit test passed; only driving the real browser caught it.',
+    body: (
+      <>
+        <ProseRow>
+          This one is ours, not the original game&rsquo;s &mdash; a cautionary tale
+          from the reimplementation. Character creation walks three back-to-back menu
+          screens (RACE &rarr; SEX &rarr; PROFESSION), and we render all three with the
+          same <Code>MenuPickerScreen</Code> component.
+        </ProseRow>
+        <ProseRow>
+          React, seeing the same component type at the same spot in the tree across
+          those transitions, <strong>reuses the instance</strong> instead of remounting
+          it &mdash; and with it, the component&rsquo;s internal cursor{' '}
+          <Code>useState</Code>. So the cursor index <em>persisted</em> from one screen
+          to the next: pick ELF (index 1) on RACE, and SEX opens with the cursor already
+          on index 1 (FEMALE); confirm that, and PROFESSION opens on index 1 (MAGE). A
+          silent wrong-selection cascade &mdash; no error, no beep, just the wrong
+          character.
+        </ProseRow>
+        <ProseRow>
+          Every unit test passed. They check <em>pieces</em>: the picker renders the
+          right options; the composer&rsquo;s pixels match the engine fixture. But this
+          bug exists in no piece &mdash; it lives in the <em>mounted, navigated</em> app,
+          in React&rsquo;s identity decisions across screen transitions. A test that
+          never mounts the real flow can&rsquo;t see it.
+        </ProseRow>
+        <ProseRow>
+          What caught it: a browser end-to-end gate that drives the real app by keyboard
+          and pixel-asserts the canvas against the engine. On its{' '}
+          <strong>very first run</strong>, the &ldquo;create a Mage&rdquo; golden path
+          committed a character with the wrong race, sex, and class &mdash; and the
+          assertion failed.
+        </ProseRow>
+        <ProseRow>The fix is one prop:</ProseRow>
+        <CodeBlock>
+{`// Force a fresh mount per screen so the cursor resets:
+return <MenuPickerScreen key={state.screen} {...sharedProps} />;`}
+        </CodeBlock>
+        <Aside title="The thesis">
+          Unit parity is necessary but not sufficient &mdash; it proves the parts, not
+          the assembled, mounted whole. Drive the real thing and pixel-assert it against
+          ground truth. See <Code>docs/driving-based-testing.md</Code>.
+        </Aside>
+      </>
+    ),
+  },
 ];
 
 const ALL_TAGS: Tag[] = [
@@ -1453,6 +1505,7 @@ const ALL_TAGS: Tag[] = [
   'maze',
   'intro',
   'engine',
+  'reimplementation',
   'resolved-2026-05-25',
 ];
 
