@@ -33,21 +33,36 @@ Done: `SKILL_SLOT_NAMES` corrected to the engine map + docstrings/comments + tes
 **Tests:** corrected name map (slot 0 WAND&DAGGER, slot 17 DEFENSE, slot 22 ARTIFACTS); visible-row set per class (fighter WEAPONRY, thief incl. SKULDUGGERY@15); level read; category bounds; empty category.
 **Success:** `pnpm --filter @wiz6/data test` green (incl. updated skill-train expectations); new tests cover row visibility + the corrected names.
 
-### Stage 2 — Composer (cell-grid + pixel-targeted) — Status: Not Started
-**Goal:** `packages/viewer/src/pages/castle/compose-skill-viewer.ts` → `TileWindow[]`.
-- 20×16 popup at (20,4) attr 0x19 + chrome (mirror `compose-assay-display`).
-- Category title; per-row name (col 1, from msg id — reuse SkillTrainScreen's name source / message DB) + level (col 0x10); trailing skill-points line at row 0xe.
-- The category-tab picker bar (reuse the action-menu/inventory-picker rendering idiom).
-- Resolve the skill-name msg-id table (`0x157c+slot`) against the message DB / `skill-names.json` (msg = slot + 0xfa0; holes at 10,17-21).
-**Tests:** cell-grid placement (diagnostic) for one category; name/level columns.
+### Stage 4a — Engine fixtures CAPTURED (2026-06-01) — Status: COMPLETE
+Drove DOSBox camp → REVIEW MEMBER (THESUS) → SKILL via MCP; committed 3 fixtures
+(`tools/parity/fixtures/engine/skill-viewer-{weaponry,physical,academia}.{idx.gz,png}`).
+**Corrected model (vs my pre-capture assumptions):**
+- **It's a RIGHT-HALF panel**, not a centered popup: window at col 20 / row 4, 20w × 16h, attr 0x19 (RE x=0x14,y=4,w=0x14,h=0x10). The left stats panel stays; the panel replaces the inventory list region.
+- **Layout:** top row = category title (e.g. "WEAPONRY") centered, flanked by 2 wfont icons (per-category icon). Skill rows below: NAME at col 1, LEVEL right-aligned at the right edge. Trailing "SKILL POINTS" + value line near the bottom (window row ~14, after a chrome separator).
+- **Per-category name colors:** WEAPONRY blue, PHYSICAL green, ACADEMIA magenta (RE nameAttr low-nibble 2/0xe/0xc/0xb — pixel-pick exact from the fixtures).
+- **Tab picker is DYNAMIC** (bottom-left, replaces the action-menu strip), 2-col grid: it shows the available categories **MINUS the current one**, plus EXIT. PERSONAL is hidden unless the char has personal skills (THESUS doesn't). Observed: WEAPONRY view → {PHYSICAL,ACADEMIA,EXIT}; PHYSICAL view → {WEAPONRY,ACADEMIA,EXIT}; ACADEMIA → {WEAPONRY,PHYSICAL,EXIT}.
+- Row visibility within a category matches `skillViewerRows` (THESUS WEAPONRY shows only SWORD=10/SHIELD=2 + the 0-level trainable ones; PHYSICAL only SCOUTING; ACADEMIA ARTIFACTS/MYTHOLOGY/SCRIBE).
+- PERSONAL category panel NOT captured (no class in the test party trains it) — defer to Stage 6.
 
-### Stage 3 — Reducer + page wiring — Status: Not Started
-**Goal:** wire SKILL into `character-view-reducer.ts` + `CharacterViewPage.tsx`.
-- New state `{ kind: 'skill-viewer'; category: number; tabCursor: number }`.
-- action-menu ENTER on 'SKILL' → `skill-viewer` (initial category + tabCursor per the engine fixture; default WEAPONRY 0).
-- Tab nav: arrows move `tabCursor` over the 5-tab 2-col grid (reuse `nextActionCursor`-style geometry); ENTER on a category sets `category=tabCursor` (re-render); ENTER on EXIT (4) or ESC → action-menu.
-- Page renders `compose-skill-viewer` overlay using `skillViewerRows(member, category)`.
-**Tests:** reducer transitions (enter, tab move, pick category, exit); page key handling.
+### Stage 2 — Composer (pixel-targeted to the captured fixtures) — Status: Not Started
+**Goal:** `packages/viewer/src/pages/castle/compose-skill-viewer.ts` → `TileWindow[]`.
+- The 20×16 right-half panel at (col 20, row 4) attr 0x19 + chrome (mirror `compose-assay-display`'s chrome scaffold; this window is taller).
+- Category title row (centered + flank icons); per-row NAME (col 1, per-category color) + LEVEL (right-aligned); "SKILL POINTS" + value line.
+- The dynamic category-tab picker strip at bottom-left (categories-minus-current + EXIT, 2-col grid, highlight the cursor).
+- Names via `skillName(db, slot)` (= msg 5500+slot, already correct); rows via `skillViewerRows`.
+**Pixel gate (Stage 4b):** `skill-viewer-parity.test.ts` renders explicit (category, tabCursor) states matching each fixture and asserts tolerance-0:
+- weaponry: category 0, picker [PHYSICAL,ACADEMIA,EXIT] cursor on PHYSICAL.
+- physical: category 1, picker [WEAPONRY,ACADEMIA,EXIT] cursor on ACADEMIA.
+- academia: category 3, picker [WEAPONRY,PHYSICAL,EXIT] cursor on EXIT.
+Iterate composer to 0-diff vs all three. Don't lower tolerance.
+
+### Stage 3 — Reducer (dynamic-tab REDESIGN) + page wiring — Status: PARTIAL (reducer v1 committed; needs redesign)
+**Committed v1 (ac550e6/commit):** `{ kind:'skill-viewer'; category; tabCursor }` + `nextSkillTab` over a FIXED 5-tab grid + reducer tests. **This model is WRONG per the capture** — the engine's tab picker is DYNAMIC (categories-minus-current + EXIT; PERSONAL gated). The v1 is inert (not wired to the page yet). **Redesign needed:**
+- The picker entries = `[WEAPONRY,PHYSICAL,(PERSONAL if hasPersonalSkills),ACADEMIA].filter(c !== current)` ++ `[EXIT]`, in category order. So the reducer needs a `SkillInfo { hasPersonalSkills: boolean }` param (like `AssayInfo`) — `hasPersonalSkills` = any `member.skills[17..21] > 0` OR class-can-train a personal slot (verify; THESUS=false).
+- State holds `category` (displayed) + a cursor over the DYNAMIC entry list. Arrows move within the 2-col entry grid; ENTER on a category → `category = thatCategory` (rebuild entries; pick a sensible cursor — engine's exact post-switch cursor-init is a cosmetic, not gated); ENTER on EXIT / ESC → action-menu.
+- Replace `nextSkillTab`'s fixed-grid assumption with entry-list navigation.
+**Page wiring (`CharacterViewPage.tsx`):** action-menu ENTER 'SKILL' (already routed) → `skill-viewer`; render `composeSkillViewer({ category, entries, cursor, rows: skillViewerRows(member, category), skillPoints, db })`. Surface `+0x1a8` skill-points (currently 0 for stock party — read via the struct's `spells_to_learn`/raw or add a `skillPoints` Character field).
+**Tests:** reducer transitions over the dynamic entry list (incl. PERSONAL hidden); page key handling.
 
 ### Stage 4 — Engine fixture + pixel-parity (GATE) — Status: Not Started
 **Goal:** lock the layout against engine ground truth.
