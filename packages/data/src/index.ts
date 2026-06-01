@@ -204,6 +204,7 @@ export {
   applyEquipSelections,
   type AcResult,
 } from './equipment/equip-logic.js';
+export { assayItem, type AssayDescriptor } from './equipment/assay-logic.js';
 export {
   CLASS_SPELLBOOKS,
   SPELLBOOK_NAMES,
