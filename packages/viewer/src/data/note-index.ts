@@ -208,6 +208,13 @@ export const NOTE_INDEX: NoteIndexEntry[] = [
       "A character's carrying-capacity limit is computed once, at creation, from STR/VIT. The engine then never recomputes it — train STR from 10 to 18 over a dozen levels and your carry limit is still your level-1 self's.",
     tags: ['character-progression', 'bug', 'engine'],
   },
+  {
+    id: 'cursor-leak-three-screens',
+    title: 'The Cursor That Leaked Through Three Screens',
+    pitch:
+      'Our reimplementation drew the RACE, SEX, and PROFESSION pickers with one React component — so its cursor leaked between them: choosing ELF silently rolled a female mage. Every unit test passed; only driving the real browser caught it.',
+    tags: ['reimplementation', 'bug', 'character-creation'],
+  },
 ];
 
 export function findNote(id: string): NoteIndexEntry | undefined {
