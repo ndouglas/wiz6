@@ -13,6 +13,8 @@
  * Spec: docs/superpowers/specs/2026-05-29-wpcvw-edit-submenu-design.md
  */
 
+import { nextEquipCursor, nextPopulatedSlot } from './equip-wizard-reducer.js';
+
 export type CharacterViewState =
   | { kind: 'action-menu'; cursorIdx: number; campEntries: ReadonlyArray<string> }
   | { kind: 'edit-submenu'; cursorIdx: number }
@@ -20,9 +22,16 @@ export type CharacterViewState =
   | { kind: 'portrait'; previewIdx: number; originalIdx: number }
   | { kind: 'profession-picker'; cursorIdx: number; eligible: ReadonlyArray<number> }
   | { kind: 'profession-confirm'; newClassId: number; cursorYes: boolean }
+  // EQUIP re-equip wizard: walking body slots 0..7 that have candidates, the
+  // user picks (or SKIPs) one candidate per slot. `selections` is indexed by
+  // body slot (length 8); each entry is the chosen inventory index or null
+  // (NONE/skip). `cursor` is the row-cursor over [candidates, SKIP] where SKIP
+  // == candidate count for `slot`. RE: docs/re/findings/wpcvw-equip-action.json.
+  | { kind: 'equip-wizard'; slot: number; selections: ReadonlyArray<number | null>; cursor: number }
   | { kind: 'commit-rename'; name: string }
   | { kind: 'commit-portrait'; portraitIndex: number }
   | { kind: 'commit-class-change'; newClassId: number }
+  | { kind: 'commit-equip'; selections: ReadonlyArray<number | null> }
   | { kind: 'exit-castle' };
 
 export type CharacterViewEvent =
@@ -39,6 +48,25 @@ export interface EditEnableFlags {
   rename: boolean;
   portrait: boolean;
   profession: boolean;
+}
+
+/**
+ * Candidate info the EQUIP wizard needs but the reducer can't compute purely
+ * (it depends on scenarioDb + member inventory). The page supplies a closure
+ * returning the eligible inventory indices for `slot` given the selections so
+ * far — `equipCandidates(member, slot, scenarioDb, selections)`. The reducer
+ * uses the list LENGTH for cursor clamping (`nextEquipCursor`) and emptiness
+ * (`nextPopulatedSlot`), and the list itself to translate cursor → inventory
+ * index when recording a selection.
+ */
+export interface EquipInfo {
+  candidatesFor: (slot: number, selections: ReadonlyArray<number | null>) => ReadonlyArray<number>;
+}
+
+const BODY_SLOT_COUNT = 8;
+
+function emptyEquipSelections(): (number | null)[] {
+  return Array(BODY_SLOT_COUNT).fill(null);
 }
 
 const PORTRAIT_COUNT = 42;
@@ -87,6 +115,7 @@ export function reduceCharacterView(
   state: CharacterViewState,
   event: CharacterViewEvent,
   flags: EditEnableFlags,
+  equip?: EquipInfo,
 ): CharacterViewState {
   switch (state.kind) {
     case 'action-menu': {
@@ -95,7 +124,15 @@ export function reduceCharacterView(
         const label = state.campEntries[state.cursorIdx];
         if (label === 'EXIT') return { kind: 'exit-castle' };
         if (label === 'EDIT') return { kind: 'edit-submenu', cursorIdx: 0 };
-        return state; // EQUIP/SPELL/ASSAY/SWAG/SKILL/REVIEW handlers are SP3
+        if (label === 'EQUIP' && equip) {
+          const selections = emptyEquipSelections();
+          const slot = nextPopulatedSlot(-1, (s) => equip.candidatesFor(s, selections).length > 0);
+          // No slot has any candidate → nothing to re-equip; commit a no-op so
+          // the page returns to the action menu without entering the wizard.
+          if (slot === null) return { kind: 'commit-equip', selections };
+          return { kind: 'equip-wizard', slot, selections, cursor: 0 };
+        }
+        return state; // SPELL/ASSAY/SWAG/SKILL/REVIEW handlers are SP3
       }
       const key =
         event.type === 'ARROW_LEFT' ? 'ArrowLeft' :
@@ -185,6 +222,28 @@ export function reduceCharacterView(
       if (event.type === 'ENTER') {
         if (state.cursorYes) return { kind: 'commit-class-change', newClassId: state.newClassId };
         return { kind: 'profession-picker', cursorIdx: 0, eligible: [] };
+      }
+      return state;
+    }
+    case 'equip-wizard': {
+      // ESC cancels the whole wizard — discard selections, back to the action
+      // menu (cursor on EXIT, hydrated by the page's action-menu rehydration).
+      if (event.type === 'ESCAPE') return { kind: 'action-menu', cursorIdx: 0, campEntries: [] };
+      if (!equip) return state;
+      const candidates = equip.candidatesFor(state.slot, state.selections);
+      if (event.type === 'ARROW_LEFT' || event.type === 'ARROW_RIGHT') {
+        const key = event.type === 'ARROW_LEFT' ? 'ArrowLeft' : 'ArrowRight';
+        return { ...state, cursor: nextEquipCursor(state.cursor, key, candidates.length) };
+      }
+      if (event.type === 'ENTER') {
+        // cursor == candidates.length is the SKIP position → null. Otherwise the
+        // cursored candidate's INVENTORY index (candidates[cursor]).
+        const chosen = state.cursor === candidates.length ? null : (candidates[state.cursor] ?? null);
+        const selections = state.selections.slice();
+        selections[state.slot] = chosen;
+        const slot = nextPopulatedSlot(state.slot, (s) => equip.candidatesFor(s, selections).length > 0);
+        if (slot === null) return { kind: 'commit-equip', selections };
+        return { kind: 'equip-wizard', slot, selections, cursor: 0 };
       }
       return state;
     }

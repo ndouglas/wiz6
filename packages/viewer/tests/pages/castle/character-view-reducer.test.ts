@@ -4,9 +4,18 @@ import {
   nextActionCursor,
   type CharacterViewState,
   type CharacterViewEvent,
+  type EquipInfo,
 } from '../../../src/pages/castle/character-view-reducer.js';
 
 const baseEnabled = { rename: true, portrait: true, profession: true };
+
+// Equip closure for tests: slot 0 has candidate inv-idxs [3, 7], slot 4 has
+// candidate inv-idx [1]; all other slots empty. Independent of selections
+// (the page's real closure consumes selections; these tests exercise the
+// reducer's navigation/recording, not equipCandidates' exclusivity logic).
+const equipInfo: EquipInfo = {
+  candidatesFor: (slot) => (slot === 0 ? [3, 7] : slot === 4 ? [1] : []),
+};
 
 // 7-entry camp menu (2+ members): [EQUIP,SPELL,ASSAY,SWAG,SKILL,REVIEW,EXIT], EXIT=6.
 describe('nextActionCursor (column-major 2-row, n=7)', () => {
@@ -129,6 +138,86 @@ describe('reduceCharacterView — portrait', () => {
     const next = reduceCharacterView(state, { type: 'ENTER' }, baseEnabled);
     expect(next.kind).toBe('commit-portrait');
     if (next.kind === 'commit-portrait') expect(next.portraitIndex).toBe(5);
+  });
+});
+
+describe('reduceCharacterView — EQUIP wizard', () => {
+  const equipMenu: CharacterViewState = {
+    kind: 'action-menu',
+    cursorIdx: 0, // EQUIP
+    campEntries: ['EQUIP', 'SPELL', 'ASSAY', 'SWAG', 'SKILL', 'EXIT'],
+  };
+
+  it('Enter on EQUIP → equip-wizard at first populated slot (0), cursor 0', () => {
+    const next = reduceCharacterView(equipMenu, { type: 'ENTER' }, baseEnabled, equipInfo);
+    expect(next.kind).toBe('equip-wizard');
+    if (next.kind === 'equip-wizard') {
+      expect(next.slot).toBe(0);
+      expect(next.cursor).toBe(0);
+      expect(next.selections).toEqual(Array(8).fill(null));
+    }
+  });
+
+  it('with no candidates anywhere → commit-equip (no-op) directly', () => {
+    const empty: EquipInfo = { candidatesFor: () => [] };
+    const next = reduceCharacterView(equipMenu, { type: 'ENTER' }, baseEnabled, empty);
+    expect(next.kind).toBe('commit-equip');
+    if (next.kind === 'commit-equip') expect(next.selections).toEqual(Array(8).fill(null));
+  });
+
+  it('Right/Left move the cursor (clamped at SKIP == candidateCount)', () => {
+    const s: CharacterViewState = { kind: 'equip-wizard', slot: 0, selections: Array(8).fill(null), cursor: 0 };
+    const r1 = reduceCharacterView(s, { type: 'ARROW_RIGHT' }, baseEnabled, equipInfo);
+    expect(r1.kind === 'equip-wizard' && r1.cursor).toBe(1);
+    const r2 = reduceCharacterView({ ...s, cursor: 1 }, { type: 'ARROW_RIGHT' }, baseEnabled, equipInfo);
+    expect(r2.kind === 'equip-wizard' && r2.cursor).toBe(2); // SKIP
+    const r3 = reduceCharacterView({ ...s, cursor: 2 }, { type: 'ARROW_RIGHT' }, baseEnabled, equipInfo);
+    expect(r3.kind === 'equip-wizard' && r3.cursor).toBe(2); // clamp
+    const l1 = reduceCharacterView({ ...s, cursor: 2 }, { type: 'ARROW_LEFT' }, baseEnabled, equipInfo);
+    expect(l1.kind === 'equip-wizard' && l1.cursor).toBe(1);
+  });
+
+  it('Enter records the cursored candidate inv-idx and advances to next populated slot', () => {
+    // slot 0, cursor 1 → candidate inv-idx 7. Advance to slot 4.
+    const s: CharacterViewState = { kind: 'equip-wizard', slot: 0, selections: Array(8).fill(null), cursor: 1 };
+    const next = reduceCharacterView(s, { type: 'ENTER' }, baseEnabled, equipInfo);
+    expect(next.kind).toBe('equip-wizard');
+    if (next.kind === 'equip-wizard') {
+      expect(next.slot).toBe(4);
+      expect(next.cursor).toBe(0);
+      expect(next.selections[0]).toBe(7);
+    }
+  });
+
+  it('Enter on SKIP records null and advances', () => {
+    const s: CharacterViewState = { kind: 'equip-wizard', slot: 0, selections: Array(8).fill(null), cursor: 2 };
+    const next = reduceCharacterView(s, { type: 'ENTER' }, baseEnabled, equipInfo);
+    if (next.kind === 'equip-wizard') {
+      expect(next.slot).toBe(4);
+      expect(next.selections[0]).toBeNull();
+    }
+  });
+
+  it('Enter on the last populated slot → commit-equip with full selections', () => {
+    // Already at slot 4 (last populated), pick candidate 0 (inv-idx 1).
+    const s: CharacterViewState = {
+      kind: 'equip-wizard',
+      slot: 4,
+      selections: [7, null, null, null, null, null, null, null],
+      cursor: 0,
+    };
+    const next = reduceCharacterView(s, { type: 'ENTER' }, baseEnabled, equipInfo);
+    expect(next.kind).toBe('commit-equip');
+    if (next.kind === 'commit-equip') {
+      expect(next.selections[0]).toBe(7);
+      expect(next.selections[4]).toBe(1);
+    }
+  });
+
+  it('Escape cancels → action-menu (selections discarded)', () => {
+    const s: CharacterViewState = { kind: 'equip-wizard', slot: 0, selections: [3, null, null, null, null, null, null, null], cursor: 0 };
+    const next = reduceCharacterView(s, { type: 'ESCAPE' }, baseEnabled, equipInfo);
+    expect(next.kind).toBe('action-menu');
   });
 });
 

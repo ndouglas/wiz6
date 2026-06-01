@@ -20,6 +20,8 @@ import {
   WIZ6_MAIN,
   applyClassChange,
   eligibleClasses,
+  equipCandidates,
+  applyEquipSelections,
   WichmannHill,
   resolveCarryCapacityMax,
   type ActivePartyMember,
@@ -33,7 +35,7 @@ import {
   loadPortraitSet as defaultLoadPortraitSet,
   loadScenarioDb as defaultLoadScenarioDb,
 } from '../../data-loader.js';
-import { buildInventoryItems } from './item-display.js';
+import { buildInventoryItems, scenarioItemName } from './item-display.js';
 import { loadCreationFontSet } from '../roster/creation/ega/assets.js';
 import { patchFontSetWithPortrait } from '../roster/creation/ega/skill-train-frame.js';
 import { readActiveParty, updateActiveMember } from '../../lib/active-party-store.js';
@@ -45,11 +47,13 @@ import { composeRenamePrompt } from './compose-rename-prompt.js';
 import { composePortraitChange } from './compose-portrait-change.js';
 import { composeClassPicker } from './compose-class-picker.js';
 import { composeProfessionConfirm } from './compose-profession-confirm.js';
+import { composeEquipPicker } from './compose-equip-picker.js';
 import {
   reduceCharacterView,
   type CharacterViewState,
   type CharacterViewEvent,
   type EditEnableFlags,
+  type EquipInfo,
 } from './character-view-reducer.js';
 import type { TileWindow } from '@wiz6/parser';
 
@@ -147,7 +151,14 @@ export function CharacterViewPage() {
       const ev = eventFromKey(e);
       if (!ev) return;
       e.preventDefault();
-      const next = reduceCharacterView(state, ev, EDIT_FLAGS);
+      // EQUIP wizard needs candidate info the reducer can't compute purely:
+      // the eligible inventory indices for a body slot given the selections so
+      // far. Build the closure from the current member + scenarioDb.
+      const equipInfo: EquipInfo | undefined =
+        member && scenarioDb
+          ? { candidatesFor: (slot, sel) => equipCandidates(member, slot, scenarioDb, sel) }
+          : undefined;
+      const next = reduceCharacterView(state, ev, EDIT_FLAGS, equipInfo);
 
       // ---- Resolve intent states (side effects) ----------------------------
       if (next.kind === 'exit-castle') {
@@ -186,6 +197,18 @@ export function CharacterViewPage() {
           const entries = campEntriesFor(includeEditFromCamp, members.length >= 2);
           setState({ kind: 'action-menu', cursorIdx: entries.length - 1, campEntries: entries });
         }
+        return;
+      }
+      if (next.kind === 'commit-equip') {
+        const m = members[slotIdx];
+        if (m && scenarioDb) {
+          const updated = applyEquipSelections(m, next.selections, scenarioDb);
+          updateActiveMember(slotIdx, updated);
+          setMembers(readActiveParty().members);
+        }
+        // Back to the action menu with the cursor on EXIT (view-open default).
+        const entries = campEntriesFor(includeEditFromCamp, members.length >= 2);
+        setState({ kind: 'action-menu', cursorIdx: entries.length - 1, campEntries: entries });
         return;
       }
 
@@ -295,6 +318,31 @@ export function CharacterViewPage() {
       );
     } else if (state.kind === 'profession-confirm') {
       overlays.push(composeProfessionConfirm({ cursorYes: state.cursorYes }));
+    } else if (state.kind === 'equip-wizard' && member) {
+      // EQUIP wizard: overlay the candidate-row highlight + slot prompt bar on
+      // top of the character sheet (the prompt bar REPLACES the action-menu
+      // strip, like the EDIT submenu). Candidates resolved to display names so
+      // the mounted render mirrors renderEquipSlot0 (cursor 0, selection NONE
+      // on slot entry).
+      const candidateIdxs = equipCandidates(member, state.slot, scenarioDb, state.selections);
+      const candidates = candidateIdxs.map((i) => ({
+        name: scenarioItemName(scenarioDb, (member.inventory ?? [])[i]?.itemId ?? 0),
+      }));
+      overlays.push(
+        ...composeEquipPicker({
+          db,
+          bodySlot: state.slot,
+          candidates,
+          cursor: state.cursor,
+          // Committed selection is independent of the row-cursor. In this
+          // wizard a slot's selection isn't committed until ENTER (which then
+          // advances to the next slot), so while a slot is on screen nothing is
+          // yet committed → the prompt tail always shows NONE. This matches the
+          // committed `equip-slot0` fixture (cursor 0 on LONGSWORD, prompt NONE).
+          // (Only that slot-0 initial frame is pixel-pinned; see report note.)
+          selection: null,
+        }),
+      );
     }
 
     const windows = [...baseWindows, ...overlays];
