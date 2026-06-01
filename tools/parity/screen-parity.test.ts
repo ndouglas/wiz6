@@ -36,8 +36,9 @@ import { composeCharacterViewFrame } from '../../packages/viewer/src/pages/castl
 import { composeMainPanel } from '../../packages/viewer/src/pages/castle/compose-main-panel.js';
 import { composeEquipPicker } from '../../packages/viewer/src/pages/castle/compose-equip-picker.js';
 import { composeInventoryPicker } from '../../packages/viewer/src/pages/castle/compose-inventory-picker.js';
+import { composeAssayDisplay } from '../../packages/viewer/src/pages/castle/compose-assay-display.js';
 import { buildInventoryItems, scenarioItemName } from '../../packages/viewer/src/pages/castle/item-display.js';
-import { equipCandidates } from '../../packages/data/src/index.js';
+import { equipCandidates, assayItem } from '../../packages/data/src/index.js';
 import { blankDraft } from '../../packages/viewer/src/pages/roster/creation/state.js';
 import { draftFromCharacter } from '../../packages/viewer/src/pages/roster/creation/lib/draft-from-character.js';
 import type { ActivePartyMember, Character } from '../../packages/data/src/index.js';
@@ -1008,6 +1009,78 @@ function renderAssayPicker(fontSet: FontSet, palette: Palette): Uint8ClampedArra
   return renderCreationFrame([mainPanel, ...picker], fontSetWithPortrait, palette);
 }
 
+// ─── ASSAY DISPLAY (wpcvw_item_inspect_display; read-only stat popup) helper ───
+// Engine fixture (save slot 9, same base state as assay-picker): THESUS after
+// choosing ASSAY and picking LONGSWORD (item 8). The char sheet is identical to
+// review-member-view; the ASSAY overlay adds (1) a 20×12 stat-block popup at
+// (col 20, row 8) over the right half of the sheet, and (2) a "PRESS ↵ TO EXIT"
+// bottom strip replacing the action menu. Stat block driven by
+// assayItem(8, thesus, scenarioDb).
+
+function renderAssayDisplay(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  const emptySlot = { itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 };
+  const inventory = [
+    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },   // LONGSWORD
+    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 0 },  // LEATHER CUIRASS
+    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0, quantity: 0, flags: 0 },  // FUR LEGGING
+    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0, quantity: 0, flags: 0 }, // SANDALS
+    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0, quantity: 0, flags: 0 }, // BUCKLER SHIELD
+    ...Array.from({ length: 17 }, () => ({ ...emptySlot })),
+  ];
+
+  const thesus: ActivePartyMember = {
+    id: '00000000-0000-0000-0000-000000000001',
+    name: 'THESUS',
+    race: 0, class: 0, sex: 0,
+    level: 1, savedOldLevel: 0, xp: 0, gold: 0,
+    conditions: new Array(10).fill(0) as number[],
+    dead: false, paralyzed: false,
+    attributes: { str: 18, int: 8, pie: 8, vit: 12, dex: 10, spd: 9, per: 8, kar: 14 },
+    schoolMana: new Array(6).fill(0) as number[],
+    schoolManaMax: new Array(6).fill(0) as number[],
+    skills: new Array(30).fill(0) as number[],
+    reaction: 50,
+    portraitIndex: 10,
+    hpCurrent: 8, hpMax: 8, staminaCurrent: 126, staminaMax: 126,
+    encumbranceCurrent: 295, encumbranceMax: 2700,
+    age: 18 * 365 + 100,
+    portraitSlotId: 0,
+    rosterCharacterId: '00000000-0000-0000-0000-000000000001',
+    inventory,
+  };
+
+  const wport1: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  );
+  const wport2: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport2.json'), 'utf-8')),
+  );
+  const wport3: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport3.json'), 'utf-8')),
+  );
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, wport2, wport3], 0);
+
+  const scenarioDb = ScenarioDbSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_SCENARIO, 'scenario.json'), 'utf-8')),
+  );
+
+  const carryMax = resolveCarryCapacityMax(thesus, false);
+
+  const mainPanel = composeMainPanel({
+    member: thesus,
+    db: msgDb,
+    inventory: buildInventoryItems(thesus, scenarioDb),
+    cc: { current: Math.floor((thesus.encumbranceCurrent ?? 0) / 10), max: Math.floor(carryMax / 10) },
+    age: { years: 18, second: 1 },
+  });
+
+  const popup = composeAssayDisplay({
+    descriptor: assayItem(8, thesus, scenarioDb),
+  });
+
+  return renderCreationFrame([mainPanel, ...popup], fontSetWithPortrait, palette);
+}
+
 // ─── Screen table ──────────────────────────────────────────────────────────────
 // `floor` = current measured match % minus a small margin. TARGET is 100.
 
@@ -1133,6 +1206,11 @@ const SCREENS: ScreenCase[] = [
     fixture: 'assay-picker',
     floor: 100, // ASSAY inventory-picker — char sheet + "ASSAY WHICH ITEM?   NONE" bar (cursor on NONE)
     render: renderAssayPicker,
+  },
+  {
+    fixture: 'assay-longsword',
+    floor: 100, // ASSAY stat popup — 20×12 LONGSWORD inspect block + "PRESS ↵ TO EXIT" strip
+    render: renderAssayDisplay,
   },
 ];
 
