@@ -25,12 +25,15 @@ import {
   type ActivePartyMember,
   type MessageDb,
   type PortraitSet,
+  type ScenarioDb,
 } from '@wiz6/data';
 import { renderTileWindow, type FontSet } from '@wiz6/parser';
 import {
   loadMessageDb as defaultLoadMessageDb,
   loadPortraitSet as defaultLoadPortraitSet,
+  loadScenarioDb as defaultLoadScenarioDb,
 } from '../../data-loader.js';
+import { buildInventoryItems } from './item-display.js';
 import { loadCreationFontSet } from '../roster/creation/ega/assets.js';
 import { patchFontSetWithPortrait } from '../roster/creation/ega/skill-train-frame.js';
 import { readActiveParty, updateActiveMember } from '../../lib/active-party-store.js';
@@ -92,6 +95,7 @@ export function CharacterViewPage() {
   const [fontSet, setFontSet] = useState<FontSet | null>(null);
   const [db, setDb] = useState<MessageDb | null>(null);
   const [portraits, setPortraits] = useState<PortraitSet[] | null>(null);
+  const [scenarioDb, setScenarioDb] = useState<ScenarioDb | null>(null);
 
   // House rule read once on mount — toggling via /settings while this page is
   // mounted won't retro-update the action menu, which is acceptable since
@@ -103,11 +107,10 @@ export function CharacterViewPage() {
   const validSlot = Number.isFinite(slotIdx) && slotIdx >= 0 && slotIdx < members.length;
   const member = validSlot ? members[slotIdx] ?? null : null;
 
-  const [state, setState] = useState<CharacterViewState>(() => ({
-    kind: 'action-menu',
-    cursorIdx: 0,
-    campEntries: campEntriesFor(includeEditFromCamp, members.length >= 2),
-  }));
+  const [state, setState] = useState<CharacterViewState>(() => {
+    const entries = campEntriesFor(includeEditFromCamp, members.length >= 2);
+    return { kind: 'action-menu', cursorIdx: entries.length - 1, campEntries: entries };
+  });
 
   useEffect(() => {
     if (!validSlot) navigate('/castle');
@@ -117,17 +120,19 @@ export function CharacterViewPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const [fs, m, w1, w2, w3] = await Promise.all([
+        const [fs, m, w1, w2, w3, sc] = await Promise.all([
           loadCreationFontSet(),
           defaultLoadMessageDb('/messages/msg.json'),
           defaultLoadPortraitSet('/portraits/wport1.json'),
           defaultLoadPortraitSet('/portraits/wport2.json'),
           defaultLoadPortraitSet('/portraits/wport3.json'),
+          defaultLoadScenarioDb('/scenario/scenario.json'),
         ]);
         if (cancelled) return;
         setFontSet(fs);
         setDb(m);
         setPortraits([w1, w2, w3]);
+        setScenarioDb(sc);
       } catch (err: unknown) {
         if (!cancelled) console.error('[CharacterViewPage] asset load failed:', err);
       }
@@ -177,11 +182,10 @@ export function CharacterViewPage() {
           updateActiveMember(slotIdx, changed);
           setMembers(readActiveParty().members);
         }
-        setState({
-          kind: 'action-menu',
-          cursorIdx: 0,
-          campEntries: campEntriesFor(includeEditFromCamp, members.length >= 2),
-        });
+        {
+          const entries = campEntriesFor(includeEditFromCamp, members.length >= 2);
+          setState({ kind: 'action-menu', cursorIdx: entries.length - 1, campEntries: entries });
+        }
         return;
       }
 
@@ -227,7 +231,7 @@ export function CharacterViewPage() {
   }, [state, slotIdx, members, member, navigate, includeEditFromCamp]);
 
   useEffect(() => {
-    if (!validSlot || !fontSet || !db || !portraits || !member) return;
+    if (!validSlot || !fontSet || !db || !portraits || !scenarioDb || !member) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -269,6 +273,7 @@ export function CharacterViewPage() {
       includeEditFromCamp,
       age,
       cc,
+      inventory: member ? buildInventoryItems(member, scenarioDb) : [],
     });
 
     const overlays: TileWindow[] = [];
@@ -298,10 +303,10 @@ export function CharacterViewPage() {
       renderTileWindow(w, buf, ENGINE_W, ENGINE_H, fontSetWithPortrait, WIZ6_MAIN);
     }
     presenter.present(buf, ENGINE_W, ENGINE_H);
-  }, [validSlot, fontSet, db, portraits, members, slotIdx, state, member]);
+  }, [validSlot, fontSet, db, portraits, scenarioDb, members, slotIdx, state, member]);
 
   if (!validSlot) return null;
-  if (!fontSet || !db || !portraits) return <div>Loading…</div>;
+  if (!fontSet || !db || !portraits || !scenarioDb) return <div>Loading…</div>;
 
   return (
     <main>
