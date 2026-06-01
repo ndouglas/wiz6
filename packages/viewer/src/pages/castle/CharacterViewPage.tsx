@@ -54,20 +54,19 @@ const ENGINE_W = 320;
 const ENGINE_H = 200;
 const SCALE = 3;
 
-// Camp action menu entry sets — base (engine-faithful) vs editPlus (house rule).
-// Task 13 will thread this through composeCharacterViewFrame; for Task 12 the
-// list lives here so the reducer can drive cursor navigation correctly.
-const CAMP_ENTRIES_BASE: ReadonlyArray<string> = ['EQUIP', 'SPELL', 'ASSAY', 'SWAG', 'SKILL', 'EXIT'];
-const CAMP_ENTRIES_WITH_EDIT: ReadonlyArray<string> = [
-  'EQUIP', 'SPELL', 'ASSAY', 'SWAG', 'SKILL', 'EDIT', 'EXIT',
-];
-
 // All EDIT-submenu options are enabled in v1; future revisions may gate
 // per-action (e.g. profession change only on a particular game flag).
 const EDIT_FLAGS: EditEnableFlags = { rename: true, portrait: true, profession: true };
 
-function campEntriesFor(includeEdit: boolean): ReadonlyArray<string> {
-  return includeEdit ? CAMP_ENTRIES_WITH_EDIT : CAMP_ENTRIES_BASE;
+// Camp action-menu entry labels. MUST mirror compose-action-menu's enabledActions
+// order so the reducer cursorIdx aligns with the rendered grid. REVIEW appears only
+// with 2+ members (engine: party_size<2 disables it); EDIT is the house rule.
+function campEntriesFor(includeEdit: boolean, includeReview: boolean): ReadonlyArray<string> {
+  const out = ['EQUIP', 'SPELL', 'ASSAY', 'SWAG', 'SKILL'];
+  if (includeReview) out.push('REVIEW');
+  if (includeEdit) out.push('EDIT');
+  out.push('EXIT');
+  return out;
 }
 
 function eventFromKey(e: KeyboardEvent): CharacterViewEvent | null {
@@ -107,7 +106,7 @@ export function CharacterViewPage() {
   const [state, setState] = useState<CharacterViewState>(() => ({
     kind: 'action-menu',
     cursorIdx: 0,
-    campEntries: campEntriesFor(includeEditFromCamp),
+    campEntries: campEntriesFor(includeEditFromCamp, members.length >= 2),
   }));
 
   useEffect(() => {
@@ -181,7 +180,7 @@ export function CharacterViewPage() {
         setState({
           kind: 'action-menu',
           cursorIdx: 0,
-          campEntries: campEntriesFor(includeEditFromCamp),
+          campEntries: campEntriesFor(includeEditFromCamp, members.length >= 2),
         });
         return;
       }
@@ -195,7 +194,7 @@ export function CharacterViewPage() {
       if (next.kind === 'action-menu') {
         setState({
           ...next,
-          campEntries: campEntriesFor(includeEditFromCamp),
+          campEntries: campEntriesFor(includeEditFromCamp, members.length >= 2),
         });
         return;
       }

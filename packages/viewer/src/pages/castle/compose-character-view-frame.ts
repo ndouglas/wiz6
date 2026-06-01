@@ -57,6 +57,7 @@ export function composeCharacterViewFrame(view: CharacterViewView): TileWindow[]
       cursorIdx: view.cursorIdx,
       db: view.db,
       includeEditFromCamp: view.includeEditFromCamp === true,
+      includeReview: view.members.length >= 2,
     }),
   ];
 }

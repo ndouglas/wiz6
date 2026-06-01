@@ -46,25 +46,6 @@ const GRID_X_STEP = 6;
 const GRID_Y_STEP = 1;
 const GRID_ROWS = 2;
 
-/**
- * Camp context-mask: actions enabled when the character view is opened from
- * the castle (out of combat). Indices into the 11-action set:
- *   0=EQUIP, 1=SPELL, 3=ASSAY, 4=SWAG, 8=SKILL. EXIT is implicit (msg 312).
- *
- * Note this is hardcoded for the scaffold — the engine recomputes the mask
- * each view loop iteration based on gold, inventory count, and party_size.
- * TODO #042 will wire the dynamic mask once we have a fixture for the
- * combat / contextual variants.
- */
-const CAMP_ENABLED_INDICES: readonly number[] = [0, 1, 3, 4, 8];
-
-/**
- * Camp context-mask extended with EDIT (action index 9 = msg 310). Used when
- * the character view is opened from the camp's EDIT submenu so the player can
- * still reach EDIT without backing out of the view.
- */
-const CAMP_PLUS_EDIT_INDICES: readonly number[] = [0, 1, 3, 4, 8, 9];
-
 export interface ActionMenuView {
   /** Index of the currently-highlighted enabled action. EXIT is the last index. */
   cursorIdx: number;
@@ -75,18 +56,23 @@ export interface ActionMenuView {
    * re-open EDIT directly from the view. Defaults to false.
    */
   includeEditFromCamp?: boolean;
+  /** When true (party_size ≥ 2), include REVIEW (action index 10 = msg 311). */
+  includeReview?: boolean;
 }
 
 /** Returns the list of (msgId, label) for the enabled actions in order. */
 function enabledActions(
   db: MessageDb,
   includeEdit: boolean,
+  includeReview: boolean,
 ): Array<{ msgId: number; label: string }> {
-  const indices = includeEdit ? CAMP_PLUS_EDIT_INDICES : CAMP_ENABLED_INDICES;
-  const list = indices.map((i) => {
-    const msgId = ACTION_MSG_BASE + i;
-    return { msgId, label: creationString(db, msgId) };
-  });
+  const indices = [0, 1, 3, 4, 8];      // EQUIP SPELL ASSAY SWAG SKILL
+  if (includeReview) indices.push(10);   // REVIEW (party_size >= 2)
+  if (includeEdit) indices.push(9);      // EDIT (house rule, before EXIT)
+  const list = indices.map((i) => ({
+    msgId: ACTION_MSG_BASE + i,
+    label: creationString(db, ACTION_MSG_BASE + i),
+  }));
   list.push({ msgId: ACTION_EXIT_MSG_ID, label: creationString(db, ACTION_EXIT_MSG_ID) });
   return list;
 }
@@ -121,7 +107,7 @@ export function composeActionMenu(view: ActionMenuView): TileWindow {
     w.cells[idx + 1] = ATTR_BG;
   }
 
-  const actions = enabledActions(view.db, view.includeEditFromCamp === true);
+  const actions = enabledActions(view.db, view.includeEditFromCamp === true, view.includeReview === true);
   for (let i = 0; i < actions.length; i++) {
     const { label } = actions[i]!;
     if (!label) continue;
