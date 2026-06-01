@@ -20,6 +20,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getHelperClient, type McpContext } from '../context.js';
 import { resolveCapturesDir } from '../dosbox/captures-dir.js';
 import { captureScreenshot } from '../dosbox/screenshot.js';
+import { waitForStableFrame } from '../dosbox/stable-frame.js';
 import { loadStateFromSlot, saveStateToSlot } from '../dosbox/state.js';
 import {
   errorResult,
@@ -116,7 +117,9 @@ export function registerSnapshotTools(server: McpServer, ctx: McpContext): void 
         'Capture the current DOSBox-X frame as PNG. Drives F12+p on the ' +
         'focused window, polls captures= from tools/dosbox/wiz6.conf ' +
         'for the newest .png, and returns the bytes inline as an image content ' +
-        'block. Prior window focus is restored on exit.',
+        'block. Prior window focus is restored on exit. ' +
+        'Pass settle=true to wait until N consecutive frames are byte-identical ' +
+        'before returning (useful when capturing mid-transition screens).',
       inputSchema: {
         save: z
           .string()
@@ -124,12 +127,30 @@ export function registerSnapshotTools(server: McpServer, ctx: McpContext): void 
           .describe(
             'Currently informational — screenshots capture the live emulator frame, not a save state.',
           ),
+        settle: z
+          .boolean()
+          .optional()
+          .describe(
+            'When true, poll until N consecutive frames are byte-identical before returning. ' +
+            'Defaults to false (single capture).',
+          ),
+        stableCount: z
+          .number()
+          .int()
+          .min(2)
+          .optional()
+          .describe('Number of consecutive identical frames required when settle=true (default 3).'),
       },
     },
-    safeHandler(async (): Promise<ImageToolResult | JsonToolResult> => {
+    safeHandler(async ({ settle, stableCount }): Promise<ImageToolResult | JsonToolResult> => {
       try {
         const capturesDir = resolveCapturesDir(ctx.configPath);
-        const bytes = await captureScreenshot(getHelperClient(), capturesDir);
+        const client = getHelperClient();
+        const bytes = settle
+          ? await waitForStableFrame(() => captureScreenshot(client, capturesDir), {
+              stableCount: stableCount ?? 3,
+            })
+          : await captureScreenshot(client, capturesDir);
         return imageResult(bytes, 'image/png');
       } catch (e) {
         return errorResult(`dosbox_screenshot: ${(e as Error).message}`);
