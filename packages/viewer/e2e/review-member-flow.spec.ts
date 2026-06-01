@@ -294,3 +294,66 @@ test('REVIEW MEMBER character view matches engine (equipment + EXIT cursor)', as
   // 7-entry menu [EQUIP,SPELL,ASSAY,SWAG,SKILL,REVIEW,EXIT].
   await expectCanvasMatchesFixture(page, 'review-member-view');
 });
+
+// ---------------------------------------------------------------------------
+// Mounted-app pixel parity + completion for the EQUIP wizard.
+//
+// Drives the REAL CharacterViewPage's EQUIP flow: from the action menu (cursor
+// on EXIT), navigate LEFT to EQUIP and Enter into the per-slot picker, then
+// assert the mounted canvas matches the committed `equip-slot0` fixture (the
+// slot-0 picker — LONGSWORD candidate highlighted, "SELECT PRIMARY WEAPON >
+// NONE"). This gates the MOUNTED wizard render against engine ground truth: the
+// SP1-class wiring check the vitest renderEquipSlot0 parity test can't provide.
+//
+// Then drive the wizard to completion (Enter through each populated body slot)
+// and assert the persisted equipment array reflects the picks — equipment[0] is
+// the LONGSWORD inventory index (0), not 0xff.
+//
+// Action menu (3-member party, EDIT off): 7 entries
+//   [EQUIP,SPELL,ASSAY,SWAG,SKILL,REVIEW,EXIT] — column-major 2-row.
+// EXIT = idx 6 (initial cursor). nextActionCursor ArrowLeft = idx>=2 ? idx-2.
+//   6 → 4 (SKILL) → 2 (ASSAY) → 0 (EQUIP): three ArrowLefts land on EQUIP.
+//
+// THESUS's populated body slots (equipCandidates non-empty), per
+// equip-logic.test.ts body-slot map: 0 (weapon/LONGSWORD), 1 (shield/BUCKLER),
+// 4 (chest/CUIRASS), 5 (legs/FUR LEGGING), 7 (feet/SANDALS). The wizard walks
+// only populated slots; each slot's cursor starts on candidate 0, so 5 Enters
+// pick the first candidate per slot, then commit-equip returns to the menu.
+// ---------------------------------------------------------------------------
+test('EQUIP wizard mounted-canvas matches equip-slot0 + persists equipment', async ({ page }) => {
+  await page.addInitScript((members) => {
+    window.localStorage.setItem(
+      'wiz6:active-party',
+      JSON.stringify({ schemaVersion: 1, members }),
+    );
+  }, VIEW_MEMBERS);
+
+  await page.goto('/castle/review-member/0');
+  await waitForNonBlankCanvas(page, 'canvas', 500, 20_000);
+
+  // Action menu, cursor on EXIT (idx 6). ArrowLeft ×3 → EQUIP (idx 0). Enter.
+  await pressKeys(page, ['ArrowLeft', 'ArrowLeft', 'ArrowLeft', 'Enter']);
+
+  // Mounted EQUIP slot-0 picker must match the engine fixture pixel-exact.
+  await expectCanvasMatchesFixture(page, 'equip-slot0');
+
+  // Drive the wizard to completion: Enter through each populated body slot
+  // (0,1,4,5,7 → 5 slots), each picking candidate 0 (cursor default). The last
+  // Enter commits → commit-equip → updateActiveMember → back to action menu.
+  await pressKeys(page, ['Enter', 'Enter', 'Enter', 'Enter', 'Enter']);
+  await page.waitForTimeout(200);
+
+  // Persisted equipment reflects the picks. equipment[0] (weapon body slot) is
+  // the LONGSWORD's inventory index (0), NOT 0xff (255).
+  const partyJson = await page.evaluate(() =>
+    window.localStorage.getItem('wiz6:active-party'),
+  );
+  expect(partyJson).not.toBeNull();
+  const party = JSON.parse(partyJson!) as {
+    members: Array<{ equipment?: number[] }>;
+  };
+  const equipment = party.members[0]!.equipment;
+  expect(equipment).toBeDefined();
+  expect(equipment![0]).toBe(0); // LONGSWORD inv idx in weapon slot
+  expect(equipment![0]).not.toBe(0xff);
+});

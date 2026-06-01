@@ -142,7 +142,13 @@ export function computeAc(member: Character, scenarioDb: ScenarioDb): AcResult {
     const acBonus = scenarioDb.items[item.itemId]?.bytes[0x46] ?? 0;
     // weapons (body0/1) → bodyAc[0]; armor (body2..7) → bodyAc[bodySlot-1].
     const acIdx = bodySlot <= 1 ? 0 : bodySlot - 1;
-    bodyAc[acIdx] = (bodyAc[acIdx] ?? base) - acBonus;
+    // The engine stores each bodyAc slot as a u8 and applies `*(+0x4548+slot)
+    // -= byte0x46` (a raw byte decrement). When the running value underflows
+    // past 0 it WRAPS mod 256 (e.g. the magical/shield slot starts at 0, so a
+    // +1-protection buckler yields 0xFF, not -1). Mask to u8 to match the
+    // engine's byte arithmetic — and to keep the value in the schema's 0..255
+    // range so it round-trips through ActivePartyMemberSchema.
+    bodyAc[acIdx] = ((bodyAc[acIdx] ?? base) - acBonus) & 0xff;
   }
   return { derivedAc: base, bodyAc };
 }

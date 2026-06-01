@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bodySlotForItem, bitTest, itemEligible, equipCandidates, computeAc, computeBaseAc, applyEquipSelections } from '../../src/equipment/equip-logic.js';
-import { ScenarioDbSchema, type ScenarioDb, type Character } from '../../src/index.js';
+import { ScenarioDbSchema, ActivePartyMemberSchema, type ScenarioDb, type Character } from '../../src/index.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..'); // repo root
 let _db: ScenarioDb | null = null;
@@ -150,5 +150,61 @@ describe('applyEquipSelections', () => {
     const m = thesus(); const before = JSON.stringify(m);
     applyEquipSelections(m, [0,null,null,null,null,null,null,null], realScenarioDb());
     expect(JSON.stringify(m)).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Save round-trip: the bit0(equipped)/bit1(curse) flags overload survives the
+// active-party persistence path. pcfile.dbs is a verbatim record copy, so once
+// equip sets bit0 it persists to disk (RE:
+// wpcvw-equip-internals.json#bit0-equipped-vs-cursed-overload-and-persistence).
+// We prove the same through the viewer's active-party store path: a member is
+// validated by ActivePartyMemberSchema, JSON.stringify'd to localStorage, then
+// JSON.parse'd + re-validated on read. Both flag bits must survive intact.
+// ---------------------------------------------------------------------------
+describe('save round-trip preserves bit0 (equipped) + bit1 (curse)', () => {
+  /** THESUS as a schema-valid ActivePartyMember (the store's record shape). */
+  function thesusActiveMember() {
+    const t = thesus();
+    return ActivePartyMemberSchema.parse({
+      id: '00000000-0000-0000-0000-000000000001',
+      name: t.name,
+      race: t.race,
+      class: t.class,
+      sex: t.sex,
+      level: t.level,
+      savedOldLevel: 0,
+      xp: 0,
+      gold: 0,
+      conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      dead: false,
+      paralyzed: false,
+      attributes: t.attributes,
+      schoolMana: [0, 0, 0, 0, 0, 0],
+      schoolManaMax: [0, 0, 0, 0, 0, 0],
+      skills: t.skills,
+      reaction: 0,
+      inventory: t.inventory,
+      portraitSlotId: 0,
+      rosterCharacterId: '00000000-0000-0000-0000-000000000001',
+    });
+  }
+
+  it('bit0 equipped persists AND a genuine bit1 curse survives JSON round-trip', () => {
+    const member = thesusActiveMember();
+    // Genuine curse on LONGSWORD (inv idx 0).
+    member.inventory![0]!.flags |= 0x02;
+    const db = realScenarioDb();
+
+    // Equip LONGSWORD in slot 0; leave the rest NONE.
+    const equipped = applyEquipSelections(member, [0, null, null, null, null, null, null, null], db);
+
+    // Serialize through the active-party persistence path: validate → stringify
+    // → parse → re-validate (exactly what writeActiveParty/readActiveParty do).
+    const validated = ActivePartyMemberSchema.parse(equipped);
+    const roundTripped = ActivePartyMemberSchema.parse(JSON.parse(JSON.stringify(validated)));
+
+    expect(roundTripped.inventory![0]!.flags & 0x01).toBe(0x01); // equipped bit0 persisted
+    expect(roundTripped.inventory![0]!.flags & 0x02).toBe(0x02); // genuine curse bit1 survived
   });
 });

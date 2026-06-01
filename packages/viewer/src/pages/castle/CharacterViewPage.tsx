@@ -219,11 +219,16 @@ export function CharacterViewPage() {
       // those fields here on transition.
 
       if (next.kind === 'action-menu') {
-        // Returning to the action menu (e.g. ESC/EX from the EDIT submenu) lands
-        // the cursor on EXIT, matching the engine's view-open default — same as
-        // the initial state and the class-change return path above.
         const entries = campEntriesFor(includeEditFromCamp, members.length >= 2);
-        setState({ ...next, cursorIdx: entries.length - 1, campEntries: entries });
+        // Two distinct cases:
+        //  - In-menu cursor movement (state was ALREADY action-menu): preserve
+        //    the reducer's new cursorIdx — it computed the arrow-key move. Only
+        //    re-attach campEntries (the reducer can't read the house rule).
+        //  - RETURNING to the menu from a submenu (state was NOT action-menu):
+        //    land the cursor on EXIT, matching the engine's view-open default.
+        const cursorIdx =
+          state.kind === 'action-menu' ? next.cursorIdx : entries.length - 1;
+        setState({ ...next, cursorIdx, campEntries: entries });
         return;
       }
 
