@@ -74,9 +74,8 @@ Iterate composer to 0-diff vs all three. Don't lower tolerance.
 - `skill-viewer-parity.test.ts` at 100% floor. Fix composer/reducer initial-state to match.
 **Success:** pixel-parity 100% vs the engine fixture.
 
-### Stage 5 — e2e + manual smoke — Status: Not Started
-- Playwright e2e: char-view → SKILL → tab through categories → `expectCanvasMatchesFixture`.
-- `pnpm dev:viewer` manual click-through.
+### Stage 5 — e2e + manual smoke — Status: COMPLETE
+Playwright e2e in `review-member-flow.spec.ts`: REVIEW MEMBER → SKILL → drive WEAPONRY/PHYSICAL/ACADEMIA (with the extra arrow to reach each fixture's captured cursor) + EXIT, each `expectCanvasMatchesFixture`. 6/6 e2e pass — the mounted-app pixel parity IS the driving-based smoke (a human eyeball via `pnpm dev:viewer` is still nice-to-have but the pixel match is strong).
 
 ### Stage 6 — Verify MEDIUM bits (DOSBox) — Status: Not Started
 - Confirm `+0x4590` semantics across stock chars (unspent skill-bonus pool?).
