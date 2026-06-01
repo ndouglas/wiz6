@@ -18,7 +18,8 @@ Level = `record +0x451c+slot` (our `member.skills[slot]`, cap 50). Skill points 
 
 ## Stages
 
-### Stage 1 — Data layer + skill-name correction (TDD, no fixtures) — Status: Not Started
+### Stage 1 — Data layer + skill-name correction (TDD, no fixtures) — Status: COMPLETE
+Done: `SKILL_SLOT_NAMES` corrected to the engine map + docstrings/comments + test; `pcfile.ts` index-map comment fixed; new `packages/data/src/character-view/skill-viewer.ts` (`SKILL_CATEGORIES`, `skillRowVisible`, `skillViewerRows`) + tests, exported from `@wiz6/data`. All 578 data tests green. (Skill-points `+0x1a8` field surfacing deferred to Stage 3 wiring — value is 0 for the stock party; the skill-train screen already renders correct names via `skillName(db, slot)`, so no shipped UI changed.)
 **RE resolved 2026-06-01** (`docs/re/findings/wpcvw-skill-names.json`, binary-anchored HIGH):
 - Skill name for slot N = **msg(5500 + N), 1:1** (render does `add ax,0x157c`). Authoritative 30-slot map dumped — see the finding. This **CORRECTS** the speculative `SKILL_SLOT_NAMES` in `class-skill-availability.ts` + the index-map comment in `pcfile.ts` (WEAPONRY 0-9 reordered; slots 10/17-21 are real skills SWIMMING/DEFENSE/SPEED/MOVEMENT/AIM/POWER, not holes; slot 22 = ARTIFACTS).
 - Trailing line = msg 0x159a "SKILL POINTS" + value `+0x4590`. The byte at **+0x1a8/0x4590 is already modeled** as `spells_to_learn` — DO NOT add a duplicate field; reconcile the label (likely a shared level-up bonus pool; "SKILL POINTS" is the screen label). Confirm semantic in Stage 6.

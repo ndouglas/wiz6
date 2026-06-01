@@ -30,25 +30,34 @@ describe('CLASS_SKILL_AVAILABILITY', () => {
   });
 });
 
-describe('SKILL_SLOT_NAMES', () => {
-  it('has 30 entries (one per skill slot)', () => {
+describe('SKILL_SLOT_NAMES (engine map, msg 5500+slot — docs/re/findings/wpcvw-skill-names.json)', () => {
+  it('has 30 entries (one per skill slot), all named (no holes)', () => {
     expect(SKILL_SLOT_NAMES).toHaveLength(30);
+    expect(SKILL_SLOT_NAMES.every((n) => typeof n === 'string' && n.length > 0)).toBe(true);
   });
 
-  it('slot 0 is Sword (cross-validated against LYSANDR Thief skill[0]=1)', () => {
-    expect(SKILL_SLOT_NAMES[0]).toBe('Sword');
+  it('slot 0 is WAND&DAGGER (engine msg 5500 — corrects the old "Sword")', () => {
+    expect(SKILL_SLOT_NAMES[0]).toBe('WAND&DAGGER');
   });
 
-  it('slot 15 is Skulduggery (cross-validated against LYSANDR Thief skill[15]=10)', () => {
-    expect(SKILL_SLOT_NAMES[15]).toBe('Skulduggery');
+  it('slot 1 is SWORD (so THESUS Fighter skill[1]=10 is Sword, not Axe)', () => {
+    expect(SKILL_SLOT_NAMES[1]).toBe('SWORD');
   });
 
-  it('slot 26 is Theology (cross-validated against NOBAL Priest skill[26]=7)', () => {
-    expect(SKILL_SLOT_NAMES[26]).toBe('Theology');
+  it('slot 15 is SKULDUGGERY (matches LYSANDR Thief skill[15]=10)', () => {
+    expect(SKILL_SLOT_NAMES[15]).toBe('SKULDUGGERY');
   });
 
-  it('slot 28 is Thaumaturgy (cross-validated against TREON Mage skill[28]=10)', () => {
-    expect(SKILL_SLOT_NAMES[28]).toBe('Thaumaturgy');
+  it('slot 17 is DEFENSE — a real PERSONAL skill the old map treated as a hole', () => {
+    expect(SKILL_SLOT_NAMES[17]).toBe('DEFENSE');
+  });
+
+  it('slot 22 is ARTIFACTS (engine — corrects the old "Scouting")', () => {
+    expect(SKILL_SLOT_NAMES[22]).toBe('ARTIFACTS');
+  });
+
+  it('slot 28 is THAUMATURGY (matches TREON Mage skill[28]=10)', () => {
+    expect(SKILL_SLOT_NAMES[28]).toBe('THAUMATURGY');
   });
 });
 
@@ -56,7 +65,7 @@ describe('availableSkillSlots', () => {
   it('returns array of bit-set indices for Fighter', () => {
     const slots = availableSkillSlots(0);
     expect(slots.length).toBeGreaterThan(0);
-    // Slot 0 (Sword) is available to Fighter
+    // Slot 0 (WAND&DAGGER) is available to Fighter
     expect(slots).toContain(0);
   });
 

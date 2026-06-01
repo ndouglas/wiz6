@@ -12,14 +12,10 @@
  * that class can train that skill slot.
  *
  * **Slot ordering note:** the mapping from `skillSlot` (0..29) to a
- * human-readable skill name (Sword / Axe / Skulduggery / etc.) is not
- * yet rigorously verified against the engine. Martydill's open-source
- * RE repo provides a plausible ordering (see comment in `SKILL_INDEX_MAP`
- * stub below) that cross-validates against the stock characters'
- * decoded skill values, but the binary evidence for the exact mapping
- * remains a follow-up RE task. Treat `availability[i][N]` as "the bit
- * for skill slot N as the engine stores it" — the *meaning* of slot N
- * is the unresolved part.
+ * skill name is now binary-verified — the engine draws each name as
+ * `msg(0x157c + slot)`, so `SKILL_SLOT_NAMES` below holds the canonical
+ * engine names (msg ids 5500..5529). This replaces the earlier speculative
+ * martydill ordering. RE: `docs/re/findings/wpcvw-skill-names.json`.
  */
 
 const CLASS_NAMES_FOR_SKILLS = [
@@ -73,28 +69,33 @@ export const CLASS_SKILL_AVAILABILITY: readonly (readonly boolean[])[] =
   RAW_30_BIT_PATTERNS.map((bits) => bits.split('').map((c) => c === '1'));
 
 /**
- * Slot-to-name mapping for the 30 skill slots. **Speculative ordering**
- * from martydill's `bane/data/character_parser.py` SKILL_INDEX_MAP,
- * cross-validated against stock-character skill values (THESUS Axe@1=10,
- * LYSANDR Skulduggery@15=10, NOBAL Theology@26=7, etc.). Not yet
- * binary-verified against wpcmk asm.
+ * Slot-to-name mapping for the 30 skill slots. **Binary-anchored** to the
+ * engine: the wpcvw SKILL viewer (and the wpcmk skill-train screen) draws
+ * each skill's name as `msg(0x157c + slot)` directly (1:1), so these are the
+ * engine's canonical names from `extracted/messages/msg.json` ids 5500..5529.
+ * RE: `docs/re/findings/wpcvw-skill-names.json` (render loop at wpcvw 0xa285).
  *
- * `null` entries indicate "hole" slots in martydill's map; the engine may
- * use them for something we haven't decoded.
+ * This SUPERSEDES the prior speculative martydill SKILL_INDEX_MAP, which had
+ * the WEAPONRY block (0-9) reordered and treated slots 10 and 17-21 as
+ * "holes" — they are real skills (SWIMMING + the whole PERSONAL category
+ * DEFENSE/SPEED/MOVEMENT/AIM/POWER). All 30 slots are named; none are null.
+ *
+ * Names are upper-cased exactly as the engine stores them. The 4-category
+ * taxonomy (WEAPONRY 0..9, PHYSICAL 10..16, PERSONAL 17..21, ACADEMIA 22..29)
+ * matches the `[10,7,5,8]` bit-groups of CLASS_SKILL_AVAILABILITY.
  */
-export const SKILL_SLOT_NAMES: readonly (string | null)[] = [
-  // Weaponry (slots 0-9, 10 bits in the first group)
-  'Sword', 'Axe', 'Polearm', 'Mace & Flail', 'Dagger',
-  'Staff & Wand', 'Shield', 'Modern Weapons', 'Bow', 'Thrown Weapons',
-  // Physical (slots 10-16, 7 bits in the second group)
-  null,           // slot 10 — hole per martydill
-  'Sling', 'Whip', 'Music', 'Legerdemain',
-  'Skulduggery', 'Ninjutsu',
-  // (slots 17-21, 5 bits in the third group) — mostly holes per martydill
-  null, null, null, null, null,
-  // Academia (slots 22-29, 8 bits in the fourth group)
-  'Scouting', 'Mythology', 'Scribe', 'Alchemy',
-  'Theology', 'Theosophy', 'Thaumaturgy', 'Kirijutsu',
+export const SKILL_SLOT_NAMES: readonly string[] = [
+  // Weaponry (slots 0-9)
+  'WAND&DAGGER', 'SWORD', 'AXE', 'MACE&FLAIL', 'POLE&STAFF',
+  'THROWING', 'SLING', 'BOWS', 'SHIELD', 'HANDS&FEET',
+  // Physical (slots 10-16)
+  'SWIMMING', 'SCOUTING', 'MUSIC', 'ORATORY', 'LEGERDEMAIN',
+  'SKULDUGGERY', 'NINJUTSU',
+  // Personal (slots 17-21)
+  'DEFENSE', 'SPEED', 'MOVEMENT', 'AIM', 'POWER',
+  // Academia (slots 22-29)
+  'ARTIFACTS', 'MYTHOLOGY', 'SCRIBE', 'ALCHEMY',
+  'THEOLOGY', 'THEOSOPHY', 'THAUMATURGY', 'KIRIJUTSU',
 ];
 
 /** Returns the array of skill slot indices a class can train. */

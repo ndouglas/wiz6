@@ -151,6 +151,13 @@ export {
   classCanTrainSkill,
 } from './character-creation/class-skill-availability.js';
 export {
+  SKILL_CATEGORIES,
+  skillRowVisible,
+  skillViewerRows,
+  type SkillCategory,
+  type SkillRow,
+} from './character-view/skill-viewer.js';
+export {
   PALETTE_CATALOG,
   EGA_DEFAULT,
   WIZ6_MAIN,

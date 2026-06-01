@@ -181,10 +181,14 @@ export const PcfileSlotSchema = z.object({
    * EXTENDED from 14 to 30: prior 'derived_stats_block' at +0x142..+0x151 is skill continuation.
    * Empirically confirmed: LYSANDR skills[15]=Skulduggery=10, NOBAL skills[26]=Theology=7,
    * TREON skills[28]=Thaumaturgy=10, PENTAG skills[28]=Thaumaturgy=7.
-   * Index map (martydill SKILL_INDEX_MAP): 0=Sword,1=Axe,2=Polearm,3=Mace&Flail,4=Dagger,
-   * 5=Staff&Wand,6=Shield,7=ModernWeapons,8=Bow,9=ThrownWeapons,11=Sling,12=Whip,13=Music,
-   * 14=Legerdemain,15=Skulduggery,16=Ninjutsu,22=Scouting,23=Mythology,24=Scribe,25=Alchemy,
-   * 26=Theology,27=Theosophy,28=Thaumaturgy,29=Kirijutsu. Slots 10,17-21 are holes.
+   * Index map (BINARY-VERIFIED, engine msg 5500+slot — see SKILL_SLOT_NAMES in
+   * character-creation/class-skill-availability.ts + docs/re/findings/wpcvw-skill-names.json):
+   * 0=WAND&DAGGER,1=SWORD,2=AXE,3=MACE&FLAIL,4=POLE&STAFF,5=THROWING,6=SLING,7=BOWS,8=SHIELD,
+   * 9=HANDS&FEET,10=SWIMMING,11=SCOUTING,12=MUSIC,13=ORATORY,14=LEGERDEMAIN,15=SKULDUGGERY,
+   * 16=NINJUTSU,17=DEFENSE,18=SPEED,19=MOVEMENT,20=AIM,21=POWER,22=ARTIFACTS,23=MYTHOLOGY,
+   * 24=SCRIBE,25=ALCHEMY,26=THEOLOGY,27=THEOSOPHY,28=THAUMATURGY,29=KIRIJUTSU.
+   * (Supersedes the speculative martydill map: weaponry 0-9 reordered; slots 10,17-21 are
+   * real skills, not holes. So THESUS Fighter skills[1]=10 is SWORD, not "Axe".)
    */
   skills: z.array(U8).length(30),
   /**
