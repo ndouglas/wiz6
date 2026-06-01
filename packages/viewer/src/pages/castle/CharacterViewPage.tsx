@@ -24,6 +24,16 @@ import {
   applyEquipSelections,
   assayItem,
   skillViewerRows,
+  carriedItems,
+  bagItems,
+  canSwagAdd,
+  canSwagRemove,
+  canSwagDrop,
+  swagAdd,
+  swagRemove,
+  swagDrop,
+  swagItemAddable,
+  swagItemDroppable,
   WichmannHill,
   resolveCarryCapacityMax,
   type ActivePartyMember,
@@ -37,7 +47,7 @@ import {
   loadPortraitSet as defaultLoadPortraitSet,
   loadScenarioDb as defaultLoadScenarioDb,
 } from '../../data-loader.js';
-import { buildInventoryItems, scenarioItemName } from './item-display.js';
+import { buildInventoryItems, scenarioItemName, equipSlotIcon } from './item-display.js';
 import { loadCreationFontSet } from '../roster/creation/ega/assets.js';
 import { patchFontSetWithPortrait } from '../roster/creation/ega/skill-train-frame.js';
 import { readActiveParty, updateActiveMember } from '../../lib/active-party-store.js';
@@ -53,6 +63,7 @@ import { composeEquipPicker } from './compose-equip-picker.js';
 import { composeInventoryPicker } from './compose-inventory-picker.js';
 import { composeAssayDisplay } from './compose-assay-display.js';
 import { composeSkillViewer } from './compose-skill-viewer.js';
+import { composeSwagBag } from './compose-swag-bag.js';
 import { skillName } from '../roster/creation/messages.js';
 import {
   reduceCharacterView,
@@ -63,6 +74,8 @@ import {
   type EquipInfo,
   type AssayInfo,
   type SkillInfo,
+  type SwagInfo,
+  type SwagAction,
 } from './character-view-reducer.js';
 import type { TileWindow } from '@wiz6/parser';
 
@@ -109,6 +122,22 @@ function scanCarried(
     }
   }
   return { carried, items };
+}
+
+/** SwagInfo for the reducer: the enabled menu actions (+EXIT) and the carried /
+ *  bag item index lists in picker order. Derived from the @wiz6/data SWAG
+ *  helpers (which read the carried/bag split of the 22-slot inventory). */
+function buildSwagInfo(member: ActivePartyMember): SwagInfo {
+  const visibleMenu: SwagAction[] = [];
+  if (canSwagAdd(member)) visibleMenu.push('ADD');
+  if (canSwagRemove(member)) visibleMenu.push('REMOVE');
+  if (canSwagDrop(member)) visibleMenu.push('DROP');
+  visibleMenu.push('EXIT');
+  return {
+    visibleMenu,
+    carried: carriedItems(member).map((s) => s.idx),
+    bag: bagItems(member).map((s) => s.idx),
+  };
 }
 
 function eventFromKey(e: KeyboardEvent): CharacterViewEvent | null {
@@ -204,7 +233,9 @@ export function CharacterViewPage() {
       const skillInfo: SkillInfo | undefined = member
         ? { hasPersonalSkills: (member.skills ?? []).slice(17, 22).some((v) => v > 0) }
         : undefined;
-      const next = reduceCharacterView(state, ev, EDIT_FLAGS, equipInfo, assayInfo, skillInfo);
+      // SWAG manager: the enabled menu + carried/bag index lists.
+      const swagInfo: SwagInfo | undefined = member ? buildSwagInfo(member) : undefined;
+      const next = reduceCharacterView(state, ev, EDIT_FLAGS, equipInfo, assayInfo, skillInfo, swagInfo);
 
       // ---- Resolve intent states (side effects) ----------------------------
       if (next.kind === 'exit-castle') {
@@ -255,6 +286,54 @@ export function CharacterViewPage() {
         // Back to the action menu with the cursor on EXIT (view-open default).
         const entries = campEntriesFor(includeEditFromCamp, members.length >= 2);
         setState({ kind: 'action-menu', cursorIdx: entries.length - 1, campEntries: entries });
+        return;
+      }
+
+      // ---- SWAG commits: mutate the carried/bag inventory, then re-render the
+      //      SWAG menu (cursor on EXIT). The engine beeps + no-ops on a refused
+      //      ADD (equipped) / DROP (class-locked); we replicate the no-op
+      //      (TODO: wire the reject sound — see #034 Stage 6).
+      const returnToSwagMenu = (updatedMember: ActivePartyMember | undefined): void => {
+        const info = updatedMember ? buildSwagInfo(updatedMember) : undefined;
+        setState({ kind: 'swag-menu', cursor: info ? Math.max(0, info.visibleMenu.length - 1) : 0 });
+      };
+      if (next.kind === 'commit-swag-add') {
+        const m = members[slotIdx];
+        let updated = m;
+        if (m) {
+          const item = (m.inventory ?? [])[next.carriedIdx];
+          if (item && swagItemAddable(item)) {
+            updated = swagAdd(m, next.carriedIdx) as ActivePartyMember;
+            updateActiveMember(slotIdx, updated);
+            setMembers(readActiveParty().members);
+          }
+        }
+        returnToSwagMenu(updated);
+        return;
+      }
+      if (next.kind === 'commit-swag-remove') {
+        const m = members[slotIdx];
+        let updated = m;
+        if (m) {
+          updated = swagRemove(m, next.bagIdx) as ActivePartyMember;
+          updateActiveMember(slotIdx, updated);
+          setMembers(readActiveParty().members);
+        }
+        returnToSwagMenu(updated);
+        return;
+      }
+      if (next.kind === 'commit-swag-drop') {
+        const m = members[slotIdx];
+        let updated = m;
+        if (m) {
+          const item = (m.inventory ?? [])[10 + next.bagIdx];
+          if (item && swagItemDroppable(item)) {
+            updated = swagDrop(m, next.bagIdx) as ActivePartyMember;
+            updateActiveMember(slotIdx, updated);
+            setMembers(readActiveParty().members);
+          }
+        }
+        returnToSwagMenu(updated);
         return;
       }
 
@@ -440,6 +519,36 @@ export function CharacterViewPage() {
           db,
         }),
       );
+    } else if (state.kind === 'swag-menu' && member) {
+      // SWAG BAG manager: the popup (bag list) + the dynamic ADD/REMOVE/DROP/EXIT
+      // menu strip. Bag items resolve name + icon via the scenario DB.
+      const bag = bagItems(member).map((s) => ({
+        name: scenarioItemName(scenarioDb, s.item.itemId),
+        icon: equipSlotIcon(s.item.equipSlot),
+      }));
+      overlays.push(
+        ...composeSwagBag({
+          bagItems: bag,
+          menu: [
+            { label: 'ADD', enabled: canSwagAdd(member) },
+            { label: 'REMOVE', enabled: canSwagRemove(member) },
+            { label: 'DROP', enabled: canSwagDrop(member) },
+            { label: 'EXIT', enabled: true },
+          ],
+          cursor: state.cursor,
+        }),
+      );
+    } else if (state.kind === 'swag-add-picker' && member) {
+      // ADD: pick a CARRIED item (same scan/order as the reducer's swag.carried).
+      const items = carriedItems(member).map((s) => ({ name: scenarioItemName(scenarioDb, s.item.itemId) }));
+      overlays.push(
+        ...composeInventoryPicker({ prompt: 'PUT WHICH ITEM IN SWAG BAG?', items, cursor: state.cursor }),
+      );
+    } else if ((state.kind === 'swag-remove-picker' || state.kind === 'swag-drop-picker') && member) {
+      // REMOVE / DROP: pick a BAG item (same order as the reducer's swag.bag).
+      const items = bagItems(member).map((s) => ({ name: scenarioItemName(scenarioDb, s.item.itemId) }));
+      const prompt = state.kind === 'swag-remove-picker' ? 'REMOVE WHICH ITEM?' : 'DROP WHICH ITEM?';
+      overlays.push(...composeInventoryPicker({ prompt, items, cursor: state.cursor }));
     }
 
     const windows = [...baseWindows, ...overlays];

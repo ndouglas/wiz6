@@ -4,6 +4,7 @@ import {
   nextActionCursor,
   skillTabEntries,
   SKILL_EXIT,
+  type SwagInfo,
   type CharacterViewState,
   type CharacterViewEvent,
   type EquipInfo,
@@ -354,5 +355,60 @@ describe('reduceCharacterView — SKILL viewer (read-only, dynamic tabs)', () =>
     const s: CharacterViewState = { kind: 'skill-viewer', category: 3, cursor: 1 };
     const next = reduceCharacterView(s, { type: 'ESCAPE' }, baseEnabled, undefined, undefined, noPersonal);
     expect(next.kind).toBe('action-menu');
+  });
+});
+
+describe('reduceCharacterView — SWAG bag manager', () => {
+  // 4 carried items (array idx 0..3), 1 bag item (bag-relative idx 0).
+  const swag: SwagInfo = {
+    visibleMenu: ['ADD', 'REMOVE', 'DROP', 'EXIT'],
+    carried: [0, 1, 2, 3],
+    bag: [0],
+  };
+  const swagMenuEntry: CharacterViewState = {
+    kind: 'action-menu',
+    cursorIdx: 3, // SWAG
+    campEntries: ['EQUIP', 'SPELL', 'ASSAY', 'SWAG', 'SKILL', 'EXIT'],
+  };
+  const R = (s: CharacterViewState, e: Parameters<typeof reduceCharacterView>[1]) =>
+    reduceCharacterView(s, e, baseEnabled, undefined, undefined, undefined, swag);
+
+  it('ENTER on SWAG opens swag-menu with cursor on EXIT (last visible entry)', () => {
+    expect(R(swagMenuEntry, { type: 'ENTER' })).toEqual({ kind: 'swag-menu', cursor: 3 });
+  });
+
+  it('swag-menu ENTER on ADD opens the add-picker (cursor on NONE = carried count)', () => {
+    expect(R({ kind: 'swag-menu', cursor: 0 }, { type: 'ENTER' }))
+      .toEqual({ kind: 'swag-add-picker', cursor: 4 }); // NONE at carried.length
+  });
+
+  it('swag-menu ENTER on REMOVE / DROP opens the bag pickers (cursor on NONE = bag count)', () => {
+    expect(R({ kind: 'swag-menu', cursor: 1 }, { type: 'ENTER' }))
+      .toEqual({ kind: 'swag-remove-picker', cursor: 1 });
+    expect(R({ kind: 'swag-menu', cursor: 2 }, { type: 'ENTER' }))
+      .toEqual({ kind: 'swag-drop-picker', cursor: 1 });
+  });
+
+  it('swag-menu ENTER on EXIT / ESC returns to the action menu', () => {
+    expect(R({ kind: 'swag-menu', cursor: 3 }, { type: 'ENTER' }).kind).toBe('action-menu');
+    expect(R({ kind: 'swag-menu', cursor: 0 }, { type: 'ESCAPE' }).kind).toBe('action-menu');
+  });
+
+  it('add-picker ENTER on an item → commit-swag-add with the carried array index', () => {
+    // cursor 0 → carried[0] = array idx 0.
+    expect(R({ kind: 'swag-add-picker', cursor: 0 }, { type: 'ENTER' }))
+      .toEqual({ kind: 'commit-swag-add', carriedIdx: 0 });
+  });
+
+  it('add-picker ENTER on NONE / ESC → back to swag-menu', () => {
+    expect(R({ kind: 'swag-add-picker', cursor: 4 }, { type: 'ENTER' }).kind).toBe('swag-menu');
+    expect(R({ kind: 'swag-add-picker', cursor: 0 }, { type: 'ESCAPE' }).kind).toBe('swag-menu');
+  });
+
+  it('remove-picker / drop-picker ENTER on an item → commit-swag-remove / -drop (bag idx)', () => {
+    expect(R({ kind: 'swag-remove-picker', cursor: 0 }, { type: 'ENTER' }))
+      .toEqual({ kind: 'commit-swag-remove', bagIdx: 0 });
+    expect(R({ kind: 'swag-drop-picker', cursor: 0 }, { type: 'ENTER' }))
+      .toEqual({ kind: 'commit-swag-drop', bagIdx: 0 });
   });
 });

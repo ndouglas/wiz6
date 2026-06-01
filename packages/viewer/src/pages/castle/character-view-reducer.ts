@@ -46,10 +46,25 @@ export type CharacterViewState =
   //   category (the list updates only on ENTER); ENTER on EXIT / ESC returns to
   //   the action menu. RE: docs/re/findings/wpcvw-skill-action.json (read-only).
   | { kind: 'skill-viewer'; category: number; cursor: number }
+  // SWAG (interactive SWAG BAG manager). `swag-menu` = the dynamic
+  //   ADD/REMOVE/DROP/EXIT picker (disabled options hidden; `cursor` over the
+  //   VISIBLE entries, column-major 2-row). ENTER on ADD/REMOVE/DROP opens the
+  //   matching item sub-picker (`cursor` over [items…, NONE]); ENTER on EXIT /
+  //   ESC leaves to the action menu. The sub-pickers ENTER on an item → a
+  //   commit-swag-* intent (the page checks the equipped/class-locked guard +
+  //   beeps on refusal); ENTER on NONE / ESC → back to swag-menu. RE:
+  //   docs/re/findings/wpcvw-swag-action.json.
+  | { kind: 'swag-menu'; cursor: number }
+  | { kind: 'swag-add-picker'; cursor: number }
+  | { kind: 'swag-remove-picker'; cursor: number }
+  | { kind: 'swag-drop-picker'; cursor: number }
   | { kind: 'commit-rename'; name: string }
   | { kind: 'commit-portrait'; portraitIndex: number }
   | { kind: 'commit-class-change'; newClassId: number }
   | { kind: 'commit-equip'; selections: ReadonlyArray<number | null> }
+  | { kind: 'commit-swag-add'; carriedIdx: number }
+  | { kind: 'commit-swag-remove'; bagIdx: number }
+  | { kind: 'commit-swag-drop'; bagIdx: number }
   | { kind: 'exit-castle' };
 
 export type CharacterViewEvent =
@@ -95,6 +110,23 @@ export interface EquipInfo {
  */
 export interface AssayInfo {
   carried: ReadonlyArray<number>;
+}
+
+/**
+ * SWAG BAG info the reducer can't compute purely (depends on the member's
+ * inventory). `visibleMenu` = the enabled ADD/REMOVE/DROP actions + EXIT, in
+ * order (disabled actions omitted — they're hidden, like SKILL's dynamic tabs).
+ * `carried` = carried-item ARRAY indices in add-picker display order;
+ * `bag` = bag-relative indices (0..11) in remove/drop-picker display order.
+ * The reducer uses lengths for cursor clamping/NONE and the lists to translate
+ * a picker cursor → index on commit. The page checks the equipped/class-locked
+ * guard before applying (and beeps on refusal).
+ */
+export type SwagAction = 'ADD' | 'REMOVE' | 'DROP' | 'EXIT';
+export interface SwagInfo {
+  visibleMenu: ReadonlyArray<SwagAction>;
+  carried: ReadonlyArray<number>;
+  bag: ReadonlyArray<number>;
 }
 
 const BODY_SLOT_COUNT = 8;
@@ -178,6 +210,7 @@ export function reduceCharacterView(
   equip?: EquipInfo,
   assay?: AssayInfo,
   skill?: SkillInfo,
+  swag?: SwagInfo,
 ): CharacterViewState {
   switch (state.kind) {
     case 'action-menu': {
@@ -203,7 +236,13 @@ export function reduceCharacterView(
           // first picker entry. The page computes the rows + hasPersonalSkills.
           return { kind: 'skill-viewer', category: 0, cursor: 0 };
         }
-        return state; // SPELL/SWAG/REVIEW handlers are SP3
+        if (label === 'SWAG') {
+          // Open the SWAG BAG manager; cursor on EXIT (engine entry default —
+          // the last visible menu entry). The page supplies the visible menu.
+          const exitIdx = swag ? Math.max(0, swag.visibleMenu.length - 1) : 0;
+          return { kind: 'swag-menu', cursor: exitIdx };
+        }
+        return state; // SPELL/REVIEW handlers are SP3
       }
       const key =
         event.type === 'ARROW_LEFT' ? 'ArrowLeft' :
@@ -363,6 +402,78 @@ export function reduceCharacterView(
       // Entries render column-major 2-row (same geometry as the action menu),
       // so reuse nextActionCursor over the dynamic entry count.
       if (key) return { ...state, cursor: nextActionCursor(state.cursor, key, entries.length) };
+      return state;
+    }
+    case 'swag-menu': {
+      // ESC leaves the SWAG manager → action menu (cursor on EXIT, hydrated).
+      if (event.type === 'ESCAPE') return { kind: 'action-menu', cursorIdx: 0, campEntries: [] };
+      const menu = swag?.visibleMenu ?? [];
+      if (event.type === 'ENTER') {
+        const action = menu[state.cursor];
+        if (action === 'EXIT' || action === undefined) {
+          return { kind: 'action-menu', cursorIdx: 0, campEntries: [] };
+        }
+        // Open the matching item sub-picker with the cursor on NONE (engine
+        // convention): ADD picks a CARRIED item, REMOVE/DROP a BAG item.
+        if (action === 'ADD') return { kind: 'swag-add-picker', cursor: (swag?.carried.length ?? 0) };
+        if (action === 'REMOVE') return { kind: 'swag-remove-picker', cursor: (swag?.bag.length ?? 0) };
+        if (action === 'DROP') return { kind: 'swag-drop-picker', cursor: (swag?.bag.length ?? 0) };
+        return state;
+      }
+      const key =
+        event.type === 'ARROW_LEFT' ? 'ArrowLeft' :
+        event.type === 'ARROW_RIGHT' ? 'ArrowRight' :
+        event.type === 'ARROW_UP' ? 'ArrowUp' :
+        event.type === 'ARROW_DOWN' ? 'ArrowDown' : '';
+      if (key) return { ...state, cursor: nextActionCursor(state.cursor, key, menu.length) };
+      return state;
+    }
+    case 'swag-add-picker': {
+      // ESC / cancel → back to the SWAG menu.
+      if (event.type === 'ESCAPE') return { kind: 'swag-menu', cursor: 0 };
+      const carried = swag?.carried ?? [];
+      if (event.type === 'ARROW_UP' || event.type === 'ARROW_DOWN') {
+        const key = event.type === 'ARROW_UP' ? 'ArrowUp' : 'ArrowDown';
+        return { ...state, cursor: nextInventoryCursor(state.cursor, key, carried.length) };
+      }
+      if (event.type === 'ENTER') {
+        if (state.cursor === carried.length) return { kind: 'swag-menu', cursor: 0 }; // NONE → cancel
+        const carriedIdx = carried[state.cursor];
+        if (carriedIdx === undefined) return state;
+        // Page checks `swagItemAddable` (beeps + returns to swag-menu if equipped).
+        return { kind: 'commit-swag-add', carriedIdx };
+      }
+      return state;
+    }
+    case 'swag-remove-picker': {
+      if (event.type === 'ESCAPE') return { kind: 'swag-menu', cursor: 0 };
+      const bag = swag?.bag ?? [];
+      if (event.type === 'ARROW_UP' || event.type === 'ARROW_DOWN') {
+        const key = event.type === 'ARROW_UP' ? 'ArrowUp' : 'ArrowDown';
+        return { ...state, cursor: nextInventoryCursor(state.cursor, key, bag.length) };
+      }
+      if (event.type === 'ENTER') {
+        if (state.cursor === bag.length) return { kind: 'swag-menu', cursor: 0 };
+        const bagIdx = bag[state.cursor];
+        if (bagIdx === undefined) return state;
+        return { kind: 'commit-swag-remove', bagIdx };
+      }
+      return state;
+    }
+    case 'swag-drop-picker': {
+      if (event.type === 'ESCAPE') return { kind: 'swag-menu', cursor: 0 };
+      const bag = swag?.bag ?? [];
+      if (event.type === 'ARROW_UP' || event.type === 'ARROW_DOWN') {
+        const key = event.type === 'ARROW_UP' ? 'ArrowUp' : 'ArrowDown';
+        return { ...state, cursor: nextInventoryCursor(state.cursor, key, bag.length) };
+      }
+      if (event.type === 'ENTER') {
+        if (state.cursor === bag.length) return { kind: 'swag-menu', cursor: 0 };
+        const bagIdx = bag[state.cursor];
+        if (bagIdx === undefined) return state;
+        // Page checks `swagItemDroppable` (beeps + returns to swag-menu if class-locked).
+        return { kind: 'commit-swag-drop', bagIdx };
+      }
       return state;
     }
     default:

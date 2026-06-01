@@ -471,3 +471,44 @@ test('SKILL viewer mounted-canvas matches engine fixtures (3 categories + exit)'
   await page.waitForTimeout(200);
   await expectCanvasMatchesFixture(page, 'review-member-view');
 });
+
+// ---------------------------------------------------------------------------
+// Mounted-app pixel parity + mutation for the SWAG BAG manager.
+//
+// Drives the REAL CharacterViewPage SWAG flow against the committed engine
+// fixtures swag-empty + swag-longsword, then verifies the persisted inventory
+// reflects the carried→bag move.
+//
+// Action menu (3-member party): [EQUIP,SPELL,ASSAY,SWAG,SKILL,REVIEW,EXIT],
+// column-major 2-row. EXIT=6. SWAG=3 (c1r1): Left(6→4) Left(4→2) Down(2→3).
+// SWAG menu (empty bag): [ADD, EXIT] (REMOVE/DROP hidden), cursor on EXIT (1).
+//   ArrowUp → ADD (0), Enter → add-picker (cursor on NONE = carried count 5).
+//   Our nextInventoryCursor: 5 ArrowUps from NONE → index 0 = LONGSWORD; Enter
+//   commits → bag=[LONGSWORD], menu becomes [ADD,REMOVE,DROP,EXIT], cursor EXIT.
+// ---------------------------------------------------------------------------
+test('SWAG BAG mounted-canvas matches fixtures + persists the carried→bag move', async ({ page }) => {
+  await page.addInitScript((members) => {
+    window.localStorage.setItem('wiz6:active-party', JSON.stringify({ schemaVersion: 1, members }));
+  }, VIEW_MEMBERS);
+
+  await page.goto('/castle/review-member/0');
+  await waitForNonBlankCanvas(page, 'canvas', 500, 20_000);
+
+  // Action menu (cursor EXIT) → SWAG. Empty bag menu must match the fixture.
+  await pressKeys(page, ['ArrowLeft', 'ArrowLeft', 'ArrowDown', 'Enter']);
+  await expectCanvasMatchesFixture(page, 'swag-empty');
+
+  // ADD (ArrowUp → ADD, Enter → picker), then 5 ArrowUps from NONE → LONGSWORD,
+  // Enter commits the carried→bag move. Resulting bag-with-LONGSWORD must match.
+  await pressKeys(page, ['ArrowUp', 'Enter']);
+  await pressKeys(page, ['ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowUp', 'Enter']);
+  await expectCanvasMatchesFixture(page, 'swag-longsword');
+
+  // Persisted: LONGSWORD (id 8) moved to bag slot 10; carried compacted (slot 0
+  // is now LEATHER CUIRASS id 135).
+  const partyJson = await page.evaluate(() => window.localStorage.getItem('wiz6:active-party'));
+  const party = JSON.parse(partyJson!) as { members: Array<{ inventory: Array<{ itemId: number }> }> };
+  const inv = party.members[0]!.inventory;
+  expect(inv[10]!.itemId).toBe(8);   // LONGSWORD now in the bag
+  expect(inv[0]!.itemId).toBe(135);  // carried compacted up
+});

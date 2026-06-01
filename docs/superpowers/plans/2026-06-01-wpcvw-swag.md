@@ -36,8 +36,11 @@ Sub-pickers (ADD/REMOVE/DROP "which item?") reuse `compose-inventory-picker` (ga
 ### Stage 4b — pixel-parity test — Status: COMPLETE
 `swag-empty` + `swag-longsword` cases in `screen-parity.test.ts` at tol 0.
 
-### Stage 3 — Reducer + page wiring — Status: Not Started
-Reducer sub-flow: `swag-menu` (ADD/REMOVE/DROP/EXIT cursor) → `swag-add-picker`/`swag-remove-picker`/`swag-drop-picker` → commit intents (`commit-swag-add/remove/drop`) → back to `swag-menu`. Beep-and-stay on refused ADD (equipped) / DROP (class-locked). Wire into `CharacterViewPage` (mutate via swag-bag, persist, re-render).
+### Stage 3 — Reducer + page wiring — Status: COMPLETE
+Reducer: `swag-menu` (dynamic ADD/REMOVE/DROP/EXIT, cursor over the visible entries via `nextActionCursor`) → `swag-{add,remove,drop}-picker` (cursor over [items…, NONE] via `nextInventoryCursor`) → `commit-swag-{add,remove,drop}` intents; ESC/NONE step back. `SwagInfo {visibleMenu, carried, bag}` supplied by the page. `CharacterViewPage` wires it: `buildSwagInfo`, the commit handlers (guard via `swagItemAddable`/`swagItemDroppable` — refused ADD/DROP no-op, TODO beep #034 Stage 6), mutate via `swagAdd`/`swagRemove`/`swagDrop` → persist → back to swag-menu; renders `composeSwagBag` + the sub-pickers (`compose-inventory-picker`). 49 reducer tests + 892 viewer tests green; tsc clean.
+
+### Stage 5 — e2e — Status: COMPLETE
+`review-member-flow.spec.ts`: drives action-menu → SWAG → ADD LONGSWORD, pixel-matches `swag-empty` + `swag-longsword` in the mounted app, and asserts the persisted carried→bag move (inv[10]=LONGSWORD, carried compacted). 7/7 e2e pass.
 
 ### Stage 4a — Engine fixtures CAPTURED (2026-06-01) — Status: COMPLETE
 Committed `swag-empty` (empty bag, dynamic menu [ADD, EXIT]) + `swag-longsword` (bag=[LONGSWORD] after an ADD, menu [ADD,REMOVE,DROP,EXIT]). Confirmed model:
