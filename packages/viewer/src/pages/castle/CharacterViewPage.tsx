@@ -98,7 +98,10 @@ function scanCarried(
   const carried: number[] = [];
   const items: { name: string }[] = [];
   const inv = member.inventory ?? [];
-  for (let i = 0; i < inv.length; i++) {
+  // Only the carried region (slots 0..9) — slots 10..21 are the SWAG BAG and
+  // must not surface in the ASSAY/USE/DROP carried-item pickers.
+  const carriedSlots = Math.min(inv.length, 10);
+  for (let i = 0; i < carriedSlots; i++) {
     const slot = inv[i];
     if (slot && slot.itemId > 0) {
       carried.push(i);

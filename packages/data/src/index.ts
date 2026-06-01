@@ -158,6 +158,24 @@ export {
   type SkillRow,
 } from './character-view/skill-viewer.js';
 export {
+  CARRIED_CAP,
+  BAG_CAP,
+  BAG_BASE,
+  carriedCount,
+  bagCount,
+  carriedItems,
+  bagItems,
+  swagItemAddable,
+  swagItemDroppable,
+  canSwagAdd,
+  canSwagRemove,
+  canSwagDrop,
+  swagAdd,
+  swagRemove,
+  swagDrop,
+  type SlotRef,
+} from './character-view/swag-bag.js';
+export {
   PALETTE_CATALOG,
   EGA_DEFAULT,
   WIZ6_MAIN,

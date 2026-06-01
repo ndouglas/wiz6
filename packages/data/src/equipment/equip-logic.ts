@@ -8,6 +8,10 @@ import type { Character } from '../schemas/character.js';
 import type { ScenarioDb } from '../schemas/scenario-db.js';
 
 export const BODY_SLOT_COUNT = 8;
+// Only the carried region (inventory slots 0..9) is equippable; slots 10..21 are
+// the SWAG BAG (see character-view/swag-bag.ts). Bound candidate scans here so
+// bagged items never appear as equip candidates.
+const CARRIED_SLOT_COUNT = 10;
 const ITEM_FLAG_DUAL_WIELD = 0x04;
 const ITEM_FLAG_TWO_HANDED = 0x08;
 const TWO_HAND_WEAPON_TYPES = new Set([0xb, 0x16, 0xd, 0x17, 0xc, 0x53]);
@@ -80,7 +84,8 @@ export function equipCandidates(
     }
   }
   const out: number[] = [];
-  for (let i = 0; i < inv.length; i++) {
+  const carried = Math.min(inv.length, CARRIED_SLOT_COUNT);
+  for (let i = 0; i < carried; i++) {
     const slot = inv[i]!;
     if (slot.itemId <= 0 || selected.has(i)) continue;
     if (bodySlotForItem(slot.equipSlot, bodySlot, slot.flags) !== bodySlot) continue;

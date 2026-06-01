@@ -115,6 +115,15 @@ describe('equipCandidates (THESUS + real scenario.dbs)', () => {
     sel[0] = 0;
     expect(equipCandidates(m, 1, realScenarioDb(), sel)).toContain(4); // BUCKLER still offered
   });
+
+  it('an item in the SWAG BAG (slot ≥ 10) is NOT an equip candidate', () => {
+    const m = thesus();
+    // A second LONGSWORD sitting in the bag (array slot 10) must not be offered
+    // for body slot 0 — only the carried region (0..9) is equippable.
+    m.inventory![10] = invSlot(8, 0);
+    expect(equipCandidates(m, 0, realScenarioDb(), emptySelections())).not.toContain(10);
+    expect(equipCandidates(m, 0, realScenarioDb(), emptySelections())).toContain(0); // carried one still offered
+  });
 });
 
 describe('computeAc', () => {
