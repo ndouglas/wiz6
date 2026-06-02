@@ -74,6 +74,12 @@ const CASES: IntroCase[] = [
   { fixture: 'sirtech-logo', floor: 100, state: introState('sirtech-splash'), withTitlepag: false },
   { fixture: 'author-credit', floor: 100, state: introState('bradley-splash'), withTitlepag: false },
   { fixture: 'title-art', floor: 98, state: introState('wizardry-hang'), withTitlepag: true },
+  // Mid-scroll credits frames (the scroll runs scrollPos 0..SCROLL_TERMINAL_POS over
+  // the titlepag background). scrollPos found by sweeping composeIntroFrame against the
+  // committed engine frames; floors are the measured match minus a small margin
+  // (same composer residual as the other scroll frames).
+  { fixture: 'title-page', floor: 97, state: introState('scroll', 172), withTitlepag: true },
+  { fixture: 'title-page-2', floor: 98, state: introState('scroll', 218), withTitlepag: true },
   {
     fixture: 'title-art-copyright',
     floor: 98,
