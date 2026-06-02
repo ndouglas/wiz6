@@ -163,18 +163,40 @@ function nextEnabled(idx: number, enabled: ReadonlyArray<number>, dir: 1 | -1): 
 }
 
 /**
- * Action-menu navigation. Column-major 2-row grid: entry `idx` at column
- * floor(idx/2), row idx%2. EXIT is the last entry (idx n-1). Verified by live
- * DOSBox capture 2026-06-01.
+ * Column-major grid menu navigation — the engine's ONE generic menu-picker
+ * widget (ui_menu_picker_grid @ wpcvw 0x6c; the same routine, FUN_025c, drives
+ * the wbase MASTER OPTIONS menu). `cols` is the COLUMN HEIGHT (cells stacked
+ * per column): entry `idx` sits at column floor(idx/cols), row idx%cols. The
+ * char-view menus use cols=2 (2-row); the MASTER OPTIONS menu uses cols=4.
+ *
+ * Transitions (all CLAMP at edges — no wrap, no column carry), DOSBox-verified
+ * for cols=2 (2026-06-01 camp menu: Up EXIT→SKILL, Left SKILL→ASSAY) and cols=4
+ * (MASTER OPTIONS: Right ADD→GAME CONFIG = +cols, Down GAME CONFIG→SHOW TITLE,
+ * Right at last column clamps):
+ *   Left  = previous column  (idx -= cols, if idx >= cols)
+ *   Right = next column      (idx += cols, if idx + cols < n)
+ *   Up    = up within column (idx -= 1, if idx % cols !== 0)
+ *   Down  = down within col   (idx += 1, if idx % cols !== cols-1 && idx+1 < n)
+ * RE: docs/re/findings/wpcvw-menu-navigation.json (+ wbase-master-options-navigation.json).
+ * `n` MUST be the count of ENABLED/visible cells (the engine navigates the
+ * compacted enabled list).
  */
-export function nextActionCursor(idx: number, key: string, n: number): number {
+export function gridMenuCursor(idx: number, key: string, n: number, cols: number): number {
   switch (key) {
-    case 'ArrowLeft':  return idx >= 2 ? idx - 2 : idx;
-    case 'ArrowRight': return idx + 2 < n ? idx + 2 : idx;
-    case 'ArrowUp':    return idx % 2 === 1 ? idx - 1 : idx;
-    case 'ArrowDown':  return idx % 2 === 0 && idx + 1 < n ? idx + 1 : idx;
+    case 'ArrowLeft':  return idx >= cols ? idx - cols : idx;
+    case 'ArrowRight': return idx + cols < n ? idx + cols : idx;
+    case 'ArrowUp':    return idx % cols !== 0 ? idx - 1 : idx;
+    case 'ArrowDown':  return idx % cols !== cols - 1 && idx + 1 < n ? idx + 1 : idx;
     default:           return idx;
   }
+}
+
+/**
+ * Action-menu / SKILL-tab / SWAG-menu navigation: the 2-row (cols=2) case of
+ * the shared {@link gridMenuCursor} widget. EXIT is the last entry (idx n-1).
+ */
+export function nextActionCursor(idx: number, key: string, n: number): number {
+  return gridMenuCursor(idx, key, n, 2);
 }
 
 /** SKILL viewer category indices (0..3) + the EXIT picker entry sentinel. */

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   reduceCharacterView,
   nextActionCursor,
+  gridMenuCursor,
   skillTabEntries,
   SKILL_EXIT,
   type SwagInfo,
@@ -53,6 +54,32 @@ describe('nextActionCursor (n=6)', () => {
   it('Down from SKILL(c2r0) reaches EXIT(c2r1)', () => {
     expect(nextActionCursor(4, 'ArrowDown', 6)).toBe(5);
     expect(nextActionCursor(4, 'ArrowRight', 6)).toBe(4); // no c3
+  });
+});
+
+// MASTER OPTIONS menu (wbase FUN_025c, cols=4 column height — byte-verified at
+// wbase 0x2ccb; same generic widget as the char-view cols=2 case). Solo party →
+// 7 visible options: col0 = idx[0..3] (ADD,REVIEW,DISMISS,CHAR MENU), col1 =
+// idx[4..6] (GAME CONFIG,SHOW TITLE,QUIT). Transitions DOSBox-verified 2026-06-01.
+describe('gridMenuCursor (cols=4 — MASTER OPTIONS, n=7)', () => {
+  it('Right steps a full column (+4); clamps at the last column', () => {
+    expect(gridMenuCursor(0, 'ArrowRight', 7, 4)).toBe(4); // ADD → GAME CONFIG (verified)
+    expect(gridMenuCursor(5, 'ArrowRight', 7, 4)).toBe(5); // SHOW TITLE → clamp (verified)
+    expect(gridMenuCursor(3, 'ArrowRight', 7, 4)).toBe(3); // CHAR MENU (col0 row3) → no col1 row3
+  });
+  it('Left steps a full column (−4); clamps at col0', () => {
+    expect(gridMenuCursor(4, 'ArrowLeft', 7, 4)).toBe(0); // GAME CONFIG → ADD
+    expect(gridMenuCursor(0, 'ArrowLeft', 7, 4)).toBe(0); // clamp
+  });
+  it('Down moves within the column (+1); clamps at the column bottom', () => {
+    expect(gridMenuCursor(4, 'ArrowDown', 7, 4)).toBe(5); // GAME CONFIG → SHOW TITLE (verified)
+    expect(gridMenuCursor(3, 'ArrowDown', 7, 4)).toBe(3); // CHAR MENU (col0 row3) → clamp
+    expect(gridMenuCursor(6, 'ArrowDown', 7, 4)).toBe(6); // QUIT (col1 row2, last cell) → clamp
+  });
+  it('Up moves within the column (−1); clamps at the column top', () => {
+    expect(gridMenuCursor(5, 'ArrowUp', 7, 4)).toBe(4); // SHOW TITLE → GAME CONFIG
+    expect(gridMenuCursor(4, 'ArrowUp', 7, 4)).toBe(4); // clamp (col1 row0)
+    expect(gridMenuCursor(0, 'ArrowUp', 7, 4)).toBe(0); // clamp (col0 row0)
   });
 });
 

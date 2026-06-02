@@ -20,6 +20,7 @@ import { availableRosterFor, readActiveParty } from '../../lib/active-party-stor
 import { CanvasPresenter } from '../../lib/presenter.js';
 import { readRoster } from '../../lib/roster-store.js';
 import { composeCastleFrame } from './castle-frame.js';
+import { gridMenuCursor } from '../castle/character-view-reducer.js';
 import styles from './CastleScreen.module.css';
 
 const ENGINE_W = 320;
@@ -30,6 +31,12 @@ const SCALE = 3;
  *  polls between flips; on a 486DX/33 that's roughly 400-600ms wall-clock.
  *  Tunable by feel — we don't aim for byte-precise emulator timing. */
 const PARITY_FLIP_MS = 500;
+
+/** Column height of the MASTER OPTIONS grid (rows stacked per column). The
+ *  engine's generic menu widget (wbase FUN_025c) is called with cols=4 for this
+ *  menu — byte-verified at the wbase 0x2ccb call site; matches castle-frame's
+ *  ROWS_PER_COL. RE: docs/re/findings/wbase-master-options-navigation.json. */
+const MENU_COLUMN_HEIGHT = 4;
 
 const ROUTE_BY_SLOT: Record<number, { route: string; replay?: boolean }> = {
   0: { route: '/castle/add-party' },
@@ -256,15 +263,21 @@ export function CastleScreen() {
     portraitSets,
   ]);
 
-  // Keyboard navigation: ↑/↓ wrap-around through visible options; Enter activates.
+  // Keyboard navigation: column-major grid (Left/Right step a full column of
+  // MENU_COLUMN_HEIGHT, Up/Down move within a column), CLAMPING at every edge —
+  // the engine's generic menu widget, NOT a 1-D wrap. Verified by DOSBox drive
+  // of the MASTER OPTIONS menu (Right ADD→GAME CONFIG, Down within column, Right
+  // at last column clamps) + RE (wbase-master-options-navigation.json).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      if (
+        e.key === 'ArrowDown' ||
+        e.key === 'ArrowRight' ||
+        e.key === 'ArrowUp' ||
+        e.key === 'ArrowLeft'
+      ) {
         e.preventDefault();
-        setSelectedIdx((i) => (i + 1) % visible.length);
-      } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
-        e.preventDefault();
-        setSelectedIdx((i) => (i - 1 + visible.length) % visible.length);
+        setSelectedIdx((i) => gridMenuCursor(i, e.key, visible.length, MENU_COLUMN_HEIGHT));
       } else if (e.key === 'Enter') {
         e.preventDefault();
         const opt = visible[selectedIdxRef.current];

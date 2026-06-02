@@ -1,0 +1,161 @@
+{
+  "topic": "wbase-master-options-navigation",
+  "subagent_run": "2026-06-01T00:00:00Z",
+  "binaries": ["wbase.ovr"],
+  "summary": "Decompiled the keyboard cursor-movement logic of the MASTER OPTIONS main menu (master game state 4) in wbase.ovr. HEADLINE: the navigator is wbase_menu_select_loop @ wbase file 0x25c (== the task's FUN_025c), and it is STRUCTURALLY BYTE-IDENTICAL to the wpcvw grid picker ui_menu_picker_grid @ wpcvw 0x6c -- same 9-arg signature (window, msg_base, mask, x_base, y_base, x_step, cols, attr, init_cursor), same enabled-cell compaction loop, same key codes (1/2/3/4 arrows, 5=commit, mouse via *0x4fc4==1), same four guarded transition formulas, same column-major (idx/cols, idx%cols) placement, and ALL FOUR EDGES CLAMP with no wrap and no column-carry. The ONLY difference from the wpcvw sibling is the per-call geometry args: the MASTER OPTIONS call site (wbase file 0x2ccb, inside wbase_state4_main_menu @ 0x2b36) passes cols=4 (vs wpcvw's 2) and x_step=0x13=19 (vs 6/8/0xa). So 'cols' is the COLUMN HEIGHT (= 4 rows stacked vertically per column); index i sits at screen column = i/4, row = i%4. The bound N for the RIGHT/DOWN guards is local_6 = the count of ENABLED cells the navigator rendered (it walks the mask skipping entries != 1 and terminating on -1), NOT the raw 9; the cursor space is the compacted enabled list and the return value is aiStack_24[cursor] = the original mask index. Confidence HIGH throughout: comparators come from Ghidra's control-flow decompile (no manual JL/JG read), the call args are byte-verified at file 0x2ccb, and the whole routine mirrors the already-DOSBox-verified wpcvw 0x6c picker. IMPLICATION FOR THE PORT: the engine CLAMPS at every edge and treats Left/Right and Up/Down as DISTINCT grid axes (Left/Right = +/-cols column step, Up/Down = +/-1 within column) -- it does NOT do 1-D prev/next wrap-around. With cols=4 and N<=4 enabled (e.g. the 6-visible first-launch menu has N=6 -> column0={0,1,2,3}, column1={4,5}), Up/Down walk WITHIN the 4-tall column and Left/Right jump between the two columns. A 1-D wrap port is WRONG on two counts: (1) it wraps where the engine clamps, (2) it collapses the two grid axes into one.",
+  "method": "PyGhidra DecompInterface via tools/ghidra/scripts/decompile.py (absolute --project-dir, GHIDRA_INSTALL_DIR set, GUI closed) on wbase_menu_select_loop @ wbase file 0x25c with --raw, giving both the C decompile (control-flow-recovered comparators) and the raw listing (exact file offsets for every CMP/Jcc since wbase.ovr loads at image base 0). Also decompiled the call site wbase_state4_main_menu @ 0x2b36 (the argument pushes), the per-move render helper wbase_menu_redraw_item_unhighlighted @ 0x221 (confirms identical (idx/cols)*x_step+x_base, idx%cols+y_base placement), and wbase_menu_count_enabled_options @ 0x2af7 (the init_cursor source). Byte-verified the picker call site: scanned original/wbase.ovr for the E8 rel16 near-call resolving to target 0x25c (found at file 0x2ccb) and decoded the right-to-left push sequence (b8 II II 50 = mov ax,imm/push ax) immediately preceding it. Cross-referenced the algebra against the fully-RE'd, DOSBox-verified sibling in docs/re/findings/wpcvw-menu-navigation.json (ui_menu_picker_grid @ wpcvw 0x6c).",
+  "findings": [
+    {
+      "id": "navigator-is-fun025c-same-widget-as-wpcvw-0x6c",
+      "claim": "The MASTER OPTIONS navigator is wbase_menu_select_loop @ wbase file 0x25c (the task's FUN_025c). wbase_state4_main_menu @ 0x2b36 calls it once per menu iteration (call at file 0x2ccb). It is STRUCTURALLY BYTE-IDENTICAL to the wpcvw grid picker ui_menu_picker_grid @ wpcvw 0x6c: same 9-arg signature (param_1=window, param_2=msg_base, param_3=mask_ptr, param_4=x_base, param_5=y_base, param_6=x_step, param_7=cols/column-height, param_8=attr, param_9=cursor); same head loop that compacts enabled cells (mask walk: terminate on -1, count cells == 1 into local_6, aiStack_24[local_6]=original_index); same do/while input loop polling key code 1/2/3/4/5 with mouse via *0x4fc4==1; same four guarded transition branches; same `return aiStack_24[param_9]` decompaction. The two routines are the same widget instantiated in two overlays.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x25c"},
+        "type": "decompile",
+        "details": "Decompile head: `local_6=0; local_4=0; while (*(int*)(param_3+local_4*2) != -1) { if (*(int*)(param_3+local_4*2)==1){ render cell local_6 at (local_6/param_7)*param_6+param_4, local_6%param_7+param_5; aiStack_24[local_6]=local_4; local_6++; } local_4++; }` then `do { ...poll wbase_menu_poll_input()... key dispatch 1/2/3/4 ... } while (local_4 != 5); return aiStack_24[param_9];`. Identical shape to wpcvw 0x6c. Call site verified: scan of original/wbase.ovr for E8 rel16 -> 0x25c finds exactly the call at file 0x2ccb (rel -0x2a72) inside wbase_state4_main_menu."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "geometry-column-major-cols4",
+      "claim": "Geometry is COLUMN-MAJOR with cols (param_7) = 4 = the COLUMN HEIGHT (4 rows stacked vertically per column). Cell index i (in the compacted enabled list) is placed at screen column = i/4 and screen row = i%4: x = (i/4)*x_step + x_base = (i/4)*0x13 + 2; y = (i%4) + y_base = (i%4) + 1. The MASTER OPTIONS call passes x_base=2, y_base=1, x_step=0x13(19), cols=4, attr=5. So with N enabled cells: column 0 = indices {0,1,2,3}, column 1 = {4,5,6,7}, column 2 = {8} (only if N=9). For the typical first-launch menu (N=6 enabled), column 0 = {0,1,2,3}, column 1 = {4,5}. The list window itself is created by func_bbb6(0,0x13,0x28,5,0xf,...) = window at cell (x=0x13,y=0x28), width=5 cells, height=0xf cells. NOTE cols=4 here vs wpcvw's cols=2 is the ONLY navigation-relevant difference between the two menus; everything else (the algebra) is shared code.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x2ccb"},
+        "type": "disasm",
+        "details": "Bytes preceding the E8->0x25c call at file 0x2ccb (right-to-left pushes): `ff 76 fe`(window=[bp-2]) `b8 ea 03 50`(msg_base=0x3ea) `8d 46 d8 50`(mask=lea[bp-0x28]) `b8 02 00 50`(x_base=2) `b8 01 00 50`(y_base=1) `b8 13 00 50`(x_step=0x13) `b8 04 00 50`(cols=4) `b8 05 00 50`(attr=5) `89 46 f6 50`(init_cursor=[bp-0xa]=count_enabled result). Render formula in 0x25c (raw): x at 0x028f-0x029c `MOV AX,[BP-4]; CWD; IDIV [BP+0x10]; IMUL [BP+0xe]; ADD AX,[BP+0xa]` = (i/cols)*x_step+x_base; y at 0x02a0-0x02ac `IDIV [BP+0x10]; MOV AX,DX; ADD AX,[BP+0xc]` = i%cols+y_base. [BP+0x10]=param_7=cols, [BP+0xe]=param_6=x_step, [BP+0xa]=param_4=x_base, [BP+0xc]=param_5=y_base. wbase_menu_redraw_item_unhighlighted @ 0x221 uses the identical placement: `func_bda7(p1,(p2/p4)*p3+p5, p2%p4+p6)`."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "key-codes-1234-arrows-5-commit",
+      "claim": "The navigator compares the polled code against 1,2,3,4 for the arrows and exits the loop on code 5 (commit). Mapping (inherited from the DOSBox-verified wpcvw 0x6c sibling and the wbase-main-menu.json input-handling finding): 1=LEFT, 2=UP, 3=RIGHT, 4=DOWN, 5=Enter/commit. A mouse click is detected via *0x4fc4==1, which forces the loop key to 5 (commit) and sets the cursor to the clicked index. There is NO ESC/cancel handling inside the navigator -- the only exit is committing on a cell (e.g. selecting QUIT GAME).",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x527"},
+        "type": "disasm",
+        "details": "Raw listing dispatch: 0x0400 CMP word[0x4fc4],0x1 / 0x0405 JNZ -> if mouse click: 0x040a MOV [BP-2],0x5 (key:=5 commit), 0x0407 MOV [BP+0x14],AX (cursor:=clicked idx). Else key dispatch: 0x0527 CMP AX,0x1 (LEFT); 0x052f CMP AX,0x2 (UP); 0x0537 CMP AX,0x3 (RIGHT); 0x053f CMP AX,0x4 (DOWN). Loop terminator 0x0544 CMP word[BP-2],0x5 -> exit when key==5. Input source: wbase_menu_poll_input @ wbase 0x13b (called at 0x03f7), documented in wbase-main-menu.json as returning 1=up/2=left/3=down/4=right/5=ENTER plain-English -- but the actual code->axis binding is the DOSBox-verified 1=LEFT,2=UP,3=RIGHT,4=DOWN from wpcvw-menu-navigation.json, since this is the same widget reading the same codes."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "transition-left-key1",
+      "claim": "LEFT (key code 1): cursor -= cols IFF cursor >= cols. Formula: `if (cols <= cursor) cursor -= cols`. With cols=4: `if (cursor >= 4) cursor -= 4`. PHYSICAL: steps to the PREVIOUS COLUMN (the +/-cols column-major axis) = leftward. CLAMP at column 0: when cursor < 4 (already in the first column) it is a no-op -- NO wrap to the last column.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x418"},
+        "type": "disasm",
+        "details": "Decompile: `else if (iVar1 == 1) { if (param_7 <= param_9) { redraw_old; param_9 = param_9 - param_7; } }`. Raw listing: 0x0418 MOV AX,[BP+0x14] (cursor); 0x041b SUB AX,[BP+0x10] (cursor - cols); 0x041e JL 0x0454 (skip move if cursor-cols < 0, i.e. require cursor >= cols); on move path 0x0451 SUB [BP+0x14],AX where AX=[BP+0x10]=cols (i.e. cursor -= cols). [BP+0x10]=param_7=cols, [BP+0x14]=param_9=cursor. Comparator from Ghidra control-flow (signed); no manual JL read needed."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "transition-up-key2",
+      "claim": "UP (key code 2): cursor -= 1 IFF (cursor mod cols) > 0. Formula: `if (cursor % cols > 0) cursor -= 1`. With cols=4: only cursor not at the top of its column (cursor%4 != 0) moves up one row WITHIN the same column. PHYSICAL: moves UP within the 4-tall column (the +/-1 within-column axis). CLAMP on the top row of a column: cursor%4==0 is a no-op -- NO wrap to the bottom of the column and NO column carry.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x457"},
+        "type": "disasm",
+        "details": "Decompile: `else if (iVar1 == 2) { if (0 < param_9 % param_7) { redraw_old; param_9 = param_9 - 1; } }`. Raw listing: 0x0457 MOV AX,[BP+0x14]; 0x045a CWD; 0x045b IDIV [BP+0x10] (cursor/cols, remainder->DX); 0x045e MOV AX,DX; 0x0460 CMP AX,0x0; 0x0463 JLE 0x0496 (skip if remainder <= 0, i.e. require remainder > 0); on move path 0x0493 DEC word[BP+0x14] (cursor -= 1). Comparator from control-flow (signed)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "transition-right-key3",
+      "claim": "RIGHT (key code 3): cursor += cols IFF cursor + cols < N. Formula: `if (cursor + cols < N) cursor += cols`. With cols=4: `if (cursor + 4 < N) cursor += 4`. N = local_6 = count of ENABLED cells (NOT the raw 9). PHYSICAL: steps to the NEXT COLUMN (the +/-cols column-major axis) = rightward. CLAMP at the last column: if cursor+cols >= N it is a no-op -- NO wrap to the first column. For the 6-visible menu (N=6): from index 0 (col0,row0) RIGHT -> 4 (col1,row0); from 1 RIGHT -> 5 (col1,row1); from 2 RIGHT -> no-op (2+4=6 >= 6).",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x499"},
+        "type": "disasm",
+        "details": "Decompile: `else if (iVar1 == 3) { if (param_9 + param_7 < local_6) { redraw_old; param_9 = param_9 + param_7; } }`. Raw listing: 0x0499 MOV AX,[BP+0x14]; 0x049c ADD AX,[BP+0x10] (cursor + cols); 0x049f CMP AX,[BP-0x4] (vs local_6 = enabled count); 0x04a2 JGE 0x04d8 (skip if cursor+cols >= count); on move path 0x04d5 ADD [BP+0x14],AX where AX=[BP+0x10]=cols (cursor += cols). local_6 at [BP-0x4]. Comparator from control-flow (signed)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "transition-down-key4",
+      "claim": "DOWN (key code 4): cursor += 1 IFF (cursor mod cols) < cols-1 AND cursor+1 < N. Formula: `if (cursor % cols < cols-1 && cursor + 1 < N) cursor += 1`. With cols=4: cursor moves down one row within its column only if it is NOT already on the bottom row of the column (cursor%4 != 3) AND the next cell exists (cursor+1 < N). PHYSICAL: moves DOWN within the 4-tall column (the +/-1 within-column axis). CLAMP on the bottom row of a column (cursor%4==3) OR when the next cell is past the enabled count: no-op -- NO wrap, NO column carry.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x4da"},
+        "type": "disasm",
+        "details": "Decompile: `else if (((iVar1 == 4) && (param_9 % param_7 < param_7 + -1)) && (param_9 + 1 < local_6)) { redraw_old; param_9 = param_9 + 1; }`. Raw listing: 0x04da MOV AX,[BP+0x14]; 0x04dd CWD; 0x04de IDIV [BP+0x10] (cursor%cols->DX); 0x04e1 MOV AX,DX; 0x04e3 MOV CX,[BP+0x10]; 0x04e6 DEC CX (CX = cols-1); 0x04e7 CMP AX,CX; 0x04e9 JGE 0x0525 (skip if remainder >= cols-1); 0x04eb MOV AX,[BP+0x14]; 0x04ee INC AX (cursor+1); 0x04ef CMP AX,[BP-0x4]; 0x04f2 JGE 0x0525 (skip if cursor+1 >= count); on move path 0x0522 INC word[BP+0x14] (cursor += 1). Two-part guard. Comparators from control-flow (signed)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "all-edges-clamp-no-wrap",
+      "claim": "EVERY edge CLAMPS; there is NO wrap-around and NO column-carry on any of the four arrows -- identical to the wpcvw 0x6c sibling. Each handler is a guarded `if` that leaves the cursor unchanged when the guard fails (the do/while only exits on key 5). LEFT in column 0 (cursor<cols) = no-op; RIGHT in the last column (cursor+cols>=N) = no-op; UP on a column-top (cursor%cols==0) = no-op; DOWN on a column-bottom (cursor%cols==cols-1) or when the next cell is past N = no-op. The cursor never jumps to the opposite edge and never carries across a column boundary. CRITICAL CORRECTION FOR THE PORT: the current port's 1-D wrap-around (Up/Left=prev wrapping, Down/Right=next wrapping) is wrong twice over -- (1) the engine clamps where the port wraps, and (2) the engine treats Left/Right (column step, +/-cols) and Up/Down (within-column, +/-1) as DISTINCT axes rather than collapsing them into prev/next.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x25c"},
+        "type": "decompile",
+        "details": "All four key branches in 0x25c are `if (<guard>) { wbase_menu_redraw_item_unhighlighted(...); param_9 += delta; }` with no else and no wrap arithmetic; the only loop exit is key==5 (0x0544). Guards: LEFT `param_7 <= param_9` (0x041e JL); UP `0 < param_9%param_7` (0x0463 JLE); RIGHT `param_9+param_7 < local_6` (0x04a2 JGE); DOWN `param_9%param_7 < param_7-1 && param_9+1 < local_6` (0x04e9 JGE, 0x04f2 JGE). No modulo-wrap, no `if (idx<0) idx=N-1`, nothing of the kind."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "count-is-enabled-cells-not-raw-nine",
+      "claim": "The bound N in the RIGHT and DOWN guards is local_6 = the number of ENABLED cells the navigator rendered, NOT the raw 9 slots. The navigator walks the 0xffff-terminated mask (param_3), skipping any entry whose word != 1, counting enabled cells into local_6 and recording aiStack_24[local_6]=original_slot. The cursor (param_9) indexes the COMPACTED enabled list; the return is aiStack_24[param_9] = the original slot 0..8. So DISABLED MASTER OPTIONS slots are not navigable cells and do not count toward N -- the grid SHRINKS with context (party size, PCFILE availability). The wbase_state4_main_menu enable rules (e.g. party_size<1 disables slots 1/2, party_size<2 disables slot 3, party_size>=1 disables slot 4, party_size>=6 disables slot 0) directly reduce N. init_cursor is computed by wbase_menu_count_enabled_options(options, uStack_c) = count of enabled slots BELOW the default slot index uStack_c (uStack_c = 3 if party_size>=6 else 0), i.e. the compacted index of the default highlight.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x2af7"},
+        "type": "decompile",
+        "details": "0x25c head loop (decompile): `while (*(int*)(param_3+local_4*2) != -1) { if (== 1) { ...render local_6...; aiStack_24[local_6]=local_4; local_6++; } local_4++; }` and `return aiStack_24[param_9]`. wbase_menu_count_enabled_options @ 0x2af7: `local_6=0; for(local_4=0; local_4 != param_2 && mask[local_4] != -1; local_4++) if (mask[local_4]==1) local_6++; return local_6;` -- counts enabled entries up to (not including) param_2=uStack_c, giving the compacted init cursor. Call site sets init_cursor = this result ([bp-0xa])."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "no-cancel-key-commit-only-exit",
+      "claim": "There is no separate ESC/cancel inside the navigator; the loop exits only on key code 5 (Enter) or a mouse click (forced to 5). The selected slot is returned (the original mask index), and wbase_state4_main_menu dispatches via the inline jump table at file 0x2dbb (runtime 0x731f) on that slot. So 'backing out' of MASTER OPTIONS is done by committing on the QUIT GAME / SHOW TITLE PAGE slots, not by a cancel key in the navigator. (This matches the wpcvw sibling, whose menus exit via an EXIT cell.)",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x544"},
+        "type": "disasm",
+        "details": "Raw listing: do/while terminator 0x0544 CMP word[BP-2],0x5 / 0x0548 JZ 0x054d (exit) / 0x054a JMP 0x039e (loop top). On exit 0x054d-0x0556 computes aiStack_24[param_9] and returns it. No CMP against an ESC scancode anywhere in 0x25c."
+      },
+      "confidence": "high"
+    }
+  ],
+  "transition_tables": {
+    "navigator": "wbase_menu_select_loop @ wbase file 0x25c == FUN_025c. Same widget as wpcvw ui_menu_picker_grid @ 0x6c. MASTER OPTIONS call: (window, msg=0x3ea, mask, x_base=2, y_base=1, x_step=0x13, cols=4, attr=5, init_cursor) at call site file 0x2ccb.",
+    "geometry": "COLUMN-MAJOR, cols=4 = column height (4 rows per column). index i -> column i/4, row i%4. x=(i/4)*0x13+2, y=(i%4)+1. N = count of ENABLED cells (compacted), not raw 9.",
+    "by_key_code": {
+      "1_LEFT":  "if (idx >= cols)            idx -= cols   // = idx-4; previous column (leftward); clamp at column 0",
+      "2_UP":    "if (idx % cols > 0)         idx -= 1      // up one row within column; clamp on column top",
+      "3_RIGHT": "if (idx + cols < N)         idx += cols   // = idx+4; next column (rightward); clamp at last column",
+      "4_DOWN":  "if (idx % cols < cols-1 && idx+1 < N) idx += 1  // down one row within column; clamp on column bottom / missing cell",
+      "5_ENTER": "commit; return aiStack_24[idx] = original mask slot (0..8)",
+      "edges":   "ALL clamp; NO wrap, NO column carry. Left/Right and Up/Down are DISTINCT axes.",
+      "code_to_arrow": "1=LEFT, 2=UP, 3=RIGHT, 4=DOWN, 5=Enter (inherited from DOSBox-verified wpcvw 0x6c; same codes read by the same widget)."
+    },
+    "worked_example_N6_firstlaunch": "N=6 enabled (cols=4): compacted layout col0={0,1,2,3}, col1={4,5}. From idx0: RIGHT->4, DOWN->1, UP/LEFT no-op. From idx2: DOWN->3, RIGHT no-op(2+4>=6), UP->1, LEFT no-op. From idx4: LEFT->0, DOWN->5, UP no-op(4%4==0), RIGHT no-op(4+4>=6). From idx5: LEFT->1, UP->4, DOWN no-op(5%4==1 ok but 5+1>=6), RIGHT no-op."
+  },
+  "comparison_to_wpcvw_0x6c": {
+    "verdict": "SAME WIDGET (structurally byte-identical algorithm). wbase_menu_select_loop @ wbase 0x25c and ui_menu_picker_grid @ wpcvw 0x6c are the same generic grid picker compiled into two overlays. Identical: 9-arg signature, enabled-cell compaction + aiStack_24 decompaction, key codes 1/2/3/4/5 + mouse *0x4fc4, the four guarded transition formulas (LEFT idx-=cols, UP idx-=1 if idx%cols>0, RIGHT idx+=cols if idx+cols<N, DOWN idx+=1 if idx%cols<cols-1 && idx+1<N), column-major (i/cols,i%cols) placement, ALL-EDGES-CLAMP behaviour.",
+    "only_difference": "Per-call geometry args. MASTER OPTIONS passes cols=4, x_step=0x13(19), x_base=2, y_base=1, attr=5, msg_base=0x3ea. wpcvw passes cols=2 with x_step in {6,8,0xa}. cols is the column height, so MASTER OPTIONS stacks 4 rows per column where wpcvw stacks 2."
+  },
+  "port_impact": {
+    "current_model_status": "The port's MASTER OPTIONS navigation reportedly does 1-D WRAP-around (Up/Left=prev, Down/Right=next, wrapping). This is WRONG vs the engine on TWO counts: (1) the engine CLAMPS at every edge (no wrap), and (2) the engine uses a 2-D column-major grid with cols=4 -- Left/Right step +/-cols between columns and Up/Down step +/-1 within a column. They are distinct axes, not collapsed into prev/next.",
+    "fix": "Reuse the same grid-navigator the port already has for the wpcvw/wpcmk menus (nextActionCursor / gridNextSchool), but pass cols=4 for MASTER OPTIONS (vs 2 for the character-view menus). N must be the count of ENABLED/visible slots (post-context-mask), not 9. init cursor = compacted index of the default slot (party_size>=6 ? slot3-compacted : 0).",
+    "keep_one_function": "Keeping ONE grid-navigator function parameterized by cols is CORRECT -- the engine does exactly that (one routine, cols arg differs per menu)."
+  },
+  "unresolved": [
+    "Code->arrow binding (1=LEFT,2=UP,3=RIGHT,4=DOWN) is INHERITED from the DOSBox-verified wpcvw 0x6c finding rather than re-driven in DOSBox for wbase specifically. It is the same widget reading the same codes from the same kbd filter, so confidence is high, but a direct DOSBox drive of the MASTER OPTIONS menu (e.g. from save state with party loaded so N>4 and two columns exist) would close it fully -- press LEFT/RIGHT to confirm the +/-4 column jump and UP/DOWN to confirm +/-1 within-column.",
+    "wbase_menu_poll_input @ 0x13b (the code source) was not re-decompiled here; wbase-main-menu.json describes it returning codes 1..5 plus the mouse path. Its keypad/binding lookup (func_edec) maps physical scancodes to the 1..4 codes -- not re-derived, but not needed for the transition algebra."
+  ],
+  "cross_references": [
+    "docs/re/findings/wpcvw-menu-navigation.json — the sibling grid picker ui_menu_picker_grid @ wpcvw 0x6c; same algebra, DOSBox-verified code->arrow mapping, cols=2 there vs cols=4 here.",
+    "docs/re/findings/wbase-main-menu.json — wbase state-4 main menu structure, the 9 slot-enable rules, the inline dispatch jump table @ file 0x2dbb (runtime 0x731f), and the input function wbase_menu_poll_input @ 0x13b returning codes 1..5.",
+    "docs/re/findings/spell-picker-eligibility.json — wpcmk spell-picker (gridNextSchool) with the same 1/2/3/4 codes and column-major axis convention."
+  ]
+}
