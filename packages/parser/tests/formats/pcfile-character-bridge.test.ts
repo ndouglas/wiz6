@@ -34,6 +34,17 @@ describe('pcfileSlotToCharacter', () => {
     expect(c.encumbranceMax).toBe(thesus.encumbranceMax);
   });
 
+  it('carries the slot inventory + equipment onto the Character (regression: were dropped)', () => {
+    // Was the bug behind "my squad has no equipment": the bridge built the
+    // Character without inventory/equipment, so any pcfile-imported roster showed
+    // an empty pack in the review screen + equip menu. THESUS (Fighter) carries the
+    // stock Fighter kit: LONGSWORD, LEATHER CUIRASS, FUR LEGGING, SANDALS, BUCKLER SHIELD.
+    const c = pcfileSlotToCharacter(thesus, UUID1);
+    expect(c.inventory).toBeDefined();
+    expect(c.inventory!.map((i) => i.itemId).filter((id) => id > 0)).toEqual([8, 135, 132, 130, 141]);
+    expect(c.equipment).toHaveLength(8);
+  });
+
   it('reads the RENDERED portrait from raw[0x19c], not slot.portraitIndex (0x1ab)', () => {
     const c = pcfileSlotToCharacter(thesus, UUID2);
     expect(c.portraitIndex).toBe(thesus.raw[0x19c]);

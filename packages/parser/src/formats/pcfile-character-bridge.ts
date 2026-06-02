@@ -51,6 +51,20 @@ export function pcfileSlotToCharacter(slot: PcfileSlot, id: string): Character {
     encumbranceCurrent: slot.encumbranceCurrent,
     encumbranceMax: slot.encumbranceMax,
     bodyAc: [...slot.bodyAc],
+    // Carried inventory + equipped body-slots. Previously omitted, so every
+    // character loaded from a pcfile (viewer roster import via pc-file-io.ts)
+    // came through with an empty pack — the review screen + equip menu showed
+    // nothing even when the record held items (e.g. freshly-created class kits).
+    // The parity tests never caught this because they hardcode `inventory`.
+    inventory: slot.inventory.map((it) => ({
+      itemId: it.itemId,
+      weight: it.weight,
+      equipSlot: it.equipSlot,
+      spriteIdx: it.spriteIdx,
+      quantity: it.quantity,
+      flags: it.flags,
+    })),
+    equipment: [...slot.equipment],
   };
 }
 
