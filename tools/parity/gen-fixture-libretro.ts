@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { COMPOSED_PALETTE, indicesToRgba, SCREEN_WIDTH, SCREEN_HEIGHT } from './decode-screen.js';
-import { HostClient } from '../libretro/host-client.js';
+import { HostClient } from '../../packages/mcp/src/live/host-client.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = resolve(__dirname, 'fixtures', 'engine');

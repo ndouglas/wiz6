@@ -18,7 +18,7 @@ import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { findRecipe } from '../dosbox/state-catalog.js';
-import { HostClient } from './host-client.js';
+import { HostClient } from '../../packages/mcp/src/live/host-client.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { COMPOSED_PALETTE, indicesToRgba, SCREEN_WIDTH, SCREEN_HEIGHT } from '../parity/decode-screen.js';
 

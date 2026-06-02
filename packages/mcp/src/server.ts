@@ -13,6 +13,7 @@ import { registerControlTools } from './tools/control.js';
 import { registerInspectionTools } from './tools/inspection.js';
 import { registerBreakpointTools } from './tools/breakpoints.js';
 import { registerSnapshotTools } from './tools/snapshots.js';
+import { registerLiveTools } from './tools/live.js';
 
 export const SERVER_NAME = '@wiz6/mcp';
 export const SERVER_VERSION = '0.0.0';
@@ -32,6 +33,7 @@ export function buildServer(opts: McpContextOptions = {}): BuiltServer {
   registerInspectionTools(server, context);
   registerBreakpointTools(server, context);
   registerSnapshotTools(server, context);
+  registerLiveTools(server, context);
 
   return { server, context };
 }

@@ -45,7 +45,13 @@ layers as-is (proven portable).
 (base 0xffa0, game_state, find==base+0x5d6, 320x200 fb). `find`/`read` map 1:1 to
 SaveStateBridge.findPattern/readPhysical — MCP repoint is a drop-in adapter (make
 the bridge async + await at call sites; OR a live-vs-save-N design decision).
-**Status:** In Progress
+**DONE:** 12 `dosbox_live_*` tools (launch/kill/step/key/batch/state/read/read_struct/
+find/screenshot/serialize/unserialize) on a per-process LiveSession; reuse the
+BssStruct registry for live read_struct. The live backend (HostClient+LiveSession)
+now lives in packages/mcp/src/live/. Proven end-to-end via the registered handlers
+(launch→drive→read game_state) + a live character_record decode (THESUS). MCP
+suite green (88), full typecheck clean.
+**Status:** Complete
 
 ## Stage 4: Parity/fixture pipeline
 **Goal:** repoint `tools/parity` (gen-fixture, extract.py) + `tools/dosbox`

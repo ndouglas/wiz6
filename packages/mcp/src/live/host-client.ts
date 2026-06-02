@@ -6,11 +6,14 @@
 // save-state + GUI-automation paths.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface, type Interface } from 'node:readline';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdirSync, openSync } from 'node:fs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// The host binary + dosbox-pure core live in tools/libretro/ (built by build.sh).
+// HERE is packages/mcp/src/live → repo/tools/libretro.
+const HOST_DIR = resolve(HERE, '..', '..', '..', '..', 'tools', 'libretro');
 const LOG_DIR = '/tmp/wiz6-libretro';
 
 export class HostClient {
@@ -23,7 +26,7 @@ export class HostClient {
     mkdirSync(LOG_DIR, { recursive: true });
     const logFd = openSync(`${LOG_DIR}/host-client.log`, 'a');
     this.child = spawn('./host', opts.exe ? [opts.exe] : [], {
-      cwd: HERE,
+      cwd: HOST_DIR,
       stdio: ['pipe', 'pipe', logFd],
     });
     this.rl = createInterface({ input: this.child.stdout! });
