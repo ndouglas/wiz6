@@ -1,30 +1,50 @@
 /**
  * build-state.ts — reproducible committed derivative assets from the harness.
  *
- * Drives a named recipe (reused verbatim from tools/dosbox/state-catalog.ts —
- * the macros are emulator-agnostic) through the dosbox-pure harness, then writes
- * BOTH committed assets:
- *   - tools/parity/fixtures/engine/<name>.idx.gz + .png  (the test ground truth)
- *   - tools/libretro/states/<name>.state                 (fast-reload serialize)
+ * Two paths:
  *
- * Streaming vs batching: a recipe is just a batch of key/step commands; the same
- * harness serves interactive single commands. --validate <committed> diffs the
- * regenerated fixture against an existing committed fixture.
+ * 1. RECIPE replay (default for deterministic screens). Drives a named recipe
+ *    (reused verbatim from tools/dosbox/state-catalog.ts — the macros are
+ *    emulator-agnostic) through the harness, then writes BOTH committed assets:
+ *      - tools/parity/fixtures/engine/<name>.idx.gz + .png  (test ground truth)
+ *      - tools/libretro/states/<name>.state                 (gitignored scratch)
  *
- * Usage: pnpm tsx tools/libretro/build-state.ts <recipe> [--validate <fixture>]
+ * 2. MINT (--mint) for NON-DETERMINISTIC screens (creation rolls). Drives the
+ *    recipe via LiveSession to the waypoint, then commits a frozen machine so
+ *    the fixture re-mints byte-exact regardless of the roll:
+ *      - test-fixtures/states/<name>.state.gz   (COMMITTED pinned source)
+ *      - tools/parity/fixtures/engine/<name>.{idx.gz,png}  (test ground truth)
+ *      - tools/parity/fixtures/engine/<name>.character.json (decoded draft sidecar)
+ *    --mint accepts WHATEVER roll comes up; the sidecar records the engine's
+ *    decode so the parity composer renders the same character.
+ *
+ * --check: if a committed test-fixtures/states/<name>.state.gz exists, re-mint
+ * from it (unserialize → step → fb) and diff vs the committed fixture (NO
+ * driving — proves the frozen-machine re-mint is byte-exact). Otherwise falls
+ * back to recipe replay + diff.
+ *
+ * Usage:
+ *   pnpm tsx tools/libretro/build-state.ts <recipe>            # recipe → fixture + state
+ *   pnpm tsx tools/libretro/build-state.ts <recipe> --mint     # serialize-state mint + sidecar
+ *   pnpm tsx tools/libretro/build-state.ts <recipe> --check    # re-mint + diff (no overwrite)
+ *   pnpm tsx tools/libretro/build-state.ts <recipe> --validate <fixture>
  */
-import { writeFileSync, readFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { findRecipe } from '../dosbox/state-catalog.js';
 import { HostClient } from '../../packages/mcp/src/live/host-client.js';
+import { LiveSession } from '../../packages/mcp/src/live/live-session.js';
+import { ALL_STRUCTS, buildStructRegistry, CreationDraftSidecarSchema } from '../../packages/data/src/index.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { COMPOSED_PALETTE, indicesToRgba, SCREEN_WIDTH, SCREEN_HEIGHT } from '../parity/decode-screen.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(HERE, '..', '..');
 const FIXTURES = resolve(HERE, '..', 'parity', 'fixtures', 'engine');
-const STATES = resolve(HERE, 'states');
+const STATES = resolve(HERE, 'states'); // gitignored scratch (recipe-replay states)
+const COMMITTED_STATES = resolve(REPO_ROOT, 'test-fixtures', 'states'); // committed pinned states
 const TMP = '/tmp/wiz6-libretro';
 
 const rgbToIdx = new Map<number, number>();
@@ -39,18 +59,19 @@ function rgbaToIndices(rgba: Uint8Array): Uint8Array {
   return idx;
 }
 
-async function driveRecipe(h: HostClient, steps: readonly string[], settleMs = 0): Promise<void> {
-  await h.step(3000);            // boot → title
-  await h.key('enter', 'tap');   // dismiss title → MASTER OPTIONS (cursor on ADD)
-  await h.step(800);
+/** Drive a recipe via LiveSession (so dumpDraft is available at the waypoint). */
+async function driveRecipe(s: LiveSession, steps: readonly string[], settleMs = 0): Promise<void> {
+  await s.step(3000);               // boot → title
+  await s.key('enter', 'tap');      // dismiss title → MASTER OPTIONS (cursor on ADD)
+  await s.step(800);
   for (const step of steps) {
-    for (const k of step.split(/\s+/)) { await h.key(k, 'tap'); await h.step(120); }
-    await h.step(600);           // settle between recipe steps
+    for (const k of step.split(/\s+/)) { await s.key(k, 'tap'); await s.step(120); }
+    await s.step(600);              // settle between recipe steps
   }
-  if (settleMs) await h.step(Math.round((settleMs / 1000) * 70));
+  if (settleMs) await s.step(Math.round((settleMs / 1000) * 70));
 }
 
-function diffVs(idx: Uint8Array, committed: string): void {
+function diffVs(idx: Uint8Array, committed: string): boolean {
   const ref = gunzipSync(readFileSync(join(FIXTURES, `${committed}.idx.gz`)));
   let diff = 0;
   const rows = new Set<number>();
@@ -59,26 +80,79 @@ function diffVs(idx: Uint8Array, committed: string): void {
   const rowList = [...rows].sort((a, b) => a - b);
   console.log(`vs ${committed}: ${pct}% match (${diff}/${idx.length} idx differ)`);
   if (diff) console.log(`  differing rows: ${rowList[0]}..${rowList[rowList.length - 1]} (${rowList.length} rows) — see /tmp/wiz6-libretro/${committed}.regen.png`);
+  return diff === 0;
 }
+
+const STRUCTS = buildStructRegistry(ALL_STRUCTS);
 
 async function main() {
   const name = process.argv[2];
   const vi = process.argv.indexOf('--validate');
   const validateAgainst = vi >= 0 ? process.argv[vi + 1] : undefined;
-  // --check: regenerate + diff against the SAME-named committed fixture WITHOUT
-  // overwriting it (the verification loop for authoring recipes).
   const check = process.argv.includes('--check');
+  const mint = process.argv.includes('--mint');
   const recipe = name ? findRecipe(name) : undefined;
   if (!recipe) throw new Error(`unknown recipe: ${name}`);
 
   mkdirSync(TMP, { recursive: true });
   mkdirSync(FIXTURES, { recursive: true });
   mkdirSync(STATES, { recursive: true });
+  mkdirSync(COMMITTED_STATES, { recursive: true });
 
+  const committedStatePath = join(COMMITTED_STATES, `${name}.state.gz`);
+
+  // ── --check from committed frozen state (no driving) ───────────────────────
+  if (check && existsSync(committedStatePath)) {
+    const tmpState = join(TMP, `${name}.state`);
+    writeFileSync(tmpState, gunzipSync(readFileSync(committedStatePath)));
+    const s = new LiveSession(STRUCTS);
+    await s.unserialize(tmpState);
+    await s.step(5);
+    await s.screenshot(`${TMP}/build.rgba`);
+    s.close();
+    const rgba = new Uint8Array(readFileSync(`${TMP}/build.rgba`));
+    const idx = rgbaToIndices(rgba);
+    writeFileSync(join(TMP, `${name}.regen.png`), encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));
+    const ok = diffVs(idx, name);
+    process.exitCode = ok ? 0 : 1;
+    return;
+  }
+
+  // ── --mint: serialize-state + sidecar (non-deterministic creation rolls) ───
+  if (mint) {
+    const s = new LiveSession(STRUCTS);
+    await driveRecipe(s, recipe.steps, recipe.settleMs);
+
+    // Freeze the rolled machine → committed pinned source.
+    const tmpState = join(TMP, `${name}.state`);
+    await s.serialize(tmpState);
+    writeFileSync(committedStatePath, gzipSync(readFileSync(tmpState)));
+
+    // Decode the engine's draft → committed sidecar.
+    const dump = await s.dumpDraft();
+    const sidecar = CreationDraftSidecarSchema.parse(dump);
+    writeFileSync(
+      join(FIXTURES, `${name}.character.json`),
+      JSON.stringify(sidecar, null, 2) + '\n',
+    );
+
+    // Framebuffer fixture.
+    await s.screenshot(`${TMP}/build.rgba`);
+    s.close();
+    const rgba = new Uint8Array(readFileSync(`${TMP}/build.rgba`));
+    const idx = rgbaToIndices(rgba);
+    writeFileSync(join(FIXTURES, `${name}.idx.gz`), gzipSync(idx));
+    writeFileSync(join(FIXTURES, `${name}.png`), encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));
+    console.log(`minted ${name}: state.gz + character.json + idx.gz + png`);
+    console.log(`  roll: class=${dump.draft['class']} bonusPool=${dump.bonusPool} attrs=[${(dump.draft['attributes'] as number[]).join(',')}]`);
+    return;
+  }
+
+  // ── recipe replay (deterministic screens) ──────────────────────────────────
   // HostClient boots from an ephemeral COPY of the committed test-fixtures/original/
   // image by default — deterministic, and never touches the mutable ./original.
   const h = new HostClient();
-  await driveRecipe(h, recipe.steps, recipe.settleMs);
+  await driveRecipeRaw(h, recipe.steps, recipe.settleMs);
   if (!check) await h.serialize(join(STATES, `${name}.state`));
   await h.fb(`${TMP}/build.rgba`);
   h.close();
@@ -88,7 +162,8 @@ async function main() {
 
   if (check) {
     writeFileSync(join(TMP, `${name}.regen.png`), encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));
-    diffVs(idx, name);
+    const ok = diffVs(idx, name);
+    process.exitCode = ok ? 0 : 1;
     return;
   }
 
@@ -98,4 +173,16 @@ async function main() {
   if (validateAgainst) diffVs(idx, validateAgainst);
 }
 
-main().then(() => process.exit(0)).catch((e) => { console.error(e.message ?? e); process.exit(1); });
+/** Raw-HostClient recipe driver (the original behaviour; serialize lives here). */
+async function driveRecipeRaw(h: HostClient, steps: readonly string[], settleMs = 0): Promise<void> {
+  await h.step(3000);
+  await h.key('enter', 'tap');
+  await h.step(800);
+  for (const step of steps) {
+    for (const k of step.split(/\s+/)) { await h.key(k, 'tap'); await h.step(120); }
+    await h.step(600);
+  }
+  if (settleMs) await h.step(Math.round((settleMs / 1000) * 70));
+}
+
+main().then(() => process.exit(process.exitCode ?? 0)).catch((e) => { console.error(e.message ?? e); process.exit(1); });

@@ -22,7 +22,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WIZ6_MAIN, FontSchema, Font4bppSchema, MessageDbSchema, PortraitSetSchema, ScenarioDbSchema, classOffered, getRaceBaseStats, resolveCarryCapacityMax } from '../../packages/data/src/index.js';
+import { WIZ6_MAIN, FontSchema, Font4bppSchema, MessageDbSchema, PortraitSetSchema, ScenarioDbSchema, classOffered, resolveCarryCapacityMax, CreationDraftSidecarSchema } from '../../packages/data/src/index.js';
 import type { Font, Font4bpp, Palette, MessageDb, PortraitSet } from '../../packages/data/src/index.js';
 import { setCursor, puts, type FontSet } from '../../packages/parser/src/index.js';
 import { loadCreationFontSet } from '../../packages/viewer/src/pages/roster/creation/ega/assets.js';
@@ -44,6 +44,7 @@ import { buildInventoryItems, scenarioItemName } from '../../packages/viewer/src
 import { equipCandidates, assayItem, skillViewerRows, applyEquipSelections } from '../../packages/data/src/index.js';
 import { blankDraft } from '../../packages/viewer/src/pages/roster/creation/state.js';
 import { draftFromCharacter } from '../../packages/viewer/src/pages/roster/creation/lib/draft-from-character.js';
+import { draftFromEngineDump } from '../../packages/viewer/src/pages/roster/creation/lib/draft-from-engine-dump.js';
 import type { ActivePartyMember, Character } from '../../packages/data/src/index.js';
 import { raceName, className, creationString, MSG, skillName } from '../../packages/viewer/src/pages/roster/creation/messages.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
@@ -165,21 +166,25 @@ function renderRaceSelect(fontSet: FontSet, palette: Palette): Uint8ClampedArray
 }
 
 // ─── CLASS / PROFESSION SELECT helper (post-sex, bonus rolled) ─────────────────
-// State: NATHAN, Human male, bonusPool=17 → 12 qualifying classes in 2 columns
-// (FIGHTER..MONK in left col + NINJA in right col); Lord (deficit 18) and
-// Valkyrie (female-only) excluded.
+// State: NATHAN, Human male. Stats + bonusPool come from the COMMITTED sidecar
+// (the engine's decoded draft at the class-screen waypoint), re-minted byte-exact
+// from test-fixtures/states/creation-class-select.state.gz — NOT hardcoded. The
+// qualifying-class list is derived from those LIVE stats via classOffered, so
+// the rendered list always matches whatever roll the fixture froze.
+
+function loadDraftSidecar(name: string) {
+  return CreationDraftSidecarSchema.parse(
+    JSON.parse(readFileSync(join(FIXTURES_ENGINE, `${name}.character.json`), 'utf-8')),
+  );
+}
 
 function renderClassSelect(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
   const { top, bottomBar, menuPanel } = createPersistentWindows();
-  const human = getRaceBaseStats(0);
-  const draft = {
-    ...blankDraft(),
-    name: 'NATHAN',
-    race: 0,
-    sex: 0,
-    attributes: { ...human, kar: 0 },
-    bonusPool: 17,
-  };
+  // On the class-SELECT screen no class is committed yet, so the char-sheet
+  // shows no class title (the engine record carries a default class byte that
+  // the screen doesn't display). Force class=null to match — the picker below
+  // is what offers the choice.
+  const draft = { ...draftFromEngineDump(loadDraftSidecar('creation-class-select')), class: null };
   drawCharSheet(top, draft, msgDb, creationString(msgDb, MSG.classTitle));
   const prompt = creationString(msgDb, MSG.classPrompt);
   setCursor(bottomBar, Math.ceil((bottomBar.widthCells - prompt.length) / 2), 1);

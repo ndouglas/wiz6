@@ -28,6 +28,12 @@ export {
   type Portrait,
   type PortraitSet,
 } from './schemas/portrait.js';
+export {
+  CreationDraftRecordSchema,
+  CreationDraftSidecarSchema,
+  type CreationDraftRecord,
+  type CreationDraftSidecar,
+} from './schemas/creation-draft-sidecar.js';
 export { EgaScreenSchema, type EgaScreen } from './schemas/ega-screen.js';
 export {
   MessageRecordSchema,
