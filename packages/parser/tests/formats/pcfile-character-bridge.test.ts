@@ -39,11 +39,22 @@ describe('pcfileSlotToCharacter', () => {
     expect(c.portraitIndex).toBe(thesus.raw[0x19c]);
   });
 
-  it('reads sex from raw[0x1a1] and derives dead/paralyzed from conditions', () => {
+  it('reads sex from raw[0x19e] and derives dead/paralyzed from conditions', () => {
     const c = pcfileSlotToCharacter(thesus, UUID2);
-    expect(c.sex).toBe(thesus.raw[0x1a1]);
+    expect(c.sex).toBe(thesus.raw[0x19e]);
     expect(c.dead).toBe(thesus.conditions[2] !== 0);
     expect(c.paralyzed).toBe(thesus.conditions[3] !== 0);
+  });
+
+  it('decodes TEMPEST (pinned roster slot 1) as female (sex=1)', () => {
+    // Engine ground truth: the ADD PARTY picker renders TEMPEST's sex glyph as
+    // 'F'; all five other pinned chars render 'M'. +0x19e is the only byte that
+    // is 1 for TEMPEST and 0 for everyone else — confirming sex lives there.
+    const tempest = decoded.slots[1];
+    expect(tempest.name).toBe('TEMPEST');
+    expect(pcfileSlotToCharacter(tempest, UUID1).sex).toBe(1);
+    // THESUS (slot 0) is male.
+    expect(pcfileSlotToCharacter(thesus, UUID2).sex).toBe(0);
   });
 });
 
@@ -60,16 +71,16 @@ describe('characterToPcfileSlot', () => {
     expect(back.name).toBe(c.name);
     expect(back.attributes).toEqual(c.attributes);
     expect(back.portraitIndex).toBe(c.portraitIndex); // survived via raw[0x19c]
-    expect(back.sex).toBe(c.sex);                     // survived via raw[0x1a1]
+    expect(back.sex).toBe(c.sex);                     // survived via raw[0x19e]
     expect(back.staminaMax).toBe(c.staminaMax);
     expect(back.encumbranceMax).toBe(c.encumbranceMax);
   });
 
-  it('writes rendered portrait to raw[0x19c] and sex to raw[0x1a1]', () => {
+  it('writes rendered portrait to raw[0x19c] and sex to raw[0x19e]', () => {
     const c = pcfileSlotToCharacter(thesus, UUID2);
     const slot = characterToPcfileSlot(c, 0);
     expect(slot.raw[0x19c]).toBe(c.portraitIndex);
-    expect(slot.raw[0x1a1]).toBe(c.sex);
+    expect(slot.raw[0x19e]).toBe(c.sex);
     expect(slot.populated).toBe(true);
     expect(slot.raw).toHaveLength(432);
   });

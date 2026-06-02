@@ -157,13 +157,13 @@ describe('encodeCharacterRecord', () => {
     }
   });
 
-  it('encodes THESUS race=0, alignment=0, class=0 at +0x19d..+0x19f', () => {
+  it('encodes THESUS race=0, sex=0, class=0 at +0x19d..+0x19f', () => {
     const { slots } = decodePcfile(new Uint8Array(PCFILE));
     const thesus = slots.find((s) => s.name === 'THESUS')!;
     const encoded = encodeCharacterRecord(thesus);
 
     expect(encoded[0x19d]).toBe(0);  // race: Human
-    expect(encoded[0x19e]).toBe(0);  // alignment: Good
+    expect(encoded[0x19e]).toBe(0);  // sex: male (the +0x19e byte; "alignment" was a misnomer)
     expect(encoded[0x19f]).toBe(0);  // class: Fighter
   });
 });

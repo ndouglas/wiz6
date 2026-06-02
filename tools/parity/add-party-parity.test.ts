@@ -4,11 +4,13 @@
  *
  * Renders the same composition AddPartyPage uses (composeCastleFrame +
  * picker overlay via renderTileWindow) and compares against the engine's
- * decoded framebuffer from `tools/dosbox/save/1.sav` (committed as
- * `fixtures/engine/add-party-picker.idx.gz`).
+ * decoded framebuffer (committed as `fixtures/engine/add-party-picker.idx.gz`,
+ * re-minted byte-exact from the pinned roster via the `add-party-picker`
+ * recipe — see tools/dosbox/state-catalog.ts).
  *
- * The fixture state: party_size=0, NATHAN available in PCFILE, cursor on
- * NATHAN, ADD PARTY MEMBER option highlighted in the master menu behind.
+ * The fixture state: party_size=0, the pinned roster (THESUS/TEMPEST/LYSANDR/
+ * NOBAL/TREON/PENTAG) available in PCFILE, cursor on THESUS (slot 0), ADD PARTY
+ * MEMBER option highlighted in the master menu behind.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -34,6 +36,8 @@ import {
   renderTileWindow,
   concatenatePicSegments,
   visibleMenuOptions,
+  decodePcfile,
+  pcfileSlotToCharacter,
   type FontSet,
   type MainMenuContext,
   type MainMenuOption,
@@ -43,7 +47,7 @@ import { composeAddPartyPickerFrame } from '../../packages/viewer/src/pages/cast
 import { loadCreationFontSet } from '../../packages/viewer/src/pages/roster/creation/ega/assets.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { indicesToRgba } from './decode-screen.js';
-import { compareRgba, writeDiffPng } from './diff-image.js';
+import { compareRgba, compareRgbaMulti, writeDiffPng } from './diff-image.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -79,30 +83,25 @@ async function diskLoadFont4bpp(url: string): Promise<Font4bpp> {
   );
 }
 
-/** NATHAN as he appears in save/1.sav: Rawulf Fighter Male. */
-function nathan(): Character {
-  return {
-    id: '00000000-0000-0000-0000-000000000001',
-    name: 'NATHAN',
-    race: 9, // Rawulf
-    class: 0, // Fighter
-    sex: 0, // Male
-    level: 1,
-    xp: 0,
-    gold: 0,
-    conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    dead: false,
-    paralyzed: false,
-    attributes: { str: 12, int: 12, pie: 12, vit: 12, dex: 12, spd: 12, per: 50, kar: 50 },
-    schoolMana: [0, 0, 0, 0, 0, 0],
-    schoolManaMax: [0, 0, 0, 0, 0, 0],
-    skills: new Array(30).fill(0),
-    savedOldLevel: 0,
-    reaction: 0,
-  };
+/**
+ * The pinned roster (test-fixtures/original/pcfile.dbs): THESUS, TEMPEST,
+ * LYSANDR, NOBAL, TREON, PENTAG (slots 0..5). The ADD PARTY MEMBER picker over
+ * an empty party lists all of them, cursor on THESUS (slot 0). Decoded
+ * data-driven from the same pcfile the engine boots from — only name/race/
+ * class/sex feed the picker rows, all of which pcfileSlotToCharacter maps; this
+ * can't go stale if the pinned roster changes.
+ */
+function pinnedRoster(): Character[] {
+  const bytes = readFileSync(join(ROOT, 'test-fixtures', 'original', 'pcfile.dbs'));
+  const pc = decodePcfile(new Uint8Array(bytes));
+  return pc.slots
+    .filter((s) => s.populated)
+    .map((slot, i) =>
+      pcfileSlotToCharacter(slot, `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`),
+    );
 }
 
-// Engine context behind the picker: party_size=0, NATHAN available in PCFILE,
+// Engine context behind the picker: party_size=0, roster available in PCFILE,
 // cursor on ADD PARTY MEMBER (slot 0).
 const CONTEXT: MainMenuContext = { partySize: 0, pcFileHasUnloadedChars: true };
 
@@ -150,32 +149,40 @@ describe('ADD PARTY picker pixel-parity vs committed engine fixture', () => {
     // open the picker. visibleMenuOptions returns slot 0 first in this state.
     const selectedIdx = menuOptions.findIndex((opt) => opt.slot === 0);
 
-    // Compose the castle background. parity=1 — water overlays ON; the
-    // engine fixture was captured at the parity=1 phase per the castle
-    // animation cadence.
-    const ours = composeCastleFrame(
-      1,
-      dragonscRgba,
-      mon08Pic,
-      mon08Decoded,
-      wfont3,
-      wfont0,
-      menuOptions,
-      selectedIdx >= 0 ? selectedIdx : 0,
-      wfont1,
-    );
+    // Compose the full picker frame at a given water-animation parity: castle
+    // background + the picker overlay (THESUS highlighted at top, cursor on
+    // candidate 0). The composer draws THESUS at the center row and the next
+    // two roster chars below it — matching the engine's 3-visible-row list.
+    const candidates = pinnedRoster();
+    const renderFrame = (parity: 0 | 1): Uint8ClampedArray => {
+      const frame = composeCastleFrame(
+        parity,
+        dragonscRgba,
+        mon08Pic,
+        mon08Decoded,
+        wfont3,
+        wfont0,
+        menuOptions,
+        selectedIdx >= 0 ? selectedIdx : 0,
+        wfont1,
+      );
+      const pickerWindows = composeAddPartyPickerFrame(
+        { candidates, cursorIdx: 0, onCancel: false },
+        msgDb,
+      );
+      for (const win of pickerWindows) {
+        renderTileWindow(win, frame, 320, 200, pickerFontSet, WIZ6_MAIN);
+      }
+      return frame;
+    };
 
-    // Overlay the picker (NATHAN highlighted, cursor on candidate, not CANCEL).
-    const pickerWindows = composeAddPartyPickerFrame(
-      { candidates: [nathan()], cursorIdx: 0, onCancel: false },
-      msgDb,
-    );
-    for (const win of pickerWindows) {
-      renderTileWindow(win, ours, 320, 200, pickerFontSet, WIZ6_MAIN);
-    }
-
+    const ours = renderFrame(1);
     const eng = engineRgba('add-party-picker');
-    const result = compareRgba(ours, eng, { tolerance: 0 });
+    // The only parity-gated content is the animated fountain/water behind the
+    // picker; the picker + static castle chrome match in both phases. Match the
+    // fixture against BOTH phases so an arbitrary fountain capture phase isn't
+    // penalised (same approach as castle-parity.test.ts).
+    const result = compareRgbaMulti(eng, [renderFrame(0), renderFrame(1)], { tolerance: 0 });
 
     // Diagnostics.
     try {

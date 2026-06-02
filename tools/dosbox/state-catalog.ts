@@ -122,26 +122,72 @@ function makeCastleRecipe(n: number): SaveStateRecipe {
 const CASTLE_RECIPES: readonly SaveStateRecipe[] = [1, 2, 3, 4, 5, 6].map(makeCastleRecipe);
 
 // Fixture-name-matching aliases for the castle MASTER-OPTIONS screens. The
-// committed castle-N-members fixtures were captured from a STALE DOSBox-X save
-// whose roster was NATHAN + NUG2..NUG6 — chars ABSENT from the pinned
-// test-fixtures/original/pcfile.dbs (which holds THESUS/TEMPEST/LYSANDR/NOBAL/
-// TREON/PENTAG). Forming a party from the pinned roster therefore renders
-// different per-member panels (portrait + name + bars), so `build-state
-// castle-N-members --check` reaches the correct SCREEN (chrome/menu/gate/
-// fountain byte-exact) but DIVERGES on the member panels (castle-1 98.86%,
-// castle-2 94.71%, castle-3 97.31%). These fixtures are NOT re-mintable from the
-// pinned source. The castle-parity.test.ts gate is self-contained — it renders
-// the captured NATHAN/NUG party data via composeCastleFrame (hardcoded ENGINE_*
-// member structs), so the committed fixtures stay valid ground truth. Keep the
-// alias only as a reproducible divergence diagnostic; do NOT re-mint the fixtures.
+// committed castle-N-members fixtures are RE-MINTED from the pinned roster in
+// test-fixtures/original/pcfile.dbs (THESUS/TEMPEST/LYSANDR/NOBAL/TREON/PENTAG,
+// slots 0..5). `makeCastleRecipe(n)` drives ADD PARTY MEMBER n times, always
+// picking the first available roster char, so the party is the first n pinned
+// slots in order (THESUS, TEMPEST, …). `build-state castle-N-members` writes
+// the fixture; `--check` re-mints byte-exact (proven 100.00% for N=1..6). The
+// castle-parity.test.ts gate decodes the same pinned pcfile data-driven, so the
+// fixtures + test data stay consistent and can't go stale.
 const CASTLE_MEMBERS_ALIASES: readonly SaveStateRecipe[] = [1, 2, 3, 4, 5, 6].map((n) => ({
   ...makeCastleRecipe(n),
   name: `castle-${n}-members`,
   description:
     `MASTER OPTIONS with ${n} pinned-roster member${n === 1 ? '' : 's'} (THESUS…). ` +
-    `DIVERGES vs the committed castle-${n}-members fixture (stale NATHAN/NUG roster) — ` +
-    `diagnostic only, NOT re-mintable from the pinned pcfile.`,
+    `Re-mintable byte-exact from the pinned pcfile.`,
 }));
+
+// add-party-picker: the ADD PARTY MEMBER roster picker over an EMPTY party. From
+// a fresh boot the MASTER OPTIONS cursor sits on ADD PARTY MEMBER (slot 0); a
+// single `enter` opens the picker (cursor on the first roster char, THESUS).
+// Re-mintable byte-exact from the pinned pcfile.
+const ADD_PARTY_PICKER_RECIPE: SaveStateRecipe = {
+  name: 'add-party-picker',
+  description:
+    'ADD PARTY MEMBER roster picker over an empty party (cursor on THESUS, the ' +
+    'first pinned roster char). Re-mintable byte-exact from the pinned pcfile.',
+  steps: ['enter'],
+  settleMs: 300,
+};
+
+// character-menu-empty: the CHARACTER MENU over an EMPTY roster (CREATE PC +
+// EXIT only, CREATE PC highlighted). The pinned pcfile.dbs roster is non-empty,
+// so we boot from a committed 0-char pcfile overlay (empty-roster.pcfile.dbs,
+// generated like minimal-roster — header + 16 zeroed slots, all slot_status 0).
+// MASTER OPTIONS → CHARACTER MENU = down down enter.
+const CHARACTER_MENU_EMPTY_RECIPE: SaveStateRecipe = {
+  name: 'character-menu-empty',
+  description:
+    'CHARACTER MENU over an EMPTY roster (CREATE PC + EXIT, CREATE PC highlighted). ' +
+    'Boots from the committed empty-roster.pcfile.dbs overlay (pinned roster is non-empty). ' +
+    'Empty party + empty roster MASTER OPTIONS = [RESUME, CHARACTER MENU, GAME CONFIG, …]; ' +
+    'cursor starts on RESUME (idx 0), one `down` reaches CHARACTER MENU.',
+  pcfileFixture: 'empty-roster',
+  // CHARACTER MENU cursor starts on EXIT; `up` lands on CREATE PC (the
+  // highlighted option in the committed fixture).
+  steps: ['down enter', 'up'],
+  settleMs: 300,
+};
+
+// character-menu-populated: CHARACTER MENU over a FULL (16-char) roster. With a
+// full roster CREATE PC is hidden, so the menu has 5 options (REVIEW/DELETE/
+// RENAME/PORTRAIT/EXIT) — matching the committed fixture, which was captured
+// from a 16-char save. The pinned pcfile only has 6 chars (CREATE PC would
+// still show), so we boot from a committed 16-char overlay (full-roster.pcfile.
+// dbs — the 6 pinned records cycled across all 16 slots). MASTER OPTIONS cursor
+// on ADD PARTY MEMBER (idx 0); CHARACTER MENU is idx 2 → down down enter. The
+// CHARACTER MENU cursor starts on EXIT; `left left` lands on REVIEW PC (the
+// top-left option in the 5-option layout), highlighted in the committed fixture.
+const CHARACTER_MENU_POPULATED_RECIPE: SaveStateRecipe = {
+  name: 'character-menu-populated',
+  description:
+    'CHARACTER MENU over a FULL 16-char roster (REVIEW/DELETE/RENAME/PORTRAIT/' +
+    'EXIT; no CREATE PC; REVIEW PC highlighted). Boots from full-roster.pcfile.dbs.',
+  pcfileFixture: 'full-roster',
+  steps: ['down down enter', 'left left'],
+  settleMs: 300,
+};
 
 // review-member-view: WPCVW char-view (state 0x11) of THESUS in a 3-member
 // pinned-roster party. THESUS IS the pinned roster char (slot 0), so this
@@ -746,6 +792,9 @@ export const STATE_CATALOG: readonly SaveStateRecipe[] = [
   ...SEED_CATALOG,
   ...CASTLE_RECIPES,
   ...CASTLE_MEMBERS_ALIASES,
+  ADD_PARTY_PICKER_RECIPE,
+  CHARACTER_MENU_EMPTY_RECIPE,
+  CHARACTER_MENU_POPULATED_RECIPE,
   REVIEW_MEMBER_VIEW_RECIPE,
   ...EQUIP_RECIPES,
   ...ASSAY_RECIPES,

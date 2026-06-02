@@ -136,9 +136,12 @@ const SCROLLBAR_FILL_CHAR = 0x47; // 'G' — up-arrow / fill glyph in wfont2
 const SCROLLBAR_END_CHAR = 0x46; // 'F' — down-arrow glyph in wfont2
 
 // Roster-row layout (within the right panel; col 19 is the scrollbar).
-// Name field: 6 chars + 2 trailing padding cells = 8 cells total (SEX_COL = 8).
-const NAME_WIDTH = 6;
+// Name field occupies cells 0..SEX_COL-1 (8 cells); the full name is drawn
+// (engine names are max 7 chars) and the remainder padded to SEX_COL. A 6-char
+// name (e.g. NATHAN / THESUS) leaves 2 pad cells; a 7-char name (TEMPEST /
+// LYSANDR) leaves 1 — the SEX field always lands at col 8 either way.
 const SEX_COL = 8;
+const NAME_WIDTH = SEX_COL;
 const DASH_COL = 9;
 const RACE_COL = 10;
 const RACE_WIDTH = 3; // also used as CLASS abbrev width — both truncate to 3 chars.
@@ -187,8 +190,16 @@ function composeLeftPanel(view: AddPartyPickerView): TileWindow {
 }
 
 /**
- * Draw a candidate row at the given panel row. The name is rendered with
- * highlight attrs when `highlighted` is true, padding attr otherwise.
+ * Draw a candidate row at the given panel row.
+ *
+ * The HIGHLIGHTED (cursor) row uses per-field colour attrs: name on a palette-5
+ * highlight bar (attr 0x50), sex/dash/race/class in their own colours (0x70/
+ * 0x90/0x60/0x30) via the wfont0 highlight path. NON-highlighted rows render
+ * EVERY field at attr 0x03 — wfont3 (the panel font), which draws palette-1
+ * text on the panel's gray (palette-8) background, NOT on black. Verified
+ * pixel-by-pixel against the engine's add-party-picker fixture (TEMPEST/LYSANDR
+ * rows are wfont3 palette-1 on gray; only the THESUS cursor row uses wfont0
+ * highlight colours on black).
  */
 function drawCandidateRow(
   w: TileWindow,
@@ -197,40 +208,48 @@ function drawCandidateRow(
   db: MessageDb,
   highlighted: boolean,
 ): void {
-  // NAME — padded to NAME_WIDTH chars. Highlighted cells use attr 0x50; the
-  // remaining padding cells (out to NAME_WIDTH + NAME_PAD = 8) use attr 0x10.
-  const nameAttr = highlighted ? ATTR_NAME_HIGHLIGHT : ATTR_NAME_PAD;
+  // Per-field attrs: wfont0 highlight colours for the cursor row, plain wfont3
+  // (attr 0x03, palette-1 on gray panel bg) for every field otherwise.
+  const nameAttr = highlighted ? ATTR_NAME_HIGHLIGHT : ATTR_BG;
+  const sexAttr = highlighted ? ATTR_SEX : ATTR_BG;
+  const dashAttr = highlighted ? ATTR_DASH : ATTR_BG;
+  const raceAttr = highlighted ? ATTR_RACE : ATTR_BG;
+  const sepAttr = highlighted ? ATTR_SEPARATOR : ATTR_BG;
+  const classAttr = highlighted ? ATTR_CLASS : ATTR_BG;
+
+  // NAME — the full name (engine names ≤ 7 chars; sliced to SEX_COL for safety),
+  // padded out to SEX_COL. Highlighted name cells use attr 0x50; padding cells
+  // use attr 0x10 (engine: empty cells after a shorter name carry the dim attr).
+  // Non-highlighted padding follows the row attr (wfont3 space = gray panel).
   const name = character.name.slice(0, NAME_WIDTH);
   setCursor(w, 0, row);
   puts(w, name, nameAttr);
-  // Pad out to col SEX_COL with attr ATTR_NAME_PAD (engine: empty cells after a
-  // shorter name carry the padding-attr, not the highlight-attr).
   const padCount = SEX_COL - name.length;
   if (padCount > 0) {
     setCursor(w, name.length, row);
-    puts(w, ' '.repeat(padCount), ATTR_NAME_PAD);
+    puts(w, ' '.repeat(padCount), highlighted ? ATTR_NAME_PAD : ATTR_BG);
   }
 
   // SEX — first letter of the sex name (M/F).
   const sexLetter = (sexName(db, character.sex) || ' ').charAt(0);
   setCursor(w, SEX_COL, row);
-  puts(w, sexLetter, ATTR_SEX);
+  puts(w, sexLetter, sexAttr);
 
   // Dash separator between sex and race.
   setCursor(w, DASH_COL, row);
-  puts(w, '-', ATTR_DASH);
+  puts(w, '-', dashAttr);
 
   // RACE — 3-char abbreviation (e.g. RAWULF -> "RAW").
   setCursor(w, RACE_COL, row);
-  puts(w, abbrev3(raceName(db, character.race)), ATTR_RACE);
+  puts(w, abbrev3(raceName(db, character.race)), raceAttr);
 
   // Separator space between race and class.
   setCursor(w, SEPARATOR_COL, row);
-  puts(w, ' ', ATTR_SEPARATOR);
+  puts(w, ' ', sepAttr);
 
   // CLASS — 3-char abbreviation (e.g. FIGHTER -> "FIG").
   setCursor(w, CLASS_COL, row);
-  puts(w, abbrev3(className(db, character.class)), ATTR_CLASS);
+  puts(w, abbrev3(className(db, character.class)), classAttr);
 }
 
 function composeRightPanel(view: AddPartyPickerView, db: MessageDb): TileWindow {
