@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { nextEquipCursor, nextPopulatedSlot } from '../../../src/pages/castle/equip-wizard-reducer.js';
 
-// Engine-exact (RE: wpcvw-equip-ux-correction.json): the cursor CYCLES through
+// ENGINE GATE — the EQUIP per-slot picker is its OWN navigator (NOT the shared
+// grid widget / NOT ui_pick_inventory_item): the cursor CYCLES (wraps) through
 // [candidate0..N-1, NONE] where NONE == candidateCount, starting on NONE. 2
-// candidates → positions 0,1 + NONE(2). DOWN/RIGHT forward, UP/LEFT back.
+// candidates → positions 0,1 + NONE(2). DOWN/RIGHT forward, UP/LEFT back; both
+// ends wrap. RE: docs/re/findings/wpcvw-equip-ux-correction.json (+ DOSBox drive
+// that corrected the original "arrow = candidate marker" misread).
 describe('nextEquipCursor (cycle through candidates + NONE)', () => {
   it('Down cycles NONE → candidate0 → candidate1 → NONE', () => {
     expect(nextEquipCursor(2, 'ArrowDown', 2)).toBe(0); // NONE → candidate0

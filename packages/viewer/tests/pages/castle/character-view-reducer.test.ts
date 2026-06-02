@@ -5,6 +5,7 @@ import {
   gridMenuCursor,
   skillTabEntries,
   SKILL_EXIT,
+  type SkillInfo,
   type SwagInfo,
   type CharacterViewState,
   type CharacterViewEvent,
@@ -26,6 +27,12 @@ const equipInfo: EquipInfo = {
   candidatesFor: (slot) => (slot === 0 ? [3, 7] : slot === 4 ? [1] : []),
 };
 
+// ENGINE GATE — ui_menu_picker_grid @ wpcvw 0x6c, cols=2 (the shared grid
+// widget; FUN_025c @ wbase 0x25c is byte-identical, used for MASTER OPTIONS).
+// Comparators: LEFT 0x241 (JL), UP 0x286 (JLE), RIGHT 0x2c5 (JGE), DOWN
+// 0x30d/0x315 (JGE); key dispatch 0x34d/0x355/0x35d/0x365 = codes 1=LEFT/2=UP/
+// 3=RIGHT/4=DOWN; all edges CLAMP. DOSBox-verified 2026-06-01 (Up EXIT→SKILL,
+// Left SKILL→ASSAY). RE: docs/re/findings/wpcvw-menu-navigation.json.
 // 7-entry camp menu (2+ members): [EQUIP,SPELL,ASSAY,SWAG,SKILL,REVIEW,EXIT], EXIT=6.
 describe('nextActionCursor (column-major 2-row, n=7)', () => {
   it('Left → previous column same row, clamp at col0', () => {
@@ -332,6 +339,11 @@ describe('reduceCharacterView — profession-confirm', () => {
   });
 });
 
+// ENGINE GATE — the SKILL tab-picker entry list. The tabs render through the
+// shared grid widget (call site wpcvw 0x4e5c, msg_base 0x258, cols=2 — see the
+// nextActionCursor gate), but the ENTRY SET is the dynamic list built here:
+// available categories minus the current one, then EXIT; PERSONAL gated on the
+// member having personal skills. RE: docs/re/findings/wpcvw-skill-action.json.
 describe('skillTabEntries (dynamic: available categories minus current, + EXIT)', () => {
   // No personal skills (THESUS): available = WEAPONRY/PHYSICAL/ACADEMIA.
   it('WEAPONRY view → [PHYSICAL, ACADEMIA, EXIT] (matches the engine capture)', () => {
@@ -345,6 +357,51 @@ describe('skillTabEntries (dynamic: available categories minus current, + EXIT)'
   });
   it('with personal skills, PERSONAL appears (WEAPONRY view → [PHYSICAL,PERSONAL,ACADEMIA,EXIT])', () => {
     expect(skillTabEntries(0, true)).toEqual([1, 2, 3, SKILL_EXIT]);
+  });
+});
+
+// WIRING GATE — the SKILL tab picker routes arrow events through the shared grid
+// navigator (nextActionCursor, cols=2) over skillTabEntries' dynamic count. This
+// gates that the reducer actually drives the navigator for the skill-viewer
+// state (not just that the navigator/list builder are individually correct).
+describe('reduceCharacterView — skill-viewer navigation', () => {
+  const skill: SkillInfo = { hasPersonalSkills: false }; // WEAPONRY view → [PHYSICAL,ACADEMIA,EXIT], n=3
+  const nav = (cursor: number, type: 'ARROW_DOWN' | 'ARROW_RIGHT' | 'ARROW_UP') =>
+    reduceCharacterView(
+      { kind: 'skill-viewer', category: 0, cursor },
+      { type }, baseEnabled, undefined, undefined, skill,
+    );
+  it('Down moves within the column (cursor 0 → 1)', () => {
+    const next = nav(0, 'ARROW_DOWN');
+    expect(next.kind === 'skill-viewer' && next.cursor).toBe(1);
+  });
+  it('Right steps to the next column (cursor 0 → 2 = EXIT)', () => {
+    const next = nav(0, 'ARROW_RIGHT');
+    expect(next.kind === 'skill-viewer' && next.cursor).toBe(2);
+  });
+  it('Up clamps at the column top (cursor 0 → 0)', () => {
+    const next = nav(0, 'ARROW_UP');
+    expect(next.kind === 'skill-viewer' && next.cursor).toBe(0);
+  });
+});
+
+// WIRING GATE — the SWAG menu (ADD/REMOVE/DROP/EXIT) routes arrow events through
+// the shared grid navigator over swag.visibleMenu's length. Same engine widget
+// as the action menu (call site wpcvw 0x227b, cols=2).
+describe('reduceCharacterView — swag-menu navigation', () => {
+  const swag: SwagInfo = { visibleMenu: ['ADD', 'REMOVE', 'DROP', 'EXIT'], carried: [], bag: [] }; // n=4
+  const nav = (cursor: number, type: 'ARROW_DOWN' | 'ARROW_RIGHT') =>
+    reduceCharacterView(
+      { kind: 'swag-menu', cursor },
+      { type }, baseEnabled, undefined, undefined, undefined, swag,
+    );
+  it('Down moves within the column (cursor 0 → 1)', () => {
+    const next = nav(0, 'ARROW_DOWN');
+    expect(next.kind === 'swag-menu' && next.cursor).toBe(1);
+  });
+  it('Right steps to the next column (cursor 0 → 2)', () => {
+    const next = nav(0, 'ARROW_RIGHT');
+    expect(next.kind === 'swag-menu' && next.cursor).toBe(2);
   });
 });
 

@@ -4,9 +4,14 @@ import {
   nextInventoryCursor,
 } from '../../../src/pages/castle/compose-inventory-picker.js';
 
-// Engine-exact nav (RE: ui_pick_inventory_item @ wpcvw 0x1a48). NONE = index
-// itemCount; NONE sits OUTSIDE both ends — entering from NONE (either dir) lands
-// on the TOP item (#072). 5 items → indices 0..4, NONE = 5.
+// ENGINE GATE — ui_pick_inventory_item @ wpcvw 0x1a48 (used by ASSAY, SWAG
+// add/remove/drop, and the EQUIP candidate list). 1-D up/down only; NONE = index
+// itemCount, the trailing sentinel OUTSIDE both ends; cursor inits to NONE at
+// 0x1b22. Comparators (signed, unambiguous in the decompile): Up-wrap 0x1d15
+// (JL, item0→NONE), Down-wrap 0x1d6e (JNL, last→NONE), down-from-NONE→item0 at
+// 0x1d27 (no mov to N-1 anywhere). Key dispatch 0x1d84 = cmp ax,2 (UP) / cmp
+// ax,4 (DOWN) only — left/right ignored. RE: wpcvw-item-picker-navigation.json.
+// 5 items → indices 0..4, NONE = 5.
 describe('nextInventoryCursor (engine-exact; NONE index == itemCount)', () => {
   it('Up-from-NONE jumps to the TOP item (#072 fix)', () => {
     expect(nextInventoryCursor(5, 'ArrowUp', 5)).toBe(0);
