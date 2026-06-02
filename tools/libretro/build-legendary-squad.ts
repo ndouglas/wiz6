@@ -38,15 +38,19 @@ interface SquadMember {
   race: number;
   class: number;
   sex: number;    // 0 male, 1 female
+  portrait: number; // rendered-portrait index, stamped into record +0x19c post-harvest
 }
 
+// portrait = the chosen rendered portrait (record +0x19c). Creation leaves the
+// rendered portrait at 0 (all identical); these are the distinct picks, stamped
+// onto each record after harvest. (Hand-picked in-game, captured from the edited roster.)
 const SQUAD: SquadMember[] = [
-  { name: 'Twink', race: 5,  class: 13, sex: 0 }, // Faerie Ninja M
-  { name: 'Beau',  race: 9,  class: 10, sex: 0 }, // Rawulf Lord M
-  { name: 'Vexa',  race: 6,  class: 8,  sex: 1 }, // Lizardman Valkyrie F
-  { name: 'Sable', race: 8,  class: 11, sex: 1 }, // Felpurr Samurai F
-  { name: 'Ember', race: 7,  class: 12, sex: 1 }, // Dracon Monk F
-  { name: 'Quill', race: 10, class: 9,  sex: 0 }, // Mook Bishop M
+  { name: 'Twink', race: 5,  class: 13, sex: 0, portrait: 15 }, // Faerie Ninja M
+  { name: 'Beau',  race: 9,  class: 10, sex: 0, portrait: 21 }, // Rawulf Lord M
+  { name: 'Vexa',  race: 6,  class: 8,  sex: 1, portrait: 7 },  // Lizardman Valkyrie F
+  { name: 'Sable', race: 8,  class: 11, sex: 1, portrait: 20 }, // Felpurr Samurai F
+  { name: 'Ember', race: 7,  class: 12, sex: 1, portrait: 8 },  // Dracon Monk F
+  { name: 'Quill', race: 10, class: 9,  sex: 0, portrait: 22 }, // Mook Bishop M
 ];
 
 const SHOTS_ON = process.argv.includes('--shots');
@@ -335,6 +339,7 @@ async function main() {
     out[8 + i] = 1; // slot_status = available
     const rec = harvestCreatedRecord(gameDir, i);
     rec.copy(out, 24 + i * 0x1b0);
+    out[24 + i * 0x1b0 + 0x19c] = SQUAD[i]!.portrait; // stamp the chosen rendered portrait
   }
   void srcPc;
   writeFileSync(join(OUT_DIR, 'pcfile.dbs'), out);
