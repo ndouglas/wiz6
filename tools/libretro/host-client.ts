@@ -37,6 +37,12 @@ export class HostClient {
     });
   }
 
+  /** Run a batch of raw protocol commands, returning each reply in order.
+   *  (Streaming = call the typed methods one at a time; batching = this.) */
+  async batch(cmds: string[]): Promise<string[]> {
+    return Promise.all(cmds.map((c) => this.cmd(c)));
+  }
+
   /** Advance N emulated frames. */
   async step(n = 1): Promise<void> {
     const r = await this.cmd(`step ${n}`);
