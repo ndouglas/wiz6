@@ -68,6 +68,13 @@ export class HostClient {
     if (r !== 'ok') throw new Error(`key ${name}: ${r}`);
   }
 
+  /** Relative mouse move (clamped to screen). Big deltas park the cursor in a
+   *  corner so its (framebuffer-composited) sprite leaves the visible content. */
+  async mouse(dx: number, dy: number): Promise<void> {
+    const r = await this.cmd(`mouse ${dx} ${dy}`);
+    if (r !== 'ok') throw new Error(`mouse: ${r}`);
+  }
+
   /** Resolve the wroot DGROUP base via the DISK.HDR anchor. */
   async anchor(): Promise<number> {
     const r = await this.cmd('anchor');

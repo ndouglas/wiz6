@@ -122,10 +122,23 @@ const PICKER_RECIPES: readonly SaveStateRecipe[] = [
   makePickerRecipe('dismiss-who-member', 'down down enter', ['down'], 'DISMISS'),
 ];
 
+// Creation-flow recipes: sequential waypoints along ONE linear playthrough
+// (name → race → sex → class → bonus → karma → portrait → skills → spell).
+// Each drives from a fresh boot to its target screen. Boot stat-rolls are
+// deterministic (see mage-spellpick), so these reproduce byte-exactly.
+const CREATION_RECIPES: readonly SaveStateRecipe[] = [
+  {
+    name: 'creation-name-input',
+    description: 'CREATE PC name-entry prompt (first creation screen, before typing).',
+    steps: [...CREATE_PC_PROLOGUE],
+  },
+];
+
 export const STATE_CATALOG: readonly SaveStateRecipe[] = [
   ...SEED_CATALOG,
   ...CASTLE_RECIPES,
   ...PICKER_RECIPES,
+  ...CREATION_RECIPES,
 ];
 
 export function findRecipe(name: string): SaveStateRecipe | undefined {

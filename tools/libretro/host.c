@@ -27,6 +27,7 @@ struct retro_memory_descriptor { uint64_t flags; void *ptr; size_t offset, start
 struct retro_memory_map { const struct retro_memory_descriptor *descriptors; unsigned num_descriptors; };
 
 #define DEV_KEYBOARD 3
+#define DEV_MOUSE 2  // RETRO_DEVICE_MOUSE; id 0=X-rel, 1=Y-rel
 #define DGROUP_ANCHOR_OFFSET 0x5d6  // DISK.HDR string sits at DGROUP+0x5d6 (see dgroup.ts)
 
 static const char *SCRATCH = "/tmp/wiz6-libretro";
@@ -79,9 +80,11 @@ static void cb_video(const void *data, unsigned w, unsigned h, size_t pitch) {
 static void cb_audio(int16_t l, int16_t r) { (void)l; (void)r; }
 static size_t cb_audio_batch(const int16_t *d, size_t f) { (void)d; return f; }
 static void cb_input_poll(void) {}
+static int16_t g_mdx = 0, g_mdy = 0; // pending mouse relative delta (one poll)
 static int16_t cb_input_state(unsigned port, unsigned dev, unsigned idx, unsigned id) {
   (void)port; (void)idx;
   if (dev == DEV_KEYBOARD && id < 512) return g_keys[id] ? 1 : 0;
+  if (dev == DEV_MOUSE) { if (id == 0) return g_mdx; if (id == 1) return g_mdy; }
   return 0;
 }
 
@@ -199,6 +202,13 @@ int main(int argc, char **argv) {
       fputs("ok ", stdout);
       for (size_t i=0;i<got;i++) printf("%02x", buf[i]);
       printf("\n"); free(buf);
+    }
+    else if (!strcmp(cmd, "mouse")) {
+      // Relative move (clamped to screen by the DOS driver). Park the cursor in
+      // a corner so its sprite leaves the visible content (it is composited into
+      // the framebuffer by dosbox-pure, unlike DOSBox-X's host cursor).
+      g_mdx = (int16_t)atoi(a1); g_mdy = (int16_t)atoi(a2);
+      run(); g_mdx = 0; g_mdy = 0; printf("ok\n");
     }
     else if (!strcmp(cmd, "anchor")) {
       long base = find_anchor_base();

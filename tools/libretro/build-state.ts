@@ -48,12 +48,30 @@ async function driveRecipe(h: HostClient, steps: readonly string[], settleMs = 0
     await h.step(600);           // settle between recipe steps
   }
   if (settleMs) await h.step(Math.round((settleMs / 1000) * 70));
+  // Park the mouse cursor in the bottom-right corner so its framebuffer-composited
+  // sprite leaves the visible content (DOSBox-X fixtures + our composer are cursor-free).
+  await h.mouse(4000, 4000);
+  await h.step(2);
+}
+
+function diffVs(idx: Uint8Array, committed: string): void {
+  const ref = gunzipSync(readFileSync(join(FIXTURES, `${committed}.idx.gz`)));
+  let diff = 0;
+  const rows = new Set<number>();
+  for (let p = 0; p < idx.length; p++) if (idx[p] !== ref[p]) { diff++; rows.add(Math.floor(p / SCREEN_WIDTH)); }
+  const pct = (100 * (idx.length - diff) / idx.length).toFixed(2);
+  const rowList = [...rows].sort((a, b) => a - b);
+  console.log(`vs ${committed}: ${pct}% match (${diff}/${idx.length} idx differ)`);
+  if (diff) console.log(`  differing rows: ${rowList[0]}..${rowList[rowList.length - 1]} (${rowList.length} rows) — see /tmp/wiz6-libretro/${committed}.regen.png`);
 }
 
 async function main() {
   const name = process.argv[2];
   const vi = process.argv.indexOf('--validate');
   const validateAgainst = vi >= 0 ? process.argv[vi + 1] : undefined;
+  // --check: regenerate + diff against the SAME-named committed fixture WITHOUT
+  // overwriting it (the verification loop for authoring recipes).
+  const check = process.argv.includes('--check');
   const recipe = name ? findRecipe(name) : undefined;
   if (!recipe) throw new Error(`unknown recipe: ${name}`);
 
@@ -65,26 +83,28 @@ async function main() {
   // image by default — deterministic, and never touches the mutable ./original.
   const h = new HostClient();
   await driveRecipe(h, recipe.steps, recipe.settleMs);
-  await h.serialize(join(STATES, `${name}.state`));
+  if (!check) await h.serialize(join(STATES, `${name}.state`));
   await h.fb(`${TMP}/build.rgba`);
   h.close();
 
   const rgba = new Uint8Array(readFileSync(`${TMP}/build.rgba`));
+  // The mouse is parked bottom-right; its sprite is fully off-screen except a
+  // single tip pixel at (319,199). Erase it with its left neighbour (the corner's
+  // true baseline content) — deterministic + content-preserving.
+  const C = (199 * SCREEN_WIDTH + 319) * 4, L = (199 * SCREEN_WIDTH + 318) * 4;
+  rgba[C] = rgba[L]!; rgba[C + 1] = rgba[L + 1]!; rgba[C + 2] = rgba[L + 2]!;
   const idx = rgbaToIndices(rgba);
+
+  if (check) {
+    writeFileSync(join(TMP, `${name}.regen.png`), encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));
+    diffVs(idx, name);
+    return;
+  }
+
   writeFileSync(join(FIXTURES, `${name}.idx.gz`), gzipSync(idx));
   writeFileSync(join(FIXTURES, `${name}.png`), encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));
   console.log(`wrote ${name}.idx.gz + .png + states/${name}.state`);
-
-  if (validateAgainst) {
-    const ref = gunzipSync(readFileSync(join(FIXTURES, `${validateAgainst}.idx.gz`)));
-    let diff = 0;
-    const rows = new Set<number>();
-    for (let p = 0; p < idx.length; p++) if (idx[p] !== ref[p]) { diff++; rows.add(Math.floor(p / SCREEN_WIDTH)); }
-    const pct = (100 * (idx.length - diff) / idx.length).toFixed(2);
-    const rowList = [...rows].sort((a, b) => a - b);
-    console.log(`vs ${validateAgainst}: ${pct}% match (${diff}/${idx.length} idx differ)`);
-    if (diff) console.log(`  differing rows: ${rowList[0]}..${rowList[rowList.length - 1]} (${rowList.length} rows)`);
-  }
+  if (validateAgainst) diffVs(idx, validateAgainst);
 }
 
 main().then(() => process.exit(0)).catch((e) => { console.error(e.message ?? e); process.exit(1); });
