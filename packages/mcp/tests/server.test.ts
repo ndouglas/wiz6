@@ -1,17 +1,13 @@
-// End-to-end test for the MCP server.
+// End-to-end test for the MCP server (dosbox-pure / live backend).
 //
 // Spawns the server + an in-process client via InMemoryTransport.createLinkedPair,
-// then exercises a representative cross-section of the tool surface:
+// then exercises the remaining tool surface:
 //
-//   - tools/list returns every expected tool name
-//   - dosbox_inspect_save on the bundled 1.sav reports game_state=0
-//   - dosbox_read_struct decodes a sound_table_entry at DGROUP 0x3344
-//   - dosbox_resolve_symbol finds ui_window_create at wroot 0x11A
-//   - dosbox_list_saves returns the bundled save
-//   - a STUB tool surfaces isError:true with a clear message
-//
-// The slow live-launch path (dosbox_launch against a real DOSBox-X binary)
-// is opt-in via WIZ6_MCP_SLOW=1.
+//   - tools/list returns every expected tool name (live + symbol tools only)
+//   - dosbox_resolve_symbol finds ui_window_create at wroot 0x11A (no emulator)
+//   - dosbox_list_symbols returns bounded entries (no emulator)
+//   - a live smoke (launch → step → state → read_struct) driven through the
+//     registered MCP handlers, gated on the built `./host` harness binary.
 
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -21,48 +17,32 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { buildServer } from '../src/server.js';
-import { _clearDgroupCacheForTests } from '../src/dgroup.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
-const SAVE_STATE = resolve(REPO_ROOT, 'tools', 'dosbox', 'save', '1.sav');
-const EXTRACT_SCRIPT = resolve(REPO_ROOT, 'tools', 'parity', 'extract.py');
-
-const haveSaveState = existsSync(SAVE_STATE) && existsSync(EXTRACT_SCRIPT);
+// The live harness binary, built by tools/libretro/build.sh. The live smoke is
+// gated on it existing so the suite stays green on a fresh checkout / CI box
+// that hasn't built the core.
+const HOST_BIN = resolve(REPO_ROOT, 'tools', 'libretro', 'host');
+const haveHost = existsSync(HOST_BIN);
 
 // Names every tool registration should expose. Updated alongside src/tools/*.
 const EXPECTED_TOOL_NAMES = [
-  // lifecycle
-  'dosbox_launch',
-  'dosbox_kill',
-  'dosbox_status',
-  // control (all stubs)
-  'dosbox_send_input',
-  'dosbox_pause',
-  'dosbox_resume',
-  'dosbox_step',
-  'dosbox_step_over',
-  'dosbox_run_until',
-  // inspection
-  'dosbox_read_memory',
-  'dosbox_read_struct',
+  // symbols (backend-agnostic SymbolIndex)
   'dosbox_resolve_symbol',
   'dosbox_list_symbols',
-  'dosbox_inspect_save',
-  'dosbox_find_pattern',
-  'dosbox_get_state_machine',
-  'dosbox_read_palette_registers',
-  'dosbox_identify_palette',
-  'dosbox_get_registers',
-  'dosbox_get_call_chain',
-  // breakpoints (all stubs)
-  'dosbox_set_breakpoint',
-  'dosbox_clear_breakpoint',
-  'dosbox_list_breakpoints',
-  // snapshots
-  'dosbox_list_saves',
-  'dosbox_save_state',
-  'dosbox_load_state',
-  'dosbox_screenshot',
+  // live (dosbox-pure harness)
+  'dosbox_live_launch',
+  'dosbox_live_kill',
+  'dosbox_live_step',
+  'dosbox_live_key',
+  'dosbox_live_batch',
+  'dosbox_live_state',
+  'dosbox_live_read',
+  'dosbox_live_read_struct',
+  'dosbox_live_find',
+  'dosbox_live_screenshot',
+  'dosbox_live_serialize',
+  'dosbox_live_unserialize',
 ];
 
 interface ToolTextContent {
@@ -87,7 +67,6 @@ describe('MCP server end-to-end', () => {
   let serverClose: () => Promise<void>;
 
   beforeAll(async () => {
-    _clearDgroupCacheForTests();
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const { server } = buildServer({ cwd: REPO_ROOT });
     await server.connect(serverTransport);
@@ -99,63 +78,26 @@ describe('MCP server end-to-end', () => {
   });
 
   afterAll(async () => {
+    if (haveHost) {
+      // Tear down the live session the smoke may have launched.
+      await client.callTool({ name: 'dosbox_live_kill', arguments: {} }).catch(() => {});
+    }
     if (serverClose) await serverClose();
   });
 
-  it('lists every expected tool', async () => {
+  it('lists exactly the expected tool surface', async () => {
     const result = await client.listTools();
     const names = result.tools.map((t) => t.name).sort();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(names, `missing tool: ${expected}`).toContain(expected);
     }
+    // No leftover save-state / GUI-driving tools.
+    expect(names).not.toContain('dosbox_inspect_save');
+    expect(names).not.toContain('dosbox_read_memory');
+    expect(names).not.toContain('dosbox_launch');
+    expect(names).not.toContain('dosbox_set_breakpoint');
+    expect(names).not.toContain('dosbox_list_saves');
   });
-
-  it.skipIf(!haveSaveState)(
-    'dosbox_inspect_save returns a resolved DGROUP base for 1.sav',
-    async () => {
-      // 1.sav: user-captured manual save. The DGROUP resolver uses the
-      // single canonical DISK.HDR offset (+0x05D6) — game_state may be
-      // 0xFFFF mid-transition, so we don't filter on it; we just check
-      // the base was resolved.
-      const result = (await client.callTool({
-        name: 'dosbox_inspect_save',
-        arguments: { save: '1.sav' },
-      })) as ToolCallResultLike;
-      expect(result.isError).not.toBe(true);
-      const payload = parseJsonContent(result) as {
-        game_state: number;
-        dgroup_base: number;
-        party_size: number;
-      };
-      expect(payload.dgroup_base).toBeGreaterThan(0);
-      expect(payload.game_state).toBeGreaterThanOrEqual(0);
-    },
-  );
-
-  it.skipIf(!haveSaveState)(
-    'dosbox_read_struct decodes a sound_table_entry at DGROUP 0x3344 in 1.sav',
-    async () => {
-      const result = (await client.callTool({
-        name: 'dosbox_read_struct',
-        arguments: {
-          save: '1.sav',
-          structName: 'sound_table_entry',
-          address: 0x3344,
-        },
-      })) as ToolCallResultLike;
-      expect(result.isError).not.toBe(true);
-      const payload = parseJsonContent(result) as {
-        structName: string;
-        bytes: number;
-        decoded: Record<string, unknown>;
-      };
-      expect(payload.structName).toBe('sound_table_entry');
-      expect(payload.bytes).toBe(12);
-      expect(payload.decoded).toHaveProperty('alias_id');
-      expect(payload.decoded).toHaveProperty('buf_lo');
-      expect(payload.decoded).toHaveProperty('buf_hi');
-    },
-  );
 
   it('dosbox_resolve_symbol finds ui_window_create at wroot 0x11A', async () => {
     const result = (await client.callTool({
@@ -173,48 +115,55 @@ describe('MCP server end-to-end', () => {
     expect(wrootEntry!.address).toBe(0x11a);
   });
 
-  it.skipIf(!haveSaveState)('dosbox_list_saves enumerates 1.sav', async () => {
+  it('dosbox_list_symbols returns bounded entries', async () => {
     const result = (await client.callTool({
-      name: 'dosbox_list_saves',
-      arguments: {},
+      name: 'dosbox_list_symbols',
+      arguments: { binary: 'wroot.exe', limit: 5 },
     })) as ToolCallResultLike;
     expect(result.isError).not.toBe(true);
     const payload = parseJsonContent(result) as {
-      saves: { path: string; slot: number | null }[];
+      count: number;
+      entries: { binary: string }[];
     };
-    expect(payload.saves.some((s) => s.slot === 1)).toBe(true);
+    expect(payload.count).toBeLessThanOrEqual(5);
+    expect(payload.entries.every((e) => e.binary === 'wroot.exe')).toBe(true);
   });
 
-  it.skipIf(!haveSaveState)(
-    'dosbox_identify_palette finds an exact ega-default match in 3.sav',
+  it.skipIf(!haveHost)(
+    'live smoke: launch → step → state → read_struct via registered handlers',
     async () => {
-      const result = (await client.callTool({
-        name: 'dosbox_identify_palette',
-        arguments: { save: '3.sav' },
+      const launch = (await client.callTool({
+        name: 'dosbox_live_launch',
+        arguments: { bootFrames: 3000 },
       })) as ToolCallResultLike;
-      expect(result.isError).not.toBe(true);
-      const payload = parseJsonContent(result) as {
-        best_match: { name: string; distance: number; exact: boolean };
-        all_candidates: { name: string; distance: number }[];
-      };
-      // 3.sav: autodrive-captured mid-intro, wroot loaded, DAC still at the
-      // BIOS-EGA default (the engine doesn't reprogram the palette during
-      // state-1 — that happens later, in main-menu / dungeon scenes which
-      // the current autodrive doesn't reach).
-      expect(payload.best_match.name).toBe('ega-default');
-      expect(payload.best_match.distance).toBe(0);
-      expect(payload.best_match.exact).toBe(true);
-      const wiz6Main = payload.all_candidates.find((c) => c.name === 'wiz6-main');
-      expect(wiz6Main?.distance).toBeGreaterThan(0);
-    },
-  );
+      expect(launch.isError).not.toBe(true);
+      const launchPayload = parseJsonContent(launch) as { ok: boolean; gameState: number };
+      expect(launchPayload.ok).toBe(true);
 
-  it('stub tool surfaces isError:true with a clear message', async () => {
-    const result = (await client.callTool({
-      name: 'dosbox_set_breakpoint',
-      arguments: { target: 'ui_window_create' },
-    })) as ToolCallResultLike;
-    expect(result.isError).toBe(true);
-    expect(result.content[0]!.text).toMatch(/not implemented/i);
-  });
+      const step = (await client.callTool({
+        name: 'dosbox_live_step',
+        arguments: { frames: 60 },
+      })) as ToolCallResultLike;
+      expect(step.isError).not.toBe(true);
+
+      const state = (await client.callTool({
+        name: 'dosbox_live_state',
+        arguments: {},
+      })) as ToolCallResultLike;
+      expect(state.isError).not.toBe(true);
+      const statePayload = parseJsonContent(state) as { dgroupBase: number; gameState: number };
+      expect(statePayload.dgroupBase).toBeGreaterThan(0);
+
+      // read_struct reuses the shared BssStruct registry against live bytes.
+      const rs = (await client.callTool({
+        name: 'dosbox_live_read_struct',
+        arguments: { structName: 'sound_table_entry', address: 0x3344 },
+      })) as ToolCallResultLike;
+      expect(rs.isError).not.toBe(true);
+      const rsPayload = parseJsonContent(rs) as { structName: string; decoded: unknown };
+      expect(rsPayload.structName).toBe('sound_table_entry');
+      expect(rsPayload.decoded).toBeTruthy();
+    },
+    60_000,
+  );
 });

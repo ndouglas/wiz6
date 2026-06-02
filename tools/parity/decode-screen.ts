@@ -67,14 +67,15 @@
  * Default output: /tmp/engine-screen-<N>.png
  *
  * Exports:
- *   decodeSaveToScreen(savePath) → { indices, rgba }
+ *   decodeVgaIndices(blob) → Uint8Array  (raw 4-bit EGA indices from a VGA blob)
+ *   indicesToRgba(indices) → Uint8Array  (RGBA via the wiz6-main AC→DAC pipeline)
  *   SCREEN_WIDTH, SCREEN_HEIGHT, WIZ6_MAIN_AC, COMPOSED_PALETTE
+ *
+ * NOTE: the DOSBox-X save-state decode path (decodeSaveToScreen + the CLI) was
+ * removed when the MCP consolidated onto the dosbox-pure backend (which removed
+ * vga-palette.ts / readVgaBlob). The committed parity fixtures are now minted
+ * via tools/libretro/build-state.ts, which composes palette indices directly.
  */
-
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { readVgaBlob } from '../../packages/mcp/src/vga-palette.js';
-import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 
 // ─── Palette constants ────────────────────────────────────────────────────────
 
@@ -197,168 +198,4 @@ export function indicesToRgba(indices: Uint8Array): Uint8Array {
     rgba[offset + 3] = 0xff;
   }
   return rgba;
-}
-
-/**
- * Decode a DOSBox-X save state to a 320×200 screen.
- *
- * @param savePath Path to the .sav file (ZIP containing Vga member).
- * @returns Object with:
- *   - `indices`: Uint8Array(64000) — 4-bit EGA index per pixel, palette-independent
- *   - `rgba`:    Uint8Array(256000) — RGBA via wiz6-main AC→DAC pipeline
- */
-export function decodeSaveToScreen(savePath: string): {
-  indices: Uint8Array;
-  rgba: Uint8Array;
-} {
-  const blob = readVgaBlob(savePath);
-  const indices = decodeVgaIndices(blob);
-  const rgba = indicesToRgba(indices);
-  return { indices, rgba };
-}
-
-// ─── Internal: decode for CLI (RGBA from blob) ────────────────────────────────
-
-function decodeVgaScreen(blob: Uint8Array): Uint8Array {
-  return indicesToRgba(decodeVgaIndices(blob));
-}
-
-/**
- * Compute structural statistics for validation.
- *
- * For the CHARACTER MENU saves (saves 1–3, game_state 0x10):
- *   - Background: dark-gray (85,85,85)   = EGA attr 8 → wiz6-main AC[8]=0x10 → DAC[16]
- *   - Window fill: black (0,0,0)          = EGA attr 0 → AC[0]=0x00 → DAC[0]
- *   - Frame lines: light-gray (170,170,170) = EGA attr 9 → AC[9]=0x07 → DAC[7]
- *   - Menu text: white (255,255,255)      = EGA attr 1 → AC[1]=0x17 → DAC[23]
- *
- * Validation thresholds for a plausible Wiz6 UI screen (any of saves 1–3):
- *   - black > 25%     : window interiors
- *   - dark-gray > 20% : screen background
- *   - light-gray > 2% : frame/border lines (thin double-line borders)
- *   - white > 0.3%    : menu text (save 2 has minimal text = CREATE PC / EXIT ≈ 0.5%)
- */
-function computeStats(rgba: Uint8Array): {
-  blackPct: number;
-  whitePct: number;
-  lGrayPct: number;
-  dGrayPct: number;
-  whiteBottomRows: number;
-  noisePixels: number;
-} {
-  const total = SCREEN_WIDTH * SCREEN_HEIGHT;
-  let black = 0, white = 0, lGray = 0, dGray = 0, whiteBottom = 0;
-
-  for (let i = 0; i < total; i++) {
-    const r = rgba[i * 4]!;
-    const g = rgba[i * 4 + 1]!;
-    const b = rgba[i * 4 + 2]!;
-    const y = Math.floor(i / SCREEN_WIDTH);
-    if (r === 0 && g === 0 && b === 0) black++;
-    else if (r === 255 && g === 255 && b === 255) {
-      white++;
-      if (y >= SCREEN_HEIGHT - 40) whiteBottom++;
-    }
-    else if (r === 170 && g === 170 && b === 170) lGray++;
-    else if (r === 85 && g === 85 && b === 85) dGray++;
-  }
-
-  // Isolated-pixel noise: pixels whose color differs from ALL 4 cardinal neighbors.
-  let noisePixels = 0;
-  for (let y = 1; y < SCREEN_HEIGHT - 1; y++) {
-    for (let x = 1; x < SCREEN_WIDTH - 1; x++) {
-      const i = (y * SCREEN_WIDTH + x) * 4;
-      const r = rgba[i]!, g = rgba[i + 1]!, b = rgba[i + 2]!;
-      const neighbors = [
-        [rgba[(i - SCREEN_WIDTH * 4)]!, rgba[(i - SCREEN_WIDTH * 4) + 1]!, rgba[(i - SCREEN_WIDTH * 4) + 2]!],
-        [rgba[(i + SCREEN_WIDTH * 4)]!, rgba[(i + SCREEN_WIDTH * 4) + 1]!, rgba[(i + SCREEN_WIDTH * 4) + 2]!],
-        [rgba[i - 4]!, rgba[i - 3]!, rgba[i - 2]!],
-        [rgba[i + 4]!, rgba[i + 5]!, rgba[i + 6]!],
-      ];
-      if (neighbors.every(([nr, ng, nb]) => nr !== r || ng !== g || nb !== b)) {
-        noisePixels++;
-      }
-    }
-  }
-
-  return {
-    blackPct: (black / total) * 100,
-    whitePct: (white / total) * 100,
-    lGrayPct: (lGray / total) * 100,
-    dGrayPct: (dGray / total) * 100,
-    whiteBottomRows: whiteBottom,
-    noisePixels,
-  };
-}
-
-// ─── CLI (only runs when executed directly, not when imported) ────────────────
-
-import { fileURLToPath as _fileURLToPath } from 'node:url';
-
-const _isMain = process.argv[1] === _fileURLToPath(import.meta.url) ||
-  process.argv[1]?.endsWith('decode-screen.ts') ||
-  process.argv[1]?.endsWith('decode-screen.js');
-
-if (_isMain) {
-  function resolveSavePath(arg: string): { path: string; saveNum: string } {
-    if (/^\d+$/.test(arg)) {
-      return {
-        path: join(process.cwd(), 'tools', 'dosbox', 'save', `${arg}.sav`),
-        saveNum: arg,
-      };
-    }
-    const m = arg.match(/(\d+)/);
-    return { path: arg, saveNum: m ? m[1]! : '0' };
-  }
-
-  const args = process.argv.slice(2);
-  const saveIdx = args.indexOf('--save');
-  const outIdx  = args.indexOf('--out');
-
-  if (saveIdx < 0 || saveIdx + 1 >= args.length) {
-    console.error('usage: pnpm tsx tools/parity/decode-screen.ts --save <path|N> [--out <png>]');
-    process.exit(1);
-  }
-
-  const { path: savePath, saveNum } = resolveSavePath(args[saveIdx + 1]!);
-  const outPath =
-    outIdx >= 0 && outIdx + 1 < args.length
-      ? args[outIdx + 1]!
-      : `/tmp/engine-screen-${saveNum}.png`;
-
-  const blob = readVgaBlob(savePath);
-  const rgba = decodeVgaScreen(blob);
-  const png  = encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba);
-  writeFileSync(outPath, png);
-
-  const stats = computeStats(rgba);
-  console.log(`decoded ${SCREEN_WIDTH}×${SCREEN_HEIGHT} from ${savePath}`);
-  console.log(`  → ${outPath}`);
-  console.log(`  black:       ${stats.blackPct.toFixed(1)}%`);
-  console.log(`  white:       ${stats.whitePct.toFixed(1)}%`);
-  console.log(`  light-gray:  ${stats.lGrayPct.toFixed(1)}%`);
-  console.log(`  dark-gray:   ${stats.dGrayPct.toFixed(1)}%`);
-  console.log(`  white pixels in bottom 40 rows: ${stats.whiteBottomRows}`);
-  console.log(`  isolated noise pixels: ${stats.noisePixels}`);
-
-  // Structural validation: the decoded image must be a plausible Wiz6 UI screen
-  // under the wiz6-main AC→DAC palette. Four-color check:
-  //   - black > 25%     : window interiors (attr 0 = black via AC[0]=0x00→DAC[0])
-  //   - dark-gray > 20% : screen background (attr 8 → AC[8]=0x10 → DAC[16] = dark-gray)
-  //   - light-gray > 2% : frame/border lines (attr 9 → AC[9]=0x07 → DAC[7] = light-gray)
-  //   - white > 0.3%    : menu option text (attr 1 → AC[1]=0x17 → DAC[23] = white)
-  //                       (0.3% to accommodate save 2 which has minimal text ≈ 0.5%)
-  const passed =
-    stats.blackPct > 25 &&
-    stats.dGrayPct > 20 &&
-    stats.lGrayPct > 2 &&
-    stats.whitePct > 0.3;
-
-  if (passed) {
-    console.log('  structural check: PASS (black windows + dark-gray bg + light-gray frames + white text)');
-  } else {
-    console.error(`  structural check: FAIL`);
-    console.error(`    black=${stats.blackPct.toFixed(1)}% (need >25%), dark-gray=${stats.dGrayPct.toFixed(1)}% (need >20%), light-gray=${stats.lGrayPct.toFixed(1)}% (need >2%), white=${stats.whitePct.toFixed(1)}% (need >0.3%)`);
-    process.exit(1);
-  }
 }

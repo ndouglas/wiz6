@@ -8,11 +8,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { McpContext, type McpContextOptions } from './context.js';
-import { registerLifecycleTools } from './tools/lifecycle.js';
-import { registerControlTools } from './tools/control.js';
-import { registerInspectionTools } from './tools/inspection.js';
-import { registerBreakpointTools } from './tools/breakpoints.js';
-import { registerSnapshotTools } from './tools/snapshots.js';
+import { registerSymbolTools } from './tools/symbols.js';
 import { registerLiveTools } from './tools/live.js';
 
 export const SERVER_NAME = '@wiz6/mcp';
@@ -28,11 +24,7 @@ export function buildServer(opts: McpContextOptions = {}): BuiltServer {
   const context = new McpContext(opts);
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
 
-  registerLifecycleTools(server, context);
-  registerControlTools(server, context);
-  registerInspectionTools(server, context);
-  registerBreakpointTools(server, context);
-  registerSnapshotTools(server, context);
+  registerSymbolTools(server, context);
   registerLiveTools(server, context);
 
   return { server, context };
