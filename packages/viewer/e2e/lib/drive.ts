@@ -1,8 +1,8 @@
 import { expect, type Page } from '@playwright/test';
-import { readFileSync } from 'fs';
+import { readFileSync, mkdirSync } from 'fs';
 import { gunzipSync } from 'zlib';
 import { resolve, join } from 'path';
-import { captureCanvas, waitForNonBlankCanvas } from './canvas.js';
+import { captureCanvas, waitForNonBlankCanvas, saveCanvasPng } from './canvas.js';
 import { compareRgba } from '../../../../tools/parity/diff-image.js';
 import { indicesToRgba } from '../../../../tools/parity/decode-screen.js';
 import type { CreationStatePartial } from './creation-states.js';
@@ -38,11 +38,25 @@ export function loadFixtureRgba(name: string): Uint8Array {
   return indicesToRgba(new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength));
 }
 
+const ARTIFACT_DIR = join(REPO_ROOT, 'packages', 'viewer', 'test-results');
+
 /** Assert the live <canvas> matches the named engine fixture byte-exact (tolerance 0). */
 export async function expectCanvasMatchesFixture(page: Page, name: string, tolerance = 0): Promise<void> {
   const cap = await captureCanvas(page, 'canvas');
   expect(cap.width).toBe(320);
   expect(cap.height).toBe(200);
   const result = compareRgba(new Uint8Array(cap.rgba), loadFixtureRgba(name), { tolerance });
+  // On mismatch, dump the ACTUAL captured 320×200 canvas as a PNG into
+  // test-results/ so CI (which uploads that dir on failure) preserves the real
+  // composed pixels — the default Playwright page screenshot is CSS-scaled and
+  // loses the internal buffer.
+  if (result.matchPct !== 100) {
+    try {
+      mkdirSync(ARTIFACT_DIR, { recursive: true });
+      saveCanvasPng(join(ARTIFACT_DIR, `MISMATCH-${name}.png`), cap);
+    } catch {
+      // best-effort artifact; never let it mask the real assertion failure
+    }
+  }
   expect(result.matchPct, `${name}: ${result.matchPct.toFixed(2)}% match`).toBe(100);
 }
