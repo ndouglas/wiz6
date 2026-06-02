@@ -153,7 +153,7 @@ export function classReachableWithPool(
  */
 export const FEMALE_ONLY_CLASSES: readonly number[] = [8]; // Valkyrie
 
-/** Sex codes: 0 = Male, 1 = Female (matches the record's +0x1a1 sex field). */
+/** Sex codes: 0 = Male, 1 = Female (matches the record's +0x19e sex field). */
 export function classAllowedForSex(classIndex: number, sex: number): boolean {
   if (FEMALE_ONLY_CLASSES.includes(classIndex)) return sex === 1;
   return true;
