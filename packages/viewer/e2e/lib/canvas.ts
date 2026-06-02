@@ -113,6 +113,76 @@ export async function waitForNonBlankCanvas(
 }
 
 // ---------------------------------------------------------------------------
+// Stable-frame polling
+// ---------------------------------------------------------------------------
+
+/**
+ * Poll until the canvas's internal pixel buffer stops changing.
+ *
+ * `waitForNonBlankCanvas` returns as soon as ~500 non-background pixels exist —
+ * which can be just the chrome/castle backdrop, BEFORE the picker's async-loaded
+ * layers (fonts wfont0/1/3/4, mon08 pic, dragonsc screen, portrait sets) have
+ * painted. Each `set*` in PartyMemberPicker triggers an independent re-paint, so
+ * the frame settles incrementally. On a fast local machine all layers land
+ * before the test reads the canvas; on a slower CI runner the read can race
+ * ahead of the final paint, yielding a partial frame (e.g. 60% match).
+ *
+ * This waits for a STABLE frame: it samples a cheap content hash of the buffer
+ * and returns only after the hash is unchanged across `stableReads` consecutive
+ * samples spaced `intervalMs` apart. That is the deterministic "fully rendered"
+ * signal — independent of which order the async assets resolve.
+ *
+ * @param page         Playwright Page
+ * @param selector     Canvas CSS selector (default: 'canvas')
+ * @param intervalMs   Delay between samples (default: 120)
+ * @param stableReads  Consecutive identical samples required (default: 3)
+ * @param timeoutMs    Maximum wait (default: 15_000)
+ */
+export async function waitForStableCanvas(
+  page: Page,
+  selector = 'canvas',
+  intervalMs = 120,
+  stableReads = 3,
+  timeoutMs = 15_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let last: number | null = null;
+  let stable = 0;
+
+  while (Date.now() < deadline) {
+    const hash = await page.evaluate((sel: string) => {
+      const c = document.querySelector(sel) as HTMLCanvasElement | null;
+      if (!c) return -1;
+      const ctx = c.getContext('2d');
+      if (!ctx) return -1;
+      const d = ctx.getImageData(0, 0, c.width, c.height).data;
+      // FNV-1a over the whole buffer — cheap, collision-resistant enough that an
+      // incremental-paint difference reliably changes the hash.
+      let h = 0x811c9dc5;
+      for (let i = 0; i < d.length; i++) {
+        h ^= d[i]!;
+        h = Math.imul(h, 0x01000193);
+      }
+      return h >>> 0;
+    }, selector);
+
+    if (hash !== -1 && hash === last) {
+      stable++;
+      if (stable >= stableReads) return;
+    } else {
+      stable = 0;
+      last = hash;
+    }
+
+    await page.waitForTimeout(intervalMs);
+  }
+
+  throw new Error(
+    `Canvas did not reach a stable frame (${stableReads} identical reads) within ${timeoutMs}ms`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // PNG artifact saver (debug helper)
 // ---------------------------------------------------------------------------
 

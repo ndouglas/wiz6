@@ -2,7 +2,12 @@ import { expect, type Page } from '@playwright/test';
 import { readFileSync, mkdirSync } from 'fs';
 import { gunzipSync } from 'zlib';
 import { resolve, join } from 'path';
-import { captureCanvas, waitForNonBlankCanvas, saveCanvasPng } from './canvas.js';
+import {
+  captureCanvas,
+  waitForNonBlankCanvas,
+  waitForStableCanvas,
+  saveCanvasPng,
+} from './canvas.js';
 import { compareRgba } from '../../../../tools/parity/diff-image.js';
 import { indicesToRgba } from '../../../../tools/parity/decode-screen.js';
 import type { CreationStatePartial } from './creation-states.js';
@@ -42,6 +47,12 @@ const ARTIFACT_DIR = join(REPO_ROOT, 'packages', 'viewer', 'test-results');
 
 /** Assert the live <canvas> matches the named engine fixture byte-exact (tolerance 0). */
 export async function expectCanvasMatchesFixture(page: Page, name: string, tolerance = 0): Promise<void> {
+  // Wait for a fully-settled frame before reading. The picker/char-view compose
+  // from several async-loaded asset layers (fonts, pics, portraits), each
+  // triggering its own re-paint; a slow CI runner can otherwise capture a
+  // partial frame. This is a settle (not a tolerance relaxation) — the assert
+  // below remains byte-exact.
+  await waitForStableCanvas(page, 'canvas');
   const cap = await captureCanvas(page, 'canvas');
   expect(cap.width).toBe(320);
   expect(cap.height).toBe(200);

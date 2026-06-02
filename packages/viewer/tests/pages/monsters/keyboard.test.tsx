@@ -28,30 +28,35 @@ describe('monsters keyboard shortcuts', () => {
     setupFetch();
   });
 
+  // The scenario DB is loaded async (fetch → parse → render), so the first
+  // heading can take longer than waitFor's default 1000ms timeout under CI load.
+  // Use a generous timeout so these are deterministic on a slow runner.
+  const WAIT = { timeout: 5000 } as const;
+
   it('arrow-down selects the next monster in the list', async () => {
     renderAt('/explore/monsters/giant-rat');
     await waitFor(() => {
       expect(
         screen.getByRole('heading', { level: 2, name: /giant rat/i }),
       ).toBeInTheDocument();
-    });
+    }, WAIT);
     fireEvent.keyDown(window, { key: 'ArrowDown' });
     await waitFor(() => {
       // With default name-asc sort: FAERIE QUEEN, GIANT RAT, PIT FIEND, WRAITH, ZOMBIE
       // From giant-rat, next is pit-fiend
       expect(screen.getByRole('heading', { level: 2, name: /pit fiend/i })).toBeInTheDocument();
-    });
+    }, WAIT);
   });
 
   it('arrow-up selects the previous monster', async () => {
     renderAt('/explore/monsters/pit-fiend');
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 2, name: /pit fiend/i })).toBeInTheDocument();
-    });
+    }, WAIT);
     fireEvent.keyDown(window, { key: 'ArrowUp' });
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 2, name: /giant rat/i })).toBeInTheDocument();
-    });
+    }, WAIT);
   });
 
   it('pressing 2 jumps to the Attacks tab', async () => {
@@ -60,18 +65,18 @@ describe('monsters keyboard shortcuts', () => {
       expect(
         screen.getByRole('heading', { level: 2, name: /giant rat/i }),
       ).toBeInTheDocument();
-    });
+    }, WAIT);
     fireEvent.keyDown(window, { key: '2' });
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: 'Attacks' })).toHaveAttribute('aria-selected', 'true');
-    });
+    }, WAIT);
   });
 
   it('pressing ? opens the help overlay', async () => {
     renderAt('/explore/monsters');
     await waitFor(() => {
       expect(screen.getByRole('region', { name: /monster list/i })).toBeInTheDocument();
-    });
+    }, WAIT);
     fireEvent.keyDown(window, { key: '?' });
     expect(screen.getByText(/keyboard shortcuts/i)).toBeInTheDocument();
     expect(screen.getByText(/↑\s*\/\s*↓/)).toBeInTheDocument();
