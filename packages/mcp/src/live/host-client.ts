@@ -28,14 +28,15 @@ export class HostClient {
   private readonly gameDir: string;
 
   /** Spawn the harness. `source` overrides the committed game-image dir (default
-   *  test-fixtures/original/); it is copied to an ephemeral working dir per session. */
-  constructor(opts: { source?: string } = {}) {
+   *  test-fixtures/original/); it is copied to an ephemeral working dir per session.
+   *  `exeName` overrides the booted program (default wroot.exe — e.g. winstall.exe). */
+  constructor(opts: { source?: string; exeName?: string } = {}) {
     mkdirSync(LOG_DIR, { recursive: true });
     // Fresh, throwaway copy of the pinned image → reproducible + non-mutating.
     this.gameDir = mkdtempSync(join(LOG_DIR, 'game-'));
     cpSync(opts.source ?? PINNED_SOURCE, this.gameDir, { recursive: true });
     const logFd = openSync(`${LOG_DIR}/host-client.log`, 'a');
-    this.child = spawn('./host', [join(this.gameDir, 'wroot.exe')], {
+    this.child = spawn('./host', [join(this.gameDir, opts.exeName ?? 'wroot.exe')], {
       cwd: HOST_DIR,
       stdio: ['pipe', 'pipe', logFd],
     });
