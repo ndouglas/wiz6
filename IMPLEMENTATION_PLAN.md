@@ -118,9 +118,17 @@ creation subagent (2026-06-01) found the *data* diverges on 22/24 creation fixtu
   - Audit needed: which of the 34 have active parity cases (ports) vs are orphaned engine refs.
   - `creation-review-member` (deferred from 4e): incomplete port (TODO #042-045) needing an
     active party — fold into the char-view wave.
+  - **4f DONE (committed):** char-view (15) via recipe-replay party-formation; castle/menu
+    (9) re-minted data-driven from the pinned roster (+ the +0x19e sex RE fix); title/boot
+    (8) via a `bootCapture` recipe field; title-page/-2 gated in intro-parity. Orphan
+    `character-delete-confirm` removed.
 **Success:** every fixture rebuildable byte-exact from the pinned repo via build-state;
 parity + e2e suites green.
-**Status:** In Progress (creation 4b-4e complete; 4f non-creation sweep next)
+**Status:** COMPLETE. All 58 fixtures rebuild from test-fixtures/ via build-state; parity
+suite 89/89. Only `creation-review-member` is deferred (a pre-existing incomplete port,
+TODO #042-045 — needs an active party; not a rebuild gap). build-state modes:
+recipe-replay (deterministic) · --mint (frozen serialize-state for RNG rolls) ·
+pcfileFixture (committed pcfile fresh-boot) · bootCapture (cold-boot intro frames).
 
 ## Stage 5: Decommission + docs
 **Goal:** remove/retire DOSBox-X-specific paths per Stage-2 outcome; update CLAUDE.md,
