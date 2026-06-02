@@ -44,6 +44,14 @@ describe('draftFromEngineDump', () => {
     expect(draftFromEngineDump(SAMPLE).bonusPool).toBe(5);
   });
 
+  it('maps the engine BONUS-hidden sentinel (0xffff) to -1', () => {
+    // Read-only char-sheet views (REVIEW PC) write *0x56ac = 0xffff to suppress
+    // the BONUS row. dumpDraft reads that u16 verbatim, so the sidecar carries
+    // 0xffff; the renderer hides BONUS only on a NEGATIVE pool, so map it to -1.
+    const review: EngineDraftDump = { ...SAMPLE, bonusPool: 0xffff };
+    expect(draftFromEngineDump(review).bonusPool).toBe(-1);
+  });
+
   it('maps derived stats from the record', () => {
     const d = draftFromEngineDump(SAMPLE);
     expect(d.derived.age).toBe(20 * 365 + 100);

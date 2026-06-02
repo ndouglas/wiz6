@@ -72,9 +72,12 @@ export function draftFromEngineDump(dump: EngineDraftDump): DraftState {
     attributes,
     skills: [...r.skills],
     portrait: r.rendered_portrait_index,
-    // LIVE bonus pool — keeps the BONUS row visible (unlike draftFromCharacter,
-    // which forces -1 to hide it on the review screen).
-    bonusPool: dump.bonusPool,
+    // LIVE bonus pool — keeps the BONUS row visible during creation. The engine
+    // writes 0xffff to *0x56ac on read-only char-sheet views (REVIEW PC) to HIDE
+    // the BONUS row (drawStatPanel shows it only for pool >= 0); dumpDraft reads
+    // that u16 verbatim, so map the 0xffff sentinel to -1 here. (Creation rolls
+    // are 0..26, never 0xffff, so this only fires on review screens.)
+    bonusPool: dump.bonusPool === 0xffff ? -1 : dump.bonusPool,
     derived: {
       age: r.age_counter,
       // Char-sheet row-3 secondary-age counter. Engine reads *0x5496 (0

@@ -1,0 +1,88 @@
+{
+  "topic": "creation-save-persistence",
+  "subagent_run": "2026-06-02T20:10:00Z",
+  "binaries": ["wpcmk.ovr", "wroot.exe", "dosbox_pure_libretro.dylib"],
+  "summary": "ROOT CAUSE of 'a freshly-created character's body does not persist after in-game SAVE in the dosbox-pure harness'. The engine SAVE works correctly: the created char's full body (attrs/hp/skills) is written to the roster pcfile.dbs AND to RAM occupancy. The persistence loss is a HARNESS artifact, NOT engine behavior — dosbox-pure's savestate does NOT capture host-mounted-file writes. An in-game SAVE lands in the ephemeral gameDir's pcfile.dbs, but serialize() captures only emulator RAM (+ internal disk cache), so a fresh-gameDir unserialize re-reads the PINNED 6-char pcfile and the created record is lost. The fix is to BAKE the created char into the source pcfile and boot a fresh image whose roster already contains it (fully deterministic, no creation roll).",
+  "findings": [
+    {
+      "id": "save-writes-full-body-to-disk",
+      "claim": "The in-game SAVE writes the created char's COMPLETE body (name/race/class/attrs/hp/skills) to the roster pcfile.dbs. The 'body is zero' premise is FALSE for the engine itself.",
+      "category": "save_persistence",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "type": "live_drive_plus_disk_read",
+        "details": "Drove minimal-roster (NATHAN/Human-male/FIGHTER creation->SAVE->YES) via LiveSession. Before YES: draft @DGROUP 0x5470 +0x12c = [11 08 08 09 09 08 08 09], base_stats @0x559c identical, hp @+0x18 = 07 00. After YES->SAVE: on-disk ephemeral gameDir pcfile.dbs slot 6 = name=NATHAN race=0 class=0 attrs=[11 08 08 09 09 08 08 09] hp=[07 00 07 00], slot_status[16] = 01 01 01 01 01 01 01 00... (7 occupied). The body is FULLY persisted on disk."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "save-path-reads-draft-buffer",
+      "claim": "roster_write_slot writes the draft buffer at DGROUP 0x5470 (which holds the FULL record, body included) to pcfile.dbs at offset 24 + slot*0x1b0, then sets slot_status and flushes. Confirmed against wpcmk-character-creation-trace.md Steps 21-23.",
+      "category": "save_path",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x001b" },
+        "type": "asm_trace_plus_disk_read",
+        "details": "Step 21: push 1; push [bp+6] (slot); push 0x5470 (record buf); call 0x001b (roster_write_slot). Step 22: mov byte [bx+0x4fd8],1 (occupancy). Step 23: call 0xf0dc (roster_save_all/flush). The draft @0x5470 contains the full body at SAVE time (verified above), so the disk write is complete — the body is NOT dropped by the engine."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "savestate-drops-host-file-writes",
+      "claim": "dosbox-pure's retro_serialize does NOT capture writes to host-mounted files (the auto-mounted drive C = the gameDir). serialize captures emulator RAM (incl. roster occupancy at DGROUP 0x4fd8) but NOT the host pcfile.dbs. On unserialize into a FRESH gameDir (a new pinned copy), the created record is gone from disk while RAM still claims the slot is occupied.",
+      "category": "harness_artifact",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "serialize_roundtrip",
+        "details": "Mint session: RAM occupancy @0x4fd8 = 01x7, on-disk pcfile slot_status = 01x7, slot 6 = NATHAN (full body). serialize -> NEW LiveSession (fresh mkdtemp gameDir = fresh cpSync of pinned test-fixtures/original/) -> unserialize: RAM occupancy STILL 01x7 (restored), but on-disk pcfile slot_status = 01x6 (the PINNED 6-char file — NO NATHAN at slot 6). The host file write did not survive the savestate."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "review-reads-zero-for-lost-record",
+      "claim": "The 'body is zero' symptom reproduces ONLY through REVIEW after a savestate round-trip: the REVIEW WHO? picker lists a 7th entry (from RAM occupancy 0x4fd8 = 7 slots), but selecting it makes roster_io_one_record(0x5470, 6, 0) read slot 6 from the stale (pinned, 6-char) on-disk pcfile.dbs, whose slot-6 region is the empty-slot zero-fill. So 0x5470 loads name='' race=0 class=0 attrs=[00...] hp=0 and the char sheet renders an all-zero NATHAN.",
+      "category": "symptom_explanation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wpcmk.ovr", "offset": "0x51c6" },
+        "type": "live_drive_plus_screenshot",
+        "details": "After serialize/unserialize, drove REVIEW PC -> picker -> 6 downs (NATHAN entry, shown as 'M-HUM FIG' with a BLANK name column) -> enter. Read 0x5470: name='' race=0 class=0 attrs=[00 00 00 00 00 00 00 00] hp=[00 00 00 00]. Screenshot: char sheet with all-zero stats. The picker entry exists (RAM occupancy) but its disk record is absent."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "creation-does-not-add-to-active-party",
+      "claim": "Character CREATION writes ONLY to the roster (pcfile.dbs + occupancy 0x4fd8). It does NOT populate the active-party array at DGROUP 0x43e8 — that array stays empty (partySize=0) after creation+SAVE. The active party is populated separately via wbase ADD PARTY MEMBER. So inspecting 0x43e8 after creation is the wrong place to look for the created char; the roster pcfile.dbs (and its load-into-0x5470 on REVIEW) is the source of truth.",
+      "category": "data_flow",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wroot.dgroup", "offset": "0x43e8" },
+        "type": "live_read",
+        "details": "After minimal-roster creation->SAVE: state.partySize=0; party array 0x43e8 slots 0..7 all empty/garbage (no NATHAN record). The post-save game_state is 0x10 (CHARACTER MENU sub-state), not state 4."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fix-bake-into-source-pcfile",
+      "claim": "WORKING fix: bake the created char into the SOURCE pcfile and boot a fresh image whose roster already contains it. A 1-char pcfile.dbs (header record_size=0x1b0, slot_count=16, header_size=24, slot_status=[1,0,...], NATHAN's 432-byte record at slot 0) overlaid on the pinned image, then a fresh boot -> CHARACTER MENU -> REVIEW PC -> first char, renders NATHAN with FULL stats (STR 18, INT 8, ... HP 6, STM 108, no BONUS row). Fully deterministic (no creation roll at fixture-build time).",
+      "category": "fix",
+      "evidence": {
+        "type": "live_drive_plus_screenshot",
+        "details": "Built test-fixtures/states/minimal-roster.pcfile.dbs (NATHAN at slot 0, attrs=[12 08 08 09 09 08 08 03]) by harvesting the slot-6 record from a one-time creation drive. Booting LiveSession with this source: REVIEW sheet @0x5470 = name=NATHAN race=0 class=0 attrs=[12 08 08 09 09 08 08 03] hp=[06 00]. The creation-review-character parity fixture re-mints + --check at 100.00% (0/64000 idx differ) and the screen-parity gate passes."
+      },
+      "confidence": "high"
+    }
+  ],
+  "ruled_out": [
+    "Engine commit copying only the header (the body IS written to disk — verified by reading the ephemeral pcfile.dbs).",
+    "Recipe not completing the SAVE (screenshots confirm SAVE? YES->CHARACTER MENU with 7-slot occupancy and the disk write landed).",
+    "An extra confirm prompt being missed (the YES press returns cleanly to CHARACTER MENU).",
+    "The draft buffer 0x5470 being half-populated at SAVE time (it holds the full body: attrs == base_stats @0x559c, hp set).",
+    "A decoder/struct-offset bug in character_record (the same struct reads correct full bodies for the 6 stock chars from disk and for NATHAN when baked into the source)."
+  ],
+  "implications": [
+    "The `baseState` (frozen-machine unserialize + forward-drive) mechanism CANNOT review a created character: the savestate carries RAM but not the host pcfile, so the picker shows a phantom slot that reads zeros. Use `pcfileFixture` (bake the char into the boot image) for any fixture that must read a created roster char.",
+    "creation-review-character was re-pointed from baseState:minimal-roster to pcfileFixture:minimal-roster and now reviews NATHAN (the sole roster char) at 100% parity.",
+    "The committed minimal-roster.state.gz (a frozen creation machine) was removed — it could only review the pinned stock chars (THESUS...), never the created NATHAN. The canonical 1-char NATHAN roster is now test-fixtures/states/minimal-roster.pcfile.dbs."
+  ]
+}

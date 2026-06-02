@@ -385,11 +385,16 @@ function renderSkillTrainDone(fontSet: FontSet, palette: Palette): Uint8ClampedA
   return renderCreationFrame(windows, fs, palette);
 }
 
-// ─── REVIEW CHARACTER helper (slot 2 char-sheet view; BONUS hidden) ───────────
-// Engine: wpcmk_view_character on NATHAN RAWULF FIGHTER. Same drawCharSheet
+// ─── REVIEW CHARACTER helper (read-only char-sheet view; BONUS hidden) ────────
+// Engine: wpcmk_view_character on the sole roster char — the freshly-CREATED
+// NATHAN (Human-male FIGHTER), baked into the boot pcfile. Same drawCharSheet
 // machinery as creation; the only UI difference is bonusPool = -1 (hides BONUS
-// row). Verified vs slot 2 cells: BONUS label absent at row 11, "PRESS ▶ TO
-// EXIT" centered in bottomBar row 2.
+// row — the engine writes *0x56ac = 0xffff, which draftFromEngineDump maps to
+// -1). Re-minted via a fresh-boot forward-drive over the committed 1-char NATHAN
+// pcfile (minimal-roster.pcfile.dbs) — dosbox-pure savestate cannot persist the
+// in-game SAVE disk write, so the created char is baked into the source instead
+// (docs/re/findings/creation-save-persistence.json). Stats come from the sidecar,
+// NOT hardcoded. Verified: BONUS label absent at row 11, "PRESS ▶ TO EXIT" centered.
 
 const NATHAN_RAWULF_FIGHTER: Character = {
   id: '00000000-0000-0000-0000-000000000001',
@@ -611,15 +616,15 @@ function renderDeleteConfirm(fontSet: FontSet, palette: Palette): Uint8ClampedAr
 }
 
 function renderReviewCharacter(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  const wport1: PortraitSet = PortraitSetSchema.parse(
-    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
-  );
-  const empty: PortraitSet = { ...wport1, portraits: [] };
-  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, empty, empty], 1);
-
+  // Re-minted via a fresh-boot forward-drive over the committed 1-char NATHAN
+  // pcfile (minimal-roster.pcfile.dbs → REVIEW PC → sole char). The reviewed char
+  // (NATHAN, Human-male FIGHTER) + all stats come from the COMMITTED sidecar,
+  // NOT hardcoded. dumpDraft reads *0x56ac = 0xffff on the read-only sheet;
+  // draftFromEngineDump maps that sentinel to -1 so the BONUS row stays hidden.
+  const dumped = draftFromEngineDump(loadDraftSidecar('creation-review-character'));
   const { top, bottomBar, menuPanel } = createPersistentWindows();
-  const draft = draftFromCharacter(NATHAN_RAWULF_FIGHTER);
-  drawCharSheet(top, draft, msgDb);
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, loadAllPortraits(), dumped.portrait);
+  drawCharSheet(top, dumped, msgDb);
 
   // Portrait tiles at top (1..3, 1..3) attr 0x02.
   for (let r = 0; r < 3; r++) {

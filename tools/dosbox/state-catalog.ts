@@ -14,11 +14,28 @@
 export interface SaveStateRecipe {
   name: string;
   description: string;
-  /** Drive steps AFTER the title screen is dismissed. One macro string each;
-   *  the builder settles the frame between steps. */
+  /** Drive steps. By default these run AFTER a fresh boot + title-screen
+   *  dismissal. If `baseState` is set, they instead run AFTER unserializing that
+   *  committed base machine (no boot, no title dismissal) — a deterministic
+   *  forward-drive from a frozen waypoint. One macro string each; the builder
+   *  settles the frame between steps. */
   steps: string[];
   /** Extra settle (ms) after the final step before saving (default 0). */
   settleMs?: number;
+  /** Optional committed base-state name (test-fixtures/states/<baseState>.state.gz).
+   *  When set, build-state unserializes it and drives `steps` forward FROM it
+   *  instead of booting — used to re-mint screens that build on a frozen roster
+   *  (creation rolls are non-deterministic, so the roster is frozen once and the
+   *  forward-drive is roll-free → fully reproducible). */
+  baseState?: string;
+  /** Optional committed pcfile name (test-fixtures/states/<pcfileFixture>.pcfile.dbs)
+   *  to OVERLAY on the pinned game image before booting. dosbox-pure's savestate
+   *  does NOT capture host-mounted-file writes, so an in-game SAVE never survives
+   *  a re-mount (see docs/re/findings/creation-save-persistence.json). To review a
+   *  CREATED character reproducibly we bake it into the source pcfile and boot from
+   *  a fresh image whose roster already contains it. The recipe then drives forward
+   *  with NO creation roll — fully deterministic. Mutually exclusive with baseState. */
+  pcfileFixture?: string;
 }
 
 // Shared creation prologue: MASTER OPTIONS → CHARACTER MENU → CREATE PC.
@@ -382,6 +399,41 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
     ],
     settleMs: 300,
   },
+  // ── minimal-roster: full creation → SAVE (drives the roll) ──────────────────
+  // Drives a FULL creation to completion (NATHAN, Human-male FIGHTER) → SAVE →
+  // YES, returning to the CHARACTER MENU. The created NATHAN lands in the
+  // EPHEMERAL gameDir's pcfile.dbs (proven persisted on disk) AND in RAM
+  // occupancy — but dosbox-pure's savestate does NOT capture host-mounted-file
+  // writes, so the disk record is LOST on re-mount and a frozen state can't be
+  // reviewed for NATHAN (the picker shows a 7th entry from RAM occupancy but the
+  // re-read pcfile slot 6 is zero). See docs/re/findings/creation-save-persistence.json.
+  //
+  // This recipe is therefore used ONLY by gen-nathan-pcfile.ts, which drives it
+  // once and harvests the freshly-created NATHAN record from the gameDir disk to
+  // bake the committed 1-char source pcfile (minimal-roster.pcfile.dbs). Review/
+  // roster-management fixtures boot from THAT pcfile via `pcfileFixture`, which is
+  // fully deterministic (no roll). The SAVE flow: at the confirm screen YES is
+  // highlighted; a single `enter` saves + returns to CHARACTER MENU.
+  {
+    name: 'minimal-roster',
+    description:
+      'Drives NATHAN/Human-male/FIGHTER creation→SAVE→YES. Used by ' +
+      'gen-nathan-pcfile.ts to harvest the created record into the committed ' +
+      '1-char source pcfile (savestate cannot persist the disk write itself).',
+    steps: [
+      ...CREATE_PC_PROLOGUE,
+      'n a t h a n enter', // NAME
+      'enter',             // RACE: Human
+      'enter',             // SEX: Male
+      'enter',             // CLASS: Fighter (index 0)
+      BONUS_DRAIN,         // BONUS: distribute the random pool
+      'enter',             // KARMA
+      'enter',             // PORTRAIT → SKILLS
+      SKILL_DRAIN,         // SKILLS drain + exit → confirm (SAVE? YES NO, YES highlit)
+      'enter',             // YES → SAVE → CHARACTER MENU (cursor on EXIT)
+    ],
+    settleMs: 300,
+  },
   // Roster-management waypoints over an EXISTING roster character. The committed
   // fixtures capture a single-char roster (NATHAN Rawulf Fighter) absent from the
   // pinned pcfile, so these reach the right SCREEN but show a different roster
@@ -400,8 +452,17 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
   },
   {
     name: 'creation-review-character',
-    description: 'REVIEW PC char-sheet of the first roster char (stale roster).',
-    steps: ['down down enter', 'left left enter', 'enter'], // REVIEW PC → pick first → sheet
+    description:
+      'REVIEW PC char-sheet of the freshly-CREATED NATHAN (Human-male FIGHTER), the ' +
+      'sole roster char. Boots from a 1-char NATHAN pcfile baked into the source ' +
+      '(minimal-roster.pcfile.dbs) — dosbox-pure savestate does NOT persist the ' +
+      'in-game SAVE disk write, so the created char is baked into the boot image ' +
+      'instead (docs/re/findings/creation-save-persistence.json). Read-only sheet → ' +
+      'BONUS row hidden (engine *0x56ac = 0xffff sentinel). Deterministic (no roll).',
+    pcfileFixture: 'minimal-roster',
+    // Fresh boot: MASTER OPTIONS → CHARACTER MENU (down down enter); cursor on EXIT
+    // → REVIEW PC (left left enter) → REVIEW WHO? picker (single char) → NATHAN (enter).
+    steps: ['down down enter', 'left left enter', 'enter'],
     settleMs: 300,
   },
   {
