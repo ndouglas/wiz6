@@ -99,11 +99,28 @@ creation subagent (2026-06-01) found the *data* diverges on 22/24 creation fixtu
 - **4e — Re-mint roster fixtures.** From the committed minimal-roster state, re-mint
   review/delete/rename/portrait*/review-character/review-member + sidecars; refactor
   render fns; each → 100%.
-- **4f — Full-suite sweep.** Re-verify all 58 fixtures reproduce from pinned source;
-  give any other stale ones (castle/char-view) the same treatment. Parity + e2e green.
+- **4b/4c/4d/4e — DONE (committed dacc98a, 95130d7, 6280064, c9545e7).** All 24
+  creation fixtures rebuild from the pinned repo: name-input/race-select (recipe-replay),
+  class-select + 11 roll fixtures (frozen serialize-states + sidecars), review-character
+  + 8 roster-management fixtures (committed minimal-roster pcfile + pcfileFixture mode).
+  build-state modes: recipe-replay (deterministic), --mint (per-fixture serialize-state),
+  pcfileFixture (committed pcfile fresh-boot). Parity suite 87/87.
+- **4f — Non-creation sweep (34 fixtures). IN PROGRESS.** Buckets:
+  - Title/boot (~8): sirtech-logo, title-art(+copyright), title-page(+2), author-credit,
+    main-menu(+2) — deterministic boot sequence; recipe-replay with the right step counts
+    (frames are timing-sensitive — see "wall-clock parity" caveat).
+  - Castle/party + char-view (~26): castle-1..6-members, review-member-view/-equipped,
+    equip-slot*, assay-*, skill-viewer-*, swag-*, add/dismiss/review-who pickers,
+    character-menu-*/delete-confirm. Need an ACTIVE PARTY (ADD PARTY MEMBER from the pinned
+    roster). The party lives in RAM (0x43e8) which serialize CAPTURES (unlike the disk-pcfile
+    gotcha in 4c), so party-formed serialize-states reproduce them. Prove the party mechanism
+    on one castle-N + one char-view, then fan out.
+  - Audit needed: which of the 34 have active parity cases (ports) vs are orphaned engine refs.
+  - `creation-review-member` (deferred from 4e): incomplete port (TODO #042-045) needing an
+    active party — fold into the char-view wave.
 **Success:** every fixture rebuildable byte-exact from the pinned repo via build-state;
 parity + e2e suites green.
-**Status:** In Progress (4a starting)
+**Status:** In Progress (creation 4b-4e complete; 4f non-creation sweep next)
 
 ## Stage 5: Decommission + docs
 **Goal:** remove/retire DOSBox-X-specific paths per Stage-2 outcome; update CLAUDE.md,
