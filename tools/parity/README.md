@@ -1,17 +1,25 @@
 # tools/parity/
 
-Byte-level parity testing between the live DOS game (DOSBox-X save state) and our TS engine output. Built on the workflow that cracked the multi-segment `.pic` decoder bug.
+Byte-level parity testing between the original DOS game and our TS engine output.
 
-## The pattern
+> **Backend (2026-06):** Engine framebuffer fixtures are rebuilt from the pinned
+> `test-fixtures/` image via **`tools/libretro/build-state.ts`** (dosbox-pure /
+> libretro harness) — see "Committed engine fixtures" below. `gen-fixture.ts` and
+> `build-castle-saves.ts` are removed. The `extract.py` / `diff.py` /
+> `decode-*.ts` tools documented next are standalone RE byte tools for
+> decoder/RNG/struct ground-truth checks against a raw image — NOT the fixture
+> pipeline.
 
-The wiz6 reimplementation needs to match the original binary's behavior. Differential testing makes that empirical:
+## The decoder-validation pattern
 
-1. Run the game in DOSBox-X to a known checkpoint
-2. Capture → Save State → `tools/dosbox/save/<n>.sav`
-3. Locate the buffer of interest in physical memory
-4. Dump it
-5. Compute the same buffer with our TS engine
-6. Byte-diff
+The wiz6 reimplementation needs to match the original binary's behavior. For
+*decoder/struct* validation (as opposed to whole-screen fixtures), differential
+testing against a raw image makes that empirical:
+
+1. Locate the buffer of interest in physical memory (or read a known file offset)
+2. Dump it
+3. Compute the same buffer with our TS engine
+4. Byte-diff
 
 When the diff is BYTE-PERFECT, you've validated the decoder. When it isn't, the offset of first divergence is a precise pointer to the bug.
 
@@ -170,10 +178,11 @@ against the engine. Currently confirmed for Fighter (A2/A3 test coverage).
 
 ## Committed engine fixtures — `fixtures/engine/`
 
-The canonical approach for screen-level parity tests. `.sav` files are huge (~240 KB),
-gitignored, machine-specific, and absent in CI. The decode is deterministic, so we decode
-each reference screen ONCE from its `.sav`, write a tiny committed derivative, and all
-subsequent tests diff our render against that committed fixture — no `.sav` needed.
+The canonical approach for screen-level parity tests. The fixture decode is
+deterministic, so we rebuild each reference screen from the **pinned
+`test-fixtures/` image** via `tools/libretro/build-state.ts` (dosbox-pure harness),
+write tiny committed derivatives, and all subsequent tests diff our render against
+those committed fixtures — no per-developer save state needed.
 
 ### Fixture format
 
@@ -181,37 +190,42 @@ subsequent tests diff our render against that committed fixture — no `.sav` ne
 |------|---------|-------------|
 | `<name>.idx.gz` | Gzipped Uint8Array(64000): one 4-bit EGA index per pixel | ~0.7–1 KB |
 | `<name>.png`    | PNG render via wiz6-main AC→DAC palette, for human viewing | ~2–3 KB |
+| `<name>.character.json` | (non-deterministic creation rolls only) the engine draft decoded from DGROUP `0x5470`, loaded by parity render fns via `draftFromEngineDump` | small |
 
 The `.idx.gz` is palette-independent — the test applies the wiz6-main AC→DAC pipeline
 at load time via `indicesToRgba()` from `decode-screen.ts`. This means if the palette
 mapping is refined, the index fixture stays valid; only the test RGBA changes.
 
-### Committed menu fixtures
+### Rebuilding a fixture via `build-state.ts`
 
-| Fixture name | Save | Roster state | Sizes |
-|---|---|---|---|
-| `character-menu-empty`   | save 2 | 0 chars — CREATE PC + EXIT only | idx.gz 762 B, png 2237 B |
-| `character-menu-partial` | save 1 | partial — all 6 options          | idx.gz 956 B, png 2509 B |
-| `character-menu-full`    | save 3 | 16 chars — no CREATE PC          | idx.gz 959 B, png 2524 B |
-
-### Generating a fixture (one-time per save)
+Recipes are named in `tools/dosbox/state-catalog.ts`. Four modes:
 
 ```bash
-# Capture the save state in DOSBox-X first (Alt-F5 → tools/dosbox/save/<n>.sav)
-# Then generate the fixture:
-pnpm tsx tools/parity/gen-fixture.ts --save <n> --name <fixture-name>
+# recipe-replay (deterministic screens): drive a named recipe to its waypoint
+pnpm tsx tools/libretro/build-state.ts <recipe>
 
-# Examples (the 3 menu fixtures already committed):
-pnpm tsx tools/parity/gen-fixture.ts --save 2 --name character-menu-empty
-pnpm tsx tools/parity/gen-fixture.ts --save 1 --name character-menu-partial
-pnpm tsx tools/parity/gen-fixture.ts --save 3 --name character-menu-full
+# --mint (non-deterministic creation ROLLS): freeze a serialize-state to
+#   test-fixtures/states/<name>.state.gz + write the <name>.character.json sidecar
+#   (the draft from LiveSession.dumpDraft). --mint accepts whatever roll comes up.
+pnpm tsx tools/libretro/build-state.ts <recipe> --mint
 
-# Commit the results:
-git add tools/parity/fixtures/engine/
+# --check: re-mint + diff vs the committed fixture (NO overwrite); 100% match
+#   is the gate (exit 0 on match, 1 on divergence).
+pnpm tsx tools/libretro/build-state.ts <recipe> --check
 ```
 
-`gen-fixture.ts` writes both the `.idx.gz` and the `.png` to `tools/parity/fixtures/engine/`
-and verifies the gzip round-trip. The `.sav` file is only needed for this one-time generation.
+- **`pcfileFixture`** recipes boot a fresh image overlaid with a committed
+  `test-fixtures/states/<name>.pcfile.dbs` roster, then drive forward — used for
+  roster-management screens whose state can't be reached by replay alone.
+- **`bootCapture`** recipes capture cold-boot intro frames (deterministic boot
+  frames, no committed state).
+
+`build-state.ts` writes the `.idx.gz` + `.png` (+ `.character.json` for `--mint`)
+to `tools/parity/fixtures/engine/`. Commit the results:
+
+```bash
+git add tools/parity/fixtures/engine/ test-fixtures/states/
+```
 
 ### Loading a fixture in tests
 
@@ -261,7 +275,9 @@ mode-0x0D planar screen to RGBA via the wiz6-main AC→DAC palette, and writes a
 entirely offline, no DOSBox process required.
 
 It also exports `decodeSaveToScreen(savePath)`, `decodeVgaIndices(blob)`, and
-`indicesToRgba(indices)` for programmatic use in `gen-fixture.ts` and `fixtures.ts`.
+`indicesToRgba(indices)` for programmatic use in `fixtures.ts`. (Reading a DOSBox-X
+`.sav` directly is now a standalone-RE convenience; committed fixtures come from
+`build-state.ts` against the pinned image, not from a `.sav`.)
 
 ```bash
 # Decode save 1 → /tmp/engine-screen-1.png (default output path)
@@ -303,8 +319,8 @@ Confirmed empirically — see `docs/re/findings/dosbox-vga-save-layout.json`:
 pnpm tsx tools/parity/decode-screen.ts --save N
 ```
 
-For regression testing, use `gen-fixture.ts` to generate a committed fixture instead —
-then the test can run without the `.sav` file present.
+For regression testing, use `build-state.ts <recipe>` to rebuild a committed fixture
+from the pinned image instead — then the test runs against the committed derivative.
 
 ## Pixel-diff harness
 
@@ -365,29 +381,27 @@ The test asserts `matchPct ≥ 40%` (actual ~46.78%, 7% safety margin).
 
 ### Adding a new (screen, fixture) parity case
 
-The fixture-based workflow — capture a `.sav` ONCE, generate a committed derivative,
-then test against the fixture in CI (no `.sav` needed):
+The fixture-based workflow — add a recipe, rebuild from the pinned image, commit
+the derivative, then test against it in CI:
 
-1. **Capture the save state** at the exact screen you want to validate:
+1. **Add a recipe** to `tools/dosbox/state-catalog.ts` that drives to the exact
+   screen you want to validate (recipe-replay, `pcfileFixture`, or `bootCapture`).
+
+2. **Rebuild the committed fixture** via the dosbox-pure harness:
    ```bash
-   # Boot Wiz6 in DOSBox-X, navigate to the screen, press Alt-F5 to save state
-   # → saves to tools/dosbox/save/<n>.sav (DOSBox-X default numbering)
+   pnpm tsx tools/libretro/build-state.ts <recipe>          # deterministic
+   pnpm tsx tools/libretro/build-state.ts <recipe> --mint    # non-deterministic roll (+ .character.json)
+   # Writes: tools/parity/fixtures/engine/<fixture-name>.{idx.gz,png[,character.json]}
    ```
 
-2. **Generate the committed fixture** (one-time):
+3. **Commit the fixture** (and the frozen state, for `--mint`):
    ```bash
-   pnpm tsx tools/parity/gen-fixture.ts --save <n> --name <fixture-name>
-   # Writes: tools/parity/fixtures/engine/<fixture-name>.{idx.gz,png}
-   ```
-
-3. **Commit the fixture**:
-   ```bash
-   git add tools/parity/fixtures/engine/<fixture-name>.idx.gz \
-           tools/parity/fixtures/engine/<fixture-name>.png
+   git add tools/parity/fixtures/engine/<fixture-name>.* \
+           test-fixtures/states/<fixture-name>.state.gz
    git commit -m "test(parity): add <fixture-name> engine fixture"
    ```
 
-4. **Write the parity test** (no .sav read):
+4. **Write the parity test:**
    - **Headless path** (for non-routable screens or sub-states): add a test in
      `packages/viewer/tests/pages/roster/creation/ega/screen-parity.test.ts` or a
      sibling file. Load the fixture with `loadFixtureRgba(name)` + `indicesToRgba()`,
@@ -525,35 +539,16 @@ All 4 tests pass in < 30ms:
 - **RNG sequences**: dump RNG state at known checkpoints, validate our RNG reimplementation produces identical sequences.
 - **Maze data**: dump the loaded maze grid, compare to our parsed view.
 
-## Building castle-N-members fixtures (live DOSBox-X required)
+## Building castle-N-members fixtures
 
-These engine-ground-truth fixtures need DOSBox-X save states with N=1..6 party
-members. To regenerate them:
+These engine-ground-truth fixtures (MASTER OPTIONS with N=1..6 party members) are
+deterministic castle recipes in `tools/dosbox/state-catalog.ts`, rebuilt via the
+dosbox-pure harness — no live DOSBox-X, no macOS Accessibility, no key-driving:
 
-1. Ensure macOS Accessibility permission is granted to the parent app running
-   this script — see `packages/mcp/PERMISSIONS.md` for the one-time setup.
+```bash
+pnpm tsx tools/libretro/build-state.ts castle-1-members
+# ... etc through castle-6-members
+git add tools/parity/fixtures/engine/castle-*.{idx.gz,png}
+```
 
-2. Build saves:
-   ```
-   pnpm tsx tools/parity/build-castle-saves.ts --slots 1,2,3,4,5,6
-   ```
-   Idempotent — skips slots whose .sav already exists.
-
-3. Capture fixtures from each save:
-   ```
-   pnpm tsx tools/parity/gen-fixture.ts --save 1 --name castle-1-members
-   pnpm tsx tools/parity/gen-fixture.ts --save 2 --name castle-2-members
-   # ... etc through --save 6 --name castle-6-members
-   ```
-
-4. Commit the resulting `.idx.gz` + `.png` files.
-
-Notes:
-- The script is empirical-timing based; if Wiz6 menu transitions are slow on
-  your machine, tune the `*_WAIT_MS` constants at the top.
-- The script LAUNCHES DOSBox-X internally for each slot — don't have DOSBox-X
-  already running when you invoke it.
-- macOS Accessibility permission is required; the helper child process posts
-  CGEvent keyboard events to whichever window is focused.
-- The script imports the MCP helper modules directly (no JSON-RPC layer); it
-  does not require the `wiz6-mcp` server to be running.
+Use `--check <recipe>` to re-mint + diff against the committed fixture (100% gate).

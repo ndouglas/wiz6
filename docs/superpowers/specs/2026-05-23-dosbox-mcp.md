@@ -1,5 +1,7 @@
 # DOSBox-X MCP Server — Design Spec
 
+> **SUPERSEDED (2026-06-02):** the save-state MCP path described here was replaced by the dosbox-pure live backend. See `IMPLEMENTATION_PLAN.md` / `tools/libretro/build-state.ts` and the MCP section of the repo-root `CLAUDE.md`. Retained as a historical record.
+
 **Date:** 2026-05-23
 **Status:** Design approved (no implementation work yet).
 **Tracker:** [`TODO.md`](../../../TODO.md) #017.

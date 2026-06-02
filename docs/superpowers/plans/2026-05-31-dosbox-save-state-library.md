@@ -1,5 +1,7 @@
 # DOSBox Save-State Library + Unthrottling Implementation Plan
 
+> **SUPERSEDED (2026-06-02):** the save-state library path described here was replaced by the dosbox-pure live backend (`build-state.ts` rebuilds fixtures from the pinned image; recipes live in `tools/dosbox/state-catalog.ts`). See `IMPLEMENTATION_PLAN.md` and the MCP section of the repo-root `CLAUDE.md`. Retained as a historical record.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > **Orchestrator-only steps:** any step that *runs* the builder or DOSBox-X (marked **[DRIVE]**) requires launching DOSBox-X with macOS Accessibility permission — a subagent cannot do it. The controller executes [DRIVE] steps; subagents write the code (recipes, helper, builder) and unit tests.

@@ -1,63 +1,59 @@
-# packages/mcp/ — driving DOSBox-X via the MCP (hard-won findings)
+# packages/mcp/ — the live dosbox-pure MCP backend
 
-The dynamic-driving tools (`dosbox_send_input`, `dosbox_screenshot`,
-`dosbox_save_state`) work, but only if you understand macOS focus + the custom
-mapper. These notes are the result of a long debugging saga (2026-05-30) — read
-them before driving.
+The MCP server drives + inspects a **running dosbox-pure (libretro)** session. This
+is the sole backend for control/inspection. The old DOSBox-X path (save-state
+snapshots, GUI key-driving via `dosbox_send_input`/`dosbox_screenshot`/
+`dosbox_save_state`, the ncurses-debugger console, the Swift `HelperClient`, the
+single-key SDL mapper) has all been **removed** — along with its macOS-focus and
+screenshot-race lore. DOSBox-X is now only an interactive-RE tool (its debugger +
+file-I/O logging; see the repo-root `CLAUDE.md`).
 
-## macOS focus is the #1 gotcha
+## Architecture
 
-Synthetic key events (CGEvents) only reach the **frontmost** window. macOS
-focus-stealing prevention means a background helper **cannot reliably bring
-DOSBox forward with `NSRunningApplication.activate()`** — it silently no-ops
-when another app (your editor, or even a shell command that briefly foregrounds
-the terminal) is active. Symptoms when this bites: "keys don't reach DOSBox",
-"works once then stops", screenshots return 0 bytes or stale frames.
+```
+dosbox_live_* tool (src/tools/live.ts)
+  → LiveSession   (src/live/live-session.ts)   — typed drive/inspect API + dumpDraft
+    → HostClient  (src/live/host-client.ts)     — spawns + line-protocols the harness
+      → tools/libretro/host                      — the C control harness (host.c) that
+                                                    loads dosbox_pure_libretro.dylib + wroot.exe
+```
 
-Fixes in place:
-- `Window.swift focusWindow` sets the app's **`AXFrontmost`** attribute (the
-  System Events `set frontmost` mechanism) — reliable even when another app is
-  active.
-- `withFocusedDosbox` **does NOT restore prior focus** — it leaves DOSBox
-  frontmost. The old restore flipped focus back to the editor after each call,
-  which dropped guest keys (Enter/arrows) before the emulator processed them
-  and caused a DOSBox<->editor flicker. Removed (530368b).
+- **`HostClient`** (`src/live/host-client.ts`) spawns the persistent `tools/libretro/host`
+  process (built by `tools/libretro/build.sh`) and exposes its stdio **line protocol**
+  as a typed async API: `step`, `key`, `batch`, `anchor` (DGROUP base), `find`,
+  `read`, `fb` (framebuffer PNG), `serialize` / `unserialize`. It is the shared
+  bridge used by the MCP, `build-state.ts`, and the parity tooling.
+- **`LiveSession`** (`src/live/live-session.ts`) wraps `HostClient` with game-aware
+  helpers: `launch(bootFrames)`, `state()` (game_state + DGROUP base), `readStruct`
+  (symbol-aware BssStruct decode), and `dumpDraft()` (decodes the in-progress
+  character draft at DGROUP `0x5470` + bonus/skill pools — the source of the
+  `--mint` `.character.json` sidecars).
 
-### Driving (just use the MCP tools)
-Each `dosbox_send_input` / `dosbox_screenshot` call AX-force-frontmosts DOSBox
-and **leaves it frontmost**, so synthetic keys land and there's no flicker — no
-`osascript` dance needed. DOSBox stays frontmost after driving; click back to
-your editor when done.
-- Still screenshot **before every Enter** when mapping unfamiliar menus — don't
-  batch `down down enter` blind; the castle menu cursor can surprise you.
-- If a guest key ever misses right after a focus change, the AX-force may need a
-  beat to settle: a redundant `dosbox_screenshot` (it polls) or a repeat send
-  before the key covers it.
+## Tools (registered in `src/server.ts`)
 
-NOTE: changes to this layer need a Claude Code restart to reach the running MCP
-child. `build-castle-saves.ts` still uses old blind macros — rewrite to single
-keys; it can now drive unattended since focus is no longer restored.
+**Live tools** (`src/tools/live.ts`):
+- `dosbox_live_launch`, `dosbox_live_kill` — lifecycle
+- `dosbox_live_step` — advance N frames
+- `dosbox_live_key` — key down / up / tap
+- `dosbox_live_batch` — raw protocol commands, replies in order
+- `dosbox_live_state` — game_state + DGROUP base
+- `dosbox_live_read` — bytes at a physical or DGROUP-relative offset
+- `dosbox_live_read_struct` — symbol-aware BssStruct decode (same registry as the
+  parity tooling)
+- `dosbox_live_find` — byte-pattern search over live RAM
+- `dosbox_live_screenshot` — framebuffer PNG
+- `dosbox_live_serialize` / `dosbox_live_unserialize` — libretro serialize-state
+  round-trip (the mechanism behind `build-state.ts --mint`)
 
-## Single-key mapper (NOT F12 chords)
+**Symbol tools** (`src/tools/symbols.ts`, backend-agnostic — kept across the
+migration): `dosbox_resolve_symbol`, `dosbox_list_symbols` — name↔address over the
+in-memory `SymbolIndex` built from the findings docs.
 
-`tools/dosbox/mapper-wiz6.map` (wired via `mapperfile_sdl2`, **absolute path** —
-DOSBox-X resolves it relative to the config dir, and MCP launches with cwd=repo
-root, so relative paths mis-resolve) rebinds host actions to bare single keys:
-`F9`=screenshot, `F10`=raw screenshot, `F5`=save, `F6`=load, `F7`=prevslot,
-`F8`=nextslot; guest `F5`–`F10` are unbound so they only trigger the handlers.
-Synthetic F12 *host-key chords* (hold-F12 + key) deliver unreliably on macOS —
-that's why we use single keys. A complete mapper file is mandatory (DOSBox-X
-`ClearAllBinds` on load), generated once from the GUI editor's Save.
+## Notes
 
-## Other landmines
-- **Screenshot write-race**: DOSBox advances the PNG's mtime at *creation*, before
-  flushing bytes. `captureScreenshot` waits for size>0 *and* stable before reading.
-- **`saveStateToSlot`** writes to `tools/dosbox/save/{slot}.sav` (this DOSBox-X
-  version uses flat slot filenames, not `{prog}_{slot}_{ts}.sav.zip`). `saveremark=false`
-  in the conf is required, else Host+S blocks on a text-entry dialog.
-- **Don't install two DOSBox-X builds**: the SDL1 `/Applications/dosbox-x.app`
-  shared bundle id `com.dosbox-x` with the SDL2 cask, confusing activation. Use
-  only the SDL2 cask (the MCP's default `DOSBOX_X_PATH`).
-- **MCP child holds the helper binary + TS from launch** — code/helper changes
-  need a Claude Code restart to take effect for the MCP tools (standalone tsx
-  harnesses that spawn a fresh `HelperClient` pick them up immediately).
+- Code/harness changes need a Claude Code restart to reach the running MCP child
+  (it holds the spawned harness from launch). Standalone `tsx` harnesses that spawn
+  a fresh `HostClient` (e.g. `build-state.ts`) pick changes up immediately.
+- No macOS focus dance, no synthetic CGEvents, no mapper file, no screenshot
+  write-race: keys and framebuffer reads go straight through the harness's line
+  protocol, so driving is deterministic and headless.

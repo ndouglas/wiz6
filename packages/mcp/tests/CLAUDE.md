@@ -1,26 +1,25 @@
 # packages/mcp/tests/ — test isolation rules
 
-## Never bind a test to the DOSBox workspace
+## Don't bind a test to a mutable workspace artifact
 
-`tools/dosbox/save/*.sav` is a **mutable scratch workspace** (see
-`tools/dosbox/CLAUDE.md`): gameplay and `build-castle-saves.ts` overwrite slots
-at will, and the castle parity suite reuses slots 2..6. A test that reads
-`save/N.sav` directly will pass or fail depending on whatever was saved last.
-
-This already bit `debugger-console.test.ts` — it was bound to `save/3.sav`,
-which got clobbered by a party-build run. It only ever "passed" by *skipping*
-when the save dir happened to be absent, masking the breakage.
+Engine ground truth comes from the **pinned, committed** source image
+(`test-fixtures/original/` + the frozen states under `test-fixtures/states/`),
+driven via the dosbox-pure harness — NOT from anything a live session writes at
+runtime. Don't point a test at `tools/dosbox/save/*` or any scratch dir whose
+contents are "whatever ran last"; such a test passes or fails on incidental state
+and tends to silently `skip` when the file is absent, masking breakage.
 
 ## Instead
 
-- **Prefer synthesizing** the minimal artifact the code under test actually
-  needs, at test time. `SaveStateBridge` only reads the `Memory` entry out of a
-  save-state ZIP and searches it, so `debugger-console.test.ts` builds a tiny
-  ZIP whose `Memory` member is `[filler][known pattern at a known offset]
-  [filler]` — deterministic, no DOSBox, no committed binary, and it asserts the
-  *exact* offset rather than "> 0".
-- If you genuinely need a **real** captured save (an end-to-end integration
-  smoke), vendor a stable, committed `.sav` under `packages/mcp/tests/fixtures/`
-  (decoupled from the workspace, mirroring `test-fixtures/original/`) and gate
-  it `skipIf(!existsSync(FIXTURE))`. Never point a test at a disposable
-  `tools/dosbox/save/N.sav` slot just to make it "run".
+- **Prefer synthesizing** the minimal artifact the code under test needs, at test
+  time — a deterministic byte buffer at a known offset is enough to assert the
+  *exact* result rather than "> 0". The current tests follow this: `server.test.ts`
+  exercises the registered tool surface, and `read-struct.test.ts` decodes a known
+  struct from synthetic bytes — neither depends on a live emulator or a captured
+  save.
+- If a test genuinely needs **real captured bytes**, vendor a stable committed
+  fixture under `packages/mcp/tests/fixtures/` (decoupled from any workspace,
+  mirroring `test-fixtures/original/`) and gate it `skipIf(!existsSync(FIXTURE))`.
+- Tests that would need a **running** dosbox-pure session (launch → drive → read)
+  belong with the driving-based parity tooling, not in the default unit suite —
+  keep these tests harness-free.

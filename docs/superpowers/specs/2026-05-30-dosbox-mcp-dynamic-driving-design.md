@@ -1,5 +1,7 @@
 # DOSBox-X MCP — dynamic driving (headless-ish automation)
 
+> **SUPERSEDED (2026-06-02):** the save-state / DOSBox-X-driving MCP path described here was replaced by the dosbox-pure live backend. See `IMPLEMENTATION_PLAN.md` / `tools/libretro/build-state.ts` and the MCP section of the repo-root `CLAUDE.md`. Retained as a historical record.
+
 **Date:** 2026-05-30
 **Status:** Design approved; ready for implementation plan.
 **Supersedes (partial):** the "deferred to Phase 9 backend" stubs in [`2026-05-23-dosbox-mcp.md`](2026-05-23-dosbox-mcp.md).

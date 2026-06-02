@@ -38,14 +38,16 @@ The serious tools that make RE tractable, with paths:
 | **Capstone + PyGhidra** | Python RE libraries | `pip3` installed system-wide (--break-system-packages) |
 | **`strings`, `xxd`, `hexdump`, `objdump`** | Standard hex tooling | stdlib |
 
+> **Backend split (2026-06):** dosbox-pure (libretro) is the **sole backend for fixtures, control, and inspection** — driven via the live MCP (`dosbox_live_*`) and `tools/libretro/build-state.ts`. DOSBox-X is retained **only as an interactive-RE tool** (its ncurses debugger + file-I/O logging). Its config/logging scripts (`tools/dosbox/*.conf`, `run-with-logging.sh`, `parse-*.sh`) and the Ghidra project are untouched.
+
 **When to reach for which:**
 
 - **Quick byte-pattern question** ("does this offset contain a 16-byte palette table?") → Python + `xxd` / grep raw bytes.
 - **"What does this function do?"** → Ghidra. Don't reach for ndisasm unless you specifically want raw asm.
-- **"What does the game do at runtime when X happens?"** → DOSBox-X interactive debugger OR file I/O logging via `tools/dosbox/wiz6.conf` + grep.
-- **"What's the actual on-screen color of pixel X?"** → Pixel-pick a DOSBox-X screenshot in Python.
+- **"What does the game do at runtime when X happens?"** → DOSBox-X interactive debugger OR file I/O logging via `tools/dosbox/wiz6.conf` + grep. (For *programmatic* drive/inspect/screenshot, use the dosbox-pure live MCP instead.)
+- **"What's the actual on-screen color of pixel X?"** → `dosbox_live_screenshot` (or pixel-pick a build-state `.png`) in Python.
 
-## DOSBox-X workflows
+## DOSBox-X workflows (interactive RE only)
 
 ```bash
 # 1. Boot Wiz6 with file-open logging enabled
@@ -101,13 +103,13 @@ How to confirm a new overlay's delta: find any in-file table referenced by a CS-
 - **TS ESM** — relative imports use `.js` extensions even though source is `.ts`.
 - **Live deploy**: pushing to `main` of the wiz6 repo builds a container; the goldentooth gitops repo (`~/Projects/goldentooth/gitops/apps/wiz6/deployment.yaml`) pins a specific image SHA; flux reconciles to the K8s cluster. Live URL: https://wiz6.goldentooth.net/.
 - **`pnpm dev:viewer` runs predev → re-extracts** all JSON assets before launching Vite, so schema changes never get tested against stale assets.
-- **Every ported screen requires a pixel-exact parity test.** Decode the engine's framebuffer from a known save via `tools/parity/gen-fixture.ts`; commit the `.idx.gz` + `.png` under `tools/parity/fixtures/engine/`; write a `*-parity.test.ts` that compares our composed RGBA to the engine pixel-by-pixel (target floor: 100%; if you ship with a lower floor, file a TODO entry for the remaining gap). **Cell-grid parity tests are a fast intermediate diagnostic, not a substitute.** A cell-grid test can pass while the rendered pixels are visually wrong (e.g. window placed at wrong screen coords — only the pixel test catches it). Don't claim "byte-exact" / "pixel-exact" until the pixel test is the gate.
+- **Every ported screen requires a pixel-exact parity test.** Rebuild the engine's framebuffer fixture via `tools/libretro/build-state.ts <recipe>` (`--mint` for non-deterministic creation rolls); commit the `.idx.gz` + `.png` (+ `.character.json` sidecar for minted screens) under `tools/parity/fixtures/engine/`; write a `*-parity.test.ts` that compares our composed RGBA to the engine pixel-by-pixel (target floor: 100%; if you ship with a lower floor, file a TODO entry for the remaining gap). **Cell-grid parity tests are a fast intermediate diagnostic, not a substitute.** A cell-grid test can pass while the rendered pixels are visually wrong (e.g. window placed at wrong screen coords — only the pixel test catches it). Don't claim "byte-exact" / "pixel-exact" until the pixel test is the gate.
 - **Test-layer convention.** Tests fall into four buckets, signaled by filename:
   - `*.test.ts` (gate) — runs in default CI. Includes pixel-parity, schema/composer/store unit tests.
   - `*.diagnostic.test.ts` (informational) — excluded from default CI; runnable via `pnpm test:diagnostics`. Cell-grid parity tests live here — they validate intermediate data structures and are useful for debugging pixel-parity failures, but they can pass while the rendered output is visually wrong (e.g. windows at incorrect screen coords). Don't promote a diagnostic to a gate without a clear reason.
   - Component tests with `skipAssetLoad` (weak) — should be flagged in the test file's docstring if they don't verify rendering, only key handling.
   - End-to-end (e2e) tests via Playwright (`packages/viewer/e2e/*.spec.ts`) — drive the real app by keyboard + pixel-assert the canvas vs engine fixtures. **Now run in CI** (`.github/workflows/test.yml`, push to `main` + PRs) alongside the unit/parity suites; also runnable locally via `pnpm --filter @wiz6/viewer test:e2e`. See `packages/viewer/e2e/README.md` (incl. the DEV-only state-injection hook + the interactive→committed recipe).
-  - **Driving-based testing (convergence).** We catch the integration-layer bugs the unit/parity tests can't by *driving the real thing* and pixel-asserting it against engine ground truth — the **browser** (Playwright e2e, the ported app) and **DOSBox** (MCP + `build-saves`, the original engine that produces the fixtures). The same helpers serve interactive driving and committed gates, so an interactive drive promotes cheaply to a permanent check. **Canonical guide + the two promotion recipes: [`docs/driving-based-testing.md`](docs/driving-based-testing.md).** (Browser: drive → save `pressKeys` into a spec → commit fixture → `expectCanvasMatchesFixture`. DOSBox: drive → `tools/dosbox/state-catalog.ts` recipe → `build-saves` → `gen-fixture` → parity test.)
+  - **Driving-based testing (convergence).** We catch the integration-layer bugs the unit/parity tests can't by *driving the real thing* and pixel-asserting it against engine ground truth — the **browser** (Playwright e2e, the ported app) and **dosbox-pure** (the live MCP / `build-state.ts` harness, the original engine that produces the fixtures). The same helpers serve interactive driving and committed gates, so an interactive drive promotes cheaply to a permanent check. **Canonical guide + the two promotion recipes: [`docs/driving-based-testing.md`](docs/driving-based-testing.md).** (Browser: drive → save `pressKeys` into a spec → commit fixture → `expectCanvasMatchesFixture`. dosbox-pure: drive via `dosbox_live_*` → add a `tools/dosbox/state-catalog.ts` recipe → `build-state.ts` (recipe-replay or `--mint`) → parity test.)
   - **Pixel-parity tolerance defaults to 0.** Widening it (e.g. to handle animation drift in a known area) should be a deliberate, documented choice — prefer per-region overrides over global tolerance lift. The current `compareRgba` only supports a single global `tolerance`; if a future screen has localized drift, extend the API with named regions rather than relaxing the whole comparison (see TODO).
 - **Manual smoke test before declaring a screen port done.** `pnpm dev:viewer`, click through the feature in a browser, eyeball the result. The pixel-parity test should make this fast (if it passes ≥99%, the browser will look right) — but the manual click is the final sanity check that the page loads, key handling works, and navigation goes where it should.
 - **Surface interesting findings as Engineering Notes cards.** When RE turns up something a player would actually find cool (a buried debug switch, an absurd mechanic, a 1-in-400 grind that explains community lore, a formula that's wrong vs the manual), don't just bury it in a commit or a `docs/re/findings/*.json`. Propose adding it as a card in `packages/viewer/src/pages/EngineeringNotes.tsx` + `packages/viewer/src/data/note-index.ts`. The notes pages are the user-facing payoff for the RE work — they should grow organically as findings happen, not in batches. Ask Nate before writing, but raise the suggestion proactively rather than waiting to be asked.
@@ -115,24 +117,24 @@ How to confirm a new overlay's delta: find any in-file table referenced by a CS-
 
 ## Parity testing — `tools/parity/`
 
-Differential testing against the original binary. The workflow that cracked the multi-segment `.pic` bug, generalized:
+Differential testing against the original binary. Engine framebuffer fixtures are **rebuilt from the pinned `test-fixtures/` image via `tools/libretro/build-state.ts`** (dosbox-pure harness) — no DOSBox-X save states, no `gen-fixture.ts` (removed). Recipes live in `tools/dosbox/state-catalog.ts`.
 
 ```bash
-# 1. Run the game in DOSBox-X to a known checkpoint, save state to tools/dosbox/save/N.sav
-# 2. Locate the target buffer in physical memory
-python3 tools/parity/extract.py find tools/dosbox/save/1.sav --pattern '58 02 09 0d'
+# Rebuild a deterministic screen fixture (recipe-replay: drive a named recipe to its waypoint)
+pnpm tsx tools/libretro/build-state.ts <recipe>
 
-# 3. Dump engine view
-python3 tools/parity/extract.py dump tools/dosbox/save/1.sav --offset 0x5b928 --length 24376 --output /tmp/engine.bin
+# Non-deterministic creation ROLLS: --mint freezes a serialize-state + writes a
+#   <name>.character.json sidecar (the engine draft decoded from DGROUP 0x5470 via
+#   LiveSession.dumpDraft); --mint accepts whatever roll comes up.
+pnpm tsx tools/libretro/build-state.ts <recipe> --mint
 
-# 4. Compute ours
-pnpm tsx tools/parity/decode-pic.ts original/mon11.pic /tmp/ours.bin
-
-# 5. Diff (exit 0 on match, 1 on divergence)
-python3 tools/parity/diff.py /tmp/engine.bin /tmp/ours.bin
+# Re-mint + diff vs the committed fixture (NO overwrite); 100% match is the gate (exit 0/1).
+pnpm tsx tools/libretro/build-state.ts <recipe> --check
 ```
 
-Use this any time a decoder needs ground-truth validation, or when reimplementing a game-logic routine. See `tools/parity/README.md` for additional examples.
+Four fixture modes: **recipe-replay** (deterministic screens), **`--mint`** (non-deterministic rolls → frozen `test-fixtures/states/<name>.state.gz` + `<name>.character.json` sidecar), **`pcfileFixture`** (boots a fresh image overlaid with a committed `test-fixtures/states/<name>.pcfile.dbs` roster), **`bootCapture`** (cold-boot intro frames). Parity render fns load the sidecar via `draftFromEngineDump` so the test matches the actual engine roll, not a hardcode.
+
+Decoder/RNG/struct ground-truth (no fixture) still uses the standalone byte tools: `extract.py` (read regions of a save image), `diff.py` (byte diff), `decode-pic.ts` / `decode-character.ts` (engine-side decoders). See `tools/parity/README.md` for the full set.
 
 ## PyGhidra scripts — `tools/ghidra/scripts/`
 
@@ -260,18 +262,17 @@ Sounds are minimal-fidelity effects: clicks, drags, clangs, the title-screen "cl
 
 ## MCP server — `packages/mcp/`
 
-DOSBox-X MCP server for AI-driven engine inspection (#017). Speaks JSON-RPC over stdio; bin entry `wiz6-mcp`.
+MCP server for AI-driven engine driving + inspection (#017). Speaks JSON-RPC over stdio; bin entry `wiz6-mcp`. Backed by the **dosbox-pure (libretro)** harness — the sole backend for control/inspection (the old DOSBox-X save-state + GUI-driving + debugger MCP tools are removed). DOSBox-X survives only as an interactive-RE tool (see the RE-toolkit table / DOSBox-X-workflows section).
 
-**v1 (current)** rides save-state snapshots — the dynamic-driving path (programmatic breakpoints, step/run-until) is blocked by DOSBox-X's ncurses debugger being unparseable from a piped stdio child. 11 tools real, 14 stubs throw with clear blocker pointers. See `docs/superpowers/specs/2026-05-23-dosbox-mcp.md` for the per-tool phase status.
+The server registers two tool groups (`packages/mcp/src/tools/`):
 
-Real tools that work today against `tools/dosbox/save/N.sav`:
-- `dosbox_list_saves`, `dosbox_inspect_save` — what's in this save state, what game_state, DGROUP base
-- `dosbox_read_memory` — raw byte dump at a physical or DGROUP offset
-- `dosbox_read_struct` — symbol-aware decode using Phase-1 BssStruct schemas + Phase-2 SymbolIndex
-- `dosbox_resolve_symbol`, `dosbox_list_symbols` — name↔address across 10 binaries, 763 symbols
-- `dosbox_find_pattern` — byte-pattern search across save-state physical memory
-- `dosbox_get_state_machine` — game_state + likely active overlay
-- Lifecycle: `dosbox_launch`, `dosbox_kill`, `dosbox_status` (process management; no debugger driving)
+- **Live tools** (`live.ts`) — drive + inspect a running dosbox-pure session via `LiveSession`/`HostClient` (the harness binary at `tools/libretro/host`):
+  - Lifecycle: `dosbox_live_launch`, `dosbox_live_kill`
+  - Drive: `dosbox_live_step` (advance N frames), `dosbox_live_key` (down/up/tap), `dosbox_live_batch` (raw protocol commands)
+  - Inspect: `dosbox_live_state` (game_state + DGROUP base), `dosbox_live_read` (bytes at physical or DGROUP offset), `dosbox_live_read_struct` (symbol-aware BssStruct decode — same registry as the parity tooling), `dosbox_live_find` (byte-pattern search over live RAM)
+  - Capture: `dosbox_live_screenshot` (framebuffer PNG)
+  - Snapshot: `dosbox_live_serialize` / `dosbox_live_unserialize` (libretro serialize-state round-trip — the mechanism behind `build-state.ts --mint`)
+- **Symbol tools** (`symbols.ts`, backend-agnostic) — `dosbox_resolve_symbol`, `dosbox_list_symbols` (name↔address over the in-memory `SymbolIndex` built from the findings docs).
 
 To wire into Claude Code, add to your MCP config:
 ```json

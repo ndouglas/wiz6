@@ -1,5 +1,7 @@
 # DOSBox save-state library + unthrottling (sub-project #2)
 
+> **SUPERSEDED (2026-06-02):** the save-state library path described here was replaced by the dosbox-pure live backend (`build-state.ts` rebuilds fixtures from the pinned image; recipes live in `tools/dosbox/state-catalog.ts`). See `IMPLEMENTATION_PLAN.md` and the MCP section of the repo-root `CLAUDE.md`. Retained as a historical record.
+
 **Date:** 2026-05-31
 **Status:** Design approved; ready for implementation plan.
 

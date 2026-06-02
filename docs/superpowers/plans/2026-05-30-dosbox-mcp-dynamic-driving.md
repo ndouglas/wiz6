@@ -1,5 +1,7 @@
 # DOSBox-X MCP dynamic driving Implementation Plan
 
+> **SUPERSEDED (2026-06-02):** the save-state / DOSBox-X-driving MCP path described here was replaced by the dosbox-pure live backend. See `IMPLEMENTATION_PLAN.md` / `tools/libretro/build-state.ts` and the MCP section of the repo-root `CLAUDE.md`. Retained as a historical record.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the 5 currently-stubbed dynamic MCP tools (`dosbox_send_input`, `dosbox_send_key`, `dosbox_screenshot`, `dosbox_save_state`, `dosbox_load_state`) with real implementations that drive a visible DOSBox-X window via macOS CGEvent + DOSBox-X's built-in keyboard shortcuts.
