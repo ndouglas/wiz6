@@ -6,7 +6,6 @@
  * action; batching = `batch([...])`. Inspection reuses the same BssStruct
  * registry + decoder the save-state MCP uses — fed live bytes from the harness.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
 import { HostClient } from './host-client.js';
 import { decodeBssStruct, type BssStruct } from '@wiz6/data';
 
@@ -76,20 +75,11 @@ export class LiveSession {
   }
 
   // ── capture / state-save ─────────────────────────────────────────────────────
-  /** Capture the framebuffer. Parks the DOS mouse cursor off-screen (dosbox-pure
-   *  always composites it; there is no disable option) + erases its lone tip
-   *  pixel, so live screenshots are cursor-free like the committed fixtures. */
+  /** Capture the framebuffer. The pinned image boots in INPUT: KEYBOARD mode
+   *  (scenario.hdr[0x19c]=0), so Wiz6 draws no mouse cursor — captures are
+   *  naturally cursor-free; no park/erase needed. */
   async screenshot(path: string): Promise<{ w: number; h: number }> {
-    const c = this.ensure();
-    await c.mouse(4000, 4000); // park bottom-right (sprite clips off-screen)
-    await c.step(3);           // let the cursor relocate + the engine redraw
-    const dim = await c.fb(path);
-    const buf = readFileSync(path);
-    const corner = ((dim.h - 1) * dim.w + (dim.w - 1)) * 4;
-    const left = ((dim.h - 1) * dim.w + (dim.w - 2)) * 4;
-    buf[corner] = buf[left]!; buf[corner + 1] = buf[left + 1]!; buf[corner + 2] = buf[left + 2]!;
-    writeFileSync(path, buf);
-    return dim;
+    return this.ensure().fb(path);
   }
   async serialize(path: string): Promise<void> { await this.ensure().serialize(path); }
   async unserialize(path: string): Promise<void> { await this.ensure().unserialize(path); }
