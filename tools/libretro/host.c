@@ -4,6 +4,7 @@
 //   step <n>                 advance n frames
 //   key <name> <down|up|tap> set/clear/tap a key (arrows, enter, esc, space, a-z)
 //   read <hexaddr> <len>     read guest-physical memory -> "ok <hex>"
+//   write <hexaddr> <hex>    write bytes into guest-physical memory -> "ok <n>"
 //   anchor                   find the DGROUP anchor -> "ok base=<hex>"
 //   fb <path>                write the latest frame as raw RGBA -> "ok <w> <h>"
 //   serialize <path>         save state
@@ -117,6 +118,21 @@ static size_t mem_read(size_t addr, size_t len, uint8_t *out) {
   return 0;
 }
 
+// guest-physical write from in; returns bytes written (0 if addr not mapped)
+static size_t mem_write(size_t addr, size_t len, const uint8_t *in) {
+  for (unsigned i = 0; i < g_ndesc; i++) {
+    struct retro_memory_descriptor *d = &g_desc[i];
+    if (!d->ptr || !d->len) continue;
+    if (addr >= d->start && addr < d->start + d->len) {
+      size_t avail = d->start + d->len - addr;
+      size_t n = len < avail ? len : avail;
+      memcpy((uint8_t*)d->ptr + (addr - d->start), in, n);
+      return n;
+    }
+  }
+  return 0;
+}
+
 static long find_anchor_base(void) {
   static const uint8_t a[] = {0x44,0x49,0x53,0x4b,0x2e,0x48,0x44,0x52,0x00,
     0x4d,0x53,0x47,0x2e,0x44,0x42,0x53,0x00,
@@ -206,6 +222,21 @@ int main(int argc, char **argv) {
       fputs("ok ", stdout);
       for (size_t i=0;i<got;i++) printf("%02x", buf[i]);
       printf("\n"); free(buf);
+    }
+    else if (!strcmp(cmd, "write")) {
+      size_t addr = strtoul(a1, NULL, 16);
+      size_t hexlen = strlen(a2);
+      if (hexlen == 0 || hexlen % 2) { printf("err hex\n"); continue; }
+      size_t len = hexlen / 2;
+      uint8_t *buf = malloc(len);
+      for (size_t i = 0; i < len; i++) {
+        char b[3] = { a2[2*i], a2[2*i+1], 0 };
+        buf[i] = (uint8_t)strtoul(b, NULL, 16);
+      }
+      size_t put = mem_write(addr, len, buf);
+      free(buf);
+      if (!put) { printf("err unmapped\n"); continue; }
+      printf("ok %zu\n", put);
     }
     else if (!strcmp(cmd, "mouse")) {
       // Relative move (clamped to screen by the DOS driver). Park the cursor in

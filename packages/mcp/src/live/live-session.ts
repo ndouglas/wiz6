@@ -64,6 +64,15 @@ export class LiveSession {
     return c.read(base + addr, len);
   }
 
+  /** Write bytes. dgroupRelative (default) anchors the address to DGROUP. Returns bytes written.
+   *  e.g. the creation bonus-bypass: `write(0x56ce, [1])` forces the next bonus roll to 21
+   *  (the *0x56ce debug flag; see docs/re/wpcmk-character-creation.md). */
+  async write(addr: number, bytes: ArrayLike<number>, dgroupRelative = true): Promise<number> {
+    const c = this.ensure();
+    const base = dgroupRelative ? await c.anchor() : 0;
+    return c.write(base + addr, bytes);
+  }
+
   /** Decode a BssStruct at a DGROUP-relative offset from live memory. */
   async readStruct(structName: string, dgroupOffset: number): Promise<unknown> {
     const struct = this.structs.get(structName);

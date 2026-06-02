@@ -104,6 +104,15 @@ export class HostClient {
     return out;
   }
 
+  /** Write bytes at a guest-physical address (into the libretro RAM map). Returns bytes written. */
+  async write(addr: number, bytes: ArrayLike<number>): Promise<number> {
+    const hex = Array.from(bytes, (b) => (b & 0xff).toString(16).padStart(2, '0')).join('');
+    const r = await this.cmd(`write ${addr.toString(16)} ${hex}`);
+    const m = /^ok (\d+)$/.exec(r);
+    if (!m) throw new Error(`write 0x${addr.toString(16)}: ${r}`);
+    return +m[1]!;
+  }
+
   /** Write the latest 320x200 frame as raw RGBA to `path`. */
   async fb(path: string): Promise<{ w: number; h: number }> {
     const r = await this.cmd(`fb ${path}`);
