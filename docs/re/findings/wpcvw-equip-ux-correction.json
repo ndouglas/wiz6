@@ -1,0 +1,70 @@
+{
+  "topic": "wpcvw-equip-ux-correction",
+  "subagent_run": "2026-06-01T00:00:00Z",
+  "binaries": ["wpcvw.ovr"],
+  "summary": "CORRECTION (parent-derived, DOSBox-verified at Nate's direction) to the EQUIP wizard interaction model — our PORT had it backwards. The EQUIP per-slot picker's CURSOR starts on NONE (skip), not on the first candidate; the player moves the selection with UP/DOWN (cycling [NONE, candidate0, candidate1, ...], wrapping), and ENTER commits the cursored choice (NONE = leave the slot unequipped + advance; a candidate = equip it + advance). The 'arrow' (▸, glyph 0x64) drawn on an item is NOT the cursor — it is a static 'this item CAN be equipped in this slot' (candidate) marker. The CURSOR is a separate highlight: when on NONE, the prompt's 'NONE' is inverse-highlighted; when on a candidate item, that item's row is inverse-highlighted (boxed). An already-EQUIPPED item is shown with a CHECK glyph (0x17) instead of the ▸. Verified live in DOSBox: at slot-0 initial frame the cursor is on NONE (NONE highlighted) with ▸ on LONGSWORD; pressing DOWN moves the box onto LONGSWORD (NONE un-highlights); pressing DOWN again returns to NONE (1-candidate cycle is NONE<->item); pressing ENTER on a boxed LONGSWORD equips it (LONGSWORD now shows ✓) and advances to SECONDARY ITEM with the cursor back on NONE and ▸ on BUCKLER SHIELD. This SUPERSEDES wpcvw-equip-action.json's implied 'cursor starts on candidate 0 / LEFT-RIGHT nav / ▸ == cursor' reading and our port's implementation (initial cursor 0, LEFT/RIGHT, ▸ drawn at the cursor, prompt hardcoded NONE) — which made it impossible to tell you were selecting an item (up/down did nothing; the prompt always said NONE; pressing ENTER silently equipped candidate 0 instead of skipping).",
+  "method": "Drove DOSBox-X (fresh boot -> build a 2-member party -> REVIEW MEMBER THESUS -> char view -> EQUIP) and observed the slot-0 then slot-1 frames, pressing DOWN/ENTER and screenshotting each. Saved two states and decoded the main-panel inventory-list cells via dump-cells.py --header 0x28,0x14,0x00,0x00,0x14 (40x20 @ (0,0) attr 0x14, cells +0x10): save 5 = slot-1 with LONGSWORD equipped + cursor on NONE; save 6 = slot-1 with the cursor boxed on BUCKLER. Committed engine fixtures equip-slot1-equipped + equip-slot1-selected (gen-fixture). Cross-ref the existing equip-slot0 fixture (slot-0 initial, cursor on NONE).",
+  "findings": [
+    {
+      "id": "equip-cursor-starts-on-none",
+      "claim": "The EQUIP per-slot picker's cursor starts on NONE (the skip/empty position), NOT on the first candidate. The prompt 'SELECT <slot> > NONE' shows the COMMITTED value (NONE until you confirm), and the inverse-highlight on 'NONE' indicates the cursor is on NONE. The ▸ marker on a candidate item does NOT mean it is selected — only that it is equippable in this slot.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x8e35"},
+        "type": "behavioral",
+        "details": "DOSBox: slot-0 initial frame shows the prompt 'SELECT PRIMARY WEAPON > NONE' with NONE inverse-highlighted (yellow) and ▸ on LONGSWORD. equip-slot0 fixture confirms. (Our port's cursor-0 render matched these PIXELS only coincidentally; the model differs.)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "equip-updown-cycles-none-and-candidates",
+      "claim": "UP/DOWN move the selection, cycling through [NONE, candidate0, candidate1, ..., candidateN-1] and wrapping. DOWN from NONE -> candidate0; DOWN from the last candidate -> NONE. UP is the reverse. (With a single candidate the cycle is just NONE<->candidate0, verified: DOWN boxes LONGSWORD, DOWN again returns to NONE.) The candidates the cursor visits are ONLY the items equippable in the current slot — non-candidate items are never boxed.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x8e35"},
+        "type": "behavioral",
+        "details": "DOSBox slot-0 (1 candidate): DOWN -> LONGSWORD boxed (NONE un-highlights); DOWN -> NONE highlighted again (LONGSWORD un-boxed). The cursor never lands on CUIRASS/LEGGING/SANDALS (non-candidates for the weapon slot)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "equip-row-markers-and-attrs",
+      "claim": "The EQUIP inventory list draws each carried item with one of three presentations, decoded byte-exact from save 6 (slot-1, LONGSWORD equipped, BUCKLER cursored), main-panel rows 9-13, col 21 = marker, cols 22+ = name: (a) EQUIPPED item -> CHECK glyph 0x17 at col 21 attr 0x40, name attr 0x60 (LONGSWORD row: `17 40` then name bytes attr 0x60). (b) CURSORED candidate -> ▸ glyph 0x64 at col 21 attr 0x50, name attr 0x50 (inverse box) (BUCKLER row: `64 50` + name attr 0x50). (c) NON-cursored CANDIDATE -> ▸ 0x64 attr 0x50, name attr 0x40 (green) (LONGSWORD in the slot-0 initial frame, per equip-slot0). (d) NON-candidate, non-equipped item -> no marker (space at col 21 attr 0x40), name attr 0x90 (CUIRASS/LEGGING/SANDALS rows: `20 40` + name attr 0x90).",
+      "category": "view_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x8dcd"},
+        "type": "disasm",
+        "details": "dump-cells save 6 main panel rows 9-13 cols 19-39: r9 (LONGSWORD equipped) col21=`1740` name=`4c60 4f60 4e60 4760 5360 5760 4f60 5260 4460` (attr 0x60) pad `2010`; r13 (BUCKLER cursored) col21=`6450` name=`4250 5550 4350 4b50 4c50 4550 5250 2050 5350 4850 4950 4550 4c50 4450` (attr 0x50); r10-12 (non-candidates) col21=`2040` name attr 0x90. FUN_8dcd (wpcvw 0x8dcd) is the per-row highlight renderer (equip-item-label-highlight-helper). The 0x17 check glyph / 0x64 arrow are font0 glyphs."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "equip-enter-commits-cursor-and-advances",
+      "claim": "ENTER commits the cursored choice for the current slot and advances to the next populated slot: ENTER on NONE leaves the slot unequipped; ENTER on a candidate equips it (the item gains the ✓ marker, AC recomputes). Because committing advances, the prompt's NONE for a given slot is only ever replaced transiently — you don't see '> <item>' as a committed prompt for a slot you just left. The port must therefore: start the cursor on NONE, allow ENTER-on-NONE to skip the slot, and only equip when the cursor is on a candidate.",
+      "category": "inventory_action",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x8e35"},
+        "type": "behavioral",
+        "details": "DOSBox: from slot-0 with LONGSWORD boxed, ENTER -> LONGSWORD shows ✓ (equipped) and the screen advances to 'SELECT SECONDARY ITEM > NONE' with cursor on NONE + ▸ on BUCKLER SHIELD."
+      },
+      "confidence": "high"
+    }
+  ],
+  "cross_references": [
+    "docs/re/findings/wpcvw-equip-action.json — the original EQUIP RE (this corrects its cursor/nav/marker model); FUN_8e35 (wizard) + FUN_8dcd (row highlight)",
+    "tools/parity/fixtures/engine/equip-slot0.{idx.gz,png} — slot-0 initial (cursor NONE, ▸ LONGSWORD); equip-slot1-equipped + equip-slot1-selected (NEW: ✓ equipped + cursor box)",
+    "packages/viewer/src/pages/castle/compose-equip-picker.ts + character-view-reducer.ts (equip-wizard) + equip-wizard-reducer.ts (nextEquipCursor) — the port to rework"
+  ],
+  "function_renames_recommended": [
+    "wpcvw 0x8dcd: keep wpcvw_equip_candidate_highlight, but note it renders ALL THREE row states (equipped ✓ / candidate ▸ / cursored box) keyed on the row's status, not just the cursor"
+  ],
+  "unresolved": [
+    "Exact prompt-strip NONE-highlight attr toggling (inverse 0x50 when cursor on NONE vs plain 0x03 otherwise) was inferred from screenshots, not dumped (the strip window wasn't located by dump-cells --scan/--header guesses). Confirm via the pixel-parity diff against equip-slot1-equipped (cursor NONE) vs equip-slot1-selected (cursor on item).",
+    "Whether LEFT/RIGHT also navigate (in addition to UP/DOWN) — only UP/DOWN was verified live. The prior finding claimed LEFT(2)/RIGHT(4); the port should at least support UP/DOWN (verified) and may keep LEFT/RIGHT as aliases.",
+    "Multi-candidate slots (2+ equippable items for one slot) weren't exercised (THESUS has at most 1 per slot) — the cycle order [NONE, c0, c1, ...] is inferred; confirm with a character carrying 2+ same-slot items."
+  ]
+}

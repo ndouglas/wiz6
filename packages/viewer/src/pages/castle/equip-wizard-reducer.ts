@@ -6,10 +6,19 @@
  */
 const BODY_SLOT_MAX = 7;
 
+/**
+ * EQUIP per-slot cursor nav. Engine-exact (RE: wpcvw-equip-ux-correction.json):
+ * the cursor CYCLES through [candidate0..candidateN-1, NONE] where NONE ==
+ * candidateCount, starting on NONE. DOWN: NONE→candidate0, candidateN-1→NONE,
+ * else +1. UP is the reverse. (LEFT/RIGHT are accepted as aliases for UP/DOWN.)
+ * The ▸ marker is a per-candidate "equippable" indicator, NOT the cursor — the
+ * cursor is shown by highlighting NONE (prompt) or boxing the cursored item.
+ */
 export function nextEquipCursor(cursor: number, key: string, candidateCount: number): number {
-  const max = candidateCount; // SKIP is at index candidateCount
-  if (key === 'ArrowRight') return Math.min(max, cursor + 1);
-  if (key === 'ArrowLeft') return Math.max(0, cursor - 1);
+  const NONE = candidateCount;
+  if (candidateCount <= 0) return NONE; // only the NONE/skip position exists
+  if (key === 'ArrowDown' || key === 'ArrowRight') return cursor === NONE ? 0 : cursor + 1;
+  if (key === 'ArrowUp' || key === 'ArrowLeft') return cursor === 0 ? NONE : cursor - 1;
   return cursor;
 }
 

@@ -334,16 +334,18 @@ test('EQUIP wizard mounted-canvas matches equip-slot0 + persists equipment', asy
   // Action menu, cursor on EXIT (idx 6). ArrowLeft ×3 → EQUIP (idx 0). Enter.
   await pressKeys(page, ['ArrowLeft', 'ArrowLeft', 'ArrowLeft', 'Enter']);
 
-  // Mounted EQUIP slot-0 picker must match the engine fixture pixel-exact.
+  // Mounted EQUIP slot-0 picker must match the engine fixture pixel-exact
+  // (initial: cursor on NONE, ▸ LONGSWORD candidate).
   await expectCanvasMatchesFixture(page, 'equip-slot0');
 
-  // Drive the wizard to completion: Enter through each populated body slot
-  // (0,1,4,5,7 → 5 slots), each picking candidate 0 (cursor default). The last
-  // Enter commits → commit-equip → updateActiveMember → back to action menu.
-  await pressKeys(page, ['Enter', 'Enter', 'Enter', 'Enter', 'Enter']);
+  // Equip the weapon: the cursor starts on NONE, so DOWN moves it onto the only
+  // candidate (LONGSWORD), then ENTER equips it + advances to slot 1. Then ENTER
+  // on NONE skips the remaining populated slots (1,4,5,7) to finish the wizard.
+  await pressKeys(page, ['ArrowDown', 'Enter']); // slot 0: select + equip LONGSWORD
+  await pressKeys(page, ['Enter', 'Enter', 'Enter', 'Enter']); // slots 1,4,5,7: skip (cursor on NONE)
   await page.waitForTimeout(200);
 
-  // Persisted equipment reflects the picks. equipment[0] (weapon body slot) is
+  // Persisted equipment reflects the pick. equipment[0] (weapon body slot) is
   // the LONGSWORD's inventory index (0), NOT 0xff (255).
   const partyJson = await page.evaluate(() =>
     window.localStorage.getItem('wiz6:active-party'),

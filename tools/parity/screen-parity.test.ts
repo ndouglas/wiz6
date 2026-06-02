@@ -855,7 +855,13 @@ function renderReviewMemberView(fontSet: FontSet, palette: Palette): Uint8Clampe
 // differs from review-member-view in exactly two regions (inventory row 9 +
 // the bottom strip).
 
-function renderEquipSlot0(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+function renderEquip(
+  fontSet: FontSet,
+  palette: Palette,
+  bodySlot: number,
+  selections: (number | null)[],
+  cursor: number,
+): Uint8ClampedArray {
   const emptySlot = { itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 };
   const inventory = [
     { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },   // LONGSWORD
@@ -914,21 +920,25 @@ function renderEquipSlot0(fontSet: FontSet, palette: Palette): Uint8ClampedArray
     age: { years: 18, second: 1 },
   });
 
-  // Slot-0 candidates via the engine equip-logic, resolved to display names.
-  const candidateIdxs = equipCandidates(thesus, 0, scenarioDb, Array(8).fill(null));
-  const candidates = candidateIdxs.map((i) => ({
-    name: scenarioItemName(scenarioDb, inventory[i]!.itemId),
-  }));
+  // Build per-row markers exactly like CharacterViewPage's equip-wizard branch.
+  const candidateIdxs = equipCandidates(thesus, bodySlot, scenarioDb, selections);
+  const candidateSet = new Set(candidateIdxs);
+  const equippedSet = new Set(selections.filter((x): x is number => x != null));
+  const cursorInvIdx = cursor < candidateIdxs.length ? candidateIdxs[cursor] : null;
+  const rows: { name: string; state: 'equipped' | 'candidate' | 'normal'; cursored: boolean }[] = [];
+  for (let i = 0; i < Math.min(inventory.length, 10); i++) {
+    const it = inventory[i]!;
+    if (it.itemId <= 0) continue;
+    const rowState = equippedSet.has(i) ? 'equipped' : candidateSet.has(i) ? 'candidate' : 'normal';
+    rows.push({ name: scenarioItemName(scenarioDb, it.itemId), state: rowState, cursored: i === cursorInvIdx });
+  }
 
-  // Fixture state: row-cursor on candidate 0 (LONGSWORD highlighted), committed
-  // selection NONE (prompt tail shows NONE).
   const equip = composeEquipPicker({
     db: msgDb,
-    bodySlot: 0,
-    slotTitle: 'PRIMARY WEAPON',
-    candidates,
-    cursor: 0,
-    selection: null,
+    bodySlot,
+    slotTitle: ['PRIMARY WEAPON', 'SECONDARY ITEM'][bodySlot] ?? 'ITEM',
+    rows,
+    cursorOnNone: cursor >= candidateIdxs.length,
   });
 
   return renderCreationFrame([mainPanel, ...equip], fontSetWithPortrait, palette);
@@ -1360,9 +1370,25 @@ const SCREENS: ScreenCase[] = [
     render: renderReviewMemberView,
   },
   {
+    // EQUIP slot 0, initial: cursor on NONE, ▸ LONGSWORD (candidate), prompt
+    // "SELECT PRIMARY WEAPON > NONE" (NONE highlighted). cursor 99 = NONE.
     fixture: 'equip-slot0',
-    floor: 100, // EQUIP wizard, body slot 0 — LONGSWORD candidate highlighted + "SELECT PRIMARY WEAPON > NONE" bar
-    render: renderEquipSlot0,
+    floor: 100,
+    render: (f, p) => renderEquip(f, p, 0, Array(8).fill(null), 99),
+  },
+  {
+    // EQUIP slot 1, after equipping LONGSWORD (slot 0): ✓ LONGSWORD, ▸ BUCKLER
+    // (candidate), cursor on NONE. selections[0]=0 (LONGSWORD inv idx).
+    fixture: 'equip-slot1-equipped',
+    floor: 100,
+    render: (f, p) => renderEquip(f, p, 1, [0, null, null, null, null, null, null, null], 99),
+  },
+  {
+    // EQUIP slot 1, cursor moved onto BUCKLER (boxed) — ✓ LONGSWORD, BUCKLER
+    // boxed+▸, NONE not highlighted. cursor 0 = first (only) candidate.
+    fixture: 'equip-slot1-selected',
+    floor: 100,
+    render: (f, p) => renderEquip(f, p, 1, [0, null, null, null, null, null, null, null], 0),
   },
   {
     fixture: 'assay-picker',

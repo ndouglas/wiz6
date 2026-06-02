@@ -449,28 +449,35 @@ export function CharacterViewPage() {
     } else if (state.kind === 'profession-confirm') {
       overlays.push(composeProfessionConfirm({ cursorYes: state.cursorYes }));
     } else if (state.kind === 'equip-wizard' && member) {
-      // EQUIP wizard: overlay the candidate-row highlight + slot prompt bar on
-      // top of the character sheet (the prompt bar REPLACES the action-menu
-      // strip, like the EDIT submenu). Candidates resolved to display names so
-      // the mounted render mirrors renderEquipSlot0 (cursor 0, selection NONE
-      // on slot entry).
+      // EQUIP wizard: repaint the inventory rows with per-item markers (✓
+      // equipped / ▸ candidate / box cursor) + the slot prompt bar (replacing
+      // the action-menu strip). The cursor starts on NONE; it cycles onto the
+      // candidates with up/down. RE: wpcvw-equip-ux-correction.json.
       const candidateIdxs = equipCandidates(member, state.slot, scenarioDb, state.selections);
-      const candidates = candidateIdxs.map((i) => ({
-        name: scenarioItemName(scenarioDb, (member.inventory ?? [])[i]?.itemId ?? 0),
-      }));
+      const candidateSet = new Set(candidateIdxs);
+      const equippedSet = new Set(state.selections.filter((x): x is number => x != null));
+      const cursorInvIdx =
+        state.cursor < candidateIdxs.length ? candidateIdxs[state.cursor] : null;
+      const inv = member.inventory ?? [];
+      const rows: { name: string; state: 'equipped' | 'candidate' | 'normal'; cursored: boolean }[] = [];
+      // Carried region only (slots 0..9), in display order — aligned with the
+      // composeMainPanel inventory list.
+      for (let i = 0; i < Math.min(inv.length, 10); i++) {
+        const it = inv[i];
+        if (!it || it.itemId <= 0) continue;
+        const rowState = equippedSet.has(i) ? 'equipped' : candidateSet.has(i) ? 'candidate' : 'normal';
+        rows.push({
+          name: scenarioItemName(scenarioDb, it.itemId),
+          state: rowState,
+          cursored: i === cursorInvIdx,
+        });
+      }
       overlays.push(
         ...composeEquipPicker({
           db,
           bodySlot: state.slot,
-          candidates,
-          cursor: state.cursor,
-          // Committed selection is independent of the row-cursor. In this
-          // wizard a slot's selection isn't committed until ENTER (which then
-          // advances to the next slot), so while a slot is on screen nothing is
-          // yet committed → the prompt tail always shows NONE. This matches the
-          // committed `equip-slot0` fixture (cursor 0 on LONGSWORD, prompt NONE).
-          // (Only that slot-0 initial frame is pixel-pinned; see report note.)
-          selection: null,
+          rows,
+          cursorOnNone: state.cursor >= candidateIdxs.length,
         }),
       );
     } else if (state.kind === 'assay-picker' && member) {

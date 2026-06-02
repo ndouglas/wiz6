@@ -156,12 +156,13 @@ describe('reduceCharacterView — EQUIP wizard', () => {
     campEntries: ['EQUIP', 'SPELL', 'ASSAY', 'SWAG', 'SKILL', 'EXIT'],
   };
 
-  it('Enter on EQUIP → equip-wizard at first populated slot (0), cursor 0', () => {
+  it('Enter on EQUIP → equip-wizard at slot 0, cursor on NONE (= candidate count)', () => {
+    // slot 0 has 2 candidates [3,7] → NONE position is cursor 2.
     const next = reduceCharacterView(equipMenu, { type: 'ENTER' }, baseEnabled, equipInfo);
     expect(next.kind).toBe('equip-wizard');
     if (next.kind === 'equip-wizard') {
       expect(next.slot).toBe(0);
-      expect(next.cursor).toBe(0);
+      expect(next.cursor).toBe(2); // NONE
       expect(next.selections).toEqual(Array(8).fill(null));
     }
   });
@@ -173,26 +174,28 @@ describe('reduceCharacterView — EQUIP wizard', () => {
     if (next.kind === 'commit-equip') expect(next.selections).toEqual(Array(8).fill(null));
   });
 
-  it('Right/Left move the cursor (clamped at SKIP == candidateCount)', () => {
-    const s: CharacterViewState = { kind: 'equip-wizard', slot: 0, selections: Array(8).fill(null), cursor: 0 };
-    const r1 = reduceCharacterView(s, { type: 'ARROW_RIGHT' }, baseEnabled, equipInfo);
-    expect(r1.kind === 'equip-wizard' && r1.cursor).toBe(1);
-    const r2 = reduceCharacterView({ ...s, cursor: 1 }, { type: 'ARROW_RIGHT' }, baseEnabled, equipInfo);
-    expect(r2.kind === 'equip-wizard' && r2.cursor).toBe(2); // SKIP
-    const r3 = reduceCharacterView({ ...s, cursor: 2 }, { type: 'ARROW_RIGHT' }, baseEnabled, equipInfo);
-    expect(r3.kind === 'equip-wizard' && r3.cursor).toBe(2); // clamp
-    const l1 = reduceCharacterView({ ...s, cursor: 2 }, { type: 'ARROW_LEFT' }, baseEnabled, equipInfo);
-    expect(l1.kind === 'equip-wizard' && l1.cursor).toBe(1);
+  it('Down/Up cycle the cursor [candidate0,candidate1,NONE], starting on NONE', () => {
+    // slot 0: candidates [3,7], NONE = cursor 2.
+    const at = (cursor: number, key: 'ARROW_DOWN' | 'ARROW_UP') =>
+      reduceCharacterView(
+        { kind: 'equip-wizard', slot: 0, selections: Array(8).fill(null), cursor },
+        { type: key }, baseEnabled, equipInfo,
+      );
+    expect((at(2, 'ARROW_DOWN') as { cursor: number }).cursor).toBe(0); // NONE → candidate0
+    expect((at(0, 'ARROW_DOWN') as { cursor: number }).cursor).toBe(1); // candidate0 → candidate1
+    expect((at(1, 'ARROW_DOWN') as { cursor: number }).cursor).toBe(2); // last candidate → NONE
+    expect((at(2, 'ARROW_UP') as { cursor: number }).cursor).toBe(1);   // NONE → last candidate
+    expect((at(0, 'ARROW_UP') as { cursor: number }).cursor).toBe(2);   // candidate0 → NONE
   });
 
-  it('Enter records the cursored candidate inv-idx and advances to next populated slot', () => {
-    // slot 0, cursor 1 → candidate inv-idx 7. Advance to slot 4.
+  it('Enter on a candidate records its inv-idx and advances (next slot cursor on NONE)', () => {
+    // slot 0, cursor 1 → candidate inv-idx 7. Advance to slot 4 (1 candidate → NONE = 1).
     const s: CharacterViewState = { kind: 'equip-wizard', slot: 0, selections: Array(8).fill(null), cursor: 1 };
     const next = reduceCharacterView(s, { type: 'ENTER' }, baseEnabled, equipInfo);
     expect(next.kind).toBe('equip-wizard');
     if (next.kind === 'equip-wizard') {
       expect(next.slot).toBe(4);
-      expect(next.cursor).toBe(0);
+      expect(next.cursor).toBe(1); // NONE for slot 4 (1 candidate)
       expect(next.selections[0]).toBe(7);
     }
   });

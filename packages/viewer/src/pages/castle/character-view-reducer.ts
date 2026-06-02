@@ -225,7 +225,10 @@ export function reduceCharacterView(
           // No slot has any candidate → nothing to re-equip; commit a no-op so
           // the page returns to the action menu without entering the wizard.
           if (slot === null) return { kind: 'commit-equip', selections };
-          return { kind: 'equip-wizard', slot, selections, cursor: 0 };
+          // Cursor starts on NONE (= candidate count) — the engine's skip
+          // position. The player moves UP/DOWN onto a candidate to equip it.
+          const cursor = equip.candidatesFor(slot, selections).length;
+          return { kind: 'equip-wizard', slot, selections, cursor };
         }
         if (label === 'ASSAY' && assay) {
           // Engine opens the picker with the cursor on NONE (carried count).
@@ -341,19 +344,26 @@ export function reduceCharacterView(
       if (event.type === 'ESCAPE') return { kind: 'action-menu', cursorIdx: 0, campEntries: [] };
       if (!equip) return state;
       const candidates = equip.candidatesFor(state.slot, state.selections);
-      if (event.type === 'ARROW_LEFT' || event.type === 'ARROW_RIGHT') {
-        const key = event.type === 'ARROW_LEFT' ? 'ArrowLeft' : 'ArrowRight';
-        return { ...state, cursor: nextEquipCursor(state.cursor, key, candidates.length) };
+      // UP/DOWN move the selection (cycling NONE ↔ candidates); LEFT/RIGHT alias.
+      const navKey =
+        event.type === 'ARROW_UP' ? 'ArrowUp' :
+        event.type === 'ARROW_DOWN' ? 'ArrowDown' :
+        event.type === 'ARROW_LEFT' ? 'ArrowLeft' :
+        event.type === 'ARROW_RIGHT' ? 'ArrowRight' : '';
+      if (navKey) {
+        return { ...state, cursor: nextEquipCursor(state.cursor, navKey, candidates.length) };
       }
       if (event.type === 'ENTER') {
-        // cursor == candidates.length is the SKIP position → null. Otherwise the
-        // cursored candidate's INVENTORY index (candidates[cursor]).
+        // cursor == candidates.length is the NONE/skip position → leave the slot
+        // unequipped. Otherwise equip the cursored candidate (candidates[cursor]).
         const chosen = state.cursor === candidates.length ? null : (candidates[state.cursor] ?? null);
         const selections = state.selections.slice();
         selections[state.slot] = chosen;
         const slot = nextPopulatedSlot(state.slot, (s) => equip.candidatesFor(s, selections).length > 0);
         if (slot === null) return { kind: 'commit-equip', selections };
-        return { kind: 'equip-wizard', slot, selections, cursor: 0 };
+        // Next slot's cursor starts on NONE (its candidate count).
+        const cursor = equip.candidatesFor(slot, selections).length;
+        return { kind: 'equip-wizard', slot, selections, cursor };
       }
       return state;
     }

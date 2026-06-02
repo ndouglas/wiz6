@@ -1,22 +1,29 @@
 import { describe, it, expect } from 'vitest';
 import { nextEquipCursor, nextPopulatedSlot } from '../../../src/pages/castle/equip-wizard-reducer.js';
 
-describe('nextEquipCursor (candidates + skip; SKIP index == candidateCount)', () => {
-  it('Right advances, clamps at SKIP (== candidateCount)', () => {
-    expect(nextEquipCursor(0, 'ArrowRight', 2)).toBe(1);
-    expect(nextEquipCursor(1, 'ArrowRight', 2)).toBe(2); // → SKIP
-    expect(nextEquipCursor(2, 'ArrowRight', 2)).toBe(2); // clamp at SKIP
+// Engine-exact (RE: wpcvw-equip-ux-correction.json): the cursor CYCLES through
+// [candidate0..N-1, NONE] where NONE == candidateCount, starting on NONE. 2
+// candidates → positions 0,1 + NONE(2). DOWN/RIGHT forward, UP/LEFT back.
+describe('nextEquipCursor (cycle through candidates + NONE)', () => {
+  it('Down cycles NONE → candidate0 → candidate1 → NONE', () => {
+    expect(nextEquipCursor(2, 'ArrowDown', 2)).toBe(0); // NONE → candidate0
+    expect(nextEquipCursor(0, 'ArrowDown', 2)).toBe(1); // candidate0 → candidate1
+    expect(nextEquipCursor(1, 'ArrowDown', 2)).toBe(2); // last candidate → NONE
   });
-  it('Left retreats, clamps at 0', () => {
-    expect(nextEquipCursor(2, 'ArrowLeft', 2)).toBe(1);
-    expect(nextEquipCursor(0, 'ArrowLeft', 2)).toBe(0);
+  it('Up cycles the reverse (NONE → last candidate → ... → candidate0 → NONE)', () => {
+    expect(nextEquipCursor(2, 'ArrowUp', 2)).toBe(1); // NONE → last candidate
+    expect(nextEquipCursor(1, 'ArrowUp', 2)).toBe(0);
+    expect(nextEquipCursor(0, 'ArrowUp', 2)).toBe(2); // candidate0 → NONE
   });
-  it('with 0 candidates, only SKIP (0) exists', () => {
-    expect(nextEquipCursor(0, 'ArrowRight', 0)).toBe(0);
-    expect(nextEquipCursor(0, 'ArrowLeft', 0)).toBe(0);
+  it('LEFT/RIGHT alias UP/DOWN', () => {
+    expect(nextEquipCursor(2, 'ArrowRight', 2)).toBe(0);
+    expect(nextEquipCursor(0, 'ArrowLeft', 2)).toBe(2);
   });
-  it('non-horizontal keys do not move', () => {
-    expect(nextEquipCursor(1, 'ArrowUp', 2)).toBe(1);
+  it('with 0 candidates, only NONE (0) exists', () => {
+    expect(nextEquipCursor(0, 'ArrowDown', 0)).toBe(0);
+    expect(nextEquipCursor(0, 'ArrowUp', 0)).toBe(0);
+  });
+  it('non-nav keys do not move', () => {
     expect(nextEquipCursor(1, 'Enter', 2)).toBe(1);
   });
 });
