@@ -73,11 +73,18 @@ creation subagent (2026-06-01) found the *data* diverges on 22/24 creation fixtu
    fixtures `unserialize` it deterministically. Keeps them isolated from the castle party.
 
 **Sub-stages:**
-- **4a — Draft-struct reader (RE prerequisite).** Locate the in-creation draft
-  character in DGROUP during creation states (no documented offset yet — RE via
-  Ghidra/live memory). Decode via the `character` BssStruct (or a draft schema).
-  Deliver `dumpDraft()` in LiveSession that decodes the engine's current draft → JSON
-  at any waypoint.
+- **4a — Draft-struct reader (RE prerequisite). DONE.** In-creation draft buffer is at
+  DGROUP **`0x5470`**, decodes with the existing `character_record` BssStruct as-is; the
+  one out-of-record field is `bonusPool` (u16 at DGROUP `0x56ac`). Validated live at two
+  waypoints. Findings: `docs/re/findings/creation-draft-struct.json`; proof:
+  `tools/libretro/probe-draft.ts`. **CRITICAL follow-on finding:** the bonus-point roll is
+  **non-deterministic run-to-run** (bonusPool came up 10/8/6/13 across 4 boots). So creation
+  fixtures CANNOT be reproduced by recipe-replay — they must be **frozen via serialize-state**.
+  Verified: `unserialize`+`fb` round-trips byte-exact (0 diff) and is deterministic across
+  fresh sessions (0 diff). MODEL: one committed gzipped `.state` per non-deterministic
+  fixture (≈167 KB gz each) in `test-fixtures/states/`; re-mint = unserialize→fb. Recipes
+  become the one-time driver that PRODUCES a state, not per-test replay. (User-confirmed
+  2026-06-02 over inject-fixed-character.)
 - **4b — Sidecar pipeline + schema.** Extend build-state to emit `<name>.character.json`
   (decoded draft/character + cursor/category/skillPoints/portrait/prompt state) beside
   the `.idx.gz`+`.png`. Define + commit the sidecar zod schema.

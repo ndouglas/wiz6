@@ -1,0 +1,77 @@
+{
+  "topic": "creation-draft-struct",
+  "subagent_run": "2026-06-02T00:00:00Z",
+  "binaries": ["wpcmk.ovr", "wroot.exe"],
+  "summary": "Located + decoded the in-creation DRAFT character buffer in LIVE dosbox-pure guest memory (Stage 4a). The draft is the wpcmk creation staging buffer at DGROUP 0x5470 (the same buffer roster_io_one_record writes to pcfile.dbs on commit). It uses the IDENTICAL 432-byte character_record field layout, so the existing CHARACTER_RECORD BssStruct decodes it as-is (name@+0x00, age@+0x08, attrs@+0x12c, portrait@+0x19c, race@+0x19d, alignment@+0x19e, class@+0x19f all line up against the cited absolutes 0x5478/0x560c). The ONLY creation-state field NOT in the record is bonus_points_remaining, a separate u16 at DGROUP 0x56ac (= 0x5470 + 0x23c, OUTSIDE the 432-byte record). Validated end-to-end by driving the committed creation-class-select and creation-portrait-select recipes through the libretro harness, decoding NATHAN at each waypoint, and cross-checking the eligible class list via classOffered.",
+  "findings": [
+    {
+      "id": "draft-base-0x5470",
+      "claim": "The in-creation DRAFT character buffer base is DGROUP 0x5470. The name field is at +0x00, so a search for the typed name 'NATHAN' (4e 41 54 48 41 4e) lands at exactly DGROUP+0x5470 in a live creation session.",
+      "category": "memory_layout",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wroot.dgroup", "offset": "0x5470" },
+        "type": "live_memory_search",
+        "details": "probe-draft.ts (libretro harness): anchor base = 0xffa0; find('4e 41 54 48 41 4e') = phys 0x15410; 0x15410 - 0xffa0 = 0x5470 EXACTLY, at BOTH the class-select and portrait-select waypoints. Cross-confirmed by wpcmk-screen-flow.json: wpcmk_create_character_master (0x4e47) memsets 0x5470..0x561f (432 bytes) then roster_io_one_record(1, slot, 0x5470) writes it to pcfile.dbs on commit."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "draft-uses-character-record-layout",
+      "claim": "The draft buffer uses the IDENTICAL 432-byte field layout as the finalized character_record (party slot 0 at 0x43e8). The existing CHARACTER_RECORD BssStruct decodes the draft as-is when read at DGROUP 0x5470 — no draft-specific schema needed. Every cited draft absolute maps to a record field: age 0x5478 = 0x5470+0x08 (age_counter), portrait 0x560c = 0x5470+0x19c (rendered_portrait_index), race 0x560d = +0x19d, alignment 0x560e = +0x19e, class 0x560f = +0x19f, attributes 0x559c..0x55a3 = +0x12c..+0x133.",
+      "category": "memory_layout",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wroot.dgroup", "offset": "0x5470" },
+        "type": "live_decode_validation",
+        "details": "decodeBssStruct(CHARACTER_RECORD, read(base+0x5470, 0x1b0)) yields name='NATHAN', race=0, alignment=0, sex=0 at both waypoints — all sane. Offsets cross-validated against the per-field DGROUP absolutes recorded in wpcmk-screen-flow.json writes_to_buffer entries (every offset_in_record value equals abs - 0x5470)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "bonus-pool-not-in-record",
+      "claim": "bonus_points_remaining (the rolled-then-spent bonus pool that gates class eligibility) is NOT a character_record field. It is a separate u16 creation-state variable at DGROUP 0x56ac (= 0x5470 + 0x23c, OUTSIDE the 432-byte record). dumpDraft must read it separately from the record decode.",
+      "category": "memory_layout",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wroot.dgroup", "offset": "0x56ac" },
+        "type": "live_memory_read",
+        "details": "wpcmk-screen-flow.json (id bonus-roller): inline roll writes '*(int*)0x56ac = rng(6)+5' with two 1/20 +8 chances. Live read at base+0x56ac = 10 at class-select (pool intact), 0 at portrait-select (DRAINed). 0x56ac - 0x5470 = 0x23c > 0x1b0, so it cannot be a record field. Adjacent creation vars: 0x56ae[14] class-qualification flags, 0x56ce debug-bonus-override."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "waypoint1-class-select-decode",
+      "claim": "At the creation-class-select waypoint the draft holds: name=NATHAN, race=0(Human), sex=0(Male), alignment=0, attrs[STR,INT,PIE,VIT,DEX,SPD,PER,KAR]=[9,8,8,9,9,8,8,0], bonusPool=10, class=0(not yet picked), age=0(not yet rolled), portrait=0. KAR=0 and age=0 because the personality reroll and derived-stats init run AFTER class selection. classOffered(attrs, bonus=10, sex=0) = {Fighter, Mage, Priest, Thief, Ranger, Alchemist, Bard} — a 7-class eligible list consistent with the rolled stats + pool.",
+      "category": "validation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wroot.dgroup", "offset": "0x5470" },
+        "type": "live_waypoint_dump",
+        "details": "probe-draft.ts WAYPOINT 1 (recipe creation-class-select). This is the dosbox-pure deterministic roll (BONUS 10), which differs from the lost DOSBox-X capture (BONUS 17) per the Stage-4 backend-divergence note — but is internally consistent. KAR=0 confirms the draft is mid-creation (pre-personality-reroll), which is exactly the class-select waypoint state."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "waypoint2-portrait-select-decode",
+      "claim": "At the creation-portrait-select waypoint the SAME buffer at 0x5470 has updated: name=NATHAN, race=0, sex=0, class=6(Bard), attrs=[9,10,8,9,12,8,12,10] (grown by the DRAINed bonus spend), KAR=10 (personality reroll has fired), age=7452 days (derived-stats init ran), bonusPool=0 (fully drained). This confirms the buffer is STABLE (same base, same layout) and fields UPDATE in place as creation progresses. classOffered(attrs, bonus=0, sex=0) = {Thief, Bard}.",
+      "category": "validation",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "address": { "space": "wroot.dgroup", "offset": "0x5470" },
+        "type": "live_waypoint_dump",
+        "details": "probe-draft.ts WAYPOINT 2 (recipe creation-portrait-select). NOTE: the recipe COMMENT labels this 'SAMURAI (index 11)' but with the dosbox-pure rolled bonus the class menu only enables the eligible subset, so the 11x-down navigation lands on Bard (class=6), NOT Samurai. The decode reflects the engine's ACTUAL committed class, confirming the draft tracks real selections. bonusPool=0 + KAR/age populated confirms field mutation across waypoints (vs WAYPOINT 1's bonusPool=10, KAR=0, age=0)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "implementation_notes": [
+    "dumpDraft(waypoint) in LiveSession should: (1) decode CHARACTER_RECORD at DGROUP 0x5470 via the existing BssStruct path (readStruct('character_record', 0x5470)); (2) ALSO read the u16 bonusPool at DGROUP 0x56ac; (3) emit them together. The record's portrait field is rendered_portrait_index (+0x19c) which during creation IS the live portrait-picker index (0..41) per wpcmk_pick_portrait_loop — usable directly (no need for the +0x1ab creation-default).",
+    "Optional creation-state vars adjacent to the pool (if a richer draft dump is wanted): 0x56ae[14] u16 class-qualification flags, 0x56ce debug-bonus-override, 0x56ac bonus pool. None are in the 432-byte record.",
+    "The probe spawns a fresh HostClient per waypoint (full boot + drive). For an in-session dumpDraft the existing LiveSession.readStruct already reads at a DGROUP-relative offset, so readStruct('character_record', 0x5470) works against the live session directly."
+  ],
+  "unresolved": [
+    "Whether name is finalized into the record at name-entry time (before wpcmk_create_character_master memsets the buffer) — the screen-flow finding says name entry happens in wpcmk_create_via_empty_slot BEFORE master; the live find proves NATHAN is present at 0x5470 by class-select, but the exact moment it lands in the buffer (vs a temp input editor buffer) was not traced in this pass.",
+    "sex field (+0x1a1) decoded as 0 (Male) consistent with the recipe, but the wpcmk write site for sex was not separately confirmed in this pass (alignment menu is 2-option per screen-flow; sex selection happens earlier in the SEX picker)."
+  ]
+}

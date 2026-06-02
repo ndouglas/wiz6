@@ -11,6 +11,11 @@ import { decodeBssStruct, type BssStruct } from '@wiz6/data';
 
 const GAME_STATE_DGROUP_OFFSET = 0x363a;
 const PARTY_SIZE_DGROUP_OFFSET = 0x43ce;
+// In-creation draft character (Stage 4a; docs/re/findings/creation-draft-struct.json).
+// The staging buffer wpcmk writes during creation, decoded by the character_record
+// struct as-is. bonusPool is the one out-of-record field (separate u16).
+const DRAFT_BASE_DGROUP = 0x5470;
+const BONUS_POOL_DGROUP = 0x56ac;
 
 export interface LiveState {
   dgroupBase: number;
@@ -64,6 +69,16 @@ export class LiveSession {
     const base = await this.ensure().anchor();
     const bytes = await this.ensure().read(base + dgroupOffset, struct.bytes);
     return decodeBssStruct(struct, bytes, 0, this.structs);
+  }
+
+  /** Decode the in-creation DRAFT character from live memory: the `character_record`
+   *  struct at DGROUP 0x5470, plus the out-of-record `bonusPool` (u16 at 0x56ac).
+   *  Use at a creation waypoint to dump the engine's actual rolled draft for a
+   *  fixture sidecar. See docs/re/findings/creation-draft-struct.json. */
+  async dumpDraft(): Promise<{ draft: Record<string, unknown>; bonusPool: number }> {
+    const draft = (await this.readStruct('character_record', DRAFT_BASE_DGROUP)) as Record<string, unknown>;
+    const bonus = await this.read(BONUS_POOL_DGROUP, 2);
+    return { draft, bonusPool: bonus[0]! | (bonus[1]! << 8) };
   }
 
   async state(): Promise<LiveState> {
