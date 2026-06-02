@@ -22,11 +22,16 @@ dump a framebuffer — all from one persistent process.
 **Status:** Complete
 
 ## Stage 2: Framebuffer divergence check (THE GATE)
-**Goal:** drive dosbox-pure to a state with an existing DOSBox-X fixture (start with
-the title/intro or the castle MASTER OPTIONS menu) and pixel-compare.
-**Success:** a quantified match % vs a committed fixture. Decision recorded:
-full-replace (≥ effectively 100%) vs additive (re-mint/keep DOSBox-X).
-**Status:** Not Started
+**Goal:** drive dosbox-pure to a state with an existing DOSBox-X fixture and pixel-compare.
+**Success:** a quantified match % vs DOSBox-X. Decision: full-replace vs additive.
+**RESULT (2026-06-01):** drove BOTH backends to the no-party MASTER OPTIONS menu
+(boot → ENTER) and compared. DOSBox-X renders 640×400 (clean 2× of 320×200);
+nearest-downscaled to 320×200 it is **100.00% pixel-identical** to dosbox-pure's
+native 320×200 — 0/64000 pixels differ, including the animated water strip.
+**DECISION: full replacement is viable — no fixture re-minting.** Remaining
+confirmation: spot-check a font/text-heavy screen (char view) and a sprite-heavy
+screen (combat/dungeon) before decommissioning DOSBox-X in Stage 5.
+**Status:** Complete (gate GREEN; broader screen-type spot-check pending)
 
 ## Stage 3: MCP backend swap
 **Goal:** repoint `packages/mcp` memory tools (`read_memory`, `read_struct`,
