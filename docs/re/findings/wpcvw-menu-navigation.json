@@ -1,0 +1,200 @@
+{
+  "topic": "wpcvw-menu-navigation",
+  "subagent_run": "2026-06-01T00:00:00Z",
+  "binaries": ["wpcvw.ovr"],
+  "summary": "Decompiled the keyboard cursor-movement logic for the three character-view (state 0x11) menus: the ACTION menu (EQUIP/SPELL/.../REVIEW/EXIT), the SKILL tab picker (WEAPONRY/PHYSICAL/PERSONAL/ACADEMIA/EXIT), and the SWAG menu (ADD/REMOVE/DROP/EXIT). MAJOR FINDING: ALL THREE menus call ONE shared grid navigator, ui_menu_picker_grid @ wpcvw file 0x6c. They differ ONLY in the per-menu picker arguments (msg_base, x_step, the mask, and init_cursor) -- the navigation algebra is identical across all three because it lives entirely inside 0x6c. GEOMETRY: every call passes cols(param_7)=2, which the navigator treats as the COLUMN HEIGHT (cells stacked vertically per column). The layout is COLUMN-MAJOR with 2 rows: cell index i sits at column = i div 2, row = i mod 2 (top row = even indices 0,2,4,6...; bottom row = odd indices 1,3,5...). This matches the action-menu's documented column-major 2-row layout AND is the SAME geometry for SKILL and SWAG (refuting any hypothesis that the sub-menus differ). KEY CODES (CORRECTED — see below): the navigator reads kbd-filter codes 1=LEFT, 2=UP, 3=RIGHT, 4=DOWN (NOT 0x08..0x0b), with code 5 = commit/Enter; a mouse click (*0x4fc4==1) also commits. TRANSITION RULES per NUMERIC CODE (cursor=param_9 over the ENABLED-cell count local_6=N, cols=2): code1: if (2 <= cursor) cursor-=2; code2: if (cursor%2 > 0) cursor-=1; code3: if (cursor+2 < N) cursor+=2; code4: if (cursor%2 < 1 AND cursor+1 < N) cursor+=1. ALL FOUR EDGES CLAMP (guarded if; no wrap, no column-carry). DOSBOX-VERIFIED CONCLUSION (2026-06-01, save 5 camp ACTION menu): our nextActionCursor MATCHES the engine exactly -- there is NO divergence. The subagent's initial draft transposed the code->physical-arrow labels (guessed 1=UP/2=LEFT); a live drive proved the opposite: pressing UP from EXIT(idx5) moved to SKILL(idx4) = idx-1 within-column (= code2's op, so UP=code2), and pressing LEFT from SKILL(idx4) moved to ASSAY(idx2) = idx-2 column-step (= code1's op, so LEFT=code1). Thus code1=LEFT(idx-2 column axis), code2=UP(idx-1 within column), code3=RIGHT(idx+2 column axis), code4=DOWN(idx+1 within column) -- identical to our nextActionCursor's ArrowLeft/ArrowUp/ArrowRight/ArrowDown bindings AND to our DOSBox-verified wpcmk spell picker (gridNextSchool: code1=left/2=up/3=right/4=down). On screen this is INTUITIVE (Left/Right move horizontally between columns; Up/Down move vertically within a column), NOT the transposed quirk the draft claimed. Confidence HIGH for everything: the comparators come from Ghidra's control-flow decompile (no JL/JG manual-read ambiguity), all three call sites were byte-verified, and the key mapping is now behaviorally confirmed.",
+  "method": "PyGhidra DecompInterface (tools/ghidra/scripts/decompile.py, absolute project dir, GHIDRA_INSTALL_DIR set, GUI closed) on ui_menu_picker_grid @ wpcvw file 0x6c -- both the C decompile and the --raw listing (the listing gives exact file offsets for every comparator since wpcvw.ovr loads at image base 0). Verified the three call sites and their cols=2 argument by (a) scanning original/wpcvw.ovr for every E8 rel16 near-call whose target == 0x6c (found 6: file 0x227b, 0x4e5c, 0x6180, 0x6793, 0x6a0b, 0x969e), and (b) reading the 0x30 bytes preceding each of the three relevant calls and decoding the right-to-left push sequence of mov ax,imm / push ax (b8 II II 50) immediates. Cross-referenced the picker args against the existing findings wpcvw-character-view-ux.json (action menu, view-input-keys), wpcvw-skill-action.json (SKILL), wpcvw-swag-action.json (SWAG), and the spell-picker axis-swap precedent in spell-picker-eligibility.json. NOTE: plain `ndisasm -b 16` linear-decode of this overlay drifts out of instruction alignment depending on the start offset (the picker prologue add sp,0xfe62 and dense LEA/IMUL sequences), so absolute offsets from raw ndisasm are unreliable here; the Ghidra control-flow listing is the authority for the comparator offsets and the push-immediate scan is the authority for the call args.",
+  "findings": [
+    {
+      "id": "one-shared-navigator",
+      "claim": "All three menus (ACTION, SKILL tab picker, SWAG) use ONE shared grid navigator: ui_menu_picker_grid @ wpcvw file 0x6c. There is no per-menu navigation code; the four arrow-key transitions, the commit/cancel handling, and the cursor clamp ALL live inside 0x6c. Each menu only differs in the arguments it passes (window, msg_base, mask, x_base, y_base, x_step, cols, attr, init_cursor). Exactly six call sites to 0x6c exist in the overlay (file offsets 0x227b, 0x4e5c, 0x6180, 0x6793, 0x6a0b, 0x969e); the three in scope are 0x6a0b (ACTION main menu), 0x4e5c (SKILL tabs), 0x227b (SWAG add/remove/drop). Therefore any nav fix to one menu applies to all.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6c"},
+        "type": "decompile",
+        "details": "Python scan of original/wpcvw.ovr for E8 rel16 near-calls resolving to target 0x6c yields {0x227b,0x4e5c,0x6180,0x6793,0x6a0b,0x969e}. Ghidra names the function at 0x6c ui_menu_picker_grid; its body contains the entire input loop (input_poll_key_or_mouse_with_blink(0x553e,0x3598) -> key dispatch 1/2/3/4/5 -> cursor update -> return aiStack_24[param_9])."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "grid-geometry-column-major-2-rows",
+      "claim": "The grid is COLUMN-MAJOR with a column height (cols param_7) of 2 rows for ALL THREE menus. Cell index i is placed at screen column = (i / cols) and screen row = (i % cols): x = (i/cols)*x_step + x_base, y = (i % cols) + y_base. With cols=2 this means top row = even indices {0,2,4,6,...}, bottom row = odd indices {1,3,5,...} -- the same column-major 2-row layout the action menu was already understood to use. SKILL and SWAG are NOT a different geometry; they are byte-identical in cols. The only per-menu differences are x_step (horizontal spacing between columns: ACTION=6, SKILL=0xa, SWAG=8) and x_base/y_base (all three use x_base=2, y_base=1), none of which affect the navigation transitions.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x98"},
+        "type": "decompile",
+        "details": "Render placement in 0x6c: `iVar2 = (local_6 / param_7) * param_6 + param_4` (x, file 0x98-0xa2) and `func_0x0000bda7(param_1, iVar2, local_6 % param_7 + param_5)` (y = i%cols + y_base, file 0xa9-0xc1). param_6=x_step, param_4=x_base, param_5=y_base, param_7=cols. Per-menu cols all = 2 (see call-site findings). So column index = i/2, row index = i%2 (column-major)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "key-codes-1234-left-up-right-down",
+      "claim": "The navigator compares the polled key against codes 1, 2, 3, 4, 5 -- NOT 0x08..0x0b. Mapping (DOSBox-VERIFIED 2026-06-01, consistent with the wpcmk spell picker gridNextSchool): 1=LEFT, 2=UP, 3=RIGHT, 4=DOWN, 5=Enter/commit. A mouse click is detected separately via the global *0x4fc4==1, which forces commit (sets the local key to 5 and the cursor to the clicked cell). There is NO ESC/cancel key handling inside the navigator -- the only way out is to commit on a cell (selecting the menu's EXIT entry).",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x34d"},
+        "type": "disasm",
+        "details": "Raw listing (Ghidra, file offsets): 0x34d CMP AX,0x1 (UP); 0x355 CMP AX,0x2 (LEFT); 0x35d CMP AX,0x3 (DOWN); 0x365 CMP AX,0x4 (RIGHT); loop terminates `while (local_4 != 5)` so key 5 = commit. Input via input_poll_key_or_mouse_with_blink(0x553e,0x3598) -> iVar2; mouse branch at 0x226 CMP word [0x4fc4],0x1 sets local key to 5 and param_9 to clicked index."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "transition-left-key1",
+      "claim": "LEFT (key code 1, DOSBox-verified): cursor -= cols (=2) IFF cursor >= cols. Formula: `if (cols <= cursor) cursor -= cols`. With cols=2: `if (cursor >= 2) cursor -= 2`. PHYSICAL MEANING: steps to the PREVIOUS COLUMN (the +/-2 column-major axis) = leftward on screen. CLAMP at the left/first column: when cursor < 2 (already in column 0) the key is a no-op (no wrap to the last column). Matches our nextActionCursor ArrowLeft exactly.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x241"},
+        "type": "disasm",
+        "details": "Decompile: `else if (iVar2 == 1) { if (param_7 <= param_9) { ui_grid_set_cursor_compute(...); param_9 = param_9 - param_7; } }`. Raw listing: 0x241 SUB AX,[BP+0x10] (cursor - cols); 0x244 JL 0x27a (skip move if cursor-cols < 0, i.e. require cursor >= cols); on the move path 0x277 SUB [BP+0x14],AX (param_9 -= cols). param_7=cols at [BP+0x10], param_9=cursor at [BP+0x14]. Comparator recovered by Ghidra control-flow (signed); no manual JL/JG read needed. Confidence high."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "transition-up-key2",
+      "claim": "UP (key code 2, DOSBox-verified): cursor -= 1 IFF (cursor mod cols) > 0. Formula: `if (0 < cursor % cols) cursor -= 1`. With cols=2: `if (cursor % 2 > 0) cursor -= 1` -- i.e. only odd cursor (bottom row) moves, to the top row of the SAME column. PHYSICAL MEANING: moves UP within the 2-row column (the +/-1 row axis) = upward on screen. CLAMP on the top row: even cursor (cursor%2==0, already top row) is a no-op (no wrap to bottom, no column carry). Matches our nextActionCursor ArrowUp exactly. (DRIVE: EXIT idx5 -> SKILL idx4.)",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x286"},
+        "type": "disasm",
+        "details": "Decompile: `else if (iVar2 == 2) { if (0 < param_9 % param_7) { ...; param_9 = param_9 + -1; } }`. Raw listing: 0x281 IDIV [BP+0x10] (cursor / cols, remainder in DX->AX); 0x286 CMP AX,0x0; 0x289 JLE 0x2bc (skip if remainder <= 0, i.e. require remainder > 0); decrement on the move path. Confidence high (control-flow comparator)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "transition-right-key3",
+      "claim": "RIGHT (key code 3, DOSBox-verified): cursor += cols (=2) IFF cursor + cols < N (N = local_6 = count of ENABLED cells). Formula: `if (cursor + cols < N) cursor += cols`. With cols=2: `if (cursor + 2 < N) cursor += 2`. PHYSICAL MEANING: steps to the NEXT COLUMN (the +/-2 column-major axis) = rightward on screen. CLAMP at the right/last column: if cursor+2 >= N the key is a no-op (no wrap to first column). NOTE the bound is the enabled-cell count N, not the raw entry count -- disabled entries are excluded from the visible grid. Matches our nextActionCursor ArrowRight exactly.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x2c5"},
+        "type": "disasm",
+        "details": "Decompile: `else if (iVar2 == 3) { if (param_9 + param_7 < local_6) { ...; param_9 = param_9 + param_7; } }`. Raw listing: 0x2c2 ADD AX,[BP+0x10] (cursor + cols); 0x2c5 CMP AX,[BP-0x4] (vs local_6=count); 0x2c8 JGE 0x2fe (skip if cursor+cols >= count); increment on the move path 0x2fb ADD [BP+0x14],AX. local_6 (=N enabled count) at [BP-0x4]. Confidence high (control-flow comparator)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "transition-down-key4",
+      "claim": "DOWN (key code 4, DOSBox-verified): cursor += 1 IFF (cursor mod cols) < cols-1 AND cursor+1 < N. Formula: `if (cursor % cols < cols-1 && cursor+1 < N) cursor += 1`. With cols=2: `if (cursor % 2 == 0 && cursor+1 < N) cursor += 1` -- i.e. only even cursor (top row) moves, to the bottom row of the SAME column, and only if that bottom cell exists (cursor+1 < N). PHYSICAL MEANING: moves DOWN within the 2-row column (the +/-1 row axis) = downward on screen. CLAMP on the bottom row OR when the bottom cell is past the enabled count: odd cursor, or an even cursor in the last (odd-count) column, is a no-op. Matches our nextActionCursor ArrowDown exactly.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x30d"},
+        "type": "disasm",
+        "details": "Decompile: `else if (((iVar2 == 4) && (param_9 % param_7 < param_7 + -1)) && (param_9 + 1 < local_6)) { ...; param_9 = param_9 + 1; }`. Raw listing: 0x304 IDIV [BP+0x10] (cursor%cols); 0x30d CMP AX,CX (CX = cols-1 from 0x259 dec cx); 0x30f JGE 0x34b (skip if remainder >= cols-1); 0x315 CMP AX,[BP-0x4] (cursor+1 vs count); 0x318 JGE 0x34b (skip if cursor+1 >= count). Two-part guard. Confidence high (control-flow comparators)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "all-edges-clamp-no-wrap",
+      "claim": "EVERY edge CLAMPS; there is NO wrap-around and NO column-carry on any of the four arrows. Each handler is a guarded `if` that simply leaves the cursor unchanged when the guard fails: UP at column 0 (cursor<2) does nothing; DOWN at the last column (cursor+2>=N) does nothing; LEFT on the top row (cursor%2==0) does nothing; RIGHT on the bottom row (cursor%2>0) or when the bottom cell is past the count does nothing. So pressing UP at the top-left cell, or DOWN at the bottom-right cell, etc., is always a no-op -- the cursor never jumps to the opposite edge and never carries to an adjacent column/row across the edge. This is identical clamp behavior across ACTION, SKILL, and SWAG (one shared routine).",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6c"},
+        "type": "decompile",
+        "details": "All four key branches in 0x6c are `if (<guard>) { recompute_old_cell_render; param_9 += delta; }` with no else and no fallthrough that wraps. The do/while only exits on key 5. Guards: UP `param_7<=param_9` (0x244 JL); LEFT `0<param_9%param_7` (0x289 JLE); DOWN `param_9+param_7<local_6` (0x2c8 JGE); RIGHT `param_9%param_7<param_7-1 && param_9+1<local_6` (0x30f,0x318 JGE). No wrap arithmetic anywhere."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "count-is-enabled-cells-not-raw-entries",
+      "claim": "The N used in the DOWN and RIGHT bounds is local_6 = the number of ENABLED cells the navigator actually rendered (it walks the mask, skipping entries whose mask word != 1, and increments local_6 only for enabled cells). param_9 (the cursor) and the returned value index into the COMPACTED enabled list (aiStack_24[param_9] maps the compacted cursor back to the original mask index). So navigation operates over the enabled-only grid: disabled menu options are not navigable cells and do not count toward N. This matters for the action menu's dynamic entry count (6 with a solo party vs 7 with 2+) and for SWAG/EDIT where options get disabled by context -- the grid shrinks and N is the post-filter count.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x7e"},
+        "type": "decompile",
+        "details": "Decompile head: `local_6=0; local_4=0; while (*(int*)(param_3 + local_4*2) != -1) { if (*(int*)(param_3+local_4*2) == 1) { ...render cell local_6...; aiStack_24[local_6]=local_4; local_6++; } local_4++; }`. param_3=mask_ptr; mask terminates on -1. local_6 = enabled count = N. Return `aiStack_24[param_9]` decompacts cursor to original index. So the cursor space is the enabled subset, not raw 0..entry_count."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "callsite-action-menu",
+      "claim": "ACTION MENU call site at wpcvw file 0x6a0b: ui_menu_picker_grid(window=[bp-4], msg_base=0x12d(=301), mask=&[bp-0x24], x_base=2, y_base=1, x_step=6, cols=2, attr=5, init_cursor=[count of enabled]). cols=2 confirms the 2-row column-major action menu.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6a0b"},
+        "type": "disasm",
+        "details": "Bytes preceding the E8->0x6c call at file 0x6a0b (right-to-left pushes): `8d 46 dc 50`(init=lea[bp-0x24]) `b8 05 00 50`(attr=5) `b8 02 00 50`(cols=2) `b8 06 00 50`(x_step=6) `b8 01 00 50`(y_base=1) `b8 02 00 50`(x_base=2) `8d 46 dc 50`(mask=&[bp-0x24]) `b8 2d 01 50`(msg=0x12d) `ff 76 fc`(window=[bp-4]) `e8 5e 96`(call->0x6c). Matches view-main-menu-options in wpcvw-character-view-ux.json."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "callsite-skill-tabs",
+      "claim": "SKILL tab picker call site at wpcvw file 0x4e5c: ui_menu_picker_grid(window=[bp+4], msg_base=0x258(=600, WEAPONRY..), mask=&[bp-0x18], x_base=2, y_base=1, x_step=0xa, cols=2, attr=5, init_cursor=[bp-0x32]). cols=2 -- SAME column-major 2-row geometry as the action menu (only x_step differs: 0xa vs 6).",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x4e5c"},
+        "type": "disasm",
+        "details": "Bytes preceding the E8->0x6c call at file 0x4e5c: `ff 76 ce`(init=[bp-0x32]) `b8 05 00 50`(attr=5) `b8 02 00 50`(cols=2) `b8 0a 00 50`(x_step=0xa) `b8 01 00 50`(y_base=1) `b8 02 00 50`(x_base=2) `8d 46 e8 50`(mask=&[bp-0x18]) `b8 58 02 50`(msg=0x258) `ff 76 04`(window=[bp+4]) `e8 0d b2`(call->0x6c). Matches skill-viewer-window-and-tab-loop in wpcvw-skill-action.json."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "callsite-swag-menu",
+      "claim": "SWAG menu call site at wpcvw file 0x227b: ui_menu_picker_grid(window=[bp+6], msg_base=0x2ef(=ADD/REMOVE/DROP), mask=&[bp-0x1a], x_base=2, y_base=1, x_step=8, cols=2, attr=5, init_cursor=[count of enabled]). cols=2 -- SAME column-major 2-row geometry (only x_step differs: 8). So the 3-option ADD/REMOVE/DROP(/EXIT) menu is a 2-row column-major grid: col0={ADD(0),REMOVE(1)}, col1={DROP(2), EXIT(3)} when all enabled.",
+      "category": "navigation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x227b"},
+        "type": "disasm",
+        "details": "Bytes preceding the E8->0x6c call at file 0x227b: `8d 46 e6 50`(init=lea[bp-0x1a]) `b8 05 00 50`(attr=5) `b8 02 00 50`(cols=2) `b8 08 00 50`(x_step=8) `b8 01 00 50`(y_base=1) `b8 02 00 50`(x_base=2) `8d 46 e6 50`(mask=&[bp-0x1a]) `b8 ef 02 50`(msg=0x2ef) `ff 76 06`(window=[bp+6]) `e8 ee dd`(call->0x6c). Decompile of 0x1db3 (SWAG manager) confirms: `ui_menu_picker_grid(param_2,0x2ef,local_1c,2,1,8,2,5,uVar5)`. Matches swag-three-action-menu in wpcvw-swag-action.json."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "no-divergence-nextactioncursor-matches-engine",
+      "claim": "CROSS-CHECK vs our reducer's single nextActionCursor(idx,key,n): NO DIVERGENCE -- our model matches the engine exactly, both math AND arrow labels (DOSBox-verified 2026-06-01). Our model: ArrowLeft = idx-2 (col axis), ArrowRight = idx+2 (col axis), ArrowUp = idx-1 within col (idx%2==1->idx-1), ArrowDown = idx+1 within col (idx%2==0 && idx+1<n -> idx+1). The ENGINE: LEFT(code1) = idx-2, RIGHT(code3) = idx+2, UP(code2) = idx-1 within col, DOWN(code4) = idx+1 within col. With the VERIFIED code->key mapping (1=LEFT,2=UP,3=RIGHT,4=DOWN) every binding lines up: engine LEFT == our ArrowLeft, engine RIGHT == our ArrowRight, engine UP == our ArrowUp, engine DOWN == our ArrowDown. Clamp behavior, +/-2 / +/-1 magnitudes, mod-2 within-column logic, and the idx+1<n bottom-cell guard all match. On screen the navigation is intuitive (Left/Right between columns, Up/Down within a column). NO PORT CHANGE NEEDED. (An earlier draft of this finding claimed a transposed-axis divergence; that was a wrong code->key label guess, refuted by the DOSBox drive below.)",
+      "category": "verification",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x34d"},
+        "type": "behavior",
+        "details": "Engine key dispatch (file 0x34d/0x355/0x35d/0x365 = codes 1/2/3/4) bound to handlers: code1->idx-=2 (0x241/0x244), code2->idx-=1 if idx%2>0 (0x286/0x289), code3->idx+=2 if idx+2<n (0x2c5/0x2c8), code4->idx+=1 if idx%2<1 && idx+1<n (0x30d/0x315). DOSBox drive (save 5 camp ACTION menu, cursor on EXIT idx5): physical UP moved EXIT->SKILL (idx5->idx4, idx-1 within-column = code2's op, so UP=code2); physical LEFT moved SKILL->ASSAY (idx4->idx2, idx-2 column-step = code1's op, so LEFT=code1). Hence 1=LEFT,2=UP,3=RIGHT,4=DOWN, matching gridNextSchool (wpcmk spell picker) and our nextActionCursor."
+      },
+      "confidence": "high"
+    }
+  ],
+  "transition_tables": {
+    "shared_navigator": "ui_menu_picker_grid @ wpcvw file 0x6c (cols=2 for all three menus). N = count of ENABLED cells. Column-major: index i -> column i/2, row i%2 (top row even, bottom row odd).",
+    "by_key_code": {
+      "1_LEFT": "if (idx >= 2) idx -= 2   // previous column (leftward); clamp at column 0",
+      "2_UP": "if (idx % 2 > 0) idx -= 1   // bottom->top within column (upward); clamp on top row",
+      "3_RIGHT": "if (idx + 2 < N) idx += 2   // next column (rightward); clamp at last column",
+      "4_DOWN": "if (idx % 2 == 0 && idx + 1 < N) idx += 1   // top->bottom within column (downward); clamp on bottom row / missing cell",
+      "5_ENTER": "commit; return original mask index of enabled cell idx",
+      "edges": "ALL clamp; no wrap, no column carry",
+      "note": "Code->key mapping 1=LEFT,2=UP,3=RIGHT,4=DOWN is DOSBox-verified; matches our nextActionCursor exactly."
+    },
+    "per_menu_geometry": {
+      "ACTION (0x6a0b)": "msg_base=0x12d, x_step=6, cols=2 (column-major 2-row); N = enabled action count (6 solo / 7 with REVIEW + EXIT etc., context-masked)",
+      "SKILL (0x4e5c)": "msg_base=0x258, x_step=0xa, cols=2 (column-major 2-row); N = enabled category tabs + EXIT",
+      "SWAG (0x227b)": "msg_base=0x2ef, x_step=8, cols=2 (column-major 2-row); N = enabled of {ADD,REMOVE,DROP} + EXIT"
+    }
+  },
+  "port_impact": {
+    "current_model_status": "nextActionCursor(idx,key,n) MATCHES the engine exactly for all three menus -- correct clamp, +/-2 column axis on Left/Right, +/-1 within-column axis on Up/Down (mod-2 + idx+1<n guard), and the correct arrow->axis binding (DOSBox-verified). NO FIX NEEDED.",
+    "keep_one_function": "Keeping ONE function for all three menus (ACTION/SKILL/SWAG) is CORRECT -- the engine also uses one shared routine (0x6c, cols=2).",
+    "n_is_enabled_count": "Ensure n passed to the navigator is the count of ENABLED/visible cells, not the raw entry count -- the engine navigates the compacted enabled list and clamps DOWN/RIGHT on that count.",
+    "suggested_enforcement": "Add reducer unit tests for nextActionCursor citing the 0x6c comparator offsets (0x241/0x286/0x2c5/0x30d) so a future regression is caught; nothing in CI currently gates these transitions against the engine."
+  },
+  "unresolved": [
+    "MASTER OPTIONS top-level menu (wbase.ovr state 4) is a DIFFERENT overlay and was NOT covered here -- it may use a different navigator/geometry; verify separately.",
+    "The action menu's column-major fill order (top row = entries 0,2,4,6; bottom row = 1,3,5) was given in the task and is consistent with i/2,i%2 placement here, but the exact mask-index->msg-id ordering after context disables (which entries are present for a solo vs full party) is owned by wpcvw-character-view-ux.json's mask findings, not re-derived here.",
+    "ui_grid_set_cursor_compute (called before each cursor move to repaint the OLD cell in the non-highlight attr) was not separately decompiled; it is a pure render-side helper and does not affect the transition algebra."
+  ],
+  "cross_references": [
+    "docs/re/findings/wpcvw-character-view-ux.json — action menu call (view-main-menu-options), view-input-keys (key codes 1/2/3/4, prior plain-English nav description now made byte-exact here), dispatch table",
+    "docs/re/findings/wpcvw-skill-action.json — SKILL viewer tab-picker call (skill-viewer-window-and-tab-loop, skill-picker-is-tab-navigation-not-skill-action); confirms cols=2",
+    "docs/re/findings/wpcvw-swag-action.json — SWAG manager picker call (swag-three-action-menu): ui_menu_picker_grid(param_2,0x2ef,local_1c,2,1,8,2,5,uVar5); confirms cols=2",
+    "docs/re/findings/spell-picker-eligibility.json — nav-key-dispatch: the wpcmk spell picker's identical axis-swap quirk (LEFT/RIGHT move between rows, UP/DOWN move within a row), key codes 1/2/3/4; precedent for the transposed arrow binding",
+    "packages/viewer (or reducer) nextActionCursor — the single function used for all three menus; math correct, arrow labels transposed (see divergence-from-nextactioncursor)"
+  ]
+}

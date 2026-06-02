@@ -1,0 +1,143 @@
+{
+  "topic": "wpcvw-item-picker-navigation",
+  "subagent_run": "2026-06-01T00:00:00Z",
+  "binaries": ["wpcvw.ovr", "wroot.exe"],
+  "summary": "STATIC RE of the keyboard cursor-movement logic for the generic single-column ITEM PICKER ui_pick_inventory_item @ wpcvw file 0x1a48 (the routine called by ASSAY/SWAG-ADD/SWAG-REMOVE-DROP/EQUIP-candidate via `call 0x1a48`). The routine lives ENTIRELY in wpcvw.ovr (the call at the dispatch sites is a near-call inside the overlay; 0x1a48 is a wpcvw FILE offset, NOT a wroot thunk). The list draws N items (loop 0 .. N-1) followed by a trailing NONE sentinel drawn at index position N (visually BELOW the last item). The cursor local is [bp-8], initialized to 0xffff at file 0x1b22 — 0xffff is the NONE sentinel value, so the cursor STARTS on NONE. Item count N is held in [bp-0xb2] (loaded at 0x1a6f/0x1a83 from char inventory-count field +0x4594 (carried) or +0x4595 (bagged), selected by the param at [bp+0xc]). Per-loop the picker reads an action code via the wpcvw input wrapper FUN_432d @ file 0x432d (which translates the raw keystroke to a small action INDEX via wroot keymap-lookup thunk 0xedec -> wroot image 0x3350 / file 0x3550, a repne-scasb table search returning the byte's index in a DGROUP key table at *0x553e, or 0xffff if not found). The picker dispatches that action index at file 0x1d84: `cmp ax,2 -> UP handler 0x1cce`, `cmp ax,4 -> DOWN handler 0x1d27`. NO OTHER action index reaches any cursor-movement code, so the picker is PURELY 1-D up/down: ArrowLeft / ArrowRight are NOT accepted (they would translate to other indices that fall through the dispatch and trigger only a harmless redraw, leaving the cursor unchanged). TRANSITION TABLE (N = item count; items 0..N-1; NONE = 0xffff sentinel, positionally index N below the list): UP from NONE -> item 0 (TOP); UP from item 0 -> NONE (WRAP); UP from item k (1<=k<=N-1) -> item k-1. DOWN from NONE -> item 0 (TOP, *not* bottom); DOWN from item N-1 (last) -> NONE (WRAP); DOWN from item k (0<=k<=N-2) -> item k+1. So the cursor order is a 2-end-wrapping ring: NONE <-> 0 <-> 1 <-> ... <-> N-1 <-> NONE, with NONE adjacent to BOTH item 0 (above) and item N-1 (below). CRITICAL CONFIRMATION for the port's nextInventoryCursor(): DOWN-from-NONE goes to item 0 (the TOP item), confirming the existing TS line `ArrowDown: cursor===NONE ? 0 : ...`. Both wrap edges (Up-from-0->NONE, Down-from-(N-1)->NONE) match the existing TS model exactly. Left/Right correctly absent in the TS model. The comparator directions are unambiguous in the disasm (signed JL / JNL against literal sentinels) -> high confidence on every transition. The only DOSBox-confirmable open item is the literal keymap INDEX->scancode mapping (that index 2==ArrowUp and index 4==ArrowDown), which is self-evident from movement direction but the literal *0x553e table bytes were not read from a live save.",
+  "method": "ndisasm -b 16 of wpcvw.ovr at the picker 0x1a48-0x1db2 (render setup + per-frame input loop + UP/DOWN handlers + dispatch), and of the input wrapper FUN_432d @ 0x432d. Thunk-delta law (T-0xBA9C image, +0x200 file) applied to the cross-overlay calls in FUN_432d: 0xe0df->wroot 0x2643 (kbd poll), 0xe1c0->wroot 0x2724 (get char), 0xedec->wroot image 0x3350 / file 0x3550 (keymap table-index lookup, confirmed by disasm: repne scasb over a null-terminated table at [bp+4], returns matched index or 0xffff). Confirmed 0x1a48 is wpcvw-local (0x1a48 - 0xBA9C < 0, so not a wroot thunk; the ASSAY/SWAG/EQUIP dispatch sites reach it via `E8 rel16` near-call landing inside the overlay). Cursor/count locals identified from the render loop (0x1ba1-0x1bab: loop counter [bp-2] < [bp-0xb2]) and the cursor init (0x1b22 [bp-8]=0xffff). Cross-checked against wpcvw-assay-action.json (ASSAY handler 0x6a50 calls 0x1a48), wpcvw-swag-action.json and wpcvw-equip-action.json (same picker).",
+  "findings": [
+    {
+      "id": "picker-lives-in-wpcvw-not-a-thunk",
+      "claim": "ui_pick_inventory_item is a wpcvw.ovr-LOCAL routine at FILE offset 0x1a48, reached via an intra-overlay near-call (`E8 rel16`) from the action dispatchers (ASSAY 0x6a50 `call 0x1a48`, etc.). It is NOT a wroot library routine reached through a BSS thunk: 0x1a48 - 0xBA9C is negative, so the thunk-delta law does not apply; the byte at file 0x1a48 is `55` (push bp) = a real function prologue. So all addresses in this finding are wpcvw FILE offsets unless noted as wroot thunks.",
+      "category": "overlay_layout",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1a48"},
+        "type": "disasm",
+        "details": "file 0x1a48: 55 (push bp) 8B EC (mov bp,sp) 81 C4 4E FF (add sp,0xff4e). ASSAY handler (wpcvw-assay-action.json#assay-handler-entry) does `call 0x1a48` as a near intra-overlay call. 0x1a48-0xBA9C = -0xA054 (negative) so not a wroot thunk."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "cursor-starts-on-none",
+      "claim": "The cursor local [bp-8] is initialized to 0xffff (= the NONE sentinel) at file 0x1b22 BEFORE the input loop begins, so the picker opens with the cursor on NONE. NONE is rendered AFTER the last item: the item-draw loop runs index 0..N-1 (counter [bp-2] while < [bp-0xb2]=N), then the NONE label row is drawn using N / N+1 as its vertical position (file 0x1bad-0x1c00). So NONE is positionally index N, visually below item N-1.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1b22"},
+        "type": "disasm",
+        "details": "0x1b22: C7 46 F8 FF FF  mov word [bp-0x8],0xffff (cursor=NONE). Item render loop 0x1b2e..0x1bab ends at `cmp [bp-2],[bp-0xb2]; jl 0x1b2e`. NONE label drawn at 0x1bad-0x1c00 with row computed from [bp-0xb2] (N) and [bp-0xb2]+1 (the +1 / 0xff fill at 0x1bf3-0x1bfd). N itself loaded at 0x1a69 `mov al,[bx+0x4594]` (carried count) or 0x1a7d `mov al,[bx+0x4595]` (bagged count) into [bp-0xb2], selected by [bp+0xc]."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "dispatch-up-is-index2-down-is-index4-no-leftright",
+      "claim": "Per input frame the picker reads an action INDEX from FUN_432d (stored in [bp-6], copied to ax) and dispatches it at file 0x1d84: only two values move the cursor -- `cmp ax,2; jz 0x1cce` (UP handler) and `cmp ax,4; jz 0x1d27` (DOWN handler). A separate value 5 (set on mouse-click commit / Enter) means COMMIT/EXIT. Every other action index (including whatever ArrowLeft/ArrowRight translate to) is not matched by either compare and falls through to the bottom of the loop (`cmp [bp-6],5; jz exit; else jmp redraw`), leaving the cursor UNCHANGED. Therefore the picker is purely 1-D up/down and IGNORES left/right entirely (no 2-D grid, no horizontal movement). The action index is the position of the keystroke in the DGROUP keymap table *0x553e as returned by the wroot table-lookup at image 0x3350; index 2 = the 'up' key, index 4 = the 'down' key.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1d84"},
+        "type": "disasm",
+        "details": "0x1d84: 3D 02 00 cmp ax,0x2 / 75 03 jnz / E9 42 FF jmp 0x1cce (UP). 0x1d8c: 3D 04 00 cmp ax,0x4 / 74 96 jz 0x1d27 (DOWN). 0x1d91: 83 7E FA 05 cmp [bp-6],5 / 74 03 jz 0x1d9a (exit) / else jmp 0x1c03 (redraw). Action index produced by FUN_432d @ 0x432d: 0x43b0 mov ax,1; call 0xe1c0 (get char); push ax; push [bp+4]; call 0xedec (wroot image 0x3350 keymap index lookup); result -> [bp-2] returned in ax. wroot 0x3350 is `repne scasb` over null-terminated table at [bp+4], returns (di-table-1) index of matched byte or 0xffff (file 0x3550-0x3583). No `cmp ax,1`/`cmp ax,3` (or any other) cursor-move branch exists -> left/right not handled."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "up-from-none-to-item0",
+      "claim": "ArrowUp from NONE moves the cursor to item 0 (the TOP item). UP handler at 0x1cce first tests `cmp [bp-8],0xffff` (cursor==NONE?); if equal it un-highlights the NONE label then executes `mov word [bp-8],0` -> cursor = 0.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1cce"},
+        "type": "disasm",
+        "details": "0x1cce: 83 7E F8 FF cmp word [bp-8],0xffff / 75 27 jnz 0x1cfb. NONE-branch 0x1cd4-0x1cf1 redraws NONE row (bda7 cursor + dfb9 highlight-string), then 0x1cf4: C7 46 F8 00 00 mov word [bp-8],0x0 (cursor=item 0); jmp 0x1d25 (back to loop)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "up-from-item-wraps-at-top",
+      "claim": "ArrowUp from item k (k>=0): UP handler non-NONE branch (0x1cfb) redraws the current item then computes `ax = cursor; dec ax; jl -> 0x1d20 set cursor=0xffff (NONE)`. So from item 0, cursor-1 = -1 < 0 (signed JL taken) -> cursor becomes NONE (WRAP at the top). From item k>=1, the JL is NOT taken and it executes `dec word [bp-8]` -> cursor = k-1. Net: UP from item 0 -> NONE; UP from item k(>=1) -> k-1.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1d15"},
+        "type": "disasm",
+        "details": "0x1d15: 8B 46 F8 mov ax,[bp-8]; 48 dec ax; 7C 05 jl 0x1d20; FF 4E F8 dec word [bp-8]; EB 05 jmp 0x1d25. 0x1d20: C7 46 F8 FF FF mov word [bp-8],0xffff (->NONE). The JL is SIGNED less-than on (cursor-1): taken iff cursor-1 < 0 iff cursor==0 (cursor>=0 here). Comparator unambiguous (signed JL on a value known >= -1)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "down-from-none-to-item0-TOP",
+      "claim": "ArrowDown from NONE moves the cursor to item 0 (the TOP item) -- NOT to the bottom item N-1. DOWN handler at 0x1d27 first tests `cmp [bp-8],0xffff` (cursor==NONE?); if equal it un-highlights NONE then `mov word [bp-8],0` -> cursor = 0. This is the SAME landing as Down-from-NONE in the port's current TS model (cursor===NONE ? 0). It does NOT set cursor to N-1.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1d27"},
+        "type": "disasm",
+        "details": "0x1d27: 83 7E F8 FF cmp word [bp-8],0xffff / 75 27 jnz 0x1d54. NONE-branch 0x1d2d-0x1d4a redraws NONE row, then 0x1d4d: C7 46 F8 00 00 mov word [bp-8],0x0 (cursor=item 0, TOP); jmp 0x1d82. There is NO `mov [bp-8],N-1` anywhere in the DOWN handler -- the only literal written in the NONE-branch is 0."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "down-from-item-wraps-at-bottom",
+      "claim": "ArrowDown from item k: DOWN handler non-NONE branch (0x1d54) redraws the current item then computes `ax = cursor+1; cmp ax,N; jnl -> 0x1d7d set cursor=0xffff (NONE)`. So from item N-1, cursor+1 = N which is >= N (signed JNL taken) -> cursor becomes NONE (WRAP at the bottom). From item k <= N-2, JNL not taken and it executes `inc word [bp-8]` -> cursor = k+1. Net: DOWN from item N-1 -> NONE; DOWN from item k(<=N-2) -> k+1.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1d6e"},
+        "type": "disasm",
+        "details": "0x1d6e: 8B 46 F8 mov ax,[bp-8]; 40 inc ax; 3B 86 4E FF cmp ax,[bp-0xb2]; 7D 05 jnl 0x1d7d; FF 46 F8 inc word [bp-8]; EB 05 jmp 0x1d82. 0x1d7d: C7 46 F8 FF FF mov word [bp-8],0xffff (->NONE). JNL = signed >= : taken iff cursor+1 >= N iff cursor >= N-1 iff cursor==N-1. Comparator unambiguous (signed JNL, N>0, cursor in 0..N-1)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "mouse-click-and-commit",
+      "claim": "Two non-arrow outcomes round out the loop (not strictly part of the up/down question but they define exit): (1) a mouse click (*0x4fc4==1, set inside FUN_432d when *0x3596==1) at 0x1ca8 sets the cursor to the clicked row clamped to NONE (`ax=0xffff; if clicked_index < N then ax=clicked_index`) and sets [bp-6]=5 (commit/exit). (2) Enter/'\\r' is encoded by FUN_432d as an action that ultimately yields the commit path with [bp-6]==5. On exit (file 0x1d9a) the function returns the cursor in ax: an item index 0..N-1 for a real pick, or NONE/0xffff (mapped by callers to the cancel sentinel) when NONE was selected. ASSAY/SWAG/EQUIP all compare the returned value against 0xffff for cancel.",
+      "category": "input_handling",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1ca8"},
+        "type": "disasm",
+        "details": "0x1ca8: 83 3E C4 4F 01 cmp word [0x4fc4],1 / 75 19 jnz 0x1cc8. Click branch 0x1caf-0x1cc5: ax=0xffff; cx=[bp-6](clicked row); cmp cx,[bp-0xb2]; jnl skip; ax=cx; mov [bp-8],ax; mov word [bp-6],5 (commit). Return 0x1dac: mov ax,[bp-8]; mov sp,bp; pop bp; ret. Caller cancel-compare: wpcvw-assay-action.json#assay-handler-entry (`cmp ax,0xffff; jz cancel`)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ts-model-confirmation",
+      "claim": "The port's current TS model nextInventoryCursor(cursor,key,itemCount) with NONE=itemCount is CONFIRMED on every line: ArrowUp: cursor===NONE ? 0 : cursor===0 ? NONE : cursor-1  -- CONFIRMED (up-from-none-to-item0 + up-from-item-wraps-at-top). ArrowDown: cursor===NONE ? 0 : cursor===itemCount-1 ? NONE : cursor+1 -- CONFIRMED, including the load-bearing detail that Down-from-NONE goes to the TOP item 0 (NOT bottom N-1) per down-from-none-to-item0-TOP. No Left/Right handling -- CONFIRMED (dispatch-up-is-index2-down-is-index4-no-leftright: engine ignores left/right too). The only behavioral note: the engine also supports a direct mouse-click-to-row select and Enter-to-commit, which a keyboard-only TS model doesn't need to mirror for cursor math.",
+      "category": "port_validation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x1cce"},
+        "type": "derived",
+        "details": "Aggregate of findings up-from-none-to-item0, up-from-item-wraps-at-top, down-from-none-to-item0-TOP, down-from-item-wraps-at-bottom, dispatch-up-is-index2-down-is-index4-no-leftright. Engine NONE sentinel 0xffff <=> TS NONE=itemCount (both 'one past the last item' positionally)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "transition_table": {
+    "legend": "N = item count; items indexed 0..N-1; NONE = trailing sentinel (engine 0xffff, port itemCount), drawn BELOW item N-1.",
+    "ArrowUp": {
+      "NONE": "item 0 (TOP)",
+      "item 0": "NONE (wrap)",
+      "item k (1<=k<=N-1)": "item k-1"
+    },
+    "ArrowDown": {
+      "NONE": "item 0 (TOP)  <-- not bottom",
+      "item N-1 (last)": "NONE (wrap)",
+      "item k (0<=k<=N-2)": "item k+1"
+    },
+    "ArrowLeft": "ignored (no dispatch branch)",
+    "ArrowRight": "ignored (no dispatch branch)",
+    "ordering_ring": "NONE <-> 0 <-> 1 <-> ... <-> N-1 <-> NONE (NONE adjacent to both item 0 above and item N-1 below)"
+  },
+  "cross_references": [
+    "docs/re/findings/wpcvw-assay-action.json#assay-handler-entry — ASSAY calls ui_pick_inventory_item 0x1a48 with prompt msg 0x1c2; cancel compares result vs 0xffff",
+    "docs/re/findings/wpcvw-swag-action.json — SWAG ADD/REMOVE/DROP use the same 0x1a48 picker (ADD=carried count +0x4594, REMOVE/DROP=bagged count +0x4595, selected via [bp+0xc])",
+    "docs/re/findings/wpcvw-equip-action.json — EQUIP candidate picker uses the same single-column picker",
+    "docs/re/wroot-functions.md — wroot image 0x3350 (file 0x3550) keymap table-index lookup (repne scasb); 0x2643 kbd poll, 0x2724 get char"
+  ],
+  "unresolved": [
+    "Literal DGROUP keymap table at *0x553e (passed as [bp+4] to FUN_432d, searched by wroot 0x3350) was not read from a live save, so the assertion 'table index 2 == ArrowUp scancode' and 'index 4 == ArrowDown scancode' is INFERRED from movement direction (index 2 moves toward item 0 = up; index 4 moves toward N-1 = down) rather than directly observed. Confidence on the SEMANTICS (which index does what) is high; confidence that those indices map to the physical Up/Down arrow keys specifically (vs, say, also '-'/'+' or 'W'/'X' aliases) is medium. RECOMMENDED DOSBox verification: load a save with the character-view picker active (ASSAY), read the DGROUP keymap table bytes at the resolved *0x553e, and/or set a breakpoint in FUN_432d/0x432d to observe the action index returned for a real ArrowUp vs ArrowDown press. (Comparator directions themselves are NOT ambiguous and need no verification: signed JL on cursor-1 and signed JNL on cursor+1 vs N.)",
+    "Whether the keymap table aliases additional keys to indices 2/4 (e.g. numpad 8/2, or '-'/'+') — likely, but enumerating them needs the live table dump above. Does not affect the cursor-transition rules."
+  ]
+}
