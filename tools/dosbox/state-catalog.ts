@@ -157,6 +157,181 @@ const REVIEW_MEMBER_VIEW_RECIPE: SaveStateRecipe = {
   settleMs: 300,
 };
 
+// ── WPCVW char-view ACTION sub-screens (state 0x11) ────────────────────────
+// All reached over the SAME 3-member pinned-roster party (THESUS/TEMPEST/
+// LYSANDR) as review-member-view, then REVIEW MEMBER → REVIEW WHO? → THESUS
+// (slot 0). THESUS is the pinned-roster slot-0 char, so these re-mint byte-exact
+// against the committed engine fixtures (captured from the same THESUS party).
+//
+// CHAR-VIEW reach (after castle-3, cursor on ADD PARTY MEMBER):
+//   down  → REVIEW MEMBER (slot 1)
+//   enter → REVIEW WHO? picker (cursor on EXIT)
+//   down  → slot 0 (THESUS)
+//   enter → WPCVW char-view (cursor on EXIT, idx 6)
+// Action menu is 7-entry column-major 2-row (EQUIP,ASSAY,SKILL,EXIT top /
+// SPELL,SWAG,REVIEW bottom). From EXIT (idx 6) the reducer's ArrowLeft does
+// idx>=2 ? idx-2 : idx, ArrowDown moves to the bottom row:
+//   EQUIP (idx 0): left left left  ; ASSAY (idx 2): left left
+//   SKILL (idx 4): left            ; SWAG  (idx 3): left left down
+const CHAR_VIEW_REACH: readonly string[] = [
+  ...makeCastleRecipe(3).steps, 'down', 'enter', 'down', 'enter',
+];
+
+// EQUIP wizard (per-slot picker). EQUIP = action idx 0 (left×3 + enter). The
+// wizard opens on body slot 0 (PRIMARY WEAPON), cursor on NONE; ▸ LONGSWORD is
+// the only candidate. Enter on slot 0 (cursor on NONE) advances to the next
+// populated slot — but the fixtures want SPECIFIC frames:
+//   equip-slot0        — body slot 0, cursor on NONE (initial frame)
+//   equip-slot1-equipped — body slot 1, after equipping LONGSWORD (slot 0):
+//                          cursor on NONE, ✓ LONGSWORD, ▸ BUCKLER
+//   equip-slot1-selected — body slot 1, cursor moved onto BUCKLER (the only cand)
+// Slot-0 commit per the e2e flow: ArrowDown (NONE→cand0=LONGSWORD) + Enter equips
+// LONGSWORD and advances to slot 1 (cursor on NONE). One more ArrowUp lands the
+// cursor on BUCKLER (the single slot-1 candidate).
+const EQUIP_RECIPES: readonly SaveStateRecipe[] = [
+  {
+    name: 'equip-slot0',
+    description:
+      'WPCVW EQUIP wizard, body slot 0 (PRIMARY WEAPON), cursor on NONE, ▸ LONGSWORD. ' +
+      'THESUS in a 3-member pinned-roster party — byte-exact re-mint.',
+    steps: [...CHAR_VIEW_REACH, 'left left left enter'],
+    settleMs: 300,
+  },
+  {
+    name: 'equip-slot1-equipped',
+    description:
+      'WPCVW EQUIP wizard, body slot 1, after equipping LONGSWORD (slot 0): cursor on ' +
+      'NONE, ✓ LONGSWORD, ▸ BUCKLER. THESUS 3-member party — byte-exact re-mint.',
+    steps: [...CHAR_VIEW_REACH, 'left left left enter', 'down enter'],
+    settleMs: 300,
+  },
+  {
+    name: 'equip-slot1-selected',
+    description:
+      'WPCVW EQUIP wizard, body slot 1, cursor moved onto BUCKLER (boxed ▸). ' +
+      'THESUS 3-member party — byte-exact re-mint.',
+    steps: [...CHAR_VIEW_REACH, 'left left left enter', 'down enter', 'up'],
+    settleMs: 300,
+  },
+];
+
+// ASSAY flow. ASSAY = action idx 2 (left×2 + enter). The picker opens with the
+// cursor on NONE; ArrowUp → TOP item (LONGSWORD) → Enter inspects it.
+//   assay-picker    — carried-item picker, cursor on NONE
+//   assay-longsword — read-only LONGSWORD stat popup
+const ASSAY_RECIPES: readonly SaveStateRecipe[] = [
+  {
+    name: 'assay-picker',
+    description:
+      'WPCVW ASSAY inventory picker, cursor on NONE. THESUS 3-member pinned-roster ' +
+      'party — byte-exact re-mint.',
+    steps: [...CHAR_VIEW_REACH, 'left left enter'],
+    settleMs: 300,
+  },
+  {
+    name: 'assay-longsword',
+    description:
+      'WPCVW ASSAY read-only stat popup for LONGSWORD. THESUS 3-member party — ' +
+      'byte-exact re-mint.',
+    steps: [...CHAR_VIEW_REACH, 'left left enter', 'up enter'],
+    settleMs: 300,
+  },
+];
+
+// SKILL viewer (read-only). SKILL = action idx 4 (left + enter → WEAPONRY tab).
+// Category tabs cycle: Enter advances the category, then arrows move the tab
+// cursor. Per the e2e flow:
+//   skill-viewer-weaponry — WEAPONRY (cat 0), tab cursor on PHYSICAL (entry 0)
+//   skill-viewer-physical — PHYSICAL (cat 1) via Enter, ArrowDown → ACADEMIA (1)
+//   skill-viewer-academia — ACADEMIA (cat 3) via Enter, ArrowRight → EXIT (2)
+const SKILL_VIEWER_RECIPES: readonly SaveStateRecipe[] = [
+  {
+    name: 'skill-viewer-weaponry',
+    description:
+      'WPCVW SKILL viewer, WEAPONRY (cat 0), tab cursor on PHYSICAL. THESUS 3-member ' +
+      'party — byte-exact re-mint.',
+    steps: [...CHAR_VIEW_REACH, 'left enter'],
+    settleMs: 300,
+  },
+  {
+    name: 'skill-viewer-physical',
+    description:
+      'WPCVW SKILL viewer, PHYSICAL (cat 1), tab cursor on ACADEMIA. THESUS 3-member ' +
+      'party — byte-exact re-mint.',
+    steps: [...CHAR_VIEW_REACH, 'left enter', 'enter down'],
+    settleMs: 300,
+  },
+  {
+    name: 'skill-viewer-academia',
+    description:
+      'WPCVW SKILL viewer, ACADEMIA (cat 3), tab cursor on EXIT. THESUS 3-member ' +
+      'party — byte-exact re-mint.',
+    steps: [...CHAR_VIEW_REACH, 'left enter', 'enter down', 'enter right'],
+    settleMs: 300,
+  },
+];
+
+// SWAG BAG. SWAG = action idx 3 (left×2 + down + enter). The empty-bag menu is
+// [ADD, EXIT] with cursor on EXIT; ArrowUp → ADD, Enter → add-picker (cursor on
+// NONE), ArrowUp → LONGSWORD, Enter commits the carried→bag move.
+//   swag-empty     — empty bag, menu [ADD,EXIT], cursor on EXIT
+//   swag-longsword — bag=[LONGSWORD], menu [ADD,REMOVE,DROP,EXIT], cursor on EXIT
+const SWAG_RECIPES: readonly SaveStateRecipe[] = [
+  {
+    name: 'swag-empty',
+    description:
+      'WPCVW SWAG BAG (empty), menu [ADD,EXIT], cursor on EXIT. THESUS 3-member ' +
+      'pinned-roster party — byte-exact re-mint.',
+    steps: [...CHAR_VIEW_REACH, 'left left down enter'],
+    settleMs: 300,
+  },
+  {
+    name: 'swag-longsword',
+    description:
+      'WPCVW SWAG BAG with LONGSWORD (after a carried→bag ADD), cursor on EXIT. ' +
+      'THESUS 3-member party — byte-exact re-mint.',
+    steps: [...CHAR_VIEW_REACH, 'left left down enter', 'up enter', 'up enter'],
+    settleMs: 300,
+  },
+];
+
+// review-member-equipped: SOLO 1-member party (THESUS), post-EQUIP commit — all
+// 5 carried items equipped into their body slots. Reach: castle-1 → REVIEW
+// MEMBER... but REVIEW WHO? needs 2+ members to even appear? No — REVIEW MEMBER
+// (MASTER-OPTIONS slot 1) is available with 1 member; it opens the char-view
+// directly (single member). From the char-view, EQUIP (left×? — SOLO menu is
+// 6-entry [EQUIP,SPELL,ASSAY,SWAG,SKILL,EXIT], EXIT idx 5; left from 5 → 3, 3 →
+// 1, 1 → ... EQUIP is idx 0). Then Enter through every populated body slot to
+// equip all 5 items, then exit the wizard back to the char-view.
+const REVIEW_MEMBER_EQUIPPED_RECIPE: SaveStateRecipe = {
+  name: 'review-member-equipped',
+  description:
+    'WPCVW char-view of THESUS in a SOLO party, post-EQUIP commit (all 5 carried items ' +
+    'equipped). 6-entry menu (no REVIEW), EXIT highlighted. Byte-exact re-mint.',
+  // SOLO reach: castle-1 (cursor on ADD) → down (REVIEW MEMBER) → enter (1
+  // member ⇒ char-view opens directly, cursor on EXIT). The SOLO menu's action
+  // grid is 2-COLUMN (engine nav stride cols=2, verified by driving):
+  //   [EQUIP(0),SPELL(1),ASSAY(2),SWAG(3),SKILL(4),EXIT(5)] — Left = idx-2,
+  //   Up = idx%2!==0 ? idx-1. EQUIP(0) from EXIT(5): left(5→3) up(3→2) left(2→0).
+  // Then EQUIP wizard: each populated body slot (0,1,4,5,7) starts cursor on
+  // NONE → down (onto the single candidate) → enter equips + auto-advances; after
+  // the 5th item the wizard returns to the char-view (cursor on EXIT) — exactly
+  // 5 `down enter` (a 6th would exit the char-view back to MASTER OPTIONS).
+  // Verified frame-by-frame: 5 equips → AC "9 (-1)", all items recolored, menu
+  // with EXIT highlighted = the committed review-member-equipped fixture.
+  steps: [
+    ...makeCastleRecipe(1).steps,
+    'down', 'enter',                 // REVIEW MEMBER → SOLO char-view (cursor EXIT)
+    'left up left enter',            // → EQUIP wizard (slot 0)
+    'down enter',                    // slot 0: equip LONGSWORD
+    'down enter',                    // slot 1: equip BUCKLER
+    'down enter',                    // slot 4: equip CUIRASS
+    'down enter',                    // slot 5: equip LEGGING
+    'down enter',                    // slot 7: equip SANDALS → back to char-view
+  ],
+  settleMs: 300,
+};
+
 // Party-member picker reachers (REVIEW MEMBER = MASTER OPTIONS slot 1,
 // DISMISS MEMBER = slot 2). Built on castle-3 (3 fixed PCFILE chars →
 // deterministic). After castle-3 the cursor is on ADD PARTY MEMBER (slot 0).
@@ -572,6 +747,11 @@ export const STATE_CATALOG: readonly SaveStateRecipe[] = [
   ...CASTLE_RECIPES,
   ...CASTLE_MEMBERS_ALIASES,
   REVIEW_MEMBER_VIEW_RECIPE,
+  ...EQUIP_RECIPES,
+  ...ASSAY_RECIPES,
+  ...SKILL_VIEWER_RECIPES,
+  ...SWAG_RECIPES,
+  REVIEW_MEMBER_EQUIPPED_RECIPE,
   ...PICKER_RECIPES,
   ...CREATION_RECIPES,
 ];
