@@ -47,7 +47,7 @@ import {
   loadPortraitSet as defaultLoadPortraitSet,
   loadScenarioDb as defaultLoadScenarioDb,
 } from '../../data-loader.js';
-import { buildInventoryItems, scenarioItemName, equipSlotIcon } from './item-display.js';
+import { buildInventoryItems, scenarioItemName, itemIconGlyph } from './item-display.js';
 import { loadCreationFontSet } from '../roster/creation/ega/assets.js';
 import { patchFontSetWithPortrait } from '../roster/creation/ega/skill-train-frame.js';
 import { readActiveParty, updateActiveMember } from '../../lib/active-party-store.js';
@@ -532,7 +532,7 @@ export function CharacterViewPage() {
       // menu strip. Bag items resolve name + icon via the scenario DB.
       const bag = bagItems(member).map((s) => ({
         name: scenarioItemName(scenarioDb, s.item.itemId),
-        icon: equipSlotIcon(s.item.equipSlot),
+        icon: itemIconGlyph(s.item.spriteIdx),
       }));
       overlays.push(
         ...composeSwagBag({

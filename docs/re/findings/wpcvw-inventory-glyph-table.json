@@ -1,0 +1,127 @@
+{
+  "topic": "wpcvw-inventory-glyph-table",
+  "subagent_run": "2026-06-02T00:00:00Z",
+  "binaries": ["wpcvw.ovr"],
+  "source_saves": ["test-fixtures/original/pcfile.dbs (THESUS = record 0, base 0x18)", "test-fixtures/original/scenario.dbs (item table @ 0x0380, 500 x 74-byte records)"],
+  "summary": "DEFINITIVE: the col-38 inventory body-slot ICON glyph in the WPCVW character-view (state 0x11, render fn ui_render_inventory_panel @ wpcvw 0x6c81) is NOT sourced from any lookup table indexed by equipSlot or by body slot. It is a PER-ITEM byte: glyph = item.sprite_idx + 1, where sprite_idx is the cached scenario.dbs item-record byte 61 (= inventory-slot byte 5 at BSS +0x442d). The SAME formula (sprite_idx + 1) feeds the AC-grid icons (row 6) when a body slot is filled; an EMPTY AC-grid slot falls back to a hardcoded silhouette base 0x78 + gridIndex, rendered as 0x78+gridIndex+1 = 0x79..0x7e for grid slots 0..5 (body slots 2..7). The 'equipSlot -> glyph' and 'body-slot -> glyph' mappings in the question's ground truth are NOT tables; they are coincidental projections of the 5 specific items stock THESUS carried. There is no per-equipSlot or per-body-slot glyph constant in the binary. The 5 verified ground-truth glyphs are reproduced exactly by reading byte 61 of those 5 items from scenario.dbs and adding 1. For equipSlots THESUS never wore (4 ranged, 5 cloak, 6 head, 9 hands) there is NO single glyph: each item in that slot has its own sprite_idx, so the glyph varies item-by-item (e.g. equipSlot 6/head spans glyphs 0x1a,0x28,0x29,0x41,0x42,0x43,0x45,0x48,0x49,0x56,0x5c,0x5d,0x61,0x62 across the 24 stock head items).",
+  "findings": [
+    {
+      "id": "glyph-source-is-per-item-sprite-idx",
+      "claim": "The col-38 inventory ICON glyph is computed PER ITEM as `glyph = item.sprite_idx + 1` (mod 256), where sprite_idx = the inventory-slot byte at record offset +0x442d (= cached scenario.dbs item-record byte 61). It is NOT a table indexed by equipSlot, and NOT a table indexed by body slot. There is no glyph lookup table anywhere in the draw path. The character-view inventory-list loop (rows 9.., col 0x26=38, attr 4) positions the cursor at (col 0x26, row local_4+9) via ui_window_gotoxy (func_0x0000bda7) then draws ONE char via the putchar thunk func_0x0000de7f with char arg = `*(byte *)(slot*0x1b0 + local_4*8 + 0x442d) + 1 & 0xff`.",
+      "category": "panel_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x705e"},
+        "type": "decompile",
+        "details": "ui_render_inventory_panel @ 0x6c81 (Ghidra decomp): inside the `for (local_4 = 0; local_4 < *(byte*)(slot*0x1b0 + 0x4594 /*inv_count*/); local_4++)` loop, the final two calls per row are: (1) `uStack_a2 = local_4 + 9; iStack_a4 = 0x26; local_a6 = param_1; func_0x0000bda7();` -> gotoxy(window=param_1, col=0x26=38, row=local_4+9); (2) `uStack_a0 = 4; uStack_a2 = *(byte *)(param_2 * 0x1b0 + local_4 * 8 + 0x442d) + 1 & 0xff; iStack_a4 = param_1; local_a6 = 0x705e; func_0x0000de7f();` -> putchar(window=param_1, char = invSlot.byte5 /*sprite_idx*/ + 1, attr=4). param_2 = character slot index; +0x442d = inventory-grid base 0x4428 + i*8 + 5. NOTE local_4*8 in the +0x442d term and local_4 (no *8) in the AC-grid term reflect Ghidra's iVar4 reuse; the byte read is invSlot[local_4].sprite_idx in both. Confirmed: NO `cmp`/jump-table/array-index of equipSlot or bodySlot precedes this char computation; the char is a direct field read + increment."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ac-grid-uses-same-sprite-idx-plus-1",
+      "claim": "The AC-grid body-slot icons (row 6) use the SAME formula. The AC-grid loop covers equipment slots 2..7 (head/body/legs/hands/feet/cloak = body slots 2..7) as grid indices 0..5. For a FILLED slot it reads the equipped item's sprite_idx (+0x442d of the item the equipment[] index points at) and renders sprite_idx+1. For an EMPTY slot (equipment byte == 0xFF) it uses a hardcoded silhouette: base = 0x78, and for grid index != 0 base = 0x78 + gridIndex; rendered char = base + 1, giving the empty-silhouette glyphs 0x79,0x7a,0x7b,0x7c,0x7d,0x7e for grid slots 0..5. This matches the question's stated AC-grid DEFAULT (empty) glyphs 0x79..0x7e exactly, and confirms those are the empty silhouettes (NOT equipped-item glyphs).",
+      "category": "panel_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6df9"},
+        "type": "decompile",
+        "details": "ui_render_inventory_panel @ 0x6c81, AC-grid loop `local_4=0; do {...} while(local_4 < 6)`: `iVar4 = param_2*0x1b0 + local_4; if (*(char*)(iVar4 + 0x44fa) == -1) { local_8 = 0x78; if (local_4 != 0) local_8 = local_4 + 0x78; } else { local_8 = (uint)*(byte*)(param_2*0x1b0 + (uint)*(byte*)(iVar4 + 0x44fa)*8 + 0x442d); }` then `uStack_ae = local_8 + 1 & 0xff; ... func_0x0000de7f();` (putchar attr=4 @ col 0x1c or 0x20). +0x44fa = equipment array base +0x44f8 + 2, so equipment[local_4 + 2] = body slots 2..7. Empty -> 0x78+idx; filled -> equipped item's +0x442d (sprite_idx); both +1 to render. Empty render values: 0x79,0x7a,0x7b,0x7c,0x7d,0x7e."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "five-known-values-reproduced",
+      "claim": "All 5 ground-truth glyphs (eq0->0x02, eq7->0x2a, eq8->0x2d, eq10->0x2f, eq11->0x27) are reproduced EXACTLY by reading byte 61 (sprite_idx) of THESUS's 5 items from scenario.dbs and adding 1. THESUS (pcfile.dbs record 0, base 0x18) carries item ids 8, 135, 132, 130, 141. Their scenario.dbs byte61 values are 0x01, 0x29, 0x2c, 0x2e, 0x26 respectively -> +1 = 0x02, 0x2a, 0x2d, 0x2f, 0x27. The cached pcfile inventory-slot byte 5 matches scenario byte 61 for each (cache fidelity confirmed). This PROVES the source is the per-item sprite_idx, not a slot-indexed table: the same 5 equipSlots (0,7,8,10,11) map to 5 different glyphs only because the 5 items have 5 different sprite_idx values; other items in those same equipSlots have other glyphs.",
+      "category": "panel_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "type": "data_table",
+        "address": {"space": "wpcvw.ovr", "offset": "0x705e"},
+        "details": "scenario.dbs item table base 0x0380, record stride 74, byte 61 = sprite_idx. id8 byte61@file0x60d=0x01->glyph0x02 (eq0 weapon); id135 byte61@0x2ac3=0x29->0x2a (eq7 chest); id132 byte61@0x29e5=0x2c->0x2d (eq8 legs); id130 byte61@0x2951=0x2e->0x2f (eq10 feet); id141 byte61@0x2c7f=0x26->0x27 (eq11 shield). THESUS inventory (pcfile.dbs base 0x18 + 0x40 + i*8): slot0 id8 byte4(eq)=0 byte5(sprite)=0x01; slot1 id135 eq=7 sprite=0x29; slot2 id132 eq=8 sprite=0x2c; slot3 id130 eq=10 sprite=0x2e; slot4 id141 eq=11 sprite=0x26. cached byte5 == scenario byte61 for all 5."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "no-per-equipslot-glyph-exists",
+      "claim": "There is NO single glyph for equipSlots 4/5/6/9 (or any equipSlot) — the question's request for 'the glyph for eq 4/5/6/9' has no table answer because the glyph is per-item. Survey of all 452 filled stock items in scenario.dbs grouped by equipSlot shows each equipSlot spans MANY distinct glyphs: eq0=23 distinct glyphs, eq4 (ranged/ammo)={0x17,0x18,0x54}, eq5 (cloak/accessory)=15 distinct {0x1f,0x20,0x23,0x33,0x4a,0x4f,0x50,0x51,0x53,0x55,0x56,0x57,0x58,0x59,0x78}, eq6 (head)=14 distinct {0x1a,0x28,0x29,0x41,0x42,0x43,0x45,0x48,0x49,0x56,0x5c,0x5d,0x61,0x62}, eq9 (hands/gauntlets)={0x1d,0x2e,0x4b}. So 'head -> weapon glyph 0x02' does NOT happen: head items render their own head-sprite glyphs (0x1a is the common STEEL HELM/BASCINET/ARMET glyph). The earlier RE'd equipSlot->body-slot map is still correct and unaffected — it governs WHICH body slot the icon is drawn into (the AC-grid layout), not WHICH glyph is drawn (that is always sprite_idx+1).",
+      "category": "panel_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "type": "data_table",
+        "address": {"space": "wpcvw.ovr", "offset": "0x705e"},
+        "details": "Per-equipSlot glyph spread (distinct glyph = byte61+1 over filled scenario.dbs items): eq0:23, eq1:8, eq2:4, eq3:3, eq4:3, eq5:15, eq6:14, eq7:8, eq8:7, eq9:3, eq10:8, eq11:2, eq12:3, eq13:2, eq14:6, eq15:2, eq16:1. Representative items for the 4 slots THESUS never wore: eq4 ELM ARROW(0x16)->glyph0x17, BULLET STONE(0x17)->0x18, QUARREL(0x53)->0x54. eq5 ANOINTED CLOAK(0x49)->0x4a, LYNX RING(0x1f)->0x20, AMULET=NIGHT(0x1e)->0x1f, ANKH=MIGHT(0x32)->0x33, EYE-PATCH(0x77)->0x78. eq6 STEEL HELM(0x19)->0x1a, SKULLCAP(0x40)->0x41, WIZARD'S CONE(0x27)->0x28, LEATHER HELM(0x28)->0x29, KABUTO(0x44)->0x45. eq9 CUIR GAUNTLETS(0x2d)->0x2e, MAIL MITTENS(0x1c)->0x1d, MANTIS GLOVES(0x4a)->0x4b."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "inventory-name-style-is-separate-from-icon",
+      "claim": "The earlier finding's 'style 6 / 3/7 / 9' values (local_5c) are the highlight ATTR/style for the inventory-NAME string drawn at col 0x15 (21), NOT the col-38 icon. The name style is equipped-state-derived (style 9 = not equipped; style 6 = equipped in some slot; style 7 for slots>2; style 3 for slot==2). This is orthogonal to the col-38 icon glyph (always sprite_idx+1, always attr 4). Do not conflate the name-highlight style with the icon glyph.",
+      "category": "panel_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6f9b"},
+        "type": "decompile",
+        "details": "Inventory loop: local_5c (style) set to 9 default; if any equipment[0..7]==local_4 then local_5c=6, and `if (1 < local_6 && (local_5c=7, local_6==2)) local_5c=3`. Stored to *(local_4*2 + 0x567e) and passed as attr to the name draw func_0x0000df85 @ 0x6f9b (col 0x15). The col-38 icon draw (0x705e) is a separate call with constant attr 4."
+      },
+      "confidence": "high"
+    }
+  ],
+  "complete_mapping": {
+    "note": "There is NO equipSlot->glyph or body-slot->glyph table in the engine. glyph = item.sprite_idx + 1. The table below is the per-EQUIPPED-ITEM ground truth for THESUS's 5 items (anchored-verified), then the per-equipSlot glyph SPREAD (the set of glyphs any item of that slot can render). For a port, drive the icon from the item's own sprite_idx (scenario byte 61) + 1, not from its slot.",
+    "by_equipped_item_THESUS_verified": {
+      "eq0_weapon_id8": {"sprite_idx": "0x01", "glyph": "0x02", "status": "anchored-verified"},
+      "eq7_chest_id135": {"sprite_idx": "0x29", "glyph": "0x2a", "status": "anchored-verified"},
+      "eq8_legs_id132": {"sprite_idx": "0x2c", "glyph": "0x2d", "status": "anchored-verified"},
+      "eq10_feet_id130": {"sprite_idx": "0x2e", "glyph": "0x2f", "status": "anchored-verified"},
+      "eq11_shield_id141": {"sprite_idx": "0x26", "glyph": "0x27", "status": "anchored-verified"}
+    },
+    "by_equipslot_glyph_spread_all_stock_items": {
+      "eq0": ["0x01","0x02","0x03","0x04","0x05","0x06","0x07","0x08","0x0f","0x10","0x11","0x13","0x14","0x34","0x35","0x36","0x38","0x39","0x3b","0x3c","0x5a","0x63","0x78"],
+      "eq1": ["0x09","0x0a","0x0b","0x12","0x14","0x37","0x3a","0x5b"],
+      "eq2": ["0x01","0x13","0x15","0x16"],
+      "eq3": ["0x0c","0x0d","0x0e"],
+      "eq4_ranged_ammo": ["0x17","0x18","0x54"],
+      "eq5_cloak_accessory": ["0x1f","0x20","0x23","0x33","0x4a","0x4f","0x50","0x51","0x53","0x55","0x56","0x57","0x58","0x59","0x78"],
+      "eq6_head": ["0x1a","0x28","0x29","0x41","0x42","0x43","0x45","0x48","0x49","0x56","0x5c","0x5d","0x61","0x62"],
+      "eq7_body": ["0x1b","0x2a","0x2b","0x3d","0x3f","0x44","0x46","0x5e"],
+      "eq8_legs": ["0x1c","0x2c","0x2d","0x3e","0x40","0x47","0x5f"],
+      "eq9_hands_gauntlets": ["0x1d","0x2e","0x4b"],
+      "eq10_feet": ["0x1e","0x2f","0x30","0x31","0x4c","0x4d","0x4e","0x60"],
+      "eq11_shield": ["0x19","0x27"],
+      "eq12_potion": ["0x21","0x65","0x66"],
+      "eq13_scroll": ["0x22","0x32"],
+      "eq14_instrument_book_misc": ["0x16","0x22","0x24","0x32","0x64","0x78"],
+      "eq15_key": ["0x24","0x78"],
+      "eq16_dust": ["0x23"],
+      "status": "inferred-from-data (glyph = scenario byte61 + 1 over all filled items; high confidence on the formula, the per-slot SETS are exhaustive over stock scenario.dbs)"
+    },
+    "ac_grid_empty_silhouettes": {
+      "note": "AC-grid grid indices 0..5 map to body slots 2..7 (head/body/legs/hands/feet/cloak). Empty-slot glyph = 0x78 + gridIndex + 1.",
+      "grid0_body2_head": "0x79",
+      "grid1_body3_body": "0x7a",
+      "grid2_body4_legs": "0x7b",
+      "grid3_body5_hands": "0x7c",
+      "grid4_body6_feet": "0x7d",
+      "grid5_body7_cloak": "0x7e",
+      "status": "anchored-verified (matches question ground truth; from code constant 0x78 + idx, +1 at render)"
+    }
+  },
+  "table_location": {
+    "note": "No glyph TABLE exists. The glyph comes from scenario.dbs item-record byte 61 (sprite_idx). File offset of byte 61 for item id N = 0x0380 + N*74 + 61 = 0x0380 + N*74 + 0x3d. The only code constant in the path is the empty-AC-grid silhouette base 0x78 (an immediate in ui_render_inventory_panel @ wpcvw 0x6c81, not a table).",
+    "scenario_dbs_item_table": {"base": "0x0380", "stride": 74, "sprite_idx_byte": 61, "equip_slot_byte": 60},
+    "thesus_sprite_idx_raw_bytes": {
+      "id8_eq0": {"file_offset": "0x060d", "value": "0x01"},
+      "id135_eq7": {"file_offset": "0x2ac3", "value": "0x29"},
+      "id132_eq8": {"file_offset": "0x29e5", "value": "0x2c"},
+      "id130_eq10": {"file_offset": "0x2951", "value": "0x2e"},
+      "id141_eq11": {"file_offset": "0x2c7f", "value": "0x26"}
+    }
+  },
+  "function_renames_recommended": [
+    "wpcvw FUN @ 0x6c81: ui_render_inventory_panel (already named in wpcvw-naming-pass; this pass confirms the col-38 icon = inventory-slot byte5 (sprite_idx) + 1 and the AC-grid empty-silhouette base 0x78)"
+  ],
+  "unresolved": [
+    "The 'sprite_idx' byte (scenario byte 61) is medium-confidence as a SPRITE-CATALOG index per scenario-dbs.md; this pass does not resolve what graphic each sprite_idx maps to, only that the rendered TILE-WINDOW glyph codepoint = sprite_idx + 1. Whether the wfont0 glyph at codepoint (sprite_idx+1) is a literal icon for that item or shares with other items is not investigated here (it is a font glyph, drawn via the standard putchar at attr 4).",
+    "The +1 offset is a uniform 1-index into the wfont0 glyph range; glyph 0x00 is reserved (no item has sprite_idx 0xff that would wrap). No 1-indexing trap beyond this single uniform +1, which is applied identically in both the inventory-list and AC-grid paths."
+  ]
+}
