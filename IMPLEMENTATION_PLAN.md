@@ -28,9 +28,11 @@ dump a framebuffer — all from one persistent process.
 (boot → ENTER) and compared. DOSBox-X renders 640×400 (clean 2× of 320×200);
 nearest-downscaled to 320×200 it is **100.00% pixel-identical** to dosbox-pure's
 native 320×200 — 0/64000 pixels differ, including the animated water strip.
-**DECISION: full replacement is viable — no fixture re-minting.** Remaining
-confirmation: spot-check a font/text-heavy screen (char view) and a sprite-heavy
-screen (combat/dungeon) before decommissioning DOSBox-X in Stage 5.
+**DECISION: full replacement is viable** — *rendering* is pixel-identical, no
+re-minting needed for pixel fidelity. NOTE (superseded scope): Stage 4 later found
+the *data* (RNG rolls + roster) diverges, so divergent fixtures ARE re-minted — not
+because dosbox-pure renders differently, but because it produces a different (equally
+valid, deterministic) character than the lost DOSBox-X seed did.
 **Status:** Complete (gate GREEN; broader screen-type spot-check pending)
 
 ## Stage 3: MCP backend swap
@@ -53,13 +55,48 @@ now lives in packages/mcp/src/live/. Proven end-to-end via the registered handle
 suite green (88), full typecheck clean.
 **Status:** Complete
 
-## Stage 4: Parity/fixture pipeline
-**Goal:** repoint `tools/parity` (gen-fixture, extract.py) + `tools/dosbox`
-(build-saves, state-catalog) at the harness (framebuffer from `fb`, memory from
-`read`, save states from `serialize`). Per Stage-2 decision: re-mint fixtures or
-keep DOSBox-X ones.
-**Success:** the parity + e2e suites pass against the libretro-sourced fixtures.
-**Status:** Not Started
+## Stage 4: Parity/fixture pipeline — re-mint divergent fixtures from dosbox-pure
+**Goal:** make dosbox-pure the single source of truth for ALL fixtures, rebuildable
+from the pinned source. Stage-2 proved the *rendering* is pixel-identical, but the
+creation subagent (2026-06-01) found the *data* diverges on 22/24 creation fixtures:
+ - **Stat-roll RNG**: dosbox-pure's deterministic roll ≠ the lost DOSBox-X seed
+   (different BONUS pool → different class/stats). Stable run-to-run, just different.
+ - **Stale roster**: roster fixtures hardcode a 1-char NATHAN; pinned pcfile.dbs is
+   the 4-char THESUS party.
+**User decisions (2026-06-02):**
+ - Re-mint from dosbox-pure (adopt its native deterministic rolls as truth).
+ - **Data-driven sidecar**: re-minting dumps the engine's decoded character/draft +
+   render-state into a committed `<name>.character.json`; parity render fns LOAD that
+   JSON instead of hardcoding RE'd stats. Kills the staleness class permanently.
+ - **Committed minimal-roster save-state**: commit a dosbox-pure serialize-state with
+   a small purpose-built roster (1-char NATHAN-equiv) as pinned source; roster
+   fixtures `unserialize` it deterministically. Keeps them isolated from the castle party.
+
+**Sub-stages:**
+- **4a — Draft-struct reader (RE prerequisite).** Locate the in-creation draft
+  character in DGROUP during creation states (no documented offset yet — RE via
+  Ghidra/live memory). Decode via the `character` BssStruct (or a draft schema).
+  Deliver `dumpDraft()` in LiveSession that decodes the engine's current draft → JSON
+  at any waypoint.
+- **4b — Sidecar pipeline + schema.** Extend build-state to emit `<name>.character.json`
+  (decoded draft/character + cursor/category/skillPoints/portrait/prompt state) beside
+  the `.idx.gz`+`.png`. Define + commit the sidecar zod schema.
+- **4c — Committed minimal-roster state.** Drive dosbox-pure to a 1-char roster,
+  `serialize`, commit as `test-fixtures/states/<name>.state`. Roster fixtures
+  unserialize it before driving.
+- **4d — Re-mint roll fixtures.** Lock a deterministic canonical creation playthrough
+  (re-tune the recipe to dosbox-pure's rolls; robust settle-timing for animated
+  screens — the skill/spell capture jitter). Re-mint class-select/portrait-select/
+  skill-train*/confirm/spell-* + sidecars; refactor render fns to load sidecar JSON;
+  each → 100% via build-state --check.
+- **4e — Re-mint roster fixtures.** From the committed minimal-roster state, re-mint
+  review/delete/rename/portrait*/review-character/review-member + sidecars; refactor
+  render fns; each → 100%.
+- **4f — Full-suite sweep.** Re-verify all 58 fixtures reproduce from pinned source;
+  give any other stale ones (castle/char-view) the same treatment. Parity + e2e green.
+**Success:** every fixture rebuildable byte-exact from the pinned repo via build-state;
+parity + e2e suites green.
+**Status:** In Progress (4a starting)
 
 ## Stage 5: Decommission + docs
 **Goal:** remove/retire DOSBox-X-specific paths per Stage-2 outcome; update CLAUDE.md,
