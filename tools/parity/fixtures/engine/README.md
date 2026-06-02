@@ -47,4 +47,3 @@ pnpm tsx tools/parity/gen-fixture.ts --save <path|N> --name <name>
 | `creation-portrait-target-picker` | PORTRAIT PC — "PORTRAIT FOR WHOM?" roster picker (fourth consumer of composeReviewPickerFrame) |
 | `creation-portrait-change` | PORTRAIT PC — char sheet + active portrait picker (CHARACTER PORTRAIT panel, ◄►/▶ prompts; cycles wfont2 0x48..0x50) |
 | `creation-portrait-done` | PORTRAIT PC — post-change preview (char sheet with new portrait baked in + "PRESS ▶ TO EXIT") |
-| `character-delete-confirm` | DELETE THIS CHARACTER? confirm (with char sheet) |
