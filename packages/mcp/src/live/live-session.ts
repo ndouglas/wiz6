@@ -23,7 +23,7 @@ export class LiveSession {
 
   constructor(
     private readonly structs: ReadonlyMap<string, BssStruct>,
-    private readonly opts: { exe?: string } = {},
+    private readonly opts: { source?: string } = {},
   ) {}
 
   private ensure(): HostClient {

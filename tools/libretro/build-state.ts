@@ -61,10 +61,9 @@ async function main() {
   mkdirSync(FIXTURES, { recursive: true });
   mkdirSync(STATES, { recursive: true });
 
-  // Mint from the PINNED, version-controlled game image (not the mutable
-  // original/ workspace) so committed assets are deterministically reproducible.
-  const PINNED = resolve(HERE, '..', '..', 'test-fixtures', 'original', 'wroot.exe');
-  const h = new HostClient({ exe: PINNED });
+  // HostClient boots from an ephemeral COPY of the committed test-fixtures/original/
+  // image by default — deterministic, and never touches the mutable ./original.
+  const h = new HostClient();
   await driveRecipe(h, recipe.steps, recipe.settleMs);
   await h.serialize(join(STATES, `${name}.state`));
   await h.fb(`${TMP}/build.rgba`);

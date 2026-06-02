@@ -6,26 +6,36 @@
 // save-state + GUI-automation paths.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface, type Interface } from 'node:readline';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdirSync, openSync } from 'node:fs';
+import { mkdirSync, openSync, cpSync, mkdtempSync, rmSync } from 'node:fs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // The host binary + dosbox-pure core live in tools/libretro/ (built by build.sh).
 // HERE is packages/mcp/src/live → repo/tools/libretro.
 const HOST_DIR = resolve(HERE, '..', '..', '..', '..', 'tools', 'libretro');
+const REPO_ROOT = resolve(HOST_DIR, '..', '..');
+// The COMMITTED, version-controlled game image. Every harness session boots from
+// an ephemeral COPY of this — never the mutable ./original workspace, and never
+// mutating the committed source (the game writes saves into its mount dir).
+const PINNED_SOURCE = resolve(REPO_ROOT, 'test-fixtures', 'original');
 const LOG_DIR = '/tmp/wiz6-libretro';
 
 export class HostClient {
   private child: ChildProcess;
   private rl: Interface;
   private queue: Array<(line: string) => void> = [];
+  private readonly gameDir: string;
 
-  /** Spawn the harness. `exe` overrides the game entry (default original/wroot.exe). */
-  constructor(opts: { exe?: string } = {}) {
+  /** Spawn the harness. `source` overrides the committed game-image dir (default
+   *  test-fixtures/original/); it is copied to an ephemeral working dir per session. */
+  constructor(opts: { source?: string } = {}) {
     mkdirSync(LOG_DIR, { recursive: true });
+    // Fresh, throwaway copy of the pinned image → reproducible + non-mutating.
+    this.gameDir = mkdtempSync(join(LOG_DIR, 'game-'));
+    cpSync(opts.source ?? PINNED_SOURCE, this.gameDir, { recursive: true });
     const logFd = openSync(`${LOG_DIR}/host-client.log`, 'a');
-    this.child = spawn('./host', opts.exe ? [opts.exe] : [], {
+    this.child = spawn('./host', [join(this.gameDir, 'wroot.exe')], {
       cwd: HOST_DIR,
       stdio: ['pipe', 'pipe', logFd],
     });
@@ -108,5 +118,6 @@ export class HostClient {
     try { this.child.stdin!.write('quit\n'); } catch { /* ignore */ }
     this.rl.close();
     this.child.kill();
+    try { rmSync(this.gameDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 }

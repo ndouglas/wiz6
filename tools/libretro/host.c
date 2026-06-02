@@ -145,8 +145,11 @@ static void fb_to_rgba(uint8_t *out) {
 }
 
 int main(int argc, char **argv) {
+  // Callers (HostClient) always pass an explicit exe path (an ephemeral copy of
+  // the committed test-fixtures/original/ image). This bare-run fallback points
+  // at the committed source — NEVER the mutable ./original workspace.
   const char *exe = argc > 1 ? argv[1]
-    : "/Users/nathan/Projects/ndouglas/wiz6/original/wroot.exe";
+    : "/Users/nathan/Projects/ndouglas/wiz6/test-fixtures/original/wroot.exe";
   void *h = dlopen("./dosbox_pure_libretro.dylib", RTLD_NOW);
   if (!h) { fprintf(stderr, "dlopen: %s\n", dlerror()); return 1; }
   void (*set_env)(void*) = dlsym(h, "retro_set_environment");

@@ -66,6 +66,15 @@ keep DOSBox-X ones.
 the RE toolkit table, and driving-based-testing doctrine.
 **Status:** Not Started
 
+
+## Reproducibility guarantee (pinned source)
+Every harness session boots from an **ephemeral COPY** of the COMMITTED
+`test-fixtures/original/` image (163 files, complete — `HostClient` copies it to a
+throwaway dir per session). Nothing depends on the mutable `./original` workspace,
+and the committed source is never mutated by in-game saves (verified: pcfile.dbs
+hash identical before/after a build; `castle-1` byte-identical across two runs).
+All fixtures are rebuildable from the repo alone.
+
 ## Notes / decisions
 - Core: dosbox-pure libretro (`tools/libretro/fetch-core.sh` downloads the official
   arm64 build; the `.dylib` is gitignored — not committed).
