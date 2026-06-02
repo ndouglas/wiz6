@@ -154,8 +154,8 @@ export function encodeCharacterRecord(slot: PcfileSlot): Uint8Array {
   // --- +0x19d: race — u8 ---
   out[0x19d] = slot.race;
 
-  // --- +0x19e: alignment — u8 ---
-  out[0x19e] = slot.alignment;
+  // --- +0x19e: sex — u8 (0=male, 1=female) ---
+  out[0x19e] = slot.sex;
 
   // --- +0x19f: class — u8 ---
   out[0x19f] = slot.class;

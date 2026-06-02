@@ -77,7 +77,7 @@ export const PcfileHeaderSchema = z.object({
  * - reaction              @ +0x168, u8     (wmnpc.ovr file+0x671d: read/write [bx+0x4550]; capped 100)
  * - race                  @ +0x19d, u8     (stats panel: mov al,[bx+0x4585]; add ax,0x64 -> msg lookup)
  *                                           NOTE: bss_layout "+0x19c" was wrong; correct is 0x19d.
- * - alignment             @ +0x19e, u8     (stats panel: mov al,[bx+0x4586]; add ax,0x8c -> msg lookup)
+ * - sex                   @ +0x19e, u8     (0=M/1=F; stats panel msg-table +0x8c -> M/F label)
  * - class                 @ +0x19f, u8     (stats panel: mov al,[bx+0x4587]; add ax,0x78 -> msg lookup)
  *                                           NOTE: bss_layout "+0x19e" was wrong; correct is 0x19f.
  * - savedOldLevel         @ +0x1af, u8     (class_change_apply 0x6054: stores old level; throttle ref)
@@ -147,10 +147,11 @@ export const PcfileSlotSchema = z.object({
    */
   race: U8,
   /**
-   * Alignment index. Likely 0=Good, 1=Neutral, 2=Evil.
-   * At +0x19e (abs 0x4586). MEDIUM confidence.
+   * Sex: 0=male, 1=female. At +0x19e (abs 0x4586). The msg-table at +0x8c is the
+   * M/F label. (The old "alignment" label for this byte was a misread — confirmed
+   * sex by the ADD PARTY picker rendering TEMPEST 'F' with +0x19e == 1.)
    */
-  alignment: U8,
+  sex: U8,
   /**
    * Class index 0..13.
    * 0=Fighter, 1=Mage, 2=Priest, 3=Thief, 4=Bard, 5=Ranger,

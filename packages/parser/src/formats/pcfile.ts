@@ -205,8 +205,8 @@ export function decodePcfile(bytes: Uint8Array): DecodedPcfile {
       // Race at +0x19d (abs 0x4585). Stats panel: mov al,[bx+0x4585]; add ax,0x64 -> msg lookup.
       // NOTE: prior bss_layout "+0x19c" was wrong by 1 byte.
       race: rec[0x19d]!,
-      // Alignment at +0x19e (abs 0x4586). Stats panel: mov al,[bx+0x4586]; add ax,0x8c -> msg.
-      alignment: rec[0x19e]!,
+      // Sex at +0x19e (abs 0x4586): 0=male, 1=female. Msg-table +0x8c -> M/F label.
+      sex: rec[0x19e]!,
       // Class at +0x19f (abs 0x4587). Stats panel: mov al,[bx+0x4587]; add ax,0x78 -> msg lookup.
       // NOTE: prior bss_layout "+0x19e" was wrong by 1 byte.
       class: rec[0x19f]!,

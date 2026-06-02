@@ -11,7 +11,7 @@
  *   - Draft buffer base = DGROUP 0x5470 (the creation staging buffer wpcmk
  *     memsets + writes; on commit it's roster_io_one_record'd into pcfile.dbs).
  *   - It uses the IDENTICAL 432-byte character_record field layout: name@0x00,
- *     age@0x08, attrs@0x12c, portrait@0x19c, race@0x19d, alignment@0x19e,
+ *     age@0x08, attrs@0x12c, portrait@0x19c, race@0x19d, sex@0x19e,
  *     class@0x19f — so DGROUP 0x5470+field matches every cited absolute.
  *   - bonus_points_remaining is NOT in the record. It lives at DGROUP 0x56ac
  *     (= 0x5470 + 0x23c, OUTSIDE the 432-byte record), a separate u16 creation
@@ -79,7 +79,7 @@ async function dumpDraft(label: string, h: HostClient): Promise<void> {
 
   const attrs = draft.attributes as number[];
   console.log(`  name      = ${JSON.stringify(draft.name)}`);
-  console.log(`  race      = ${draft.race}   alignment = ${draft.alignment}   sex = ${draft.sex}`);
+  console.log(`  race      = ${draft.race}   sex = ${draft.sex} (+0x19e)`);
   console.log(`  class     = ${draft.class}`);
   console.log(`  portrait(+0x19c) = ${draft.rendered_portrait_index}`);
   console.log(`  age(days) = ${draft.age_counter}`);

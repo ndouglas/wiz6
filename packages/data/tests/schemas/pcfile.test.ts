@@ -35,7 +35,7 @@ function emptySlot(slot: number): PcfileSlot {
     schoolManaMax: [0, 0, 0, 0, 0, 0],
     level: 0, levelSecondary: 0,
     conditions: new Array(10).fill(0),
-    race: 0, alignment: 0, class: 0,
+    race: 0, sex: 0, class: 0,
     str: 0, int: 0, pie: 0, vit: 0, dex: 0, spd: 0, per: 0, kar: 0,
     // skills: 30 bytes (EXTENDED from 14). Prior 'derived_stats_block' was skill continuation.
     skills: new Array(30).fill(0),
@@ -100,7 +100,7 @@ describe('PcfileSlotSchema', () => {
       conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       // Race/class/attributes confirmed by wpcvw stats panel ASM traces.
       race: 0,       // Human
-      alignment: 0,  // Good (tentative)
+      sex: 0,        // male (+0x19e)
       class: 0,      // Fighter
       str: 18, int: 8, pie: 8, vit: 12, dex: 10, spd: 9, per: 8, kar: 14,
       // Skills (30 bytes): fighter primary skill[1]=10(Axe per martydill), skill[8]=2(Bow).

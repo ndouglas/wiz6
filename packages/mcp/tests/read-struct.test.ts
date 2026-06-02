@@ -5,9 +5,9 @@
 //
 // Raw bytes confirmed via dosbox_read_memory (independent of the struct decoder):
 //   race @record+0x19d = 0x01 (Elf)
-//   alignment @record+0x19e = 0x00
+//   sex @record+0x19e = 0x00 (Male; the +0x8c msg-table M/F byte)
 //   class @record+0x19f = 0x0d (13, Ninja in canonical @wiz6/data CLASS order)
-//   sex @record+0x1a1 = 0x00 (Male)
+//   portrait_table_index @record+0x1a1 = 0x00
 //   attributes @record+0x12c = [0x0c,0x0a,0x0a,0x0c,0x0c,0x0c,0x08,0x0d]
 //                               = STR12,INT10,PIE10,VIT12,DEX12,SPD12,PER8,KAR13
 //
@@ -58,7 +58,7 @@ function makeNugBuffer(): Uint8Array {
   // Evidence: mov al,[bx+0x4585]; add ax,0x64 -> msg lookup
   buf[0x19d] = 1;
 
-  // alignment at +0x19e (abs 0x4586): 0
+  // sex at +0x19e (abs 0x4586): 0 = Male (msg-table +0x8c -> M/F label)
   buf[0x19e] = 0;
 
   // class at +0x19f (abs 0x4587): 13 = Ninja (canonical @wiz6/data CLASS_REQUIREMENTS order)
@@ -68,8 +68,8 @@ function makeNugBuffer(): Uint8Array {
   // high_water_level at +0x1a0: 0
   buf[0x1a0] = 0;
 
-  // sex at +0x1a1 (abs 0x4589): 0 = Male
-  // Evidence: mov al,[bx+0x4589]; shl ax; portrait table lookup
+  // portrait_table_index at +0x1a1 (abs 0x4589): 0
+  // Evidence: mov al,[bx+0x4589]; shl ax; cs:0x526[v*2] table lookup (NOT sex — sex is +0x19e)
   buf[0x1a1] = 0;
 
   return buf;
@@ -86,8 +86,9 @@ describe('decodeBssStruct — character_record field alignment (NUG ground truth
     expect(decoded.race).toBe(1); // Elf
     // class must come from +0x19f (not +0x1a1 or any cumulative position)
     expect(decoded.class).toBe(13); // Ninja
-    // sex must come from +0x1a1
+    // sex must come from +0x19e (NOT +0x1a1 — that's portrait_table_index now)
     expect(decoded.sex).toBe(0); // Male
+    expect(decoded.portrait_table_index).toBe(0);
   });
 
   it('decodes attributes from +0x12c — not from cumulative/sequential position', () => {

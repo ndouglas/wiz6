@@ -2,13 +2,10 @@ import type { Character, PcfileInventoryItem, PcfileSlot } from '@wiz6/data';
 
 /** Record offsets for fields the engine keeps but PcfileSlot only preserves in `raw`. */
 const OFF_RENDERED_PORTRAIT = 0x19c; // global portrait index 0..41 (the drawn portrait)
-// Sex at +0x19e (1 = female, 0 = male). Confirmed against the engine ADD PARTY
-// picker (TEMPEST renders 'F'; +0x19e is the only byte set to 1 for her among
-// the pinned roster — all five other chars render 'M' and have +0x19e == 0).
-// The prior +0x1a1 guess read all-zero stock data and never produced a female.
-// NB: pcfile.ts tentatively labels +0x19e "alignment"; that label is the wrong
-// guess — this byte is sex (the engine's stats panel msg-table offset for it
-// was never confirmed; the picker glyph is the ground truth).
+// Sex is +0x19e (0 = male, 1 = female), now a first-class PcfileSlot.sex field.
+// Confirmed against the engine ADD PARTY picker (TEMPEST renders 'F'; +0x19e == 1
+// only for her among the pinned roster). OFF_SEX is also written into `raw` so an
+// app-built slot round-trips byte-exactly through encodeCharacterRecord.
 const OFF_SEX = 0x19e;
 
 /**
@@ -43,7 +40,7 @@ export function pcfileSlotToCharacter(slot: PcfileSlot, id: string): Character {
     schoolManaMax: [...slot.schoolManaMax],
     skills: [...slot.skills],
     reaction: slot.reaction,
-    sex: (slot.raw[OFF_SEX] === 1 ? 1 : 0),
+    sex: (slot.sex === 1 ? 1 : 0),
     portraitIndex: slot.raw[OFF_RENDERED_PORTRAIT]!,
     hpCurrent: slot.hpCurrent,
     hpMax: slot.hpMax,
@@ -68,10 +65,8 @@ const EMPTY_ITEM: PcfileInventoryItem = {
  * rendered portrait at +0x19c and sex at +0x19e. Fields our Character schema
  * does not model are defaulted (empty inventory, 0xFF equipment, base AC 10).
  *
- * Note: +0x19e is the sex byte (confirmed) but PcfileSlot also exposes it as the
- * tentatively-named `alignment` field, which `encodeCharacterRecord` writes back
- * to +0x19e. We set `alignment = sex` so the encode path preserves sex on the
- * round-trip (raw[0x19e] alone is overwritten by the alignment write).
+ * sex (+0x19e) is set directly on the slot; encodeCharacterRecord writes it back
+ * to +0x19e, and we also stamp raw[+0x19e] so the round-trip is byte-exact.
  */
 export function characterToPcfileSlot(c: Character, slotIndex: number): PcfileSlot {
   const raw = new Array<number>(432).fill(0);
@@ -98,7 +93,7 @@ export function characterToPcfileSlot(c: Character, slotIndex: number): PcfileSl
     levelSecondary: c.level,
     conditions: [...c.conditions],
     race: c.race,
-    alignment: c.sex & 0xff, // +0x19e doubles as the sex byte (see note above)
+    sex: c.sex & 0xff, // +0x19e
     class: c.class,
     str: c.attributes.str,
     int: c.attributes.int,

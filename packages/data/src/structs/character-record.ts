@@ -86,7 +86,7 @@ export const INVENTORY_ITEM_SLOT_FIELDS: BssField[] = [
  *   - class_change_apply (image 0x61e7): clears [bx+0x43f6]/[bx+0x43f4] -> XP wipe
  *   - give_gold (image 0x513e): reads [bx+0x43fc]/[bx+0x43fe] -> gold (32-bit)
  *   - Stats panel (ndisasm file+0x0e55+0x1d2): mov al,[bx+0x4585] -> race
- *   - Stats panel (ndisasm file+0x0e55+0x18f): mov al,[bx+0x4586] -> alignment
+ *   - Stats panel (ndisasm file+0x0e55+0x18f): mov al,[bx+0x4586] -> sex (msg-table +0x8c = M/F)
  *   - Stats panel (ndisasm file+0x0e55+0x2a8): mov al,[bx+0x4587] -> class
  *   - Stats panel loop (ndisasm file+0x0e55+0x464): [bx+0x4514+i] i=0..7 -> 8 attrs
  * All absolute BSS addresses relative to base 0x43e8: offset = abs minus 0x43e8.
@@ -512,14 +512,16 @@ export const CHARACTER_RECORD: BssStruct = {
       description: 'Race index 0..10. 0=Human,1=Elf,2=Dwarf,3=Gnome,4=Hobbit,5=Faerie,6=Lizardman,7=Dracon,8=Felpurr,9=Rawulf,10=Mook. At +0x19d (abs 0x4585).',
     },
     {
-      name: 'alignment',
+      name: 'sex',
       offset: 0x19e,
-      // MEDIUM CONFIDENCE: abs 0x4586 = base 0x43e8 + 0x19e.
-      // Stats panel (file 0x0e55+0x18f): mov al,[bx+0x4586]; add ax,0x8c -> msg lookup.
-      // Stock: THESUS=0, TEMPEST=1, LYSANDR=0, NOBAL=0, TREON=0, PENTAG=0.
-      // Likely 0=Good, 1=Neutral, 2=Evil.
+      // HIGH CONFIDENCE: abs 0x4586 = base 0x43e8 + 0x19e. 0 = male, 1 = female.
+      // Stats panel (file 0x0e55+0x18f): mov al,[bx+0x4586]; add ax,0x8c -> msg lookup
+      // — the +0x8c message table is the M/F label (NOT Good/Neutral/Evil; the prior
+      // "alignment" label was a misread of this byte). Confirmed 2026-06-02: the engine
+      // ADD PARTY picker renders TEMPEST as 'F' and +0x19e == 1 only for her among the
+      // pinned roster (THESUS/LYSANDR/NOBAL/TREON/PENTAG all 'M', +0x19e == 0).
       type: { kind: 'scalar', scalar: 'u8' },
-      description: 'Alignment index at +0x19e (abs 0x4586). Used as msg table index (+0x8c). Likely 0=Good,1=Neutral,2=Evil.',
+      description: 'Sex at +0x19e (abs 0x4586): 0=male, 1=female. Msg-table index (+0x8c) -> M/F label. (The old "alignment" label for this byte was wrong; see picker evidence.)',
     },
     {
       name: 'class',
@@ -544,15 +546,17 @@ export const CHARACTER_RECORD: BssStruct = {
       description: 'Level high-water mark (count of 7 threshold levels reached). Used for class title display. At +0x1a0 (abs 0x4588).',
     },
     {
-      name: 'sex',
+      name: 'portrait_table_index',
       offset: 0x1a1,
       // MEDIUM CONFIDENCE: abs 0x4589 = base 0x43e8 + 0x1a1.
       // Party-row renderer (ndisasm 0x0e55+0x59a):
       //   8A878945 mov al,[bx+0x4589]; D1E0 shl ax; 8BD8 mov bx,ax;
-      //   8B872605 mov ax,[bx+0x526] -> portrait table lookup (sex*2).
-      // All 6 stock chars = 0.
+      //   8B872605 mov ax,[bx+0x526] -> word table lookup at cs:0x526[v*2].
+      // All 6 stock chars = 0. NOTE: this byte is NOT the sex flag (sex is +0x19e,
+      // and TEMPEST is female yet +0x1a1 == 0). The old "sex*2" naming assumed this
+      // byte was sex; it's an independent portrait-table index that's 0 for all stock.
       type: { kind: 'scalar', scalar: 'u8' },
-      description: 'Sex/gender byte at +0x1a1 (abs 0x4589). Portrait-table index via cs:0x526[sex*2]. All stock chars = 0.',
+      description: 'Portrait-table index at +0x1a1 (abs 0x4589): indexes cs:0x526[v*2]. All stock chars = 0. NOT sex (sex is +0x19e).',
     },
     {
       name: 'unknown_0x1a2',
