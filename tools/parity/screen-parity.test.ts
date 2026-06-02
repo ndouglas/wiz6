@@ -22,13 +22,13 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WIZ6_MAIN, FontSchema, Font4bppSchema, MessageDbSchema, PortraitSetSchema, ScenarioDbSchema, classOffered, resolveCarryCapacityMax, CreationDraftSidecarSchema } from '../../packages/data/src/index.js';
+import { WIZ6_MAIN, FontSchema, Font4bppSchema, MessageDbSchema, PortraitSetSchema, ScenarioDbSchema, classOffered, resolveCarryCapacityMax, CreationDraftSidecarSchema, availableSkillSlots } from '../../packages/data/src/index.js';
 import type { Font, Font4bpp, Palette, MessageDb, PortraitSet } from '../../packages/data/src/index.js';
 import { setCursor, puts, type FontSet } from '../../packages/parser/src/index.js';
 import { loadCreationFontSet } from '../../packages/viewer/src/pages/roster/creation/ega/assets.js';
 import { renderCreationFrame } from '../../packages/viewer/src/pages/roster/creation/ega/render-frame.js';
 import { createPersistentWindows } from '../../packages/viewer/src/pages/roster/creation/ega/windows.js';
-import { composeSkillTrainFrame, patchFontSetWithPortrait } from '../../packages/viewer/src/pages/roster/creation/ega/skill-train-frame.js';
+import { composeSkillTrainFrame, patchFontSetWithPortrait, SKILL_CATEGORIES } from '../../packages/viewer/src/pages/roster/creation/ega/skill-train-frame.js';
 import { composeReviewPickerFrame } from '../../packages/viewer/src/pages/roster/creation/ega/review-picker-frame.js';
 import { highlightRange } from '../../packages/viewer/src/pages/roster/creation/ega/highlight.js';
 import { drawCharSheet } from '../../packages/viewer/src/pages/roster/creation/ega/char-sheet.js';
@@ -207,27 +207,31 @@ function renderClassSelect(fontSet: FontSet, palette: Palette): Uint8ClampedArra
   return renderCreationFrame([top, bottomBar, menuPanel], fontSet, palette);
 }
 
+/** Load all three wport portrait files (idx 0-13 / 14-27 / 28-41). */
+function loadAllPortraits(): PortraitSet[] {
+  return ['wport1', 'wport2', 'wport3'].map((f) =>
+    PortraitSetSchema.parse(JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, `${f}.json`), 'utf-8'))),
+  );
+}
+
 // ─── PORTRAIT SELECT helper (post-karma; portrait sub-window open) ────────────
-// Engine state (save 1): NATHAN, M-HUMAN, SAMURAI, karma=3, HP=7/7, STM=96/96,
-// BONUS pool=0, portrait index 0 (default). Portrait sprite is a 3×3 tile grid
-// at menuPanel cells (8,3)..(10,5), each cell drawn at attr 0x02 (wfont2). The
-// engine loads wport1.ega into the wfont2 slot for this screen, mapping portrait
-// 0's 9 tiles to font glyphs 0x48..0x50. We replicate that by injecting the 9
-// tiles into a cloned font2.
+// Re-minted via serialize-state (test-fixtures/states/creation-portrait-select.
+// state.gz); stats + bonusPool(=0, drained) + derived HP/STM/age come from the
+// COMMITTED sidecar, NOT hardcoded. The portrait sprite is a 3×3 tile grid at
+// menuPanel cells (8,3)..(10,5) drawn at attr 0x02 (wfont2). The engine loads
+// the character's portrait into the wfont2 slot; the wfont2 patch is DATA-DRIVEN
+// from the sidecar's rendered_portrait_index (patchFontSetWithPortrait resolves
+// wport1/2/3 by index/14).
 
 function renderPortraitSelect(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
   const { top, bottomBar, menuPanel } = createPersistentWindows();
-  const draft = {
-    ...blankDraft(),
-    name: 'NATHAN',
-    race: 0,    // HUMAN
-    sex: 0,     // M
-    class: 11,  // SAMURAI
-    attributes: { str: 14, int: 11, pie: 8, vit: 9, dex: 12, spd: 14, per: 8, kar: 3 },
-    derived: { hpInitial: 7, stamina: 96, level: 0, xp: 0 },
-    bonusPool: 0,
-    portrait: 0,
-  };
+  const dumped = draftFromEngineDump(loadDraftSidecar('creation-portrait-select'));
+  // The PORTRAIT screen's char sheet renders HP/STM (data-driven) but shows the
+  // AGE / LVL / second-age counters as 0 — those header fields are only filled
+  // in on the later SKILL/CONFIRM sheet, even though the engine record already
+  // carries the derived values at this waypoint (confirmed: record age=6769/
+  // lvl=1 but the sheet draws 0). Force them to 0 to match the engine framebuffer.
+  const draft = { ...dumped, derived: { ...dumped.derived, age: 0, secondAge: 0, level: 0 } };
   drawCharSheet(top, draft, msgDb, creationString(msgDb, MSG.portraitTitle));
 
   // bottomBar prompts — engine centers with Math.ceil padding (row 1: "◄► TO
@@ -247,110 +251,79 @@ function renderPortraitSelect(fontSet: FontSet, palette: Palette): Uint8ClampedA
     }
   }
 
-  // Inject portrait 0's 9 tiles into a cloned font2 at glyphs 0x48..0x50.
-  const wport1: PortraitSet = PortraitSetSchema.parse(
-    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
-  );
-  const portrait = wport1.portraits[0]!;
-  const baseFont2 = fontSet.font2!;
-  const font2Glyphs = baseFont2.glyphs.map((g, i) =>
-    i >= 0x48 && i <= 0x50 ? portrait.tiles[i - 0x48]! : g,
-  );
-  const fontSetWithPortrait: FontSet = {
-    ...fontSet,
-    font2: { ...baseFont2, glyphs: font2Glyphs },
-  };
-
+  // Inject the character's portrait tiles (data-driven by rendered_portrait_index).
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, loadAllPortraits(), draft.portrait);
   return renderCreationFrame([top, bottomBar, menuPanel], fontSetWithPortrait, palette);
 }
 
-// ─── SKILL TRAIN helper (screen-13; post-portrait, WEAPONRY category) ─────────
-// Engine state (save 1): NATHAN samurai post-karma/portrait; age=20, level=1;
-// portrait 21 (wport2 index 7) permanently baked into wfont2 glyphs 0x48..0x50;
-// WEAPONRY category, 9 skills 0..8 (Samurai excludes HANDS&FEET), 1 point
-// already spent on SWORD (value 9), 5 remaining in the pool.
-//
-// This test renders through the SHARED `composeSkillTrainFrame` module that
-// the live `SkillTrainScreen.tsx` also calls — pixel parity here is the
-// regression guard for that viewer screen too.
+// ─── SKILL TRAIN helper (screen-13; post-portrait) ───────────────────────────
+// This test renders through the SHARED `composeSkillTrainFrame` module that the
+// live `SkillTrainScreen.tsx` also calls — pixel parity here is the regression
+// guard for that viewer screen too.
 
-// derived.age is in DAYS (engine *0x5478 32-bit); drawCharSheet divides by 365.
-// For test drafts we use the actual day-count from the matching DOSBox save —
-// see Memory dump at DGROUP+0x5478 / +0x5496.
-
-function makeSkillTrainDraft(skills: number[]) {
-  return {
-    ...blankDraft(),
-    name: 'NATHAN',
-    race: 0,
-    sex: 0,
-    class: 11, // Samurai
-    attributes: { str: 14, int: 11, pie: 8, vit: 9, dex: 12, spd: 14, per: 8, kar: 3 },
-    derived: { age: 20 * 365 + 100, secondAge: 1, hpInitial: 7, stamina: 96, level: 1, xp: 0 },
-    bonusPool: 0,
-    portrait: 21,
-    skills,
-  };
+/** Trainable skill slots for `classIdx` in category `categoryIdx` (slot order),
+ *  mirroring SkillTrainScreen.trainableInCategory. */
+function trainableSlots(classIdx: number, categoryIdx: number): number[] {
+  const cat = SKILL_CATEGORIES[categoryIdx]!;
+  return availableSkillSlots(classIdx).filter((s) => s >= cat.startSlot && s <= cat.endSlot);
 }
 
-function makeRawulfFighterDraft(skills: number[]) {
-  return {
-    ...blankDraft(),
-    name: 'NATHAN',
-    race: 9, // Rawulf
-    sex: 0,
-    class: 0, // Fighter
-    attributes: { str: 16, int: 8, pie: 12, vit: 10, dex: 8, spd: 8, per: 10, kar: 18 },
-    derived: { age: 6925, secondAge: 1, hpInitial: 7, stamina: 108, level: 1, xp: 0 }, // 6925 days = 18 years (engine save 2)
-    bonusPool: 0,
-    portrait: 1, // verified vs *0x560c = 0x01
-    skills,
-  };
+/**
+ * Remaining "SKILL POINTS" the skill-train screen displays. The sidecar's
+ * `skillPool` is the INITIAL rolled budget at DGROUP 0x5618 (it does NOT
+ * decrement as you train — verified: skill-train-done reads 0x5618=14 with all
+ * 14 spent, yet shows 0 on screen). Remaining = initial − points trained. For a
+ * FIGHTER (no class skill grants) the trained total is simply the sum of the
+ * skill values, so remaining = skillPool − Σ skills. (Probe 2026-06-02: train
+ * 14−0=14, done 14−14=0, physical 11−0=11 — all match the on-screen value.)
+ */
+function skillPointsRemaining(sidecar: { skillPool?: number; draft: { skills: number[] } }): number {
+  const initial = sidecar.skillPool ?? 0;
+  const spent = sidecar.draft.skills.reduce((a, b) => a + b, 0);
+  return Math.max(0, initial - spent);
 }
 
-function skillTrainFontSet(fontSet: FontSet): FontSet {
-  const wport2: PortraitSet = PortraitSetSchema.parse(
-    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport2.json'), 'utf-8')),
-  );
-  const empty: PortraitSet = { ...wport2, portraits: [] };
-  return patchFontSetWithPortrait(fontSet, [empty, wport2, empty], 21);
-}
-
-const SAMURAI_WEAPONRY_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+// ─── SKILL TRAIN helpers (screen-13) — DATA-DRIVEN from the committed sidecar ──
+// Re-minted via serialize-state. The draft (stats / HP / STM / AGE / LVL — all
+// DISPLAYED on the skills screen, unlike the portrait screen) + the skill pool
+// ("SKILL POINTS") + the granted/trained skill values come from the per-fixture
+// sidecar. WEAPONRY is the default category on entry; cursor starts on slot 0.
+// All these fixtures are NATHAN Human-male FIGHTER (class 0 — always picker pos
+// 0). Fighter grants no skills, so the WEAPONRY slots start at 0 and the only
+// non-zero skills are whatever the recipe trained.
 
 function renderSkillTrain(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Mid-allocation state: 5 points remaining, SWORD at 9 (1 already spent).
-  // Bottom prompt: "PRESS ▶ FOR NEXT CATEGORY".
-  const skills = new Array<number>(30).fill(0);
-  skills[1] = 9;
+  // Full budget unspent: SKILL POINTS = sidecar.skillPool, WEAPONRY, cursor 0.
+  const sidecar = loadDraftSidecar('creation-skill-train');
+  const draft = draftFromEngineDump(sidecar);
   const windows = composeSkillTrainFrame(
     {
-      draft: makeSkillTrainDraft(skills),
+      draft,
       categoryIdx: 0,
-      trainableInCategory: SAMURAI_WEAPONRY_SLOTS,
+      trainableInCategory: trainableSlots(draft.class ?? 0, 0),
       cursorIdx: 0,
-      skillPoints: 5,
+      skillPoints: skillPointsRemaining(sidecar),
     },
     msgDb,
   );
-  return renderCreationFrame(windows, skillTrainFontSet(fontSet), palette);
+  const fs = patchFontSetWithPortrait(fontSet, loadAllPortraits(), draft.portrait);
+  return renderCreationFrame(windows, fs, palette);
 }
 
 function renderConfirm(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Confirm screen: skillTrain panel persists with the residual cursor marker
-  // at (15, 3) attr 0x70; SKILL POINTS = 0; bottomBar swapped to
-  // "SAVE THIS CHARACTER? YES NO" centered at col 6 with YES at attr 0x50.
-  const skills = new Array<number>(30).fill(0);
-  skills[0] = 5; // WAND&DAGGER (all 5 points spent)
-  skills[1] = 9; // SWORD (base)
+  // Confirm screen: skillTrain panel persists with the residual cursor marker;
+  // SKILL POINTS = 0; bottomBar swapped to "SAVE THIS CHARACTER? YES NO" with
+  // YES highlighted (attr 0x50). Skills (post-drain) come from the sidecar.
+  const sidecar = loadDraftSidecar('creation-confirm');
+  const draft = draftFromEngineDump(sidecar);
   const windows = composeSkillTrainFrame(
     {
-      draft: makeSkillTrainDraft(skills),
+      draft,
       categoryIdx: 0, // WEAPONRY (last visited)
-      trainableInCategory: SAMURAI_WEAPONRY_SLOTS,
+      trainableInCategory: trainableSlots(draft.class ?? 0, 0),
       cursorIdx: 0,
       cursorState: 'residual',
-      skillPoints: 0,
+      skillPoints: skillPointsRemaining(sidecar),
     },
     msgDb,
     (bb) => {
@@ -367,52 +340,49 @@ function renderConfirm(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
       puts(bb, yes, 0x50);
     },
   );
-  return renderCreationFrame(windows, skillTrainFontSet(fontSet), palette);
+  const fs = patchFontSetWithPortrait(fontSet, loadAllPortraits(), draft.portrait);
+  return renderCreationFrame(windows, fs, palette);
 }
 
 function renderSkillTrainPhysical(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Slot 2: NATHAN Rawulf Fighter, PHYSICAL category. Fighter has only one
-  // PHYSICAL trainable skill (SCOUTING = slot 11). Verifies per-category icon
-  // brackets: PHYSICAL uses 0x25/0x26 (vs WEAPONRY's 0x02/0x02).
-  const skills = new Array<number>(30).fill(0);
-  const wport1: PortraitSet = PortraitSetSchema.parse(
-    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
-  );
-  const empty: PortraitSet = { ...wport1, portraits: [] };
-  const portraits = [wport1, empty, empty];
-  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, portraits, 1);
+  // NATHAN Human-male FIGHTER, PHYSICAL category. Fighter has only one PHYSICAL
+  // trainable skill (SCOUTING = slot 11). Verifies per-category icon brackets:
+  // PHYSICAL uses 0x25/0x26 (vs WEAPONRY's 0x02/0x02).
+  const sidecar = loadDraftSidecar('creation-skill-train-physical');
+  const draft = draftFromEngineDump(sidecar);
   const windows = composeSkillTrainFrame(
     {
-      draft: makeRawulfFighterDraft(skills),
+      draft,
       categoryIdx: 1, // PHYSICAL
-      trainableInCategory: [11], // SCOUTING only (Fighter PHYSICAL trainable)
+      trainableInCategory: trainableSlots(draft.class ?? 0, 1), // SCOUTING only
       cursorIdx: 0,
       cursorState: 'active',
-      skillPoints: 17,
+      skillPoints: skillPointsRemaining(sidecar),
     },
     msgDb,
   );
-  return renderCreationFrame(windows, fontSetWithPortrait, palette);
+  const fs = patchFontSetWithPortrait(fontSet, loadAllPortraits(), draft.portrait);
+  return renderCreationFrame(windows, fs, palette);
 }
 
 function renderSkillTrainDone(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Exhausted state: 0 points remaining, all 5 budget points spent on
-  // WAND&DAGGER (slot 0 = 5). Bottom prompt toggles to "PRESS ▶ TO EXIT" — the
-  // engine does NOT auto-advance; Enter (▶) is the exit key.
-  const skills = new Array<number>(30).fill(0);
-  skills[0] = 5; // WAND&DAGGER
-  skills[1] = 9; // SWORD (preserved from base)
+  // Exhausted state: SKILL POINTS = 0; bottom prompt toggles to "PRESS ▶ TO
+  // EXIT" — the engine does NOT auto-advance; Enter (▶) is the exit key. The
+  // drained skill values come from the sidecar.
+  const sidecar = loadDraftSidecar('creation-skill-train-done');
+  const draft = draftFromEngineDump(sidecar);
   const windows = composeSkillTrainFrame(
     {
-      draft: makeSkillTrainDraft(skills),
+      draft,
       categoryIdx: 0,
-      trainableInCategory: SAMURAI_WEAPONRY_SLOTS,
+      trainableInCategory: trainableSlots(draft.class ?? 0, 0),
       cursorIdx: 0,
-      skillPoints: 0,
+      skillPoints: skillPointsRemaining(sidecar),
     },
     msgDb,
   );
-  return renderCreationFrame(windows, skillTrainFontSet(fontSet), palette);
+  const fs = patchFontSetWithPortrait(fontSet, loadAllPortraits(), draft.portrait);
+  return renderCreationFrame(windows, fs, palette);
 }
 
 // ─── REVIEW CHARACTER helper (slot 2 char-sheet view; BONUS hidden) ───────────

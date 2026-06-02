@@ -31,6 +31,24 @@ const CREATE_PC_PROLOGUE: readonly string[] = ['down down enter', 'up left left 
 // of its size, then 'enter' exits the screen.
 const DRAIN = 'right right right right right right right right right right enter';
 
+// BONUS allocator drain — the bonus pool is a RANDOM roll of 5..26 and each
+// attribute caps at 18 (≈ +9 from the race base), so pumping a single attribute
+// can't empty a large pool and the engine won't let you exit while pool > 0.
+// This distributes 10 'right' across each of the 7 adjustable attrs (STR..PER,
+// 'down' moves the cursor), giving ~63 points of capacity — enough for any roll
+// — then 'enter' exits to KARMA. Robust regardless of the rolled pool size.
+const FILL10 = 'right right right right right right right right right right';
+const BONUS_DRAIN =
+  `${FILL10} down ${FILL10} down ${FILL10} down ${FILL10} down ` +
+  `${FILL10} down ${FILL10} down ${FILL10} enter`;
+
+// SKILL-train budget drain — the skill budget is rng(9)+10 = 10..18 and a single
+// skill has no per-slot cap in the trainer, so 20 'right' into the cursor skill
+// always empties it; 'enter' then exits the SKILLS screen.
+const SKILL_DRAIN =
+  'right right right right right right right right right right ' +
+  'right right right right right right right right right right enter';
+
 const SEED_CATALOG: readonly SaveStateRecipe[] = [
   {
     name: 'mage-spellpick',
@@ -170,83 +188,88 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
     ],
     settleMs: 300,
   },
-  // SAMURAI flow (Human male, class index 11) — portrait/skill/confirm waypoints.
+  // FIGHTER flow (Human male, class index 0 — ALWAYS at picker position 0, so a
+  // bare `enter` selects it regardless of the random bonus roll) — portrait
+  // waypoint. The sidecar records the actual rolled/derived draft.
   {
     name: 'creation-portrait-select',
-    description: 'NATHAN Human-male SAMURAI portrait picker (rolled-stat divergent).',
+    description: 'NATHAN Human-male FIGHTER portrait picker (serialize-state mint; data-driven sidecar).',
     steps: [
       ...CREATE_PC_PROLOGUE,
       'n a t h a n enter',          // NAME
       'enter',                      // RACE: Human
       'enter',                      // SEX: Male
-      'down down down down down down down down down down down enter', // CLASS: Samurai (index 11)
-      DRAIN,                        // BONUS
+      'enter',                      // CLASS: Fighter (index 0 — always picker pos 0)
+      BONUS_DRAIN,                  // BONUS: distribute the random pool across all attrs
       'enter',                      // KARMA → PORTRAIT
     ],
     settleMs: 300,
   },
+  // FIGHTER skill-train waypoints (Human male, class 0 — always picker pos 0).
+  // WEAPONRY is the default category on SKILLS entry; cursor starts on slot 0.
   {
     name: 'creation-skill-train',
-    description: 'NATHAN SAMURAI skill-train, WEAPONRY, mid-allocation (rolled-stat divergent).',
+    description: 'NATHAN Human-male FIGHTER skill-train, WEAPONRY, full budget unspent (serialize-state mint).',
     steps: [
       ...CREATE_PC_PROLOGUE,
       'n a t h a n enter',
-      'enter',
-      'enter',
-      'down down down down down down down down down down down enter',
-      DRAIN,
-      'enter',  // KARMA
-      'enter',  // PORTRAIT → SKILLS
-      'right',  // spend 1 point on first skill (mid-allocation)
+      'enter',        // RACE: Human
+      'enter',        // SEX: Male
+      'enter',        // CLASS: Fighter (index 0)
+      BONUS_DRAIN,    // BONUS: distribute pool
+      'enter',        // KARMA
+      'enter',        // PORTRAIT → SKILLS (WEAPONRY, cursor 0, full budget)
     ],
     settleMs: 300,
   },
   {
     name: 'creation-skill-train-done',
-    description: 'NATHAN SAMURAI skill-train, budget exhausted (rolled-stat divergent).',
+    description: 'NATHAN Human-male FIGHTER skill-train, budget exhausted (serialize-state mint).',
     steps: [
       ...CREATE_PC_PROLOGUE,
       'n a t h a n enter',
       'enter',
       'enter',
-      'down down down down down down down down down down down enter',
-      DRAIN,
       'enter',
-      'enter',  // PORTRAIT → SKILLS
-      'right right right right right right right right right right', // drain budget (no exit enter — stay on screen)
+      BONUS_DRAIN,
+      'enter',
+      'enter',        // PORTRAIT → SKILLS
+      // Drain the full budget into the cursor skill (no exit enter — stay on screen).
+      'right right right right right right right right right right ' +
+        'right right right right right right right right right right',
     ],
     settleMs: 300,
   },
   {
     name: 'creation-confirm',
-    description: 'NATHAN SAMURAI "SAVE THIS CHARACTER? YES NO" (rolled-stat divergent).',
+    description: 'NATHAN Human-male FIGHTER "SAVE THIS CHARACTER? YES NO" (serialize-state mint).',
     steps: [
       ...CREATE_PC_PROLOGUE,
       'n a t h a n enter',
       'enter',
       'enter',
-      'down down down down down down down down down down down enter',
-      DRAIN,
+      'enter',
+      BONUS_DRAIN,
       'enter',
       'enter',
-      DRAIN,  // SKILLS drain + exit → confirm
+      SKILL_DRAIN,    // SKILLS drain + exit → confirm
     ],
     settleMs: 300,
   },
   {
     name: 'creation-skill-train-physical',
     description:
-      'NATHAN Rawulf Fighter skill-train, PHYSICAL category (rolled-stat divergent).',
+      'NATHAN Human-male FIGHTER skill-train, PHYSICAL category, SCOUTING only (serialize-state mint).',
     steps: [
       ...CREATE_PC_PROLOGUE,
       'n a t h a n enter',
-      'down down down down down down down down down enter', // RACE: Rawulf (index 9)
+      'enter',                                             // RACE: Human
       'enter',                                             // SEX: Male
       'enter',                                             // CLASS: Fighter (index 0)
-      DRAIN,                                               // BONUS
+      BONUS_DRAIN,                                         // BONUS
       'enter',                                             // KARMA
-      'enter',                                             // PORTRAIT → SKILLS
-      'right',                                             // → PHYSICAL category (next-category key)
+      'enter',                                             // PORTRAIT → SKILLS (WEAPONRY)
+      'enter',                                             // → PHYSICAL category (▶ = Enter cycles category while budget > 0)
     ],
     settleMs: 300,
   },
@@ -260,10 +283,10 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
       'down enter',    // RACE: Elf (index 1)
       'enter',         // SEX: Male
       'down enter',    // CLASS: Mage (index 1)
-      DRAIN,           // BONUS
+      BONUS_DRAIN,           // BONUS
       'enter',         // KARMA
       'enter',         // PORTRAIT
-      DRAIN,           // SKILLS → spell pick
+      SKILL_DRAIN,           // SKILLS → spell pick
     ],
     settleMs: 300,
   },
@@ -276,80 +299,84 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
       'down enter',
       'enter',
       'down enter',
-      DRAIN,
+      BONUS_DRAIN,
       'enter',
       'enter',
-      DRAIN,
-      'right', // FIRE → WATER (school cursor right)
+      SKILL_DRAIN,
+      // School grid is 2 rows × 3 cols — row0 FIRE(0)/WATER(1)/AIR(2),
+      // row1 EARTH(3)/MENTAL(4)/DIVINE(5). 'down' moves within a column
+      // (FIRE→WATER→AIR); 'right' jumps to the next row (FIRE→EARTH). See
+      // SpellPickScreen.gridNextSchool.
+      'down', // FIRE → WATER
     ],
     settleMs: 300,
   },
   {
     name: 'creation-spell-grid-air',
-    description: 'M-Elf Mage spell picker, AIR grid (rolled-stat divergent).',
+    description: 'M-Elf Mage spell picker, AIR grid (empty list — CANCEL only) (serialize-state mint).',
     steps: [
       ...CREATE_PC_PROLOGUE,
       'm a g e enter',
       'down enter',
       'enter',
       'down enter',
-      DRAIN,
+      BONUS_DRAIN,
       'enter',
       'enter',
-      DRAIN,
-      'right right', // FIRE → WATER → AIR
+      SKILL_DRAIN,
+      'down down', // FIRE → WATER → AIR
     ],
     settleMs: 300,
   },
   {
     name: 'creation-spell-grid-earth',
-    description: 'M-Elf Mage spell picker, EARTH grid (rolled-stat divergent).',
+    description: 'M-Elf Mage spell picker, EARTH grid (serialize-state mint).',
     steps: [
       ...CREATE_PC_PROLOGUE,
       'm a g e enter',
       'down enter',
       'enter',
       'down enter',
-      DRAIN,
+      BONUS_DRAIN,
       'enter',
       'enter',
-      DRAIN,
-      'right right right', // FIRE → WATER → AIR → EARTH
+      SKILL_DRAIN,
+      'right', // FIRE → EARTH (row jump)
     ],
     settleMs: 300,
   },
   {
     name: 'creation-spell-sublist-chill',
-    description: 'M-Elf Mage WATER sub-list, CHILLING TOUCH selected (rolled-stat divergent).',
+    description: 'M-Elf Mage WATER sub-list, CHILLING TOUCH selected (serialize-state mint).',
     steps: [
       ...CREATE_PC_PROLOGUE,
       'm a g e enter',
       'down enter',
       'enter',
       'down enter',
-      DRAIN,
+      BONUS_DRAIN,
       'enter',
       'enter',
-      DRAIN,
-      'right', // → WATER grid
+      SKILL_DRAIN,
+      'down',  // FIRE → WATER grid
       'enter', // open sub-list, first spell (CHILLING TOUCH)
     ],
     settleMs: 300,
   },
   {
     name: 'creation-spell-sublist-terror',
-    description: 'M-Elf Mage WATER sub-list, TERROR selected (rolled-stat divergent).',
+    description: 'M-Elf Mage WATER sub-list, TERROR selected (serialize-state mint).',
     steps: [
       ...CREATE_PC_PROLOGUE,
       'm a g e enter',
       'down enter',
       'enter',
       'down enter',
-      DRAIN,
+      BONUS_DRAIN,
       'enter',
       'enter',
-      DRAIN,
-      'right',      // → WATER grid
+      SKILL_DRAIN,
+      'down',       // FIRE → WATER grid
       'enter',      // open sub-list
       'down',       // CHILLING TOUCH → TERROR
     ],

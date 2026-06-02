@@ -9,15 +9,18 @@
  * cursor + spell panel + bottom prompt) and compares all 320×200 pixels to each
  * committed engine fixture at 100% (tolerance 0).
  *
- * Fixture character (M-Elf Mage, save 1):
- *   name MAGE, race 1 (Elf), sex 0 (Male), class 1 (Mage),
- *   attrs str7 int18 pie11 vit7 dex9 spd9 per8 kar5, bonusPool 0,
- *   derived { hpInitial 2, stamina 63, level 1, age 20yr }, portrait 0 (brute-forced).
+ * Fixture character: M-Elf Mage (NAME=MAGE, race 1 Elf, sex 0 Male, class 1
+ * Mage — class 1 is always picker pos 1 and Elf base INT covers Mage's gate, so
+ * the recipe reaches Mage regardless of the random roll). Re-minted via
+ * serialize-state per fixture; the draft (stats / HP / STM / AGE / LVL — the
+ * spell screen DISPLAYS these, post skill-init) comes from each fixture's
+ * COMMITTED sidecar via draftFromEngineDump, NOT hardcoded.
  *
- * The 6 cases are the SAME Mage draft with the cursor in different positions:
+ * School grid is 2 rows × 3 cols — row0 FIRE(0)/WATER(1)/AIR(2),
+ * row1 EARTH(3)/MENTAL(4)/DIVINE(5). The 6 cases position the cursor:
  *   creation-spell-pick            → school 0 FIRE,  grid mode, no selection
  *   creation-spell-grid-water      → school 1 WATER, grid mode, no selection
- *   creation-spell-grid-air        → school 2 AIR,   grid mode, no selection
+ *   creation-spell-grid-air        → school 2 AIR,   grid mode, no selection (empty list)
  *   creation-spell-grid-earth      → school 3 EARTH, grid mode, no selection
  *   creation-spell-sublist-chill   → school 1 WATER, sub-list, selectedIdx 0 cost 2
  *   creation-spell-sublist-terror  → school 1 WATER, sub-list, selectedIdx 1 cost 3
@@ -34,15 +37,16 @@ import {
   Font4bppSchema,
   MessageDbSchema,
   PortraitSetSchema,
+  CreationDraftSidecarSchema,
 } from '../../packages/data/src/index.js';
 import type { Font, Font4bpp, Palette, MessageDb, PortraitSet } from '../../packages/data/src/index.js';
 import type { FontSet } from '../../packages/parser/src/index.js';
 import type { DraftState } from '../../packages/viewer/src/pages/roster/creation/state.js';
-import { blankDraft } from '../../packages/viewer/src/pages/roster/creation/state.js';
 import { loadCreationFontSet } from '../../packages/viewer/src/pages/roster/creation/ega/assets.js';
 import { renderCreationFrame } from '../../packages/viewer/src/pages/roster/creation/ega/render-frame.js';
 import { patchFontSetWithPortrait } from '../../packages/viewer/src/pages/roster/creation/ega/skill-train-frame.js';
 import { composeSpellScreenFrame } from '../../packages/viewer/src/pages/roster/creation/ega/compose-spell-screen-frame.js';
+import { draftFromEngineDump } from '../../packages/viewer/src/pages/roster/creation/lib/draft-from-engine-dump.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { compareRgba, writeDiffPng } from './diff-image.js';
 import { indicesToRgba } from './decode-screen.js';
@@ -78,27 +82,12 @@ function loadPortrait(file: string): PortraitSet {
   );
 }
 
-// ─── The fixture Mage draft ───────────────────────────────────────────────────
-// Portrait index 0 was brute-forced: at portrait 0 the full 320×200 frame is a
-// 0-pixel exact match against creation-spell-pick (next-best index is 330 px
-// off). The char sheet shows AGE = 20 years, so derived.age must be ≥20yr in
-// DAYS (drawCharSheet divides by 365 at display time) — 20*365 lands AGE on the
-// fixture's yellow "20".
-const MAGE_PORTRAIT = 0;
-
-function mageDraft(): DraftState {
-  return {
-    ...blankDraft(),
-    name: 'MAGE',
-    race: 1, // Elf
-    sex: 0, // Male
-    class: 1, // Mage
-    attributes: { str: 7, int: 18, pie: 11, vit: 7, dex: 9, spd: 9, per: 8, kar: 5 },
-    bonusPool: 0,
-    derived: { hpInitial: 2, stamina: 63, level: 1, secondAge: 1, age: 20 * 365 },
-    portrait: MAGE_PORTRAIT,
-    spellPicks: [],
-  };
+// ─── Per-fixture Mage draft (DATA-DRIVEN from the committed sidecar) ──────────
+function loadSpellDraft(fixture: string): DraftState {
+  const sidecar = CreationDraftSidecarSchema.parse(
+    JSON.parse(readFileSync(join(FIXTURES, `${fixture}.character.json`), 'utf-8')),
+  );
+  return draftFromEngineDump(sidecar);
 }
 
 /** wport1/2/3 cover portrait indices 0-13 / 14-27 / 28-41. */
@@ -156,7 +145,7 @@ describe('creation spell-picker FULL-SCREEN pixel-parity (target 100%)', () => {
 
   for (const sc of CASES) {
     it(`${sc.fixture}: full 320×200 RGB match = 100%`, () => {
-      const ours = renderSpellScreen(fontSet, WIZ6_MAIN, msgDb, mageDraft(), sc);
+      const ours = renderSpellScreen(fontSet, WIZ6_MAIN, msgDb, loadSpellDraft(sc.fixture), sc);
       const eng = engineRgba(sc.fixture);
       const result = compareRgba(ours, eng, { tolerance: 0 });
 

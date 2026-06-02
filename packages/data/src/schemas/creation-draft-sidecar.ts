@@ -45,6 +45,14 @@ export const CreationDraftSidecarSchema = z.object({
   draft: CreationDraftRecordSchema,
   /** Remaining bonus pool (engine u16 at DGROUP 0x56ac). */
   bonusPool: U16,
+  /**
+   * Remaining SKILL-train budget ("SKILL POINTS" on screen-13). Engine u8 at
+   * DGROUP 0x5618 (the rolled skill pool rng(9)+10 = 10..18, decremented as the
+   * player trains; the adjacent high byte is unrelated, so read as u8). Optional
+   * — only captured at skill-train / confirm waypoints. Verified vs the on-screen
+   * "SKILL POINTS" value (probe 2026-06-02: 0x5618 low byte 16 == screen "16").
+   */
+  skillPool: U8.optional(),
 });
 
 export type CreationDraftRecord = z.infer<typeof CreationDraftRecordSchema>;

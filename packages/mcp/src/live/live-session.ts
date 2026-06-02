@@ -16,6 +16,10 @@ const PARTY_SIZE_DGROUP_OFFSET = 0x43ce;
 // struct as-is. bonusPool is the one out-of-record field (separate u16).
 const DRAFT_BASE_DGROUP = 0x5470;
 const BONUS_POOL_DGROUP = 0x56ac;
+// Remaining SKILL-train budget ("SKILL POINTS"), a u8 (the rolled skill pool
+// rng(9)+10 decremented by training). Verified vs the on-screen value (probe
+// 2026-06-02). The adjacent high byte is unrelated, so read one byte.
+const SKILL_POOL_DGROUP = 0x5618;
 
 export interface LiveState {
   dgroupBase: number;
@@ -75,10 +79,11 @@ export class LiveSession {
    *  struct at DGROUP 0x5470, plus the out-of-record `bonusPool` (u16 at 0x56ac).
    *  Use at a creation waypoint to dump the engine's actual rolled draft for a
    *  fixture sidecar. See docs/re/findings/creation-draft-struct.json. */
-  async dumpDraft(): Promise<{ draft: Record<string, unknown>; bonusPool: number }> {
+  async dumpDraft(): Promise<{ draft: Record<string, unknown>; bonusPool: number; skillPool: number }> {
     const draft = (await this.readStruct('character_record', DRAFT_BASE_DGROUP)) as Record<string, unknown>;
     const bonus = await this.read(BONUS_POOL_DGROUP, 2);
-    return { draft, bonusPool: bonus[0]! | (bonus[1]! << 8) };
+    const skill = await this.read(SKILL_POOL_DGROUP, 1);
+    return { draft, bonusPool: bonus[0]! | (bonus[1]! << 8), skillPool: skill[0]! };
   }
 
   async state(): Promise<LiveState> {
