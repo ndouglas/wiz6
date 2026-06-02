@@ -131,6 +131,36 @@ async function main() {
 
   const committedStatePath = join(COMMITTED_STATES, `${name}.state.gz`);
 
+  // ── boot-capture recipe (intro/title/menu frames that auto-play BEFORE the
+  // normal title-dismiss prelude). Cold-boot N frames, optionally dismiss the
+  // title + step a few more (water-anim phase), then fb → diff/write. Always
+  // recipe-replay semantics (deterministic boot frames; no committed state). ──
+  if (recipe.bootCapture) {
+    const bc = recipe.bootCapture;
+    const h = new HostClient();
+    await h.step(bc.bootFrames);
+    if (bc.dismissTitle) {
+      await h.key('enter', 'tap');
+      if (bc.afterFrames) await h.step(bc.afterFrames);
+    }
+    if (!check) await h.serialize(join(STATES, `${name}.state`));
+    await h.fb(`${TMP}/build.rgba`);
+    h.close();
+    const rgba = new Uint8Array(readFileSync(`${TMP}/build.rgba`));
+    const idx = rgbaToIndices(rgba);
+    if (check) {
+      writeFileSync(join(TMP, `${name}.regen.png`), encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));
+      const ok = diffVs(idx, name);
+      process.exitCode = ok ? 0 : 1;
+      return;
+    }
+    writeFileSync(join(FIXTURES, `${name}.idx.gz`), gzipSync(idx));
+    writeFileSync(join(FIXTURES, `${name}.png`), encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));
+    console.log(`wrote ${name}.idx.gz + .png + states/${name}.state (boot frame ${bc.bootFrames}${bc.dismissTitle ? `+enter+${bc.afterFrames ?? 0}` : ''})`);
+    if (validateAgainst) diffVs(idx, validateAgainst);
+    return;
+  }
+
   // ── --check pcfileFixture recipe: boot a fresh image overlaid with the
   // committed pcfile, drive the forward steps, fb → diff. Deterministic (no
   // creation roll); reads the baked-in created char from the boot roster. ──────

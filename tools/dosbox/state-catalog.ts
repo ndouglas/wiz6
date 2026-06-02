@@ -29,6 +29,23 @@ export interface SaveStateRecipe {
    *  a fresh image whose roster already contains it. The recipe then drives forward
    *  with NO creation roll — fully deterministic. */
   pcfileFixture?: string;
+  /** Boot-sequence capture (intro/title/menu frames that play BEFORE the normal
+   *  `step 3000 → enter → step 800` prelude lands on MASTER OPTIONS). Instead of
+   *  driving the prelude + steps, the builder cold-boots `bootFrames` frames, then
+   *  optionally taps `enter` (dismiss title) and steps `afterFrames` more — landing
+   *  on the exact animated frame. The intro auto-plays with no input: sirtech logo →
+   *  author credit → title art → scrolling credits → settled title page. Each frame
+   *  sits on a multi-frame plateau (the engine holds each credit page / the title-art
+   *  logo peak), so a single `bootFrames` reproduces it byte-exact. When `bootCapture`
+   *  is set, `steps` is ignored. */
+  bootCapture?: {
+    /** Frames to advance from a cold boot (no input). */
+    bootFrames: number;
+    /** Tap `enter` after the boot to dismiss the title page. */
+    dismissTitle?: boolean;
+    /** Frames to advance after the enter-tap (water-anim phase select for the menu). */
+    afterFrames?: number;
+  };
 }
 
 // Shared creation prologue: MASTER OPTIONS → CHARACTER MENU → CREATE PC.
@@ -788,8 +805,73 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
   },
 ];
 
+// ── Boot / intro / title sequence (winit.ovr states 0/1/2 → wbase state 4) ───
+// These frames auto-play from a cold boot BEFORE the normal title-dismiss prelude;
+// each is captured at a fixed boot-frame count (bootCapture, not steps). The intro
+// holds each frame on a multi-frame plateau (sir-tech logo, author credit, title-art
+// logo peak, each scroll-paused credit page, the settled title page), so a single
+// frame count reproduces it byte-exact. Frame counts picked mid-plateau for slack;
+// the engine's per-frame intervals are deterministic under the libretro harness.
+//   boot order: sirtech-logo (≈51–159) → author-credit (≈161–205) →
+//   title-art logo peak (≈331–338) → credits scroll (title-page ≈1481–1495,
+//   title-page-2 ≈1818–1828) → settled title-art-copyright (≈1965+, waits for enter).
+// main-menu / main-menu-2 are the empty-party MASTER OPTIONS at the two phases of
+// the fountain water animation: after dismissing the title (enter), the water
+// settles into phase-0 (main-menu-2) then oscillates to phase-1 (main-menu).
+const BOOT_RECIPES: readonly SaveStateRecipe[] = [
+  {
+    name: 'sirtech-logo',
+    description: 'Boot intro: Sir-Tech dragon logo splash (winit state 1).',
+    steps: [],
+    bootCapture: { bootFrames: 100 },
+  },
+  {
+    name: 'author-credit',
+    description: 'Boot intro: "A Fantasy Role-Playing Simulation by D.W.Bradley" author credit.',
+    steps: [],
+    bootCapture: { bootFrames: 180 },
+  },
+  {
+    name: 'title-art',
+    description: 'Boot intro: Wizardry title art over the Bane-of-the-Cosmic-Forge scene (logo fully formed, pre-scroll).',
+    steps: [],
+    bootCapture: { bootFrames: 335 },
+  },
+  {
+    name: 'title-page',
+    description: 'Boot intro: credits scroll mid-roll — "PlayMasters Guide / Sound Effects" page (scroll-paused plateau).',
+    steps: [],
+    bootCapture: { bootFrames: 1488 },
+  },
+  {
+    name: 'title-page-2',
+    description: 'Boot intro: credits scroll mid-roll — "Digitized Sound Programming" page (scroll-paused plateau).',
+    steps: [],
+    bootCapture: { bootFrames: 1822 },
+  },
+  {
+    name: 'title-art-copyright',
+    description: 'Boot intro: settled title page with copyright line (post-scroll hold; waits for enter to advance).',
+    steps: [],
+    bootCapture: { bootFrames: 2030 },
+  },
+  {
+    name: 'main-menu',
+    description: 'MASTER OPTIONS, empty party, fountain water phase 1 (post-title; ADD PARTY MEMBER highlighted).',
+    steps: [],
+    bootCapture: { bootFrames: 3000, dismissTitle: true, afterFrames: 44 },
+  },
+  {
+    name: 'main-menu-2',
+    description: 'MASTER OPTIONS, empty party, fountain water phase 0 (post-title; ADD PARTY MEMBER highlighted).',
+    steps: [],
+    bootCapture: { bootFrames: 3000, dismissTitle: true, afterFrames: 33 },
+  },
+];
+
 export const STATE_CATALOG: readonly SaveStateRecipe[] = [
   ...SEED_CATALOG,
+  ...BOOT_RECIPES,
   ...CASTLE_RECIPES,
   ...CASTLE_MEMBERS_ALIASES,
   ADD_PARTY_PICKER_RECIPE,
