@@ -121,6 +121,42 @@ function makeCastleRecipe(n: number): SaveStateRecipe {
 
 const CASTLE_RECIPES: readonly SaveStateRecipe[] = [1, 2, 3, 4, 5, 6].map(makeCastleRecipe);
 
+// Fixture-name-matching aliases for the castle MASTER-OPTIONS screens. The
+// committed castle-N-members fixtures were captured from a STALE DOSBox-X save
+// whose roster was NATHAN + NUG2..NUG6 — chars ABSENT from the pinned
+// test-fixtures/original/pcfile.dbs (which holds THESUS/TEMPEST/LYSANDR/NOBAL/
+// TREON/PENTAG). Forming a party from the pinned roster therefore renders
+// different per-member panels (portrait + name + bars), so `build-state
+// castle-N-members --check` reaches the correct SCREEN (chrome/menu/gate/
+// fountain byte-exact) but DIVERGES on the member panels (castle-1 98.86%,
+// castle-2 94.71%, castle-3 97.31%). These fixtures are NOT re-mintable from the
+// pinned source. The castle-parity.test.ts gate is self-contained — it renders
+// the captured NATHAN/NUG party data via composeCastleFrame (hardcoded ENGINE_*
+// member structs), so the committed fixtures stay valid ground truth. Keep the
+// alias only as a reproducible divergence diagnostic; do NOT re-mint the fixtures.
+const CASTLE_MEMBERS_ALIASES: readonly SaveStateRecipe[] = [1, 2, 3, 4, 5, 6].map((n) => ({
+  ...makeCastleRecipe(n),
+  name: `castle-${n}-members`,
+  description:
+    `MASTER OPTIONS with ${n} pinned-roster member${n === 1 ? '' : 's'} (THESUS…). ` +
+    `DIVERGES vs the committed castle-${n}-members fixture (stale NATHAN/NUG roster) — ` +
+    `diagnostic only, NOT re-mintable from the pinned pcfile.`,
+}));
+
+// review-member-view: WPCVW char-view (state 0x11) of THESUS in a 3-member
+// pinned-roster party. THESUS IS the pinned roster char (slot 0), so this
+// re-mints BYTE-EXACT vs the committed fixture (proven 100.00%). Drive: form a
+// 3-member party (castle-3) → REVIEW MEMBER (down) → open REVIEW WHO? (enter,
+// cursor on EXIT) → move to THESUS slot 0 (down) → open the view (enter).
+const REVIEW_MEMBER_VIEW_RECIPE: SaveStateRecipe = {
+  name: 'review-member-view',
+  description:
+    'WPCVW REVIEW MEMBER char-view of THESUS in a 3-member pinned-roster party ' +
+    '(THESUS/TEMPEST/LYSANDR). Re-mints byte-exact (THESUS is the pinned roster slot 0).',
+  steps: [...makeCastleRecipe(3).steps, 'down', 'enter', 'down', 'enter'],
+  settleMs: 300,
+};
+
 // Party-member picker reachers (REVIEW MEMBER = MASTER OPTIONS slot 1,
 // DISMISS MEMBER = slot 2). Built on castle-3 (3 fixed PCFILE chars →
 // deterministic). After castle-3 the cursor is on ADD PARTY MEMBER (slot 0).
@@ -534,6 +570,8 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
 export const STATE_CATALOG: readonly SaveStateRecipe[] = [
   ...SEED_CATALOG,
   ...CASTLE_RECIPES,
+  ...CASTLE_MEMBERS_ALIASES,
+  REVIEW_MEMBER_VIEW_RECIPE,
   ...PICKER_RECIPES,
   ...CREATION_RECIPES,
 ];
