@@ -173,6 +173,10 @@ int main(int argc, char **argv) {
   r_init();
   struct retro_game_info gi = { exe, NULL, 0, NULL };
   if (!load(&gi)) { fprintf(stderr, "retro_load_game FAILED\n"); return 2; }
+  // NOTE: dosbox-pure always emulates the DOS mouse (INT33h) — neither
+  // mouse_input=off nor controller-device-NONE removes it, so the game draws its
+  // cursor on mouse-aware screens. build-state parks it off-screen + erases the
+  // tip pixel to get cursor-free fixtures (see build-state.ts).
   setvbuf(stdout, NULL, _IOLBF, 0);
   fprintf(stderr, "ready (pixfmt=%d)\n", g_pixfmt);
 
