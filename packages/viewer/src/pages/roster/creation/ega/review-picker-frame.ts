@@ -38,10 +38,22 @@ export interface ReviewPickerView {
 /**
  * Draw one roster entry into the menuPanel at `row`.
  *
- * When `selected` is true, the NAME cells get the highlight attr 0x50;
- * otherwise attr 0x03 (matches the CANCEL behavior: highlight flips between
- * the roster row and the CANCEL bottomBar row based on the picker's
- * two-state cursor).
+ * The engine (`wpcmk_show_roster_picker`, wpcmk file 0x56a0) renders rows TWO
+ * different ways depending on whether the row is the cursor row:
+ *
+ *   - CURSOR row (`selected === true`): NAME on a palette-5 highlight bar
+ *     (attr 0x50) with the SEX / dash / RACE / CLASS fields each in their own
+ *     colour (0x70 / 0x90 / 0x60 / 0x30). The wfont0 highlight path.
+ *   - NON-cursor rows (`selected === false`): EVERY field — name, sex, dash,
+ *     race, class, and all padding — is drawn at attr 0x03 (palette-1 text).
+ *     No per-field colour. Verified pixel-by-pixel against the 6-char
+ *     legendary-squad PORTRAIT FOR WHOM? fixture (`portrait-picker-squad`):
+ *     non-cursor scanlines carry only palette-1; only the VEXA cursor row
+ *     carries palette {3,5,6,7}. (Mirrors `composeAddPartyPickerFrame`, the
+ *     wpcvw sibling picker.)
+ *
+ * All four 1-char NATHAN picker fixtures only ever render the cursor row, so
+ * this non-cursor uniformity was invisible until a multi-char roster.
  */
 function drawRosterRow(
   panel: TileWindow,
@@ -50,41 +62,59 @@ function drawRosterRow(
   db: MessageDb,
   selected: boolean,
 ): void {
-  // Col 0 = scrollbar (drawn separately). Cols 1..(name.length) hold the NAME
-  // chars; attr depends on selection. Trailing pad to col 8 at attr 0x10.
+  // Per-field attrs: cursor row uses the wfont0 highlight colours; non-cursor
+  // rows draw EVERY field at attr 0x03 (uniform palette-1, no colour).
   const nameAttr = selected ? 0x50 : 0x03;
+  const padAttr = selected ? 0x10 : 0x03;
+  const sexAttr = selected ? 0x70 : 0x03;
+  const dashAttr = selected ? 0x90 : 0x03;
+  const raceAttr = selected ? 0x60 : 0x03;
+  const sepAttr = selected ? 0x10 : 0x03;
+  const classAttr = selected ? 0x30 : 0x03;
+
+  // Col 0 = scrollbar (drawn separately). Cols 1..(name.length) hold the NAME
+  // chars. Trailing pad to col 8.
   const name = ch.name.slice(0, 7);
   setCursor(panel, 1, row);
   puts(panel, name, nameAttr);
   for (let x = 1 + name.length; x <= 8; x++) {
     setCursor(panel, x, row);
-    puts(panel, ' ', 0x10);
+    puts(panel, ' ', padAttr);
   }
 
-  // SEX glyph @0x70, '-' @0x90, RACE abbrev @0x60.
+  // SEX glyph, '-' separator, RACE abbrev.
   const sexStr = sexName(db, ch.sex ?? 0);
   setCursor(panel, 9, row);
-  puts(panel, sexStr.charAt(0), 0x70);
+  puts(panel, sexStr.charAt(0), sexAttr);
   setCursor(panel, 10, row);
-  puts(panel, '-', 0x90);
+  puts(panel, '-', dashAttr);
   const race = raceName(db, ch.race)
     .padEnd(RACE_ABBREV_LEN)
     .slice(0, RACE_ABBREV_LEN);
   setCursor(panel, 11, row);
-  puts(panel, race, 0x60);
+  puts(panel, race, raceAttr);
 
-  // Space pad + CLASS abbrev @0x30.
+  // Space pad + CLASS abbrev.
   setCursor(panel, 14, row);
-  puts(panel, ' ', 0x10);
+  puts(panel, ' ', sepAttr);
   const cls = className(db, ch.class)
     .padEnd(CLASS_ABBREV_LEN)
     .slice(0, CLASS_ABBREV_LEN);
   setCursor(panel, 15, row);
-  puts(panel, cls, 0x30);
+  puts(panel, cls, classAttr);
 }
 
-/** First roster entry sits at menuPanel row 3 (after the 3 scrollbar arrows). */
-const ENTRY_ROW_OFFSET = 3;
+/**
+ * The CURSOR (selected) entry is always drawn at menuPanel cell row 3 (the
+ * fixed cursor position). The engine SCROLLS the list around this pin: entry
+ * `i` is drawn at `CURSOR_ROW + (i - cursorIdx)`, so the highlighted entry
+ * stays at row 3 regardless of which roster index it is. Verified against both
+ * the 1-char NATHAN fixture (cursor at row 3, nothing above) and the 6-char
+ * legendary-squad fixture (cursor VEXA at row 3, two entries above + three
+ * below). The old `ENTRY_ROW_OFFSET + i` (absolute) model only happened to
+ * match when cursorIdx === 0 — which every 1-char fixture is — hiding the bug.
+ */
+const CURSOR_ROW = 3;
 
 /**
  * Build the four TileWindows for the REVIEW WHO? picker in paint order.
@@ -95,11 +125,13 @@ const ENTRY_ROW_OFFSET = 3;
  * - bottomBar row 1: "REVIEW WHO?" centered (MSG.reviewWho).
  * - bottomBar row 3: "CANCEL"     centered (MSG.cancelOption).
  * - menuPanel col 0: scrollbar — 'E' top, 'G' track, 'F' bottom; all attr 0x02.
- * - menuPanel rows 3..(3+N-1): roster entries; cols 1..17.
+ * - menuPanel roster entries: the cursor entry pins to row `CURSOR_ROW` (3);
+ *   entry `i` lands at `CURSOR_ROW + (i - cursorIdx)`, scrolling the list around
+ *   the fixed cursor. Cols 1..17.
  *
- * Scrollbar geometry: for a roster of N ≤ 13 entries we draw arrows from row 0
- * (top) to row (N+1) (bottom), occupying rows 0..N+1. Beyond N=13 we'd need to
- * page; that's a follow-up.
+ * Scrollbar geometry: the scrollbar is FIXED at rows 0..6 regardless of roster
+ * size (verified vs the 1-char + 6-char fixtures). Beyond a full window the
+ * engine pages; not yet RE'd.
  */
 export function composeReviewPickerFrame(
   view: ReviewPickerView,
@@ -132,8 +164,11 @@ export function composeReviewPickerFrame(
   // row as the user navigates between them via ArrowLeft / ArrowRight/Up/Down.
   const onCancel = view.onCancel === true;
   for (let i = 0; i < roster.length; i++) {
-    const row = ENTRY_ROW_OFFSET + i;
-    if (row >= menuPanel.heightCells) break;
+    // Cursor-relative placement: the selected entry pins to CURSOR_ROW; the
+    // list scrolls around it. Rows above row 1 (the scrollbar top-arrow) or at
+    // or past the window bottom are off-screen and skipped.
+    const row = CURSOR_ROW + (i - view.cursorIdx);
+    if (row < 1 || row >= menuPanel.heightCells) continue;
     drawRosterRow(menuPanel, row, roster[i]!, db, !onCancel && i === view.cursorIdx);
   }
 

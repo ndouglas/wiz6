@@ -89,6 +89,22 @@ function loadMinimalRosterNathan(): Character {
   return pcfileSlotToCharacter(slot, '00000000-0000-0000-0000-000000000001');
 }
 
+// ─── Legendary-squad 6-char roster (the MULTI-char picker coverage) ────────────
+// Decode the committed 6-char pcfile (legendary-squad.pcfile.dbs) into the full
+// roster the engine boots from for the portrait-picker-squad fixture: TWINK /
+// BEAU / VEXA / SABLE / EMBER / QUILL. Used by the multi-char picker parity case
+// to exercise NON-cursor rows both above AND below the highlighted row — the
+// 1-char NATHAN fixtures only ever render the cursor row.
+function loadLegendarySquadRoster(): Character[] {
+  const bytes = readFileSync(join(COMMITTED_STATES, 'legendary-squad.pcfile.dbs'));
+  const pc = decodePcfile(new Uint8Array(bytes));
+  return pc.slots
+    .filter((s) => s.populated)
+    .map((s, i) =>
+      pcfileSlotToCharacter(s, `00000000-0000-0000-0000-00000000000${i + 1}`),
+    );
+}
+
 // ─── Loaders ───────────────────────────────────────────────────────────────────
 
 async function diskLoadFont(url: string): Promise<Font> {
@@ -472,6 +488,19 @@ function renderPortraitTargetPicker(fontSet: FontSet, palette: Palette): Uint8Cl
   // Same 1-char NATHAN roster, picker title = "PORTRAIT FOR WHOM?".
   const windows = composeReviewPickerFrame(
     { roster: [loadMinimalRosterNathan()], cursorIdx: 0, titleMsgId: MSG.portraitForWhom },
+    msgDb,
+  );
+  return renderCreationFrame(windows, fontSet, palette);
+}
+
+function renderPortraitPickerSquad(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  // MULTI-char roster (6): legendary-squad TWINK/BEAU/VEXA/SABLE/EMBER/QUILL,
+  // picker title "PORTRAIT FOR WHOM?", cursor on row 2 (VEXA) — so rows 0-1 are
+  // non-cursor ABOVE and rows 3-5 are non-cursor BELOW. This is the gate that
+  // exercises NON-cursor row rendering (the 1-char NATHAN fixtures only ever
+  // show the cursor row, hiding how non-cursor rows colour their fields).
+  const windows = composeReviewPickerFrame(
+    { roster: loadLegendarySquadRoster(), cursorIdx: 2, titleMsgId: MSG.portraitForWhom },
     msgDb,
   );
   return renderCreationFrame(windows, fontSet, palette);
@@ -1360,6 +1389,11 @@ const SCREENS: ScreenCase[] = [
     fixture: 'creation-portrait-target-picker',
     floor: 100, // pixel-exact — PORTRAIT FOR WHOM? picker
     render: renderPortraitTargetPicker,
+  },
+  {
+    fixture: 'portrait-picker-squad',
+    floor: 100, // pixel-exact — MULTI-char PORTRAIT FOR WHOM? picker (6 chars; cursor row 2, non-cursor rows above + below)
+    render: renderPortraitPickerSquad,
   },
   {
     fixture: 'creation-portrait-change',

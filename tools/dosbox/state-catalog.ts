@@ -771,6 +771,21 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
     settleMs: 300,
   },
   {
+    name: 'portrait-picker-squad',
+    description:
+      'PORTRAIT FOR WHOM? roster picker over the committed 6-char legendary-squad ' +
+      'roster (TWINK/BEAU/VEXA/SABLE/EMBER/QUILL). MULTI-CHAR coverage for the ' +
+      'wpcmk_show_roster_picker composer: exercises NON-cursor rows above AND below ' +
+      'the highlighted row. Cursor moved down to row 2 (VEXA) so rows 0-1 (above) and ' +
+      'rows 3-5 (below) are all non-cursor. Deterministic (no creation roll).',
+    pcfileFixture: 'legendary-squad',
+    // Fresh boot: MASTER OPTIONS → CHARACTER MENU (down down enter); cursor on EXIT
+    // → PORTRAIT (up enter) → PORTRAIT FOR WHOM? picker (cursor on row 0) → down down
+    // moves cursor to row 2 (VEXA).
+    steps: ['down down enter', 'up enter', 'down down'],
+    settleMs: 300,
+  },
+  {
     name: 'creation-portrait-change',
     description: 'PORTRAIT change active — char sheet + picker over the 1-char NATHAN roster (deterministic).',
     pcfileFixture: 'minimal-roster',
