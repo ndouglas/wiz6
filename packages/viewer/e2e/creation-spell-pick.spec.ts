@@ -26,7 +26,7 @@
 
 import { test, expect } from '@playwright/test';
 import { gotoCreation, pressKeys, expectCanvasMatchesFixture } from './lib/drive.js';
-import { mageSpellPick } from './lib/creation-states.js';
+import { spellPickStateFor } from './lib/creation-states.js';
 
 // ---------------------------------------------------------------------------
 // 1. Inject-state pixel-parity cases
@@ -60,7 +60,9 @@ const PARITY_CASES: Array<{ fixture: string; keys: string[] }> = [
 
 for (const c of PARITY_CASES) {
   test(`spell-pick full-screen parity — ${c.fixture}`, async ({ page }) => {
-    await gotoCreation(page, mageSpellPick);
+    // Each fixture was minted from a SEPARATE engine roll, so inject that
+    // fixture's own committed sidecar draft (data-driven, can't go stale).
+    await gotoCreation(page, spellPickStateFor(c.fixture));
     await pressKeys(page, c.keys);
     await expectCanvasMatchesFixture(page, c.fixture);
   });

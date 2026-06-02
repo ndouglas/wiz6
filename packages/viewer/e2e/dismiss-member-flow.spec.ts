@@ -65,7 +65,10 @@ test('DISMISS MEMBER picker drops a party member from the active party', async (
   await page.waitForSelector('canvas', { timeout: 10_000 });
   await page.waitForTimeout(500);
 
-  // Picker cursor starts at slot 0. Press Enter to dismiss NATHAN.
+  // Picker cursor STARTS on EXIT (-1) — the engine-faithful default (commit
+  // 8c8f9db, verified via live DOSBox capture). ArrowDown moves EXIT → slot 0
+  // (NATHAN); Enter then dismisses that slot. (Pressing Enter on EXIT cancels.)
+  await page.keyboard.press('ArrowDown'); // EXIT (-1) → slot 0 (NATHAN)
   await page.keyboard.press('Enter');
   await page.waitForURL('**/castle', { timeout: 5_000 });
   await page.waitForTimeout(300);
