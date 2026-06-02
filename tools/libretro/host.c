@@ -201,6 +201,28 @@ int main(int argc, char **argv) {
       long base = find_anchor_base();
       if (base < 0) printf("err noanchor\n"); else printf("ok base=%lx\n", base);
     }
+    else if (!strcmp(cmd, "find")) {
+      // pattern = rest of line after "find ", hex pairs (spaces optional)
+      const char *p = strchr(line, ' ');
+      uint8_t pat[256]; size_t pn = 0; int hi = -1;
+      for (; p && *p && pn < sizeof pat; p++) {
+        int v; char ch = *p;
+        if (ch >= '0' && ch <= '9') v = ch - '0';
+        else if (ch >= 'a' && ch <= 'f') v = ch - 'a' + 10;
+        else if (ch >= 'A' && ch <= 'F') v = ch - 'A' + 10;
+        else continue;
+        if (hi < 0) hi = v; else { pat[pn++] = (hi << 4) | v; hi = -1; }
+      }
+      if (pn == 0) { printf("err pattern\n"); continue; }
+      long found = -1;
+      for (unsigned i = 0; i < g_ndesc && found < 0; i++) {
+        struct retro_memory_descriptor *d = &g_desc[i];
+        if (!d->ptr || !d->len) continue;
+        void *hit = memmem(d->ptr, d->len, pat, pn);
+        if (hit) found = (long)(d->start + ((uint8_t*)hit - (uint8_t*)d->ptr));
+      }
+      if (found < 0) printf("err nomatch\n"); else printf("ok phys=%lx\n", found);
+    }
     else if (!strcmp(cmd, "fb")) {
       if (!g_fb || !g_fw) { printf("err noframe\n"); continue; }
       uint8_t *rgba = malloc((size_t)g_fw*g_fh*4); fb_to_rgba(rgba);

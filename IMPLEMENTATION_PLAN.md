@@ -40,7 +40,12 @@ screen (combat/dungeon) before decommissioning DOSBox-X in Stage 5.
 `screenshot` driving (replacing GUI automation). Keep the symbol/struct/dgroup
 layers as-is (proven portable).
 **Success:** existing MCP tools return correct values against the live harness.
-**Status:** Not Started
+**Progress:** harness gained a general `find <hex>` command; `tools/libretro/host-client.ts`
+(async TS bridge: step/key/read/find/anchor/fb/serialize) built + smoke-passing
+(base 0xffa0, game_state, find==base+0x5d6, 320x200 fb). `find`/`read` map 1:1 to
+SaveStateBridge.findPattern/readPhysical — MCP repoint is a drop-in adapter (make
+the bridge async + await at call sites; OR a live-vs-save-N design decision).
+**Status:** In Progress
 
 ## Stage 4: Parity/fixture pipeline
 **Goal:** repoint `tools/parity` (gen-fixture, extract.py) + `tools/dosbox`
