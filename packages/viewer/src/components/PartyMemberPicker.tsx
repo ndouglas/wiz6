@@ -48,6 +48,7 @@ import {
   loadPortraitSet,
 } from '../data-loader.js';
 import { CanvasPresenter } from '../lib/presenter.js';
+import { CanvasStage } from './CanvasStage.js';
 import { composeCastleFrame } from '../pages/game/castle-frame.js';
 import {
   composePartyMemberPickerFrame,
@@ -251,17 +252,19 @@ export function PartyMemberPicker({
 
   if (skipCanvas) return <div data-testid="party-member-picker-stub" />;
   return (
-    <canvas
-      ref={canvasRef}
-      width={ENGINE_W}
-      height={ENGINE_H}
-      style={{
-        width: ENGINE_W * SCALE,
-        height: ENGINE_H * SCALE,
-        imageRendering: 'pixelated',
-        background: '#000',
-      }}
-      aria-label="Pick a party member"
-    />
+    <CanvasStage label="Pick a party member">
+      <canvas
+        ref={canvasRef}
+        width={ENGINE_W}
+        height={ENGINE_H}
+        style={{
+          width: ENGINE_W * SCALE,
+          height: ENGINE_H * SCALE,
+          imageRendering: 'pixelated',
+          background: '#000',
+        }}
+        aria-label="Pick a party member"
+      />
+    </CanvasStage>
   );
 }

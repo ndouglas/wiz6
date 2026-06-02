@@ -46,6 +46,7 @@ import {
 } from '../../data-loader.js';
 import { loadCreationFontSet } from '../roster/creation/ega/assets.js';
 import { CanvasPresenter } from '../../lib/presenter.js';
+import { CanvasStage } from '../../components/CanvasStage.js';
 import { readRoster } from '../../lib/roster-store.js';
 import {
   readActiveParty,
@@ -280,7 +281,7 @@ export function AddPartyPage({ skipAssetLoad = false }: AddPartyPageProps) {
   if (!pickerFontSet || !db) return <div>Loading…</div>;
 
   return (
-    <main>
+    <CanvasStage label="Wizardry VI add party member picker">
       <canvas
         ref={canvasRef}
         width={ENGINE_W}
@@ -293,6 +294,6 @@ export function AddPartyPage({ skipAssetLoad = false }: AddPartyPageProps) {
         }}
         aria-label="Wizardry VI add party member picker"
       />
-    </main>
+    </CanvasStage>
   );
 }

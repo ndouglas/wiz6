@@ -53,6 +53,7 @@ import { patchFontSetWithPortrait } from '../roster/creation/ega/skill-train-fra
 import { readActiveParty, updateActiveMember } from '../../lib/active-party-store.js';
 import { getHouseRules } from '../../lib/house-rules-store.js';
 import { CanvasPresenter } from '../../lib/presenter.js';
+import { CanvasStage } from '../../components/CanvasStage.js';
 import { composeCharacterViewFrame } from './compose-character-view-frame.js';
 import { composeEditSubmenu } from './compose-edit-submenu.js';
 import { composeRenamePrompt } from './compose-rename-prompt.js';
@@ -571,7 +572,7 @@ export function CharacterViewPage() {
   if (!fontSet || !db || !portraits || !scenarioDb) return <div>Loading…</div>;
 
   return (
-    <main>
+    <CanvasStage label="Wizardry VI character view">
       <canvas
         ref={canvasRef}
         width={ENGINE_W}
@@ -584,6 +585,6 @@ export function CharacterViewPage() {
         }}
         aria-label="Wizardry VI character view"
       />
-    </main>
+    </CanvasStage>
   );
 }
