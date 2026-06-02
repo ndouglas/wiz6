@@ -29,10 +29,19 @@ export function equipSlotIcon(equipSlot: number): number {
 
 export function buildInventoryItems(member: ActivePartyMember, db: ScenarioDb): InventoryItem[] {
   const slots = member.inventory ?? [];
+  const equipment = member.equipment ?? [];
   const out: InventoryItem[] = [];
-  for (const slot of slots) {
+  for (let idx = 0; idx < slots.length; idx++) {
+    const slot = slots[idx]!;
     if (slot.itemId <= 0) continue;
-    out.push({ name: scenarioItemName(db, slot.itemId), iconChar: equipSlotIcon(slot.equipSlot) });
+    // equipment[bodySlot] holds the inventory index of the item worn there, so
+    // the body slot equipping this item is the position of `idx` in equipment[].
+    const bodySlot = equipment.indexOf(idx);
+    out.push({
+      name: scenarioItemName(db, slot.itemId),
+      iconChar: equipSlotIcon(slot.equipSlot),
+      equippedBodySlot: bodySlot === -1 ? null : bodySlot,
+    });
     if (out.length >= INV_MAX_ROWS) break;
   }
   return out;

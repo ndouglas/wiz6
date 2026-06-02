@@ -28,8 +28,19 @@ describe('item-display', () => {
       { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 0 },
     ] } as unknown as ActivePartyMember;
     expect(buildInventoryItems(member, db)).toEqual([
-      { name: 'LONGSWORD', iconChar: 0x02 },
-      { name: 'LEATHER CUIRASS', iconChar: 0x2a },
+      { name: 'LONGSWORD', iconChar: 0x02, equippedBodySlot: null },
+      { name: 'LEATHER CUIRASS', iconChar: 0x2a, equippedBodySlot: null },
+    ]);
+  });
+  it('buildInventoryItems tags equippedBodySlot from the equipment array', () => {
+    const member = { equipment: [0xff, 0xff, 0xff, 0xff, 1, 0xff, 0xff, 0xff], inventory: [
+      { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },
+      { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 1 },
+    ] } as unknown as ActivePartyMember;
+    // equipment[4] = inventory index 1 → the cuirass is worn in body slot 4.
+    expect(buildInventoryItems(member, db)).toEqual([
+      { name: 'LONGSWORD', iconChar: 0x02, equippedBodySlot: null },
+      { name: 'LEATHER CUIRASS', iconChar: 0x2a, equippedBodySlot: 4 },
     ]);
   });
   it('buildInventoryItems returns [] when member has no inventory', () => {

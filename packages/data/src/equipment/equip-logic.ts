@@ -4,8 +4,14 @@
  * Body slots: 0=weapon,1=off-hand/shield,2=cloak,3=head,4=chest,5=legs,6=hands,7=feet.
  * AC is lower=better.
  */
-import type { Character } from '../schemas/character.js';
+import type { Character, InventoryItem } from '../schemas/character.js';
 import type { ScenarioDb } from '../schemas/scenario-db.js';
+
+/** A blank inventory slot (itemId 0). Used to pad the carried region after a
+ *  reorder so the inventory keeps its fixed 22-slot length. */
+function emptyInventorySlot(): InventoryItem {
+  return { itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 };
+}
 
 export const BODY_SLOT_COUNT = 8;
 // Only the carried region (inventory slots 0..9) is equippable; slots 10..21 are
@@ -235,10 +241,13 @@ export function applyPhase3Grants(
  *
  * Phase-1: equipment ← [0xff × 8]; every inventory item `flags &= 0xfe`
  *          (clear bit0 = equipped/cursed-low; PRESERVE bit1 0x02 = genuine curse).
- * Apply:   for each non-null selections[bodySlot] (an inventory index):
- *          equipment[bodySlot] = invIdx; that item `flags |= 0x01`.
- * AC:      recompute via computeAc → derivedAc + bodyAc.
  * Phase-3: applyPhase3Grants (see helper; MEDIUM-confidence, unexercised by stock gear).
+ * Reorder: the carried region (slots 0..9) is PHYSICALLY reordered — equipped
+ *          items to the front in body-slot order, then remaining carried items;
+ *          equipment[bodySlot] points to the item's NEW front index, that item
+ *          `flags |= 0x01`. SWAG bag (slots 10..21) untouched. RE:
+ *          wpcvw-post-equip-view.json #equip-physically-reorders-carried-inventory.
+ * AC:      recompute via computeAc → derivedAc + bodyAc (on the reordered record).
  */
 export function applyEquipSelections(
   member: Character,
@@ -247,19 +256,43 @@ export function applyEquipSelections(
   rng?: () => number,
 ): Character {
   const m: Character = structuredClone(member);
-  const inv = m.inventory ?? [];
-  m.equipment = Array(BODY_SLOT_COUNT).fill(0xff);
-  for (const it of inv) it.flags &= 0xfe; // Phase-1: clear bit0, keep bit1.
+  const origInv = m.inventory ?? [];
+  for (const it of origInv) it.flags &= 0xfe; // Phase-1: clear bit0, keep bit1.
+
+  // Phase-3 grants reference the OLD inventory indices in `selections`, and they
+  // mutate attributes/conditions/hp (never inventory order) — apply them before
+  // the reorder below, while `selections` still indexes `origInv`.
+  applyPhase3Grants(m, selections, scenarioDb, rng);
+
+  // The engine PHYSICALLY REORDERS the carried region (slots 0..9): equipped
+  // items move to the FRONT in body-slot order, then the remaining carried items
+  // follow; equipment[bodySlot] points to the item's NEW front index. The SWAG
+  // bag (slots 10..21) is untouched. RE: wpcvw-post-equip-view.json
+  // #equip-physically-reorders-carried-inventory.
+  const equipment: number[] = Array(BODY_SLOT_COUNT).fill(0xff);
+  const newCarried: InventoryItem[] = [];
+  const used = new Set<number>();
   for (let bodySlot = 0; bodySlot < BODY_SLOT_COUNT; bodySlot++) {
     const invIdx = selections[bodySlot];
     if (invIdx == null) continue;
-    m.equipment[bodySlot] = invIdx;
-    const it = inv[invIdx];
-    if (it) it.flags |= 0x01;
+    const it = origInv[invIdx];
+    if (!it || it.itemId <= 0) continue;
+    it.flags |= 0x01; // equipped bit.
+    equipment[bodySlot] = newCarried.length;
+    newCarried.push(it);
+    used.add(invIdx);
   }
+  for (let i = 0; i < CARRIED_SLOT_COUNT; i++) {
+    if (used.has(i)) continue;
+    const it = origInv[i];
+    if (it && it.itemId > 0) newCarried.push(it);
+  }
+  while (newCarried.length < CARRIED_SLOT_COUNT) newCarried.push(emptyInventorySlot());
+  m.inventory = [...newCarried.slice(0, CARRIED_SLOT_COUNT), ...origInv.slice(CARRIED_SLOT_COUNT)];
+  m.equipment = equipment;
+
   const ac = computeAc(m, scenarioDb);
   m.derivedAc = ac.derivedAc;
   m.bodyAc = ac.bodyAc;
-  applyPhase3Grants(m, selections, scenarioDb, rng);
   return m;
 }

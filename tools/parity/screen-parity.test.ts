@@ -41,7 +41,7 @@ import { composeSkillViewer } from '../../packages/viewer/src/pages/castle/compo
 import { composeSwagBag } from '../../packages/viewer/src/pages/castle/compose-swag-bag.js';
 import { skillTabEntries } from '../../packages/viewer/src/pages/castle/character-view-reducer.js';
 import { buildInventoryItems, scenarioItemName } from '../../packages/viewer/src/pages/castle/item-display.js';
-import { equipCandidates, assayItem, skillViewerRows } from '../../packages/data/src/index.js';
+import { equipCandidates, assayItem, skillViewerRows, applyEquipSelections } from '../../packages/data/src/index.js';
 import { blankDraft } from '../../packages/viewer/src/pages/roster/creation/state.js';
 import { draftFromCharacter } from '../../packages/viewer/src/pages/roster/creation/lib/draft-from-character.js';
 import type { ActivePartyMember, Character } from '../../packages/data/src/index.js';
@@ -768,7 +768,11 @@ function makeStubMember(name: string, portraitSlotId: number): ActivePartyMember
   };
 }
 
-function renderReviewMemberView(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+function renderReviewMemberView(
+  fontSet: FontSet,
+  palette: Palette,
+  equipped = false,
+): Uint8ClampedArray {
   // THESUS's 5 equipped items, in the on-disk inventory slot shape so
   // buildInventoryItems resolves name (scenario.dbs items[id].name1) + icon
   // (equipSlot→wfont0 glyph). The schema requires exactly 22 slots; pad the rest.
@@ -831,13 +835,29 @@ function renderReviewMemberView(fontSet: FontSet, palette: Palette): Uint8Clampe
     JSON.parse(readFileSync(join(EXTRACTED_SCENARIO, 'scenario.json'), 'utf-8')),
   );
 
+  // For the post-equip fixture, run the real EQUIP commit: equip each item in
+  // its body slot (weapon/off-hand/chest/legs/feet) — the engine physically
+  // reorders the carried region to body-slot order, sets equipment[], and folds
+  // the shield AC into the displayed grid. selections index the pickup-order
+  // inventory above: LONGSWORD=0→body0, CUIRASS=1→body4, LEGGING=2→body5,
+  // SANDALS=3→body7, BUCKLER=4→body1.
+  const baseMember: ActivePartyMember = { ...thesus, inventory };
+  const member: ActivePartyMember = equipped
+    ? (applyEquipSelections(baseMember as Character, [0, 4, null, null, 1, 2, null, 3], scenarioDb) as ActivePartyMember)
+    : baseMember;
+
+  // The post-equip fixture (save 5) is a SOLO party (1 member) — REVIEW is gated
+  // on 2+ members, so its menu is 6 entries (EQUIP,SPELL,ASSAY,SWAG,SKILL,EXIT)
+  // with EXIT at idx 5; the unequipped fixture is a 3-member party (7 entries,
+  // REVIEW present, EXIT at idx 6). Both show EXIT highlighted.
+  const partyMembers = equipped ? [member] : [member, members[1]!, members[2]!];
   const carryMax = resolveCarryCapacityMax(thesus, false);
   const windows = composeCharacterViewFrame({
-    members: [{ ...thesus, inventory }, members[1]!, members[2]!],
+    members: partyMembers,
     currentSlot: 0,
-    cursorIdx: 6, // EXIT in the 7-entry menu (EQUIP,SPELL,ASSAY,SWAG,SKILL,REVIEW,EXIT)
+    cursorIdx: equipped ? 5 : 6,
     db: msgDb,
-    inventory: buildInventoryItems({ ...thesus, inventory }, scenarioDb),
+    inventory: buildInventoryItems(member, scenarioDb),
     cc: { current: Math.floor((thesus.encumbranceCurrent ?? 0) / 10), max: Math.floor(carryMax / 10) },
     age: { years: 18, second: 1 },
   });
@@ -1368,6 +1388,15 @@ const SCREENS: ScreenCase[] = [
     fixture: 'review-member-view',
     floor: 100, // 3-member party — THESUS char sheet + resolved equipment + 7-entry menu, EXIT highlighted
     render: renderReviewMemberView,
+  },
+  {
+    // Post-EQUIP char view (save 5): THESUS after equipping all 5 items. The
+    // inventory is reordered to body-slot order with ✓ markers, equipped names
+    // recolored (weapon/shield 0x60, armor 0x70), AC "9 (-1)" with the shield AC
+    // folded into the grid, and the equipped-armor AC-grid icons.
+    fixture: 'review-member-equipped',
+    floor: 100,
+    render: (f, p) => renderReviewMemberView(f, p, true),
   },
   {
     // EQUIP slot 0, initial: cursor on NONE, ▸ LONGSWORD (candidate), prompt

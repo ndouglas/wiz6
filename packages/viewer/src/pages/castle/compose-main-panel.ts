@@ -82,9 +82,12 @@ const ATTR_MANA_SLASH = 0x90;        // palette[9] — separator
 
 // Inventory list (rows 9-13 cols 21-38).
 const ATTR_INV_MARGIN = 0x40;        // palette[4] left-margin "selected-row" marker
-const ATTR_INV_NAME = 0x90;          // palette[9] item-name chars
+const ATTR_INV_NAME = 0x90;          // palette[9] item-name chars (carried, not equipped)
+const ATTR_INV_NAME_HAND = 0x60;     // palette[6] equipped weapon/off-hand (body 0,1)
+const ATTR_INV_NAME_WORN = 0x70;     // palette[7] equipped worn armor (body 2..7)
 const ATTR_INV_PAD = 0x10;           // palette[1] trailing-space pad after the name
 const ATTR_INV_ICON = 0x04;          // wfont0 highlighted — body-slot equip icon
+const INV_CHECK_CHAR = 0x17;         // ✓ left-margin marker for an equipped item
 const INV_NAME_COL = 22;
 const INV_NAME_WIDTH = 15;           // cols 22..36 inclusive
 const INV_ICON_COL = 38;
@@ -147,13 +150,17 @@ const STAT_LABELS: ReadonlyArray<{ label: string; value: (m: ActivePartyMember) 
   { label: 'KAR', value: (m) => m.attributes.kar },
 ];
 
-/** A single equipped-item row in the WPCVW inventory list. */
+/** A single item row in the WPCVW inventory list. */
 export interface InventoryItem {
   /** Display name, truncated/padded to 15 chars when rendered. */
   name: string;
   /** Body-slot glyph (wfont0 char) — e.g. 0x02 weapon, 0x2a body, 0x2d legs,
    *  0x2f feet, 0x27 shield. Maps from the item's `equipSlot` field. */
   iconChar: number;
+  /** Body slot this item is equipped in (0..7), or null if carried-but-not-equipped.
+   *  Equipped rows render a ✓ marker + recolored name; equipped armor also drives
+   *  the AC-grid icons. RE: wpcvw-post-equip-view.json. */
+  equippedBodySlot?: number | null;
 }
 
 export interface MainPanelView {
@@ -413,40 +420,65 @@ function drawBackgroundExtras(w: TileWindow): void {
   }
 }
 
-function drawArmorClass(w: TileWindow, member: ActivePartyMember): void {
-  // Row 5: "ARMORCLASS" cols 21-30 attr 0xf0; total (2 chars) cols 32-33
-  // attr 0x40; " " 34 attr 0xf0; "(" 35 attr 0xf0; "+" 36 attr 0x90; "0"
-  // 37 attr 0x90; ")" 38 attr 0xf0.
+/** Interpret a stored AC byte as signed (the weapon/shield slot underflows to
+ *  0xFF = −1 etc — see computeAc's u8-wrap note). */
+function signed8(b: number): number {
+  return b > 127 ? b - 256 : b;
+}
+
+function drawArmorClass(
+  w: TileWindow,
+  member: ActivePartyMember,
+  items: ReadonlyArray<InventoryItem>,
+): void {
+  // The stored AC array keeps the combined weapon/off-hand AC (bodyAc[0], the
+  // +0x4549 byte) SEPARATE from the per-body-part AC; the panel FOLDS its signed
+  // value into the total and the 5 worn slots at render time (Magical is exempt).
+  // RE: wpcvw-post-equip-view.json #ac-display-folds-in-weapon-shield-ac.
+  const hasBodyAc = member.bodyAc != null;
+  const shieldAc = hasBodyAc ? signed8(member.bodyAc![0] ?? 0) : 0;
+
+  // Row 5: "ARMORCLASS" cols 21-30 attr 0xf0; total (2 chars) cols 32-33 attr
+  // 0x40; " (" 34-35 attr 0xf0; signed modifier 36-37; ")" 38 attr 0xf0. The
+  // modifier is the folded-in weapon/shield AC: "+0" attr 0x90 when ≥0, else
+  // "-N" attr 0x60 (red).
   setCursor(w, 21, 5);
   puts(w, 'ARMORCLASS', ATTR_AC_LABEL);
-  const total = rpad(member.derivedAc ?? 10, 2);
+  const total = rpad((member.derivedAc ?? 10) + shieldAc, 2);
   setCursor(w, 32, 5);
   puts(w, total, ATTR_AC_TOTAL);
   setCursor(w, 34, 5);
   puts(w, ' (', ATTR_AC_LABEL);
+  const modText = shieldAc < 0 ? `-${-shieldAc}` : `+${shieldAc}`;
+  const modAttr = shieldAc < 0 ? ATTR_VITAL_VALUE : ATTR_AC_MOD; // red 0x60 vs 0x90
   setCursor(w, 36, 5);
-  puts(w, '+0', ATTR_AC_MOD);
+  puts(w, modText, modAttr);
   setCursor(w, 38, 5);
   puts(w, ')', ATTR_AC_LABEL);
 
-  // Row 6: 6 slot icons at chars 0x79..0x7e, interleaved with wfont1
-  // separator 0x1c. Layout: col 22=icon0, col 23=sep, col 25=icon1, col 26=sep, ...
-  // Pattern: cols (22+3*i) → icon (wfont0 char 0x79+i attr 0x04);
-  //          cols (23+3*i) → separator wfont1 0x1c attr 0x01 (skip last).
+  // Row 6: 6 slot icons interleaved with wfont1 separator 0x1c. Each grid slot i
+  // maps to body slot i+2 (Magical=2, Head=3, Chest=4, Legs=5, Hands=6, Feet=7);
+  // if armor is equipped there the icon is that item's body-slot glyph, else the
+  // default wfont0 char 0x79+i.
   for (let i = 0; i < 6; i++) {
     const iconCol = 22 + i * 3;
+    const equipped = items.find((it) => it.equippedBodySlot === i + 2);
+    const iconChar = equipped ? equipped.iconChar : 0x79 + i;
     setCursor(w, iconCol, 6);
-    puts(w, String.fromCharCode(0x79 + i), ATTR_AC_ICON);
+    puts(w, String.fromCharCode(iconChar), ATTR_AC_ICON);
     if (i < 5) {
       setCursor(w, iconCol + 1, 6);
-      puts(w, String.fromCharCode(0x1c), ATTR_AC_SEP);
+      puts(w, String.fromCharCode(CHROME_AC_ICON_SEP), ATTR_AC_SEP);
     }
   }
 
-  // Row 7: 6 AC values, 2-char right-aligned. Cols (22+3*i)..(23+3*i).
-  // Value 0 → attr 0x30 (red/dim); value >0 → attr 0x70.
+  // Row 7: 6 AC values, 2-char right-aligned. grid[0] (Magical) = bodyAc[1] with
+  // no fold-in; grid[1..5] (Head..Feet) = bodyAc[2..6] + shieldAc. Value 0 →
+  // attr 0x30 (dim); value >0 → attr 0x70.
   for (let i = 0; i < 6; i++) {
-    const v = member.bodyAc?.[i] ?? AC_DEFAULTS[i] ?? 0;
+    const v = hasBodyAc
+      ? (member.bodyAc![i + 1] ?? 0) + (i === 0 ? 0 : shieldAc)
+      : (AC_DEFAULTS[i] ?? 0);
     const attr = v === 0 ? ATTR_AC_VALUE_ZERO : ATTR_AC_VALUE_NONZERO;
     setCursor(w, 22 + i * 3, 7);
     puts(w, rpad(v, 2), attr);
@@ -455,15 +487,22 @@ function drawArmorClass(w: TileWindow, member: ActivePartyMember): void {
 
 function drawInventoryList(w: TileWindow, items: ReadonlyArray<InventoryItem>): void {
   for (let i = 0; i < Math.min(items.length, INV_MAX_ROWS); i++) {
-    const { name, iconChar } = items[i]!;
+    const { name, iconChar, equippedBodySlot } = items[i]!;
     const row = INV_FIRST_ROW + i;
-    // Left margin indicator (selected-row uses 0x50; non-selected uses 0x40).
+    const equipped = equippedBodySlot != null;
+    // Left-margin marker: ✓ (0x17) for an equipped item, else blank — both attr 0x40.
     setCursor(w, INV_NAME_COL - 1, row);
-    puts(w, ' ', ATTR_INV_MARGIN);
-    // Item name at cols 22..(22 + nameLen - 1) attr 0x90.
+    puts(w, equipped ? String.fromCharCode(INV_CHECK_CHAR) : ' ', ATTR_INV_MARGIN);
+    // Item name. Equipped weapon/off-hand (body 0,1) → attr 0x60; equipped worn
+    // armor (body 2..7) → attr 0x70; carried-but-not-equipped → attr 0x90.
+    const nameAttr = !equipped
+      ? ATTR_INV_NAME
+      : equippedBodySlot <= 1
+        ? ATTR_INV_NAME_HAND
+        : ATTR_INV_NAME_WORN;
     const namePart = name.slice(0, INV_NAME_WIDTH);
     setCursor(w, INV_NAME_COL, row);
-    puts(w, namePart, ATTR_INV_NAME);
+    puts(w, namePart, nameAttr);
     // Trailing padding at attr 0x10 from name end to col 36.
     const padCount = INV_NAME_WIDTH - namePart.length;
     if (padCount > 0) {
@@ -519,8 +558,9 @@ export function composeMainPanel(view: MainPanelView): TileWindow {
   drawStatsColumn(w, view.member);
   drawHpStmCndGpCc(w, view.member);
   drawCcValues(w, view.cc);
-  drawArmorClass(w, view.member);
-  drawInventoryList(w, view.inventory ?? []);
+  const inventory = view.inventory ?? [];
+  drawArmorClass(w, view.member, inventory);
+  drawInventoryList(w, inventory);
   drawSchoolManaGrid(w, view.member);
   return w;
 }

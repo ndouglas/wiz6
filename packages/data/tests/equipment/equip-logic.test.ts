@@ -150,14 +150,18 @@ describe('computeAc', () => {
 });
 
 describe('applyEquipSelections', () => {
-  it('applies selections to the equipment array + sets equipped bit0', () => {
+  it('reorders the carried region to body-slot order + sets equipped bit0', () => {
     const m = thesus(); const db = realScenarioDb();
+    // pickup order: [LONGSWORD, CUIRASS, LEGGING, SANDALS, BUCKLER]
     const sel = [0, 4, null, null, 1, 2, null, 3]; // weapon, shield(off-hand), chest, legs, feet
     const out = applyEquipSelections(m, sel, db);
-    expect(out.equipment).toEqual([0, 4, 0xff, 0xff, 1, 2, 0xff, 3]);
-    expect(out.inventory![0]!.flags & 0x01).toBe(1);  // LONGSWORD equipped (slot 0)
-    expect(out.inventory![3]!.flags & 0x01).toBe(1);  // SANDALS equipped (slot 7 → inv idx 3)
-    expect(out.inventory![5]!.flags & 0x01).toBe(0);  // unselected inv idx 5 → not equipped
+    // Equipped items move to the front in body-slot order → inventory becomes
+    // [LONGSWORD, BUCKLER, CUIRASS, LEGGING, SANDALS]; equipment[] points to the
+    // NEW front indices.
+    expect(out.equipment).toEqual([0, 1, 0xff, 0xff, 2, 3, 0xff, 4]);
+    expect(out.inventory!.slice(0, 5).map((s) => s.itemId)).toEqual([8, 141, 135, 132, 130]);
+    expect(out.inventory!.slice(0, 5).every((s) => (s.flags & 0x01) === 1)).toBe(true); // all 5 equipped
+    expect(out.inventory![5]!.flags & 0x01).toBe(0); // padded empty slot → not equipped
   });
   it('Phase-1 clears equipped bit0 but PRESERVES a genuine curse bit1', () => {
     const m = thesus(); m.inventory![0]!.flags = 0x03; const db = realScenarioDb(); // bit0+bit1 set

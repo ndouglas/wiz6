@@ -1,0 +1,50 @@
+{
+  "topic": "wpcvw post-equip character-view rendering (the char sheet AFTER the EQUIP wizard commits)",
+  "source_saves": ["tools/dosbox/save/5.sav (THESUS, all 5 items equipped)"],
+  "findings": [
+    {
+      "id": "equip-physically-reorders-carried-inventory",
+      "claim": "On EQUIP commit (FUN_8e35), the engine PHYSICALLY REORDERS the carried inventory array (slots 0..9 of the 22-slot array at +0x4428): equipped items are moved to the FRONT in BODY-SLOT order (weapon, off-hand, cloak, head, chest, legs, hands, feet), then the remaining (unequipped) carried items follow in their prior order. equipment[bodySlot] (+0x44f8) then points to the item's NEW front index. The SWAG bag region (slots 10..21) is untouched. Verified empirically from save 5: inventory itemIds slots 0..4 = [8 LONGSWORD, 141 BUCKLER, 135 CUIRASS, 132 LEGGING, 130 SANDALS] (body-slot order, NOT the pickup order which was LONGSWORD/CUIRASS/LEGGING/SANDALS/BUCKLER); equipment[8] = [0,1,255,255,2,3,255,4] (body0->idx0, body1->idx1, body4->idx2, body5->idx3, body7->idx4).",
+      "category": "inventory_mutation",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "type": "save-state",
+        "details": "save 5 DGROUP+0x4428 itemIds [8,141,135,132,130,0,...]; DGROUP+0x44f8 equipment [0,1,255,255,2,3,255,4]. Item->bodyslot: LONGSWORD eq0->body0, BUCKLER eq11->body1, CUIRASS eq7->body4, LEGGING eq8->body5, SANDALS eq10->body7."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ac-display-folds-in-weapon-shield-ac",
+      "claim": "The AC array at +0x4548 (8 bytes idx0..7) STORES weapon/shield AC SEPARATELY from the per-body-part AC: idx0=base(total), idx1=combined weapon+off-hand AC (+0x4549, both body0 and body1 items subtract byte0x46 here), idx2=magical, idx3..7 = Head/Chest/Legs/Hands/Feet positional AC. The DISPLAY then FOLDS the signed weapon/shield byte (idx1) into the total and the 5 worn slots at RENDER time: shown_total = idx0 + signed8(idx1); shown_mod ('(+N)'/'(-N)') = signed8(idx1); grid[Magical] = idx2 (NO fold-in); grid[Head..Feet] = idx{3..7} + signed8(idx1). Verified from save 5: live array = [10,255,0,10,5,6,10,9] (base 10, BUCKLER -1 -> idx1=0xFF=-1, CUIRASS -5 -> idx4=5, LEGGING -4 -> idx5=6, SANDALS -1 -> idx7=9). Displayed: 'ARMORCLASS 9 (-1)', grid [0,9,4,5,9,8] = [idx2, idx3-1, idx4-1, idx5-1, idx6-1, idx7-1].",
+      "category": "ac_rendering",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "type": "save-state",
+        "details": "save 5 DGROUP+0x4548..+0x454f = [10,255,0,10,5,6,10,9]; SPD(+0x4519)=9 (base AC stays 10). dump-cells main panel row5 total='9'@0x40 mod='-1'@0x60; row7 grid [0,9,4,5,9,8]. Each worn slot = stored - 1 (the shield); Magical unchanged. Our computeAc already stores the correct separated array; the fold-in is a RENDER-only transform."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "inventory-row-equipped-presentation",
+      "claim": "In the normal (non-wizard) char view, an equipped carried item renders with a CHECK marker (wfont0 0x17) at the left-margin col 21 attr 0x40 (replacing the blank-margin 0x40 space of an unequipped row), and its NAME is recolored: hand-held items (body slots 0,1 = weapon/off-hand/shield) -> attr 0x60; worn armor (body slots 2..7) -> attr 0x70. Unequipped carried items keep the normal name attr 0x90. The right-margin body-slot icon (col 38 attr 0x04) is unchanged by equip state. Verified vs save 5 dump: rows 9-13 col21=0x17/0x40; LONGSWORD/BUCKLER name attr 0x60, CUIRASS/LEGGING/SANDALS name attr 0x70.",
+      "category": "ac_rendering",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "type": "save-state",
+        "details": "save 5 dump-cells main panel: inv row9 col21=17/40 name LONGSWORD@60 col38=02/04; row10 BUCKLER@60 col38=27/04; row11 CUIRASS@70 col38=2a/04; row12 LEGGING@70 col38=2d/04; row13 SANDALS@70 col38=2f/04."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ac-grid-icons-reflect-equipped-armor",
+      "claim": "The 6 AC-grid icons (row 6, cols 22+3*i, attr 0x04) default to wfont0 glyphs 0x79..0x7e (one per grid slot). When armor is equipped in the body slot that maps to AC grid slot i (grid slot i -> body slot i+2: Magical=body2, Head=body3, Chest=body4, Legs=body5, Hands=body6, Feet=body7), the icon becomes that item's body-slot glyph (the same glyph used in the inventory col-38 icon, equipSlot->glyph). Verified save 5 row6 icons [0x79,0x7a,0x2a,0x2d,0x7d,0x2f]: Chest=CUIRASS 0x2a, Legs=LEGGING 0x2d, Feet=SANDALS 0x2f; the empty Magical/Head/Hands keep defaults 0x79/0x7a/0x7d.",
+      "category": "ac_rendering",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "type": "save-state",
+        "details": "save 5 dump-cells main panel row6: 22=79/04 25=7a/04 28=2a/04 31=2d/04 34=7d/04 37=2f/04 (1c separators between). Grid slot i icon = equipment[i+2] item iconChar or default 0x79+i."
+      },
+      "confidence": "high"
+    }
+  ]
+}
