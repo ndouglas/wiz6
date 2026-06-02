@@ -28,7 +28,7 @@ import { setCursor, puts, type FontSet } from '../../packages/parser/src/index.j
 import { loadCreationFontSet } from '../../packages/viewer/src/pages/roster/creation/ega/assets.js';
 import { renderCreationFrame } from '../../packages/viewer/src/pages/roster/creation/ega/render-frame.js';
 import { createPersistentWindows } from '../../packages/viewer/src/pages/roster/creation/ega/windows.js';
-import { composeSkillTrainFrame, patchFontSetWithPortrait, SKILL_CATEGORIES } from '../../packages/viewer/src/pages/roster/creation/ega/skill-train-frame.js';
+import { composeSkillTrainFrame, patchFontSetWithPortrait, patchFontSetWithTwoPortraits, STORED_PORTRAIT_GLYPH_BASE, SKILL_CATEGORIES } from '../../packages/viewer/src/pages/roster/creation/ega/skill-train-frame.js';
 import { composeReviewPickerFrame } from '../../packages/viewer/src/pages/roster/creation/ega/review-picker-frame.js';
 import { highlightRange } from '../../packages/viewer/src/pages/roster/creation/ega/highlight.js';
 import { drawCharSheet } from '../../packages/viewer/src/pages/roster/creation/ega/char-sheet.js';
@@ -43,10 +43,10 @@ import { skillTabEntries } from '../../packages/viewer/src/pages/castle/characte
 import { buildInventoryItems, scenarioItemName } from '../../packages/viewer/src/pages/castle/item-display.js';
 import { equipCandidates, assayItem, skillViewerRows, applyEquipSelections } from '../../packages/data/src/index.js';
 import { blankDraft } from '../../packages/viewer/src/pages/roster/creation/state.js';
-import { draftFromCharacter } from '../../packages/viewer/src/pages/roster/creation/lib/draft-from-character.js';
 import { draftFromEngineDump } from '../../packages/viewer/src/pages/roster/creation/lib/draft-from-engine-dump.js';
 import type { ActivePartyMember, Character } from '../../packages/data/src/index.js';
 import { raceName, className, creationString, MSG, skillName } from '../../packages/viewer/src/pages/roster/creation/messages.js';
+import { decodePcfile, pcfileSlotToCharacter } from '../../packages/parser/src/index.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { compareRgba, writeDiffPng } from './diff-image.js';
 import { indicesToRgba } from './decode-screen.js';
@@ -72,6 +72,22 @@ const EXTRACTED_MESSAGES = join(mainRoot(), 'extracted', 'messages');
 const EXTRACTED_PORTRAITS = join(mainRoot(), 'extracted', 'portraits');
 const EXTRACTED_SCENARIO = join(mainRoot(), 'extracted', 'scenario');
 const FIXTURES_ENGINE = join(mainRoot(), 'tools', 'parity', 'fixtures', 'engine');
+const COMMITTED_STATES = join(mainRoot(), 'test-fixtures', 'states');
+
+// ─── Minimal-roster NATHAN (the sole roster char in all 8 roster-mgmt fixtures) ─
+// Decode the committed 1-char pcfile (minimal-roster.pcfile.dbs) into the roster
+// Character that the engine boots from for every roster-management fixture. This
+// is the SAME NATHAN (Human-male FIGHTER) the engine reads off disk — offline,
+// deterministic, no live read. Used directly by the picker frames (which only
+// read name/race/class/sex) and (for the char-sheet/action screens) via the
+// per-fixture sidecar decoded with draftFromEngineDump.
+function loadMinimalRosterNathan(): Character {
+  const bytes = readFileSync(join(COMMITTED_STATES, 'minimal-roster.pcfile.dbs'));
+  const pc = decodePcfile(new Uint8Array(bytes));
+  const slot = pc.slots.find((s) => s.populated);
+  if (!slot) throw new Error('minimal-roster.pcfile.dbs has no populated slot');
+  return pcfileSlotToCharacter(slot, '00000000-0000-0000-0000-000000000001');
+}
 
 // ─── Loaders ───────────────────────────────────────────────────────────────────
 
@@ -423,70 +439,73 @@ const NATHAN_RAWULF_FIGHTER: Character = {
 };
 
 function renderReviewPicker(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Engine slot 1: single-character roster (NATHAN Rawulf Fighter).
+  // 1-char roster: NATHAN (Human-male FIGHTER), decoded from the committed
+  // minimal-roster pcfile (the same char the engine boots from). Renders as
+  // "NATHAN  M-HUM FIG".
   const windows = composeReviewPickerFrame(
-    { roster: [NATHAN_RAWULF_FIGHTER], cursorIdx: 0 },
+    { roster: [loadMinimalRosterNathan()], cursorIdx: 0 },
     msgDb,
   );
   return renderCreationFrame(windows, fontSet, palette);
 }
 
 function renderDeletePicker(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Engine slot 3: same single-character roster, but the picker title is
-  // "DELETE WHO?" (msg 0x0461) instead of "REVIEW WHO?". Everything else
-  // (scrollbar, entry row, CANCEL prompt) is identical.
+  // Same 1-char NATHAN roster, picker title "DELETE WHO?" (msg 0x0461). Layout
+  // (scrollbar, entry row, CANCEL prompt) identical to REVIEW WHO?.
   const windows = composeReviewPickerFrame(
-    { roster: [NATHAN_RAWULF_FIGHTER], cursorIdx: 0, titleMsgId: MSG.deleteWho },
+    { roster: [loadMinimalRosterNathan()], cursorIdx: 0, titleMsgId: MSG.deleteWho },
     msgDb,
   );
   return renderCreationFrame(windows, fontSet, palette);
 }
 
 function renderRenamePicker(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Engine slot 5: same single-character roster, picker title = "RENAME WHO?".
+  // Same 1-char NATHAN roster, picker title = "RENAME WHO?".
   const windows = composeReviewPickerFrame(
-    { roster: [NATHAN_RAWULF_FIGHTER], cursorIdx: 0, titleMsgId: MSG.renameWho },
+    { roster: [loadMinimalRosterNathan()], cursorIdx: 0, titleMsgId: MSG.renameWho },
     msgDb,
   );
   return renderCreationFrame(windows, fontSet, palette);
 }
 
 function renderPortraitTargetPicker(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Engine slot 7: picker title = "PORTRAIT FOR WHOM?".
+  // Same 1-char NATHAN roster, picker title = "PORTRAIT FOR WHOM?".
   const windows = composeReviewPickerFrame(
-    { roster: [NATHAN_RAWULF_FIGHTER], cursorIdx: 0, titleMsgId: MSG.portraitForWhom },
+    { roster: [loadMinimalRosterNathan()], cursorIdx: 0, titleMsgId: MSG.portraitForWhom },
     msgDb,
   );
   return renderCreationFrame(windows, fontSet, palette);
 }
 
 function renderPortraitChange(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Engine slot 8: portrait-change active. Char sheet of NATHAN Rawulf Fighter
-  // on the left + portrait picker (CHARACTER PORTRAIT title + 3x3 tiles) on
-  // the right. wfont2 is loaded with the character's CURRENT portrait (= 1) —
-  // the picker has just started.
-  const wport1: PortraitSet = PortraitSetSchema.parse(
-    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  // Portrait-change active: char sheet of the 1-char roster NATHAN on the left
+  // + portrait picker (CHARACTER PORTRAIT title + 3×3 tiles) on the right. The
+  // picker has JUST started, so cycling index == stored index == the character's
+  // current portrait (sidecar rendered_portrait_index = 0). Mirrors the live
+  // PortraitChangeScreen exactly: the small char-sheet portrait is locked to the
+  // STORED portrait (glyphs 0x70..0x78) while the big menuPanel preview shows the
+  // CYCLING portrait (0x48..0x50) — identical tiles here since both == 0.
+  const dumped = draftFromEngineDump(loadDraftSidecar('creation-portrait-change'));
+  const fontSetWithPortrait = patchFontSetWithTwoPortraits(
+    fontSet, loadAllPortraits(), dumped.portrait, dumped.portrait,
   );
-  const empty: PortraitSet = { ...wport1, portraits: [] };
-  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, empty, empty], 1);
 
   const { top, bottomBar, menuPanel } = createPersistentWindows();
-  const draft = draftFromCharacter(NATHAN_RAWULF_FIGHTER);
-  drawCharSheet(top, draft, msgDb, creationString(msgDb, MSG.portraitTitle));
+  drawCharSheet(top, dumped, msgDb, creationString(msgDb, MSG.portraitTitle));
 
-  // Small portrait tiles at top (1..3, 1..3) attr 0x02.
+  // Small portrait tiles at top (1..3, 1..3) attr 0x02 — written at the
+  // STORED-PORTRAIT glyph range (0x70..0x78), locked to the stored portrait.
   for (let r = 0; r < 3; r++) {
     setCursor(top, 1, 1 + r);
     puts(top,
-      String.fromCharCode(0x48 + r * 3) +
-      String.fromCharCode(0x48 + r * 3 + 1) +
-      String.fromCharCode(0x48 + r * 3 + 2),
+      String.fromCharCode(STORED_PORTRAIT_GLYPH_BASE + r * 3) +
+      String.fromCharCode(STORED_PORTRAIT_GLYPH_BASE + r * 3 + 1) +
+      String.fromCharCode(STORED_PORTRAIT_GLYPH_BASE + r * 3 + 2),
       0x02,
     );
   }
 
-  // menuPanel big portrait 3×3 at (8,3)..(10,5) attr 0x02.
+  // menuPanel big portrait 3×3 at (8,3)..(10,5) attr 0x02 (cycling portrait).
   for (let r = 0; r < 3; r++) {
     setCursor(menuPanel, 8, 3 + r);
     for (let c = 0; c < 3; c++) {
@@ -506,21 +525,16 @@ function renderPortraitChange(fontSet: FontSet, palette: Palette): Uint8ClampedA
 }
 
 function renderPortraitDone(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Engine slot 9: post-change preview. Char sheet with the NEW portrait
-  // (index 21 — same as the earlier samurai save) baked into wfont2.
-  // bottomBar row 1: "PRESS ▶ TO EXIT" centered (same as ReviewScreen).
-  const wport2: PortraitSet = PortraitSetSchema.parse(
-    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport2.json'), 'utf-8')),
-  );
-  const empty: PortraitSet = { ...wport2, portraits: [] };
-  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [empty, wport2, empty], 21);
-
-  // Use the existing fighter character but with portraitIndex updated to 21.
-  const updatedCharacter = { ...NATHAN_RAWULF_FIGHTER, portraitIndex: 21 };
+  // Post-change preview: char sheet of the 1-char roster NATHAN with the NEW
+  // portrait (cycled one step from index 0 → 1) baked into wfont2. Layout is
+  // identical to ReviewScreen — bottomBar row 1: "PRESS ▶ TO EXIT" centered.
+  // Stats + the cycled portrait index come from the COMMITTED sidecar (the
+  // recipe pressed `right` once before committing → rendered_portrait_index=1).
+  const dumped = draftFromEngineDump(loadDraftSidecar('creation-portrait-done'));
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, loadAllPortraits(), dumped.portrait);
 
   const { top, bottomBar, menuPanel } = createPersistentWindows();
-  const draft = draftFromCharacter(updatedCharacter);
-  drawCharSheet(top, draft, msgDb);
+  drawCharSheet(top, dumped, msgDb);
 
   for (let r = 0; r < 3; r++) {
     setCursor(top, 1, 1 + r);
@@ -540,16 +554,14 @@ function renderPortraitDone(fontSet: FontSet, palette: Palette): Uint8ClampedArr
 }
 
 function renderRenameInput(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Engine slot 6: char sheet of NATHAN Rawulf Fighter (BONUS hidden) with
-  // " NEW NAME >a       " at bottomBar row 1 — empty buffer, cursor at col 11.
-  const wport1: PortraitSet = PortraitSetSchema.parse(
-    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
-  );
-  const empty: PortraitSet = { ...wport1, portraits: [] };
-  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, empty, empty], 1);
+  // Char sheet of the 1-char roster NATHAN (Human-male FIGHTER; BONUS hidden)
+  // with " NEW NAME >a       " at bottomBar row 1 — empty buffer, cursor at
+  // col 11. Stats + portrait come from the COMMITTED sidecar, NOT hardcoded.
+  const dumped = draftFromEngineDump(loadDraftSidecar('creation-rename-input'));
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, loadAllPortraits(), dumped.portrait);
 
   const { top, bottomBar, menuPanel } = createPersistentWindows();
-  const draft = draftFromCharacter(NATHAN_RAWULF_FIGHTER);
+  const draft = dumped;
   drawCharSheet(top, draft, msgDb);
 
   for (let r = 0; r < 3; r++) {
@@ -575,16 +587,16 @@ function renderRenameInput(fontSet: FontSet, palette: Palette): Uint8ClampedArra
 }
 
 function renderDeleteConfirm(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
-  // Engine slot 4: char-sheet of NATHAN Rawulf Fighter with the
+  // Char-sheet of the 1-char roster NATHAN (Human-male FIGHTER) with the
   // "DELETE THIS CHARACTER? YES NO" prompt at bottomBar row 1, NO selected.
-  const wport1: PortraitSet = PortraitSetSchema.parse(
-    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
-  );
-  const empty: PortraitSet = { ...wport1, portraits: [] };
-  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, empty, empty], 1);
+  // Stats + portrait index come from the COMMITTED sidecar (the engine's
+  // read-only char-sheet load → BONUS hidden via *0x56ac=0xffff → -1), NOT
+  // hardcoded. Re-minted from the minimal-roster pcfile.
+  const dumped = draftFromEngineDump(loadDraftSidecar('creation-delete-confirm'));
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, loadAllPortraits(), dumped.portrait);
 
   const { top, bottomBar, menuPanel } = createPersistentWindows();
-  const draft = draftFromCharacter(NATHAN_RAWULF_FIGHTER);
+  const draft = dumped;
   drawCharSheet(top, draft, msgDb);
 
   for (let r = 0; r < 3; r++) {
@@ -1316,7 +1328,7 @@ const SCREENS: ScreenCase[] = [
   },
   {
     fixture: 'creation-review-character',
-    floor: 100, // pixel-exact — REVIEW PC char-sheet of NATHAN Rawulf Fighter; BONUS row hidden, EXIT prompt at row 1
+    floor: 100, // pixel-exact — REVIEW PC char-sheet of NATHAN (Human-male FIGHTER); BONUS row hidden, EXIT prompt at row 1
     render: renderReviewCharacter,
   },
   {

@@ -15,26 +15,19 @@ export interface SaveStateRecipe {
   name: string;
   description: string;
   /** Drive steps. By default these run AFTER a fresh boot + title-screen
-   *  dismissal. If `baseState` is set, they instead run AFTER unserializing that
-   *  committed base machine (no boot, no title dismissal) — a deterministic
-   *  forward-drive from a frozen waypoint. One macro string each; the builder
+   *  dismissal. If `pcfileFixture` is set, the boot uses an image overlaid with
+   *  that committed pcfile (see below). One macro string each; the builder
    *  settles the frame between steps. */
   steps: string[];
   /** Extra settle (ms) after the final step before saving (default 0). */
   settleMs?: number;
-  /** Optional committed base-state name (test-fixtures/states/<baseState>.state.gz).
-   *  When set, build-state unserializes it and drives `steps` forward FROM it
-   *  instead of booting — used to re-mint screens that build on a frozen roster
-   *  (creation rolls are non-deterministic, so the roster is frozen once and the
-   *  forward-drive is roll-free → fully reproducible). */
-  baseState?: string;
   /** Optional committed pcfile name (test-fixtures/states/<pcfileFixture>.pcfile.dbs)
    *  to OVERLAY on the pinned game image before booting. dosbox-pure's savestate
    *  does NOT capture host-mounted-file writes, so an in-game SAVE never survives
    *  a re-mount (see docs/re/findings/creation-save-persistence.json). To review a
    *  CREATED character reproducibly we bake it into the source pcfile and boot from
    *  a fresh image whose roster already contains it. The recipe then drives forward
-   *  with NO creation roll — fully deterministic. Mutually exclusive with baseState. */
+   *  with NO creation roll — fully deterministic. */
   pcfileFixture?: string;
 }
 
@@ -434,10 +427,12 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
     ],
     settleMs: 300,
   },
-  // Roster-management waypoints over an EXISTING roster character. The committed
-  // fixtures capture a single-char roster (NATHAN Rawulf Fighter) absent from the
-  // pinned pcfile, so these reach the right SCREEN but show a different roster
-  // (the pinned THESUS/… set) — STALE/divergent.
+  // Roster-management waypoints over the committed 1-char NATHAN roster. Each
+  // boots from a fresh image overlaid with minimal-roster.pcfile.dbs (the same
+  // baked-in NATHAN/Human-male FIGHTER that creation-review-character reviews) —
+  // dosbox-pure savestate cannot persist an in-game SAVE's disk write, so the
+  // roster char is baked into the boot image instead (docs/re/findings/
+  // creation-save-persistence.json). Fully deterministic (no creation roll).
   // CHARACTER MENU (down down enter) — POPULATED-roster layout (6 options,
   // col-major; cursor STARTS on EXIT, bottom-right):
   //   col0: CREATE PC (r0) | REVIEW PC (r1)
@@ -446,7 +441,8 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
   // From EXIT: REVIEW=left left ; DELETE=left up ; RENAME=left ; PORTRAIT=up.
   {
     name: 'creation-review-picker',
-    description: 'REVIEW WHO? roster picker (stale: NATHAN-roster vs pinned pcfile).',
+    description: 'REVIEW WHO? roster picker over the 1-char NATHAN roster (deterministic).',
+    pcfileFixture: 'minimal-roster',
     steps: ['down down enter', 'left left enter'], // CHAR MENU (cursor on EXIT) → REVIEW PC
     settleMs: 300,
   },
@@ -467,43 +463,50 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
   },
   {
     name: 'creation-delete-picker',
-    description: 'DELETE WHO? roster picker (stale roster).',
+    description: 'DELETE WHO? roster picker over the 1-char NATHAN roster (deterministic).',
+    pcfileFixture: 'minimal-roster',
     steps: ['down down enter', 'left up enter'], // CHAR MENU (cursor on EXIT) → DELETE PC (col1,row0)
     settleMs: 300,
   },
   {
     name: 'creation-delete-confirm',
-    description: 'DELETE THIS CHARACTER? YES NO (stale roster).',
+    description: 'DELETE THIS CHARACTER? YES NO over the 1-char NATHAN roster (deterministic).',
+    pcfileFixture: 'minimal-roster',
     steps: ['down down enter', 'left up enter', 'enter'], // DELETE PC → pick first → confirm
     settleMs: 300,
   },
   {
     name: 'creation-rename-picker',
-    description: 'RENAME WHO? roster picker (stale roster).',
+    description: 'RENAME WHO? roster picker over the 1-char NATHAN roster (deterministic).',
+    pcfileFixture: 'minimal-roster',
     steps: ['down down enter', 'left enter'], // CHAR MENU (cursor on EXIT) → RENAME PC (col1,row1)
     settleMs: 300,
   },
   {
     name: 'creation-rename-input',
-    description: 'RENAME char-sheet + NEW NAME > input (stale roster).',
+    description: 'RENAME char-sheet + NEW NAME > input over the 1-char NATHAN roster (deterministic).',
+    pcfileFixture: 'minimal-roster',
     steps: ['down down enter', 'left enter', 'enter'], // RENAME PC → pick first → input
     settleMs: 300,
   },
   {
     name: 'creation-portrait-target-picker',
-    description: 'PORTRAIT FOR WHOM? roster picker (stale roster).',
+    description: 'PORTRAIT FOR WHOM? roster picker over the 1-char NATHAN roster (deterministic).',
+    pcfileFixture: 'minimal-roster',
     steps: ['down down enter', 'up enter'], // CHAR MENU (cursor on EXIT) → PORTRAIT (col2,row0)
     settleMs: 300,
   },
   {
     name: 'creation-portrait-change',
-    description: 'PORTRAIT change active — char sheet + picker (stale roster).',
+    description: 'PORTRAIT change active — char sheet + picker over the 1-char NATHAN roster (deterministic).',
+    pcfileFixture: 'minimal-roster',
     steps: ['down down enter', 'up enter', 'enter'], // PORTRAIT → pick first → change
     settleMs: 300,
   },
   {
     name: 'creation-portrait-done',
-    description: 'PORTRAIT post-change preview (stale roster).',
+    description: 'PORTRAIT post-change preview over the 1-char NATHAN roster (deterministic).',
+    pcfileFixture: 'minimal-roster',
     steps: ['down down enter', 'up enter', 'enter', 'right enter'], // …→ cycle one portrait, then commit → preview
     settleMs: 300,
   },

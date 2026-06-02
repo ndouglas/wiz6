@@ -68,22 +68,6 @@ async function driveRecipe(s: LiveSession, steps: readonly string[], settleMs = 
   await driveSteps(s, steps, settleMs);
 }
 
-/** Drive a recipe FORWARD from a committed base machine (no boot/title). The
- *  base freezes a non-deterministic roll once; the forward steps are roll-free,
- *  so unserialize+drive is fully reproducible (used for roster-management
- *  screens that read an existing roster). */
-async function driveFromBase(
-  s: LiveSession, baseState: string, steps: readonly string[], settleMs = 0,
-): Promise<void> {
-  const basePath = join(COMMITTED_STATES, `${baseState}.state.gz`);
-  if (!existsSync(basePath)) throw new Error(`missing base state: ${basePath} (mint it first)`);
-  const tmpBase = join(TMP, `${baseState}.state`);
-  writeFileSync(tmpBase, gunzipSync(readFileSync(basePath)));
-  await s.unserialize(tmpBase);
-  await s.step(5);                  // settle the restored frame
-  await driveSteps(s, steps, settleMs);
-}
-
 /** Build an ephemeral source image = pinned test-fixtures/original/ + a committed
  *  pcfile overlay (test-fixtures/states/<fixture>.pcfile.dbs). Returns the dir to
  *  pass as LiveSession `source`. Used by `pcfileFixture` recipes to boot a fresh
@@ -98,7 +82,7 @@ function buildSourceWithPcfile(fixture: string): string {
   return src;
 }
 
-/** Drive a recipe from a fresh boot of a CUSTOM source image (no base unserialize). */
+/** Drive a recipe from a fresh boot of a CUSTOM source image (the pcfile overlay). */
 async function driveFromSource(
   s: LiveSession, steps: readonly string[], settleMs = 0,
 ): Promise<void> {
@@ -137,10 +121,6 @@ async function main() {
   const validateAgainst = vi >= 0 ? process.argv[vi + 1] : undefined;
   const check = process.argv.includes('--check');
   const mint = process.argv.includes('--mint');
-  // --mint-base: drive the recipe from a fresh boot and freeze ONLY the machine
-  // to test-fixtures/states/<name>.state.gz (no fixture, no sidecar). Used to
-  // build a committed BASE that other recipes forward-drive from via baseState.
-  const mintBase = process.argv.includes('--mint-base');
   const recipe = name ? findRecipe(name) : undefined;
   if (!recipe) throw new Error(`unknown recipe: ${name}`);
 
@@ -151,18 +131,6 @@ async function main() {
 
   const committedStatePath = join(COMMITTED_STATES, `${name}.state.gz`);
 
-  // ── --mint-base: freeze the recipe machine as a committed base state ─────────
-  if (mintBase) {
-    const s = new LiveSession(STRUCTS);
-    await driveRecipe(s, recipe.steps, recipe.settleMs);
-    const tmpState = join(TMP, `${name}.state`);
-    await s.serialize(tmpState);
-    s.close();
-    writeFileSync(committedStatePath, gzipSync(readFileSync(tmpState)));
-    console.log(`minted base ${name}: ${committedStatePath}`);
-    return;
-  }
-
   // ── --check pcfileFixture recipe: boot a fresh image overlaid with the
   // committed pcfile, drive the forward steps, fb → diff. Deterministic (no
   // creation roll); reads the baked-in created char from the boot roster. ──────
@@ -170,22 +138,6 @@ async function main() {
     const src = buildSourceWithPcfile(recipe.pcfileFixture);
     const s = new LiveSession(STRUCTS, { source: src });
     await driveFromSource(s, recipe.steps, recipe.settleMs);
-    await s.screenshot(`${TMP}/build.rgba`);
-    s.close();
-    const rgba = new Uint8Array(readFileSync(`${TMP}/build.rgba`));
-    const idx = rgbaToIndices(rgba);
-    writeFileSync(join(TMP, `${name}.regen.png`), encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));
-    const ok = diffVs(idx, name);
-    process.exitCode = ok ? 0 : 1;
-    return;
-  }
-
-  // ── --check baseState recipe: unserialize the committed BASE, drive the
-  // forward steps, fb → diff. No per-fixture .state — the frozen base + the
-  // roll-free forward-drive is the reproducible path. ─────────────────────────
-  if (check && recipe.baseState) {
-    const s = new LiveSession(STRUCTS);
-    await driveFromBase(s, recipe.baseState, recipe.steps, recipe.settleMs);
     await s.screenshot(`${TMP}/build.rgba`);
     s.close();
     const rgba = new Uint8Array(readFileSync(`${TMP}/build.rgba`));
@@ -222,11 +174,6 @@ async function main() {
       // .state — the committed pcfile + roll-free forward-drive is the source.
       s = new LiveSession(STRUCTS, { source: buildSourceWithPcfile(recipe.pcfileFixture) });
       await driveFromSource(s, recipe.steps, recipe.settleMs);
-    } else if (recipe.baseState) {
-      s = new LiveSession(STRUCTS);
-      // baseState recipe: forward-drive from the committed base; do NOT write a
-      // per-fixture state (the base + roll-free forward-drive is the source).
-      await driveFromBase(s, recipe.baseState, recipe.steps, recipe.settleMs);
     } else {
       s = new LiveSession(STRUCTS);
       await driveRecipe(s, recipe.steps, recipe.settleMs);
@@ -253,7 +200,7 @@ async function main() {
     writeFileSync(join(FIXTURES, `${name}.png`), encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));
     const src = recipe.pcfileFixture
       ? `(from pcfile ${recipe.pcfileFixture})`
-      : recipe.baseState ? `(from base ${recipe.baseState})` : 'state.gz +';
+      : 'state.gz +';
     console.log(`minted ${name}: ${src} character.json + idx.gz + png`);
     console.log(`  roll: class=${dump.draft['class']} bonusPool=${dump.bonusPool} attrs=[${(dump.draft['attributes'] as number[]).join(',')}]`);
     return;
