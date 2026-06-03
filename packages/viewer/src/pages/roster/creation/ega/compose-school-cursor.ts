@@ -41,3 +41,21 @@ export function drawSchoolCursor(top: TileWindow, school: number): void {
   setCursor(top, pos[0], pos[1]);
   puts(top, String.fromCharCode(CURSOR_GLYPH), CURSOR_ATTR);
 }
+
+/**
+ * Draw the SAME cursor block (wfont0 0x63 @ attr 0x50, bright-yellow fill) at an
+ * arbitrary (x,y) cell of `win`. The camp-SPELL CANCEL cell uses this on the
+ * spell-panel's realm-row power cell (spellOuter col1 row12): when the picker
+ * cursor sits on CANCEL the engine highlights that cell with the school-cursor
+ * block instead of any school icon.
+ *
+ * BLINK NOTE: the engine BLINKS this cursor (~2 frames ON / ~2-3 OFF). We render
+ * it STATICALLY in its ON phase — matching the ON-phase engine fixtures (the
+ * blink phase is a deterministic function of stepped-frame count; the
+ * spellbook-cancel recipe's settleMs is tuned to land ON). A future pass could
+ * animate the blink; until then the always-visible block is the pragmatic match.
+ */
+export function drawCursorBlock(win: TileWindow, x: number, y: number): void {
+  setCursor(win, x, y);
+  puts(win, String.fromCharCode(CURSOR_GLYPH), CURSOR_ATTR);
+}

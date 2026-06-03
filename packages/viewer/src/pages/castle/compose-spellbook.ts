@@ -32,7 +32,7 @@ import { knownSpellsBySchool } from '@wiz6/data';
 import { composeMainPanel, type InventoryItem } from './compose-main-panel.js';
 import { createPersistentWindows, createSpellPickWindows } from '../roster/creation/ega/windows.js';
 import { composeSpellPanel, REALM_NAMES } from '../roster/creation/ega/compose-spell-panel.js';
-import { drawSchoolCursor } from '../roster/creation/ega/compose-school-cursor.js';
+import { drawSchoolCursor, drawCursorBlock } from '../roster/creation/ega/compose-school-cursor.js';
 import { spellName, creationString } from '../roster/creation/messages.js';
 import { SPELL_CANCEL_CELL } from './character-view-reducer.js';
 
@@ -80,8 +80,10 @@ export function composeSpellbookFrame(view: SpellbookView): TileWindow[] {
 
   // 3. Spell panel — KNOWN spells of the selected school, OR the CANCEL cell.
   // CANCEL sentinel (the engine's 0xffff cursor): the realm-label box reads
-  // "CANCEL" (gray), the SPELLS list is empty, COST blank, and NO school icon
-  // carries the cursor block. RE: docs/re/findings/wpcvw-spell-action.json.
+  // "CANCEL" (gray), the SPELLS list is empty, COST blank, and the selection
+  // cursor lands on the spell-panel realm-row POWER cell (spellOuter col1 row12)
+  // as the school-cursor block (drawn below) — no school icon is highlighted.
+  // RE: docs/re/findings/wpcvw-spell-action.json.
   const onCancel = view.school === SPELL_CANCEL_CELL;
   const bySchool: KnownSpell[][] = knownSpellsBySchool(view.member);
   const list = onCancel ? [] : (bySchool[view.school] ?? []);
@@ -94,9 +96,19 @@ export function composeSpellbookFrame(view: SpellbookView): TileWindow[] {
     cost: sel !== null && list[sel] != null ? String(list[sel]!.cost) : null,
   });
 
-  // 2. School cursor (solid highlight block over the mana icon) — GRID mode only,
-  // and NOT on the CANCEL cell (the cursor leaves the grid entirely there).
-  if (view.mode === 'grid' && !onCancel) drawSchoolCursor(main, view.school);
+  // 2. Selection cursor (solid bright-yellow highlight block, wfont0 0x63 @ 0x50)
+  // — GRID mode only:
+  //   - On a school cell: over that school's mana icon (drawSchoolCursor).
+  //   - On the CANCEL cell: over the spell-panel realm-row POWER cell
+  //     (spellOuter col1 row12) instead — the engine moves the same block there
+  //     when the cursor walks off the grid onto CANCEL.
+  // BLINK: the engine blinks this cursor (~2 ON / ~2-3 OFF, free-running). We
+  // render it STATICALLY in the ON phase; the ON-phase engine fixtures (recipe
+  // settleMs tuned to land ON) are the parity gate. See drawCursorBlock.
+  if (view.mode === 'grid') {
+    if (onCancel) drawCursorBlock(outer, 1, 12);
+    else drawSchoolCursor(main, view.school);
+  }
 
   // 4. Footer prompt centered on bottomBar row 1.
   const prompt = creationString(view.db, SELECT_SPELL_TO_CAST_MSG) || 'SELECT THE SPELL TO CAST';

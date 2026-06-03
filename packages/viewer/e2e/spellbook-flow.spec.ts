@@ -111,7 +111,9 @@ test('camp SPELL spellbook mounted-canvas matches engine (FIRE grid + FIRE subli
 
 // CANCEL cell: from the FIRE grid, RIGHT (FIRE→EARTH) RIGHT (EARTH→off the grid
 // → CANCEL) puts the cursor on the CANCEL sentinel (realm label "CANCEL", empty
-// list, no school cursor). ENTER on CANCEL exits the spellbook back to the
+// list; the selection cursor block moves onto the spell-panel power cell rather
+// than any school icon — engine blinks it, we render the ON phase). ENTER on
+// CANCEL exits the spellbook back to the
 // char-view action menu — the same as ESC. We assert the CANCEL fixture, then
 // that ENTER leaves the spell screen (canvas no longer matches the cancel frame).
 test('camp SPELL CANCEL cell: RIGHT RIGHT reaches CANCEL, ENTER exits the spellbook', async ({

@@ -182,7 +182,8 @@ function navCode(event: CharacterViewEvent): number {
 /**
  * CANCEL sentinel for the camp-SPELL school grid (the engine's `local_42 ==
  * 0xffff` cell). When the `spell-grid` cursor sits on -1 the composer renders
- * the "CANCEL" label + empty list + no school-icon cursor, and ENTER exits.
+ * the "CANCEL" label + empty list and moves the selection cursor block onto the
+ * spell-panel realm-row power cell (no school icon is highlighted); ENTER exits.
  */
 export const SPELL_CANCEL_CELL = -1;
 

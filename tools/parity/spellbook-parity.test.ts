@@ -14,7 +14,12 @@
  *   spellbook-sublist-fire → school 0 FIRE, SUB-LIST, "ENERGY BLAST" selected
  *                            (red highlight), COST = 2.
  *   spellbook-cancel       → CANCEL cell (school -1, cursor off the grid):
- *                            realm label "CANCEL" (gray), empty list, no cursor.
+ *                            realm label "CANCEL" (gray), empty list, and the
+ *                            selection cursor (bright-yellow block) on the spell-
+ *                            panel realm-row POWER cell (spellOuter col1 row12).
+ *                            Captured in the cursor's ON blink-phase (engine
+ *                            blinks it ~2 ON / ~2-3 OFF; recipe settleMs=343
+ *                            lands ON deterministically).
  *
  * Both compared at tolerance 0 (100% gate). Mirrors renderReviewTwinkShuriken's
  * font/portrait/scenario setup; TREON's rendered portrait is at pcfile +0x19c.
@@ -107,7 +112,8 @@ const CASES: SpellbookCase[] = [
   { fixture: 'spellbook-sublist-fire', school: 0, mode: 'sublist', spellIdx: 0 },
   // CANCEL cell: cursor walked off the grid (RIGHT RIGHT from FIRE → CANCEL).
   // school = SPELL_CANCEL_CELL (-1) → realm label "CANCEL" (gray), empty list,
-  // blank COST, no school-icon cursor. RE: docs/re/findings/wpcvw-spell-action.json.
+  // blank COST, and the selection cursor block on the realm-row power cell (ON
+  // blink-phase). RE: docs/re/findings/wpcvw-spell-action.json.
   { fixture: 'spellbook-cancel', school: SPELL_CANCEL_CELL, mode: 'grid', spellIdx: 0 },
 ];
 

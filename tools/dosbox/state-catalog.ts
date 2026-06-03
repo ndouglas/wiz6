@@ -294,12 +294,20 @@ const SPELLBOOK_RECIPES: readonly SaveStateRecipe[] = [
       'Camp SPELL spellbook, CANCEL cell — TREON, cursor walked off the grid onto ' +
       'the CANCEL sentinel. From FIRE (cell 0): RIGHT (row-jump +3 → EARTH/cell 3), ' +
       'RIGHT again (3+3=6 out of range → CANCEL). The realm-label box reads "CANCEL" ' +
-      '(gray, attr 0x70), the SPELLS list is EMPTY, COST blank, and NO school icon ' +
-      'carries the cursor block. ENTER on CANCEL exits the spellbook (= ESC). ' +
-      'Nav confirmed by driving the harness (right/left walk the ±3 row axis; the ' +
-      'cancel cell sits past school 3 on the RIGHT axis). Byte-exact re-mint.',
+      '(gray), the SPELLS list is EMPTY, COST blank, and the CANCEL selection ' +
+      'cursor — a solid bright-yellow block in the realm-row power cell ' +
+      '(spellOuter col1 row12, screen x168 y128) — is shown in its ON phase. ' +
+      'ENTER on CANCEL exits the spellbook (= ESC). Nav confirmed by driving the ' +
+      'harness (right/left walk the ±3 row axis; the cancel cell sits past school 3 ' +
+      'on the RIGHT axis). ' +
+      'BLINK: the engine BLINKS that cursor block (~2 frames ON / ~2-3 OFF, a ' +
+      'free-running ~4-5 frame period). The blink phase is a DETERMINISTIC function ' +
+      'of the total stepped-frame count, so settleMs selects the phase: settleMs=343 ' +
+      'lands the ON (yellow-block) phase reproducibly (verified across boots). The ' +
+      'sibling grid-fire/sublist-fire fixtures likewise capture their selected-cell ' +
+      'highlight ON. Do NOT change settleMs without re-checking the phase. Byte-exact re-mint.',
     steps: [...SPELLBOOK_REACH, 'right right'],
-    settleMs: 300,
+    settleMs: 343,
   },
 ];
 
