@@ -799,11 +799,11 @@ function renderReviewMemberView(
   // (equipSlot→wfont0 glyph). The schema requires exactly 22 slots; pad the rest.
   const emptySlot = { itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 };
   const inventory = [
-    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },   // LONGSWORD
-    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 0 },  // LEATHER CUIRASS
-    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0, quantity: 0, flags: 0 },  // FUR LEGGING
-    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0, quantity: 0, flags: 0 }, // SANDALS
-    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0, quantity: 0, flags: 0 }, // BUCKLER SHIELD
+    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0x01, quantity: 0, flags: 0 },   // LONGSWORD
+    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0x29, quantity: 0, flags: 0 },  // LEATHER CUIRASS
+    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0x2c, quantity: 0, flags: 0 },  // FUR LEGGING
+    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0x2e, quantity: 0, flags: 0 }, // SANDALS
+    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0x26, quantity: 0, flags: 0 }, // BUCKLER SHIELD
     ...Array.from({ length: 17 }, () => ({ ...emptySlot })),
   ];
 
@@ -905,11 +905,11 @@ function renderEquip(
 ): Uint8ClampedArray {
   const emptySlot = { itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 };
   const inventory = [
-    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },   // LONGSWORD
-    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 0 },  // LEATHER CUIRASS
-    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0, quantity: 0, flags: 0 },  // FUR LEGGING
-    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0, quantity: 0, flags: 0 }, // SANDALS
-    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0, quantity: 0, flags: 0 }, // BUCKLER SHIELD
+    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0x01, quantity: 0, flags: 0 },   // LONGSWORD
+    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0x29, quantity: 0, flags: 0 },  // LEATHER CUIRASS
+    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0x2c, quantity: 0, flags: 0 },  // FUR LEGGING
+    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0x2e, quantity: 0, flags: 0 }, // SANDALS
+    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0x26, quantity: 0, flags: 0 }, // BUCKLER SHIELD
     ...Array.from({ length: 17 }, () => ({ ...emptySlot })),
   ];
 
@@ -995,11 +995,11 @@ function renderEquip(
 function renderAssayPicker(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
   const emptySlot = { itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 };
   const inventory = [
-    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },   // LONGSWORD
-    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 0 },  // LEATHER CUIRASS
-    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0, quantity: 0, flags: 0 },  // FUR LEGGING
-    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0, quantity: 0, flags: 0 }, // SANDALS
-    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0, quantity: 0, flags: 0 }, // BUCKLER SHIELD
+    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0x01, quantity: 0, flags: 0 },   // LONGSWORD
+    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0x29, quantity: 0, flags: 0 },  // LEATHER CUIRASS
+    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0x2c, quantity: 0, flags: 0 },  // FUR LEGGING
+    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0x2e, quantity: 0, flags: 0 }, // SANDALS
+    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0x26, quantity: 0, flags: 0 }, // BUCKLER SHIELD
     ...Array.from({ length: 17 }, () => ({ ...emptySlot })),
   ];
 
@@ -1074,11 +1074,11 @@ function renderAssayPicker(fontSet: FontSet, palette: Palette): Uint8ClampedArra
 function renderAssayDisplay(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
   const emptySlot = { itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 };
   const inventory = [
-    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },   // LONGSWORD
-    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 0 },  // LEATHER CUIRASS
-    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0, quantity: 0, flags: 0 },  // FUR LEGGING
-    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0, quantity: 0, flags: 0 }, // SANDALS
-    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0, quantity: 0, flags: 0 }, // BUCKLER SHIELD
+    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0x01, quantity: 0, flags: 0 },   // LONGSWORD
+    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0x29, quantity: 0, flags: 0 },  // LEATHER CUIRASS
+    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0x2c, quantity: 0, flags: 0 },  // FUR LEGGING
+    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0x2e, quantity: 0, flags: 0 }, // SANDALS
+    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0x26, quantity: 0, flags: 0 }, // BUCKLER SHIELD
     ...Array.from({ length: 17 }, () => ({ ...emptySlot })),
   ];
 
@@ -1155,11 +1155,11 @@ function renderSkillViewer(
 
   const emptySlot = { itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 };
   const inventory = [
-    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },
-    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 0 },
-    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0, quantity: 0, flags: 0 },
-    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0, quantity: 0, flags: 0 },
-    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0, quantity: 0, flags: 0 },
+    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0x01, quantity: 0, flags: 0 },
+    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0x29, quantity: 0, flags: 0 },
+    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0x2c, quantity: 0, flags: 0 },
+    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0x2e, quantity: 0, flags: 0 },
+    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0x26, quantity: 0, flags: 0 },
     ...Array.from({ length: 17 }, () => ({ ...emptySlot })),
   ];
 
@@ -1242,11 +1242,11 @@ function renderSwagBag(
 ): Uint8ClampedArray {
   const emptySlot = { itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 };
   const inventory = [
-    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },
-    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 0 },
-    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0, quantity: 0, flags: 0 },
-    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0, quantity: 0, flags: 0 },
-    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0, quantity: 0, flags: 0 },
+    { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0x01, quantity: 0, flags: 0 },
+    { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0x29, quantity: 0, flags: 0 },
+    { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0x2c, quantity: 0, flags: 0 },
+    { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0x2e, quantity: 0, flags: 0 },
+    { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0x26, quantity: 0, flags: 0 },
     ...Array.from({ length: 17 }, () => ({ ...emptySlot })),
   ];
   const thesus: ActivePartyMember = {
