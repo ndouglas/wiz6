@@ -84,28 +84,19 @@ index 037b550..6290fc8 100644
  		core.prefixes=cpu.code.big;
  		core.ea_table=&EATable[cpu.code.big*256];
 diff --git a/src/hardware/mixer.cpp b/src/hardware/mixer.cpp
-index a7c3cfb..8154b79 100644
+index a7c3cfb..0669cf8 100644
 --- a/src/hardware/mixer.cpp
 +++ b/src/hardware/mixer.cpp
-@@ -574,12 +574,21 @@ static void MIXER_Mix_NoSound(void) {
- 
- #define INDEX_SHIFT_LOCAL 14
- 
-+/* wiz6: compile this function without optimization. clang's -O2 on arm64
-+ * (Apple toolchain) miscompiles the vectorized resample/clean loops below into
-+ * an out-of-bounds access that SIGSEGVs during DOS boot. The official libretro
-+ * buildbot nightly was unaffected; locally-built cores crash. -O0 here is the
-+ * minimal fix (verified: a full -O0 build boots fine). Behavior-preserving. */
-+#if defined(__clang__) && defined(__aarch64__)
-+__attribute__((optnone))
-+#endif
- #ifdef C_DBP_USE_SDL
- static void SDLCALL
- #else
+@@ -580,6 +580,12 @@ static void SDLCALL
  void
  #endif
  MIXER_CallBack(void * /*userdata*/, uint8_t *stream, int len) {
-+	if (len <= 0) return; /* wiz6: guard the empty-buffer case (need==0 -> modulo-by-zero below) */
++	/* Guard the empty-buffer case: len==0 -> need==0 -> `index_add % need` below is
++	 * modulo-by-zero (undefined behavior). clang -O2 on arm64 exploits that UB into
++	 * an out-of-bounds store that SIGSEGVs during boot (the libretro buildbot's
++	 * toolchain happened not to). Returning early on an empty buffer is harmless and
++	 * fixes it at the root. */
++	if (len <= 0) return;
  	Bitu need=(Bitu)len/MIXER_SSIZE;
  	Bit16s * output=(Bit16s *)stream;
  	Bitu reduce;
