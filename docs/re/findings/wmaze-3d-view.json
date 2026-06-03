@@ -1,0 +1,180 @@
+{
+  "topic": "wmaze-3d-view",
+  "subagent_run": "2026-06-03",
+  "binaries": ["wmaze.ovr", "wroot.exe"],
+  "saves": [
+    "live capture via LiveSession (dosbox-pure harness); serialized clean dungeon frame at /tmp/wiz6-dungeon-clean.state (scratch, not committed)"
+  ],
+  "summary": "RE of the static first-person 3D dungeon view (game-state 5, wmaze.ovr). Captured a reference frame by driving castle-3 to MASTER OPTIONS then START NEW GAME -> dungeon. Confirmed: viewport rectangle x72..247 (w=176) y32..143 (h=112); banner above (y0..28), message box below (y>=144), party panels left (x0..70) and right (x249..319). The renderer view_render_corridor_frame (wmaze 0x4ad7) is a pre-drawn-slot pseudo-3D compositor (NOT raycasting): a fixed view depth of 4 cells (0x521e=4), a parity bit (gx+gy+facing)%2 at 0x521a that alternates which corridor side is drawn first, a back-to-front depth loop (counter 0x5040 = 0..3) that for each depth advances the view cursor via view_step_forward_by_facing (0x37a7) and queries side/corner/overlay wall-type helpers (0x3828/0x3c11/0x3dce) into per-slot arrays at 0x5220.., then draws each slot's sprite via image_blit at fixed screen coords. Floor & ceiling are full-screen background images blitted first (view_load_floor_ceiling_tiles 0x42) from per-zone asset IDs (zone0: floor=1346, ceiling=1740) into buffers at DGROUP 0x4faa / 0x4fa8. The maze-level data (walls/doors/events) lives in the SAME loaded per-zone block at [0x4faa]: north-wall 2-bit field at +0x60, west-wall at +0x120, indexed by cell = z*64 + y*8 + x (8x8 grid, up to 12 levels). Wall/floor/ceiling SPRITE graphics come from mazedata.ega/.t16 (EGA/Tandy) / mazedata.cga (CGA) -- a sprite database (153 x 5-byte descriptors + graphics blob) already partially RE'd in docs/re/mazedata-investigation.md. Derived the wmaze.ovr CS->file overlay delta = 0x4564 (same as wpcvw/wbase/wdopt).",
+  "drive_recipe": {
+    "goal": "reach the static first-person dungeon 3D view (game_state 5)",
+    "steps": [
+      "boot: step 3000 frames",
+      "key enter tap (dismiss title -> MASTER OPTIONS, cursor on ADD PARTY MEMBER)",
+      "step 800",
+      "form party: repeat 3x { enter (pick ADD PARTY MEMBER); enter (pick first PCFILE char); up up up (re-anchor cursor) }  -- this is makeCastleRecipe(3); partySize becomes 3",
+      "key down down down (MASTER OPTIONS: move cursor to 4th visible option = START NEW GAME; visible order with 3 members = ADD, REVIEW, DISMISS, START NEW GAME, CHARACTER MENU, ... so 3 downs)",
+      "key enter (START NEW GAME handler @ wbase 0x2d5d -> scenario picker)",
+      "key enter (confirm scenario pick)",
+      "key enter (confirm) -> game_state transitions 0xffff -> 5 (dungeon); party resolves to zone=0 face=0 z=0 x=7 y=2 gx=127 gy=118",
+      "the dungeon opens with an intro message ('APPROACHING THE GATE...'); dismissing it (the engine consumes a couple of forward inputs) walks the party a few cells north into the corridor. For a clean STATIC frame, screenshot after the message clears."
+    ],
+    "captured_frame": {
+      "png_scratch": "/tmp/wiz6-maze-12-clean.png",
+      "game_state": 5,
+      "zone_0x363c": 0,
+      "facing_0x4f9a": 0,
+      "level_z_0x4f9c": 0,
+      "y_0x4f9e": 3,
+      "x_0x4fa0": 7,
+      "global_x_0x4fa4": 127,
+      "global_y_0x4fa2": 119,
+      "description": "A stone corridor receding to a vanishing point, side walls converging, textured stone floor + ceiling, with a green portcullis/gate at the far end. Facing 0 = direction of increasing y (stepping forward incremented y 2->3->4->5).",
+      "note": "facing 0 maps to +y axis; confirmed by stepping forward and watching y increase while facing stayed 0. The first frame (before message dismiss) was at x=7,y=2; the clean post-message frame at x=7,y=3."
+    }
+  },
+  "findings": [
+    {
+      "id": "wmaze-overlay-delta",
+      "claim": "wmaze.ovr runtime CS->file delta is 0x4564 (file_offset = CS_offset - 0x4564). Same delta as wpcmk/wpcvw/wbase/wdopt.",
+      "category": "overlay_relocation",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "jump_table_dispatch",
+        "details": "Of the 17 `2e ff a7 <disp16>` CS-relative jump-table dispatches in wmaze.ovr, delta 0x4564 yields valid in-file word-tables for 13/17 (delta 0x4542/0x4544 = 0/17, 0x4550 = 9/17). Worked example: dispatch at file 0x277d has disp16=0x6ccd; table at 0x6ccd-0x4564=0x2769 holds word entries {0x6c9e,0x6ca3,0x6cb3,...} which are themselves CS-offsets near the dispatch site (entry 0x6c9e - 0x4564 = 0x273a, adjacent to the file-0x277d dispatch). Note wmaze.ovr was imported into Ghidra with BinaryLoader (file offset == Ghidra address), so Ghidra addresses already equal file offsets; this 0x4564 delta is for translating LIVE/runtime CS:offsets seen in the debugger to file offsets."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "viewport-geometry",
+      "claim": "The 3D first-person view occupies screen rectangle x=72..247 (width 176), y=32..143 (height 112) in the 320x200 framebuffer. Bounded by black gutter columns at x=71 and x=248 and black border rows at y=29..31 (top) and y>=144 (bottom).",
+      "category": "viewport",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "framebuffer_measurement",
+        "details": "Measured from the captured clean dungeon frame (/tmp/wiz6-maze-12-clean.rgba, 320x200 RGBA). Fully-black columns within view rows 32..143: x=71 and x=248 (the gutters). Fully-black rows within x=72..247: top edge y=29..31, bottom edge y=144+. Above (y=0..28): the 'Wizardry' banner strip with 6 portrait slots. Below (y>=144): the message/narration text box. Left of view (x=0..70) and right (x=249..319): the two party-status panels (THESUS/LYSANDR left; TEMPEST right). The ceiling stone narrows with increasing y inside the window (gray run x 94..226 at y=33 -> 104..216 at y=38), confirming this is rendered converging perspective, not a fixed border."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "render-depth-and-parity",
+      "claim": "The corridor renderer uses a fixed view depth of 4 cells and a parity bit (gx+gy+facing)%2 that alternates corridor-side draw order. It is a pre-drawn-slot pseudo-3D compositor, not a raycaster.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4c3f"},
+        "type": "disasm",
+        "details": "view_render_corridor_frame (0x4ad7): at file 0x4c3f `mov word [0x521e],0x4` sets the depth-loop bound = 4. At 0x4c45..0x4c56: ax = [0x4fa4](gx) + [0x4fa2](gy) + [0x4f9a](facing); idiv 2; remainder stored to [0x521a] -- the left/right parity. Depth loop counter is [0x5040], iterated 0..[0x521e)-1 (0x4c5a..0x4c67). Each iteration calls view_step_forward_by_facing (0x37a7) to advance the view cursor by one cell in the facing direction, then calls the three slot-classifier helpers and stores their returned wall-type codes into the per-depth slot arrays at 0x5220/0x5222/0x5224/0x5226/0x5228."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "render-slot-helpers",
+      "claim": "Per depth slot, the renderer queries three wall-classifier helpers and draws sprites at fixed screen coords: view_draw_corridor_sides (0x3828, called for center/left/right via param 0/0xffff/1), view_draw_corridor_corners (0x3c11), view_draw_corridor_overlay (0x3dce). Results feed gating bytes at 0x5043+/0x5050+ and the slot arrays at 0x5220.. that drive the blit calls.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4d09"},
+        "type": "disasm",
+        "details": "At 0x4d09..0x4d92: calls 0x3828(param0)->[0x5220], 0x3c11(param0)->[0x5222], 0x3dce(param0)->[0x5224], 0x3828(param0xffff)->[0x5226], 0x3828(param1)->[0x5228]. Each takes the current (gx,gy,x,y,z) view-cursor locals at [bp-2..bp-0xa]. Subsequent `cmp byte [bx+0x508a],1` style gates + blit calls (e.g. push 0xd6/push 0x96 = screen x214,y150) draw the chosen sprite for that slot. The actual per-slot screen rectangle table + the sprite-id->graphic mapping live inside these helper sub-functions (0x3828/0x3c11/0x3dce and the unnamed 0x4892..0x49e8 cluster); Ghidra's decompiler fails on these (overlapping-instruction / bad-control-flow warnings) so the exact per-slot blit rectangles need a dynamic trace or hand-disasm follow-up.",
+        "follow_up": "Decompiler returns empty/garbage for 0x4ad7, 0x37a7, 0x3828, 0x406c (overlay control-flow defeats it). The per-slot screen-rectangle constants and the wall-type -> sprite-descriptor-index mapping are the remaining gap for pixel-exact port."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "floor-ceiling-fill",
+      "claim": "Floor and ceiling are full-window background images blitted FIRST (before walls). view_load_floor_ceiling_tiles (0x42) lazily decompresses per-zone asset IDs into DGROUP buffers (floor buf ptr at 0x4faa loaded from asset id at 0x3304; ceiling buf ptr at 0x4fa8 from asset id at 0x3306) and blits them via image_blit (wroot thunk 0xbb9a) using per-zone far-pointer tables at 0x7d2 (floor) and 0x80a (ceiling), indexed by zone<<2. For zone 0: floor asset id=1346, ceiling asset id=1740.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x42"},
+        "type": "disasm_plus_live",
+        "details": "0x42 disasm: if [0x4faa]==0 -> push [0x3304]; call 0xf4be (wroot asset-load/decompress thunk -> wroot image 0x3a22); store result to [0x4faa]; same for [0x4fa8] from [0x3306]. Then blit via 0xbb9a using [bx+0x7d2]/[bx+0x7d4] (floor far ptr) and [bx+0x80a]/[bx+0x80c] (ceiling far ptr) where bx = [0x363c]<<2. Live read at the captured frame: [0x3304]=1346, [0x3306]=1740, [0x4faa]=0x7504, [0x4fa8]=0x7a48. The 0x7d2/0x80a tables hold 8 entries of `00 00 <off>` (32-bit far pointers, segment implied). NOTE: this function's old name 'view_load_floor_ceiling_tiles' is slightly misleading -- 0x4faa is ALSO the per-zone maze-data block base (see maze-data finding); the loaded asset block begins with the maze data and the floor/ceiling fill image is part of (or adjacent to) that same per-zone resource."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "maze-data-location",
+      "claim": "The current zone's maze data is a single loaded block whose DGROUP near-pointer is at 0x4faa. Wall/door/event/flag tables are at fixed offsets within it. The block is (de)compressed from a per-zone asset (zone0 id=1346) by dungeon_load_zone (0x3d3) via a wroot loader thunk.",
+      "category": "maze_data_format",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0xf2a"},
+        "type": "disasm_plus_live",
+        "details": "maze_check_wall_in_direction (0xf2a): for dir 0/2 pushes count=2 + index + [0x4faa]+0x60 and calls getbits (0xe3c1); for dir 1/3 uses [0x4faa]+0x120. Index = param_z*64 + param_y*8 + param_x (shl 6 / shl 3). So north-wall and west-wall are 2-bit-per-cell fields at block offsets +0x60 and +0x120, indexed by cell = z*64 + y*8 + x. The renderer (0x4b16..0x4b3a) computes the same cell index and reads the pit/chute flag at [0x4faa]+0x43a via getbit (0xe34b). Live read of the block at the captured frame (DGROUP 0x7504) decoded into a coherent 8x8 wall grid for level 0.",
+        "block_field_map": {
+          "+0x00": "header / per-zone metadata (begins 00 01 01 00 01 01 02 03 04 05 06 07 ...)",
+          "+0x60": "north-wall bits: 2 bits/cell, cell = z*64 + y*8 + x (8x8 cells x up to 12 levels)",
+          "+0x120": "west-wall bits: same shape",
+          "+0x1e0": "facing-to-dy lookup, 12 bytes (one per facing) -- live: 78 80 78 80 78 80 0a 12 0a 12 1a 1a",
+          "+0x1ec": "facing-to-dx lookup, 12 bytes -- live: 74 74 7c 7c 84 84 0a 0a 12 12 0a 12",
+          "+0x1f8": "per-cell flags / special-square index (live had regular 0x70 markers at x=7 column cells)",
+          "+0x240": "per-cell event table",
+          "+0x378": "per-cell door state",
+          "+0x43a": "per-cell pit/chute flag (1 bit/cell, read by renderer via getbit)"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wall-bit-semantics",
+      "claim": "The 2-bit wall field encodes a small wall-TYPE code (0 = open passage; 2 = the common solid-wall code; 3 = likely door/special). It selects which wall graphic to draw and whether the cell edge is passable. Exact value->meaning (which value blocks movement, door vs archway) is NOT yet pinned.",
+      "category": "maze_data_format",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_decode",
+        "details": "getbits count=2 -> 4 possible values. Decoded level-0 north-wall grid is dominated by 0 and 2 with occasional 3. CAVEAT: at the captured cell (x=7,y=2,facing 0=+y) the north-wall value at that cell was 2, yet the party stepped forward freely -- BUT that forward motion happened during the scripted intro message ('APPROACHING THE GATE') which appears to bypass the normal wall check, so it does NOT prove value-2 is passable. The wall-side convention (whether north-wall[cell] gates the +y or -y edge of the cell) and the precise value semantics still need verification by driving free movement in the dungeon and reading maze_can_step_in_facing (0x3244) results, or by hand-disassembling getbits to confirm MSB-vs-LSB bit order."
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "graphics-source-files",
+      "claim": "Wall / floor / ceiling / door sprite GRAPHICS for the dungeon view come from mazedata.ega (EGA, 102303 B), mazedata.t16 (Tandy-16, 102303 B), and mazedata.cga (CGA, 52451 B). This is a sprite database: an 8-byte header, then 153 x 5-byte sprite descriptors (type_id, u16 graphic_offset, width_class, height_class), then a graphics blob. The descriptor's graphic_offset and width halve between EGA and CGA, confirming variable-size planar sprite slices addressed by the descriptor table.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "mazedata.ega",
+        "type": "existing_doc",
+        "details": "Already RE'd in docs/re/mazedata-investigation.md (header 99 00 6e 01 00 00 00 0e = counts 153, 366; 153x5 descriptor table at bytes 8..772; EGA-vs-CGA width/offset halving). The wmaze renderer's per-slot sprite blits (via image_blit 0xbb9a) draw slices out of the buffer decompressed from these files. The mapping wall-type-code -> descriptor index is the open item (see render-slot-helpers follow_up). NOTE the per-zone asset IDs the engine loads at runtime (zone0 floor=1346, ceiling=1740) are resolved through wroot's asset loader (0xf4be -> wroot image 0x3a22) which keys into the disk header (disk.hdr/misc.hdr) -- the id->file/offset resolution is a wroot concern, not wmaze."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "party-position-globals",
+      "claim": "Party position/facing/level DGROUP offsets (relative to wroot DGROUP base, the same base the live harness anchors): facing=0x4f9a, level_z=0x4f9c, y=0x4f9e, x=0x4fa0, cached global_y=0x4fa2, cached global_x=0x4fa4, fwd-cache=0x4fa6, current-zone-id=0x363c, game_state=0x363a, party_size=0x43ce. Saved-position slot at 0x4f8c..0x4f98.",
+      "category": "party_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "disasm_plus_live",
+        "details": "Renderer prologue (0x4add..0x4af9) reads exactly [0x4fa4],[0x4fa2],[0x4fa0],[0x4f9e],[0x4f9c] as the position locals; view_load_floor_ceiling_tiles writes cached global from x/y + facing dx/dy tables into [0x4fa4]/[0x4fa2]. Live confirmed at capture: facing=0, z=0, y=2/3, x=7, gx=127, gy=118/119, zone=0, game_state=5, party_size=3. Matches the existing wmaze-naming-pass field map. Facing is 0..3 for the player (N/E/S/W) but cell-coordinate resolution uses 0..11 via the 12-entry dx/dy tables (maze_resolve_xy_to_facing 0x35b7)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "symbol_map": [
+    {"space": "wmaze.ovr", "offset": "0x4ad7", "name": "view_render_corridor_frame", "note": "main 3D-corridor compositor; depth=4, parity bit, depth loop, slot blits"},
+    {"space": "wmaze.ovr", "offset": "0x37a7", "name": "view_step_forward_by_facing", "note": "advance the view cursor one cell in the facing direction"},
+    {"space": "wmaze.ovr", "offset": "0x3828", "name": "view_draw_corridor_sides", "note": "classify/draw corridor side wall for a slot (param 0/0xffff/1 = center/left/right)"},
+    {"space": "wmaze.ovr", "offset": "0x3c11", "name": "view_draw_corridor_corners"},
+    {"space": "wmaze.ovr", "offset": "0x3dce", "name": "view_draw_corridor_overlay"},
+    {"space": "wmaze.ovr", "offset": "0x42", "name": "view_load_zone_and_fill", "note": "was view_load_floor_ceiling_tiles; loads per-zone block to 0x4faa/0x4fa8 + blits floor/ceiling fill; recomputes cached global xy"},
+    {"space": "wmaze.ovr", "offset": "0xf2a", "name": "maze_check_wall_in_direction", "note": "reads 2-bit wall field at [0x4faa]+0x60 (N) / +0x120 (W), cell = z*64+y*8+x"},
+    {"space": "wmaze.ovr", "offset": "0x3d3", "name": "dungeon_load_zone"},
+    {"space": "wmaze.ovr", "offset": "0x3244", "name": "maze_can_step_in_facing"},
+    {"space": "wroot.exe", "offset": "0xfe_image", "name": "image_blit", "note": "wmaze thunk 0xbb9a -> wroot image 0xfe"},
+    {"space": "wroot.exe", "offset": "0x2925_image", "name": "getbits_n", "note": "wmaze thunk 0xe3c1 -> wroot image 0x2925 (count-bit field reader)"},
+    {"space": "wroot.exe", "offset": "0x3a22_image", "name": "asset_load_decompress", "note": "wmaze thunk 0xf4be -> wroot image 0x3a22"}
+  ],
+  "unresolved": [
+    "Per-slot screen-rectangle table + wall-type-code -> mazedata-descriptor-index mapping: inside 0x3828/0x3c11/0x3dce and the unnamed 0x4892..0x49e8 sprite-draw cluster. Ghidra decompiler fails on these (overlay control-flow); needs dynamic trace (DOSBox-X bp on image_blit while in state 5) or careful hand-disasm. This is THE remaining gap for a pixel-exact static-frame port.",
+    "Exact 2-bit wall-value semantics (which value blocks movement; door=3 vs archway): verify by driving free in-dungeon movement + reading maze_can_step_in_facing, and confirm getbits bit-order (MSB vs LSB) by disassembling the runtime getbits target.",
+    "mazedata graphics blob decode (variable-size planar slices) -- partially mapped in docs/re/mazedata-investigation.md; descriptor table understood, pixel decode of a slice not yet rendered/verified.",
+    "asset-id (1346 floor / 1740 ceiling) -> file+offset resolution lives in wroot's loader keyed on disk.hdr/misc.hdr; not traced here.",
+    "Animated elements (torch flicker / water) noted via anim_tick_render_idle (0x42->0xf1) but not characterized; out of scope for the static frame."
+  ],
+  "operational_notes": {
+    "drive_harness": "LiveSession from packages/mcp/src/live/live-session.js; standalone tsx script. HostClient.fb writes raw RGBA; encode with encodePngRgba(W,H,rgba) (note arg order: width,height,rgba).",
+    "reach_dungeon": "castle-3 recipe (makeCastleRecipe(3)) then 'down down down' + 'enter' (START NEW GAME) + enter + enter. game_state goes 0xffff->5.",
+    "ghidra_quirk": "wmaze.ovr imported with BinaryLoader so Ghidra addr == file offset (no 0x200 MZ skip). Decompiler produces empty/garbage for the render functions (overlapping-instruction warnings); use ndisasm -b 16 -o <off> on the file for raw asm.",
+    "wmaze_delta_use": "0x4564 is for translating runtime/debugger CS:offsets to file offsets; not needed for static ndisasm of the file."
+  }
+}
