@@ -62,9 +62,15 @@ export type CharacterViewState =
   // SPELL (camp read-only spellbook viewer). Two-level picker, the wpcvw-local
   //   sibling of the creation spell picker, in MODE==0 (browse, NO cast):
   //   spell-grid → 3×2 SCHOOL grid (FIRE/WATER/AIR top, EARTH/MENTAL/DIVINE
-  //     bottom). `school` 0..5 = cursor cell. LEFT/RIGHT step ±3 (row jump),
-  //     UP/DOWN ±1 (within column), all CLAMPED (no wrap). ENTER → spell-sublist
-  //     (spellIdx 0); ESC → action menu (cursor on EXIT, hydrated by the page).
+  //     bottom) PLUS a CANCEL sentinel cell (`school` === SPELL_CANCEL_CELL = -1,
+  //     the engine's local_42==0xffff). `school` 0..5 = a school cell, -1 = CANCEL.
+  //     RIGHT from a right-column school (3/4/5) walks OFF the grid onto CANCEL
+  //     (engine: idx+3 ≥ 6 → cancel); LEFT from CANCEL returns to MENTAL (school 4,
+  //     the engine's fixed return cell, confirmed by driving). On CANCEL, UP/DOWN/
+  //     RIGHT clamp (stay). LEFT/RIGHT otherwise step ±3 (row jump), UP/DOWN ±1
+  //     (within column), all CLAMPED (no wrap). ENTER on a school → spell-sublist
+  //     (spellIdx 0); ENTER on CANCEL → action menu (exit, like ESC); ESC → action
+  //     menu (cursor on EXIT, hydrated by the page).
   //   spell-sublist → the selected school's known-spell list. `spellIdx` = the
   //     cursor into that list. UP/DOWN move (clamped to the list length). ENTER
   //     is READ-ONLY — camp SPELL never casts (no mana/HP change); it is a no-op
@@ -171,6 +177,38 @@ function navCode(event: CharacterViewEvent): number {
     case 'ARROW_DOWN':  return 4;
     default:            return 0;
   }
+}
+
+/**
+ * CANCEL sentinel for the camp-SPELL school grid (the engine's `local_42 ==
+ * 0xffff` cell). When the `spell-grid` cursor sits on -1 the composer renders
+ * the "CANCEL" label + empty list + no school-icon cursor, and ENTER exits.
+ */
+export const SPELL_CANCEL_CELL = -1;
+
+/** Engine's fixed return school when LEFT is pressed on the CANCEL cell:
+ *  MENTAL (school 4). Confirmed by driving (LEFT from CANCEL → MENTAL, regardless
+ *  of which right-column school the cursor came from). RE: wpcvw-spell-action.json. */
+const CANCEL_LEFT_TARGET = 4;
+
+/**
+ * Camp-SPELL school-grid navigation WITH the CANCEL cell. Extends the creation
+ * picker's {@link gridNextSchool} (codes 1=LEFT,2=UP,3=RIGHT,4=DOWN) so the
+ * cursor can walk OFF the right column onto CANCEL and back:
+ *   - From a right-column school (3/4/5), RIGHT (code 3) → CANCEL (engine
+ *     idx+3 ≥ 6 → 0xffff). From a left-column school, RIGHT → school+3 as usual.
+ *   - From CANCEL: LEFT (code 1) → MENTAL (school 4, the engine's fixed return);
+ *     UP/DOWN/RIGHT clamp (stay on CANCEL).
+ * Returns the next `school` cell (0..5 or SPELL_CANCEL_CELL).
+ */
+export function gridNextSchoolWithCancel(school: number, code: number): number {
+  if (school === SPELL_CANCEL_CELL) {
+    if (code === 1) return CANCEL_LEFT_TARGET; // LEFT → MENTAL
+    return SPELL_CANCEL_CELL;                   // UP/DOWN/RIGHT clamp on CANCEL
+  }
+  // RIGHT (code 3) off the right column (school >= 3) → CANCEL.
+  if (code === 3 && school >= 3) return SPELL_CANCEL_CELL;
+  return gridNextSchool(school, code);
 }
 
 const BODY_SLOT_COUNT = 8;
@@ -565,13 +603,18 @@ export function reduceCharacterView(
       // page's action-menu rehydration).
       if (event.type === 'ESCAPE') return { kind: 'action-menu', cursorIdx: 0, campEntries: [] };
       if (event.type === 'ENTER') {
+        // ENTER on the CANCEL cell exits the spellbook (same as ESC) — the
+        // engine's 0xffff cancel return. RE: wpcvw-spell-action.json.
+        if (state.school === SPELL_CANCEL_CELL) {
+          return { kind: 'action-menu', cursorIdx: 0, campEntries: [] };
+        }
         // Drill into the selected school's spell sublist (cursor on the first
         // spell). The page renders an empty list as "no spells" — sublist nav
         // is then a clamped no-op, matching an empty school.
         return { kind: 'spell-sublist', school: state.school, spellIdx: 0 };
       }
       const code = navCode(event);
-      if (code) return { ...state, school: gridNextSchool(state.school, code) };
+      if (code) return { ...state, school: gridNextSchoolWithCancel(state.school, code) };
       return state;
     }
     case 'spell-sublist': {

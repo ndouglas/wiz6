@@ -288,6 +288,19 @@ const SPELLBOOK_RECIPES: readonly SaveStateRecipe[] = [
     steps: [...SPELLBOOK_REACH, 'enter'],
     settleMs: 300,
   },
+  {
+    name: 'spellbook-cancel',
+    description:
+      'Camp SPELL spellbook, CANCEL cell — TREON, cursor walked off the grid onto ' +
+      'the CANCEL sentinel. From FIRE (cell 0): RIGHT (row-jump +3 → EARTH/cell 3), ' +
+      'RIGHT again (3+3=6 out of range → CANCEL). The realm-label box reads "CANCEL" ' +
+      '(gray, attr 0x70), the SPELLS list is EMPTY, COST blank, and NO school icon ' +
+      'carries the cursor block. ENTER on CANCEL exits the spellbook (= ESC). ' +
+      'Nav confirmed by driving the harness (right/left walk the ±3 row axis; the ' +
+      'cancel cell sits past school 3 on the RIGHT axis). Byte-exact re-mint.',
+    steps: [...SPELLBOOK_REACH, 'right right'],
+    settleMs: 300,
+  },
 ];
 
 // ── WPCVW char-view ACTION sub-screens (state 0x11) ────────────────────────

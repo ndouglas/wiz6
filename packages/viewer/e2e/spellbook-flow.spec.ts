@@ -28,11 +28,12 @@
  * FIRE is grid cell 0 (the default cursor), so no grid nav is needed before
  * drilling — matching the captured fixtures.
  */
-import { test } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { pressKeys, expectCanvasMatchesFixture } from './lib/drive.js';
-import { waitForNonBlankCanvas } from './lib/canvas.js';
+import { pressKeys, expectCanvasMatchesFixture, loadFixtureRgba } from './lib/drive.js';
+import { waitForNonBlankCanvas, waitForStableCanvas, captureCanvas } from './lib/canvas.js';
+import { compareRgba } from '../../../tools/parity/diff-image.js';
 import { decodePcfile, pcfileSlotToCharacter } from '../../parser/src/index.js';
 
 const REPO_ROOT = resolve(new URL(import.meta.url).pathname, '..', '..', '..', '..');
@@ -106,4 +107,43 @@ test('camp SPELL spellbook mounted-canvas matches engine (FIRE grid + FIRE subli
   // Enter drills into FIRE → sublist (ENERGY BLAST selected, COST 2).
   await pressKeys(page, ['Enter']);
   await expectCanvasMatchesFixture(page, 'spellbook-sublist-fire');
+});
+
+// CANCEL cell: from the FIRE grid, RIGHT (FIRE→EARTH) RIGHT (EARTH→off the grid
+// → CANCEL) puts the cursor on the CANCEL sentinel (realm label "CANCEL", empty
+// list, no school cursor). ENTER on CANCEL exits the spellbook back to the
+// char-view action menu — the same as ESC. We assert the CANCEL fixture, then
+// that ENTER leaves the spell screen (canvas no longer matches the cancel frame).
+test('camp SPELL CANCEL cell: RIGHT RIGHT reaches CANCEL, ENTER exits the spellbook', async ({
+  page,
+}) => {
+  const members = [loadTreon(), filler('FILLER1', 1), filler('FILLER2', 2)];
+  await page.addInitScript((m) => {
+    window.localStorage.setItem('wiz6:active-party', JSON.stringify({ schemaVersion: 1, members: m }));
+  }, members);
+
+  await page.goto('/castle/review-member/0');
+  await waitForNonBlankCanvas(page, 'canvas', 500, 20_000);
+
+  // Action menu → SPELL → FIRE grid (same reach as above).
+  await pressKeys(page, ['ArrowLeft', 'ArrowLeft', 'ArrowLeft', 'ArrowDown', 'Enter']);
+  await expectCanvasMatchesFixture(page, 'spellbook-grid-fire');
+
+  // RIGHT (FIRE→EARTH) RIGHT (EARTH→CANCEL) → the CANCEL cell.
+  await pressKeys(page, ['ArrowRight', 'ArrowRight']);
+  await expectCanvasMatchesFixture(page, 'spellbook-cancel');
+
+  // ENTER on CANCEL exits the spellbook → action menu: the canvas must change
+  // (no longer the CANCEL spell screen). The action-menu pixels are TREON's and
+  // have no committed fixture, so we assert "left the spell screen" by diffing
+  // against the CANCEL frame (must be < 100% match).
+  await pressKeys(page, ['Enter']);
+  await waitForStableCanvas(page, 'canvas');
+  const cap = await captureCanvas(page, 'canvas');
+  const cancelFrame = loadFixtureRgba('spellbook-cancel');
+  const stillCancel = compareRgba(new Uint8Array(cap.rgba), cancelFrame, { tolerance: 0 });
+  expect(
+    stillCancel.matchPct,
+    `after ENTER on CANCEL the canvas should leave the spell screen (got ${stillCancel.matchPct.toFixed(2)}% vs cancel)`,
+  ).toBeLessThan(100);
 });

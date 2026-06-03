@@ -34,6 +34,7 @@ import { createPersistentWindows, createSpellPickWindows } from '../roster/creat
 import { composeSpellPanel, REALM_NAMES } from '../roster/creation/ega/compose-spell-panel.js';
 import { drawSchoolCursor } from '../roster/creation/ega/compose-school-cursor.js';
 import { spellName, creationString } from '../roster/creation/messages.js';
+import { SPELL_CANCEL_CELL } from './character-view-reducer.js';
 
 /** msg.dbs id for the camp-SPELL footer "SELECT THE SPELL TO CAST". */
 export const SELECT_SPELL_TO_CAST_MSG = 701;
@@ -45,7 +46,8 @@ export interface SpellbookView {
   /** The caster whose spellbook is shown (char sheet + known spells). */
   member: ActivePartyMember;
   db: MessageDb;
-  /** Current school cursor 0..5 (FIRE/WATER/AIR/EARTH/MENTAL/DIVINE). */
+  /** Current school cursor 0..5 (FIRE/WATER/AIR/EARTH/MENTAL/DIVINE), or
+   *  SPELL_CANCEL_CELL (-1) = the CANCEL sentinel cell (renders "CANCEL"). */
   school: number;
   /** 'grid' = browsing schools; 'sublist' = a spell within the school is selected. */
   mode: 'grid' | 'sublist';
@@ -76,20 +78,25 @@ export function composeSpellbookFrame(view: SpellbookView): TileWindow[] {
     age: view.age,
   });
 
-  // 3. Spell panel — KNOWN spells of the selected school.
+  // 3. Spell panel — KNOWN spells of the selected school, OR the CANCEL cell.
+  // CANCEL sentinel (the engine's 0xffff cursor): the realm-label box reads
+  // "CANCEL" (gray), the SPELLS list is empty, COST blank, and NO school icon
+  // carries the cursor block. RE: docs/re/findings/wpcvw-spell-action.json.
+  const onCancel = view.school === SPELL_CANCEL_CELL;
   const bySchool: KnownSpell[][] = knownSpellsBySchool(view.member);
-  const list = bySchool[view.school] ?? [];
-  const sel = view.mode === 'sublist' ? view.spellIdx : null;
+  const list = onCancel ? [] : (bySchool[view.school] ?? []);
+  const sel = view.mode === 'sublist' && !onCancel ? view.spellIdx : null;
 
   composeSpellPanel(outer, inner, {
-    realm: REALM_NAMES[view.school] ?? '',
+    realm: onCancel ? 'CANCEL' : (REALM_NAMES[view.school] ?? ''),
     spellNames: list.map((s) => spellName(view.db, s.index) || `SPELL ${s.index}`),
     selectedIdx: sel,
     cost: sel !== null && list[sel] != null ? String(list[sel]!.cost) : null,
   });
 
-  // 2. School cursor (solid highlight block over the mana icon) — GRID mode only.
-  if (view.mode === 'grid') drawSchoolCursor(main, view.school);
+  // 2. School cursor (solid highlight block over the mana icon) — GRID mode only,
+  // and NOT on the CANCEL cell (the cursor leaves the grid entirely there).
+  if (view.mode === 'grid' && !onCancel) drawSchoolCursor(main, view.school);
 
   // 4. Footer prompt centered on bottomBar row 1.
   const prompt = creationString(view.db, SELECT_SPELL_TO_CAST_MSG) || 'SELECT THE SPELL TO CAST';

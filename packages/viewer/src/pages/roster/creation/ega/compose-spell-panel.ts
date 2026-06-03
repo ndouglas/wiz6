@@ -75,6 +75,10 @@ export const REALM_ATTR: Record<string, number> = {
   EARTH: 0x60,  // bright green   (school 3) — capture-verified
   MENTAL: 0x70, // bright cyan    (school 4) — capture-verified
   MAGIC: 0x50,  // bright yellow  (school 5) — capture-verified
+  // CANCEL sentinel cell (camp-SPELL, the engine's 0xffff cursor): the label
+  // reads "CANCEL" in GRAY (palette idx 9 = 170,170,170) on black — pixel-picked
+  // from the spellbook-cancel fixture. RE: docs/re/findings/wpcvw-spell-action.json.
+  CANCEL: 0x90, // gray (idx 9) — capture-verified vs spellbook-cancel fixture
 };
 
 export interface SpellPanelView {

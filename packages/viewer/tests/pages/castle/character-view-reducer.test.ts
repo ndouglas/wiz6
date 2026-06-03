@@ -5,6 +5,8 @@ import {
   gridMenuCursor,
   skillTabEntries,
   SKILL_EXIT,
+  SPELL_CANCEL_CELL,
+  gridNextSchoolWithCancel,
   type SkillInfo,
   type SwagInfo,
   type SpellInfo,
@@ -554,8 +556,8 @@ describe('reduceCharacterView — SPELL spellbook viewer (read-only)', () => {
     it('LEFT clamps on the top row (FIRE 0 stays 0)', () => {
       expect(grid(0, 'ARROW_LEFT')).toEqual({ kind: 'spell-grid', school: 0 });
     });
-    it('RIGHT clamps on the bottom row (EARTH 3 stays 3)', () => {
-      expect(grid(3, 'ARROW_RIGHT')).toEqual({ kind: 'spell-grid', school: 3 });
+    it('RIGHT off the right column walks onto CANCEL (EARTH 3 → CANCEL)', () => {
+      expect(grid(3, 'ARROW_RIGHT')).toEqual({ kind: 'spell-grid', school: SPELL_CANCEL_CELL });
     });
     it('UP clamps at col 0 (FIRE 0 stays 0)', () => {
       expect(grid(0, 'ARROW_UP')).toEqual({ kind: 'spell-grid', school: 0 });
@@ -568,6 +570,46 @@ describe('reduceCharacterView — SPELL spellbook viewer (read-only)', () => {
     });
     it('DOWN clamps at col 2 on the bottom row (DIVINE 5 stays 5)', () => {
       expect(grid(5, 'ARROW_DOWN')).toEqual({ kind: 'spell-grid', school: 5 });
+    });
+  });
+
+  // CANCEL sentinel cell (school === SPELL_CANCEL_CELL, the engine's 0xffff
+  // cursor). Reached by RIGHT off the right column; LEFT returns to MENTAL (4);
+  // UP/DOWN/RIGHT clamp; ENTER exits the spellbook (like ESC). Nav confirmed by
+  // driving the harness. RE: docs/re/findings/wpcvw-spell-action.json.
+  describe('CANCEL cell', () => {
+    const grid = (school: number, type: CharacterViewEvent['type']) =>
+      R({ kind: 'spell-grid', school }, { type } as CharacterViewEvent);
+
+    it('RIGHT from any right-column school reaches CANCEL (MENTAL 4 → CANCEL)', () => {
+      expect(grid(4, 'ARROW_RIGHT')).toEqual({ kind: 'spell-grid', school: SPELL_CANCEL_CELL });
+      expect(grid(5, 'ARROW_RIGHT')).toEqual({ kind: 'spell-grid', school: SPELL_CANCEL_CELL });
+    });
+    it('LEFT from CANCEL returns to MENTAL (school 4)', () => {
+      expect(grid(SPELL_CANCEL_CELL, 'ARROW_LEFT')).toEqual({ kind: 'spell-grid', school: 4 });
+    });
+    it('UP on CANCEL clamps (stays on CANCEL)', () => {
+      expect(grid(SPELL_CANCEL_CELL, 'ARROW_UP')).toEqual({ kind: 'spell-grid', school: SPELL_CANCEL_CELL });
+    });
+    it('DOWN on CANCEL clamps (stays on CANCEL)', () => {
+      expect(grid(SPELL_CANCEL_CELL, 'ARROW_DOWN')).toEqual({ kind: 'spell-grid', school: SPELL_CANCEL_CELL });
+    });
+    it('RIGHT on CANCEL clamps (stays on CANCEL)', () => {
+      expect(grid(SPELL_CANCEL_CELL, 'ARROW_RIGHT')).toEqual({ kind: 'spell-grid', school: SPELL_CANCEL_CELL });
+    });
+    it('ENTER on CANCEL exits the spellbook → action menu', () => {
+      expect(grid(SPELL_CANCEL_CELL, 'ENTER').kind).toBe('action-menu');
+    });
+    it('ESC on CANCEL also exits → action menu', () => {
+      expect(grid(SPELL_CANCEL_CELL, 'ESCAPE').kind).toBe('action-menu');
+    });
+
+    // The pure nav helper directly (left-column RIGHT still steps +3 → right col).
+    it('gridNextSchoolWithCancel: left-column RIGHT still steps +3 (FIRE 0 → EARTH 3)', () => {
+      expect(gridNextSchoolWithCancel(0, 3)).toBe(3);
+    });
+    it('gridNextSchoolWithCancel: right-column RIGHT → CANCEL (EARTH 3 → -1)', () => {
+      expect(gridNextSchoolWithCancel(3, 3)).toBe(SPELL_CANCEL_CELL);
     });
   });
 

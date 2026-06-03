@@ -8,11 +8,13 @@
  * can't go stale. TREON's known spells (enumerated via knownSpellsBySchool):
  * FIRE-L1 "ENERGY BLAST" (idx 0, cost 2) + MENTAL-L1 (idx 48, cost 3).
  *
- * Two cases, mirroring the committed engine fixtures:
+ * Three cases, mirroring the committed engine fixtures:
  *   spellbook-grid-fire    → school 0 FIRE, GRID mode (cursor on FIRE icon),
  *                            SPELLS lists "ENERGY BLAST", COST blank.
  *   spellbook-sublist-fire → school 0 FIRE, SUB-LIST, "ENERGY BLAST" selected
  *                            (red highlight), COST = 2.
+ *   spellbook-cancel       → CANCEL cell (school -1, cursor off the grid):
+ *                            realm label "CANCEL" (gray), empty list, no cursor.
  *
  * Both compared at tolerance 0 (100% gate). Mirrors renderReviewTwinkShuriken's
  * font/portrait/scenario setup; TREON's rendered portrait is at pcfile +0x19c.
@@ -46,6 +48,7 @@ import { loadCreationFontSet } from '../../packages/viewer/src/pages/roster/crea
 import { renderCreationFrame } from '../../packages/viewer/src/pages/roster/creation/ega/render-frame.js';
 import { patchFontSetWithPortrait } from '../../packages/viewer/src/pages/roster/creation/ega/skill-train-frame.js';
 import { composeSpellbookFrame } from '../../packages/viewer/src/pages/castle/compose-spellbook.js';
+import { SPELL_CANCEL_CELL } from '../../packages/viewer/src/pages/castle/character-view-reducer.js';
 import { buildInventoryItems } from '../../packages/viewer/src/pages/castle/item-display.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { compareRgba, writeDiffPng } from './diff-image.js';
@@ -102,6 +105,10 @@ interface SpellbookCase {
 const CASES: SpellbookCase[] = [
   { fixture: 'spellbook-grid-fire', school: 0, mode: 'grid', spellIdx: 0 },
   { fixture: 'spellbook-sublist-fire', school: 0, mode: 'sublist', spellIdx: 0 },
+  // CANCEL cell: cursor walked off the grid (RIGHT RIGHT from FIRE → CANCEL).
+  // school = SPELL_CANCEL_CELL (-1) → realm label "CANCEL" (gray), empty list,
+  // blank COST, no school-icon cursor. RE: docs/re/findings/wpcvw-spell-action.json.
+  { fixture: 'spellbook-cancel', school: SPELL_CANCEL_CELL, mode: 'grid', spellIdx: 0 },
 ];
 
 describe('camp SPELL spellbook viewer FULL-SCREEN pixel-parity (target 100%)', () => {
