@@ -91,6 +91,7 @@ export function AddPartyPage({ skipAssetLoad = false }: AddPartyPageProps) {
   const [wfont0, setWfont0] = useState<Font | null>(null);
   const [wfont1, setWfont1] = useState<Font4bpp | null>(null);
   const [wfont3, setWfont3] = useState<Font4bpp | null>(null);
+  const [wfont4, setWfont4] = useState<Font4bpp | null>(null);
   // All three portrait sets [wport1, wport2, wport3] — composeCastleFrame picks
   // the right set per party member by portraitIndex/14, so a single set would
   // leave members with portraits ≥14 blank.
@@ -150,6 +151,7 @@ export function AddPartyPage({ skipAssetLoad = false }: AddPartyPageProps) {
     loadFont('/fonts/wfont0.json').then((f) => !cancelled && setWfont0(f)).catch(() => {});
     loadFont4bpp('/fonts/wfont1.json').then((f) => !cancelled && setWfont1(f)).catch(() => {});
     loadFont4bpp('/fonts/wfont3.json').then((f) => !cancelled && setWfont3(f)).catch(() => {});
+    loadFont4bpp('/fonts/wfont4.json').then((f) => !cancelled && setWfont4(f)).catch(() => {});
     Promise.all([
       loadPortraitSet('/portraits/wport1.json'),
       loadPortraitSet('/portraits/wport2.json'),
@@ -247,6 +249,7 @@ export function AddPartyPage({ skipAssetLoad = false }: AddPartyPageProps) {
       wfont1,
       activeMembers,
       portraitSets,
+      wfont4,
     );
 
     const pickerWindows = composeAddPartyPickerFrame(
@@ -268,6 +271,7 @@ export function AddPartyPage({ skipAssetLoad = false }: AddPartyPageProps) {
     wfont3,
     wfont0,
     wfont1,
+    wfont4,
     visible,
     selectedIdx,
     activeMembers,
