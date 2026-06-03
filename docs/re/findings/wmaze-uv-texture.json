@@ -1,0 +1,146 @@
+{
+  "topic": "wmaze-uv-texture",
+  "subagent_run": "2026-06-03",
+  "binaries": ["wmaze.ovr", "wroot.exe"],
+  "tool": "instruction tracer (patched dosbox-pure core via tools/libretro/build-core.sh + dosbox-pure-trace.patch); LiveSession.regs()/traceSet()/traceDrain(). Core restored to the nightly via fetch-core.sh after the run.",
+  "saves": [
+    "live capture via LiveSession (dosbox-pure harness). Reference dungeon frame serialized at /tmp/wiz6-maze-cleared.state (scratch). Oracle PNG /tmp/wiz6-maze-cleared.png (== the canonical zone0 y3 x7 facing0 corridor->green-gate frame). Floor/ceiling source-block dumps /tmp/wiz6-floor-src.bin /tmp/wiz6-ceil-src.bin (0x4000 B each)."
+  ],
+  "reference_frame": {
+    "game_state": 5, "zone": 0, "facing": 0, "z": 0, "y": 3, "x": 7, "gx": 127, "gy": 119,
+    "dgroup_base_seg": "0xffa0",
+    "wmaze_overlay_base_phys": "0x4784",
+    "description": "Stone corridor receding north (+y) to a green portcullis gate; converging textured side walls + cobblestone floor + stone-brick ceiling. Viewport x72..247 (w176) y32..143 (h112). Re-confirmed live this run."
+  },
+  "summary": "Used the new dosbox-pure instruction tracer to attack the two remaining unknowns (U/V mapping inside the per-edge draw thunk 0xf148, and the masked+run texture format). MAJOR NEGATIVE RESULT that supersedes the prior wmaze render-path RE: on a CONFIRMED maze view redraw (party walked y3->y4 through the gate, screen visibly updated), NONE of the prior-finding render functions execute -- view_render_corridor_frame (0x4ad7), wall_emit_quad (0x406c), wall_emit_corner (0x45b4), wall_emit_floorceil (0x47a3), span_append (0x3f8d), and the classifiers (0x4892..0x49e8) ALL log 0 trace hits across the redraw, while the tracer itself is proven working (a wroot idle-loop address logs 464 hits/frame). The only wmaze offsets in the prior depth-loop body that DO fire (0x4e0b = 17/frame, 0x4e67 = 4/frame) fire IDENTICALLY whether the view changes or the party is idle (idle=17 vs redraw=17), and execute with DS=0x1180 (not wmaze's DGROUP 0xffa0) and a fixed AX=0x7b -- i.e. they are a per-frame idle/animation loop, NOT the on-demand wall rasterizer. CONCLUSION: the prior wmaze-3d-view / wmaze-blit-geometry / wmaze-texture-rasterizer function map for the RENDER PATH is not validated by live execution and is likely mis-derived from a static disasm of a code region that the live engine reaches differently (the static column tables + jump table are real bytes, but the *entry/dispatch* into the rasterizer that the prior pass labeled 0x4ad7 is not the live path). The geometry DATA tables the prior pass read live (convergence arrays @0x42/0x4a, per-walltype texture-seam tables @0x36e4/0x3717, slot walltype array @0x5220) ARE re-confirmed byte-identical live this run and remain trustworthy as DATA -- but the CODE that consumes them was not located. The texture SOURCE blocks (floor id=1346 @far 0x783f:0, ceiling id=1740 @far 0x7895:0) were dumped and their block layout characterized (12-byte depth-shade LUT + 16-byte 'WROOT' heap-owner header + ~36-byte sub-tile index table + proprietary masked pixel blob), but the pixel encoding was NOT byte-decoded because the decoder (the 0xf148/0xfb27 thunk targets) could not be located via the tracer for the same reason the render path could not. Per the project's own RE caveat ('when output looks structurally right but behaves wrong, suspect alignment in the decoder; verify against the engine asm BEFORE post-process transformations') I did NOT publish a speculative blind decode of the masked format.",
+  "drive_recipe": {
+    "goal": "reach the clean static zone0 corridor frame (y3 x7 facing0) for tracing",
+    "steps": [
+      "launch(3000)",
+      "key enter tap; step 800  (title -> MASTER OPTIONS)",
+      "x3 { enter tap; step60; enter tap; step60; up up up; step60 }  (castle-3 party)",
+      "down down down; step60; enter tap; step200 (START NEW GAME); enter tap; step200 (scenario); enter tap; step400 (-> dungeon, game_state 5, intro narration)",
+      "x6 { key enter down; step20; key enter up; step60 } -- repeated ENTER both dismisses the 'APPROACHING THE GATE' narration AND walks the party forward; y advances 2->3 once the narration clears. Screenshot/serialize at y3 for the clean frame.",
+      "NOTE on input: arrow keys (left/right/up) do NOT register a turn in this engine/harness (facing never changed, fb diff = 0 across held turns). FORWARD movement works via repeated ENTER (and 'z'); each ENTER eventually advances y by one cell when the cell ahead is passable. No turn key was found among up/down/left/right/space/enter/wasdqezxcfrt/1-9. This blocked the 'turn-to-force-a-redraw' strategy; redraws had to be driven by forward movement through the gate."
+    ]
+  },
+  "findings": [
+    {
+      "id": "tracer-methodology",
+      "claim": "The patched-core instruction tracer works and is the right tool. Validated: tracing the wroot idle-loop linear address 0x31ac (cs=0x1a8 ip=0x172c) logged 464 hits in one frame. The trace breakpoint matches core.cseip = SegBase(cs)+reg_eip = the real-mode LINEAR address (cs<<4)+ip (confirmed from the patched core_normal.cpp: LOADIP sets core.cseip=SegBase(cs)+reg_eip, and the hook compares core.cseip==dbp_trace_target). So traceSet(lin) with lin=(cs<<4)+ip is correct.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "wroot.exe",
+        "type": "live_trace",
+        "details": "wroot resident code segment is CS=0x1a8 (base 0x1a80); the engine spends ~93% of idle frames there (CS histogram across 40 frames: cs=0x1a8 dominant). The wmaze overlay is loaded ONCE at phys 0x4784 (a full-RAM scan for the render-frame signature 55 8b ec 83 c4 f0 56 a1 a4 4f 89 46 fe a1 a2 4f found exactly ONE copy, at phys 0x925b = 0x4784+0x4ad7). Overlay file offset f executes at CS=0x1a8 IP=(f+0x2d04), i.e. linear 0x4784+f (0x1a80 + 0x2d04 = 0x4784). The overlay maps 1:1 with the file at 0x4784 (live bytes at 0x4784+0x406c == file 0x406c == 55 8b ec...; live bytes at 0x4784+0x4e00 byte-identical to file 0x4e00 over 0x30 bytes)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "prior-render-fn-map-not-live",
+      "claim": "The prior findings' RENDER-PATH function offsets do NOT execute during a live maze redraw. On a confirmed redraw (party walked y3->y4 through the green gate, screen visibly changed), view_render_corridor_frame (0x4ad7), wall_emit_quad (0x406c), wall_emit_corner (0x45b4), wall_emit_floorceil (0x47a3), span_append (0x3f8d), and classifier 0x4892 ALL logged 0 trace hits. The render-frame entry 0x4ad7 also logged 0 hits on the INITIAL maze load (game_state 0xffff->5). This contradicts wmaze-3d-view.json / wmaze-blit-geometry.json / wmaze-texture-rasterizer.json, which derived those names from a static disasm.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_trace",
+        "details": "Per-offset hit counts over a confirmed forward walk (y-trail 333333344444444, gate opened, view updated), traceSet at OVL+offset (OVL=0x4784, re-found each session via the render sig): 0x4ad7=0, 0x406c=0, 0x45b4=0, 0x47a3=0, 0x3f8d=0, 0x4892=0, 0x48f5=0, 0x4926=0, 0x4957=0, 0x4984=0, 0x49b6=0, 0x49e8=0, 0x4ef9=0, 0x4f9b=0, 0x504b=0, 0x50fb=0, 0x51ab=0, 0x51e7=0, 0x4c3f=0, 0x4d95=0. Only 0x4e0b (=51 over the walk) and 0x4e67 (=12) fired. The tracer is proven working in the same harness (idle-loop 0x31ac = 464 hits/frame), so 0-hits is a genuine 'this code did not execute', not a tracing failure."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "4e0b-is-idle-animation-not-render",
+      "claim": "The only prior-body offsets that fire (0x4e0b, 0x4e67) are a PER-FRAME idle/animation loop, NOT the on-demand wall rasterizer. They fire the same count whether the view changes or the party is idle, run with DS=0x1180 (NOT wmaze's DGROUP 0xffa0), and a constant AX=0x7b -- and the instruction 4 bytes after 0x4e0b (0x4e0f, the next push in the static disasm) logs 0 hits in the same session, so the static instruction stream does not match what the engine actually executes at that linear address.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_trace",
+        "details": "Idle-vs-redraw delta (60 frames idle vs an 'e'-examine that fully redraws the view): 0x4e0b idle=17 redraw=17 delta=0; 0x4e67 idle=4 redraw=4 delta=0. All claimed render fns: idle=0 redraw=0. Same-session consecutive-instruction trace: 0x4e0b=17, 0x4e0f (next instr, +4 bytes)=0, 0x4e13(call)=0, 0x4e16=0, 0x4892(callee)=0. 0x4e0b records: cs=0x1a8 ip=0x7b0f (=> linear 0x958f = OVL+0x4e0b), but ds=es=ss=0x1180, ax=0x7b, di=0x5240, cx cycling 0/2/4/7/c. A push-then-next-push pair where the FIRST fires and the SECOND never does is impossible for straight-line execution of the disassembled bytes -> the linear address 0x958f is being executed by an instruction stream/context (DS=0x1180) different from the wmaze-render disasm. The actual wall rasterizer (the code that reads the @0x42/@0x4a/@0x36e4 tables with DS=0xffa0 and writes the viewport) was NOT located."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "geometry-data-tables-reconfirmed",
+      "claim": "The geometry DATA tables the prior pass read live are byte-identical this run and remain trustworthy AS DATA (the open question is only which CODE consumes them). Convergence arrays: DGROUP word[0x42]={0,104,128,144} (left, depth0..3), word[0x4a]={0,216,192,176} (right). Slot walltype array @0x5220 = 00 00 00 00 00 00 02 00 02 00 ... (0=open, 2=solid stone; the two wt=2 slots are the near L/R converging side walls). Per-walltype texture-seam tables @0x36e4 (x0) / 0x3717 (x1), stride 0x13a: wt=0 -> {0,0,0x90,0x90,0x8c,0x8c,0x85,0x85,0x94,0x94,...}; wt=2 -> {0,0,0x87,0x87,0x91,0x91,0x9a,0x9a,0x48,0x48,0x69,0x69,0x82,0x82,0xd5,0xd5,0xbf,0xbf,0xb2,0xb2,0x88,0x88,0x93,0x93,...}. The wt=2 values are SCREEN COLUMNS within the viewport (0x48=72=viewport-left, 0xd5=213, 0x87=135, 0x9a=154) -> these are the polygon edge / texture-seam screen columns the rasterizer interpolates between.",
+      "category": "blit_geometry",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_decode",
+        "details": "Live reads at the reference frame (DGROUP base 0xffa0): DGROUP 0x40..0x60 words = {0,0,0x68,0x80,0x90,0,0xd8,0xc0,0xb0,0,...} (array@0x42 left = {0,0x68,0x80,0x90}={0,104,128,144}; array@0x4a right = {0,0xd8,0xc0,0xb0}={0,216,192,176}). @0x5220 = 00 00 00 00 00 00 02 00 02 00 16 81 00 00 01 00. @0x36e4 (wt0) + @0x3958 (wt2 = 0x36e4 + 2*0x13a) as quoted. These match wmaze-blit-geometry.json / wmaze-texture-rasterizer.json exactly. Interpretation: array@0x42/@0x4a are the per-depth vertical wall extents (corridor convergence); the seam tables are per-walltype texture-edge screen columns. This is the U/V GEOMETRY skeleton -- but without the consuming code I could not confirm the exact per-column affine-vs-perspective sampling law."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "uv-mapping-geometric-model-unverified-code",
+      "claim": "Best-supported U/V model for the NEAR side wall (geometry-anchored, but the CODE that implements it was NOT traced -> confidence low on the exact sampling law): a wall at (depth d, side) is a screen quad whose near/far vertical extents come from the convergence arrays array@0x42[d] (left) / array@0x4a[d] (right) -- e.g. left side wall ramps from depth0 full-height (extent word 0) to depth3 narrowed (144); right from 0 to 176. The horizontal screen columns of the quad edges and the texture-seam columns come from the per-walltype table @0x36e4/@0x3717 (wt=2 stone -> screen columns 0x48..0xd5 = 72..213, mirror-symmetric around the corridor center ~x160). Texture sampling appears affine column-scaled (the seam tables are linearly-interpolated screen columns, not perspective ratios), consistent with the prior pass's read, but this was NOT confirmed against the live draw code.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_decode",
+        "details": "The two wt=2 side-wall slots + the array@0x42/@0x4a depth ramps + the wt=2 seam columns (72..213, mirror-symmetric) together describe the converging stone side walls visible in the oracle frame (/tmp/wiz6-maze-cleared.png) -- the left wall fills from viewport-left (x72) inward to the vanishing point ~x146, the right mirrors it. This is the geometry of the quad and where its texture seams land on screen. The remaining gap (exact per-column scale + the U origin) lives in the un-located draw primitive (the 0xf148 thunk target)."
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "f148-thunk-target-unresolved",
+      "claim": "The per-edge draw thunk 0xf148 (and the floor/ceiling blit 0xfb27, and 0xbb9a) could NOT be resolved to a wroot function via the tracer. Tracing the candidate near-call targets (interpreting 0xf148 as an offset in CS=0x22 -> linear 0xf368, and in CS=0x1a8 -> linear 0x10bc8) logged 0 hits during a confirmed redraw, consistent with the broader result that the wall-emit call sites that reference 0xf148 (file 0x40af/0x452a/... 28 sites) never execute live. The -0xBA9C thunk-delta law (which the prior pass already flagged as failing for these high thunks) was not needed/confirmed. Resolving 0xf148 requires first locating the live render path (the call sites that reach it), which this pass could not.",
+      "category": "overlay_relocation",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_trace",
+        "details": "28 static near-call sites target 0xf148 (file 0x40af,0x40f5,0x42ab,...,0x52e2; scanned via e8 rel16 over file 0x3f00..0x5300). A 29th call site at file 0x4062 targets 0xc546 (the audio thunk, per the prior correction). Tracing 8 of the 0xf148 call sites (0x40af,0x40f5,0x452a,0x456c,0x45aa,0x47e6,0x484a,0x4888) during a redraw: all 0 hits. Tracing the f148 entry candidates (linear 0xf368, 0x10bc8) during a redraw: 0 hits."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "floor-ceiling-source-block-layout",
+      "claim": "Floor (zone0 asset id=1346) and ceiling (id=1740) source blocks live at fixed far pointers (floor seg 0x783f off 0 -> phys 0x783f0; ceiling seg 0x7895 off 0 -> phys 0x78950), reached via the per-zone far-ptr tables at DGROUP 0x7d2 (floor) / 0x80a (ceiling), bx=zone*4. The decompressed in-RAM block layout: (a) bytes 0..11 = a 12-byte MONOTONIC depth-shade brightness LUT '00 07 0d 16 2d 47 52 69 7a 82 8a ff' (12 depth steps, fading to 0xff=white at the nearest); (b) bytes 0x10..0x1f = a 16-byte heap-owner header '4d 98 01 55 00 00 00 00 57 52 4f 4f 54 00 00 00' (the 'WROOT' tag is the wroot heap allocator's owner stamp, NOT image data); (c) bytes 0x20..~0x44 = a ~36-byte sub-tile INDEX table (floor: 01 17 18 05 06 07 08 09 0a 0e 0f 10 08 09 0a 08 09 0a 0e 0f 10 ... -- small indices into something, with a repeating 08 09 0a / 0e 0f 10 triplet pattern); (d) zeros to ~0x84; (e) the proprietary masked pixel blob from ~0x84.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "byte_pattern_plus_live",
+        "details": "Live: DGROUP [0x3304]=1346, [0x3306]=1740; far-ptr table @0x7d2 = 00 00 3f 78 (floor seg 0x783f), @0x80a = 00 00 95 78 (ceiling seg 0x7895). Dumped 0x4000 B each to /tmp/wiz6-floor-src.bin /tmp/wiz6-ceil-src.bin. Floor header bytes as quoted. The 12-byte ramp is strictly increasing (0,7,13,22,45,71,82,105,122,130,138,255) -> a depth-brightness LUT (the dungeon view is grayscale stone shaded darker with distance; the oracle shows the far gate-cell walls darker than the near side walls). Ceiling block begins '64 64 00 00 ...' then the same 'WROOT' header at +0x10, then its own index table + masked blob. The dense pixel region histogram is dominated by 0x00 (1963/3964) with small indices (1..10) and the bit-doubled bytes 0xaa/0xa0/0x2a/0x80 -- consistent with a mask+pixel-run encoding, NOT a flat planar/linear bitmap."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "masked-texture-format-not-decoded",
+      "claim": "The masked pixel blob (in floor/ceiling source blocks AND the mazedata wall slices) was NOT byte-decoded this pass. The encoding is the wroot/EGA-driver proprietary masked image format (interleaved-zero / bit-doubled packing, e.g. '2a 00 28 00 a8 0a 8a 02'); the histogram and the 0xaa-family bytes look like a 2bpp-or-mask packing, but a flat-stride read produced no coherent grayscale rows (consistent with the prior pass and with mazedata-investigation.md). Decoding it correctly requires the blit/decoder routine (the 0xfb27 image-blit + 0xf148 edge-emit targets), which this pass could not locate. Per the project RE caveat, a speculative blind decode was deliberately NOT published. RAM-EXTRACT FALLBACK remains viable: the decompressed source blocks are readable at the fixed far-ptrs and the composited framebuffer is the oracle, so a TS port can extract textures from the frame per slot without cracking the source encoding -- but that is a fallback, not a format spec.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "byte_pattern",
+        "details": "Floor dense region @0x84: 2a 00 28 00 a8 0a 8a 02 00 00 00 a2 00 00 00 00 00 2a 00 0a a8 0a a0 2a 00 00 e2 ... Histogram (0x84..0x1000): 0x00:1963, 0x03:138, 0x02:127, 0x01:104, 0x04:99, 0xaa:84, 0x07:73, 0x05:69, 0x80:62, 0x0a:59, 0x10:55, 0xa0:46, 0x2a:43. The low-index bytes (1..0x10) match the sub-tile index table's value range, and the 0xaa/0x2a/0xa0 family are bit-doubled patterns (0xaa=10101010). No stride 22/44/88/176 produced coherent rows. Decode deferred to a follow-up that locates the blit routine."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "solid_vs_followup": {
+    "solid": [
+      "The instruction tracer works and the linear-address convention ((cs<<4)+ip == core.cseip) is correct (idle-loop validation: 464 hits/frame).",
+      "wroot resident code segment = CS=0x1a8; wmaze overlay loaded ONCE at phys 0x4784 (single sig copy), maps 1:1 with the file there, executes at CS=0x1a8 IP=file+0x2d04.",
+      "NEGATIVE but high-confidence: the prior render-path function map (0x4ad7 entry, 0x406c/0x45b4/0x47a3 emitters, 0x3f8d span_append, 0x4892.. classifiers, the 28 f148 call sites) does NOT execute on a live maze redraw -- the prior render-path RE is not validated and should be treated as unproven.",
+      "0x4e0b/0x4e67 are a per-frame idle/animation loop (DS=0x1180, AX=0x7b, idle==redraw hit counts), not the rasterizer.",
+      "The geometry DATA tables are byte-confirmed live (convergence arrays @0x42/@0x4a = {0,104,128,144}/{0,216,192,176}; seam tables @0x36e4/@0x3717; slot walltypes @0x5220 = 0/2).",
+      "Floor/ceiling source-block layout: 12-byte depth-shade LUT + 16-byte WROOT heap header + ~36-byte sub-tile index table + masked pixel blob; floor/ceiling far-ptrs (0x783f:0 / 0x7895:0); the 12-byte ramp is a monotonic depth-brightness LUT."
+    ],
+    "needs_follow_up": [
+      "LOCATE THE LIVE RENDER PATH. The prior static-disasm function offsets are not the live code. Recommended: trace by DELTA -- arm the tracer on a grid of wmaze offsets and diff idle-vs-confirmed-redraw hit counts to find the offsets whose count INCREASES on a redraw (the per-frame idle loop will cancel out). A redraw must be forced by FORWARD MOVEMENT (repeated ENTER) through an open corridor cell; turning does not register via the harness arrow keys, so set up a frame where forward is unblocked. Once the render entry is found, capture its callees' args via stack[] to get the real U/V draw primitive and the 0xf148/0xfb27 targets.",
+      "FIND THE TURN KEY. up/down/left/right/space/enter/wasdqezxcfrt/1-9 did NOT turn the party (facing stayed 0, fb diff 0). Forward works via ENTER/z. A working turn key would make redraws trivial to drive and would let a single static frame exercise all four wall orientations.",
+      "Resolve the 0xf148 (edge-emit) and 0xfb27 (floor/ceiling blit) thunk targets by single-stepping into them from the (now-located) live call site; then reverse the masked pixel encoding against the source-block dumps with the decoder asm in hand.",
+      "Decode the masked texture format properly (decoder-first, not blind). The source blocks are at /tmp/wiz6-floor-src.bin /tmp/wiz6-ceil-src.bin (offset ~0x84 = pixel blob); the 12-byte LUT + sub-tile index table @0x20 are the keys."
+    ]
+  },
+  "symbol_map": [
+    {"space": "wroot.exe", "offset": "0x172c_cs1a8", "name": "idle_loop_anchor", "note": "wroot idle loop @ CS=0x1a8 IP=0x172c (linear 0x31ac); 464 hits/frame -- the tracer-validation address"},
+    {"space": "wmaze.ovr", "offset": "0x4e0b", "name": "per_frame_idle_anim_loop", "note": "fires 17/frame idle==redraw, DS=0x1180 AX=0x7b -- NOT the wall rasterizer (corrects the prior 'depth-loop body' label)"}
+  ],
+  "unresolved": [
+    "The LIVE wmaze wall-render entry + emitters (the prior 0x4ad7/0x406c/0x45b4/0x47a3/0x3f8d offsets do NOT execute live).",
+    "The 0xf148 (per-edge draw) and 0xfb27 (floor/ceiling blit) wroot thunk targets.",
+    "The exact U/V sampling law (affine vs perspective) -- geometry skeleton known, consuming code not located.",
+    "The masked+run texture pixel encoding (decoder not located; blind decode deliberately not attempted).",
+    "The mazedata descriptor-index -> wall-texture mapping.",
+    "The maze TURN key in the harness."
+  ],
+  "caveat_for_prior_findings": "wmaze-3d-view.json, wmaze-blit-geometry.json, and wmaze-texture-rasterizer.json all describe the render as an edge-list textured-polygon rasterizer at specific offsets. The DATA those passes read live (tables, arrays, asset ids, viewport, maze-bit grid) is corroborated here. The CODE/control-flow claims (which function is the entry, which emitters run, what 0xf148 does) are NOT corroborated -- the named render functions log 0 live trace hits on a confirmed redraw. Promote the DATA findings; hold the render-CODE findings as unproven pending a delta-trace pass that actually locates the live render path."
+}
