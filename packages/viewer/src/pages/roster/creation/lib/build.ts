@@ -70,6 +70,16 @@ export function buildCharacterFromDraft(draft: DraftState, scenarioDb?: Scenario
   const schoolMana    = new Array(6).fill(0) as number[];
   const schoolManaMax = new Array(6).fill(0) as number[];
 
+  // Known-spell bitset (record +0x188): one bit per picked spell-table index.
+  // The camp SPELL spellbook viewer (and the dungeon cast path) read this via
+  // knownSpellsBySchool; without it a freshly-CREATED caster's spellbook renders
+  // empty. draft.spellPicks holds the spell-table indices chosen at the spell
+  // picker. RE: docs/re/findings/wpcvw-known-spells.json.
+  const spellSlotsKnown = new Array(20).fill(0) as number[];
+  for (const idx of draft.spellPicks) {
+    if (idx >= 0 && idx < 160) spellSlotsKnown[idx >> 3]! |= 1 << (idx & 7);
+  }
+
   // Starting equipment — the engine issues a hardcoded per-class kit (5 carried
   // items, none auto-equipped) at creation. Needs the scenario DB to resolve
   // each item's weight/equipSlot/spriteIdx/flags. Absent it (e.g. unit tests
@@ -104,6 +114,7 @@ export function buildCharacterFromDraft(draft: DraftState, scenarioDb?: Scenario
     schoolMana,
     schoolManaMax,
     skills,
+    spellSlotsKnown,
     reaction: 50,             // neutral reaction
     portraitIndex: draft.portrait,
     hpCurrent: hpInitial,

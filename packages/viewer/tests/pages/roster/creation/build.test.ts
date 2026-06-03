@@ -43,4 +43,20 @@ describe('buildCharacterFromDraft — starting inventory (#034-adjacent: creatio
     expect(c.inventory).toBeUndefined();
     expect(c.encumbranceCurrent).toBe(0);
   });
+
+  it('persists picked spells into the known-spell bitset (so the spellbook is not empty)', () => {
+    // A created caster's picked spell-table indices must land in spellSlotsKnown
+    // (+0x188), or the camp SPELL viewer shows an empty list. Pick Fire-L1 (index 0)
+    // + a Water spell (index 10) like the squad's Bishop.
+    const d = fighterDraft();
+    d.class = 1; // Mage
+    d.spellPicks = [0, 10];
+    const c = buildCharacterFromDraft(d);
+    expect(c.spellSlotsKnown).toHaveLength(20);
+    // bit 0 → byte0 bit0; bit 10 → byte1 bit2.
+    expect(c.spellSlotsKnown![0] & 0x01).toBe(0x01);
+    expect((c.spellSlotsKnown![1] >> 2) & 0x01).toBe(0x01);
+    // A non-caster (no picks) → all-zero bitset.
+    expect(buildCharacterFromDraft(fighterDraft()).spellSlotsKnown!.every((b) => b === 0)).toBe(true);
+  });
 });
