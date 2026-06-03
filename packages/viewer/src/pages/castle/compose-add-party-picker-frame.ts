@@ -79,8 +79,6 @@ const BANNER_H = 1;
 const BANNER_TITLE = 'add\x5fmember';
 const BANNER_TITLE_COL = 5;
 const BANNER_TITLE_ATTR = 0x03;
-const BANNER_FILL_CHAR = 0x5f;
-const BANNER_FILL_ATTR = 0x03;
 
 // Right-edge vertical line at cell 19 across picker rows 19-23. Engine
 // renders wfont1 char 0x1c (a tile whose cols 0-6 are gray and col 7 is

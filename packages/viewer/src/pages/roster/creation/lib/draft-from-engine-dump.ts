@@ -46,7 +46,7 @@ export interface EngineDraftDump {
   bonusPool: number;
 }
 
-const ATTR_ORDER = ['str', 'int', 'pie', 'vit', 'dex', 'spd', 'per', 'kar'] as const;
+type AttrKey = 'str' | 'int' | 'pie' | 'vit' | 'dex' | 'spd' | 'per' | 'kar';
 
 export function draftFromEngineDump(dump: EngineDraftDump): DraftState {
   const base = blankDraft();
@@ -61,7 +61,7 @@ export function draftFromEngineDump(dump: EngineDraftDump): DraftState {
     spd: a[5] ?? 0,
     per: a[6] ?? 0,
     kar: a[7] ?? 0,
-  } satisfies Record<(typeof ATTR_ORDER)[number], number>;
+  } satisfies Record<AttrKey, number>;
 
   return {
     ...base,

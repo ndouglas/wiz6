@@ -55,8 +55,6 @@ const WEAPON_ICON_CHAR = 0x02; // wfont4 glyph 0x02 = the small sword icon
 
 // Highlight-path colored text: attr = palette_idx << 4 (low nibble 0).
 const ATTR_CATEGORY = 0x10; // palette[1] white
-const ATTR_RESIST_A = 0x60; // palette[6] (resistance header default)
-const ATTR_RESIST_B = 0xb0; // palette[11] (save header / alt columns)
 const ATTR_WEAPON_TYPE = 0x20; // palette[2]
 const ATTR_ATTACK_MODE = 0x50; // palette[5] yellow
 const ATTR_PS_LABEL = 0x60; // palette[6] "P"

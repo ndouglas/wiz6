@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PresetSchema, PresetsFileSchema, PcFileJsonSchema } from '../../src/schemas/preset.js';
+import { PresetSchema, PcFileJsonSchema } from '../../src/schemas/preset.js';
 
 const char = {
   id: '00000000-0000-4000-8000-000000000001', name: 'A', race: 0, class: 0, level: 1,

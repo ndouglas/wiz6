@@ -28,9 +28,6 @@ const OFF_CATEGORY = 0x3c; // inspect-category enum → 0x60e-base table. HIGH.
 const OFF_CURSE = 0x3f; // curse byte (display fn [bp-0x11] = 0x50-0x11). MEDIUM.
 const OFF_AC = 0x46; // AC bonus (shared with EQUIP). HIGH.
 
-// Item flags (from InventoryItemSchema / equip-logic).
-const ITEM_FLAG_TWO_HANDED = 0x08;
-
 /**
  * Category labels indexed by record byte 0x3c (msg table 0x60e..0x61e). HIGH.
  * The first four (S/E/T/L) are the four weapon families; 4=missile/ammunition;

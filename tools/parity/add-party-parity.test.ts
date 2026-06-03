@@ -47,7 +47,7 @@ import { composeAddPartyPickerFrame } from '../../packages/viewer/src/pages/cast
 import { loadCreationFontSet } from '../../packages/viewer/src/pages/roster/creation/ega/assets.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { indicesToRgba } from './decode-screen.js';
-import { compareRgba, compareRgbaMulti, writeDiffPng } from './diff-image.js';
+import { compareRgbaMulti, writeDiffPng } from './diff-image.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');

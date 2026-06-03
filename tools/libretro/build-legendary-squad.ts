@@ -32,7 +32,6 @@ const SHOTS = '/tmp/squad-shots';
 const STRUCTS = buildStructRegistry(ALL_STRUCTS);
 
 const BONUS_BYPASS_FLAG = 0x56ce; // write 1 → next bonus roll = 21
-const ATTR_NAMES = ['STR', 'INT', 'PIE', 'VIT', 'DEX', 'SPD', 'PER', 'KAR'] as const;
 
 interface SquadMember {
   name: string;   // <= 7 chars
@@ -192,7 +191,7 @@ async function createOne(s: LiveSession, m: SquadMember, idx: number): Promise<v
   await shot(s, `${idx}-${m.name}-c-sex`);
 
   // After sex, the engine rolls the bonus (should be 21 via bypass) and shows CLASS.
-  let { bonusPool } = await s.dumpDraft();
+  const { bonusPool } = await s.dumpDraft();
   console.log(`    bonusPool after sex = ${bonusPool}`);
   if (bonusPool !== 21) {
     // Bypass may need pinning right before the roll; try once more by stepping.

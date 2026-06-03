@@ -41,7 +41,6 @@ import {
   decodePcfile,
   pcfileSlotToCharacter,
   type MainMenuContext,
-  type MainMenuOption,
 } from '../../packages/parser/src/index.js';
 import { composeCastleFrame } from '../../packages/viewer/src/pages/game/castle-frame.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
