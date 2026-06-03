@@ -235,6 +235,61 @@ const REVIEW_TWINK_SHURIKEN_RECIPE: SaveStateRecipe = {
   settleMs: 300,
 };
 
+// ── Camp SPELL read-only spellbook viewer (WPCVW SPELL action) ─────────────
+// The char-view SPELL action opens a per-school spell browser: a 3×2 SCHOOL
+// "grid" of colored school icons (FIRE/WATER/AIR top row, EARTH/MENTAL/DIVINE
+// bottom row) with the currently-selected school's KNOWN spell list shown on the
+// right + a COST/power bar. Same layout as the creation spell picker
+// (creation-spell-* fixtures), just over a saved caster instead of a draft. The
+// grid cursor navigates with arrows (down = within a column FIRE→WATER→AIR;
+// right = row jump FIRE→EARTH — see SpellPickScreen.gridNextSchool); ENTER drills
+// into the selected school's sublist (selects a spell + shows its COST).
+//
+// Target caster: TREON (pinned roster slot 4, M-Dracon MAGE) — knows Fire-L1
+// (ENERGY BLAST). FIRE is grid cell 0 (the default cursor), so the screen opens
+// on a NON-EMPTY FIRE list and ENTER immediately drills into the 1-spell FIRE
+// sublist — minimal nav, byte-exact re-mint from the pinned roster.
+//
+// Reach (5-member party so slot 4 = TREON is reachable):
+//   makeCastleRecipe(5)  → 5 pinned chars (THESUS/TEMPEST/LYSANDR/NOBAL/TREON),
+//                          cursor back on ADD PARTY MEMBER (slot 0)
+//   down                 → REVIEW MEMBER (MASTER OPTIONS slot 1)
+//   enter                → REVIEW WHO? picker (cursor on EXIT)
+//   down down down        → TREON (the picker is 2-col column-major: col0 =
+//                          THESUS/LYSANDR/TREON, col1 = TEMPEST/NOBAL; 3 downs
+//                          walk col0 to row 2 = TREON)
+//   enter                → WPCVW char-view (cursor on EXIT, idx 6)
+//   left left left down enter → SPELL action (idx 1): col-major 2-row menu
+//                          EQUIP(0)/SPELL(1) col0; from EXIT, left×3 → EQUIP(0),
+//                          down → SPELL(1) → opens spellbook on FIRE grid.
+const SPELLBOOK_REACH: readonly string[] = [
+  ...makeCastleRecipe(5).steps,
+  'down', 'enter',                 // REVIEW MEMBER → REVIEW WHO? (cursor EXIT)
+  'down down down',                // → TREON (col0 row 2)
+  'enter',                         // → WPCVW char-view (cursor EXIT)
+  'left left left down enter',     // → SPELL action → FIRE school grid
+];
+
+const SPELLBOOK_RECIPES: readonly SaveStateRecipe[] = [
+  {
+    name: 'spellbook-grid-fire',
+    description:
+      'Camp SPELL spellbook, SCHOOL grid — TREON (M-Dracon MAGE, pinned slot 4), ' +
+      'cursor on FIRE (grid cell 0), FIRE known-spell list (ENERGY BLAST) shown. ' +
+      'Re-mints byte-exact from the pinned roster.',
+    steps: [...SPELLBOOK_REACH],
+    settleMs: 300,
+  },
+  {
+    name: 'spellbook-sublist-fire',
+    description:
+      'Camp SPELL spellbook, FIRE sublist — TREON, drilled into FIRE (ENTER on the ' +
+      'grid): ENERGY BLAST selected, COST bar populated. Byte-exact re-mint.',
+    steps: [...SPELLBOOK_REACH, 'enter'],
+    settleMs: 300,
+  },
+];
+
 // ── WPCVW char-view ACTION sub-screens (state 0x11) ────────────────────────
 // All reached over the SAME 3-member pinned-roster party (THESUS/TEMPEST/
 // LYSANDR) as review-member-view, then REVIEW MEMBER → REVIEW WHO? → THESUS
@@ -914,6 +969,7 @@ export const STATE_CATALOG: readonly SaveStateRecipe[] = [
   ...SKILL_VIEWER_RECIPES,
   ...SWAG_RECIPES,
   REVIEW_MEMBER_EQUIPPED_RECIPE,
+  ...SPELLBOOK_RECIPES,
   ...PICKER_RECIPES,
   ...CREATION_RECIPES,
 ];
