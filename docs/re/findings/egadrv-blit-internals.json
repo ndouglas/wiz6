@@ -61,6 +61,17 @@
       "confidence": "high"
     },
     {
+      "id": "wall-rasterizer-full-algorithm",
+      "claim": "Full wall-rasterizer algorithm (4-plane EGA, captured + disassembled). The executed blob is a VERBATIM copy of ega.drv file 0x1df0..0x2262 (0 byte diffs over 0x472 bytes) into a work buffer; entered for the per-column blit at the offset == file 0x1fd0. OUTER loop (file 0x1df0..0x1fd0): loads the work segment from cs:[0x16d] into ds/es; computes a row stride [bp-8] = ([bp-2]-1)<<5 (32 bytes = a 4-plane*8 cell); builds per-column edge masks from the sub-byte position (cx=[bp-6]&7; setmask ah=0xff<<cl, clearmask al=~ah -> [bp-0xc]); clears/initializes column strips (rep stosw 0xffff = transparent, or and/or with the edge mask over 0x20-byte rows); clips against Y bounds [bp+0xe] (top) / [bp+0x14] (bottom). INNER per-plane block (0x1fd0, x4 unrolled, source planes at si+0/+8/+0x10/+0x18, stride 8): ah=src plane byte; shr ax,cl (column align); and ax,bx (valid-pixel set-mask); merge dst=(dst & dx_clearmask) | (src & bx); write to the off-screen PLANAR page es:[di + 0x2000*plane] (plane stride 0x2000) OR, if [bp+0x18]&1, straight to A000 VRAM via Sequencer Map Mask (out 0x3c5, plane-bit 1/2/4/8) + GC (0x3cf) + latched read/write. So the maze composes into a 4-plane off-screen page (4*0x2000=0x8000), then (elsewhere) blits to VRAM.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture_plus_disasm",
+        "details": "Capture /tmp/wiz6-wallrast.bin (base lin 0x6d800 == ega.drv file 0x1df0) == ega.drv[0x1df0:0x2262] byte-exact (0 diffs). Capstone of the outer loop @0x6d802: `mov ax,[bp-2]; dec ax; mov cl,5; shl ax,cl; mov [bp-8],ax` (row stride (w-1)*32); `mov ax,cs:[0x16d]; mov ds,ax` (work seg); edge-mask build @0x6d8a4 `mov cx,[bp-6]; and cx,7; mov ah,0xff; shl ah,cl; mov al,ah; not al; mov [bp-0xc],ax`; clip @0x6d834 `shl ax,3; add ax,[bp+0xe]; cmp ax,[bp+0x14]`. Inner 4-plane block @0x6d9e0/0x6da31/0x6da82/... at source si+8/+0x10/+0x18 with off-screen dest +0x2000/+0x4000/+0x6000 and VRAM-vs-offscreen branch on [bp+0x18]&1."
+      },
+      "confidence": "high"
+    },
+    {
       "id": "capture-on-breakpoint-tooling",
       "claim": "New core-patch tooling resolves the mid-frame-state limitation: a one-shot MEMORY CAPTURE armed on the trace breakpoint. dbp_capture_set(base,len,skip) snapshots [base,base+len) of guest RAM at the (skip+1)-th hit of the trace target into a host-readable buffer; dbp_capture_get retrieves it. Exposed as host `capset`/`capget` and HostClient.captureSet/captureGet; driven via trace-maze.ts `cap`. This captures transient/copied code (the wall rasterizer) that is invisible to frame-boundary read()/regs(). Zero behavior change when disarmed.",
       "category": "tooling",
@@ -83,8 +94,9 @@
     ],
     "tooling_limitation": "RESOLVED. Previously: the non-pausing tracer + frame-boundary read()/regs() could not observe the mid-frame wall rasterizer (the work-buffer region holds pixel data at the boundary). FIXED by the new capture-on-breakpoint tooling (dbp_capture_set/get; host capset/capget; HostClient.captureSet/captureGet) which snapshots guest RAM at the exact instruction the trace target fires -- it captured the live wall rasterizer (4064/4096 bytes differ from the idle view).",
     "needs_follow_up": [
-      "Decompile the wall-rasterizer template at ega.drv file 0x1fd0 (Ghidra; inside the FUN_1c94 region) to get the full per-plane loop + its caller (who sets si/di/bx/dx/cl + the source texture pointer + the [bp+0x18] page flag).",
-      "Find the WALL caller in wmaze/ega that copies the 0x1fd0 template to the work buffer and drives it per depth-slice -- capture its arg setup (source texture ptr, screen column/clip, plane masks) and map to the convergence/seam DATA tables (@0x42/@0x4a/@0x36e4) for the per-column U/V.",
+      "DONE: the wall-rasterizer algorithm is fully RE'd (see wall-rasterizer-full-algorithm) -- verbatim copy of ega.drv 0x1df0..0x2262, outer column/clip/mask setup + 4-plane EGA planar RMW into an off-screen page (0x2000 plane stride) or VRAM.",
+      "Find the WALL caller that copies the ega.drv tail (0x1df0..0x2262) to the work buffer and drives it per depth-slice -- capture the arg FRAME it sets ([bp-2]=width, [bp-4], [bp-6]=sub-byte x, [bp+0xe]/[bp+0x14]=Y clip, [bp+0x18]=VRAM flag, si=source texture ptr) and map to the convergence/seam DATA tables (@0x42/@0x4a/@0x36e4) for the per-column U/V. NOTE: wmaze+0x681a/+0x6aa1 (from the where-sample) is a RED HERRING -- that code uses the 0x1b0 party-member stride + per-member fields 0x450a/0x453a (party/panel code, incidental single hit), NOT the wall caller. Find the caller instead via the rasterizer entry's return-stack (capture ss:sp at the blob entry) or by tracing the rep-movs that copies 0x1df0->work-buffer.",
+      "Capture the off-screen 4-plane page (es:[di+0x2000*k]) mid-frame with the capture tool, and find the page->VRAM blit, to decode one wall texture end-to-end.",
       "Decode one wall texture end-to-end: source 4-plane texels -> rasterizer (shr/and/merge) -> off-screen page (+0x2000) -> VRAM; pixel-match the reference frame. The capture tool can now snapshot the off-screen page mid-frame too.",
       "Port: reimplement the EGA planar RMW rasterizer in TS (4-plane source, per-column shr/and/merge, off-screen compose) driven by the known geometry tables -> pixel-parity. (Framebuffer-oracle remains a fallback.)",
       "SPRITE path (separate): capture FUN_1c94/FUN_210c live during a MONSTER encounter to validate the 4-plane masked sprite format + the descriptor/tile/LUT tables."
