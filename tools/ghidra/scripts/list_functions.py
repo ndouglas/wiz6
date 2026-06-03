@@ -27,18 +27,22 @@ def main() -> int:
 
     pyghidra.start()
 
-    program_path = f"/{args.binary}"  # Ghidra project paths are absolute-style within the project
-    with pyghidra.open_program(f"{args.project_dir}/{args.project_name}.gpr", program_path) as flat:
-        program = flat.getCurrentProgram()
-        fm = program.getFunctionManager()
-        for fn in fm.getFunctions(True):
-            name = fn.getName()
-            if args.only_unnamed and not name.startswith("FUN_"):
-                continue
-            entry = fn.getEntryPoint()
-            size = fn.getBody().getNumAddresses()
-            sig = fn.getSignature().getPrototypeString()
-            print(f"  0x{int(entry.getOffset()):x}  {size:>5}  {name:<28}  {sig}")
+    # pyghidra 3.x: open_program() is removed; use open_project + program_context
+    # (same pattern as decompile.py). Ghidra project paths are absolute within project.
+    project = pyghidra.open_project(args.project_dir, args.project_name)
+    try:
+        with pyghidra.program_context(project, f"/{args.binary}") as program:
+            fm = program.getFunctionManager()
+            for fn in fm.getFunctions(True):
+                name = fn.getName()
+                if args.only_unnamed and not name.startswith("FUN_"):
+                    continue
+                entry = fn.getEntryPoint()
+                size = fn.getBody().getNumAddresses()
+                sig = fn.getSignature().getPrototypeString()
+                print(f"  0x{int(entry.getOffset()):x}  {size:>5}  {name:<28}  {sig}")
+    finally:
+        project.close()
 
     return 0
 

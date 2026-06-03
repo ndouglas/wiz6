@@ -1,0 +1,81 @@
+{
+  "topic": "egadrv-blit-internals",
+  "subagent_run": "2026-06-03 (Ghidra follow-up to wmaze-render-in-egadrv.json)",
+  "binaries": ["ega.drv"],
+  "tool": "Ghidra 12.1 (pyghidra 3.x via tools/ghidra/scripts/{list_functions,decompile}.py; list_functions.py fixed to use open_project/program_context). ega.drv already imported by setup.sh (BinaryLoader, x86:LE:16 Real Mode, base seg 0 -> Ghidra address == file offset).",
+  "summary": "Static-RE of the ega.drv blit service that wmaze-render-in-egadrv.json located dynamically. ega.drv is a DOS graphics driver with a 17-entry far-call dispatch table at file 0x00 (e9 jmp, then `e8 rel16; cb retf` thunks at 0x03,0x07,...,0x43). **Entry 10 (offset 0x2b) -> handler FUN_1c94 (file 0x1c94, 1144 bytes) is the wall/sprite COMPOSITOR** -- it contains the EGA planar span writer at file 0x2069 (es=A000, dx=0x3c5 Sequencer) that the dynamic trace caught at lin 0x6c219. FUN_1c94 clears a 0x1400-byte compose buffer to 0xff (all-planes-set = transparent), reads tile (width,height) from a 0x18-stride descriptor table indexed by (pieceString[0]-1), loops the piece-index string calling FUN_210c per piece, then applies optional palette-remap (flag bit0, LUT at +0x192), horizontal flip (flag bit1, 8-wide byte-swap), clipping (args +0xc/+0x10), and the planar blit to VRAM. FUN_210c (file 0x210c) is the per-piece MASKED 4-PLANE EGA BLIT: pixels are EGA planar (4 planes at src[0]/[8]/[0x10]/[0x18], cell stride 0x20); transparency = AND of all 4 planes (transp = p0&p1&p2&p3); merge = dst = src&~transp | dst&transp; a per-cell presence bitmap (descriptor+2, rotating bit mask) selects which cells are emitted; flags give H/V flip. This is the 'proprietary masked blob' the prior wmaze passes could not decode -- it is standard 4-plane EGA masked sprite data, NOT a custom format and NOT 2bpp (corrects the '2bpp' guess in wmaze-render-in-egadrv.json#twobpp-column-writer; the rotating bx/dx masks seen in the trace are the EGA plane/bit masks).",
+  "findings": [
+    {
+      "id": "egadrv-dispatch-table",
+      "claim": "ega.drv exposes a 17-entry far-call dispatch table at file 0x00: `e9 00 00` (jmp self+3) then 17x `e8 rel16; cb` (near-call handler; far-return). Callers far-call ega_seg:offset (0x03,0x07,...,0x43). Handlers: e0->0x19a, e1->0x43a, e2->0x55f, e3->0xeae, e4->0xf0a, e5->0xff7, e6->0xfe1, e7->0xfab, e8->0xd2f, e9->0x1c25, **e10(off 0x2b)->0x1c94**, e11->0x5f0, e12->0x631, e13->0x735, e14->0x7b3, e15->0xa93, e16->0x192e.",
+      "category": "overlay_relocation",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "byte_pattern",
+        "details": "Header bytes: e9 00 00 e8 94 01 cb e8 30 04 cb e8 51 05 cb ... Decoded e8 rel16 (target = addr_after+rel) for all 17 thunks; each followed by cb (retf). Entry 10 @0x2b -> 0x1c94 is the largest handler and contains the traced planar writer (file 0x2069 = lin 0x6c219)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun1c94-compositor",
+      "claim": "FUN_1c94 (entry 10) is the wall/sprite compositor + VRAM blit. Decompiled behavior: (1) clear a 0x1400-byte compose buffer to 0xff (transparent); (2) tile (w,h) = descriptorTable[(pieceString[0]-1)*0x18 + 2/+3]; (3) for each byte in the piece-index string (arg @+0x18) call FUN_210c (decode+merge that piece into the buffer); (4) if flag(+0x14)&1: palette-remap every buffer byte through LUT at +0x192; (5) if flag&2: horizontal-flip (swap bytes [0]<->[7],[1]<->[6],[2]<->[5],[3]<->[4] across 8-wide cells); (6) clip using args +0xc (start) / +0x10 (end); (7) planar blit to A000 via the writer at file 0x2069. Args (near-cdecl, bp+): +0x0a tile/col index (into table @0x17a), +0x0c/+0x10 clip bounds, +0x14 flags, +0x18 piece-index string ptr.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "decompile",
+        "details": "FUN_0000_1c94 decompile: `for(iVar10=0x1400;...) *p++=0xff;` then `iVar10=(byte)(*arg18-1)*0x18; w=*(iVar10+2); h=*(iVar10+3);` then `while(*arg18) { FUN_210c(); arg18++; }` then `if(flags&1){ b=LUT[b+0x192] }` then `if(flags&2){ 8-wide byte-swap }` then clip via (+0x10 - +0xc). The planar writer at 0x2069 (es=A000, dx=0x3c5) is inside this function (dynamic trace lin 0x6c219, 805 hits, di stride 0x28)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun210c-masked-4plane-blit",
+      "claim": "FUN_210c is the per-piece masked 4-plane EGA blit (the texture/sprite decoder). Pixels are EGA planar: a cell is 4 planes at src offsets [0],[8],[0x10],[0x18], cell stride 0x20. Transparency mask = AND of the 4 planes (transp = p0 & p1 & p2 & p3). Per-plane merge: dst[p] = src[p] & ~transp | dst[p] & transp. A per-row presence bitmap (descriptor+2, a rotating bit `bVar7` from 1, left-rotating each cell) selects which cells are emitted vs skipped (advance dst by 0x20). H-flip (flag bit0): src/dst offset (w-1)*0x20, step backward. V-flip (flag bit1): start offset w*0x20*(h-1).",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "decompile",
+        "details": "FUN_0000_210c decompile inner cell loop: `bVar7 = src[0]&src[8]&src[0x10]&src[0x18]; bVar8 = ~bVar7; dst[0]=src[0]&bVar8|dst[0]&bVar7; dst[8]=...; dst[0x10]=...; dst[0x18]=...;` 8 iterations (8 columns) per cell, advancing src+1/dst+1; then src+=0x19, dst+=0x19. Outer loop walks a presence bitmap (`if((*mask & bit)==0) skip cell (dst+=0x20)`), bit rotates left, advancing mask ptr when it wraps. descriptor = (pieceIdx-1)*0x18; descriptor[0]=src ptr, descriptor+2 = mask bytes. Confirms: 4-plane EGA, all-planes-set = transparent."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "runtime-compose-buffer-not-code",
+      "claim": "The dynamic-trace 'render-only' addresses past ega.drv's 0x2262 file image (lin 0x6c552, 0x6d9e0) are the COMPOSE BUFFER region (segment ~0x4182 / the 0x1400-byte buffer FUN_1c94 clears), NOT separate code. At idle the region holds stale 4-plane pixel bytes (capstone of an idle dump there = garbage/data: 0x80-0x8c runs). The blit code itself is the in-image FUN_1c94/FUN_210c; the trace caught the CPU writing/reading the buffer during compose. (Open: re-confirm whether any blit inner loop is genuinely runtime-relocated vs simply operating on the buffer -- the in-image decompile fully explains the behavior, so the port does NOT need the transient buffer bytes.)",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "byte_pattern_plus_live",
+        "details": "Idle dump /tmp/wiz6-seg6b91.bin at dump+0xc42 (lin 0x6c552) and +0x20d0 (lin 0x6d9e0) capstone-disassembles to incoherent ops over byte runs 0x80/0x84/0x88/0x8c (= EGA pixel shades), i.e. data not code. ega.drv file image ends at lin 0x6c412 (base 0x6a1b0 + size 0x2262). FUN_1c94/FUN_210c (in-image) fully account for the compose+blit; the buffer is their target."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "solid_vs_followup": {
+    "solid": [
+      "ega.drv 17-entry far-call dispatch table decoded; entry 10 (off 0x2b) = the wall/sprite compositor FUN_1c94.",
+      "FUN_1c94 = compose-buffer clear (0xff transparent) + per-piece decode + palette-remap + H-flip + clip + planar blit to A000 (writer at file 0x2069, es=A000, dx=0x3c5 Sequencer).",
+      "FUN_210c = masked 4-plane EGA blit: transp = AND of 4 planes; dst = src&~transp | dst&transp; per-cell presence bitmap; H/V flip. The texture format is standard 4-plane EGA masked sprite data (corrects the prior 'masked blob' / '2bpp' uncertainty).",
+      "Ghidra tooling fixed: list_functions.py now uses the working pyghidra 3.x API (open_project/program_context); pass --project-dir as an ABSOLUTE path."
+    ],
+    "needs_follow_up": [
+      "Identify the wall-piece descriptor table (the 0x18-stride table) + the tile-index table @0x17a + the palette-remap LUT @0x192 + DAT_0000_016d/0169 -- read them live and map to the maze wall slots.",
+      "Resolve the wmaze far-call site(s) (wmaze+0x681a/+0x6aa1) -> confirm they far-call ega entry 10 (off 0x2b) and capture the actual arg block per wall slot (piece string, clip bounds, flags, col index) for the reference frame.",
+      "Map the piece-index strings to the convergence/seam DATA tables (wmaze @0x42/@0x4a/@0x36e4) to get per-depth wall geometry -> the U/V column placement.",
+      "Where does the source pixel data (descriptor[0]) point? -> the zone floor/ceiling/wall asset blocks (floor seg 0x783f, ceiling 0x7895 from wmaze-uv-texture.json). Decode a wall texture end-to-end (descriptor -> 4-plane source -> FUN_210c merge -> buffer -> A000) and pixel-match the reference frame.",
+      "Port: reimplement FUN_1c94/FUN_210c in TS (4-plane EGA compose + masked merge + flip + planar emit) OR RAM-extract the composed buffer per slot as a fallback oracle."
+    ]
+  },
+  "symbol_map": [
+    {"space": "ega.drv", "offset": "0x002b", "name": "ega_entry10_blit_wall_sprite", "note": "dispatch entry 10 -> FUN_1c94; the wall/sprite compositor far-called from wmaze"},
+    {"space": "ega.drv", "offset": "0x1c94", "name": "ega_compose_and_blit", "note": "clear buffer 0xff + per-piece decode (FUN_210c) + palette-remap + Hflip + clip + planar blit to A000; planar writer inline at 0x2069"},
+    {"space": "ega.drv", "offset": "0x210c", "name": "ega_blit_piece_masked_4plane", "note": "masked 4-plane EGA cell blit; transp=AND of 4 planes; presence-bitmap driven; H/V flip"},
+    {"space": "ega.drv", "offset": "0x2069", "name": "ega_planar_span_write", "note": "es=A000, dx=0x3c5 Sequencer, di +0x28 stride -- the VRAM emit inside FUN_1c94"}
+  ],
+  "unresolved": [
+    "The 0x18-stride wall-piece descriptor table location + contents (per-piece: src ptr, mask, w, h).",
+    "The tile-index table @0x17a and palette-remap LUT @0x192 (and DAT_016d/0169 globals).",
+    "The exact wmaze arg block per wall slot for the reference frame (piece string, clip, flags).",
+    "End-to-end pixel decode of one wall texture vs the reference framebuffer."
+  ],
+  "caveat_for_prior_findings": "Refines wmaze-render-in-egadrv.json: the renderer location (ega.drv, far-called from wmaze) and the planar writer (0x2069) stand; the '2bpp column writer' / 'masked blob' descriptions are superseded -- it is 4-plane EGA masked sprite compositing (FUN_1c94 + FUN_210c), fully decompiled. The addresses past the file image are the compose buffer, not separate code."
+}
