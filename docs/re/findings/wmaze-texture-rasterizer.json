@@ -1,0 +1,155 @@
+{
+  "topic": "wmaze-texture-rasterizer",
+  "subagent_run": "2026-06-03",
+  "binaries": ["wmaze.ovr", "wroot.exe", "mazedata.ega"],
+  "saves": [
+    "live capture via LiveSession (dosbox-pure harness); /tmp/wiz6-dungeon-clean.state (scratch, game_state=5 facing0 z0 y3 x7 gx127 gy119). Re-confirmed this run. Oracle framebuffer /tmp/wiz6-maze-reconfirm.rgba (320x200 RGBA). Texture crops PNG'd to /tmp/wiz6-tex-*.png."
+  ],
+  "reference_frame": {
+    "game_state": 5, "zone": 0, "facing": 0, "z": 0, "y": 3, "x": 7, "gx": 127, "gy": 119,
+    "description": "Stone corridor receding north (+y) to a green portcullis gate. Viewport x72..247 (w176) y32..143 (h112). Re-confirmed live this run.",
+    "dgroup_base_phys": "0xffa0",
+    "wroot_code_base_phys": "0x220 (seg 0x22)"
+  },
+  "summary": "Progress on the two unknowns blocking a pixel-exact maze port. (1) TEXTURES: visually decoded all key textures (near side-wall, front wall, floor, ceiling, gate) from the live framebuffer oracle (the composited ground truth) -> PNGs at /tmp/wiz6-tex-*.png. The dungeon view is GRAYSCALE STONE: ~4 gray levels (black 0x000000, dark-gray 0x555555, light-gray 0xAAAAAA, white 0xFFFFFF) dithered into stone-brick walls/ceiling and a cobblestone floor, plus minor blue/green accent pixels on the floor and the green/yellow portcullis. FLOOR & CEILING come from the GENERAL asset DB (zone0 floor id=1346, ceiling id=1740) loaded by the wroot asset/decompress loader into WROOT-tagged heap blocks (floor src far-ptr seg=0x783f, ceiling seg=0x7895) -- the on-disk encoding is the compressed wroot image format (the in-RAM bytes are NOT found verbatim in mazedata.ega -> the source is huffman/RLE-compressed and decompressed at load). The in-RAM block layout: 12-byte depth-shading ramp (00 07 0d 16 2d 47 52 69 7a 82 8a ff) + a 16-byte heap-owner header (4d 98 .. 'WROOT') + a small index/sub-tile table (~36 bytes) + the proprietary masked-image pixel blob (interleaved-zero packing e.g. 2a 00 28 00 a8 0a 8a 02 -- the wroot image_blit walks this; NOT a flat planar bitmap). WALL textures live in mazedata.ega's graphics blob (153x5-byte descriptor table @ byte 8; graphic-offset field points into the compressed graphics region; e.g. desc[0] type=0x57 off=0x130 w=8 h=8), also compressed (the RAM wall pixels are not byte-verbatim in the file). (2) RASTERIZER: the view is an edge-list textured-wall renderer. view_render_corridor_frame (wmaze 0x4ad7) runs a back-to-front depth loop; per slot it pushes a static vertex-column table and calls wall_emit_quad (0x406c) / wall_emit_corner / wall_emit_floorceil, which (a) call the EDGE-EMIT thunk 0xf148 (3 args: x-column + perspective-bias [bp+4], side-flag, other-column) that draws the textured wall edge directly, AND (b) append a secondary span record to a list at DGROUP 0x50d0 via span_append (0x3f8d). Confirmed the span ENTRY FORMAT is 11 bytes (stride cnt*11) live (count=4 in the static frame). Per-depth convergence comes from two word arrays at DGROUP 0x42 (left) / 0x4a (right). IMPORTANT CORRECTIONS to the prior wmaze-blit-geometry.json: thunk 0xc546 is the AUDIO play-sound entry (wroot image 0xAAA, decompiled = audio_play_sound), NOT a span-flush draw thunk -- it is only called from span_append when the list OVERFLOWS at 30 entries (never reached in a normal frame). The real per-edge draw is 0xf148. The prior 'image_blit_thunk 0xbb9a -> image 0xfe' is also wrong: wroot image 0xfe is a 5-arg memcpy forwarder (-> 0x387a = memcpy), not image_blit. The floor/ceiling background blit uses thunk 0xfb27 (5 args). The thunk->wroot resolution via the -0xBA9C delta law does NOT reliably resolve these high wmaze thunks (0xfb27/0xf148/0xbb9a land in BSS-zero or mid-instruction code when applied) -- see caveat.",
+  "findings": [
+    {
+      "id": "textures-grayscale-stone-from-oracle",
+      "claim": "All key dungeon-view textures decoded VISUALLY from the live framebuffer oracle and confirmed: near side-wall = dithered grey stone-brick courses with black mortar; ceiling = same stone-brick pattern (mirror of walls); floor = light-grey cobblestone flagstones with darker mortar + sparse blue/green accent specks; the corridor terminus = a green/yellow portcullis (gate). The view palette is essentially 4 greys (0x000000 black, 0x555555 dark-grey, 0xAAAAAA light-grey, 0xFFFFFF white) plus a few accent colours, all from WIZ6_MAIN.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "framebuffer_measurement",
+        "details": "Sampled /tmp/wiz6-maze-reconfirm.rgba: floor pixels (160,140)=(170,170,170) (120,135)=(170,170,170) (160,120)=(85,85,85); ceiling (160,35)=(255,255,255) (120,38)=(170,170,170) (160,45)=(0,0,0); side-wall (85,90)=(85,85,85) (240,90)=(85,85,85). Cropped+4x-upscaled regions to /tmp/wiz6-tex-{sidewall_L,sidewall_R,floor,ceiling,frontwall,gate,viewport}.png and eyeballed each: stone-brick / cobblestone / green portcullis all match the captured frame /tmp/wiz6-maze-12-clean.png. This is the COMPOSITED result (post-rasterizer), so it is ground truth for what each texture renders as; the raw in-RAM source format is documented separately (texture-in-ram-format) and remains the proprietary compressed image encoding."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "floor-ceiling-asset-source-and-ram-format",
+      "claim": "Floor (zone0 id=1346) and ceiling (id=1740) are full-window background images loaded by the wroot asset/decompress loader (from disk.hdr-keyed compressed assets) into WROOT-tagged heap blocks, then blitted full-window BEFORE walls. Floor src far-ptr (zone0) = seg 0x783f off 0 (phys 0x783f0); ceiling seg 0x7895 off 0 (phys 0x78950). The in-RAM block begins: 12-byte depth-shading ramp (00 07 0d 16 2d 47 52 69 7a 82 8a ff), then a 16-byte heap header (4d 98 01 55 .. 'WROOT' .. for floor; 4d 98 01 6d for ceiling), then a small ~36-byte index/sub-tile table, then the proprietary masked-image pixel blob. The on-disk source is COMPRESSED (a RAM 12-byte pixel slice is NOT found in mazedata.ega, confirming decompression at load).",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "disasm_plus_live",
+        "details": "Live at reference frame: DGROUP [0x3304]=1346 (floor id), [0x3306]=1740 (ceiling id); floor near-ptr [0x4faa]=0x7504, ceiling [0x4fa8]=0x7a48 (these near-ptrs are the per-zone MAZE-DATA block, not the image; the IMAGE far-ptrs are in tables at [bx+0x7d2]/[bx+0x80a], bx=zone*4). Floor far-ptr @DGROUP 0x7d2 = 00 00 3f 78 (off0 seg0x783f); ceiling @0x80a = 00 00 95 78. Dumped 0x4000 bytes of each src to /tmp/wiz6-floor-src.bin /tmp/wiz6-ceil-src.bin. Floor header bytes: 00 07 0d 16 2d 47 52 69 7a 82 8a ff 00 00 00 00 | 4d 98 01 55 00 00 00 00 57 52 4f 4f 54 00 00 00 | 01 17 18 05 06 07 08 09 0a 0e 0f 10 ... The dense pixel data (interleaved-zero packing 2a 00 28 00 a8 0a 8a 02 ...) starts ~offset 0x84. The 12-byte ramp is a per-depth brightness LUT (12 depth steps). The blit goes through wmaze thunk 0xfb27 (5 args, 'add sp,0xa'), NOT image 0xfe (which is a memcpy forwarder). NOTE: the function that lazy-loads + blits floor/ceiling is at wmaze file ~0x3fcf (push si; cmp [0x4faa],0; ... call 0x344b loader; ... two 'call 0xfb27' blits) -- the prior finding's '0x42' offset for this fn is off."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "texture-in-ram-format-proprietary-masked",
+      "claim": "The in-RAM texture pixel data (both the floor/ceiling background blocks AND the mazedata wall slices) is the wroot/EGA-driver PROPRIETARY masked-image format, NOT a flat 4bpp-planar or 8bpp-linear bitmap. The packed bytes show interleaved-zero / paired-bit patterns (2a 00 28 00 a8 0a 8a 02 ...; histogram dominated by 0x00 then 0xaa/0xa0/0x2a/0x88/0x2b) consistent with a mask+pixel-run encoding walked by the image_blit routine. The actual pixel decode requires that blit routine (the .pic decoder family). RAM-EXTRACT FALLBACK is viable: the decompressed source blocks are readable at fixed far-ptrs (floor seg 0x783f, ceiling seg 0x7895) and the composited result is the oracle, so textures can be extracted from the framebuffer per slot for a port even without cracking the source encoding.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "byte_pattern_plus_live",
+        "details": "Floor data region histogram (first 2000 B from +32): 0x00:1192, 0x01:53, 0x80:38, 0x02:34, 0xaa:34, 0xa0:27, 0x08:26, 0x8a:25, 0x2b:24, 0x2a:23, 0x88:23, 0x28:21. Trying flat strides 22/44/88/176 over the data yields no coherent grayscale rows (the dense region is mask-coded). The bytes are not 0/1/2/3 per-pixel; they are packed with embedded mask/zero bytes. mazedata.ega is itself a sprite DB (header 99 00 6e 01 .. = 153,366; 153x5-byte descriptors at byte 8; desc[0] type=0x57 off=0x130 w8 h8; the 4-element type cycle 57/33/1b/70 across early descriptors likely = the 4 perspective depth-faces of a wall). A 12-byte RAM wall slice is NOT byte-verbatim in mazedata.ega, so the on-disk graphics blob is compressed too."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "rasterizer-edge-emit-mechanism",
+      "claim": "The wall rasterizer is an EDGE-EMIT pipeline. Per visible slot, wall_emit_quad (0x406c) / wall_emit_corner (0x45b4) / wall_emit_floorceil (0x47a3) push static screen-X vertex columns, then for each polygon EDGE call the wroot EDGE-EMIT thunk 0xf148 with 3 args: (x_column + [bp+4] perspective-bias, side-flag 0/1, other_x_column). 0xf148 draws the textured wall edge directly to the framebuffer. The per-depth vertical convergence (wall height) is supplied by two DGROUP word arrays: 0x42 (left edge, indexed depth*2) and 0x4a (right edge). The texture U-seam columns per wall-type come from byte tables at 0x36e4 (x0) / 0x3717 (x1), stride 0x13a per wall-type, added into the span's stored x0/x1.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x44c9"},
+        "type": "disasm_plus_live",
+        "details": "Solid-wall common path 0x44c9: gates on [bx+0x50aa]/[bx+0x504e], then for the left edge picks [bp+0x42] vs [bp+0x44] by parity [0x521a], adds [bp+4], and 'call 0xfffff148' (=near 0xf148) with sp adjust 6 (3 words). The same pattern repeats for the right edge. wall_emit_quad (0x406c) does the analogous f148 edge-emit at its entry (0x40af, 0x40f5). Live coord arrays @DGROUP 0x40: 00 00 | 00 00 | 68 00 | 80 00 | 90 00 | 00 00 | d8 00 | c0 00 | b0 00 -> array@0x42 depths0..3 = {0,104,128,144}; array@0x4a depths0..3 = {0,216,192,176}. These are the depth-scaled wall vertical extents (the corridor convergence). The 0xf148 thunk's wroot target could not be statically pinned (see caveat); its behaviour is inferred from the call signature + the rendered output."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "span-entry-format-live",
+      "claim": "span_append (wmaze 0x3f8d) appends an 11-byte record to the list at DGROUP 0x50d0 (counter 0x50ce), stride = count*11. Fields: +0x50d0 word x0 (left, refined by += table[0x36e4 + walltype*0x13a + idx*2]); +0x50d2 word x1 (refined by += table[0x3717 + ...]); +0x50d4 word [bp+0xc]; +0x50d6 word [bp+0xe]; +0x50d8 byte walltype/index ([bp+4], 0xff = skip texture-seam refinement); +0x50d9 byte ([bp+0xa] second type); +0x50da byte flag ([bp+0x10]). When the count hits 0x1e (30) it overflow-flushes by 'push 0; call 0xc546' in a loop (0xc546 = AUDIO play-sound; this overflow path is dead in normal frames -- see corrections). Live static frame had count=4.",
+      "category": "blit_geometry",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3f8d"},
+        "type": "disasm_plus_live",
+        "details": "Disasm 0x3f8d: index = 0x50ce_count, stride = ((cnt*3)<<2)-cnt = cnt*11; writes byte [bp+4] at +0x50d8; words [bp+6]/[bp+8] at +0x50d0/+0x50d2; if [bp+4]!=0xff: ax=0x13a*[bp+4]; bx=ax + [bp+0xa]*2; x0 += byte[bx+0x36e4]; x1 += byte[bx+0x3717]. Then byte [bp+0xa]->+0x50d9, words [bp+0xc]/[bp+0xe]->+0x50d4/+0x50d6, byte [bp+0x10]->+0x50da; inc 0x50ce; cmp 0x1e; if >= loop 'push 0; call 0xffffc546'. Live span list @0x50d0 (count=4): span[0] x0=147 x1=59 a=72 b=248 wt=2 f1=11 f2=1; span[1] x0=24 x1=27 a=24 b=27 wt=255 f1=0 f2=1; span[2] x0=30 x1=33 a=33 b=30 wt=255 f1=0; span[3] x0=144 x1=60 a=72 b=248 wt=2 f1=14 f2=2. Slot wall-types @0x5220: 00 00 00 00 00 00 02 00 02 00 ... (0=open, 2=solid stone; the two wt=2 spans are the L/R converging side walls). Tex-seam table @0x36e4 wt=0: 00 00 90 90 8c 8c 85 85 94 94 8c 8c 88 88 94 94; wt=2 @0x3958: 00 00 87 87 91 91 9a 9a 48 48 69 69 82 82 d5 d5 bf bf b2 b2 88 88 93 93."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "worked-example-side-wall-span",
+      "claim": "Frame-anchored worked example for the near LEFT side-wall (one of the two wt=2 spans). The live span[0] stored x0=147 x1=59 with the clip bounds a=72 (viewport left) b=248 (viewport right+1), wall-type 2 (solid stone). The depth-0 convergence comes from array@0x42[0]=0 / array@0x4a[0]=0 (near edge, full height) ramping to depth-3 array@0x42[3]=144 / array@0x4a[3]=176 (far edge, narrowed). On screen the left side-wall occupies the converging quad from the viewport edge (x72) inward to the vanishing point near x~146, top edge sloping from y~50 down to the floor seam, which matches the rendered stone-brick wall in /tmp/wiz6-tex-sidewall_L.png. The texture columns are sampled with the 0x36e4/0x3717 seam tables for wt=2 (87/91/9a/48/69/82/d5/bf/b2/88/93) interpolated across the span -- a per-depth column-scaled (affine, not perspective-correct) stone texture map.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_decode_plus_oracle",
+        "details": "span[0]/span[3] are the two wt=2 side walls (x decreasing 147->59 and 144->60 = the two mirror-symmetric converging side faces around the corridor center ~x160). The viewport is x72..247; the wt=2 seam table values (0x48..0xd5 = 72..213) are screen columns within the viewport, confirming the 0x36e4/0x3717 tables are texture-edge SCREEN columns the rasterizer interpolates between. Visual cross-check: /tmp/wiz6-tex-sidewall_L.png shows the converging brick courses. CAVEAT: exact U/V mapping and whether 0xf148 does perspective-correct vs affine sampling needs the 0xf148 routine disasm (unresolved thunk)."
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "thunk-resolution-corrections",
+      "claim": "CORRECTIONS to prior wmaze findings' thunk labels (verified live + via Ghidra): (a) 0xc546 = AUDIO play-sound entry (wroot image 0xAAA = audio_play_sound), NOT a span-flush/draw thunk; it is only hit on span-list OVERFLOW (>=30 spans, never in a normal frame). (b) wroot image 0xfe = a 5-arg memcpy forwarder to 0x387a (memcpy), NOT image_blit; so the prior 'image_blit_thunk 0xbb9a -> image 0xfe' label is wrong. (c) Floor/ceiling blit uses wmaze thunk 0xfb27 (5 args). (d) The thunk->wroot -0xBA9C delta law does NOT reliably resolve the high wmaze thunks 0xfb27/0xf148/0xbb9a (applying it lands in BSS-zero or mid-instruction). The 0xf148 (edge-emit/clip) and 0xfb27 (image-blit) wroot targets remain UNRESOLVED statically.",
+      "category": "overlay_relocation",
+      "evidence": {
+        "binary": "wroot.exe",
+        "type": "disasm_plus_live",
+        "details": "Ghidra decompile wroot image 0xAAA (Ghidra addr 0x10aaa) = audio_play_sound (switch on *0x3590, indexes 12-byte sound table @0x334e, calls audio_play_by_id) -- matches CLAUDE.md 'Play-sound entry @ wroot 0x10AAA, target of call 0xc546(N)'. Ghidra image 0xfe (0x100fe) = 5-arg fwd to 0x387a; 0x387a decompiles to memcpy. Live: wroot code base phys = 0x220 (found by searching the image-0xfe prologue 558becff760c..., match at phys 0x31e -> base 0x220). Reading wroot image 0xfb27/0xf148 at that base = all-zero BSS; image 0xc546 = real code '64 83 c4 06 3d 01 00 74 03 e9 6d 03' (mid-fn, FS-prefix) -- so a near 'call 0xc546' from the overlay does NOT cleanly land on a stub at that base; the overlay near-call targets are CS-relative within the overlay's loaded segment (overlay loads at wmaze_file + 0x4564 into wroot CS) and resolve to runtime-patched thunks I could not pin to a wroot fn statically. RECOMMENDED FOLLOW-UP: DOSBox-X breakpoint on the 'call 0xf148' site (wmaze file ~0x452a) while in state 5, single-step into it to capture the real wroot edge-rasterizer target + its texture-source pointer/dims."
+      },
+      "confidence": "high"
+    }
+  ],
+  "decoded_textures": {
+    "status": "Decoded VISUALLY from the framebuffer oracle (the composited ground truth) -> PNGs. The raw in-RAM source ENCODING (proprietary masked-image) was NOT byte-decoded this pass; documented as the RAM-extract fallback + the on-disk-is-compressed finding.",
+    "pngs": [
+      "/tmp/wiz6-tex-viewport.png   (full 176x112 view, 4x)",
+      "/tmp/wiz6-tex-floor.png      (cobblestone floor, 4x)",
+      "/tmp/wiz6-tex-ceiling.png    (stone-brick ceiling, 4x)",
+      "/tmp/wiz6-tex-sidewall_L.png (near left stone-brick wall, 4x)",
+      "/tmp/wiz6-tex-sidewall_R.png (near right stone-brick wall, 4x)",
+      "/tmp/wiz6-tex-frontwall.png  (far front + gate region, 4x)",
+      "/tmp/wiz6-tex-gate.png       (green/yellow portcullis, 4x)"
+    ],
+    "raw_dumps": [
+      "/tmp/wiz6-floor-src.bin (0x4000 B from phys 0x783f0 -- the decompressed floor image block)",
+      "/tmp/wiz6-ceil-src.bin  (0x4000 B from phys 0x78950 -- the decompressed ceiling image block)"
+    ],
+    "palette": "WIZ6_MAIN; the view uses ~4 greys (black/0x55 dark/0xAA light/0xFF white = EGA-ish indices 0/8/7/15) + sparse floor accent specks (blue/green) + the green/yellow gate."
+  },
+  "solid_vs_followup": {
+    "solid": [
+      "All key textures identified + visually confirmed (PNGs) against the frame: side-walls/ceiling = grey stone-brick, floor = cobblestone, gate = green portcullis.",
+      "Floor/ceiling asset SOURCE (id 1346/1740, wroot asset-loader, WROOT-tagged heap blocks at fixed far-ptrs) + the in-RAM block layout (depth ramp + heap header + index table + masked pixel blob).",
+      "On-disk floor/ceiling AND mazedata wall blobs are COMPRESSED (RAM bytes not found verbatim on disk).",
+      "Rasterizer = edge-emit: wall_emit_* push static vertex columns, call edge-emit thunk 0xf148 per edge, with per-depth convergence arrays @0x42/0x4a and per-walltype texture-seam tables @0x36e4/0x3717.",
+      "span_append (0x3f8d) 11-byte entry format, verified live (count=4).",
+      "Thunk-label CORRECTIONS: 0xc546 = audio (not flush); image 0xfe = memcpy (not blit); floor/ceil blit = 0xfb27.",
+      "0xc546 wroot target = wroot image 0xAAA (Ghidra 0x10aaa) = audio_play_sound."
+    ],
+    "needs_follow_up": [
+      "Crack the proprietary masked-image PIXEL encoding (in-RAM and on-disk) -- best via DOSBox-X bp on the 0xf148 edge-emit + 0xfb27 blit while in state 5, capturing the source ptr/dims, then reversing the mask+run walk (the .pic decoder family is the closest known relative).",
+      "Resolve the 0xf148 / 0xfb27 / 0xbb9a thunks to their real wroot functions (the -0xBA9C delta law fails for these). Needs a runtime bp single-step or finding the overlay-manager's thunk-patch table for wmaze.",
+      "Exact texture U/V mapping inside 0xf148: affine column-scale vs perspective-correct; how the 0x36e4/0x3717 seam columns + per-depth arrays combine into the sampled texture column.",
+      "FAR-depth (depth 2-3) door/opening/turn shape variants of wall_emit_quad's 15-way jump table (static corridor only exercised wt 0 and 2).",
+      "Map the mazedata descriptor index -> wall-type-code (which of the 153 descriptors is the solid-stone wt=2 wall slice at each of the 4 depth-faces; the 57/33/1b/70 type cycle is the likely 4-depth-face key)."
+    ]
+  },
+  "symbol_map": [
+    {"space": "wmaze.ovr", "offset": "0x4ad7", "name": "view_render_corridor_frame"},
+    {"space": "wmaze.ovr", "offset": "0x406c", "name": "wall_emit_quad", "note": "pushes vertex columns; calls edge-emit 0xf148 per edge; appends span via 0x3f8d; 15-way shape jump table @0x449e"},
+    {"space": "wmaze.ovr", "offset": "0x3f8d", "name": "span_append", "note": "11-byte entry @0x50d0 (cnt 0x50ce); texture-seam refine via 0x36e4/0x3717 (stride 0x13a); overflow at 30 -> call 0xc546 (AUDIO, dead path)"},
+    {"space": "wmaze.ovr", "offset": "0x3fcf", "name": "view_load_zone_and_fill", "note": "lazy-load floor (id 0x3304->0x4faa) + ceiling (id 0x3306->0x4fa8) via loader 0x344b; full-window blit each via thunk 0xfb27"},
+    {"space": "wmaze.ovr", "offset": "0xf148", "name": "edge_emit_thunk", "note": "wroot thunk; draws one textured wall edge (3 args: x+bias, side-flag, other-x). REAL per-frame draw. wroot target UNRESOLVED."},
+    {"space": "wmaze.ovr", "offset": "0xfb27", "name": "image_blit_thunk", "note": "wroot thunk; full-window floor/ceiling background blit (5 args). wroot target UNRESOLVED (delta law fails)."},
+    {"space": "wmaze.ovr", "offset": "0xc546", "name": "audio_play_sound_thunk", "note": "wroot image 0xAAA = audio_play_sound; NOT a draw/flush thunk (prior finding wrong)"},
+    {"space": "wroot.exe", "offset": "0x10aaa", "name": "audio_play_sound", "note": "Ghidra addr; the 0xc546 target"},
+    {"space": "wroot.exe", "offset": "0x100fe", "name": "memcpy_5arg_fwd", "note": "image 0xfe; 5-arg fwd to memcpy 0x1387a -- NOT image_blit"},
+    {"space": "wroot.exe", "offset": "0x1387a", "name": "memcpy"}
+  ],
+  "unresolved": [
+    "Proprietary masked-image pixel encoding (in-RAM + on-disk) -- the actual texture pixel decode.",
+    "0xf148 / 0xfb27 / 0xbb9a wroot thunk targets (delta law fails on these high wmaze thunks).",
+    "Exact U/V texture mapping (affine vs perspective) inside 0xf148.",
+    "mazedata descriptor-index -> wall-type-code mapping; the 57/33/1b/70 depth-face cycle."
+  ],
+  "operational_notes": {
+    "drive": "HostClient from packages/mcp/src/live/host-client.js; unserialize /tmp/wiz6-dungeon-clean.state; step 2; anchor() = DGROUP phys. fb(path) writes RAW RGBA (not PNG).",
+    "wroot_code_base": "Find by searching the image-0xfe prologue 558becff760cff760aff7608 -> match phys - 0xfe = code base (0x220 this run).",
+    "ghidra": "GHIDRA_INSTALL_DIR=/opt/homebrew/Cellar/ghidra/12.1/libexec python3 tools/ghidra/scripts/decompile.py --project-dir <ABS> --binary wroot.exe --addr 0x10aaa  (Ghidra addr = wroot image + 0x10000; image = file - 0x200).",
+    "capstone": "16-bit disasm of wmaze.ovr (file offset == Ghidra addr); near-call targets resolve correctly when the base address is passed. Avoid /tmp/dis.py shadowing the stdlib 'dis' module."
+  }
+}
