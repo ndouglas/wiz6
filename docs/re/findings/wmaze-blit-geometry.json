@@ -1,0 +1,225 @@
+{
+  "topic": "wmaze-blit-geometry",
+  "subagent_run": "2026-06-03",
+  "binaries": ["wmaze.ovr", "wroot.exe"],
+  "saves": [
+    "live capture via LiveSession (dosbox-pure harness); reference dungeon frame serialized at /tmp/wiz6-dungeon-clean.state (scratch); PNG /tmp/wiz6-maze-12-clean.png; re-confirmed this run via unserialize -> /tmp/wiz6-maze-reconfirm.rgba (320x200 RGBA, pixel-identical structure)"
+  ],
+  "reference_frame": {
+    "game_state": 5,
+    "zone": 0,
+    "facing": 0,
+    "z": 0,
+    "y": 3,
+    "x": 7,
+    "gx": 127,
+    "gy": 119,
+    "description": "Stone corridor receding north (+y) to a vanishing point, converging side walls, textured floor+ceiling, green portcullis/gate at the far end. Re-confirmed game_state=5 facing=0 z=0 y=3 x=7 gx=127 gy=119 this run.",
+    "viewport": "x72..247 (w176) y32..143 (h112) in the 320x200 framebuffer (from wmaze-3d-view.json, unchanged)."
+  },
+  "summary": "Filled the remaining gap from wmaze-3d-view.json: the per-slot blit GEOMETRY of the first-person view. KEY ARCHITECTURE CORRECTION: the view is NOT a set of fixed sprite-blit rectangles. It is an EDGE-LIST TEXTURED-POLYGON rasterizer. view_render_corridor_frame (0x4ad7) runs a back-to-front depth loop (depth 0..3, [0x5040]); per depth it classifies 5 slots (center/front 0x3828(0), corner 0x3c11(0), overlay 0x3dce(0), left-side 0x3828(0xffff), right-side 0x3828(1)) into wall-type codes stored at [0x5220/0x5222/0x5224/0x5226/0x5228], then runs gated draw blocks. Each draw block pushes a STATIC table of screen-X immediates (the per-slot polygon vertex columns) and calls one of three polygon emitters: wall_emit_quad (0x406c, 35 args, a 15-way shape jump-table on the wall-type), wall_emit_corner (0x45b4, 16 args), or wall_emit_floorceil (0x47a3, 8 args). Those emitters append left/right edge spans to a span list at 0x50d0.. (counter 0x50ce, max 30) via span_append (0x3f8d), each span tagged with the wall-type for texture lookup; when the list fills (or at end of frame) it flushes through a wroot draw thunk (0xc546) and the per-region clip is set via 0xf148. Floor & ceiling are drawn FIRST as two full-window image_blit backgrounds (0x42 -> 0xbb9a, per-zone far-ptr tables [bx+0x7d2]/[bx+0x80a], bx=zone*4; zone0 floor asset id=0x542=1346, ceiling id=0x6cc=1740) before any wall spans. The wall-type code (0/2 in the static corridor; 0=open/no-draw, 2=solid stone) selects BOTH the polygon SHAPE (via 0x406c's jump table) and the TEXTURE (span_append tags each span with wall-type, used to index the per-type texture/clip column tables at 0x36e4/0x3717). All vertex-column immediates and the shape jump-table were read directly from the binary (ndisasm) and the wall-type codes + maze-bit grid were read live from the reference frame.",
+  "findings": [
+    {
+      "id": "render-architecture-edgelist-polygons",
+      "claim": "The first-person view is an edge-list textured-polygon rasterizer, NOT a fixed-rectangle sprite compositor. Per visible slot the renderer pushes a static table of screen-X vertex columns and calls a polygon emitter (0x406c quad / 0x45b4 corner / 0x47a3 floor-ceiling fill) that appends spans to a list at 0x50d0.. and flushes via a wroot draw thunk.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4d95"},
+        "type": "disasm",
+        "details": "Depth-loop body 0x4d95..0x51ec. Per depth (bx=[0x5040]) it tests a gate byte then pushes an immediate column table and calls 0x406c/0x45b4/0x47a3. Gates: front=[bx+0x508a], corner-left=[bx+0x508a] (via 0x45b4@0x4e61), corner-right=[bx+0x508a] (0x45b4@0x4ebd), center-floorceil=[bx+0x5082] (0x47a3@0x4ef9), left-side=[bx+0x5072] (0x406c@0x4f9b), left-side-2=[bx+0x507a] (0x406c@0x504b), right-side=[bx+0x5092] (0x406c@0x50fb), right-side-2=[bx+0x509a] (0x406c@0x51ab), right-floorceil=[bx+0x50a2] (0x47a3@0x51e7). After each emitter the per-slot wall classifier post-pass is called (0x4892/0x48f5/0x4926/0x4957/0x4984/0x49b6/0x49e8). span_append (0x3f8d) writes one entry per call to 0x50d0..0x50da (fields: x-index byte @+8, two left x words @+0/+2, walltype byte @+9, two right x words @+4/+6, flag @+a), increments [0x50ce], and when it reaches 0x1e (30) flushes via push 0; call 0xc546 (a wroot draw thunk) repeatedly until drained."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "per-slot-column-tables",
+      "claim": "The per-slot polygon vertex columns are STATIC immediates pushed at each draw call site. They are screen-X columns (window-relative additions are applied inside the emitter via +[bp+4]). Tables decoded below per slot/emitter.",
+      "category": "blit_geometry",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4d9e"},
+        "type": "disasm",
+        "details": "Extracted by parsing the push sequence before each emitter call and reversing push order to C-arg offsets. [bp+0x4]=slot/position param (depth or bias 0/1/2), [bp+0x6]=wall-type code ([0x5220]/[0x5226]/[0x5228]), [bp+0x8]=second control. Remaining args are the screen-X vertex columns of the polygon. The emitter adds [bp+4] (perspective bias) to selected columns and emits left/right edges via span_append/0xf148.",
+        "blit_call_table": {
+          "FRONT_face (0x406c @0x4e05, gate [bx+0x508a])": {
+            "args": "[bp+4]=depth, [bp+6]=[0x5220] walltype, [bp+8]=1, then columns: 72,248,122,0,91,23,26,29,32,29,178,199,242,257,278,299,314,329,150,214, plus [bp+ ]=[0x363e-derived]",
+            "note": "front (perpendicular) wall face for the slot directly ahead at this depth"
+          },
+          "CORNER_left (0x45b4 @0x4e61, gate [bx+0x508a])": {
+            "walltype": "[0x5222]",
+            "columns": [7,4,15,19,83,87,106,114,193,196,272,275,293,296]
+          },
+          "CORNER_right (0x45b4 @0x4ebd, gate [bx+0x508a])": {
+            "walltype": "[0x5224]",
+            "columns": [13,7,19,15,87,83,110,118,196,193,275,272,296,293]
+          },
+          "CENTER_floorceil (0x47a3 @0x4ef9, gate [bx+0x5082])": {
+            "walltype_arg": 0,
+            "columns": [126,146,154,174,218,238],
+            "note": "center floor/ceiling fill quad for the slot"
+          },
+          "LEFT_side_A (0x406c @0x4f9b, gate [bx+0x5072])": {
+            "walltype": "[0x5226]",
+            "control": "[bp+8]=0, [bp+a]=72",
+            "columns": [130,142,3,12,94,35,62,41,68,47,80,53,74,181,190,202,211,245,260,281,290,302,311,317,326,332,158,170,222,234],
+            "indexed": "one arg is [bx+0x42] (depth-indexed Y/X word array)"
+          },
+          "LEFT_side_B (0x406c @0x504b, gate [bx+0x507a])": {
+            "walltype": "[0x5226]",
+            "control": "[bp+8]=0",
+            "columns": [248,134,138,6,9,97,38,59,44,65,50,77,56,71,184,187,205,208,248,263,284,287,305,308,320,323,335,162,166,226,230],
+            "indexed": "[bx+0x42]"
+          },
+          "RIGHT_side_A (0x406c @0x50fb, gate [bx+0x5092])": {
+            "walltype": "[0x5228]",
+            "control": "[bp+8]=2",
+            "columns": [138,134,9,6,100,59,38,65,44,71,56,77,50,187,184,208,205,251,266,287,284,308,305,323,320,338,166,162,230,226],
+            "indexed": "[bx+0x4a]"
+          },
+          "RIGHT_side_B (0x406c @0x51ab, gate [bx+0x509a])": {
+            "walltype": "[0x5228]",
+            "control": "[bp+8]=2",
+            "columns": [248,142,130,12,3,103,62,35,68,41,74,53,80,47,190,181,211,202,254,269,290,281,311,302,326,317,341,170,158,234,222],
+            "indexed": "[bx+0x4a]"
+          },
+          "RIGHT_floorceil (0x47a3 @0x51e7, gate [bx+0x50a2])": {
+            "walltype_arg": 2,
+            "columns": [146,126,174,154,238,218]
+          }
+        },
+        "note": "LEFT/RIGHT side tables are mirror images of each other (e.g. 130/142 vs 142/130; 181/190 vs 190/181), confirming the L/R symmetry around the corridor center. Columns >320 (329,332,335,338,341) are pre-clip; 0xf148 / the span clipper bounds them to the x72..247 viewport. Many small values (3,6,9,12,...) are the FAR-depth near-vanishing-point columns; large values (~330) are the NEAR-depth screen edges. The +[bp+4] bias and the [0x521a]/[0x521c] parity bits swap which side is emitted first (alternating-parity draw order from wmaze-3d-view.json)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "depth-indexed-coord-arrays",
+      "claim": "The side-wall emitters take one depth-indexed coordinate from word arrays at DGROUP 0x42 (left, [bx+0x42]) and 0x4a (right, [bx+0x4a]), bx=depth*2. Live values: array@0x42 = {0x0000, 0x0068, 0x0080, 0x0090} for depths 0..3 (i.e. 0,104,128,144). These are the depth-scaled wall heights/Y offsets that make the corridor converge.",
+      "category": "blit_geometry",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "disasm_plus_live",
+        "details": "0x406c side calls do `D1E3 shl bx,1` (bx=depth*2) then `push [bx+0x42]` (left) or `push [bx+0x4a]` (right). Live read of DGROUP 0x40..0x70 at the reference frame: bytes 40..= `00 00 00 00 68 00 80 00 90 00 ...` so word[0x42]=0, word[0x44]=0x68, word[0x46]=0x80, word[0x48]=0x90; the 0x4a array overlaps/continues. These are screen-coordinate constants (heights/offsets), NOT pointers — confirmed by their small magnitudes and direct push as the y-extent arg."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wall-shape-jump-table",
+      "claim": "wall_emit_quad (0x406c) dispatches on the wall-type code [bp+6] through a 15-entry CS-relative jump table at file 0x449e (the `2e ff a7 028a` dispatch at 0x44c4, disp16 0x8a02, delta 0x4564 -> file 0x449e). Type 0 and 2 -> common path 0x44c9 (the straightforward solid-wall quad); types 1/3/4 -> 0x4101 (a wall with a door/recess variant keyed on [0x363e]); 5..13 -> distinct edge variants; 14 -> 0x4474. Each variant chooses which subset of the pushed columns become the left/right polygon edges.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x44c4"},
+        "type": "disasm",
+        "details": "Jump table decoded (CS off -> file off): [0]=0x8a2d->0x44c9, [1]=0x8665->0x4101, [2]=0x8a2d->0x44c9, [3]=0x8665->0x4101, [4]=0x8665->0x4101, [5]=0x87e4->0x4280, [6]=0x8818->0x42b4, [7]=0x884c->0x42e8, [8]=0x8873->0x430f, [9]=0x88d5->0x4371, [10..13]=0x8918->0x43b4, [14]=0x89d8->0x4474. Entries 0-14 all land inside 0x406c's body, re-confirming the wmaze 0x4564 CS->file delta. The static corridor only uses type 0 (open, no quad) and type 2 (solid stone) — so the SHAPE used in the reference frame is the 0x44c9 common path."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "walltype-codes-live",
+      "claim": "The wall classifier helpers (0x3828/0x3c11/0x3dce) return a small wall-type code per slot. In the static corridor the live slot array [0x5220..0x5228] held codes 0 and 2 (0=open passage -> emitter early-returns / no quad; 2=solid stone wall -> common quad shape + stone texture). The same 2-bit maze-data wall field value (0/2/3) maps onto these codes.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_decode",
+        "details": "Live read at reference frame: 0x5220 region = `00 00 00 00 00 00 02 00 02 00 16 81 ...`. The first depths classified as 0 (open, looking down the empty corridor) with 2 (solid stone) appearing for the side walls / the far gate cell. wall_emit_quad's gate `cmp byte [bx+0x5042],0` and the type-0 jump-table slot landing on the empty 0x44c9 tail confirm type 0 = no-draw. CAVEAT: the precise 0-vs-2-vs-3 -> code mapping inside 0x3828 was not hand-traced; codes observed are 0 and 2."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "texture-clip-tables",
+      "claim": "span_append (0x3f8d) tags each emitted span with the wall-type [bp+a] and uses it to index per-type texture/clip column tables at DGROUP 0x36e4 (`x0`) and 0x3717 (`x1`) via wtype*0x13a. For wall-type the live tables held screen-column run values, e.g. 0x36e4: `00 90 90 8c 8c 85 85 94 94 8c 8c 88 88 94 94` and a second run `4a 43 3b 48 3e 3d 46` at 0x371b; 0x3717 mirrors with `00 4a 43 3b 48 3e 3d 46`. These are the per-type texture-edge/clip columns the rasterizer interpolates between — i.e. the perspective texture-mapping seam columns, not mazedata sprite indices.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3fbf"},
+        "type": "disasm_plus_live",
+        "details": "0x3f8d: `mov ax,0x13a; imul [bp+4]` (stride 0x13a per index) then `+[bp+a]` indexes [bx+0x36e4] and [bx+0x3717]; results add into the span's two stored x words (0x50d0/0x50d2). 0x13a=314 ~ a per-row stride. Live tables dumped above. The actual TEXTURE PIXELS (the stone pattern) come from the mazedata.* graphics blob via image_blit at flush time; that pixel decode is unresolved (see unresolved)."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "floor-ceiling-fullwindow-blit",
+      "claim": "Floor and ceiling are drawn FIRST as two full-window image_blit backgrounds (before any wall span), in view_load_zone_and_fill (0x42). The per-zone floor asset (id at 0x3304) and ceiling asset (id at 0x3306) are decompressed via the wroot asset loader (0xf4be) into DGROUP near-ptrs 0x4faa (floor) / 0x4fa8 (ceiling), then blitted via image_blit (0xbb9a -> wroot image 0xfe) using far-pointer pairs from [bx+0x7d2]/[bx+0x7d4] (floor) and [bx+0x80a]/[bx+0x80c] (ceiling), bx=zone*4. Zone 0: floor id=0x542=1346, ceiling id=0x6cc=1740.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x42"},
+        "type": "disasm_plus_live",
+        "details": "0x42 disasm: lazy-load floor/ceiling to 0x4faa/0x4fa8 from ids 0x3304/0x3306 via 0xf4be; then two 0xbb9a (image_blit) calls with src far ptrs from the 0x7d2/0x80a tables. Live at reference frame: 0x3304=0x542, 0x3306=0x6cc; floor near-ptr 0x4faa=0x7504, ceiling 0x4fa8=0x7a48; floor blit src far ptr (zone0) seg=0x783f off=0; ceiling seg=0x7895 off=0. The blit dest (full-window) is encoded in the loaded resource header (the same image_blit path used for .pic backgrounds). The dest is NOT a per-slot rect — it is the whole 176x112 viewport, over which the walls are then composited."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "maze-wall-bits-reference-frame",
+      "claim": "Decoded the live 2-bit N/W wall grids for level 0 at the reference frame (party x7,y3,facing 0=+y). Values are dominated by 0 (open) and 2 (solid), with a few 3 (door/special). The party at (x7,y3) has N-wall row y3 entirely 0 (open corridor straight ahead, matching the receding corridor in the frame); the far cells ahead (y4..y7) have 2/3 closing off the corridor (the green gate). West-wall column x7 around y3 = 0; the side walls the player sees are the W-walls of the x7 column at y4+ and adjacent columns.",
+      "category": "maze_data_format",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_decode",
+        "details": "Maze block near-ptr 0x4faa=0x7504. N-wall field at +0x60, W-wall at +0x120, 2 bits/cell MSB-first, cell=z*64+y*8+x. Level-0 N-wall grid (rows y0..y7, cols x0..x7):\n  y0: 0 0 2 2 2 0 0 0\n  y1: 2 0 2 0 0 2 2 2\n  y2: 2 0 2 2 2 2 2 2\n  y3: 0 0 0 0 0 0 0 0\n  y4: 2 0 0 0 2 2 2 3\n  y5: 0 0 0 0 0 0 0 0\n  y6: 0 0 0 0 0 2 2 0\n  y7: 2 0 0 0 2 0 2 3\nLevel-0 W-wall grid:\n  y0: 0 2 0 2 0 0 0 0\n  y1: 0 2 2 2 2 2 0 0\n  y2: 0 0 0 0 2 2 2 0\n  y3: 0 2 2 0 2 2 2 0\n  y4: 0 2 2 0 2 2 2 0\n  y5: 0 2 2 0 0 0 0 0\n  y6: 0 3 2 0 0 0 0 0\n  y7: 0 2 2 0 1 1 2 2\nThe party at (7,3) faces +y. Looking ahead the W-walls at x6/x7 rows y3,y4 = 2 (the converging side walls in the frame); the corridor terminates where the forward cells carry 2/3 (the green gate). Value 1 appears (W-wall y7 x4/x5) — so all of 0,1,2,3 occur. Earlier passes saw mostly 0/2/3; value 1 is confirmed present here."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "wall-bit-semantics-partial",
+      "claim": "Wall-bit value 0 = open/no wall (corridor sees through). Value 2 = solid stone wall (the dominant blocking wall and the one rendered in the static frame). Values 1 and 3 are special edge types (door/portcullis/secret) — value 3 sits exactly at the corridor-terminating cells around the green gate (N-wall y4 x7=3, y7 x7=3; W-wall y6 x1=3), and value 1 at W-wall y7 x4/x5. NOT FULLY PINNED: which of 1/3 is the visible green gate vs a one-way/secret edge, and the exact wall-value -> walltype-code mapping inside 0x3828.",
+      "category": "maze_data_format",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_decode",
+        "details": "Cross-referencing the decoded grids (finding maze-wall-bits-reference-frame) against the frame: the green portcullis terminates the corridor ahead of the party, and value 3 cells cluster at the corridor-end cells. Value 2 = the plain stone walls that fill most blocking edges. Confirm by driving free movement (read maze_can_step_in_facing 0x3244 per value) and by hand-tracing 0x3828's value->code switch."
+      },
+      "confidence": "low"
+    }
+  ],
+  "decoded_sprites": {
+    "status": "NOT DECODED to PNG this pass — the mazedata.* graphics-blob pixel encoding remains uncracked (consistent with docs/re/mazedata-investigation.md). The geometry (where each polygon goes) is solid; the texture pixels (what fills it) need the mazedata slice decoder + the wroot image_blit bitmap format.",
+    "what_is_known": [
+      "Floor fill (zone0): asset id 1346, loaded to DGROUP 0x4faa=0x7504, blitted full-window via image_blit. Source far ptr seg=0x783f.",
+      "Ceiling fill (zone0): asset id 1740, loaded to 0x4fa8=0x7a48, blitted full-window. Source far ptr seg=0x7895.",
+      "Wall stone texture + the green gate are textured polygons filled by span flush (0xc546) using per-walltype texture columns (0x36e4/0x3717); the source pixels live in the mazedata.ega/.t16/.cga graphics blob addressed by the 153x5-byte descriptor table (header 99 00 6e 01..).",
+      "Wall-type 2 (solid stone) is the texture used for the converging side walls in the reference frame."
+    ],
+    "follow_up_to_decode": "Crack the mazedata graphics-slice encoding (variable-size 4bpp planar slices per descriptor) AND the wroot image_blit bitmap header format. Easiest path: DOSBox-X breakpoint on the 0xc546 flush thunk / 0xbb9a image_blit target while in state 5, capture the source pointer + dims, then read the bytes and reverse the planar layout. The frame PNG (/tmp/wiz6-maze-12-clean.png) is the validation oracle."
+  },
+  "ground_truthing": {
+    "static": "ndisasm -b 16 over wmaze.ovr (Ghidra addr == file offset). Disassembled view_render_corridor_frame (0x4ad7), the full depth-loop body (0x4d95..0x51ec), wall_emit_quad (0x406c) incl. its 15-way jump table (0x449e), wall_emit_corner (0x45b4), wall_emit_floorceil (0x47a3), span_append (0x3f8d), view_load_zone_and_fill (0x42). Extracted every draw-call's pushed immediate column table programmatically and mapped to C-arg offsets.",
+    "dynamic": "Re-confirmed the reference frame by unserializing /tmp/wiz6-dungeon-clean.state through the LiveSession harness (game_state=5, x7,y3,facing0). Read live: slot wall-type array (0x5220), depth-indexed coord arrays (0x42/0x4a), texture/clip tables (0x36e4/0x3717), floor/ceiling asset ids + buffer ptrs + blit src far ptrs, and the 2-bit N/W wall grids for level 0. Re-screenshotted to /tmp/wiz6-maze-reconfirm.rgba (structurally identical to the committed PNG). NOTE: dosbox-pure (the live MCP backend) gives RAM reads + screenshots but NOT instruction breakpoints, so the per-blit argument VALUES were taken from the static disasm and the per-frame STATE (walltypes, coords, wall bits) from live RAM — the two cross-check (e.g. depth array 0/104/128/144 matches the converging-wall heights; walltype 2 matches the solid side walls)."
+  },
+  "solid_vs_followup": {
+    "solid": [
+      "Render architecture (edge-list textured polygons, not fixed-rect sprites).",
+      "Per-slot polygon vertex-column tables (all draw sites, all 4 depths via the +[bp+4] bias) read directly from the binary.",
+      "The 5 slots per depth + their gate bytes + emitter functions.",
+      "Depth-indexed convergence coord arrays (0x42/0x4a), live values.",
+      "wall_emit_quad's 15-way shape jump table.",
+      "Floor/ceiling = full-window image_blit backgrounds drawn first; zone0 asset ids + buffer ptrs + blit far ptrs.",
+      "Live wall-type codes (0/2) for the reference frame and the level-0 2-bit N/W wall grid."
+    ],
+    "needs_follow_up": [
+      "mazedata graphics-blob PIXEL decode (the actual stone/gate texture pixels) — the largest remaining piece; needs the planar-slice decoder + image_blit bitmap format (DOSBox-X bp on 0xbb9a/0xc546 recommended).",
+      "Exact wall-value(0/1/2/3) -> walltype-code mapping inside the classifier 0x3828 (hand-trace the switch).",
+      "Which of value 1/3 is the visible green portcullis vs a secret/one-way edge (drive free movement + read 0x3244).",
+      "FAR-depth (depth 2-3) polygon variants 5..14 of 0x406c (the static corridor only exercised types 0 and 2; doors/openings/turns use the other shapes) — map each shape's edge selection when a frame exercises them.",
+      "The role of the [0x363e]-derived arg in the FRONT-face and door-variant paths (likely a door/animation phase)."
+    ]
+  },
+  "symbol_map": [
+    {"space": "wmaze.ovr", "offset": "0x406c", "name": "wall_emit_quad", "note": "polygon wall emitter; 35 args (vertex column table); 15-way shape jump table @0x449e on wall-type; appends spans via 0x3f8d"},
+    {"space": "wmaze.ovr", "offset": "0x45b4", "name": "wall_emit_corner", "note": "corner-edge emitter; 16 args; dispatch on corner-type [bp+6]"},
+    {"space": "wmaze.ovr", "offset": "0x47a3", "name": "wall_emit_floorceil", "note": "center/right floor-ceiling fill quad; 8 args; parity-gated (0x521a)"},
+    {"space": "wmaze.ovr", "offset": "0x3f8d", "name": "span_append", "note": "append one textured span to list @0x50d0.. (cnt 0x50ce, max 30); texture index via wtype*0x13a into 0x36e4/0x3717; flush via 0xc546 thunk at 30"},
+    {"space": "wmaze.ovr", "offset": "0x42", "name": "view_load_zone_and_fill", "note": "load+full-window-blit floor (id 0x3304->0x4faa) & ceiling (id 0x3306->0x4fa8) via image_blit 0xbb9a before walls"},
+    {"space": "wmaze.ovr", "offset": "0x4ad7", "name": "view_render_corridor_frame", "note": "main compositor (from wmaze-3d-view.json)"},
+    {"space": "wmaze.ovr", "offset": "0xf148", "name": "span_clip_region_thunk", "note": "wroot thunk; per-span/edge clip-region setup (3 args) before flush"},
+    {"space": "wmaze.ovr", "offset": "0xc546", "name": "span_flush_thunk", "note": "wroot draw thunk; flushes the span list (called when 0x50ce reaches 30)"},
+    {"space": "wmaze.ovr", "offset": "0xbb9a", "name": "image_blit_thunk", "note": "wroot image_blit (image 0xfe); floor/ceiling full-window background blit"},
+    {"space": "wmaze.ovr", "offset": "0xf4be", "name": "asset_load_decompress_thunk", "note": "wroot asset loader (image 0x3a22); decompresses zone/floor/ceiling assets"}
+  ],
+  "unresolved": [
+    "mazedata.* graphics-blob pixel decode (variable-size planar slices) + wroot image_blit bitmap header format — the texture pixels for walls/floor/ceiling/gate. The geometry is complete; only the fill pixels remain.",
+    "wall-value(0/1/2/3) -> walltype-code mapping inside 0x3828/0x3c11/0x3dce (which value is door vs secret vs solid).",
+    "FAR-depth shape variants (0x406c jump-table entries 1,3,4,5..14) — exercise frames with doors/openings/turns to map their edge selection.",
+    "The [0x363e] door/animation-phase arg used by the front-face and door-variant draw paths."
+  ]
+}
