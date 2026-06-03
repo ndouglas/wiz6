@@ -188,6 +188,12 @@ export {
   type SlotRef,
 } from './character-view/swag-bag.js';
 export {
+  isSpellKnown,
+  knownSpells,
+  knownSpellsBySchool,
+  type KnownSpell,
+} from './character-view/known-spells.js';
+export {
   PALETTE_CATALOG,
   EGA_DEFAULT,
   WIZ6_MAIN,

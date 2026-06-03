@@ -38,6 +38,10 @@ export function pcfileSlotToCharacter(slot: PcfileSlot, id: string): Character {
     },
     schoolMana: [...slot.schoolManaCur],
     schoolManaMax: [...slot.schoolManaMax],
+    // Known-spell bitset (record +0x188, 20 bytes; spell-table index i known iff
+    // bit i&7 of byte i>>3). Without this the camp SPELL spellbook viewer sees no
+    // learned spells for imported casters. RE: wpcvw-known-spells.json.
+    spellSlotsKnown: [...slot.spellSlotsKnown],
     skills: [...slot.skills],
     reaction: slot.reaction,
     sex: (slot.sex === 1 ? 1 : 0),
