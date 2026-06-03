@@ -51,6 +51,10 @@ export function pcfileSlotToCharacter(slot: PcfileSlot, id: string): Character {
     encumbranceCurrent: slot.encumbranceCurrent,
     encumbranceMax: slot.encumbranceMax,
     bodyAc: [...slot.bodyAc],
+    // Stored derived AC (record +0x160). Without this the char-view AC total
+    // falls back to 10 (drawArmorClass `?? 10`), which only matches Fighter-base
+    // characters — a Faerie Ninja's stored 8 rendered as 10. RE: +0x4548 base AC.
+    derivedAc: slot.derivedAc,
     // Carried inventory + equipped body-slots. Previously omitted, so every
     // character loaded from a pcfile (viewer roster import via pc-file-io.ts)
     // came through with an empty pack — the review screen + equip menu showed

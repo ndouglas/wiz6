@@ -239,7 +239,11 @@ async function main() {
   // ── recipe replay (deterministic screens) ──────────────────────────────────
   // HostClient boots from an ephemeral COPY of the committed test-fixtures/original/
   // image by default — deterministic, and never touches the mutable ./original.
-  const h = new HostClient();
+  // A pcfileFixture recipe instead boots a fresh image overlaid with the committed
+  // roster (same as the --mint/--check paths), so the replay drives the right party.
+  const h = new HostClient(
+    recipe.pcfileFixture ? { source: buildSourceWithPcfile(recipe.pcfileFixture) } : {},
+  );
   await driveRecipeRaw(h, recipe.steps, recipe.settleMs);
   if (!check) await h.serialize(join(STATES, `${name}.state`));
   await h.fb(`${TMP}/build.rgba`);
