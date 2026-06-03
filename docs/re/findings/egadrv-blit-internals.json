@@ -52,30 +52,32 @@
   ],
   "solid_vs_followup": {
     "solid": [
-      "ega.drv 17-entry far-call dispatch table decoded; entry 10 (off 0x2b) = the wall/sprite compositor FUN_1c94.",
+      "ega.drv 17-entry far-call dispatch table decoded; entry 10 (off 0x2b) = FUN_1c94, the masked 4-plane SPRITE/object compositor.",
+      "STEP-1 CORRECTION (live): FUN_1c94 AND FUN_210c log 0 hits during the corridor render -- 0 at the initial dungeon LOAD and 0 on a forward-step redraw. So they do NOT draw the corridor walls; they are the sprite/object/monster blit path (a bare corridor has no sprites). The fully-decompiled 4-plane masked format is real and portable, just not the wall path.",
       "FUN_1c94 = compose-buffer clear (0xff transparent) + per-piece decode + palette-remap + H-flip + clip + planar blit to A000 (writer at file 0x2069, es=A000, dx=0x3c5 Sequencer).",
-      "FUN_210c = masked 4-plane EGA blit: transp = AND of 4 planes; dst = src&~transp | dst&transp; per-cell presence bitmap; H/V flip. The texture format is standard 4-plane EGA masked sprite data (corrects the prior 'masked blob' / '2bpp' uncertainty).",
+      "FUN_210c = masked 4-plane EGA blit: transp = AND of 4 planes; dst = src&~transp | dst&transp; per-cell presence bitmap; H/V flip. Standard 4-plane EGA masked sprite data (corrects the prior 'masked blob' / '2bpp' uncertainty).",
+      "The corridor WALL rasterizer executes in the 0x6c400-0x6e400 region (between/after ega.drv's image and the off-screen buffers) and blits via the planar writer (ega.drv@0x2069, es=A000). It is a compiled/transient code path: at every frame BOUNDARY the region reads as stable pixel-ish data (idle == redraw, 0 diff), yet the tracer logs real execution there mid-frame -- so the rasterizer code is not capturable with frame-granular reads.",
       "Ghidra tooling fixed: list_functions.py now uses the working pyghidra 3.x API (open_project/program_context); pass --project-dir as an ABSOLUTE path."
     ],
+    "tooling_limitation": "The patched core's tracer is NON-PAUSING (logs + continues), and HostClient.read()/regs() only observe at FRAME BOUNDARIES. The corridor wall rasterizer runs and finishes WITHIN a frame, leaving pixel data at the boundary -- so its code bytes and its true mid-render register/segment state cannot be captured this way. Segment values sampled at boundaries (ds=4182/6a0f etc.) are unreliable for the wall path (e.g. seg 0x4182 is 90% zero at idle, so it is not the composed-view buffer). To progress the WALL renderer, the next move is a TOOLING upgrade, not more frame-granular probing.",
     "needs_follow_up": [
-      "Identify the wall-piece descriptor table (the 0x18-stride table) + the tile-index table @0x17a + the palette-remap LUT @0x192 + DAT_0000_016d/0169 -- read them live and map to the maze wall slots.",
-      "Resolve the wmaze far-call site(s) (wmaze+0x681a/+0x6aa1) -> confirm they far-call ega entry 10 (off 0x2b) and capture the actual arg block per wall slot (piece string, clip bounds, flags, col index) for the reference frame.",
-      "Map the piece-index strings to the convergence/seam DATA tables (wmaze @0x42/@0x4a/@0x36e4) to get per-depth wall geometry -> the U/V column placement.",
-      "Where does the source pixel data (descriptor[0]) point? -> the zone floor/ceiling/wall asset blocks (floor seg 0x783f, ceiling 0x7895 from wmaze-uv-texture.json). Decode a wall texture end-to-end (descriptor -> 4-plane source -> FUN_210c merge -> buffer -> A000) and pixel-match the reference frame.",
-      "Port: reimplement FUN_1c94/FUN_210c in TS (4-plane EGA compose + masked merge + flip + planar emit) OR RAM-extract the composed buffer per slot as a fallback oracle."
+      "TOOLING: extend the core patch with a PAUSING breakpoint (stop at a target CS:IP and expose read/regs at that exact instruction) so the mid-frame wall-rasterizer code + registers can be dumped. OR add a memory-WRITE watch to find what writes the composed viewport.",
+      "Alternatively port via the FRAMEBUFFER oracle: the engine's rendered corridor is already captured by fb()/screenshot. Combine the known geometry DATA (convergence @0x42/@0x4a, seam tables @0x36e4/@0x3717, slot walltypes @0x5220) with per-slot wall textures extracted from the framebuffer -> build the TS renderer to pixel-match, without cracking the compiled rasterizer.",
+      "SPRITE path (separate, when ready): capture FUN_1c94/FUN_210c live during a MONSTER encounter (sprites present) to get DS + the descriptor table (0x18-stride) + tile-index table @0x17a + LUT @0x192 + the arg block; decode a monster sprite end-to-end. This RE is done statically; it just needs a sprite-bearing frame to validate.",
+      "Locate the wall rasterizer's generator in ega.drv (the code that builds/drives the 0x6c400+ blit) by tracing the planar writer's (0x2069) callers with a pausing breakpoint."
     ]
   },
   "symbol_map": [
-    {"space": "ega.drv", "offset": "0x002b", "name": "ega_entry10_blit_wall_sprite", "note": "dispatch entry 10 -> FUN_1c94; the wall/sprite compositor far-called from wmaze"},
-    {"space": "ega.drv", "offset": "0x1c94", "name": "ega_compose_and_blit", "note": "clear buffer 0xff + per-piece decode (FUN_210c) + palette-remap + Hflip + clip + planar blit to A000; planar writer inline at 0x2069"},
+    {"space": "ega.drv", "offset": "0x002b", "name": "ega_entry10_blit_sprite", "note": "dispatch entry 10 -> FUN_1c94; the masked 4-plane SPRITE/object compositor (NOT the corridor walls -- 0 hits at load+move)"},
+    {"space": "ega.drv", "offset": "0x1c94", "name": "ega_compose_sprite_and_blit", "note": "clear buffer 0xff + per-piece decode (FUN_210c) + palette-remap + Hflip + clip + planar blit to A000; planar writer inline at 0x2069; SPRITE path"},
     {"space": "ega.drv", "offset": "0x210c", "name": "ega_blit_piece_masked_4plane", "note": "masked 4-plane EGA cell blit; transp=AND of 4 planes; presence-bitmap driven; H/V flip"},
     {"space": "ega.drv", "offset": "0x2069", "name": "ega_planar_span_write", "note": "es=A000, dx=0x3c5 Sequencer, di +0x28 stride -- the VRAM emit inside FUN_1c94"}
   ],
   "unresolved": [
-    "The 0x18-stride wall-piece descriptor table location + contents (per-piece: src ptr, mask, w, h).",
-    "The tile-index table @0x17a and palette-remap LUT @0x192 (and DAT_016d/0169 globals).",
-    "The exact wmaze arg block per wall slot for the reference frame (piece string, clip, flags).",
-    "End-to-end pixel decode of one wall texture vs the reference framebuffer."
+    "The corridor WALL rasterizer code (compiled/transient in 0x6c400-0x6e400; needs a PAUSING breakpoint to capture mid-frame -- frame-granular reads only see pixel data).",
+    "The location of the composed-view off-screen buffer (NOT seg 0x4182 -- that is 90% zero at idle; the boundary-sampled segments are unreliable).",
+    "SPRITE path validation: the 0x18-stride descriptor table, tile-index table @0x17a, LUT @0x192, and arg block -- need a monster-encounter frame to capture live (the format is statically RE'd).",
+    "End-to-end pixel decode of one wall texture (blocked on the wall-rasterizer tooling OR doable via the framebuffer-oracle port path)."
   ],
-  "caveat_for_prior_findings": "Refines wmaze-render-in-egadrv.json: the renderer location (ega.drv, far-called from wmaze) and the planar writer (0x2069) stand; the '2bpp column writer' / 'masked blob' descriptions are superseded -- it is 4-plane EGA masked sprite compositing (FUN_1c94 + FUN_210c), fully decompiled. The addresses past the file image are the compose buffer, not separate code."
+  "caveat_for_prior_findings": "Refines wmaze-render-in-egadrv.json AND this file's own earlier conclusion: ega.drv IS the graphics service far-called from wmaze, and the planar writer (0x2069) DOES blit the corridor to A000 every frame. BUT FUN_1c94/FUN_210c (entry 10) are the SPRITE/object compositor, NOT the corridor wall renderer (live: 0 hits at dungeon load and on movement). The wall rasterizer is a separate compiled/transient code path (0x6c400-0x6e400) that frame-granular tooling cannot capture. The 4-plane masked format is correct and portable for sprites. Earlier '2bpp column writer' wording is retired."
 }

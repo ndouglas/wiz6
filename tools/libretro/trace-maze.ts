@@ -354,6 +354,67 @@ async function phaseAfine(c: HostClient): Promise<void> {
   }
 }
 
+/** Dump a region mid-redraw (while runtime/generated code is live) at several
+ *  step offsets into the forward move. */
+async function phaseDumpAt(c: HostClient): Promise<void> {
+  const lin = parseInt(process.argv[3] ?? '6c400', 16);
+  const len = parseInt(process.argv[4] ?? '2000', 16);
+  for (const n of [2, 4, 6, 8, 10, 14]) {
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.key('enter', 'down');
+    await c.step(n);
+    const bytes = await c.read(lin, len);
+    await c.key('enter', 'up');
+    const out = `/tmp/wiz6-redraw-step${n}.bin`;
+    writeFileSync(out, Buffer.from(bytes));
+    // quick code-ness heuristic: count distinct bytes in first 0x200
+    const head = bytes.slice(0, 0x200);
+    const distinct = new Set(head).size;
+    console.log(`step ${n}: dumped 0x${len.toString(16)} @ lin 0x${lin.toString(16)} -> ${out}  (distinct bytes in head: ${distinct})`);
+  }
+}
+
+// ega.drv dispatch-table header (e9 jmp + first two e8..cb thunks) — unique.
+const EGA_HEADER_SIG = 'e90000e89401cbe83004cb';
+
+/** Trace FUN_1c94 / FUN_210c entries during the INITIAL dungeon LOAD (not a
+ *  per-step redraw) — to test whether they are the zone-load wall compositor. */
+async function phaseLoadTrace(c: HostClient): Promise<void> {
+  await c.step(3000);
+  await c.key('enter', 'tap'); await c.step(800);
+  for (let i = 0; i < 3; i++) {
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('up', 'tap'); await c.key('up', 'tap'); await c.key('up', 'tap'); await c.step(60);
+  }
+  await c.key('down', 'tap'); await c.key('down', 'tap'); await c.key('down', 'tap'); await c.step(60);
+  // ega.drv base via header sig (loaded at boot, stable).
+  const egaPhys = await c.find(EGA_HEADER_SIG);
+  if (egaPhys < 0) throw new Error('ega.drv header not found');
+  console.log(`ega.drv base = 0x${egaPhys.toString(16)} (expect ~0x6a1b0)`);
+  const fun1c94 = egaPhys + 0x1c94;
+  const fun210c = egaPhys + 0x210c;
+  await c.key('enter', 'tap'); await c.step(200); // START NEW GAME
+  await c.key('enter', 'tap'); await c.step(200); // scenario
+  // arm traces just before the dungeon render
+  await c.traceSet(fun1c94); await c.traceDrain();
+  await c.key('enter', 'tap'); await c.step(400); // -> dungeon (first 3D render)
+  const recs1 = await c.traceDrain();
+  await c.traceOff();
+  console.log(`\nFUN_1c94 (0x${fun1c94.toString(16)}) during dungeon LOAD: ${recs1.length} hits`);
+  for (const r of recs1.slice(0, 4)) {
+    console.log(`  ds=${r.ds.toString(16)} es=${r.es.toString(16)} ax=${r.eax.toString(16)} bx=${r.ebx.toString(16)} cx=${r.ecx.toString(16)} dx=${r.edx.toString(16)} si=${r.esi.toString(16)} di=${r.edi.toString(16)} bp=${r.ebp.toString(16)}`);
+    console.log(`     stack: ${r.stack.map((w) => w.toString(16)).join(' ')}`);
+  }
+  // also FUN_210c
+  await c.traceSet(fun210c); await c.traceDrain();
+  // force another full render: examine or a step
+  await c.key('enter', 'down'); await c.step(20); await c.key('enter', 'up'); await c.step(60);
+  const recs2 = await c.traceDrain();
+  await c.traceOff();
+  console.log(`\nFUN_210c (0x${fun210c.toString(16)}) on a post-load forward step: ${recs2.length} hits`);
+}
+
 async function phaseFine(c: HostClient): Promise<void> {
   const ovl = ovlBase();
   const offs = process.argv.slice(3).map((s) => parseInt(s, 16));
@@ -386,6 +447,8 @@ async function main() {
     else if (phase === 'where') await phaseWhere(c);
     else if (phase === 'dump') await phaseDump(c);
     else if (phase === 'afine') await phaseAfine(c);
+    else if (phase === 'dumpat') await phaseDumpAt(c);
+    else if (phase === 'loadtrace') await phaseLoadTrace(c);
     else if (phase === 'fine') await phaseFine(c);
     else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | fine <off...>');
   } finally {
