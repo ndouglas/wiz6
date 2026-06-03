@@ -105,6 +105,9 @@ interface SpellbookCase {
   school: number;
   mode: 'grid' | 'sublist';
   spellIdx: number;
+  /** Selection-cursor blink phase. DEFAULT true (ON). The OFF case renders the
+   *  composer with cursorOn=false and gates it against the blink-OFF fixture. */
+  cursorOn?: boolean;
 }
 
 const CASES: SpellbookCase[] = [
@@ -115,6 +118,12 @@ const CASES: SpellbookCase[] = [
   // blank COST, and the selection cursor block on the realm-row power cell (ON
   // blink-phase). RE: docs/re/findings/wpcvw-spell-action.json.
   { fixture: 'spellbook-cancel', school: SPELL_CANCEL_CELL, mode: 'grid', spellIdx: 0 },
+  // CANCEL cell, cursor blink-OFF phase: SAME cell, but the bright-yellow block
+  // is ABSENT (the realm-row power cell shows palette[0] black). The engine
+  // free-runs this blink (~2-3 frames ON / ~2 OFF); spellbook-cancel-off's
+  // settleMs lands the OFF phase. Rendered with cursorOn=false. This gates the
+  // composer's OFF render so the running page's blink-off frame is pixel-exact.
+  { fixture: 'spellbook-cancel-off', school: SPELL_CANCEL_CELL, mode: 'grid', spellIdx: 0, cursorOn: false },
 ];
 
 describe('camp SPELL spellbook viewer FULL-SCREEN pixel-parity (target 100%)', () => {
@@ -154,6 +163,7 @@ describe('camp SPELL spellbook viewer FULL-SCREEN pixel-parity (target 100%)', (
       inventory: buildInventoryItems(treon, scenarioDb),
       cc,
       age,
+      cursorOn: sc.cursorOn,
     });
     return renderCreationFrame(windows, fontSetWithPortrait, palette);
   }

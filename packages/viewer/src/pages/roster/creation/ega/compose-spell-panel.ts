@@ -92,6 +92,15 @@ export interface SpellPanelView {
   cost?: string | null;
   /** 6-glyph level-pip bar (chars). Defaults to the full bar 0x18..0x1d. */
   pips?: number[];
+  /**
+   * Sub-list selected-spell highlight blink phase. DEFAULT true (highlight ON —
+   * realm-colour bar + name, the static parity render). When false, the engine's
+   * blink-OFF phase: the selected row is drawn FULLY BLACK (the wfont0-highlight
+   * bar AND its name glyphs vanish to palette[0]), matching the engine's
+   * free-running cursor blink. Verified by frame-stepping spellbook-sublist-fire:
+   * the whole highlight row toggles red↔black. Only affects sub-list mode.
+   */
+  highlightOn?: boolean;
 }
 
 const DEFAULT_PIPS = [0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d];
@@ -110,6 +119,7 @@ export function composeSpellPanel(outer: TileWindow, inner: TileWindow, view: Sp
   const pips = view.pips ?? DEFAULT_PIPS;
   const realmAttr = REALM_ATTR[view.realm] ?? 0x40;
   const inSubList = view.selectedIdx !== null && view.selectedIdx !== undefined;
+  const highlightOn = view.highlightOn ?? true;
 
   // ---- spellOuter (20 wide × 16 tall) ----
   // r0: top frame rule
@@ -196,8 +206,12 @@ export function composeSpellPanel(outer: TileWindow, inner: TileWindow, view: Sp
     if (inSubList && view.selectedIdx === i) {
       // Highlight bar: realm-colour text on black across cols 1..17 (wfont0).
       // Lay the full bar black first, then the name glyphs on top.
-      fillRow(inner, BAR_X0, BAR_X1, row, 0x20, realmAttr);
-      text(inner, 1, row, name.slice(0, BAR_X1 - BAR_X0 + 1), realmAttr);
+      // BLINK-OFF (highlightOn=false): the engine drops the whole highlight row
+      // to black — both bar and name glyphs vanish to palette[0]. Draw the bar
+      // and name at colour-nibble 0 (wfont0 highlight @ idx 0 = black on black).
+      const attr = highlightOn ? realmAttr : 0x00;
+      fillRow(inner, BAR_X0, BAR_X1, row, 0x20, attr);
+      text(inner, 1, row, name.slice(0, BAR_X1 - BAR_X0 + 1), attr);
     } else {
       // Plain row: black-on-gray text (wfont3).
       text(inner, 1, row, name, 0x03);

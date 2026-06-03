@@ -49,11 +49,11 @@ export function drawSchoolCursor(top: TileWindow, school: number): void {
  * cursor sits on CANCEL the engine highlights that cell with the school-cursor
  * block instead of any school icon.
  *
- * BLINK NOTE: the engine BLINKS this cursor (~2 frames ON / ~2-3 OFF). We render
- * it STATICALLY in its ON phase — matching the ON-phase engine fixtures (the
- * blink phase is a deterministic function of stepped-frame count; the
- * spellbook-cancel recipe's settleMs is tuned to land ON). A future pass could
- * animate the blink; until then the always-visible block is the pragmatic match.
+ * BLINK NOTE: the engine BLINKS this cursor (~2-3 frames ON / ~2 OFF). The
+ * static composer draws it ON (matching the ON-phase parity fixtures); the
+ * running CharacterViewPage animates the blink by re-composing with
+ * cursorOn=false, which simply OMITS this block so the cell's base glyph shows
+ * (the blink-OFF phase gated by the spellbook-cancel-off fixture).
  */
 export function drawCursorBlock(win: TileWindow, x: number, y: number): void {
   setCursor(win, x, y);

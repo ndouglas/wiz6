@@ -89,6 +89,13 @@ test('camp SPELL spellbook mounted-canvas matches engine (FIRE grid + FIRE subli
 }) => {
   const members = [loadTreon(), filler('FILLER1', 1), filler('FILLER2', 2)];
 
+  // Freeze the spellbook cursor blink so the canvas matches the ON-phase
+  // fixtures deterministically (the free-running blink would otherwise flicker
+  // the cursor between ON/OFF and race expectCanvasMatchesFixture).
+  await page.addInitScript(() => {
+    (window as unknown as { __WIZ6_FREEZE_BLINK__?: boolean }).__WIZ6_FREEZE_BLINK__ = true;
+  });
+
   // Inject the active party BEFORE navigation. CharacterViewPage reads
   // readActiveParty().members; TREON (slot 0) is the viewed member and supplies
   // the spellSlotsKnown bitset knownSpellsBySchool() reads for the SPELL viewer.
@@ -120,6 +127,9 @@ test('camp SPELL CANCEL cell: RIGHT RIGHT reaches CANCEL, ENTER exits the spellb
   page,
 }) => {
   const members = [loadTreon(), filler('FILLER1', 1), filler('FILLER2', 2)];
+  await page.addInitScript(() => {
+    (window as unknown as { __WIZ6_FREEZE_BLINK__?: boolean }).__WIZ6_FREEZE_BLINK__ = true;
+  });
   await page.addInitScript((m) => {
     window.localStorage.setItem('wiz6:active-party', JSON.stringify({ schemaVersion: 1, members: m }));
   }, members);

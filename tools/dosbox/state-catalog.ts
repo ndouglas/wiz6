@@ -309,6 +309,21 @@ const SPELLBOOK_RECIPES: readonly SaveStateRecipe[] = [
     steps: [...SPELLBOOK_REACH, 'right right'],
     settleMs: 343,
   },
+  {
+    name: 'spellbook-cancel-off',
+    description:
+      'Camp SPELL spellbook, CANCEL cell — SAME reach/cell as spellbook-cancel, ' +
+      'but settleMs tuned to land the cursor\'s blink-OFF phase (the bright-yellow ' +
+      'block ABSENT — the realm-row power cell shows BLACK). The engine blinks the ' +
+      'cancel cursor ~2-3 frames ON / ~2 OFF; the phase is a deterministic function ' +
+      'of the total stepped-frame count, so settleMs selects it. settleMs=300 lands ' +
+      'OFF reproducibly (verified by reading the regen PNG: the cursor cell at ' +
+      'screen x168 y128 is palette[0] black, not yellow). Gates the composer\'s ' +
+      'cursorOn=false render. Do NOT change settleMs without re-checking the phase. ' +
+      'Byte-exact re-mint.',
+    steps: [...SPELLBOOK_REACH, 'right right'],
+    settleMs: 300,
+  },
 ];
 
 // ── WPCVW char-view ACTION sub-screens (state 0x11) ────────────────────────

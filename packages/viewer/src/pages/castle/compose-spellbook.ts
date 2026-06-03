@@ -11,6 +11,9 @@
  *   2. School cursor (drawSchoolCursor) over the current school's mana icon —
  *      only in GRID mode (in SUB-LIST mode the icon keeps its normal glyph,
  *      matching the creation picker; RE'd in compose-spell-screen-frame.ts).
+ *      The selection cursor BLINKS in the engine; this composer gates it on the
+ *      `cursorOn` flag (default ON = the static parity render), and the running
+ *      CharacterViewPage flips that flag on a timer to animate the flash.
  *   3. Spell panel (composeSpellPanel: spellOuter 20×16 @160,32 + spellInner
  *      19×8 @168,56) — the "SPELLS" list of the selected school's KNOWN spells,
  *      the realm label, and the COST box.
@@ -59,6 +62,19 @@ export interface SpellbookView {
   cc?: { current: number; max: number };
   /** Age values for the char sheet. */
   age?: { years: number; second: number };
+  /**
+   * Selection-cursor blink phase. DEFAULT true (cursor ON — the static parity
+   * render: school-cursor block / cancel-cursor block / sub-list highlight all
+   * drawn). When false, the engine's blink-OFF phase — the cursor overlay is
+   * omitted so the underlying cell shows through:
+   *   - grid school cell → the school's normal mana icon (no yellow block);
+   *   - cancel cell → the spell-panel realm-row power cell goes BLACK;
+   *   - sub-list selected row → the realm-colour highlight drops to black.
+   * Verified by frame-stepping the engine recipes (cancel/grid/sublist all
+   * blink ~2-3 frames ON / ~2 OFF). The running page toggles this; the static
+   * composer (and the ON-phase parity fixtures) keep the default ON.
+   */
+  cursorOn?: boolean;
 }
 
 /**
@@ -66,6 +82,7 @@ export interface SpellbookView {
  * in z-order (lowest first). Pure.
  */
 export function composeSpellbookFrame(view: SpellbookView): TileWindow[] {
+  const cursorOn = view.cursorOn ?? true;
   const { bottomBar } = createPersistentWindows();
   const { outer, inner } = createSpellPickWindows();
 
@@ -94,6 +111,9 @@ export function composeSpellbookFrame(view: SpellbookView): TileWindow[] {
     spellNames: list.map((s) => spellName(view.db, s.index) || `SPELL ${s.index}`),
     selectedIdx: sel,
     cost: sel !== null && list[sel] != null ? String(list[sel]!.cost) : null,
+    // Sub-list highlight blinks with the cursor (the engine blinks the selected
+    // spell's realm-colour bar red↔black). cursorOn=false → highlight off.
+    highlightOn: cursorOn,
   });
 
   // 2. Selection cursor (solid bright-yellow highlight block, wfont0 0x63 @ 0x50)
@@ -102,10 +122,18 @@ export function composeSpellbookFrame(view: SpellbookView): TileWindow[] {
   //   - On the CANCEL cell: over the spell-panel realm-row POWER cell
   //     (spellOuter col1 row12) instead — the engine moves the same block there
   //     when the cursor walks off the grid onto CANCEL.
-  // BLINK: the engine blinks this cursor (~2 ON / ~2-3 OFF, free-running). We
-  // render it STATICALLY in the ON phase; the ON-phase engine fixtures (recipe
-  // settleMs tuned to land ON) are the parity gate. See drawCursorBlock.
-  if (view.mode === 'grid') {
+  // BLINK: the engine blinks this cursor (~2-3 frames ON / ~2 OFF, free-running;
+  // verified by frame-stepping the grid/cancel recipes). The running page
+  // toggles `cursorOn`; the static composer defaults ON. ON-phase engine
+  // fixtures gate the ON render; the spellbook-cancel-off fixture gates OFF.
+  //   - cursorOn:  draw the school-cursor / cancel-cursor block (current path).
+  //   - !cursorOn: omit it → the underlying cell shows. For a school cell that's
+  //     the normal mana icon (composeMainPanel already drew it); for the CANCEL
+  //     cell it's the realm-row power cell's BASE glyph that composeSpellPanel
+  //     already laid down (a small red wfont2 symbol — verified by frame-stepping
+  //     spellbook-cancel: the engine restores that glyph in the blink-OFF phase,
+  //     it does NOT go black). So in OFF we simply draw nothing here.
+  if (view.mode === 'grid' && cursorOn) {
     if (onCancel) drawCursorBlock(outer, 1, 12);
     else drawSchoolCursor(main, view.school);
   }

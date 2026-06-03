@@ -87,6 +87,13 @@ const ENGINE_W = 320;
 const ENGINE_H = 200;
 const SCALE = 3;
 
+// Spellbook selection-cursor blink interval (ms per ON/OFF toggle). The engine
+// free-runs a fast flash (~2-3 frames ON / ~2 OFF on the original CPU); per
+// CLAUDE.md its rate is CPU-calibrated and NOT wall-clock-reproducible, so this
+// is FEEL-TUNED, not byte-exact: ~5 Hz toggle (≈2.5 full blinks/sec) reads as a
+// clean flash without strobing. Only runs while a spell screen is open.
+const SPELL_CURSOR_BLINK_MS = 200;
+
 // All EDIT-submenu options are enabled in v1; future revisions may gate
 // per-action (e.g. profession change only on a particular game flag).
 const EDIT_FLAGS: EditEnableFlags = { rename: true, portrait: true, profession: true };
@@ -184,9 +191,33 @@ export function CharacterViewPage() {
     return { kind: 'action-menu', cursorIdx: entries.length - 1, campEntries: entries };
   });
 
+  // Spellbook selection-cursor blink phase. The composer renders the cursor when
+  // true (ON), omits it when false (OFF). Only toggled while a spell screen is
+  // open (see the blink-timer effect below); stays true otherwise so non-spell
+  // states are unaffected.
+  const [cursorOn, setCursorOn] = useState(true);
+  const inSpellScreen = state.kind === 'spell-grid' || state.kind === 'spell-sublist';
+
   useEffect(() => {
     if (!validSlot) navigate('/castle');
   }, [validSlot, navigate]);
+
+  // Blink the spellbook selection cursor while a spell screen is open. E2E
+  // determinism: setting window.__WIZ6_FREEZE_BLINK__ (DEV-only) pins the cursor
+  // ON so Playwright canvas asserts hit the ON-phase fixtures deterministically;
+  // the free-running blink would otherwise flicker the canvas between phases.
+  useEffect(() => {
+    const frozen =
+      import.meta.env.DEV &&
+      (globalThis as { __WIZ6_FREEZE_BLINK__?: boolean }).__WIZ6_FREEZE_BLINK__ === true;
+    if (!inSpellScreen || frozen) {
+      setCursorOn(true);
+      return;
+    }
+    setCursorOn(true);
+    const id = setInterval(() => setCursorOn((on) => !on), SPELL_CURSOR_BLINK_MS);
+    return () => clearInterval(id);
+  }, [inSpellScreen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -598,6 +629,7 @@ export function CharacterViewPage() {
             inventory: buildInventoryItems(member, scenarioDb),
             cc,
             age,
+            cursorOn,
           })
         : null;
 
@@ -608,7 +640,7 @@ export function CharacterViewPage() {
       renderTileWindow(w, buf, ENGINE_W, ENGINE_H, fontSetWithPortrait, WIZ6_MAIN);
     }
     presenter.present(buf, ENGINE_W, ENGINE_H);
-  }, [validSlot, fontSet, db, portraits, scenarioDb, members, slotIdx, state, member]);
+  }, [validSlot, fontSet, db, portraits, scenarioDb, members, slotIdx, state, member, cursorOn]);
 
   if (!validSlot) return null;
   if (!fontSet || !db || !portraits || !scenarioDb) return <div>Loading…</div>;
