@@ -885,6 +885,51 @@ function renderReviewMemberView(
   return renderCreationFrame(windows, fontSetWithPortrait, palette);
 }
 
+// review-twink-shuriken: WPCVW char-view of TWINK (squad slot 0) carrying SHURIKEN
+// x15 — the only fixture that exercises the STACKABLE QUANTITY column. Loaded from
+// the committed legendary-squad roster (real inventory incl. the rolled count), so
+// it gates the live buildInventoryItems → quantity path, not a hardcode.
+function renderReviewTwinkShuriken(fontSet: FontSet, palette: Palette): Uint8ClampedArray {
+  const roster = loadLegendarySquadRoster(); // TWINK/BEAU/VEXA/SABLE/EMBER/QUILL
+  const toMember = (c: Character, i: number): ActivePartyMember => ({
+    ...c, portraitSlotId: i, rosterCharacterId: c.id,
+  });
+  const twink = toMember(roster[0]!, 0);
+  const members = [twink, toMember(roster[1]!, 1), toMember(roster[2]!, 2)];
+
+  const wport1: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport1.json'), 'utf-8')),
+  );
+  const wport2: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport2.json'), 'utf-8')),
+  );
+  const wport3: PortraitSet = PortraitSetSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_PORTRAITS, 'wport3.json'), 'utf-8')),
+  );
+  // TWINK's rendered portrait (record +0x19c = 15) — the char-view shows the
+  // CURRENT member's portrait.
+  const fontSetWithPortrait = patchFontSetWithPortrait(fontSet, [wport1, wport2, wport3], twink.portraitIndex ?? 0);
+  const scenarioDb = ScenarioDbSchema.parse(
+    JSON.parse(readFileSync(join(EXTRACTED_SCENARIO, 'scenario.json'), 'utf-8')),
+  );
+
+  // Mirror CharacterViewPage's runtime derivation exactly (age/cc).
+  const age = { years: Math.floor((twink.age ?? 0) / 365), second: 1 };
+  const carryMax = resolveCarryCapacityMax(twink, false); // engine default (no recompute)
+  const cc = { current: Math.floor((twink.encumbranceCurrent ?? 0) / 10), max: Math.floor(carryMax / 10) };
+
+  const windows = composeCharacterViewFrame({
+    members,
+    currentSlot: 0,
+    cursorIdx: 6, // 7-entry camp menu (EQUIP..REVIEW,EXIT), EXIT highlighted
+    db: msgDb,
+    inventory: buildInventoryItems(twink, scenarioDb),
+    cc,
+    age,
+  });
+  return renderCreationFrame(windows, fontSetWithPortrait, palette);
+}
+
 // ─── EQUIP SLOT-PICKER (WPCVW state 0x11, body slot 0) helper ──────────────────
 // Engine fixture (save slot 9, same base state as review-member-view): THESUS
 // after choosing EQUIP and entering the per-slot wizard for body slot 0 (PRIMARY
@@ -1414,6 +1459,13 @@ const SCREENS: ScreenCase[] = [
     fixture: 'review-member-view',
     floor: 100, // 3-member party — THESUS char sheet + resolved equipment + 7-entry menu, EXIT highlighted
     render: renderReviewMemberView,
+  },
+  {
+    // TWINK (squad slot 0) char view — carries SHURIKEN x15, the only fixture
+    // that exercises the stackable-quantity inventory column (col 34-36, attr 0x10).
+    fixture: 'review-twink-shuriken',
+    floor: 100,
+    render: renderReviewTwinkShuriken,
   },
   {
     // Post-EQUIP char view (save 5): THESUS after equipping all 5 items. The

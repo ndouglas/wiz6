@@ -37,9 +37,16 @@ describe('item-display', () => {
       { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0x29, quantity: 0, flags: 0 },
     ] } as unknown as ActivePartyMember;
     expect(buildInventoryItems(member, db)).toEqual([
-      { name: 'LONGSWORD', iconChar: 0x02, equippedBodySlot: null },
-      { name: 'LEATHER CUIRASS', iconChar: 0x2a, equippedBodySlot: null },
+      { name: 'LONGSWORD', iconChar: 0x02, equippedBodySlot: null, quantity: 0 },
+      { name: 'LEATHER CUIRASS', iconChar: 0x2a, equippedBodySlot: null, quantity: 0 },
     ]);
+  });
+
+  it('carries the stored stack count (stackable quantity)', () => {
+    const member = { inventory: [
+      { itemId: 47, weight: 0, equipSlot: 2, spriteIdx: 0x15, quantity: 15, flags: 0 }, // SHURIKEN x15
+    ] } as unknown as ActivePartyMember;
+    expect(buildInventoryItems(member, db)[0]!.quantity).toBe(15);
   });
 
   it('uses each item OWN sprite glyph — a helm is not a sword (regression)', () => {
@@ -53,8 +60,8 @@ describe('item-display', () => {
       { itemId: 133, weight: 0, equipSlot: 7, spriteIdx: 0x2a, quantity: 0, flags: 0 }, // QUILT TUNIC
     ] } as unknown as ActivePartyMember;
     expect(buildInventoryItems(member, db)).toEqual([
-      { name: 'STEEL HELM', iconChar: 0x1a, equippedBodySlot: null },
-      { name: 'QUILT TUNIC', iconChar: 0x2b, equippedBodySlot: null },
+      { name: 'STEEL HELM', iconChar: 0x1a, equippedBodySlot: null, quantity: 0 },
+      { name: 'QUILT TUNIC', iconChar: 0x2b, equippedBodySlot: null, quantity: 0 },
     ]);
   });
 
@@ -65,8 +72,8 @@ describe('item-display', () => {
     ] } as unknown as ActivePartyMember;
     // equipment[4] = inventory index 1 → the cuirass is worn in body slot 4.
     expect(buildInventoryItems(member, db)).toEqual([
-      { name: 'LONGSWORD', iconChar: 0x02, equippedBodySlot: null },
-      { name: 'LEATHER CUIRASS', iconChar: 0x2a, equippedBodySlot: 4 },
+      { name: 'LONGSWORD', iconChar: 0x02, equippedBodySlot: null, quantity: 0 },
+      { name: 'LEATHER CUIRASS', iconChar: 0x2a, equippedBodySlot: 4, quantity: 0 },
     ]);
   });
 

@@ -220,6 +220,21 @@ const REVIEW_MEMBER_VIEW_RECIPE: SaveStateRecipe = {
   settleMs: 300,
 };
 
+// review-twink-shuriken: WPCVW char-view of TWINK (Faerie Ninja, squad slot 0)
+// in a 3-member squad party (TWINK/BEAU/VEXA). TWINK carries SHURIKEN x15, which
+// exercises the STACKABLE QUANTITY column the pinned-roster fixtures (all qty<=1)
+// can't reach. Same nav as review-member-view, but boots the committed squad
+// roster via pcfileFixture. RE: wpcvw-inventory-quantity.json.
+const REVIEW_TWINK_SHURIKEN_RECIPE: SaveStateRecipe = {
+  name: 'review-twink-shuriken',
+  pcfileFixture: 'legendary-squad',
+  description:
+    'WPCVW char-view of TWINK (squad slot 0) carrying SHURIKEN x15 — exercises ' +
+    'the stackable-quantity inventory column. 3-member squad party (TWINK/BEAU/VEXA).',
+  steps: [...makeCastleRecipe(3).steps, 'down', 'enter', 'down', 'enter'],
+  settleMs: 300,
+};
+
 // ── WPCVW char-view ACTION sub-screens (state 0x11) ────────────────────────
 // All reached over the SAME 3-member pinned-roster party (THESUS/TEMPEST/
 // LYSANDR) as review-member-view, then REVIEW MEMBER → REVIEW WHO? → THESUS
@@ -893,6 +908,7 @@ export const STATE_CATALOG: readonly SaveStateRecipe[] = [
   CHARACTER_MENU_EMPTY_RECIPE,
   CHARACTER_MENU_POPULATED_RECIPE,
   REVIEW_MEMBER_VIEW_RECIPE,
+  REVIEW_TWINK_SHURIKEN_RECIPE,
   ...EQUIP_RECIPES,
   ...ASSAY_RECIPES,
   ...SKILL_VIEWER_RECIPES,

@@ -161,6 +161,10 @@ export interface InventoryItem {
    *  Equipped rows render a ✓ marker + recolored name; equipped armor also drives
    *  the AC-grid icons. RE: wpcvw-post-equip-view.json. */
   equippedBodySlot?: number | null;
+  /** Stored stack count (inventory byte +0x442e). Stackable items (shuriken,
+   *  arrows, …) render it as a right-justified decimal at col 34-36, attr 0x10.
+   *  RE: wpcvw-inventory-quantity.json. */
+  quantity?: number;
 }
 
 export interface MainPanelView {
@@ -487,7 +491,7 @@ function drawArmorClass(
 
 function drawInventoryList(w: TileWindow, items: ReadonlyArray<InventoryItem>): void {
   for (let i = 0; i < Math.min(items.length, INV_MAX_ROWS); i++) {
-    const { name, iconChar, equippedBodySlot } = items[i]!;
+    const { name, iconChar, equippedBodySlot, quantity } = items[i]!;
     const row = INV_FIRST_ROW + i;
     const equipped = equippedBodySlot != null;
     // Left-margin marker: ✓ (0x17) for an equipped item, else blank — both attr 0x40.
@@ -508,6 +512,16 @@ function drawInventoryList(w: TileWindow, items: ReadonlyArray<InventoryItem>): 
     if (padCount > 0) {
       setCursor(w, INV_NAME_COL + namePart.length, row);
       puts(w, ' '.repeat(padCount), ATTR_INV_PAD);
+    }
+    // Stackable quantity: a right-justified decimal ending at the name field's
+    // last col (36), attr 0x10, drawn over the trailing pad. The engine gates this
+    // on a per-item-type stackable flag; we approximate with quantity>1 (covers
+    // shuriken/arrows/etc., hides the count for single non-stackables). RE:
+    // wpcvw-inventory-quantity.json.
+    if (quantity != null && quantity > 1) {
+      const q = String(quantity);
+      setCursor(w, INV_NAME_COL + INV_NAME_WIDTH - q.length, row);
+      puts(w, q, ATTR_INV_PAD);
     }
     // Body-slot icon at col 38 attr 0x04 (wfont0 highlight).
     setCursor(w, INV_ICON_COL, row);

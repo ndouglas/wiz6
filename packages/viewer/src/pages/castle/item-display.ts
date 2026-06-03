@@ -41,6 +41,7 @@ export function buildInventoryItems(member: ActivePartyMember, db: ScenarioDb): 
       name: scenarioItemName(db, slot.itemId),
       iconChar: itemIconGlyph(slot.spriteIdx),
       equippedBodySlot: bodySlot === -1 ? null : bodySlot,
+      quantity: slot.quantity,
     });
     if (out.length >= INV_MAX_ROWS) break;
   }
