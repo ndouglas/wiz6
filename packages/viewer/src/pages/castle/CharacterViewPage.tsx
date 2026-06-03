@@ -34,6 +34,7 @@ import {
   swagDrop,
   swagItemAddable,
   swagItemDroppable,
+  knownSpellsBySchool,
   WichmannHill,
   resolveCarryCapacityMax,
   type ActivePartyMember,
@@ -65,6 +66,7 @@ import { composeInventoryPicker } from './compose-inventory-picker.js';
 import { composeAssayDisplay } from './compose-assay-display.js';
 import { composeSkillViewer } from './compose-skill-viewer.js';
 import { composeSwagBag } from './compose-swag-bag.js';
+import { composeSpellbookFrame } from './compose-spellbook.js';
 import { skillName } from '../roster/creation/messages.js';
 import {
   reduceCharacterView,
@@ -77,6 +79,7 @@ import {
   type SkillInfo,
   type SwagInfo,
   type SwagAction,
+  type SpellInfo,
 } from './character-view-reducer.js';
 import type { TileWindow } from '@wiz6/parser';
 
@@ -236,7 +239,21 @@ export function CharacterViewPage() {
         : undefined;
       // SWAG manager: the enabled menu + carried/bag index lists.
       const swagInfo: SwagInfo | undefined = member ? buildSwagInfo(member) : undefined;
-      const next = reduceCharacterView(state, ev, EDIT_FLAGS, equipInfo, assayInfo, skillInfo, swagInfo);
+      // SPELL viewer: the per-school known-spell counts (for sublist clamping).
+      // The reducer can't read the member's known-spell bitset purely.
+      const spellInfo: SpellInfo | undefined = member
+        ? { countBySchool: knownSpellsBySchool(member).map((l) => l.length) }
+        : undefined;
+      const next = reduceCharacterView(
+        state,
+        ev,
+        EDIT_FLAGS,
+        equipInfo,
+        assayInfo,
+        skillInfo,
+        swagInfo,
+        spellInfo,
+      );
 
       // ---- Resolve intent states (side effects) ----------------------------
       if (next.kind === 'exit-castle') {
@@ -566,7 +583,25 @@ export function CharacterViewPage() {
       overlays.push(...composeInventoryPicker({ prompt, items, cursor: state.cursor }));
     }
 
-    const windows = [...baseWindows, ...overlays];
+    // SPELL viewer (read-only): a FULL-SCREEN frame, not an overlay — the
+    // spellbook composer paints its own char-sheet main panel + bottom prompt
+    // bar + spell panel, so it REPLACES the base char-view windows entirely
+    // (same as the creation spell picker). Pixel-gated by Stage 2's parity test.
+    const spellWindows =
+      (state.kind === 'spell-grid' || state.kind === 'spell-sublist') && member
+        ? composeSpellbookFrame({
+            member,
+            db,
+            school: state.school,
+            mode: state.kind === 'spell-sublist' ? 'sublist' : 'grid',
+            spellIdx: state.kind === 'spell-sublist' ? state.spellIdx : 0,
+            inventory: buildInventoryItems(member, scenarioDb),
+            cc,
+            age,
+          })
+        : null;
+
+    const windows = spellWindows ?? [...baseWindows, ...overlays];
     const buf = new Uint8ClampedArray(ENGINE_W * ENGINE_H * 4);
     buf.fill(0);
     for (const w of windows) {

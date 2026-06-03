@@ -7,6 +7,7 @@ import {
   SKILL_EXIT,
   type SkillInfo,
   type SwagInfo,
+  type SpellInfo,
   type CharacterViewState,
   type CharacterViewEvent,
   type EquipInfo,
@@ -509,5 +510,109 @@ describe('reduceCharacterView — SWAG bag manager', () => {
       .toEqual({ kind: 'commit-swag-remove', bagIdx: 0 });
     expect(R({ kind: 'swag-drop-picker', cursor: 0 }, { type: 'ENTER' }))
       .toEqual({ kind: 'commit-swag-drop', bagIdx: 0 });
+  });
+});
+
+// SPELL — camp read-only spellbook viewer. Two-level picker (school grid →
+// spell sublist), MODE==0 (browse, no cast). Grid algebra is the creation
+// picker's verified gridNextSchool (LEFT/RIGHT ±3 row-jump, UP/DOWN ±1 within
+// column, clamped). RE: docs/re/findings/wpcvw-spell-action.json (camp browse,
+// no SP/HP change); spell-picker-eligibility.json (the 3×2 grid + nav).
+describe('reduceCharacterView — SPELL spellbook viewer (read-only)', () => {
+  // Per-school known-spell counts: FIRE=2, WATER=0, AIR=1, EARTH=3, MENTAL=0, DIVINE=1.
+  const spell: SpellInfo = { countBySchool: [2, 0, 1, 3, 0, 1] };
+  const spellMenu: CharacterViewState = {
+    kind: 'action-menu',
+    cursorIdx: 1, // SPELL
+    campEntries: ['EQUIP', 'SPELL', 'ASSAY', 'SWAG', 'SKILL', 'EXIT'],
+  };
+  const R = (s: CharacterViewState, e: Parameters<typeof reduceCharacterView>[1]) =>
+    reduceCharacterView(s, e, baseEnabled, undefined, undefined, undefined, undefined, spell);
+
+  it('ENTER on SPELL opens the spellbook grid on FIRE (school 0)', () => {
+    expect(R(spellMenu, { type: 'ENTER' })).toEqual({ kind: 'spell-grid', school: 0 });
+  });
+
+  // Grid layout: row0 = {FIRE=0, WATER=1, AIR=2}, row1 = {EARTH=3, MENTAL=4,
+  // DIVINE=5}; col = school%3. LEFT/RIGHT = ±3 (row jump), UP/DOWN = ±1 (column).
+  describe('grid navigation (clamped, no wrap)', () => {
+    const grid = (school: number, type: CharacterViewEvent['type']) =>
+      R({ kind: 'spell-grid', school }, { type } as CharacterViewEvent);
+
+    it('RIGHT jumps a row down (FIRE 0 → EARTH 3); +3', () => {
+      expect(grid(0, 'ARROW_RIGHT')).toEqual({ kind: 'spell-grid', school: 3 });
+    });
+    it('LEFT jumps a row up (EARTH 3 → FIRE 0); −3', () => {
+      expect(grid(3, 'ARROW_LEFT')).toEqual({ kind: 'spell-grid', school: 0 });
+    });
+    it('DOWN moves within the column (FIRE 0 → WATER 1); +1', () => {
+      expect(grid(0, 'ARROW_DOWN')).toEqual({ kind: 'spell-grid', school: 1 });
+    });
+    it('UP moves within the column (WATER 1 → FIRE 0); −1', () => {
+      expect(grid(1, 'ARROW_UP')).toEqual({ kind: 'spell-grid', school: 0 });
+    });
+    it('LEFT clamps on the top row (FIRE 0 stays 0)', () => {
+      expect(grid(0, 'ARROW_LEFT')).toEqual({ kind: 'spell-grid', school: 0 });
+    });
+    it('RIGHT clamps on the bottom row (EARTH 3 stays 3)', () => {
+      expect(grid(3, 'ARROW_RIGHT')).toEqual({ kind: 'spell-grid', school: 3 });
+    });
+    it('UP clamps at col 0 (FIRE 0 stays 0)', () => {
+      expect(grid(0, 'ARROW_UP')).toEqual({ kind: 'spell-grid', school: 0 });
+    });
+    it('DOWN clamps at col 2 (AIR 2 stays 2)', () => {
+      expect(grid(2, 'ARROW_DOWN')).toEqual({ kind: 'spell-grid', school: 2 });
+    });
+    it('UP clamps at col 0 on the bottom row (EARTH 3 stays 3)', () => {
+      expect(grid(3, 'ARROW_UP')).toEqual({ kind: 'spell-grid', school: 3 });
+    });
+    it('DOWN clamps at col 2 on the bottom row (DIVINE 5 stays 5)', () => {
+      expect(grid(5, 'ARROW_DOWN')).toEqual({ kind: 'spell-grid', school: 5 });
+    });
+  });
+
+  it('grid ENTER drills into the school sublist (spellIdx 0)', () => {
+    expect(R({ kind: 'spell-grid', school: 3 }, { type: 'ENTER' }))
+      .toEqual({ kind: 'spell-sublist', school: 3, spellIdx: 0 });
+  });
+
+  it('grid ESC returns to the action menu (page hydrates cursor → EXIT)', () => {
+    expect(R({ kind: 'spell-grid', school: 2 }, { type: 'ESCAPE' }).kind).toBe('action-menu');
+  });
+
+  describe('sublist navigation (clamped to the school list length)', () => {
+    // EARTH (school 3) has 3 known spells → indices 0..2.
+    it('DOWN advances within the list (idx 0 → 1)', () => {
+      expect(R({ kind: 'spell-sublist', school: 3, spellIdx: 0 }, { type: 'ARROW_DOWN' }))
+        .toEqual({ kind: 'spell-sublist', school: 3, spellIdx: 1 });
+    });
+    it('DOWN clamps at the last spell (idx 2 stays 2)', () => {
+      expect(R({ kind: 'spell-sublist', school: 3, spellIdx: 2 }, { type: 'ARROW_DOWN' }))
+        .toEqual({ kind: 'spell-sublist', school: 3, spellIdx: 2 });
+    });
+    it('UP clamps at the first spell (idx 0 stays 0)', () => {
+      expect(R({ kind: 'spell-sublist', school: 3, spellIdx: 0 }, { type: 'ARROW_UP' }))
+        .toEqual({ kind: 'spell-sublist', school: 3, spellIdx: 0 });
+    });
+    it('UP decrements (idx 2 → 1)', () => {
+      expect(R({ kind: 'spell-sublist', school: 3, spellIdx: 2 }, { type: 'ARROW_UP' }))
+        .toEqual({ kind: 'spell-sublist', school: 3, spellIdx: 1 });
+    });
+    it('a single-spell school clamps both ways (DIVINE=1, idx 0 stays 0)', () => {
+      expect(R({ kind: 'spell-sublist', school: 5, spellIdx: 0 }, { type: 'ARROW_DOWN' }))
+        .toEqual({ kind: 'spell-sublist', school: 5, spellIdx: 0 });
+    });
+  });
+
+  it('sublist ENTER is READ-ONLY: a no-op (camp never casts — MODE==0)', () => {
+    // RE wpcvw-spell-action.json: camp SPELL (MODE==0) opens the spellbook
+    // read-only — no mana/HP deduction, no effect. ENTER stays on the spell.
+    const s: CharacterViewState = { kind: 'spell-sublist', school: 3, spellIdx: 1 };
+    expect(R(s, { type: 'ENTER' })).toEqual(s);
+  });
+
+  it('sublist ESC returns to the school grid (same school)', () => {
+    expect(R({ kind: 'spell-sublist', school: 3, spellIdx: 2 }, { type: 'ESCAPE' }))
+      .toEqual({ kind: 'spell-grid', school: 3 });
   });
 });

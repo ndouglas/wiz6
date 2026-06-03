@@ -15,6 +15,7 @@
 
 import { nextEquipCursor, nextPopulatedSlot } from './equip-wizard-reducer.js';
 import { nextInventoryCursor } from './compose-inventory-picker.js';
+import { gridNextSchool, sublistNextIdx } from '../roster/creation/screens/SpellPickScreen.js';
 
 export type CharacterViewState =
   | { kind: 'action-menu'; cursorIdx: number; campEntries: ReadonlyArray<string> }
@@ -58,6 +59,21 @@ export type CharacterViewState =
   | { kind: 'swag-add-picker'; cursor: number }
   | { kind: 'swag-remove-picker'; cursor: number }
   | { kind: 'swag-drop-picker'; cursor: number }
+  // SPELL (camp read-only spellbook viewer). Two-level picker, the wpcvw-local
+  //   sibling of the creation spell picker, in MODE==0 (browse, NO cast):
+  //   spell-grid → 3×2 SCHOOL grid (FIRE/WATER/AIR top, EARTH/MENTAL/DIVINE
+  //     bottom). `school` 0..5 = cursor cell. LEFT/RIGHT step ±3 (row jump),
+  //     UP/DOWN ±1 (within column), all CLAMPED (no wrap). ENTER → spell-sublist
+  //     (spellIdx 0); ESC → action menu (cursor on EXIT, hydrated by the page).
+  //   spell-sublist → the selected school's known-spell list. `spellIdx` = the
+  //     cursor into that list. UP/DOWN move (clamped to the list length). ENTER
+  //     is READ-ONLY — camp SPELL never casts (no mana/HP change); it is a no-op
+  //     (stays on the spell). ESC → back to spell-grid (same school).
+  //   Reuses the creation picker's verified grid algebra (gridNextSchool /
+  //   sublistNextIdx). RE: docs/re/findings/wpcvw-spell-action.json (MODE==0
+  //   camp browse, no cast); spell-picker-eligibility.json (the 3×2 grid + nav).
+  | { kind: 'spell-grid'; school: number }
+  | { kind: 'spell-sublist'; school: number; spellIdx: number }
   | { kind: 'commit-rename'; name: string }
   | { kind: 'commit-portrait'; portraitIndex: number }
   | { kind: 'commit-class-change'; newClassId: number }
@@ -131,6 +147,30 @@ export interface SwagInfo {
   visibleMenu: ReadonlyArray<SwagAction>;
   carried: ReadonlyArray<number>;
   bag: ReadonlyArray<number>;
+}
+
+/**
+ * Per-member known-spell info the SPELL viewer needs but the reducer can't
+ * compute purely (it depends on the character's known-spell bitset).
+ * `countBySchool` = length-6 array of the number of known spells in each school
+ * (index 0..5 = FIRE/WATER/AIR/EARTH/MENTAL/DIVINE). The reducer uses the per-
+ * school count for sublist cursor clamping. Supplied by the page from
+ * `knownSpellsBySchool(member).map((l) => l.length)`.
+ */
+export interface SpellInfo {
+  countBySchool: ReadonlyArray<number>;
+}
+
+/** Map a navigation event to the engine's key-dispatch code (1=LEFT/2=UP/
+ *  3=RIGHT/4=DOWN), the codes gridNextSchool / sublistNextIdx expect. */
+function navCode(event: CharacterViewEvent): number {
+  switch (event.type) {
+    case 'ARROW_LEFT':  return 1;
+    case 'ARROW_UP':    return 2;
+    case 'ARROW_RIGHT': return 3;
+    case 'ARROW_DOWN':  return 4;
+    default:            return 0;
+  }
 }
 
 const BODY_SLOT_COUNT = 8;
@@ -237,6 +277,7 @@ export function reduceCharacterView(
   assay?: AssayInfo,
   skill?: SkillInfo,
   swag?: SwagInfo,
+  spell?: SpellInfo,
 ): CharacterViewState {
   switch (state.kind) {
     case 'action-menu': {
@@ -272,7 +313,13 @@ export function reduceCharacterView(
           return { kind: 'swag-menu', cursor: exitIdx };
         }
         if (label === 'REVIEW') return { kind: 'review-pick' };
-        return state; // SPELL handler is SP3
+        if (label === 'SPELL') {
+          // Open the read-only spellbook on FIRE (school 0). The page supplies
+          // the per-school known-spell counts. RE: wpcvw-spell-action.json
+          // (camp MODE==0 = browse, no cast).
+          return { kind: 'spell-grid', school: 0 };
+        }
+        return state;
       }
       const key =
         event.type === 'ARROW_LEFT' ? 'ArrowLeft' :
@@ -511,6 +558,33 @@ export function reduceCharacterView(
         // Page checks `swagItemDroppable` (beeps + returns to swag-menu if class-locked).
         return { kind: 'commit-swag-drop', bagIdx };
       }
+      return state;
+    }
+    case 'spell-grid': {
+      // ESC leaves the spellbook → action menu (cursor on EXIT, hydrated by the
+      // page's action-menu rehydration).
+      if (event.type === 'ESCAPE') return { kind: 'action-menu', cursorIdx: 0, campEntries: [] };
+      if (event.type === 'ENTER') {
+        // Drill into the selected school's spell sublist (cursor on the first
+        // spell). The page renders an empty list as "no spells" — sublist nav
+        // is then a clamped no-op, matching an empty school.
+        return { kind: 'spell-sublist', school: state.school, spellIdx: 0 };
+      }
+      const code = navCode(event);
+      if (code) return { ...state, school: gridNextSchool(state.school, code) };
+      return state;
+    }
+    case 'spell-sublist': {
+      // ESC returns to the school grid (same school).
+      if (event.type === 'ESCAPE') return { kind: 'spell-grid', school: state.school };
+      // READ-ONLY: camp SPELL never casts (MODE==0 — no mana/HP change). ENTER
+      // is a no-op; the player stays on the spell. RE: wpcvw-spell-action.json
+      // (mode-meaning-browse-vs-cast: MODE==0 returns the chosen value with no
+      // cost-deduct/effect block running).
+      if (event.type === 'ENTER') return state;
+      const len = spell?.countBySchool[state.school] ?? 0;
+      const code = navCode(event);
+      if (code) return { ...state, spellIdx: sublistNextIdx(state.spellIdx, len, code) };
       return state;
     }
     default:
