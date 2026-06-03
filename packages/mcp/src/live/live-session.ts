@@ -6,8 +6,10 @@
  * action; batching = `batch([...])`. Inspection reuses the same BssStruct
  * registry + decoder the save-state MCP uses — fed live bytes from the harness.
  */
-import { HostClient } from './host-client.js';
+import { HostClient, type TraceRecord } from './host-client.js';
 import { decodeBssStruct, type BssStruct } from '@wiz6/data';
+
+export type { TraceRecord } from './host-client.js';
 
 const GAME_STATE_DGROUP_OFFSET = 0x363a;
 const PARTY_SIZE_DGROUP_OFFSET = 0x43ce;
@@ -102,6 +104,18 @@ export class LiveSession {
     const ps = await c.read(dgroupBase + PARTY_SIZE_DGROUP_OFFSET, 2);
     return { dgroupBase, gameState: gs[0]! | (gs[1]! << 8), partySize: ps[0]! | (ps[1]! << 8) };
   }
+
+  // ── instruction tracing (patched core only) ───────────────────────────────────
+  /** Snapshot the live CPU registers. */
+  async regs(): Promise<TraceRecord> { return this.ensure().regs(); }
+
+  /** Arm the non-pausing logging breakpoint at a linear CS:IP (real-mode
+   *  (cs<<4)+ip). Executing that instruction appends a register snapshot to the
+   *  core's ring buffer; drain it with `traceDrain()`. 0 disables. */
+  async traceSet(lin: number): Promise<void> { await this.ensure().traceSet(lin); }
+  async traceOff(): Promise<void> { await this.ensure().traceOff(); }
+  /** Drain (and clear) the trace ring buffer, oldest record first. */
+  async traceDrain(): Promise<TraceRecord[]> { return this.ensure().traceDrain(); }
 
   // ── capture / state-save ─────────────────────────────────────────────────────
   /** Capture the framebuffer. The pinned image boots in INPUT: KEYBOARD mode

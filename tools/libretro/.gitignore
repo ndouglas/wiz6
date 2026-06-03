@@ -2,3 +2,5 @@ dosbox_pure_libretro.dylib
 host
 *.o
 *.dSYM/
+dosbox-pure-src/
+core.zip

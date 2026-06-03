@@ -21,6 +21,30 @@ const REPO_ROOT = resolve(HOST_DIR, '..', '..');
 const PINNED_SOURCE = resolve(REPO_ROOT, 'test-fixtures', 'original');
 const LOG_DIR = '/tmp/wiz6-libretro';
 
+/** A CPU register snapshot — either the live state (`regs()`) or one logged
+ *  instruction-trace record (`traceDrain()`). Segment regs are 16-bit values;
+ *  `stack` is the top 8 words at ss:sp (each a 16-bit word, oldest = top). */
+export interface TraceRecord {
+  cs: number; eip: number;
+  eax: number; ebx: number; ecx: number; edx: number;
+  esi: number; edi: number; ebp: number; esp: number;
+  ds: number; es: number; ss: number;
+  stack: number[];
+}
+
+function parseTraceFields(s: string): TraceRecord {
+  const f: Record<string, string> = {};
+  for (const m of s.matchAll(/(\w+)=([0-9a-f,]+)/g)) f[m[1]!] = m[2]!;
+  const hex = (k: string) => parseInt(f[k] ?? '0', 16);
+  return {
+    cs: hex('cs'), eip: hex('eip'),
+    eax: hex('eax'), ebx: hex('ebx'), ecx: hex('ecx'), edx: hex('edx'),
+    esi: hex('esi'), edi: hex('edi'), ebp: hex('ebp'), esp: hex('esp'),
+    ds: hex('ds'), es: hex('es'), ss: hex('ss'),
+    stack: (f['stack'] ?? '').split(',').filter(Boolean).map((w) => parseInt(w, 16)),
+  };
+}
+
 export class HostClient {
   private child: ChildProcess;
   private rl: Interface;
@@ -47,6 +71,21 @@ export class HostClient {
   private cmd(c: string): Promise<string> {
     return new Promise((res) => {
       this.queue.push(res);
+      this.child.stdin!.write(c + '\n');
+    });
+  }
+
+  /** Issue a command whose reply spans multiple lines: zero or more body lines
+   *  followed by a terminating `ok ...` / `err ...` line. Returns the body lines
+   *  plus the terminator. Used by `tracelog` (N `rec ...` lines, then `ok <n>`). */
+  private cmdLines(c: string): Promise<{ body: string[]; done: string }> {
+    return new Promise((res) => {
+      const body: string[] = [];
+      const collector = (line: string) => {
+        if (/^(ok|err)\b/.test(line)) { res({ body, done: line }); }
+        else { body.push(line); this.queue.unshift(collector); }
+      };
+      this.queue.push(collector);
       this.child.stdin!.write(c + '\n');
     });
   }
@@ -119,6 +158,34 @@ export class HostClient {
     const m = /^ok (\d+) (\d+)$/.exec(r);
     if (!m) throw new Error(`fb: ${r}`);
     return { w: +m[1]!, h: +m[2]! };
+  }
+
+  /** Snapshot the live CPU registers (patched core only). */
+  async regs(): Promise<TraceRecord> {
+    const r = await this.cmd('regs');
+    if (!/^ok /.test(r)) throw new Error(`regs: ${r}`);
+    return parseTraceFields(r.slice(3));
+  }
+
+  /** Set the instruction-trace logging breakpoint to a linear CS:IP address
+   *  (real-mode: (cs<<4)+ip). 0 disables. Patched core only. */
+  async traceSet(lin: number): Promise<void> {
+    const r = await this.cmd(`trace ${(lin >>> 0).toString(16)}`);
+    if (!/^ok /.test(r)) throw new Error(`trace: ${r}`);
+  }
+
+  /** Disable tracing and clear the ring buffer. */
+  async traceOff(): Promise<void> {
+    const r = await this.cmd('traceoff');
+    if (r !== 'ok') throw new Error(`traceoff: ${r}`);
+  }
+
+  /** Drain the trace ring buffer (oldest-first), clearing it. Each record is a
+   *  register snapshot taken just before the target instruction executed. */
+  async traceDrain(): Promise<TraceRecord[]> {
+    const { body, done } = await this.cmdLines('tracelog');
+    if (!/^ok /.test(done)) throw new Error(`tracelog: ${done}`);
+    return body.filter((l) => l.startsWith('rec ')).map((l) => parseTraceFields(l.slice(4)));
   }
 
   async serialize(path: string): Promise<void> {
