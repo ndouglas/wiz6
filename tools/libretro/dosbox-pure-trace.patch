@@ -1,8 +1,32 @@
+diff --git a/include/paging.h b/include/paging.h
+index 033aa40..f37f1df 100644
+--- a/include/paging.h
++++ b/include/paging.h
+@@ -307,13 +307,19 @@ static INLINE Bit64u mem_readq_inline(PhysPt address) {
+ 	} else return ((Bit64u)mem_unalignedreadd(address)|((Bit64u)mem_unalignedreadd(address+4)<<32));
+ }
+ 
++/* wiz6 memory-WRITE watch (patched core): log writes into [dbp_ww_base,dbp_ww_end).
++ * Defined in core_normal.cpp; one compare per write when off (dbp_ww_base==0). */
++extern "C" { extern volatile Bit32u dbp_ww_base, dbp_ww_end; void dbp_wwatch_hit(Bit32u addr, Bit32u val); }
++
+ static INLINE void mem_writeb_inline(PhysPt address,Bit8u val) {
++	if (dbp_ww_base && address>=dbp_ww_base && address<dbp_ww_end) dbp_wwatch_hit(address,val);
+ 	HostPt tlb_addr=get_tlb_write(address);
+ 	if (tlb_addr) host_writeb(tlb_addr+address,val);
+ 	else (get_tlb_writehandler(address))->writeb(address,val);
+ }
+ 
+ static INLINE void mem_writew_inline(PhysPt address,Bit16u val) {
++	if (dbp_ww_base && address>=dbp_ww_base && address<dbp_ww_end) dbp_wwatch_hit(address,val);
+ 	if ((address & 0xfff)<0xfff) {
+ 		HostPt tlb_addr=get_tlb_write(address);
+ 		if (tlb_addr) host_writew(tlb_addr+address,val);
 diff --git a/src/cpu/core_normal.cpp b/src/cpu/core_normal.cpp
-index 037b550..06d35dc 100644
+index 037b550..13ca2f2 100644
 --- a/src/cpu/core_normal.cpp
 +++ b/src/cpu/core_normal.cpp
-@@ -62,6 +62,112 @@
+@@ -62,6 +62,148 @@
  
  extern Bitu cycle_count;
  
@@ -110,15 +134,52 @@ index 037b550..06d35dc 100644
 +	return n;
 +}
 +
++/* ---- memory-WRITE watch ----
++ * Log (instruction cs:ip, address, value) whenever a CPU guest write lands in
++ * [dbp_ww_base, dbp_ww_end). dbp_cur_cseip is the current instruction's linear
++ * CS:IP, set each instruction in the run loop. The check itself lives in
++ * mem_writeb_inline/mem_writew_inline (paging.h); they call dbp_wwatch_hit.
++ * Use to find WHO writes a region (e.g. the routine that copies the maze blit
++ * blob into the work buffer, or who composes the off-screen page). */
++Bit32u dbp_cur_cseip = 0;
++volatile Bit32u dbp_ww_base = 0, dbp_ww_end = 0;
++struct dbp_ww_rec { Bit32u cseip, addr, val; };
++#define DBP_WW_CAP 4096
++static dbp_ww_rec dbp_ww_buf[DBP_WW_CAP];
++static Bit32u dbp_ww_head = 0, dbp_ww_total = 0;
++
++extern "C" void dbp_wwatch_hit(Bit32u addr, Bit32u val) {
++	dbp_ww_rec* r = &dbp_ww_buf[dbp_ww_head % DBP_WW_CAP];
++	r->cseip = dbp_cur_cseip; r->addr = addr; r->val = val;
++	dbp_ww_head++;
++	if (dbp_ww_total < 0xffffffff) dbp_ww_total++;
++}
++
++DBP_TRACE_EXPORT void dbp_wwatch_set(Bit32u base, Bit32u end) {
++	dbp_ww_base = base; dbp_ww_end = end; dbp_ww_head = 0; dbp_ww_total = 0;
++}
++DBP_TRACE_EXPORT Bit32u dbp_wwatch_count(void) { return dbp_ww_total < DBP_WW_CAP ? dbp_ww_total : DBP_WW_CAP; }
++/* Drain up to max_entries (oldest-first) into buf [cseip,addr,val per rec], clear. */
++DBP_TRACE_EXPORT Bit32u dbp_wwatch_drain(void* buf, Bit32u max_entries) {
++	Bit32u have = dbp_wwatch_count();
++	Bit32u n = have < max_entries ? have : max_entries;
++	dbp_ww_rec* out = (dbp_ww_rec*)buf;
++	Bit32u start = (dbp_ww_total > DBP_WW_CAP) ? (dbp_ww_head % DBP_WW_CAP) : 0;
++	for (Bit32u i = 0; i < n; i++) out[i] = dbp_ww_buf[(start + i) % DBP_WW_CAP];
++	dbp_ww_head = 0; dbp_ww_total = 0;
++	return n;
++}
++
 +} /* extern "C" */
 +
  #if C_FPU
  #define CPU_FPU	1						//Enable FPU escape instructions
  #endif
-@@ -152,6 +258,7 @@ static INLINE Bit32u Fetchd() {
+@@ -152,6 +294,8 @@ static INLINE Bit32u Fetchd() {
  Bits CPU_Core_Normal_Run(void) {
  	while (CPU_Cycles-->0) {
  		LOADIP;
++		if (dbp_trace_target || dbp_ww_base) dbp_cur_cseip = core.cseip;
 +		if (dbp_trace_target && core.cseip==dbp_trace_target) dbp_trace_log_impl();
  		core.opcode_index=cpu.code.big*0x200;
  		core.prefixes=cpu.code.big;

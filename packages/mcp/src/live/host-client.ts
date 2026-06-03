@@ -209,6 +209,25 @@ export class HostClient {
     return out;
   }
 
+  /** Arm a memory-write watch: log (cs:ip, addr, val) of guest writes into
+   *  [base, end). end=0 disables. Patched core only. Finds WHO writes a region
+   *  (e.g. the routine that copies the maze blit blob, or composes a buffer). */
+  async wwatchSet(base: number, end: number): Promise<void> {
+    const r = await this.cmd(`wwset ${(base >>> 0).toString(16)} ${(end >>> 0).toString(16)}`);
+    if (!/^ok /.test(r)) throw new Error(`wwset: ${r}`);
+  }
+
+  /** Drain the write-watch log (oldest-first), clearing it. */
+  async wwatchDrain(): Promise<Array<{ cseip: number; addr: number; val: number }>> {
+    const { body, done } = await this.cmdLines('wwlog');
+    if (!/^ok /.test(done)) throw new Error(`wwlog: ${done}`);
+    return body.filter((l) => l.startsWith('wrec ')).map((l) => {
+      const f: Record<string, string> = {};
+      for (const m of l.matchAll(/(\w+)=([0-9a-f]+)/g)) f[m[1]!] = m[2]!;
+      return { cseip: parseInt(f['cseip'] ?? '0', 16), addr: parseInt(f['addr'] ?? '0', 16), val: parseInt(f['val'] ?? '0', 16) };
+    });
+  }
+
   async serialize(path: string): Promise<void> {
     const r = await this.cmd(`serialize ${path}`);
     if (!/^ok/.test(r)) throw new Error(`serialize: ${r}`);

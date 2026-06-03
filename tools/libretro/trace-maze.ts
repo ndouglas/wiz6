@@ -439,6 +439,31 @@ async function phaseCap(c: HostClient): Promise<void> {
   console.log(`vs idle: ${diff}/${bytes.length} bytes differ ${diff > 0 ? '(LIVE code differs from idle data — capture worked!)' : '(identical — region is stable)'}`);
 }
 
+/** Memory-write watch: find WHO writes a region during a redraw.
+ *  argv: <baseHex> <endHex>  (default = the work-buffer code region). */
+async function phaseWWatch(c: HostClient): Promise<void> {
+  const ovl = ovlBase();
+  const base = parseInt(process.argv[3] ?? '6d800', 16);
+  const end = parseInt(process.argv[4] ?? '6e000', 16);
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.wwatchSet(base, end);
+  await forceRedraw(c);
+  const recs = await c.wwatchDrain();
+  await c.wwatchSet(0, 0);
+  console.log(`writes into [0x${base.toString(16)},0x${end.toString(16)}) during redraw: ${recs.length}`);
+  // group by writer cseip
+  const byWriter = new Map<number, { count: number; addrs: Set<number> }>();
+  for (const r of recs) {
+    let e = byWriter.get(r.cseip);
+    if (!e) { e = { count: 0, addrs: new Set() }; byWriter.set(r.cseip, e); }
+    e.count++; e.addrs.add(r.addr);
+  }
+  console.log('writers (cseip -> count, distinct dest addrs):');
+  for (const [cseip, e] of [...byWriter.entries()].sort((a, b) => b[1].count - a[1].count)) {
+    console.log(`  ${tagLin(cseip, ovl)} (lin 0x${cseip.toString(16)})  x${e.count}  -> ${e.addrs.size} dest addrs`);
+  }
+}
+
 async function phaseFine(c: HostClient): Promise<void> {
   const ovl = ovlBase();
   const offs = process.argv.slice(3).map((s) => parseInt(s, 16));
@@ -474,6 +499,7 @@ async function main() {
     else if (phase === 'dumpat') await phaseDumpAt(c);
     else if (phase === 'loadtrace') await phaseLoadTrace(c);
     else if (phase === 'cap') await phaseCap(c);
+    else if (phase === 'wwatch') await phaseWWatch(c);
     else if (phase === 'fine') await phaseFine(c);
     else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | fine <off...>');
   } finally {
