@@ -1,5 +1,5 @@
 import { encodeRosterBase64, decodeRosterBase64 } from '@wiz6/parser';
-import { RosterSchema, type Character, type Roster, type Save } from '@wiz6/data';
+import { RosterSchema, type ActivePartyMember, type Character, type Roster, type Save } from '@wiz6/data';
 
 const KEY = 'wiz6:roster';
 
@@ -95,4 +95,25 @@ export function syncFromSave(save: Save): void {
     changed = true;
   }
   if (changed) writeRoster({ ...r, characters: next });
+}
+
+/**
+ * Write one active-party member's current state back to its linked roster entry
+ * (matched by `rosterCharacterId`), stripped of the party-only fields. Mirrors
+ * the engine's single-record model: the active party IS the PCFILE record, so
+ * edits (rename / portrait / class via the WPCVW EDIT submenu, equip, …) persist
+ * to the roster — and survive dismiss. No-op if the member has no back-reference
+ * or the roster entry is gone. RE: #056.
+ */
+export function syncMemberToRoster(member: ActivePartyMember): void {
+  if (!member.rosterCharacterId) return;
+  const r = readRoster();
+  const idx = r.characters.findIndex((c) => c.id === member.rosterCharacterId);
+  if (idx < 0) return;
+  const { rosterCharacterId, portraitSlotId, ...character } = member;
+  void rosterCharacterId;
+  void portraitSlotId;
+  const next = [...r.characters];
+  next[idx] = { ...(character as Character), id: next[idx]!.id };
+  writeRoster({ ...r, characters: next });
 }

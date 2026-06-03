@@ -4,6 +4,7 @@ import {
   type ActivePartyMember,
   type Character,
 } from '@wiz6/data';
+import { syncMemberToRoster } from './roster-store.js';
 
 const KEY = 'wiz6:active-party';
 
@@ -78,6 +79,9 @@ export function dismissAllMembers(): void {
 export function dismissMember(slotIndex: number): void {
   const p = readActiveParty();
   if (slotIndex < 0 || slotIndex >= p.members.length) return;
+  // Persist the member's current state (incl. any EDIT/equip changes) back to its
+  // roster entry before removing it from the party — else those edits are lost.
+  syncMemberToRoster(p.members[slotIndex]!);
   const next = [...p.members];
   next.splice(slotIndex, 1);
   writeActiveParty({ ...p, members: next });
@@ -101,8 +105,12 @@ export function updateActiveMember(
   if (slotIndex < 0 || slotIndex >= p.members.length) return;
   const current = p.members[slotIndex]!;
   const next = [...p.members];
-  next[slotIndex] = { ...current, ...patch };
+  const updated = { ...current, ...patch };
+  next[slotIndex] = updated;
   writeActiveParty({ ...p, members: next });
+  // Write the edit through to the linked roster entry immediately, mirroring the
+  // engine's single-record model (the active party IS the PCFILE record).
+  syncMemberToRoster(updated);
 }
 
 /** Filter a roster down to characters not currently in the active party. */

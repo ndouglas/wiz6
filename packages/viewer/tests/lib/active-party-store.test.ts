@@ -8,6 +8,7 @@ import {
   availableRosterFor,
   updateActiveMember,
 } from '../../src/lib/active-party-store.js';
+import { readRoster, writeRoster } from '../../src/lib/roster-store.js';
 import type { ActiveParty, ActivePartyMember, Character, Roster } from '@wiz6/data';
 
 function makeChar(id: string, name: string): Character {
@@ -189,5 +190,38 @@ describe('updateActiveMember', () => {
   it('throws when the patch produces an invalid member (schema rejects)', () => {
     writeActiveParty({ schemaVersion: 1, members: [fakeMember()] });
     expect(() => updateActiveMember(0, { name: '' })).toThrow();
+  });
+});
+
+describe('roster↔active sync (#056)', () => {
+  beforeEach(() => window.localStorage.clear());
+
+  it('updateActiveMember writes edits through to the linked roster character', () => {
+    writeRoster({ schemaVersion: 1, characters: [makeChar(ID_A, 'OLDNAME')] });
+    addMember(makeChar(ID_A, 'OLDNAME')); // member.rosterCharacterId = ID_A
+    updateActiveMember(0, { name: 'NEWNAME', portraitIndex: 7 });
+    const rc = readRoster().characters.find((c) => c.id === ID_A)!;
+    expect(rc.name).toBe('NEWNAME');
+    expect(rc.portraitIndex).toBe(7);
+  });
+
+  it('dismiss persists the member edits back to the roster (not lost)', () => {
+    writeRoster({ schemaVersion: 1, characters: [makeChar(ID_A, 'OLDNAME')] });
+    addMember(makeChar(ID_A, 'OLDNAME'));
+    // An edit that only touched the active party; the dismiss-time sync must persist it.
+    const p = readActiveParty();
+    writeActiveParty({ ...p, members: [{ ...p.members[0]!, name: 'EDITED' }] });
+    dismissMember(0);
+    expect(readRoster().characters.find((c) => c.id === ID_A)!.name).toBe('EDITED');
+  });
+
+  it('sync is a no-op for a member with no matching roster entry', () => {
+    writeRoster({ schemaVersion: 1, characters: [makeChar(ID_A, 'KEEP')] });
+    writeActiveParty({
+      schemaVersion: 1,
+      members: [fakeMember({ rosterCharacterId: '99999999-9999-4999-8999-999999999999' })],
+    });
+    updateActiveMember(0, { name: 'ZZZ' });
+    expect(readRoster().characters[0]!.name).toBe('KEEP');
   });
 });

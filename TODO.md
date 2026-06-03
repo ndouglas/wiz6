@@ -13,11 +13,15 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#075**
+Next free ID: **#076**
 
 ---
 
 ## Open
+
+- #075 [open] — Pixel-gate the EQUIPPED-party six-portrait hand icons (MASTER OPTIONS + ADD picker)
+  - The party-panel hand icons (`composeHandGlyphs`, wfont4) are pixel-gated only for EMPTY hands (castle-parity uses the unequipped pinned roster). The EQUIPPED-hand glyphs are gated by the `composeHandGlyphs` unit test + the Twink char-view fixture (inventory icons), but NOT by a six-portrait pixel fixture.
+  - To close: commit a pre-equipped squad roster to `test-fixtures/states/` (e.g. `legendary-squad-equipped.pcfile.dbs`), add a `castle-1-squad` recipe (pcfileFixture → MASTER OPTIONS with TWINK's SHURIKEN equipped), mint the engine fixture, and add a castle-parity case (+ covers #067's AddPartyPage background path). Same shape as the `review-twink-shuriken` quantity fixture.
 
 - #063 [open] — DOSBox-X MCP: Linux + Windows ports of input/window/screenshot helpers
   - macOS-only v1 shipped (Swift helper at `packages/mcp/helper/`). Linux (xdotool + ImageMagick), Windows (SendInput + screenshot APIs) follow the same TS module shape but ship a different helper binary.
@@ -95,18 +99,10 @@ Next free ID: **#075**
 - #057 [open] — Verify REPLACE disabled-entry attr in WPCVW EDIT submenu
   - `compose-edit-submenu.ts` uses attr 0x07 (dimmed gray) for the REPLACE row by analogy. Confirm against a captured engine fixture (depends on #055).
 
-- #056 [open] — Active-party ↔ roster sync on edits + dismiss
-  - When an active member is renamed / has their portrait or class changed via the WPCVW EDIT submenu, the linked roster character is NOT updated. On dismiss, edits are lost.
-  - Mirror the engine's PCFILE writeback: on `dismissMember`, copy the active member's name/portraitIndex/class/level/xp/savedOldLevel back to the roster character (looked up via `rosterCharacterId`).
-
 - #055 [blocked] — Capture WPCVW EDIT screen engine fixtures + add pixel-parity tests
   - Blocked on either dungeon traversal (state-0x11 reachable with `*0x4fce==5`) or MCP dynamic-driving capability (#017 v2) that lets us poke the context byte and capture saves at EDIT submenu / RENAME prompt / PORTRAIT change / CLASS picker.
   - Promote composer cell-grid assertions to pixel-parity gates once fixtures land.
   - Verify the REPLACE disabled-attr (currently 0x07 by analogy) against the engine.
-
-- #069 [open] — Verify active-party `portraitIndex` is the rendered selector (+0x19c), not the stored field (+0x1ac)
-  - The castle + character-view screens render the face directly from `member.portraitIndex`. The engine's RENDERED portrait is the `+0x19c` selector (e.g. THESUS=0), distinct from the persisted `+0x1ac` `portrait_index` field (THESUS=10) — the SP1 "NATHAN gotcha". SP1/SP2 parity + e2e all inject/assert the rendered value, so they don't prove the real roster→active-party pipeline populates `portraitIndex` with `+0x19c`.
-  - Verify how `addMember`/the pcfile extractor sources `portraitIndex`; if it's `+0x1ac`, real parties render the wrong face. Add a test driving the real add-member flow (not injected state) and pixel-check the portrait.
 
 - #070 [open] — EQUIP follow-ups (live-verify the MEDIUM-confidence bits)
   - EQUIP shipped 2026-06-01 (the re-equip wizard: equip-logic.ts + equip-wizard + compose-equip-picker, pixel-gated by `equip-slot0`, e2e-driven). These RE bits are implemented per the findings but NOT live-verified (stock fighter gear / single fixture don't exercise them):
