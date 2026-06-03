@@ -65,6 +65,10 @@ export type CharacterViewState =
   | { kind: 'commit-swag-add'; carriedIdx: number }
   | { kind: 'commit-swag-remove'; bagIdx: number }
   | { kind: 'commit-swag-drop'; bagIdx: number }
+  // REVIEW: re-open the party-member picker ("REVIEW WHO?") to view another
+  // member. Engine: wpcvw action 10 → ui_pick_party_member then re-view the
+  // chosen slot (wpcvw-character-view-ux.json). The page navigates to the picker.
+  | { kind: 'review-pick' }
   | { kind: 'exit-castle' };
 
 export type CharacterViewEvent =
@@ -267,7 +271,8 @@ export function reduceCharacterView(
           const exitIdx = swag ? Math.max(0, swag.visibleMenu.length - 1) : 0;
           return { kind: 'swag-menu', cursor: exitIdx };
         }
-        return state; // SPELL/REVIEW handlers are SP3
+        if (label === 'REVIEW') return { kind: 'review-pick' };
+        return state; // SPELL handler is SP3
       }
       const key =
         event.type === 'ARROW_LEFT' ? 'ArrowLeft' :

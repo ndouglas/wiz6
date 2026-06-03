@@ -243,6 +243,13 @@ export function CharacterViewPage() {
         navigate('/castle');
         return;
       }
+      if (next.kind === 'review-pick') {
+        // REVIEW: re-open the "REVIEW WHO?" party-member picker to view another
+        // member (engine wpcvw action 10). ReviewMemberPage's picker commits to
+        // /castle/review-member/:slotIdx — i.e. this same char-view for the pick.
+        navigate('/castle/review-member');
+        return;
+      }
       if (next.kind === 'commit-rename') {
         updateActiveMember(slotIdx, { name: next.name });
         setMembers(readActiveParty().members);

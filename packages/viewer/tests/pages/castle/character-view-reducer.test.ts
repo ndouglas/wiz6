@@ -110,6 +110,16 @@ describe('reduceCharacterView — action-menu', () => {
     const next = reduceCharacterView(state, { type: 'ENTER' }, baseEnabled);
     expect(next.kind).toBe('exit-castle');
   });
+
+  it('Enter on REVIEW → review-pick (re-open the party-member picker)', () => {
+    const state: CharacterViewState = {
+      kind: 'action-menu',
+      cursorIdx: 5,
+      campEntries: ['EQUIP', 'SPELL', 'ASSAY', 'SWAG', 'SKILL', 'REVIEW', 'EXIT'],
+    };
+    const next = reduceCharacterView(state, { type: 'ENTER' }, baseEnabled);
+    expect(next.kind).toBe('review-pick');
+  });
 });
 
 describe('reduceCharacterView — edit-submenu', () => {
