@@ -194,11 +194,14 @@ test('REVIEW WHO? picker mounted-canvas matches engine fixtures (EXIT + member)'
 /** THESUS's 5 equipped items in on-disk inventory-slot shape (22 slots,
  *  schema-required). Mirrors renderReviewMemberView's `inventory`. */
 const THESUS_INVENTORY = [
-  { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0 },   // LONGSWORD
-  { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0, quantity: 0, flags: 0 },  // LEATHER CUIRASS
-  { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0, quantity: 0, flags: 0 },  // FUR LEGGING
-  { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0, quantity: 0, flags: 0 }, // SANDALS
-  { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0, quantity: 0, flags: 0 }, // BUCKLER SHIELD
+  // Real scenario.dbs sprite indices — the col-38 icon glyph is spriteIdx+1, so
+  // these must be the true sprites (LONGSWORD 0x01→0x02, etc.), not 0. RE:
+  // wpcvw-inventory-glyph-table.json.
+  { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0x01, quantity: 0, flags: 0 },   // LONGSWORD
+  { itemId: 135, weight: 0, equipSlot: 7, spriteIdx: 0x29, quantity: 0, flags: 0 },  // LEATHER CUIRASS
+  { itemId: 132, weight: 0, equipSlot: 8, spriteIdx: 0x2c, quantity: 0, flags: 0 },  // FUR LEGGING
+  { itemId: 130, weight: 0, equipSlot: 10, spriteIdx: 0x2e, quantity: 0, flags: 0 }, // SANDALS
+  { itemId: 141, weight: 0, equipSlot: 11, spriteIdx: 0x26, quantity: 0, flags: 0 }, // BUCKLER SHIELD
   ...Array.from({ length: 17 }, () => ({
     itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0, quantity: 0, flags: 0,
   })),
