@@ -188,6 +188,27 @@ export class HostClient {
     return body.filter((l) => l.startsWith('rec ')).map((l) => parseTraceFields(l.slice(4)));
   }
 
+  /** Arm a one-shot mid-frame memory capture: at the (skip+1)-th hit of the
+   *  current trace target, snapshot `len` bytes at linear `base`. Patched core
+   *  only. Use to observe transient/compiled code (e.g. the maze wall
+   *  rasterizer) that only exists mid-frame and is gone by the frame boundary. */
+  async captureSet(base: number, len: number, skip = 0): Promise<void> {
+    const r = await this.cmd(`capset ${(base >>> 0).toString(16)} ${(len >>> 0).toString(16)} ${skip}`);
+    if (!/^ok /.test(r)) throw new Error(`capset: ${r}`);
+  }
+
+  /** Retrieve the captured region (disarms). Returns null if not yet captured. */
+  async captureGet(): Promise<Uint8Array | null> {
+    const r = await this.cmd('capget');
+    if (/^err notready/.test(r)) return null;
+    const m = /^ok ([0-9a-f]*)$/.exec(r);
+    if (!m) throw new Error(`capget: ${r}`);
+    const hex = m[1]!;
+    const out = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  }
+
   async serialize(path: string): Promise<void> {
     const r = await this.cmd(`serialize ${path}`);
     if (!/^ok/.test(r)) throw new Error(`serialize: ${r}`);

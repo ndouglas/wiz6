@@ -13,6 +13,8 @@
 //   trace <hexlin>           set the logging-breakpoint linear CS:IP (0 = off)
 //   traceoff                 clear the trace target + ring buffer
 //   tracelog                 drain the ring buffer -> one "rec ..." line per record, then "ok <n>"
+//   capset <base> <len> <skip>  arm one-shot mid-frame mem capture at the (skip+1)-th trace-target hit
+//   capget                   emit the captured region as hex -> "ok <hex>" (or "err notready")
 //   quit
 //
 // Memory is exposed by dosbox-pure via SET_MEMORY_MAPS (NOT RETRO_MEMORY_SYSTEM_RAM),
@@ -43,12 +45,17 @@ struct dbp_trace_rec {
   uint32_t ds, es, ss;
   uint32_t stack[8];
 };
+// Mid-frame memory capture buffer cap — MUST be >= DBP_CAP_MAX in core_normal.cpp.
+#define DBP_CAP_MAX_HOST 0x4000
 // Trace API resolved from the patched core (NULL on an unpatched/fallback core).
 static void (*g_trace_set)(uint32_t) = NULL;
 static void (*g_trace_clear)(void) = NULL;
 static uint32_t (*g_trace_count)(void) = NULL;
 static uint32_t (*g_trace_drain)(void*, uint32_t) = NULL;
 static void (*g_regs)(void*) = NULL;
+static void (*g_capture_set)(uint32_t, uint32_t, uint32_t) = NULL;
+static uint32_t (*g_capture_ready)(void) = NULL;
+static uint32_t (*g_capture_get)(void*) = NULL;
 
 static const char *SCRATCH = "/tmp/wiz6-libretro";
 static struct retro_memory_descriptor g_desc[64];
@@ -209,6 +216,9 @@ int main(int argc, char **argv) {
   g_trace_count = dlsym(h, "dbp_trace_count");
   g_trace_drain = dlsym(h, "dbp_trace_drain");
   g_regs = dlsym(h, "dbp_regs");
+  g_capture_set = dlsym(h, "dbp_capture_set");
+  g_capture_ready = dlsym(h, "dbp_capture_ready");
+  g_capture_get = dlsym(h, "dbp_capture_get");
 
   set_env(env); set_vr(cb_video); set_as(cb_audio); set_asb(cb_audio_batch);
   set_ip(cb_input_poll); set_is(cb_input_state);
@@ -224,8 +234,8 @@ int main(int argc, char **argv) {
 
   char line[256];
   while (fgets(line, sizeof line, stdin)) {
-    char cmd[32] = {0}, a1[160] = {0}, a2[32] = {0};
-    int nf = sscanf(line, "%31s %159s %31s", cmd, a1, a2);
+    char cmd[32] = {0}, a1[160] = {0}, a2[32] = {0}, a3[32] = {0};
+    int nf = sscanf(line, "%31s %159s %31s %31s", cmd, a1, a2, a3);
     if (nf < 1) continue;
     if (!strcmp(cmd, "quit")) break;
     else if (!strcmp(cmd, "step")) { int n = nf>1?atoi(a1):1; for (int i=0;i<n;i++) run(); printf("ok\n"); }
@@ -354,6 +364,26 @@ int main(int argc, char **argv) {
       }
       free(recs);
       printf("ok %u\n", n);
+    }
+    else if (!strcmp(cmd, "capset")) {
+      // capset <base_hex> <len_hex> <skip_dec> — arm one-shot mid-frame memory
+      // capture at the (skip+1)-th hit of the current trace target.
+      if (!g_capture_set) { printf("err notrace\n"); continue; }
+      uint32_t base = (uint32_t)strtoul(a1, NULL, 16);
+      uint32_t len  = (uint32_t)strtoul(a2, NULL, 16);
+      uint32_t skip = (uint32_t)strtoul(a3, NULL, 0);
+      g_capture_set(base, len, skip);
+      printf("ok capset base=%x len=%x skip=%u\n", base, len, skip);
+    }
+    else if (!strcmp(cmd, "capget")) {
+      // capget — emit the captured region as hex (like read), or err notready.
+      if (!g_capture_get || !g_capture_ready) { printf("err notrace\n"); continue; }
+      if (!g_capture_ready()) { printf("err notready\n"); continue; }
+      uint8_t *buf = malloc(DBP_CAP_MAX_HOST);
+      uint32_t got = g_capture_get(buf);
+      fputs("ok ", stdout);
+      for (uint32_t i=0;i<got;i++) printf("%02x", buf[i]);
+      printf("\n"); free(buf);
     }
     else printf("err cmd\n");
   }

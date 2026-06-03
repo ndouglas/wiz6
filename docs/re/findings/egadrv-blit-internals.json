@@ -45,9 +45,31 @@
       "evidence": {
         "binary": "ega.drv",
         "type": "byte_pattern_plus_live",
-        "details": "Idle dump /tmp/wiz6-seg6b91.bin at dump+0xc42 (lin 0x6c552) and +0x20d0 (lin 0x6d9e0) capstone-disassembles to incoherent ops over byte runs 0x80/0x84/0x88/0x8c (= EGA pixel shades), i.e. data not code. ega.drv file image ends at lin 0x6c412 (base 0x6a1b0 + size 0x2262). FUN_1c94/FUN_210c (in-image) fully account for the compose+blit; the buffer is their target."
+        "details": "Idle dump /tmp/wiz6-seg6b91.bin at dump+0xc42 (lin 0x6c552) and +0x20d0 (lin 0x6d9e0) capstone-disassembles to incoherent ops over byte runs 0x80/0x84/0x88/0x8c (= EGA pixel shades), i.e. data not code AT FRAME BOUNDARIES. RESOLVED below by the capture tooling: the region is a WORK BUFFER into which ega.drv COPIES a blit template (file 0x1fd0) and executes it mid-frame; by the boundary it holds pixel data again."
       },
-      "confidence": "medium"
+      "confidence": "high"
+    },
+    {
+      "id": "wall-rasterizer-captured",
+      "claim": "The live corridor WALL rasterizer, captured mid-frame via the new capture-on-breakpoint tooling, is an EGA PLANAR PIXEL read-modify-write blitter. Its code is ega.drv file 0x1fd0 (inside the FUN_1c94 region) COPIED into a work buffer (~lin 0x6d800) and executed there (which is why file-address tracing never caught it). Per pixel-group it: reads source texture bytes (ds:si+8, si+0x10, ... = the 4 EGA planes, stride 8), shr by cl (column alignment), AND with bx (set-mask), merges into dest with `dst=(dst&dx_clearmask)|(src&bx_setmask)`, then if flag [bp+0x18]&1 writes to A000 VRAM via the EGA Sequencer Map Mask (port 0x3c5 reg 2) + Graphics Controller (0x3cf) + latched read/write (mov al,es:[di]; mov es:[di],al); else writes to the off-screen page at es:[di+0x2000]. So the maze view composes to an off-screen page (+0x2000) OR straight to VRAM depending on the flag.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture_plus_byte_id",
+        "details": "Captured with `trace-maze.ts cap 6d9e0 6d800 1000 0`: live mid-frame bytes differ from the idle view in 4064/4096 bytes (confirming the boundary view is stale data). Capstone of the capture @0x6d9e0: `mov ah,[si+8]; shr ax,cl; and ax,bx; xchg al,ah; mov [bp-0xa],ax; mov ax,es:[di+0x2000]; and ax,dx; or ax,[bp-0xa]; test [bp+0x18],1; je +; <push es/dx/ax; mov dx,3c5; mov al,2; out dx,al; mov dx,3cf; out dx,al; mov ax,a000; mov es,ax; mov al,es:[di]; pop ax; mov es:[di],al; ...>; mov ax,es:[di+0x2000]` (off-screen path). The code signature `8a 64 08 d3 e8 23 c3 86 e0` is found in ega.drv @ file 0x1fd0 -> the template is in-image (Ghidra-analyzable), executed from a copy at lin 0x6d800+."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "capture-on-breakpoint-tooling",
+      "claim": "New core-patch tooling resolves the mid-frame-state limitation: a one-shot MEMORY CAPTURE armed on the trace breakpoint. dbp_capture_set(base,len,skip) snapshots [base,base+len) of guest RAM at the (skip+1)-th hit of the trace target into a host-readable buffer; dbp_capture_get retrieves it. Exposed as host `capset`/`capget` and HostClient.captureSet/captureGet; driven via trace-maze.ts `cap`. This captures transient/copied code (the wall rasterizer) that is invisible to frame-boundary read()/regs(). Zero behavior change when disarmed.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "tooling",
+        "details": "Patch in tools/libretro/dosbox-pure-trace.patch (core_normal.cpp: dbp_cap_* buffer + snapshot inside the trace hook + exports). host.c: capset/capget commands. packages/mcp/src/live/host-client.ts: captureSet/captureGet. Verified: capture @0x6d9e0 differs from idle in 4064/4096 bytes; build-core.sh reproduces the exports; nightly fallback unaffected (capget -> err notrace)."
+      },
+      "confidence": "high"
     }
   ],
   "solid_vs_followup": {
@@ -59,12 +81,13 @@
       "The corridor WALL rasterizer executes in the 0x6c400-0x6e400 region (between/after ega.drv's image and the off-screen buffers) and blits via the planar writer (ega.drv@0x2069, es=A000). It is a compiled/transient code path: at every frame BOUNDARY the region reads as stable pixel-ish data (idle == redraw, 0 diff), yet the tracer logs real execution there mid-frame -- so the rasterizer code is not capturable with frame-granular reads.",
       "Ghidra tooling fixed: list_functions.py now uses the working pyghidra 3.x API (open_project/program_context); pass --project-dir as an ABSOLUTE path."
     ],
-    "tooling_limitation": "The patched core's tracer is NON-PAUSING (logs + continues), and HostClient.read()/regs() only observe at FRAME BOUNDARIES. The corridor wall rasterizer runs and finishes WITHIN a frame, leaving pixel data at the boundary -- so its code bytes and its true mid-render register/segment state cannot be captured this way. Segment values sampled at boundaries (ds=4182/6a0f etc.) are unreliable for the wall path (e.g. seg 0x4182 is 90% zero at idle, so it is not the composed-view buffer). To progress the WALL renderer, the next move is a TOOLING upgrade, not more frame-granular probing.",
+    "tooling_limitation": "RESOLVED. Previously: the non-pausing tracer + frame-boundary read()/regs() could not observe the mid-frame wall rasterizer (the work-buffer region holds pixel data at the boundary). FIXED by the new capture-on-breakpoint tooling (dbp_capture_set/get; host capset/capget; HostClient.captureSet/captureGet) which snapshots guest RAM at the exact instruction the trace target fires -- it captured the live wall rasterizer (4064/4096 bytes differ from the idle view).",
     "needs_follow_up": [
-      "TOOLING: extend the core patch with a PAUSING breakpoint (stop at a target CS:IP and expose read/regs at that exact instruction) so the mid-frame wall-rasterizer code + registers can be dumped. OR add a memory-WRITE watch to find what writes the composed viewport.",
-      "Alternatively port via the FRAMEBUFFER oracle: the engine's rendered corridor is already captured by fb()/screenshot. Combine the known geometry DATA (convergence @0x42/@0x4a, seam tables @0x36e4/@0x3717, slot walltypes @0x5220) with per-slot wall textures extracted from the framebuffer -> build the TS renderer to pixel-match, without cracking the compiled rasterizer.",
-      "SPRITE path (separate, when ready): capture FUN_1c94/FUN_210c live during a MONSTER encounter (sprites present) to get DS + the descriptor table (0x18-stride) + tile-index table @0x17a + LUT @0x192 + the arg block; decode a monster sprite end-to-end. This RE is done statically; it just needs a sprite-bearing frame to validate.",
-      "Locate the wall rasterizer's generator in ega.drv (the code that builds/drives the 0x6c400+ blit) by tracing the planar writer's (0x2069) callers with a pausing breakpoint."
+      "Decompile the wall-rasterizer template at ega.drv file 0x1fd0 (Ghidra; inside the FUN_1c94 region) to get the full per-plane loop + its caller (who sets si/di/bx/dx/cl + the source texture pointer + the [bp+0x18] page flag).",
+      "Find the WALL caller in wmaze/ega that copies the 0x1fd0 template to the work buffer and drives it per depth-slice -- capture its arg setup (source texture ptr, screen column/clip, plane masks) and map to the convergence/seam DATA tables (@0x42/@0x4a/@0x36e4) for the per-column U/V.",
+      "Decode one wall texture end-to-end: source 4-plane texels -> rasterizer (shr/and/merge) -> off-screen page (+0x2000) -> VRAM; pixel-match the reference frame. The capture tool can now snapshot the off-screen page mid-frame too.",
+      "Port: reimplement the EGA planar RMW rasterizer in TS (4-plane source, per-column shr/and/merge, off-screen compose) driven by the known geometry tables -> pixel-parity. (Framebuffer-oracle remains a fallback.)",
+      "SPRITE path (separate): capture FUN_1c94/FUN_210c live during a MONSTER encounter to validate the 4-plane masked sprite format + the descriptor/tile/LUT tables."
     ]
   },
   "symbol_map": [
@@ -74,10 +97,10 @@
     {"space": "ega.drv", "offset": "0x2069", "name": "ega_planar_span_write", "note": "es=A000, dx=0x3c5 Sequencer, di +0x28 stride -- the VRAM emit inside FUN_1c94"}
   ],
   "unresolved": [
-    "The corridor WALL rasterizer code (compiled/transient in 0x6c400-0x6e400; needs a PAUSING breakpoint to capture mid-frame -- frame-granular reads only see pixel data).",
-    "The location of the composed-view off-screen buffer (NOT seg 0x4182 -- that is 90% zero at idle; the boundary-sampled segments are unreliable).",
-    "SPRITE path validation: the 0x18-stride descriptor table, tile-index table @0x17a, LUT @0x192, and arg block -- need a monster-encounter frame to capture live (the format is statically RE'd).",
-    "End-to-end pixel decode of one wall texture (blocked on the wall-rasterizer tooling OR doable via the framebuffer-oracle port path)."
+    "The wall-rasterizer CALLER: who copies the ega.drv 0x1fd0 template to the work buffer and sets its args (si/di/bx/dx/cl, source texture ptr, [bp+0x18] page flag) per depth-slice.",
+    "The off-screen compose page address (the rasterizer writes es:[di+0x2000] when [bp+0x18]&1 is clear) -- capture it mid-frame with the new tool.",
+    "Per-column U/V law: map the rasterizer's si/cl/screen-column to the convergence/seam DATA tables (@0x42/@0x4a/@0x36e4).",
+    "SPRITE path validation: the 0x18-stride descriptor table, tile-index @0x17a, LUT @0x192 -- need a monster-encounter frame (format is statically RE'd)."
   ],
   "caveat_for_prior_findings": "Refines wmaze-render-in-egadrv.json AND this file's own earlier conclusion: ega.drv IS the graphics service far-called from wmaze, and the planar writer (0x2069) DOES blit the corridor to A000 every frame. BUT FUN_1c94/FUN_210c (entry 10) are the SPRITE/object compositor, NOT the corridor wall renderer (live: 0 hits at dungeon load and on movement). The wall rasterizer is a separate compiled/transient code path (0x6c400-0x6e400) that frame-granular tooling cannot capture. The 4-plane masked format is correct and portable for sprites. Earlier '2bpp column writer' wording is retired."
 }

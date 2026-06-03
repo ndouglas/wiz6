@@ -1,8 +1,8 @@
 diff --git a/src/cpu/core_normal.cpp b/src/cpu/core_normal.cpp
-index 037b550..6290fc8 100644
+index 037b550..06d35dc 100644
 --- a/src/cpu/core_normal.cpp
 +++ b/src/cpu/core_normal.cpp
-@@ -62,6 +62,72 @@
+@@ -62,6 +62,112 @@
  
  extern Bitu cycle_count;
  
@@ -28,6 +28,20 @@ index 037b550..6290fc8 100644
 +static Bit32u dbp_trace_head = 0;   /* write index (mod CAP) */
 +static Bit32u dbp_trace_total = 0;  /* records logged since last drain/clear */
 +
++/* ---- mid-frame memory capture at the breakpoint ----
++ * When the trace target is hit, snapshot a configured guest-RAM region into a
++ * host-readable buffer. This is the ONLY way to observe transient/compiled code
++ * (e.g. the maze wall rasterizer) that exists only mid-frame and is overwritten
++ * with pixel data by the frame boundary where host read()/regs() observe.
++ * dbp_cap_skip selects WHICH hit to snapshot (0 = first). One-shot per arm. */
++#define DBP_CAP_MAX 0x4000
++volatile Bit32u dbp_cap_base = 0;   /* guest linear base (0 = capture off) */
++volatile Bit32u dbp_cap_len  = 0;   /* bytes to capture (<= DBP_CAP_MAX) */
++volatile Bit32u dbp_cap_skip = 0;   /* number of target hits to skip before capturing */
++static Bit32u dbp_cap_hits = 0;     /* target hits seen since arm */
++static Bit32u dbp_cap_done = 0;     /* 0 = not yet captured, 1 = captured */
++static Bit8u  dbp_cap_buf[DBP_CAP_MAX];
++
 +static void dbp_trace_log_impl(void) {
 +	dbp_trace_rec* r = &dbp_trace_buf[dbp_trace_head % DBP_TRACE_CAP];
 +	r->cs  = SegValue(cs);   r->eip = reg_eip;
@@ -38,6 +52,13 @@ index 037b550..6290fc8 100644
 +	for (int i = 0; i < 8; i++) r->stack[i] = mem_readw(sp + i*2);
 +	dbp_trace_head++;
 +	if (dbp_trace_total < 0xffffffff) dbp_trace_total++;
++	/* mid-frame memory snapshot at the (skip+1)-th hit */
++	if (dbp_cap_base && !dbp_cap_done) {
++		if (dbp_cap_hits++ >= dbp_cap_skip) {
++			for (Bit32u i = 0; i < dbp_cap_len; i++) dbp_cap_buf[i] = mem_readb(dbp_cap_base + i);
++			dbp_cap_done = 1;
++		}
++	}
 +}
 +
 +DBP_TRACE_EXPORT void dbp_trace_set(Bit32u lin) { dbp_trace_target = lin; }
@@ -70,12 +91,31 @@ index 037b550..6290fc8 100644
 +	for (int i = 0; i < 8; i++) r->stack[i] = mem_readw(sp + i*2);
 +}
 +
++/* Arm a one-shot mid-frame memory capture: at the (skip+1)-th hit of the trace
++ * target, snapshot [base, base+len) of guest RAM. len is clamped to DBP_CAP_MAX. */
++DBP_TRACE_EXPORT void dbp_capture_set(Bit32u base, Bit32u len, Bit32u skip) {
++	dbp_cap_base = base;
++	dbp_cap_len  = (len > DBP_CAP_MAX ? DBP_CAP_MAX : len);
++	dbp_cap_skip = skip;
++	dbp_cap_hits = 0; dbp_cap_done = 0;
++}
++DBP_TRACE_EXPORT Bit32u dbp_capture_ready(void) { return dbp_cap_done; }
++/* Copy the captured region into out (must be >= the armed len). Returns bytes
++ * copied (0 if not yet captured). Disarms. */
++DBP_TRACE_EXPORT Bit32u dbp_capture_get(void* out) {
++	if (!dbp_cap_done) return 0;
++	Bit32u n = dbp_cap_len;
++	for (Bit32u i = 0; i < n; i++) ((Bit8u*)out)[i] = dbp_cap_buf[i];
++	dbp_cap_base = 0; dbp_cap_done = 0;
++	return n;
++}
++
 +} /* extern "C" */
 +
  #if C_FPU
  #define CPU_FPU	1						//Enable FPU escape instructions
  #endif
-@@ -152,6 +218,7 @@ static INLINE Bit32u Fetchd() {
+@@ -152,6 +258,7 @@ static INLINE Bit32u Fetchd() {
  Bits CPU_Core_Normal_Run(void) {
  	while (CPU_Cycles-->0) {
  		LOADIP;

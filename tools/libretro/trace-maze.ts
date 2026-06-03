@@ -415,6 +415,30 @@ async function phaseLoadTrace(c: HostClient): Promise<void> {
   console.log(`\nFUN_210c (0x${fun210c.toString(16)}) on a post-load forward step: ${recs2.length} hits`);
 }
 
+/** Capture the LIVE mid-frame memory at a trace target during a redraw.
+ *  argv: <traceTargetLin> <capBaseLin> <capLenHex> [skip]  — all hex except skip. */
+async function phaseCap(c: HostClient): Promise<void> {
+  const target = parseInt(process.argv[3] ?? '6d9e0', 16);
+  const base = parseInt(process.argv[4] ?? '6d800', 16);
+  const len = parseInt(process.argv[5] ?? '1000', 16);
+  const skip = parseInt(process.argv[6] ?? '0', 10);
+  const out = process.argv[7] ?? '/tmp/wiz6-cap.bin';
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(target);
+  await c.captureSet(base, len, skip);
+  await forceRedraw(c);
+  const bytes = await c.captureGet();
+  await c.traceOff();
+  if (!bytes) { console.log(`NOT captured (target 0x${target.toString(16)} never hit, or skip ${skip} too high)`); return; }
+  writeFileSync(out, Buffer.from(bytes));
+  console.log(`captured 0x${bytes.length.toString(16)} bytes at lin 0x${base.toString(16)} (target 0x${target.toString(16)}, skip ${skip}) -> ${out}`);
+  // quick idle-compare: is the captured (live) content different from idle?
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  const idle = await c.read(base, len);
+  let diff = 0; for (let i = 0; i < bytes.length; i++) if (bytes[i] !== idle[i]) diff++;
+  console.log(`vs idle: ${diff}/${bytes.length} bytes differ ${diff > 0 ? '(LIVE code differs from idle data — capture worked!)' : '(identical — region is stable)'}`);
+}
+
 async function phaseFine(c: HostClient): Promise<void> {
   const ovl = ovlBase();
   const offs = process.argv.slice(3).map((s) => parseInt(s, 16));
@@ -449,6 +473,7 @@ async function main() {
     else if (phase === 'afine') await phaseAfine(c);
     else if (phase === 'dumpat') await phaseDumpAt(c);
     else if (phase === 'loadtrace') await phaseLoadTrace(c);
+    else if (phase === 'cap') await phaseCap(c);
     else if (phase === 'fine') await phaseFine(c);
     else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | fine <off...>');
   } finally {
