@@ -1,0 +1,88 @@
+{
+  "topic": "wpcvw-inventory-quantity",
+  "subagent_run": "2026-06-02T20:40:00Z",
+  "binaries": ["wpcvw.ovr", "wroot.exe"],
+  "saves": [
+    "live dosbox-pure session booted from test-fixtures/original/ overlaid with test-fixtures/states/legendary-squad.pcfile.dbs (TWINK in party slot 0, carrying SHURIKEN x15)"
+  ],
+  "summary": "YES — the WPCVW char-view (game_state 0x11) inventory list DOES render the stackable-item quantity, in a SEPARATE column to the right of the item name (NOT appended to the name string). For each inventory row i (drawn at cell row i+9), ui_render_inventory_panel @ wpcvw 0x6c81 draws: an equipped-marker cell at col 0x14/0x15 (attr 0x40), the item NAME via puts_highlight (attr 0x90) starting at col 0x15, then a CONDITIONAL quantity at col 0x22 (34), then the body-slot icon char at col 0x26 (38, attr 0x04). The quantity is gated on a per-item-TYPE flag (item record byte +0xcc == 1), NOT on quantity>1: when set, the engine prints the per-slot quantity byte (inventory-grid +0x442e) as a decimal integer, right-justified in a width-3 field with attr 1 (=wfont1, foreground/colored), via the integer-formatter wroot FUN_0507 (reached through thunk c041 -> wroot image 0x5a5 -> 0x507). When the flag is clear, the engine instead pads spaces to col 0x25 (be32) — no number. Verified on screen via a live CELL dump: TWINK's SHURIKEN row (row 9) shows cells `1`(col34) `5`(col35) attr 0x10 immediately after `SHURIKEN`(cols21-28, attr 0x90); the four non-stackable rows (NINJA COWL / NINJA GARB (U) / NINJA GARB (L) / TABI BOOTS) show blank space in that column. The on-disk quantity byte for the SHURIKEN slot read 0x0f (15), matching.",
+  "method": "Decompiled+disassembled ui_render_inventory_panel @ wpcvw.ovr 0x6c81 via PyGhidra 3.1.0 (pyghidra.open_project + program_context, segmented addr space base 0x1000). Resolved cross-overlay thunks via the thunk-delta law (wroot_image = thunk - 0xBA9C). Decompiled wroot FUN_0507/FUN_05a5 (the right-justified integer printer + its wrapper), FUN_0396 (be32 = space-pad-to-col helper) and ui_window_putchar (de7f) to nail the call semantics. Then drove the dosbox-pure live harness (LiveSession) from a fresh boot with the legendary-squad pcfile overlay: ADD PARTY MEMBER (TWINK) -> REVIEW MEMBER -> REVIEW WHO? -> TWINK -> char view, and dumped the rendered window CELL array straight from live DGROUP RAM (located via the SHURIKEN-as-cells signature 53 ?? 48 ?? 55 ?? 52 ?? 49 ?? 4b ?? 45 ?? 4e). Read the inventory-grid quantity byte directly (DGROUP 0x4428 + slot*8 + 6).",
+  "findings": [
+    {
+      "id": "qty-rendered-separate-column",
+      "claim": "The char-view inventory row DOES display the stackable quantity, in a separate column (col 0x22 = 34), NOT appended/prepended to the name string. Per-row layout: equipped-marker col 0x14-0x15 (attr 0x40), NAME from col 0x15 (puts_highlight, attr 0x90), QUANTITY at col 0x22 (conditional), slot-icon char at col 0x26 (attr 0x04).",
+      "category": "ui_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6faf"},
+        "type": "disassembly+live_cell_dump",
+        "details": "Disasm of the per-item loop tail (0x6faf-0x705e): bda7(col 0x22) then c041(qty) when the gate is true (0x6fd1-0x700d); bda7(col 0x26) + de7f(icon char [+0x442d]+1) always (0x7023-0x705e). Live cell dump (cellsBase row 9 = TWINK's SHURIKEN row): col20=' '|40 (marker), cols21-28='SHURIKEN'|90, cols29-33=' '|10, col34='1'|10, col35='5'|10, col36=chrome 0x0d|01, col37=slot-icon 0x16|04. The four armor rows (10-13) are identical in structure but cols 34-35 are blank space — proving the name and quantity are in DISTINCT columns and the quantity is conditional."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "qty-format",
+      "claim": "Quantity format: decimal integer, right-justified in a 3-cell field anchored at col 0x22 (34), attr = 1 (wfont1, colored/foreground style — NOT inverse), drawn by wroot FUN_0507 (the right-justify integer printer). For value 15 the rendered cells are '1'(col34) '5'(col35), attr 0x10.",
+      "category": "ui_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6fe5"},
+        "type": "disassembly+live_cell_dump",
+        "details": "0x6fe5: PUSH 1 (attr); 0x6fe9: PUSH 3 (field width); 0x6ff0-0x7000: load qty byte [member*0x1b0 + slot*8 + 0x442e]; 0x700a: CALL c041 (-> wroot image 0x5a5 -> FUN_0507). FUN_0507 itoa's the value (FUN_0453) into an 80-byte stack buffer, space-trims/pads to the width arg, then prints via the puts wrapper. Live cells for SHURIKEN: col34='1'|attr10, col35='5'|attr10. The attr byte stored is 0x10 = (attr<<4) with attr=1 wfont1; the positive sign of the width/attr arg (PUSH 1, not a negative) means colored text, not the inverse menu-cursor style."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "qty-threshold-itemtype-flag",
+      "claim": "Quantity is shown when the item-TYPE record byte at +0xcc == 1 (a per-item-definition 'stackable / show-count' flag), NOT when quantity>1. SHURIKEN's type has the flag; the armor item types do not. When the flag is clear the engine pads spaces to col 0x25 (be32) instead.",
+      "category": "ui_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6fc2"},
+        "type": "disassembly+live_cell_dump",
+        "details": "0x6fc2: MOV AL,[BX+0x442c] (itemId for slot); 0x6fc8: MOV BX,AX; 0x6fca: CMP byte [BX+0xcc],1; 0x6fcf: JNZ 0x7012 (the else branch = be32 space-pad to col 0x25, no number). The gate reads a byte indexed by itemId (a per-item-type table near DGROUP 0xcc), so the threshold is a TYPE flag, not the slot's quantity value. Empirically: SHURIKEN (itemId 0x2f) shows '15'; NINJA COWL/GARB/GARB/BOOTS show no number — and their quantity bytes (+0x442e) read 0 anyway, but the flag is what's tested.",
+        "caveat": "The exact location/width of the per-item-type +0xcc table was not fully RE'd; what is certain (disasm + on-screen) is the gate is the +0xcc byte indexed by itemId == 1, not a quantity>1 comparison."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "name-composition",
+      "claim": "The item NAME is fetched per slot (not the quantity) into a per-row 16-byte buffer at DGROUP 0x55de + i*0x10, via the resource loader thunk c31e (wroot image 0x882) then strcpy thunk f3aa (wroot image 0x390e). The name is rendered by puts_highlight (df85 -> wroot image 0x24e9) at the row's name column with attr 0x90. The quantity is composed/printed entirely SEPARATELY (a different call site, different column) — the name string is NOT formatted with the count.",
+      "category": "ui_render",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x6ee8"},
+        "type": "disassembly+live_dgroup_dump",
+        "details": "Per-row name build: 0x6ee8 CALL c31e (load item name resource by id), 0x6eff CALL f3aa (strcpy into buffer at 0x55de + i<<4). 0x6f95 CALL df85 (puts_highlight of that buffer, attr from [BP-0x5a]). Live DGROUP 0x55de dump = 'SHURIKEN\\0...','NINJA COWL\\0...','NINJA GARB (U)\\0','NINJA GARB (L)\\0','TABI BOOTS\\0' — pure names, no embedded counts. The count is read+printed at 0x6fe5-0x700d in a separate column."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "qty-byte-ondisk",
+      "claim": "The on-disk per-slot quantity byte for TWINK's SHURIKEN slot reads 0x0f (15) at inventory-grid base 0x4428 + slot*8 + 6 (= +0x442e for slot 0).",
+      "category": "data",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wroot.dgroup", "offset": "0x4428"},
+        "type": "live_dgroup_dump",
+        "details": "Live read DGROUP 0x4428..0x4467 (member 0 inventory, eight 8-byte slots): slot0 = 2f 00 05 00 02 15 0f 04 -> itemId=0x2f(47=SHURIKEN), byte5(+0x442d icon/slot)=0x15, byte6(+0x442e quantity)=0x0f(15). slot1=a0 00 0f 00 06 5c 00 00 (NINJA COWL, qty byte 0). itemCount @ 0x4594 = 5."
+      },
+      "confidence": "high"
+    }
+  ],
+  "symbol_map": [
+    {"name": "ui_render_inventory_panel", "binary": "wpcvw.ovr", "offset": "0x6c81", "note": "char-view (state 0x11) main inventory list; draws marker+name+qty+icon per row"},
+    {"name": "ui_window_put_int_rjust", "binary": "wroot.exe", "image_offset": "0x507", "file_offset": "0x707", "thunk": "0xc041 (via wrapper 0x5a5)", "note": "itoa (FUN_0453) + space-trim/pad to width + puts; used for the quantity (width 3, attr 1) and elsewhere"},
+    {"name": "ui_window_pad_spaces_to_col", "binary": "wroot.exe", "image_offset": "0x396", "file_offset": "0x596", "thunk": "0xbe32", "note": "emit spaces until window cursor col reaches arg; used for the no-quantity branch (pad to col 0x25)"},
+    {"name": "ui_window_set_cursor", "binary": "wroot.exe", "image_offset": "0x30b", "file_offset": "0x50b", "thunk": "0xbda7"},
+    {"name": "ui_window_putchar", "binary": "wroot.exe", "image_offset": "0x23e3", "file_offset": "0x25e3", "thunk": "0xde7f", "note": "single char; draws the body-slot icon (char [+0x442d]+1, attr 4)"},
+    {"name": "ui_window_putchar_attr", "binary": "wroot.exe", "image_offset": "0x22b7", "file_offset": "0x24b7", "thunk": "0xdd53", "note": "draws the equipped marker char with attr"},
+    {"name": "ui_window_puts_highlight", "binary": "wroot.exe", "image_offset": "0x24e9", "file_offset": "0x26e9", "thunk": "0xdf85", "note": "draws the item NAME string with attr 0x90"},
+    {"name": "resource_load_by_id", "binary": "wroot.exe", "image_offset": "0x882", "file_offset": "0xa82", "thunk": "0xc31e", "note": "loads the item-name resource into a buffer"},
+    {"name": "strcpy", "binary": "wroot.exe", "image_offset": "0x390e", "file_offset": "0x3b0e", "thunk": "0xf3aa", "note": "copies name into per-row buffer 0x55de + i*0x10"}
+  ],
+  "unresolved": [
+    "Exact location/width of the per-item-type +0xcc 'show-count' flag table (the gate at wpcvw 0x6fca reads byte [itemId + 0xcc] in DGROUP). Confirmed behaviorally (SHURIKEN shows, armor doesn't) but the table itself not enumerated.",
+    "FUN_0507 right-justify-by-trim math has an apparent local_52 + (strlen - width) underflow path for short values; the empirical render ('15' at cols 34-35, no visible leading pad) is what matters for the port and is captured above."
+  ]
+}
