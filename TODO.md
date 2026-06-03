@@ -13,11 +13,17 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#076**
+Next free ID: **#077**
 
 ---
 
 ## Open
+
+- #076 [open] — Port the maze 3D view (renderer LOCATED: it's in ega.drv, not wmaze.ovr)
+  - **2026-06-03 delta-trace breakthrough** (`docs/re/findings/wmaze-render-in-egadrv.json`): the live first-person renderer is NOT in wmaze.ovr — it's a service in **ega.drv** (loaded linear 0x6a1b0, executed via selector CS=0x6b91), far-called from wmaze's 0x6800–0x6b00 region. The three prior wmaze static-disasm passes (wmaze-3d-view / blit-geometry / texture-rasterizer) disassembled the wrong binary — their named render fns log 0 live trace hits. Their DATA tables (convergence/seam/walltypes) remain valid.
+  - **Pipeline (live-evidenced):** texture run/skip expand (src seg 0x29c3 → off-screen buffer seg 0x4182, lin 0x6c552) → 2bpp vertical wall-column writer into 0x4182 (lin 0x6d9e0, rotating bit-masks) → EGA-planar blit 0x4182 → A000 VRAM via Sequencer (ega.drv@0x2069). The "masked/0xaa" texture bytes are just 2bpp-packed texels.
+  - **Tooling:** `tools/libretro/trace-maze.ts` (reach|calibrate|validate|where|afine) reproduces the whole trace; needs the patched core (`tools/libretro/build-core.sh`; restore nightly via `fetch-core.sh`).
+  - **Next:** import ega.drv into Ghidra (file = linear − 0x6a1b0); resolve the ega.drv entry/dispatch contract + far-call args (U/V + screen columns) from the wmaze call sites (wmaze+0x681a/+0x6aa1); byte-decode the run/skip texture format from the ega.drv asm; then port the rasterizer (or RAM-extract the 0x4182 buffer per slot as a fallback oracle) → pixel-parity.
 
 - #075 [open] — Pixel-gate the EQUIPPED-party six-portrait hand icons (MASTER OPTIONS + ADD picker)
   - The party-panel hand icons (`composeHandGlyphs`, wfont4) are pixel-gated only for EMPTY hands (castle-parity uses the unequipped pinned roster). The EQUIPPED-hand glyphs are gated by the `composeHandGlyphs` unit test + the Twink char-view fixture (inventory icons), but NOT by a six-portrait pixel fixture.
