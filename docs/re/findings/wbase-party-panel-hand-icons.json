@@ -1,0 +1,103 @@
+{
+  "topic": "wbase-party-panel-hand-icons",
+  "subagent_run": "2026-06-02T00:00:00Z",
+  "binaries": ["wbase.ovr"],
+  "summary": "Fills the gap left by wbase-party-panel-redraw.json: the MASTER-OPTIONS party-panel RIGHT/LEFT-hand equipped-item glyph draw in FUN_1b2d @ wbase.ovr 0x1b2d. The hand-icon draw is a 2-iteration loop at file 0x1d47..0x1db4 (cursor set at 0x1d32 to col 3 / row iVar1+1), drawing the right-hand glyph at (col 3, row+1) and left-hand glyph at (col 4, row+1), attr 0x04 (wfont4), cursor auto-advancing between the two. For body slot SI (0=right hand, 1=left hand): if equipment[SI] (byte at slot+0x44f8+SI) == 0xFF, OR the referenced inventory item's count word (slot+0x4428+idx*8) <= 0, draw the EMPTY glyph `SI + 0x25` (right=0x25, left=0x26). Otherwise draw the equipped glyph `inventory_item[+0x442d] + 1` — i.e. the item's cached scenario type/sprite byte (scenario.dbs byte 61, the SAME byte the equip exclusivity block compares against {0xb,0x16,0xd,0x17,0xc,0x53}) PLUS ONE. The glyph is ITEM-SPECIFIC (varies per item type byte), NOT category-fixed: verified dynamically with three distinct type bytes (0x01->0x02 LONGSWORD, 0x26->0x27 BUCKLER, 0x2e->0x2f) — each glyph = typeByte+1. CORRECTED PANEL LAYOUT (cell-dump + code): row+0 NAME (cols 0-6, attr 3); row+1 HANDS (cols 3-4, attr 4); row+2 CLASS symbol (cols 3-4, glyph 0x3a+class*2[+1], attr 1); row+3 STATUS (col 3, attr 1) + CONDITION (col 4, attr 3); cols 5-6 rows+1..3 HP/STAMINA bars (FUN_1a4c). This MATCHES the current port docstring (party-panel-render.ts) and SUPERSEDES the prior wbase-party-panel-redraw.json claims (which put CLASS at row+1 and documented NO hand-icon draw). wbase.ovr CS->file delta = 0x4564 (derived).",
+  "method": "PyGhidra DecompInterface + raw disasm of FUN_1b2d (tools/ghidra/scripts/decompile.py --raw, abs project dir). Hand-icon loop hand-traced from raw asm 0x1d47..0x1db4 (Ghidra's C decomp had stale stack-frame regs in the cursor args; raw asm is authoritative). DYNAMIC verification via standalone LiveSession (dosbox-pure harness): drove the review-member-equipped recipe (THESUS solo, LONGSWORD body0 + BUCKLER body1 equipped) and castle-1 (THESUS solo, nothing equipped), escaped to MASTER OPTIONS (game_state 4), and read the LEFT panel window CELL memory (handle word @ DGROUP 0x4fba -> struct -> cells @ struct+0x10, 2 bytes/cell). Glyph expectations cross-checked against the live inventory item type byte (slot+0x4428+idx*8+5). Poked equipment[0] to alternate carried items (+set item flags bit0) and forced a redraw to confirm item-specificity across 3 distinct type bytes. wbase delta derived by scanning the 3 `2e ff a7 <disp16>` (jmp cs:[bx+disp16]) jump-table dispatches and solving for the single delta (0x4564) under which all 3 implied tables fall in-file AND every table entry maps back to a valid in-file code offset adjacent to its dispatch.",
+  "findings": [
+    {
+      "id": "hand-icon-draw-site",
+      "claim": "The right/left-hand equipped-item glyphs are drawn by a 2-iteration loop in FUN_1b2d at file 0x1d47..0x1db4. The cursor is set immediately before at 0x1d32-0x1d44 via func_bda7(window, col = [BP-4]+3 = 3, row = [BP-6]+1 = iVar1+1) where iVar1 = (slot/2)*4 is the panel row base and [BP-4]=0. The loop counter SI is the BODY SLOT index (0 = right hand, 1 = left hand); each iteration draws ONE cell via func_de7f(window, glyph, attr=4) and the cursor auto-advances, so the right-hand glyph lands at (col 3, row iVar1+1) and the left-hand glyph at (col 4, row iVar1+1). attr 0x04 selects wfont4 (the weapon-icon font). This draw is ABSENT from wbase-party-panel-redraw.json — it is the gap this finding fills.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x1d47"},
+        "type": "disasm",
+        "details": "Raw asm: 0x1d32 MOV AX,[BP-6]; INC AX -> row=iVar1+1. 0x1d37 MOV AX,[BP-4]; INC;INC;INC -> col=0+3=3. 0x1d41 CALL bda7 (set cursor). Loop 0x1d4a: AX=0x1b0*slot+SI; BX=AX; 0x1d54 AL=byte[BX+0x44f8] (=equipment[SI]); 0x1d5a CMP AX,0xff; JZ 0x1d9b (empty path). Present path 0x1d5f-0x1d96: AX=0x1b0*slot; AL=byte[BX+0x44f8]; AX<<=3 (idx*8); BX=slot_base+idx*8; 0x1d7b CMP word[BX+0x4428],0; JLE 0x1d9b; else 0x1d86 AL=byte[BX+0x442d]; INC AX -> glyph; push 4 (attr); CALL de7f. Empty path 0x1d9b: AX=SI; ADD 0x25 -> glyph; push 4; CALL de7f. 0x1db0 INC SI; CMP SI,2; JL loop. func_de7f arg order (push count, push char, push window) => func_de7f(window, char, attr/count=4)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "equipped-glyph-formula",
+      "claim": "For an equipped hand, the wfont4 glyph = inventory_item_record[+0x442d] + 1, where equipment[bodySlot] (byte at slot*0x1b0 + 0x44f8 + bodySlot) is the inventory index, and the referenced 8-byte inventory record lives at slot*0x1b0 + 0x4428 + idx*8. The +0x442d byte is the item's cached scenario type/sprite byte (scenario.dbs item-record byte 61 / +0x442c is byte 60 equip-slot; +0x442d is byte 61) — the SAME byte the wpcvw equip exclusivity block compares against {0xb,0x16,0xd,0x17,0xc,0x53} (wpcvw-equip-internals.json#fun835e-candidate-collection-mechanics). The glyph is therefore ITEM-TYPE-SPECIFIC, not a fixed sword/shield glyph and not a small per-category lookup table. There is NO table dereference — the value is added to 1 and used directly as the font codepoint. A present-but-empty guard: if the inventory record's count word (slot+0x4428+idx*8, the first word of the record) is <= 0, the hand falls back to the EMPTY glyph despite equipment[] pointing at it.",
+      "category": "data",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x1d86"},
+        "type": "disasm",
+        "details": "0x1d86 MOV AL,byte[BX+0x442d]; 0x1d8a SUB AH,AH; 0x1d8c INC AX (glyph = typeByte+1); 0x1d8f SUB AH,AH; push AX; push window; CALL de7f. BX at this point = slot_base + equipment[SI]*8 (set at 0x1d6e..0x1d79: AL=byte[BX+0x44f8]; AX<<=3; ADD slot_base). The count gate at 0x1d7b CMP word[BX+0x4428],0; JLE 0x1d9b routes count<=0 items to the empty path. DYNAMIC: live cell read of LONGSWORD (body0 typeByte 0x01 -> glyph 0x02), BUCKLER (body1 typeByte 0x26 -> glyph 0x27), and a poked item (typeByte 0x2e -> glyph 0x2f) all = typeByte+1."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "empty-hand-glyphs",
+      "claim": "An empty hand (equipment[bodySlot]==0xFF, or referenced item count<=0) draws the glyph `bodySlot + 0x25` in wfont4 (attr 0x04): right hand (bodySlot 0) = 0x25, left hand (bodySlot 1) = 0x26. Confirmed dynamically by reading the LEFT panel window cells for an UN-equipped member: (col 3, row 1) = 0x25 attr 0x04, (col 4, row 1) = 0x26 attr 0x04.",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x1d9b"},
+        "type": "disasm",
+        "details": "Empty path 0x1d9b: MOV AX,SI; ADD AX,0x25; SUB AH,AH; push (attr 4); push glyph; push window; CALL de7f. SI=0 -> 0x25 (right), SI=1 -> 0x26 (left). DYNAMIC: castle-1 solo THESUS (equipment[]=all 0xff) -> LEFT win cells (c3,r1)=0x25/attr0x04, (c4,r1)=0x26/attr0x04."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "corrected-panel-row-layout",
+      "claim": "The per-slot 7x4 panel block layout (derived from FUN_1b2d cursor-set order + auto-advance, confirmed by live cell dump) is: row+0 = NAME (cols 0-6, attr 0x03 wfont3); row+1 = HANDS (col 3 right / col 4 left, attr 0x04 wfont4); row+2 = CLASS symbol (col 3 + col 4, glyphs 0x3a+class*2 and +1, attr 0x01); row+3 = STATUS icon (col 3, attr 0x01) + CONDITION icon (col 4, attr 0x03); cols 5-6 rows+1..+3 = HP bar (col 5, FUN_1a4c base 0x56) + STAMINA bar (col 6, FUN_1a4c base 0x63). This MATCHES the current port docstring (packages/viewer/src/pages/game/party-panel-render.ts) and SUPERSEDES wbase-party-panel-redraw.json, which (a) documented NO hand-icon draw and (b) placed the CLASS symbol at row+1 (the prior finding's 'class-symbol-not-a-table' #1c52 claim had the right glyph formula but the wrong row — class is row+2, hands are row+1).",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x1b2d"},
+        "type": "disasm",
+        "details": "Cursor-set sequence (bda7 = set cursor; de7f draws at current cursor then auto-advances): 0x1b61 bda7(win,0,iVar1) -> NAME row iVar1. 0x1c61 bda7(win,3,iVar1+3) -> STATUS at (3,iVar1+3); auto-advance to (4,iVar1+3) where CONDITION draws (0x1cc5/0x1cdd). 0x1cee bda7(win,3,iVar1+2) -> CLASS draws 2 cells (3/4, iVar1+2) at 0x1d04. 0x1d32 bda7(win,3,iVar1+1) -> HANDS draw 2 cells (3/4, iVar1+1) at 0x1d47. 0x1db6/0x1ddf FUN_1a4c(...) HP/stamina bars at cols iVar1+5/iVar1+6... wait: the 5th arg to FUN_1a4c is col_base = [BP-4]+5 / [BP-4]+6 = cols 5/6 (the [BP-4]=0 col base + 5/6). DYNAMIC LEFT-win cell dump for THESUS (slot 0, panel row base 0): row0='THESUS ', (c3,r1)=hand, (c4,r1)=hand, (c3,r2)=0x3a (c4,r2)=0x3b (class 0), (c3,r3)=0x25 status (c4,r3)=0x20 cond."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "panel-window-handles-and-slot-record-offsets",
+      "claim": "LEFT panel window handle = word at DGROUP 0x4fba (even slots 0/2/4); RIGHT = word at DGROUP 0x4fb8 (odd slots 1/3/5). The word is the struct offset within DGROUP; the window struct is width@0 height@1 xcol@2 yrow@3 attr@4, cells @ struct+0x10 (2 bytes/cell char,attr, row-major). Panel row base = (slot/2)*4. Per-slot character record stride = 0x1b0; equipment[8] at +0x44f8 (0xFF=empty), inventory item records (8-byte) at +0x4428, item type byte at +0x442d. These match wbase-party-panel-redraw.json + wpcvw-equip-internals.json. DYNAMIC: LEFT struct decoded at DGROUP 0x71b2, 7x12 @ (1,5) attr 0x06 (slot-0 THESUS solo).",
+      "category": "render",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x1b44"},
+        "type": "disasm",
+        "details": "0x1b44 MOV AX,[0x4fba] (even); 0x1b49 MOV AX,[0x4fb8] (odd). Window-struct shape per dump-cells.py / wpcmk-charmenu-toplayout.json (cells @ +0x10). DYNAMIC read: word @ DGROUP 0x4fba = 0x71b2; struct@0x71b2: w=7 h=12 x=1 y=5 attr=6; cells @ 0x71c2 reproduced the THESUS panel exactly."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wbase-cs-file-delta",
+      "claim": "wbase.ovr's CS(runtime)->file-offset delta is 0x4564 (file_offset = CS_offset - 0x4564) — the SAME value as wpcmk.ovr and wpcvw.ovr. Derived (not previously in the repo CLAUDE.md table) by the documented jump-table method: wbase.ovr contains exactly three `2e ff a7 <disp16>` (jmp cs:[bx+disp16]) dispatches at file 0x2dd5 (disp 0x731f), 0x311b (disp 0x7667), 0x3785 (disp 0x7cd1). Solving for the single delta D under which all three implied tables (at file disp-D) fall in-file AND every table word entry maps to a valid in-file code offset (entry-D) adjacent to its own dispatch site yields D=0x4564 uniquely; all three tables are internally coherent at D=0x4564 and incoherent at the other candidate deltas tried (0x3DB7, 0x431F, 0x4667, 0x3CD1).",
+      "category": "relocation",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x2dd5"},
+        "type": "byte_pattern_match",
+        "details": "Site 0x2dd5 disp 0x731f -> table @ file 0x2dbb: entries [0x725b,0x726d,0x7291,0x72c1,0x72ee,0x72b5,0x72f8,0x7303] -> file [0x2cf7,0x2d09,0x2d2d,0x2d5d,0x2d8a,0x2d51,0x2d94,0x2d9f] (all valid, clustered around the dispatch). Site 0x311b disp 0x7667 -> table @ 0x3103 -> entries map to file 0x306b..0x30f3. Site 0x3785 disp 0x7cd1 -> table @ 0x376d -> entries map to file 0x3690..0x3763. Only D=0x4564 makes all three coherent. file 0x1b2d (FUN_1b2d) therefore = CS 0x6091."
+      },
+      "confidence": "high"
+    }
+  ],
+  "dynamic_observations": {
+    "harness": "dosbox-pure LiveSession (standalone tsx probe, since removed)",
+    "empty_hand": {"right_col3_row1": "0x25", "left_col4_row1": "0x26", "attr": "0x04", "source": "castle-1 solo THESUS, equipment[]=all 0xFF, LEFT win @ DGROUP 0x4fba struct 0x71b2"},
+    "equipped": [
+      {"item": "LONGSWORD", "bodySlot": 0, "invIdx": 0, "typeByte": "0x01", "observed_glyph_col3_row1": "0x02", "attr": "0x04"},
+      {"item": "BUCKLER", "bodySlot": 1, "invIdx": 1, "typeByte": "0x26", "observed_glyph_col4_row1": "0x27", "attr": "0x04"},
+      {"item": "poked carried item", "bodySlot": 0, "invIdx": 3, "typeByte": "0x2e", "observed_glyph_col3_row1": "0x2f", "attr": "0x04"}
+    ],
+    "conclusion": "Three distinct type bytes -> three distinct glyphs, each = typeByte+1. Glyph is ITEM-SPECIFIC, not category-fixed. Read from LEFT panel window CELL memory (ground truth), not the framebuffer."
+  },
+  "function_renames_recommended": [
+    "wbase FUN_0000_1b2d (file 0x1b2d / CS 0x6091): party_panel_redraw_slot (already so-named in prior finding; this pass confirms + corrects its layout)"
+  ],
+  "supersedes": [
+    "wbase-party-panel-redraw.json: documented NO hand-icon draw (gap filled here) and placed CLASS at row+1 (correct row is +2; hands are row+1). The HP/stamina-bar correction (FUN_1a4c base 0x56/0x63 = bars, NOT equipment tiles) made in party-panel-render.ts is confirmed here."
+  ],
+  "cross_references": [
+    "docs/re/findings/wpcvw-equip-internals.json — equipment[8] @ slot+0x44f8 (0xFF=empty), inv records @ slot+0x4428 (8-byte), item type byte +0x442d (scenario byte 61), equip exclusivity compares +0x442d to {0xb,0x16,0xd,0x17,0xc,0x53}",
+    "docs/re/findings/wbase-party-panel-redraw.json — superseded layout claims; window handles 0x4fba/0x4fb8, panel row formula, status/condition tables, class-symbol direct-offset",
+    "packages/viewer/src/pages/game/party-panel-render.ts — current port docstring layout, which this finding confirms",
+    "tools/parity/dump-cells.py — window-struct cell-grid read convention (cells @ struct+0x10)"
+  ]
+}

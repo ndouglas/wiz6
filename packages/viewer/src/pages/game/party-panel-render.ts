@@ -81,12 +81,26 @@ const HP_BAR_BASE = 0x56;
 const STAMINA_BAR_BASE = 0x63;
 
 /**
- * Empty-hands equipment glyphs (right hand, left hand), attr 0x04 / wfont4.
- * `ActivePartyMember` carries no equipment yet, so every member renders the
- * empty-hands sprite. When the schema grows right-/left-hand item fields,
- * map the equipped item type to its 2-cell glyph pair here (TODO).
+ * The right/left-hand equipment glyphs (col 3-4, row+1, attr 0x04 / wfont4).
+ * Per FUN_1b2d @ wbase 0x1d47 (RE: docs/re/findings/wbase-party-panel-hand-icons.json):
+ * for body slot s ∈ {0=right, 1=left}, equipment[s] is the inventory index of the
+ * worn item (0xFF = empty); if present AND its itemId > 0 the glyph is the item's
+ * `spriteIdx + 1` (the SAME engine rule as the char-sheet col-38 icon, just drawn in
+ * wfont4); otherwise the empty sentinel `s + 0x25` (right=0x25, left=0x26).
  */
-const EMPTY_HANDS: readonly [number, number] = [0x25, 0x26];
+function composeHandGlyphs(member: ActivePartyMember): [number, number] {
+  const inv = member.inventory ?? [];
+  const equipment = member.equipment ?? [];
+  const hand = (bodySlot: number): number => {
+    const idx = equipment[bodySlot];
+    const empty = (bodySlot + 0x25) & 0xff;
+    if (idx == null || idx === 0xff) return empty;
+    const item = inv[idx];
+    if (!item || item.itemId <= 0) return empty;
+    return (item.spriteIdx + 1) & 0xff;
+  };
+  return [hand(0), hand(1)];
+}
 
 /** Result of FUN_1b2d for one party slot. Renderable cell data — no
  *  pixel buffer here, that's the consumer's job. */
@@ -152,7 +166,7 @@ export function composePartyPanel(slot: number, member: ActivePartyMember): Part
     panelRow,
     fields: {
       name,
-      equipment: [EMPTY_HANDS[0], EMPTY_HANDS[1]],
+      equipment: composeHandGlyphs(member),
       classSymbol,
       statusIcon,
       conditionIcon,

@@ -79,9 +79,41 @@ describe('composePartyPanel', () => {
     expect(p.fields.classSymbol).toEqual([0x40, 0x41]);
   });
 
-  it('produces empty-hands equipment glyphs (no equipment schema yet)', () => {
+  it('empty hands render the wfont4 sentinels [0x25 right, 0x26 left]', () => {
+    // No equipment[] / inventory → both hands empty. RE: wbase-party-panel-hand-icons.json
+    // (FUN_1b2d 0x1d47: empty fallback glyph = bodySlot + 0x25).
     const p = composePartyPanel(0, nathanFighter());
     expect(p.fields.equipment).toEqual([0x25, 0x26]);
+  });
+
+  it('equipped hands render the item glyph (spriteIdx + 1), right then left', () => {
+    // FUN_1b2d 0x1d86: glyph = inventory[equipment[bodySlot]].spriteIdx + 1, wfont4.
+    // equipment[0]=right hand, [1]=left. LONGSWORD spr 0x01 -> 0x02; BUCKLER spr 0x26 -> 0x27.
+    const m = nathanFighter({
+      equipment: [0, 1, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+      inventory: [
+        { itemId: 8, weight: 0, equipSlot: 0, spriteIdx: 0x01, quantity: 1, flags: 1 },
+        { itemId: 141, weight: 0, equipSlot: 0xb, spriteIdx: 0x26, quantity: 1, flags: 1 },
+      ],
+    } as Partial<ActivePartyMember>);
+    expect(composePartyPanel(0, m).fields.equipment).toEqual([0x02, 0x27]);
+  });
+
+  it('one-handed: weapon in right hand, left hand stays the empty sentinel', () => {
+    const m = nathanFighter({
+      equipment: [0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+      inventory: [{ itemId: 9, weight: 0, equipSlot: 0, spriteIdx: 0x01, quantity: 1, flags: 1 }],
+    } as Partial<ActivePartyMember>);
+    expect(composePartyPanel(0, m).fields.equipment).toEqual([0x02, 0x26]);
+  });
+
+  it('equipment index pointing at an empty/zero item falls back to the sentinel', () => {
+    // FUN_1b2d 0x1d7b: a present index whose slot itemId<=0 renders the empty glyph.
+    const m = nathanFighter({
+      equipment: [0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+      inventory: [{ itemId: 0, weight: 0, equipSlot: 0, spriteIdx: 0x40, quantity: 0, flags: 0 }],
+    } as Partial<ActivePartyMember>);
+    expect(composePartyPanel(0, m).fields.equipment).toEqual([0x25, 0x26]);
   });
 
   it('full HP renders a full red bar [0x62,0x5e,0x59] (FUN_1a4c base 0x56)', () => {
