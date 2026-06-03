@@ -1,0 +1,102 @@
+diff --git a/src/cpu/core_normal.cpp b/src/cpu/core_normal.cpp
+index 037b550..6290fc8 100644
+--- a/src/cpu/core_normal.cpp
++++ b/src/cpu/core_normal.cpp
+@@ -62,6 +62,72 @@
+ 
+ extern Bitu cycle_count;
+ 
++/* ---- wiz6 instruction tracing hook (logging breakpoint) ----
++ * dbp_trace_target: linear CS:IP to match (0 = tracing off). When the normal
++ * core is about to execute the instruction at this linear address, a register
++ * snapshot is appended to a ring buffer and execution CONTINUES (no pause).
++ * Exported via extern "C" so the host harness can dlsym them. Zero behavior
++ * change when dbp_trace_target == 0 (a single compare per instruction). */
++#define DBP_TRACE_EXPORT __attribute__((__visibility__("default")))
++extern "C" {
++
++struct dbp_trace_rec {
++	Bit32u cs, eip;
++	Bit32u eax, ebx, ecx, edx, esi, edi, ebp, esp;
++	Bit32u ds, es, ss;
++	Bit32u stack[8]; /* top 8 words at ss:sp */
++};
++
++#define DBP_TRACE_CAP 4096
++volatile Bit32u dbp_trace_target = 0;
++static dbp_trace_rec dbp_trace_buf[DBP_TRACE_CAP];
++static Bit32u dbp_trace_head = 0;   /* write index (mod CAP) */
++static Bit32u dbp_trace_total = 0;  /* records logged since last drain/clear */
++
++static void dbp_trace_log_impl(void) {
++	dbp_trace_rec* r = &dbp_trace_buf[dbp_trace_head % DBP_TRACE_CAP];
++	r->cs  = SegValue(cs);   r->eip = reg_eip;
++	r->eax = reg_eax; r->ebx = reg_ebx; r->ecx = reg_ecx; r->edx = reg_edx;
++	r->esi = reg_esi; r->edi = reg_edi; r->ebp = reg_ebp; r->esp = reg_esp;
++	r->ds  = SegValue(ds);   r->es = SegValue(es);   r->ss = SegValue(ss);
++	PhysPt sp = SegPhys(ss) + reg_sp;
++	for (int i = 0; i < 8; i++) r->stack[i] = mem_readw(sp + i*2);
++	dbp_trace_head++;
++	if (dbp_trace_total < 0xffffffff) dbp_trace_total++;
++}
++
++DBP_TRACE_EXPORT void dbp_trace_set(Bit32u lin) { dbp_trace_target = lin; }
++DBP_TRACE_EXPORT void dbp_trace_clear(void) { dbp_trace_target = 0; dbp_trace_head = 0; dbp_trace_total = 0; }
++DBP_TRACE_EXPORT Bit32u dbp_trace_count(void) { return dbp_trace_total < DBP_TRACE_CAP ? dbp_trace_total : DBP_TRACE_CAP; }
++
++/* Copy up to max_entries records (oldest-first) into buf, then clear the buffer.
++ * Returns the number copied. */
++DBP_TRACE_EXPORT Bit32u dbp_trace_drain(void* buf, Bit32u max_entries) {
++	Bit32u have = dbp_trace_count();
++	Bit32u n = have < max_entries ? have : max_entries;
++	dbp_trace_rec* out = (dbp_trace_rec*)buf;
++	/* If the ring wrapped, the oldest entry is at dbp_trace_head; otherwise 0. */
++	Bit32u start = (dbp_trace_total > DBP_TRACE_CAP) ? (dbp_trace_head % DBP_TRACE_CAP) : 0;
++	for (Bit32u i = 0; i < n; i++)
++		out[i] = dbp_trace_buf[(start + i) % DBP_TRACE_CAP];
++	dbp_trace_head = 0; dbp_trace_total = 0;
++	return n;
++}
++
++/* Snapshot the live registers on demand (same layout as a trace record,
++ * stack[] = top 8 words at the current ss:sp). */
++DBP_TRACE_EXPORT void dbp_regs(void* out) {
++	dbp_trace_rec* r = (dbp_trace_rec*)out;
++	r->cs  = SegValue(cs);   r->eip = reg_eip;
++	r->eax = reg_eax; r->ebx = reg_ebx; r->ecx = reg_ecx; r->edx = reg_edx;
++	r->esi = reg_esi; r->edi = reg_edi; r->ebp = reg_ebp; r->esp = reg_esp;
++	r->ds  = SegValue(ds);   r->es = SegValue(es);   r->ss = SegValue(ss);
++	PhysPt sp = SegPhys(ss) + reg_sp;
++	for (int i = 0; i < 8; i++) r->stack[i] = mem_readw(sp + i*2);
++}
++
++} /* extern "C" */
++
+ #if C_FPU
+ #define CPU_FPU	1						//Enable FPU escape instructions
+ #endif
+@@ -152,6 +218,7 @@ static INLINE Bit32u Fetchd() {
+ Bits CPU_Core_Normal_Run(void) {
+ 	while (CPU_Cycles-->0) {
+ 		LOADIP;
++		if (dbp_trace_target && core.cseip==dbp_trace_target) dbp_trace_log_impl();
+ 		core.opcode_index=cpu.code.big*0x200;
+ 		core.prefixes=cpu.code.big;
+ 		core.ea_table=&EATable[cpu.code.big*256];
+diff --git a/src/hardware/mixer.cpp b/src/hardware/mixer.cpp
+index a7c3cfb..0669cf8 100644
+--- a/src/hardware/mixer.cpp
++++ b/src/hardware/mixer.cpp
+@@ -580,6 +580,12 @@ static void SDLCALL
+ void
+ #endif
+ MIXER_CallBack(void * /*userdata*/, uint8_t *stream, int len) {
++	/* Guard the empty-buffer case: len==0 -> need==0 -> `index_add % need` below is
++	 * modulo-by-zero (undefined behavior). clang -O2 on arm64 exploits that UB into
++	 * an out-of-bounds store that SIGSEGVs during boot (the libretro buildbot's
++	 * toolchain happened not to). Returning early on an empty buffer is harmless and
++	 * fixes it at the root. */
++	if (len <= 0) return;
+ 	Bitu need=(Bitu)len/MIXER_SSIZE;
+ 	Bit16s * output=(Bit16s *)stream;
+ 	Bitu reduce;

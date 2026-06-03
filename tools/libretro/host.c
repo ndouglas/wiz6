@@ -9,6 +9,10 @@
 //   fb <path>                write the latest frame as raw RGBA -> "ok <w> <h>"
 //   serialize <path>         save state
 //   unserialize <path>       load state
+//   regs                     snapshot live regs -> "ok cs=.. eip=.. eax=.. ... stack=w0,w1,..,w7"
+//   trace <hexlin>           set the logging-breakpoint linear CS:IP (0 = off)
+//   traceoff                 clear the trace target + ring buffer
+//   tracelog                 drain the ring buffer -> one "rec ..." line per record, then "ok <n>"
 //   quit
 //
 // Memory is exposed by dosbox-pure via SET_MEMORY_MAPS (NOT RETRO_MEMORY_SYSTEM_RAM),
@@ -30,6 +34,21 @@ struct retro_memory_map { const struct retro_memory_descriptor *descriptors; uns
 #define DEV_KEYBOARD 3
 #define DEV_MOUSE 2  // RETRO_DEVICE_MOUSE; id 0=X-rel, 1=Y-rel
 #define DGROUP_ANCHOR_OFFSET 0x5d6  // DISK.HDR string sits at DGROUP+0x5d6 (see dgroup.ts)
+
+// Trace record — MUST match dbp_trace_rec in core_normal.cpp (patched core).
+// 13 u32 regs + 8 u32 stack words = 21 u32 = 84 bytes.
+struct dbp_trace_rec {
+  uint32_t cs, eip;
+  uint32_t eax, ebx, ecx, edx, esi, edi, ebp, esp;
+  uint32_t ds, es, ss;
+  uint32_t stack[8];
+};
+// Trace API resolved from the patched core (NULL on an unpatched/fallback core).
+static void (*g_trace_set)(uint32_t) = NULL;
+static void (*g_trace_clear)(void) = NULL;
+static uint32_t (*g_trace_count)(void) = NULL;
+static uint32_t (*g_trace_drain)(void*, uint32_t) = NULL;
+static void (*g_regs)(void*) = NULL;
 
 static const char *SCRATCH = "/tmp/wiz6-libretro";
 static struct retro_memory_descriptor g_desc[64];
@@ -183,6 +202,13 @@ int main(int argc, char **argv) {
   size_t (*ser_size)(void) = dlsym(h, "retro_serialize_size");
   bool (*ser)(void*, size_t) = dlsym(h, "retro_serialize");
   bool (*unser)(const void*, size_t) = dlsym(h, "retro_unserialize");
+  // Tracing API (patched core only). dlsym returns NULL on the unpatched core;
+  // the trace commands then report "err notrace".
+  g_trace_set = dlsym(h, "dbp_trace_set");
+  g_trace_clear = dlsym(h, "dbp_trace_clear");
+  g_trace_count = dlsym(h, "dbp_trace_count");
+  g_trace_drain = dlsym(h, "dbp_trace_drain");
+  g_regs = dlsym(h, "dbp_regs");
 
   set_env(env); set_vr(cb_video); set_as(cb_audio); set_asb(cb_audio_batch);
   set_ip(cb_input_poll); set_is(cb_input_state);
@@ -289,6 +315,45 @@ int main(int argc, char **argv) {
       fseek(f,0,SEEK_END); long sz=ftell(f); fseek(f,0,SEEK_SET);
       void *b = malloc(sz); fread(b,1,sz,f); fclose(f);
       printf(unser(b, sz) ? "ok\n" : "err unser\n"); free(b);
+    }
+    else if (!strcmp(cmd, "regs")) {
+      if (!g_regs) { printf("err notrace\n"); continue; }
+      struct dbp_trace_rec r; g_regs(&r);
+      printf("ok cs=%04x eip=%x eax=%x ebx=%x ecx=%x edx=%x esi=%x edi=%x "
+             "ebp=%x esp=%x ds=%04x es=%04x ss=%04x stack=",
+             r.cs, r.eip, r.eax, r.ebx, r.ecx, r.edx, r.esi, r.edi,
+             r.ebp, r.esp, r.ds, r.es, r.ss);
+      for (int i=0;i<8;i++) printf("%s%04x", i?",":"", r.stack[i]);
+      printf("\n");
+    }
+    else if (!strcmp(cmd, "trace")) {
+      if (!g_trace_set) { printf("err notrace\n"); continue; }
+      uint32_t lin = (uint32_t)strtoul(a1, NULL, 16);
+      g_trace_set(lin);
+      printf("ok trace=%x\n", lin);
+    }
+    else if (!strcmp(cmd, "traceoff")) {
+      if (!g_trace_clear) { printf("err notrace\n"); continue; }
+      g_trace_clear();
+      printf("ok\n");
+    }
+    else if (!strcmp(cmd, "tracelog")) {
+      if (!g_trace_drain) { printf("err notrace\n"); continue; }
+      uint32_t cap = g_trace_count();
+      struct dbp_trace_rec *recs = NULL;
+      uint32_t n = 0;
+      if (cap) { recs = malloc((size_t)cap * sizeof *recs); n = g_trace_drain(recs, cap); }
+      for (uint32_t k=0;k<n;k++) {
+        struct dbp_trace_rec *r = &recs[k];
+        printf("rec cs=%04x eip=%x eax=%x ebx=%x ecx=%x edx=%x esi=%x edi=%x "
+               "ebp=%x esp=%x ds=%04x es=%04x ss=%04x stack=",
+               r->cs, r->eip, r->eax, r->ebx, r->ecx, r->edx, r->esi, r->edi,
+               r->ebp, r->esp, r->ds, r->es, r->ss);
+        for (int i=0;i<8;i++) printf("%s%04x", i?",":"", r->stack[i]);
+        printf("\n");
+      }
+      free(recs);
+      printf("ok %u\n", n);
     }
     else printf("err cmd\n");
   }
