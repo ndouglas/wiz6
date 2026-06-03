@@ -1,0 +1,160 @@
+{
+  "topic": "wpcvw-spell-cast-chain",
+  "subagent_run": "2026-06-03T00:00:00Z",
+  "binaries": ["wpcvw.ovr", "wdopt.ovr", "wroot.exe", "test-fixtures/original/pcfile.dbs"],
+  "summary": "Full RE of the spell-CASTING chain (select spell -> select POWER/strength -> pay cost -> resolve effect). This pass RESOLVES the two big open items from wpcvw-spell-action.json: (1) the POWER/strength ('dice') selection mechanic [the prior pass marked the case-0..3 adjust handler 'Ghidra-garbled' / 'needs a clean disasm pass'], and (2) the exact cost arithmetic. KEY RESULTS: (A) POWER SELECTION. After a spell is ENTERed in the school sublist (MODE!=0), the picker (wpcvw_show_spellbook @ 0x32a6) opens an interactive POWER bar in the same realm-row cell. The current power is local [bp-0x36], INIT=1. MAX power = clamp(charLevel - spellLevel + 1, 1, 6), where charLevel = char_record +0x440c (LEVEL) and spellLevel = spell-table entry+0xdf. Keys: UP/DOWN (kbd codes 1/3) decrement/increment power within [1..maxPower], drawing/erasing yellow cursor-block cells in the realm-row (one cell per power point); RIGHT (code 4) toggles the realm 'pick power' sub-state; ENTER (code 5) confirms. Each power change recomputes COST = spell.cost(+0xe0) * power and re-tints the spell name affordable/unaffordable. On confirm the picker RETURNS ax = (power<<8) | spell_idx (built at 0x3de2: xchg ah,al / sub al,al / add ax,idx). power==0 at confirm => cancel (0xffff). (B) COST. FUN_416d @ 0x416d splits the return via idiv 0x100 (quotient=power, remainder=spell_idx). MANA = cost(+0xe0) * power, SUBTRACTED from per-school mana pool char +0x4410 + school(+0xde)*4 (== schoolManaCur[school], the +0x28-relative interleaved field; NOT a separate pool). SP/OVERCAST = rng_next(power) + spellLevel(+0xdf) + power, SUBTRACTED from char +0x4404 (== spCurrent / SPIRIT POINTS, the global SP pool -- NOT HP; prior wpcvw/wdopt findings mislabel +0x4404 as 'HP', it is SP). If +0x4404 goes < 0: clamp to 0 AND set knockout/condition byte +0x450c := 6 + rng_next(6) (a 6..11 status duration = conditions[2], the sleep/charm/paralyze register). NO affordability pre-check: cast-and-pay, overcast can knock the caster out. (C) EFFECT DISPATCH @ 0x25d8: arg [bp+6]=spell_id (the *0x578e dispatch KEY), [bp+8]=power, [bp+0xa]=slot; scasw an 18-entry spell-id key table @ file 0x2b54 (runtime CS:0x70b8, delta 0x4564), jmp to the matching handler (table+0x22). POWER scales the effect by (i) feeding the dice helper as the DICE COUNT (HEAL WOUNDS @ 0x2910: rolls 'power' dice via 0x2530/0x2501 -> sum of power*rng(7)+1, capped at maxHP +0x4402) or (ii) as a linear multiplier on a party-buff duration global (e.g. ENCHANTED-BLADE-type @ 0x25e6: power*50 added to *0x4ed0). (D) DUNGEON ENTRY: game-state 0x13 -> wdopt_state_13_spell_cast @ wdopt 0x39cc (entered from wmaze 0x28f7 with selected char idx via *0x43cc), uses wdopt's OWN picker (0x2699, clone of wpops 0x1ee6) + OWN 20-entry dispatcher (0x1af0, key table @ file 0x1f92 = runtime CS:0x64f6 - delta 0x4564) but the SAME cost/power laws; writes *0x363a=5 to return to wmaze. wdopt's runtime DELTA = 0x4564 (DERIVED + verified this pass; identical to wpcvw/wpcmk). (E) LIVE: drove the pinned roster to TREON's camp SPELL spellbook (MODE=0 browse) and read the record fields backing every formula: TREON L1, schoolManaCur Fire=3 Mental=3, SP 102/102, known bitset=[0,48]; ENERGY BLAST (idx0) school=0 level=1 cost=2. Predicted max-power=1, mana=2, SP-overcast=2 -- all consistent with the disasm.",
+  "method": "(a) ndisasm -b 16 -k 0,<file_off> of wpcvw.ovr: the picker 0x32a6 in full (school grid 0x33d8-0x369f; sublist nav 0x36de-0x3940; the POWER sub-window 0x3984-0x3dec including max-power compute 0x39d0-0x3a10, cost recompute 0x3aa1-0x3abd, power render 0x3a1a-0x3a99, UP/DOWN loop 0x3c6e-0x3d43, confirm/encode 0x3d80-0x3dec), the cost/cast core FUN_416d 0x416d-0x4296, the effect dispatcher 0x25d8 + scasw tail 0x2b9e, the dice helpers 0x2530/0x2501, HEAL 0x2910 and buff-effect 0x25e6. (b) wdopt.ovr: dispatcher 0x1af0 + scasw tail 0x1fe0 (di=0x64f6, cx=0x14). (c) DERIVED wdopt delta: tested candidate deltas against the runtime table 0x64f6; delta 0x4564 lands a clean 19-entry spell-id run at file 0x1f92 (0x0a,0x0f,0x1a,0x1e,0x26,0x27,0x29,0x2e,0x33,0x35,0x39,0x3c,0x3e,0x40,0x44,0x46,0x4d,0x50,0x51); no other candidate produced spell-id-shaped bytes. (d) cross-ref pcfile.ts schema (+0x18 hpCur, +0x1c spCur, +0x24 level abs 0x440c, +0x28+i*4 schoolManaCur abs 0x4410, +0x188 knownSpellBitset, +0x122 conditions abs 0x450a) and character-record-extended-map-v2.json (+0x450c=conditions[2]=DEAD/status). (e) LIVE: LiveSession (dosbox-pure harness) booted the pinned test-fixtures roster, drove SPELLBOOK_REACH (5-member party -> REVIEW MEMBER -> TREON -> SPELL -> FIRE grid -> ENTER sublist), read records at DGROUP 0x43e8+slot*0x1b0 and the spell table at DGROUP+0xde, and screenshotted the FIRE sublist (ENERGY BLAST + COST 2 + yellow power bar).",
+  "deltas_derived": {
+    "wdopt_runtime_delta": "0x4564 (file_offset = CS_offset - 0x4564). DERIVED: the state-0x13 dispatcher at wdopt 0x1af0 jumps to the scasw tail 0x1fe0 which sets di=0x64f6 (the spell-id key table, cx=0x14=20). 0x64f6 - 0x4564 = file 0x1f92, which reads as a clean run of 19 ascending spell ids + 1 handler-pointer word. Same delta as wpcvw/wpcmk (the three share wroot's overlay code-segment slot). ADD to the CLAUDE.md overlay-delta table: wdopt.ovr = 0x4564.",
+    "wpcvw_runtime_delta": "0x4564 (confirmed, carried from prior passes)."
+  },
+  "findings": [
+    {
+      "id": "power-selection-mechanic",
+      "claim": "The POWER/strength ('dice') selection is an interactive sub-state INSIDE wpcvw_show_spellbook (0x32a6), reached only when MODE!=0 after a spell is ENTERed in the school sublist. The current power is local [bp-0x36] (call it `power`), INITIALIZED to 1 at 0x39cb. The MAXIMUM power is local [bp-0x38] (`maxPower`) computed at 0x39d0-0x3a10 as: charLevel - spellLevel + 1, then clamped to [1, 6]. charLevel = char_record +0x440c (the LEVEL field, read as [bx+0x440c] with bx=slot*0x1b0); spellLevel = spell-table entry+0xdf (the per-spell level byte, [bx+0xdf] with bx=spell_idx*6). So a level-1 caster can only ever cast a level-1 spell at power 1; a level-6 caster can cast a level-1 spell at up to power 6 (the hard cap). The COST is recomputed every time power changes: COST = spell.cost(+0xe0) * power, stored at [bp-0x42] (0x3ab4-0x3abd, and again in the realm sub-block 0x3aa7). The power bar is RENDERED as a row of cursor-block cells (one cell per power point up to maxPower) in the spell-panel realm row (window [bp-0x2], col base from window struct +2/+3, codes via the cell printer 0xc6b2) at 0x3a1a-0x3a99. KEY HANDLING: the kbd filter returns a code into [bp-0x6]; the sub-state dispatch at 0x3d4a routes code 1 (UP) -> 0x3c6e (decrement power: if power>0, erase the top cursor cell via 0xdd53 and `dec [bp-0x36]`), code 3 (DOWN) -> 0x3ca8 (increment: if power < maxPower draw a cell and `inc [bp-0x36]`; if power==0 it re-enters the realm label), code 5 (ENTER) -> exit. RIGHT (code 4 handled in the outer realm loop at 0x3c0a) toggles between the spell-list focus and the power-row focus (realm sub-state local [bp-0x36] vs the school cell). At ENTER, an affordability/validity gate (0x3d63-0x3d7b: re-reads schoolManaCur and compares to COST) loops back if power would overspend; otherwise it falls to the ENCODE step. NOTE: the UP/DOWN-vs-power-direction labels are inferred from the kbd codes 1/3 (the project's standard UP=1/DOWN=3 nav) -- the increment/decrement bodies are unambiguous (`inc`/`dec [bp-0x36]` with the maxPower/0 bounds) but which physical arrow maps to inc is MEDIUM until eyeballed live.",
+      "category": "spell_power_select",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x39cb"},
+        "type": "disasm",
+        "details": "0x39cb mov word [bp-0x36],1 (power init). 0x39d0 ax=0x1b0; imul [bp+8](slot); bx=ax; 0x39d8 ax=[bx+0x440c](charLevel); push. 0x39dd-0x39ea bx=idx*3*2; cl=[bx+0xdf](spellLevel); cx=cl. 0x39f2 pop ax(charLevel); 0x39f3 sub ax,cx; 0x39f5 inc ax; [bp-0x38]:=ax(maxPower). 0x39f9-0x3a10 clamp: if maxPower<1 ax:=1; if maxPower>6 ax:=6; store [bp-0x38]. 0x3a1a-0x3a59 loop si=[bp-0x6] 0..maxPower drawing realm-cells (codes via 0xc6b2 at row [bx+0x3]+0xc, col [bx+2]+si+3). 0x3aa7-0x3abd ax=[bx+0xe0](cost); imul [bp-0x36](power); [bp-0x42]:=cost*power. 0x3c6e (DOWN/dec): if [bp-0x36]>0 erase cell (0xdd53) + dec [bp-0x36]. 0x3ca8 (UP/inc path via realm): if [bp-0x36]==0 re-enter label else cmp [bp-0x36] vs [bp-0x38] and inc. 0x3d4a dispatch: cmp ax,1 jz 0x3c6e; cmp ax,3 jz 0x3ca8. 0x3d63-0x3d7b ENTER gate: ax=[bx+0x4410](schoolManaCur); cmp ax,[bp-0x42](cost); jnl proceed else loop. 0x3d80 success: destroy windows, if [bp-0x36]==0 return 0xffff (0x3da0-0x3da9). 0x3de2 encode: ax=[bp-0x36](power); xchg ah,al; sub al,al (power<<8); add ax,[bp-0x34](idx); return.",
+        "comparator_note": "max-power clamp comparators verified by LIVE drive: TREON L1 + ENERGY BLAST L1 => maxPower = 1-1+1 = 1 (clamped low to 1). The clamp `if maxPower<1 ax:=1` (0x39ff cmp cx,1 jl) and `if >6 ax:=6` (0x3a07 cmp ax,6 jng) are standard. The maxPower FORMULA (charLevel - spellLevel + 1) is HIGH (live charLevel/spellLevel confirm the value); the inc-vs-UP arrow mapping is MEDIUM (codes 1/3 are project-standard but not eyeballed mid-adjust)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "power-encoding-into-return",
+      "claim": "The picker encodes the chosen (power, spell_idx) into a single 16-bit return value: ax = (power << 8) | spell_idx (high byte = power 1..6, low byte = spell-table index 0..81). Built at 0x3de2 (xchg ah,al on [bp-0x36]; sub al,al; add ax,[bp-0x34]). FUN_416d (the caller) recovers them at 0x41fe-0x4207 by `cwd; idiv 0x100` -> ax(quotient)=power = [bp-0x6], dx(remainder)=spell_idx = [bp-0x4]. The packed value is ALSO surfaced via the globals the prior pass noted: *0x578e holds the spell id (written in the level-up/special-spell path at 0x3dd4) and *0x578a is the realm-row power scratch word (init 0x11 / 0 at 0x3542/0x3717/0x3b03) used by the renderer -- but the AUTHORITATIVE power+idx the cost core consumes is the packed AX return, not *0x578a. (Correction to wpcvw-spell-action.json's 'power in *0x578a': *0x578a is a render scratch; the cast core reads power from the packed return's high byte.)",
+      "category": "spell_power_select",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x3de2"},
+        "type": "disasm",
+        "details": "0x3de2: mov ax,[bp-0x36]; 0x3de5 xchg ah,al; 0x3de7 sub al,al (ax = power*0x100); 0x3de9 add ax,[bp-0x34](spell idx); 0x3dec jmp 0x36da (return ax). FUN_416d 0x41fe: mov cx,0x100; cwd; idiv cx; [bp-0x6]:=ax(power); [bp-0x4]:=dx(idx). *0x578a writes: 0x3542 =0x11, 0x3717 =0, 0x3b03 =0x11, 0x3b8c =0 -- all render-state, not the cast value.",
+        "comparator_note": "n/a -- the encode/decode is a clean byte-pack/idiv pair."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "mana-cost-formula",
+      "claim": "MANA cost = spell.cost * power, where spell.cost = spell-table entry+0x2 (== [bx+0xe0], bx=spell_idx*6), and the cost is SUBTRACTED from the caster's PER-SCHOOL mana pool at char_record + 0x4410 + school*4 (school = spell-table entry+0x0 == [bx+0xde]; the *4 stride is the `shl ax,1; shl ax,1` at 0x4230-0x4234). This pool is schoolManaCur[school] (pcfile +0x28 + school*4, interleaved cur/max). VERIFIED LIVE: TREON Fire pool = 3; ENERGY BLAST cost=2, max power=1 => mana cost = 2*1 = 2 (affordable, leaves 1). The deduction is UNCONDITIONAL (no clamp to 0 in FUN_416d's mana sub at 0x423b) -- the affordability tint in the picker is informational only.",
+      "category": "spell_cost",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x420e"},
+        "type": "disasm + live_drive",
+        "details": "0x420e bx=dx(idx)*3*2; 0x4216 al=[bx+0xe0](cost); 0x421c imul [bp-0x6](power); push ax(=cost*power). 0x4220 ax=0x1b0; imul [bp+8](slot)->cx. 0x4228 al=[bx+0xde](school); 0x4230 shl ax,1; 0x4232 shl ax,1 (school*4); add cx,ax; bx=cx. 0x423a pop ax; 0x423b sub [bx+0x4410],ax (schoolManaCur[school] -= cost*power). Live: schoolManaCur for TREON read as Fire=3 Mental=3 (the two known schools); spell[0] cost byte=2.",
+        "comparator_note": "No comparator; straight subtract. The *4 school stride matches the pcfile schema's +0x28+i*4 interleave (cur at +0x4410+school*4)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "sp-overcast-and-knockout",
+      "claim": "The SECOND cost is a SPIRIT-POINT / fatigue 'overcast' charge, separate from the school-mana cost. AMOUNT = rng_next(power) + spellLevel + power, where rng_next(power) returns 0..power-1 (wroot 0xc47e), spellLevel = spell-table entry+0xdf, power = the chosen power. This is SUBTRACTED from char_record +0x4404. CRITICAL CORRECTION: +0x4404 is spCurrent (SPIRIT POINTS, the global SP pool) per the pcfile schema -- NOT HP (HP is +0x4400). Prior wpcvw-spell-action.json and wdopt-naming-pass.json both call +0x4404 'HP'; it is SP. If the post-subtraction SP goes NEGATIVE: clamp SP to 0 AND set the KNOCKOUT/condition byte +0x450c := 6 + rng_next(6) (a value 6..11). +0x450c is conditions[2] -- the DEAD/sleep/charm status register (per character-record-extended-map-v2.json the +0x450c byte drives the DEAD portrait override; here a nonzero 6..11 is a temporary incapacitation from over-casting). So 'overcast' = spending more SP than you have collapses the caster with a 6..11-duration status. VERIFIED LIVE: TREON SP=102/102; ENERGY BLAST at power 1 => overcast = rng(1)+1+1 = 0+2 = 2 SP (rng(1) is always 0), no collapse.",
+      "category": "spell_cost",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x423f"},
+        "type": "disasm + cross_reference",
+        "details": "0x423f push [bp-0x6](power); 0x4242 call 0xc47e (rng_next, returns 0..arg-1); push ax. 0x4247 bx=idx*3*2; 0x4254 al=[bx+0xdf](spellLevel); cx=ax. 0x425c pop ax(rng); add ax,cx(+spellLevel); 0x425f add ax,[bp-0x6](+power); push. 0x4263 bx=0x1b0*slot; 0x426c sub [bx+0x4404],ax (spCurrent -= rng+spellLevel+power). 0x4270 cmp [bx+0x4404],0; jnl 0x4296 (skip if >=0). 0x4277 mov [bx+0x4404],0 (clamp). 0x427d push 6; call 0xc47e; add ax,6; 0x4292 mov [bx+0x450c],al (status := 6+rng(6) = 6..11). Schema: +0x4404 = spCurrent (pcfile.ts line 56). +0x450c = conditions[2] (abs 0x450a base +2; character-record-extended-map-v2.json). wdopt 0x39cc has the byte-identical block per wdopt-naming-pass.json.",
+        "comparator_note": "HP/SP-negative comparator `cmp [bx+0x4404],0 / jnl 0x4296` (skip clamp+knockout if SP>=0): clear, HIGH. The 'HP vs SP' field identity is the correction -- HIGH per the pcfile schema."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "effect-dispatch-and-power-scaling",
+      "claim": "The out-of-combat effect dispatcher is FUN @ wpcvw 0x25d8. Args: [bp+4]=mainPanel window, [bp+6]=spell_id (DISPATCH KEY, = *0x578e), [bp+8]=power, [bp+0xa]=slot. Mechanism: it scasw-searches an 18-entry spell-id KEY table at file 0x2b54 (runtime CS:0x70b8, delta 0x4564) for [bp+6], then `jmp [es:di+0x22]` into the parallel handler-pointer table that abuts the keys (0x2bad-0x2bb3). The dispatch is INDEXED BY SPELL ID (not a category/effect-class byte) -- a flat id->handler map; spell ids NOT in the 18 entries fall through (no effect). POWER ([bp+8]) scales the effect TWO ways, decided per-handler: (1) DICE COUNT -- damage/heal handlers pass `power` as the dice COUNT to the dice builder 0x2530 + accumulator 0x2501, which rolls `count` dice of `(die_size)` each and sums (each die = rng_next(die_size)+1). So more power = more dice = larger magnitude. (2) LINEAR MULTIPLIER on a party-buff DURATION global -- buff handlers compute `power * K` and ADD it to a *0x4ecc.. duration word. So the 'dice' the user means = the power-many dice rolled in the damage/heal handlers; for buffs, power scales duration linearly.",
+      "category": "spell_effects",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x25d8"},
+        "type": "disasm",
+        "details": "0x25d8: ax=[bp+6](spell_id); jmp 0x2b9e. 0x2b9e: push es; es=cs; di=0x70b8; cx=0x13; repne scasw (ax==spell_id); cx=[es:di+0x22]; jmp cx. Key table file 0x2b54 = 0x70b8-0x4564, 18 ids [0x0a,0x0f,0x1a,0x1e,0x26,0x29,0x2e,0x33,0x35,0x36,0x39,0x40,0x44,0x46,0x49,0x4d,0x50,0x51]. Handler ptrs at +0x24 (di advances during scan; +0x22 read). Power-as-dice-count: HEAL @ 0x2910 pushes [bp+8](power) as both args to 0x2530 (see effect-heal-dice). Power-as-multiplier: 0x25e6 (id 0x44 ENCHANTED BLADE) computes ax = power*50 (dx=power; shl ax,1 ->2; add dx ->3; shl 3 ->24; add dx ->25; shl 1 ->50) and `add [0x4ed0],ax` (buff duration), then 0x2588(power-derived) -> [0x4ed2] (magnitude).",
+        "comparator_note": "scasw cx=0x13=19 nominally scans 19 words; the 19th abuts the handler table so 18 real ids. Power-scaling MODE per handler is HIGH for the two decoded shapes (HEAL dice, buff multiplier); the remaining ~12 handler bodies' exact scaling is not re-decoded here (see wpcvw-spell-action.json unresolved)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "effect-heal-dice",
+      "claim": "SPOT-CHECK (HEAL WOUNDS, id 0x40, handler @ 0x2910): the dice formula is `heal = sum over `power` dice of (rng_next(7)+1)`, added to char_record +0x4400 (hpCurrent), capped at +0x4402 (hpMax). The handler calls 0x2530(power, 7, power) to build a dice descriptor at globals 0x5538/0x553a [count=power, die-related fields], copies the 4-byte descriptor to the stack, and calls 0x2501 which loops `count` times doing `acc += rng_next(die_size)+1`. So power is the DICE COUNT and 7 is the per-die parameter (die faces). This is the canonical 'power = number of dice' scaling. (The other 17 handlers follow the same two shapes -- dice-count for damage/heal/cure, linear-multiplier for buffs/durations.)",
+      "category": "spell_effects",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x2910"},
+        "type": "disasm",
+        "details": "0x2910 push [bp+8](power); push 7; push [bp+8](power); call 0x2530. 0x2530 stores [bp+8] at *0x5538 and [bp+4] at *0x553a, returns &0x5538. HEAL movsw x2 (copy 4 bytes) then call 0x2501. 0x2501: [bp+4]=base; [bp+6]=count(low byte); [bp+7]=dieSize(high byte); loop while count>0: ax += rng_next(dieSize)+1; dec count. 0x2937 [bp-2]:=acc. 0x293b bx=0x1b0*[bp+0xa](slot); 0x2944 add [bx+0x4400],acc (hpCurrent); 0x2948 cmp [bx+0x4400],[bx+0x4402]; jng; clamp to hpMax.",
+        "comparator_note": "HP cap comparator `cmp cur,max; jng skip-clamp` standard. Note HEAL writes +0x4400 (HP) -- correctly the HP field, distinct from the +0x4404 (SP) overcast cost. The dice-count = power is HIGH."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun416d-mode-gate",
+      "claim": "FUN_416d @ wpcvw 0x416d (the view-SPELL action) gates the WHOLE cast on MODE ([bp+0xa]). MODE==0 (camp/combat browse): calls the picker with mode arg 0 (0x41be) -> picker returns immediately on ENTER without ever entering the power sub-window (0x3958 cmp [bp+0xa],0; jz returns the bare value) -> FUN_416d does NO cost deduction and NO effect dispatch (returns at 0x41d7). This is the READ-ONLY spellbook viewer (confirmed: the camp screenshot shows COST 2 but spends nothing). MODE!=0 (dungeon / default): picker with mode arg 1 -> the full power-select sub-window runs -> on confirm FUN_416d runs the cost block (mana + SP overcast) and dispatches the effect. The camp SPELL action passes MODE=0 from the context mask (*0x4fce==4 camp); the dungeon path is wdopt's own handler (separate code), so within wpcvw itself the MODE!=0 cast path is reached only when *0x4fce!=4/!=0xd (the 'default' view context).",
+      "category": "spell_cast",
+      "evidence": {
+        "binary": "wpcvw.ovr",
+        "address": {"space": "wpcvw.ovr", "offset": "0x41b8"},
+        "type": "disasm + live_drive",
+        "details": "0x41b8 cmp [bp+0xa],0; jnz 0x41da. 0x41be (MODE==0): push 0(mode); push slot; push mainPanel; push partyRow; call 0x32a6; *0x553c:=0xffff; jmp 0x42af (return, no cost/effect). 0x41da (MODE!=0): push 1(mode); ...; call 0x32a6; if 0xffff return; else 0x41fe cost block. Picker 0x3958: cmp [bp+0xa],0; jnz 0x3984 (enter power sub-window). Live: camp SPELL viewer for TREON renders ENERGY BLAST + COST 2 + a yellow power-bar but is read-only (MODE=0).",
+        "comparator_note": "MODE 0-vs-nonzero `jnz` test, unambiguous."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "dungeon-cast-entry-state-0x13",
+      "claim": "The DUNGEON out-of-combat cast is game-state 0x13, handled by wdopt_state_13_spell_cast @ wdopt 0x39cc. Entered from wmaze's dungeon loop (wmaze 0x28f7) when the player picks CAST for a character, with the selected char index passed via *0x43cc. The handler: opens a small message window, focuses *0x4fb0, calls wdopt's OWN spell picker FUN_2699 (a near-clone of the combat picker wpops 0x1ee6 -- school grid + sublist + cost bar, returns the same (power<<8)|idx packed value), then runs the IDENTICAL cost laws as wpcvw: mana = cost(+0xe0)*power from char +0x4410+school*4; SP overcast = rng+spellLevel+power from char +0x4404; clamp-to-0 + knockout +0x450c:=6+rng(6) on negative. It dispatches the effect via wdopt's OWN 20-entry dispatcher FUN_1af0 (scasw key table @ file 0x1f92 = CS:0x64f6 - delta 0x4564). On completion writes *0x363a = 5 to return to wmaze (dungeon traversal). So the dungeon cast SHARES the data model + cost/power math with wpcvw but DUPLICATES the picker + effect code (engine code duplication, the third sibling alongside wpops combat). wdopt's 19-20 effect ids are a SUPERSET of wpcvw's 18 (extra: 0x27, 0x3c, 0x3e -- likely dungeon-only DIRECTION/locate/light variants).",
+      "category": "dungeon_cast",
+      "evidence": {
+        "binary": "wdopt.ovr",
+        "address": {"space": "wdopt.ovr", "offset": "0x39cc"},
+        "type": "disasm + cross_reference",
+        "details": "wdopt dispatcher 0x1af0 -> scasw tail 0x1fe0: di=0x64f6, cx=0x14 (20), cx=[es:di+0x24] jmp. Key table file 0x1f92 = 0x64f6-0x4564: [0x0a,0x0f,0x1a,0x1e,0x26,0x27,0x29,0x2e,0x33,0x35,0x39,0x3c,0x3e,0x40,0x44,0x46,0x4d,0x50,0x51,(handler ptr 0x6156)]. Per wdopt-naming-pass.json fn-state-13-handler: 0x39cc calls FUN_2699 (picker), `iVar7=ret/0x100; iVar3=ret%0x100; *(char+iVar1*0x1b0 + spell.+0xde*4 + 0x4410) -= spell.+0xe0 * iVar7; FUN_1af0(...); iVar4=rng; *(char+0x4404) -= iVar4+spell.+0xdf+param; if <0 {=0; char.+0x450c = rng(6)+6}`; then *0x363a=5. The cost/power math is byte-identical to wpcvw FUN_416d. Entry from wmaze 0x28f7 with *0x43cc = selected char.",
+        "comparator_note": "wdopt delta 0x4564 DERIVED this pass (table-candidate test); the 0x6156 20th word is the first handler pointer (tables abut). The +0x4404='HP' label in wdopt-naming-pass.json is the same SP mislabel corrected in sp-overcast-and-knockout."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "live-ground-truth",
+      "claim": "LIVE drive of the pinned roster (dosbox-pure harness via LiveSession) confirms every INPUT to the power/cost formulas. Drove SPELLBOOK_REACH (5-member party: THESUS/TEMPEST/LYSANDR/NOBAL/TREON -> REVIEW MEMBER -> TREON -> SPELL -> FIRE grid -> ENTER sublist), game_state=4, partySize=5. Record reads (DGROUP 0x43e8 + slot*0x1b0): TREON (slot 4) = Mage, LEVEL=1 (+0x440c), HP=4 (+0x4400... low because pinned), SP=102/102 (+0x4404/+0x4406), schoolManaCur (+0x28+i*4) = [Fire 3, Water 0, Air 0, Earth 0, Mental 3, Divine 0], known-spell bitset (+0x188) = {0, 48}. NOBAL (slot 3, Priest) schoolManaCur = [...,Mental 5, Divine 4], known = {50, 64}. Spell table (DGROUP+0xde stride 6): spell[0] ENERGY BLAST school=0 level=1 cost=2; spell[48] school=4 level=1 cost=3; spell[64] HEAL-ish school=5 level=1 cost=4. PREDICTIONS for TREON casting ENERGY BLAST: maxPower = 1-1+1 = 1; mana = 2*1 = 2 (Fire 3->1, affordable); SP overcast = rng(1)+1+1 = 2 (SP 102->100); no knockout. SCREENSHOT of the camp FIRE sublist (/tmp -> reviewed): TREON char sheet (MAGE L1) on the left, 'SPELLS' panel showing 'ENERGY BLAST' in red, a 'FIRE' realm label with a yellow power-bar cell-row beside a '0' digit, 'COST 2' at the bottom, prompt 'SELECT THE SPELL TO CAST'. The yellow cell-row IS the power-bar widget (the [bp-0x36] power indicator drawn one-cell-per-power) -- in camp MODE=0 it is shown but not adjustable.",
+      "category": "verification",
+      "evidence": {
+        "binary": "test-fixtures/original/pcfile.dbs",
+        "type": "live_drive",
+        "details": "LiveSession boot (3000 frames) + enter + SPELLBOOK_REACH (castle-5 ADD loop, REVIEW MEMBER, 3x down to TREON col0 row2, char-view, left x3 + down + enter to SPELL -> FIRE grid). Read fields per pcfile.ts offsets. dgroupBase printed 0xffa0 (the LiveSession.state() anchor) -- record reads used s.read(rel, len) which adds the resolved base internally, values self-consistent (names decode correctly). All four formula inputs (charLevel, spellLevel, cost, schoolMana, SP) match the static field offsets. NOTE: could NOT reach the dungeon MODE=1 power-adjust UI interactively (camp is MODE=0 read-only; reaching wmaze state-0x13 needs an in-dungeon save) -- the power-ADJUST keystrokes (UP/DOWN inc/dec) remain statically-derived, flagged for a follow-up live drive from a dungeon save.",
+        "comparator_note": "n/a -- direct live memory reads + screenshot."
+      },
+      "confidence": "high"
+    }
+  ],
+  "symbol_map": [
+    "wpcvw_show_spellbook = wpcvw.ovr 0x32a6 (two-level school-grid -> sublist -> [MODE!=0] power-select sub-window; returns (power<<8)|idx or 0xffff)",
+    "wpcvw_view_spell_action (FUN_416d) = wpcvw.ovr 0x416d (MODE gate + split packed return + mana/SP cost + effect dispatch)",
+    "wpcvw_spell_effect_dispatch = wpcvw.ovr 0x25d8 (scasw 18-id key table @ file 0x2b54; jmp handler; args spell_id/power/slot)",
+    "wpcvw_dice_build = wpcvw.ovr 0x2530 (stores count/params at *0x5538/*0x553a)",
+    "wpcvw_dice_accumulate = wpcvw.ovr 0x2501 (sum of `count` dice of rng_next(dieSize)+1)",
+    "wpcvw_effect_heal_wounds = wpcvw.ovr 0x2910 (id 0x40; power dice of 7; +0x4400 cap +0x4402)",
+    "wdopt_state_13_spell_cast = wdopt.ovr 0x39cc (dungeon out-of-combat cast; same cost laws; returns *0x363a=5)",
+    "wdopt_spell_effect_dispatch = wdopt.ovr 0x1af0 (scasw 20-id key table @ file 0x1f92 = CS:0x64f6 - 0x4564)",
+    "rng_next = wroot.exe (thunk 0xc47e) returns 0..arg-1",
+    "char_record.level = +0x440c (caster level; bounds max power)",
+    "char_record.spCurrent = +0x4404 (SPIRIT POINTS; the overcast pool -- NOT HP)",
+    "char_record.hpCurrent/hpMax = +0x4400/+0x4402 (HEAL target)",
+    "char_record.schoolManaCur[school] = +0x4410 + school*4 (mana pool the spell cost spends)",
+    "char_record.conditions[2] (knockout/status) = +0x450c (set to 6+rng(6) on SP overcast collapse)",
+    "spell_table[idx] = DGROUP +0xde + idx*6: +0=school, +1=level, +2=cost(b2); abs [bx+0xde]/+0xdf/+0xe0"
+  ],
+  "corrections_to_prior_findings": [
+    "wpcvw-spell-action.json fun-416d-cost-and-cast + relationship-to-dungeon-cast call +0x4404 'HP/fatigue'; it is spCurrent (SPIRIT POINTS) per pcfile.ts. The overcast spends SP, not HP. (HP is +0x4400 and is what HEAL writes.)",
+    "wdopt-naming-pass.json (multiple findings) calls +0x4404 'HP' / 'cur_hp'; same correction: +0x4404 is SP.",
+    "wpcvw-spell-action.json fun-416d-cost-and-cast says mana deducts from 'mana_by_school[school] at record +0x4410' -- correct, but note the school INDEX uses *4 stride (school*4) matching schoolManaCur, not *2.",
+    "wpcvw-spell-action.json shows-spellbook-two-level-picker says power is returned 'via globals *0x578e (id) and *0x578a (power)'. The AUTHORITATIVE power+idx the cost core uses is the packed AX return ((power<<8)|idx); *0x578a is a render scratch word (0x11/0 init), not the cast power.",
+    "wpcvw-spell-action.json unresolved item 5 (power/cost interactive bar 'Ghidra-garbled, needs a clean disasm pass') is now RESOLVED: see power-selection-mechanic (maxPower = clamp(charLevel-spellLevel+1, 1, 6); UP/DOWN inc/dec; cost = spell.cost*power recomputed live)."
+  ],
+  "unresolved": [
+    "The UP-vs-DOWN -> inc-vs-dec-power arrow mapping is inferred from project-standard kbd codes (1=UP, 3=DOWN) and the unambiguous inc/dec [bp-0x36] bodies, but was NOT eyeballed mid-adjust live (the camp path is MODE=0 read-only). FOLLOW-UP: drive an in-dungeon save to wmaze state-0x13 (or a wpcvw MODE!=0 context) and watch the COST + power-bar change as you press up/down -- confirm direction and that max-power clamps at charLevel-spellLevel+1.",
+    "The dungeon MODE=1 cast was not exercised live (needs an in-dungeon save state to reach wmaze 0x28f7 / state 0x13). The cost arithmetic was confirmed via the DATA-MODEL field reads (charLevel/spellLevel/cost/schoolMana/SP all match the static offsets) but a before/after mana+SP delta across an ACTUAL cast is the remaining gold-standard check.",
+    "wdopt's 19-20 effect ids vs wpcvw's 18: wdopt adds 0x27/0x3c/0x3e (and the run shows 0x36 absent from the wdopt run but present in wpcvw); confirm the exact wdopt set + which extras are dungeon-only locate/light and whether wpcvw's 0x36 (SANE MIND?) is truly absent in wdopt.",
+    "The realm-row RIGHT (code 4) sub-state toggle (0x3c0a region) that switches focus between the spell-list and the power-row was read structurally; the exact focus-state machine (whether power can be changed while the spell list still has focus) should be verified live.",
+    "~12 of 18 wpcvw effect-handler bodies still not individually decoded for their exact power-scaling shape (dice-count vs multiplier vs flat) -- carried from wpcvw-spell-action.json; the DISPATCH + the two representative shapes (HEAL dice, buff multiplier) are decoded here."
+  ]
+}
