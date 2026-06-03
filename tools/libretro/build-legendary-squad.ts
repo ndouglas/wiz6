@@ -16,7 +16,8 @@ import {
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LiveSession } from '../../packages/mcp/src/live/live-session.js';
-import { ALL_STRUCTS, buildStructRegistry } from '../../packages/data/src/index.js';
+import { ALL_STRUCTS, buildStructRegistry, ScenarioDbSchema } from '../../packages/data/src/index.js';
+import { autoEquipPcfileBuffer } from './auto-equip.js';
 import { encodePngRgba } from '../../packages/cli/src/lib/png.js';
 import { getRaceBaseStats } from '../../packages/data/src/character-creation/race-base-stats.js';
 import { getClassRequirements } from '../../packages/data/src/character-creation/class-requirements.js';
@@ -342,8 +343,15 @@ async function main() {
     out[24 + i * 0x1b0 + 0x19c] = SQUAD[i]!.portrait; // stamp the chosen rendered portrait
   }
   void srcPc;
-  writeFileSync(join(OUT_DIR, 'pcfile.dbs'), out);
-  console.log(`wrote ${join(OUT_DIR, 'pcfile.dbs')}`);
+  // The engine issues kits CARRIED, not worn. Pre-equip each member (engine equip
+  // logic) so the squad ships with gear in its body slots — populating the MASTER
+  // OPTIONS hand icons + the char-sheet equipped state. See auto-equip.ts.
+  const scenarioDb = ScenarioDbSchema.parse(
+    JSON.parse(readFileSync(resolve(REPO_ROOT, 'extracted', 'scenario', 'scenario.json'), 'utf-8')),
+  );
+  const { out: equipped } = autoEquipPcfileBuffer(out, scenarioDb);
+  writeFileSync(join(OUT_DIR, 'pcfile.dbs'), equipped);
+  console.log(`wrote ${join(OUT_DIR, 'pcfile.dbs')} (pre-equipped)`);
 
   s.close();
 }
