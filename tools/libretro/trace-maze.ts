@@ -415,6 +415,83 @@ async function phaseLoadTrace(c: HostClient): Promise<void> {
   console.log(`\nFUN_210c (0x${fun210c.toString(16)}) on a post-load forward step: ${recs2.length} hits`);
 }
 
+/** Memory-write watch during the INITIAL dungeon LOAD — to catch the COPIER that
+ *  copies the ega.drv blit template into the work buffer (+ the per-column driver).
+ *  argv: <baseHex> <endHex> (default = the work-buffer rasterizer code region). */
+async function phaseWWLoad(c: HostClient): Promise<void> {
+  // Wide range, excluding the ~0x41820 compose page (which floods). The work
+  // buffer (copy target) was ~0x6d800 via unserialize; at fresh load it lands
+  // somewhere in this range. The copier is a single cseip writing a contiguous
+  // ~0x472-byte run.
+  const base = parseInt(process.argv[3] ?? '60000', 16);
+  const end = parseInt(process.argv[4] ?? '90000', 16);
+  await c.step(3000);
+  await c.key('enter', 'tap'); await c.step(800);
+  for (let i = 0; i < 3; i++) {
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('up', 'tap'); await c.key('up', 'tap'); await c.key('up', 'tap'); await c.step(60);
+  }
+  await c.key('down', 'tap'); await c.key('down', 'tap'); await c.key('down', 'tap'); await c.step(60);
+  const egaPhys = await c.find(EGA_HEADER_SIG);
+  const ovl = egaPhys >= 0 ? egaPhys - 0x6a1b0 + 0x4784 : 0x4784;
+  await c.key('enter', 'tap'); await c.step(200); // START NEW GAME
+  await c.key('enter', 'tap'); await c.step(200); // scenario
+  // arm just before the dungeon render; step incrementally + drain so the copy
+  // isn't evicted from the 4096 ring.
+  await c.wwatchSet(base, end);
+  await c.key('enter', 'down');
+  type Agg = { count: number; minAddr: number; maxAddr: number };
+  const byWriter = new Map<number, Agg>();
+  let total = 0;
+  for (let i = 0; i < 40; i++) {
+    await c.step(10);
+    if (i === 3) await c.key('enter', 'up');
+    const recs = await c.wwatchDrain();
+    total += recs.length;
+    for (const r of recs) {
+      let a = byWriter.get(r.cseip);
+      if (!a) { a = { count: 0, minAddr: r.addr, maxAddr: r.addr }; byWriter.set(r.cseip, a); }
+      a.count++; a.minAddr = Math.min(a.minAddr, r.addr); a.maxAddr = Math.max(a.maxAddr, r.addr);
+    }
+  }
+  await c.wwatchSet(0, 0);
+  console.log(`ega.drv base=0x${egaPhys.toString(16)} ; total writes into [0x${base.toString(16)},0x${end.toString(16)}) during LOAD: ${total}`);
+  console.log('writers (cseip -> count, dest-addr span):');
+  for (const [cseip, a] of [...byWriter.entries()].sort((x, y) => y[1].count - x[1].count).slice(0, 30)) {
+    const span = a.maxAddr - a.minAddr;
+    const flag = span >= 0x300 && span <= 0x600 ? '  <== CONTIGUOUS ~blob-sized run (COPIER?)' : '';
+    console.log(`  ${tagLin(cseip, ovl)} (lin 0x${cseip.toString(16)})  x${a.count}  dest 0x${a.minAddr.toString(16)}..0x${a.maxAddr.toString(16)} (span 0x${span.toString(16)})${flag}`);
+  }
+}
+
+/** Drive to a FRESH dungeon load, then trace a rasterizer writer cseip during a
+ *  forward redraw and dump its register progression (si=source texel, di=dest
+ *  pixel → the U/V sampling law). argv: <targetLinHex> (default 6d6c0). */
+async function phaseDrvTrace(c: HostClient): Promise<void> {
+  const target = parseInt(process.argv[3] ?? '6d6c0', 16);
+  await c.step(3000);
+  await c.key('enter', 'tap'); await c.step(800);
+  for (let i = 0; i < 3; i++) {
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('up', 'tap'); await c.key('up', 'tap'); await c.key('up', 'tap'); await c.step(60);
+  }
+  await c.key('down', 'tap'); await c.key('down', 'tap'); await c.key('down', 'tap'); await c.step(60);
+  await c.key('enter', 'tap'); await c.step(200); // START NEW GAME
+  await c.key('enter', 'tap'); await c.step(200); // scenario
+  // arm BEFORE the dungeon render — the full texture compose runs at LOAD
+  await c.traceSet(target); await c.traceDrain();
+  await c.key('enter', 'tap'); await c.step(400); // -> dungeon (first full compose)
+  const recs = await c.traceDrain();
+  await c.traceOff();
+  console.log(`writer 0x${target.toString(16)}: ${recs.length} hits during LOAD compose`);
+  console.log('si=source texel, di=dest pixel (the U/V progression):');
+  for (const r of recs.slice(0, 32)) {
+    console.log(`  ds=${r.ds.toString(16)} es=${r.es.toString(16)} si=${r.esi.toString(16)} di=${r.edi.toString(16)} ax=${r.eax.toString(16)} bx=${r.ebx.toString(16)} cx=${r.ecx.toString(16)} dx=${r.edx.toString(16)} bp=${r.ebp.toString(16)}`);
+  }
+}
+
 /** Capture the LIVE mid-frame memory at a trace target during a redraw.
  *  argv: <traceTargetLin> <capBaseLin> <capLenHex> [skip]  — all hex except skip. */
 async function phaseCap(c: HostClient): Promise<void> {
@@ -498,6 +575,8 @@ async function main() {
     else if (phase === 'afine') await phaseAfine(c);
     else if (phase === 'dumpat') await phaseDumpAt(c);
     else if (phase === 'loadtrace') await phaseLoadTrace(c);
+    else if (phase === 'wwload') await phaseWWLoad(c);
+    else if (phase === 'drvtrace') await phaseDrvTrace(c);
     else if (phase === 'cap') await phaseCap(c);
     else if (phase === 'wwatch') await phaseWWatch(c);
     else if (phase === 'fine') await phaseFine(c);
