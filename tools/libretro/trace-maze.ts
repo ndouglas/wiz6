@@ -492,6 +492,36 @@ async function phaseDrvTrace(c: HostClient): Promise<void> {
   }
 }
 
+/** Drive to a FRESH dungeon load, then dump a linear region to a file (for the
+ *  source texture at ~0x550e0 etc.). argv: <linHex> <lenHex> <outPath>.
+ *  Uses only `read` — works on the nightly core. */
+async function phaseDumpTex(c: HostClient): Promise<void> {
+  const lin = parseInt(process.argv[3] ?? '550e0', 16);
+  const len = parseInt(process.argv[4] ?? '4000', 16);
+  const out = process.argv[5] ?? '/tmp/wiz6-maze-tex.bin';
+  await c.step(3000);
+  await c.key('enter', 'tap'); await c.step(800);
+  for (let i = 0; i < 3; i++) {
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('up', 'tap'); await c.key('up', 'tap'); await c.key('up', 'tap'); await c.step(60);
+  }
+  await c.key('down', 'tap'); await c.key('down', 'tap'); await c.key('down', 'tap'); await c.step(60);
+  await c.key('enter', 'tap'); await c.step(200); // START NEW GAME
+  await c.key('enter', 'tap'); await c.step(200); // scenario
+  await c.key('enter', 'tap'); await c.step(400); // -> dungeon (textures loaded, view composed)
+  // read in <=0x8000 chunks (host read cap is 65536)
+  const buf = new Uint8Array(len);
+  for (let off = 0; off < len; off += 0x8000) {
+    const n = Math.min(0x8000, len - off);
+    const part = await c.read(lin + off, n);
+    buf.set(part.subarray(0, n), off);
+  }
+  writeFileSync(out, Buffer.from(buf));
+  const distinct = new Set(buf.subarray(0, 0x800)).size;
+  console.log(`dumped 0x${len.toString(16)} bytes at lin 0x${lin.toString(16)} -> ${out} (distinct bytes in head: ${distinct})`);
+}
+
 /** Capture the LIVE mid-frame memory at a trace target during a redraw.
  *  argv: <traceTargetLin> <capBaseLin> <capLenHex> [skip]  — all hex except skip. */
 async function phaseCap(c: HostClient): Promise<void> {
@@ -577,6 +607,7 @@ async function main() {
     else if (phase === 'loadtrace') await phaseLoadTrace(c);
     else if (phase === 'wwload') await phaseWWLoad(c);
     else if (phase === 'drvtrace') await phaseDrvTrace(c);
+    else if (phase === 'dumptex') await phaseDumpTex(c);
     else if (phase === 'cap') await phaseCap(c);
     else if (phase === 'wwatch') await phaseWWatch(c);
     else if (phase === 'fine') await phaseFine(c);
