@@ -1,0 +1,111 @@
+{
+  "topic": "wmaze-render-in-egadrv",
+  "subagent_run": "2026-06-03 (delta-trace follow-up to wmaze-uv-texture.json)",
+  "binaries": ["ega.drv", "wmaze.ovr", "wroot.exe"],
+  "tool": "patched dosbox-pure instruction tracer (tools/libretro/build-core.sh) driven by tools/libretro/trace-maze.ts (HostClient traceSet/traceDrain/regs + serialize/unserialize). Core restored to the nightly via fetch-core.sh after the run.",
+  "saves": [
+    "Live capture. Clean reference frame (zone0 corridor -> green portcullis gate, party THESUS/LYSANDR/TEMPEST, game_state 5) serialized at /tmp/wiz6-maze-clean.state (scratch); PNG /tmp/wiz6-maze-clean.png. Drive recipe is reproducible via `trace-maze.ts reach`."
+  ],
+  "reference_frame": {
+    "game_state": 5, "zone": 0,
+    "wmaze_overlay_base_phys": "0x4784 (CS=0x1a8, IP=file+0x2d04; re-confirmed)",
+    "egadrv_load_base_phys": "0x6a1b0 (ega.drv file 0x0 -> linear 0x6a1b0; file size 0x2262)",
+    "render_segment": "CS=0x6b91 (base 0x6b910 = ega.drv+0x1760); render code executes here",
+    "offscreen_buffer_seg": "0x4182 (the 3D view is composed here 2bpp-packed, then EGA-planar-blitted to A000)",
+    "description": "Stone corridor receding north to a green portcullis; redraw forced by forward movement (held ENTER) advances one cell and re-renders 11816/19712 viewport pixels (x72..247 / y32..143)."
+  },
+  "summary": "DECISIVE POSITIVE RESULT that closes the #1 follow-up from wmaze-uv-texture.json ('LOCATE THE LIVE RENDER PATH'). The live first-person 3D maze renderer is NOT in wmaze.ovr at all -- it is a service in **ega.drv** (the EGA graphics driver), far-called from wmaze's 0x6800-0x6b00 region. This is why THREE prior static-disasm passes of wmaze.ovr (wmaze-3d-view / wmaze-blit-geometry / wmaze-texture-rasterizer, all naming offsets in wmaze 0x3f00-0x5300) found code that logs ZERO live trace hits: they disassembled the wrong binary. Method: (1) drove to the clean corridor frame and serialized it; (2) confirmed forward-ENTER redraws the 3D viewport (11816 px diff); (3) delta-traced ALL 68 named wmaze functions AND all 216 intra-overlay e8-call targets idle-vs-redraw -- EVERY render candidate logged 0 delta (only the steady idle/anim loop fired, identically idle vs redraw); (4) positive control proved the tracer healthy in-session (wmaze idle-anim 0x4e0b = 52 hits/40 frames, wroot idle anchor 0x31ac = 4096 capped); (5) localized the render by sampling live regs() per-frame across 8 redraws -- the render-only program counters cluster overwhelmingly in segment CS=0x6b91 (linear 0x6c200-0x6da00), with the far-call sites visible in wmaze (wmaze+0x681a, +0x6aa1) and wroot resident (+0x2873); (6) byte-identified CS=0x6b91 as ega.drv (probe at seg+0x900 = `26 8a 45 01 26 88 65 01` = mov al,es:[di+1]/mov es:[di+1],ah == ega.drv file 0x2060, a VRAM blit); (7) ring-traced the three hottest render addresses to capture register/stack context and decode the primitive pipeline. The renderer is a column-based EGA-planar rasterizer that composes the 3D view into an off-screen 2bpp buffer (segment 0x4182) then blits it to A000 VRAM via the EGA sequencer. The 2bpp packing explains the 'bit-doubled 0xaa-family' bytes the prior pass saw in the texture blob (those ARE 2-bits-per-pixel packed pixels, not a mystery mask format).",
+  "drive_recipe": {
+    "goal": "reach the clean zone0 corridor frame (game_state 5) for tracing",
+    "tool": "pnpm tsx tools/libretro/trace-maze.ts reach  (then calibrate | validate | where | afine <linaddrs>)",
+    "notes": "boot 3000 -> ENTER (title->MASTER OPTIONS) -> ADD PARTY MEMBER x3 (pick first PCFILE char) -> down x3 -> ENTER (START NEW GAME) -> ENTER (scenario) -> ENTER (dungeon) -> 6x {hold ENTER 20f, release, settle 60f} to clear narration + walk to y3. Redraw = one more held-ENTER forward step (verified 11816 px viewport diff). Arrow-key turns still do NOT register in this harness (no turn key found)."
+  },
+  "findings": [
+    {
+      "id": "render-is-in-egadrv-not-wmaze",
+      "claim": "The live first-person maze renderer runs in ega.drv (loaded at linear 0x6a1b0, executed via selector CS=0x6b91 = ega.drv+0x1760), far-called from wmaze.ovr's 0x6800-0x6b00 region. NONE of wmaze.ovr's named render functions or e8-call targets execute on a confirmed redraw; the prior wmaze-3d-view/blit-geometry/texture-rasterizer CODE map is disassembly of the wrong binary.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_trace_plus_byte_id",
+        "details": "Delta-trace (idle vs forward-redraw, ring hit-counts): 68/68 named wmaze fns = 0 delta; 216/216 wmaze e8-call targets = 0 delta. Positive control same session: wmaze 0x4e0b=52 hits/40 idle frames, wroot 0x31ac=4096 (capped) -> tracer healthy, so the zeros are real. regs()-per-frame localization across 8 redraws: dominant render-only segment CS=0x6b91 (e.g. 6b91:909 x7, 6b91:c42 x6, 6b91:20d0 x3); far-call sites wmaze+0x681a, wmaze+0x6aa1, wrootResident+0x2873. Byte-ID: live RAM at CS=0x6b91 IP=0x900 (lin 0x6c210) = `ee 26 8a 45 01 26 88 65 01 5a 07 eb 05 26 89 85 00 40 8a 64 18 d3 e8 23` == ega.drv file 0x2060 (a VRAM byte-blit). ega.drv file size 0x2262; load base linear 0x6a1b0 (file f -> linear 0x6a1b0+f; selector CS=0x6b91 addresses file 0x1760+IP)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ega-planar-pixel-writer",
+      "claim": "ega.drv@0x2069 (lin 0x6c219) is the low-level EGA planar pixel writer / vertical-span blitter to screen VRAM. It programs the EGA Sequencer (dx=0x3c5 = Sequencer Data port) and writes pixels to es=A000 (EGA framebuffer), stepping di by +0x28 (=40 = the 320-px scanline byte-stride) per pixel -> draws vertical runs down the screen. 805 hits per redraw.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_trace",
+        "details": "Ring trace at lin 0x6c219 over one redraw, 805 hits, registers constant except si=di which step 2, 0x2a, 0x52, 0x7a... (+0x28 each): es=a000, dx=0x3c5, ax=0x4101, bx=0x7410, cx=0x24. es=A000 = EGA VRAM; dx=0x3c5 = EGA Sequencer data register (index 0x3c4); di stride 0x28 = 320/8 bytes-per-row. Classic planar EGA span write."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "twobpp-column-writer",
+      "claim": "lin 0x6d9e0 / 0x6da3d are a 2-bits-per-pixel vertical wall-column writer that composes into the off-screen buffer es=0x4182. bx/dx carry rotating set/clear bitmasks (bx=0xc000 dx=0xff3f, then bx=0x0300 dx=0xfffc -- complementary 2-bit masks), si steps +1 (source pixel index), di steps +0x28 (screen-row stride) -> one converging wall column drawn top-to-bottom. 1936 hits per redraw.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_trace",
+        "details": "Ring trace at lin 0x6d9e0 over one redraw, 1936 hits: ds=0x6a0f es=0x4182, bx cycles 0xc000->0x0300 (top-2-bit then next-2-bit set-masks), dx cycles 0xff3f->0xfffc (the bitwise-NOT clear-masks), si=0,1,2,3..., di=0xa13,0xa3b,0xa63... (+0x28). 2 bits/pixel => 4 px/byte; the rotating mask selects the pixel's slot within the byte. di stride 0x28 = vertical column. Buffer seg 0x4182 = off-screen composition target (also the prominent DS=0x4182 / es=0x4182 across redraw frames)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "masked-texture-decoder",
+      "claim": "lin 0x6c552 is the masked/run texture decoder/expander the prior pass could not locate. It byte-copies from a source segment (ds=0x29c3, si) into a work buffer (es=0x4182, di) with cx run-length counters that reset (runs of ~0xc, ~0x11) and di gaps between runs (skip = mask) -- i.e. a run/skip texture-expand into the 2bpp buffer. The 'proprietary masked blob' from wmaze-uv-texture.json is 2bpp-packed texel data consumed here.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_trace",
+        "details": "Ring trace at lin 0x6c552 over one redraw (4096 hits, capped): ds=0x29c3 es=0x4182, si steps +1 (0xae,0xaf,0xb0...), di steps +1 (0x2627,0x2628...), cx counts DOWN per run (0xc..1) then resets to a new run (0xe.., 0x11..); di jumps 0x2632->0x264d between runs (skip). ds=0x29c3 = texture source; es=0x4182 = the same off-screen buffer the 2bpp column writer targets. Run+skip structure == the masked encoding; the bytes are 2bpp-packed (matches the 0xaa-family histogram in wmaze-uv-texture.json#masked-texture-format-not-decoded)."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "render-pipeline-architecture",
+      "claim": "Render pipeline (live-evidenced): (1) decode texture source (seg 0x29c3) via run/skip into the off-screen 2bpp buffer (seg 0x4182) [lin 0x6c552]; (2) draw converging wall columns into the 2bpp buffer with rotating bit-masks [lin 0x6d9e0/0x6da3d]; (3) EGA-planar blit the buffer to A000 VRAM via the Sequencer [ega.drv@0x2069 / lin 0x6c219]. The geometry DATA tables from prior passes (convergence arrays @0x42/@0x4a, seam tables @0x36e4/@0x3717, slot walltypes @0x5220) remain valid as DATA -- they drive the column positions the ega.drv rasterizer fills; the CONSUMING code is in ega.drv, reached from wmaze 0x6800-0x6b00.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_trace",
+        "details": "Three primitives all write/read the same off-screen segment 0x4182 (compose) before the A000 blit. Far-call entry sites into ega.drv observed at wmaze+0x681a/+0x6aa1 and wrootResident+0x2873 (these fire on redraw, unlike the entire wmaze 0x3f00-0x5300 region). The 0x4182 buffer is 2bpp; final EGA blit converts to planar VRAM."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "solid_vs_followup": {
+    "solid": [
+      "The live maze renderer is in ega.drv (selector CS=0x6b91, load base linear 0x6a1b0), NOT wmaze.ovr. Byte-ID confirmed + 68 named fns + 216 call targets all 0-delta + tracer positive control healthy.",
+      "ega.drv@0x2069 = EGA planar pixel/span writer (es=A000, dx=0x3c5 Sequencer, di stride 0x28).",
+      "lin 0x6d9e0/0x6da3d = 2bpp vertical wall-column writer into off-screen buffer seg 0x4182 (rotating set/clear bit-masks bx/dx).",
+      "Off-screen composition buffer = segment 0x4182; final blit 0x4182 -> A000.",
+      "The 'masked/bit-doubled' texture bytes are 2bpp-packed texels (not an undeciphered mask format).",
+      "trace-maze.ts (committed) reproduces the whole pipeline: reach -> calibrate -> validate -> where -> afine."
+    ],
+    "needs_follow_up": [
+      "Resolve the ega.drv ENTRY function(s) and the wmaze far-call dispatch (wmaze+0x681a/+0x6aa1): which ega.drv routine number is called, with what arg block (the U/V + screen-column args). Trace the call sites + read the pushed far-call args.",
+      "Decode the run/skip texture expander (lin 0x6c552) precisely from the ega.drv asm now that it is located -- get the exact run/skip opcodes so the texture format is a spec, not a fallback.",
+      "Map the convergence/seam DATA tables to the ega.drv column positions to nail the per-column U scale (affine vs perspective).",
+      "Import ega.drv into the Ghidra project (it is currently NOT analyzed -- the wrong binary was analyzed). Disassemble around file 0x2060 (planar writer), and the regions mapping to lin 0x6c552 / 0x6d9e0 (file offsets via: file = linear - 0x6a1b0).",
+      "Port plan: a TS port can either (a) reimplement the ega.drv column rasterizer from the asm, or (b) RAM-extract the composed 0x4182 buffer per slot as a fallback oracle (the off-screen buffer is readable each frame)."
+    ]
+  },
+  "symbol_map": [
+    {"space": "ega.drv", "offset": "0x2069", "name": "ega_planar_span_write", "note": "lin 0x6c219; es=A000, dx=0x3c5 Sequencer, di +0x28 stride; the low-level EGA pixel/span blit"},
+    {"space": "ega.drv", "offset": "file via lin 0x6d9e0", "name": "ega_2bpp_column_write", "note": "2bpp vertical wall-column writer into off-screen seg 0x4182; bx/dx rotating set/clear masks, di +0x28"},
+    {"space": "ega.drv", "offset": "file via lin 0x6c552", "name": "ega_texture_run_expand", "note": "run/skip texture expander, src seg 0x29c3 -> buffer seg 0x4182 (the prior 'masked blob' decoder)"},
+    {"space": "wmaze.ovr", "offset": "~0x681a / ~0x6aa1", "name": "view_render_driver_region", "note": "wmaze code that far-calls ega.drv to render the frame (the REAL render dispatch; corrects the prior 0x4ad7/0x3828.. labels which do not execute live)"}
+  ],
+  "unresolved": [
+    "The exact ega.drv entry/dispatch contract (function number + arg block) for the maze frame render.",
+    "The precise run/skip opcodes of the texture expander (located, not yet byte-decoded).",
+    "The per-column U sampling law (affine vs perspective) -- now decodable from ega.drv asm.",
+    "The mazedata descriptor-index -> wall-texture mapping.",
+    "The maze TURN key in the harness (still unfound)."
+  ],
+  "caveat_for_prior_findings": "wmaze-3d-view.json, wmaze-blit-geometry.json, wmaze-texture-rasterizer.json named render functions in wmaze.ovr (0x4ad7 entry, 0x3828/0x3c11/0x3dce/0x406c emitters, 0x3f8d span_append, 0x4892.. classifiers, the 28 f148 call sites). The instruction tracer proves NONE of these execute on a live redraw -- the live renderer is in ega.drv. RETIRE those passes' CODE/function claims for the maze 3D view. Their DATA claims (convergence arrays, seam tables, slot walltypes, viewport rect, asset ids) remain corroborated and drive the ega.drv rasterizer's inputs. wmaze-uv-texture.json's negative result + tracer methodology are confirmed and EXTENDED here (it correctly said the render path was not in the traced wmaze offsets; this pass found where it actually is)."
+}

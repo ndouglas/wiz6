@@ -188,6 +188,46 @@ export class HostClient {
     return body.filter((l) => l.startsWith('rec ')).map((l) => parseTraceFields(l.slice(4)));
   }
 
+  /** Arm a one-shot mid-frame memory capture: at the (skip+1)-th hit of the
+   *  current trace target, snapshot `len` bytes at linear `base`. Patched core
+   *  only. Use to observe transient/compiled code (e.g. the maze wall
+   *  rasterizer) that only exists mid-frame and is gone by the frame boundary. */
+  async captureSet(base: number, len: number, skip = 0): Promise<void> {
+    const r = await this.cmd(`capset ${(base >>> 0).toString(16)} ${(len >>> 0).toString(16)} ${skip}`);
+    if (!/^ok /.test(r)) throw new Error(`capset: ${r}`);
+  }
+
+  /** Retrieve the captured region (disarms). Returns null if not yet captured. */
+  async captureGet(): Promise<Uint8Array | null> {
+    const r = await this.cmd('capget');
+    if (/^err notready/.test(r)) return null;
+    const m = /^ok ([0-9a-f]*)$/.exec(r);
+    if (!m) throw new Error(`capget: ${r}`);
+    const hex = m[1]!;
+    const out = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  }
+
+  /** Arm a memory-write watch: log (cs:ip, addr, val) of guest writes into
+   *  [base, end). end=0 disables. Patched core only. Finds WHO writes a region
+   *  (e.g. the routine that copies the maze blit blob, or composes a buffer). */
+  async wwatchSet(base: number, end: number): Promise<void> {
+    const r = await this.cmd(`wwset ${(base >>> 0).toString(16)} ${(end >>> 0).toString(16)}`);
+    if (!/^ok /.test(r)) throw new Error(`wwset: ${r}`);
+  }
+
+  /** Drain the write-watch log (oldest-first), clearing it. */
+  async wwatchDrain(): Promise<Array<{ cseip: number; addr: number; val: number }>> {
+    const { body, done } = await this.cmdLines('wwlog');
+    if (!/^ok /.test(done)) throw new Error(`wwlog: ${done}`);
+    return body.filter((l) => l.startsWith('wrec ')).map((l) => {
+      const f: Record<string, string> = {};
+      for (const m of l.matchAll(/(\w+)=([0-9a-f]+)/g)) f[m[1]!] = m[2]!;
+      return { cseip: parseInt(f['cseip'] ?? '0', 16), addr: parseInt(f['addr'] ?? '0', 16), val: parseInt(f['val'] ?? '0', 16) };
+    });
+  }
+
   async serialize(path: string): Promise<void> {
     const r = await this.cmd(`serialize ${path}`);
     if (!/^ok/.test(r)) throw new Error(`serialize: ${r}`);

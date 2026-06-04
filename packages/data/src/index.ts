@@ -354,3 +354,10 @@ export type {
   SegmentMap,
   SegmentSpace,
 } from './segments/index.js';
+
+export {
+  MAZE_VIEWPORT,
+  CONVERGE_LEFT,
+  CONVERGE_RIGHT,
+  CORRIDOR_CENTER_X,
+} from './maze/corridor-geometry.js';
