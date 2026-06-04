@@ -222,6 +222,27 @@ export const NOTE_INDEX: NoteIndexEntry[] = [
       'The community skill-slot map (and ours, copied from it) had the weapon skills reordered and five slots marked as empty "holes." The engine settles it in one instruction — and those holes are real skills: DEFENSE, SPEED, MOVEMENT, AIM, POWER.',
     tags: ['reimplementation', 'undocumented', 'character-progression'],
   },
+  {
+    id: 'maze-renderer-hidden-in-driver',
+    title: 'The 3D Renderer Wasn’t Where We Looked — Three Times',
+    pitch:
+      'Three reverse-engineering passes disassembled the wrong binary. The first-person maze renderer isn’t in the dungeon overlay at all — it’s a service inside the EGA graphics driver that copies itself into scratch RAM to run, so every breakpoint we set logged zero hits.',
+    tags: ['maze', 'engine', 'reimplementation', 'quirk'],
+  },
+  {
+    id: 'maze-four-greys-no-perspective',
+    title: 'Four Greys and No Perspective',
+    pitch:
+      'The Wiz6 stone corridor is four EGA greys dithered into brickwork, textured by integer per-depth column tables with no perspective correction, composed to an off-screen page and then copied to the screen whole.',
+    tags: ['maze', 'design-choice', 'quirk', 'engine'],
+  },
+  {
+    id: 'maze-textures-not-in-maze-file',
+    title: 'The Maze Textures Aren’t In The Maze File',
+    pitch:
+      'mazedata.ega holds no wall pixels — it’s a 153-entry index. The actual textures are decompressed by the exact same RLE decoder that draws monster portraits, and our first decode produced pure noise for two completely different reasons at once.',
+    tags: ['maze', 'reimplementation', 'undocumented'],
+  },
 ];
 
 export function findNote(id: string): NoteIndexEntry | undefined {
