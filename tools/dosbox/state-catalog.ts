@@ -975,6 +975,20 @@ const MAZE_CORRIDOR_RECIPE: SaveStateRecipe = {
   settleMs: 300,
 };
 
+// ── Additional maze corridor fixtures (Task 10, 2026-06-04) ──────────────────
+// Two extra corridor frames derived from maze-corridor.state.gz by input:
+//   maze-corridor-turn-left  — one 'left' turn from the gate frame → facing 3,
+//                              open corridor ahead (0 wall spans).
+//   maze-corridor-lookback   — two 'right' turns (180°) → facing 2, looking
+//                              back down the corridor (4 wt=2 spans, depths 0..3).
+// These are NOT build-state.ts recipes — they are captured by
+// tools/libretro/capture-maze-frames.ts (unserialize maze-corridor.state.gz →
+// input → step 40 → fb → idx.gz). Party: same cell (x=5, gx=127, gy=121, z=0)
+// as the base frame; only facing and rendered view differ.
+// Per-frame party, slot5220, spans + shared cell geometry committed to
+// tools/parity/fixtures/engine/maze-frames.json for use by Task-11 parity tests.
+// To recapture: pnpm tsx tools/libretro/capture-maze-frames.ts
+
 // ── Boot / intro / title sequence (winit.ovr states 0/1/2 → wbase state 4) ───
 // These frames auto-play from a cold boot BEFORE the normal title-dismiss prelude;
 // each is captured at a fixed boot-frame count (bootCapture, not steps). The intro

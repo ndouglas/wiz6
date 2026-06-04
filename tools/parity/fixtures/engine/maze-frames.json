@@ -1,0 +1,263 @@
+{
+  "provenance": {
+    "source_state": "test-fixtures/states/maze-corridor.state.gz",
+    "description": "Per-frame party/slots/spans + shared cell geometry for zone-0 stub corridor. All frames start from the committed corridor state (facing 0, cell x=5 gx=127 gy=121). Turn-left = one left key; lookback = two right keys (180° turn).",
+    "captured": "2026-06-04T20:56:48.491Z",
+    "cell_layout": "z=0, x∈{4..8}, y∈{0..4}. Cell index = z*64 + y*8 + x. N-wall at maze_ptr+0x60, W-wall at maze_ptr+0x120, 2 bits/cell MSB-first."
+  },
+  "frames": [
+    {
+      "name": "maze-corridor",
+      "fixture": "maze-corridor",
+      "party": {
+        "game_state": 5,
+        "facing": 0,
+        "z": 0,
+        "x": 5,
+        "y": 7,
+        "gx": 127,
+        "gy": 121,
+        "parity": 0
+      },
+      "slot5220": [
+        8,
+        1,
+        1,
+        0,
+        0
+      ],
+      "spans": [
+        {
+          "x0": 158,
+          "x1": 68,
+          "clipLo": 72,
+          "clipHi": 248,
+          "walltype": 1,
+          "seamIdx": 6,
+          "depthField": 2
+        }
+      ]
+    },
+    {
+      "name": "maze-corridor-turn-left",
+      "fixture": "maze-corridor-turn-left",
+      "party": {
+        "game_state": 5,
+        "facing": 3,
+        "z": 0,
+        "x": 5,
+        "y": 7,
+        "gx": 127,
+        "gy": 121,
+        "parity": 1
+      },
+      "slot5220": [
+        0,
+        4,
+        0,
+        2,
+        0
+      ],
+      "spans": []
+    },
+    {
+      "name": "maze-corridor-lookback",
+      "fixture": "maze-corridor-lookback",
+      "party": {
+        "game_state": 5,
+        "facing": 2,
+        "z": 0,
+        "x": 5,
+        "y": 7,
+        "gx": 127,
+        "gy": 121,
+        "parity": 0
+      },
+      "slot5220": [
+        0,
+        2,
+        2,
+        2,
+        2
+      ],
+      "spans": [
+        {
+          "x0": 136,
+          "x1": 52,
+          "clipLo": 72,
+          "clipHi": 248,
+          "walltype": 2,
+          "seamIdx": 10,
+          "depthField": 0
+        },
+        {
+          "x0": 23,
+          "x1": 26,
+          "clipLo": 23,
+          "clipHi": 26,
+          "walltype": 255,
+          "seamIdx": 0,
+          "depthField": 0
+        },
+        {
+          "x0": 29,
+          "x1": 32,
+          "clipLo": 32,
+          "clipHi": 29,
+          "walltype": 255,
+          "seamIdx": 0,
+          "depthField": 0
+        },
+        {
+          "x0": 136,
+          "x1": 53,
+          "clipLo": 72,
+          "clipHi": 248,
+          "walltype": 2,
+          "seamIdx": 13,
+          "depthField": 1
+        },
+        {
+          "x0": 153,
+          "x1": 64,
+          "clipLo": 72,
+          "clipHi": 248,
+          "walltype": 2,
+          "seamIdx": 12,
+          "depthField": 2
+        },
+        {
+          "x0": 25,
+          "x1": 28,
+          "clipLo": 25,
+          "clipHi": 28,
+          "walltype": 255,
+          "seamIdx": 0,
+          "depthField": 2
+        },
+        {
+          "x0": 31,
+          "x1": 34,
+          "clipLo": 34,
+          "clipHi": 31,
+          "walltype": 255,
+          "seamIdx": 0,
+          "depthField": 2
+        },
+        {
+          "x0": 152,
+          "x1": 64,
+          "clipLo": 72,
+          "clipHi": 248,
+          "walltype": 2,
+          "seamIdx": 15,
+          "depthField": 3
+        }
+      ]
+    }
+  ],
+  "geometry": {
+    "cells": {
+      "z0_y0_x4": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y0_x5": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y0_x6": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y0_x7": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y0_x8": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y1_x4": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y1_x5": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y1_x6": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y1_x7": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y1_x8": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y2_x4": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y2_x5": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y2_x6": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y2_x7": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y2_x8": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y3_x4": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y3_x5": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y3_x6": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y3_x7": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y3_x8": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y4_x4": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y4_x5": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y4_x6": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y4_x7": {
+        "north": 3,
+        "west": 0
+      },
+      "z0_y4_x8": {
+        "north": 0,
+        "west": 0
+      }
+    }
+  }
+}
