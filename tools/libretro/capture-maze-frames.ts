@@ -100,10 +100,16 @@ const WALL_WEST_OFF  = 0x120;
 // For facing 0 (north/+y): cells at y=0..3, x=5..7 (surrounding the stub).
 // We record a wider set: all (x, y) in x∈{4,5,6,7,8}, y∈{0,1,2,3}, z=0.
 // Cell index = z*64 + y*8 + x  (z=0 → y*8 + x).
+// Record the FULL 8×8 z=0 grid so every frame's forward path + sides are covered.
+// IMPORTANT: cell index = z*64 + cellA*8 + cellB, where cellA = DGROUP 0x4f9e
+// (the ×8 axis) and cellB = DGROUP 0x4fa0 (the ×1 axis). See
+// docs/re/findings/maze-classify-projection.json for the coordinate law — the
+// engine's forward axis is +cellA for facing 0. The legacy (x,y) labels in the
+// JSON key are: x = cellB, y = cellA.
 const GEOMETRY_CELLS: Array<[number, number, number]> = [];
-for (let y = 0; y <= 4; y++) {
-  for (let x = 4; x <= 8; x++) {
-    GEOMETRY_CELLS.push([0, x, y]);
+for (let a = 0; a < 8; a++) {
+  for (let b = 0; b < 8; b++) {
+    GEOMETRY_CELLS.push([0, b, a]); // [z, x=cellB, y=cellA]
   }
 }
 
@@ -369,13 +375,28 @@ async function main() {
       },
     );
 
+    // ── Frame 4: asymmetric (facing 1, one 'right' turn) ──────────────────────
+    // ASYMMETRIC slot frame: slot5220 = [0,0,4,0,2] — corner-R / right-side solid
+    // (cellA-axis north wall to the party's right), corner-L / left-side OPEN
+    // (the −cellA neighbour is a passage). This is the left/right-asymmetric
+    // frame the symmetric corridors couldn't provide; it validates the per-facing
+    // side→edge mapping in the classifier law. (The stub is open ahead so it emits
+    // no wt=2 side span at settle; the asymmetry is in the slot codes.)
+    await captureFrame(
+      'maze-corridor-asym',
+      'maze-corridor-asym',
+      async () => {
+        await c.key('right', 'tap');
+      },
+    );
+
     // ── Write maze-frames.json ─────────────────────────────────────────────────
     const output = {
       provenance: {
         source_state: 'test-fixtures/states/maze-corridor.state.gz',
         description: 'Per-frame party/slots/spans + shared cell geometry for zone-0 stub corridor. All frames start from the committed corridor state (facing 0, cell x=5 gx=127 gy=121). Turn-left = one left key; lookback = two right keys (180° turn).',
         captured: new Date().toISOString(),
-        cell_layout: 'z=0, x∈{4..8}, y∈{0..4}. Cell index = z*64 + y*8 + x. N-wall at maze_ptr+0x60, W-wall at maze_ptr+0x120, 2 bits/cell MSB-first.',
+        cell_layout: 'z=0, FULL 8×8 grid. JSON key z{z}_y{cellA}_x{cellB}: cellA = DGROUP 0x4f9e (×8 axis, engine forward for facing 0 = +cellA); cellB = DGROUP 0x4fa0 (×1 axis). Cell index = z*64 + cellA*8 + cellB. N-wall at maze_ptr+0x60, W-wall at maze_ptr+0x120, 2 bits/cell MSB-first. Party is at cellA=5 cellB=7. Forward axis per facing: f0=+cellA, f1=+cellB, f2=-cellA, f3=-cellB. See docs/re/findings/maze-classify-projection.json.',
       },
       frames,
       geometry: {

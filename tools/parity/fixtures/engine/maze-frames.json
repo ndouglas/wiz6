@@ -2,8 +2,8 @@
   "provenance": {
     "source_state": "test-fixtures/states/maze-corridor.state.gz",
     "description": "Per-frame party/slots/spans + shared cell geometry for zone-0 stub corridor. All frames start from the committed corridor state (facing 0, cell x=5 gx=127 gy=121). Turn-left = one left key; lookback = two right keys (180° turn).",
-    "captured": "2026-06-04T20:56:48.491Z",
-    "cell_layout": "z=0, x∈{4..8}, y∈{0..4}. Cell index = z*64 + y*8 + x. N-wall at maze_ptr+0x60, W-wall at maze_ptr+0x120, 2 bits/cell MSB-first."
+    "captured": "2026-06-04T21:25:32.691Z",
+    "cell_layout": "z=0, FULL 8×8 grid. JSON key z{z}_y{cellA}_x{cellB}: cellA = DGROUP 0x4f9e (×8 axis, engine forward for facing 0 = +cellA); cellB = DGROUP 0x4fa0 (×1 axis). Cell index = z*64 + cellA*8 + cellB. N-wall at maze_ptr+0x60, W-wall at maze_ptr+0x120, 2 bits/cell MSB-first. Party is at cellA=5 cellB=7. Forward axis per facing: f0=+cellA, f1=+cellB, f2=-cellA, f3=-cellB. See docs/re/findings/maze-classify-projection.json."
   },
   "frames": [
     {
@@ -53,7 +53,7 @@
       },
       "slot5220": [
         0,
-        4,
+        2,
         0,
         2,
         0
@@ -154,10 +154,48 @@
           "depthField": 3
         }
       ]
+    },
+    {
+      "name": "maze-corridor-asym",
+      "fixture": "maze-corridor-asym",
+      "party": {
+        "game_state": 5,
+        "facing": 1,
+        "z": 0,
+        "x": 5,
+        "y": 7,
+        "gx": 127,
+        "gy": 121,
+        "parity": 1
+      },
+      "slot5220": [
+        0,
+        0,
+        2,
+        0,
+        2
+      ],
+      "spans": []
     }
   ],
   "geometry": {
     "cells": {
+      "z0_y0_x0": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y0_x1": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y0_x2": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y0_x3": {
+        "north": 2,
+        "west": 2
+      },
       "z0_y0_x4": {
         "north": 2,
         "west": 0
@@ -174,9 +212,21 @@
         "north": 0,
         "west": 0
       },
-      "z0_y0_x8": {
+      "z0_y1_x0": {
         "north": 2,
         "west": 0
+      },
+      "z0_y1_x1": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y1_x2": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y1_x3": {
+        "north": 0,
+        "west": 2
       },
       "z0_y1_x4": {
         "north": 0,
@@ -194,7 +244,19 @@
         "north": 2,
         "west": 0
       },
-      "z0_y1_x8": {
+      "z0_y2_x0": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y2_x1": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y2_x2": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y2_x3": {
         "north": 2,
         "west": 0
       },
@@ -214,7 +276,19 @@
         "north": 2,
         "west": 0
       },
-      "z0_y2_x8": {
+      "z0_y3_x0": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y3_x1": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y3_x2": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y3_x3": {
         "north": 0,
         "west": 0
       },
@@ -234,8 +308,20 @@
         "north": 0,
         "west": 0
       },
-      "z0_y3_x8": {
+      "z0_y4_x0": {
         "north": 2,
+        "west": 0
+      },
+      "z0_y4_x1": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y4_x2": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y4_x3": {
+        "north": 0,
         "west": 0
       },
       "z0_y4_x4": {
@@ -254,9 +340,101 @@
         "north": 3,
         "west": 0
       },
-      "z0_y4_x8": {
+      "z0_y5_x0": {
         "north": 0,
         "west": 0
+      },
+      "z0_y5_x1": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y5_x2": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y5_x3": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y5_x4": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y5_x5": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y5_x6": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y5_x7": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y6_x0": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y6_x1": {
+        "north": 0,
+        "west": 3
+      },
+      "z0_y6_x2": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y6_x3": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y6_x4": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y6_x5": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y6_x6": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y6_x7": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y7_x0": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y7_x1": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y7_x2": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y7_x3": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y7_x4": {
+        "north": 2,
+        "west": 1
+      },
+      "z0_y7_x5": {
+        "north": 0,
+        "west": 1
+      },
+      "z0_y7_x6": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y7_x7": {
+        "north": 3,
+        "west": 2
       }
     }
   }
