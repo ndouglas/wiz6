@@ -680,7 +680,11 @@ async function phaseCapVp(c: HostClient): Promise<void> {
  * entry by tracing 0x6ba10+0x1c94; confirm 11 hits).
  */
 async function phaseGeom(c: HostClient): Promise<void> {
-  const { renderFrameFromGeometry } = await import('../parity/render-maze-frame.js');
+  const { renderFrameFromGeometry, generateCallList, MAZE_FRAME_Y3_SPANS } = await import('../parity/render-maze-frame.js');
+  // FROM-GEOMETRY: derive whether to GENERATE the call-list from the span list
+  // (the recovered flush law) instead of replaying the captured FUN_1c94 list.
+  // `geom gen` -> generate; `geom` -> replay the live capture (back-compat).
+  const useGenerated = process.argv[3] === 'gen';
   const ENTRY = 0x6d6a4;
   const AFTER_DS = ENTRY + (0x1cc9 - 0x1c94); // 0x6d6d9
   const STORE = 0x6d9dd;
@@ -753,7 +757,17 @@ async function phaseGeom(c: HostClient): Promise<void> {
     return v;
   };
   const page = new Uint8Array(composed);
-  renderFrameFromGeometry(page, atlas, descs, callList);
+  // The from-geometry call-list: either GENERATED via the recovered flush law
+  // (generateCallList over the reconstructed span list) or the live capture.
+  const genList = generateCallList(MAZE_FRAME_Y3_SPANS);
+  const renderList = useGenerated ? genList : callList;
+  if (useGenerated) {
+    const same = genList.length === callList.length && genList.every((g, i) =>
+      g.piece === callList[i]?.piece && g.x0 === callList[i]?.x0 && g.arg10 === callList[i]?.arg10);
+    console.log(`GENERATED call-list (flush law over reconstructed spans): ${genList.map((cc) => `0x${cc.piece.toString(16)}@${cc.x0}/${cc.arg10}`).join(' ')}`);
+    console.log(`  matches live capture: ${same}`);
+  }
+  renderFrameFromGeometry(page, atlas, descs, renderList);
   // palette from the composed page (exact)
   const votes = Array.from({ length: 16 }, () => new Map<number, number>());
   for (let y = 0; y < 200; y++) for (let x = 0; x < W; x++) {

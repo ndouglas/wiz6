@@ -153,6 +153,101 @@ export interface CompositorCall {
   flags?: number; // [bp+0x16] H/V flip (0 for corridor walls)
 }
 
+/* ============================================================================
+ * THE (walltype, depth, seamIdx) -> CALL-LIST GENERATOR
+ * ----------------------------------------------------------------------------
+ * RESOLVED 2026-06-04 from STATIC wmaze.ovr disasm (the renderer runs from a
+ * relocated transient copy that is BYTE-IDENTICAL to the static .ovr code, so
+ * the generator LAW is fully present in the static disassembly — confirmed by
+ * the relocated-copy delta 0x4564 matching the live FUN_1c94 caller return
+ * 0x98ae = renderer flush call-site 0x5347+0x4564).
+ *
+ * The wmaze 3D renderer view_render_corridor_frame (0x4ad7) is a TWO-phase
+ * machine:
+ *
+ *   BUILD (0x4c60 depth loop, depth 0..3): per depth it classifies the visible
+ *   slots into wall-type codes (0x3828/0x3c11/0x3dce -> 0x5220.. ; 0=open,
+ *   2=solid stone), then the gated draw sites push static screen-column tables
+ *   and call the polygon emitters wall_emit_quad (0x406c) / wall_emit_corner
+ *   (0x45b4) / wall_emit_floorceil (0x47a3). Those emitters APPEND a span per
+ *   visible wall edge via span_append (0x3f8d). A span is an 11-byte record at
+ *   DGROUP 0x50d0 + count*0xb (count @0x50ce):
+ *       +0 (w) x0        ; += seam_x0[0x13a*wt + 2*seamIdx]  if wt != 0xff
+ *       +2 (w) x1        ; += seam_x1[0x13a*wt + 1*seamIdx]  if wt != 0xff  (1x!)
+ *       +4 (w) clipLo
+ *       +6 (w) clipHi
+ *       +8 (b) walltype  ; the span_append [bp+4] arg
+ *       +9 (b) seamIdx   ; the span_append [bp+0xa] arg  <-- THE PIECE BYTE
+ *       +0xa(b) depthField ; the span_append [bp+0x10] arg (the depth this edge
+ *                            belongs to; the flush matches it against 0x5040)
+ *
+ *   FLUSH (0x51f4..0x5353): two passes wrapped in an OUTER depth loop that
+ *   counts 0x5040 DOWN from 0x521e (=4) to 0 (5 values: 4,3,2,1,0). For each
+ *   depth value it scans ALL spans (i = count-1 .. 0):
+ *     Pass A (0x5205, edge_emit 0xf148): spans with walltype == 0xff (the
+ *            corner/seam edge markers) -> draws their left/right edges directly.
+ *     Pass B (0x52f8, FUN_1c94 via thunk 0xf10c): spans with walltype != 0xff
+ *            -> issues ONE FUN_1c94 compositor call:
+ *               piece   = span[+9]  (seamIdx)
+ *               x0      = span[+0]
+ *               destrow = span[+2]  (x1; FUN_1c94 [bp+0x10] dest-row base)
+ *               clip    = span[+4]..span[+6]
+ *               tile    = span[+8]  (walltype; FUN_1c94 [bp+0xc] source-seg sel)
+ *
+ * So the FUN_1c94 CALL-LIST = flush(span_list), and the PIECE BYTE of each call
+ * IS the span's seamIdx field. generateCallList() below is the exact flush; it
+ * reproduces the live reference-corridor 11-call list byte-for-byte (verified:
+ * tools/parity/tests / the geom phase).
+ * ========================================================================== */
+
+/** One generator span (the 11-byte record the wmaze emitters append @0x50d0). */
+export interface MazeSpan {
+  x0: number; // screen x of the near edge (already seam-refined)
+  x1: number; // FUN_1c94 dest-row base (the far/converging edge column)
+  clipLo: number; // viewport x-clip lo (72 for the corridor)
+  clipHi: number; // viewport x-clip hi (248)
+  walltype: number; // 0xff = edge-marker (Pass A only); else FUN_1c94 tile index
+  seamIdx: number; // -> the FUN_1c94 piece byte (the descriptor index)
+  depthField: number; // the depth this edge belongs to (flush matches 0x5040)
+}
+
+/** The maze flush (renderer Pass B @0x52f8): turn a span list into the ordered
+ *  FUN_1c94 compositor call-list. Mirrors the asm exactly:
+ *    for depth = SIZE..0:  for i = count-1..0:
+ *      if span[i].depthField == depth && span[i].walltype != 0xff:
+ *        emit(piece=seamIdx, x0, arg10=x1, tile=walltype)
+ *  SIZE defaults to 4 (DGROUP 0x521e in the corridor). */
+export function generateCallList(spans: MazeSpan[], size = 4): CompositorCall[] {
+  const out: CompositorCall[] = [];
+  for (let depth = size; depth >= 0; depth--) {
+    for (let i = spans.length - 1; i >= 0; i--) {
+      const s = spans[i]!;
+      if (s.depthField === depth && s.walltype !== 0xff) {
+        out.push({ piece: s.seamIdx, x0: s.x0, arg10: s.x1, tile: s.walltype });
+      }
+    }
+  }
+  return out;
+}
+
+/** The reconstructed span list for the reference y3 corridor frame (zone0,
+ *  facing0, x7 y3) — the spans the wmaze build loop appends, recovered by
+ *  inverting the flush over the live 11-call FUN_1c94 list (validated:
+ *  generateCallList(MAZE_FRAME_Y3_SPANS) === the live call list). Per depth
+ *  0..3 the corridor side walls append a LEFT span (piece 0xb @x0 147 / x1 59)
+ *  and a RIGHT span (piece 0xe @x0 144 / x1 60), both walltype 2; the far
+ *  corner/overlay (depthField 4) appends three filler pieces (0xd @136/53,
+ *  0xc @153/64, 0xf @152/64). All spans share the viewport clip 72..248. */
+export const MAZE_FRAME_Y3_SPANS: MazeSpan[] = [
+  ...[0, 1, 2, 3].flatMap((d) => [
+    { x0: 147, x1: 59, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xb, depthField: d },
+    { x0: 144, x1: 60, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xe, depthField: d },
+  ]),
+  { x0: 136, x1: 53, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xd, depthField: 4 },
+  { x0: 153, x1: 64, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xc, depthField: 4 },
+  { x0: 152, x1: 64, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xf, depthField: 4 },
+];
+
 const COMPOSE_CLEAR = 0xff; // transparent fill
 
 /** Decode a piece's source cells into a compose buffer (FUN_210c). The buffer is
