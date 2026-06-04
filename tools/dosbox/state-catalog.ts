@@ -926,6 +926,51 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
   },
 ];
 
+// ── Maze corridor (wmaze.ovr state 5) — zone-0 first-person dungeon frame ────
+// Drives a fresh boot → MASTER OPTIONS → builds a 3-member pinned-roster party
+// (castle-3: THESUS/TEMPEST/LYSANDR) → START NEW GAME → scenario → into the
+// dungeon, then dismisses the "approaching the gate" narration and walks the
+// party forward to the corridor-at-gate frame (party facing the green portcullis
+// gate). The proven drive lives in trace-maze.ts driveToMaze().
+//
+// After castle-3 the MASTER OPTIONS cursor is back on ADD PARTY MEMBER (slot 0);
+// `down down down` reaches START NEW GAME, then enter (start) / enter (scenario)
+// / enter (→ dungeon, triggers narration). The trailing `enter`s dismiss the
+// narration and step the party forward to the gate.
+//
+// NON-DETERMINISTIC ANIMATION PHASE → COMMITTED SERIALIZE-STATE. The corridor view
+// has a FREE-RUNNING per-frame animation (a torch/gate flicker at the gate center,
+// pixel x160 y68, toggling palette 5↔8). It advances every frame regardless of
+// input and is NOT a function of the stepped-frame count, so the live recipe drive
+// lands on a RANDOM phase run-to-run (verified: extra-settle sweeps + 8-rep repeats
+// all varied). It is therefore captured via the project's --mint precedent: a
+// COMMITTED frozen serialize-state (test-fixtures/states/maze-corridor.state.gz)
+// re-renders BYTE-EXACT via unserialize → step → fb (verified 0-pixel diff x6).
+// build-state.ts renders the fixture FROM that committed state (deterministic) and
+// `--check` gates it at 100%. To re-mint a NEW phase, delete the committed state.gz
+// and re-run `build-state maze-corridor` (it then live-drives + re-freezes).
+//
+// The tap-only recipe drive below reaches the corridor-at-gate frame (verified by
+// eyeballing the PNG); it is what was driven to produce the committed state.
+const MAZE_CORRIDOR_RECIPE: SaveStateRecipe = {
+  name: 'maze-corridor',
+  description:
+    'wmaze.ovr zone-0 first-person corridor frame (state 5): 3-member pinned-roster ' +
+    'party (THESUS/TEMPEST/LYSANDR) facing the green portcullis gate. START NEW GAME ' +
+    'over castle-3, narration dismissed + walked forward to the gate. NON-DETERMINISTIC ' +
+    'animation phase → fixture re-mints from a committed serialize-state (see note above).',
+  steps: [
+    ...makeCastleRecipe(3).steps, // build the 3-member party (cursor → ADD PARTY MEMBER)
+    'down down down',             // ADD PARTY MEMBER → START NEW GAME
+    'enter',                      // START NEW GAME
+    'enter',                      // scenario pick
+    'enter',                      // → dungeon (game_state 5, triggers narration)
+    // Dismiss the "approaching the gate" narration + walk forward to the gate.
+    'enter', 'enter', 'enter', 'enter', 'enter', 'enter',
+  ],
+  settleMs: 300,
+};
+
 // ── Boot / intro / title sequence (winit.ovr states 0/1/2 → wbase state 4) ───
 // These frames auto-play from a cold boot BEFORE the normal title-dismiss prelude;
 // each is captured at a fixed boot-frame count (bootCapture, not steps). The intro
@@ -1008,6 +1053,7 @@ export const STATE_CATALOG: readonly SaveStateRecipe[] = [
   ...SPELLBOOK_RECIPES,
   ...PICKER_RECIPES,
   ...CREATION_RECIPES,
+  MAZE_CORRIDOR_RECIPE,
 ];
 
 export function findRecipe(name: string): SaveStateRecipe | undefined {

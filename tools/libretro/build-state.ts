@@ -236,11 +236,40 @@ async function main() {
     return;
   }
 
+  // ── render from a committed frozen serialize-state (deterministic re-mint of a
+  // recipe whose LIVE drive lands on a NON-DETERMINISTIC animation phase, e.g. the
+  // maze corridor's free-running torch/gate flicker). The live drive can't pin the
+  // phase (it's a free-running per-frame animation, NOT a function of the stepped
+  // frame count), but a frozen machine re-renders byte-exact via unserialize →
+  // step → fb (verified). Same mechanism as --mint, minus the creation sidecar:
+  // the committed test-fixtures/states/<name>.state.gz IS the pinned source. Mint
+  // a fresh state by deleting it and re-running `build-state <name>` (which then
+  // falls through to the live-drive path below and re-freezes). ────────────────
+  if (!mint && existsSync(committedStatePath)) {
+    const tmpState = join(TMP, `${name}.state`);
+    writeFileSync(tmpState, gunzipSync(readFileSync(committedStatePath)));
+    const s = new LiveSession(STRUCTS);
+    await s.unserialize(tmpState);
+    await s.step(5);
+    await s.screenshot(`${TMP}/build.rgba`);
+    s.close();
+    const rgba = new Uint8Array(readFileSync(`${TMP}/build.rgba`));
+    const idx = rgbaToIndices(rgba);
+    writeFileSync(join(FIXTURES, `${name}.idx.gz`), gzipSync(idx));
+    writeFileSync(join(FIXTURES, `${name}.png`), encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));
+    console.log(`wrote ${name}.idx.gz + .png (from committed state.gz — deterministic re-mint)`);
+    if (validateAgainst) diffVs(idx, validateAgainst);
+    return;
+  }
+
   // ── recipe replay (deterministic screens) ──────────────────────────────────
   // HostClient boots from an ephemeral COPY of the committed test-fixtures/original/
   // image by default — deterministic, and never touches the mutable ./original.
   // A pcfileFixture recipe instead boots a fresh image overlaid with the committed
   // roster (same as the --mint/--check paths), so the replay drives the right party.
+  // NOTE: a recipe that lands on a non-deterministic animation phase should commit a
+  // frozen test-fixtures/states/<name>.state.gz (see the branch above) so its fixture
+  // re-mints byte-exact instead of capturing a random phase here.
   const h = new HostClient(
     recipe.pcfileFixture ? { source: buildSourceWithPcfile(recipe.pcfileFixture) } : {},
   );
