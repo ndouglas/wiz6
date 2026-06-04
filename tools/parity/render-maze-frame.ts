@@ -295,6 +295,68 @@ export function refineSpanColumns(
   return { x0: (x0Base + (seamX0[o0] ?? 0)) & 0xffff, x1: (x1Base + (seamX1[o1] ?? 0)) & 0xffff };
 }
 
+/* ===========================================================================
+ * THE (walltype, depthField, side, parity) -> seamIdx LAW (corner type-9 solid)
+ * ---------------------------------------------------------------------------
+ * The corridor's solid side-walls are emitted by wall_emit_corner's corner-type
+ * 9 path (wmaze.ovr 0x4720): span_append(walltype=2, x0_base=0, x1_base=0,
+ * seamIdx=[bp+4]+[bp+0xa], clipLo=72, clipHi=248, depthField=[bp+4]). Here
+ * [bp+4] == the BUILD depth counter (== depthField), and [bp+0xa] is the
+ * corner-emitter's per-SIDE seam base.
+ *
+ * STATIC vs LIVE (the relocated-copy gap): the STATIC corner-left/right call
+ * sites (0x4e61 / 0x4ebd) push [bp+0xa] = 4 (left) / 7 (right), which would give
+ * seamIdx = depth+4 / depth+7. The LIVE span list (read at DGROUP 0x50d0 for two
+ * reachable corridor frames) instead shows seamIdx = depthField + {10, 12}:
+ *   FRAME A (gy=118, parity=1): seam 13@df1, 12@df2, 15@df3
+ *   FRAME B (gy=119, parity=0): seam 11@df1, 14@df2
+ * All FIVE wt=2 spans fit  seamIdx = depthField + sideBase, sideBase ∈ {10, 12}
+ * (base 10 -> seams 11@df1, 12@df2 ; base 12 -> seams 13@df1, 14@df2, 15@df3).
+ * The relocated transient renderer (in-image span_append @0x8711 logs 0 hits on
+ * a rebuild; the build only runs on a genuine move; movement is blocked at the
+ * gate, so the live emitter args [bp+0xa] could not be captured) prevents
+ * confirming WHY the live base (10/12) differs from the static push (4/7). The
+ * sideBase values are therefore EMPIRICALLY FITTED to the two reachable frames,
+ * not derived from the [bp+0xa] register origin. confidence: medium.
+ *
+ * SIDE_BASE_RIGHT/LEFT: base 10 (RIGHT, larger x0 near edge) / 12 (LEFT). The
+ * two sides differ by 2 (one seam-table group offset; the seam table is grouped
+ * in 3s: {1,2,3},{4,5,6},...,{16,17}, one slot per depth 1/2/3).
+ * ========================================================================= */
+export const SEAMIDX_CORNER_SOLID_BASE = { left: 12, right: 10 } as const;
+
+/** seamIdx for a corner type-9 solid side-wall: depthField + the per-side base.
+ *  (walltype is always 2 for the corridor solid path.) */
+export function cornerSolidSeamIdx(depthField: number, side: 'left' | 'right'): number {
+  return depthField + SEAMIDX_CORNER_SOLID_BASE[side];
+}
+
+/** Generate the corridor span list (incl. seamIdx + seam-refined x0/x1) PURELY
+ *  from geometry: the per-depth solid-side flags + the seam tables. No live span
+ *  read. `sides[d]` (d = 0..depthBound-1) lists which sides are solid at that
+ *  depth (depthField = d+1). Edge-marker (wt=0xff) spans are NOT generated here
+ *  (they are Pass-A only and don't contribute FUN_1c94 wall pieces).
+ *
+ *  This is the from-geometry replacement for the hardcoded MAZE_FRAME_*_SPANS:
+ *  given the classified solid corners per depth, it reproduces the live wt=2
+ *  spans byte-for-byte (validated against FRAME A + FRAME B). */
+export function deriveCorridorSpans(
+  sides: ReadonlyArray<ReadonlyArray<'left' | 'right'>>,
+  seamX0: Uint8Array,
+  seamX1: Uint8Array,
+): MazeSpan[] {
+  const out: MazeSpan[] = [];
+  for (let d = 0; d < sides.length; d++) {
+    const depthField = d + 1;
+    for (const side of sides[d]!) {
+      const seamIdx = cornerSolidSeamIdx(depthField, side);
+      const { x0, x1 } = refineSpanColumns(0, 0, 2, seamIdx, seamX0, seamX1);
+      out.push({ x0, x1, clipLo: 72, clipHi: 248, walltype: 2, seamIdx, depthField });
+    }
+  }
+  return out;
+}
+
 const COMPOSE_CLEAR = 0xff; // transparent fill
 
 /** Decode a piece's source cells into a compose buffer (FUN_210c). The buffer is

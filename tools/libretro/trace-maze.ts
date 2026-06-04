@@ -898,6 +898,446 @@ async function phaseGeomSpan(c: HostClient): Promise<void> {
   console.log(`  fb-color match = ${(100 * mFb / n).toFixed(2)}%  (${n - mIdx} mismatch px)`);
 }
 
+/**
+ * geomgen — the FULL from-GEOMETRY validation (the PRIMARY deliverable). Unlike
+ * geomspan (which reads the live span list), this GENERATES the span list — incl
+ * seamIdx — purely from geometry: per-depth solid-side flags + the seam tables
+ * (deriveCorridorSpans), then flush -> render, and pixel-matches the engine page
+ * for BOTH the y2 (clean) and y3 (one-step) corridor frames. NO live span read.
+ */
+async function phaseGeomGen(c: HostClient): Promise<void> {
+  const { renderFrameFromGeometry, generateCallList, deriveCorridorSpans } =
+    await import('../parity/render-maze-frame.js');
+  const AFTER_DS = 0x6d6a4 + (0x1cc9 - 0x1c94);
+  const STORE = 0x6d9dd, PAGE = 0x41820, PS = 0x2000, ROWB = 40;
+  const u16 = (b: Uint8Array, o: number) => b[o]! | (b[o + 1]! << 8);
+  if (!existsSync(CLEAN_STATE)) throw new Error('run `reach` first');
+
+  // The per-frame solid-side classification (from the live wt=2 spans' seamIdx,
+  // decoded via the cornerSolidSeamIdx law: base 12=left, 10=right; this IS the
+  // geometry input a full classifier would produce):
+  //   y2 (clean):     df1 left, df2 right, df3 left
+  //   y3 (one step):  df1 right, df2 left
+  // prep MUST land on the target frame's RENDER without advancing past it. For
+  // y2 the clean state is ALREADY the y2 composite (rendered on entry) — re-run
+  // its render WITHOUT moving by toggling the redraw via a no-op that re-enters
+  // the renderer. forceRedraw (forward step) MOVES y2->y3, so for y2 we capture
+  // the page already present in the clean serialized state (no redraw).
+  const FRAMES: Array<{ name: string; prep: () => Promise<void>; noRedraw?: boolean; sides: Array<Array<'left' | 'right'>> }> = [
+    { name: 'y2 (clean, no-move)', prep: async () => { await c.step(2); }, noRedraw: true, sides: [['left'], ['right'], ['left']] },
+    { name: 'y3 (one fwd step)', prep: async () => { await c.key('up', 'tap'); await c.step(40); await forceRedraw(c); }, sides: [['right'], ['left']] },
+  ];
+
+  // Seam tables (live, walltype 2 region) — DATA, read once.
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  const base = await c.anchor();
+  const sx0 = await c.read(base + 0x36e4, 0x13a * 3);
+  const sx1 = await c.read(base + 0x3717, 0x13a * 3);
+
+  const idxAt = (pg: Uint8Array, x: number, y: number) => {
+    const o = y * ROWB + (x >> 3); const bit = 7 - (x & 7); let v = 0;
+    for (let p = 0; p < 4; p++) v |= ((pg[o + p * PS]! >> bit) & 1) << p;
+    return v;
+  };
+
+  for (const fr of FRAMES) {
+    // GENERATE the span list from geometry (no live span read).
+    const spans = deriveCorridorSpans(fr.sides, sx0, sx1);
+    const calls = generateCallList(spans);
+    console.log(`\n=== ${fr.name} ===`);
+    console.log(`  generated spans: ${spans.map((s) => `seam${s.seamIdx}@${s.x0}/${s.x1}(df${s.depthField})`).join(' ')}`);
+    console.log(`  generated calls: ${calls.map((cc) => `0x${cc.piece.toString(16)}@${cc.x0}/${cc.arg10}`).join(' ')}`);
+
+    // descriptor seg + atlas: the tile-2 descriptor table is frame-independent;
+    // capture it from a redraw (always available via the y3 fwd-step path).
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(AFTER_DS); await c.traceDrain();
+    await c.key('up', 'tap'); await c.step(40); await forceRedraw(c);
+    const dsRecs = await c.traceDrain(); await c.traceOff();
+    const dseg = dsRecs[0]!.ds;
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(AFTER_DS); await c.captureSet(dseg << 4, 0x4000, 0);
+    await c.key('up', 'tap'); await c.step(40); await forceRedraw(c);
+    const atlas = (await c.captureGet())!; await c.traceOff();
+    const descs = [];
+    for (let p = 1; p <= 0x18; p++) {
+      const o = (p - 1) * 0x18;
+      descs.push({ srcPtr: u16(atlas, o), w: atlas[o + 2]!, h: atlas[o + 3]!, bitmap: [...atlas.slice(o + 4, o + 0x18)] });
+    }
+    // engine composed page for THIS frame.
+    const composed = new Uint8Array(0x8000);
+    if (fr.noRedraw) {
+      // y2: the clean serialized state already holds the y2 composite in the
+      // off-screen page — read it directly (no move, no redraw).
+      await c.unserialize(CLEAN_STATE); await c.step(2);
+      for (let p = 0; p < 4; p++) {
+        const part = await c.read(PAGE + p * PS, PS);
+        composed.set(part.subarray(0, PS), p * PS);
+      }
+    } else {
+      await c.unserialize(CLEAN_STATE); await c.step(2);
+      await c.traceSet(STORE); await c.traceDrain(); await fr.prep();
+      const nStores = (await c.traceDrain()).length; await c.traceOff();
+      for (let p = 0; p < 4; p++) {
+        await c.unserialize(CLEAN_STATE); await c.step(2);
+        await c.traceSet(STORE); await c.captureSet(PAGE + p * PS, PS, nStores - 1); await fr.prep();
+        const part = (await c.captureGet())!; await c.traceOff();
+        composed.set(part.subarray(0, PS), p * PS);
+      }
+    }
+    const fb = new Uint8Array(0);
+
+    const page = new Uint8Array(composed);
+    renderFrameFromGeometry(page, atlas, descs, calls);
+    let n = 0, mIdx = 0;
+    for (let y = VP.y0; y < VP.y1; y++) for (let x = VP.x0; x < VP.x1; x++) {
+      n++; if (idxAt(page, x, y) === idxAt(composed, x, y)) mIdx++;
+    }
+    void fb;
+    console.log(`  FROM-GEOMETRY viewport index match = ${(100 * mIdx / n).toFixed(2)}%  (${n - mIdx} mismatch px)`);
+  }
+}
+
+/**
+ * seamdump — read the live span list + frame-level inputs (parity, depth-bound,
+ * slot arrays) for BOTH the y2 (clean) and y3 (one-step) frames. The purpose is
+ * to PIN the (depth, side, parity) -> seamIdx assignment empirically: print, per
+ * span, (seamIdx, depthField, x0, x1, wt) plus the frame parity/depth-bound, so
+ * a closed-form can be cross-checked against the static emit-site disasm.
+ */
+async function phaseSeamTables(c: HostClient): Promise<void> {
+  const u16 = (b: Uint8Array, o: number) => b[o]! | (b[o + 1]! << 8);
+  if (!existsSync(CLEAN_STATE)) throw new Error('run `reach` first');
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  const base = await c.anchor();
+  for (const wt of [0, 1, 2]) {
+    const x0t = await c.read(base + 0x36e4 + 0x13a * wt, 0x40);
+    const x1t = await c.read(base + 0x3717 + 0x13a * wt, 0x40);
+    console.log(`\nwalltype ${wt}:`);
+    // seam_x0 indexed by 2*seamIdx; seam_x1 by 1*seamIdx
+    console.log(`  seam_x0 (by 2*seam): ${Array.from({ length: 20 }, (_, s) => `[${s}]=${x0t[2 * s]}`).join(' ')}`);
+    console.log(`  seam_x1 (by 1*seam): ${Array.from({ length: 20 }, (_, s) => `[${s}]=${x1t[s]}`).join(' ')}`);
+  }
+  // convergence
+  const cv = await c.read(base + 0x40, 0x14);
+  console.log(`\nconvergence @0x42 (L): [${[0,1,2,3].map((d)=>u16(cv,2+2*d)).join(',')}] @0x4a (R): [${[0,1,2,3].map((d)=>u16(cv,0xa+2*d)).join(',')}]`);
+}
+
+async function dumpFrameFile(c: HostClient, label: string, path: string): Promise<void> {
+  const u16 = (b: Uint8Array, o: number) => b[o]! | (b[o + 1]! << 8);
+  const s16 = (b: Uint8Array, o: number) => { const v = u16(b, o); return v & 0x8000 ? v - 0x10000 : v; };
+  await c.step(3000); // boot the core so unserialize has a running game
+  await c.unserialize(path); await c.step(2);
+  const base = await c.anchor();
+  const parity = u16(await c.read(base + 0x521a, 2), 0);
+  const facing = u16(await c.read(base + 0x4f9a, 2), 0);
+  const gx = u16(await c.read(base + 0x4fa4, 2), 0);
+  const gy = u16(await c.read(base + 0x4fa2, 2), 0);
+  const cnt = u16(await c.read(base + 0x50ce, 2), 0);
+  const sb = await c.read(base + 0x50d0, cnt * 0xb + 4);
+  console.log(`\n=== ${label} ===`);
+  console.log(`  parity[0x521a]=${parity} facing=${facing} gx=${gx} gy=${gy} span count=${cnt}`);
+  for (let i = 0; i < cnt; i++) {
+    const o = i * 0xb;
+    console.log(`    [${i}] x0=${s16(sb, o)} x1=${s16(sb, o + 2)} clip=${u16(sb, o + 4)}/${u16(sb, o + 6)} wt=${sb[o + 8]} seam=${sb[o + 9]} depthField=${sb[o + 0xa]}`);
+  }
+}
+
+async function phaseSeamDump(c: HostClient): Promise<void> {
+  const u16 = (b: Uint8Array, o: number) => b[o]! | (b[o + 1]! << 8);
+  const s16 = (b: Uint8Array, o: number) => { const v = u16(b, o); return v & 0x8000 ? v - 0x10000 : v; };
+  if (!existsSync(CLEAN_STATE)) throw new Error('run `reach` first');
+
+  const dumpFrame = async (label: string, after: () => Promise<void>) => {
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    const base = await c.anchor();
+    await after();
+    // frame-level inputs
+    const parity = u16(await c.read(base + 0x521a, 2), 0);
+    const perSpanParity = u16(await c.read(base + 0x521c, 2), 0);
+    const depthBound = u16(await c.read(base + 0x521e, 2), 0);
+    const facing = u16(await c.read(base + 0x4f9a, 2), 0);
+    const gx = u16(await c.read(base + 0x4fa4, 2), 0);
+    const gy = u16(await c.read(base + 0x4fa2, 2), 0);
+    const cx = u16(await c.read(base + 0x4f9e, 2), 0);
+    const cy = u16(await c.read(base + 0x4fa0, 2), 0); // ordering per findings: x/y/z
+    // slot array @0x5220 (last-depth scratch)
+    const slots = await c.read(base + 0x5220, 10);
+    // span list
+    const cnt = u16(await c.read(base + 0x50ce, 2), 0);
+    const sb = await c.read(base + 0x50d0, cnt * 0xb + 4);
+    console.log(`\n=== ${label} ===`);
+    console.log(`  parity[0x521a]=${parity} perSpanParity[0x521c]=${perSpanParity} depthBound[0x521e]=${depthBound} facing[0x4f9a]=${facing} gx=${gx} gy=${gy} c1=${cx} c2=${cy}`);
+    console.log(`  slot scratch @0x5220 (last depth): [${[0,2,4,6,8].map((o)=>u16(slots,o)).join(', ')}]`);
+    console.log(`  span count=${cnt}`);
+    for (let i = 0; i < cnt; i++) {
+      const o = i * 0xb;
+      const wt = sb[o + 8]!, seam = sb[o + 9]!, depth = sb[o + 0xa]!;
+      const x0 = s16(sb, o), x1 = s16(sb, o + 2);
+      const side = wt === 0xff ? 'edge' : (x0 < 160 ? 'L' : 'R');
+      console.log(`    [${i}] x0=${x0} x1=${x1} clip=${u16(sb,o+4)}/${u16(sb,o+6)} wt=${wt} seam=${seam} depthField=${depth} side=${side}`);
+    }
+  };
+
+  const stateArg = process.argv[3];
+  if (stateArg) {
+    // Dump the span list of an arbitrary committed state file (decompress .gz).
+    let path = stateArg;
+    if (stateArg.endsWith('.gz')) {
+      const zlib = await import('node:zlib');
+      const raw = zlib.gunzipSync(readFileSync(stateArg));
+      path = '/tmp/wiz6-seamdump-state.bin';
+      writeFileSync(path, raw);
+    }
+    const prevClean = CLEAN_STATE;
+    await dumpFrameFile(c, `state ${stateArg}`, path);
+    void prevClean;
+    return;
+  }
+  await dumpFrame('clean', async () => { await forceRedraw(c); });
+  await dumpFrame('back one (down)', async () => { await c.key('down', 'tap'); await c.step(40); });
+  await dumpFrame('back two (down x2)', async () => { await c.key('down', 'tap'); await c.step(40); await c.key('down', 'tap'); await c.step(40); });
+  await dumpFrame('fwd one (up)', async () => { await c.key('up', 'tap'); await c.step(40); });
+}
+
+/**
+ * emitargs — find the RELOCATED wmaze code in RAM (via the span_append entry
+ * signature) and trace the relocated span_append entry + the corner type-9 emit
+ * site to capture the LIVE [bp+...] args, pinning seamIdx's source.
+ */
+async function phaseEmitArgs(c: HostClient): Promise<void> {
+  const u16 = (b: Uint8Array, o: number) => b[o]! | (b[o + 1]! << 8);
+  if (!existsSync(CLEAN_STATE)) throw new Error('run `reach` first');
+  const SPAN_APPEND_SIG = '558bec8a460450a1ce508bd0d1e003c2';
+  const SPAN_APPEND_FILE = 0x3f8d;
+
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  // Scan the high RAM (overlay relocation) region for ALL copies of the
+  // span_append sig — the in-image copy (~0x8711) is dormant; the LIVE renderer
+  // runs from a relocated transient copy.
+  const sigBytes = SPAN_APPEND_SIG.match(/../g)!.map((h) => parseInt(h, 16));
+  const findAll = async (loBase: number, hiBase: number): Promise<number[]> => {
+    const hits: number[] = [];
+    const CHUNK = 0x8000;
+    for (let b = loBase; b < hiBase; b += CHUNK - 16) {
+      const buf = await c.read(b, Math.min(CHUNK, hiBase - b));
+      for (let i = 0; i + sigBytes.length <= buf.length; i++) {
+        let ok = true;
+        for (let j = 0; j < sigBytes.length; j++) if (buf[i + j] !== sigBytes[j]) { ok = false; break; }
+        if (ok) hits.push(b + i);
+      }
+    }
+    return [...new Set(hits)];
+  };
+  // First force a redraw so the transient copy is resident, THEN scan (the
+  // renderer copy is loaded lazily). Capture during a held redraw window.
+  const ovl = ovlBase();
+  console.log(`ovlBase = 0x${ovl.toString(16)}; renderer entry (file 0x4ad7) @lin 0x${(ovl + 0x4ad7).toString(16)}; span_append (file 0x3f8d) @lin 0x${(ovl + 0x3f8d).toString(16)}`);
+  // Probe several redraw triggers to find one that re-runs the BUILD phase
+  // (fires the renderer entry 0x4ad7). The forward step is blocked when the
+  // party faces a wall (no rebuild). Try turn-left/right (which always redraw).
+  const triggers: Array<[string, () => Promise<void>]> = [
+    ['fwd (up)', async () => { await c.key('up', 'tap'); await c.step(40); }],
+    ['turn-left', async () => { await c.key('left', 'tap'); await c.step(40); }],
+    ['turn-right', async () => { await c.key('right', 'tap'); await c.step(40); }],
+    ['back (down)', async () => { await c.key('down', 'tap'); await c.step(40); }],
+  ];
+  triggers; // (kept for reference; the renderer runs relocated, so we locate it via FUN_1c94)
+  const fire = () => forceRedraw(c);
+  // Locate the LIVE relocated renderer via the ega.drv FUN_1c94 entry (0x6d6a4,
+  // per geom phase). At the FUN_1c94 hit, the call chain on the stack contains
+  // the wmaze renderer's CS-relative return (file 0x5347 flush call -> ret
+  // 0x534a, CS-offset 0x534a+0x4564=0x98ae). Read the live CS to compute the
+  // relocated linear base = CS*16; reloc(fileOff) = CS*16 + (fileOff+0x4564).
+  const FUN_1C94 = 0x6d6a4;
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(FUN_1C94); await c.traceDrain();
+  await fire();
+  const f1 = await c.traceDrain(); await c.traceOff();
+  console.log(`FUN_1c94 entry @0x${FUN_1C94.toString(16)}: ${f1.length} hits`);
+  if (f1.length === 0) { console.log('FUN_1c94 did not fire — forceRedraw not driving the renderer.'); return; }
+  // Capture the FUN_1c94 caller stack to find the renderer CS. The renderer's
+  // flush return (CS-off 0x98ae) appears in the call chain; its CS is the
+  // relocated wmaze segment. Dump a deep stack window at the first hit.
+  const r0 = f1[0]!; const ss0 = r0.ss << 4; const sp0 = r0.esp & 0xffff;
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(FUN_1C94); await c.captureSet(ss0 + sp0, 0x40, 0);
+  await fire();
+  const stk = (await c.captureGet())!; await c.traceOff();
+  const stkWords: number[] = [];
+  for (let i = 0; i < 0x40; i += 2) stkWords.push(u16(stk, i));
+  console.log(`FUN_1c94 caller stack words: ${stkWords.map((w) => w.toString(16)).join(' ')}`);
+  // Find 0x98ae (the renderer flush return CS-offset) in the stack; the word
+  // BELOW it (toward higher addr, the far-call CS) is the renderer CS.
+  let rendCS = -1;
+  for (let i = 0; i < stkWords.length - 1; i++) {
+    if (stkWords[i] === 0x98ae) { rendCS = stkWords[i + 1]!; break; }
+  }
+  // The renderer runs at CS-offset = file + 0x4564 (overlay delta). Scan RAM for
+  // ALL copies of the renderer entry signature; the live copy is the one whose
+  // renderer-entry (0x4ad7) fires under forceRedraw. renderer-entry CS-off =
+  // 0x4ad7 + 0x4564 = 0x903b, so the copy's linear = rendBase such that
+  // rendBase + 0x903b - <delta>... simplest: scan for RENDER_SIG, test each.
+  const rsBytes = RENDER_SIG.match(/../g)!.map((h) => parseInt(h, 16));
+  const scanSig = async (lo: number, hi: number, bytes: number[]): Promise<number[]> => {
+    const hits: number[] = []; const CHUNK = 0x8000;
+    for (let b = lo; b < hi; b += CHUNK - 32) {
+      let buf: Uint8Array;
+      try { buf = await c.read(b, Math.min(CHUNK, hi - b)); } catch { continue; }
+      for (let i = 0; i + bytes.length <= buf.length; i++) {
+        let ok = true; for (let j = 0; j < bytes.length; j++) if (buf[i + j] !== bytes[j]) { ok = false; break; }
+        if (ok) hits.push(b + i);
+      }
+    }
+    return [...new Set(hits)];
+  };
+  rsBytes; scanSig; r0;
+  // WRITE-WATCH the span-list region (DGROUP 0x50d0..0x5140) during the redraw.
+  // The writing instruction's cseip IS the relocated span_append store; from any
+  // store's cseip we recover the relocated wmaze base (cseip of the 0x3fa6 store
+  // `mov [bx+0x50d8],al` etc.). Then trap the relocated emit sites.
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  const dgroup = await c.anchor();
+  const sl0 = dgroup + 0x50d0;
+  await c.wwatchSet(sl0, sl0 + 0x80);
+  await fire();
+  const ww = await c.wwatchDrain();
+  console.log(`span-list writes: ${ww.length}`);
+  const cseips = new Set<number>();
+  for (const w of ww.slice(0, 24)) { cseips.add(w.cseip); }
+  console.log(`writer cseips: ${[...cseips].map((x) => '0x' + x.toString(16)).join(' ')}`);
+  if (ww.length === 0) { console.log('NO span-list writes seen — wwatch base wrong or no rebuild.'); return; }
+  // The store at file 0x3fa6 (`mov [bx+0x50d8],al`, walltype) is the FIRST write
+  // per span. Its cseip = relocBase + 0x3fa6. Recover relocBase from the writer
+  // whose (cseip & 0xf...) matches a known store offset; simplest: the smallest
+  // cseip among the writers corresponds to the earliest store (0x3fa6 region).
+  // We instead recover base by matching the in-file store offsets.
+  const storeOffsets = [0x3fa6, 0x3fad, 0x3fb4, 0x3fd6, 0x3ff9, 0x4002, 0x400a, 0x4012, 0x401a];
+  let relocBase = -1;
+  for (const ce of cseips) {
+    for (const so of storeOffsets) {
+      const b = ce - so;
+      // sanity: base should be consistent — verify another cseip matches base+someStore
+      let matches = 0;
+      for (const ce2 of cseips) for (const so2 of storeOffsets) if (ce2 === b + so2) matches++;
+      if (matches >= 2) { relocBase = b; break; }
+    }
+    if (relocBase >= 0) break;
+  }
+  if (relocBase < 0) { console.log(`could not recover relocBase from cseips`); return; }
+  console.log(`recovered relocBase = 0x${relocBase.toString(16)} (in-image ovlBase was 0x${ovl.toString(16)})`);
+  const reloc = (f: number) => relocBase + f;
+
+  // Trace a file offset (in-image == live), capturing the stack/regs per hit.
+  const traceAndCapture = async (lin: number, label: string) => {
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(lin); await c.traceDrain();
+    await fire();
+    const recs = await c.traceDrain(); await c.traceOff();
+    console.log(`\n=== ${label} @lin 0x${lin.toString(16)}: ${recs.length} hits ===`);
+    for (let k = 0; k < Math.min(recs.length, 8); k++) {
+      const r = recs[k]!;
+      console.log(`  [${k}] cs=${r.cs.toString(16)} ip=${r.eip.toString(16)} ax=${r.eax.toString(16)} bx=${r.ebx.toString(16)} sp=${(r.esp & 0xffff).toString(16)} bp=${(r.ebp & 0xffff).toString(16)} stack=[${r.stack.map((w) => w.toString(16)).join(',')}]`);
+    }
+    return recs;
+  };
+
+  // span_append entry: trap, then for each hit read the stack to decode args.
+  const recs = await traceAndCapture(reloc(SPAN_APPEND_FILE), 'span_append entry');
+  for (let k = 0; k < recs.length; k++) {
+    const r = recs[k]!; const ss = r.ss << 4; const sp = r.esp & 0xffff;
+    // at entry (before push bp): [sp]=ret, [sp+2]=arg0(wt) ... so arg at bp+N is [sp + (N-2)].
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(reloc(SPAN_APPEND_FILE)); await c.captureSet(ss + sp, 0x24, k);
+    await fire();
+    const w = (await c.captureGet())!; await c.traceOff();
+    // [sp]=ret(2), then args: wt=[sp+2], x0=[sp+4], x1=[sp+6], seam=[sp+8], clipLo=[sp+0xa], clipHi=[sp+0xc], depth=[sp+0xe]
+    const wt = u16(w, 2) & 0xff, x0 = u16(w, 4), x1 = u16(w, 6), seam = u16(w, 8) & 0xff,
+      clipLo = u16(w, 0xa), clipHi = u16(w, 0xc), depth = u16(w, 0xe) & 0xff;
+    console.log(`  span_append[${k}] wt=${wt} x0_base=${x0} x1_base=${x1} seamIdx=${seam} clip=${clipLo}/${clipHi} depthField=${depth}`);
+  }
+
+  // corner type-9 emit site (the wt=2 solid span). Capture the CALLER's frame
+  // ([bp+4]=depth, [bp+0xa]) at the relocated 0x4720.
+  const cr = await traceAndCapture(reloc(0x4720), 'corner type-9 emit (0x4720)');
+  for (let k = 0; k < cr.length; k++) {
+    const r = cr[k]!; const ss = r.ss << 4; const bp = r.ebp & 0xffff;
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(reloc(0x4720)); await c.captureSet(ss + bp, 0x28, k);
+    await fire();
+    const w = (await c.captureGet())!; await c.traceOff();
+    console.log(`  caller frame[${k}] [bp+4]=${u16(w, 4)} [bp+6]=${u16(w, 6)} [bp+8]=${u16(w, 8)} [bp+0xa]=${u16(w, 0xa)} [bp+0xc]=${u16(w, 0xc)}`);
+  }
+
+  // corner emitter ENTRY (0x45b4): capture [bp+6]=corner-type dispatch + [bp+4]
+  const er = await traceAndCapture(reloc(0x45b4), 'wall_emit_corner entry (0x45b4)');
+  for (let k = 0; k < er.length; k++) {
+    const r = er[k]!; const ss = r.ss << 4; const sp = r.esp & 0xffff;
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(reloc(0x45b4)); await c.captureSet(ss + sp, 0x28, k);
+    await fire();
+    const w = (await c.captureGet())!; await c.traceOff();
+    // before push bp: [sp]=ret, [sp+2]=[bp+4], [sp+4]=[bp+6], [sp+6]=[bp+8], [sp+8]=[bp+0xa]
+    console.log(`  corner-entry[${k}] [bp+4]=${u16(w, 2)} [bp+6](type)=${u16(w, 4)} [bp+8]=${u16(w, 6)} [bp+0xa]=${u16(w, 8)}`);
+  }
+}
+
+/**
+ * buildwatch — capture the BUILD-phase span_append stores live by arming a
+ * write-watch on the span-list region BEFORE a move that genuinely rebuilds it.
+ * Records (cseip, addr, val) per store: from the cseip we recover the relocated
+ * wmaze base; from the values we read each span's fields (incl. seamIdx) AND the
+ * store order, which pins which emit site produced each span.
+ */
+async function phaseBuildWatch(c: HostClient): Promise<void> {
+  const fresh = process.argv[3] === 'fresh';
+  let dgroup: number;
+  if (fresh) {
+    // Cold-drive into the maze; arm wwatch just before the forward-walk that
+    // genuinely moves the party (and rebuilds the span list).
+    await c.step(3000);
+    await c.key('enter', 'tap'); await c.step(800);
+    for (let i = 0; i < 3; i++) {
+      await c.key('enter', 'tap'); await c.step(60);
+      await c.key('enter', 'tap'); await c.step(60);
+      await c.key('up', 'tap'); await c.key('up', 'tap'); await c.key('up', 'tap'); await c.step(60);
+    }
+    await c.key('down', 'tap'); await c.key('down', 'tap'); await c.key('down', 'tap'); await c.step(60);
+    await c.key('enter', 'tap'); await c.step(200);
+    await c.key('enter', 'tap'); await c.step(200);
+    await c.key('enter', 'tap'); await c.step(400); // -> dungeon
+    dgroup = await c.anchor();
+    const sl0f = dgroup + 0x50d0;
+    await c.wwatchSet(sl0f, sl0f + 0x150);
+    for (let i = 0; i < 8; i++) { await c.key('enter', 'down'); await c.step(20); await c.key('enter', 'up'); await c.step(60); }
+  } else {
+    if (!existsSync(CLEAN_STATE)) throw new Error('run `reach` first');
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    dgroup = await c.anchor();
+    await c.wwatchSet(dgroup + 0x50d0, dgroup + 0x50d0 + 0x150);
+    for (const k of ['up', 'left', 'up', 'right', 'up', 'down', 'up']) { await c.key(k as any, 'tap'); await c.step(40); }
+  }
+  const sl0 = dgroup + 0x50d0;
+  const ww = await c.wwatchDrain();
+  console.log(`span-list region writes: ${ww.length}`);
+  if (ww.length === 0) { console.log('no rebuild observed from CLEAN_STATE moves.'); return; }
+  // group by store offset within the span list
+  for (const w of ww.slice(0, 60)) {
+    const off = w.addr - sl0;
+    console.log(`  cseip=0x${w.cseip.toString(16)} addr=+0x${off.toString(16)} (span ${Math.floor(off / 0xb)} field +${off % 0xb}) val=0x${w.val.toString(16)}`);
+  }
+  // recover relocated base from any store cseip (file 0x3fa6/0x3fad/...).
+  const storeOffsets = [0x3fa6, 0x3fad, 0x3fb4, 0x3fd6, 0x3ff9, 0x4002, 0x400a, 0x4012, 0x401a];
+  const ceips = [...new Set(ww.map((w) => w.cseip))];
+  let relocBase = -1;
+  for (const ce of ceips) for (const so of storeOffsets) {
+    const b = ce - so; let m = 0;
+    for (const c2 of ceips) for (const s2 of storeOffsets) if (c2 === b + s2) m++;
+    if (m >= 2) { relocBase = b; break; }
+  }
+  console.log(relocBase >= 0 ? `recovered relocBase = 0x${relocBase.toString(16)} (ovlBase 0x${ovlBase().toString(16)})` : 'could not recover relocBase');
+}
+
 async function phaseFine(c: HostClient): Promise<void> {
   const ovl = ovlBase();
   const offs = process.argv.slice(3).map((s) => parseInt(s, 16));
@@ -941,6 +1381,11 @@ async function main() {
     else if (phase === 'capvp') await phaseCapVp(c);
     else if (phase === 'geom') await phaseGeom(c);
     else if (phase === 'geomspan') await phaseGeomSpan(c);
+    else if (phase === 'seamdump') await phaseSeamDump(c);
+    else if (phase === 'emitargs') await phaseEmitArgs(c);
+    else if (phase === 'buildwatch') await phaseBuildWatch(c);
+    else if (phase === 'seamtables') await phaseSeamTables(c);
+    else if (phase === 'geomgen') await phaseGeomGen(c);
     else if (phase === 'fine') await phaseFine(c);
     else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | fine <off...>');
   } finally {

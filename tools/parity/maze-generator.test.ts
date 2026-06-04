@@ -21,6 +21,8 @@ import { describe, it, expect } from 'vitest';
 import {
   generateCallList,
   refineSpanColumns,
+  cornerSolidSeamIdx,
+  deriveCorridorSpans,
   MAZE_FRAME_Y3_SPANS,
   MAZE_FRAME_Y2_SPANS,
 } from './render-maze-frame.js';
@@ -110,5 +112,59 @@ describe('maze span seam-refinement (span_append 0x3f8d)', () => {
   it('no refinement for walltype 0xff (edge markers)', () => {
     const r = refineSpanColumns(24, 27, 0xff, 0, SEAM_X0, SEAM_X1);
     expect(r).toEqual({ x0: 24, x1: 27 });
+  });
+});
+
+describe('maze seamIdx law (corner type-9 solid; closed-form, no live span read)', () => {
+  // seamIdx = depthField + sideBase, sideBase = {left:12, right:10}. Fitted to
+  // the two reachable corridor frames' LIVE wt=2 spans (read at DGROUP 0x50d0):
+  //   FRAME A (gy=118, parity=1): seam 13@df1(left), 12@df2(right), 15@df3(left)
+  //   FRAME B (gy=119, parity=0): seam 11@df1(right), 14@df2(left)
+  // See docs/re/findings/maze-span-build.json `corner-type9-seamidx-law`.
+  it('cornerSolidSeamIdx = depthField + sideBase {left:12, right:10}', () => {
+    expect(cornerSolidSeamIdx(1, 'left')).toBe(13);
+    expect(cornerSolidSeamIdx(2, 'right')).toBe(12);
+    expect(cornerSolidSeamIdx(3, 'left')).toBe(15);
+    expect(cornerSolidSeamIdx(1, 'right')).toBe(11);
+    expect(cornerSolidSeamIdx(2, 'left')).toBe(14);
+  });
+
+  it('deriveCorridorSpans(y2 sides) reproduces the LIVE y2 wt=2 spans byte-exact', () => {
+    // y2 (clean): df1 left, df2 right, df3 left
+    const gen = deriveCorridorSpans([['left'], ['right'], ['left']], SEAM_X0, SEAM_X1);
+    expect(gen).toEqual([
+      { x0: 136, x1: 53, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 13, depthField: 1 },
+      { x0: 153, x1: 64, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 12, depthField: 2 },
+      { x0: 152, x1: 64, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 15, depthField: 3 },
+    ]);
+    // ... and the same wt=2 records the hardcoded MAZE_FRAME_Y2_SPANS carries.
+    const liveWt2 = MAZE_FRAME_Y2_SPANS.filter((s) => s.walltype === 2);
+    expect(gen).toEqual(liveWt2);
+  });
+
+  it('deriveCorridorSpans(y3 sides) reproduces the LIVE y3 wt=2 spans byte-exact', () => {
+    // y3 (one fwd step): df1 right, df2 left
+    const gen = deriveCorridorSpans([['right'], ['left']], SEAM_X0, SEAM_X1);
+    expect(gen).toEqual([
+      { x0: 147, x1: 59, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 11, depthField: 1 },
+      { x0: 144, x1: 60, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 14, depthField: 2 },
+    ]);
+    const liveWt2 = MAZE_FRAME_Y3_SPANS.filter((s) => s.walltype === 2);
+    expect(gen).toEqual(liveWt2);
+  });
+
+  it('generated call list (from geometry) matches the live single-frame flush', () => {
+    // The full from-geometry path: derive spans -> flush -> call list.
+    const y3 = generateCallList(deriveCorridorSpans([['right'], ['left']], SEAM_X0, SEAM_X1));
+    expect(y3.map((c) => [c.piece, c.x0, c.arg10])).toEqual([
+      [0xe, 144, 60],
+      [0xb, 147, 59],
+    ]);
+    const y2 = generateCallList(deriveCorridorSpans([['left'], ['right'], ['left']], SEAM_X0, SEAM_X1));
+    expect(y2.map((c) => [c.piece, c.x0, c.arg10])).toEqual([
+      [0xf, 152, 64],
+      [0xc, 153, 64],
+      [0xd, 136, 53],
+    ]);
   });
 });
