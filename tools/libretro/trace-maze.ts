@@ -792,6 +792,112 @@ async function phaseGeom(c: HostClient): Promise<void> {
   console.log(`artifacts: /tmp/wiz6-geom-{meta.json,atlas.bin,composed.bin,fb.fb}`);
 }
 
+/**
+ * geomspan — the FROM-RAW-GEOMETRY validation (PRIMARY deliverable). Unlike
+ * `geom` (which uses a held-ENTER forceRedraw that drives MULTIPLE frames and
+ * conflates two frames' call lists into 11 calls), this phase validates the
+ * TRUE single-frame BUILD law:
+ *   1. drive a SINGLE forward step (y2->y3) that genuinely rebuilds the span list
+ *   2. read the per-frame span list LIVE from DGROUP 0x50d0 (count @0x50ce)
+ *   3. GENERATE the FUN_1c94 call list from those spans via the flush
+ *      (generateCallList: one call per wt!=0xff span, depth outer 0x521e..0)
+ *   4. render the walls FROM GEOMETRY over the engine composed page
+ *   5. pixel-compare the viewport (target 100%)
+ *
+ * This closes the BUILD link: maze span list -> call list -> page. The span
+ * list ITSELF is the build-emitter output (wall_emit_corner/quad span_append),
+ * read live here as ground truth; the seam-refinement that turns the emitter's
+ * x0_base=0/x1_base=0 + seamIdx into the screen columns is the validated
+ * refineSpanColumns law (docs/re/findings/maze-span-build.json).
+ */
+async function phaseGeomSpan(c: HostClient): Promise<void> {
+  const { renderFrameFromGeometry, generateCallList } = await import('../parity/render-maze-frame.js');
+  const AFTER_DS = 0x6d6a4 + (0x1cc9 - 0x1c94);
+  const STORE = 0x6d9dd, PAGE = 0x41820, PS = 0x2000, ROWB = 40;
+  const u16 = (b: Uint8Array, o: number) => b[o]! | (b[o + 1]! << 8);
+  const s16 = (b: Uint8Array, o: number) => { const v = u16(b, o); return v & 0x8000 ? v - 0x10000 : v; };
+  if (!existsSync(CLEAN_STATE)) throw new Error('run `reach` first');
+
+  // A single forward step (y2->y3) that REBUILDS the span list, then read it.
+  const oneStepRebuild = async () => { await c.key('up', 'tap'); await c.step(40); };
+
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  const base = await c.anchor();
+  await oneStepRebuild();
+  const size = u16(await c.read(base + 0x521e, 2), 0) || 4;
+  const cnt = u16(await c.read(base + 0x50ce, 2), 0);
+  const sb = await c.read(base + 0x50d0, cnt * 0xb + 4);
+  const spans = [];
+  for (let i = 0; i < cnt; i++) {
+    const o = i * 0xb;
+    spans.push({
+      x0: s16(sb, o), x1: s16(sb, o + 2), clipLo: u16(sb, o + 4), clipHi: u16(sb, o + 6),
+      walltype: sb[o + 8]!, seamIdx: sb[o + 9]!, depthField: sb[o + 0xa]!,
+    });
+  }
+  console.log(`live span list (count=${cnt}, depth-bound ${size}):`);
+  for (const s of spans) console.log(`  x0=${s.x0} x1=${s.x1} clip=${s.clipLo}/${s.clipHi} wt=${s.walltype} seam=${s.seamIdx} depth=${s.depthField}`);
+  const calls = generateCallList(spans, size);
+  console.log(`generated call list: ${calls.map((cc) => `0x${cc.piece.toString(16)}@${cc.x0}/${cc.arg10}`).join(' ')}`);
+
+  // Capture descriptor seg + atlas + engine composed page on the SAME rebuild.
+  // (forceRedraw also drives the renderer; the engine page after the step is the
+  // y3 composite — capture it via the last wall store on a forceRedraw replay.)
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(AFTER_DS); await c.traceDrain();
+  await forceRedraw(c);
+  const dsRecs = await c.traceDrain(); await c.traceOff();
+  const dseg = dsRecs[0]!.ds;
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(AFTER_DS); await c.captureSet(dseg << 4, 0x4000, 0);
+  await forceRedraw(c);
+  const atlas = (await c.captureGet())!; await c.traceOff();
+  const descs = [];
+  for (let p = 1; p <= 0x18; p++) {
+    const o = (p - 1) * 0x18;
+    descs.push({ srcPtr: u16(atlas, o), w: atlas[o + 2]!, h: atlas[o + 3]!, bitmap: [...atlas.slice(o + 4, o + 0x18)] });
+  }
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(STORE); await c.traceDrain(); await forceRedraw(c);
+  const nStores = (await c.traceDrain()).length; await c.traceOff();
+  const composed = new Uint8Array(0x8000);
+  for (let p = 0; p < 4; p++) {
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(STORE); await c.captureSet(PAGE + p * PS, PS, nStores - 1);
+    await forceRedraw(c);
+    const part = (await c.captureGet())!; await c.traceOff();
+    composed.set(part.subarray(0, PS), p * PS);
+  }
+  await c.unserialize(CLEAN_STATE); await c.step(2); await forceRedraw(c);
+  await c.fb('/tmp/wiz6-geomspan-fb.fb');
+  const fb = new Uint8Array(readFileSync('/tmp/wiz6-geomspan-fb.fb'));
+
+  const idxAt = (pg: Uint8Array, x: number, y: number) => {
+    const o = y * ROWB + (x >> 3); const bit = 7 - (x & 7); let v = 0;
+    for (let p = 0; p < 4; p++) v |= ((pg[o + p * PS]! >> bit) & 1) << p;
+    return v;
+  };
+  const page = new Uint8Array(composed);
+  renderFrameFromGeometry(page, atlas, descs, calls);
+  const votes = Array.from({ length: 16 }, () => new Map<number, number>());
+  for (let y = 0; y < 200; y++) for (let x = 0; x < W; x++) {
+    const i = idxAt(composed, x, y); const o = (y * W + x) * 4;
+    const k = (fb[o]! << 16) | (fb[o + 1]! << 8) | fb[o + 2]!;
+    votes[i]!.set(k, (votes[i]!.get(k) ?? 0) + 1);
+  }
+  const pal = votes.map((m) => { let b = 0, bc = -1; for (const [k, v] of m) if (v > bc) { bc = v; b = k; } return [b >> 16 & 255, b >> 8 & 255, b & 255]; });
+  let n = 0, mIdx = 0, mFb = 0;
+  for (let y = VP.y0; y < VP.y1; y++) for (let x = VP.x0; x < VP.x1; x++) {
+    n++; const i = idxAt(page, x, y);
+    if (i === idxAt(composed, x, y)) mIdx++;
+    const o = (y * W + x) * 4;
+    if (pal[i]![0] === fb[o] && pal[i]![1] === fb[o + 1] && pal[i]![2] === fb[o + 2]) mFb++;
+  }
+  console.log(`\nFROM-GEOMETRY (single-frame span list -> flush -> render), VIEWPORT (x72..247 y32..143):`);
+  console.log(`  index match    = ${(100 * mIdx / n).toFixed(2)}%`);
+  console.log(`  fb-color match = ${(100 * mFb / n).toFixed(2)}%  (${n - mIdx} mismatch px)`);
+}
+
 async function phaseFine(c: HostClient): Promise<void> {
   const ovl = ovlBase();
   const offs = process.argv.slice(3).map((s) => parseInt(s, 16));
@@ -834,6 +940,7 @@ async function main() {
     else if (phase === 'wwatch') await phaseWWatch(c);
     else if (phase === 'capvp') await phaseCapVp(c);
     else if (phase === 'geom') await phaseGeom(c);
+    else if (phase === 'geomspan') await phaseGeomSpan(c);
     else if (phase === 'fine') await phaseFine(c);
     else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | fine <off...>');
   } finally {

@@ -187,6 +187,7 @@ export interface CompositorCall {
  *     Pass A (0x5205, edge_emit 0xf148): spans with walltype == 0xff (the
  *            corner/seam edge markers) -> draws their left/right edges directly.
  *     Pass B (0x52f8, FUN_1c94 via thunk 0xf10c): spans with walltype != 0xff
+ *            AND span[+0xa] (depthField) == the current outer depth 0x5040
  *            -> issues ONE FUN_1c94 compositor call:
  *               piece   = span[+9]  (seamIdx)
  *               x0      = span[+0]
@@ -194,10 +195,21 @@ export interface CompositorCall {
  *               clip    = span[+4]..span[+6]
  *               tile    = span[+8]  (walltype; FUN_1c94 [bp+0xc] source-seg sel)
  *
- * So the FUN_1c94 CALL-LIST = flush(span_list), and the PIECE BYTE of each call
- * IS the span's seamIdx field. generateCallList() below is the exact flush; it
- * reproduces the live reference-corridor 11-call list byte-for-byte (verified:
- * tools/parity/tests / the geom phase).
+ * So the FUN_1c94 CALL-LIST = flush(span_list), the PIECE BYTE of each call IS
+ * the span's seamIdx field, and — CRITICALLY — each wt!=0xff span emits EXACTLY
+ * ONE FUN_1c94 call (when the outer depth loop reaches that span's depthField).
+ * generateCallList() below is the exact flush.
+ *
+ * NOTE (corrects a prior over-count): an earlier pass reported an 11-call list
+ * with the 0xb/0xe wall faces repeated 4x and three "filler" pieces 0xc/0xd/0xf.
+ * That capture used a held-ENTER forceRedraw that drove MULTIPLE frames (the
+ * y=2 -> y=3 transition + extra redraws), conflating two frames' call lists:
+ * the 0xc/0xd/0xf were the y=2 frame's OWN wall pieces (pieces 0xf@152/64,
+ * 0xc@153/64, 0xd@136/53), and the 4x repeat was 4 separate render invocations.
+ * The TRUE single-frame y=3 flush emits just TWO calls (0xe@144/60, 0xb@147/59)
+ * and renders the wall region 100.00% BYTE-EXACT (0 mismatch px) — see
+ * docs/re/findings/maze-span-build.json. Validated live: read the per-frame span
+ * list at DGROUP 0x50d0, flush it, render -> 100% vs the engine composed page.
  * ========================================================================== */
 
 /** One generator span (the 11-byte record the wmaze emitters append @0x50d0). */
@@ -230,23 +242,58 @@ export function generateCallList(spans: MazeSpan[], size = 4): CompositorCall[] 
   return out;
 }
 
-/** The reconstructed span list for the reference y3 corridor frame (zone0,
- *  facing0, x7 y3) — the spans the wmaze build loop appends, recovered by
- *  inverting the flush over the live 11-call FUN_1c94 list (validated:
- *  generateCallList(MAZE_FRAME_Y3_SPANS) === the live call list). Per depth
- *  0..3 the corridor side walls append a LEFT span (piece 0xb @x0 147 / x1 59)
- *  and a RIGHT span (piece 0xe @x0 144 / x1 60), both walltype 2; the far
- *  corner/overlay (depthField 4) appends three filler pieces (0xd @136/53,
- *  0xc @153/64, 0xf @152/64). All spans share the viewport clip 72..248. */
+/** The reference y3 corridor span list (zone0, facing0, x7 y3) — read LIVE from
+ *  DGROUP 0x50d0 right after the y2->y3 forward step that rebuilds it (count=4).
+ *  Two solid-wall spans (walltype 2, x0_base=0, x1_base=0, refined by the seam
+ *  tables) at depthField 1 and 2, plus two wt=0xff edge-marker spans (Pass A
+ *  only). generateCallList(MAZE_FRAME_Y3_SPANS) === the TRUE single-frame call
+ *  list [0xe@144/60, 0xb@147/59], which renders the wall region 100.00%
+ *  BYTE-EXACT vs the engine composed page (docs/re/findings/maze-span-build.json).
+ *
+ *  The x0/x1 values ARE the seam-refined screen columns (x0_base=0 + seam):
+ *    x0 = seam_x0[walltype][2*seamIdx] ; x1 = seam_x1[walltype][seamIdx]
+ *  (validated byte-exact against all 6 wt=2 spans across the y2 + y3 frames). */
 export const MAZE_FRAME_Y3_SPANS: MazeSpan[] = [
-  ...[0, 1, 2, 3].flatMap((d) => [
-    { x0: 147, x1: 59, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xb, depthField: d },
-    { x0: 144, x1: 60, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xe, depthField: d },
-  ]),
-  { x0: 136, x1: 53, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xd, depthField: 4 },
-  { x0: 153, x1: 64, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xc, depthField: 4 },
-  { x0: 152, x1: 64, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xf, depthField: 4 },
+  { x0: 147, x1: 59, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xb, depthField: 1 },
+  { x0: 24, x1: 27, clipLo: 24, clipHi: 27, walltype: 0xff, seamIdx: 0, depthField: 1 },
+  { x0: 30, x1: 33, clipLo: 33, clipHi: 30, walltype: 0xff, seamIdx: 0, depthField: 1 },
+  { x0: 144, x1: 60, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xe, depthField: 2 },
 ];
+
+/** The reference y2 corridor span list (CLEAN_STATE, zone0 facing0 x7 y2), read
+ *  LIVE from DGROUP 0x50d0 (count=7). Three solid-wall spans (depthField 1,2,3),
+ *  four wt=0xff edge markers. generateCallList -> [0xf@152/64, 0xc@153/64,
+ *  0xd@136/53] (the single-frame y2 wall pieces). */
+export const MAZE_FRAME_Y2_SPANS: MazeSpan[] = [
+  { x0: 23, x1: 26, clipLo: 23, clipHi: 26, walltype: 0xff, seamIdx: 0, depthField: 0 },
+  { x0: 29, x1: 32, clipLo: 32, clipHi: 29, walltype: 0xff, seamIdx: 0, depthField: 0 },
+  { x0: 136, x1: 53, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xd, depthField: 1 },
+  { x0: 153, x1: 64, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xc, depthField: 2 },
+  { x0: 25, x1: 28, clipLo: 25, clipHi: 28, walltype: 0xff, seamIdx: 0, depthField: 2 },
+  { x0: 31, x1: 34, clipLo: 34, clipHi: 31, walltype: 0xff, seamIdx: 0, depthField: 2 },
+  { x0: 152, x1: 64, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 0xf, depthField: 3 },
+];
+
+/** The seam-refinement law (span_append 0x3f8d): given the per-walltype seam
+ *  tables (DGROUP 0x36e4 / 0x3717, stride 0x13a) and a span emitted with base
+ *  x0/x1, compute the refined screen columns. The corridor solid-wall emitter
+ *  pushes x0_base = x1_base = 0, so the refined x0/x1 ARE the seam-table values.
+ *    x0 = x0_base + seam_x0[0x13a*walltype + 2*seamIdx]   (2x — shl @0x3fcd)
+ *    x1 = x1_base + seam_x1[0x13a*walltype + 1*seamIdx]   (1x — no shl @0x3ffd)
+ *  No refinement when walltype == 0xff. */
+export function refineSpanColumns(
+  x0Base: number,
+  x1Base: number,
+  walltype: number,
+  seamIdx: number,
+  seamX0: Uint8Array, // DGROUP 0x36e4 region (one walltype's stride 0x13a slice or full)
+  seamX1: Uint8Array, // DGROUP 0x3717 region
+): { x0: number; x1: number } {
+  if (walltype === 0xff) return { x0: x0Base, x1: x1Base };
+  const o0 = 0x13a * walltype + 2 * seamIdx;
+  const o1 = 0x13a * walltype + 1 * seamIdx;
+  return { x0: (x0Base + (seamX0[o0] ?? 0)) & 0xffff, x1: (x1Base + (seamX1[o1] ?? 0)) & 0xffff };
+}
 
 const COMPOSE_CLEAR = 0xff; // transparent fill
 
