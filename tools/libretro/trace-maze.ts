@@ -1338,6 +1338,81 @@ async function phaseBuildWatch(c: HostClient): Promise<void> {
   console.log(relocBase >= 0 ? `recovered relocBase = 0x${relocBase.toString(16)} (ovlBase 0x${ovlBase().toString(16)})` : 'could not recover relocBase');
 }
 
+/**
+ * move — DEMONSTRATE dungeon movement via the harness (the unblock).
+ *
+ * The dungeon movement keys are the ARROW KEYS (matching the on-screen "TURN ←/→"
+ * + "↑" widget), NOT ENTER (ENTER = "PRESS RETURN FOR OPTIONS" = the main menu):
+ *   left  -> turn left  (facing -1 mod 4)
+ *   right -> turn right (facing +1 mod 4)
+ *   up    -> step forward (blocked by a wall ahead -> no-op)
+ *   down  -> NOT a movement key in the dungeon view (no-op; Wiz6 has no back-step;
+ *            to reverse, turn 180 [right x2] then step forward).
+ * A turn ALWAYS rebuilds the span list + redraws the viewport (parity flips); a
+ * forward step only moves when the cell ahead is open. The prior `reach` recipe's
+ * "boxed at the gate" was a DEAD-END POCKET (a 3-cell stub x5<->6<->7 with walls
+ * on both ends) compounded by using ENTER (= OPTIONS) for "forward" and never
+ * trying the arrows for turns. The arrows work fine; turns + a forward step both
+ * rebuild the span list.
+ *
+ * Loads the committed corridor fixture (tools/libretro/states/maze-corridor.state),
+ * prints before/after party fields (facing/x/gx/gy/parity/span-count) per key,
+ * and serializes a turned-left frame to maze-corridor-turn-left.state.
+ * Usage: pnpm tsx tools/libretro/trace-maze.ts move [statePath]
+ */
+async function phaseMove(c: HostClient): Promise<void> {
+  const { resolve } = await import('node:path');
+  const STATE = resolve(process.argv[3] ?? 'tools/libretro/states/maze-corridor.state');
+  const TURN_LEFT_OUT = resolve('tools/libretro/states/maze-corridor-turn-left.state');
+  const u16 = async (base: number, off: number) => { const b = await c.read(base + off, 2); return b[0]! | (b[1]! << 8); };
+  const restore = async () => { await c.unserialize(STATE); await c.step(2); return c.anchor(); };
+  const snap = async (base: number) =>
+    `facing=${await u16(base, 0x4f9a)} x=${await u16(base, 0x4f9e)} gx=${await u16(base, 0x4fa4)} ` +
+    `gy=${await u16(base, 0x4fa2)} parity=${await u16(base, 0x521a)} spans=${await u16(base, 0x50ce)}`;
+
+  await c.step(3000); // boot so unserialize has a running game
+  const base = await restore();
+  console.log(`corridor fixture: ${STATE}`);
+  console.log(`base=0x${base.toString(16)}\n`);
+
+  const moves: Array<[string, string]> = [
+    ['turn left  (key left)', 'left'],
+    ['turn right (key right)', 'right'],
+    ['step fwd   (key up)', 'up'],
+    ['down (NOT a move key)', 'down'],
+  ];
+  for (const [label, key] of moves) {
+    const b = await restore();
+    const before = await snap(b);
+    await c.key(key, 'tap'); await c.step(40);
+    const after = await snap(b);
+    const changed = before !== after;
+    console.log(`${label}`);
+    console.log(`   before: ${before}`);
+    console.log(`   after : ${after}   ${changed ? '<== CHANGED' : '(no-op)'}`);
+  }
+
+  // Reverse-traverse demo: turn 180 (right x2) then step forward returns toward
+  // the start cell (Wiz6 has no back-step key).
+  {
+    const b = await restore();
+    console.log(`\nreverse via 180+fwd:`);
+    console.log(`   start : ${await snap(b)}`);
+    await c.key('up', 'tap'); await c.step(40);
+    console.log(`   fwd   : ${await snap(b)}`);
+    await c.key('right', 'tap'); await c.step(40); await c.key('right', 'tap'); await c.step(40);
+    console.log(`   180   : ${await snap(b)}`);
+    await c.key('up', 'tap'); await c.step(40);
+    console.log(`   fwd   : ${await snap(b)}   <== returned to the start cell`);
+  }
+
+  // Serialize a turned-left frame as a second corridor fixture for the renderer.
+  const b = await restore();
+  await c.key('left', 'tap'); await c.step(40);
+  await c.serialize(TURN_LEFT_OUT);
+  console.log(`\nserialized turned-left frame -> ${TURN_LEFT_OUT}  (${await snap(b)})`);
+}
+
 async function phaseFine(c: HostClient): Promise<void> {
   const ovl = ovlBase();
   const offs = process.argv.slice(3).map((s) => parseInt(s, 16));
@@ -1386,8 +1461,9 @@ async function main() {
     else if (phase === 'buildwatch') await phaseBuildWatch(c);
     else if (phase === 'seamtables') await phaseSeamTables(c);
     else if (phase === 'geomgen') await phaseGeomGen(c);
+    else if (phase === 'move') await phaseMove(c);
     else if (phase === 'fine') await phaseFine(c);
-    else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | fine <off...>');
+    else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | move [state] | fine <off...>');
   } finally {
     c.close();
   }

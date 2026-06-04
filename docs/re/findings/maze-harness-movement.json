@@ -1,0 +1,94 @@
+{
+  "topic": "maze-harness-movement",
+  "subagent_run": "2026-06-04 (unblock the dosbox-pure live harness for dungeon movement: find the turn + step keys, explain the 'boxed at the gate' behavior, capture a second corridor frame).",
+  "binaries": ["wmaze.ovr", "wroot.exe"],
+  "tool": "dosbox-pure (libretro) live harness via HostClient (packages/mcp/src/live/host-client.ts). Drove the committed corridor fixture tools/libretro/states/maze-corridor.state (unserialize -> step 2 -> anchor), read live DGROUP party fields at base 0xffa0 BEFORE/AFTER each candidate key, screenshot the framebuffer (c.fb), and span list @0x50d0. Static cross-check: capstone CS_MODE_16 over test-fixtures/original/wmaze.ovr.",
+  "summary": "THE DUNGEON MOVEMENT KEYS ARE THE ARROW KEYS, and they work in the harness. Live before/after deltas on the committed corridor state (base 0xffa0): key 'left' -> facing 0->3 (turn left, -1 mod 4); key 'right' -> facing 0->1 (turn right, +1 mod 4); key 'up' -> step forward (x 5->6, gy 121->122, facing unchanged). Each turn AND a forward step REBUILDS the span list (@0x50ce/0x50d0) and REDRAWS the 3D viewport (turn = ~11700 changed pixels out of the 176x112 viewport; parity bit @0x521a flips 0->1). All four facings are reachable (left cycles 0->3->2->1->0; right cycles 0->1->2->3->0). THE 'BOXED AT THE GATE' ROOT CAUSE was TWO compounding things, NEITHER of which is a broken arrow key: (1) the prior `reach` recipe used ENTER for 'forward' — but ENTER = the on-screen 'PRESS RETURN FOR OPTIONS' = the main-menu/camp trigger, NOT a move; the apparent forward progress in `reach` was ENTER repeatedly dismissing the entry narration. Turns were never tried with the arrows. (2) The committed corridor frame sits in a 3-CELL DEAD-END STUB (gx fixed 127; cells x=5<->6<->7 along the axis, walls on both ends and the sides): from x=5 forward reaches x=7 then stops (the gate/front wall at x=8); the cell behind x=5 is also a wall. So `up` only moves twice before the wall-collision gate (maze_can_step_in_facing 0x3244 returns 1=blocked) makes it a no-op — which LOOKS like 'boxed' if you don't turn. TURNING and the available forward steps both rebuild the span list, which is exactly what the renderer validation needs. SECONDARY FINDING: the DOWN arrow is NOT a back-step in the Wiz6 dungeon view (it is a no-op even when the cell directly behind is OPEN — verified from the far end x=7 with x=6 open behind). The on-screen widget only offers up (forward) + left/right (turn); to reverse, turn 180 (right x2) then step forward (verified: x6 facing0 -> 180 -> facing2 -> up -> x5). A turned-around frame (facing 2) yields a 4-span looking-back view — a richer multi-wall variant for renderer validation. CAVEAT on the prior finding: the maze-span-build.json claim 'Arrow-key turns still do NOT register in this harness (no turn key found)' and 'the party is boxed at the gate (gy 118->119 on first step, then all keys are no-ops; facing never changes)' is WRONG for the committed corridor state — arrows register and turns change facing through all 4 values. That earlier negative was almost certainly observed against the fresh `reach`-driven state immediately after the entry narration, where input is briefly modal, rather than the settled corridor fixture.",
+  "reference_frame": {
+    "fixture": "tools/libretro/states/maze-corridor.state",
+    "dgroup_base": "0xffa0 (anchor())",
+    "game_state": 5,
+    "facing": 0,
+    "x": 5,
+    "gx": 127,
+    "gy": 121,
+    "parity_0x521a": 0,
+    "span_count": 1,
+    "span": "x0=158 x1=68 wt=1 seam=5 depthField=2 (a door/recess quad ahead — the facing-0 wall has a recessed doorway)"
+  },
+  "movement_keys": {
+    "turn_left": "key 'left'  (RETROK 276) -> facing -= 1 mod 4 (0->3). Always rebuilds span list + redraws.",
+    "turn_right": "key 'right' (RETROK 275) -> facing += 1 mod 4 (0->1). Always rebuilds span list + redraws.",
+    "step_forward": "key 'up' (RETROK 273) -> step one cell in the facing direction IF the cell ahead is open (maze_can_step_in_facing 0x3244 == 0); rebuilds span list. No-op (wall-blocked) at a dead end.",
+    "step_backward": "NONE. key 'down' (RETROK 274) is a no-op in the dungeon view (not wired to a back-step; verified no-op even with an open cell behind). Reverse = turn 180 (right x2) then step forward.",
+    "options_menu": "key 'enter'/'return' (RETROK 13) -> 'PRESS RETURN FOR OPTIONS' (camp/main-menu). NOT a movement key. (This is what the old `reach` recipe mistook for 'forward'.)",
+    "harness_note": "HostClient.key(name, 'tap'|'down'|'up'); 'tap' = press, run 2 frames, release, run 1 frame. A single c.key(k,'tap') + c.step(40) reliably registers each move. Key-name -> RETROK map in tools/libretro/host.c keyid()."
+  },
+  "findings": [
+    {
+      "id": "arrows-are-the-movement-keys",
+      "claim": "The dungeon movement keys are the arrow keys, and they register in the dosbox-pure harness. left/right turn (facing -/+1 mod 4); up steps forward when the cell ahead is open. Each turn and each successful forward step rebuilds the span list (@0x50ce count / 0x50d0 list) and redraws the 3D viewport (parity @0x521a flips).",
+      "category": "input_handler",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wroot.dgroup", "offset": "0x4f9a"},
+        "type": "live_before_after_delta",
+        "details": "Live deltas on tools/libretro/states/maze-corridor.state (base 0xffa0), one fresh restore per key, read DGROUP facing 0x4f9a / x 0x4f9e / gx 0x4fa4 / gy 0x4fa2 / parity 0x521a / span-count 0x50ce: key 'left' -> facing 0->3, parity 0->1, spans 1->0; key 'right' -> facing 0->1, parity 0->1, spans 1->0; key 'up' -> x 5->6, gy 121->122, facing 0, parity 0->1, spans 1->0. 4x 'left' cycles facing 0->3->2->1->0; 4x 'right' cycles 0->1->2->3->0. Viewport (x72..247/y32..143) pixel diff vs the clean frame: turn-left 11743 px, turn-right 11697 px (a full wall-geometry change). Screenshots /tmp/turn-base.png (wall+doorway), /tmp/turn-left.png (open corridor) are unmistakable Wiz6 3D dungeon views with the on-screen 'TURN <-/->' + '^' widget. Reproduce: `pnpm tsx tools/libretro/trace-maze.ts move`."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "boxed-root-cause-deadend-plus-enter-not-forward",
+      "claim": "The 'boxed at the gate' behavior was NOT a broken arrow key. Root cause is two compounding things: (1) the committed corridor frame is in a 3-cell dead-end stub (gx fixed 127; cells x=5<->6<->7, walls on both ends + sides) so the forward step (up) only moves twice (x5->6->7) before the wall-collision gate makes it a no-op; (2) the prior `reach` recipe used ENTER for 'forward', but ENTER = the on-screen 'PRESS RETURN FOR OPTIONS' (camp/main-menu) — a non-move — and turns were never attempted with the arrow keys.",
+      "category": "input_handler",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3244"},
+        "type": "live_plus_static_disasm",
+        "details": "Live: from x=5 facing0, `up` gives x5->6->7 then stops (3rd up = no change). Turn 180 (right x2 -> facing2) then `up` returns x6->5 (so the wall is at x=8 ahead and x=4 behind — a stub). `down` is a no-op everywhere incl. from x=7 with x=6 open behind. Static: maze_can_step_in_facing (wmaze 0x3244) pushes (gy,gx,x,y[0x4fa0],z[0x4f9c],facing) and calls maze_check_wall_in_direction (0xf2a) + maze_can_pass_doors_and_walls (0x309d); `cmp ax,2; jge 0x3281; ...; 0x3281 mov ax,1` -> returns 1 (blocked) when a wall is present, which gates the step into a no-op. The turn handler maze_rotate_party (0x3304, called @ wmaze 0x21) increments facing 0x4f9a by 1 mod 4 then re-renders + polls — no wall gate, so a turn ALWAYS succeeds + redraws."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "down-is-not-a-backstep",
+      "claim": "The DOWN arrow is not a step-backward in the Wiz6 dungeon view; it is a no-op. The Wiz6 movement model has no back-step — the on-screen widget offers only forward (up) + turn (left/right). Reversing is done by turning 180 then stepping forward.",
+      "category": "input_handler",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wroot.dgroup", "offset": "0x4fa2"},
+        "type": "live_before_after_delta",
+        "details": "Live: walked to the far end (x=7, gy=123) where x=6 is open directly behind, then `down` x2 -> NO change (x stays 7). From x=5, `down` -> no change. Contrast: 180-turn (right x2 -> facing2) then `up` -> x6->5 reliably reverses. So 'down' is dead in this view; back-tracking is turn-180+forward. The reverse demo also yields a facing-2 frame with a 4-span looking-back view (a multi-wall variant)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "second-corridor-frame-fixture",
+      "claim": "A turned-left corridor frame was captured as a second fixture for renderer validation: tools/libretro/states/maze-corridor-turn-left.state (facing=3, game_state=5, same cell x=5/gx=127/gy=121, span list rebuilt to the facing-3 open-corridor geometry). It reloads cleanly via c.unserialize. The `trace-maze.ts move` phase reserializes it on each run.",
+      "category": "test_harness",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_serialize_roundtrip",
+        "details": "Serialized from the committed corridor state after one `left` tap. Reload check: facing=3, x=5, gx=127, gy=121, span-count=0 (open ahead), game_state=5. Screenshot /tmp/maze-corridor-turn-left.fb shows the open corridor stretching into distance (vs the doorway-wall facing-0 frame). Reproduce: `pnpm tsx tools/libretro/trace-maze.ts move`."
+      },
+      "confidence": "high"
+    }
+  ],
+  "asm_anchors": [
+    {"space": "wmaze.ovr", "offset": "0x2abc", "name": "dungeon_main_loop", "note": "the dungeon-traversal state machine; handles movement input + dispatch."},
+    {"space": "wmaze.ovr", "offset": "0x3304", "name": "maze_rotate_party", "note": "TURN: increments facing 0x4f9a by 1 mod 4, re-renders + polls. Called @ wmaze 0x21. No wall gate -> a turn always succeeds + redraws."},
+    {"space": "wmaze.ovr", "offset": "0x3244", "name": "maze_can_step_in_facing", "note": "FORWARD-STEP wall gate. Calls maze_check_wall_in_direction (0xf2a) + maze_can_pass_doors_and_walls (0x309d); returns 0=open / 1=blocked. Returning 1 makes `up` a no-op (the dead-end pocket)."},
+    {"space": "wmaze.ovr", "offset": "0x108b", "name": "maze_step_global_xy", "note": "switch(direction){0:y+=n;1:x+=n;2:y-=n;3:x-=n} — the global (gx,gy) update applied on a successful forward step."},
+    {"space": "wmaze.ovr", "offset": "0xf2a", "name": "maze_check_wall_in_direction", "note": "dir 0/2 -> north walls @+0x60; dir 1/3 -> west walls @+0x120; the wall presence test behind the step gate."}
+  ],
+  "harness_changes": [
+    "tools/libretro/trace-maze.ts: added a `move` phase (pnpm tsx tools/libretro/trace-maze.ts move [statePath]) that loads the committed corridor fixture, prints before/after party fields per arrow key (turn left/right, step forward, down-noop), demonstrates reverse-via-180+forward, and serializes tools/libretro/states/maze-corridor-turn-left.state.",
+    "tools/libretro/states/maze-corridor-turn-left.state: NEW second corridor frame fixture (facing 3, open-corridor geometry) for renderer validation.",
+    "tools/libretro/probe-movement.ts + probe-turn-frame.ts: standalone exploratory probes (key-by-key delta scan + turn/redraw capture). Kept as harness utilities."
+  ],
+  "unresolved": [
+    "The exact arrow-scancode -> action jump in dungeon_main_loop (0x2abc) wasn't pinned to a single dispatch table (the keyboard read goes through a wroot kbd thunk + a branch chain). The behavioral evidence (live deltas) + the rotate/step/gate function anchors are sufficient to drive the harness; pinning the scancode table is a static follow-up if needed.",
+    "Whether a non-dead-end corridor position lets `up` chain many steps (the committed fixture is a stub). For longer traversal, drive from a different start cell or step+turn through the stub; the keys themselves are confirmed working.",
+    "This unblocks the seamIdx register-origin confirmation and the door/turn/far-depth shape variants noted in maze-span-build.json: turns now produce live, traceable rebuilds (e.g. the facing-2 4-span frame, the facing-3 open-corridor frame), so the relocated-renderer span_append can be trapped on a genuine turn-driven rebuild rather than the blocked forward step."
+  ],
+  "caveat_for_prior_findings": "CORRECTS docs/re/findings/maze-span-build.json: the claim 'Arrow-key turns still do NOT register in this harness (no turn key found)' and 'the party is boxed at the gate ... all keys are no-ops; facing never changes' is WRONG for the committed corridor state. Arrow keys register; left/right turn through all 4 facings (live facing 0x4f9a deltas + ~11700-px viewport redraws); up steps forward within the dead-end stub. The earlier negative was the fresh `reach`-driven state (briefly modal post-narration) + using ENTER (=OPTIONS) for 'forward', not a harness/key defect."
+}
