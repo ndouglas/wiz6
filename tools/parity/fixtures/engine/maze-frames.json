@@ -4,7 +4,8 @@
     "description": "Per-frame party/slots/spans + shared cell geometry for zone-0 stub corridor. All frames start from the committed corridor state (facing 0, cell x=5 gx=127 gy=121). Turn-left = one left key; lookback = two right keys (180° turn).",
     "captured": "2026-06-04T21:25:32.691Z",
     "cell_layout": "z=0, FULL 8×8 grid. JSON key z{z}_y{cellA}_x{cellB}: cellA = DGROUP 0x4f9e (×8 axis, engine forward for facing 0 = +cellA); cellB = DGROUP 0x4fa0 (×1 axis). Cell index = z*64 + cellA*8 + cellB. N-wall at maze_ptr+0x60, W-wall at maze_ptr+0x120, 2 bits/cell MSB-first. Party is at cellA=5 cellB=7. Forward axis per facing: f0=+cellA, f1=+cellB, f2=-cellA, f3=-cellB. See docs/re/findings/maze-classify-projection.json. CRITICAL (see docs/re/findings/maze-classify-gating.json): this 8×8 grid is REGION 0's wall plane ONLY. The engine resolves cells across MULTIPLE regions (each a separate 64-cell plane) via the fine-coord region tables; emission needs that multi-region data, not just this single grid.",
-    "multiRegion_added": "2026-06-04: each frame now carries a multiRegion.depths array (per-depth center/left/right resolved cells across all touched 64-cell planes + perpWall/fwdEdge/special4/orient2/pit). This is the offline input the port needs to DRIVE the depth walk + resolver for all 4 frames. The emit PREDICATE remains OPEN (see maze-classify-gating.json) — the multiRegion data drives the walk, not the emission decision."
+    "multiRegion_added": "2026-06-04: each frame now carries a multiRegion.depths array (per-depth center/left/right resolved cells across all touched 64-cell planes + perpWall/fwdEdge/special4/orient2/pit). This is the offline input the port needs to DRIVE the depth walk + resolver for all 4 frames. The emit PREDICATE remains OPEN (see maze-classify-gating.json) — the multiRegion data drives the walk, not the emission decision.",
+    "correctedSlots_added": "2026-06-04: each frame now carries correctedSlots (asm-accurate per-facing front/corner/side classifier reads). The earlier multiRegion.perpWallL/R + fwdEdge are MIS-DERIVED for facing 2/3 (wrong forward-edge selector) — use correctedSlots. See docs/re/findings/maze-classify-determinism.json."
   },
   "regionTables": {
     "note": "Per-zone STATIC region tables read live (identical across all 4 frames). maze_ptr+0x1e0 (gxBase, 12 bytes) / +0x1ec (gyBase, 12 bytes). The resolver (wmaze 0x357a/0x35b7) maps the party's GLOBAL CELL coords (gx=0x4fa4, gy=0x4fa2) to a region r where gxBase[r]<=gx<=gxBase[r]+7 AND gyBase[r]<=gy<=gyBase[r]+7, then cellB=gx-gxBase[r], cellA=gy-gyBase[r], and the wall cell index = r*64 + cellA*8 + cellB (region replaces the z slot). Regions 0..5 form a 2(gx)×3(gy) block of 8×8 cell planes; regions 6..11 are a separate area. Out-of-region (no r matches) = SOLID wall.",
@@ -273,6 +274,60 @@
             "spanParity": 1
           }
         ]
+      },
+      "correctedSlots": {
+        "note": "CORRECTED per-facing classifier reads (asm-accurate; see docs/re/findings/maze-classify-determinism.json). Replaces the WRONG fwdEdge/perpWall in multiRegion (which read the cell own N for facing 2/3 instead of the -cellA south / -cellB east neighbour face via helpers 0x36dd/0x3742). front=fwdEdge(center); cornerL/R=per-facing perp dispatch; leftSide/rightSide=lateral-step-then-forward-edge-of-neighbour (OOB-after-step -> SOLID 2). Slot code: 0=open, 2=solid, 3=door, >=5=shape. Emit-if-bounded (>=1 corner/side solid at a non-occluded depth) + parity-alternation screen-side reproduces lookback [0,1,2,3] byte-exact; over-predicts the 3 non-emitters pending the exact emit-gate map.",
+        "facing": 0,
+        "depths": [
+          {
+            "d": 0,
+            "gx": 127,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 0
+          },
+          {
+            "d": 1,
+            "gx": 127,
+            "gy": 122,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 1
+          },
+          {
+            "d": 2,
+            "gx": 127,
+            "gy": 123,
+            "front": 3,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "frontGate": 1,
+            "spanParity": 0
+          },
+          {
+            "d": 3,
+            "gx": 127,
+            "gy": 124,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 0,
+            "frontGate": 0,
+            "spanParity": 1
+          }
+        ]
       }
     },
     {
@@ -492,6 +547,60 @@
             "fwdEdge": 0,
             "perpWallL": 0,
             "perpWallR": 0,
+            "spanParity": 0
+          }
+        ]
+      },
+      "correctedSlots": {
+        "note": "CORRECTED per-facing classifier reads (asm-accurate; see docs/re/findings/maze-classify-determinism.json). Replaces the WRONG fwdEdge/perpWall in multiRegion (which read the cell own N for facing 2/3 instead of the -cellA south / -cellB east neighbour face via helpers 0x36dd/0x3742). front=fwdEdge(center); cornerL/R=per-facing perp dispatch; leftSide/rightSide=lateral-step-then-forward-edge-of-neighbour (OOB-after-step -> SOLID 2). Slot code: 0=open, 2=solid, 3=door, >=5=shape. Emit-if-bounded (>=1 corner/side solid at a non-occluded depth) + parity-alternation screen-side reproduces lookback [0,1,2,3] byte-exact; over-predicts the 3 non-emitters pending the exact emit-gate map.",
+        "facing": 3,
+        "depths": [
+          {
+            "d": 0,
+            "gx": 127,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 3,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 1
+          },
+          {
+            "d": 1,
+            "gx": 126,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 0
+          },
+          {
+            "d": 2,
+            "gx": 125,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 1
+          },
+          {
+            "d": 3,
+            "gx": 124,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "frontGate": 1,
             "spanParity": 0
           }
         ]
@@ -795,6 +904,60 @@
             "spanParity": 1
           }
         ]
+      },
+      "correctedSlots": {
+        "note": "CORRECTED per-facing classifier reads (asm-accurate; see docs/re/findings/maze-classify-determinism.json). Replaces the WRONG fwdEdge/perpWall in multiRegion (which read the cell own N for facing 2/3 instead of the -cellA south / -cellB east neighbour face via helpers 0x36dd/0x3742). front=fwdEdge(center); cornerL/R=per-facing perp dispatch; leftSide/rightSide=lateral-step-then-forward-edge-of-neighbour (OOB-after-step -> SOLID 2). Slot code: 0=open, 2=solid, 3=door, >=5=shape. Emit-if-bounded (>=1 corner/side solid at a non-occluded depth) + parity-alternation screen-side reproduces lookback [0,1,2,3] byte-exact; over-predicts the 3 non-emitters pending the exact emit-gate map.",
+        "facing": 2,
+        "depths": [
+          {
+            "d": 0,
+            "gx": 127,
+            "gy": 121,
+            "front": 3,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "frontGate": 1,
+            "spanParity": 0
+          },
+          {
+            "d": 1,
+            "gx": 127,
+            "gy": 120,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 1
+          },
+          {
+            "d": 2,
+            "gx": 127,
+            "gy": 119,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "frontGate": 1,
+            "spanParity": 0
+          },
+          {
+            "d": 3,
+            "gx": 127,
+            "gy": 118,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "frontGate": 1,
+            "spanParity": 1
+          }
+        ]
       }
     },
     {
@@ -1014,6 +1177,60 @@
             "fwdEdge": 0,
             "perpWallL": 2,
             "perpWallR": 0,
+            "spanParity": 0
+          }
+        ]
+      },
+      "correctedSlots": {
+        "note": "CORRECTED per-facing classifier reads (asm-accurate; see docs/re/findings/maze-classify-determinism.json). Replaces the WRONG fwdEdge/perpWall in multiRegion (which read the cell own N for facing 2/3 instead of the -cellA south / -cellB east neighbour face via helpers 0x36dd/0x3742). front=fwdEdge(center); cornerL/R=per-facing perp dispatch; leftSide/rightSide=lateral-step-then-forward-edge-of-neighbour (OOB-after-step -> SOLID 2). Slot code: 0=open, 2=solid, 3=door, >=5=shape. Emit-if-bounded (>=1 corner/side solid at a non-occluded depth) + parity-alternation screen-side reproduces lookback [0,1,2,3] byte-exact; over-predicts the 3 non-emitters pending the exact emit-gate map.",
+        "facing": 1,
+        "depths": [
+          {
+            "d": 0,
+            "gx": 127,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 3,
+            "leftSide": 0,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 1
+          },
+          {
+            "d": 1,
+            "gx": 128,
+            "gy": 121,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 3,
+            "rightSide": 2,
+            "frontGate": 1,
+            "spanParity": 0
+          },
+          {
+            "d": 2,
+            "gx": 129,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 3,
+            "leftSide": 0,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 1
+          },
+          {
+            "d": 3,
+            "gx": 130,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "frontGate": 1,
             "spanParity": 0
           }
         ]
