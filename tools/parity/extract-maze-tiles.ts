@@ -37,13 +37,24 @@
  * The script ASSERTS the union of all rects exactly equals the viewport with no
  * gaps/overlaps before writing.
  *
- * Run: pnpm tsx tools/parity/extract-maze-tiles.ts → "wrote ...: 7 tiles".
+ * CHROME: in addition to the 7 viewport tiles, we cut a `chrome` tile = the FULL
+ * 320×200 frame. The maze screen's UI surround (red "Wizardry" banner, party
+ * portrait/status panels, bottom OPTIONS/TURN panel) is a specific in-dungeon
+ * frame the castle-frame compositor can't reproduce (it needs live party/window
+ * state). The simplest reliable path to full-frame pixel parity is to treat the
+ * whole engine frame as a static background and paint the (already pixel-exact)
+ * viewport on top — outside the viewport the chrome is identity, inside it the
+ * viewport composer is identity, so the assembled frame is byte-exact. The
+ * `chrome` tile is NOT part of the viewport-coverage assertion (it spans the
+ * whole screen).
+ *
+ * Run: pnpm tsx tools/parity/extract-maze-tiles.ts → "wrote ...: 8 tiles".
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { COMPOSED_PALETTE } from './decode-screen.js';
+import { COMPOSED_PALETTE, SCREEN_HEIGHT } from './decode-screen.js';
 import {
   MAZE_VIEWPORT,
   CONVERGE_LEFT,
@@ -162,7 +173,13 @@ function assertFullCoverage(rects: ReadonlyArray<{ x: number; y: number; w: numb
 assertFullCoverage(Object.values(RECTS));
 
 const indices = new Uint8Array(gunzipSync(readFileSync(FIX)));
-const tiles: Record<string, { rect: (typeof RECTS)[keyof typeof RECTS]; indices: number[] }> = {};
+const tiles: Record<string, { rect: { x: number; y: number; w: number; h: number }; indices: number[] }> = {};
 for (const [name, r] of Object.entries(RECTS)) tiles[name] = { rect: r, indices: cut(indices, r) };
+
+// chrome: the full 320×200 frame as a static background. The full-frame
+// assembler paints this, then blits the composed viewport on top.
+const FULL = { x: 0, y: 0, w: W, h: SCREEN_HEIGHT };
+tiles.chrome = { rect: FULL, indices: cut(indices, FULL) };
+
 writeFileSync(OUT, JSON.stringify({ palette: COMPOSED_PALETTE, tiles }, null, 0));
 console.log(`wrote ${OUT}: ${Object.keys(tiles).length} tiles (full viewport coverage verified)`);
