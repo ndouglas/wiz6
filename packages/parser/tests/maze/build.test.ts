@@ -60,8 +60,9 @@ describe('maze seamIdx law (corner type-9 solid; closed-form, no live span read)
   });
 
   it('deriveCorridorSpans(y2 sides) reproduces the LIVE y2 wt=2 spans byte-exact', () => {
-    // y2 (clean): df1 left, df2 right, df3 left
-    const gen = deriveCorridorSpans([['left'], ['right'], ['left']], SEAM_X0_WT2, SEAM_X1_WT2);
+    // y2 (clean): df1 left, df2 right, df3 left. sides is 0-BASED (depthField =
+    // array index); the y2 frame emits no wt=2 span at depth 0, so index 0 is empty.
+    const gen = deriveCorridorSpans([[], ['left'], ['right'], ['left']], SEAM_X0_WT2, SEAM_X1_WT2);
     expect(gen).toEqual([
       { x0: 136, x1: 53, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 13, depthField: 1 },
       { x0: 153, x1: 64, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 12, depthField: 2 },
@@ -70,8 +71,8 @@ describe('maze seamIdx law (corner type-9 solid; closed-form, no live span read)
   });
 
   it('deriveCorridorSpans(y3 sides) reproduces the LIVE y3 wt=2 spans byte-exact', () => {
-    // y3 (one fwd step): df1 right, df2 left
-    const gen = deriveCorridorSpans([['right'], ['left']], SEAM_X0_WT2, SEAM_X1_WT2);
+    // y3 (one fwd step): df1 right, df2 left. 0-based sides; df0 empty.
+    const gen = deriveCorridorSpans([[], ['right'], ['left']], SEAM_X0_WT2, SEAM_X1_WT2);
     expect(gen).toEqual([
       { x0: 147, x1: 59, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 11, depthField: 1 },
       { x0: 144, x1: 60, clipLo: 72, clipHi: 248, walltype: 2, seamIdx: 14, depthField: 2 },

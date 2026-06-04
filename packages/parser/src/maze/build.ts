@@ -47,13 +47,16 @@ export function cornerSolidSeamIdx(depthField: number, side: 'left' | 'right'): 
 
 /** Generate the corridor span list (incl. seamIdx + seam-refined x0/x1) PURELY
  *  from geometry: the per-depth solid-side flags + the seam tables. No live span
- *  read. `sides[d]` (d = 0..depthBound-1) lists which sides are solid at that
- *  depth (depthField = d+1). Edge-marker (wt=0xff) spans are NOT generated here
- *  (they are Pass-A only and don't contribute FUN_1c94 wall pieces).
+ *  read. `sides[d]` (d = 0..depthBound-1) lists which side(s) emit at that depth;
+ *  depthField = d (0-BASED — the renderer's BUILD depth counter 0x5040 runs
+ *  0..3 and depthField on each span = that counter directly; d=0 is the party's
+ *  own cell). See docs/re/findings/maze-classify-projection.json
+ *  (depth-loop-and-depthfield-0). Edge-marker (wt=0xff) spans are NOT generated
+ *  here (they are Pass-A only and don't contribute FUN_1c94 wall pieces).
  *
  *  This is the from-geometry replacement for the hardcoded MAZE_FRAME_*_SPANS:
  *  given the classified solid corners per depth, it reproduces the live wt=2
- *  spans byte-for-byte (validated against FRAME A + FRAME B). */
+ *  spans byte-for-byte (validated against the lookback frame, depthField 0..3). */
 export function deriveCorridorSpans(
   sides: ReadonlyArray<ReadonlyArray<'left' | 'right'>>,
   seamX0: Uint8Array,
@@ -61,7 +64,7 @@ export function deriveCorridorSpans(
 ): MazeSpan[] {
   const out: MazeSpan[] = [];
   for (let d = 0; d < sides.length; d++) {
-    const depthField = d + 1;
+    const depthField = d;
     for (const side of sides[d]!) {
       const seamIdx = cornerSolidSeamIdx(depthField, side);
       const { x0, x1 } = refineSpanColumns(0, 0, 2, seamIdx, seamX0, seamX1);
