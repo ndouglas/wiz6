@@ -32,6 +32,9 @@ export {
   type FontSet,
 } from './ui/tile-window.js';
 export { renderEgaScreen } from './formats/ega-screen-render.js';
+
+// Maze renderer pipeline
+export { renderMazeViewport } from './maze/render.js';
 export { EGA_FILE_INDEX_PERMUTATION } from './formats/ega-permutation.js';
 export {
   encodeSave,

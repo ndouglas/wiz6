@@ -1557,6 +1557,216 @@ call draw_msg_in_window`}
       { label: 'findings: wpcvw-skill-action.json', href: '/explore/docs/findings/wpcvw-skill-action.json' },
     ],
   },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'maze-renderer-hidden-in-driver',
+    title: 'The 3D Renderer Wasn’t Where We Looked — Three Times',
+    tags: ['maze', 'engine', 'reimplementation', 'quirk'],
+    pitch:
+      'Three reverse-engineering passes disassembled the wrong binary. The first-person maze renderer isn’t in the dungeon overlay at all — it’s a service inside the EGA graphics driver that copies itself into scratch RAM to run, so every breakpoint we set logged zero hits.',
+    body: (
+      <>
+        <ProseRow>
+          We went looking for the wall-drawing code in <Code>wmaze.ovr</Code>,
+          the dungeon-traversal overlay. We found code that looked exactly
+          right &mdash; a back-to-front depth loop, vertex-column tables, edge
+          emitters &mdash; named all of it, and wrote it up. Three separate
+          passes did this. Then we set a breakpoint on it during an actual
+          corridor redraw, and it never fired. Not once.
+        </ProseRow>
+        <ProseRow>
+          Two things were hiding the renderer. First, it isn&rsquo;t in wmaze at
+          all: it&rsquo;s a far-called service inside <Code>ega.drv</Code>, the
+          EGA graphics driver. The wmaze code we&rsquo;d so carefully named was
+          the geometry <em>generator</em> that feeds it &mdash; real, but one
+          stage upstream of the pixels.
+        </ProseRow>
+        <ProseRow>
+          Second, and stranger: <Code>ega.drv</Code> copies its own blit
+          routine out of the loaded driver image into a scratch work buffer and
+          jumps into the <em>copy</em>. A breakpoint on the original bytes in
+          the driver image is watching code that is never executed. The same
+          trick hid the texture decompressor too &mdash; so our first
+          &ldquo;is the <Code>.pic</Code> RLE decoder involved? No, zero
+          hits&rdquo; was measuring a corpse.
+        </ProseRow>
+        <Aside title="How we finally pinned it">
+          We caught the relocated code mid-frame with a one-shot RAM snapshot
+          armed on the breakpoint, then proved it was the real renderer with
+          arithmetic: the live caller&rsquo;s return address minus the static
+          call-site equals <Code>0x4564</Code> &mdash; exactly the documented
+          offset at which the overlay loads into the host&rsquo;s code segment.
+          The scratch copy is byte-identical to the driver image, so the static
+          disassembly was authoritative all along; it just never ran where we
+          were watching.
+        </Aside>
+        <Aside title="The lesson">
+          Zero breakpoint hits doesn&rsquo;t mean &ldquo;wrong function.&rdquo;
+          It can mean &ldquo;right function, wrong copy.&rdquo; On a 1990 overlay
+          engine, self-relocating code is ordinary &mdash; trust the bytes, then
+          go find where they actually run.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'findings: egadrv-blit-internals.json', href: '/explore/docs/findings/egadrv-blit-internals.json' },
+      { label: 'findings: maze-planar-transform.json', href: '/explore/docs/findings/maze-planar-transform.json' },
+      { label: 'wmaze-functions.md', href: '/explore/docs/wmaze-functions.md' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'maze-four-greys-no-perspective',
+    title: 'Four Greys and No Perspective',
+    tags: ['maze', 'design-choice', 'quirk', 'engine'],
+    pitch:
+      'The Wiz6 stone corridor is four EGA greys dithered into brickwork, textured by integer per-depth column tables with no perspective correction, composed to an off-screen page and then copied to the screen whole.',
+    body: (
+      <>
+        <ProseRow>
+          The dungeon view reads as stone, but it&rsquo;s built from four greys
+          &mdash; black, dark, light, white &mdash; dithered into brick courses.
+          That&rsquo;s the whole wall palette. The colour comes from the
+          dither, not the data.
+        </ProseRow>
+        <ProseRow>
+          The texturing has no <Code>1/z</Code> term anywhere. Each wall column
+          is placed by a sub-byte bit-shift (<Code>shr ax,cl</Code>) and a
+          per-depth seam table; the corridor&rsquo;s convergence is a
+          hand-tuned lookup &mdash; <Code>{'{0, 104, 128, 144}'}</Code> on the
+          left edge, <Code>{'{0, 216, 192, 176}'}</Code> on the right, for the
+          four depth bands &mdash; not anything computed from a projection. So
+          the corridor doesn&rsquo;t recede smoothly; it <em>steps</em> toward
+          the vanishing point in four discrete bands, the texture column-replicated
+          within each.
+        </ProseRow>
+        <ProseRow>
+          And it never draws to the screen directly. The renderer composes the
+          whole view into an off-screen 4-plane EGA page, then copies that page
+          into video memory plane-by-plane with a byte-offset-preserving move
+          &mdash; an identity copy. The off-screen page already <em>is</em> the
+          screen layout; the perspective was baked in at compose time, one
+          column and one bit-shift at a time.
+        </ProseRow>
+        <Aside title="The port&rsquo;s payoff">
+          Because the page is laid out exactly like the screen, our TypeScript
+          decoder of that 4-plane page matches the engine&rsquo;s framebuffer
+          pixel-for-pixel &mdash; and re-running the column compositor from the
+          geometry tables reproduces the wall faces byte-exact.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'findings: maze-planar-transform.json', href: '/explore/docs/findings/maze-planar-transform.json' },
+      { label: 'findings: maze-stage1-compositor.json', href: '/explore/docs/findings/maze-stage1-compositor.json' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'maze-textures-not-in-maze-file',
+    title: 'The Maze Textures Aren’t In The Maze File',
+    tags: ['maze', 'reimplementation', 'undocumented'],
+    pitch:
+      'mazedata.ega holds no wall pixels — it’s a 153-entry index. The actual textures are decompressed by the exact same RLE decoder that draws monster portraits, and our first decode produced pure noise for two completely different reasons at once.',
+    body: (
+      <>
+        <ProseRow>
+          <Code>mazedata.ega</Code> &mdash; the file literally named for the
+          maze graphics &mdash; contains a header, a 153-entry descriptor table,
+          and a second 366-entry table. What it does <em>not</em> contain is
+          wall pixels in any readable form. It&rsquo;s an index. The descriptors
+          even get rewritten in place as the file loads (offsets shifted by
+          <Code>0xA2</Code>, the width field rewritten into an EGA edge-mask).
+        </ProseRow>
+        <ProseRow>
+          The pixels themselves are decompressed at load by the <Code>.pic</Code>
+          RLE decoder &mdash; the <em>same</em> routine that decodes monster
+          portraits and other sprites. There is no bespoke maze-texture format:
+          the wall tiles are plain 8&times;8 four-plane EGA cells, like
+          everything else the game draws.
+        </ProseRow>
+        <Aside title="Two ways to get noise at once">
+          Our first decode of the texture buffer was pure static. Two
+          independent bugs, both classics: (1) we read the bytes as
+          4-bits-per-pixel <em>packed</em> when the format is four separate
+          1-bit <em>planes</em> &mdash; identical bytes, scrambled layout; and
+          (2) the buffer we&rsquo;d captured was a half-drawn intermediate
+          (snapshotted at the first store of the frame instead of the last). Fix
+          either alone and you still get noise. Fix both and the grey brick
+          snaps into focus.
+        </Aside>
+        <Aside title="The lesson">
+          Structurally-plausible noise &mdash; right entropy, right histogram,
+          looks like data &mdash; is the signature of a layout or timing bug, not
+          a wrong file. (We learned this on the <Code>.snd</Code> decoder and got
+          to relearn it here.) We had the right bytes the whole time.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'findings: maze-texture-decode.json', href: '/explore/docs/findings/maze-texture-decode.json' },
+      { label: 'findings: egadrv-blit-internals.json', href: '/explore/docs/findings/egadrv-blit-internals.json' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'maze-emission-not-geometric',
+    title: 'Walking a Corridor Backwards Isn’t the Mirror of Walking It Forwards',
+    tags: ['maze', 'engine', 'quirk', 'reimplementation'],
+    pitch:
+      'The same dungeon corridor, viewed from opposite ends, can emit different wall sets — because Wiz6 decides which walls to draw from transient, facing-sensitive render state, not from the map geometry alone.',
+    body: (
+      <>
+        <ProseRow>
+          We set out to reimplement the first-person maze renderer as a pure
+          function: feed it the map cells + where you stand + which way you face,
+          get the engine’s exact view back. The whole pixel pipeline works — one
+          captured corridor frame reproduces byte-for-byte from geometry. Then it
+          broke on a frame pair that should have been trivial.
+        </ProseRow>
+        <ProseRow>
+          Two frames, <em>same spot</em>, opposite facings: looking one way the
+          engine drew a doorway and no side walls; looking back the other way it
+          drew four solid side walls. Same cells. Mirror-identical flanking walls.
+          The <em>only</em> difference was the facing. No rule over the map
+          geometry could tell them apart — we brute-forced ten.
+        </ProseRow>
+        <ProseRow>
+          The reason: the engine doesn’t decide wall emission from the map. It
+          seeds a per-depth gate from <em>transient</em> state during the frame
+          build that’s sensitive to the direction of travel — and that state is
+          wiped by the time the frame settles (the gate arrays read all-zero
+          afterward). Two more surprises fell out along the way: the map stores
+          walls in several stacked 64-cell &ldquo;region&rdquo; planes resolved by
+          a fine-coordinate lookup — not one grid — and the renderer executes from
+          a <em>relocated copy of itself</em> that no fixed breakpoint can catch.
+        </ProseRow>
+        <Aside title="What this means for the port">
+          We can render any single real frame’s walls pixel-exact from geometry —
+          and we do. But a renderer that matches the engine for <em>arbitrary</em>
+          movement needs the engine’s transient render state, not just the map.
+          The walls you see aren’t a pure function of where you are and which way
+          you look.
+        </Aside>
+        <Aside title="The lesson">
+          &ldquo;It’s just geometry&rdquo; is a hypothesis, not a fact. Four
+          reverse-engineering passes each cracked a real layer — the cell
+          projection, the multi-region planes, the fine-coordinate resolver —
+          before the data itself proved the thing we were modeling (emission)
+          wasn’t geometric at all. The disproof — same geometry in, different
+          picture out — was worth more than another clever guess.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'findings: maze-classify-gating.json', href: '/explore/docs/findings/maze-classify-gating.json' },
+      { label: 'findings: maze-classify-projection.json', href: '/explore/docs/findings/maze-classify-projection.json' },
+    ],
+  },
 ];
 
 const ALL_TAGS: Tag[] = [

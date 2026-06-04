@@ -1,0 +1,143 @@
+{
+  "topic": "maze-planar-transform",
+  "subagent_run": "2026-06-03 (decoder-first pass: reverse the ega.drv planar-writer transform — compose-page geometry + page->VRAM emit + viewport U/V) ; UPDATED 2026-06-04 (VIEWPORT RESOLVED: page->screen map is offset-preserving identity; 100.00% viewport + 100.00% chrome pixel parity; the 20.8% was a capture-timing artifact)",
+  "binaries": ["ega.drv"],
+  "tool": "Capstone CS_MODE_16 over test-fixtures/original/ega.drv (Ghidra addr == file offset); Ghidra 12.1 decompile of FUN_1c94; patched dosbox-pure tracing core (tools/libretro/build-core.sh) driven by HostClient (live trace + capture-on-breakpoint + memory-write-watch). Clean corridor frame = /tmp/wiz6-maze-clean.state (game_state 5, x7 y3 facing0, the prior passes' reference frame).",
+  "summary": "Reversed the ega.drv planar-writer transform end-to-end and resolved the redraw architecture. (A — STATIC) The maze blit is ega.drv dispatch entry 10 = FUN_1c94 (file 0x1c94). Its core is a 4-plane EGA planar read-modify-write writer (file 0x1f6e..0x20fb): per source-texture column it does `ah=src plane byte; shr ax,cl (sub-byte X align); and ax,bx (valid-pixel set-mask, built by `rcr` from cx=column-phase); merge dst=(dst & dx_clearmask)|(src & set-mask)`, writing a WORD to the off-screen page at es:[di + 0x2000*plane] (plane stride 0x2000) OR straight to A000 VRAM via the EGA Sequencer Map Mask (out 0x3c5) + Graphics Controller (0x3cf) latched read/write when [bp+0x18]&1. Outer loop (file 0x1df0..0x1f6e + the prologue clip at 0x1d7a): per-row clip against [bp+0xe](top)/[bp+0x12]/[bp+0x14], strip init/edge-mask from sub-byte X (cx=[bp-6]&7; setmask 0xff<<cl), inner-cell di stride 0x28 (=40 = one 320px row), cell-row di stride 0x140 (=320). 4 planes unrolled. (B — LIVE) The corridor REDRAW does NOT recompose the whole frame; it runs TWO stages from a transient relocated copy at runtime segment cs=0x6b91: (1) a MASKED PLANAR COMPOSITOR (the file-0x1f6e writer, transient at lin 0x6d9dd) that reads SOURCE texture seg ds=0x6a0f and writes the OFF-SCREEN PAGE es=0x4182 (di range 0x859..0x1376 = the dynamic wall columns only; the per-column `shr ax,cl` here IS the perspective convergence); then (2) a PAGE->VRAM BLIT (the cs=0x6b91 fn at ip 0x8b3, plane copies at ip 0x909/0x921/0x939/0x951) that rep-movsb-copies the page (ds=0x4182, plane src = off + p*0x2000) to A000 VRAM via the Sequencer Map Mask, OFFSET-PRESERVING WITHIN EACH CALL (si==di). The OFF-SCREEN PAGE is a 4-plane EGA image, plane p at pageBase + p*0x2000, ROW STRIDE 0x28 (40 bytes = 320px). VALIDATED: decoding the page at 40B/row 4-plane and pixel-comparing to the live framebuffer gives 99.64% on the bottom UI chrome (rows 144-199) — i.e. the page format + the page->VRAM transform + the EGA palette mapping are all CORRECT. The decoded page renders a visually-perfect corridor (see /tmp/wiz6-page-decoded.png). RESOLVED 2026-06-04: the page->VRAM blit is FULLY OFFSET-PRESERVING for the viewport too (the rep-movsb at cs=0x6b91 ip 0x909 logs si==di for all 810 stores, di covering screen rows 0..143 incl. the whole 3D view). The earlier 20.8% viewport match was a CAPTURE-TIMING artifact: the compositor (stage 1) and page->VRAM blit (stage 2) interleave, so capturing the page at the FIRST store catches a half-composed viewport (41.6%). Capturing at the LAST plane-0 store (skip=storeCount-1) gives the fully-composed page, and a UNIFORM 40B/row 4-plane decode then matches the live framebuffer at 100.00% on the viewport (x72..247/y32..143) AND 100.00% on the chrome. There is NO per-slot repositioning descriptor — the page->screen map is the IDENTITY. tools/parity/render-maze-page.ts decodePageRgba is the complete screen renderer; tools/libretro/trace-maze.ts `capvp` reproduces the 100% gate. The ONLY remaining work for a general (arbitrary-geometry) TS port is the STAGE-1 compositor (source-texture cell -> page), which is separate from this page->screen map.",
+  "reference_frame": {
+    "game_state": 5, "zone": 0, "facing": 0, "z": 0, "y": 3, "x": 7,
+    "viewport": "x72..247 (w176) y32..143 (h112)",
+    "ega_drv_load_base_clean_state": "cs=0x6b91 (linear 0x6b910); ALSO a stale image copy at 0x6a1b0 (do NOT use). Heap-dependent per run.",
+    "source_texture_seg": "ds=0x6a0f (linear 0x6a0f0)",
+    "compose_page_seg": "es/ds=0x4182 (linear 0x41820); plane stride 0x2000",
+    "note": "All segments are heap-dependent; re-derive per run. cs=0x6b91 found by tracing the live VRAM writer (cseip 0x6c219 -> cs 0x6b91 ip 0x909)."
+  },
+  "findings": [
+    {
+      "id": "planar-writer-algorithm-static",
+      "claim": "The ega.drv planar writer (FUN_1c94 body, file 0x1f6e..0x20fb) is a 4-plane EGA planar read-modify-write. Per source column: `mov ah,[si+8*p]; shr ax,cl; and ax,bx; xchg al,ah; mov [bp-0xa],ax; mov ax,es:[di+0x2000*p]; and ax,dx; or ax,[bp-0xa]` then store WORD to es:[di+0x2000*p] (off-screen page) OR to A000 via Sequencer Map Mask (out 0x3c5, plane bit 1/2/4/8) + GC index (out 0x3cf) + latched `mov al,es:[di]; mov es:[di],al; mov al,es:[di+1]; mov es:[di+1],ah` when [bp+0x18]&1. The SET-MASK bx is built per column-phase at file 0x1f6b..0x1f82: `mov cx,[bp-6]; mov bh,[si]&[si+8]&[si+0x10]&[si+0x18] (transparency=AND of 4 planes); mov bl,0xff; stc; rcr bx,cl; mov dx,bx; not bx; xchg dl,dh` — so dx = clear-mask, bx = set-mask, both rotated by the sub-byte X phase (cl). The `shr ax,cl` is THE per-column horizontal sub-byte shift = the affine column placement (the perspective/convergence).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0x1f6e"},
+        "type": "disasm",
+        "details": "Capstone of ega.drv 0x1f6e..0x20c3: `mov cx,[bp-6]; mov bh,[si]; and bh,[si+8]; and bh,[si+0x10]; and bh,[si+0x18]; mov bl,0xff; stc; rcr bx,cl; mov dx,bx; not bx; xchg dl,dh; mov ah,[si]; shr ax,cl; and ax,bx; xchg al,ah; mov [bp-0xa],ax; mov ax,es:[di]; and ax,dx; or ax,[bp-0xa]; <test [bp+0x18],1; je +; VRAM seq-mask path; +> mov es:[di],ax` repeated for planes at [si+8],[si+0x10],[si+0x18] with dest es:[di+0x2000/0x4000/0x6000]. Then `inc si; add di,0x28; loop`; `add si,0x18; inc [bp-0xc]; mov di,[bp-0xc]; loop`; `pop di; add di,0x140; loop`. So inner-cell di stride 0x28 (40=1 row), cell-row di stride 0x140 (320). The byte signature `8a 3c 22 7c 08 22 7c 10 22 7c 18 b3 ff f9 d3 db` is unique in ega.drv at file 0x1f6e."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "writer-bp-frame-static",
+      "claim": "FUN_1c94 (file 0x1c94) bp-frame args (near-cdecl): [bp+0xa]=tile/page index (*2 into cs:[0x17a] table for the source far-seg), [bp+0xc]=clip low, [bp+0xe]=top Y, [bp+0x10]=dest-row base (*0x28 -> di), [bp+0x12]=clip cmp, [bp+0x14]=bottom Y, [bp+0x16]=flags (bit0 H-flip, bit1 V-flip + palette-remap branch), [bp+0x18]=VRAM flag (bit0 -> write A000 directly), [bp+0x1a]=piece-index-string ptr. Locals: [bp-2]=width(cells), [bp-4]=height(rows), [bp-6]=sub-byte X phase / loop counter, [bp-8]=row stride ((w-1)<<5), [bp-0xa]=di base/scratch, [bp-0xc]=di col base, [bp-0x10]=flip offset. The function clears a 0x1400-byte buffer to 0xff (transparent), reads (w,h) from a 0x18-stride descriptor at (pieceString[0]-1)*0x18, loops the piece string calling FUN_210c (0x210c) per piece, applies palette-remap (LUT @+0x192) / H-flip / V-flip, then the planar writer.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0x1c94"},
+        "type": "decompile",
+        "details": "Ghidra FUN_0000_1c94 + capstone of the prologue 0x1c94..0x1d00: `push bp; mov bp,sp; sub sp,0x10; push ds/es/si/di; <clear 0x1400 to 0xff>; ax=[bp+0xc]<<1; bx=0x17a+ax; ds=cs:[0x169]+cs:[bx]; si=[bp+0x1a]; al=es:[si]; dec al; mul 0x18; w=[bx+2]; h=[bx+3]; <loop pieces: call 0x210c>`. The transition into the planar writer is via the clip-prologue at 0x1d7a: `mov ax,[bp+0xe]; cmp ax,[bp+0x12]; jl 0x1d85; ...` then the strip-init / edge-mask build at 0x1da0..0x1df0."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "redraw-two-stage-architecture",
+      "claim": "The corridor REDRAW runs TWO stages from a transient relocated copy at runtime segment cs=0x6b91 (NOT the in-image ega.drv at 0x6a1b0, which logs 0 trace hits on redraw). STAGE 1 (compositor): the file-0x1f6e planar writer, transient at lin 0x6d9dd, reads SOURCE seg ds=0x6a0f and writes the OFF-SCREEN PAGE es=0x4182 with [bp+0x18]&1 CLEAR (so it merges into es:[di+0x2000*p], page plane stride 0x2000). 1936 column-writes per redraw, di range 0x859..0x1376 (only the dynamic wall columns). STAGE 2 (page->VRAM blit): a separate fn at cs=0x6b91 ip 0x8b3 rep-movsb-copies the page (ds=0x4182) to A000 VRAM, per plane via Sequencer Map Mask (out 0x3c5 plane 1/2/4/8 at ip 0x8f7/0x90b/0x923/0x93b), si==di within each call (OFFSET-PRESERVING for that call's rectangle), di range 0x2..0x1670. So the FULL frame is NOT recomposed each step; the compositor only refreshes the wall columns into the page, then the page is re-emitted to VRAM.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_trace_plus_disasm",
+        "details": "VRAM write-watch during a forward-step redraw: ALL VRAM writers are cseip 0x6c219/0x6c231/0x6c249/0x6c261 (the page->VRAM rep-movsb plane stores, cs=0x6b91 ip 0x909/0x921/0x939/0x951), addr range 0xa0f31..0xa1676. Compose-page write-watch (region 0x41820..0x49820): writers at cs=0x6b91 ip 0x20cd/0x211c/0x216d/0x21be (the masked planar merge, transient) + an 0xc31..0xe10 cluster. Trace of 0x6d9dd: ds=0x6a0f es=0x4182, di 0x859..0x1376. Trace of 0x6c219 (plane0 rep-movsb): ds=0x4182 es=0xa000, si==di, di 0x2..0x1670, cx 1..36. In-image FUN_1c94 (0x6be44)/planar(0x6c11e)/FUN_210c(0x6c2bc) all = 0 redraw hits (the executed copy is the cs=0x6b91 transient)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "offscreen-page-format-and-pagevram-validated",
+      "claim": "VALIDATED END-TO-END (chrome): the OFF-SCREEN PAGE is a 4-plane EGA image, plane p at pageBase + p*0x2000, ROW STRIDE 0x28 (40 bytes = 320px), pixel(x,y) idx = sum_p (page[y*40 + x/8 + p*0x2000] >> (7-(x%8)) & 1) << p. Decoding the live page (seg 0x4182) at 40B/row 4-plane and pixel-comparing to the live framebuffer with the live EGA palette yields 99.64% on the bottom UI chrome (rows 144-199, 17856/17920). The page->VRAM blit is offset-preserving (si==di per call), so page[off] -> VRAM[off] for the chrome. The decoded page renders a visually-perfect corridor (banner, portcullis, stone walls, floor). So the page format, the 40B/row geometry, the 4-plane decode, and the EGA index->RGB mapping are all CORRECT.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture_plus_offline_render_plus_pixel_match",
+        "details": "Captured the page (4 planes, 0x8000) at fn-0x8b3 entry (compose complete) + the live framebuffer in the same deterministic redraw (CLEAN_STATE). Per-index majority vote over the framebuffer recovers the canonical EGA-16 palette (idx2=(0,170,0) green 69%, idx3=(0,170,170) cyan 72%, idx4=(170,0,0) red 100%, idx6=(85,255,85), idx12=(255,85,85), idx14=(0,170,0), idx15=(0,170,170) 100% — the portcullis/UI colors; idx0/1/8/9 = the grayscale stone). Match by screen-row band: rows 144-207 = 99-100% (chrome, 1:1); rows 0-31 (banner) ~50%; rows 32-143 (viewport) 6-28%. Decoded PNG /tmp/wiz6-page-decoded.png is the visually-correct corridor. Decoder promoted to tools/parity/render-maze-page.ts (decodePageRgba)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pagevram-blit-fn-static-from-live-capture",
+      "claim": "The PAGE->VRAM blit fn (cs=0x6b91 ip 0x8b3, a transient copy) reads a 4-byte per-call descriptor at ds:[bp+0xc]: desc[0]=width-in-bytes (rep-movsb cx), desc[1]<<3 = row count ([bp-4]), desc[3]*0x140 + desc[2] = a dest base [bp-6] (desc[3] scaled by 0x140=320, desc[2]=x byte). Per row it copies `cx` bytes for each of the 4 planes (si=[bp-6]; di=si; si+=0x2000*planeIdx; out 0x3c4/2,planebit; rep movsb es:[di]<-ds:[si]) then [bp-6]+=0x28 (next row). So the blit copies a rectangle of the page to VRAM. desc[3]*0x140 vs the +0x28 row step is the SLOT-REPOSITIONING math (the descriptor places each viewport slot's page rectangle at its screen position).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture_plus_disasm",
+        "details": "Capstone of the captured cs=0x6b91 code (lin 0x6b910) at ip 0x8b3..0x973: `push bp; mov bp,sp; sub sp,0x16; push ds/es/di/si; call 0x10e1; cld; bx=[bp+0xc]; al=[bx+1]; ax<<=3; [bp-4]=ax(rows); al=[bx]; [bp-2]=ax(width); al=[bx+3]; mul 0x140; dl=[bx+2]; dx+=ax; [bp-6]=dx; call 0x974; es=0xa000; ds=cs:[0x14d]; <per-plane: out 3c4/2,planebit; si=[bp-6]; di=si; si+=0x2000*k; cx=[bp-2]; rep movsb>; [bp-6]+=0x28; dec [bp-4]; jne`. fn 0x974 = a per-cell masked sub-blit (8-wide, src stride 0x27) for the clip border (cmp cs:[0x178],1)."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "viewport-page-screen-map-offset-preserving",
+      "claim": "RESOLVED — THE PAGE->VRAM MAP IS FULLY OFFSET-PRESERVING FOR THE VIEWPORT; 100.00% VIEWPORT PIXEL PARITY ACHIEVED. Tracing the page->VRAM plane-0 rep-movsb store (cs=0x6b91 ip 0x909, lin 0x6c219 in CLEAN_STATE) over one corridor redraw logs 810 stores with si==di for ALL 810 (0 mismatches), di covering screen offsets 0x2..0x1670 = screen rows 0..143, INCLUDING the entire 3D viewport (rows 32..143, x72..247 = page byte cols 9..30). So page[off] -> VRAM[off] everywhere: page offset N copies to screen offset N, byte-for-byte, per plane. There is NO per-slot repositioning descriptor for the viewport — the prior 'viewport stored at a different page location, repositioned via the fn-0x8b3 descriptor' conclusion was a CAPTURE-TIMING ARTIFACT, not a real transform. THE ROOT CAUSE OF THE EARLIER 20.8%: stage-1 (compositor) and stage-2 (page->VRAM blit) INTERLEAVE within one redraw; capturing the page at the FIRST plane-0 store catches a HALF-COMPOSED viewport (uniform decode = 41.6% vs fb). Capturing the page at the LAST plane-0 store (skip = storeCount-1 = 809) yields the fully-composed page: a uniform 40B/row 4-plane decode then matches the live framebuffer at 100.00% on the viewport (x72..247/y32..143, all seven 16-row bands = 100.00%) AND 100.00% on the chrome (rows 144..199) AND 99.25-100% on the banner (rows 0..31). The decoded page is a pixel-perfect Wizardry VI corridor (grey stone walls, green portcullis, banner, party icons — /tmp/wiz6-vp-decoded.png). The viewport side panels (x0..71 / x248..319) read stale in a 3D-view-only redraw (left 9%, right 5%) because that redraw refreshes only the 3D view, not the static party panels — expected, not a parity gap. So the page-cell -> screen-cell map for the ENTIRE screen (incl. viewport) is the identity: tools/parity/render-maze-page.ts decodePageRgba IS the complete renderer.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture_plus_disasm_plus_pixel_match",
+        "details": "trace-maze.ts capvp (CLEAN_STATE): plane-0 store cs=0x6b91 ip 0x909 (lin 0x6c219) = 810 hits; per-record si==di (0/810 mismatch), di 0x2..0x1670 (rows 0..143). Captured the 4-plane page (4x 0x2000, the DBP_CAP_MAX=0x4000 cap forces per-plane capture) at skip=809 (last store) -> /tmp/wiz6-vp-page.bin; live fb -> /tmp/wiz6-vp-fb.fb. Uniform decode (plane stride 0x2000, 40B/row, idx=sum_p bit) vs fb with a majority-vote palette: VIEWPORT x72..248 y32..144 = 100.00% (each 16-row band 32/48/64/80/96/112/128 = 100.00%); chrome y144..200 = 100.00%; banner y0..32 = 99.25%. Capturing at skip=0 (first store) instead = 41.6% viewport (half-composed) — the timing is the ONLY variable. The per-row (si,di,cx) map (/tmp/wiz6-vram-map.json) shows a base full-width store x72 w22b plus per-row overlay sub-blits (the corridor surface cells) — all offset-preserving."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "pagevram-descriptor-superseded",
+      "claim": "SUPERSEDED / CORRECTED: the prior 'pagevram-blit-fn-static-from-live-capture' (desc[3]*0x140 + desc[2] = a RELOCATING dest base) is NOT a viewport-repositioning transform. The empirical rep-movsb capture proves si==di within AND across all calls (di runs 0x2..0x1670 contiguously over screen rows 0..143, matching the page 1:1). The fn-0x8b3 entry fires 10 times with bx in {0x7410,0x73fa} and di=0x5240 at entry, ds=0x1180 — but whatever [bp-6] the descriptor computes, the executed rep-movsb stores land at di==si == the page offset (offset-preserving). The descriptor likely parameterizes WHICH page rectangle / row-run a given call copies (width=cx, row count), not a SHIFT of src vs dst. Reading the raw descriptor struct is therefore unnecessary for parity (and the prior all-zero read at ds=0x1180 was the wrong segment); the empirical si/di/cx capture is the ground truth and is sufficient. Confidence high on offset-preserving (810/810 si==di); the descriptor's exact field meaning is now low-priority (confidence:low, unread).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture",
+        "details": "810 plane-0 rep-movsb stores, si==di for every one (0 mismatches); di contiguous 0x2..0x1670 (rows 0..143). Cross-checked: the viewport (page rows 32..143) decodes 1:1 to the framebuffer at 100.00% when the page is captured fully-composed (skip=809). No vertical displacement exists — the earlier '~44-row displacement / banner-where-stone' was the half-composed first-store capture."
+      },
+      "confidence": "high"
+    }
+  ],
+  "uv_map_status": {
+    "solved": "FULLY SOLVED for the screen render. Page format (4-plane, plane stride 0x2000, row stride 0x28 = 40B/320px) + page->VRAM transform (offset-preserving rep-movsb per plane via Sequencer Map Mask, si==di for ALL 810 stores) + EGA index->RGB palette. The page->screen map is the IDENTITY (page[off]->VRAM[off]) for the ENTIRE screen incl. the 3D viewport. Proven by 100.00% viewport (x72..247/y32..143) + 100.00% chrome pixel-match against the live framebuffer (page captured fully-composed at the last plane-0 store) and a pixel-perfect decoded corridor PNG. tools/parity/render-maze-page.ts decodePageRgba is the complete renderer; tools/libretro/trace-maze.ts `capvp` reproduces the 100% gate.",
+    "open": "NONE for the page->screen map. Remaining for a GENERAL (arbitrary-geometry) TS port — and SEPARATE from this map — is the STAGE-1 COMPOSITOR (source-texture cell -> page transform): which source 8x8 cell + sub-byte X phase (`shr ax,cl`) writes which page column, driven by the wmaze depth/geometry logic. That fills the page; the page->screen map (this finding) then places it 1:1. See maze-texture-decode.json for the source-atlas + 4-plane cell work.",
+    "convergence_tables_note": "CORRECTED: the prior wmaze DATA-table claims (per-depth convergence @ wmaze DGROUP 0x42/0x4a, seam tables @0x36e4/0x3717) do NOT hold — reading those overlay offsets live (lin ovl+0x42 etc.) returns CODE bytes (push si / cmp word / ret), not lookup tables. The perspective lives in the compositor's per-column `shr ax,cl` phase + the per-row overlay sub-blits (the corridor surface cells), not a flat table at those addresses. The page->screen step adds NO perspective (it is the identity). Locating the real geometry source is part of the stage-1 compositor follow-up."
+  },
+  "artifacts": [
+    "tools/parity/render-maze-page.ts — PROMOTED + UPDATED: decode a 4-plane compose-page dump (>=0x8000 bytes, plane stride 0x2000, 40B/row) to RGBA/PNG. decodePageIndex/decodePageRgba exported. THE COMPLETE SCREEN RENDERER — the page->VRAM blit is offset-preserving (identity), so a uniform decode is 100.00% pixel-exact on the viewport AND chrome (when fed a fully-composed page). Docstring corrected to drop the 'viewport repositioned' caveat and document the capture-timing gotcha.",
+    "tools/libretro/trace-maze.ts `capvp` phase — NEW: captures the fully-composed 4-plane maze page from CLEAN_STATE (traces plane-0 store cs=0x6b91 ip 0x909, captures each plane at the LAST store), decodes it and prints VIEWPORT + CHROME pixel-match % vs the live framebuffer. Reproduces the 100.00%/100.00% gate. The reusable general renderer (capture -> decode -> parity).",
+    "/tmp/wiz6-vp-page.bin + /tmp/wiz6-vp-fb.fb — fully-composed page (last-store capture) + live fb; uniform decode = 100.00% viewport.",
+    "/tmp/wiz6-vp-decoded.png — the decoded page = a pixel-perfect Wiz6 corridor (grey stone, green portcullis, banner, party icons).",
+    "/tmp/wiz6-vram-map.json — the 810 (si,di,cx) plane-0 rep-movsb stores: si==di for all, di 0x2..0x1670 (rows 0..143). The empirical page->screen map.",
+    "/tmp/wiz6-page-decoded.png — the live compose page decoded (default EGA palette; stone shows blue because the live palette remaps those indices to gray).",
+    "/tmp/wiz6-fb-actual.png — the live framebuffer (gray stone) for the same frame.",
+    "/tmp/wiz6-patch-cmp.png — zoomed side-by-side (page decode | fb) showing the viewport vertical displacement.",
+    "/tmp/wiz6-oneshot-page.bin — 4-plane page dump (0x8000) captured in the same redraw as /tmp/wiz6-oneshot-fb.fb (RGBA 320x200).",
+    "/tmp/wiz6-compose-code.bin — captured transient compositor code (lin 0x6d800); the file-0x1f6e planar writer byte-for-byte.",
+    "/tmp/wiz6-exec-code.bin — captured cs=0x6b91 segment (lin 0x6b910): the page->VRAM blit fn at ip 0x8b3.",
+    "/tmp/maze-*.mjs — reusable one-off HostClient scripts (find segs, trace writers, capture page+fb, read descriptors). Kept in /tmp."
+  ],
+  "solid_vs_followup": {
+    "solid": [
+      "The ega.drv planar writer (file 0x1f6e..0x20fb) full algorithm: 4-plane EGA RMW, per-column `shr ax,cl` sub-byte align, `rcr`-built set/clear masks, transparency=AND of 4 planes, dest = off-screen page es:[di+0x2000*p] OR A000 via Sequencer Map Mask. Disasm-anchored.",
+      "FUN_1c94 bp-frame map (width/height/clip/flags/page-flag/piece-string) — Ghidra + capstone.",
+      "Redraw = TWO stages: (1) masked compositor source 0x6a0f -> page 0x4182 (wall columns only, the convergence is the per-column shr), (2) page->VRAM rep-movsb blit (offset-preserving per call) page 0x4182 -> A000.",
+      "OFF-SCREEN PAGE FORMAT: 4-plane, plane stride 0x2000, row stride 0x28 (40B/320px). VALIDATED 100.00% pixel-exact on BOTH the viewport (x72..247/y32..143) and the chrome (rows 144..199) when the page is captured fully-composed; decodes to a pixel-perfect corridor.",
+      "PAGE->SCREEN MAP = IDENTITY (RESOLVED): the page->VRAM rep-movsb is offset-preserving (si==di for all 810 stores, di rows 0..143 incl. the whole viewport). NO per-slot descriptor relocation. The prior '20.8% viewport / repositioned' was a capture-timing artifact (page captured half-composed). Capture at the LAST plane-0 store -> 100.00%.",
+      "EGA index->RGB recovered from the framebuffer (canonical EGA-16; stone indices 0/1/8/9 are palette-remapped to grays).",
+      "tools/parity/render-maze-page.ts decoder (the complete screen renderer) + tools/libretro/trace-maze.ts `capvp` (capture+parity gate, reproduces 100%)."
+    ],
+    "needs_follow_up": [
+      "DONE: the viewport page->screen map is RESOLVED — it is the IDENTITY (offset-preserving rep-movsb, si==di for all 810 stores). 100.00% viewport + 100.00% chrome pixel parity via a uniform page decode (capture the page at the LAST plane-0 store). No descriptor relocation exists. (Was: 'read fn 0x8b3's 10 descriptors / 20.8% uniform' — that was a capture-timing artifact.)",
+      "DONE: the page captured fully-composed (last store) is bit-exact for the wall region too — the earlier 57.8% si-based replay used a half-composed page. Capture at skip=storeCount-1.",
+      "REMAINING (stage-1 compositor, separate from this map): map the source-texture seg the compositor reads (si + `shr ax,cl` per column) to the mazedata descriptor table / wmaze depth geometry (the source->page cell U for each wall column). This fills the page for ARBITRARY geometry; the page->screen step is solved (identity). Ties into maze-texture-decode.json's source-atlas work."
+    ]
+  },
+  "symbol_map": [
+    {"space": "ega.drv", "offset": "0x1c94", "name": "ega_compose_and_blit_entry10", "note": "dispatch entry 10 (off 0x2b). compose buffer-clear + per-piece masked decode (0x210c) + palette/flip + the planar writer. The maze redraw runs a RELOCATED copy of this (live cs=0x6b91)."},
+    {"space": "ega.drv", "offset": "0x1f6e", "name": "ega_planar_writer_4plane", "note": "the per-column 4-plane EGA RMW: shr ax,cl sub-byte align + rcr set/clear masks; dest es:[di+0x2000*p] (page) or A000 via Sequencer. Inner di stride 0x28, cell-row di stride 0x140. THE perspective transform (shr/cl)."},
+    {"space": "ega.drv", "offset": "0x1d7a", "name": "ega_planar_writer_clip_prologue", "note": "Y-clip ([bp+0xe]/[bp+0x12]/[bp+0x14]) + strip-init + edge-mask build (cx=[bp-6]&7; 0xff<<cl) before the planar writer."},
+    {"space": "ega.drv", "offset": "0x2069", "name": "ega_planar_span_write_vram", "note": "the A000 store inside the planar writer (out 0x3c5 Sequencer + 0x3cf GC + latched RMW); the per-plane VRAM emit when [bp+0x18]&1."},
+    {"space": "ega.drv", "offset": "0x210c", "name": "ega_blit_piece_masked_4plane", "note": "per-piece masked 4-plane cell blit (the in-RAM cell decoder); transp = AND of 4 planes; src/dst +0x20 per cell-row. (Unchanged from prior findings.)"}
+  ],
+  "unresolved": [
+    "STAGE-1 COMPOSITOR (source -> page) for ARBITRARY geometry: the per-column source-cell + sub-byte X phase (`shr ax,cl`) selection driven by the wmaze depth/geometry logic. This is what a TS port needs to render any frame (not just replay this captured page). The page->screen map (stage 2) is now fully solved (identity).",
+    "The fn-0x8b3 per-call descriptor field meaning (width/row-count parameters) — LOW PRIORITY / unread; not needed for parity since the empirical si==di capture is ground truth (confidence:low that it ever relocates)."
+  ],
+  "caveat_for_prior_findings": "CORRECTS egadrv-blit-internals.json's 'FUN_1c94 logs 0 hits / is sprite-only, not the wall path': FUN_1c94's PLANAR WRITER (file 0x1f6e) IS the maze wall compositor — it just runs from a RELOCATED transient copy (live cs=0x6b91, lin 0x6d9dd) so the in-image breakpoint sees 0 hits (same relocation pattern as the .pic RLE decoder). REFINES 'the perspective lives entirely in the outer driver's per-cell (si,di) selection': the perspective is in BOTH the compositor's per-column `shr ax,cl` (sub-byte X convergence) AND the page->VRAM descriptor's slot placement. CONFIRMS the off-screen page (es=0x4182 / the 0x6a0f0-fresh-load seg) is a real 4-plane EGA page that decodes to the corridor (the prior 'compose page is a transformed intermediate, no flat decode matches' was because the VIEWPORT sub-region is repositioned — the CHROME sub-region decodes 1:1 at 99.64%). Source texture seg 0x6a0f and the masked-merge format from maze-texture-decode.json stand."
+}
