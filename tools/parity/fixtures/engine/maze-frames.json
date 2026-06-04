@@ -3,7 +3,14 @@
     "source_state": "test-fixtures/states/maze-corridor.state.gz",
     "description": "Per-frame party/slots/spans + shared cell geometry for zone-0 stub corridor. All frames start from the committed corridor state (facing 0, cell x=5 gx=127 gy=121). Turn-left = one left key; lookback = two right keys (180° turn).",
     "captured": "2026-06-04T21:25:32.691Z",
-    "cell_layout": "z=0, FULL 8×8 grid. JSON key z{z}_y{cellA}_x{cellB}: cellA = DGROUP 0x4f9e (×8 axis, engine forward for facing 0 = +cellA); cellB = DGROUP 0x4fa0 (×1 axis). Cell index = z*64 + cellA*8 + cellB. N-wall at maze_ptr+0x60, W-wall at maze_ptr+0x120, 2 bits/cell MSB-first. Party is at cellA=5 cellB=7. Forward axis per facing: f0=+cellA, f1=+cellB, f2=-cellA, f3=-cellB. See docs/re/findings/maze-classify-projection.json."
+    "cell_layout": "z=0, FULL 8×8 grid. JSON key z{z}_y{cellA}_x{cellB}: cellA = DGROUP 0x4f9e (×8 axis, engine forward for facing 0 = +cellA); cellB = DGROUP 0x4fa0 (×1 axis). Cell index = z*64 + cellA*8 + cellB. N-wall at maze_ptr+0x60, W-wall at maze_ptr+0x120, 2 bits/cell MSB-first. Party is at cellA=5 cellB=7. Forward axis per facing: f0=+cellA, f1=+cellB, f2=-cellA, f3=-cellB. See docs/re/findings/maze-classify-projection.json. CRITICAL (see docs/re/findings/maze-classify-gating.json): this 8×8 grid is REGION 0's wall plane ONLY. The engine resolves cells across MULTIPLE regions (each a separate 64-cell plane) via the fine-coord region tables; emission needs that multi-region data, not just this single grid."
+  },
+  "regionTables": {
+    "note": "Per-zone STATIC region tables read live (identical across all 4 frames). maze_ptr+0x1e0 (gxBase, 12 bytes) / +0x1ec (gyBase, 12 bytes). The resolver (wmaze 0x357a/0x35b7) maps the party's GLOBAL CELL coords (gx=0x4fa4, gy=0x4fa2) to a region r where gxBase[r]<=gx<=gxBase[r]+7 AND gyBase[r]<=gy<=gyBase[r]+7, then cellB=gx-gxBase[r], cellA=gy-gyBase[r], and the wall cell index = r*64 + cellA*8 + cellB (region replaces the z slot). Regions 0..5 form a 2(gx)×3(gy) block of 8×8 cell planes; regions 6..11 are a separate area. Out-of-region (no r matches) = SOLID wall.",
+    "gxBase": [120, 128, 120, 128, 120, 128, 10, 18, 10, 18, 26, 26],
+    "gyBase": [116, 116, 124, 124, 132, 132, 10, 10, 18, 18, 10, 18],
+    "party_region": 0,
+    "party_global": { "gx": 127, "gy": 121 }
   },
   "frames": [
     {
@@ -26,6 +33,14 @@
         0,
         0
       ],
+      "fineCoordGate": {
+        "region": 0,
+        "front_0x508a": [1, 1, 1, 0],
+        "leftA_0x5072": [0, 1, 0, 0],
+        "rightA_0x5092": [1, 1, 0, 0],
+        "wt2_emit_depths": [],
+        "note": "Residual per-depth gate arrays read live AFTER build settles. front[3]=0 (depth-3 cell crosses into region 2). NO wt=2 side-wall spans emitted (single wt=1 door span at df2)."
+      },
       "spans": [
         {
           "x0": 158,
@@ -58,6 +73,14 @@
         2,
         0
       ],
+      "fineCoordGate": {
+        "region": 0,
+        "front_0x508a": [1, 1, 1, 1],
+        "leftA_0x5072": [0, 0, 0, 1],
+        "rightA_0x5092": [1, 1, 1, 1],
+        "wt2_emit_depths": [],
+        "note": "Walking down the cellB axis (facing 3, -cellB) within region 0. Front gate all-1 (corridor open ahead) but NO wt=2 side-wall spans — the orientation-gated corner classifier returns code 2 (edge marker), not 9 (solid quad), for these cells."
+      },
       "spans": []
     },
     {
@@ -80,6 +103,14 @@
         2,
         2
       ],
+      "fineCoordGate": {
+        "region": 0,
+        "front_0x508a": [1, 1, 1, 1],
+        "leftA_0x5072": [0, 0, 0, 0],
+        "rightA_0x5092": [1, 0, 0, 0],
+        "wt2_emit_depths": [0, 1, 2, 3],
+        "note": "THE positive frame. Walking -cellA within region 0; right side (gx-1=126, region 0) has a continuous solid W wall down the corridor and the left side resolves into region 1 (gx128). Front gate all-1 at every depth (forward edges open/door, never a SOLID stop) -> corners emit at all 4 depths; the corner classifier returns the solid-quad code (9) -> 4 wt=2 spans at df0..3."
+      },
       "spans": [
         {
           "x0": 136,
@@ -175,6 +206,14 @@
         0,
         2
       ],
+      "fineCoordGate": {
+        "region": 0,
+        "front_0x508a": [1, 1, 1, 1],
+        "leftA_0x5072": [0, 1, 1, 1],
+        "rightA_0x5092": [0, 0, 0, 1],
+        "wt2_emit_depths": [],
+        "note": "Facing 1 (+cellB / +gx). Depth-1 cursor crosses into region 1 (gx128). Front gate all-1 but NO wt=2 spans (corner classifier returns 2, not 9). Asymmetric left/right gate pattern (leftA vs rightA) reflects the one-sided geometry but does not promote to a settled wt=2 span (open ahead)."
+      },
       "spans": []
     }
   ],
