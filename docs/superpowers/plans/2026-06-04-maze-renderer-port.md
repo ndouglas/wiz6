@@ -12,6 +12,21 @@
 
 ---
 
+## Outcome (2026-06-04) — paused: pixel pipeline shipped, general emission is an open RE wall
+
+**Shipped + validated (committed on `re/maze-general-renderer`):**
+- Tasks 1–9: the full `@wiz6/data` + `@wiz6/parser` from-geometry pipeline (schemas, RE'd tables, page-decode, committed assets, compositor, flush, build, classify, `renderMazeViewport`). The `lookback` corridor frame renders **byte-exact from geometry** through the entire pipeline.
+- Task 10: turn-left / lookback / **asymmetric** engine fixtures + per-frame geometry/party/multi-region data (`tools/parity/fixtures/engine/maze-frames.json`).
+- Two extra RE passes pinned the CLASSIFY projection (`0x3c11`) and the fine-coordinate **resolver + multi-region wall planes** (`docs/re/findings/maze-classify-{projection,gating}.json`).
+
+**Why paused (Tasks 11–12 not done):** the wall-emit predicate is **proven NOT a pure function of (geometry, party, facing)** — `maze-corridor` (f0) and `lookback` (f2) resolve to the same center cells with mirror-identical flanking walls yet emit 0 vs 4 solid wall-spans; the only difference is facing. The discriminator lives in a **facing-sensitive transient classifier state** that settles to zero post-frame, and the renderer runs from a relocated/paged copy that the current trace tooling cannot hit (0-hit wall). A 10-predicate offline search over the full multi-region geometry did not reproduce all four frames. Decision (with the user): **bank the wins, stop the general-renderer goal.** The viewer keeps its existing **extraction** path (`compose-maze-frame.ts`, already 100% for the corridor) — Task 12's replacement was deliberately NOT done, so `/game/maze` is unaffected.
+
+**Status by task:** T1–T9 ✅ · T10 ✅ · `classify` reworked to the RE'd law (renders solid corridors; over-emits for general geometry — `it.skip` documents the divergent frames) · T11 (multi-frame gate) / T12 (viewer replace) — **not done (blocked on the emit predicate).**
+
+**To resume:** the emit predicate needs the transient mid-frame gate state. Recipe in `docs/re/findings/maze-classify-gating.json` (`pass_2026_06_04_close_attempt`): find the renderer's runtime CS via the wmaze overlay-dispatch far-call, re-mint the 4 states under the patched core, trace + mid-frame-capture the emit-gate seeding. OR investigate the decoration-plane (`special4`/`orient2`) door→side-wall interaction offline (f0 shows a doorway where f2 shows solid walls).
+
+---
+
 ## Pre-flight (read before Task 1)
 
 The executor MUST read these to ground each port:

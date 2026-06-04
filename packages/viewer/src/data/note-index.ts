@@ -243,6 +243,13 @@ export const NOTE_INDEX: NoteIndexEntry[] = [
       'mazedata.ega holds no wall pixels — it’s a 153-entry index. The actual textures are decompressed by the exact same RLE decoder that draws monster portraits, and our first decode produced pure noise for two completely different reasons at once.',
     tags: ['maze', 'reimplementation', 'undocumented'],
   },
+  {
+    id: 'maze-emission-not-geometric',
+    title: 'Walking a Corridor Backwards Isn’t the Mirror of Walking It Forwards',
+    pitch:
+      'The same dungeon corridor, viewed from opposite ends, can emit different wall sets — because Wiz6 decides which walls to draw from transient, facing-sensitive render state, not from the map geometry alone.',
+    tags: ['maze', 'engine', 'quirk', 'reimplementation'],
+  },
 ];
 
 export function findNote(id: string): NoteIndexEntry | undefined {

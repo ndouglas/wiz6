@@ -1711,6 +1711,62 @@ call draw_msg_in_window`}
       { label: 'findings: egadrv-blit-internals.json', href: '/explore/docs/findings/egadrv-blit-internals.json' },
     ],
   },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'maze-emission-not-geometric',
+    title: 'Walking a Corridor Backwards Isn’t the Mirror of Walking It Forwards',
+    tags: ['maze', 'engine', 'quirk', 'reimplementation'],
+    pitch:
+      'The same dungeon corridor, viewed from opposite ends, can emit different wall sets — because Wiz6 decides which walls to draw from transient, facing-sensitive render state, not from the map geometry alone.',
+    body: (
+      <>
+        <ProseRow>
+          We set out to reimplement the first-person maze renderer as a pure
+          function: feed it the map cells + where you stand + which way you face,
+          get the engine’s exact view back. The whole pixel pipeline works — one
+          captured corridor frame reproduces byte-for-byte from geometry. Then it
+          broke on a frame pair that should have been trivial.
+        </ProseRow>
+        <ProseRow>
+          Two frames, <em>same spot</em>, opposite facings: looking one way the
+          engine drew a doorway and no side walls; looking back the other way it
+          drew four solid side walls. Same cells. Mirror-identical flanking walls.
+          The <em>only</em> difference was the facing. No rule over the map
+          geometry could tell them apart — we brute-forced ten.
+        </ProseRow>
+        <ProseRow>
+          The reason: the engine doesn’t decide wall emission from the map. It
+          seeds a per-depth gate from <em>transient</em> state during the frame
+          build that’s sensitive to the direction of travel — and that state is
+          wiped by the time the frame settles (the gate arrays read all-zero
+          afterward). Two more surprises fell out along the way: the map stores
+          walls in several stacked 64-cell &ldquo;region&rdquo; planes resolved by
+          a fine-coordinate lookup — not one grid — and the renderer executes from
+          a <em>relocated copy of itself</em> that no fixed breakpoint can catch.
+        </ProseRow>
+        <Aside title="What this means for the port">
+          We can render any single real frame’s walls pixel-exact from geometry —
+          and we do. But a renderer that matches the engine for <em>arbitrary</em>
+          movement needs the engine’s transient render state, not just the map.
+          The walls you see aren’t a pure function of where you are and which way
+          you look.
+        </Aside>
+        <Aside title="The lesson">
+          &ldquo;It’s just geometry&rdquo; is a hypothesis, not a fact. Four
+          reverse-engineering passes each cracked a real layer — the cell
+          projection, the multi-region planes, the fine-coordinate resolver —
+          before the data itself proved the thing we were modeling (emission)
+          wasn’t geometric at all. The disproof — same geometry in, different
+          picture out — was worth more than another clever guess.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'findings: maze-classify-gating.json', href: '/explore/docs/findings/maze-classify-gating.json' },
+      { label: 'findings: maze-classify-projection.json', href: '/explore/docs/findings/maze-classify-projection.json' },
+    ],
+  },
 ];
 
 const ALL_TAGS: Tag[] = [
