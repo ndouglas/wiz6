@@ -931,7 +931,8 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
 // (castle-3: THESUS/TEMPEST/LYSANDR) → START NEW GAME → scenario → into the
 // dungeon, then dismisses the "approaching the gate" narration and walks the
 // party forward to the corridor-at-gate frame (party facing the green portcullis
-// gate). The proven drive lives in trace-maze.ts driveToMaze().
+// gate). The proven drive lives in tools/libretro/trace-maze.ts driveToMaze()
+// (and is mirrored by the recipe `steps` below).
 //
 // After castle-3 the MASTER OPTIONS cursor is back on ADD PARTY MEMBER (slot 0);
 // `down down down` reaches START NEW GAME, then enter (start) / enter (scenario)
