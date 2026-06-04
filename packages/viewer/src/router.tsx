@@ -15,6 +15,9 @@ const CastleStub = lazy(() =>
 const RosterView = lazy(() =>
   import('./pages/game/RosterView.js').then((m) => ({ default: m.RosterView })),
 );
+const MazeView = lazy(() =>
+  import('./pages/game/MazeView.js').then((m) => ({ default: m.MazeView })),
+);
 const CreationPage = lazy(() =>
   import('./pages/roster/creation/CreationPage.js').then((m) => ({ default: m.CreationPage })),
 );
@@ -101,6 +104,7 @@ export const routes = (
       <Route path="/castle/review-member" element={<ReviewMemberPage />} />
       <Route path="/castle/review-member/:slotIdx" element={<CharacterViewPage />} />
       <Route path="/castle/:stub" element={<CastleStub />} />
+      <Route path="/game/maze" element={<MazeView />} />
       <Route path="/roster" element={<RosterView />} />
       <Route path="/pc-file" element={<PcFilePage />} />
     </Route>
