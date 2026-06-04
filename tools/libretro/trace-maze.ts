@@ -600,6 +600,184 @@ async function phaseWWatch(c: HostClient): Promise<void> {
   }
 }
 
+/** Capture the FULLY-COMPOSED 4-plane maze page from the CLEAN_STATE corridor
+ *  frame and pixel-compare the 3D viewport (x72..247/y32..143) to the live
+ *  framebuffer. The page->VRAM blit is offset-preserving (si==di), so a uniform
+ *  decode IS the screen — the only trick is capturing the page at the LAST
+ *  plane-0 store (skip = storeCount-1), after the interleaved compositor has
+ *  finished. Plane-0 store = cs=0x6b91 ip 0x909 (lin 0x6c219 in CLEAN_STATE).
+ *  argv: [plane0StoreLin=6c219] [pageLin=41820]  → writes /tmp/wiz6-vp-page.bin + fb. */
+async function phaseCapVp(c: HostClient): Promise<void> {
+  const STORE = parseInt(process.argv[3] ?? '6c219', 16);
+  const PAGE = parseInt(process.argv[4] ?? '41820', 16);
+  const PS = 0x2000;
+  if (!existsSync(CLEAN_STATE)) throw new Error('run `reach` first');
+  // Count plane-0 stores in this run's redraw.
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(STORE); await c.traceDrain();
+  await forceRedraw(c);
+  const n = (await c.traceDrain()).length; await c.traceOff();
+  console.log(`plane-0 store count = ${n}`);
+  // Capture each plane at the LAST store (fully composed page).
+  const full = new Uint8Array(0x8000);
+  for (let p = 0; p < 4; p++) {
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(STORE);
+    await c.captureSet(PAGE + p * PS, PS, n - 1);
+    await forceRedraw(c);
+    const part = await c.captureGet();
+    await c.traceOff();
+    if (!part || part.length < PS) throw new Error(`plane ${p} capture short`);
+    full.set(part.subarray(0, PS), p * PS);
+  }
+  writeFileSync('/tmp/wiz6-vp-page.bin', Buffer.from(full));
+  await c.unserialize(CLEAN_STATE); await c.step(2); await forceRedraw(c);
+  await c.fb('/tmp/wiz6-vp-fb.fb');
+  // Decode + compare the viewport (offset-preserving uniform decode).
+  const fb = new Uint8Array(readFileSync('/tmp/wiz6-vp-fb.fb'));
+  const ROWB = 40;
+  const idxAt = (x: number, y: number) => {
+    const o = y * ROWB + (x >> 3); const bit = 7 - (x & 7); let v = 0;
+    for (let p = 0; p < 4; p++) v |= ((full[o + p * PS]! >> bit) & 1) << p;
+    return v;
+  };
+  const votes = Array.from({ length: 16 }, () => new Map<number, number>());
+  for (let y = 0; y < 200; y++) for (let x = 0; x < W; x++) {
+    const i = idxAt(x, y); const o = (y * W + x) * 4;
+    const k = (fb[o]! << 16) | (fb[o + 1]! << 8) | fb[o + 2]!;
+    votes[i]!.set(k, (votes[i]!.get(k) ?? 0) + 1);
+  }
+  const pal = votes.map((m) => { let best = 0, bc = -1; for (const [k, v] of m) if (v > bc) { bc = v; best = k; } return [best >> 16 & 255, best >> 8 & 255, best & 255]; });
+  const mr = (x0: number, x1: number, y0: number, y1: number) => {
+    let n2 = 0, m = 0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const i = idxAt(x, y); const o = (y * W + x) * 4; n2++;
+      if (pal[i]![0] === fb[o] && pal[i]![1] === fb[o + 1] && pal[i]![2] === fb[o + 2]) m++;
+    }
+    return (100 * m / n2).toFixed(2);
+  };
+  console.log(`VIEWPORT (x72..247 y32..143): ${mr(VP.x0, VP.x1, VP.y0, VP.y1)}%  (target 100)`);
+  console.log(`CHROME   (y144..199):         ${mr(0, 320, 144, 200)}%`);
+  console.log(`page -> /tmp/wiz6-vp-page.bin (decode via tools/parity/render-maze-page.ts)`);
+}
+
+/**
+ * geom — FROM-GEOMETRY wall render validation (the stage-1 (walltype,depth) ->
+ * piece -> source-cell bridge). Captures, for the CLEAN_STATE corridor redraw:
+ *   - the descriptor/atlas seg (ds at FUN_1c94's `mov ds,bx`, live lin 0x6d6d9)
+ *   - the 11 compositor calls' arg frames + piece bytes (FUN_1c94 entry 0x6d6a4)
+ *   - the off-screen page composed by the engine (last wall store)
+ *   - the live framebuffer (for the palette)
+ * Then renders the walls FROM GEOMETRY (descriptor table + atlas + the recovered
+ * di/cl law) via tools/parity/render-maze-frame.ts renderFrameFromGeometry, and
+ * pixel-compares to the engine composed page (walls over the engine background;
+ * the floor/ceiling OR-blit is separately tracked).
+ *
+ * The live linear addresses are the relocated transient copy (cs=0x6ba1, base
+ * lin 0x6ba10 = wmaze/ega.drv blit region): FUN_1c94 entry = 0x6ba10+0x1c94 =
+ * 0x6d6a4; the `mov ds,bx` (descriptor seg) at +0x35 = 0x6d6d9; the plane-0
+ * wall store = 0x6d9dd. RE-DERIVE per run if the heap layout shifts (find the
+ * entry by tracing 0x6ba10+0x1c94; confirm 11 hits).
+ */
+async function phaseGeom(c: HostClient): Promise<void> {
+  const { renderFrameFromGeometry } = await import('../parity/render-maze-frame.js');
+  const ENTRY = 0x6d6a4;
+  const AFTER_DS = ENTRY + (0x1cc9 - 0x1c94); // 0x6d6d9
+  const STORE = 0x6d9dd;
+  const PAGE = 0x41820, PS = 0x2000, ROWB = 40;
+  const u16 = (b: Uint8Array, o: number) => b[o]! | (b[o + 1]! << 8);
+  if (!existsSync(CLEAN_STATE)) throw new Error('run `reach` first');
+
+  // descriptor/atlas seg (ds after the FUN_1c94 mov ds,bx)
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(AFTER_DS); await c.traceDrain();
+  await forceRedraw(c);
+  const dsRecs = await c.traceDrain(); await c.traceOff();
+  const dseg = dsRecs[0]!.ds;
+  console.log(`descriptor/atlas seg = 0x${dseg.toString(16)} (${dsRecs.length} FUN_1c94 calls)`);
+
+  // full atlas + descriptor table (captured at the first call's after-ds)
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(AFTER_DS); await c.captureSet(dseg << 4, 0x4000, 0);
+  await forceRedraw(c);
+  const atlas = (await c.captureGet())!; await c.traceOff();
+  const descs: Array<{ srcPtr: number; w: number; h: number; bitmap: number[] }> = [];
+  for (let p = 1; p <= 0x18; p++) {
+    const o = (p - 1) * 0x18;
+    descs.push({ srcPtr: u16(atlas, o), w: atlas[o + 2]!, h: atlas[o + 3]!, bitmap: [...atlas.slice(o + 4, o + 0x18)] });
+  }
+
+  // compositor call list (piece byte + x0 + arg10) per FUN_1c94 entry
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(ENTRY); await c.traceDrain();
+  await forceRedraw(c);
+  const calls = await c.traceDrain(); await c.traceOff();
+  const callList: Array<{ piece: number; x0: number; arg10: number }> = [];
+  for (let k = 0; k < calls.length; k++) {
+    const r = calls[k]!; const ssbase = r.ss << 4; const bp = (r.esp & 0xffff) - 2;
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(ENTRY); await c.captureSet(ssbase + bp, 0x40, k);
+    await forceRedraw(c);
+    const win = (await c.captureGet())!; await c.traceOff();
+    const x0 = u16(win, 0xe), arg10 = u16(win, 0x10), ptr = u16(win, 0x1a);
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(ENTRY); await c.captureSet(ssbase + ptr, 0x4, k);
+    await forceRedraw(c);
+    const pb = (await c.captureGet())!; await c.traceOff();
+    callList.push({ piece: pb[0]!, x0, arg10 });
+  }
+  console.log('compositor calls:', callList.map((cc) => `0x${cc.piece.toString(16)}@${cc.x0}/${cc.arg10}`).join(' '));
+
+  // engine composed page (last wall store) + framebuffer
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(STORE); await c.traceDrain(); await forceRedraw(c);
+  const nStores = (await c.traceDrain()).length; await c.traceOff();
+  const composed = new Uint8Array(0x8000);
+  for (let p = 0; p < 4; p++) {
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(STORE); await c.captureSet(PAGE + p * PS, PS, nStores - 1);
+    await forceRedraw(c);
+    const part = (await c.captureGet())!; await c.traceOff();
+    composed.set(part.subarray(0, PS), p * PS);
+  }
+  await c.unserialize(CLEAN_STATE); await c.step(2); await forceRedraw(c);
+  await c.fb('/tmp/wiz6-geom-fb.fb');
+  const fb = new Uint8Array(readFileSync('/tmp/wiz6-geom-fb.fb'));
+
+  // FROM-GEOMETRY render: walls over the engine background (composed = bg+walls;
+  // we re-render walls over it, so opaque texels overwrite identically and the
+  // mismatch count = pure wall-render error). Reports the viewport match.
+  const idxAt = (pg: Uint8Array, x: number, y: number) => {
+    const o = y * ROWB + (x >> 3); const bit = 7 - (x & 7); let v = 0;
+    for (let p = 0; p < 4; p++) v |= ((pg[o + p * PS]! >> bit) & 1) << p;
+    return v;
+  };
+  const page = new Uint8Array(composed);
+  renderFrameFromGeometry(page, atlas, descs, callList);
+  // palette from the composed page (exact)
+  const votes = Array.from({ length: 16 }, () => new Map<number, number>());
+  for (let y = 0; y < 200; y++) for (let x = 0; x < W; x++) {
+    const i = idxAt(composed, x, y); const o = (y * W + x) * 4;
+    const key = (fb[o]! << 16) | (fb[o + 1]! << 8) | fb[o + 2]!;
+    votes[i]!.set(key, (votes[i]!.get(key) ?? 0) + 1);
+  }
+  const pal = votes.map((m) => { let best = 0, bc = -1; for (const [k, v] of m) if (v > bc) { bc = v; best = k; } return [best >> 16 & 255, best >> 8 & 255, best & 255]; });
+  let n = 0, mIdx = 0, mFb = 0;
+  for (let y = VP.y0; y < VP.y1; y++) for (let x = VP.x0; x < VP.x1; x++) {
+    n++; const i = idxAt(page, x, y);
+    if (i === idxAt(composed, x, y)) mIdx++;
+    const o = (y * W + x) * 4;
+    if (pal[i]![0] === fb[o] && pal[i]![1] === fb[o + 1] && pal[i]![2] === fb[o + 2]) mFb++;
+  }
+  writeFileSync('/tmp/wiz6-geom-meta.json', JSON.stringify({ dseg, descs, callList, nStores }, null, 2));
+  writeFileSync('/tmp/wiz6-geom-atlas.bin', Buffer.from(atlas));
+  writeFileSync('/tmp/wiz6-geom-composed.bin', Buffer.from(composed));
+  console.log(`\nFROM-GEOMETRY wall render (walls over engine bg), VIEWPORT (x72..247 y32..143):`);
+  console.log(`  index match  = ${(100 * mIdx / n).toFixed(2)}%`);
+  console.log(`  fb-color match = ${(100 * mFb / n).toFixed(2)}%  (${n - mIdx} mismatching px)`);
+  console.log(`artifacts: /tmp/wiz6-geom-{meta.json,atlas.bin,composed.bin,fb.fb}`);
+}
+
 async function phaseFine(c: HostClient): Promise<void> {
   const ovl = ovlBase();
   const offs = process.argv.slice(3).map((s) => parseInt(s, 16));
@@ -640,6 +818,8 @@ async function main() {
     else if (phase === 'capload') await phaseCapLoad(c);
     else if (phase === 'cap') await phaseCap(c);
     else if (phase === 'wwatch') await phaseWWatch(c);
+    else if (phase === 'capvp') await phaseCapVp(c);
+    else if (phase === 'geom') await phaseGeom(c);
     else if (phase === 'fine') await phaseFine(c);
     else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | fine <off...>');
   } finally {
