@@ -361,3 +361,14 @@ export {
   CONVERGE_RIGHT,
   CORRIDOR_CENTER_X,
 } from './maze/corridor-geometry.js';
+export {
+  PartySchema,
+  CellWallsSchema,
+  MazeCellWallsSchema,
+  PieceDescriptorSchema,
+  MazeRenderAssetsSchema,
+  type Party,
+  type MazeCellWalls,
+  type PieceDescriptor,
+  type MazeRenderAssets,
+} from './maze/render-schema.js';
