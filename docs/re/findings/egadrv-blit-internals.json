@@ -72,6 +72,17 @@
       "confidence": "high"
     },
     {
+      "id": "corridor-texture-format-asm-confirmed",
+      "claim": "DECODER-FIRST RESULT: the corridor texture format is authoritatively confirmed from the asm. The fresh-load corridor blit @ lin 0x6dbd5 was captured live (capture-on-breakpoint during the LOAD compose) and disassembled — it is the SAME 4-plane MASKED MERGE as FUN_210c (the earlier register-trace 'byte copy' read was wrong). Exact loop: `cx=8; bl=[si]&[si+8]&[si+0x10]&[si+0x18] (transp=AND of 4 planes); bh=bl; bl=~bl; for each plane P in {0,8,0x10,0x18}: es:[di+P] = ([si+P]&bl) | (es:[di+P]&bh); si++; di++; loop; si+=0x18; di+=0x18`. So the TEXTURE FORMAT is: 8x8-pixel tiles, 4-plane EGA (1 bit/plane/px), 0x20 bytes/tile, plane p = tile[p*8 .. p*8+7] (8 rows), transparency = pixels where all 4 planes are set, merge = src over dst by transparency. This fully grounds the prior 'masked blob' mystery in asm. REMAINING (data-side, NOT format): decoding the dumped 0x550e0 region as 8x8 4-plane tiles still yields noise -> the clean texture SOURCE is not at the dumped offset as laid out (wrong base offset, wrong intermediate palette, or the on-disk .ega asset is compressed and 0x550e0 is a partial/working buffer). Next: locate the clean source (the blit's si base per piece points to it) + confirm the palette by decoding the COMPOSE PAGE (0x6a0f0, the assembled view) and matching it to the known pixel-exact framebuffer.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture_plus_disasm",
+        "details": "capload phase: traceSet(0x6dbd5) + captureSet during the dungeon LOAD render -> /tmp/wiz6-blitcode.bin. Capstone @0x6dbd5: `mov cx,8; mov bl,[si]; and bl,[si+8]; and bl,[si+0x10]; and bl,[si+0x18]; mov bh,bl; not bl; mov al,[si]; and al,bl; mov ah,es:[di]; and ah,bh; or al,ah; mov es:[di],al; <repeat for +8,+0x10,+0x18>; inc si; inc di; loop; add si,0x18; add di,0x18`. Matches FUN_210c's inner cell loop exactly. The 4-plane decode of /tmp/wiz6-maze-tex.bin (8x8 tiles) produced noise -> data-location issue, not format."
+      },
+      "confidence": "high"
+    },
+    {
       "id": "fresh-load-render-anatomy",
       "claim": "FRESH-LOAD render anatomy (via memory-write-watch + trace during the initial dungeon LOAD — the FULL texture compose runs at load, NOT on per-step redraws, which is why earlier per-step traces missed it). NOTE: work-buffer/compose/texture addresses at fresh load DIFFER from the unserialize(CLEAN_STATE) layout (heap-dependent), so addresses below are fresh-load-specific. (1) COMPOSE PAGE = segment 0x6a0f (linear 0x6a0f0), spanning ~0x6a0f0..0x6b500 — the off-screen 3D view buffer (NOT seg 0x4182, which was the unserialize layout). (2) BUFFER-CLEAR loop @ lin 0x6d6c0: rep-stosw of ax=0xff into es=0x6a0f, cx counts down from 0x1400 (=5120, the FUN_1c94 clear-to-transparent step). (3) TEXTURE CELL BLIT @ lin 0x6dbd5/0x6dbe5/0x6dbf6/0x6dc07 (4 cseips = the 4 EGA planes): ds=0x550e:si (the SOURCE TEXTURE, linear 0x550e0) -> es=0x6a0f:di (compose page); inner loop cx=8 (8 px/row), si and di both +1 inner then both +0x20 per row -> a 1:1 8-wide cell copy with 0x20 source/dest stride, NO per-pixel perspective scaling. So the perspective/convergence is entirely in the OUTER driver's per-cell (si,di) selection (which source cell maps to which screen cell), not the inner blit.",
       "category": "render_algorithm",

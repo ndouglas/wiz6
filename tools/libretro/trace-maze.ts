@@ -522,6 +522,35 @@ async function phaseDumpTex(c: HostClient): Promise<void> {
   console.log(`dumped 0x${len.toString(16)} bytes at lin 0x${lin.toString(16)} -> ${out} (distinct bytes in head: ${distinct})`);
 }
 
+/** Drive to a FRESH dungeon load, then capture the LIVE memory at a trace target
+ *  DURING the load compose (when transient blit code/data is live).
+ *  argv: <targetLinHex> <capBaseLinHex> <capLenHex> [skip] [outPath]. */
+async function phaseCapLoad(c: HostClient): Promise<void> {
+  const target = parseInt(process.argv[3] ?? '6dbd5', 16);
+  const base = parseInt(process.argv[4] ?? '6db00', 16);
+  const len = parseInt(process.argv[5] ?? '200', 16);
+  const skip = parseInt(process.argv[6] ?? '0', 10);
+  const out = process.argv[7] ?? '/tmp/wiz6-capload.bin';
+  await c.step(3000);
+  await c.key('enter', 'tap'); await c.step(800);
+  for (let i = 0; i < 3; i++) {
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('up', 'tap'); await c.key('up', 'tap'); await c.key('up', 'tap'); await c.step(60);
+  }
+  await c.key('down', 'tap'); await c.key('down', 'tap'); await c.key('down', 'tap'); await c.step(60);
+  await c.key('enter', 'tap'); await c.step(200); // START NEW GAME
+  await c.key('enter', 'tap'); await c.step(200); // scenario
+  await c.traceSet(target);
+  await c.captureSet(base, len, skip);
+  await c.key('enter', 'tap'); await c.step(400); // -> dungeon (load compose; target fires)
+  const bytes = await c.captureGet();
+  await c.traceOff();
+  if (!bytes) { console.log(`NOT captured (target 0x${target.toString(16)} never hit during load)`); return; }
+  writeFileSync(out, Buffer.from(bytes));
+  console.log(`captured 0x${bytes.length.toString(16)} bytes at lin 0x${base.toString(16)} (target 0x${target.toString(16)}, skip ${skip}) -> ${out}`);
+}
+
 /** Capture the LIVE mid-frame memory at a trace target during a redraw.
  *  argv: <traceTargetLin> <capBaseLin> <capLenHex> [skip]  — all hex except skip. */
 async function phaseCap(c: HostClient): Promise<void> {
@@ -608,6 +637,7 @@ async function main() {
     else if (phase === 'wwload') await phaseWWLoad(c);
     else if (phase === 'drvtrace') await phaseDrvTrace(c);
     else if (phase === 'dumptex') await phaseDumpTex(c);
+    else if (phase === 'capload') await phaseCapLoad(c);
     else if (phase === 'cap') await phaseCap(c);
     else if (phase === 'wwatch') await phaseWWatch(c);
     else if (phase === 'fine') await phaseFine(c);
