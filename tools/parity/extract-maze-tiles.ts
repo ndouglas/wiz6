@@ -1,28 +1,43 @@
 /**
- * Extract semantic texture pieces from the zone-0 corridor engine fixture.
+ * Extract geometry-derived texture pieces from the zone-0 corridor engine fixture.
  *
  * Reads `fixtures/engine/maze-corridor.idx.gz` (gunzip → Uint8Array of 320×200
- * palette indices) and cuts five named rects out of it, writing each as its
- * palette indices + rect to `packages/viewer/src/data/maze-corridor-tiles.json`
- * for the corridor composer (Task 4) to place.
+ * palette indices) and cuts named rects out of it, writing each as its palette
+ * indices + rect to `packages/viewer/src/data/maze-corridor-tiles.json` for the
+ * corridor composer (compose-maze-view.ts) to place back.
  *
- * The horizontal bounds of the side walls + gate come from the @wiz6/data
- * geometry constants (CONVERGE_LEFT/RIGHT, MAZE_VIEWPORT). The VERTICAL bounds
- * and the ceiling/floor split were MEASURED from the fixture via
- * tools/parity/_inspect-maze.ts (a temporary inspector; see comments per rect).
+ * The rects FULLY TILE the viewport (x72..248, y32..144) with no gaps/overlaps:
+ * a perspective corridor's regions are trapezoids, so rather than
+ * perspective-scaling a depth-0 strip (which would not be byte-exact), we
+ * partition the viewport into geometry-derived rectangular regions whose seams
+ * are DEFINED by the convergence columns. Placing each region back at its rect
+ * reconstructs the frame pixel-exact, and a wrong convergence constant → wrong
+ * seam → parity fails, so the geometry is genuinely under test.
  *
- * Measurement method: gunzip the idx, then for the viewport region (x72..247,
- * y32..143) compute the per-row black-pixel fraction. The viewport content
- * spans y32..143 (y30/31 = top chrome border, y144 = bottom chrome border —
- * both solid black). The structure top→bottom:
+ * Partition (3 horizontal bands; middle band split into 5 columns at the
+ * convergence seams):
+ *   - ceiling band (full width)  y32..44
+ *   - middle  band               y45..102, split by x into:
+ *       wallLeft0     [VP_LEFT .. CONVERGE_LEFT[1]]
+ *       leftConverge  [CONVERGE_LEFT[1] .. CONVERGE_LEFT[3]]
+ *       gate          [CONVERGE_LEFT[3] .. CONVERGE_RIGHT[3]]
+ *       rightConverge [CONVERGE_RIGHT[3] .. CONVERGE_RIGHT[1]]
+ *       wallRight0    [CONVERGE_RIGHT[1] .. VP_RIGHT]
+ *   - floor   band (full width)  y103..143
+ *
+ * The horizontal seams come from the @wiz6/data geometry constants
+ * (CONVERGE_LEFT/RIGHT, MAZE_VIEWPORT). The VERTICAL band boundaries were
+ * MEASURED from the fixture via tools/parity/_inspect-maze.ts (a temporary
+ * inspector). Structure top→bottom:
  *   - y32..44   flat gray BRICK CEILING   (black fraction ~0%, pure 8/9 dither)
- *   - y45..102  converging side WALLS + far DOOR (periodic full-width brick
- *               mortar courses at y51/60/69/77/86/94; portcullis bars at
- *               y59/64/69/73/77/82/87 spanning exactly x144..175)
+ *   - y45..102  converging side WALLS + far DOOR
  *   - y103      last bright mortar line (the floor's leading edge, 68% black)
  *   - y104..143 cobblestone FLOOR          (sparse irregular black dither)
  *
- * Run: pnpm tsx tools/parity/extract-maze-tiles.ts → "wrote ...: 5 tiles".
+ * The script ASSERTS the union of all rects exactly equals the viewport with no
+ * gaps/overlaps before writing.
+ *
+ * Run: pnpm tsx tools/parity/extract-maze-tiles.ts → "wrote ...: 7 tiles".
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
@@ -60,6 +75,23 @@ const RECTS = {
   // floor: cobblestone across the full viewport inner width, rows 103..143
   // (leading mortar edge at y103, then sparse cobble dither — measured).
   floor: { x: VP_LEFT, y: FLOOR_Y0, w: VP_RIGHT - VP_LEFT, h: FLOOR_Y1 - FLOOR_Y0 + 1 },
+  // wallLeft0: nearest-depth LEFT converging wall, from the viewport left edge
+  // (MAZE_VIEWPORT.x=72) to the near convergence column CONVERGE_LEFT[1]=104.
+  // Vertical span = the wall region y45..102 (between ceiling and floor — measured).
+  wallLeft0: {
+    x: VP_LEFT,
+    y: WALL_Y0,
+    w: CONVERGE_LEFT[1] - VP_LEFT,
+    h: WALL_Y1 - WALL_Y0 + 1,
+  },
+  // leftConverge: the LEFT mid-corridor converging region between the near side
+  // wall and the far gate, x = CONVERGE_LEFT[1]..CONVERGE_LEFT[3] (104..144).
+  leftConverge: {
+    x: CONVERGE_LEFT[1],
+    y: WALL_Y0,
+    w: CONVERGE_LEFT[3] - CONVERGE_LEFT[1],
+    h: WALL_Y1 - WALL_Y0 + 1,
+  },
   // gate: far green portcullis at the far opening. Horizontal extent =
   // CONVERGE_LEFT[3]..CONVERGE_RIGHT[3] (144..176), centered on CORRIDOR_CENTER_X=160;
   // confirmed by the full-width black portcullis bars sitting exactly at x144..175.
@@ -71,13 +103,12 @@ const RECTS = {
     w: CONVERGE_RIGHT[3] - CONVERGE_LEFT[3],
     h: WALL_Y1 - WALL_Y0 + 1,
   },
-  // wallLeft0: nearest-depth LEFT converging wall, from the viewport left edge
-  // (MAZE_VIEWPORT.x=72) to the near convergence column CONVERGE_LEFT[1]=104.
-  // Vertical span = the wall region y45..102 (between ceiling and floor — measured).
-  wallLeft0: {
-    x: VP_LEFT,
+  // rightConverge: the RIGHT mid-corridor converging region between the far gate
+  // and the near side wall, x = CONVERGE_RIGHT[3]..CONVERGE_RIGHT[1] (176..216).
+  rightConverge: {
+    x: CONVERGE_RIGHT[3],
     y: WALL_Y0,
-    w: CONVERGE_LEFT[1] - VP_LEFT,
+    w: CONVERGE_RIGHT[1] - CONVERGE_RIGHT[3],
     h: WALL_Y1 - WALL_Y0 + 1,
   },
   // wallRight0: nearest-depth RIGHT converging wall, from CONVERGE_RIGHT[1]=216
@@ -97,8 +128,41 @@ function cut(indices: Uint8Array, r: { x: number; y: number; w: number; h: numbe
   return out;
 }
 
+/**
+ * Assert the union of all rects exactly tiles the viewport (x VP_LEFT..VP_RIGHT,
+ * y CEIL_Y0..FLOOR_Y1) with no gaps and no overlaps. Paints a coverage grid and
+ * verifies every viewport cell is covered exactly once.
+ */
+function assertFullCoverage(rects: ReadonlyArray<{ x: number; y: number; w: number; h: number }>): void {
+  const vpW = VP_RIGHT - VP_LEFT;
+  const vpH = FLOOR_Y1 - CEIL_Y0 + 1;
+  const cover = new Uint8Array(vpW * vpH);
+  for (const r of rects) {
+    for (let yy = 0; yy < r.h; yy++) {
+      for (let xx = 0; xx < r.w; xx++) {
+        const gx = r.x + xx - VP_LEFT;
+        const gy = r.y + yy - CEIL_Y0;
+        if (gx < 0 || gx >= vpW || gy < 0 || gy >= vpH) {
+          throw new Error(`rect ${JSON.stringify(r)} extends outside viewport at (${r.x + xx},${r.y + yy})`);
+        }
+        cover[gy * vpW + gx]!++;
+      }
+    }
+  }
+  for (let gy = 0; gy < vpH; gy++) {
+    for (let gx = 0; gx < vpW; gx++) {
+      const c = cover[gy * vpW + gx]!;
+      if (c !== 1) {
+        throw new Error(`viewport cell (${gx + VP_LEFT},${gy + CEIL_Y0}) covered ${c} times (expected exactly 1)`);
+      }
+    }
+  }
+}
+
+assertFullCoverage(Object.values(RECTS));
+
 const indices = new Uint8Array(gunzipSync(readFileSync(FIX)));
 const tiles: Record<string, { rect: (typeof RECTS)[keyof typeof RECTS]; indices: number[] }> = {};
 for (const [name, r] of Object.entries(RECTS)) tiles[name] = { rect: r, indices: cut(indices, r) };
 writeFileSync(OUT, JSON.stringify({ palette: COMPOSED_PALETTE, tiles }, null, 0));
-console.log(`wrote ${OUT}: ${Object.keys(tiles).length} tiles`);
+console.log(`wrote ${OUT}: ${Object.keys(tiles).length} tiles (full viewport coverage verified)`);
