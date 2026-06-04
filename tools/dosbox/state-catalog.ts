@@ -952,6 +952,9 @@ const CREATION_RECIPES: readonly SaveStateRecipe[] = [
 //
 // The tap-only recipe drive below reaches the corridor-at-gate frame (verified by
 // eyeballing the PNG); it is what was driven to produce the committed state.
+// Do NOT run `build-state maze-corridor --mint` on this recipe: --mint calls
+// dumpDraft() (creation-screen-specific) and will fail on a state-5 maze frame.
+// Re-mint via the bare `build-state maze-corridor` (delete the state.gz first).
 const MAZE_CORRIDOR_RECIPE: SaveStateRecipe = {
   name: 'maze-corridor',
   description:
