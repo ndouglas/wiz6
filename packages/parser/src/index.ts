@@ -53,6 +53,20 @@ export { loadMazeAssets, loadMazeAssetsRaw } from './maze/assets.js';
 export { decodeMazeAssets, type MazeAssetsRaw } from './maze/assets-decode.js';
 // Maze movement (discrete turn + wall-collision step)
 export { turn, tryStepForward } from './maze/movement.js';
+// Maze scripted entry FSM + narration decoder
+export {
+  advanceEntry,
+  decodeNarrationLines,
+  type EntryState,
+} from './maze/entry-sequence.js';
+// Maze entry narration strip — shared layout + draw (MazeView + parity gate)
+export {
+  drawNarrationStrip,
+  NARRATION_FG_IDX,
+  NARRATION_BG_IDX,
+  NARRATION_X,
+  NARRATION_LINE_Y,
+} from './maze/narration-strip.js';
 // Maze block decoder (pure — I/O-free; used by the CLI extractor + parity tools)
 export {
   decodeMazeBlock,
