@@ -13,11 +13,14 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#080**
+Next free ID: **#081**
 
 ---
 
 ## Open
+
+- #080 [open] — Hoist the engine-remapped dungeon palette into `@wiz6/data` (dedup x3)
+  - The maze viewport's 16-entry palette is the engine's DAC-reprogrammed ordering (NOT IBM-EGA `EGA_DEFAULT`), and is currently triplicated byte-identically: `MazeView.tsx` `COMPOSED_PALETTE`, `packages/viewer/src/data/maze-corridor-tiles.json` `palette`, and `CalibratePalette.tsx`. Hoist to a single named export in `@wiz6/data`'s palette catalog + reference it everywhere. Minor maintainability; surfaced by the walkable-MVP final review (2026-06-05). Also note: no test gates the index→RGB mapping (parity compares `.idx.gz` palette *indices*; the MazeView render test only asserts non-blank) — a palette-ordering regression here is caught only by the eyeball smoke test.
 
 - #079 [open] — Walkable Dungeon MVP: Stage-C renderer-fidelity residuals (banked partial)
   - **Shipped 2026-06-05** (branch `feat/walkable-dungeon-mvp`): the dungeon is **walkable** — create a party → START NEW GAME → enter level-0 → turn/step (`@wiz6/parser` `movement.ts`, collision-gated) with the first-person view recomposed per `(cell,facing)` from the real decoded `MazeBlock` (`extracted/maze/level-0.json`; entrance the steerable `gy=121`). Plan/spec: `docs/superpowers/{plans,specs}/2026-06-05-walkable-dungeon-mvp*.md`.

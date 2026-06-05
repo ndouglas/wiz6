@@ -110,7 +110,26 @@ export async function loadMazeWallSpans(): Promise<CapturedSpansTable> {
   if (!res.ok) {
     throw new Error(`Failed to load maze wall spans from ${url}: ${res.status}`);
   }
-  return (await res.json()) as CapturedSpansTable;
+  const data: unknown = await res.json();
+  // CapturedSpansTable is an internal pipeline type (not a persisted @wiz6/data
+  // domain schema), so we fail-fast on the shape at this I/O boundary rather than
+  // accept a raw cast — a malformed committed fixture should surface here, not as
+  // a silently-wrong render. (The lookup is graceful on a missing CASE, but the
+  // TABLE itself must be well-formed.)
+  const cases = (data as { cases?: unknown })?.cases;
+  if (
+    !cases ||
+    !Array.isArray(cases) ||
+    !cases.every(
+      (c) =>
+        c &&
+        typeof (c as { configKey?: unknown }).configKey === 'string' &&
+        Array.isArray((c as { spans?: unknown }).spans),
+    )
+  ) {
+    throw new Error(`Malformed maze wall spans from ${url}: expected { cases: CapturedSpanCase[] }`);
+  }
+  return data as CapturedSpansTable;
 }
 
 export async function loadDungeonLevel(id: number): Promise<DungeonLevel> {
