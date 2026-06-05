@@ -23,8 +23,14 @@ export {
 } from './compositor.js';
 export { decodePageIndex, decodePageRgba } from './page.js';
 export { loadMazeAssets } from './assets.js';
-export { composeBackground, applyPlacedImage } from './background.js';
+export { composeBackground, applyPlacedImage, applyMaskedMirror, MAZE_BITREV } from './background.js';
 export { buildBackgroundPage } from './render.js';
+export {
+  expandMazeData,
+  orPlacementFor,
+  maskedMirrorFor,
+} from './maze-data.js';
 
 // Shared types
 export type { MazeSpan, CompositorCall } from './compositor.js';
+export type { MazeWorkBuffer, MazeImageDesc, MazePlacement } from './maze-data.js';

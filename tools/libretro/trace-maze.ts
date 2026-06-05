@@ -1797,6 +1797,106 @@ async function phaseFirstCheck(c: HostClient): Promise<void> {
  *  pass is the deterministic per-view placement-index list.
  *
  *  Usage: pnpm tsx tools/libretro/trace-maze.ts placements [outFile] */
+/** `maskedloop` — INNER-LOOP capture of the masked-mirror branch (ega.drv 0xbc6).
+ *  For the FIRST few masked calls of the first compose pass, capture per-outer-row
+ *  the live register state at 0xc5f (si=siBase, di=di0, cx=[bp-4] per-row count,
+ *  ds=source seg) so we can pin the EXACT per-row source start / count / direction
+ *  the engine uses — and snapshot the dest page region before+after each call so we
+ *  can read the actual bytes the masked write produces (ground truth, not a guess).
+ *  Usage: pnpm tsx tools/libretro/trace-maze.ts maskedloop [maxCalls=4] */
+async function phaseMaskedLoop(c: HostClient): Promise<void> {
+  const maxCalls = Number(process.argv[3] ?? 4);
+  if (!existsSync(CLEAN_STATE)) {
+    console.log('CLEAN_STATE absent — driving `reach` to build it…');
+    await driveToMaze(c);
+    await c.serialize(CLEAN_STATE); await c.fb(CLEAN_PNG);
+  }
+  const base = await resolveOrBaseReplay(c);
+  if (base < 0) { console.log('FAILED to resolve OR-blit base — abort'); return; }
+  const rowPt = base + 0xc5f;   // per-outer-row, plane0 start: si/di/cx/ds set
+  const COMPOSE_PAGE = 0x41820; // cs:[0x14d] seg 0x4182
+  const PSx = 0x2000;
+  console.log(`reloc base=0x${base.toString(16)} rowPt=0x${rowPt.toString(16)}`);
+
+  // 1) Snapshot per-outer-row register state across the whole settled redraw.
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(rowPt); await c.traceDrain();
+  const recs: TraceRecord[] = [];
+  await c.key('enter', 'down');
+  for (let i = 0; i < 22; i++) { await c.step(4); for (const r of await c.traceDrain()) recs.push(r); if (i === 16) await c.key('enter', 'up'); }
+  await c.key('enter', 'up'); await c.traceOff();
+  console.log(`per-row hits over redraw: ${recs.length}`);
+
+  // 2) Group consecutive rows into calls: a new call starts when di jumps back up
+  //    (di of row0 < di of prev row's last). Simpler: detect runs where di
+  //    increases by 0x28 each row; a break = new call.
+  // [bp+0xe] flag (OR-merge vs REPLACE) per row-hit: stack[ (0xe)/2 ] relative to bp.
+  // stack[] in TraceRecord is words from esp upward; bp = esp + (frame). Simpler:
+  // read it from the live stack via ss:bp+0xe. We re-capture per call below; here
+  // approximate from the trace's stack array if available.
+  interface RowRec { si: number; di: number; cx: number; ds: number; es: number; bp: number; ss: number; }
+  const rows: RowRec[] = recs.map((r) => ({ si: r.esi & 0xffff, di: r.edi & 0xffff, cx: r.ecx & 0xffff, ds: r.ds, es: r.es, bp: r.ebp & 0xffff, ss: r.ss }));
+  const calls: RowRec[][] = [];
+  let cur: RowRec[] = [];
+  for (const rr of rows) {
+    if (cur.length && rr.di !== (cur[cur.length - 1]!.di + 0x28)) { calls.push(cur); cur = []; }
+    cur.push(rr);
+  }
+  if (cur.length) calls.push(cur);
+  console.log(`grouped into ${calls.length} call-runs (by di+0x28 continuity)`);
+
+  // 3) Decode EVERY call-run into (di0, si0, ds, cx, rows). Capture [bp+0xe] flag at
+  //    each call's FIRST row-hit (skip = cumulative hit index of that first row).
+  const dump: Array<Record<string, unknown>> = [];
+  let hitIdx = 0;
+  for (let k = 0; k < calls.length; k++) {
+    const run = calls[k]!;
+    const r0 = run[0]!;
+    // capture [bp+0xe] at this call's first row-hit.
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(rowPt); await c.captureSet((r0.ss << 4) + ((r0.bp + 0xe) & 0xffff), 2, hitIdx);
+    await c.key('enter', 'down');
+    let flagW: Uint8Array | null = null;
+    for (let i = 0; i < 22; i++) { await c.step(4); const w = await c.captureGet(); if (w) { flagW = w; break; } if (i === 16) await c.key('enter', 'up'); }
+    await c.key('enter', 'up'); await c.traceOff();
+    const flag = flagW ? u16(flagW, 0) : -1;
+    dump.push({ call: k, rows: run.length, cx: r0.cx, ds: r0.ds, di0: r0.di, si0: r0.si, flag });
+    hitIdx += run.length;
+  }
+  for (let k = 0; k < Math.min(maxCalls, calls.length); k++) {
+    const run = calls[k]!; const r0 = run[0]!; const cx = r0.cx;
+    const lo = Math.max(0, r0.si - cx - 2);
+    const len = (r0.si + 3) - lo + 1;
+    const srcBytes = await readRowSrc(c, base, k, (r0.ds << 4) + lo, len);
+    console.log(`\ncall#${k}: rows=${run.length} cx=${cx} ds=0x${r0.ds.toString(16)} si0=0x${r0.si.toString(16)} di0=0x${r0.di.toString(16)}`);
+    if (srcBytes) console.log(`  src[ds:0x${lo.toString(16)}..] = ${[...srcBytes].map((b) => b.toString(16).padStart(2, '0')).join(' ')}  (si idx ${r0.si - lo})`);
+  }
+
+  // 4) Capture the engine's FINAL settled background page (after a clean redraw) so
+  //    we have the byte-exact dest oracle for each masked call's region.
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await forceRedraw(c);
+  const pageOut: Uint8Array[] = [];
+  for (let p = 0; p < 4; p++) pageOut.push((await c.read(COMPOSE_PAGE + p * PSx, PSx)) ?? new Uint8Array(PSx));
+  const pageFlat = new Uint8Array(4 * PSx);
+  for (let p = 0; p < 4; p++) pageFlat.set(pageOut[p]!, p * PSx);
+  writeFileSync('/tmp/wiz6-masked-page.bin', Buffer.from(pageFlat));
+  writeFileSync('/tmp/wiz6-masked-loop.json', JSON.stringify(dump, null, 2));
+  console.log(`\nengine background page -> /tmp/wiz6-masked-page.bin (4*0x2000)`);
+  console.log(`call dump -> /tmp/wiz6-masked-loop.json`);
+}
+
+/** Read `len` source bytes at physical `phys` at the k-th masked-call fire. */
+async function readRowSrc(c: HostClient, base: number, k: number, phys: number, len: number): Promise<Uint8Array | null> {
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(base + 0xc5f); await c.captureSet(phys, len, 0);
+  await c.key('enter', 'down');
+  let out: Uint8Array | null = null;
+  for (let i = 0; i < 22; i++) { await c.step(4); const w = await c.captureGet(); if (w) { out = w; break; } if (i === 16) await c.key('enter', 'up'); }
+  await c.key('enter', 'up'); await c.traceOff();
+  return out;
+}
+
 async function phasePlacements(c: HostClient): Promise<void> {
   const outFile = process.argv[3] ?? '/tmp/wiz6-placements.json';
   if (!existsSync(CLEAN_STATE)) {
@@ -2137,6 +2237,7 @@ async function main() {
     else if (phase === 'firstrender') await phaseFirstRender(c);
     else if (phase === 'firstcheck') await phaseFirstCheck(c);
     else if (phase === 'fine') await phaseFine(c);
+    else if (phase === 'maskedloop') await phaseMaskedLoop(c);
     else if (phase === 'placements') await phasePlacements(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);

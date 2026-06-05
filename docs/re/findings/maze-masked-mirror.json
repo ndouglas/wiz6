@@ -1,0 +1,88 @@
+{
+  "topic": "maze-masked-mirror",
+  "subagent_run": "2026-06-05 (crack the masked-mirror blit geometry — the last background piece — via per-call inner-loop trace + asm reverse, byte-exact)",
+  "binaries": ["ega.drv", "dosbox_pure_libretro.dylib", "mazedata.ega"],
+  "status": "GEOMETRY CRACKED + BYTE-EXACT VERIFIED. The masked-mirror branch (ega.drv FUN_0a93 file 0xbc6) is fully reversed: the per-row source crop/offset, the horizontal mirror (backward read + CS:[0x192] bit-reverse LUT), and the OR/REPLACE merge. The decoder (applyMaskedMirror + maskedMirrorFor) reproduces the ENGINE's OWN per-call masked page write BYTE-EXACT — proven against a live patched-core capture: call#0 (masked OR-merge of placement 122 into placement 122 geometry) matches all 4 planes / 7 rows / 18 bytes exactly, and the per-row live registers (si0,di0,cx,ds,rows) match the asm-derived formula for ALL 41 captured masked call-runs. The full from-asset VIEWPORT gate (compose whole page from disk -> assert vs maze-corridor.idx.gz at 100%) is NOT landed: the committed oracle is the gy=121 frame, which is UNREACHABLE as a stable frame on the patched trace core (a fresh drive settles at gy=118 — a different cell/perspective -> different placement selection), and the engine's transient compose page can't be captured cleanly post-settle. So the masked GEOMETRY is byte-exact; the end-to-end gate is blocked by the pre-existing frame-mismatch (maze-background-fromasset.json), NOT by the masked decoder.",
+  "reference_frame": {
+    "game_state": 5, "zone": 0, "facing": 0, "name": "maze-corridor",
+    "captured_at": "gy=118 (fresh-drive settle on the patched core)",
+    "oracle_frame": "gy=121 (committed maze-corridor.idx.gz) — NOT reachable as a stable frame on the patched core; the gy=118 capture is a DIFFERENT perspective",
+    "patched_core": "tools/libretro/build-core.sh; RESTORED nightly via fetch-core.sh after this pass."
+  },
+  "findings": [
+    {
+      "id": "masked-mirror-geometry-byte-exact",
+      "claim": "The masked-mirror branch (ega.drv FUN_0a93, file 0xbc6..0xd2e) places a HORIZONTALLY-MIRRORED copy of the SOURCE image (arg [bp+0xc]'s placement -> its image descriptor) into the DEST placement's geometry (arg [bp+0x10]). The asm-derived per-row geometry is: cx (bytes/row, [bp-4]) = dest.count; di (dest plane-0 row-0) = dest.destX + dest.bias + 0x28*dest.destRow; siBase (source plane-0 row-0, within seg dataSeg+S.segDelta) = S.srcOffLow + (S.w-1) - dest.bias; row si advance = S.w ([bp-6]); outer rows = S.h; plane stride = S.w*S.h. The inner loop reads cx bytes BACKWARD (`mov al,[si]; dec si`) and runs each through the CS:[0x192] LUT (`cs: xlatb` at 0xc69 = exact 8-bit bit-reverse table) — backward-read + bit-reverse = a horizontal mirror. The 4 planes are at di+0/0x2000/0x4000/0x6000; each plane's source restarts at siBase + p*planeStride (the asm pops si back to siBase between planes, then adds planeStride). [bp+0xe] selects merge: != 0 -> OR-merge (0xc66 branch, `or al,es:[di]; stosb`); 0 -> REPLACE (0xcc3 branch, plain `stosb` — the corridor void carve). VERIFIED BYTE-EXACT: applyMaskedMirror over the engine's captured 'before' region reproduces the engine's captured 'after' region for call#0 (masked 122->122 OR), all 4 planes x 7 rows x 18 bytes = 504 bytes, 100%. The prior pass's failure was NOT geometry — it was (a) validating against a contaminated/transient whole-page snapshot and (b) the gy=118-vs-gy=121 frame mismatch.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xbc6"},
+        "type": "disasm_plus_live_per_call_byte_match",
+        "details": "ndisasm ega.drv 0xbc6..0xd2e (full branch). Live per-row trace at 0xc5f (tools/libretro/trace-maze.ts `maskedloop`): for ALL 41 masked call-runs over the settled redraw, the captured (si0,di0,cx,ds,rows) match the asm formula EXACTLY — e.g. call#0 (122->122): ds=0x29a3 (=dataSeg 0x2181 + segDelta 0x822), si0=0x1c (=srcOffLow 0xb + (w18-1) - bias0), di0=0x50b (=destX11 + 0x28*32), cx=18, rows=7; call#2 (19->15 side panel): ds=0x24a6, si0=0xa, di0=0x509, cx=4, rows=112 — every value matches. Per-call WRITE byte-exact: capturing the engine's es:di region before (skip0) + after (skip=rows) call#0 -> after = bitrev(src read backward) OR before, all 4 planes/504 bytes, 100% (committed as packages/parser/src/maze/__fixtures__/maze-masked-mirror-call0.json). Calls 0..4 fully row-exact; later calls' few-row diffs are skip-index drift in the re-drive validation harness, not geometry (the per-row registers still match)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "interleaved-call-order-single-drive",
+      "claim": "The full per-view INTERLEAVED blit call order for maze-corridor (gy=118, facing0) is captured deterministically in a SINGLE drive (no cross-drive instability): 60 calls = 26 masked (18 OR-merge perspective mirrors + 8 REPLACE void carves), then 30 OR forward blits, then 4 final masked REPLACE re-carves. Captured at ega.drv FUN_0a93 0xaa1 (arg10 for every call -> branch order), 0xaad (arg0c for OR), 0xbca (arg0c for masked). The masked OR-merge calls fire FIRST (perspective strips), the REPLACE void carves interleave, then the OR forward blits, then the trailing 4 REPLACE. The masked REPLACE dst placements (the void carve) are {34,25,28,29,32,23,26,11,27,30,33,24}; the rest of the masked calls OR-merge (per the [bp+0xe] flag, captured nonzero=OR / 0=REPLACE).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_single_drive_trace",
+        "details": "The interleave (first compose pass, 60 calls) — masked: 122->122,150->150,19->15,15->19,123->123,151->151,20->16,16->20,124->124,152->152,21->17,17->21,125->125,153->153,141->137,169->165,137->141,165->169,34->31,31->34,25->25,28->28,32->29,29->32,23->23,26->26; OR: 361,349,355,346,352,358,122,150,15,19,123,151,16,20,124,152,136,164,140,168,125,153,133,161,137,165,141,169,145,173; trailing masked: 33->30,30->33,24->24,27->27. Reproducible single-drive (no ~1-call instability — supersedes maze-placement-selection.json's 3-point reconstruction)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fromasset-gate-blocked-by-frame-mismatch",
+      "claim": "The from-asset whole-VIEWPORT gate at 100% vs the committed oracle is BLOCKED — and the masked geometry is NOT the blocker. (1) The committed oracle maze-corridor.idx.gz is the gy=121 frame; the patched trace core (the only way to capture the live call list / per-call writes) cannot load the committed gy=121 serialize-state (DBPSerialize_CPU divergence) and a fresh drive settles at gy=118 — the party walks 121->...->118 during the auto-narration and CANNOT stop at gy=121 (the cell is a transient animation frame; backward motion is wall-blocked at gy=119). So the captured call list is the gy=118 frame's, a different perspective than the gy=121 oracle. (2) The engine's compose page (guest seg 0x4182 on the patched core) is TRANSIENT — overwritten by partial dirty-redraws — so a clean whole-page snapshot for the captured frame can't be taken post-settle. The from-asset compose of the gy=118 call list reproduces ~48-70% of the gy=121 viewport (frame mismatch). The masked geometry's correctness is established INDEPENDENTLY by the per-call byte-exact write match, not by the whole-viewport reproduction.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "live_drive_plus_findings_crossref",
+        "details": "Live: CLEAN_STATE (fresh drive) reads DGROUP gx=127 gy=118 facing=0 (vs oracle gx=127 gy=121). Driving forward only oscillates gy 118<->119 (wall-blocked behind); the gy=121 frame appears only mid-walk-in animation (transient). Cross-ref maze-background-fromasset.json (placement-tables-transient, gy=118-vs-gy=121 mismatch, DBPSerialize_CPU err unser). The engine's OWN gy=118 compose page captured at the last OR store reproduces the gy=121 oracle viewport only 41.8% — confirming the page IS a different frame, not a decoder error."
+      },
+      "confidence": "high"
+    }
+  ],
+  "asm_anchors": [
+    {"space": "ega.drv", "offset": "0xbc6", "name": "ega_masked_mirror_branch", "note": "branch entry (arg [bp+0x10] != 0xffff). bx=[bp+0xc]*5+cs:[0x190]=src placement; [bp-2]=imgDescOff+5*src.imgIdx (src image desc); si=[bp+0x10]*5+cs:[0x190]=dst placement."},
+    {"space": "ega.drv", "offset": "0xc01", "name": "masked_count_load", "note": "al=[si+4]=dst.count -> [bp-4] (cx, per-row byte count). je 0xd27 if zero."},
+    {"space": "ega.drv", "offset": "0xc0e", "name": "masked_dest_addr", "note": "di = dst.destX + dst.bias + 0x28*dst.destRow."},
+    {"space": "ega.drv", "offset": "0xc24", "name": "masked_src_desc", "note": "[bp-6]=S.w (row si advance); [bp-2]=S.w*S.h (plane stride); ax=S.srcOffLow + (S.w-1) - dst.bias (siBase); ds += S.segDelta."},
+    {"space": "ega.drv", "offset": "0xc5f", "name": "masked_mode_branch", "note": "cmp [bp+0xe],0: jz 0xcc3 (REPLACE) else 0xc66 (OR-merge). cx=[bp-4] per plane; outer cx (rows) = S.h pushed at 0xc57."},
+    {"space": "ega.drv", "offset": "0xc66", "name": "masked_or_plane_loop", "note": "`mov al,[si]; dec si; cs xlatb; or al,es:[di]; stosb` x4 planes (di+=0x2000, si+=planeStride between planes, si popped back to siBase first)."},
+    {"space": "ega.drv", "offset": "0xc69", "name": "cs_xlatb_mirror", "note": "`2e d7` cs: xlatb; LUT = CS:[0x192] = exact 8-bit bit-reverse table (all 256 verified). backward read + bit-reverse = horizontal mirror."},
+    {"space": "ega.drv", "offset": "0xcc3", "name": "masked_replace_plane_loop", "note": "REPLACE variant: `mov al,[si]; dec si; cs xlatb; stosb` (no OR) — the corridor void carve."},
+    {"space": "ega.drv", "offset": "0xd14", "name": "masked_row_advance", "note": "di += 0x28 (next dest row); pop ax (=siBase); ax += [bp-6] (S.w); loop 0xc57 (next of S.h rows)."}
+  ],
+  "byte_exact_result": {
+    "per_call_write": "call#0 (masked 122->122 OR): applyMaskedMirror over the engine 'before' region == engine 'after' region, 4 planes x 7 rows x 18 bytes = 504/504 bytes, 100% (committed fixture).",
+    "register_match": "all 41 captured masked call-runs: (si0,di0,cx,ds,rows) == asm-derived formula.",
+    "lut": "CS:[0x192] = exact 8-bit bit-reverse table (256/256).",
+    "fromasset_viewport": "BLOCKED at 100% by the gy=118-vs-gy=121 frame mismatch (captured call list is gy=118; oracle is gy=121). NOT a decoder defect.",
+    "gate": "packages/parser/tests/maze/maze-masked-mirror-parity.test.ts (default CI) — masked geometry byte-exact vs the engine per-call write. The engine-page viewport gate (maze-corridor-viewport-parity.test.ts) stays green."
+  },
+  "artifacts": [
+    "packages/parser/src/maze/background.ts — applyMaskedMirror + MAZE_BITREV (the masked-mirror walk + LUT).",
+    "packages/parser/src/maze/maze-data.ts — expandMazeData + orPlacementFor + maskedMirrorFor (parser-self-contained; ported byte-exact from tools/parity/expand-asset.ts).",
+    "packages/data/src/maze/render-schema.ts — MaskedMirrorPlacementSchema.",
+    "packages/parser/src/maze/__fixtures__/maze-masked-mirror-call0.json — engine GROUND-TRUTH per-call write (call#0, 4 planes before+after).",
+    "packages/parser/tests/maze/maze-masked-mirror-parity.test.ts — the byte-exact GEOMETRY gate.",
+    "packages/parser/tests/maze/maze-corridor-fromasset-parity.diagnostic.test.ts — from-asset OR+masked diagnostic (updated to the cracked geometry).",
+    "tools/parity/expand-asset.ts — maskedMirrorFor helper added.",
+    "tools/libretro/trace-maze.ts — NEW `maskedloop` phase (per-row inner-loop capture of the masked branch: si/di/cx/ds/rows + [bp+0xe] flag, + before/after region reads).",
+    "tools/dosbox/states/maze-corridor.state (committed, untracked .state in tools/libretro/states/)."
+  ],
+  "remaining": [
+    "FROM-ASSET WHOLE-VIEWPORT 100% GATE: obtain the gy=121 call list. Either (a) bridge the DBPSerialize_CPU patched/nightly divergence so the patched trace core can load the committed gy=121 state and capture its call list + per-call writes; or (b) RE the per-view placement/call SELECTION generator (from zone/facing/geometry, like the wall span generator) so the gy=121 call list is GENERATED — then composeBackground + applyMaskedMirror -> page -> viewport == maze-corridor.idx.gz at 100%.",
+    "PLACEMENT-SELECTION GENERATION (the next task): the call list is currently CAPTURED per-frame, not generated. RE the wmaze view loop (view_render_corridor_frame 0x4ad7 + depth loop) to emit the OR + masked interleaved call list per (zone,facing,geometry).",
+    "WALLS (wt=2 REPLACE spans) for non-facing-0 frames + the viewer integration (T12)."
+  ],
+  "concerns": [
+    "The whole-page/whole-viewport reproduction is NOT a valid validation signal for the masked decoder here (it conflates the frame mismatch + the transient page). The ONLY clean signal is the per-call byte-exact write — which is 100%. Do not 'tune' the masked geometry to maximize the viewport %; that would overfit to the wrong frame.",
+    "The interleaved REPLACE-vs-OR mode is derived from the [bp+0xe] flag (nonzero=OR, 0=REPLACE). The clean captures (calls 0-18 OR, 20+ REPLACE) are stable; a few flag reads showed skip-drift garbage but those calls are unambiguously in the OR-merge group by position.",
+    "All runtime addresses heap-dependent; re-derive the ega.drv base per run via the resolver (4-sibling OR-store cluster). Nightly core restored."
+  ],
+  "caveat_for_prior_findings": "EXTENDS maze-placement-selection.json (its masked-geometry-not-byte-exact open gap is now CLOSED — the geometry IS byte-exact; the prior 48-58% was the transient-page + frame-mismatch validation, not a decoder error) and CONFIRMS maze-background-fromasset.json (the gy=118-vs-gy=121 frame mismatch + transient compose page block the whole-viewport from-asset gate). CORRECTS maze-placement-selection.json's 'dest[0]=bitrev(src[0]) forward read' hypothesis: the read is BACKWARD (`dec si`) from siBase = srcOffLow+(w-1)-bias; for placement 122 (bias 0) the LAST source byte read at b=cx-1 lands near srcOffLow, and the FIRST (b=0) at srcOffLow+w-1 — the prior 'forward at b=0' was a coincidence of one byte. The per-call byte-exact match (504/504) settles it."
+}

@@ -59,7 +59,23 @@
  */
 
 import { PLANE_STRIDE, PAGE_ROW_BYTES } from '@wiz6/data';
-import type { BackgroundPlacement } from '@wiz6/data';
+import type { BackgroundPlacement, MaskedMirrorPlacement } from '@wiz6/data';
+
+/**
+ * 8-bit BIT-REVERSE table (CS:[0x192] in ega.drv) — the masked-mirror branch runs
+ * every source byte through this via a `cs: xlatb` (file 0xc69), which combined with
+ * the BACKWARD source read (`dec si`) mirrors the sub-image horizontally. Captured
+ * live and confirmed = the exact bit-reverse table for all 256 entries.
+ */
+export const MAZE_BITREV: Uint8Array = (() => {
+  const t = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) {
+    let v = 0;
+    for (let b = 0; b < 8; b++) v |= ((i >> b) & 1) << (7 - b);
+    t[i] = v;
+  }
+  return t;
+})();
 
 /**
  * OR-merge one 4-plane planar sub-image into the compose page. Faithful to the
@@ -89,4 +105,32 @@ export function applyPlacedImage(page: Uint8Array, img: BackgroundPlacement): vo
  */
 export function composeBackground(page: Uint8Array, images: BackgroundPlacement[]): void {
   for (const img of images) applyPlacedImage(page, img);
+}
+
+/**
+ * Masked-MIRROR blit one 4-plane planar sub-image into the compose page, horizontally
+ * mirrored. Faithful to ega.drv FUN_0a93's SECOND branch (file 0xbc6..0xd2e): per row,
+ * per plane, read `cx` source bytes BACKWARD from `siBase` (asm `dec si`), bit-reverse
+ * each through MAZE_BITREV (the `cs: xlatb` at 0xc69), and either OR-merge (flag != 0,
+ * 0xc66 branch) or REPLACE (flag 0, 0xcc3 branch) into the dest.
+ *
+ * BYTE-EXACT verified against the engine's live per-call page writes (call#0 full
+ * plane-0 match + calls 0..4 row-exact; the per-row si/di/cx/ds/rows registers match
+ * the engine trace for all calls). See docs/re/findings/maze-masked-mirror.json.
+ */
+export function applyMaskedMirror(page: Uint8Array, m: MaskedMirrorPlacement): void {
+  const { src, siBase, di, cx, w, h, planeStride, mode } = m;
+  for (let row = 0; row < h; row++) {
+    const sRow = siBase + row * w;
+    const dRow = di + row * PAGE_ROW_BYTES;
+    for (let p = 0; p < 4; p++) {
+      const s = sRow + p * planeStride;
+      const d = dRow + p * PLANE_STRIDE;
+      if (mode === 'or') {
+        for (let b = 0; b < cx; b++) page[d + b]! |= MAZE_BITREV[src[s - b]!]!;
+      } else {
+        for (let b = 0; b < cx; b++) page[d + b]! = MAZE_BITREV[src[s - b]!]!;
+      }
+    }
+  }
 }

@@ -112,3 +112,44 @@ export const BackgroundPlacementSchema = z.object({
   planeStride: z.number().int().min(0),
 });
 export type BackgroundPlacement = z.infer<typeof BackgroundPlacementSchema>;
+
+// MaskedMirrorPlacement — one resolved masked-MIRROR blit for the maze background
+// compositor (ega.drv FUN_0a93 SECOND branch, file 0xbc6, taken when arg[bp+0x10]
+// != 0xffff). It places a HORIZONTALLY-MIRRORED copy of one image into a dest
+// placement's geometry: the source row is read BACKWARD (asm `dec si`) and each
+// byte run through a CS:[0x192] 8-bit bit-reverse LUT — the two together mirror the
+// sub-image horizontally (a perspective-pair: the right side panel mirrored into
+// the left's geometry, etc.). A per-call flag selects OR-merge vs REPLACE.
+//   docs/re/findings/maze-masked-mirror.json
+//
+// Asm-derived per-row geometry (file 0xbc6..0xd2e), byte-exact verified against the
+// engine's live per-call page writes (call#0 full + calls 0..4 row-exact):
+//   cx   = destPlacement.count                       ([bp-4])
+//   di   = destPlacement.destX + destPlacement.bias + 0x28*destPlacement.destRow
+//   siBase (plane 0, row 0) = srcImg.srcOffLow + (srcImg.w-1) - destPlacement.bias
+//          within seg (dataSeg + srcImg.segDelta)
+//   for row in 0..srcImg.h-1:
+//     for p in 0..3:
+//       for b in 0..cx-1:  v = bitrev(src[siBase + p*planeStride + row*srcImg.w - b])
+//                          OR-merge: page[di+p*PS+row*0x28 + b] |= v
+//                          REPLACE : page[di+p*PS+row*0x28 + b]  = v
+// ---------------------------------------------------------------------------
+export const MaskedMirrorPlacementSchema = z.object({
+  /** 4-plane planar source work buffer (the SAME dataSeg as BackgroundPlacement). */
+  src: z.instanceof(Uint8Array),
+  /** plane-0 row-0 source byte offset of the LAST byte to read (mirror start). */
+  siBase: z.number().int().min(0),
+  /** dest page byte offset, plane 0, row 0 (from the DEST placement geometry). */
+  di: z.number().int().min(0),
+  /** bytes written per row (= dest placement.count). */
+  cx: z.number().int().min(0),
+  /** source row stride (= source image w). */
+  w: z.number().int().min(0),
+  /** number of rows (= source image h). */
+  h: z.number().int().min(0),
+  /** plane stride (= source w*h). */
+  planeStride: z.number().int().min(0),
+  /** merge mode: 'or' (flag != 0) OR-merges; 'replace' (flag 0) overwrites. */
+  mode: z.enum(['or', 'replace']),
+});
+export type MaskedMirrorPlacement = z.infer<typeof MaskedMirrorPlacementSchema>;

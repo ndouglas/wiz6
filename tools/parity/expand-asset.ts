@@ -178,3 +178,33 @@ export function placedImageFor(wb: MazeWorkBuffer, placementIdx: number) {
   const di = p.destX + p.bias + 0x28 * p.destRow;
   return { src: wb.buffer, si, di, cx: p.count, w: d.w, h: d.h, planeStride };
 }
+
+/**
+ * Build a masked-MIRROR blit (ega.drv FUN_0a93 file-0xbc6 branch) from the SOURCE
+ * placement index (arg [bp+0xc] — supplies the source IMAGE descriptor) and the DEST
+ * placement index (arg [bp+0x10] — supplies the dest GEOMETRY + per-row count).
+ *
+ * Asm-derived per-row geometry (verified byte-exact vs the engine's live per-call
+ * page writes — see docs/re/findings/maze-masked-mirror.json):
+ *   cx     = dest.count                                        (asm [bp-4])
+ *   di     = dest.destX + dest.bias + 0x28*dest.destRow        (asm 0xc0e..0xc22)
+ *   siBase = S.segDelta*16 + S.srcOffLow + (S.w-1) - dest.bias (asm 0xc3e..0xc4c)
+ *   w/h/planeStride = the SOURCE image descriptor              (asm 0xc24..0xc39)
+ * `mode`: 'or' (engine [bp+0xe] != 0) OR-merges, 'replace' (0) overwrites.
+ */
+export function maskedMirrorFor(
+  wb: MazeWorkBuffer,
+  srcPlacementIdx: number,
+  dstPlacementIdx: number,
+  mode: 'or' | 'replace',
+) {
+  const sp = wb.placements[srcPlacementIdx];
+  const dp = wb.placements[dstPlacementIdx];
+  if (!sp) throw new Error(`src placement ${srcPlacementIdx} out of range`);
+  if (!dp) throw new Error(`dst placement ${dstPlacementIdx} out of range`);
+  const S = wb.descs[sp.imgIdx]!;
+  const planeStride = S.w * S.h;
+  const siBase = S.segDelta * 16 + S.srcOffLow + (S.w - 1) - dp.bias;
+  const di = dp.destX + dp.bias + 0x28 * dp.destRow;
+  return { src: wb.buffer, siBase, di, cx: dp.count, w: S.w, h: S.h, planeStride, mode };
+}

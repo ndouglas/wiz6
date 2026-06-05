@@ -371,6 +371,7 @@ export {
   PieceDescriptorSchema,
   MazeRenderAssetsSchema,
   BackgroundPlacementSchema,
+  MaskedMirrorPlacementSchema,
   type Party,
   type MazeCellWalls,
   type MazeBlockCell,
@@ -379,6 +380,7 @@ export {
   type PieceDescriptor,
   type MazeRenderAssets,
   type BackgroundPlacement,
+  type MaskedMirrorPlacement,
 } from './maze/render-schema.js';
 export {
   PLANE_STRIDE,
