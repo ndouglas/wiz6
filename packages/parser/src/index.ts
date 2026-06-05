@@ -35,6 +35,34 @@ export { renderEgaScreen } from './formats/ega-screen-render.js';
 
 // Maze renderer pipeline
 export { renderMazeViewport } from './maze/render.js';
+export type {
+  RenderBackgroundOpts,
+  CapturedSpansTable,
+  CapturedSpanCase,
+} from './maze/render.js';
+// Maze view-config key (single source of truth for the captured-span lookup key)
+export {
+  viewConfig,
+  viewConfigKey,
+  viewConfigKeyFor,
+  type ViewConfig,
+  type DepthSlot,
+} from './maze/view-config.js';
+// Maze render assets (isomorphic decoder + node-side loaders)
+export { loadMazeAssets, loadMazeAssetsRaw } from './maze/assets.js';
+export { decodeMazeAssets, type MazeAssetsRaw } from './maze/assets-decode.js';
+// Maze movement (discrete turn + wall-collision step)
+export { turn, tryStepForward } from './maze/movement.js';
+// Maze block decoder (pure — I/O-free; used by the CLI extractor + parity tools)
+export {
+  decodeMazeBlock,
+  getBits,
+  MB,
+  MAZE_BANK,
+  REGIONS,
+  CELLS_PER_REGION,
+  TOTAL_CELLS,
+} from './maze/maze-block.js';
 export { EGA_FILE_INDEX_PERMUTATION } from './formats/ega-permutation.js';
 export {
   encodeSave,

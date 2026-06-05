@@ -1,0 +1,117 @@
+{
+  "topic": "maze-wall-cases-c2",
+  "subagent_run": "2026-06-05 (Task C2: port the remaining non-corridor WALL view-cases to byte-exact)",
+  "binaries": ["wmaze.ovr", "ega.drv"],
+  "tool": "Live span-list capture via the dosbox-pure NIGHTLY core (HostClient): drive maze-corridor.state.gz base -> per-case replay path (maze-view-cases.ts representatives) -> settle-until-stable -> read the engine's SETTLED span list at DGROUP 0x50d0 (count 0x50ce, 11-byte records) [tools/libretro/capture-maze-wall-spans.ts]. Render via the existing parser pipeline (generateCallList -> renderFrameFromGeometry -> decodePageIndex) and gate the WALL REGION byte-exact vs the C1 framebuffer fixtures [packages/parser/tests/maze/maze-wall-cases-parity.test.ts, tools/parity/maze-wall-spans-validate.ts]. Static cross-reference: maze-classify-gating.json, maze-span-build.json, maze-stage1-compositor.json, maze-texture-decode.json (all AUTHORITATIVE).",
+  "confidence": "high",
+  "summary": "C2 RESULT = 15/32 view-cases have BYTE-EXACT walls (tolerance 0); 17 are KNOWN GAPS with a single identified blocker. PATH TAKEN = CAPTURE (not generate). The wall-emit PREDICATE is NOT derivable from offline geometry — maze-classify-gating.json proved Prong A (offline) UNCLOSEABLE via the f0/f2 mirror-symmetry counterexample (same physical corridor walked in opposite directions emits 4 vs 0 wt=2 spans), and Prong B (live per-emit arg trace) is BLOCKED by the relocated-renderer instrumentation wall (the renderer executes at a paged virtual cs:ip the fixed-linear trace/wwatch hooks never match). So C2 reads the engine's OWN settled span list at DGROUP 0x50d0 (the build-emitter output, the same artifact that cracked the corridor) per view-case and renders it through the already-byte-exact flush->compositor->page pipeline. THE 15 GATED-EXACT: 10 EMPTY cases (open-ahead / no-wall views — zero drawn spans, pure background = C3) + 5 substantive TILE-2 cases (corridor solids + head-on door recesses: case-04 door@d0, case-15/26/27 4-way/junction recesses, case-28 door@d2 — all 100.00% wall-region byte-exact, the largest 2352 wall px on case-04). THE 17 KNOWN GAPS, all from ONE root cause: their drawn spans use TILE-0 or TILE-1 pieces (front-walls / far-shapes), and the FUN_1c94 tile arg selects a DIFFERENT descriptor-table + source-atlas segment (cs:[0x17a+2*tile]+cs:[0x169], = seg 0x514e for tile 2). Only the TILE-2 atlas is committed (maze-assets.json). The tile-0/1 atlases cannot be captured cleanly: the settled-state segment holding a clean wall atlas is STALE/overwritten after the load compose (maze-texture-decode.json source-region-decode-not-stone), so a clean read needs a LOAD-TIME capture on the patched tracing core — which cannot unserialize the committed states (maze-background-fromasset.json blocker_2). This is the same documented instrumentation wall the background-from-asset port hit. A secondary contributor on 3 tile-2 cases (12/29/31): the per-span x-CLIP window (FUN_1c94 [bp+0x12]/[bp+0x14]) is not yet honored by the compositor (corridor always used the full-viewport 72/248 clip so it never mattered); a cl-aware clip is needed and was attempted but regressed the complementary-clip cases (26/27) so it was reverted — clip-port correctness is tracked as a residual.",
+  "gated_exact_count": 15,
+  "total_cases": 32,
+  "path_taken": "captured (engine settled span list @ DGROUP 0x50d0) — NOT generated from geometry. Generation is DISPROVEN-uncloseable (maze-classify-gating.json Prong A) and live-emit tracing is BLOCKED (Prong B).",
+  "pipeline_validated_byte_exact": "generateCallList (flush.ts) -> renderFrameFromGeometry (compositor.ts) -> decodePageIndex (page.ts) reproduces the engine wall pixels byte-exact for every tile-2 case whose FULL span list was captured. The pipeline is piece-agnostic (renders any descriptor); the blocker is the per-tile ATLAS/DESCRIPTOR source, not the render code.",
+  "findings": [
+    {
+      "id": "capture-fallback-span-list-readable-on-nightly",
+      "claim": "The engine's SETTLED span list (DGROUP 0x50ce count + 0x50d0 11-byte records: x0,x1,clipLo,clipHi,walltype,seamIdx,depthField) is READABLE on the nightly core after a build settles — this is the SAME read that cracked the corridor (maze-span-build.json). It is the build-emitter output (the per-edge spans span_append wrote). Driving to each C1 view-case representative and reading 0x50d0 captures that case's wall emission directly, sidestepping the unclosed predicate. CAVEAT: the build renders depth-by-depth across animation frames and the count momentarily resets to 0 at each rebuild, so the read must SETTLE to the full df0..3 list (capture-maze-wall-spans.ts readSpansSettled: read repeatedly across a long window, keep the largest list that recurs >=2x with a nonzero depthBound). Walls don't animate, so once the full list is reached it is byte-stable (probe-span-stability.ts: maze-corridor-asym reads the same 8-span list across +20/+60 frame re-reads).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": { "space": "wmaze.dgroup", "offset": "0x50d0" },
+        "type": "live_span_read_plus_pixel_match",
+        "details": "tools/libretro/capture-maze-wall-spans.ts reads count@0x50ce + records@0x50d0 per the maze-span-build.json layout. The 5 tile-2 cases' captured spans render byte-exact (case-04: 2352/2352 wall px; case-15/26/27: 978/978; case-28: 352/352) via tools/parity/maze-wall-spans-validate.ts (wall-mask = pixels identical across all-0 vs all-15 background renders). probe-span-stability.ts confirmed the full list is render-stable once settled."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "tile-selects-distinct-atlas-and-descriptors",
+      "claim": "FUN_1c94's TILE arg ([bp+0xc]) selects a DIFFERENT source far-seg AND descriptor-table seg via cs:[0x17a+2*tile] + cs:[0x169] (maze-stage1-compositor.json compositor-bridge: =seg 0x514e for tile 2). The committed maze-assets.json holds ONLY the tile-2 descriptor table + atlas (extract-maze-assets.ts signature-searched the tile-2 table). So a span with walltype (=tile) 0 or 1 renders the WRONG pieces from the tile-2 atlas. ACROSS THE 32 C1 CASES the drawn spans use tiles {0 (1 case: 11), 1 (13 cases), 2 (8 cases)}. The 14 tile-0/1 cases (00,03,07,08,09,11,13,16,17,18,19,21,23,25) cannot render byte-exact until their per-tile atlas+descriptors are captured. The parser COMPOSITOR is not the blocker (it renders any descriptor); the missing input is the tile-0/1 source atlas.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": { "space": "ega.drv", "offset": "0x1c94" },
+        "type": "static_disasm_plus_offline_render_test",
+        "details": "maze-stage1-compositor.json ega_compose_and_blit_entry10: [bp+0xc]=TILE INDEX (shl1 -> cs:[0x17a]+cs:[0x169]). probe-tile-segs.ts / probe-tile1-atlas.ts: in the committed maze-corridor settled state only seg 0x4e0e holds a valid-looking descriptor table; 0x514e (the documented tile-2 seg) does NOT (heap-relocated). Rendering case-09/17 (tile-1 front-walls) against the 0x4e0e candidate atlas gave ~25% wall-region match (the descriptors are 1x2/3x5 cells, wrong geometry for a front-wall) — the clean tile-1 atlas is not resident at a stable seg in the settled state."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "tile01-atlas-blocked-by-loadtime-capture-wall",
+      "claim": "The TILE-0/1 source atlas cannot be captured from the committed states: maze-texture-decode.json (source-region-decode-not-stone / heap-dependent-segments) established the wall-tile atlas segment holds STALE/overwritten bytes when read from a SETTLED state — the clean grey-stone tiles are only present AT LOAD TIME and must be captured with a capture-on-breakpoint armed on the load-compose blit (the PATCHED tracing core). maze-background-fromasset.json blocker_2 established the patched core CANNOT unserialize the committed gy=121 states (DBPSerialize_CPU layout divergence -> `err unser`). So: nightly core CAN load the state but the atlas is stale; patched core has the live atlas but can't load the committed state. This is the SAME instrumentation wall the background-from-asset port hit. Closing the tile-0/1 cases needs EITHER (a) re-minting the maze states under the patched core then load-time-capturing each tile's atlas+descriptors, OR (b) identifying the on-disk source file for each tile atlas and decoding it offline (maze-texture-decode.json open question: 'IDENTIFY the exact source FILE of the 0x550e/0x514e wall atlas').",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "documented_instrumentation_wall",
+        "details": "maze-texture-decode.json: 'a SETTLED-FRAME read() of seg 0x550e returns STALE/OVERWRITTEN bytes; you MUST capture seg 0x550e with the capture-on-breakpoint tool armed on the blit during the LOAD compose'. maze-background-fromasset.json: 'The patched trace core cannot unserialize the committed state -> err unser'. 3 attempts this pass (settled-state signature search, candidate-seg probe across 0x4e0e..0x550e, offline render of the 0x4e0e candidate vs case-09) all confirmed no clean tile-0/1 atlas is reachable from the committed-state nightly core. Stopped per the 3-attempt rule."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "per-span-x-clip-not-yet-ported",
+      "claim": "The per-span x-CLIP window (FUN_1c94 [bp+0x12]/[bp+0x14] = span.clipLo/clipHi, screen px) is NOT yet honored by the compositor's planar writer. The corridor + recess cases always carry the full-viewport clip 72/248 (a no-op), and complementary split-clip pairs (e.g. case-26/27 clip 72/104 + 104/248) reconstruct the full piece by union — so unclipped rendering is byte-exact there. But 3 tile-2 cases with NON-complementary clip windows (case-12 72/192+192/248 with an under-captured depth set; case-29 single 104/248; case-31 single 72/216) need true clipping to be byte-exact (unclipped overdraws beyond the window). A cl-aware clip was attempted (mask the per-store set/clear bits whose screen-x falls outside [clipLo,clipHi)) but REGRESSED the complementary-clip cases 26/27 (978->900/944) because the screen-x of each store bit is offset by the sub-byte cl phase — the bit<->screen-x mapping must account for cl. Reverted to avoid regression; the cl-correct clip is tracked as a residual. The CompositorCall.clipLo/clipHi fields + flush plumbing are LEFT IN PLACE (carried, unused) for the future clip port.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": { "space": "ega.drv", "offset": "0x1c94" },
+        "type": "static_disasm_plus_render_test",
+        "details": "maze-stage1-compositor.json: FUN_1c94 [bp+0x12]/[bp+0x14]=x-clip(72/248). With the naive (cl-unaware) clip, case-29 went 53%->100% but case-26/27 went 100%->92%/96%. Reverted. The 3 clip-dependent tile-2 cases are NOT gated this pass."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "per_case_table": [
+    { "id": "case-00", "kind": "4-way-ish/deadend@d2", "tiles": [1], "drawnSpans": 1, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-01", "kind": "right-open/open-ahead", "tiles": [], "drawnSpans": 0, "status": "GATED-EXACT(empty/background)" },
+    { "id": "case-02", "kind": "left-open/deadend@d1", "tiles": [], "drawnSpans": 0, "status": "GATED-EXACT(empty/background)" },
+    { "id": "case-03", "kind": "right-open/deadend@d1", "tiles": [1], "drawnSpans": 1, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-04", "kind": "door@d0/front-wall/corridor", "tiles": [2], "drawnSpans": 4, "status": "GATED-EXACT(tile2)" },
+    { "id": "case-05", "kind": "right-open/deadend@d3", "tiles": [], "drawnSpans": 0, "status": "GATED-EXACT(empty/background)" },
+    { "id": "case-06", "kind": "front-wall/corridor", "tiles": [], "drawnSpans": 0, "status": "GATED-EXACT(empty/background)" },
+    { "id": "case-07", "kind": "left-open/open-ahead", "tiles": [1], "drawnSpans": 1, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-08", "kind": "right-open/deadend@d1", "tiles": [1], "drawnSpans": 1, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-09", "kind": "front-wall/corridor", "tiles": [1], "drawnSpans": 1, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-10", "kind": "front-wall/corridor", "tiles": [], "drawnSpans": 0, "status": "GATED-EXACT(empty/background)" },
+    { "id": "case-11", "kind": "4-way-ish/deadend@d1", "tiles": [0], "drawnSpans": 3, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-12", "kind": "right-open/deadend@d2", "tiles": [2], "drawnSpans": 2, "status": "KNOWN-GAP(tile2 clip/under-capture)" },
+    { "id": "case-13", "kind": "left-open/deadend@d2", "tiles": [1], "drawnSpans": 3, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-14", "kind": "front-wall/corridor", "tiles": [], "drawnSpans": 0, "status": "GATED-EXACT(empty/background)" },
+    { "id": "case-15", "kind": "door@d1/4-way-ish/deadend@d1", "tiles": [2], "drawnSpans": 2, "status": "GATED-EXACT(tile2)" },
+    { "id": "case-16", "kind": "left-open/deadend@d3", "tiles": [1], "drawnSpans": 1, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-17", "kind": "front-wall/corridor", "tiles": [1], "drawnSpans": 1, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-18", "kind": "front-wall/left-open", "tiles": [1, 2], "drawnSpans": 2, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-19", "kind": "front-wall/right-open", "tiles": [1, 2], "drawnSpans": 2, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-20", "kind": "left-open/deadend@d2", "tiles": [], "drawnSpans": 0, "status": "GATED-EXACT(empty/background)" },
+    { "id": "case-21", "kind": "front-wall/right-open", "tiles": [1], "drawnSpans": 1, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-22", "kind": "front-wall/corridor", "tiles": [], "drawnSpans": 0, "status": "GATED-EXACT(empty/background)" },
+    { "id": "case-23", "kind": "4-way-ish/deadend@d1", "tiles": [1, 2], "drawnSpans": 2, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-24", "kind": "right-open/open-ahead", "tiles": [], "drawnSpans": 0, "status": "GATED-EXACT(empty/background)" },
+    { "id": "case-25", "kind": "left-open/deadend@d1", "tiles": [1], "drawnSpans": 1, "status": "KNOWN-GAP(tile0/1 atlas)" },
+    { "id": "case-26", "kind": "4-way-ish/deadend@d1", "tiles": [2], "drawnSpans": 4, "status": "GATED-EXACT(tile2)" },
+    { "id": "case-27", "kind": "right-open/deadend@d1", "tiles": [2], "drawnSpans": 4, "status": "GATED-EXACT(tile2)" },
+    { "id": "case-28", "kind": "door@d2/corridor/deadend@d2", "tiles": [2], "drawnSpans": 2, "status": "GATED-EXACT(tile2)" },
+    { "id": "case-29", "kind": "right-open/deadend@d2", "tiles": [2], "drawnSpans": 1, "status": "KNOWN-GAP(tile2 clip/under-capture)" },
+    { "id": "case-30", "kind": "left-open/deadend@d3", "tiles": [], "drawnSpans": 0, "status": "GATED-EXACT(empty/background)" },
+    { "id": "case-31", "kind": "left-open/open-ahead", "tiles": [2], "drawnSpans": 1, "status": "KNOWN-GAP(tile2 clip/under-capture)" }
+  ],
+  "gate": {
+    "test": "packages/parser/tests/maze/maze-wall-cases-parity.test.ts (gate-tier .test.ts, default @wiz6/parser suite). 16 tests pass: 15 gated cases (wall-region byte-exact, tolerance 0) + 1 set-size assertion.",
+    "wall_region_method": "render spans onto all-0 + all-15 background pages; pixels identical across both = wall-overwritten = the wall region; compare to the C1 fixture viewport crop. Empty cases gate trivially (0 wall px).",
+    "validator": "tools/parity/maze-wall-spans-validate.ts — full 32-case wall-region report (18/32 currently pass the validator's lenient check incl. false-positive empties; the GATE is the stricter 15 with genuine tile-2 walls + true empties).",
+    "recapture": "pnpm tsx tools/libretro/capture-maze-wall-spans.ts [--check]",
+    "check_reproducibility": "pnpm tsx tools/libretro/capture-maze-wall-spans.ts --check = 28/32 span-exact on re-capture. ALL 15 GATED cases (the 5 tile-2 + 10 empty) reproduce byte-exact. The 4 diffs (case-08/09/11/21) are tile-0/1 KNOWN-GAP cases whose depth-progressive build under-settled to a different count on a re-run (the settle is nondeterministic in count for these) — they are informational only, not gated."
+  },
+  "files_changed": [
+    "tools/libretro/capture-maze-wall-spans.ts (NEW: capture settled span list per view-case, keyed by view-config)",
+    "tools/parity/maze-wall-spans-validate.ts (NEW: render+wall-region-validate all 32 cases)",
+    "tools/parity/fixtures/engine/maze-wall-spans.json (NEW committed: per-case captured spans + view-config key)",
+    "packages/parser/tests/maze/maze-wall-cases-parity.test.ts (NEW gate)",
+    "packages/parser/src/maze/compositor.ts (CompositorCall.clipLo/clipHi fields added — carried for the future clip port; no behavior change)",
+    "packages/parser/src/maze/flush.ts (plumb clipLo/clipHi from span to call — carried, no behavior change)",
+    "docs/re/findings/maze-wall-cases-c2.json (this file)"
+  ],
+  "unresolved": [
+    "TILE-0/1 source atlas + descriptor tables (front-walls / far-shapes) — 14 cases blocked. Needs a LOAD-TIME atlas capture on the patched core (re-mint the maze states under the patched core) OR offline decode of the named source file. Same wall as maze-background-fromasset.json.",
+    "Per-span x-CLIP (cl-aware) in the compositor planar writer — 3 tile-2 cases (12/29/31) blocked on this. The naive clip regresses complementary-clip cases; the cl-correct screen-x<->bit mapping is the fix.",
+    "Capture completeness: a few cases' settled span list under-captured the deeper depths (the depth-progressive build + encounter retries make the settle nondeterministic in count). The gated tile-2 cases were verified FULL; the clip-dependent 3 were not re-driven to full this pass."
+  ],
+  "caveat_for_prior_findings": "CONFIRMS maze-classify-gating.json (the emit predicate is uncloseable offline) and maze-span-build.json (the span list is the authoritative emission record + the flush/compositor/page pipeline is byte-exact). EXTENDS maze-stage1-compositor.json: the TILE arg selecting a per-tile descriptor+atlas seg is now the concrete C2 blocker for the tile-0/1 cases (the committed maze-assets.json is tile-2 only). Does NOT contradict any prior finding."
+}

@@ -1,0 +1,2464 @@
+{
+  "topic": "maze-view-cases",
+  "subagent_run": "2026-06-05 (Task C1: enumerate + capture reachable level-0 first-person view-cases)",
+  "binaries": [
+    "wroot.exe",
+    "wmaze.ovr"
+  ],
+  "tool": "Offline enumeration: tools/parity/maze-view-cases.ts (BFS reachable (gx,gy,facing) from the ENGINE entrance gy=121 under @wiz6/parser movement.ts turn/tryStepForward, capped at MAX_FWD=2 forward steps; dedupe by classify view-config). Live capture: tools/libretro/capture-maze-view-cases.ts (unserialize the committed maze-corridor.state.gz base \u2192 per-case replay key-path \u2192 fb \u2192 idx.gz). dosbox-pure nightly core.",
+  "confidence": "high",
+  "summary": "The ENGINE arrow-controllable starting area of dungeon level 0 begins at gx=127 gy=121 z=0 facing=0 \u2014 the FIRST arrow-controllable dungeon frame (= committed maze-corridor.state.gz), NOT the extracted entrance gy=120. The N3 gate door (the gy=120 cell's own north field) is a ONE-WAY boundary: the scripted entry walk crosses it southward (gy120\u2192gy121), but movement.ts treats door code 3 as solid, so the player can never walk back north. An engine arrow-BFS confirms the entire controllable area is gy>=121; the gy<=120 room the extracted entrance sits in is engine-UNREACHABLE. From gy=121 the reachable level is hundreds of cells, so this enumeration CAPS the BFS at 2 forward steps (the immediate starting area): 32 (gx,gy,facing) states across 8 cells, deduping to 32 distinct first-person view-cases (corridor / dead-end / left-open / right-open / front-wall variants distinguished by the per-depth front + corner + side edge codes). No head-on doors / pits fire in this radius (orient2/pit never set).",
+  "entrance": {
+    "gx": 127,
+    "gy": 121,
+    "z": 0,
+    "facing": 0
+  },
+  "reachable": {
+    "states": 32,
+    "cells": [
+      "125,121",
+      "126,121",
+      "126,122",
+      "127,121",
+      "127,122",
+      "127,123",
+      "128,121",
+      "128,122"
+    ],
+    "note": "BFS under turn + tryStepForward (collision-gated), capped at MAX_FWD=2 forward steps. z fixed at entrance z (0)."
+  },
+  "caveats": {
+    "animation_phase": "The dungeon corridor view has a FREE-RUNNING per-frame animation (torch/gate flicker, palette 5<->8) that advances regardless of input \u2014 so a freshly-walked frame lands on a non-deterministic phase. These idx.gz fixtures are single-phase SAMPLES of each view-case (valid ground truth for the wall/background geometry C2/C3 port). For a BYTE-EXACT C4 gate, each case should be frozen as a committed serialize-state (like maze-corridor.state.gz) and re-rendered deterministically, OR the parity comparison should mask the flicker region. See tools/dosbox/state-catalog.ts MAZE_CORRIDOR_RECIPE note.",
+    "random_encounters": "The starting area triggers random monster encounters (game_state 10/11/12) while walking. The capture retries each case (re-replay from the clean base) until it lands in game_state=5; encounters are non-deterministic so a retry clears them. Capture is therefore non-deterministic in attempt count."
+  },
+  "entrance_discrepancy": {
+    "flag": "FOR-PARENT-REVIEW",
+    "extracted_viewer_entrance": {
+      "gx": 127,
+      "gy": 120,
+      "z": 0,
+      "facing": 0
+    },
+    "engine_controllable_entrance": {
+      "gx": 127,
+      "gy": 121,
+      "z": 0,
+      "facing": 0
+    },
+    "note": "B3 (maze-start-new-game.json) recorded the entrance as gy=120 by reading party fields right after dismissing narration \u2014 but that frame is DURING the scripted gate-walk and is NOT arrow-controllable (ENTER is still consumed as a scripted forward step; verified: a fresh-boot live session at gy=120 ignores left/right/up). The first arrow-controllable frame is one cell south, gy=121, past the N3 gate. The viewer game-session-store places the party at level.entrance = gy=120, so the ported app starts the party in a gate-walled 2\u00d72 room the engine never lets the player into, and the viewer BFS from gy=120 (16 states) is disjoint from the engine reachable set. RECOMMENDATION: change the extracted/viewer entrance to gy=121 (the engine controllable frame). Stage C should gate against the gy=121 reachable set (this finding), not the gy=120 set."
+  },
+  "out_of_reach": {
+    "note": "BFS capped at MAX_FWD=2 forward steps. The full level-0 reachable region from gy=121 is hundreds of cells (movement.ts BFS uncapped = 1212 (cell,facing) states); deeper corridors, junctions, doors, and pits beyond 2 forward steps are out-of-reach for THIS MVP fixture set but reachable by extending MAX_FWD. The gy<=120 room (extracted entrance side of the gate) is engine-UNREACHABLE via arrows.",
+    "engine_arrow_bfs_confirmation": "A 60-path engine arrow-BFS from the committed state reached only gy>=121 cells (0 north-of-gate). Engine forward-axis per facing verified: f0=+gy, f1=+gx, f3=-gx (matches movement.ts step())."
+  },
+  "max_forward_steps": 2,
+  "distinct_cases": [
+    {
+      "id": "case-00",
+      "kind": "4-way-ish/deadend@d2",
+      "representative": {
+        "gx": 127,
+        "gy": 121,
+        "facing": 0
+      },
+      "path": [],
+      "members": [
+        {
+          "gx": 127,
+          "gy": 121,
+          "facing": 0
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-00.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 0,
+        "z": 0,
+        "gy": 121,
+        "gx": 127
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": false,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 3,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-01",
+      "kind": "right-open/open-ahead",
+      "representative": {
+        "gx": 127,
+        "gy": 121,
+        "facing": 3
+      },
+      "path": [
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 127,
+          "gy": 121,
+          "facing": 3
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-01.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 3,
+        "z": 0,
+        "gy": 121,
+        "gx": 127
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 3,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-02",
+      "kind": "left-open/deadend@d1",
+      "representative": {
+        "gx": 127,
+        "gy": 121,
+        "facing": 1
+      },
+      "path": [
+        "right"
+      ],
+      "members": [
+        {
+          "gx": 127,
+          "gy": 121,
+          "facing": 1
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-02.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 1,
+        "z": 0,
+        "gy": 121,
+        "gx": 127
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 3,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 3,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 3,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-03",
+      "kind": "right-open/deadend@d1",
+      "representative": {
+        "gx": 127,
+        "gy": 122,
+        "facing": 0
+      },
+      "path": [
+        "forward"
+      ],
+      "members": [
+        {
+          "gx": 127,
+          "gy": 122,
+          "facing": 0
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-03.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 0,
+        "z": 0,
+        "gy": 122,
+        "gx": 127
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 3,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-04",
+      "kind": "door@d0/front-wall/corridor",
+      "representative": {
+        "gx": 127,
+        "gy": 121,
+        "facing": 2
+      },
+      "path": [
+        "left",
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 127,
+          "gy": 121,
+          "facing": 2
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-04.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 2,
+        "z": 0,
+        "gy": 121,
+        "gx": 127
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 3,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": 0
+      }
+    },
+    {
+      "id": "case-05",
+      "kind": "right-open/deadend@d3",
+      "representative": {
+        "gx": 126,
+        "gy": 121,
+        "facing": 3
+      },
+      "path": [
+        "left",
+        "forward"
+      ],
+      "members": [
+        {
+          "gx": 126,
+          "gy": 121,
+          "facing": 3
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-05.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 3,
+        "z": 0,
+        "gy": 121,
+        "gx": 126
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-06",
+      "kind": "front-wall/corridor",
+      "representative": {
+        "gx": 128,
+        "gy": 121,
+        "facing": 1
+      },
+      "path": [
+        "right",
+        "forward"
+      ],
+      "members": [
+        {
+          "gx": 128,
+          "gy": 121,
+          "facing": 1
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-06.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 1,
+        "z": 1,
+        "gy": 121,
+        "gx": 128
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 3,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 3,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-07",
+      "kind": "left-open/open-ahead",
+      "representative": {
+        "gx": 127,
+        "gy": 122,
+        "facing": 3
+      },
+      "path": [
+        "forward",
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 127,
+          "gy": 122,
+          "facing": 3
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-07.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 3,
+        "z": 0,
+        "gy": 122,
+        "gx": 127
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 1,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 1,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": false,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-08",
+      "kind": "right-open/deadend@d1",
+      "representative": {
+        "gx": 127,
+        "gy": 122,
+        "facing": 1
+      },
+      "path": [
+        "forward",
+        "right"
+      ],
+      "members": [
+        {
+          "gx": 127,
+          "gy": 122,
+          "facing": 1
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-08.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 1,
+        "z": 0,
+        "gy": 122,
+        "gx": 127
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 3,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": false,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-09",
+      "kind": "front-wall/corridor",
+      "representative": {
+        "gx": 127,
+        "gy": 123,
+        "facing": 0
+      },
+      "path": [
+        "forward",
+        "forward"
+      ],
+      "members": [
+        {
+          "gx": 127,
+          "gy": 123,
+          "facing": 0
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-09.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 0,
+        "z": 0,
+        "gy": 123,
+        "gx": 127
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 3,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-10",
+      "kind": "front-wall/corridor",
+      "representative": {
+        "gx": 126,
+        "gy": 121,
+        "facing": 2
+      },
+      "path": [
+        "left",
+        "forward",
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 126,
+          "gy": 121,
+          "facing": 2
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-10.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 2,
+        "z": 0,
+        "gy": 121,
+        "gx": 126
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 3,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-11",
+      "kind": "4-way-ish/deadend@d1",
+      "representative": {
+        "gx": 126,
+        "gy": 121,
+        "facing": 0
+      },
+      "path": [
+        "left",
+        "forward",
+        "right"
+      ],
+      "members": [
+        {
+          "gx": 126,
+          "gy": 121,
+          "facing": 0
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-11.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 0,
+        "z": 0,
+        "gy": 121,
+        "gx": 126
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": false,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 2,
+            "cornerL": 1,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 3,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-12",
+      "kind": "right-open/deadend@d2",
+      "representative": {
+        "gx": 125,
+        "gy": 121,
+        "facing": 3
+      },
+      "path": [
+        "left",
+        "forward",
+        "forward"
+      ],
+      "members": [
+        {
+          "gx": 125,
+          "gy": 121,
+          "facing": 3
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-12.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 3,
+        "z": 0,
+        "gy": 121,
+        "gx": 125
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 3,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-13",
+      "kind": "left-open/deadend@d2",
+      "representative": {
+        "gx": 128,
+        "gy": 121,
+        "facing": 0
+      },
+      "path": [
+        "right",
+        "forward",
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 128,
+          "gy": 121,
+          "facing": 0
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-13.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 0,
+        "z": 1,
+        "gy": 121,
+        "gx": 128
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 3,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 3,
+            "rightSide": 3,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-14",
+      "kind": "front-wall/corridor",
+      "representative": {
+        "gx": 128,
+        "gy": 121,
+        "facing": 2
+      },
+      "path": [
+        "right",
+        "forward",
+        "right"
+      ],
+      "members": [
+        {
+          "gx": 128,
+          "gy": 121,
+          "facing": 2
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-14.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 2,
+        "z": 1,
+        "gy": 121,
+        "gx": 128
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 3,
+            "rightSide": 3,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-15",
+      "kind": "door@d1/4-way-ish/deadend@d1",
+      "representative": {
+        "gx": 127,
+        "gy": 122,
+        "facing": 2
+      },
+      "path": [
+        "forward",
+        "left",
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 127,
+          "gy": 122,
+          "facing": 2
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-15.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 2,
+        "z": 0,
+        "gy": 122,
+        "gx": 127
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": false,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 3,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": 1
+      }
+    },
+    {
+      "id": "case-16",
+      "kind": "left-open/deadend@d3",
+      "representative": {
+        "gx": 126,
+        "gy": 122,
+        "facing": 3
+      },
+      "path": [
+        "forward",
+        "left",
+        "forward"
+      ],
+      "members": [
+        {
+          "gx": 126,
+          "gy": 122,
+          "facing": 3
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-16.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 3,
+        "z": 0,
+        "gy": 122,
+        "gx": 126
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 1,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 1,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": false,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-17",
+      "kind": "front-wall/corridor",
+      "representative": {
+        "gx": 128,
+        "gy": 122,
+        "facing": 1
+      },
+      "path": [
+        "forward",
+        "right",
+        "forward"
+      ],
+      "members": [
+        {
+          "gx": 128,
+          "gy": 122,
+          "facing": 1
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-17.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 1,
+        "z": 1,
+        "gy": 122,
+        "gx": 128
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 3,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": false,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-18",
+      "kind": "front-wall/left-open",
+      "representative": {
+        "gx": 127,
+        "gy": 123,
+        "facing": 3
+      },
+      "path": [
+        "forward",
+        "forward",
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 127,
+          "gy": 123,
+          "facing": 3
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-18.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 3,
+        "z": 0,
+        "gy": 123,
+        "gx": 127
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 3,
+            "leftSide": 0,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 1,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 1,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-19",
+      "kind": "front-wall/right-open",
+      "representative": {
+        "gx": 127,
+        "gy": 123,
+        "facing": 1
+      },
+      "path": [
+        "forward",
+        "forward",
+        "right"
+      ],
+      "members": [
+        {
+          "gx": 127,
+          "gy": 123,
+          "facing": 1
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-19.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 1,
+        "z": 0,
+        "gy": 123,
+        "gx": 127
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 2,
+            "cornerL": 3,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 3,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 3,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-20",
+      "kind": "left-open/deadend@d2",
+      "representative": {
+        "gx": 126,
+        "gy": 121,
+        "facing": 1
+      },
+      "path": [
+        "left",
+        "forward",
+        "left",
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 126,
+          "gy": 121,
+          "facing": 1
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-20.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 1,
+        "z": 0,
+        "gy": 121,
+        "gx": 126
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 3,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 3,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 3,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-21",
+      "kind": "front-wall/right-open",
+      "representative": {
+        "gx": 126,
+        "gy": 122,
+        "facing": 0
+      },
+      "path": [
+        "left",
+        "forward",
+        "right",
+        "forward"
+      ],
+      "members": [
+        {
+          "gx": 126,
+          "gy": 122,
+          "facing": 0
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-21.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 0,
+        "z": 0,
+        "gy": 122,
+        "gx": 126
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 2,
+            "cornerL": 1,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 3,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-22",
+      "kind": "front-wall/corridor",
+      "representative": {
+        "gx": 125,
+        "gy": 121,
+        "facing": 2
+      },
+      "path": [
+        "left",
+        "forward",
+        "forward",
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 125,
+          "gy": 121,
+          "facing": 2
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-22.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 2,
+        "z": 0,
+        "gy": 121,
+        "gx": 125
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-23",
+      "kind": "4-way-ish/deadend@d1",
+      "representative": {
+        "gx": 125,
+        "gy": 121,
+        "facing": 0
+      },
+      "path": [
+        "left",
+        "forward",
+        "forward",
+        "right"
+      ],
+      "members": [
+        {
+          "gx": 125,
+          "gy": 121,
+          "facing": 0
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-23.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 0,
+        "z": 0,
+        "gy": 121,
+        "gx": 125
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": false,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 1,
+            "cornerR": 1,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-24",
+      "kind": "right-open/open-ahead",
+      "representative": {
+        "gx": 128,
+        "gy": 121,
+        "facing": 3
+      },
+      "path": [
+        "right",
+        "forward",
+        "left",
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 128,
+          "gy": 121,
+          "facing": 3
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-24.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 3,
+        "z": 1,
+        "gy": 121,
+        "gx": 128
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 3,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-25",
+      "kind": "left-open/deadend@d1",
+      "representative": {
+        "gx": 128,
+        "gy": 122,
+        "facing": 0
+      },
+      "path": [
+        "right",
+        "forward",
+        "left",
+        "forward"
+      ],
+      "members": [
+        {
+          "gx": 128,
+          "gy": 122,
+          "facing": 0
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-25.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 0,
+        "z": 1,
+        "gy": 122,
+        "gx": 128
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 3,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 3,
+            "rightSide": 3,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-26",
+      "kind": "4-way-ish/deadend@d1",
+      "representative": {
+        "gx": 126,
+        "gy": 122,
+        "facing": 2
+      },
+      "path": [
+        "forward",
+        "left",
+        "forward",
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 126,
+          "gy": 122,
+          "facing": 2
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-26.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 2,
+        "z": 0,
+        "gy": 122,
+        "gx": 126
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": false,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 3,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-27",
+      "kind": "right-open/deadend@d1",
+      "representative": {
+        "gx": 128,
+        "gy": 122,
+        "facing": 2
+      },
+      "path": [
+        "forward",
+        "right",
+        "forward",
+        "right"
+      ],
+      "members": [
+        {
+          "gx": 128,
+          "gy": 122,
+          "facing": 2
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-27.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 2,
+        "z": 1,
+        "gy": 122,
+        "gx": 128
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 3,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 3,
+            "rightSide": 3,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-28",
+      "kind": "door@d2/corridor/deadend@d2",
+      "representative": {
+        "gx": 127,
+        "gy": 123,
+        "facing": 2
+      },
+      "path": [
+        "forward",
+        "forward",
+        "left",
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 127,
+          "gy": 123,
+          "facing": 2
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-28.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 2,
+        "z": 0,
+        "gy": 123,
+        "gx": 127
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": false,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 3,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": 2
+      }
+    },
+    {
+      "id": "case-29",
+      "kind": "right-open/deadend@d2",
+      "representative": {
+        "gx": 126,
+        "gy": 122,
+        "facing": 1
+      },
+      "path": [
+        "left",
+        "forward",
+        "right",
+        "forward",
+        "right"
+      ],
+      "members": [
+        {
+          "gx": 126,
+          "gy": 122,
+          "facing": 1
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-29.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 1,
+        "z": 0,
+        "gy": 122,
+        "gx": 126
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 3,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": false,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-30",
+      "kind": "left-open/deadend@d3",
+      "representative": {
+        "gx": 125,
+        "gy": 121,
+        "facing": 1
+      },
+      "path": [
+        "left",
+        "forward",
+        "forward",
+        "left",
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 125,
+          "gy": 121,
+          "facing": 1
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-30.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 1,
+        "z": 0,
+        "gy": 121,
+        "gx": 125
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 3,
+            "leftSide": 0,
+            "rightSide": 0,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 3,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    },
+    {
+      "id": "case-31",
+      "kind": "left-open/open-ahead",
+      "representative": {
+        "gx": 128,
+        "gy": 122,
+        "facing": 3
+      },
+      "path": [
+        "right",
+        "forward",
+        "left",
+        "forward",
+        "left"
+      ],
+      "members": [
+        {
+          "gx": 128,
+          "gy": 122,
+          "facing": 3
+        }
+      ],
+      "fixture": "tools/parity/fixtures/engine/maze-view-case-31.idx.gz",
+      "engine_party": {
+        "game_state": 5,
+        "facing": 3,
+        "z": 1,
+        "gy": 122,
+        "gx": 128
+      },
+      "distinct_palette_indices": 16,
+      "view_config": {
+        "slots": [
+          {
+            "depth": 0,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 1,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 2,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 2,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 1,
+            "bounded": true,
+            "inRegion": true
+          },
+          {
+            "depth": 3,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 1,
+            "bounded": true,
+            "inRegion": true
+          }
+        ],
+        "headOnDoorDepth": -1
+      }
+    }
+  ],
+  "provenance": {
+    "base_state": "test-fixtures/states/maze-corridor.state.gz (gy=121 f0, first arrow-controllable frame). Verified gx=127 gy=121 f=0 before capture.",
+    "capture": "unserialize base \u2192 replay path keys (left/right=turn, up=forward) step 40 each \u2192 step 40 settle \u2192 verify (gx,gy,facing)==rep \u2192 fb \u2192 rgba\u2192WIZ6_MAIN indices \u2192 gzip.",
+    "format": "320\u00d7200 EGA palette-index, gzipped (.idx.gz), + .png. Same loader as maze-corridor*.idx.gz.",
+    "captured": "2026-06-05T17:15:52.425Z",
+    "wall_background_call_data": "NOT captured in this pass (the optional firstrender/capvp patched-core phases were not run \u2014 the installed core is the nightly/unpatched build; the framebuffer fixture is the required C1 deliverable). C2/C3 can re-run the patched-core call-capture per representative using these paths."
+  }
+}

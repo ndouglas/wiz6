@@ -8,6 +8,9 @@
 // Public entry point
 export { renderMazeViewport } from './render.js';
 
+// Discrete movement (turn + wall-collision step)
+export { turn, tryStepForward } from './movement.js';
+
 // Individual stages (for tests, parity tooling, and viewer assembly)
 export { classifyVisibleWalls } from './classify.js';
 export { deriveCorridorSpans, refineSpanColumns, cornerSolidSeamIdx } from './build.js';
@@ -22,7 +25,8 @@ export {
   PAGE_ROW_BYTES,
 } from './compositor.js';
 export { decodePageIndex, decodePageRgba } from './page.js';
-export { loadMazeAssets } from './assets.js';
+export { loadMazeAssets, loadMazeAssetsRaw } from './assets.js';
+export { decodeMazeAssets, type MazeAssetsRaw } from './assets-decode.js';
 export { composeBackground, applyPlacedImage, applyMaskedMirror, MAZE_BITREV } from './background.js';
 export { buildBackgroundPage } from './render.js';
 export {
@@ -34,6 +38,17 @@ export {
   composeCallList,
   composeBackgroundFromAsset,
 } from './callist.js';
+
+// Maze block decoder (pure, no I/O)
+export {
+  decodeMazeBlock,
+  getBits,
+  MB,
+  MAZE_BANK,
+  REGIONS,
+  CELLS_PER_REGION,
+  TOTAL_CELLS,
+} from './maze-block.js';
 
 // Shared types
 export type { MazeSpan, CompositorCall } from './compositor.js';

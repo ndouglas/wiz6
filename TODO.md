@@ -13,11 +13,27 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#078**
+Next free ID: **#081**
 
 ---
 
 ## Open
+
+- #080 [open] — Hoist the engine-remapped dungeon palette into `@wiz6/data` (dedup x3)
+  - The maze viewport's 16-entry palette is the engine's DAC-reprogrammed ordering (NOT IBM-EGA `EGA_DEFAULT`), and is currently triplicated byte-identically: `MazeView.tsx` `COMPOSED_PALETTE`, `packages/viewer/src/data/maze-corridor-tiles.json` `palette`, and `CalibratePalette.tsx`. Hoist to a single named export in `@wiz6/data`'s palette catalog + reference it everywhere. Minor maintainability; surfaced by the walkable-MVP final review (2026-06-05). Also note: no test gates the index→RGB mapping (parity compares `.idx.gz` palette *indices*; the MazeView render test only asserts non-blank) — a palette-ordering regression here is caught only by the eyeball smoke test.
+
+- #079 [open] — Walkable Dungeon MVP: Stage-C renderer-fidelity residuals (banked partial)
+  - **Shipped 2026-06-05** (branch `feat/walkable-dungeon-mvp`): the dungeon is **walkable** — create a party → START NEW GAME → enter level-0 → turn/step (`@wiz6/parser` `movement.ts`, collision-gated) with the first-person view recomposed per `(cell,facing)` from the real decoded `MazeBlock` (`extracted/maze/level-0.json`; entrance the steerable `gy=121`). Plan/spec: `docs/superpowers/{plans,specs}/2026-06-05-walkable-dungeon-mvp*.md`.
+  - **Fidelity is PARTIAL by design** (user banked the remaining RE grind). The live renderer uses C2's **captured wall-spans** (`extracted/maze/wall-spans.json`, config-keyed via `packages/parser/src/maze/view-config.ts`) → **15/32 reachable view-cases byte-exact** (straight corridor + corridor side-walls + door/junction/4-way recesses, all tile-2). Gated: `packages/parser/tests/maze/maze-wall-cases-parity.test.ts`. Walls render over black (no floor/ceiling).
+  - **Residual gaps (the deferred grind):**
+    1. **14/32 front-wall / far-shape cases blocked on an un-extracted tile-0/1 texture atlas.** FUN_1c94's `tile` arg selects a different descriptor table + source-atlas segment (`cs:[0x17a+2*tile]` / `cs:[0x169]`); only the tile-2 atlas is in `maze-assets.json`. Close via **decoder-first extraction** of the tile-0/1 atlas from disk (the 4-plane 8×8 masked format is cracked — `docs/re/findings/egadrv-blit-internals.json`; live-capture hit the same patched-core-can't-unserialize wall as #077 / #076-T11a). Anchors: `docs/re/findings/maze-wall-cases-c2.json`, `maze-texture-decode.json`.
+    2. **3/32 tile-2 cases need per-span x-clip** (cases 12/29/31). A cl-aware clip was attempted in C2 and reverted (regressed complementary-clip cases); `clipLo`/`clipHi` are already carried through compositor/flush. Smaller fix than the atlas.
+    3. **Floor/ceiling background not wired into the walkable build.** The capture-sidestep + 99.9% from-asset work lives in #077; wiring it into `renderMazeViewport`'s live path (under the walls) would lift the walkable view from walls-over-black to engine-faithful.
+  - Cross-refs: #076 (renderer located in ega.drv), #077 (from-asset background + generation law), #078 (scripted intro). Pure traversal only — encounters/items/NPCs/stairs/combat/camp/save all still deferred (spec "Deferred" section).
+
+- #078 [open] — START NEW GAME: port the scripted entry narration
+  - `StartNewGamePage` (viewer B3) skips the narration and navigates straight to `/game/maze`. The engine shows a modal text sequence ("YOU APPROACH THE GATE…") between scenario pick and the first controllable frame (wmaze-internal modal, game_state stays 5 throughout; dismissed by ENTER). Port: (a) RE the narration text IDs from wmaze.ovr; (b) decode the strings from msg.dbs; (c) add a modal text overlay before /game/maze navigation.
+  - Blocked on: msg.dbs decoding for arbitrary IDs (#025); wmaze narration-entry address trace.
 
 - #077 [open] — Maze FROM-ASSET background: close the 18px deep-door residual + GENERATE the call list
   - **2026-06-05:** the gy=121 oracle frame now reproduces **99.909%** (19694/19712) FROM-ASSET (mazedata.ega + the gy=121 blit call list captured live, reproducible). `packages/parser/src/maze/callist.ts` (composeCallList/composeBackgroundFromAsset) + the committed list `src/maze/__fixtures__/maze-corridor-callist-gy121.json` + `maze-corridor-fromasset-parity.diagnostic.test.ts` (99.9% floor). RE: `docs/re/findings/maze-callist-generation.json`.

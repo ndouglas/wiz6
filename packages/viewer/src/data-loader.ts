@@ -10,6 +10,13 @@ import { EgaScreenSchema, type EgaScreen } from '@wiz6/data';
 import { MessageDbSchema, type MessageDb } from '@wiz6/data';
 import { NewgameDbSchema, type NewgameDb } from '@wiz6/data';
 import { ScenarioDbSchema, type ScenarioDb } from '@wiz6/data';
+import { DungeonLevelSchema, type DungeonLevel } from '@wiz6/data';
+import {
+  decodeMazeAssets,
+  type MazeAssetsRaw,
+  type CapturedSpansTable,
+} from '@wiz6/parser';
+import { type MazeRenderAssets } from '@wiz6/data';
 
 export async function loadFont(url: string): Promise<Font> {
   const response = await fetch(url);
@@ -72,4 +79,65 @@ export async function loadScenarioDb(url: string): Promise<ScenarioDb> {
   }
   const data: unknown = await res.json();
   return ScenarioDbSchema.parse(data);
+}
+
+/**
+ * Browser loader for the maze render assets (atlas + piece descriptors). Fetches
+ * the committed extracted/maze/assets.json (served via Vite publicDir) and decodes
+ * it via the shared isomorphic decoder — no node:zlib, byte-identical to the
+ * node-side loadMazeAssets().
+ */
+export async function loadMazeAssets(): Promise<MazeRenderAssets> {
+  const url = '/maze/assets.json';
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to load maze assets from ${url}: ${res.status}`);
+  }
+  const data = (await res.json()) as MazeAssetsRaw;
+  return decodeMazeAssets(data);
+}
+
+/**
+ * Browser loader for the Task-C2 captured wall spans (per-view-config engine-
+ * settled span lists). Fetches the committed extracted/maze/wall-spans.json
+ * (served via Vite publicDir). Passed into renderMazeViewport as opts.capturedSpans
+ * so the live render shows the 15 byte-exact view-cases (best-efforts the rest).
+ * Loaded as-is — same shape as tools/parity/fixtures/engine/maze-wall-spans.json.
+ */
+export async function loadMazeWallSpans(): Promise<CapturedSpansTable> {
+  const url = '/maze/wall-spans.json';
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to load maze wall spans from ${url}: ${res.status}`);
+  }
+  const data: unknown = await res.json();
+  // CapturedSpansTable is an internal pipeline type (not a persisted @wiz6/data
+  // domain schema), so we fail-fast on the shape at this I/O boundary rather than
+  // accept a raw cast — a malformed committed fixture should surface here, not as
+  // a silently-wrong render. (The lookup is graceful on a missing CASE, but the
+  // TABLE itself must be well-formed.)
+  const cases = (data as { cases?: unknown })?.cases;
+  if (
+    !cases ||
+    !Array.isArray(cases) ||
+    !cases.every(
+      (c) =>
+        c &&
+        typeof (c as { configKey?: unknown }).configKey === 'string' &&
+        Array.isArray((c as { spans?: unknown }).spans),
+    )
+  ) {
+    throw new Error(`Malformed maze wall spans from ${url}: expected { cases: CapturedSpanCase[] }`);
+  }
+  return data as CapturedSpansTable;
+}
+
+export async function loadDungeonLevel(id: number): Promise<DungeonLevel> {
+  const url = `/maze/level-${id}.json`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to load dungeon level ${id} from ${url}: ${res.status}`);
+  }
+  const data: unknown = await res.json();
+  return DungeonLevelSchema.parse(data);
 }

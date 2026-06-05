@@ -53,7 +53,8 @@ import { gunzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { renderMazeViewport } from '../../src/maze/render.js';
-import { loadMazeAssets, loadMazeCorridorBackgroundPage } from '../../src/maze/assets.js';
+import { loadMazeAssets } from '../../src/maze/assets.js';
+import { loadMazeCorridorBackgroundPage } from '../../src/maze/assets-node.js';
 import {
   MazeBlockSchema,
   type MazeBlock,

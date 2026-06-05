@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { loadFont, loadFont4bpp, loadPortraitSet, loadEgaScreen, loadMessageDb, loadNewgameDb } from '../src/data-loader.js';
+import { loadFont, loadFont4bpp, loadPortraitSet, loadEgaScreen, loadMessageDb, loadNewgameDb, loadDungeonLevel } from '../src/data-loader.js';
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -180,5 +180,38 @@ describe('loadNewgameDb', () => {
   it('throws on invalid payload', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'x' }), { status: 200 })));
     await expect(loadNewgameDb('/bad.json')).rejects.toThrow();
+  });
+});
+
+// Minimal valid DungeonLevel — one region, one cell, real schema shape.
+const validDungeonLevel = {
+  id: 0,
+  entrance: { gx: 120, gy: 116, z: 0, facing: 0 },
+  mazeBlock: {
+    gxBase: [120],
+    gyBase: [116],
+    regions: [
+      [{ north: 0, west: 0, special4: 0, orient2: 0, pit: 0 }],
+    ],
+  },
+};
+
+describe('loadDungeonLevel', () => {
+  it('fetches /maze/level-<id>.json and returns a typed DungeonLevel', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(validDungeonLevel), { status: 200 })));
+    const level = await loadDungeonLevel(0);
+    expect(level.id).toBe(0);
+    expect(level.entrance.facing).toBe(0);
+    expect(level.mazeBlock.gxBase).toHaveLength(1);
+  });
+
+  it('throws if the fetch response is not ok', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('not found', { status: 404 })));
+    await expect(loadDungeonLevel(0)).rejects.toThrow(/404/);
+  });
+
+  it('throws if the payload does not validate against DungeonLevelSchema', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'bad' }), { status: 200 })));
+    await expect(loadDungeonLevel(0)).rejects.toThrow();
   });
 });

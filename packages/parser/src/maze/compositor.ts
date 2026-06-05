@@ -51,6 +51,8 @@ export interface CompositorCall {
   arg10: number;   // [bp+0x10] dest row base: di base = arg10 * 0x28
   tile?: number;   // [bp+0xc] source-seg selector (constant 2 for solid walls)
   flags?: number;  // [bp+0x16] H/V flip (0 for corridor walls)
+  clipLo?: number; // [bp+0x12] x-clip lo (screen px); columns left of this are suppressed
+  clipHi?: number; // [bp+0x14] x-clip hi (screen px); columns at/right of this are suppressed
 }
 
 /** One generator span (the 11-byte record the wmaze emitters append @0x50d0). */

@@ -78,80 +78,10 @@
 
 import { SEAMIDX_CORNER_SOLID_BASE } from '@wiz6/data';
 import type { MazeBlock, MazeParty } from '@wiz6/data';
+import { isSolid, resolve, N, W, step, forwardEdge } from './maze-geometry.js';
 
 /** Max depths the BUILD loop walks (wmaze DGROUP 0x521e = 4). */
 const DEPTH_BOUND = 4;
-
-/** A 2-bit wall field is "solid" (blocking) when non-zero. */
-function isSolid(field: number): boolean {
-  return field >= 1;
-}
-
-/** Resolve a GLOBAL cell (gx,gy) to {region, cellA, cellB}, or null if OOB. */
-function resolve(
-  block: MazeBlock,
-  gx: number,
-  gy: number,
-): { region: number; cellA: number; cellB: number } | null {
-  for (let r = 0; r < block.gxBase.length; r++) {
-    const gxb = block.gxBase[r]!;
-    const gyb = block.gyBase[r]!;
-    if (gxb <= gx && gx <= gxb + 7 && gyb <= gy && gy <= gyb + 7) {
-      return { region: r, cellA: gy - gyb, cellB: gx - gxb };
-    }
-  }
-  return null;
-}
-
-/** Plane-cell field reader. Out-of-region -> SOLID boundary (2) for walls. */
-function field(
-  block: MazeBlock,
-  gx: number,
-  gy: number,
-  key: 'north' | 'west',
-): number {
-  const c = resolve(block, gx, gy);
-  if (!c) return 2;
-  return block.regions[c.region]?.[c.cellA * 8 + c.cellB]?.[key] ?? 2;
-}
-
-const N = (b: MazeBlock, gx: number, gy: number) => field(b, gx, gy, 'north');
-const W = (b: MazeBlock, gx: number, gy: number) => field(b, gx, gy, 'west');
-
-/** GLOBAL-cell view-step under the facing rotation (view_step 0x37a7). */
-function step(
-  gx: number,
-  gy: number,
-  facing: number,
-  lateral: number,
-  forward: number,
-): [number, number] {
-  switch (facing) {
-    case 0:
-      return [gx + lateral, gy + forward];
-    case 1:
-      return [gx + forward, gy - lateral];
-    case 2:
-      return [gx - lateral, gy - forward];
-    default:
-      return [gx - forward, gy + lateral];
-  }
-}
-
-/** The corrected forward-edge code of the cell at GLOBAL (gx,gy) under facing
- *  (classify_front_side 0x3828 + helpers 0x36dd/0x3742). */
-function forwardEdge(b: MazeBlock, gx: number, gy: number, facing: number): number {
-  switch (facing) {
-    case 0:
-      return N(b, gx, gy);
-    case 1:
-      return W(b, gx, gy);
-    case 2:
-      return N(b, gx, gy - 1); // -cellA south face (helper 0x36dd; OOB -> solid via N)
-    default:
-      return W(b, gx - 1, gy); // -cellB east face (helper 0x3742)
-  }
-}
 
 /** Corner-L perpendicular edge (classify_corner_L 0x3c11, dispatch 0x3d20). */
 function cornerL(b: MazeBlock, gx: number, gy: number, facing: number): number {

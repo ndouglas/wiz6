@@ -29,7 +29,14 @@ export function generateCallList(spans: MazeSpan[], size = 4): CompositorCall[] 
     for (let i = spans.length - 1; i >= 0; i--) {
       const s = spans[i]!;
       if (s.depthField === depth && s.walltype !== 0xff) {
-        out.push({ piece: s.seamIdx, x0: s.x0, arg10: s.x1, tile: s.walltype });
+        out.push({
+          piece: s.seamIdx,
+          x0: s.x0,
+          arg10: s.x1,
+          tile: s.walltype,
+          clipLo: s.clipLo,
+          clipHi: s.clipHi,
+        });
       }
     }
   }
