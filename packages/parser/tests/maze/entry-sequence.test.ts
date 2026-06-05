@@ -1,0 +1,239 @@
+/**
+ * entry-sequence.test.ts — gate for advanceEntry (entry FSM) + decodeNarrationLines.
+ *
+ * Uses a hand-built minimal MazeBlock with an open forward corridor along
+ * facing 0 (north), so facing-0 steps advance gy by +1.
+ *
+ * Engine reference: wmaze scripted entry (narration → gate-walk → free),
+ * CLAUDE.md overlay state table + ScriptedEntry schema (Task 1).
+ *
+ * Level-0 scriptedEntry.start: gx=127, gy=118, z=0, facing=0 (from plan).
+ */
+import { describe, it, expect } from 'vitest';
+import { advanceEntry, type EntryState } from '../../src/maze/entry-sequence.js';
+import { decodeNarrationLines } from '../../src/maze/entry-sequence.js';
+import type { MazeBlock, MazeParty, MessageDb } from '@wiz6/data';
+
+// ---------------------------------------------------------------------------
+// MazeBlock helper — open corridor along facing 0 (north) at gx=127,gy=118+.
+//
+// MazeBlock maps global coords to cells via gxBase/gyBase per region (8×8).
+// Region base (16, 14) covers gx 16..23, gy 14..21 — but the coords in the
+// plan (gx127,gy118) are far outside a single 8-cell region; we just need a
+// block whose cells are all-open at the coords we'll use.
+//
+// Simplest approach: use a single region with gxBase=127, gyBase=118 covering
+// gx 127..134, gy 118..125. All north walls = 0 (open). 64 cells, all open.
+// ---------------------------------------------------------------------------
+function makeOpenBlock(gxBase: number, gyBase: number): MazeBlock {
+  const cells = Array.from({ length: 64 }, () => ({
+    north: 0,
+    west: 0,
+    special4: 0,
+    orient2: 0,
+    pit: 0,
+  }));
+  return {
+    gxBase: [gxBase],
+    gyBase: [gyBase],
+    regions: [cells],
+  };
+}
+
+// Party at the level-0 scriptedEntry start position (gx=127, gy=118, z=0, facing=0).
+const START_PARTY: MazeParty = { gx: 127, gy: 118, z: 0, facing: 0 };
+
+// Open block covering gx 127..134, gy 118..125 — all north walls open.
+const OPEN_BLOCK: MazeBlock = makeOpenBlock(127, 118);
+
+// ---------------------------------------------------------------------------
+// advanceEntry FSM
+// ---------------------------------------------------------------------------
+describe('advanceEntry', () => {
+  it('narration → gate-walk: party unchanged, stepsRemaining unchanged', () => {
+    const s: EntryState = { party: START_PARTY, entryMode: 'narration', stepsRemaining: 3 };
+    const next = advanceEntry(s, OPEN_BLOCK);
+    expect(next.entryMode).toBe('gate-walk');
+    expect(next.party).toEqual(START_PARTY);
+    expect(next.stepsRemaining).toBe(3);
+  });
+
+  it('gate-walk step 1: party advances gy +1, stepsRemaining 3→2', () => {
+    const s: EntryState = { party: START_PARTY, entryMode: 'gate-walk', stepsRemaining: 3 };
+    const next = advanceEntry(s, OPEN_BLOCK);
+    expect(next.entryMode).toBe('gate-walk');
+    expect(next.party.gy).toBe(119);
+    expect(next.party.gx).toBe(127);
+    expect(next.party.facing).toBe(0);
+    expect(next.stepsRemaining).toBe(2);
+  });
+
+  it('gate-walk step 2: gy 119→120, stepsRemaining 2→1', () => {
+    const s: EntryState = {
+      party: { ...START_PARTY, gy: 119 },
+      entryMode: 'gate-walk',
+      stepsRemaining: 2,
+    };
+    const next = advanceEntry(s, OPEN_BLOCK);
+    expect(next.entryMode).toBe('gate-walk');
+    expect(next.party.gy).toBe(120);
+    expect(next.stepsRemaining).toBe(1);
+  });
+
+  it('gate-walk step 3 (final): gy 120→121, entryMode→free, stepsRemaining=0', () => {
+    const s: EntryState = {
+      party: { ...START_PARTY, gy: 120 },
+      entryMode: 'gate-walk',
+      stepsRemaining: 1,
+    };
+    const next = advanceEntry(s, OPEN_BLOCK);
+    expect(next.entryMode).toBe('free');
+    expect(next.party.gy).toBe(121);
+    expect(next.stepsRemaining).toBe(0);
+  });
+
+  it('three successive gate-walk calls advance gy by 3 total', () => {
+    // Full 3-step walk starting from gate-walk mode at start position.
+    let s: EntryState = { party: START_PARTY, entryMode: 'gate-walk', stepsRemaining: 3 };
+    s = advanceEntry(s, OPEN_BLOCK);
+    s = advanceEntry(s, OPEN_BLOCK);
+    s = advanceEntry(s, OPEN_BLOCK);
+    expect(s.entryMode).toBe('free');
+    expect(s.party.gy).toBe(START_PARTY.gy + 3);
+    expect(s.stepsRemaining).toBe(0);
+  });
+
+  it('full sequence: narration → dismiss → 3 gate-walk steps → free', () => {
+    let s: EntryState = { party: START_PARTY, entryMode: 'narration', stepsRemaining: 3 };
+    // Dismiss narration
+    s = advanceEntry(s, OPEN_BLOCK);
+    expect(s.entryMode).toBe('gate-walk');
+    expect(s.party).toEqual(START_PARTY); // party unchanged by narration dismiss
+    expect(s.stepsRemaining).toBe(3);
+    // 3 forward steps
+    s = advanceEntry(s, OPEN_BLOCK);
+    s = advanceEntry(s, OPEN_BLOCK);
+    s = advanceEntry(s, OPEN_BLOCK);
+    expect(s.entryMode).toBe('free');
+    expect(s.party.gy).toBe(START_PARTY.gy + 3);
+    expect(s.stepsRemaining).toBe(0);
+  });
+
+  it('free is inert: ENTER in free mode returns state unchanged', () => {
+    const s: EntryState = {
+      party: { ...START_PARTY, gy: 121 },
+      entryMode: 'free',
+      stepsRemaining: 0,
+    };
+    const next = advanceEntry(s, OPEN_BLOCK);
+    expect(next).toBe(s); // same reference — no allocation
+    expect(next.entryMode).toBe('free');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// decodeNarrationLines
+// ---------------------------------------------------------------------------
+
+/** Minimal MessageDb fixture with the three level-0 entry narration messages. */
+function makeNarrationDb(): MessageDb {
+  return {
+    id: 'test',
+    sourceFile: 'msg.dbs',
+    treeSourceFile: 'msg.hdr',
+    indexSourceFile: 'msg.hdr',
+    recordCount: 0,
+    records: [],
+    indexedCount: 3,
+    indexedMessages: [
+      {
+        id: 10010,
+        rangeIndex: 0,
+        bank: 0,
+        offset: 0,
+        recordPos: 0,
+        decodedText: 'APPROACHING THE GATE WITH CONFIDENCE,',
+      },
+      {
+        id: 10011,
+        rangeIndex: 0,
+        bank: 0,
+        offset: 0,
+        recordPos: 0,
+        decodedText: 'YOU KNOW IF THINGS GET TOO HAIRY YOU ',
+      },
+      {
+        id: 10012,
+        rangeIndex: 0,
+        bank: 0,
+        offset: 0,
+        recordPos: 0,
+        decodedText: '^CAN ALWAYS TURN AND RUN BACK OUT...',
+      },
+    ],
+  };
+}
+
+describe('decodeNarrationLines', () => {
+  it('resolves all three narration IDs', () => {
+    const db = makeNarrationDb();
+    const lines = decodeNarrationLines(db, [10010, 10011, 10012]);
+    expect(lines).toHaveLength(3);
+  });
+
+  it('10010: no leading ^, returns text verbatim', () => {
+    const db = makeNarrationDb();
+    const [line] = decodeNarrationLines(db, [10010]);
+    expect(line).toBe('APPROACHING THE GATE WITH CONFIDENCE,');
+  });
+
+  it('10011: no leading ^, returns text verbatim', () => {
+    const db = makeNarrationDb();
+    const [line] = decodeNarrationLines(db, [10011]);
+    expect(line).toBe('YOU KNOW IF THINGS GET TOO HAIRY YOU ');
+  });
+
+  it('10012: leading ^ stripped → "CAN ALWAYS TURN AND RUN BACK OUT..."', () => {
+    const db = makeNarrationDb();
+    const [line] = decodeNarrationLines(db, [10012]);
+    expect(line).toBe('CAN ALWAYS TURN AND RUN BACK OUT...');
+  });
+
+  it('strips only the leading ^, not interior ^', () => {
+    const db: MessageDb = {
+      id: 'test',
+      sourceFile: 'x',
+      treeSourceFile: 'x',
+      indexSourceFile: 'x',
+      recordCount: 0,
+      records: [],
+      indexedCount: 1,
+      indexedMessages: [
+        {
+          id: 9999,
+          rangeIndex: 0,
+          bank: 0,
+          offset: 0,
+          recordPos: 0,
+          decodedText: '^HELLO ^WORLD',
+        },
+      ],
+    };
+    const [line] = decodeNarrationLines(db, [9999]);
+    expect(line).toBe('HELLO ^WORLD');
+  });
+
+  it('missing ID → empty string', () => {
+    const db = makeNarrationDb();
+    const lines = decodeNarrationLines(db, [99999]);
+    expect(lines).toEqual(['']);
+  });
+
+  it('mixed present + missing IDs', () => {
+    const db = makeNarrationDb();
+    const lines = decodeNarrationLines(db, [10010, 99999, 10012]);
+    expect(lines[0]).toBe('APPROACHING THE GATE WITH CONFIDENCE,');
+    expect(lines[1]).toBe('');
+    expect(lines[2]).toBe('CAN ALWAYS TURN AND RUN BACK OUT...');
+  });
+});
