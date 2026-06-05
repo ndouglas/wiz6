@@ -231,3 +231,17 @@ describe('movement (global gx/gy cell coords)', () => {
 - [ ] All maze + game tests green; the per-view-case parity gates at 100%.
 - [ ] Manual: `pnpm dev:viewer` → create party → START NEW GAME → walk the starting level; views look engine-faithful at corridors/junctions/corners/doors.
 - [ ] Update `TODO.md` (#076 progress) + the spec/plan Outcome with what shipped vs deferred.
+
+---
+
+## Outcome (2026-06-05)
+
+**The dungeon is walkable.** Shipped on `feat/walkable-dungeon-mvp`:
+
+- **Stage A — map (DONE):** `extractMazeLevel` decodes level-0 from `scenario.dbs` into a `MazeBlock`, byte-exact vs a live capture (0 diffs). `wiz6 extract maze-levels` → committed `extracted/maze/level-0.json`. `DungeonLevel`/`DungeonEntrance` schemas in `@wiz6/data`. Entrance corrected to the steerable `gy=121` (B3 had read a scripted-walk frame at `gy=120` that the engine never lets you control). Node loader in `@wiz6/cli`, browser `fetch` loader in the viewer (parser stays isomorphic).
+- **Stage B — walkable wiring (DONE):** `GameSession` store; pure `turn`/`tryStepForward` (collision-gated, no back-step) + shared `maze-geometry`/`view-config` in `@wiz6/parser`; real START NEW GAME handler (`StartNewGamePage`) → load level → seed party at the entrance → `/game/maze`; `MazeView` renders `renderMazeViewport(mazeBlock, party, assets)` per `(cell,facing)`, ◄/► turn + ↑ step, graceful on every cell. Maze assets made browser-loadable (`assets-decode.ts` isomorphic; `node:zlib` isolated in `assets-node.ts`).
+- **Stage C — renderer fidelity (BANKED PARTIAL):** the wall-emit *generation* is the same uncloseable-offline problem the maze arc banked, so C2 used the **capture-sidestep** — engine settled wall-spans per view-case, config-keyed (`extracted/maze/wall-spans.json`), wired as the primary wall path in `renderMazeViewport` (D1). **15/32 reachable view-cases byte-exact** (corridor + side-walls + door/junction/4-way recesses), gated by `maze-wall-cases-parity.test.ts`. The walkable build SHOWS these as you walk (verified via a live Playwright drive: the door recess renders 1839 wall px in real stone/door colors).
+
+**Deferred (tracked as TODO #079):** the 14 front-wall/far-shape cases (blocked on an un-extracted **tile-0/1 texture atlas** — decoder-first extraction), 3 tile-2 cases needing per-span x-clip, and the floor/ceiling background (walls currently render over black; the from-asset background is #077). Plus the always-deferred MVP scope: encounters/items/NPCs/stairs/combat/camp/save, the scripted entry narration (#078), and multi-level extraction.
+
+**The C4 full-frame 100% gate + e2e were not reached** — they depend on the deferred background + tile-0/1 atlas. The byte-exact gate that DID land is per-wall-case (15/32), not full-frame.
