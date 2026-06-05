@@ -1053,9 +1053,51 @@ const BOOT_RECIPES: readonly SaveStateRecipe[] = [
   },
 ];
 
+// ── START-NEW-GAME entry sequence scripted frames (TODO #078) ────────────────
+// Each scripted entry frame (the "ENTERING / BANE OF THE COSMIC FORGE" title-card
+// and the gate-walk frames gy=118..121) renders FROM a COMMITTED frozen
+// serialize-state (test-fixtures/states/newgame-seq-NN-*.state.gz), exactly like
+// MAZE_CORRIDOR_RECIPE — because (a) the MAGICWORD empty-pass + the title flash
+// are non-deterministic by tap-cadence, and (b) the MAZE_VIEWPORT has a
+// free-running torch/gate flicker that a live re-drive can't reproduce byte-exact.
+// build-state.ts renders the fixture from the committed state (unserialize ->
+// step(5) -> fb) and `--check` gates it at 100%. To re-mint a NEW phase, delete
+// the committed state.gz + re-run tools/libretro/freeze-newgame-states.ts (which
+// state-drives the whole sequence + re-freezes every frame).
+// Do NOT run `build-state <name> --mint` on these: --mint calls dumpDraft()
+// (creation-screen-specific) and fails on a state-5 maze frame.
+// The `steps` below are DOCUMENTARY (the drive freeze-newgame-states.ts performs);
+// the committed state.gz is the actual source.
+function newgameSeqRecipe(name: string, shows: string): SaveStateRecipe {
+  return {
+    name,
+    description:
+      `START-NEW-GAME entry frame: ${shows}. 6-member pinned-roster party ` +
+      `(THESUS/TEMPEST/LYSANDR/NOBAL/TREON/PENTAG). Renders from a COMMITTED ` +
+      `frozen serialize-state (non-deterministic phase). Re-mint via ` +
+      `tools/libretro/freeze-newgame-states.ts.`,
+    steps: [
+      ...makeCastleRecipe(6).steps, // form the 6-member party
+      'down down',                  // -> START NEW GAME
+      'enter',                      // START NEW GAME -> MAGICWORD prompt
+      'enter', 'enter', 'enter',    // magicword empty-pass x3 -> ENTERING title -> dungeon
+      // (per-frame: state-driven walk; see freeze-newgame-states.ts)
+    ],
+    settleMs: 300,
+  };
+}
+const NEWGAME_SEQ_RECIPES: readonly SaveStateRecipe[] = [
+  newgameSeqRecipe('newgame-seq-02-entering-title', '"ENTERING / BANE OF THE COSMIC FORGE" title-card over the corridor (gray bottom widget, blue text; game_state still 0xffff, pre-dungeon-load)'),
+  newgameSeqRecipe('newgame-seq-03-narration', '"APPROACHING THE GATE..." narration on the BLACK message strip over the close inner gate, party gy=118'),
+  newgameSeqRecipe('newgame-seq-04-walk-gy119', 'scripted forward step, party gy=119'),
+  newgameSeqRecipe('newgame-seq-05-walk-gy120', 'scripted forward step, party gy=120'),
+  newgameSeqRecipe('newgame-seq-06-walk-gy121-hmmm', 'dead-end at gy=121, "HMMMM..." front-wall bump (msg 10020) on the BLACK message strip'),
+];
+
 export const STATE_CATALOG: readonly SaveStateRecipe[] = [
   ...SEED_CATALOG,
   ...BOOT_RECIPES,
+  ...NEWGAME_SEQ_RECIPES,
   ...CASTLE_RECIPES,
   ...CASTLE_MEMBERS_ALIASES,
   ADD_PARTY_PICKER_RECIPE,

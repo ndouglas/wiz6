@@ -1,0 +1,167 @@
+{
+  "topic": "maze-newgame-byteexact",
+  "subagent_run": "2026-06-05 (PRECISE RE pass for the START-NEW-GAME entry sequence: deterministic per-frame frozen serialize-states, the BLACK-STRIP mechanism + exact rect by pixel-read, the 02-vs-03 viewport reconciliation, party-panel==MASTER-OPTIONS confirmation, accurate copy-protection doc). Corrects prior over/mis-claims the user caught.)",
+  "binaries": ["wmaze.ovr", "wbase.ovr", "wroot.exe", "msg.dbs", "pcfile.dbs"],
+  "tool": "dosbox-pure (libretro) NIGHTLY (unpatched) core via LiveSession (packages/mcp/src/live/live-session.ts). UNSERIALIZE round-trip VERIFIED working on this core (maze-corridor --check = 0-diff), so committed serialize-states re-mint byte-exact (the 'patched trace core can't unserialize' caveat applies only when the core is rebuilt — it was NOT). Drove a fresh boot -> title -> MASTER OPTIONS -> 6-member pinned party (makeCastleRecipe(6)) -> START NEW GAME -> MAGICWORD -> ENTERING title -> dungeon narration -> 3-step gate-walk; froze a committed serialize-state at each scripted frame (02..06) at a fixed phase; rendered the full-screen 320x200 fixture FROM each frozen state (unserialize -> step(5) -> fb, matching build-state.ts). Verified each re-mints 100.00% byte-exact via build-state.ts --check. Black-strip rect + party-panel identity + viewport content read directly from the committed .idx.gz palette indices. ui_window_create rect read from a raw ndisasm of msg_show_short_in_window (wmaze 0x58ed). msg IDs cross-checked in extracted/messages/msg.json. Freeze driver: tools/libretro/freeze-newgame-states.ts; recipes: tools/dosbox/state-catalog.ts (NEWGAME_SEQ_RECIPES).",
+  "summary": "DELIVERED deterministic byte-exact full-screen fixtures for the 5 scripted START-NEW-GAME entry frames (02 ENTERING title, 03 narration, 04/05 walk, 06 HMMMM) — each renders from a COMMITTED frozen serialize-state and re-mints 100.00% (build-state.ts --check, 0/64000 idx differ). KEY CORRECTIONS to prior RE (the user caught these): (1) The narration/HMMMM sits on a CLEAN BLACK message strip (palette idx 0), rect x=0..319 y=144..199 (confirmed by all-black per-row pixel scan). The ENTERING title-card is NOT on a black strip — it draws BLUE text (palette idx 1) on the standard GRAY bottom widget (palette idx 8); prior 'title over black strip' was WRONG. (2) The copy-protection prompt is exactly 3 randomly-selected symbol icons + an input cursor — NOT 4 icons; the prior '4 icon glyphs' miscounted the cursor box as a 4th icon (pixel-confirmed: 3 colored glyphs idx 4/5/2 + 1 solid-blue cursor idx 1). The port SKIPS the magicword entirely. (3) The 02-vs-03 viewport difference is a PARTY-POSITION change, not a gate-open animation: frame 02 party is at gy=117 (gate one cell ahead = distant corridor view, game_state still 0xffff); frame 03 party is at gy=118 (gate adjacent = close inner-gate view, game_state flipped to 5). The party steps forward gy 117->118 between the title card and the narration. (4) The entry-sequence party panel is PIXEL-IDENTICAL to MASTER OPTIONS (LEFT x0-71 + RIGHT x248-319 + TOP chrome y0-31 all 100.00% match) and does NOT animate during the walk (narration vs walk frame = 100% identical panels) — the port reuses party-panel-render.ts verbatim. The narration message window is created by ui_window_create(x_col=0, y_row=19, w=40, h=5, attr=0x14, chrome=0xffff) @ wmaze 0x5935 (in msg_show_short_in_window 0x58ed) = pixel rect y=152..191; the engine additionally blacks the full bottom band y=144..199.",
+  "findings": [
+    {
+      "id": "deterministic-frozen-states",
+      "claim": "All 5 scripted entry frames (02..06) are deterministic byte-exact: each renders from a COMMITTED frozen serialize-state via unserialize -> step(5) -> fb, and build-state.ts --check gates each at 100.00% (0/64000 idx differ). This works because (a) the active nightly core's unserialize round-trip is byte-exact (maze-corridor --check = 0-diff, re-verified this pass), and (b) the fixture is captured at the SAME phase the re-mint renders (serialize FIRST, then step(5), then fb — capturing pre-step(5) drifts the free-running torch/gate flicker by 5 frames and was the cause of an initial 32px/1px diff, fixed). The MAGICWORD empty-pass + the ENTERING title flash are NON-DETERMINISTIC by tap-cadence, so the freeze driver lands each frame STATE-DRIVEN (game_state @ DGROUP 0x363a + party gy @ 0x4fa2) and catches the ~8-frame title window by chunk-stepping (step 3) after a LONG magicword settle (600 frames to the prompt, 300 between empty-pass ENTERs — tighter settles leave the box stuck).",
+      "category": "test_fixture",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "frozen_state_remint_diff",
+        "details": "Committed: test-fixtures/states/newgame-seq-{02-entering-title,03-narration,04-walk-gy119,05-walk-gy120,06-walk-gy121-hmmm}.state.gz + tools/parity/fixtures/engine/newgame-seq-NN-*.{idx.gz,png}. build-state.ts --check per frame: 02=100.00%, 03=100.00%, 04=100.00%, 05=100.00%, 06=100.00% (all 0/64000). Recipes: tools/dosbox/state-catalog.ts NEWGAME_SEQ_RECIPES (render-from-committed-state, same shape as MAZE_CORRIDOR_RECIPE). Re-mint driver: tools/libretro/freeze-newgame-states.ts. Per-frame frozen party position read from each state: 02 gy=117 facing=0 gx=127 gs=ffff; 03 gy=118 gs=5; 04 gy=119; 05 gy=120; 06 gy=121."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "black-strip-rect-narration-hmmm",
+      "claim": "The narration ('APPROACHING THE GATE...') and the HMMMM bump are drawn on a CLEAN BLACK message strip: palette index 0 (black), full-width rect x=0..319, y=144..199 (56 px tall). Confirmed by an all-black per-row pixel scan of the committed idx: y=143 is party-panel content (310 non-black px); y=144 through y=199 are ALL pure black (idx 0) except where the white text glyphs (palette idx 5) sit. The rect is IDENTICAL for the narration (frame 03) and the HMMMM bump (frame 06). Narration text rows: line1 y=153..158, line2 y=161..166, line3 y=169..174 (8px line pitch, white idx 5, left margin x>=8). HMMMM text: single line y=153..158, centered (~x150..170). This is the BLACK strip the user means — the dungeon view + 6-member party panel ARE shown above it (y<144); it is NOT a full black screen and NOT the copy-protection.",
+      "category": "black_strip",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "framebuffer_pixel_read",
+        "details": "tools/parity/fixtures/engine/newgame-seq-03-narration.idx.gz: per-row scan y=144..199 all-black (idx 0) with idx-5 white text at y153-174; y143 = 310 non-black (party panel). newgame-seq-06-walk-gy121-hmmm.idx.gz: same black rect x0-319 y144-199, idx-5 text only at y153-158 (~20-40px/row = 'HMMMM...')."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "narration-window-create-rect",
+      "claim": "The narration message window is created by ui_window_create(x_col=0, y_row=19, w_cols=40, h_rows=5, attr=0x14, chrome=0xffff, 0, 0) at the call site wmaze 0x5935 (inside msg_show_short_in_window @ 0x58ed). In pixels that window is x=0..319, y=152..191 (5 cell rows x 8 = 40px at y_row 19 = y152). chrome=0xffff means the plain/borderless variant (zero-filled border slots) — consistent with the borderless text observed. The window attr 0x14 (high nibble 1 = bg, low nibble 4) plus the engine blacking the FULL bottom band yields the observed black rect y=144..199 (the message window proper is y152-191; the rows y144-151 above and y192-199 below are also blacked by the bottom-UI clear when the message shows — the gray free-roam widget is hidden). The text is drawn by msg_window_draw_text_wrapped @ wmaze 0x57a8 (handles '$'=newline, '^'=anchored-x).",
+      "category": "black_strip_mechanism",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x5935"},
+        "type": "raw_disasm + framebuffer_crosscheck",
+        "details": "ndisasm of wmaze 0x58ed..0x5970: prologue 0x58ed; cdecl pushes 0x5915..0x5931 (push order = reverse arg order): 0x01,0x00,0xffff,0x14(attr),0x05(h),0x28(w=40),0x13(y=19),0x00(x=0) -> ui_window_create thunk 0xbbb6 (= wroot image 0x011a per thunk-delta law) @ 0x5935; handle stored @ DGROUP 0x522a. Then the per-line loop: ui_window_create handle + text via call 0x57a8 (msg_window_draw_text_wrapped), terminated by call 0x577a, window destroyed via thunk 0xbd6e (ui_window_destroy). ui_window_create arg order (width@[0],height@[1],x_col@[2],y_row@[3],attr@[4],flags@[5]) per docs/re/findings/wpcmk-charmenu-toplayout.json. Pixel cross-check: black rect y=144..199 (all-black scan); window-proper at y_row19=y152 matches the line1 top at y153 (1px chrome inset)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "entering-title-is-gray-not-black",
+      "claim": "CORRECTION: the 'ENTERING / BANE OF THE COSMIC FORGE' scenario title-card is NOT on a black strip. It draws BLUE text (palette index 1) on the STANDARD GRAY bottom widget (palette index 8) — the same gray free-roam UI bar, with the title text overlaid. Pixel histogram of newgame-seq-02-entering-title rows 144-199: bg = idx 8 (gray) throughout (only a 1px idx-0 separator at y144 + edges); text = idx 1 (blue). Layout: line1 'ENTERING' centered, y=161..166, x=128..191; line2 'BANE OF THE COSMIC FORGE' y=169..174, x=64..254. (Contrast the narration strip which is idx-0 black with idx-5 white text.) The title-card is shown while game_state is still 0xffff (pre-dungeon-load), party at gy=117.",
+      "category": "title_card",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "type": "framebuffer_pixel_read",
+        "details": "newgame-seq-02-entering-title.idx.gz rows 144-199 histogram: {0:320 (1px column), 8:gray bulk, 1:717 blue text}. Per-row text extents: y161-166 x128-191 (ENTERING), y169-174 x64-254 (BANE OF THE COSMIC FORGE). Contrast newgame-seq-03-narration rows 144-199: {0:black bulk, 5:white text}. The committed PNGs show this directly."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "entering-title-details",
+      "claim": "The ENTERING title-card: two lines, msg IDs 1212 ('ENTERING') + 1213 ('BANE OF THE COSMIC FORGE') (consecutive msg.dbs IDs; 8002 is a duplicate 'BANE OF THE COSMIC FORGE'). line1 'ENTERING' centered (x128-191, y161-166); line2 'BANE OF THE COSMIC FORGE' (x64-254, y169-174); blue text (palette idx 1) on the gray bottom widget (idx 8). It is shown AFTER the magicword passes and BEFORE the dungeon loads (game_state still 0xffff). It is a STABLE plateau that waits for the engine's internal auto-advance (it survives unserialize -> step(5) byte-exact, so it is NOT a sub-8-frame flash that self-clears under step(5); the ~8-frame transience is in the LIVE drive's magicword-clear cadence, not the title hold). It is auto-timed (no key needed) — the engine flips game_state to 5 and draws the narration on its own. Party is at gy=117 (one cell NORTH of the narration gy=118), so the title-card viewport shows the corridor with the gate one cell further away.",
+      "category": "title_card",
+      "evidence": {
+        "binary": "msg.dbs",
+        "type": "framebuffer + msg_decode_crosscheck + frozen_state_party",
+        "details": "extracted/messages/msg.json: id 1212='ENTERING', id 1213='BANE OF THE COSMIC FORGE'. Frozen state newgame-seq-02 reads gy=117 cellA=1 facing=0 gs=ffff. The title state re-mints byte-exact (build-state --check 100%), proving the title is held stable across step(5)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "viewport-02-vs-03-reconciliation",
+      "claim": "RESOLVED the 02-vs-03 viewport difference: it is a PARTY-POSITION step, NOT a gate-open animation or a camera change. Frame 02 (ENTERING title) party is at gy=117 (cellA=1), gx=127, facing=0, game_state=0xffff — the viewport shows the corridor with the inner gate ONE cell ahead (distant, smaller). Frame 03 (narration) party is at gy=118 (cellA=2), game_state=5 — the party stepped forward one cell, now adjacent to the inner gate, so the colorful portcullis fills the viewport (close). The viewport differs 70.2% between 02 and 03 (13833/19712 px) and frame 03's viewport is more colorful (colored-px 9129 vs 6339) = the green portcullis filling more of the view. The gate is the SAME object at a different distance; the party advances gy 117->118 across the title-card -> dungeon-load boundary.",
+      "category": "viewport",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "frozen_state_party + viewport_pixel_diff",
+        "details": "Frozen-state party reads (DGROUP via anchor): 02 gy=117 cellA=1 gs=ffff; 03 gy=118 cellA=2 gs=5; 04 gy=119; 05 gy=120; 06 gy=121. Viewport (x72-247 y32-143) 02-vs-03 diff = 13833/19712 (70.2%). Viewport colored-px (not gray/black/white/blue): 02=6339, 03=9129 (close gate is more colorful)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "viewport-per-frame-render-vs-oracle",
+      "claim": "Per-frame viewport content (MAZE_VIEWPORT x72-247 y32-143, w176 h112): 02 = corridor with the inner gate one cell ahead (distant), gy=117. 03 = close colorful inner gate (green portcullis) filling the view, gy=118. 04 = inner gate framed in a stone archway, gy=119. 05 = gate receding/wall, gy=120. 06 = dead-end stone wall (gate gone from view, front-wall bump), gy=121. RECOMMENDATION: every scripted-frame viewport is produced by the wmaze banked-tile renderer with a free-running torch/gate FLICKER (palette 5<->8 at the gate center) and the renderer RE-RUNS every frame (per maze-emit-gate-closed.json: the span-list oscillates mid-build), so a LIVE re-drive cannot reproduce these byte-exact. Use a FRAMEBUFFER-ORACLE for the viewport on ALL five frames — the committed frozen serialize-states ARE that oracle (they re-mint byte-exact). The DETERMINISTIC, port-renderable regions are the TOP chrome (y0-31), the LEFT/RIGHT party panels (the side columns), and the bottom message-strip text — those the port composes; the central gate viewport is the oracle. (The simple corridor frames our existing maze pipeline CAN render, but the close inner-gate is the banked tile-0/1 atlas + flicker and is safest as an oracle.)",
+      "category": "viewport",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "captured_framebuffer_analysis + finding_cross_ref",
+        "details": "Per-frame viewport non-black/colored px (x72-247 y32-143): 02 {13642,6339}, 03 {15797,9129}, 04 {15718,8724}, 05 {15404,8781}, 06 {15707,8265}. maze-emit-gate-closed.json: the maze build re-runs every frame and span residuals oscillate; the gate (tile 0/1) is the banked atlas. The frozen-state re-mint is the byte-exact oracle (100% --check)."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "party-panel-equals-master-options",
+      "claim": "The entry-sequence party panel is PIXEL-IDENTICAL to the MASTER OPTIONS render — the port reuses party-panel-render.ts (composePartyPanel) verbatim, no per-frame variation. Pixel-diff of the side regions between newgame-seq-00 (MASTER OPTIONS) and newgame-seq-03 (narration): LEFT panel x0-71 y32-143 = 100.00% (0/8064), RIGHT panel x248-319 y32-143 = 100.00% (0/8064), TOP chrome x0-319 y0-31 = 100.00% (0/10240). The panel ALSO does NOT animate during the walk: narration (gy=118) vs walk-04 (gy=119) panels are 100.00% identical (LEFT + RIGHT). Layout (unchanged from prior findings): 6 slots, EVEN slots (0,2,4) -> LEFT window at screen (8,40); ODD slots (1,3,5) -> RIGHT window at (256,40); 32px Y stride; portraits at y=48/80/112. No difference from MASTER OPTIONS found.",
+      "category": "party_panel",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x1b2d"},
+        "type": "framebuffer_region_diff",
+        "details": "idx-diff (newgame-seq-00 vs newgame-seq-03): LEFT x0-71 y32-143 0/8064; RIGHT x248-319 y32-143 0/8064; TOP y0-31 0/10240. (newgame-seq-03 vs newgame-seq-04): LEFT 0/8064; RIGHT 0/8064. Composer: packages/viewer/src/pages/game/party-panel-render.ts; castle-frame.ts panel windows (LEFT DGROUP 0x4fba @ screen(8,40), RIGHT 0x4fb8 @ (256,40))."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "copy-protection-three-symbols",
+      "claim": "CORRECTION (we SKIP this in the port): the MAGICWORD copy-protection prompt is EXACTLY 3 randomly-selected symbol icons + an input cursor — NOT 4 icons. Prompt text (msg ID 1050): 'TYPE THE MAGICWORD FOR THESE ICONS' (blue text idx 1 on the gray bar, y~165-166). Below it, a black icon-display sub-window (x=63..264) holds 3 distinct colored symbol glyphs at x80-87 (palette idx 4 = red), x96-102 (idx 5 = bright), x112-118 (idx 2 = green), followed by a SOLID-BLUE input cursor box at x136-142 (idx 1, 42 solid px). The prior 'TYPE THE MAGICWORD FOR THESE ICONS, 4 icon glyphs' miscounted the cursor box as a 4th icon. The symbols vary run-to-run (keyed to the manual icon->word table); in dosbox-pure an EMPTY answer passes (genuinely flaky frame-wise — needs long settles, ~600 frames to the prompt + ~300 per empty-pass ENTER, or it sticks). The PORT OMITS the magicword entirely. The prompt is raised by START NEW GAME (wbase) BEFORE the dungeon loads (game_state still 0xffff), over the corridor view.",
+      "category": "copy_protection",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "type": "framebuffer_pixel_read + msg_id",
+        "details": "newgame-seq-01-magicword.idx.gz: glyph-column grouping in y176-182 within the x63-264 black sub-window finds 4 runs: x80-87 (idx 4), x96-102 (idx 5), x112-118 (idx 2) = 3 colored symbols; x136-142 (idx 1, 42 solid px) = the input cursor (NOT a symbol). msg.json id 1050 = 'TYPE THE MAGICWORD FOR THESE ICONS'. Empty-pass non-determinism reproduced (sometimes sticks, sometimes flips); long settles make it reliable."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "scripted-flow-positions",
+      "claim": "Frozen-state-confirmed scripted flow positions (gx=127, facing=0, z=0, cellB=7 throughout; only gy/cellA change): (02) ENTERING title gy=117 cellA=1 game_state=0xffff; (03) narration gy=118 cellA=2 game_state=5 (first dungeon frame, text shown); (04) walk gy=119 cellA=3; (05) walk gy=120 cellA=4; (06) dead-end gy=121 cellA=5, 'HMMMM...' front-wall bump (msg 10020). The party advances gy 117->118 across the title->dungeon boundary, then ENTER drives gy 118->119->120->121 (first ENTER dismisses the narration text without moving; each subsequent ENTER = one forward step). At gy=121 the walk ends (front wall) -> 'HMMMM...' -> free-roam (arrows move, ENTER=PRESS RETURN FOR OPTIONS). Note: this REFINES maze-entry-sequence.json's 'narration at gy=118, walk to gy=121' by adding the gy=117 title-card frame as the step BEFORE the narration.",
+      "category": "sequence",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "frozen_state_party_read",
+        "details": "Read DGROUP party fields (facing 0x4f9a, z 0x4f9c, cellA 0x4f9e, cellB 0x4fa0, gy 0x4fa2, gx 0x4fa4) from each committed state via unserialize: 02 (gy117,cellA1,gs ffff), 03 (gy118,cellA2,gs5), 04 (gy119,cellA3), 06 (gy121,cellA5). Matches maze-entry-sequence.json walk (gy118->121) + adds the gy117 title frame."
+      },
+      "confidence": "high"
+    }
+  ],
+  "asm_anchors": [
+    {"space": "wmaze.ovr", "offset": "0x58ed", "name": "msg_show_short_in_window", "note": "narration/HMMMM display: ui_window_create(x=0,y=19,w=40,h=5,attr=0x14,chrome=0xffff) @ 0x5935 (thunk 0xbbb6 -> wroot image 0x011a); per-line draw via call 0x57a8; destroy via thunk 0xbd6e"},
+    {"space": "wmaze.ovr", "offset": "0x5935", "name": "ui_window_create call (message window)", "note": "the black message-window create; rect = cell(0,19) 40x5 = pixel x0-319 y152-191"},
+    {"space": "wmaze.ovr", "offset": "0x57a8", "name": "msg_window_draw_text_wrapped", "note": "draws the wrapped text ('$'=newline, '^'=anchored-x)"},
+    {"space": "wroot.dgroup", "offset": "0x363a", "name": "game_state", "note": "0xffff during MASTER OPTIONS / magicword / ENTERING title (gy=117); flips to 5 at the dungeon-load narration frame (gy=118)"},
+    {"space": "wroot.dgroup", "offset": "0x4fa2", "name": "party_gy", "note": "117 (title) -> 118 (narration) -> 121 (walk end) — used to state-drive the per-frame freeze"},
+    {"space": "wroot.dgroup", "offset": "0x522a", "name": "message_window_handle", "note": "ui_window_create handle for the narration window, stored at 0x5938"}
+  ],
+  "fixtures": [
+    {"name": "newgame-seq-02-entering-title", "state": "test-fixtures/states/newgame-seq-02-entering-title.state.gz", "recipe": "newgame-seq-02-entering-title (render-from-committed-state)", "shows": "ENTERING/BANE title-card (blue on gray bar), corridor view, party gy=117, game_state=0xffff", "remint_check": "100.00%", "reproducible": true, "viewport_call": "framebuffer-oracle"},
+    {"name": "newgame-seq-03-narration", "state": "test-fixtures/states/newgame-seq-03-narration.state.gz", "recipe": "newgame-seq-03-narration", "shows": "APPROACHING THE GATE narration (white on BLACK strip y144-199), close inner gate, party gy=118", "remint_check": "100.00%", "reproducible": true, "viewport_call": "framebuffer-oracle"},
+    {"name": "newgame-seq-04-walk-gy119", "state": "test-fixtures/states/newgame-seq-04-walk-gy119.state.gz", "recipe": "newgame-seq-04-walk-gy119", "shows": "forward step gy=119, gate in archway", "remint_check": "100.00%", "reproducible": true, "viewport_call": "framebuffer-oracle"},
+    {"name": "newgame-seq-05-walk-gy120", "state": "test-fixtures/states/newgame-seq-05-walk-gy120.state.gz", "recipe": "newgame-seq-05-walk-gy120", "shows": "forward step gy=120", "remint_check": "100.00%", "reproducible": true, "viewport_call": "framebuffer-oracle"},
+    {"name": "newgame-seq-06-walk-gy121-hmmm", "state": "test-fixtures/states/newgame-seq-06-walk-gy121-hmmm.state.gz", "recipe": "newgame-seq-06-walk-gy121-hmmm", "shows": "dead-end gy=121, HMMMM front-wall bump (white on BLACK strip), free-roam begins", "remint_check": "100.00%", "reproducible": true, "viewport_call": "framebuffer-oracle"}
+  ],
+  "geometry": {
+    "black_message_strip": {"x": 0, "y": 144, "w": 320, "h": 56, "bg_palette_idx": 0, "text_palette_idx": 5, "note": "narration + HMMMM; full-width black y144-199. The ui_window_create window proper is y152-191 (cell 0,19 40x5); rows y144-151 + y192-199 are additionally blacked by the bottom-UI clear."},
+    "narration_text_rows": {"line1": [153, 158], "line2": [161, 166], "line3": [169, 174], "left_margin_x": 8, "line_pitch": 8},
+    "hmmm_text_row": {"line1": [153, 158], "note": "single centered line ~x150-170"},
+    "entering_title_bar": {"x": 0, "y": 144, "w": 320, "h": 56, "bg_palette_idx": 8, "text_palette_idx": 1, "note": "GRAY bar (NOT black); line1 ENTERING y161-166 x128-191, line2 BANE OF THE COSMIC FORGE y169-174 x64-254"},
+    "maze_viewport": {"x": 72, "y": 32, "w": 176, "h": 112},
+    "left_party_panel": {"x": 0, "y": 32, "w": 72, "h": 112, "identical_to_master_options": true},
+    "right_party_panel": {"x": 248, "y": 32, "w": 72, "h": 112, "identical_to_master_options": true},
+    "top_chrome": {"x": 0, "y": 0, "w": 320, "h": 32, "identical_to_master_options": true},
+    "magicword_prompt": {"msg_id": 1050, "text": "TYPE THE MAGICWORD FOR THESE ICONS", "icon_window_x": [63, 264], "symbols": 3, "symbol_glyph_x": [[80, 87], [96, 102], [112, 118]], "input_cursor_x": [136, 142], "skipped_in_port": true}
+  },
+  "msg_ids": {
+    "entering": 1212,
+    "bane_of_the_cosmic_forge": 1213,
+    "magicword_prompt": 1050,
+    "narration": [10010, 10011, 10012],
+    "hmmm_bump": 10020
+  },
+  "unresolved": [
+    "The MAGICWORD empty-pass remains NON-DETERMINISTIC frame-wise (sometimes the box sticks for 100+ frames, sometimes passes in 2 ENTERs); long settles (600 to the prompt, 300 per ENTER) make it reliable enough to freeze the downstream frames, and the asm magicword-check routine was not pinned. The port skips it so this does not block the port.",
+    "The ENTERING title-card draw routine (wbase, while game_state=0xffff) was not separately decompiled — its msg IDs (1212/1213) + layout + party-gy=117 position are pixel/state confirmed, but the exact wbase function + whether it auto-advances on a timer vs the dungeon-load completing was not localized.",
+    "render-vs-oracle: the recommendation is framebuffer-oracle for ALL five viewports (the gate is the banked tile atlas + free-running flicker, and the renderer re-runs every frame). Whether the SIMPLE corridor frames (02) and the dead-end wall (06) could instead be rendered by the existing maze pipeline byte-exact was NOT proven — marked medium; the safe path is oracle. (The deterministic strip/panel/chrome regions ARE port-composed.)"
+  ],
+  "tooling_notes": [
+    "Active core = committed NIGHTLY (unpatched) tools/libretro/dosbox_pure_libretro.dylib. UNSERIALIZE round-trip is byte-exact on it (maze-corridor --check = 0-diff) — the 'patched trace core can't unserialize' caveat is about a REBUILT core; no rebuild was done, workspace core left as found.",
+    "CRITICAL phase ordering for committed-state fixtures: capture the fixture at the build-state.ts re-mint phase = serialize FIRST, then step(5), then fb. Capturing the fixture BEFORE step(5) drifts the free-running torch/gate flicker by 5 frames and yields a 32px/1px --check diff (observed + fixed). freeze-newgame-states.ts does serialize -> step(5) -> screenshot.",
+    "MAGICWORD empty-pass needs LONG settles (600 frames to the prompt after START NEW GAME, 300 between empty-pass ENTERs) or the box stays stuck; a step(1)+screenshot poll loop after the passing ENTER interferes and never reaches the title — chunk-step (step 3) after the pass to catch the ~8-frame ENTERING title window.",
+    "The ENTERING title is a STABLE plateau (survives unserialize -> step(5) byte-exact); the ~8-frame transience is in the live magicword-clear cadence, not a self-clearing title hold.",
+    "All frame analysis (black-strip rect, party-panel identity, viewport content, icon count) read directly from the committed COMPOSED_PALETTE .idx.gz indices — the authoritative pixel source, per the user's directive to anchor every claim to a pixel read.",
+    "Probe scripts used during this pass (tools/libretro/_tmp/*, tools/libretro/probe-title-window.ts) are scratch — remove or leave gitignored; the durable deliverables are freeze-newgame-states.ts + the state-catalog recipes + the committed states/fixtures."
+  ]
+}
