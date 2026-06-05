@@ -1,0 +1,138 @@
+{
+  "topic": "maze-asset-loader",
+  "subagent_run": "2026-06-04 (RE: disk.hdr/master.hdr-keyed asset-by-id loader for the maze floor/ceiling/window backgrounds)",
+  "binaries": ["wroot.exe", "wmaze.ovr", "scenario.dbs", "disk.hdr", "master.hdr"],
+  "status": "CRACKED + byte-exact validated. The maze floor/ceiling background images are PLAIN, UNCOMPRESSED fixed-size records of SCENARIO.DBS, addressed by a (bank, recordIndex) pair through the DISK.HDR (bank base offsets) + MASTER.HDR (bank record sizes) tables. The offline decoder (tools/parity/decode-asset.ts) reproduces all 12 zones x {floor, ceiling} = 24 live in-RAM record payloads BYTE-EXACT (0 diffs). The 'compressed/huffman-decompressed at load' and 'image id 1346/1740' claims of the prior findings are CORRECTED: 1346/1740 are the RECORD SIZES of banks 2/3 (read at DGROUP 0x3304=recsize[2] / 0x3306=recsize[3]); there is no decompression for floor/ceiling (the .pic RLE decoder is the WALL-ATLAS path, a different asset).",
+  "reference_frame": {
+    "name": "maze-corridor",
+    "state": "tools/libretro/states/maze-corridor.state (nightly core)",
+    "game_state": 5, "zone": 0, "facing": 0,
+    "dgroup_base_phys": "0xffa0"
+  },
+  "findings": [
+    {
+      "id": "asset-index-is-disk-hdr-base-plus-master-hdr-recsize",
+      "claim": "The maze background asset DB is SCENARIO.DBS, indexed by two header tables loaded at winit state 0. (1) DISK.HDR holds per-bank BASE OFFSETS into SCENARIO.DBS: base[k] = u32LE at DISK.HDR offset (k+1)*4 (a leading 0 dword is skipped; DISK.HDR dwords = 0,0,896,37896,59432,87272,142772,147316,160116,168116,188212 -> base[0]=0, base[1]=896, base[2]=37896, base[3]=59432, ...). Loaded to wroot DGROUP 0x3048 (dword per bank: 0x3048 + k*4). (2) MASTER.HDR holds per-bank RECORD SIZES: recsize[k] = u16LE at MASTER.HDR offset k*2 (= 64,74,1346,1740,222,142,32,40,314,12,14,500,...). Loaded to wroot DGROUP 0x3300 (word per bank: 0x3300 + k*2). The disk read is the generic bank reader wroot FUN_0882: lseek(scenario_fd=*0x842, base[bank] + recordIndex*recsize[bank], SEEK_SET); read(scenario_fd, dest, recsize[bank]). So record r of bank k = SCENARIO.DBS[ base[k] + r*recsize[k] .. +recsize[k] ], loaded VERBATIM.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0x10882"},
+        "type": "disasm_plus_live",
+        "details": "Ghidra FUN_1000_0882 (image 0x882, Ghidra 0x10882): switch(kind) maps record-index, then crt_dos_lseek(*0x842, recordIdx * *(int*)(kind*2 + 0x3300) + CONCAT22(*(kind*4+0x304a),*(kind*4+0x3048)), 0); crt_read_via_fd(*0x842, dest, *(kind*2+0x3300)). Live (maze-corridor.state, DGROUP 0xffa0): DGROUP 0x3048 dwords = bases {0,896,37896,59432,87272,142772,147316,160116,168116,188212}; DGROUP 0x3300 words = recsizes {64,74,1346,1740,222,142,32,40,314,12,14,500,...}. These exactly equal DISK.HDR u32@(k+1)*4 and MASTER.HDR u16@k*2 read from the on-disk files. The reader is reached from wmaze via the bank-reader thunk 0xC31E (= 0x882 + 0xBA9C, the cross-overlay thunk-delta law)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "floor-ceiling-are-bank2-bank3-record-zone-plus-2",
+      "claim": "PER-ZONE SELECTION (validated live, all 12 zones, byte-exact): floor[zone] = bank 2 record (zone+2); ceiling[zone] = bank 3 record (zone+2). Records 0 and 1 of each bank are placeholder/template data; zone N uses record N+2. The floor far-ptr per-zone table is at DGROUP 0x7d2 (entry z = far-ptr off:seg, seg = the heap block paragraph), ceiling at DGROUP 0x80a; both are 12-entry tables filled at zone-init by the bank reader. wmaze 0x42..0xc3 lazily allocates the floor near-buffer (malloc size=recsize[2]=1346 via thunk 0xF4BE = wroot FUN_3A22) into [0x4faa] and the ceiling buffer (size=1740) into [0x4fa8], then dispatches the blit (thunk 0xbb9a = memcpy fwd image 0xfe) with the far-ptr source [bx+0x7d2] (bx=zone*4) and the near dest.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x42"},
+        "type": "live_plus_disasm",
+        "details": "Live: floor far-ptr table @DGROUP 0x7d2 zones0..11 = segs {0x783f,0x7903,0x79c7,0x7a8b,0x7b4f,0x7c13,0x7cd7,0x7d9b,0x7e5f,0x7f23,0x7fe7,0x80ab}; ceiling @0x80a = {0x7895,0x7959,0x7a1d,0x7ae1,0x7ba5,0x7c69,0x7d2d,0x7df1,0x7eb5,0x7f79,0x803d,0x8101}. Reading each block at seg<<4 + 0x20 (after the heap header) for recsize bytes and matching against SCENARIO.DBS: floor[z] == bank2 record (z+2) @ 0x9408 + (z+2)*1346, 0 diffs; ceiling[z] == bank3 record (z+2) @ 0xe828 + (z+2)*1740, 0 diffs. All 24 records byte-exact (tools/libretro/validate-asset-loader.ts). wmaze disasm 0x42: cmp [0x4faa],0 / jne / push [0x3304] / call 0xfffff4be (malloc) / mov [0x4faa],ax; same for ceiling [0x4fa8] via [0x3306]; then call 0xffffbb9a with [bx+0x7d2]/[bx+0x80a]."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "loader-thunk-f4be-is-malloc-not-decompressor",
+      "claim": "The thunk wmaze calls with the 'id' (1346/1740) before the blit is NOT a by-id asset/decompress loader. Thunk 0xF4BE = wroot FUN_3A22 (image 0x3a22, Ghidra 0x13a22) = the near-heap malloc (the classic MS-C near-heap first-fit allocator, same fn documented in wroot-window-heap-allocator.json as ui_window_heap_alloc). Its single argument is the byte SIZE to allocate (= recsize[2]=1346 for floor, recsize[3]=1740 for ceiling). The misread 'floor id 1346 / ceiling id 1740' in prior findings is exactly this size argument, read from DGROUP 0x3304 (=0x3300+4=recsize[2]) and 0x3306 (=recsize[3]). The actual data is already resident at the per-zone far-ptr (filled by the bank reader at zone-init); the malloc'd buffer is the BLIT DESTINATION, and thunk 0xbb9a (= memcpy fwd, wroot image 0xfe) copies far-ptr-source -> near-dest.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0x13a22"},
+        "type": "disasm",
+        "details": "Ghidra FUN_1000_3a22: uVar1 = param_1 + 3 & 0xfffe (round size up to even+header); first-fit walk of the free list at DGROUP 0x6c4 (rover) / 0x6c6 (sentinel) / 0x65a (wilderness); crt_sbrk(0x400) growth; returns puVar3+1 (near offset into wroot DGROUP). Identical to wroot-window-heap-allocator.json's ui_window_heap_alloc. The 0xBA9C thunk-delta: 0xF4BE-0xBA9C=0x3A22. Thunk 0xbb9a-0xBA9C=0xFE = the 5-arg memcpy fwd to 0x387a (per wmaze-texture-rasterizer.json thunk-resolution-corrections)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "in-ram-block-layout-header-is-heap-metadata",
+      "claim": "The in-RAM block at the per-zone far-ptr (seg<<4, off 0) is: [0x00..0x0f] 16 bytes = HEAP LEAKAGE (the tail of the adjacent prior heap block; for the floor blocks this is a 12-byte monotonic depth/brightness ramp that is actually the trailing LUT of the neighbouring ceiling record, e.g. zone0 floor's leading 12 bytes 00 07 0d 16 2d 47 52 69 7a 82 8a ff == zone(-1)/ceiling-record tail) + 4 zero bytes; [0x10..0x1f] 16 bytes = the 'WROOT' near-heap-block header (4d 98 <link_word> 00 00 00 00 'WROOT' 00 00 00; link_word = 0x5501 floor / 0x6d01 ceiling = the heap free-list link, layout-dependent); [0x20..] = the asset RECORD, byte-exact from SCENARIO.DBS. The 12-byte 'depth-shading ramp' the prior wmaze-texture-rasterizer.json reported as the block prefix is NOT part of the floor asset — it is the adjacent block's tail LUT exposed by the far-ptr pointing 0x20 before the WROOT user-data. The asset record itself begins with an index/sub-tile table then the masked-image pixel blob (see record-structure finding).",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_plus_byte_pattern",
+        "details": "Live floor block (seg 0x783f) head: 00 07 0d 16 2d 47 52 69 7a 82 8a ff 00 00 00 00 | 4d 98 01 55 00 00 00 00 57 52 4f 4f 54 00 00 00 | 01 17 18 05 06 ... ; ceiling block (seg 0x7895) head: 64 64 00 00 ...(16 heap) | 4d 98 01 6d 00 00 00 00 57 52 4f 4f 54 ... | 00 00 00 00 02 2b 0c 2b ... . The leading 16 bytes differ per block (floor=ramp, ceiling=64 64 ..) confirming heap leakage. block[0x20:0x20+recsize] == SCENARIO.DBS bank{2,3} record (zone+2), 0 diffs all 24. The WROOT link word is constant per asset-type across zones (heap pattern), the leading ramp varies per zone (== adjacent ceiling record tail)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "record-structure-index-table-plus-masked-blob-window-is-internal",
+      "claim": "Each floor/ceiling record = [index/sub-tile table][masked-image pixel blob]. Floor record (1346B): byte[0]=count, then a small table of sub-tile palette/ramp indices (bytes ~17 18 05 06 07 08 ...), padding, then the masked-image pixel blob at ~+0x64 (interleaved-zero packing 2a 00 28 00 a8 0a 8a 02 ... — the wroot/EGA masked-image encoding). Ceiling record (1740B): 4-byte header, then a table of u16 sub-image OFFSETS into the blob (0x2b02, 0x2b0c, 0x2bb6, 0x2af8, ... hi-byte 0x2b/0x2c/0x2e), then the blob. The OR-blit image-descriptor table (cs:[0x18e]) indexes into this record via its srcOff field (the per-image word offset from this table) to pick the 4-plane sub-image it copies. The central PORTCULLIS/WINDOW is NOT a separate bank asset/id — it is encoded as sub-images WITHIN these same floor/ceiling per-zone records (the colored accent sub-images), composited by the same OR-blit. So 'the window id' does not exist as a distinct DB id; the window pixels live in the zone's ceiling/floor record blob.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "scenario.dbs",
+        "type": "byte_pattern_plus_findings_crossref",
+        "details": "Floor bank2 rec2 @0x9e8c: 01 | 17 18 05 06 07 08 09 0a 0e 0f 10 ... (index table) | zeros | +0x64 2a 00 28 00 a8 0a 8a 02 ... (masked blob). Ceil bank3 rec2 @0xf5c0: 00 00 00 00 | u16 offsets 0x2b02 0x2b0c 0x0000 0x2bb6 0x2bac ... (sub-image ptr table) | blob. Cross-ref maze-floor-ceiling-decoder.json (the OR-blit reads a per-group work buffer whose source is these records; image-descriptor {segDelta,srcOff,w,h} @cs:[0x18e]) + maze-piece-inventory.json (floor/ceiling/window share the single proprietary masked-image asset). The descriptor->sub-image mapping (record blob -> the 4-plane planar work buffer the OR-blit copies) is the remaining integration step, not part of the by-id LOAD which is plain lseek+read."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "byte-exact-reproduction-result",
+      "claim": "BYTE-EXACT REPRODUCTION (the make-or-break): the offline decoder tools/parity/decode-asset.ts (loadAssetDb reads DISK.HDR/MASTER.HDR/SCENARIO.DBS; decodeFloorImage(db,zone)=bank2 rec zone+2; decodeCeilingImage(db,zone)=bank3 rec zone+2) reproduces the live in-RAM record payload (block[0x20 : 0x20+recsize]) for FLOOR (bank 2) AND CEILING (bank 3), ALL 12 ZONES = 24 records, with 0 byte diffs. No emulator, no decompression. Validated by tools/libretro/validate-asset-loader.ts against the nightly core + maze-corridor.state oracle (re-derives the per-zone far-ptr segs live; strips the 0x20 heap header; compares).",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "scenario.dbs",
+        "type": "offline_decode_plus_live_oracle",
+        "details": "tools/libretro/validate-asset-loader.ts output: zone0..11 floor(bank2 rec2..13, 1346B) diff=0; ceil(bank3 rec2..13, 1740B) diff=0; 'ALL 24 (12 floor + 12 ceiling) records BYTE-EXACT vs live in-RAM blocks.' Offline sanity (no emulator): decodeAssetById(db,1346,0) == decodeFloorImage(db,0)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "id_to_asset_index": {
+    "db_file": "SCENARIO.DBS",
+    "index_files": {
+      "DISK.HDR": "per-bank base offset into SCENARIO.DBS; base[k] = u32LE @ (k+1)*4; -> wroot DGROUP 0x3048 (dword/bank)",
+      "MASTER.HDR": "per-bank record size in bytes; recsize[k] = u16LE @ k*2; -> wroot DGROUP 0x3300 (word/bank)"
+    },
+    "bank_table": [
+      {"bank": 0, "base": 0, "recsize": 64},
+      {"bank": 1, "base": 896, "recsize": 74},
+      {"bank": 2, "base": 37896, "recsize": 1346, "role": "MAZE FLOOR images (record = zone+2)"},
+      {"bank": 3, "base": 59432, "recsize": 1740, "role": "MAZE CEILING images (record = zone+2; window/portcullis sub-images live inside)"},
+      {"bank": 4, "base": 87272, "recsize": 222},
+      {"bank": 5, "base": 142772, "recsize": 142},
+      {"bank": 6, "base": 147316, "recsize": 32},
+      {"bank": 7, "base": 160116, "recsize": 40},
+      {"bank": 8, "base": 168116, "recsize": 314},
+      {"bank": 9, "base": 188212, "recsize": 12}
+    ],
+    "record_address": "SCENARIO.DBS[ base[bank] + recordIndex*recsize[bank] .. +recsize[bank] ]",
+    "floor": "bank 2, record (zone + 2)",
+    "ceiling": "bank 3, record (zone + 2)",
+    "window": "no separate id; encoded as sub-images within the zone's floor/ceiling records"
+  },
+  "decompressor": "NONE for floor/ceiling — the records are stored UNCOMPRESSED and read verbatim by the bank reader (wroot FUN_0882, plain lseek+read). The .pic RLE decoder (ega.drv 0x1c25) is the WALL-ATLAS decompressor (a different asset path, maze-texture-decode.json), not the floor/ceiling loader. The prior 'compressed on disk / huffman-decompressed at load' claim for floor/ceiling is WITHDRAWN.",
+  "asm_anchors": [
+    {"space": "wroot.exe", "offset": "0x10882", "name": "scenario_bank_record_read", "note": "FUN_0882: lseek(*0x842, base[kind]@0x3048 + recIdx*recsize[kind]@0x3300, SEEK_SET) + read. Reached from wmaze via thunk 0xC31E."},
+    {"space": "wroot.exe", "offset": "0x13a22", "name": "near_heap_malloc", "note": "FUN_3A22 = thunk 0xF4BE; arg = byte size (=recsize). The misnamed 'asset-by-id loader'; it is malloc (= ui_window_heap_alloc)."},
+    {"space": "winit.ovr", "offset": "0x525", "name": "winit_state0_load_scenario_hdr", "note": "opens SCENARIO.HDR (filename @0x501c) reads 0x19E bytes -> 0x33F8; the bank base/recsize tables (0x3048/0x3300) are populated from DISK.HDR/MASTER.HDR during init."},
+    {"space": "wmaze.ovr", "offset": "0x42", "name": "view_lazy_load_floor_ceiling", "note": "cmp [0x4faa],0 / malloc(size=[0x3304]=recsize[2]) -> [0x4faa] (floor); same for [0x4fa8] via [0x3306] (ceiling); then call 0xbb9a (memcpy) with far-ptr [bx+0x7d2]/[bx+0x80a]."}
+  ],
+  "dgroup_anchors": {
+    "0x3048": "per-bank base offsets (dword/bank) from DISK.HDR",
+    "0x3300": "per-bank record sizes (word/bank) from MASTER.HDR; 0x3304=recsize[2]=1346, 0x3306=recsize[3]=1740 (the misread 'floor/ceil id')",
+    "0x7d2": "per-zone floor far-ptr table (off:seg, 12 zones)",
+    "0x80a": "per-zone ceiling far-ptr table (12 zones)",
+    "0x363c": "current zone",
+    "0x4faa": "floor near-buffer ptr (malloc dest)",
+    "0x4fa8": "ceiling near-buffer ptr",
+    "0x842": "SCENARIO.DBS file descriptor"
+  },
+  "artifacts": [
+    "tools/parity/decode-asset.ts — the offline by-id/by-(bank,zone) decoder: loadAssetDb() (DISK.HDR+MASTER.HDR+SCENARIO.DBS), decodeAsset(db,bank,recIdx), decodeFloorImage(db,zone), decodeCeilingImage(db,zone), decodeAssetById(db,id,zone).",
+    "tools/libretro/validate-asset-loader.ts — the live byte-exact oracle: nightly core + maze-corridor.state, reads all 12 zones' floor/ceiling heap blocks, strips the 0x20 header, asserts 0 diffs vs the offline decoder (24/24 records pass).",
+    "tools/ghidra/scripts/find_xrefs.py — new helper: references-TO an address (pyghidra 3.x open_project/program_context)."
+  ],
+  "remaining_for_integration": [
+    "Map the OR-blit image-descriptor table (cs:[0x18e] {segDelta,srcOff,w,h}) srcOff INTO the record blob: the record's index table (floor byte[0]=count + sub-tile indices; ceiling u16 sub-image offset list) yields the 4-plane planar sub-images the OR-blit copies. This is the descriptor->sub-image step (the record is the SOURCE; the OR-blit's per-group work buffer is built from it). decode-floor-ceiling.ts composeBackground already replays the OR-blit walk from work-buffer snapshots; the open step is producing those work-buffer rows from the decode-asset record instead of from a live snapshot.",
+    "Confirm the masked-image sub-image pixel encoding inside the record blob (interleaved-zero packing) decodes to the 4-plane planar rows the OR-blit OR-copies (cross-check vs decode-floor-ceiling.ts's per-group source rows).",
+    "Generate the per-view placement list (cs:[0x190]) from (zone, facing, geometry) so the page is composed without a live capture (maze-background-fromasset.json's open item; orthogonal to the LOAD which is solved here)."
+  ],
+  "unresolved": [
+    "The record-blob -> 4-plane planar work-buffer transform (the descriptor srcOff/segDelta indexing + the masked-image sub-image decode) — the SOURCE bytes are now reproducible byte-exact; turning them into the OR-blit's per-image planar rows is the next task.",
+    "Whether banks 4..9 (recsizes 222/142/32/40/314/12) hold other maze graphics (decor/door/recess sub-images) addressed by the same reader — not investigated this pass."
+  ],
+  "caveat_for_prior_findings": "CORRECTS wmaze-texture-rasterizer.json + maze-texture-decode.json + maze-floor-ceiling-decoder.json + maze-piece-inventory.json on the LOAD/SOURCE question: (1) floor/ceiling are NOT compressed and NOT huffman/RLE-decompressed at load — they are plain fixed-size SCENARIO.DBS bank records read verbatim by wroot FUN_0882 (lseek+read). (2) 'image id 1346 / 1740' are the RECORD SIZES of banks 2/3 (DGROUP 0x3304/0x3306 = recsize[2]/recsize[3]), not image ids; the real addressing is (bank 2/3, record zone+2). (3) The 12-byte 'depth-shading ramp' prefix is heap leakage (adjacent block tail), not part of the asset. (4) The window/portcullis has no separate DB id — it is sub-images inside the zone's floor/ceiling records. The OR-blit decode model in maze-floor-ceiling-decoder.json (4-plane planar OR-copy, descriptor/placement tables) STANDS — this finding only resolves where the SOURCE bytes come from (byte-exact, from disk, by id)."
+}
