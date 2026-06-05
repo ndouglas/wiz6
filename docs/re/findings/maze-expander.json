@@ -1,0 +1,99 @@
+{
+  "topic": "maze-expander",
+  "subagent_run": "2026-06-05 (Gap A: crack the record->work-buffer masked-image EXPANDER — decoder-first, oracle-validated byte-exact)",
+  "binaries": ["ega.drv", "mazedata.ega", "dosbox_pure_libretro.dylib"],
+  "status": "CRACKED + byte-exact validated (100.000%). Gap A is NOT a masked/packed pixel decompression. The maze floor/ceiling/window OR-blit source WORK BUFFER (the cs:[0x149] 'dataSeg') is the file `mazedata.ega` loaded VERBATIM by ega.drv dispatch entry 6 (FUN_0631); the pixel data is stored ALREADY 4-plane planar on disk. The only transform is a trivial in-place DESCRIPTOR-TABLE NORMALIZATION (split each descriptor's flat blob offset into segment:offset). The offline expander (tools/parity/expand-asset.ts expandMazeData) reproduces the LIVE dataSeg captured at the OR-blit entry on first render BYTE-EXACT (65536/65536 over the captured 0x10000 window; full-file: blob + placements verbatim, only the 153 descriptors rewritten), and every per-image OR-blit SOURCE work-buffer (24 distinct images: ceiling/window/floor/side-panels, the live firstrender wb-*.bin captures) is a byte-exact slice of the expanded buffer at its descriptor's (segDelta*16 + srcOffLow) — 24/24 = 100%. This CORRECTS the prior maze-background-generation.json 'Gap A is a real masked decompression' conclusion: that pass compared the WRONG asset (the SCENARIO.DBS floor/ceiling bank records — a different, unused path) against the page; the maze background comes entirely from mazedata.ega.",
+  "reference_frame": {
+    "game_state": 5, "zone": 0, "facing": 0,
+    "frame": "corridor-at-gate first render (gy=118); Gap A is geometry/zone-independent (mazedata.ega is a single universal maze graphics file; one frame exercises ceiling+window+floor+side-panels)",
+    "patched_core": "tools/libretro/build-core.sh (the _dbp_trace_*/_dbp_capture_*/_dbp_wwatch_* exports). RESTORE nightly with fetch-core.sh after RE.",
+    "oracle": "the LIVE cs:[0x149] dataSeg work buffer captured at the OR-blit entry (trace-maze.ts `expander` -> dataseg-full.bin) + the per-image OR-blit source buffers (trace-maze.ts `firstrender` -> wb-*.bin). Committed: tools/parity/fixtures/maze-expander/{dataseg-full.bin, wb-0..7.bin, meta.json}."
+  },
+  "findings": [
+    {
+      "id": "expander-is-FUN_0631-verbatim-load-plus-descriptor-normalize",
+      "claim": "The maze background EXPANDER is ega.drv DISPATCH ENTRY 6 = FUN_0631 (file 0x631..0x734). It is NOT a pixel decompressor. It (1) lseek(0)+int21-read the WHOLE file `mazedata.ega` (102303 bytes) VERBATIM into the cs:[0x149] dataSeg buffer — a 0x800-byte first read for the header/tables, then 0x8000-byte chunks across successive +0x800-paragraph segment bumps for the blob; and (2) NORMALIZES the descriptor table in place so each descriptor's (segDelta:srcOff) addresses the pixel blob within the segmented dataSeg. The pixel blob and the placement records are copied byte-for-byte; only the 153 descriptors are rewritten. There is NO masked/RLE/huffman pixel codec on this path. The OR-blit (entry 15, FUN_0a93) then reads its 4-plane planar sub-images directly from this buffer via the normalized descriptors.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0x631"},
+        "type": "disasm_plus_byte_exact",
+        "details": "Capstone ega.drv 0x631..0x734: 0x63f mov ds,cs:[0x149]; 0x648 mov bx,[bp+0xc](file handle); 0x64d int21 ah=3f cx=0x800 (header+tables read to ds:0); 0x652 ax=[0](numDesc) *5 +4 -> cs:[0x190](placeOff); 0x662 ax=[2](numPlace) *5 + placeOff -> [bp-2]=blobStart; 0x671 [bp-4]=blobStart&0xf, [bp-2]=blobStart>>4; 0x68b..0x6ad loop cx=numDesc over cs:[0x18e](=4): al=[bx+2]; al+=[bp-4]; [bx+2]=al&0xf; al>>=4; ax=[bx]+al+[bp-2]; [bx]=ax; bx+=5. 0x6c8..0x71f read the rest of the file in 0x8000 chunks (segment +0x800 per chunk) = whole-file verbatim load. Dispatch thunk table file 0x33 -> 0x631 (entry 6). OFFLINE reproduction: expandMazeData(mazedata.ega) == the live dataSeg captured at the OR-blit entry, 65536/65536 (the 0x10000 capture window); full-file normalization keeps the blob (offset>=blobStart=2599) and the placement region byte-identical, rewriting only the 153 descriptors."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "mazedata-ega-file-layout",
+      "claim": "`mazedata.ega` (102303 bytes) is the single, universal maze-background graphics file (EGA; mazedata.cga / mazedata.t16 are the CGA / Tandy variants). Layout: [0..1] u16 numDesc (=153); [2..3] u16 numPlace (=366); [4..] numDesc image-descriptor records (5 bytes each: {u16 segDelta, u8 srcOffLow, u8 w, u8 h}); [4+numDesc*5 ..] numPlace placement records (5 bytes each: {u8 imgIdx, u8 destX, u8 destRow, u8 bias, u8 count}); [4+numDesc*5+numPlace*5 = 2599 ..] the 4-plane PLANAR pixel blob (verbatim, 4 contiguous planes of w*h per sub-image). The descriptor table on disk already carries per-image paragraph deltas (segDelta) relative to the blob; FUN_0631 adds the blob base offset (blobStart>>4 = 162 paragraphs, blobStart&0xf = 7) to make them absolute within the loaded dataSeg. After normalization, segDelta ranges 162..6385 (102160 bytes) — spanning the whole file = all view distances.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "mazedata.ega",
+        "type": "byte_pattern_plus_byte_exact",
+        "details": "mazedata.ega[0:8] = 99 00 6e 01 00 00 00 0e (numDesc=153, numPlace=366, then disk desc0 {segDelta=0, srcOffLow=0, w=14, h=87}). placeOff = 153*5+4 = 769 (= captured cs:[0x190]=0x301). blobStart = 366*5+769 = 2599. The on-disk planar blob is found verbatim in mazedata.ega and matches the live OR-blit source byte-exact (e.g. gi2 side-panel = mazedata.ega[9520:] = dataSeg desc3 (segDelta 595*16) — 1807/1807). The full normalized buffer == the live dataSeg (100.000%)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "descriptor-layout-and-or-blit-read",
+      "claim": "Each (normalized) image descriptor is 5 bytes {u16 segDelta, u8 srcOffLow, u8 w, u8 h}. The OR-blit (FUN_0a93) reads it as: source segment = dataSeg + segDelta; source byte offset = srcOffLow + placement.bias; image width-in-bytes-per-plane-row = w (the si row stride); plane stride = w*h; the 4 planes are contiguous in the source segment (plane p at base + p*w*h). This MATCHES the maze-floor-ceiling-decoder.json OR-blit walk exactly — confirming the expander OUTPUT feeds composeBackground (decode-floor-ceiling.ts applyPlacedImage) unchanged. The mapping was validated by matching each live placed-image's source segment (firstrender placed_images ds) to a descriptor by (w, h, si) and confirming segDelta = ds - dataSeg: gi0 ceiling(w18 h7)->desc44(2082), gi1 window(w18 h16)->desc56(2276), gi4/gi5 floor(w14)->desc45/57, gi2/gi3 side-panel(w4 h112)->desc3/7, all exact.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xaf0"},
+        "type": "disasm_plus_live_map",
+        "details": "Capstone ega.drv 0xaf0..0xb1c (OR-blit descriptor read): al=[si](imgIdx); bx=5*al+cs:[0x18e]; w=[bx+3]; planeStride=[bx+3]*[bx+4]; ax=[bx+2]+[si+3](srcOff+bias); ds += [bx](segDelta). Live firstrender placed_images map 1:1 to mazedata.ega descriptors (segDelta = ds - dataSeg(0x2181)). validate-expander.ts: all 24 captured per-image source buffers (ceiling/window/floor/side-panels, w in {3,4,8,9,14,18}) are byte-exact slices of expandMazeData(mazedata.ega) at (segDelta*16) — 24/24 = 100%."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "no-pixel-codec-prior-finding-corrected",
+      "claim": "There is NO masked/packed pixel decompression between the on-disk asset and the OR-blit work buffer (the .snd-trap suspicion does not apply here). The maze-background-generation.json 'DECISIVE NEGATIVE: the on-disk floor record blob is NOT a bitwise subset of the OR-blit page -> an EXPAND step exists' was about the SCENARIO.DBS bank-2/3 floor/ceiling records (maze-asset-loader.json), which are NOT the OR-blit source. The OR-blit source is mazedata.ega, whose blob is verbatim 4-plane planar. The bit-position-biased 'packed encoding' the prior pass measured was a property of the SCENARIO.DBS records, which this background path does not consume. (Whether the SCENARIO.DBS floor/ceiling bank records are used by some OTHER subsystem is out of scope; they are not the maze-corridor background source.)",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "mazedata.ega",
+        "type": "byte_exact_disproof",
+        "details": "expandMazeData(mazedata.ega).buffer reproduces the live dataSeg + all 24 OR-blit source images byte-exact with the blob copied verbatim (zero pixel transforms). The only writes FUN_0631 makes to the descriptor table are the segment:offset normalization (proven byte-exact). No bit-unpacking, run-length, or mask step exists on the maze-background path."
+      },
+      "confidence": "high"
+    }
+  ],
+  "expander_pseudocode": {
+    "load": "lseek(handle,0); read whole mazedata.ega verbatim into dataSeg (cs:[0x149]).",
+    "header": "numDesc = u16@0; numPlace = u16@2; placeOff = numDesc*5+4 (-> cs:[0x190]); imgDescOff = 4 (cs:[0x18e]); blobStart = numPlace*5 + placeOff; blobLo = blobStart&0xf; blobHi = blobStart>>4.",
+    "normalize_descriptors": "for k in 0..numDesc-1 (rec at 4+k*5 = {segDelta u16, srcOffLow u8, w u8, h u8}): al=(srcOffLow+blobLo)&0xff; srcOffLow = al&0xf; segDelta = segDelta + (al>>4) + blobHi.",
+    "note": "placement records (at placeOff) and the pixel blob (at blobStart) are NOT modified. The OR-blit reads source segment = dataSeg + segDelta, offset = srcOffLow + placement.bias, 4 contiguous planes of w*h."
+  },
+  "asm_anchors": [
+    {"space": "ega.drv", "offset": "0x631", "name": "ega_maze_load_normalize_entry6_FUN_0631", "note": "dispatch entry 6 (thunk @file 0x33). Verbatim whole-file load of mazedata.ega into the dataSeg + in-place descriptor-table normalization. int21 read @0x64d; numDesc/numPlace @0x652/0x662; normalize loop @0x68b..0x6ad; multi-chunk blob read @0x6c8..0x71f."},
+    {"space": "ega.drv", "offset": "0xa93", "name": "ega_or_blit_entry15_FUN_0a93", "note": "the consumer (maze-floor-ceiling-decoder.json). Reads the normalized descriptors @0xaf0..0xb1c: ds += segDelta; si = srcOffLow + bias; w = [bx+3]; planeStride = w*h."},
+    {"space": "ega.drv", "offset": "0x43a", "name": "ega_tile_blit_entry1_FUN_043a", "note": "NOT the maze-background expander — an 8x8 4-plane tile blitter to A000 VRAM / a planar dest (EGA Sequencer 0x3c4 plane select). Examined + ruled out for Gap A."}
+  ],
+  "dataseg_anchors": {
+    "cs:[0x149]": "dataSeg = the loaded mazedata.ega work-buffer segment base (live 0x2181 in CLEAN_STATE)",
+    "cs:[0x14d]": "pageSeg = the off-screen 4-plane compose page (0x4182)",
+    "cs:[0x18e]": "imgDescOff = 4 (the descriptor table is at dataSeg:4)",
+    "cs:[0x190]": "placeOff = numDesc*5+4 (the placement table offset within dataSeg)"
+  },
+  "byte_exact_result": {
+    "work_buffer": "expandMazeData(mazedata.ega).buffer == live dataSeg @OR-blit entry: 65536/65536 = 100.000% (captured 0x10000 window). Full-file: blob (>=2599) + placements verbatim, 153 descriptors normalized to match.",
+    "per_image_sources": "24/24 OR-blit source work-buffers (ceiling w18, window w18/w8/w9, floor w14, side-panels w3/w4) byte-exact slices of the expanded buffer at (segDelta*16 + srcOffLow) = 100%.",
+    "feeds": "the expanded buffer + descriptor/placement tables feed composeBackground (decode-floor-ceiling.ts), gated separately at 99.93% (maze-floor-ceiling-decoder.json). expand-asset.ts placedImageFor(wb, placementIdx) yields a ready PlacedImage."
+  },
+  "artifacts": [
+    "tools/parity/expand-asset.ts — the offline expander: loadMazeData(), expandMazeData(file) -> {buffer, descs, placements, blobStart}, extractSubImage(wb, descIdx), placedImageFor(wb, placementIdx).",
+    "tools/parity/validate-expander.ts — the byte-exact gate vs the committed oracle (dataseg-full.bin + per-image wb-*.bin). Exit 0 = 100%.",
+    "tools/parity/fixtures/maze-expander/{dataseg-full.bin, wb-0..7.bin, meta.json} — the committed LIVE oracle (the cs:[0x149] dataSeg captured at the OR-blit entry + 8 representative per-image source buffers).",
+    "tools/libretro/trace-maze.ts — NEW `expander` phase: resolves the reloc base, captures the dataSeg + placement/descriptor tables at the OR-blit entry (capture-on-breakpoint), and probes FUN_0631 (the loader runs at zone-init, before the recompose ENTER)."
+  ],
+  "remaining_for_integration": [
+    "Gap B (placement-list generation): the placement table (366 records in mazedata.ega) is the FULL set across all view distances; the per-view subset actually drawn is selected by the OR-blit's placementIdx arg [bp+0xc], driven by wmaze geometry. Still to RE: which placement indices wmaze emits per (zone, facing, geometry). The placement RECORDS themselves are now decoded byte-exact (in expand-asset.ts); what's missing is the SELECTION.",
+    "Integration: wire expand-asset.ts into the parser's maze background path (packages/parser/src/maze/background.ts) so the page is composed from mazedata.ega (the expander) + the generated placement list (Gap B), replacing the live-capture source. NOT done this pass (integration is later; packages/parser/** untouched per task).",
+    "Per-zone palette/recolor: mazedata.ega is a single universal file; zone-specific colouring (if any) is applied elsewhere (palette, not the planar blob). Not investigated this pass."
+  ],
+  "concerns": [
+    "All runtime addresses (reloc base 0x6ba10, dataSeg 0x2181) are heap-dependent; the harness re-derives the base per run (the 4-sibling OR-store cluster). The OFFLINE expander has NO runtime dependency — it reads mazedata.ega from the pinned image and is deterministic.",
+    "The committed oracle (dataseg-full.bin) is the 0x10000 window captured at the OR-blit entry on the gy=118 corridor frame; it covers descriptors up to segDelta ~0x900. The far-view descriptors (segDelta up to 6385) are validated only by the full-file normalization invariant (blob verbatim) + the disasm, not by a captured >64KB oracle window (the capture cap is 0x4000/window). The expand is geometry-independent so this is sufficient, but a future pass could capture the far-view source buffers for completeness.",
+    "FUN_0631 (the loader) runs at zone-init, not on the per-recompose ENTER, so it was not catchable by the post-entry drive trace; the byte-exact proof comes from the OUTPUT side (the dataSeg == normalized mazedata.ega) + the static disasm of the normalize loop, which together pin the transform unambiguously."
+  ],
+  "caveat_for_prior_findings": "CORRECTS maze-background-generation.json (Gap A is NOT a masked decompression; the prior 'real expand' proof compared the wrong asset — SCENARIO.DBS bank-2/3 records — not the actual OR-blit source mazedata.ega). EXTENDS maze-asset-loader.json (the SCENARIO.DBS floor/ceiling bank records it cracked byte-exact are a DIFFERENT path, not the maze-corridor background source) + maze-floor-ceiling-decoder.json (the OR-blit walk; this finding supplies its SOURCE buffer byte-exact from disk) + maze-capture-harness.json (the harness that captured the oracle; this finding REFINES its 'expander runs in relocated ega.drv base+0xfab/base+0x480' — those write-watch hits were the int33 mouse-cursor save/restore + the entry-1 A000 tile blitter, NOT the maze-background expander, which is entry-6 FUN_0631 and runs at zone-init as a verbatim file load). No pixel/byte parity result is contradicted; the from-asset SOURCE is now byte-exact."
+}

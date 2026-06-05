@@ -1,0 +1,97 @@
+{
+  "topic": "maze-background-generation",
+  "subagent_run": "2026-06-04 (from-asset maze background: attempt Gap A (record blob -> 4-plane planar sub-images) + Gap B (placement-list generation); validate the full from-asset chain to the page oracle, tolerance 0)",
+  "binaries": ["ega.drv", "wmaze.ovr", "scenario.dbs", "disk.hdr", "master.hdr", "dosbox_pure_libretro.dylib"],
+  "status": "BOTH GAPS REMAIN UNCRACKED, but with DECISIVE new evidence narrowing each. Gap A is PROVEN to be a real masked-image decompression (the on-disk record blob is NOT a bitwise subset of the OR-blit page at ANY placement/stride -> it cannot be OR-blitted directly; an expand step exists between record and work-buffer). Gap B is RE-CONFIRMED blocked (transient placement tables; the committed gy=121 frame is unreachable on the patched trace core; the OR-blit is dormant post-settle and did not fire on any drive this run). The deterministic full-viewport gate stays GREEN via the engine's committed compose page (maze-corridor-viewport-parity.test.ts, 19712/19712). No fitted/overfit result was committed (the work-buffer oracle needed to fit Gap A is itself uncapturable this run).",
+  "reference_frame": {
+    "committed_oracle": "tools/parity/fixtures/engine/maze-corridor.idx.gz (gy=121 facing0 zone0; viewport hist {0:4005,1:743,5:5,8:6698,9:8179,10:79,13:3}; ZERO wt=2 wall spans = pure OR-blit background)",
+    "page_oracle_gy118": "tools/parity/fixtures/maze-floor-ceiling/background-oracle.bin.gz (the prior pass's 99.93% same-run capture; gy=118-ish; viewport hist {0:5017,1:1111,8:5593,9:7947,10:44} -> planes 1&2 are ALL ZERO, effective 2-plane {0,1,8,9,10})",
+    "patched_core_fresh_frame": "trace-maze.ts reach lands gy=118 facing0 zone0 (party AT the gate); gy=121 (3 cells past the gate) is NOT reachable by the fresh forward-walk recipe (re-confirmed: gy plateaus at 118)."
+  },
+  "findings": [
+    {
+      "id": "gapA-record-blob-is-NOT-direct-planar-source",
+      "claim": "DECISIVE NEGATIVE: the on-disk floor record's masked-image blob is NOT the 4-plane planar work-buffer the OR-blit reads, and is NOT obtainable by any flat re-layout of it. Proof: an exhaustive sliding-subset search (every byte-stride w=4..40, every dest byte-col 8..31, every dest row 30..143) found NO placement where the floor blob is even a BITWISE SUBSET of the OR-blit page's plane 0 (best zero-violation score = -1, i.e. no alignment is OR-compatible). Since the OR-blit only does `page |= src` (it can only ADD bits, never clear them), if the blob were the source there MUST exist a placement where blob is a bitwise subset of the page. There is none. Therefore an EXPAND/DECODE step transforms the record blob into the dense planar work-buffer before the OR-blit. This converts the prior 'masked-image' suspicion into a proof and rules out the simplest from-asset hypothesis (record blob == OR-blit source).",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "scenario.dbs",
+        "type": "offline_byte_analysis_vs_page_oracle",
+        "details": "Floor = bank2 rec2 (1346B, decodeAsset). Blob starts at record +0x64 (block far-ptr +0x84): `2a 00 28 00 a8 0a 8a 02 00 00 00 a2 ...` (1246 bytes). Byte histogram: 0x00 = 724/1246 (58%), then 0x80,0xaa,0xa0,0x02,0x08,0x88,0x2a,0x8a,0xa2,0x28 (all values whose set bits cluster in ODD positions). Bit-position counts (bit0..7) = [89,232,88,233,87,241,93,247]: odd bits (1,3,5,7) ~2.7x the even bits (0,2,4,6). This sparse, mostly-zero, bit-position-biased distribution is a packed/masked encoding, not dense planar. The page floor band (y128, plane0, byte-cols 11..28) is dense: `5a b4 03 3e a0 7e 0b 2e 5f ff ff fe ...` vs the blob `2a 00 28 00 a8 0a 8a 02 ...` — no match at the documented (88,128)w18 placement nor anywhere (exhaustive subset search = no hit)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "gapA-no-static-workbuffer-copy-in-RAM",
+      "claim": "There is NO resident decoded work-buffer copy of the floor sub-images anywhere in guest RAM in the settled maze state. Scanning the entire low+mid RAM region (0x10000..0x90000) for the floor blob's 8-byte signature `2a 00 28 00 a8 0a 8a 02` returns EXACTLY ONE hit: 0x78474 = floorSeg(0x783f)<<4 + 0x84 = the record block itself. The work-buffer the OR-blit reads (prior-pass source segs ~0x29a3, at-store bytes `ab 23 ac ad 6d ad cd 2d`) is BUILT TRANSIENTLY at OR-blit time and is GONE once the frame settles (the source segment then holds unrelated heap data). So the record->work-buffer expansion cannot be observed from a settled state; it is only live-capturable while the OR-blit is actively running.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "live_ram_scan",
+        "details": "Patched trace core, /tmp/wiz6-maze-clean.state (gy=118). DGROUP 0xffa0; floor far-ptr seg @0x7d2 = 0x783f; floor block[0x20:0x20+1346] == bank2 rec2 (0 diffs, re-confirmed). RAM scan for the blob sig over 0x10000..0x90000 (0x8000-byte chunks): single hit 0x78474 (the record). The work-buffer is per-group re-decoded (cross-ref maze-floor-ceiling-decoder.json source-is-per-group-work-buffer-redecoded)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "gapA-orblit-page-is-effectively-2-plane",
+      "claim": "The maze-corridor background OR-blit page uses only EGA planes 0 and 3 — planes 1 and 2 are entirely zero across the whole viewport. Every page byte decodes as `XX 00 00 YY` (plane0=XX, plane1=0, plane2=0, plane3=YY). The resulting indices are exactly {0,1,8,9,10}: index 8 (plane3 only = 0x55 dark grey), 9 (planes 0+3), 1 (plane0 only), 10 (planes 1+3 — the sparse accent). This means the floor/ceiling stone is a 2-bit (effectively) image and the record blob's decode only needs to produce plane0 + plane3 rows (plane1/plane2 output are zero). This is a useful constraint on the eventual masked decoder: it emits into 2 of the 4 planes for the grey stone, and the window adds the colored accents (the committed gy=121 oracle additionally has indices 5 and 13 = the portcullis colors, which DO touch planes 1/2).",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "page_decode_histogram",
+        "details": "Decoded tools/parity/fixtures/maze-floor-ceiling/background-oracle.bin.gz (4-plane page, PS=0x2000, 40B/row): viewport (x72..247,y32..143) index hist {0:5017,1:1111,8:5593,9:7947,10:44}. All 0x8000 bytes have plane1==plane2==0. Sampled rows y35/y90/y135 every byte = `XX0000YY`. (The committed gy=121 oracle has additional indices 5,13 from the central portcullis window sub-images, which use planes 1/2.)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "gapA-ega-drv-decoder-entry-1c25-is-the-pic-rle-loader-not-the-masked-expand",
+      "claim": "ega.drv DISPATCH ENTRY 9 (file 0x27 -> FUN_1c25) is a FILE-LOAD + RLE decompressor (DOS int21 lseek 0x42 / read 0x3f into a buffer, then an RLE walk: `lodsb; if 0 stop; if al<0x80: cl=al, rep movsb (literal run); else: neg al, cl=al, lodsb, rep stosb (fill run)`). This is the .pic-family graphics LOADER (the wall-atlas path), NOT the floor/ceiling masked-blob expander — floor/ceiling are loaded verbatim by the wroot bank reader (maze-asset-loader.json), so they never pass through 0x1c25. The record-blob -> planar work-buffer expand is therefore a DIFFERENT routine, most likely in wmaze (the caller that also builds the placement/descriptor tables in the cs:[0x149] data segment), invoked just before each OR-blit group. It was not pinned this pass.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0x1c25"},
+        "type": "disasm",
+        "details": "ndisasm ega.drv 0x1c25..0x1c93: prologue reads a file (ah=0x42 lseek, ah=0x3f read cx=0x1000 into [bp+0xc]), then the classic RLE: 0x1c74 `lodsb; or al,al; jz done; test 0x80; jnz fill; mov cl,al; rep movsb` / fill: `neg al; mov cl,al; lodsb; rep stosb`. Dispatch table (file 0x00..0x46, 4-byte `call rel16; retf` thunks): entry15 (file 0x3f) -> 0xa93 (OR-blit); entry9 (0x27) -> 0x1c25 (RLE loader); entry10 (0x2b) -> 0x1c94 (wall compositor). The OR-blit (0xa93) reads its placement table cs:[0x190] and descriptor table cs:[0x18e] from the RUNTIME data segment cs:[0x149] (NOT from ega.drv's own 0x2262-byte file) -> both tables AND the source work-buffer are caller-built (wmaze), confirming ega.drv is a pure consumer."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "gapB-orblit-dormant-post-settle-not-capturable-this-run",
+      "claim": "Gap B (placement-list generation) is RE-CONFIRMED blocked, with the additional concrete finding that the OR-blit is DORMANT in the settled maze state and could not be made to fire on ANY drive this run. From /tmp/wiz6-maze-clean.state (patched core), tracing the OR-blit entry (0xa93) and all four OR-store plane loops (the 4 resident sig copies at 0x6acdd/0x6acf1/0x6ad08/0x6ad21, deltas 0/0x14/0x2b/0x44) across held-ENTER forceRedraw, tap-ENTER, turn-left, turn-right, and a 30-step continuous dungeon-entry sweep: ALL yielded 0 hits. The resident sig copies are inactive code (a stale/secondary ega.drv copy); the active relocated OR-blit body of the prior 99.93% pass (base 0x6ba10) is not present in this run's heap layout. The OR-blit runs only on the INITIAL full recompose (dungeon first-render), which this drive's restored/settled state had already completed — so the transient cs:[0x190]/cs:[0x18e] placement+descriptor tables and the per-group source work-buffers are not observable. The committed gy=121 frame remains unreachable on the patched core (DBPSerialize_CPU divergence -> err unser; fresh drive plateaus at gy=118).",
+      "category": "tooling",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "live_trace_negative",
+        "details": "Patched core (build-core.sh, _dbp_trace_* exports verified). Reloc base via OR-store sig `ac 26 0a 05 aa`: 4 hits 0x6acdd/0x6acf1/0x6ad08/0x6ad21 (one code body, the 4 plane loops). traceSet on each + on entry 0x6a1b0+0xa93: 0 hits for held-enter(20/40), tap-enter, turn L, turn R, step(200), and a 30-iteration find-sig+trace sweep during a fresh boot->dungeon entry. Party read after each: gy=118 facing0 zone0. This matches maze-background-fromasset.json (placement-tables-are-transient-not-persisted) and maze-background-integration.json (full-viewport-gate-blocked-frame-mismatch)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "ceiling-record-header-is-a-sub-image-offset-table-into-the-expanded-buffer",
+      "claim": "The ceiling record (bank3, 1740B) begins with a 4-byte header then a table of u16 sub-image offsets (0x2b02, 0x2b0c, 0x0000, 0x2bb6, 0x2bac, 0x2b66, 0x2af8, ..., hi-bytes 0x2b/0x2c/0x2e) — values that exceed the 1740-byte record, so they are offsets into the EXPANDED work-buffer (the decompressed concatenation of floor+ceiling+window sub-images), not into the record. These line up with the OR-blit image-descriptor `srcOff` field (cs:[0x18e] {segDelta,srcOff,w,h}). So the ceiling record header IS (a packed form of) the image-descriptor srcOff list, but it indexes the POST-EXPAND buffer — confirming again that the expand (Gap A) must run before these offsets are meaningful. The floor record by contrast starts with byte[0]=count(=1) + a sub-tile palette/ramp index table (17 18 05 06 07 08 09 0a 0e 0f 10 ...) + zero padding + the masked blob at +0x64. The window/portcullis has no separate DB id; its colored sub-images live inside these same floor/ceiling records (consistent with maze-asset-loader.json).",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "scenario.dbs",
+        "type": "byte_pattern",
+        "details": "Ceiling bank3 rec2 head: `00 00 00 00 | 02 2b 0c 2b 00 00 b6 2b ac 2b 00 00 66 2b f8 2a 00 00 5c 2b 87 01 00 01 20 2b 00 00 2a 2b ...` (u16 LE offset table). Floor bank2 rec2 head: `01 | 17 18 05 06 07 08 09 0a 0e 0f 10 08 09 0a ... 13 1c 1c 13 | 00*0x3c | +0x64: 2a 00 28 00 a8 0a 8a 02 ...`. Offsets 0x2b02..0x2e9a > 1740 -> they target the expanded buffer (the OR-blit source seg), matching the descriptor srcOff field."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "what_would_unblock": [
+    "Gap A (the make-or-break): pin the wmaze routine that EXPANDS the record blob into the 4-plane planar work-buffer (the masked-image decompressor). Approach: DOSBox-X or patched-core breakpoint on the OR-blit ENTRY (ega.drv 0xa93 at the live reloc base) DURING the dungeon first-render (state-4 -> state-5 transition, NOT a settled forward-step) — single-step back up the call stack to the caller (wmaze) that filled cs:[0x149]/cs:[0x18e]/cs:[0x190] and the source segment, and disasm the loop that writes the work-buffer from the record block (far-ptr seg 0x783f/0x7895 +0x20). The blob bit-bias (odd bits 2.7x even) + the 2-effective-plane page output are strong shape constraints for validating the decoded rows. The decode is geometry-INDEPENDENT, so cracking it once at gy=118 generalizes to gy=121.",
+    "Gap B (placement generation): RE the wmaze placement-list builder (the code that fills cs:[0x190]). Candidates: wmaze view_render_corridor_frame (0x4ad7) + the per-depth convergence arrays (DGROUP 0x42 left / 0x4a right) drive the perspective triangle; the black-void + window placements are geometry-keyed. This is the analogue of the already-cracked wall span generator (maze-span-build.json). It must be derivable statically from wmaze (the relocated copy, 0x4564 delta) without the live tables.",
+    "Tooling: bridge the patched/nightly DBPSerialize_CPU formats so the patched trace core can unserialize the committed gy=121 state (then the OR-blit is live-capturable for the exact gate frame); OR find the precise drive that re-triggers the OR-blit on the patched core (the prior 99.93% pass DID capture it at base 0x6ba10 — that drive/state was not reproducible this run)."
+  ],
+  "deliverable_status": {
+    "gate": "tools/.../maze-corridor-viewport-parity.test.ts stays GREEN (19712/19712 byte-exact, tolerance 0) — the real deterministic full-viewport maze gate, sourced from the engine's committed OR-blit compose page (loadMazeCorridorBackgroundPage). This is NOT a from-asset render; it is the engine's own page read deterministically from the committed state.",
+    "from_asset_chain": "decodeAsset/decodeFloorImage/decodeCeilingImage (byte-exact from disk, 24/24 zones) is wired; the record STRUCTURE (floor: count+index-table+blob@+0x64; ceiling: u16 sub-image offset table+blob) is documented. The record-blob -> planar sub-image EXPAND (Gap A) and the placement-list GENERATION (Gap B) are the two open transforms; neither was crackable deterministically this run (Gap A needs the unpinned wmaze masked-decoder; Gap B needs the transient tables for an unreachable frame).",
+    "not_done_and_why_not_faked": "No fitted-placement fallback was committed: fitting Gap A requires a work-buffer oracle (the decoded source rows) to validate the masked decode, and that oracle is itself uncapturable this run (OR-blit dormant). Committing placements 'fitted to the page' without a validated Gap A decoder would be an overfit of the engine page back onto itself (the page is already the committed gate input) — it would prove nothing about the from-asset path. Per project discipline (structurally-plausible output from a misaligned decoder is the classic trap), the honest result is the documented negative + the narrowed unblock plan."
+  },
+  "artifacts": [
+    "docs/re/findings/maze-background-generation.json (this file).",
+    "tools/parity/decode-asset.ts (unchanged; the byte-exact from-disk record loader — the validated front of the chain).",
+    "packages/parser/src/maze/background.ts (unchanged; the OR-blit walk, gated byte-exact by background.test.ts + the engine 99.93% pair).",
+    "tools/parity/fixtures/maze-floor-ceiling/background-oracle.bin.gz (the gy=118 page used for the Gap A subset analysis)."
+  ],
+  "caveat_for_prior_findings": "EXTENDS maze-asset-loader.json (record structure) + maze-floor-ceiling-decoder.json (OR-blit walk) + maze-background-fromasset.json / maze-background-integration.json (the blocker). NEW: (1) PROOF Gap A is a real expand — the record blob is not a bitwise subset of the OR-blit page at any placement (the OR-only-adds-bits invariant rules out direct use); (2) NO static work-buffer copy in RAM (single sig hit = the record itself); (3) the OR-blit page is effectively 2-plane (planes 1/2 zero) for the grey stone; (4) ega.drv entry 0x1c25 is the RLE FILE loader (.pic family), not the floor/ceiling masked expander — the expander is an unpinned wmaze routine; (5) the OR-blit is dormant post-settle and did not fire on any drive this run (the prior 99.93% capture's drive/heap-layout was not reproducible). No prior claim is contradicted; the from-asset route is further narrowed, not advanced to a render."
+}

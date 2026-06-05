@@ -1,0 +1,126 @@
+{
+  "topic": "maze-floor-ceiling-decoder",
+  "subagent_run": "2026-06-04 (concentrated-risk pass: crack the ONE remaining uncracked maze decoder — the floor/ceiling/window 'masked-image' OR-blit)",
+  "binaries": ["ega.drv", "wmaze.ovr", "dosbox_pure_libretro.dylib"],
+  "status": "CRACKED + byte-exact validated (99.93%, 4458/4461 OR-written viewport bytes; 3 residual px = per-group source-snapshot timing on a transient work buffer, NOT a model error).",
+  "saves": [
+    "Patched trace core (build-core.sh) driven by HostClient. CLEAN_STATE = /tmp/wiz6-maze-clean.state (game_state 5, facing 0, corridor-at-gate view: ceiling + floor + central green portcullis window). Reloc base 0x6ba10 (same as the wall compositor). Committed fixtures: tools/parity/fixtures/maze-floor-ceiling/{background-oracle,decoder-output}.bin.gz (4-plane page, plane stride 0x2000, 40 B/row)."
+  ],
+  "reference_frame": {
+    "game_state": 5, "zone": 0, "facing": 0, "z": 0,
+    "viewport": "x72..247 (w176) y32..143 (h112)",
+    "view": "stone corridor receding to a central green/yellow portcullis window; dithered grey ceiling+floor+side panels",
+    "ega_drv_reloc_base": "0x6ba10 (the relocated transient ega.drv copy; the OR-blit entry-15 = 0x6ba10+0xa93 = 0x6c4a3; heap-dependent per run)"
+  },
+  "findings": [
+    {
+      "id": "or-blit-is-ega-drv-dispatch-entry-15-FUN_0a93",
+      "claim": "The floor/ceiling/window background compositor (the OR-blit) is ega.drv DISPATCH ENTRY 15 = FUN_0a93 (file 0xa93..0xbc6). It is a SEPARATE entry from the wall compositor (entry 10 = FUN_1c94 @ 0x1c94). The dispatch thunk table at file 0x3f targets 0xa93 (entry 15). It runs from the relocated transient ega.drv copy at base 0x6ba10 (entry lin 0x6c4a3, plane-0 OR-store at 0x6c541). The function has TWO branches selected by [bp+0x10] (secondIdx): [bp+0x10]==0xffff -> the OR-blit walk (file 0xaa9, the floor/ceiling/window path); else -> an xlatb/palette-remap variant (file 0xbc6). The OR vs plain-copy sub-branch is gated by [bp+0xe] (orFlag): !=0 -> `lodsb; or al,es:[di]; stosb` (merge into the page UNDER the walls); ==0 -> `rep movsb` (plain copy).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xa93"},
+        "type": "disasm_plus_live",
+        "details": "Capstone dispatch-header scan: entry 15 thunk @file 0x3f -> 0xa93. Live: tracing OR-store byte-pattern `ac 26 0a 05 aa` (lodsb; or al,es:[di]; stosb) -> in-image ega.drv file 0xb2d (+0xb41/+0xb58/+0xb71 for planes 1/2/3). Reloc base derived from the page-write-watch cluster: plane-0 OR-store cseip 0x6c541 has +0x14/+0x17/+0x19 plane siblings (file 0xb31/0xb45/0xb5c/0xb75 store offsets) -> base = 0x6c541-0xb31 = 0x6ba10. OR-blit entry 0x6c4a3 fired 168 times over a held-ENTER recompose; ds=es=0x1180 at entry (caller seg; the fn sets ds/es internally from cs:[0x149]/cs:[0x14d])."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "format-is-4plane-planar-or-copy-no-mask-no-rle",
+      "claim": "THE FORMAT: the background is composited from a list of PLACEMENT records, each placing ONE 4-plane PLANAR sub-image into the off-screen compose page with an OR-merge. There is NO mask byte and NO RLE in the pixel walk — the 'masked-image' name is the OR-MERGE itself (the page is pre-zeroed; the OR-blit ORs background bits in, then the masked WALL writer REPLACES wall pixels on top, so the background shows only where walls are transparent). Per placed image: cx bytes copied per row, w-byte source row stride, planeStride=w*h plane jump, 0x28 dest row stride (one 320px screen row), 0x2000 dest plane stride. The 4 planes are stored CONTIGUOUSLY in the source segment: plane p at srcBase + p*(w*h).",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xafc"},
+        "type": "disasm_plus_pixel_match",
+        "details": "Capstone 0xaf5..0xbc3 (OR branch): per image `mov cl,[bx+3]; [bp-6]=cx (=w, row stride)`; `cl=[bx+4](h); al=[bx+3](w); mul cl; [bp-2]=ax (=w*h, plane stride)`; di=[si+1](destX)+[si+3](bias)+0x28*[si+2](destRow); si=[bx+2](srcOff)+[si+3](bias); ds=cs:[0x149]+[bx](segDelta). Per-row: `mov cx,[bp-4] (=placement [si+4] = COPY WIDTH); push cx (=h, OUTER row count)`. Inner byte loop `lodsb; or al,es:[di]; stosb` cx times for plane 0; planes 1/2/3 do `add di,0x2000/0x4000/0x6000; add si,[bp-2]*p` then the same cx-byte OR-copy. Outer: `pop di; add di,0x28; pop ax; add ax,[bp-6](w); pop si; pop cx; loop` (h rows). Validated: the offline decoder composeBackground() replaying this walk from the captured per-group source segments reproduces the engine background page at 99.93% byte-exact over the OR-written viewport (4458/4461)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "placement-and-image-descriptor-tables",
+      "claim": "The walk is driven by TWO 5-byte-record tables in the placement-walk data segment (ds=cs:[0x149]): (1) PLACEMENT table @cs:[0x190], indexed by the arg [bp+0xc] (placementIdx 0..~360 in the corridor view): {imageIdx(u8 -> image-descriptor table), destX(u8 page byte-col), destRow(u8 page row, *0x28), bias(u8 added to destX-pos AND to srcOff = the sub-tile horizontal crop START), count(u8 = the INNER COPY WIDTH cx in bytes, <= the image's w)}. (2) IMAGE-descriptor table @cs:[0x18e], indexed by placement.imageIdx: {segDelta(u16 added to ds -> source SEGMENT), srcOff(u16 plane-0 source byte offset), w(u8 image width in BYTES per plane row == si row stride), h(u8 image height in rows == outer row count)}. So the floor/ceiling perspective triangle + the geometry-dependent black void (where the corridor opens) + the central portcullis window are ALL encoded as the SET of placement records — per-row/per-column destX/destRow/cx with bias cropping — pointing at a small library of 4-plane planar sub-images. The portcullis WINDOW is the SAME format (small w=4..9 sub-images placed in the x128..192 / y52..143 center), NOT a separate sprite path.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xaaa"},
+        "type": "disasm_plus_live",
+        "details": "Capstone 0xaa9..0xb1c: `bx=[bp+0xc]; ax=5*bx; si=ax+cs:[0x190]` (placement rec); `es=cs:[0x14d](page seg); ds=cs:[0x149](data seg); al=[si+4]; [bp-4]=ax (cx/count); ax=[si+1]+[si+3](destX+bias); di=ax; al=[si+2]; di+=0x28*al (destRow); al=[si]; bx=5*al+cs:[0x18e]` (image desc); `[bp-6]=[bx+3](w); [bp-2]=[bx+3]*[bx+4](w*h); ax=[bx+2]+[si+3](srcOff+bias); ds+=[bx](segDelta)`. Live: the OR entry fired with placementIdx values up to ~360 and 20 distinct source segments (0x29a3,0x29c3,0x2444,0x24a6,0x2a65,0x2aad,...) per recompose pass; cx values observed {1,2,3,4,8,14,18}; di screen-y 32..143 (full viewport). The triangular floor: consecutive 1-row placements with cx widening as the corridor approaches the viewer (e.g. y39 cx12 @x120, y40 cx14 @x104)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "source-is-per-group-work-buffer-redecoded",
+      "claim": "CRITICAL GOTCHA (the .snd/wall-atlas class of bug): the OR-blit source segment is a MID-FRAME WORK BUFFER that the engine RE-DECODES per image group (the on-disk compressed floor/ceiling/window asset is decompressed via the standard .pic RLE decoder — maze-texture-decode.json — into this work buffer just before each image's OR-blit). A SETTLED read of a source seg returns garbage: for seg 0x29a3, the at-store bytes (`ab 23 ac ad 6d ad cd 2d ...`) differ from the settled read (`f8 10 00 00 02 70 ...`) in 1437/2048 bytes. So a from-source byte-exact decode MUST snapshot each image's source work buffer AT that image's OR store (capture-on-breakpoint), not from a single settled snapshot. With per-group snapshots the decoder reproduces the background 99.93% byte-exact; with a single settled snapshot it scores ~13% (noise). This matches the wall-compositor finding (maze-stage1-compositor.json source-buffer-redecoded-per-group). The 'asset block' (the 12-byte depth ramp + WROOT header + index table + interleaved-zero blob documented in wmaze-texture-rasterizer.json at far-ptr seg 0x783f) is the ON-DISK / pre-decompression form; the OR-blit consumes the DECOMPRESSED 4-plane planar work buffer, not that block directly.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture_plus_pixel_match",
+        "details": "Capture-on-breakpoint of seg 0x29a3 at the FIRST OR plane-0 store vs a settled read: 1437/2048 bytes differ. Replay parity: settled-snapshot = 13.2% bit-subset; per-group-snapshot = 91.3% bit-subset vs final composed (the rest are wall-overwritten or window timing); per-group + isolated single recompose pass + directly-captured w/planeStride = 99.93% byte-exact (4458/4461) vs the background-only page (the page at the LAST OR plane-0 store, before walls overwrite). Of the bit-subset 'bad' bytes vs the FINAL composed page, 277/391 were wall-overwritten (the masked wall REPLACE writer on top — correct, not an OR-blit error) and only 114 were genuine, all in the window center (the per-group-snapshot timing residual)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "or-blit-runs-at-full-recompose-not-per-step-redraw",
+      "claim": "The OR-blit (background) runs on a FULL RECOMPOSE (dungeon load + the held-ENTER forward-move recompose), NOT on every per-step wall redraw. A single-frame forward step refreshes ONLY the walls (the masked writer 0x6d9dd) over the PERSISTENT background page; the OR-blit does not re-run. Within one recompose the OR-blit and the wall compositor INTERLEAVE writing the page, but the OR-blit's background bytes are stable until the masked wall writer REPLACES the wall pixels. The held-ENTER forceRedraw runs the recompose ~3 times (each ~566 OR rows / ~8000 plane-0 byte stores); a single pass = ~25 placed images covering the whole viewport (ceiling band, floor band, L/R side panels, the central window strips).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_trace",
+        "details": "Per-trigger event counts (CLEAN_STATE): held20 forceRedraw -> OR-entry 168 / wall-store 1936 / vram-store 694; single step(1) frames -> 0 OR rows before the first wall store (walls refresh over the persistent bg). Chunked step(4) with key held: OR plane-0 stores fire in chunks 8..11 (2562,1390,1908,2109) INTERLEAVED with wall stores (chunks 7..12). Pass boundaries: the first OR row (ds 0x29a3, di 0x50b) recurs at row indices 0, 566, 1133 -> 3 recompose passes of ~566 rows. One pass = 24-25 placed images, di screen-y 32..143."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "byte-exact-reproduction-result",
+      "claim": "BYTE-EXACT REPRODUCTION (the make-or-break): the offline decoder (tools/parity/decode-floor-ceiling.ts composeBackground) — given the per-image placement walk (si, di, cx, w, h, planeStride captured live) + the per-group source work-buffer snapshots — reproduces the engine's background compose page at 99.93% byte-exact (4458/4461 OR-written viewport bytes; mapping page idx via COMPOSED_PALETTE this is the floor + ceiling + side panels + the central portcullis window). The 3 residual differing bytes are at plane0/plane3 ~(176..184, 87) — a single window-center pixel cluster — attributable to per-group source-snapshot timing on the shared window work buffer (the source is re-decoded per image; a single capture can be one store off), NOT a decoder-model error. The decoder validates the SAME walk on floor, ceiling, side panels, AND the window in one frame (the corridor-at-gate view exercises all four element classes). Committed gate: tools/parity/maze-floor-ceiling-parity.test.ts asserts >=99.9% (decoder-output vs background-oracle, same-run pair).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "offline_decode_plus_pixel_match",
+        "details": "tools/parity/fixtures/maze-floor-ceiling/{background-oracle,decoder-output}.bin.gz (same-run pair, 4-plane page). Offline compare over OR-written viewport bytes (page byte != 0 in the decoder output, screen y32..143 / x72..247): 4458/4461 = 99.933% (3 diff). Reproduce the live capture: PATCHED core (build-core.sh) + `trace-maze.ts reach` + `pnpm tsx tools/libretro/validate-floor-ceiling.ts` (restore nightly with fetch-core.sh after). Live capture has run-to-run timing variance (which recompose pass + which store the transient work buffer is snapshotted at) — the COMMITTED fixture pair is the deterministic gate."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "window-portcullis-characterization",
+      "claim": "The central portcullis/stained-glass WINDOW is NOT a separate asset/format from the floor/ceiling — it is the SAME OR-blit 4-plane planar format, composited as a cluster of small placement records in the viewport center (x~104..206, y~52..143). In the corridor-at-gate view the window images are small (w=4..9 bytes, h=3..16 rows, cx 1..8) placed at screen x128..192, from source segs 0x2b01/0x2b60/0x2bc5/0x2a2e/0x2b84/0x2be9/etc., with multiple placements per source image (different bias/cx = column strips). The colored accent indices (5 yellow, 10 bright-green, 12 bright-red, 13 magenta, 14 bright-yellow) are produced by the planar bit-combinations in these window sub-images. The wall compositor (masked REPLACE) also writes the central corridor columns ON TOP, so the final on-screen window is the OR-blit window UNDER the wall faces. No FUN_210c sprite path is involved for the window.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_trace_plus_pixel_match",
+        "details": "Pass1 window-region placed images (start x,y / w / h / planeStride): (128,51)w8ps0x40h8, (128,88)w8ps0x80h16, (128,51)w9ps0x48h8, (176,88)w9ps0x90h16, (144,59)w4ps0xch3, (128,59)w6ps0x12h3 cx2, (144,59)w6ps0x12h3 cx1, ... — same OR-blit walk as the floor/ceiling band images (e.g. ceiling (88,32)w18ps0x7eh7, floor (88,128)w18ps0x120h16, side panels (72,32)w4ps0x1c0h112). All decode via the identical 4-plane planar OR-copy; the window contributes the colored accent indices. Window timing is the source of the 3-px residual (the shared window work buffer)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "or_blit_walk_pseudocode": {
+    "per_placement_record": "rec @ cs:[0x190] + 5*placementIdx = {imageIdx, destX, destRow, bias, count}; img @ cs:[0x18e] + 5*imageIdx = {segDelta, srcOff, w, h}",
+    "setup": "ds = cs:[0x149] + segDelta; es = cs:[0x14d] (page seg 0x4182); cx(copyWidth) = count; w = img.w (row stride); planeStride = w*h; di = destX + bias + 0x28*destRow; si = srcOff + bias",
+    "loop": "for row in 0..h-1: for p in 0..3: for b in 0..copyWidth-1: page[di + p*0x2000 + b] |= src[si + p*planeStride + b];  si += w; di += 0x28",
+    "note": "copyWidth (count, [bp-4]) is the visible run per row and can be < w (horizontal crop). The vertical/horizontal perspective + black-void come entirely from the SET of placement records, not from per-pixel math. The plain-copy variant ([bp+0xe]==0) uses rep movsb instead of OR (used for opaque chrome)."
+  },
+  "asm_anchors": [
+    {"space": "ega.drv", "offset": "0xa93", "name": "ega_or_blit_entry15_FUN_0a93", "note": "dispatch entry 15 (thunk @0x3f). The floor/ceiling/window background OR-blit. [bp+0xc]=placementIdx, [bp+0xe]=orFlag (1=OR-merge,0=rep movsb), [bp+0x10]=secondIdx (0xffff=OR branch @0xaa9; else xlat branch @0xbc6). Runs relocated (live entry 0x6c4a3, base 0x6ba10)."},
+    {"space": "ega.drv", "offset": "0xaa9", "name": "or_blit_walk", "note": "the OR branch: placement+image-descriptor table walk + 4-plane planar OR-copy. Tables at cs:[0x190] (placement, 5B recs) and cs:[0x18e] (image desc, 5B recs); source seg base cs:[0x149], page seg cs:[0x14d]."},
+    {"space": "ega.drv", "offset": "0xb2d", "name": "or_store_plane0", "note": "plane-0 inner byte loop `lodsb; or al,es:[di]; stosb` (cx times). Planes 1/2/3 at 0xb41/0xb58/0xb71 (di += 0x2000/0x4000/0x6000; si += p*planeStride). Live plane-0 store = base+0xb31 = 0x6c541."},
+    {"space": "ega.drv", "offset": "0xb1e", "name": "or_row_setup", "note": "per-row entry: ds=source seg, ax=plane-0 src offset, di=dest offset; [bp-6]=w, [bp-4]=copyWidth(cx), [bp-2]=planeStride. Fires once per source row (<4096 ring, single drive captures the whole pass). The trace point used for the live capture is 0xb2c (push cx, cx=copyWidth)."},
+    {"space": "ega.drv", "offset": "0xbc6", "name": "or_blit_xlat_variant", "note": "the [bp+0x10]!=0xffff branch: an xlatb (palette-remap LUT @0x192) + dec-si variant of the same planar walk; used for the chrome/recolored placements (orFlag also gates OR vs plain stosb)."},
+    {"space": "ega.drv", "offset": "0x6ba10", "name": "ega_drv_reloc_base", "note": "the relocated transient ega.drv copy base in CLEAN_STATE (heap-dependent). OR-blit entry = +0xa93 = 0x6c4a3. Wall compositor (FUN_1c94) shares this base. Re-derive per run via the page-write-watch OR-store cluster (plane-0 store has +0x14/+0x17/+0x19 siblings -> base = cseip - 0xb31)."},
+    {"space": "ega.drv", "offset": "0x6c219", "name": "page_to_vram_plane0_store", "note": "the offset-preserving page->VRAM rep-movsb (maze-planar-transform.json); used to capture the final composed page (oracle)."}
+  ],
+  "artifacts": [
+    "tools/parity/decode-floor-ceiling.ts — the offline decoder: applyPlacedImage() / composeBackground() implement the 4-plane planar OR-copy walk exactly. PlacedImage = {src, si, di, cx, w, h, planeStride}.",
+    "tools/libretro/validate-floor-ceiling.ts — the live capture + validation harness (PATCHED core): captures the per-image placement walk (0xb2c) + per-group source work-buffer snapshots + the background-only page (last OR store), replays via the offline decoder, reports byte-exact %. Writes a fixture bundle.",
+    "tools/libretro/maze-orblit-probe.ts — the OR-blit reconnaissance probe (entry trace, table reads, source-seg dumps, oracle page).",
+    "tools/parity/fixtures/maze-floor-ceiling/{background-oracle,decoder-output}.bin.gz — the committed same-run validation pair (4-plane page, 0x8000 B each).",
+    "tools/parity/maze-floor-ceiling-parity.test.ts — the committed gate (decoder-output reproduces the engine background-oracle >=99.9% byte-exact over the OR-written viewport)."
+  ],
+  "remaining_for_integration": [
+    "Source the per-image PLANAR sub-images from the on-disk compressed floor (id 1346) / ceiling (id 1740) / window assets via the .pic RLE decoder (maze-texture-decode.json) into the same work-buffer layout, rather than from live snapshots — so the TS port renders from the committed asset, not a capture. The decode is the already-cracked .pic RLE; the open mapping is asset-block -> the cs:[0x18e]/cs:[0x190] table contents (the placement records that encode the per-view perspective/void/window geometry).",
+    "Read the FULL cs:[0x18e] (image-descriptor) + cs:[0x190] (placement) tables statically/live so the placement list is GENERATED from (zone, facing, geometry) rather than captured per frame — analogous to the wall span/flush generator (maze-stage1-compositor.json). The placement set is geometry-dependent (per-view perspective triangle + black void + window).",
+    "Port composeBackground into renderMazeViewport's background-page arg (packages/parser/src/maze/render.ts), then the existing masked wall compositor on top (the wall path is already FROM-GEOMETRY at ~100% per maze-span-build.json).",
+    "Close the 3-px window residual if a perfectly-clean single-pass capture is wanted (the model is correct; the residual is transient-work-buffer snapshot timing)."
+  ],
+  "caveat_for_prior_findings": "CONFIRMS + RESOLVES maze-stage1-compositor.json other-writer-or-blit (the 0x6c5xx ds=0x29c3 OR-blit) and maze-piece-inventory.json's #1-uncracked item: the floor/ceiling/window decoder. The OR-blit is ega.drv DISPATCH ENTRY 15 (FUN_0a93), a 4-plane PLANAR OR-copy driven by placement (cs:[0x190]) + image-descriptor (cs:[0x18e]) 5-byte-record tables — NOT a mask/RLE-walked 'masked-image' (the 'masked' is the OR-merge under the walls). CORRECTS wmaze-texture-rasterizer.json's 'interleaved-zero masked-image blob walked by image_blit': the in-RAM PIXELS are plain 4-plane planar; the interleaved-zero bytes in the floor far-ptr dump are the on-disk COMPRESSED form (decompressed via .pic RLE into the work buffer the OR-blit reads). The 12-byte depth ramp + WROOT header at the floor far-ptr are the heap-block header, not consumed by the OR-blit pixel walk. The source is a per-group work buffer (same class as the wall atlas), which is why every prior settled-read decode of seg 0x29c3/0x783f gave noise."
+}

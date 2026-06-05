@@ -1,0 +1,94 @@
+{
+  "note": "committed Gap A oracle: per-image OR-blit SOURCE work-buffers captured live at first render (trace-maze.ts firstrender). dataSeg + descriptor mapping reproduces these byte-exact via expand-asset.ts.",
+  "dataSeg": "2181",
+  "placed_images": [
+    {
+      "gi": 0,
+      "ds": 10659,
+      "si": 11,
+      "di": 1291,
+      "cx": 18,
+      "w": 18,
+      "h": 7,
+      "planeStride": 126,
+      "srcLen": 515
+    },
+    {
+      "gi": 1,
+      "ds": 10853,
+      "si": 3,
+      "di": 5131,
+      "cx": 18,
+      "w": 18,
+      "h": 16,
+      "planeStride": 288,
+      "srcLen": 1155
+    },
+    {
+      "gi": 2,
+      "ds": 9172,
+      "si": 15,
+      "di": 1289,
+      "cx": 4,
+      "w": 4,
+      "h": 112,
+      "planeStride": 448,
+      "srcLen": 1807
+    },
+    {
+      "gi": 3,
+      "ds": 9382,
+      "si": 7,
+      "di": 1307,
+      "cx": 4,
+      "w": 4,
+      "h": 112,
+      "planeStride": 448,
+      "srcLen": 1799
+    },
+    {
+      "gi": 4,
+      "ds": 10691,
+      "si": 3,
+      "di": 1573,
+      "cx": 14,
+      "w": 14,
+      "h": 12,
+      "planeStride": 168,
+      "srcLen": 675
+    },
+    {
+      "gi": 5,
+      "ds": 10925,
+      "si": 3,
+      "di": 4173,
+      "cx": 14,
+      "w": 14,
+      "h": 24,
+      "planeStride": 336,
+      "srcLen": 1347
+    },
+    {
+      "gi": 6,
+      "ds": 9284,
+      "si": 15,
+      "di": 1613,
+      "cx": 3,
+      "w": 3,
+      "h": 87,
+      "planeStride": 261,
+      "srcLen": 1059
+    },
+    {
+      "gi": 7,
+      "ds": 9494,
+      "si": 25,
+      "di": 1864,
+      "cx": 3,
+      "w": 3,
+      "h": 81,
+      "planeStride": 261,
+      "srcLen": 1069
+    }
+  ]
+}

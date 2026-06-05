@@ -1,0 +1,103 @@
+{
+  "topic": "maze-placement-selection",
+  "subagent_run": "2026-06-05 (Gap B: per-view placement SELECTION — which of the 366 static mazedata.ega placements wmaze emits per view, + the two OR-blit branches)",
+  "binaries": ["ega.drv", "wmaze.ovr", "dosbox_pure_libretro.dylib", "mazedata.ega"],
+  "status": "PARTIAL. The per-view OR placement-index SELECTION for maze-corridor (zone0, facing0) is captured BYTE-EXACT and reproducible (30 OR indices, stable across fresh boots). The OR-blit branch is fully cracked (ega.drv FUN_0a93 0xaa9). A SECOND blit branch — the MASKED branch (0xbc6), a horizontal-MIRROR blit using the cs:[0x192] bit-reverse LUT with a per-call OR-merge/REPLACE flag — is IDENTIFIED at the asm level (branch condition, LUT confirmed = exact 8-bit reverse table, the REPLACE-carves-the-corridor-void mechanism, the call list + flags) but its exact masked SOURCE-PIXEL ALIGNMENT is NOT yet byte-exact, and its capture has a ~1-call ordering instability. From-asset compose with OR-only = 58.09% of the viewport; with the (mis-aligned) masked model = ~50%. The existing 100% gate (engine-composed page) is UNCHANGED and green; this finding adds the SELECTION + the branch RE, not a from-asset byte-exact gate.",
+  "reference_frame": {
+    "game_state": 5, "zone": 0, "facing": 0, "name": "maze-corridor",
+    "frame": "zone0 corridor-at-gate; PURE background (0 wt2 wall spans). The oracle is tools/parity/fixtures/engine/maze-corridor.idx.gz (full settled viewport, COMPOSED_PALETTE indices).",
+    "patched_core": "tools/libretro/build-core.sh (the _dbp_trace_*/_dbp_capture_*/_dbp_wwatch_* exports). RESTORE nightly with fetch-core.sh after RE.",
+    "harness": "tools/libretro/trace-maze.ts `placements` (capture the blit call list + flags + LUT + live placement/descriptor tables) and `placecheck` (two-boot reproducibility)."
+  },
+  "findings": [
+    {
+      "id": "or-blit-placement-index-arg",
+      "claim": "The maze background OR-blit (ega.drv FUN_0a93, file 0xa93) is called ONCE PER PLACEMENT. The placement index is arg [bp+0xc] (asm 0xaaa: `mov bx,[bp+0xc]; mov ax,5; mul bx; add ax,cs:[0x190]; mov si,ax` -> si = placement record). The branch arg [bp+0x10] selects the blit MODE: ==0xffff -> the OR branch (0xaa9, single-image forward OR-blit of placement [bp+0xc]); !=0xffff -> the MASKED branch (0xbc6). The 30 OR placement indices the engine emits for maze-corridor (in order) are: [361, 349, 355, 346, 352, 358, 122, 150, 15, 19, 123, 151, 16, 20, 124, 152, 136, 164, 140, 168, 125, 153, 133, 161, 137, 165, 141, 169, 145, 173]. These map (via the live placement+descriptor tables, byte-identical to the offline expandMazeData(mazedata.ega) records) to: ceiling (122/img44), floor-strips, side panels (15/19 = img3/img7, w4 h112), portcullis-window pieces, and the destRow-7 top strips (361/349/.. = img148/img136 w2 h16). The OR placement RECORDS are byte-exact (verified: live idx 122 = img44@(11,32) bias0 count18 seg+0x822 srcOffLow0xb w18 h7 == expandMazeData).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xaaa"},
+        "type": "disasm_plus_live_trace",
+        "details": "Capstone ega.drv 0xa93..0xac5: 0xa9e `mov ax,[bp+0x10]`; 0xaa1 `cmp ax,0xffff`; 0xaa4 je 0xaa9 (OR branch) else 0xaa6 jmp 0xbc6 (masked). OR branch 0xaaa `mov bx,[bp+0xc]` -> placement idx. Capture: trace-maze.ts `placements` traces ega.drv (relocated base 0x6ba10) 0xaa1/0xaad/0xbca over the settled CLEAN_STATE forceRedraw; the OR-branch arg0c stream (30 indices) is reproducible across fresh boots (the OR block is stable; the masked block has a ~1-call ordering instability — see concerns)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "two-blit-branches-masked-mirror",
+      "claim": "FUN_0a93 has a SECOND branch — the MASKED branch (file 0xbc6) — taken when arg [bp+0x10] != 0xffff. It is a TWO-INDEX, horizontal-MIRROR blit: [bp+0xc] = the SOURCE image (its placement's image descriptor), [bp+0x10] = the DEST placement (geometry + per-row count). It reads the source row BACKWARD (`mov al,[si]; dec si`) and translates each byte through a `cs: xlatb` LUT at CS:[0x192] (the `2e d7` CS-override at file 0xc69) — the LUT was captured live and is the EXACT 8-bit-reverse table (00->00, 01->80, 02->40, 03->c0, ...), so the combined effect is a HORIZONTAL MIRROR of the source sub-image. A per-call flag [bp+0xe] selects OR-merge (0xc66 branch, `or al,es:[di]; stosb`) vs REPLACE (0xcc3 branch, plain `stosb`). 4 planes at di+0/0x2000/0x4000/0x6000, source plane stride = S.w*S.h. For maze-corridor the first full compose pass emits 30 masked calls (18 OR-merge mirror pieces for the perspective ceiling/floor/side strips, then 12 REPLACE pieces that CARVE the receding-corridor void — placements 23..34 — 8 before the OR block and 4 after), THEN the 30 OR calls. The masked REPLACE (flag 0) overwriting with the mirrored void texture is the mechanism that makes the corridor opening BLACK (the engine viewport is all-zero down the center; OR-only over-fills it).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xbc6"},
+        "type": "disasm_plus_live_capture",
+        "details": "Capstone ega.drv 0xbc6..0xd2e: 0xbc7 bx=[bp+0xc]*5+cs:[0x190] -> [bp-2]=src image desc; 0xbf0 si=[bp+0x10]*5+cs:[0x190] -> dest placement; 0xc01 al=[si+4]=dest.count -> [bp-4]; 0xc0e di=dest.destX+dest.bias; 0xc1b di += dest.destRow*0x28; 0xc24 bx=[bp-2]; cx=[bx+3]=S.w; 0xc39 [bp-2]=S.w*S.h (plane stride); 0xc3e ax=S.srcOffLow; 0xc43-47 += (S.w-1); 0xc49-4c -= dest.bias; 0xc50 ds += S.segDelta; 0xc54 bx=0x192; 0xc5f cmp [bp+0xe],0 (je 0xcc3=REPLACE else OR); 0xc66 `mov al,[si]; dec si; cs: xlatb; or al,es:[di]; stosb` x4 planes; 0xd14 di+=0x28; 0xd18 src row += S.w. LUT captured at CS:[0x192] (cs<<4+0x192) = exact bit-reverse table (verified all 256). Per-call [bp+0xe] flags for the 30-masked block (in order): 18x 1(OR), then 8x 0(REPLACE), then [after OR block] 4x 0(REPLACE)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "masked-geometry-not-byte-exact",
+      "claim": "The masked branch's exact masked SOURCE-PIXEL alignment is NOT yet byte-exact. The model `dest_byte[b] = bitrev(src_byte_read_backward_from (S.srcOffLow + S.w-1 - dest.bias))` reproduces the right STRUCTURE but over-sets/mis-aligns: a sweep of the source-start delta (-4..+4), forward-vs-backward byte read, and the dest-bias term never exceeds ~51% of the viewport (vs 58% for OR-only — i.e. the masked model currently HURTS). A decisive single-byte check at the ceiling left edge (page byte 11, y32, plane0) shows the engine's masked contribution there is exactly `bitrev(src_byte[0]) = e0` (engine `e7` = OR `07` | masked `e0`) — i.e. dest[0] = bitrev(src[0]), a FORWARD byte read with bit-reverse, NOT the backward read the `dec si` asm implies. But applying forward-bitrev across the full dest.count width OVER-sets the interior bytes (byte 12 wants masked-contribution 0 but forward-bitrev adds bitrev(src[1])). This means the masked per-row COUNT (or the source sub-image) is NARROWER than dest.count, OR the masked source is a different (perspective-edge) sub-image than arg0c's full image descriptor. Unresolved this pass.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "byte_diff_analysis",
+        "details": "tools/parity/validate-placement-selection.ts (DIAGNOSTIC): OR-only=58.09%, OR+masked(backward,bitrev,dp.count)=48.5%, OR+masked(forward,bitrev,dp.count)=49.6%, source-start delta sweep -4..+4 peak=51.2%. Ceiling left-edge check (tools/parity/validate-placement-selection.ts + ad-hoc): engine page byte11 y32 p0 = e7; OR(122) contributes 07; masked must add e0; bitrev(img44 src[0]=07)=e0 (forward), bitrev(read backward from byte17=58)=1a (does NOT match). So forward-bitrev is right at b=0 but the width/source must differ for b>0. Needs a deeper masked-source RE (likely the masked uses a perspective-cropped count, not dest.count)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "placement-records-are-static-mazedata-ega",
+      "claim": "CONFIRMS maze-expander.json: the placement RECORDS (366) and image descriptors (153) the OR-blit/masked branch index are STATIC in mazedata.ega and byte-identical to the offline expandMazeData(mazedata.ega). The live placement+descriptor tables captured at the OR-blit entry (trace-maze.ts `placements`, via capture-on-breakpoint of cs:[0x149] dataSeg + cs:[0x190] placeOff + cs:[0x18e] imgDescOff) match the offline expander for every captured index (imgIdx, destX, destRow, bias, count, segDelta, srcOffLow, w, h). So Gap B is purely the SELECTION (which indices + which branch + which flag) — NOT record generation.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "mazedata.ega",
+        "type": "live_vs_offline_byte_match",
+        "details": "Live (capture-on-breakpoint, dataSeg<<4 + placeOff/imgDescOff) idx 122 = img44@(11,32) b0 c18 seg+0x822 srcOffLow0xb w18 h7; idx 150 = img56@(11,128) b0 c18 seg+0x8e4 srcOffLow0x3 w18 h16; idx 15 = img3@(9,32) b0 c4 seg+0x253 srcOffLow0xf w4 h112; idx 19 = img7@(27,32) b0 c4 seg+0x325 srcOffLow0x7 w4 h112. All == expandMazeData(mazedata.ega).placements/descs."
+      },
+      "confidence": "high"
+    }
+  ],
+  "captured_call_list": {
+    "frame": "maze-corridor (zone0, facing0), first full compose pass",
+    "order": "masked block (30) THEN OR block (30) — though 4 of the masked REPLACE calls actually fire AFTER the OR block in engine order (re-carving the void on top). The OR-block order is stable; the masked-block ordering has a ~1-call capture instability.",
+    "masked_calls_arg0c_to_arg10_flag": [
+      "122->122 OR", "150->150 OR", "19->15 OR", "15->19 OR", "123->123 OR", "151->151 OR",
+      "20->16 OR", "16->20 OR", "124->124 OR", "152->152 OR", "21->17 OR", "17->21 OR",
+      "125->125 OR", "153->153 OR", "141->137 OR", "169->165 OR", "137->141 OR", "165->169 OR",
+      "34->31 REPLACE", "31->34 REPLACE", "25->25 REPLACE", "28->28 REPLACE", "32->29 REPLACE",
+      "29->32 REPLACE", "23->23 REPLACE", "26->26 REPLACE",
+      "33->30 REPLACE", "30->33 REPLACE", "24->24 REPLACE", "27->27 REPLACE"
+    ],
+    "or_calls_arg0c": [361, 349, 355, 346, 352, 358, 122, 150, 15, 19, 123, 151, 16, 20, 124, 152, 136, 164, 140, 168, 125, 153, 133, 161, 137, 165, 141, 169, 145, 173],
+    "xlat_lut": "CS:[0x192], 256 bytes, = exact 8-bit reverse table (horizontal mirror within a byte)."
+  },
+  "asm_anchors": [
+    {"space": "ega.drv", "offset": "0xa93", "name": "ega_blit_entry15_FUN_0a93", "note": "blit entry. 0xa9e arg10=[bp+0x10]; 0xaa1 cmp 0xffff; je 0xaa9(OR) else jmp 0xbc6(masked). arg0c=[bp+0xc]=placement idx."},
+    {"space": "ega.drv", "offset": "0xaa9", "name": "ega_or_branch", "note": "OR branch: single-image forward OR-blit of placement [bp+0xc]. (maze-floor-ceiling-decoder.json walk.)"},
+    {"space": "ega.drv", "offset": "0xbc6", "name": "ega_masked_mirror_branch", "note": "masked branch: src image=[bp+0xc]'s image, dest geom=[bp+0x10]'s placement, reverse-read + CS:[0x192] bit-reverse LUT = horizontal mirror; [bp+0xe]!=0 OR-merge (0xc66) else REPLACE (0xcc3). 4 planes di+0/2000/4000/6000."},
+    {"space": "ega.drv", "offset": "0xc69", "name": "cs_xlatb_mirror", "note": "`2e d7` = cs: xlatb. The LUT is CS:[0x192] (segBase=cs<<4), captured = exact bit-reverse table."}
+  ],
+  "byte_exact_result": {
+    "or_selection": "30 OR placement indices captured BYTE-EXACT + reproducible (stable across fresh boots). Records byte-identical to expandMazeData(mazedata.ega).",
+    "from_asset_viewport": "OR-only = 58.09%; OR + (best) masked model = ~51%. NOT byte-exact — the masked source-pixel alignment is the open gap.",
+    "existing_gate": "tests/maze/maze-corridor-viewport-parity.test.ts (100%, engine-composed page) UNCHANGED and green."
+  },
+  "artifacts": [
+    "tools/libretro/trace-maze.ts — NEW phases `placements` (capture the blit call list at FUN_0a93 0xaa1/0xaad/0xbca: arg0c, arg10, branch, per-call [bp+0xe] flag, the CS:[0x192] bit-reverse LUT, and the live placement/descriptor tables) and `placecheck` (two-boot reproducibility of the index list).",
+    "tools/parity/validate-placement-selection.ts — DIAGNOSTIC: composes the from-asset background (expandMazeData + the captured OR + masked-mirror call list) and reports the viewport match vs the oracle (currently sub-100% — the masked geometry is the open gap).",
+    "/tmp/wiz6-placements.json — the captured call list + flags + table pointers + live records (regenerate via the harness).",
+    "/tmp/wiz6-maze-xlat-lut.bin — the captured CS:[0x192] LUT (= bit-reverse table)."
+  ],
+  "remaining": [
+    "MASKED geometry (the b2/byte-exact blocker): RE the masked per-row COUNT and SOURCE sub-image. dest[0]=bitrev(src[0]) is confirmed, but the full-width forward-bitrev over-sets the interior — the masked likely uses a perspective-cropped count (narrow edge strip) or a different source descriptor than arg0c's full image. Trace the masked inner loop ([bp-4] cx, [bp-6], si advance) per call against the engine page byte-by-byte.",
+    "MASKED capture stability: the 30-call masked block has a ~1-call ordering instability across boots (the 3-point interleave reconstruction over the held-ENTER first pass). A single-trace capture that reads BOTH args + the [bp+0xe] flag + interleave order in ONE pass (e.g. a patched-core ring that logs (arg0c,arg10,flag) at 0xa9e) would make it byte-stable.",
+    "b2 GENERALIZATION: derive (zone,facing,geometry) -> the OR + masked call list from the wmaze view loop (view_render_corridor_frame 0x4ad7 + the depth loop 0x4c60). Not started; the per-view call list is currently CAPTURED, not generated.",
+    "Per-zone palette/recolor (out of scope here)."
+  ],
+  "concerns": [
+    "The masked-branch is the load-bearing piece for the corridor VOID + the perspective mirror; without it byte-exact, the from-asset compose cannot reach 100%. The OR-only 58% + the over-set in the corridor center confirm the void comes from the masked REPLACE calls, which are identified but not yet pixel-aligned.",
+    "All runtime addresses are heap-dependent; the harness re-derives the relocated ega.drv base per run via the 4-sibling OR-store cluster (maze-capture-harness.json). The OFFLINE expander + the OR selection have NO runtime dependency.",
+    "The existing 100% gate is the engine's OWN composed page (read from a committed serialize-state), NOT a from-asset render. This finding does NOT promote it to from-asset — that awaits the masked-geometry crack."
+  ],
+  "caveat_for_prior_findings": "EXTENDS maze-expander.json (the records it decoded byte-exact ARE what this selection indexes; confirmed live==offline) and maze-floor-ceiling-decoder.json (the OR branch it documented is ONE of TWO blit branches — this finding adds the masked-mirror branch 0xbc6 + the CS:[0x192] bit-reverse LUT + the REPLACE void-carve). CORRECTS the implicit assumption in maze-corridor-viewport-parity.test.ts's header that 'composeBackground + a placement list' is the only missing piece: the masked-mirror branch is a SECOND compositor the from-asset path also needs."
+}

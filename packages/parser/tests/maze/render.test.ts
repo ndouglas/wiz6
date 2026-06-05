@@ -1,34 +1,34 @@
 /**
  * render.test.ts — gate for renderMazeViewport: the full pipeline from
- * (cellWalls, party, assets) -> 176×112 palette-index buffer.
+ * (mazeBlock, party, assets) -> 176×112 palette-index buffer.
  *
- * Uses the y3 corridor fixture (same geometry as classify.test.ts) to exercise
- * the full classify->build->flush->compositor->decode->crop pipeline. Validation
- * at this level: correct output shape + non-zero pixels (stone wall indices present).
+ * Drives the committed LOOKBACK frame (the head-on-door recess that emits 4 wt=2
+ * side walls) from the real per-zone maze block to exercise the full
+ * classify->build->flush->compositor->decode->crop pipeline end to end.
+ * Validation at this level: correct output shape + non-zero pixels (stone wall
+ * indices present). Pixel-parity against the engine framebuffer is the separate
+ * gate (Task T11).
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { renderMazeViewport } from '../../src/maze/render.js';
 import { loadMazeAssets } from '../../src/maze/assets.js';
-import type { MazeCellWalls, Party } from '@wiz6/data';
+import { MazeBlockSchema, type MazeBlock, type MazeParty } from '@wiz6/data';
 
-const cellIdx = (x: number, y: number, z = 0): number => z * 64 + y * 8 + x;
-
-// y3 corridor cell-walls (same literal as classify.test.ts):
-//   depth 1 — cell (7,4): forward (N) open, left (W) solid; right = OOB boundary solid
-//   depth 2 — cell (7,5): forward (N) SOLID (blocks corridor), left (W) solid
-const Y3_CORRIDOR: MazeCellWalls = {
-  cells: {
-    [cellIdx(7, 4)]: { north: 0, west: 2, pit: false },
-    [cellIdx(7, 5)]: { north: 2, west: 2, pit: false },
-  },
-};
-
-const PARTY: Party = { x: 7, y: 3, z: 0, facing: 0 };
+const here = dirname(fileURLToPath(import.meta.url));
+const framesPath = resolve(here, '../../../../tools/parity/fixtures/engine/maze-frames.json');
+const FRAMES = JSON.parse(readFileSync(framesPath, 'utf8'));
+const BLOCK: MazeBlock = MazeBlockSchema.parse(FRAMES.mazeBlock);
+const LOOKBACK: MazeParty = FRAMES.classifyFrames.frames.find(
+  (f: { name: string }) => f.name === 'maze-corridor-lookback',
+).party;
 
 describe('renderMazeViewport', () => {
-  it('returns 176×112 indices with stone walls present', () => {
+  it('returns 176×112 indices with stone walls present (lookback recess)', () => {
     const assets = loadMazeAssets();
-    const idx = renderMazeViewport(Y3_CORRIDOR, PARTY, assets);
+    const idx = renderMazeViewport(BLOCK, LOOKBACK, assets);
     expect(idx.length).toBe(176 * 112);
     expect(idx.some((v) => v !== 0)).toBe(true);
   });

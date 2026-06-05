@@ -247,7 +247,7 @@ export const NOTE_INDEX: NoteIndexEntry[] = [
     id: 'maze-emission-not-geometric',
     title: 'Walking a Corridor Backwards Isn’t the Mirror of Walking It Forwards',
     pitch:
-      'The same dungeon corridor, viewed from opposite ends, can emit different wall sets — because Wiz6 decides which walls to draw from transient, facing-sensitive render state, not from the map geometry alone.',
+      'The same dungeon corridor, viewed from opposite ends, renders differently — and we briefly concluded the engine wasn’t drawing from geometry at all. We were wrong: a door is a directional object, and the renderer reads every wall relative to your facing. It’s fully deterministic geometry.',
     tags: ['maze', 'engine', 'quirk', 'reimplementation'],
   },
 ];

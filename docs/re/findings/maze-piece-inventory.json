@@ -1,0 +1,87 @@
+{
+  "topic": "maze-piece-inventory",
+  "subagent_run": "2026-06-04 (T11a continuation: fix patched-core fixture tooling + lock the complete viewport piece inventory)",
+  "binaries": ["wmaze.ovr", "ega.drv", "wroot.exe", "dosbox_pure_libretro.dylib"],
+  "summary": "Two deliverables. (A) TOOLING ROOT CAUSE: the committed maze .state.gz fixtures CANNOT unserialize on the patched trace core — root-caused precisely to a per-build serialize-layout divergence in DBPSerialize_CPU (the inter-function offset checkpoint fails at switch ln=313). The two cores EMULATE IDENTICALLY (the nightly core renders all 3 committed maze .idx.gz oracles 0-pixel-exact) but do NOT round-trip serialize-states. A fresh patched-core drive cannot reproduce the committed frame (lands at party cell x=3, committed is x=5 — x=5 is not reachable by walking forward from a fresh dungeon entry, the party starts at x=2 and a wall blocks at x=3), so re-minting WOULD change the .idx.gz — which the task forbids and which is NOT warranted (the renderers agree; only driving/positioning + serialize-blob diverge). Therefore the .idx.gz oracles are LEFT UNCHANGED, the committed states are LEFT UNCHANGED, and the harness default core is RESTORED to nightly. The patched core remains the page-capture tool, driven via trace-maze.ts reach (fresh CLEAN_STATE) — which it CAN serialize/capture; page-capture does NOT depend on the committed states. (B) PIECE INVENTORY: captured + 100%/100%-decoded a full maze compose-page on the freshly-built patched core (corridor-at-gate view: ceiling/floor/side-walls + central green portcullis window). Cross-referenced the wall_emit_quad shape jump-table + the two-compositor architecture (masked wall writer + floor/ceiling OR-blit) from maze-stage1-compositor.json. The finite finish-line checklist is below.",
+  "findings": [
+    {
+      "id": "tooling-rootcause-serialize-cpu-layout-divergence",
+      "claim": "The committed maze states (test-fixtures/states/maze-corridor.state.gz, 613923 B raw) fail to unserialize on the patched trace core with 'Load State Error: Invalid file format' (DBPArchive::ERR_LAYOUT). Both cores write serialize version 8, magic 0xD05B5747, and BYTE-IDENTICAL config headers (machine=0x05 memory=0x10 vgamem=0x10) — so the header check passes. The failure is the per-function offset checkpoint (dbp_serialize.cpp line 357: `ar << off; if (off != offcheck) ERR_LAYOUT`), which fires at switch ln=313 = DBPSerialize_CPU. The nightly buildbot core (fetch-core.sh) and our pinned-commit patched core (build-core.sh @ 42485508) — though origin/main HEAD == the pin, same osx arm64 build, same C_DYNREC=1 — emit a DIFFERENT serialized byte-count for the CPU block, so version-8 blobs are NOT cross-compatible between the two builds. The trace patch itself is NOT the cause (it adds only non-serialized static buffers + a MIXER_CallBack len<=0 guard; touches core_normal.cpp / mixer.cpp / paging.h, none of which are in the serialize path).",
+      "category": "tooling",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "live_test_plus_disasm",
+        "details": "Probe (unserialize committed state on each core): patched core -> 'err unser' / log 'Load State Error: Invalid file format'; nightly core -> OK, re-serializes to exactly 613923 B, and renders maze-corridor / maze-corridor-turn-left / maze-corridor-lookback ALL 0 differing px vs the committed .idx.gz oracles (palette-misses 0). Temporary stderr instrumentation at dbp_serialize.cpp:357 logged '[WIZ6-SERDIAG] LAYOUT mismatch at func ln=313: read-offset=<garbage> checkpoint=525' — ln=313 = DBPSerialize_CPU in the __LINE__ switch (cpu.cpp DBPSerialize_CPU). Config-header bytes decoded identical on both cores. Diagnostic reverted; cores rebuilt clean."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "cores-render-identically-not-a-divergence",
+      "claim": "The two cores RENDER IDENTICALLY — this is NOT the 'cores diverge' case the task warns about. The nightly core reproduces every committed maze .idx.gz oracle pixel-exact (0 diff). The patched core decodes a freshly-captured compose-page to 100.00% viewport + 100.00% chrome vs its OWN same-frame framebuffer (re-confirmed this run for two views). The mismatch is ONLY in (1) the serialize blob layout (DBPSerialize_CPU, above) and (2) the fresh-drive landing cell. So the .idx.gz oracles are CORRECT and were left untouched; no re-mint was performed.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "pixel_match",
+        "details": "Nightly-core probe: 3/3 frames 0-px-diff vs oracles. Patched-core trace-maze.ts capvp: VIEWPORT 100.00% / CHROME 100.00% (685 plane-0 stores). Patched-core capture-maze-page.ts: decode VIEWPORT 100.00% / CHROME 100.00% (683 stores). Extraction-path gate tests still green on nightly: tools/parity/maze-corridor-parity.test.ts (2/2), packages/viewer/tests/game/compose-maze-view.test.ts (3/3)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fresh-drive-cannot-reproduce-committed-frame",
+      "claim": "A fresh patched-core drive (trace-maze driveToMaze / the MAZE_CORRIDOR recipe) lands at party cell x=3 gy=119, NOT the committed x=5 gy=121. Walking forward from a fresh dungeon entry, the party starts at x=2 and can only advance to x=3 (a wall blocks further forward). So the committed corridor frame (x=5) is NOT reachable by the current forward-walk recipe on the patched core — the committed state encodes a position the fresh drive does not reach. Re-minting the .state on the patched core would therefore render a DIFFERENT viewport (corridor histogram {0:3994,1:1198,8:5796,9:8304,...} vs committed {0:4005,1:743,8:6698,9:8179,...}; whole-viewport divergence ~9000-25000 px, not a few animation pixels) and change the .idx.gz. Per the task caveat, STOP + report rather than re-mint: the divergence is in DRIVING, not RENDERING.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_capture",
+        "details": "Fresh drive party = {game_state:5, facing:0, x:3, y:7, gx:127, gy:119}; committed frame-0 party (maze-frames.json) = {facing:0, x:5, y:7, gx:127, gy:121}. Per-step x trace during forward walk: x=2 immediately on dungeon entry, advancing to x=3 and pinned there (wall). The harness also has no reliable maze turn key on the redraw (right x2 left facing at 0), so turn-left/lookback frames are likewise not reproducible by fresh drive."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "tooling-fix-applied",
+      "claim": "FIX: keep the committed states + .idx.gz oracles UNCHANGED; restore the nightly core as the harness default (fetch-core.sh) so the committed-state fixture pipeline (build-state.ts, capture-maze-frames.ts, the parity + compose tests) keeps loading them byte-exact. For PAGE CAPTURE (the only thing that needs the patched core), use build-core.sh to install the patched core, then `trace-maze.ts reach` to drive a FRESH CLEAN_STATE (which the patched core CAN serialize) + `trace-maze.ts capvp` / `capture-maze-page.ts` to capture+decode the compose-page. Page-capture does NOT depend on the committed states. After RE, fetch-core.sh restores nightly. This unblocks Goal 2 (page is capturable on the patched core, decodes 100%) without touching any oracle.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "verification",
+        "details": "Harness core after this run = nightly (sha256 31e2c39e6fe4...). build-core.sh -> patched (exports _dbp_trace_*). git status: tools/parity/fixtures/engine/ + test-fixtures/states/ + tools/libretro/states/ all CLEAN (no oracle or state changes). New durable harness: tools/libretro/capture-maze-page.ts (capture+decode+region-inventory of a maze page)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "lookback-page-region-map",
+      "claim": "Captured + 100%-decoded maze compose-page region map (176x112 viewport, x72..247 y32..143; the corridor-at-gate view = same element set as lookback). Per-region page-decoded index histogram: CEILING band y32..52 = mostly dithered stone {8(dark-grey):1135, 9(light-grey):1630, 0(black-seam):495, 1(white):260}; FLOOR band y112..144 = {9:2981, 8:1482, 0:718, 1:421, 10(green-accent):30}; LEFT side-wall x72..115 = {9:1121, 8:798, 0:510, 1:211}; RIGHT side-wall x205..248 = {9:1142, 8:751, 0:560, 1:187}; CENTER x116..204 = stone + the colored portcullis window {0:1711, 8:1630, 9:1430, 1:119, 5(yellow):83, 13(magenta):126, 14(bright-yellow):154, 12(bright-red):17, 6:6, 10:4}. The colored portcullis/window accent pixels (idx 2,4,5,6,10,12,13,14) total 420 px spanning x[104..206] y[59..143] — a large central element, NOT a small far cap (matches maze-floor-ceiling.json). The whole viewport is geometry+dither + the central window; there is no clean band decomposition.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture_plus_pixel_match",
+        "details": "capture-maze-page.ts on patched core: 4-plane page @ 0x41820 (stride 0x2000, 40B/row) captured near the last plane-0 store (lin 0x6c219), uniform decode, majority-vote palette from same-frame fb. VIEWPORT 100.00% / CHROME 100.00%. Histograms above are the page-decoded indices per region."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "complete-piece-inventory-checklist",
+      "claim": "THE FINITE FINISH-LINE CHECKLIST. The maze viewport is composed onto the off-screen page by TWO compositors (maze-stage1-compositor.json: the masked wall writer at lin 0x6d9dd cluster, and a floor/ceiling/side OR-blit at the lin 0x6c5xx cluster). The page->screen decode (packages/parser/src/maze/page.ts decodePageIndex) is the COMPLETE renderer (100% any facing). Remaining work = FILLING the page. Element -> source FORMAT -> PORT STATUS: (1) SIDE WALLS (wt=2, per depth) — source: 4-plane 8x8 masked tiles via descriptor table + FUN_210c, blitted by the masked planar writer; DONE (packages/parser/src/maze/{compositor,flush,build,classify}.ts; renderFrameFromGeometry; main wall faces pieces 0xb/0xe BYTE-EXACT). (2) FRONT WALL / DOOR / RECESS (wt 1/3/4) — source: same masked-tile path, but spans emitted by wall_emit_quad case 0x4101 (door/recess variant, span_append @0x4136/0x4166/0x418f gated on door-phase word [0x363e]); STATUS: classify/build pinned (orient2 gate), masked-tile decoder reused — NOT live-validated (no door/turn frame captured; needs a frame that exercises wt 1/3/4). (3) CORNER / SEAM FILLERS (pieces 0xc/0xd/0xf) — source: same masked-tile path via wall_emit_corner (0x45b4, span_append @0x4717/0x473b); STATUS: rendered but ~371 residual px at transparency boundaries (compositor-bridge finding 98.12% — the tiny fillers, not the main faces). (4) FAR/SHAPE WALLS (wt 5..14) — wall_emit_quad cases 0x4280..0x4474 (shapes 8/9 span_append @0x4368/0x43ab); STATUS: jump-table read statically, NOT live-validated (corridor only exercises wt 0/2). (5) CEILING (zone0 id=1740) + (6) FLOOR (zone0 id=1346) + (7) CENTRAL PORTCULLIS WINDOW — source: the proprietary masked-image asset (in-RAM = 12-byte depth ramp + 'WROOT' heap header + index/sub-tile table + interleaved-zero masked-image blob; far-seg ptrs), composited by the OR-blit (lin 0x6c5xx, ds=0x29c3, per-plane `lodsb; or al,es:[di]; stosb`, di+=0x2000/plane); STATUS: DECODER UNCRACKED (the proprietary masked-image pixel decoder) + the OR-blit is characterized but not byte-replayed. THIS IS THE ONE UNCRACKED DECODER. Chrome (rows 144..199 + the row-199 baseline glyph 0x1e) is OUTSIDE the page-fill problem (handled separately, see CLAUDE.md).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "disasm_plus_findings_crossref",
+        "details": "wall_emit_quad (0x406c) 15-way shape jump table @file 0x449e (dispatch `2e ff a7 02 8a`, bx=walltype*2, base disp 0x8a02 - delta 0x4564): [0]->0x44c9(edge-only,solid), [1]->0x4101(door/recess), [2]->0x44c9, [3]->0x4101, [4]->0x4101, [5]->0x4280, [6]->0x42b4, [7]->0x42e8, [8]->0x430f, [9]->0x4371, [10..13]->0x43b4, [14]->0x4474 (maze-stage1-compositor.json wall-emit-quad-shape-jump-table-decode, high). wall_emit_corner span_append @0x4717/0x473b. Two-compositor architecture: masked wall writer (0x6d9dd, 1936 stores) + floor/ceiling/side OR-blit (0x6c5xx, ds=0x29c3) (other-writer-or-blit, high). Floor/ceiling/window source = proprietary masked-image asset (wmaze-texture-rasterizer.json texture-in-ram-format-proprietary-masked). Decoded page region map (this run) confirms dithered stone everywhere + 420-px central colored portcullis window."
+      },
+      "confidence": "high"
+    }
+  ],
+  "remaining_work_plan_ordered": [
+    "1. (UNBLOCKED) FLOOR/CEILING/WINDOW DECODER FIRST — the single uncracked decoder. Crack the proprietary masked-image pixel decoder for the in-RAM floor (zone0 id=1346) / ceiling (id=1740) / central portcullis-window blocks (12-byte depth ramp + 'WROOT' heap header + index/sub-tile table + interleaved-zero masked-image blob). Use live page-capture as the from-asset ORACLE: capture the compose-page (trace-maze.ts reach -> capvp / capture-maze-page.ts), decode it 100% (proven), then reverse SOURCE-ASSET -> page via the OR-blit (lin 0x6c5xx, ds=0x29c3, per-plane lodsb/or/stosb, di+=0x2000). Validate the offline decode byte-exact vs the engine's live OR-blit source rows.",
+    "2. PORT THE OR-BLIT BACKGROUND into renderMazeViewport's optional background-page arg (currently defaults to a blank page; packages/parser/src/maze/render.ts) — floor + ceiling + side-panel background, then the existing masked wall compositor on top.",
+    "3. CLOSE THE SEAM/CORNER FILLER RESIDUAL (~371 px) — pieces 0xc/0xd/0xf transparency-boundary handling in the masked writer (compositor.ts), to take the wall path from 98.12% to 100%.",
+    "4. FRONT-WALL / DOOR / RECESS (wt 1/3/4, jump case 0x4101) — capture a door/recess frame (needs a working turn/position; the committed turn-left/lookback fixtures cover facing 2/3 on the nightly core) and live-validate the door-phase-gated span emission + piece selection.",
+    "5. FAR/SHAPE WALLS (wt 5..14, cases 0x4280..0x4474) — capture frames that exercise these shapes and validate their span_append + piece path. Lowest priority (rare in zone 0)."
+  ],
+  "unresolved": [
+    "The proprietary masked-image pixel decoder (floor 1346 / ceiling 1740 / central portcullis window) — the ONE uncracked decoder; everything else reuses the already-cracked masked-tile (FUN_210c) wall decoder.",
+    "Byte-replay of the floor/ceiling OR-blit (lin 0x6c5xx) — algorithm + source seg characterized, not yet replayed offline.",
+    "Live validation of wall_emit_quad door/recess (wt 1/3/4) + far-shape (wt 5..14) span emission — read statically from the jump table, not exercised by the corridor.",
+    "The patched and nightly cores do not round-trip serialize-states (DBPSerialize_CPU layout). If a future task needs the committed frames capturable on the patched core directly, options are: (a) rebuild the patched core to match the nightly's CPU serialize size (root unknown — same commit/flags yet diverges), or (b) a full guest-RAM+register state transfer bridge across cores. Neither is needed for the page-capture workflow."
+  ]
+}

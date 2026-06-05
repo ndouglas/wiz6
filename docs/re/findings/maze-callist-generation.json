@@ -1,0 +1,87 @@
+{
+  "topic": "maze-callist-generation",
+  "subagent_run": "2026-06-05 (land the from-asset maze BACKGROUND for the gy=121 ORACLE frame end-to-end; capture the gy=121 blit call list directly + attempt the (zone,facing,geometry)->call-list generation law)",
+  "binaries": ["wmaze.ovr", "ega.drv", "dosbox_pure_libretro.dylib", "mazedata.ega"],
+  "status": "FROM-ASSET gy=121 reproduced to 99.909% (19694/19712 viewport px) from mazedata.ega + the gy=121 blit call list captured LIVE at ega.drv FUN_0a93 (reproducible byte-identical x2). The 18px residual is the deep-door-center detail (viewport x86..90 y36..44 / page bx19..20 y68..76) and is NOT representable by adding ANY of the 366 static mazedata.ega placements (exhaustively verified: no OR/masked/REPLACE addition of any record reduces the page-region diff below 26 bytes) — it comes from a draw path beyond the OR/masked background blit. The (zone,facing,geometry)->call-list GENERATION LAW is partially reversed (the placement table is banked by depth; the wmaze depth loop 0x4c60 indexes it) but NOT byte-exact: the slot helpers 0x3828/0x3c11/0x3dce/0x4892 defeat the Ghidra decompiler and the per-depth placement-index arithmetic could not be pinned from static disasm alone. So the call list is CAPTURED per frame, not generated. The existing 100% gate (engine-page maze-corridor-viewport-parity.test.ts) is UNCHANGED and green; the masked-mirror GEOMETRY gate (maze-masked-mirror-parity.test.ts) is UNCHANGED and green.",
+  "reference_frame": {
+    "game_state": 5, "zone": 0, "facing": 0, "name": "maze-corridor",
+    "oracle": "tools/parity/fixtures/engine/maze-corridor.idx.gz (gx=127 gy=121 facing0, COMPOSED_PALETTE indices) — the green-portcullis-down-the-corridor view, closed door 2 cells ahead (door at gy=123, N-wall code 3).",
+    "patched_core": "tools/libretro/build-core.sh (the _dbp_trace_*/_dbp_capture_* exports). RESTORED nightly with fetch-core.sh after this pass."
+  },
+  "findings": [
+    {
+      "id": "gy121-call-list-captured-directly",
+      "claim": "The gy=121 ORACLE frame's blit call list IS reachable+capturable on the patched trace core (prior findings said it was not). A fresh drive settles at gy=118 (at the gate), then forward steps walk 118->119->120->121 freely (the door at gy=123 is the first block). Serializing gy=121 on the patched core round-trips fine. Capturing at ega.drv FUN_0a93 over an IN-PLACE redraw (turn left then right back to facing 0 — NOT a forward step, which would walk the party off the cell mid-trace) yields a REPRODUCIBLE (byte-identical x2) 31-call list: 4 masked (near side-panel mirror pairs, all OR-merge) + 27 OR (forward blits, incl. the pre-mirrored right-half placements 134/138/162/166/.. and the 6 destRow-7 top strips 346/349/352/355/358/361). Composing it (composeBackground + applyMaskedMirror over mazedata.ega) reproduces 99.909% of the gy=121 oracle viewport.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "address": {"space": "ega.drv", "offset": "0xa93"},
+        "type": "live_capture_plus_offline_compose",
+        "details": "tools/libretro/trace-maze.ts NEW phase `placements121`: driveToMaze (gy=118) -> forceRedraw forward to gy=121 (verify party 0x4fa4/0x4fa2/0x4f9a each step) -> serialize gy=121 -> capture call list IN-PLACE. The in-place redraw is a DIRTY (partial) recompose: it draws the near pieces but reuses cached deep door pieces. Reproducible: two runs gave identical placementIndices [122,150,134,162,138,166,123,151,131,159,135,163,139,167,143,171,124,2,152,85,89,361,349,355,346,352,358] + masked [13->4,10->7,7->10,4->13]. Compose match vs oracle = 19694/19712 = 99.909% (packages/parser/tests/maze/maze-corridor-fromasset-parity.diagnostic.test.ts). NOTE: a FORWARD-step capture (gy=120->121) yields a richer 32-masked list but it is the gy=120 ORIGIN frame's recompose (the OR-blit fires before the position update) — composes to only 37% of the gy=121 oracle, so it is the WRONG frame; the in-place dirty redraw is the correct gy=121 frame."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "deep-door-residual-not-in-static-table",
+      "claim": "The 99.909% residual is 18 viewport px / 26 page bytes, all in the deep-door-center detail (page plane0/2/3 at bx19..20, y68..76 — the door leaf at the corridor vanishing point). The engine page has bits set there that the captured call list does not. This detail is NOT representable by adding ANY of the 366 static mazedata.ega placements: an exhaustive sweep of every single OR addition, every masked self-OR / self-REPLACE, every masked pair (i->j, j->i) over the door-region candidates, and every skip/REPLACE of an existing captured call FAILS to reduce the page-region diff below 26 bytes (most increase it). So the deep-door detail is drawn by a path BEYOND the OR/masked background blit (FUN_0a93) — likely a runtime-clipped door piece or a separate door-leaf draw — not yet reversed.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "exhaustive_byte_diff_search",
+        "details": "vs the committed engine background page (packages/parser/src/maze/__fixtures__/maze-corridor-background.json, the 100%-gate fixture), the captured call list's compose differs by 26 bytes in the viewport region — e.g. p0 y68 bx20 g8 e88, p2 y74 bx20 g0 ec0, p3 y71 bx20 gff e3f. Brute-force over all 366 placements (single OR, masked self OR/REPLACE, masked pairs in the door-recess range destRow 64..80 destX 15..24, and skip/REPLACE of each captured call) — best result NEVER beats the base 26 (closest single addition 27, i.e. worse). The deep-door detail is therefore outside the static placement set."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "placement-table-is-depth-banked",
+      "claim": "The 366 mazedata.ega placement records are organized into DEPTH BANKS that the wmaze view loop indexes per depth. The perspective ceiling strips are placements 122/123/124/125 (destRow 32/39/51/59 = depths 0/1/2/3), the floor mirror at 150/151/152/153 (destRow 128/104/88/83, = 122+28..125+28), the corner/door-frame pieces at 133/137/141/145 (stride 4) and their +28 floor twins 161/165/169/173, and the 6 destRow-7 top strips at 346/349/352/355/358/361 (stride 3). The masked-mirror PAIRS swap a left/right side panel (e.g. 19<->15 = img7<->img3, the w4 h112 full-depth side walls). The near-frame REPLACE void-carve pieces are 23..34 (img11..22). This banked structure is consistent across the gy=118 (60-call) and gy=121 (31-call) captures, and is the visible analogue of the wall-span depth emit. BUT the exact (depth -> bank base + per-slot index) arithmetic is NOT pinned: it lives in the slot helpers (wmaze 0x3828/0x3c11/0x3dce + the 0x4892 cluster) which Ghidra's decompiler fails on (overlay control-flow), and a static-disasm read of the index math was not byte-confirmed this pass.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4c60"},
+        "type": "table_structure_plus_disasm",
+        "details": "view_render_corridor_frame 0x4ad7: 0x4c3f sets depth bound [0x521e]=4; 0x4c45 computes parity [0x521a]=(gx+gy+facing)%2; 0x4c5a..0x4c67 the depth loop [0x5040]=0..3; 0x4c25 view_step_forward_by_facing 0x37a7 advances the cursor; per depth the slot helpers 0x3828/0x3c11/0x3dce classify into [0x5220..]. The blit emit (the ega.drv FUN_0a93 calls) is interleaved with the wall-span emit in this loop. Placement banks confirmed by dumping the 366 records (tools/parity/expand-asset.ts / packages/parser/src/maze/maze-data.ts): the destRow clustering (32/39/51/59 ceiling, 128/104/88/83 floor, etc.) is the per-depth perspective triangle. The per-depth index arithmetic is the open gap (decompiler fails on the helpers)."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "gy118-vs-gy121-different-call-lists",
+      "claim": "The gy=118 and gy=121 frames produce GENUINELY DIFFERENT call lists (cross-check that the law is geometry-dependent, not a single hardcode). gy=118 (at the gate, N-wall code 2 at the current cell, door code 3 at depth 2): 60 calls = 26 masked (18 OR-merge perspective mirrors + 8 REPLACE void carves) + 30 OR + 4 trailing masked REPLACE — the door renders LARGE/CLOSE. gy=121 (open, door code 3 still at depth 2 but 3 cells of open corridor first): 31 calls = 4 masked + 27 OR — the door renders SMALL/FAR. Composing gy=118's captured list against the gy=121 oracle = 48.47% (confirming they are different frames, not the same scene). The depth profile of forward-edge codes (facing-0 forwardEdge = N(cell at gy+d)) is gy=118 [2,0,3,0] vs gy=121 [0,0,3,0] — the door is at the same map cell (gy=123) but a different rendered DEPTH because the party moved 3 cells closer-to-far.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "two_frame_capture_plus_geometry",
+        "details": "gy=118 list (committed prior in the diagnostic): 60 calls. gy=121 list (this pass): 31 calls. Depth profiles read from the committed MazeBlock (tools/parity/fixtures/engine/maze-frames.json): gx127 gy118 facing0 N=[2,0,3,0,0,3]; gy121 N=[0,0,3,0,2,2]. The door N-wall code 3 is at gy=123 in both. The gy=118 call list composes 48.47% of the gy=121 oracle (different frame); the gy=121 call list composes 99.909% (correct frame)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "asm_anchors": [
+    {"space": "wmaze.ovr", "offset": "0x4ad7", "name": "view_render_corridor_frame", "note": "3D-corridor compositor entry. 0x4c3f depth=4; 0x4c45 parity=(gx+gy+facing)%2; 0x4c5a depth loop [0x5040]=0..3."},
+    {"space": "wmaze.ovr", "offset": "0x4c60", "name": "view_depth_loop", "note": "back-to-front depth loop; per depth: view_step_forward_by_facing 0x37a7, then slot classify (0x3828/0x3c11/0x3dce) + the interleaved ega.drv FUN_0a93 background blit emit + wall-span emit. The per-depth placement-index arithmetic is here / in the helpers (decompiler fails)."},
+    {"space": "ega.drv", "offset": "0xa93", "name": "ega_blit_entry15_FUN_0a93", "note": "blit entry. arg10==0xffff -> OR branch (single-image forward OR-blit of placement arg0c); arg10!=0xffff -> masked-mirror branch (src image=arg0c, dst geom=arg10, OR-merge/REPLACE per [bp+0xe])."}
+  ],
+  "byte_exact_result": {
+    "gy121_fromasset_viewport": "19694/19712 = 99.909% vs the committed gy=121 oracle (maze-corridor.idx.gz). Residual = 18px deep-door-center detail, not representable by any static mazedata.ega placement.",
+    "gy121_call_list_reproducible": "byte-identical across two fresh in-place captures.",
+    "gy118_cross_check": "the gy=118 captured list composes 48.47% of the gy=121 oracle (different frame) — confirms the call list is geometry-dependent.",
+    "existing_gates": "maze-corridor-viewport-parity.test.ts (100%, engine page) + maze-masked-mirror-parity.test.ts (masked geometry byte-exact) UNCHANGED and green."
+  },
+  "artifacts": [
+    "packages/parser/src/maze/callist.ts — composeCallList / composeBackgroundFromAsset (the from-asset compose of a BackgroundCall[] list).",
+    "packages/parser/src/maze/__fixtures__/maze-corridor-callist-gy121.json — the committed gy=121 blit call list (captured live, reproducible).",
+    "packages/parser/tests/maze/maze-corridor-fromasset-parity.diagnostic.test.ts — the from-asset gy=121 diagnostic (99.909%, 18px door residual).",
+    "tools/libretro/trace-maze.ts — NEW phase `placements121` (drive to gy=121, serialize, capture the call list) + the PLACEMENTS_STATE / PLACEMENTS_INPLACE overrides + resolveOrBaseReplayState(inPlace)."
+  ],
+  "remaining": [
+    "DEEP-DOOR DETAIL (the 18px / 26-byte residual): RE the draw path that produces the door-leaf detail at the corridor vanishing point — it is NOT a static mazedata.ega placement (exhaustively ruled out). Candidates: a runtime-clipped door piece, a separate door-leaf sprite path, or a per-frame-computed placement record. Trace the ega.drv writes to page bx19..20 y68..76 during the gy=121 arrival render.",
+    "GENERATION LAW (the real goal): pin the (zone,facing,geometry) -> ordered call list. The placement table is depth-banked (confirmed); the wmaze depth loop 0x4c60 + slot helpers (0x3828/0x3c11/0x3dce/0x4892) emit the calls, but the decompiler fails and the per-depth index arithmetic was not byte-confirmed. Needs hand-disasm of the helpers or a per-depth live trace of the FUN_0a93 args keyed to the depth counter [0x5040]. Until then the call list is CAPTURED per frame, not generated.",
+    "FULL gy=121 FROM-ASSET 100% GATE: blocked on the two items above."
+  ],
+  "concerns": [
+    "The in-place redraw is a DIRTY (partial) recompose — it reuses cached deep pieces, so it cannot by itself produce the FULL compose (it is why the 18px deep-door detail is absent). The only FULL recompose is the arrival render (forward step INTO the cell), but that fires the OR-blit for the ORIGIN cell (before the position update), so it captures the wrong frame. A clean full-compose capture of gy=121 needs either a forced-full-redraw trigger or a trace gated on the post-move position.",
+    "Do NOT relax the diagnostic's 99.9% floor to chase the wrong frame — the per-call masked GEOMETRY is byte-exact (its own gate), and the deep-door residual is a draw-path gap, not a decoder error.",
+    "All runtime addresses are heap-dependent; the harness re-derives the relocated ega.drv base per run (the 4-sibling OR-store cluster). Nightly core restored after this pass."
+  ],
+  "caveat_for_prior_findings": "EXTENDS maze-masked-mirror.json + maze-placement-selection.json: their 'gy=121 is unreachable on the patched core' claim is CORRECTED — gy=121 IS reachable (forward-walk from gy=118) and capturable (in-place redraw), and the gy=121 call list composes 99.909% from-asset. CONFIRMS the masked GEOMETRY is byte-exact (the 99.909% is bounded by the deep-door draw-path gap, not the masked decoder). Does NOT contradict any prior pixel/byte result; promotes the from-asset reproduction from 48% (wrong gy=118 frame) to 99.909% (correct gy=121 frame)."
+}

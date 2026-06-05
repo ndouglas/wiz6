@@ -1,0 +1,67 @@
+{
+  "topic": "maze-background-nature",
+  "subagent_run": "2026-06-04",
+  "binaries": ["wmaze.ovr", "ega.drv"],
+  "saves": [
+    "Committed engine fixtures tools/parity/fixtures/engine/maze-{corridor,corridor-turn-left,corridor-lookback,corridor-asym}.idx.gz (COMPOSED_PALETTE index space) + maze-frames.json. Live: a fresh patched-trace-core drive (the committed nightly-core serialize-states would NOT unserialize on the patched trace core — incompatible serialize format, 613923 vs 588156 bytes)."
+  ],
+  "summary": "Step-1 decision for T11 (maze floor/ceiling/side BACKGROUND): the background is GEOMETRY-DEPENDENT, NOT a static per-zone backdrop. A single committed backdrop page cannot reproduce the 4 committed corridor frames byte-exact, so the Step-2(a) 'commit a static backdrop + composite walls over it' path is NOT viable; the correct path is Step-2(b) (RE + port the floor/ceiling rasterizer). SECONDARY (scope) finding: the current classify->build->flush->compositor wall pipeline is byte-exact ONLY at the wt=2 side-span depthField level (the classify gate, a diagnostic). It does NOT yet emit the full viewport geometry: rendering walls-only into a blank page produces 0 wall pixels for maze-corridor / turn-left / asym and only 1839 px (the wt=2 side spans) for lookback. The front walls, corner pieces, the closed door / portcullis, AND the floor/ceiling are all unrendered. So 'add the background' under-scopes the gap — full-viewport byte-exact parity needs the complete stage-1 compositor (per-depth piece selection for front/corner/door pieces + the floor/ceiling perspective rasterizer), which is the open 'stage-1 compositor' follow-up flagged in maze-planar-transform.json. PALETTE NOTE: the off-screen page stores RAW EGA plane indices; decodePageRgba(page, COMPOSED_PALETTE) reproduces the live framebuffer 1:1 (each page idx -> exactly one COMPOSED_PALETTE RGB, 0 variance over the viewport). The committed .idx.gz fixtures are in COMPOSED_PALETTE index space (capture-maze-frames.ts inverts the live RGB through COMPOSED_PALETTE), so a parity test must map page indices through COMPOSED_PALETTE and compare RGB.",
+  "reference_frames": {
+    "maze-corridor":   {"facing": 0, "gx": 127, "gy": 121, "z": 0, "parity": 0, "view": "3-deep symmetric stone corridor, CLOSED door/gate at terminus, cobblestone floor, brick ceiling"},
+    "maze-corridor-turn-left": {"facing": 3, "parity": 1, "view": "stone wall on LEFT only, open black void ahead-right, green decoration at far-left edge"},
+    "maze-corridor-lookback": {"facing": 2, "parity": 0, "view": "stained-glass window/portcullis filling most of view, stone frame (1-deep)"},
+    "maze-corridor-asym": {"facing": 1, "parity": 1, "view": "stone wall on RIGHT only, open black void on left"}
+  },
+  "findings": [
+    {
+      "id": "background-is-geometry-dependent",
+      "claim": "The floor/ceiling/side background is GEOMETRY-DEPENDENT (a per-view perspective rasterization), not a static backdrop. The same SCREEN pixel takes different EGA indices across facings, and the difference is structural (occlusion + the converging cobblestone/brick dither), not a palette remap.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "fixture_measurement",
+        "details": "Per-pixel index across [corridor, turn-left, lookback, asym]: floor-center (160,135) = [9,0,9,0] (9=light-gray floor in fwd/lookback, 0=black VOID where the corridor opens in turn-left/asym); floor-left (120,138) = [9,8,9,8]; floor-right (200,138) = [8,9,8,9] (the cobblestone shading MIRRORS between parity-0 facings 0/2 and parity-1 facings 1/3); ceil-center (160,34) = [8,9,8,9]; mid-center (160,90) = [0,0,9,0]. So the background is neither facing-invariant NOR parity-invariant."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "not-static-even-within-parity-class",
+      "claim": "The background is not even static within a parity class. corridor (f0,p0) vs lookback (f2,p0) agree only 86.34% on the floor band (y90-111) and 57.67% on the ceiling band (y0-18); turn-left (f3,p1) vs asym (f1,p1) agree 80.97% floor / 72.92% ceiling. The depth structure differs (corridor = 3-deep dead-end with a wall cap; lookback = 1-deep window), so the floor/ceiling converge to different vanishing depths and the dither rasterizes differently. A committed backdrop (one, or one-per-parity) cannot reproduce all 4 frames at tolerance 0.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "fixture_measurement",
+        "details": "Viewport crop x72..247/y32..143 from the committed .idx.gz. parity0 corridor-vs-lookback full-viewport equal = 48.32%, floor band 86.34%, ceiling band 57.67%. parity1 turn-left-vs-asym full-viewport equal 58.98%, floor 80.97%, ceiling 72.92%."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wall-pipeline-emits-only-wt2-side-spans",
+      "claim": "The current classify->build->flush->compositor pipeline does NOT render the full viewport. Rendering walls-only into a blank page (renderFrameFromGeometry over generateCallList) yields 0 wall-covered viewport pixels for maze-corridor, turn-left, and asym, and 1839/19712 for lookback (its 4 wt=2 side spans). The byte-exact result the prior work established is the wt=2 span DEPTHFIELD set matching (the classify.test.ts gate) — a structural diagnostic, not pixel rendering. Front walls, corner pieces, the closed door / portcullis at the corridor terminus, and the floor/ceiling are all unrendered by the present pipeline.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "parser_pipeline_measurement",
+        "details": "classifyVisibleWalls(BLOCK, party) -> deriveCorridorSpans -> generateCallList -> renderFrameFromGeometry(blank page) -> decodePageIndex, then count viewport pixels where idx!=0. corridor/turn-left/asym = 0; lookback = 1839. The flush pass only generates calls for wt=2 side spans; there is no front-wall/corner/door/floor/ceiling call generation."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "page-index-is-raw-ega-composed-palette-maps-1to1",
+      "claim": "The off-screen compose page stores RAW EGA plane indices (4-bit attribute). Mapping page idx through COMPOSED_PALETTE (the wiz6-main AC->DAC chain in tools/parity/decode-screen.ts) reproduces the live framebuffer RGB exactly — each page index maps to exactly one COMPOSED_PALETTE RGB over the whole viewport (0 variance). The committed .idx.gz fixtures are stored in COMPOSED_PALETTE index space (capture-maze-frames.ts rgbaToIndices inverts the live RGB). Therefore the page raw index != the fixture index in general (e.g. page idx 9 light-gray vs fixture idx 8 dark-gray on a fresh-drive frame), and any parity test must compare RGB via COMPOSED_PALETTE, not raw index equality.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture_plus_pixel_match",
+        "details": "Captured the fully-composed 4-plane page (trace-maze.ts capvp, last plane-0 store) on a patched-core fresh drive; built page-idx -> live-fb-RGB histogram over x72..247/y32..143: every page idx had exactly 1 RGB variant and it equals COMPOSED_PALETTE[idx] (0->(0,0,0), 1->(255,255,255), 8->(85,85,85), 9->(170,170,170), 5->(255,255,85), 13->(170,85,0), 14->(0,170,0), ...). capvp reports 100.00% viewport / 100.00% chrome against its OWN fb. NOTE the fresh-drive frame is NOT the committed maze-corridor frame (the patched core cannot unserialize the committed nightly-core state), so it could not be diffed against the committed fixture directly."
+      },
+      "confidence": "high"
+    }
+  ],
+  "recommendation": "T11 as scoped ('floor/ceiling background, likely a static backdrop') is not achievable: the background is per-view geometry. Re-scope to the full stage-1 compositor port: (1) extend classify/build/flush to emit ALL visible pieces per depth (front wall, corner-L/R, door/gate, side walls) from the slot5220/orient2 geometry, not just wt=2 side spans; (2) RE + port the floor/ceiling perspective rasterizer (the converging cobblestone/brick + the black-void cutoff where depth exceeds the corridor run). The ega.drv planar writer + page->screen identity map are already solved (maze-planar-transform.json); the missing piece is the geometry->piece/floor-ceil-column SELECTION driven by wmaze. Until then the viewer keeps the extracted-tiles path (maze-corridor-tiles.json). Suggest a dynamic trace of the floor/ceiling blit (wmaze thunk 0xfb27, 5 args) + the per-depth piece dispatch to recover the selection law.",
+  "unresolved": [
+    "The floor/ceiling rasterizer's exact per-column source-cell selection + the depth cutoff that produces the black void (idx 0) when the corridor opens.",
+    "The front-wall / corner / door piece-selection law (which descriptor index per depth/slot-code) — flush only handles wt=2 today.",
+    "Whether the patched trace core can be made to unserialize committed nightly states (or whether T11 fixtures should be re-minted on the patched core) so live page captures can be diffed against the committed frames."
+  ]
+}

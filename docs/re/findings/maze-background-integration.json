@@ -1,0 +1,54 @@
+{
+  "topic": "maze-background-integration",
+  "subagent_run": "2026-06-04 (integrate the cracked OR-blit floor/ceiling/window decoder into @wiz6/parser; attempt the first full-viewport byte-exact maze frame)",
+  "binaries": ["ega.drv", "wmaze.ovr", "dosbox_pure_libretro.dylib"],
+  "status": "PARTIAL — decoder ported into the parser + wired into renderMazeViewport (algorithm gated byte-exact by unit tests; engine-validated 99.93% by the same-run fixture pair). The FULL-VIEWPORT 100% gate is BLOCKED (not fudged): the only OR-blit-capturable frame on the trace core is a DIFFERENT view than any committed engine .idx.gz oracle, and the committed oracle frames are uncapturable on the trace core. Concrete blocker + the from-on-disk-asset generalization documented below.",
+  "findings": [
+    {
+      "id": "decoder-ported-into-parser",
+      "claim": "The OR-blit floor/ceiling/side-panel/window background decoder (tools/parity/decode-floor-ceiling.ts composeBackground/applyPlacedImage — ega.drv DISPATCH ENTRY 15 = FUN_0a93) is now ported into @wiz6/parser as packages/parser/src/maze/background.ts (verbatim 4-plane planar OR-copy walk). renderMazeViewport (render.ts) accepts an optional background source — EITHER a pre-filled `page` OR per-view `placements` (BackgroundPlacement[]) from which buildBackgroundPage() OR-composites the base page; the existing wall compositor then REPLACEs wall pieces on top, and decodePageIndex crops the viewport. BackgroundPlacement is a new schema in @wiz6/data (render-schema.ts). The walk math is gated byte-exact by packages/parser/tests/maze/background.test.ts (hand-constructed placements with known output); the engine-validated 99.93% reproduction is gated by tools/parity/maze-floor-ceiling-parity.test.ts (the parser composeBackground is a verbatim port of that decoder).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "code_port_plus_unit_test",
+        "details": "New: packages/parser/src/maze/background.ts (composeBackground/applyPlacedImage), packages/data/src/maze/render-schema.ts BackgroundPlacementSchema, render.ts buildBackgroundPage() + renderMazeViewport opts. Tests: parser 288 pass / 1 skip; data 611 pass; typecheck + eslint clean. Wiring verified end-to-end: buildBackgroundPage([]) = all-zero; renderMazeViewport(block, party-gy121-facing0, assets, {page: background-oracle}) == decodePageIndex(background-oracle) crop (diff 0 — confirms the committed maze-corridor frame has NO wt=2 wall REPLACE, it is pure OR-blit background)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "full-viewport-gate-blocked-frame-mismatch",
+      "claim": "The first FULL-VIEWPORT byte-exact gate is blocked by a frame-capture mismatch, NOT a decoder gap. The committed engine oracle maze-corridor.idx.gz is the gy=121 facing-0 view (party 3 cells PAST the portcullis gate; small far colored window — viewport idx hist {0:4005,1:743,5:5,8:6698,9:8179,10:79,13:3}; ZERO wt=2 wall spans per maze-frames.json wt2_depthFields=[] — so it is ENTIRELY OR-blit background). The OR-blit can only be live-captured on the PATCHED trace core, which (a) CANNOT unserialize the committed gy=121 .state.gz (DBPSerialize_CPU layout divergence — err unser, confirmed again this run on both maze-corridor.state.gz and the uncompressed tools/libretro/states/maze-corridor.state), and (b) a fresh patched-core drive lands at gy=118 (party AT the gate; large colored window — different view, decode(its bg-oracle) vs committed maze-corridor viewport = 58.08%) and CANNOT advance past the gate to gy=121 (the gate-traversal is a navigation/timing state the fresh forward-walk recipe does not reproduce — gy plateaus at 118-119). So no committed .idx.gz oracle's OR-blit background is capturable on the trace core, and the only capturable frame (gy=118) has no committed .idx.gz oracle. A 100% full-viewport gate would require EITHER bridging the two cores' serialize formats (so the trace core can load the committed gy=121 state) OR a deterministic from-on-disk-asset placement-table generator (below) that needs no live capture.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "live_test_plus_pixel_match",
+        "details": "Patched core (build-core.sh, exports _dbp_trace_*) unserialize committed maze-corridor.state.gz -> 'err unser'; /tmp/wiz6-maze-clean.state (fresh drive) -> OK. Fresh-drive party read = {game_state 5, facing 0, gx 127, gy 118, cellx 2}; forward (held-ENTER) -> gy 119 then plateaus; 'up' key does not move. Committed maze-corridor = gy 121. decode(committed background-oracle) viewport vs committed maze-corridor.idx.gz viewport = 11448/19712 = 58.08% (different frames). The CLEAN gy=118 frame's own composed page (279 plane-0 stores) decodes to a full colored-window view {0:3994,1:1198,5:83,6:6,8:5796,9:8304,10:34,12:17,13:126,14:154}; its wall compositor fires 880 stores (3 wt=2 spans depth 1/2/3 + 4 edge wt=255 spans) — but our parser classify emits 0 spans for facing 0 BY DESIGN (the orient2 head-on recess gate only fires for facing 2/3), so even the CLEAN frame is not wall-reproducible by the current parser. Re-running validate-floor-ceiling.ts to re-capture the OR-blit from records scored 78.3%/78.8%/78.8% over 3 attempts (the documented per-group source-snapshot timing variance), NOT the committed pair's 99.93% — confirming live re-capture is non-deterministic and the COMMITTED same-run pair is the only reliable 100%/99.93% artifact."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "per-view-placement-generalization-next-task",
+      "claim": "The PER-VIEW placement-list selection (how the engine fills cs:[0x190]/cs:[0x18e] for a given zone/facing/geometry) is the next-task generalization and the deterministic route to a from-asset 100% gate that needs NO live capture. The current ported decoder consumes a RESOLVED BackgroundPlacement[] (the asm's per-image si/di/cx/w/h/planeStride + the 4-plane planar source). To generate that list from the committed on-disk assets: (1) decode the floor (zone0 id 1346) / ceiling (id 1740) / window assets via the already-cracked .pic RLE decoder into the 4-plane planar work-buffer layout the descriptor table references (validate the on-disk-sourced sub-images reproduce the live in-RAM work buffers); (2) read the FULL cs:[0x18e] image-descriptor + cs:[0x190] placement tables (statically from ega.drv or live at the relocated base) and determine the per-view selection index (the perspective-triangle / black-void / window geometry as a function of (zone, facing, depth)). With (1)+(2) the placement list is GENERATED deterministically (like the wall span/flush generator), and composeBackground reproduces ANY committed frame's background WITHOUT a live OR-blit capture — sidestepping the trace-core frame-capture blocker entirely. THIS is the recommended path to the first full-viewport byte-exact gate.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "disasm_plus_findings_crossref",
+        "details": "Tables: PLACEMENT @cs:[0x190] (5-byte recs {imageIdx,destX,destRow,bias,count}), IMAGE-descriptor @cs:[0x18e] (5-byte recs {segDelta,srcOff,w,h}); source seg base cs:[0x149], page seg cs:[0x14d]. The walk (file 0xaa9..0xb1c) is asm-confirmed (maze-floor-ceiling-decoder.json). The OPEN piece is the placement-set SELECTION per view (the perspective fill) + the asset-block -> work-buffer decompression (the .pic RLE, maze-texture-decode.json). The wall path is already FROM-GEOMETRY (maze-span-build.json); the background generator is the analogous remaining work."
+      },
+      "confidence": "high"
+    }
+  ],
+  "remaining_work_plan_ordered": [
+    "1. (DETERMINISTIC, no live capture) Decode the on-disk floor (1346) / ceiling (1740) / window assets via the .pic RLE decoder into the 4-plane planar work-buffer layout; validate against the live in-RAM work buffers (the existing OR-blit source oracle).",
+    "2. Read the FULL cs:[0x18e]/cs:[0x190] tables (static from ega.drv, or live at the relocated base) + RE the per-view selection index (zone/facing/depth -> placement subset). Generate BackgroundPlacement[] from (block, party) like the wall span generator.",
+    "3. With (1)+(2): renderMazeViewport(block, party, assets, {placements}) reproduces a committed .idx.gz frame's full viewport from-asset, NO live capture. Promote the lookback (or maze-corridor) diagnostic to a 100% gate (tolerance 0).",
+    "4. ALTERNATIVE blocker-clear: bridge the patched/nightly core serialize formats (so the trace core can load the committed gy=121 state) — then the live OR-blit capture path also works on the committed frames. (Heavier; the from-asset generator is preferred.)",
+    "5. FACING-0/1 WALL EMISSION: the parser classify emits wt=2 spans only via the facing-2/3 orient2 recess gate; a facing-0 at-gate frame (gy=118) has 3 engine wt=2 spans the parser does not produce. If a facing-0 wall frame becomes the target, RE the facing-0 recess/cap emission (the gate's flanking walls)."
+  ],
+  "unresolved": [
+    "The per-view placement-set SELECTION (the deterministic from-asset background generator) — the recommended route to the full-viewport 100% gate.",
+    "Trace-core / nightly-core serialize-format bridge (DBPSerialize_CPU) — would unblock live capture of the committed frames.",
+    "Facing-0/1 wt=2 wall emission (the at-gate recess) — only facing 2/3 recess is ported."
+  ],
+  "caveat_for_prior_findings": "CONFIRMS maze-piece-inventory.json (tooling-rootcause-serialize-cpu-layout-divergence, fresh-drive-cannot-reproduce-committed-frame) and maze-floor-ceiling-decoder.json (the decoder is correct; live re-capture has source-snapshot timing variance). Adds: the decoder is now PORTED into @wiz6/parser and the full-viewport gate's specific blocker is a frame-capture mismatch (no capturable frame has a committed oracle), with the deterministic from-on-disk-asset placement generator identified as the route past it."
+}
