@@ -1,0 +1,144 @@
+{
+  "frame": {
+    "name": "maze-corridor",
+    "gx": 127,
+    "gy": 121,
+    "facing": 0,
+    "zone": 0
+  },
+  "note": "gy=121 (committed maze-corridor.idx.gz oracle) blit call list captured live at ega.drv FUN_0a93 via tools/libretro/trace-maze.ts placements121 (in-place left/right redraw, reproducible byte-identical x2). OR=forward OR-blit of src placement; masked=horizontal-mirror blit (src image into dst geometry). Composes to 99.909% of the oracle viewport; the 18px residual is the deep-door-center detail, not representable by any static mazedata.ega placement.",
+  "calls": [
+    {
+      "kind": "OR",
+      "src": 122
+    },
+    {
+      "kind": "OR",
+      "src": 150
+    },
+    {
+      "kind": "OR",
+      "src": 134
+    },
+    {
+      "kind": "OR",
+      "src": 162
+    },
+    {
+      "kind": "OR",
+      "src": 138
+    },
+    {
+      "kind": "OR",
+      "src": 166
+    },
+    {
+      "kind": "OR",
+      "src": 123
+    },
+    {
+      "kind": "OR",
+      "src": 151
+    },
+    {
+      "kind": "OR",
+      "src": 131
+    },
+    {
+      "kind": "masked",
+      "src": 13,
+      "dst": 4,
+      "mode": "or"
+    },
+    {
+      "kind": "OR",
+      "src": 159
+    },
+    {
+      "kind": "OR",
+      "src": 135
+    },
+    {
+      "kind": "masked",
+      "src": 10,
+      "dst": 7,
+      "mode": "or"
+    },
+    {
+      "kind": "OR",
+      "src": 163
+    },
+    {
+      "kind": "OR",
+      "src": 139
+    },
+    {
+      "kind": "masked",
+      "src": 7,
+      "dst": 10,
+      "mode": "or"
+    },
+    {
+      "kind": "OR",
+      "src": 167
+    },
+    {
+      "kind": "OR",
+      "src": 143
+    },
+    {
+      "kind": "masked",
+      "src": 4,
+      "dst": 13,
+      "mode": "or"
+    },
+    {
+      "kind": "OR",
+      "src": 171
+    },
+    {
+      "kind": "OR",
+      "src": 124
+    },
+    {
+      "kind": "OR",
+      "src": 2
+    },
+    {
+      "kind": "OR",
+      "src": 152
+    },
+    {
+      "kind": "OR",
+      "src": 85
+    },
+    {
+      "kind": "OR",
+      "src": 89
+    },
+    {
+      "kind": "OR",
+      "src": 361
+    },
+    {
+      "kind": "OR",
+      "src": 349
+    },
+    {
+      "kind": "OR",
+      "src": 355
+    },
+    {
+      "kind": "OR",
+      "src": 346
+    },
+    {
+      "kind": "OR",
+      "src": 352
+    },
+    {
+      "kind": "OR",
+      "src": 358
+    }
+  ]
+}

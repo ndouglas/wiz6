@@ -1500,8 +1500,18 @@ async function resolveOrBaseFirstRender(c: HostClient): Promise<{ base: number; 
 /** RESOLVE the base from a settled CLEAN_STATE forceRedraw recompose (the
  *  reproducible replay path the capture uses). Heap-dependent → re-derive here. */
 async function resolveOrBaseReplay(c: HostClient): Promise<number> {
-  await c.unserialize(CLEAN_STATE); await c.step(2);
-  const writers = await watchComposePage(c, async () => { await c.key('enter', 'down'); });
+  return resolveOrBaseReplayState(c, CLEAN_STATE);
+}
+
+/** Same as resolveOrBaseReplay but against an explicit serialize-state path. The
+ *  `inPlace` variant turns left/right (redraw without moving) so a frame whose
+ *  forward cell differs (e.g. gy=120 standing one behind the target) still
+ *  resolves on the CURRENT view rather than walking off it. */
+async function resolveOrBaseReplayState(c: HostClient, state: string, inPlace = false): Promise<number> {
+  await c.unserialize(state); await c.step(2);
+  const writers = inPlace
+    ? await watchComposePage(c, async () => { await c.key('left', 'tap'); await c.step(40); await c.key('right', 'tap'); })
+    : await watchComposePage(c, async () => { await c.key('enter', 'down'); });
   await c.key('enter', 'up');
   return recoverOrBase(writers);
 }
@@ -1897,14 +1907,28 @@ async function readRowSrc(c: HostClient, base: number, k: number, phys: number, 
   return out;
 }
 
+// Overridable capture state for phasePlacements (set by `placements121`). The
+// resolver + traceAll below all key off this; default is the settled gy=118
+// CLEAN_STATE built by `reach`.
+let PLACEMENTS_STATE = CLEAN_STATE;
+// When true, the capture forces an IN-PLACE redraw (turn left then right, back to
+// the original facing/cell) instead of a forward step. Needed for gy=121: a
+// forward forceRedraw would walk the party off the captured cell mid-trace.
+let PLACEMENTS_INPLACE = false;
+
 async function phasePlacements(c: HostClient): Promise<void> {
   const outFile = process.argv[3] ?? '/tmp/wiz6-placements.json';
+  const CLEAN_STATE = PLACEMENTS_STATE; // shadow so all reads use the override
   if (!existsSync(CLEAN_STATE)) {
     console.log('CLEAN_STATE absent — driving `reach` to build it…');
     await driveToMaze(c);
     await c.serialize(CLEAN_STATE); await c.fb(CLEAN_PNG);
   }
-  const base = await resolveOrBaseReplay(c);
+  // Resolve the OR-blit base IN-PLACE (turn left/right) — the base is
+  // frame-independent, and in-place resolution avoids walking the party off a
+  // capture cell whose forward neighbour differs (gy=120 standing one behind).
+  let base = await resolveOrBaseReplayState(c, CLEAN_STATE, true);
+  if (base < 0) base = await resolveOrBaseReplayState(c, CLEAN_STATE, false);
   if (base < 0) { console.log('FAILED to resolve OR-blit base from replay — abort'); return; }
   const entry = base + 0xa93;
   // The blit (FUN_0a93) has TWO branches keyed by arg [bp+0x10]:
@@ -1937,6 +1961,17 @@ async function phasePlacements(c: HostClient): Promise<void> {
   // order. Take the FIRST compose pass = the prefix before the OR head recurs.
   const traceAll = async (pt: number): Promise<TraceRecord[]> => {
     await c.unserialize(CLEAN_STATE); await c.step(2);
+    if (PLACEMENTS_INPLACE) {
+      // In-place: turn left (redraw at facing-3), settle, drain (discard), THEN
+      // arm the trace and turn right (redraw back at the ORIGINAL facing/cell).
+      await c.key('left', 'tap'); await c.step(40);
+      await c.traceSet(pt); await c.traceDrain();
+      const out: TraceRecord[] = [];
+      await c.key('right', 'tap');
+      for (let i = 0; i < 16; i++) { await c.step(4); for (const r of await c.traceDrain()) out.push(r); }
+      await c.traceOff();
+      return out;
+    }
     await c.traceSet(pt); await c.traceDrain();
     const out: TraceRecord[] = [];
     await c.key('enter', 'down');
@@ -1982,8 +2017,15 @@ async function phasePlacements(c: HostClient): Promise<void> {
   for (let k = 0; k < mRecs.length; k++) {
     const r = mRecs[k]!;
     await c.unserialize(CLEAN_STATE); await c.step(2);
-    await c.traceSet(mArgPt); await c.captureSet((r.ss << 4) + ((r.ebp + 0xe) & 0xffff), 2, k);
-    await forceRedraw(c); const w = await c.captureGet(); await c.traceOff();
+    if (PLACEMENTS_INPLACE) {
+      await c.key('left', 'tap'); await c.step(40);
+      await c.traceSet(mArgPt); await c.captureSet((r.ss << 4) + ((r.ebp + 0xe) & 0xffff), 2, k);
+      await c.key('right', 'tap'); await c.step(40);
+    } else {
+      await c.traceSet(mArgPt); await c.captureSet((r.ss << 4) + ((r.ebp + 0xe) & 0xffff), 2, k);
+      await forceRedraw(c);
+    }
+    const w = await c.captureGet(); await c.traceOff();
     mFlags.push(w ? u16(w, 0) : -1);
   }
   console.log(`masked flags (first ${Math.min(30, mFlags.length)}): [${mFlags.slice(0, 30).join(',')}]`);
@@ -2065,6 +2107,54 @@ async function phasePlacements(c: HostClient): Promise<void> {
     liveRecords: liveRecs,
   }, null, 2));
   console.log(`\n-> ${outFile}`);
+}
+
+/** `placements121` — capture the blit call list for the gy=121 ORACLE frame (the
+ *  committed maze-corridor.idx.gz perspective), which `reach`/`placements` cannot
+ *  reach (a fresh drive settles at gy=118, at the gate). gy=121 is 3 cells forward
+ *  of gy=118 (the door is at gy=123, so 118->119->120->121 walks freely). This
+ *  drives a fresh boot to gy=118, force-redraws forward to gy=121 (verifying the
+ *  party each step), serializes a gy=121 clean state, then captures the call list
+ *  there via phasePlacements (state-overridden). */
+async function phasePlacements121(c: HostClient): Promise<void> {
+  const STATE121 = '/tmp/wiz6-maze-clean-121.state';
+  const outFile = process.argv[3] ?? '/tmp/wiz6-placements-121.json';
+  const rdU16 = async (base: number, off: number) => { const b = await c.read(base + off, 2); return b[0]! | (b[1]! << 8); };
+  console.log('driving fresh boot to maze (gy=118)…');
+  await driveToMaze(c);
+  let base = await c.anchor();
+  let gy = await rdU16(base, 0x4fa2);
+  let gx = await rdU16(base, 0x4fa4);
+  let facing = await rdU16(base, 0x4f9a);
+  console.log(`settled: gx=${gx} gy=${gy} facing=${facing}`);
+  // Walk forward until gy=120 (ONE cell BEHIND the target), then serialize. The
+  // capture step is a forward forceRedraw 120->121 — stepping INTO gy=121 forces
+  // a COMPLETE (non-dirty) redraw of the gy=121 view, which the in-place turn or a
+  // settled re-redraw does not (those do partial/dirty redraws that drop the
+  // deepest door piece). So the gy=120 state + a forward step is the clean
+  // full-compose capture of gy=121.
+  const TARGET = Number(process.env.WIZ6_PLACE121_STOP ?? '121');
+  for (let i = 0; i < 40 && gy < TARGET; i++) {
+    await forceRedraw(c);
+    base = await c.anchor();
+    gy = await rdU16(base, 0x4fa2);
+    gx = await rdU16(base, 0x4fa4);
+    facing = await rdU16(base, 0x4f9a);
+    console.log(`  step ${i + 1}: gx=${gx} gy=${gy} facing=${facing}`);
+  }
+  if (gy !== TARGET || facing !== 0) {
+    console.log(`FAILED to reach gy=${TARGET} facing=0 (got gy=${gy} facing=${facing}) — abort`);
+    return;
+  }
+  await c.serialize(STATE121);
+  await c.fb('/tmp/wiz6-maze-clean-121.fb');
+  console.log(`serialized gy=${gy} clean frame -> ${STATE121}`);
+  // Capture the call list. With WIZ6_PLACE121_INPLACE=0 + STOP=120, the trace's
+  // forward step walks 120->121 = a FULL (non-dirty) recompose of gy=121.
+  PLACEMENTS_STATE = STATE121;
+  PLACEMENTS_INPLACE = process.env.WIZ6_PLACE121_INPLACE !== '0';
+  process.argv[3] = outFile;
+  await phasePlacements(c);
 }
 
 /** `placecheck` — reproducibility gate for `placements`: capture TWICE (two fresh
@@ -2239,6 +2329,7 @@ async function main() {
     else if (phase === 'fine') await phaseFine(c);
     else if (phase === 'maskedloop') await phaseMaskedLoop(c);
     else if (phase === 'placements') await phasePlacements(c);
+    else if (phase === 'placements121') await phasePlacements121(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
     else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');

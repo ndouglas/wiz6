@@ -13,11 +13,17 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#077**
+Next free ID: **#078**
 
 ---
 
 ## Open
+
+- #077 [open] — Maze FROM-ASSET background: close the 18px deep-door residual + GENERATE the call list
+  - **2026-06-05:** the gy=121 oracle frame now reproduces **99.909%** (19694/19712) FROM-ASSET (mazedata.ega + the gy=121 blit call list captured live, reproducible). `packages/parser/src/maze/callist.ts` (composeCallList/composeBackgroundFromAsset) + the committed list `src/maze/__fixtures__/maze-corridor-callist-gy121.json` + `maze-corridor-fromasset-parity.diagnostic.test.ts` (99.9% floor). RE: `docs/re/findings/maze-callist-generation.json`.
+  - **Residual (18px):** the deep-door-center detail (viewport x86..90 y36..44 / page bx19..20 y68..76). NOT representable by any of the 366 static mazedata.ega placements (exhaustively ruled out) — a draw path beyond the OR/masked blit. Trace ega.drv writes to that page region during the gy=121 arrival render.
+  - **Generation law (the real goal):** the placement table is depth-banked (confirmed: ceiling 122..125, floor 150..153, etc.); the wmaze depth loop 0x4c60 + slot helpers (0x3828/0x3c11/0x3dce/0x4892) emit the calls, but the decompiler fails on the helpers and the per-depth index arithmetic is unpinned. Until cracked, the call list is CAPTURED per frame (`tools/libretro/trace-maze.ts placements121`, needs the patched core), not generated. Then composeBackgroundFromAsset -> viewport == oracle 100% would promote the diagnostic to a `.test.ts` gate.
+  - Capture nuance: the in-place left/right redraw is a DIRTY recompose (reuses cached deep pieces → the 18px gap); the forward-step-into-cell is a FULL recompose but fires the OR-blit for the ORIGIN cell (wrong frame). A clean full gy=121 capture needs a forced-full-redraw trigger or a position-gated trace.
 
 - #076 [open] — Port the maze 3D view (renderer LOCATED: it's in ega.drv, not wmaze.ovr)
   - **✅ MILESTONE 1 SHIPPED (2026-06-03): pixel-exact corridor frame in the viewer.** Framebuffer-oracle port (spec `docs/superpowers/specs/2026-06-03-maze-corridor-port-design.md`, plan `docs/superpowers/plans/2026-06-03-maze-corridor-port.md`): committed engine fixture (`maze-corridor.idx.gz`, from a frozen serialize-state — animation phase is non-deterministic live) → `@wiz6/data` corridor geometry constants → `extract-maze-tiles.ts` (8-tile full-viewport partition, seams derived from the convergence columns) → `compose-maze-view.ts` + `compose-maze-frame.ts` → `maze-corridor-parity.test.ts` **100% / 0-diff (tol 0)** → `/game/maze` viewer route. Honest scope: near-identity reconstruction (chrome extracted static; viewport partition is convergence-seam-driven) — a VISIBLE maze view + the composer/asset/geometry scaffold, NOT a general renderer.

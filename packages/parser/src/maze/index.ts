@@ -30,7 +30,12 @@ export {
   orPlacementFor,
   maskedMirrorFor,
 } from './maze-data.js';
+export {
+  composeCallList,
+  composeBackgroundFromAsset,
+} from './callist.js';
 
 // Shared types
 export type { MazeSpan, CompositorCall } from './compositor.js';
 export type { MazeWorkBuffer, MazeImageDesc, MazePlacement } from './maze-data.js';
+export type { BackgroundCall, CallList } from './callist.js';
