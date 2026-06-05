@@ -14,15 +14,26 @@
  * putImageData to confirm a frame is presented).
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import type { DungeonLevel, MazeParty, MazeRenderAssets } from '@wiz6/data';
-import { turn, tryStepForward, loadMazeAssets as nodeLoadMazeAssets } from '@wiz6/parser';
+import type { DungeonLevel, MazeBlock, MazeParty, MazeRenderAssets } from '@wiz6/data';
+import {
+  turn,
+  tryStepForward,
+  loadMazeAssets as nodeLoadMazeAssets,
+  renderMazeViewport,
+  viewConfigKeyFor,
+  type CapturedSpansTable,
+} from '@wiz6/parser';
 
 // ── mocks ──────────────────────────────────────────────────────────────────
 
 vi.mock('../../src/data-loader.js', () => ({
   loadMazeAssets: vi.fn(),
+  loadMazeWallSpans: vi.fn(),
 }));
 
 vi.mock('../../src/game/game-session-store.js', () => ({
@@ -31,15 +42,30 @@ vi.mock('../../src/game/game-session-store.js', () => ({
 }));
 
 import { MazeView } from '../../src/pages/game/MazeView.js';
-import { loadMazeAssets } from '../../src/data-loader.js';
+import { loadMazeAssets, loadMazeWallSpans } from '../../src/data-loader.js';
 import { readGameSession, updateParty } from '../../src/game/game-session-store.js';
 
 const mockLoadMazeAssets = vi.mocked(loadMazeAssets);
+const mockLoadMazeWallSpans = vi.mocked(loadMazeWallSpans);
 const mockReadGameSession = vi.mocked(readGameSession);
 const mockUpdateParty = vi.mocked(updateParty);
 
 // Real assets (so renderMazeViewport runs end-to-end without crashing).
 const ASSETS: MazeRenderAssets = nodeLoadMazeAssets();
+
+// Real committed level-0 block + captured wall spans (the browser-served copies).
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+const LEVEL_0_REAL: DungeonLevel = JSON.parse(
+  readFileSync(resolve(REPO_ROOT, 'extracted', 'maze', 'level-0.json'), 'utf8'),
+) as DungeonLevel;
+const WALL_SPANS: CapturedSpansTable = JSON.parse(
+  readFileSync(resolve(REPO_ROOT, 'extracted', 'maze', 'wall-spans.json'), 'utf8'),
+) as CapturedSpansTable;
+const REAL_BLOCK: MazeBlock = LEVEL_0_REAL.mazeBlock;
+
+// case-04 (door@d0/front-wall/corridor) — a byte-exact captured wall case with
+// substantive tile-2 spans. Representative from the committed wall-spans fixture.
+const CASE_04_PARTY: MazeParty = { gx: 127, gy: 121, z: 0, facing: 2 };
 
 // Minimal level/party at the level-0 entrance.
 const ENTRANCE: MazeParty = { gx: 127, gy: 120, z: 0, facing: 0 };
@@ -94,6 +120,7 @@ describe('MazeView — with a session', () => {
       party: { ...ENTRANCE },
     });
     mockLoadMazeAssets.mockResolvedValue(ASSETS);
+    mockLoadMazeWallSpans.mockResolvedValue(WALL_SPANS);
   });
 
   it('mounts a 320×200 canvas', () => {
@@ -157,5 +184,89 @@ describe('MazeView — with a session', () => {
   it('renders the screen reader heading', () => {
     renderMazeView();
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+  });
+});
+
+describe('MazeView — captured wall spans (Task D1 byte-exact case)', () => {
+  beforeEach(() => {
+    // Real committed level-0 block at case-04's representative (a door recess with
+    // substantive tile-2 walls), so the captured-span lookup HITS and the live
+    // render draws real wall pixels.
+    mockReadGameSession.mockReturnValue({
+      schemaVersion: 1,
+      level: { ...LEVEL_0_REAL, entrance: CASE_04_PARTY },
+      party: { ...CASE_04_PARTY },
+    });
+    mockLoadMazeAssets.mockResolvedValue(ASSETS);
+    mockLoadMazeWallSpans.mockResolvedValue(WALL_SPANS);
+  });
+
+  /** Install a singleton ctx whose putImageData records the presented ImageData. */
+  function spyPresent(): { frames: ImageData[]; restore: () => void } {
+    const frames: ImageData[] = [];
+    const stableCtx = {
+      imageSmoothingEnabled: false,
+      putImageData: (img: ImageData) => frames.push(img),
+    } as unknown as CanvasRenderingContext2D;
+    const spy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(stableCtx as unknown as ReturnType<HTMLCanvasElement['getContext']>);
+    return { frames, restore: () => spy.mockRestore() };
+  }
+
+  it('renders a NON-BLANK viewport (real wall pixels) for a byte-exact case', async () => {
+    const { frames, restore } = spyPresent();
+    try {
+      renderMazeView();
+      // Both async loaders must resolve before the byte-exact frame is presented.
+      await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
+      await waitFor(() => expect(mockLoadMazeWallSpans).toHaveBeenCalled());
+      await waitFor(() => expect(frames.length).toBeGreaterThan(0));
+
+      const img = frames[frames.length - 1]!;
+      // The viewport rect is x=72,y=32,w=176,h=112 in the 320×200 frame; a door
+      // recess paints non-black wall pixels inside it. Count non-black pixels.
+      const ENGINE_W = 320;
+      const { x: vx, y: vy, w: vw, h: vh } = { x: 72, y: 32, w: 176, h: 112 };
+      let nonBlack = 0;
+      for (let row = 0; row < vh; row++) {
+        for (let col = 0; col < vw; col++) {
+          const o = ((vy + row) * ENGINE_W + (vx + col)) * 4;
+          if (img.data[o] || img.data[o + 1] || img.data[o + 2]) nonBlack++;
+        }
+      }
+      expect(nonBlack).toBeGreaterThan(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it('the config-key lookup HITS the committed case-04 entry', () => {
+    // The renderer looks up captured spans by viewConfigKeyFor(block, party). If
+    // the live key drifted from how C2 keyed the fixture, the lookup would miss
+    // and silently fall back. Assert the live key EQUALS case-04's committed key.
+    const case04 = WALL_SPANS.cases.find((c) => c.id === 'case-04')!;
+    expect(viewConfigKeyFor(REAL_BLOCK, CASE_04_PARTY)).toBe(case04.configKey);
+    // And the captured render at that view is non-blank (real door-recess walls).
+    const direct = renderMazeViewport(REAL_BLOCK, CASE_04_PARTY, ASSETS, {
+      capturedSpans: WALL_SPANS,
+    });
+    expect(direct.some((v) => v !== 0)).toBe(true);
+  });
+
+  it('the captured path CHANGES the render vs generation (case-26 junction)', () => {
+    // case-26 (4-way junction recess) is a byte-exact captured case whose spans
+    // DIFFER from the generation path. The captured render must therefore differ
+    // from the bare generation render — proving the captured spans were actually
+    // used (the lookup hit and fed opts.capturedSpans), not the corridor fallback.
+    const CASE_26: MazeParty = { gx: 126, gy: 122, z: 0, facing: 2 };
+    const case26 = WALL_SPANS.cases.find((c) => c.id === 'case-26')!;
+    expect(viewConfigKeyFor(REAL_BLOCK, CASE_26)).toBe(case26.configKey);
+    const captured = renderMazeViewport(REAL_BLOCK, CASE_26, ASSETS, {
+      capturedSpans: WALL_SPANS,
+    });
+    const generated = renderMazeViewport(REAL_BLOCK, CASE_26, ASSETS);
+    expect(captured.some((v) => v !== 0)).toBe(true);
+    expect(Buffer.from(captured).equals(Buffer.from(generated))).toBe(false);
   });
 });

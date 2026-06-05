@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readdirSync, writeFileSync, mkdirSync, copyFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { extractWfont } from '../extractors/extract-wfont.js';
 import { extractWfont4bpp } from '../extractors/extract-wfont-4bpp.js';
@@ -232,6 +232,27 @@ function extractOneType(
       io.write(
         `wrote ${extractedDir}/maze/assets.json (${assetsRaw.pieceDescriptors.length} piece descriptors)\n`,
       );
+      // Browser-ready copy of the Task-C2 captured wall spans (per-view-config
+      // engine-settled span lists). This is committed ground truth (captured via
+      // tools/libretro/capture-maze-wall-spans.ts, NOT derived from original/), so
+      // we COPY the fixture rather than regenerate it — keeping the browser-served
+      // /maze/wall-spans.json in lock-step with the parity gate's fixture.
+      const repoRoot = join(originalDir, '..');
+      const spansSrc = join(
+        repoRoot,
+        'tools',
+        'parity',
+        'fixtures',
+        'engine',
+        'maze-wall-spans.json',
+      );
+      const spansDst = join(extractedDir, 'maze', 'wall-spans.json');
+      if (existsSync(spansSrc)) {
+        copyFileSync(spansSrc, spansDst);
+        io.write(`wrote ${extractedDir}/maze/wall-spans.json (captured wall spans, Task C2)\n`);
+      } else {
+        io.write(`skip ${extractedDir}/maze/wall-spans.json (fixture not found at ${spansSrc})\n`);
+      }
       return;
     }
   }

@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { MAZE_VIEWPORT, type MazeRenderAssets } from '@wiz6/data';
-import { renderMazeViewport, turn, tryStepForward } from '@wiz6/parser';
+import {
+  renderMazeViewport,
+  turn,
+  tryStepForward,
+  type CapturedSpansTable,
+} from '@wiz6/parser';
 import { CanvasPresenter } from '../../lib/presenter.js';
-import { loadMazeAssets } from '../../data-loader.js';
+import { loadMazeAssets, loadMazeWallSpans } from '../../data-loader.js';
 import {
   readGameSession,
   updateParty,
@@ -32,9 +37,18 @@ const COMPOSED_PALETTE: readonly [number, number, number][] = [
  * On any error we return a blank (all-zero / black) viewport so the chrome still
  * presents and movement keeps working.
  */
-function safeRenderViewport(session: GameSession, assets: MazeRenderAssets): Uint8Array {
+function safeRenderViewport(
+  session: GameSession,
+  assets: MazeRenderAssets,
+  wallSpans: CapturedSpansTable | null,
+): Uint8Array {
   try {
-    return renderMazeViewport(session.level.mazeBlock, session.party, assets);
+    return renderMazeViewport(
+      session.level.mazeBlock,
+      session.party,
+      assets,
+      wallSpans ? { capturedSpans: wallSpans } : undefined,
+    );
   } catch (err) {
     console.warn('[MazeView] renderMazeViewport threw (unhandled view-case); rendering blank', err);
     return new Uint8Array(MAZE_VIEWPORT.w * MAZE_VIEWPORT.h);
@@ -47,9 +61,13 @@ function safeRenderViewport(session: GameSession, assets: MazeRenderAssets): Uin
  * is rendered over black (the floor/ceiling background page is Stage C); for the
  * walkable milestone walls-over-black is acceptable.
  */
-function composeFrame(session: GameSession, assets: MazeRenderAssets): Uint8Array {
+function composeFrame(
+  session: GameSession,
+  assets: MazeRenderAssets,
+  wallSpans: CapturedSpansTable | null,
+): Uint8Array {
   const frame = composeMazeFrame(); // static chrome + (static) viewport baseline
-  const vp = safeRenderViewport(session, assets);
+  const vp = safeRenderViewport(session, assets, wallSpans);
   const { x: vx, y: vy, w: vw, h: vh } = MAZE_VIEWPORT;
   for (let row = 0; row < vh; row++) {
     for (let col = 0; col < vw; col++) {
@@ -86,6 +104,7 @@ export function MazeView() {
   // the latest party without re-subscribing the listener every change.
   const sessionRef = useRef<GameSession | null>(null);
   const assetsRef = useRef<MazeRenderAssets | null>(null);
+  const wallSpansRef = useRef<CapturedSpansTable | null>(null);
   const presenterRef = useRef<CanvasPresenter | null>(null);
 
   // Mount: read session (redirect if absent) + load assets once.
@@ -99,6 +118,18 @@ export function MazeView() {
     sessionRef.current = session;
 
     let cancelled = false;
+    // Load the captured wall spans alongside the atlas. A failure here is
+    // non-fatal: the renderer falls back to the generation path (corridor) when
+    // no captured spans are available.
+    loadMazeWallSpans()
+      .then((spans) => {
+        if (cancelled) return;
+        wallSpansRef.current = spans;
+        present();
+      })
+      .catch((err: unknown) => {
+        console.warn('[MazeView] failed to load captured wall spans (falling back to generation):', err);
+      });
     loadMazeAssets()
       .then((a) => {
         if (cancelled) return;
@@ -120,7 +151,7 @@ export function MazeView() {
     const a = assetsRef.current;
     if (!canvas || !session || !a) return;
     if (!presenterRef.current) presenterRef.current = new CanvasPresenter(canvas);
-    const frame = composeFrame(session, a);
+    const frame = composeFrame(session, a, wallSpansRef.current);
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
   }
 

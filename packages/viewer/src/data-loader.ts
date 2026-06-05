@@ -11,7 +11,11 @@ import { MessageDbSchema, type MessageDb } from '@wiz6/data';
 import { NewgameDbSchema, type NewgameDb } from '@wiz6/data';
 import { ScenarioDbSchema, type ScenarioDb } from '@wiz6/data';
 import { DungeonLevelSchema, type DungeonLevel } from '@wiz6/data';
-import { decodeMazeAssets, type MazeAssetsRaw } from '@wiz6/parser';
+import {
+  decodeMazeAssets,
+  type MazeAssetsRaw,
+  type CapturedSpansTable,
+} from '@wiz6/parser';
 import { type MazeRenderAssets } from '@wiz6/data';
 
 export async function loadFont(url: string): Promise<Font> {
@@ -91,6 +95,22 @@ export async function loadMazeAssets(): Promise<MazeRenderAssets> {
   }
   const data = (await res.json()) as MazeAssetsRaw;
   return decodeMazeAssets(data);
+}
+
+/**
+ * Browser loader for the Task-C2 captured wall spans (per-view-config engine-
+ * settled span lists). Fetches the committed extracted/maze/wall-spans.json
+ * (served via Vite publicDir). Passed into renderMazeViewport as opts.capturedSpans
+ * so the live render shows the 15 byte-exact view-cases (best-efforts the rest).
+ * Loaded as-is — same shape as tools/parity/fixtures/engine/maze-wall-spans.json.
+ */
+export async function loadMazeWallSpans(): Promise<CapturedSpansTable> {
+  const url = '/maze/wall-spans.json';
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to load maze wall spans from ${url}: ${res.status}`);
+  }
+  return (await res.json()) as CapturedSpansTable;
 }
 
 export async function loadDungeonLevel(id: number): Promise<DungeonLevel> {

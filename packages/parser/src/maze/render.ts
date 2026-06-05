@@ -30,9 +30,10 @@ import type {
 import { classifyVisibleWalls } from './classify.js';
 import { deriveCorridorSpans } from './build.js';
 import { generateCallList } from './flush.js';
-import { renderFrameFromGeometry } from './compositor.js';
+import { renderFrameFromGeometry, type MazeSpan } from './compositor.js';
 import { composeBackground } from './background.js';
 import { decodePageIndex } from './page.js';
+import { viewConfigKeyFor } from './view-config.js';
 
 /**
  * Build the maze BACKGROUND page (floor/ceiling/side-panels/portcullis-window)
@@ -67,11 +68,53 @@ export function buildBackgroundPage(placements: BackgroundPlacement[]): Uint8Arr
  * @returns          Uint8Array of length 176*112, row-major palette indices 0..15,
  *                   cropped to MAZE_VIEWPORT (x=72, y=32, w=176, h=112).
  */
+/**
+ * Captured per-view wall spans (Task C2), keyed by view-config string. The live
+ * renderer prefers these (byte-exact for the 15 gated cases) over the generated
+ * corridor path. Shaped exactly like the committed
+ * tools/parity/fixtures/engine/maze-wall-spans.json (loaded as-is): one record
+ * per view-case with `configKey`, `depthBound`, and the engine's settled `spans`.
+ */
+export interface CapturedSpanCase {
+  id: string;
+  configKey: string;
+  depthBound: number;
+  spans: MazeSpan[];
+}
+export interface CapturedSpansTable {
+  cases: CapturedSpanCase[];
+}
+
 export interface RenderBackgroundOpts {
   /** A pre-filled 4-plane EGA page (4 * PLANE_STRIDE bytes). */
   page?: Uint8Array;
   /** Per-view OR-blit placement records (built into the background page). */
   placements?: BackgroundPlacement[];
+  /**
+   * Captured per-view wall spans (Task C2), keyed by view-config. When present
+   * AND the current (block, party) view-config matches a captured case, the
+   * renderer draws THOSE spans (byte-exact for the 15 gated cases) instead of the
+   * generated corridor path. A missing/partial case falls back gracefully to the
+   * generation path — never throws.
+   */
+  capturedSpans?: CapturedSpansTable;
+}
+
+/** Look up the captured case for a (block, party) view-config, or undefined.
+ *  Pure + total — never throws on a missing/malformed table. */
+function lookupCapturedCase(
+  table: CapturedSpansTable | undefined,
+  block: MazeBlock,
+  party: MazeParty,
+): CapturedSpanCase | undefined {
+  if (!table?.cases?.length) return undefined;
+  let key: string;
+  try {
+    key = viewConfigKeyFor(block, party);
+  } catch {
+    return undefined;
+  }
+  return table.cases.find((c) => c.configKey === key);
 }
 
 export function renderMazeViewport(
@@ -84,14 +127,23 @@ export function renderMazeViewport(
     opts instanceof Uint8Array ? { page: opts } : (opts ?? {});
   const page =
     o.page ?? (o.placements ? buildBackgroundPage(o.placements) : undefined);
-  // Stage 1: classify — per-depth solid-side flags
-  const sides = classifyVisibleWalls(block, party);
 
-  // Stage 2: build — span list from solid sides + seam tables
-  const spans = deriveCorridorSpans(sides, SEAM_X0_WT2, SEAM_X1_WT2);
-
-  // Stage 3: flush — compositor call-list from spans
-  const calls = generateCallList(spans);
+  // WALL PATH. Prefer the Task-C2 CAPTURED spans (byte-exact for the 15 gated
+  // view-cases) when this view-config matches a captured case; else fall back to
+  // the generated corridor path (byte-exact for the straight corridor only).
+  // Graceful: a missing/partial captured case never throws.
+  const captured = lookupCapturedCase(o.capturedSpans, block, party);
+  let calls;
+  if (captured) {
+    calls = generateCallList(captured.spans, captured.depthBound || 4);
+  } else {
+    // Stage 1: classify — per-depth solid-side flags
+    const sides = classifyVisibleWalls(block, party);
+    // Stage 2: build — span list from solid sides + seam tables
+    const spans = deriveCorridorSpans(sides, SEAM_X0_WT2, SEAM_X1_WT2);
+    // Stage 3: flush — compositor call-list from spans
+    calls = generateCallList(spans);
+  }
 
   // Stage 4: compositor — render wall pieces into a 4-plane EGA page
   const workPage = page ?? new Uint8Array(4 * PLANE_STRIDE);
