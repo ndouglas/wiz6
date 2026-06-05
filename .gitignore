@@ -1,6 +1,7 @@
 # Project layout
 /extracted/*
 !/extracted/font-sheets/
+!/extracted/maze/
 /.superpowers/
 
 # Build artifacts

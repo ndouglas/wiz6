@@ -362,6 +362,12 @@ export {
   CORRIDOR_CENTER_X,
 } from './maze/corridor-geometry.js';
 export {
+  DungeonEntranceSchema,
+  DungeonLevelSchema,
+  type DungeonEntrance,
+  type DungeonLevel,
+} from './maze/level-schema.js';
+export {
   PartySchema,
   CellWallsSchema,
   MazeCellWallsSchema,

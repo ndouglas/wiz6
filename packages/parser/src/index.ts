@@ -35,6 +35,18 @@ export { renderEgaScreen } from './formats/ega-screen-render.js';
 
 // Maze renderer pipeline
 export { renderMazeViewport } from './maze/render.js';
+// Dungeon level loader (reads committed extracted/maze/level-<id>.json)
+export { loadDungeonLevel } from './maze/level.js';
+// Maze block decoder (pure — I/O-free; used by the CLI extractor + parity tools)
+export {
+  decodeMazeBlock,
+  getBits,
+  MB,
+  MAZE_BANK,
+  REGIONS,
+  CELLS_PER_REGION,
+  TOTAL_CELLS,
+} from './maze/maze-block.js';
 export { EGA_FILE_INDEX_PERMUTATION } from './formats/ega-permutation.js';
 export {
   encodeSave,

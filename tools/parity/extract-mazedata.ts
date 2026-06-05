@@ -45,79 +45,24 @@
  * 0/1 (and 14/15). The general per-level record map (whether higher levels reuse
  * the same record-0 layout or live in other records) is UNVERIFIED without a
  * second-level oracle — flagged for follow-up when a deeper-level state exists.
+ *
+ * NOTE (DRY): the pure decoder (decodeMazeBlock / getBits / constants) now lives
+ * in packages/parser/src/maze/maze-block.ts and is re-exported from @wiz6/parser.
+ * This file keeps the file-I/O wrapper (loadAssetDb / decodeAsset) local to the
+ * parity tooling and re-exports the pure decoder for the validate script.
  */
 import { resolve } from 'node:path';
 import { loadAssetDb, decodeAsset, type AssetDb } from './decode-asset.js';
+import {
+  decodeMazeBlock,
+  MAZE_BANK,
+  CELLS_PER_REGION,
+  TOTAL_CELLS,
+} from '../../packages/parser/src/maze/maze-block.js';
+import type { MazeBlock, MazeBlockCell } from '../../packages/data/src/index.js';
 
-/** One cell of a region plane (the five engine sub-table fields). */
-export interface MazeBlockCell {
-  north: number; // 0..3 (2-bit)
-  west: number; // 0..3
-  special4: number; // 0..15 (4-bit)
-  orient2: number; // 0..3
-  pit: number; // 0..1
-}
-
-/** The full per-level maze block (region tables + 12 × 64-cell planes). */
-export interface MazeBlock {
-  gxBase: number[]; // 12 entries (maze_ptr+0x1e0)
-  gyBase: number[]; // 12 entries (maze_ptr+0x1ec)
-  regions: MazeBlockCell[][]; // regions[r][cellA*8 + cellB], 12 × 64
-}
-
-/** maze_block sub-table byte offsets (within the 1346-byte record). */
-const MB = {
-  north: 0x60,
-  west: 0x120,
-  special4: 0x1f8,
-  orient2: 0x378,
-  pit: 0x43a,
-  gxBase: 0x1e0,
-  gyBase: 0x1ec,
-} as const;
-
-const MAZE_BANK = 2;
-const REGIONS = 12;
-const CELLS_PER_REGION = 64;
-const TOTAL_CELLS = REGIONS * CELLS_PER_REGION; // 768
-
-/**
- * Read an `nbits`-wide field for `cell`, MSB-first, from the contiguous bit-plane
- * starting at `base` in the record. (Matches every maze-*-probe.ts getBits + the
- * engine's 3/4-bit field readers.)
- */
-function getBits(buf: Uint8Array, base: number, cell: number, nbits: number): number {
-  const bitOff = cell * nbits;
-  let v = 0;
-  for (let i = 0; i < nbits; i++) {
-    const b = bitOff + i;
-    const byte = buf[base + (b >> 3)] ?? 0;
-    v = (v << 1) | ((byte >> (7 - (b & 7))) & 1);
-  }
-  return v;
-}
-
-/** Decode a verbatim 1346-byte maze-definition record into a MazeBlock. */
-export function decodeMazeBlock(record: Uint8Array): MazeBlock {
-  const gxBase = Array.from(record.slice(MB.gxBase, MB.gxBase + REGIONS));
-  const gyBase = Array.from(record.slice(MB.gyBase, MB.gyBase + REGIONS));
-  const regions: MazeBlockCell[][] = [];
-  for (let r = 0; r < REGIONS; r++) {
-    const cells: MazeBlockCell[] = [];
-    for (let i = 0; i < CELLS_PER_REGION; i++) {
-      const cell = r * CELLS_PER_REGION + i;
-      cells.push({
-        north: getBits(record, MB.north, cell, 2),
-        west: getBits(record, MB.west, cell, 2),
-        special4: getBits(record, MB.special4, cell, 4),
-        orient2: getBits(record, MB.orient2, cell, 2),
-        pit: getBits(record, MB.pit, cell, 1),
-      });
-    }
-    regions.push(cells);
-  }
-  return { gxBase, gyBase, regions };
-}
+export type { MazeBlock, MazeBlockCell };
+export { decodeMazeBlock };
 
 /**
  * Extract a dungeon level's cell map from the on-disk game files (no emulator).
@@ -128,8 +73,6 @@ export function extractMazeLevel(levelId: number, db?: AssetDb): MazeBlock {
   const record = decodeAsset(assets, MAZE_BANK, levelId);
   return decodeMazeBlock(record);
 }
-
-export { MB, MAZE_BANK, REGIONS, CELLS_PER_REGION, TOTAL_CELLS, getBits };
 
 if (process.argv[1]?.endsWith('extract-mazedata.ts')) {
   const dir = process.argv[3] ?? 'test-fixtures/original';

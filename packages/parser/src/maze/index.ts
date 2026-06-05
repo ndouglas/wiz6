@@ -35,6 +35,20 @@ export {
   composeBackgroundFromAsset,
 } from './callist.js';
 
+// Dungeon level loader (reads committed extracted/maze/level-<id>.json)
+export { loadDungeonLevel } from './level.js';
+
+// Maze block decoder (pure, no I/O)
+export {
+  decodeMazeBlock,
+  getBits,
+  MB,
+  MAZE_BANK,
+  REGIONS,
+  CELLS_PER_REGION,
+  TOTAL_CELLS,
+} from './maze-block.js';
+
 // Shared types
 export type { MazeSpan, CompositorCall } from './compositor.js';
 export type { MazeWorkBuffer, MazeImageDesc, MazePlacement } from './maze-data.js';

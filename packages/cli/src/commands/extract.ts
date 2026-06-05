@@ -12,6 +12,7 @@ import { extractPcfile } from '../extractors/extract-pcfile.js';
 import { extractPic } from '../extractors/extract-pic.js';
 import { extractSnd } from '../extractors/extract-snd.js';
 import { extractDocs } from '../extractors/extract-docs.js';
+import { extractMazeLevel } from '../extractors/maze-level.js';
 import { resolveOriginalDir } from '../lib/loaders.js';
 import type { CliIO } from '../index.js';
 
@@ -30,7 +31,8 @@ type TypeName =
   | 'pcfile'
   | 'pics'
   | 'sounds'
-  | 'docs';
+  | 'docs'
+  | 'maze-levels';
 const ALL_TYPES: TypeName[] = [
   'fonts',
   'portraits',
@@ -42,6 +44,7 @@ const ALL_TYPES: TypeName[] = [
   'pics',
   'sounds',
   'docs',
+  'maze-levels',
 ];
 
 const USAGE = `usage: wiz6 extract <type|--all> [flags]
@@ -57,6 +60,7 @@ types:
   pics         mon00-mon58 + credits.pic (full decode, per-descriptor PNGs + contact sheet)
   sounds       sound00-sound38.snd (raw bytes + decoded metadata JSON)
   docs         copy docs/**/*.md into extracted/docs/ with a manifest
+  maze-levels  dungeon levels (level-0.json) from scenario.dbs bank 2
   --all        extract all of the above
 
 flags:
@@ -201,6 +205,22 @@ function extractOneType(
         outputDir: join(extractedDir, 'docs'),
       });
       io.write(`wrote ${extractedDir}/docs/manifest.json (${manifest.entries.length} markdown files)\n`);
+      return;
+    }
+    case 'maze-levels': {
+      // Level 0 = the starting dungeon (zone 0). More levels added as RE progresses.
+      const level = extractMazeLevel({
+        originalDir,
+        outputPath: join(extractedDir, 'maze', 'level-0.json'),
+        levelId: 0,
+      });
+      let nz = 0;
+      for (const region of level.mazeBlock.regions)
+        for (const c of region)
+          if (c.north || c.west || c.special4 || c.orient2 || c.pit) nz++;
+      io.write(
+        `wrote ${extractedDir}/maze/level-0.json (${level.mazeBlock.regions.length} regions, ${nz} non-empty cells)\n`,
+      );
       return;
     }
   }
