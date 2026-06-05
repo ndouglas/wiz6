@@ -1,0 +1,92 @@
+{
+  "topic": "maze-background-fromasset",
+  "subagent_run": "2026-06-04 (land the FIRST 100% full-viewport byte-exact maze gate; attempt the deterministic from-on-disk-asset background route)",
+  "binaries": ["ega.drv", "wmaze.ovr", "wroot.exe", "dosbox_pure_libretro.dylib"],
+  "status": "GATE LANDED (the first 100% full-viewport byte-exact maze gate) via the engine's OWN committed OR-blit page. The from-on-disk-asset placement-generator route was attempted and is RE-CONFIRMED BLOCKED with new independent evidence: the placement/descriptor tables are TRANSIENT (caller-populated at OR-blit invocation, NOT persisted in the settled state), and no resident ega.drv copy on the nightly core carries the relocated table pointers.",
+  "reference_frame": {
+    "name": "maze-corridor",
+    "fixture": "tools/parity/fixtures/engine/maze-corridor.idx.gz (320x200 raw-EGA-index full screen)",
+    "game_state": 5, "facing": 0, "z": 0, "gx": 127, "gy": 121,
+    "viewport": "x72..247 (w176) y32..143 (h112)",
+    "view": "stone corridor receding to the central green portcullis window; dithered grey ceiling+floor+side panels. ZERO wt=2 wall REPLACE spans (pure OR-blit background) — so reproducing the background IS the entire viewport."
+  },
+  "findings": [
+    {
+      "id": "committed-state-renders-deterministically-on-nightly",
+      "claim": "The committed serialize-state tools/libretro/states/maze-corridor.state loads on the NIGHTLY (unpatched) dosbox-pure core and renders the maze-corridor frame deterministically: live `fb` (decoded through COMPOSED_PALETTE) vs the committed maze-corridor.idx.gz = 99.998% full-screen / 99.995% viewport (1 px diff = the documented window-center blink-phase residual). game_state=5 facing=0 gx=127 gy=121 read at DGROUP — exactly the committed frame.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "live_fb_plus_pixel_match",
+        "details": "tools/libretro/maze-corridor-page.ts: unserialize states/maze-corridor.state, step 2, anchor DGROUP base=0xffa0, read game_state(0x363a)=5 facing(0x4f9a)=0 gx(0x4fa4)=127 gy(0x4fa2)=121. fb decoded via inverse COMPOSED_PALETTE: 63999/64000 full, 19711/19712 viewport. Viewport idx hist {0:4005,1:743,5:4,8:6699,9:8179,10:79,13:3} matches the committed oracle hist {0:4005,1:743,5:5,8:6698,9:8179,10:79,13:3} (off by 1 px, the blink residual)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "engine-compose-page-readable-and-byte-exact",
+      "claim": "The engine's 4-plane EGA compose page is readable from the SETTLED maze-corridor.state at guest-phys 0x3ffc0 (page segment 0x3ffc), and its viewport decode (uniform 40 B/row, plane stride 0x2000, the offset-preserving page->screen map) is 100.000% byte-exact vs the committed oracle viewport. The base 0x3ffc0 is STABLE across unserialize runs (re-confirmed). The full-screen decode is only 55.66% because the page does NOT hold the static UI chrome (rows 0..31 banner, 144..199 chrome, x0..71/x248..319 side panels) — only the 3D viewport is composed into the page; the chrome is separate VRAM. So the page IS the full viewport, byte-exact, and is the engine's actual OR-blit output for this PURE-BACKGROUND frame.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "live_read_plus_pixel_match",
+        "details": "tools/libretro/maze-corridor-find-page.ts: scan RAM 0x10000..0x97000 in 0x40-stepped candidate page bases, score each base's 4-plane viewport decode vs the oracle. BEST base = 0x3ffc0 @ 100.000% (next-best ~26%). Committed gz+base64 as packages/parser/src/maze/__fixtures__/maze-corridor-background.json (0x8000-byte page). Decode of the committed fixture: viewport 19712/19712 = 100.000%, full-screen 35623/64000 = 55.66% (chrome not in page)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "placement-tables-are-transient-not-persisted",
+      "claim": "The OR-blit placement table (cs:[0x190]) + image-descriptor table (cs:[0x18e]) + the source-segment pointers (cs:[0x149]/cs:[0x14d]) are NOT recoverable from the SETTLED maze-corridor.state on the nightly core. They are caller-populated at OR-blit invocation and not persisted. The resident ega.drv OR-blit code copy (located by the OR-store signature AC 26 0A 05 AA at file 0xb2d, reloc base 0x6a1b0) holds its cs:[0x149]=0x1ded / cs:[0x14d]=0x3ddd / cs:[0x18e]=0xbf3f / cs:[0x190]=0xff7f data words at EXACTLY the RAW (unrelocated) disk-file values — so reading the placement table at (0x1ded<<4)+0xff7f yields garbage records (img=255, segDelta pointing to unmapped segments). CONCLUSIVE: scanning ALL OR-store sig copies in RAM, NONE carries the page-segment fingerprint cs:[0x14d]==0x3ffc (the actual page seg) — so no resident relocated copy exposes the real tables. The page seg is set into es by the caller, not via the in-image cs:[0x14d].",
+      "category": "tooling",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0x14d"},
+        "type": "live_scan_plus_disasm",
+        "details": "ndisasm of ega.drv 0xaa9..0xb40 confirms the walk reads add ax,[cs:0x190] (placement), [cs:0x14d]->es (page seg), [cs:0x149]->ds (src), add ax,[cs:0x18e] (imgdesc). tools/libretro/maze-corridor-scan.ts: 4 sig hits 0x6acdd/0x6acf1/0x6ad08/0x6ad21 = the 4 plane-store loops of ONE code body (deltas 0,0x14,0x2b,0x44 match file plane loops 0xb2d/0xb41/0xb58/0xb71). tools/libretro/maze-corridor-find-tables.ts: for all 13 candidate bases, cs:[0x14d] ∈ {0x3ddd,0x15e5,0x8909,...} — NONE == 0x3ffc (page seg). tools/libretro/maze-corridor-dump-tables.ts: replaying the walk from the raw-derived table gives nonsense placements (segDelta 0x4c0a, srcOff 0x9801, w 152 h 174; src seg reads unmapped at 0xa5ed0)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "from-asset-route-multi-problem-not-remaining-step",
+      "claim": "The from-on-disk-asset background generator is a MULTI-PROBLEM RE effort, not a single remaining deterministic step. Three things are uncracked: (1) the placement/descriptor TABLES are transient (above) — recoverable only by tracing the live OR-blit, which needs the patched core, which CANNOT unserialize the committed gy=121 state (DBPSerialize_CPU divergence -> err unser, re-confirmed across passes); (2) the on-disk floor (id 1346)/ceiling (id 1740)/window assets are wroot asset-DB images loaded via the disk.hdr-keyed asset/decompress loader — that load+decompress path is NOT reversed and there is NO by-id asset decoder in @wiz6/parser (only .pic / wfont / etc.); (3) the asset-block -> 4-plane work-buffer layout mapping the descriptor table indexes into is UNRESOLVED (wmaze-texture-rasterizer.json / maze-floor-ceiling-decoder.json remaining_for_integration). The prior pass's 99.93% same-run pair was captured on the PATCHED core at a DIFFERENT fresh-drive frame (gy=118), not the committed gy=121 state on the nightly. So the task premise 'read the static placement table on the nightly core (the prior pass read it)' does not hold for THIS committed frame — the table is not static and not on the nightly.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "disasm_plus_findings_crossref",
+        "details": "Cross-ref maze-background-integration.json (full-viewport-gate-blocked-frame-mismatch: patched core err unser on committed state; fresh drive lands gy=118 not gy=121) + maze-floor-ceiling-decoder.json (source-is-per-group-work-buffer-redecoded: the OR-blit source is a transient work buffer re-decoded per image group; settled reads are stale) + maze-texture-decode.json (the floor/ceiling are wroot asset-DB ids decompressed at load; no by-id decoder). The placement table read on the nightly settled state is garbage (placement-tables-are-transient-not-persisted)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "first-full-viewport-gate-landed",
+      "claim": "LANDED the first 100% full-viewport byte-exact maze GATE: packages/parser/tests/maze/maze-corridor-viewport-parity.test.ts (a .test.ts, runs in default CI). It renders the maze-corridor viewport via renderMazeViewport(block, party, assets, {page}) where `page` is the engine's committed OR-blit background page (loadMazeCorridorBackgroundPage, the deterministic engine-sourced fixture) and asserts 176*112 = 19712/19712 px byte-exact (tolerance 0) vs the committed oracle viewport. A third sub-test confirms the frame is pure background (the wall compositor adds nothing on top — renderMazeViewport output == the independent page decode). This gates the END-TO-END pipeline (background page -> wall compositor -> decodePageIndex -> viewport crop -> palette) byte-exact, from a committed engine-sourced background. The composeBackground walk algorithm itself remains independently gated byte-exact by background.test.ts + the engine 99.93% same-run pair (maze-floor-ceiling-parity.test.ts).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "offline_test_plus_pixel_match",
+        "details": "Parser: loadMazeCorridorBackgroundPage() (src/maze/assets.ts) gunzips the committed __fixtures__/maze-corridor-background.json page; renderMazeViewport({page}) -> 19712/19712 vs maze-corridor.idx.gz viewport crop. vitest: 3 tests pass. Fixture provenance: read from states/maze-corridor.state @ 0x3ffc0 by tools/libretro/maze-corridor-find-page.ts (base stable, viewport 100.000%)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "remaining_work_plan_ordered": [
+    "1. (the deferred from-asset route) Reverse the wroot disk.hdr-keyed asset/decompress loader to decode floor id 1346 / ceiling id 1740 / window assets by id into the 4-plane planar work-buffer the descriptor table indexes. No by-id decoder exists yet.",
+    "2. Obtain the per-view placement/descriptor table for the committed frame. Either (a) bridge the patched/nightly serialize formats (DBPSerialize_CPU) so the patched trace core can load the committed gy=121 state and trace the live OR-blit (the only way to read the transient cs:[0x190]/cs:[0x18e] for this frame), or (b) RE the per-view selection so the placement list is GENERATED from (zone, facing, geometry) like the wall span generator.",
+    "3. With 1+2: composeBackground(decoded-on-disk-assets, generated-placements) rebuilds the page WITHOUT the committed engine page; promote the gate to assert ours==page (the page becomes a cross-check, not the input).",
+    "4. Generalize to the lookback (facing 2) + turn-left frames (wall + background) and wire the background into the viewer (T12)."
+  ],
+  "unresolved": [
+    "The transient OR-blit placement/descriptor tables for the committed gy=121 frame (need the patched-core trace, blocked by the serialize-format mismatch — OR a from-geometry placement generator).",
+    "The wroot asset-DB by-id load+decompress (floor 1346 / ceiling 1740 / window) — no by-id decoder exists.",
+    "The asset-block -> 4-plane work-buffer layout mapping (the descriptor srcOff/segDelta indexing).",
+    "Facing-2/3 wall + background frames (lookback) and the viewer integration."
+  ],
+  "artifacts": [
+    "packages/parser/tests/maze/maze-corridor-viewport-parity.test.ts — the first 100% full-viewport byte-exact GATE (default CI).",
+    "packages/parser/src/maze/assets.ts loadMazeCorridorBackgroundPage() — the deterministic engine-sourced background page loader.",
+    "packages/parser/src/maze/__fixtures__/maze-corridor-background.json — the committed engine OR-blit page (gz+base64, read from states/maze-corridor.state @ 0x3ffc0).",
+    "tools/libretro/maze-corridor-find-page.ts — locate + verify the compose page in the settled state (base 0x3ffc0, 100.000%).",
+    "tools/libretro/maze-corridor-page.ts — live fb vs oracle (99.998% determinism check).",
+    "tools/libretro/maze-corridor-{scan,find-tables,dump-tables,tables,recompose}.ts — the placement-table recovery attempts (proving the tables are transient on the nightly settled state)."
+  ],
+  "caveat_for_prior_findings": "CONFIRMS maze-background-integration.json's full-viewport-gate-blocked-frame-mismatch and per-view-placement-generalization-next-task, and ADDS the decisive negative: the placement/descriptor tables are TRANSIENT — caller-populated at OR-blit invocation and NOT persisted in the settled state, so they are NOT readable on the nightly core for the committed frame (no resident ega.drv copy carries the relocated table pointers / page-seg fingerprint). The task framing's assumption that the placement table is 'static / readable on nightly (the prior pass read it)' is WRONG for the committed gy=121 frame — the prior 99.93% read was a patched-core trace at a different fresh-drive frame (gy=118). The first full-viewport gate is landed deterministically from the engine's OWN committed compose page; the from-on-disk-asset generator remains genuinely blocked (3 uncracked sub-problems)."
+}

@@ -1,7 +1,16 @@
 /**
  * maze-lookback-parity.diagnostic.test.ts — full-viewport parity DIAGNOSTIC for
- * the lookback frame (facing 2). This is the intended home of the first
- * full-viewport byte-exact maze gate (T11a), but the gate is NOT yet attainable.
+ * the lookback frame (facing 2).
+ *
+ * NOTE (2026-06-04): the FIRST 100% full-viewport byte-exact maze gate has LANDED
+ * for the maze-corridor frame (facing 0, pure background) — see
+ * packages/parser/tests/maze/maze-corridor-viewport-parity.test.ts (it renders the
+ * full viewport byte-exact from the engine's committed OR-blit background page). The
+ * LOOKBACK frame below remains a DIAGNOSTIC because it additionally needs the
+ * facing-2 WALL emission on top of the background, and its background page is not yet
+ * committed. This file stays the intended home of the lookback gate (T11a).
+ *
+ * (Original note retained:) the gate is NOT yet attainable FOR LOOKBACK.
  * It is a `.diagnostic.test.ts` (informational, excluded from default CI) — NOT a
  * gate — because the lookback viewport cannot yet be rendered byte-exact:
  *
