@@ -15,7 +15,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { decodeMazeBlock, MAZE_BANK } from '@wiz6/parser';
-import { DungeonLevelSchema, type DungeonLevel } from '@wiz6/data';
+import { DungeonLevelSchema, type DungeonLevel, type ScriptedEntry } from '@wiz6/data';
 import { loadAssetDb, decodeAsset } from '../lib/asset-db.js';
 
 export interface ExtractMazeLevelOpts {
@@ -41,10 +41,24 @@ export function extractMazeLevel(opts: ExtractMazeLevelOpts): DungeonLevel {
   };
   const entrance = KNOWN_ENTRANCES[opts.levelId] ?? { gx: 0, gy: 0, z: 0, facing: 0 };
 
+  // Level-0 scripted entry: OUTER GATE (gy=118) → 3-line narration → 3 ENTER-steps → free (gy=121).
+  // narrationMsgIds: placeholder IDs pending message-db RE; bumpMsgId: similarly TBD.
+  // These IDs are intentional stubs for Task 1 — the reducer (Task 2) will use them.
+  const KNOWN_SCRIPTED_ENTRIES: Record<number, ScriptedEntry> = {
+    0: {
+      start: { gx: 127, gy: 118, z: 0, facing: 0 },
+      steps: 3,
+      narrationMsgIds: [10010, 10011, 10012],
+      bumpMsgId: 10020,
+    },
+  };
+  const scriptedEntry = KNOWN_SCRIPTED_ENTRIES[opts.levelId];
+
   const level: DungeonLevel = DungeonLevelSchema.parse({
     id: opts.levelId,
     entrance,
     mazeBlock,
+    ...(scriptedEntry !== undefined ? { scriptedEntry } : {}),
   });
 
   mkdirSync(dirname(opts.outputPath), { recursive: true });

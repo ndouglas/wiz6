@@ -363,8 +363,10 @@ export {
 } from './maze/corridor-geometry.js';
 export {
   DungeonEntranceSchema,
+  ScriptedEntrySchema,
   DungeonLevelSchema,
   type DungeonEntrance,
+  type ScriptedEntry,
   type DungeonLevel,
 } from './maze/level-schema.js';
 export {

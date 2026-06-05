@@ -5437,5 +5437,20 @@
         }
       ]
     ]
+  },
+  "scriptedEntry": {
+    "start": {
+      "gx": 127,
+      "gy": 118,
+      "z": 0,
+      "facing": 0
+    },
+    "steps": 3,
+    "narrationMsgIds": [
+      10010,
+      10011,
+      10012
+    ],
+    "bumpMsgId": 10020
   }
 }
