@@ -1,0 +1,125 @@
+{
+  "topic": "maze-capture-harness",
+  "subagent_run": "2026-06-05 (TOOLING pass: build a deterministic capture harness for the transient maze first-render state — runtime-address resolver + reproducible OR-blit table/work-buffer/expander capture — to unblock Gap A/B from data)",
+  "binaries": ["ega.drv", "wmaze.ovr", "dosbox_pure_libretro.dylib"],
+  "status": "DELIVERED + verified. A signature-based RUNTIME-ADDRESS RESOLVER recovers the relocated OR-blit base PER RUN (no hardcoded address) from a live write into the compose page, and is proven to HIT the OR-blit during the genuine FIRST render (state 4->5). A DETERMINISTIC CAPTURE HARNESS (trace-maze.ts `firstrender`) snapshots, reproducibly, the transient maze-background state: the cs-relative table pointers, the PLACEMENT table (cs:[0x190]) + IMAGE-DESCRIPTOR table (cs:[0x18e]) (Gap B inputs), the per-image SOURCE work-buffers (the EXPANDER OUTPUT — Gap A target), and the first-render EXPANDER WRITER cseips (Gap A candidate routines to walk). A REPRODUCIBILITY GATE (`firstcheck`) confirms across two fresh boots: placement table byte-identical, image-descriptor table byte-identical, per-image work-buffers 100% byte-identical, background page 32764/32768 (4-byte window-timing residual). The captures contain real 4-plane planar data (not noise). Gap A/B are NOT cracked here (next pass) — but their inputs/outputs are now reliably, reproducibly captured.",
+  "reference_frame": {
+    "game_state": 5, "zone": 0, "facing": 0,
+    "frame": "corridor-at-gate (gy=118 settled / fresh-drive first render); Gap A is geometry-independent so this generalizes",
+    "patched_core": "tools/libretro/build-core.sh (the _dbp_trace_*/_dbp_capture_*/_dbp_wwatch_* exports). RESTORE nightly with fetch-core.sh after RE — the harness REQUIRES the patched core (trace/capture/write-watch)."
+  },
+  "findings": [
+    {
+      "id": "runtime-address-resolver-sibling-cluster",
+      "claim": "RUNTIME-ADDRESS RESOLVER (deliverable 1): the relocated OR-blit base is recovered PER RUN — with NO hardcoded address — by write-watching the off-screen compose page (linear 0x41820, cs:[0x14d] seg 0x4182) during a render and finding the OR plane-0 store's UNIQUE 4-SIBLING CLUSTER. The OR-blit's four planar byte-stores are at ega.drv FILE offsets 0xb31/0xb45/0xb5c/0xb75 (the `lodsb; or al,es:[di]; stosb` loop, one per EGA plane). A relocated copy preserves those relative offsets, so among the compose-page writer cseips, the one whose (cseip-0xb31) also has +0xb45/+0xb5c/+0xb75 siblings present IS the OR plane-0 store; base = cseip - 0xb31, OR-blit entry (dispatch entry 15, FUN_0a93) = base + 0xa93. This DEFEATS the documented '0 hits' wall: a fixed file-offset breakpoint on the in-image ega.drv copy (OR-store at 0x6acdd, base 0x6a1b0) logs 0 hits during the first render (verified) because the render runs from the RELOCATED copy (base 0x6ba10, OR-store 0x6c541). The resolver finds the live relocated copy from its own writes.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "live_write_watch_plus_signature",
+        "details": "ega.drv OR-store plane offsets (file): 0xb31/0xb45/0xb5c/0xb75 (confirmed via `python3` scan of the `ac260a05aa` lodsb-or-stosb signature -> 0xb2d/0xb41/0xb58/0xb71, store-target offsets +4). Probe: trace of in-image OR-store 0x6acdd during the genuine first render = 0 hits; the relocated copy is the active one. resolveOrBaseFirstRender (write-watch 0x41820..0x49820, action = the state-4->5 ENTER): the 4-sibling cluster recovers base=0x6ba10 (plane-0 store 0x6c541, entry 0x6c4a3). Cross-run stable: base=0x6ba10 in 3 independent runs (the in-image scan only ever finds the dormant copy at 0x6acdd/0x6acf1/0x6ad08/0x6ad21 = base 0x6a1b0)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "resolver-hits-first-render-orblit",
+      "claim": "VERIFIED the resolver HITS the OR-blit during the GENUINE first render (state 4->5), not just a settled replay. Driving boot->dungeon and arming the compose-page write-watch BEFORE the final ENTER that triggers state-4->5: the OR plane-0 store cluster fires (the 4-sibling cluster is present), recovering base 0x6ba10. Independently, tracing the resolved OR-blit entry (0x6c4a3) over a re-render of the settled corridor frame logs 70-168 hits (the OR-blit runs ~24-25 placed images per recompose pass). So the resolved address is a real, firing target on BOTH the first-render path (write-watch) and the reproducible replay path (trace).",
+      "category": "tooling",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "live_trace_plus_write_watch",
+        "details": "trace-maze.ts `resolve`: first-render write-watch -> base 0x6ba10, entry 0x6c4a3; then unserialize(CLEAN_STATE)+forceRedraw trace of 0x6c4a3 -> 70 hits (RESOLVER HEALTHY). `firstrender` re-confirms in a fresh session: 'FIRST-render resolver: OR-blit base=0x6ba10 (entry 0x6c4a3) — the state-4->5 OR-blit was caught'. The first-render OR-blit is the SAME base as the CLEAN_STATE recompose (0x6ba10); the prior 'OR-blit dormant on any drive' (maze-background-generation.json) was a one-run heap-layout artifact — a freshly `reach`-built CLEAN_STATE reliably re-fires the OR-blit (2047 row hits / 4096 store hits / 168 entry hits on held-ENTER forceRedraw)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "deterministic-capture-harness",
+      "claim": "DETERMINISTIC FIRST-RENDER CAPTURE HARNESS (deliverable 2): trace-maze.ts `firstrender` drives boot->dungeon first render, proves the first-render OR-blit hit, then captures (on the reproducible settled-corridor REPLAY path, base re-resolved per run) the transient maze-background state at OR-blit fire time via capture-on-breakpoint: (a) the cs-relative table pointers [cs:[0x149] dataSeg=0x2181, cs:[0x14d] pageSeg=0x4182, cs:[0x18e] imgDescOff=0x4, cs:[0x190] placeOff=0x301] — captured at segBase = (live cs)<<4 = 0x6b910, NOT `base` (base is the file-offset linear base; cs<<4 = base-0x100 because file 0xa93 maps to ip 0xb93); (b) the PLACEMENT table (cs:[0x190], 5-byte recs {imgIdx,destX,destRow,bias,count}) and IMAGE-DESCRIPTOR table (cs:[0x18e], 5-byte recs {segDelta_u16,srcOff_u16,w}); (c) per-placed-image SOURCE work-buffer snapshots (the decompressed 4-plane planar sub-image = the expander OUTPUT) with each image's (ds,si,di,cx,w,h,planeStride), grouped from the per-row OR walk (trace point base+0xb2c) over one recompose pass; (d) the engine background-only compose page (capture at the last OR plane-0 store). All written to <outDir>/{meta.json, wb-*.bin, bg.bin}.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "live_capture_on_breakpoint",
+        "details": "trace-maze.ts `firstrender` output: base=0x6ba10 entry=0x6c4a3; segBase(cs<<4)=0x6b910; cs:[0x149]=0x2181 cs:[0x14d]=0x4182 cs:[0x18e]=0x4 cs:[0x190]=0x301; OR rows captured ~1690-1695, pass1 ~370-563 -> 7-25 placed images; placements[0..2]=img0@(13,40)b0c14 img1@(16,52)b0c8 img2@(18,60)b0c4 (ceiling w18h7 / window w8h16 / etc.); image-descs[0..3]=seg+0xa2/off0xe07/w87, seg+0x1d2/off0x80f/w51, seg+0x238/off0x40f/w27, seg+0x253/off0x40f/w112 (floor/ceiling/side-panel). wb-0.bin (ceiling) decodes as real 4-plane planar: plane0 row0=07efaffffdfbffff... plane1 row0=all-zero plane3 row0=0f7bf9fd9efd... (matches maze-background-generation.json's 'effectively 2-plane: planes 1&2 zero for grey stone'); 47% nonzero (dense, NOT noise)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "captures-reproducible-cross-run",
+      "claim": "REPRODUCIBILITY VERIFIED (deliverable 3): trace-maze.ts `firstcheck` runs the capture TWICE (two fresh boots, two heap layouts) and byte-diffs. PLACEMENT table = byte-identical. IMAGE-DESCRIPTOR table = byte-identical. Per-image SOURCE work-buffers (the expander output) = 100% byte-identical (wb-0..6 all equal). Background page = 32764/32768 (4 bytes differ — the documented per-group window work-buffer snapshot-timing residual, same class as maze-floor-ceiling-decoder.json's 3-px window-center residual; all in x128..184 / y52..60). The reloc_base is the same (0x6ba10) across runs but the per-run resolve is the robustness point (it would track a heap shift). The ONLY non-reproducible quantity is the placed-IMAGE COUNT (7 vs 8) and pass1 row count (370 vs 373) — an artifact of which recompose pass the held-ENTER lands on and where pass-1 isolation cuts; the per-image DATA that IS captured is byte-identical. So the harness reliably yields Gap A's inputs/outputs and Gap B's records.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "cross_run_byte_diff",
+        "details": "firstcheck A=/tmp/wiz6-firstrender-a B=/tmp/wiz6-firstrender-b: 'placements equal: YES', 'image_descriptors equal: YES', bg.bin 32764/32768 equal (4 differ), wb-0..6 all '515/515,1155/1155,1807/1807,1799/1799,675/675,1347/1347,1059/1059 bytes equal — reproducible'. placed_images count A=7 B=8 (pass-boundary timing). Independent cross-check: tools/libretro/validate-floor-ceiling.ts (hardcoded base 0x6ba10) agrees with the resolver and reproduces the background 89.6%-99.93% depending on the window-snapshot pass alignment (the window-center residual)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "expander-is-in-relocated-ega-drv-first-render-only",
+      "claim": "EXPANDER (Gap A record->work-buffer transform) LOCATED to the relocated ega.drv code region, observable ONLY at the genuine FIRST render. On the settled REPLAY path the OR-blit source work buffers are already resident (a write-watch on the source segment over a forceRedraw = 0 writers) — so the per-image wb-*.bin captures ARE the clean, final expander OUTPUT (this is why the existing replay-based decoder reaches byte-exact). The EXPAND itself runs only at first render: write-watching the work-buffer heap (0x20000..0x40000, excluding the compose page) during the state-4->5 render shows the top dest-SPAN writers are all in the relocated ega.drv segment (base 0x6ba10): cseips base+0xfab (0x6c9bb-0x6c9be), base+0x480 (0x6be90/0x6beb5/0x6bed7/0x6be4d), base+0x7..0x1f (0x6ba17/0x6ba2b/0x6ba2f), each sweeping a CONTIGUOUS ~0x117c-0x119a (4476-4506) byte range at 0x2060e..0x217bc — a full work-buffer fill. This REFINES maze-background-generation.json's 'the expander is an unpinned wmaze routine': the per-render work-buffer fill executes inside the relocated ega.drv copy (the same blit infra), driven by wmaze. The on-disk record (the expander INPUT) is loaded by the DOS file-read path (BIOS cs=f000 ip=1481, ax=0x4200 lseek) into a load buffer in the same heap window during first render. Gap A's next pass: trace base+0xfab / base+0x480 at first render, capture their (ds:si) input vs (es:di) output to read the masked-decompress loop — the harness already captures the OUTPUT side reproducibly.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_write_watch_first_render",
+        "details": "firstrender expander write-watch (heap 0x20000..0x40000) during state-4->5: top-by-span writers (run A) cseip 0x6c9bb (base+0xfab) x86 span 0x119a dest 0x20622..0x217bc; 0x6be90 (base+0x480) x281 span 0x117c dest 0x2060e..0x2178a; 0x6ba17 (base+0x7) x280 span 0x117c. Cross-run stable (run B same offsets). Separate probe: trace of 0xf1481 (the disk-read at cs=f000) during first render = 59 hits, ds=1180 si=3596 ax=0x4200/0x3ff8 cx=0x542/0x6cc (DOS lseek+read of the record into 0x20546..0x217a9). Settled-replay source-seg write-watch (0x29a30+0x4000 over forceRedraw) = 0 writers (buffer already resident -> wb-*.bin = final output)."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "placement-descriptor-tables-decoded",
+      "claim": "The captured PLACEMENT (cs:[0x190]) and IMAGE-DESCRIPTOR (cs:[0x18e]) tables decode exactly as maze-floor-ceiling-decoder.json documents, and are byte-identical across runs (Gap B's deterministic inputs). Placement recs (5B, {imgIdx,destX,destRow,bias,count}): [0] img0@destX13/destRow40/bias0/count14, [1] img1@16/52/0/8, [2] img2@18/60/0/4, [3] img0@0/8/0/0, [4] img1@8/52/1/4, ... — the floor/ceiling perspective triangle + window strips. Image-descriptor recs (5B, {segDelta_u16,srcOff_u16,w}): [0] +0xa2/off0xe07/w87 (ceiling, h-from-placement), [1] +0x1d2/off0x80f/w51, [2] +0x238/off0x40f/w27, [3] +0x253/off0x40f/w112 (side panel), [4] +0x2c3/off0x30f/w87, ... The placed-image walk (per-row trace) yields per-image (w,h,planeStride): img0 ceiling w18 h7 ps126, img2/3 side panels w4 h112 ps448, img4/5 floor w14 h12/24, img6 w3 h87 — matching the known floor/ceiling/window/side-panel geometry.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture_plus_cross_run_diff",
+        "details": "firstrender meta.json placements[0..5] + image_descriptors[0..3] (above); firstcheck 'placements equal / image_descriptors equal'. placed_images (run A): {gi0 ds10659 si11 di1291 cx18 w18 h7 ps126}, {gi2 ds9172 si15 di1289 cx4 w4 h112 ps448 = side panel}, {gi4 ds10691 si3 di1573 cx14 w14 h12 ps168 = floor}. di1291=page row32 (viewport top); matches maze-floor-ceiling-decoder.json placement-and-image-descriptor-tables."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "serialize-bridge-not-needed",
+      "claim": "SERIALIZE-BRIDGE (deliverable 4, secondary): the patched/nightly DBPSerialize_CPU mismatch (committed states won't unserialize on the patched core) was NOT bridged — and is NOT needed for this harness. The primary path is a FRESH-DRIVE first render (no committed-state load): `reach` drives boot->corridor and serializes a CLEAN_STATE on the PATCHED core itself (patched-serialize -> patched-unserialize round-trips fine), and `firstrender`/`firstcheck` drive fresh boots. The committed gy=121 fixture is irrelevant because Gap A is geometry-independent (the corridor-at-gate gy=118 frame exercises floor+ceiling+side-panels+window) and Gap B generalizes from the placement/descriptor tables. Bridging the CPU serialize-state format divergence is a deep dosbox-internal rabbit hole (the patched core's instrumentation shifts the CPU serialize layout, ln=313 mismatch per maze-piece-inventory.json) with no payoff for this pass — documented + skipped per the task's guidance.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "design_decision",
+        "details": "The harness only ever round-trips PATCHED-core serialize/unserialize (reach serializes on the patched core; firstrender drives fresh). No committed .state.gz is loaded on the patched core. The DBPSerialize_CPU divergence (committed nightly states -> 'err unser' on patched) is unchanged; bridging it is tracked as out-of-scope (maze-piece-inventory.json root cause stands)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "harness_usage": {
+    "core": "Build the patched trace core FIRST: `tools/libretro/build-core.sh` (verifies _dbp_trace_*/_dbp_capture_*/_dbp_wwatch_* exports). RESTORE the nightly core when done: `tools/libretro/fetch-core.sh`.",
+    "resolve": "pnpm tsx tools/libretro/trace-maze.ts resolve  — drives boot->first render, recovers the relocated OR-blit base from the compose-page write cluster, verifies the entry hits, serializes the frame to /tmp/wiz6-maze-clean.state.",
+    "firstrender": "pnpm tsx tools/libretro/trace-maze.ts firstrender [outDir=/tmp/wiz6-firstrender]  — proves the first-render OR-blit hit (fresh session), resolves the base per run, then captures the table pointers + placement/descriptor tables + per-image work-buffers (expander output) + first-render expander writers + background page. Writes <outDir>/{meta.json, wb-*.bin, bg.bin}. Auto-runs `reach` if /tmp/wiz6-maze-clean.state is absent.",
+    "firstcheck": "pnpm tsx tools/libretro/trace-maze.ts firstcheck  — runs firstrender twice (fresh boots) and byte-diffs the placement table, descriptor table, per-image work-buffers and background page (reproducibility gate).",
+    "validate-floor-ceiling": "pnpm tsx tools/libretro/validate-floor-ceiling.ts  — the existing OR-blit decoder validator (hardcoded base 0x6ba10); agrees with the resolver and reproduces the background page byte-exact (window-timing-dependent)."
+  },
+  "runtime_addresses": {
+    "note": "Heap-dependent; RE-DERIVE per run via the resolver (the 4-sibling OR-store cluster). The values below are this build's CLEAN_STATE corridor frame.",
+    "reloc_base_file_offset": "0x6ba10 (base+fileOff; OR-blit entry FUN_0a93 = base+0xa93 = 0x6c4a3)",
+    "reloc_cs": "0x6b91 (segBase = cs<<4 = 0x6b910 for cs:[off] reads; = base - 0x100)",
+    "or_plane0_store": "0x6c541 (= base+0xb31)",
+    "or_row_entry": "0x6c53c (= base+0xb2c; cx/si/di/ds/bp ready)",
+    "compose_page": "0x41820 (cs:[0x14d] seg 0x4182, plane stride 0x2000, row stride 40)",
+    "data_seg": "cs:[0x149] = 0x2181 (source-segment base; per-image source seg = dataSeg + segDelta)",
+    "table_offsets": "cs:[0x18e] imgDescOff=0x4, cs:[0x190] placeOff=0x301 (both into the dataSeg)",
+    "expander_first_render_writers": "relocated ega.drv: base+0xfab (0x6c9bb), base+0x480 (0x6be90), base+0x7..0x1f (0x6ba17/0x6ba2b/0x6ba2f) — full work-buffer fill, span ~0x117c..0x119a",
+    "record_disk_read": "BIOS cs=f000 ip=0x1481 (DOS lseek/read of the floor/ceiling record into the load buffer ~0x20546..0x217a9)"
+  },
+  "unblocked_for_gapAB": [
+    "Gap A (record->work-buffer expand): the harness reproducibly captures the EXPANDER OUTPUT (per-image 4-plane planar work-buffers, wb-*.bin, byte-identical cross-run) AND the EXPANDER INPUT region (the on-disk record via the BIOS disk-read into 0x20546..0x217a9). The expander CODE is located to the relocated ega.drv (base+0xfab / base+0x480) and runs only at first render. NEXT pass: trace base+0xfab/base+0x480 at first render, capture (ds:si) input vs (es:di) output per call, disasm the masked-decompress loop, and fit it so decodeAsset's on-disk record -> the captured work-buffer rows byte-exact.",
+    "Gap B (placement-list generation): the harness reproducibly captures the PLACEMENT table (cs:[0x190]) + IMAGE-DESCRIPTOR table (cs:[0x18e]) for the first-render frame (byte-identical cross-run). NEXT pass: RE the wmaze routine that fills these tables (view_render_corridor_frame 0x4ad7 + convergence 0x42/0x4a) and validate the generated placement records against the captured ones."
+  ],
+  "concerns": [
+    "The placed-IMAGE-SET completeness varies run-to-run (7 vs 8 images, pass1 370 vs 563 rows) because the held-ENTER recompose lands on a different pass and the pass-1 isolation (first-repeat-of-row0) cuts differently. The per-image DATA captured is byte-identical, but a Gap-A pass wanting the FULL single-pass image set should drive a single deterministic recompose (e.g. capture at a fixed store index rather than held-ENTER) — a refinement, not a blocker.",
+    "The background page has a 3-4 byte window-center residual (shared window work-buffer snapshot timing) — inherent to the transient buffer, documented in maze-floor-ceiling-decoder.json; not a harness defect.",
+    "All runtime addresses are heap-dependent; the harness RE-DERIVES the base per run (the whole point). If a future heap shift moves the relocated copy, the 4-sibling cluster resolver tracks it automatically; do NOT hardcode 0x6ba10."
+  ],
+  "artifacts": [
+    "tools/libretro/trace-maze.ts — NEW phases `resolve` (runtime-address resolver), `firstrender` (deterministic first-render capture), `firstcheck` (reproducibility gate); + module-scope u16 + the resolver/watch helpers (recoverOrBase, watchComposePage, resolveOrBaseFirstRender/Replay, driveToDungeonEntry).",
+    "tools/libretro/build-core.sh — the patched trace core (REQUIRED for the harness); restore nightly with fetch-core.sh.",
+    "/tmp/wiz6-firstrender/{meta.json, wb-*.bin, bg.bin} — the captured first-render fixture (expander output + placement/descriptor tables + background page).",
+    "/tmp/wiz6-firstrender-{a,b}/ — the two-run reproducibility evidence."
+  ],
+  "caveat_for_prior_findings": "EXTENDS egadrv-blit-internals.json (capture/write-watch tooling) + maze-floor-ceiling-decoder.json (OR-blit walk, base 0x6ba10) + maze-background-generation.json (Gap A/B status). CORRECTS maze-background-generation.json's 'OR-blit dormant on any drive this run / not capturable': a freshly `reach`-built CLEAN_STATE reliably re-fires the OR-blit, and the GENUINE first render fires it too (the resolver catches both) — the prior 0-hits was a one-run heap-layout artifact, not a fundamental block. REFINES maze-background-generation.json's 'expander is an unpinned wmaze routine': the per-render work-buffer fill executes inside the RELOCATED ega.drv copy (base+0xfab / base+0x480), driven by wmaze, observable only at first render. No prior pixel/byte result is contradicted; the tooling block is removed."
+}

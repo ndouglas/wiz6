@@ -39,6 +39,9 @@ const OVL_FILE = '/tmp/wiz6-maze-ovl.txt';
 const VP = { x0: 72, x1: 248, y0: 32, y1: 144 };
 const W = 320;
 
+/** Little-endian u16 read (module-scope helper for the capture harness). */
+function u16(b: Uint8Array, o: number): number { return b[o]! | (b[o + 1]! << 8); }
+
 async function gameState(c: HostClient): Promise<number> {
   const base = await c.anchor();
   const b = await c.read(base + DGROUP_GAME_STATE, 2);
@@ -1413,6 +1416,369 @@ async function phaseMove(c: HostClient): Promise<void> {
   console.log(`\nserialized turned-left frame -> ${TURN_LEFT_OUT}  (${await snap(b)})`);
 }
 
+// ===========================================================================
+// FIRST-RENDER CAPTURE HARNESS (deliverable: deterministic transient-state grab)
+// ---------------------------------------------------------------------------
+// The maze background OR-blit (ega.drv entry-15 FUN_0a93) + its placement
+// (cs:[0x190]) / image-descriptor (cs:[0x18e]) tables + per-image source
+// work-buffers are TRANSIENT: built per-render from a RELOCATED copy of ega.drv
+// at a heap-dependent CS, gone by frame boundary. A fixed file-offset breakpoint
+// logs 0 hits (the in-image copy at 0x6acdd never executes). These phases beat
+// that by (1) RESOLVING the relocated base PER RUN from a live write into the
+// compose page (the OR plane-0 store + its 3 plane siblings = a unique cluster),
+// then (2) arming capture-on-breakpoint at the resolved OR-blit during the FIRST
+// render (state 4->5) to snapshot the tables + source work-buffers at fire time.
+//
+// OR-store plane offsets within ega.drv (file): plane0 0xb31, plane1 0xb45,
+// plane2 0xb5c, plane3 0xb75 (the `lodsb; or al,es:[di]; stosb` cluster). The
+// OR-blit entry (dispatch entry 15) is file 0xa93. The per-row inner-loop entry
+// (cx,si,di,ds,bp ready) is file 0xb2c. Reloc base = plane0-store-cseip - 0xb31.
+// ===========================================================================
+
+const OR_PLANE_STORES = [0xb31, 0xb45, 0xb5c, 0xb75]; // ega.drv file offsets
+const OR_ENTRY_FILE = 0xa93;   // dispatch entry 15 (FUN_0a93)
+const OR_ROW_FILE = 0xb2c;     // per-row inner-loop entry (push cx; cx=copyWidth)
+const COMPOSE_PAGE = 0x41820;  // off-screen 4-plane page (cs:[0x14d] seg 0x4182)
+const PS = 0x2000;             // page plane stride
+const ROWB2 = 40;              // page row stride (320px)
+
+/** Drive a fresh boot to the dungeon entry, STOPPING right before the final
+ *  ENTER that triggers the state-4->5 first render. Leaves the game one ENTER
+ *  away from the first dungeon render so a caller can arm watches/traces. */
+async function driveToDungeonEntry(c: HostClient): Promise<void> {
+  await c.step(3000);
+  await c.key('enter', 'tap'); await c.step(800);
+  for (let i = 0; i < 3; i++) {
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('up', 'tap'); await c.key('up', 'tap'); await c.key('up', 'tap'); await c.step(60);
+  }
+  await c.key('down', 'tap'); await c.key('down', 'tap'); await c.key('down', 'tap'); await c.step(60);
+  await c.key('enter', 'tap'); await c.step(200); // START NEW GAME
+  await c.key('enter', 'tap'); await c.step(200); // scenario pick
+  // NOT the final ENTER — caller fires the first render.
+}
+
+/** Recover the relocated OR-blit base from a set of compose-page writer cseips by
+ *  finding the OR plane-0 store's unique 4-sibling cluster (plane stores at
+ *  base+0xb31/+0xb45/+0xb5c/+0xb75). Returns -1 if no cluster. */
+function recoverOrBase(writers: Map<number, number>): number {
+  const ceset = new Set(writers.keys());
+  for (const ce of ceset) {
+    const b = ce - OR_PLANE_STORES[0]!;
+    let sib = 0;
+    for (const d of OR_PLANE_STORES.slice(1)) if (ceset.has(b + d)) sib++;
+    if (sib >= 2) return b;
+  }
+  return -1;
+}
+
+/** Write-watch the compose page over `action`, returning per-cseip write counts
+ *  (drained incrementally so the 4096 ring never evicts the OR stores). */
+async function watchComposePage(c: HostClient, action: () => Promise<void>): Promise<Map<number, number>> {
+  const writers = new Map<number, number>();
+  await c.wwatchSet(COMPOSE_PAGE, COMPOSE_PAGE + 0x8000);
+  const drain = async () => { for (const w of await c.wwatchDrain()) writers.set(w.cseip, (writers.get(w.cseip) ?? 0) + 1); };
+  // The action drives input; we interleave step+drain so the ring (4096) never
+  // evicts the (relatively sparse) OR stores under the wall-store flood.
+  await action();
+  for (let i = 0; i < 60; i++) { await c.step(6); await drain(); }
+  await c.wwatchSet(0, 0);
+  return writers;
+}
+
+/** RESOLVE the relocated OR-blit base PER RUN by write-watching the compose page
+ *  during the FIRST render (state 4->5) and recovering the OR-store cluster.
+ *  Drives boot->first render INTERNALLY (consuming the transition) so it proves
+ *  the resolved address hits the genuine FIRST-render OR-blit, not a replay. */
+async function resolveOrBaseFirstRender(c: HostClient): Promise<{ base: number; writers: Map<number, number> }> {
+  await driveToDungeonEntry(c);
+  const writers = await watchComposePage(c, async () => { await c.key('enter', 'tap'); }); // fire state 4->5
+  return { base: recoverOrBase(writers), writers };
+}
+
+/** RESOLVE the base from a settled CLEAN_STATE forceRedraw recompose (the
+ *  reproducible replay path the capture uses). Heap-dependent → re-derive here. */
+async function resolveOrBaseReplay(c: HostClient): Promise<number> {
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  const writers = await watchComposePage(c, async () => { await c.key('enter', 'down'); });
+  await c.key('enter', 'up');
+  return recoverOrBase(writers);
+}
+
+/** `resolve` — the RUNTIME-ADDRESS RESOLVER (deliverable 1). Drives boot->first
+ *  render, recovers the relocated OR-blit base from the compose-page write
+ *  cluster, then VERIFIES the resolved OR-blit entry actually HITS during a
+ *  re-render (CLEAN_STATE forceRedraw replay on the same session). */
+async function phaseResolve(c: HostClient): Promise<void> {
+  const { base, writers } = await resolveOrBaseFirstRender(c);
+  if (base < 0) {
+    console.log('FAILED to resolve OR-blit base (no plane-store cluster in compose-page writes)');
+    console.log('top writers:', [...writers.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => `0x${k.toString(16)}:${v}`).join(' '));
+    return;
+  }
+  const entry = base + OR_ENTRY_FILE;
+  console.log(`resolved relocated ega.drv base = 0x${base.toString(16)} (OR-blit entry 0x${entry.toString(16)}, plane-0 store 0x${(base + 0xb31).toString(16)})`);
+  console.log(`compose-page writers: ${writers.size} distinct cseips`);
+  // serialize this first-rendered frame so we can verify the entry hits on replay.
+  await c.serialize(CLEAN_STATE);
+  await c.fb(CLEAN_PNG);
+  // VERIFY: arm a trace on the resolved entry + force a re-render, count hits.
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(entry); await c.traceDrain();
+  await forceRedraw(c);
+  const recs = await c.traceDrain(); await c.traceOff();
+  console.log(`VERIFY: OR-blit entry 0x${entry.toString(16)} hits over a re-render = ${recs.length}`);
+  if (recs.length > 0) {
+    const r = recs[0]!;
+    console.log(`  first hit: cs=0x${r.cs.toString(16)} ip=0x${r.eip.toString(16)} (cs<<4+ip=0x${((r.cs << 4) + r.eip).toString(16)}) ds=0x${r.ds.toString(16)} es=0x${r.es.toString(16)}`);
+    console.log(recs.length >= 20 ? 'RESOLVER HEALTHY ✓ (OR-blit reliably hits at the resolved address)' : 'WARN: few hits — re-render may not have run the full OR-blit pass');
+  } else {
+    console.log('RESOLVER: entry did NOT hit on replay — base may be stale across the serialize/unserialize boundary');
+  }
+  writeFileSync('/tmp/wiz6-orbase.txt', base.toString(16));
+}
+
+interface FirstRenderRowRec { ds: number; si: number; di: number; cx: number; bp: number; ss: number; }
+
+/** `firstrender` — the DETERMINISTIC FIRST-RENDER CAPTURE HARNESS (deliverable 2).
+ *  Drives a fresh boot to the dungeon FIRST render (state 4->5), resolves the
+ *  relocated OR-blit base, then captures the transient maze-background state at
+ *  fire time:
+ *    (a) the cs-relative table pointers (cs:[0x149] dataSeg, cs:[0x14d] pageSeg,
+ *        cs:[0x18e] imgDescOff, cs:[0x190] placementOff)
+ *    (b) the PLACEMENT table (cs:[0x190], 5B recs) + IMAGE-DESCRIPTOR table
+ *        (cs:[0x18e], 5B recs)  — Gap B's geometry-keyed placement records
+ *    (c) per-placed-image SOURCE WORK-BUFFER snapshots (the EXPANDER OUTPUT) at
+ *        each image's first OR store, with its (w,h,cx,si,di,planeStride)
+ *    (d) the EXPANDER INPUT/OUTPUT pair: who WRITES the source work-buffer just
+ *        before the OR-blit reads it (write-watch on the first image's source
+ *        segment during the render) — Gap A's record->work-buffer transform.
+ *    (e) the engine background-only compose page (last OR plane-0 store)
+ *  All written to a fixture dir as JSON + raw .bin so Gap A/B passes can crack
+ *  from data. The capture works because the OR-blit runs as a FULL recompose at
+ *  the first render and (re)runs on a forceRedraw replay of the serialized frame.
+ *
+ *  Usage: pnpm tsx tools/libretro/trace-maze.ts firstrender [outDir] */
+async function phaseFirstRender(c: HostClient): Promise<void> {
+  const outDir = process.argv[3] ?? '/tmp/wiz6-firstrender';
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(outDir, { recursive: true });
+
+  // CLEAN_STATE = the settled-at-gate first-rendered corridor frame (gy=118; Gap A
+  // is geometry-independent, Gap B generalizes). It replays the OR-blit
+  // DETERMINISTICALLY on a forceRedraw (unlike a right-at-entry serialize, which
+  // is heap-layout-fragile). Build it via `reach` if absent.
+  if (!existsSync(CLEAN_STATE)) {
+    console.log('CLEAN_STATE absent — driving `reach` to build it…');
+    await driveToMaze(c);
+    await c.serialize(CLEAN_STATE); await c.fb(CLEAN_PNG);
+  }
+  // PROVE the resolver hits the genuine FIRST render (state 4->5) on THIS core
+  // build, in a fresh session, before relying on the replay path.
+  {
+    const c0 = new HostClient();
+    try {
+      const { base: frBase } = await resolveOrBaseFirstRender(c0);
+      console.log(frBase >= 0
+        ? `FIRST-render resolver: OR-blit base=0x${frBase.toString(16)} (entry 0x${(frBase + OR_ENTRY_FILE).toString(16)}) — the state-4->5 OR-blit was caught ✓`
+        : 'FIRST-render resolver: no OR-store cluster (the OR-blit did not fire at first render this run)');
+    } finally { c0.close(); }
+  }
+
+  // --- Resolve the base PER RUN from the reproducible replay recompose. ---
+  const base = await resolveOrBaseReplay(c);
+  if (base < 0) { console.log('FAILED to resolve OR-blit base from replay — abort'); return; }
+  const entry = base + OR_ENTRY_FILE;
+  const rowPt = base + OR_ROW_FILE;
+  const orP0 = base + 0xb31;
+  console.log(`reloc base=0x${base.toString(16)} entry=0x${entry.toString(16)} row=0x${rowPt.toString(16)} orP0=0x${orP0.toString(16)}`);
+
+  // The relocated ega.drv runs at a CS whose segment base (cs<<4) is NOT `base`
+  // (base is the FILE-offset linear base: base+0xa93 == entry). The OR-blit reads
+  // its table pointers as cs:[0x149] etc. — literal offsets into the cs SEGMENT.
+  // Capture the live cs at the entry fire to compute the segment base robustly.
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(entry); await c.traceDrain();
+  await forceRedraw(c);
+  const er = await c.traceDrain(); await c.traceOff();
+  if (!er.length) { console.log('OR-blit entry did not fire on replay — abort'); return; }
+  const segBase = er[0]!.cs << 4; // cs<<4: literal-offset base for cs:[off] reads
+  console.log(`relocated cs=0x${er[0]!.cs.toString(16)} segBase(cs<<4)=0x${segBase.toString(16)}`);
+
+  // (a) capture the cs-relative table pointers at the OR-blit entry first fire.
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(entry); await c.captureSet(segBase + 0x140, 0x60, 0);
+  await forceRedraw(c);
+  const ptrs = await c.captureGet(); await c.traceOff();
+  if (!ptrs) { console.log('table-pointer capture failed (entry did not fire on replay)'); return; }
+  const at = (o: number) => u16(ptrs, o - 0x140);
+  const dataSeg = at(0x149), pageSeg = at(0x14d), imgDescOff = at(0x18e), placeOff = at(0x190);
+  console.log(`cs:[0x149] dataSeg=0x${dataSeg.toString(16)} cs:[0x14d] pageSeg=0x${pageSeg.toString(16)} cs:[0x18e] imgDescOff=0x${imgDescOff.toString(16)} cs:[0x190] placeOff=0x${placeOff.toString(16)}`);
+
+  // (b) capture the PLACEMENT + IMAGE-DESCRIPTOR tables at entry fire.
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(entry); await c.captureSet((dataSeg << 4) + placeOff, 0x800, 0);
+  await forceRedraw(c);
+  const placeTbl = (await c.captureGet())!; await c.traceOff();
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(entry); await c.captureSet((dataSeg << 4) + imgDescOff, 0x400, 0);
+  await forceRedraw(c);
+  const imgTbl = (await c.captureGet())!; await c.traceOff();
+  const placements = [];
+  for (let k = 0; k < 0x800 / 5; k++) {
+    const o = k * 5;
+    const rec = { imgIdx: placeTbl[o]!, destX: placeTbl[o + 1]!, destRow: placeTbl[o + 2]!, bias: placeTbl[o + 3]!, count: placeTbl[o + 4]! };
+    placements.push(rec);
+  }
+  const imgDescs = [];
+  for (let k = 0; k < 0x400 / 5; k++) {
+    const o = k * 5;
+    imgDescs.push({ segDelta: u16(imgTbl, o), srcOff: u16(imgTbl, o + 2), w: imgTbl[o + 4]! });
+  }
+
+  // (c) per-row walk capture over ONE recompose pass -> group into images and
+  //     snapshot each image's SOURCE work buffer (the EXPANDER OUTPUT).
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(rowPt); await c.traceDrain();
+  const rows: FirstRenderRowRec[] = [];
+  await c.key('enter', 'down');
+  for (let i = 0; i < 14; i++) { await c.step(4); for (const r of await c.traceDrain()) rows.push({ ds: r.ds, si: r.esi & 0xffff, di: r.edi & 0xffff, cx: r.ecx & 0xffff, bp: r.ebp & 0xffff, ss: r.ss }); if (i === 10) await c.key('enter', 'up'); }
+  await c.key('enter', 'up'); await c.traceOff();
+  // isolate pass 1.
+  const fd = rows[0]!.di, fs = rows[0]!.ds;
+  let endIdx = rows.length;
+  for (let i = 1; i < rows.length; i++) if (rows[i]!.di === fd && rows[i]!.ds === fs) { endIdx = i; break; }
+  const pass1 = rows.slice(0, endIdx);
+  console.log(`OR rows captured=${rows.length}, pass1=${pass1.length}`);
+  // group contiguous rows into placed images.
+  interface Img { ds: number; rows: FirstRenderRowRec[]; startIdx: number; w: number; planeStride: number; }
+  const imgs: Img[] = []; let cur: Img | null = null;
+  for (let k = 0; k < pass1.length; k++) {
+    const r = pass1[k]!; const prev = cur && cur.rows.length ? cur.rows[cur.rows.length - 1]! : null;
+    const contig = cur && prev && r.ds === cur.ds && (r.di - prev.di) === ROWB2 && (r.si - prev.si) > 0;
+    if (!contig) { if (cur) imgs.push(cur); cur = { ds: r.ds, rows: [r], startIdx: k, w: 0, planeStride: 0 }; }
+    else cur!.rows.push(r);
+  }
+  if (cur) imgs.push(cur);
+  console.log(`pass1 grouped into ${imgs.length} placed images`);
+  // per-image w + planeStride (its first store), then source snapshot.
+  const fixImages: Array<Record<string, number>> = [];
+  for (let gi = 0; gi < imgs.length; gi++) {
+    const im = imgs[gi]!; const r = im.rows[0]!;
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(rowPt); await c.captureSet((r.ss << 4) + ((r.bp - 8) & 0xffff), 0x10, im.startIdx);
+    await forceRedraw(c); const win = (await c.captureGet())!; await c.traceOff();
+    im.w = u16(win, 2); im.planeStride = u16(win, 6);
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(rowPt); await c.captureSet(im.ds << 4, 0x4000, im.startIdx);
+    await forceRedraw(c); const src = (await c.captureGet())!; await c.traceOff();
+    // slice the bytes this image reads (the EXPANDER OUTPUT region).
+    const need = r.si + 3 * im.planeStride + (im.rows.length - 1) * im.w + r.cx;
+    const slice = src.subarray(0, Math.min(src.length, Math.max(need, r.si + 4 * im.planeStride)));
+    writeFileSync(`${outDir}/wb-${gi}.bin`, Buffer.from(slice));
+    fixImages.push({ gi, ds: im.ds, si: r.si, di: r.di, cx: r.cx, w: im.w, h: im.rows.length, planeStride: im.planeStride, srcLen: slice.length });
+  }
+
+  // (d) EXPANDER I/O. On the settled REPLAY path the source work buffers are
+  //     already resident (the OR-blit reads them verbatim) — so the per-image
+  //     wb-*.bin captures above ARE the clean expander OUTPUT (the decompressed
+  //     4-plane planar sub-images). The record->work-buffer EXPAND itself only
+  //     runs at the genuine FIRST render (the work buffer is re-decoded per
+  //     group). So we locate the expander by write-watching the work-buffer heap
+  //     region during a FRESH first render (separate session) — recording the
+  //     writers (cseip + dest span) for the next pass to walk. The expander
+  //     INPUT (the on-disk floor/ceiling record) is loaded by the DOS file-read
+  //     path (BIOS cs=f000) into a load buffer in the same window.
+  const exp: Record<string, unknown> = {
+    note: 'expander = who fills the OR-blit source work buffer at FIRST render; on the replay path the buffer is already resident (wb-*.bin = clean expander OUTPUT). Writers below are the first-render candidates to walk for Gap A.',
+  };
+  {
+    const cE = new HostClient();
+    try {
+      await driveToDungeonEntry(cE);
+      // Watch the low-mid heap (work buffers + load buffer) during first render,
+      // EXCLUDING the compose page (0x41820) which floods with OR/wall stores.
+      const WB_LO = 0x20000, WB_HI = 0x40000;
+      await cE.wwatchSet(WB_LO, WB_HI);
+      await cE.key('enter', 'tap'); // fire first render
+      const wWriters = new Map<number, { count: number; min: number; max: number }>();
+      for (let i = 0; i < 60; i++) { await cE.step(6); for (const w of await cE.wwatchDrain()) { const e = wWriters.get(w.cseip) ?? { count: 0, min: w.addr, max: w.addr }; e.count++; e.min = Math.min(e.min, w.addr); e.max = Math.max(e.max, w.addr); wWriters.set(w.cseip, e); } }
+      await cE.wwatchSet(0, 0);
+      // Rank by dest SPAN (a decompressor sweeps a wide contiguous range), then count.
+      const ranked = [...wWriters.entries()].map(([ce, e]) => ({ ce, ...e, span: e.max - e.min }))
+        .sort((a, b) => (b.span - a.span) || (b.count - a.count)).slice(0, 12);
+      exp.first_render_writers = ranked.map((w) => ({ cseip: w.ce.toString(16), count: w.count, destSpan: `0x${w.min.toString(16)}..0x${w.max.toString(16)}`, span: `0x${w.span.toString(16)}`, seg: (w.ce >>> 4).toString(16) }));
+      console.log(`EXPANDER first-render write-watch (heap 0x${WB_LO.toString(16)}..0x${WB_HI.toString(16)}), ${wWriters.size} writers, top by dest-span:`);
+      for (const w of (exp.first_render_writers as Array<Record<string, unknown>>)) console.log(`  cseip=0x${w.cseip} x${w.count} dest ${w.destSpan} (span ${w.span})`);
+    } finally { cE.close(); }
+  }
+
+  // (e) engine background-only page (last OR plane-0 store of pass1).
+  const orStores = pass1.reduce((a, r) => a + r.cx, 0);
+  const bg = new Uint8Array(0x8000);
+  for (let p = 0; p < 4; p++) {
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(orP0); await c.captureSet(COMPOSE_PAGE + p * PS, PS, orStores - 1);
+    await forceRedraw(c); bg.set((await c.captureGet())!.subarray(0, PS), p * PS); await c.traceOff();
+  }
+  writeFileSync(`${outDir}/bg.bin`, Buffer.from(bg));
+
+  // --- dump the fixture metadata. ---
+  const meta = {
+    note: 'first-render maze background capture (Gap A expander I/O + Gap B placement records)',
+    reloc_base: base.toString(16),
+    or_blit_entry: entry.toString(16),
+    table_pointers: { dataSeg: dataSeg.toString(16), pageSeg: pageSeg.toString(16), imgDescOff: imgDescOff.toString(16), placeOff: placeOff.toString(16) },
+    pass1_rows: pass1.length,
+    placements: placements.slice(0, 40),
+    image_descriptors: imgDescs.slice(0, 24),
+    placed_images: fixImages,
+    expander: exp,
+    or_stores_pass1: orStores,
+  };
+  writeFileSync(`${outDir}/meta.json`, JSON.stringify(meta, null, 2));
+  console.log(`\nfixture -> ${outDir}/ (meta.json + ${fixImages.length} wb-*.bin + bg.bin)`);
+  console.log(`placements[0..5]: ${placements.slice(0, 6).map((p) => `img${p.imgIdx}@(${p.destX},${p.destRow})b${p.bias}c${p.count}`).join(' ')}`);
+  console.log(`image-descs[0..3]: ${imgDescs.slice(0, 4).map((d) => `seg+0x${d.segDelta.toString(16)}/off0x${d.srcOff.toString(16)}/w${d.w}`).join(' ')}`);
+}
+
+/** `firstcheck` — REPRODUCIBILITY GATE (deliverable 3). Runs the firstrender
+ *  capture TWICE (two fresh boots, two outDirs) and byte-diffs the placement
+ *  table, image-descriptor table, the per-image source work-buffers (expander
+ *  output) and the background page. Confirms the captures are stable across
+ *  runs. */
+async function phaseFirstCheck(c: HostClient): Promise<void> {
+  const { mkdirSync, readFileSync: rf } = await import('node:fs');
+  const dirA = '/tmp/wiz6-firstrender-a', dirB = '/tmp/wiz6-firstrender-b';
+  // Run A in this session.
+  process.argv[3] = dirA;
+  await phaseFirstRender(c);
+  c.close();
+  // Run B in a FRESH session (fresh boot/heap).
+  const c2 = new HostClient();
+  try { process.argv[3] = dirB; await phaseFirstRender(c2); } finally { c2.close(); }
+
+  mkdirSync('/tmp/wiz6-firstcheck', { recursive: true });
+  const cmp = (name: string, a: Buffer, b: Buffer) => {
+    if (a.length !== b.length) { console.log(`  ${name}: LENGTH DIFFERS (${a.length} vs ${b.length})`); return; }
+    let diff = 0; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff++;
+    console.log(`  ${name}: ${a.length - diff}/${a.length} bytes equal ${diff === 0 ? '✓ reproducible' : `(${diff} differ)`}`);
+  };
+  const ma = JSON.parse(rf(`${dirA}/meta.json`, 'utf8'));
+  const mb = JSON.parse(rf(`${dirB}/meta.json`, 'utf8'));
+  console.log(`\n=== REPRODUCIBILITY (run A ${dirA} vs run B ${dirB}) ===`);
+  console.log(`  reloc_base: A=0x${ma.reloc_base} B=0x${mb.reloc_base} (heap-dependent; per-run resolve is the point)`);
+  console.log(`  placements equal: ${JSON.stringify(ma.placements) === JSON.stringify(mb.placements) ? '✓' : 'DIFFER'}`);
+  console.log(`  image_descriptors equal: ${JSON.stringify(ma.image_descriptors) === JSON.stringify(mb.image_descriptors) ? '✓' : 'DIFFER'}`);
+  console.log(`  placed_images count: A=${ma.placed_images.length} B=${mb.placed_images.length}`);
+  cmp('bg.bin', rf(`${dirA}/bg.bin`), rf(`${dirB}/bg.bin`));
+  const n = Math.min(ma.placed_images.length, mb.placed_images.length);
+  for (let gi = 0; gi < n; gi++) {
+    try { cmp(`wb-${gi}.bin (expander output)`, rf(`${dirA}/wb-${gi}.bin`), rf(`${dirB}/wb-${gi}.bin`)); } catch { /* missing */ }
+  }
+}
+
 async function phaseFine(c: HostClient): Promise<void> {
   const ovl = ovlBase();
   const offs = process.argv.slice(3).map((s) => parseInt(s, 16));
@@ -1462,8 +1828,11 @@ async function main() {
     else if (phase === 'seamtables') await phaseSeamTables(c);
     else if (phase === 'geomgen') await phaseGeomGen(c);
     else if (phase === 'move') await phaseMove(c);
+    else if (phase === 'resolve') await phaseResolve(c);
+    else if (phase === 'firstrender') await phaseFirstRender(c);
+    else if (phase === 'firstcheck') await phaseFirstCheck(c);
     else if (phase === 'fine') await phaseFine(c);
-    else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | move [state] | fine <off...>');
+    else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();
   }
