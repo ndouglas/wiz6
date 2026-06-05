@@ -370,6 +370,7 @@ export {
   MazePartySchema,
   PieceDescriptorSchema,
   MazeRenderAssetsSchema,
+  BackgroundPlacementSchema,
   type Party,
   type MazeCellWalls,
   type MazeBlockCell,
@@ -377,6 +378,7 @@ export {
   type MazeParty,
   type PieceDescriptor,
   type MazeRenderAssets,
+  type BackgroundPlacement,
 } from './maze/render-schema.js';
 export {
   PLANE_STRIDE,

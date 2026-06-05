@@ -23,6 +23,8 @@ export {
 } from './compositor.js';
 export { decodePageIndex, decodePageRgba } from './page.js';
 export { loadMazeAssets } from './assets.js';
+export { composeBackground, applyPlacedImage } from './background.js';
+export { buildBackgroundPage } from './render.js';
 
 // Shared types
 export type { MazeSpan, CompositorCall } from './compositor.js';

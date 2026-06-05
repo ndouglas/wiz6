@@ -14,24 +14,38 @@
  *     rasterizations in the proprietary masked-image format (still uncracked) —
  *     see docs/re/findings/maze-floor-ceiling.json.
  *
- * TWO blockers gate the 100% pixel test (both in maze-floor-ceiling.json):
- *   1. FIXTURE/CORE MISMATCH (gating): the committed maze-corridor.state.gz
- *      (613923 B) will NOT unserialize on the patched trace core (588156-B
- *      serialize format → `err unser`), and the nightly core that CAN load it has
- *      no trace/capture. So the EXACT committed lookback frame's compose page is
- *      uncapturable. A fresh patched-core drive reaches a DIFFERENT lookback frame
- *      (page matches its OWN fb 100%, but only 43.43% vs the committed fixture —
- *      the dither is position/phase-sensitive). Resolve by re-minting the maze
- *      fixtures on the patched core (or teaching it the nightly serialize format).
- *   2. SOURCE→PAGE COMPOSITOR RE (deep): crack the masked-image pixel decoder for
- *      floor (id 1346) / ceiling (id 1740) / window + reverse the blit into the
- *      compose page. decodePageIndex (page.ts) is confirmed the complete renderer
- *      for facing 2 (page→screen identity, 100% vs the same-frame fb) — the only
- *      missing piece is FILLING the page from the asset/geometry.
+ * UPDATE (2026-06-04, maze-background-integration.json): the OR-blit floor/ceiling/
+ * window decoder is now CRACKED (maze-floor-ceiling-decoder.json) and PORTED into
+ * the parser (src/maze/background.ts composeBackground + render.ts
+ * buildBackgroundPage / renderMazeViewport {placements} opt). So blocker (2) below
+ * is resolved AS AN ALGORITHM (gated byte-exact by background.test.ts + the engine
+ * 99.93% same-run pair in tools/parity/maze-floor-ceiling-parity.test.ts). What
+ * remains for THIS gate is a from-asset PLACEMENT-LIST GENERATOR (per-view
+ * selection of the engine cs:[0x190]/cs:[0x18e] tables) so the background page can
+ * be built WITHOUT a live capture — sidestepping blocker (1) entirely.
  *
- * TODO(#T11a): once blocker (1) is cleared (re-mint maze fixtures on the trace
- * core) and (2) is ported (floor/ceiling/window from-asset), promote this to a
- * `maze-lookback-parity.test.ts` 100% gate (tolerance 0) per tools/parity/CLAUDE.md.
+ * TWO blockers still gate a 100% pixel test from LIVE capture:
+ *   1. FIXTURE/CORE MISMATCH (gating): the committed maze-corridor.state.gz will
+ *      NOT unserialize on the patched trace core (DBPSerialize_CPU layout →
+ *      `err unser`, re-confirmed 2026-06-04), and the nightly core that CAN load it
+ *      has no trace/capture. A fresh patched-core drive reaches a DIFFERENT frame
+ *      (gy=118 at-gate, not the committed gy=121) and cannot advance past the gate.
+ *      So NO committed .idx.gz oracle's OR-blit background is live-capturable, and
+ *      the only capturable frame (gy=118) has no committed oracle (decode of its
+ *      background vs committed maze-corridor viewport = 58%). See
+ *      maze-background-integration.json full-viewport-gate-blocked-frame-mismatch.
+ *   2. PLACEMENT-LIST GENERATOR (the from-asset route, preferred): decode the
+ *      on-disk floor (1346)/ceiling (1740)/window assets via the .pic RLE decoder
+ *      into the 4-plane planar work-buffer + read/RE the per-view placement
+ *      selection from cs:[0x18e]/cs:[0x190]. Then composeBackground reproduces any
+ *      committed frame's background deterministically (no live capture).
+ *
+ * TODO(#T11a): once the from-asset placement generator (2) lands (or the core
+ * serialize bridge (1) is built), build the background page for the committed
+ * lookback party and promote this to a `maze-lookback-parity.test.ts` 100% gate
+ * (tolerance 0) per tools/parity/CLAUDE.md. The wall path is byte-exact for
+ * facing 2; the background compositor is now ported and ready to consume the
+ * generated placements.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';

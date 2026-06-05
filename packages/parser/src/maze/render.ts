@@ -21,12 +21,35 @@
  */
 
 import { SEAM_X0_WT2, SEAM_X1_WT2, MAZE_VIEWPORT, PLANE_STRIDE } from '@wiz6/data';
-import type { MazeBlock, MazeParty, MazeRenderAssets } from '@wiz6/data';
+import type {
+  MazeBlock,
+  MazeParty,
+  MazeRenderAssets,
+  BackgroundPlacement,
+} from '@wiz6/data';
 import { classifyVisibleWalls } from './classify.js';
 import { deriveCorridorSpans } from './build.js';
 import { generateCallList } from './flush.js';
 import { renderFrameFromGeometry } from './compositor.js';
+import { composeBackground } from './background.js';
 import { decodePageIndex } from './page.js';
+
+/**
+ * Build the maze BACKGROUND page (floor/ceiling/side-panels/portcullis-window)
+ * by OR-blitting the per-view placement records into a fresh, pre-zeroed 4-plane
+ * EGA page (background.ts composeBackground). The returned page is the base the
+ * wall compositor REPLACEs on top — pass it as `renderMazeViewport`'s `page` arg.
+ *
+ * @param placements  The resolved OR-blit placement records for this view (the
+ *                    per-view selection of the engine's cs:[0x190]/cs:[0x18e]
+ *                    tables). An empty list yields an all-zero (black) page.
+ * @returns           A 4 * PLANE_STRIDE byte page, OR-composited from `placements`.
+ */
+export function buildBackgroundPage(placements: BackgroundPlacement[]): Uint8Array {
+  const page = new Uint8Array(4 * PLANE_STRIDE);
+  composeBackground(page, placements);
+  return page;
+}
 
 /**
  * Render the maze first-person corridor view into a 176×112 palette-index buffer.
@@ -34,18 +57,33 @@ import { decodePageIndex } from './page.js';
  * @param block      Full per-zone maze block (multi-region wall + decoration planes)
  * @param party      Party GLOBAL cell coords + facing (gx, gy, z, facing 0-3)
  * @param assets     Atlas + piece descriptors from loadMazeAssets()
- * @param page       Optional pre-filled 4-plane EGA page (4 * PLANE_STRIDE bytes).
- *                   Defaults to a blank (all-zero) page. Pass a floor/ceiling page
- *                   from the viewer/parity gate if you need the background rendered.
+ * @param opts       Optional background source. Provide EITHER:
+ *                   - `page`: a pre-filled 4-plane EGA page (4 * PLANE_STRIDE
+ *                     bytes) — used directly as the base (walls REPLACE on top); or
+ *                   - `placements`: the per-view OR-blit placement records, from
+ *                     which the background page is built (buildBackgroundPage).
+ *                   If neither is given, the base is a blank (all-zero) page. A raw
+ *                   `Uint8Array` is accepted as shorthand for `{ page }`.
  * @returns          Uint8Array of length 176*112, row-major palette indices 0..15,
  *                   cropped to MAZE_VIEWPORT (x=72, y=32, w=176, h=112).
  */
+export interface RenderBackgroundOpts {
+  /** A pre-filled 4-plane EGA page (4 * PLANE_STRIDE bytes). */
+  page?: Uint8Array;
+  /** Per-view OR-blit placement records (built into the background page). */
+  placements?: BackgroundPlacement[];
+}
+
 export function renderMazeViewport(
   block: MazeBlock,
   party: MazeParty,
   assets: MazeRenderAssets,
-  page?: Uint8Array,
+  opts?: Uint8Array | RenderBackgroundOpts,
 ): Uint8Array {
+  const o: RenderBackgroundOpts =
+    opts instanceof Uint8Array ? { page: opts } : (opts ?? {});
+  const page =
+    o.page ?? (o.placements ? buildBackgroundPage(o.placements) : undefined);
   // Stage 1: classify — per-depth solid-side flags
   const sides = classifyVisibleWalls(block, party);
 

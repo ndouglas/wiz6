@@ -81,3 +81,34 @@ export const MazeRenderAssetsSchema = z.object({
   pieceDescriptors: z.array(PieceDescriptorSchema),
 });
 export type MazeRenderAssets = z.infer<typeof MazeRenderAssetsSchema>;
+
+// ---------------------------------------------------------------------------
+// BackgroundPlacement — one resolved floor/ceiling/side-panel/window OR-blit
+// placement record for the maze background compositor (ega.drv DISPATCH ENTRY 15
+// = FUN_0a93, the 4-plane planar OR-copy). Each record places ONE 4-plane planar
+// sub-image into the off-screen compose page with an OR-merge, UNDER the wall
+// pieces. The fields are exactly the asm's per-image quantities (the resolved
+// product of a placement record @cs:[0x190] + its image descriptor @cs:[0x18e]):
+//   docs/re/findings/maze-floor-ceiling-decoder.json
+//
+// The pixel data (`src`) is a 4-plane planar work buffer (the decompressed .pic
+// asset); the 4 planes are CONTIGUOUS at src[si + p*planeStride]. See
+// packages/parser/src/maze/background.ts (composeBackground) for the walk.
+// ---------------------------------------------------------------------------
+export const BackgroundPlacementSchema = z.object({
+  /** 4-plane planar source work buffer (>= si + 4*planeStride). */
+  src: z.instanceof(Uint8Array),
+  /** plane-0 source byte offset (= imgdesc.srcOff + placement.bias). */
+  si: z.number().int().min(0),
+  /** dest page byte offset, plane 0, row 0 (= destX + bias + 0x28*destRow). */
+  di: z.number().int().min(0),
+  /** bytes copied per row (= placement.count; <= w). */
+  cx: z.number().int().min(0),
+  /** image width in bytes (= imgdesc.w; the source row stride). */
+  w: z.number().int().min(0),
+  /** number of rows (= imgdesc.h; the outer row count). */
+  h: z.number().int().min(0),
+  /** plane stride (= w*h). */
+  planeStride: z.number().int().min(0),
+});
+export type BackgroundPlacement = z.infer<typeof BackgroundPlacementSchema>;
