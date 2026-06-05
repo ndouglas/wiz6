@@ -184,7 +184,7 @@ async function main() {
     writeFileSync(tmpState, gunzipSync(readFileSync(committedStatePath)));
     const s = new LiveSession(STRUCTS);
     await s.unserialize(tmpState);
-    await s.step(5); // settle the unserialized machine to the frozen animation phase (load-bearing: parity depends on rendering the same phase as the committed .png)
+    await s.step(recipe.remintStep ?? 5); // settle to the frozen animation phase; remintStep overrides 5 for frames whose message-window TEXT redraws a few frames after unserialize (newgame narration/HMMMM/ENTRANCE strips)
     await s.screenshot(`${TMP}/build.rgba`);
     s.close();
     const rgba = new Uint8Array(readFileSync(`${TMP}/build.rgba`));
@@ -250,7 +250,7 @@ async function main() {
     writeFileSync(tmpState, gunzipSync(readFileSync(committedStatePath)));
     const s = new LiveSession(STRUCTS);
     await s.unserialize(tmpState);
-    await s.step(5); // settle the unserialized machine to the frozen animation phase (load-bearing: parity depends on rendering the same phase as the committed .png)
+    await s.step(recipe.remintStep ?? 5); // settle to the frozen animation phase; remintStep overrides 5 for frames whose message-window TEXT redraws a few frames after unserialize (newgame narration/HMMMM/ENTRANCE strips)
     await s.screenshot(`${TMP}/build.rgba`);
     s.close();
     const rgba = new Uint8Array(readFileSync(`${TMP}/build.rgba`));
