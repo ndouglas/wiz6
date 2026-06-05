@@ -42,8 +42,9 @@ export function extractMazeLevel(opts: ExtractMazeLevelOpts): DungeonLevel {
   const entrance = KNOWN_ENTRANCES[opts.levelId] ?? { gx: 0, gy: 0, z: 0, facing: 0 };
 
   // Level-0 scripted entry: OUTER GATE (gy=118) → 3-line narration → 3 ENTER-steps → free (gy=121).
-  // narrationMsgIds: placeholder IDs pending message-db RE; bumpMsgId: similarly TBD.
-  // These IDs are intentional stubs for Task 1 — the reducer (Task 2) will use them.
+  // narrationMsgIds 10010/10011/10012 + bumpMsgId 10020 are the VERIFIED entry-narration
+  // message IDs (decode exactly to "APPROACHING THE GATE..." / "HMMMM..."; gated byte-exact by
+  // maze-entry-narration-parity.test.ts). RE: docs/re/findings/maze-entry-{narration,sequence}.json.
   const KNOWN_SCRIPTED_ENTRIES: Record<number, ScriptedEntry> = {
     0: {
       start: { gx: 127, gy: 118, z: 0, facing: 0 },

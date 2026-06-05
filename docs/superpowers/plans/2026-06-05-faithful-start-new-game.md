@@ -95,3 +95,19 @@
 - [ ] All suites green incl. the new FSM unit tests + the narration-strip parity gate; e2e passes.
 - [ ] Manual: `pnpm dev:viewer` → create party → START NEW GAME → see the narration → ENTER → walk 3 → arrows free at the entrance.
 - [ ] Update `TODO.md` #078 (close or note remaining: OPTIONS menu, gate-open, mode-flip static pin) + the spec/plan Outcome.
+
+---
+
+## Outcome (2026-06-05)
+
+**Shipped** on `feat/faithful-start-new-game` (all 6 tasks + a forced-march fix):
+
+- **Schema/data (Task 1):** `ScriptedEntrySchema` + `scriptedEntry` on `DungeonLevel`; session `schemaVersion:2` with `entryMode` + `stepsRemaining`; `readGameSession` discards v1 cleanly; level-0 `scriptedEntry` (start gy=118, steps 3, msg 10010-12, bump 10020).
+- **Pure FSM (Task 2 + fix):** `advanceEntry` (narration→gate-walk→free) + `decodeNarrationLines` in `@wiz6/parser` (isomorphic). The gate-walk is an **unconditional forced march** (raw `step`, not collision-gated `tryStepForward`) — it crosses the one-way gate (real-block test: north=2 wall @gy118, door @gy120) to reach gy=121 in 3 steps.
+- **Viewer (Tasks 3+4):** `MazeView` decodes the narration once, renders the bottom strip per `entryMode` (narration text / movement widget), and dispatches input per mode (ENTER advances scripted modes, arrows inert; arrows move in free, ENTER=OPTIONS deferred no-op). `StartNewGamePage` seeds narration mode via `initGameSession`.
+- **Parity (Task 5):** `maze-entry-narration-parity.test.ts` — **index-domain tolerance-0** gate on the text band y=153..174 vs `maze-entry-narration.idx.gz`, **0-diff** (2202 glyph px @ idx 5 = yellow, on idx 0). Shared `narration-strip.ts` `drawNarrationStrip` = one draw path for the live render + the gate (no drift). RE's "white" was a mislabel — idx 5 is yellow; the engine shows yellow too.
+- **e2e (Task 6):** `faithful-start-new-game.spec.ts` drives the real app: seed party → START NEW GAME → narration (EGA-yellow pixels) → ENTER dismiss → ENTER×3 walk → ArrowLeft turns the view (free). Passes.
+
+Final review: **APPROVE-WITH-NITS** (two stale comments, fixed). All suites green (data 618, parser 348, cli 56, viewer 996), typechecks clean, parser isomorphic.
+
+**Remaining (TODO #078):** the "HMMMM..." bump display, the OPTIONS/camp menu, the gate-open mechanic, the static mode-flip-handler pin, multi-level scripted entries. The dungeon behind the narration is the banked partial renderer (TODO #079) — by design; only the narration strip is gated pixel-exact.

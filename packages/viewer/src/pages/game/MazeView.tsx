@@ -52,7 +52,8 @@ const COMPOSED_PALETTE: readonly [number, number, number][] = [
 ];
 
 /** COMPOSED_PALETTE as a `Palette` object for the text-run renderer (which
- *  indexes `palette.colors[i]`). The narration strip uses index 5 (white) on 0. */
+ *  indexes `palette.colors[i]`). The narration strip uses index 5 (yellow
+ *  [255,255,85] — the engine's entry-narration color, NOT white) on index 0. */
 const NARRATION_PALETTE: Palette = {
   name: 'composed-ega',
   provenance: 'MazeView COMPOSED_PALETTE',
