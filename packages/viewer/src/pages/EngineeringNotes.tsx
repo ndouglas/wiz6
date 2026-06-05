@@ -1718,52 +1718,53 @@ call draw_msg_in_window`}
     title: 'Walking a Corridor Backwards Isn’t the Mirror of Walking It Forwards',
     tags: ['maze', 'engine', 'quirk', 'reimplementation'],
     pitch:
-      'The same dungeon corridor, viewed from opposite ends, can emit different wall sets — because Wiz6 decides which walls to draw from transient, facing-sensitive render state, not from the map geometry alone.',
+      'The same dungeon corridor, viewed from opposite ends, renders differently — and we briefly concluded the engine wasn’t drawing from geometry at all. We were wrong: a door is a directional object, and the renderer reads every wall relative to your facing. It’s fully deterministic geometry.',
     body: (
       <>
         <ProseRow>
           We set out to reimplement the first-person maze renderer as a pure
           function: feed it the map cells + where you stand + which way you face,
-          get the engine’s exact view back. The whole pixel pipeline works — one
-          captured corridor frame reproduces byte-for-byte from geometry. Then it
-          broke on a frame pair that should have been trivial.
+          get the engine’s exact view back. Then it broke on a frame pair that
+          should have been trivial.
         </ProseRow>
         <ProseRow>
           Two frames, <em>same spot</em>, opposite facings: looking one way the
           engine drew a doorway and no side walls; looking back the other way it
-          drew four solid side walls. Same cells. Mirror-identical flanking walls.
-          The <em>only</em> difference was the facing. No rule over the map
-          geometry could tell them apart — we brute-forced ten.
+          drew four solid side walls. The cells looked symmetric. We brute-forced
+          ten rules over the map and none fit — and a per-frame gate that wiped
+          itself by frame-end looked like proof that emission came from
+          <em> transient</em> state, not the map. We wrote it down as
+          &ldquo;not a pure function of geometry.&rdquo;
         </ProseRow>
         <ProseRow>
-          The reason: the engine doesn’t decide wall emission from the map. It
-          seeds a per-depth gate from <em>transient</em> state during the frame
-          build that’s sensitive to the direction of travel — and that state is
-          wiped by the time the frame settles (the gate arrays read all-zero
-          afterward). Two more surprises fell out along the way: the map stores
-          walls in several stacked 64-cell &ldquo;region&rdquo; planes resolved by
-          a fine-coordinate lookup — not one grid — and the renderer executes from
-          a <em>relocated copy of itself</em> that no fixed breakpoint can catch.
+          <strong>That was wrong.</strong> It <em>is</em> pure geometry — we’d just
+          built an incomplete model of the geometry. Two things we’d missed: a
+          door is a <em>directional</em> object (the map stores each cell’s door
+          orientation in its own plane), and the renderer reads each wall
+          <em> relative to your facing</em> — looking south, the wall ahead is the
+          <em> south</em> neighbour’s face, not the cell’s own. Facing the door
+          head-on, its orientation matches your facing and it draws as a recess
+          with flanking walls; facing away, the same door reads as open corridor.
+          Same cells, opposite facings, completely determined by (geometry +
+          facing). The &ldquo;transient gate&rdquo; was just per-frame scratch
+          computed <em>from</em> that geometry; the &ldquo;symmetric&rdquo; cells
+          weren’t — we’d been comparing the wrong fields, so we never actually fed
+          it the same geometry.
         </ProseRow>
-        <Aside title="What this means for the port">
-          We can render any single real frame’s walls pixel-exact from geometry —
-          and we do. But a renderer that matches the engine for <em>arbitrary</em>
-          movement needs the engine’s transient render state, not just the map.
-          The walls you see aren’t a pure function of where you are and which way
-          you look.
-        </Aside>
         <Aside title="The lesson">
-          &ldquo;It’s just geometry&rdquo; is a hypothesis, not a fact. Four
-          reverse-engineering passes each cracked a real layer — the cell
-          projection, the multi-region planes, the fine-coordinate resolver —
-          before the data itself proved the thing we were modeling (emission)
-          wasn’t geometric at all. The disproof — same geometry in, different
-          picture out — was worth more than another clever guess.
+          &ldquo;It’s not geometric&rdquo; was the wrong conclusion — and what
+          saved us was refusing to believe it. A discrete grid-stepper from 1990 is
+          finite, deterministic code; its view <em>must</em> be a function of local
+          geometry. Holding that line through several wrong turns is what finally
+          shook out the door-orientation plane and the per-facing wall read. A
+          disproof that looks decisive — &ldquo;same geometry in, different picture
+          out&rdquo; — is worth re-checking when it implies something impossible;
+          ours just meant the inputs weren’t actually the same.
         </Aside>
       </>
     ),
     seeAlso: [
-      { label: 'findings: maze-classify-gating.json', href: '/explore/docs/findings/maze-classify-gating.json' },
+      { label: 'findings: maze-classify-determinism.json', href: '/explore/docs/findings/maze-classify-determinism.json' },
       { label: 'findings: maze-classify-projection.json', href: '/explore/docs/findings/maze-classify-projection.json' },
     ],
   },

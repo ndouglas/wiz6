@@ -12,18 +12,29 @@
 
 ---
 
-## Outcome (2026-06-04) — paused: pixel pipeline shipped, general emission is an open RE wall
+## Outcome (2026-06-05) — banked: complete RE teardown; from-geometry rendering decoder-complete, generation-law pending
 
-**Shipped + validated (committed on `re/maze-general-renderer`):**
-- Tasks 1–9: the full `@wiz6/data` + `@wiz6/parser` from-geometry pipeline (schemas, RE'd tables, page-decode, committed assets, compositor, flush, build, classify, `renderMazeViewport`). The `lookback` corridor frame renders **byte-exact from geometry** through the entire pipeline.
-- Task 10: turn-left / lookback / **asymmetric** engine fixtures + per-frame geometry/party/multi-region data (`tools/parity/fixtures/engine/maze-frames.json`).
-- Two extra RE passes pinned the CLASSIFY projection (`0x3c11`) and the fine-coordinate **resolver + multi-region wall planes** (`docs/re/findings/maze-classify-{projection,gating}.json`).
+> This plan ran far past its original 12 tasks. The "Outcome" below supersedes the rest of the
+> document, which is the historical task list. Branch: `re/maze-classify-determinism` (landed to main).
 
-**Why paused (Tasks 11–12 not done):** the wall-emit predicate is **proven NOT a pure function of (geometry, party, facing)** — `maze-corridor` (f0) and `lookback` (f2) resolve to the same center cells with mirror-identical flanking walls yet emit 0 vs 4 solid wall-spans; the only difference is facing. The discriminator lives in a **facing-sensitive transient classifier state** that settles to zero post-frame, and the renderer runs from a relocated/paged copy that the current trace tooling cannot hit (0-hit wall). A 10-predicate offline search over the full multi-region geometry did not reproduce all four frames. Decision (with the user): **bank the wins, stop the general-renderer goal.** The viewer keeps its existing **extraction** path (`compose-maze-frame.ts`, already 100% for the corridor) — Task 12's replacement was deliberately NOT done, so `/game/maze` is unaffected.
+**The 3D maze view is fully reverse-engineered — every decoder and blit primitive is cracked byte-exact, and the view is PROVEN deterministic.** What was banked short of: a *general from-geometry* renderer (the per-view call-list *generation* law is decompiler-blocked) and the viewer swap. The viewer keeps its working **extraction** path, so `/game/maze` is unaffected.
 
-**Status by task:** T1–T9 ✅ · T10 ✅ · `classify` reworked to the RE'd law (renders solid corridors; over-emits for general geometry — `it.skip` documents the divergent frames) · T11 (multi-frame gate) / T12 (viewer replace) — **not done (blocked on the emit predicate).**
+**Cracked + validated (all committed):**
+- **Determinism proved**, and the f0/f2 "non-geometric" scare *refuted*: the view is a pure function of geometry **including the door-orientation (`orient2`) plane** + a per-facing wall-edge selector. (`maze-classify-determinism.json`.)
+- **Wall classification** byte-exact across 11/12 captured frames (orient2-aware `classify` → `build` → `flush`). (`maze-classify-{projection,gating}.json`.)
+- **Every decoder:** wall 4-plane tiles + `.pic` RLE; the background **expander** (`mazedata.ega` loaded verbatim + descriptor normalization — NOT a compression); the **OR-blit** walk; the **masked-mirror** blit (bit-reverse LUT + OR/REPLACE, per-call byte-exact). (`maze-{expander,floor-ceiling-decoder,masked-mirror,asset-loader}.json`.)
+- **Asset path:** the floor/ceiling/window + the 366 static placement records all live in `mazedata.ega`, decoded byte-exact off the pinned image (`tools/parity/{expand-asset,decode-asset}.ts`; `packages/parser/src/maze/{maze-data,background,callist}.ts`).
+- **From-asset background:** composes to **99.909%** of the real `gy=121` viewport (the 18-px residual is the deep door — a wall-path element, not background) using a *captured* call list.
+- **Tooling:** a reproducible first-render capture harness + a signature resolver that defeats the relocated-renderer "0-hits" wall (`maze-capture-harness.json`; `trace-maze.ts`).
+- **Gates (green):** the engine-page full-viewport gate (`maze-corridor-viewport-parity.test.ts`, 19712/19712); the masked-mirror per-call gate; the classify/build/flush/expander unit gates.
 
-**To resume:** the emit predicate needs the transient mid-frame gate state. Recipe in `docs/re/findings/maze-classify-gating.json` (`pass_2026_06_04_close_attempt`): find the renderer's runtime CS via the wmaze overlay-dispatch far-call, re-mint the 4 states under the patched core, trace + mid-frame-capture the emit-gate seeding. OR investigate the decoration-plane (`special4`/`orient2`) door→side-wall interaction offline (f0 shows a doorway where f2 shows solid walls).
+**What's banked (not done) + how to resume:**
+- **Background call-list GENERATION** (the last thing between "captured per frame" and "general"): the per-depth placement-index arithmetic lives in slot helpers (`0x3828/0x3c11/0x3dce/0x4892`) that Ghidra's decompiler fails on — needs hand-disassembly. (`maze-callist-generation.json`, TODO #077.)
+- **The 18-px deep-door** third draw path (a wall-side element).
+- **Wall cases** for non-corridor frames (front/door/far/corner) + the R-up-up df3 residual.
+- **Viewer swap** (T12) — deferred; extraction stays.
+
+**Why banked (decision with the user):** ~28 deep RE passes / 40 commits on one screen, asymptoting at 99.9% on a view the viewer already renders via extraction; the remaining generation law is decompiler-blocked manual asm. The genuinely-valuable RE (a complete, byte-exact teardown) is done and committed. See `docs/re/findings/maze-*.json` for the full record.
 
 ---
 
