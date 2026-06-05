@@ -66,3 +66,19 @@
 - [ ] `pnpm -r run typecheck` clean; `@wiz6/parser` isomorphic. All suites green incl. the 5 full-screen per-frame gates + the FSM tests; e2e passes.
 - [ ] **Manual:** `pnpm dev:viewer` → create YOUR party → START NEW GAME → title card → narration on black → ENTER-walk (gate recedes) → HMMMM → free; the panel shows YOUR party; the viewport shows the gate (not black); the narration is on clean black.
 - [ ] Update `TODO.md` (#078) + the spec/plan Outcome.
+
+---
+
+## Outcome (2026-06-05)
+
+**Shipped** on `feat/newgame-sequence-byteexact` — byte-exact full-screen per-frame entry sequence + the 3 reported bugs fixed.
+
+- **Task 1 — FSM/config:** `entryMode` `title|narration|gate-walk|bump|free` (`entry-sequence.ts`), forced-march; level-0 `scriptedEntry` (titleMsgIds 1212/1213, narrationMsgIds 10010-12, bumpMsgId 10020). Per-gy: 117 title, 118 narration, 119 walk, 120 bump, 121 bump.
+- **Task 2 — oracle viewport:** `newgame-oracle.ts` + committed `extracted/maze/newgame-viewports.json` (per-gy byte-slice of the fixture viewport) — the gate renders (was black).
+- **Task 3 — live party panel:** shared `party-panel-compose.ts` (castle + maze), from the active party — fixes the "3 wrong characters" bug.
+- **Task 4 — bottom strip:** `drawEntryStrip` per mode — clean black for narration/bump (the "solid black" fix), gray widget + blue title, black no-text walk.
+- **Task 5 — parity:** `newgame-sequence-parity.test.ts` — 5 frames full-screen tol 0 (narration excludes a documented 49px non-deterministic mouse-cursor rect), 6-member roster seeded from `pcfile.dbs` slots 0-5. Removed the superseded band-only gates.
+
+**RE note (painful but resolved):** several RE passes mislabeled msg IDs / mis-phased fixtures (the message text isn't in the libretro serialized framebuffer — it redraws ~30 frames post-unserialize; fixed via `remintStep`). Ground truth re-verified directly against `msg.json` + each frame's PNG. The correct IDs (1212/1213, 10010-12, 10020) are in the code + the corrected finding.
+
+Final review: **APPROVE-WITH-NITS** (finding self-contradiction + cursor px-count, both fixed). Deferred: OPTIONS menu, gate-open, the ENTRANCE CHAMBER room message (#078).
