@@ -1,0 +1,82 @@
+{
+  "topic": "maze-level-extract",
+  "subagent_run": "2026-06-05 (Task A1: RE + build the from-disk level-map extractor — decode the starting dungeon level's cell map into the MazeBlock shape renderMazeViewport consumes, byte-exact vs the live in-RAM block)",
+  "binaries": ["scenario.dbs", "disk.hdr", "master.hdr", "wmaze.ovr", "wroot.exe"],
+  "status": "CRACKED + byte-exact validated (DONE). The starting level's MazeBlock is a PLAIN, UNCOMPRESSED 1346-byte record of SCENARIO.DBS, addressed by the SAME (bank, recordIndex) bank reader as the floor/ceiling images (maze-asset-loader.json): bank 2, record = levelId. The maze DEFINITION record (record 0 for the starting level / zone 0) is loaded VERBATIM into the wmaze near-heap block at DGROUP *0x4faa (the 'maze_block' near ptr of the classify findings). The MazeBlock fields (gxBase/gyBase region tables + N/W/special4/orient2/pit bit-planes) are slices/bit-planes within that record at the offsets the classify pass pinned. The offline decoder extractMazeLevel(0) (tools/parity/extract-mazedata.ts) reproduces the FULL live in-RAM MazeBlock — all 12 region planes × 64 cells + both 12-entry region tables — with 0 byte diffs vs TWO independent live oracles (validate-maze-level.ts reads *0x4faa on the nightly core; maze-block-dump.ts's /tmp/maze-block.json is the second path).",
+  "reference_frame": {
+    "state": "tools/libretro/states/maze-corridor.state (nightly core)",
+    "game_state": 5,
+    "zone": 0,
+    "dgroup_base_phys": "0xffa0 (anchor())",
+    "maze_ptr": "*0x4faa = 0x7504 (this run; heap-dependent — re-derive per run); maze block = [base+0x7504 .. +1346]"
+  },
+  "findings": [
+    {
+      "id": "maze-block-is-scenario-bank2-record-levelId",
+      "claim": "The per-level maze CELL MAP is SCENARIO.DBS bank 2, record `levelId` (the starting level = zone 0 = record 0), read VERBATIM by the same bank reader that loads the floor/ceiling images. record = SCENARIO.DBS[ base[2] + levelId*recsize[2] .. +recsize[2] ], base[2]=37896 (0x9408, from DISK.HDR), recsize[2]=1346 (from MASTER.HDR). The 1346-byte record is the in-RAM maze block at DGROUP *0x4faa. NO decompression — the live *0x4faa bytes [0 .. 1345] are byte-identical to scenario.dbs[37896 .. 39241]. (The diff only begins at record byte 1346 = the start of the NEXT bank-2 record; every MazeBlock plane ends well before that: highest plane offset = pit end 0x49a = 1178 < 1346.)",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "scenario.dbs",
+        "address": {"space": "wmaze.dgroup", "offset": "0x4faa"},
+        "type": "byte_pattern_plus_live_oracle",
+        "details": "find() of the live maze-block head64 (00 01 01 00 01 01 02 03 ...), the gxBase table (120 128 120 128 120 128 10 18 10 18 26 26), the gyBase table (116 116 124 124 132 132 10 10 18 18 10 18), the +0x60 N plane and the +0x120 W plane ALL land at scenario.dbs offset 37896 + their MazeBlock sub-offset (head64 @37896, N @37896+0x60, W @37896+0x120, gxBase @37896+0x1e0, gyBase @37896+0x1ec). 37896 == base[2] (DISK.HDR u32 @ (2+1)*4) and (37896-base[2])/recsize[2] = 0, so it is bank 2 record 0. Live *0x4faa[0..1345] vs scenario.dbs[37896..39241]: 0 diffs (first diff at byte 1346, the next record). bank 2 holds 16 records ((59432-37896)/1346=16); records 2..13 are the floor IMAGES for zones 0..11 (maze-asset-loader.json), so the maze-DEFINITION records are 0/1 (rec0 != rec1, 599 byte diffs — distinct, not duplicates)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "mazeblock-field-layout-within-record",
+      "claim": "Within the 1346-byte record, the MazeBlock fields are at the offsets the classify findings pinned (maze-classify-projection.json / maze-classify-gating.json): gxBase = +0x1e0 (12 bytes), gyBase = +0x1ec (12 bytes); and FIVE contiguous MSB-first bit-planes indexed by cell = region*64 + cellA*8 + cellB (12 regions × 64 cells = 768): N = +0x60 (2 bits/cell), W = +0x120 (2 bits), special4 = +0x1f8 (4 bits), orient2 = +0x378 (2 bits), pit = +0x43a (1 bit). Decoding these planes from the on-disk record reproduces the live MazeBlock exactly. cellA is the ×8 axis, cellB the ×1 axis; the region resolver (wmaze 0x357a/0x35b7) maps a global (gx,gy) to (region, cellA, cellB) via gxBase[r] <= gx <= gxBase[r]+7 AND gyBase[r] <= gy <= gyBase[r]+7.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "scenario.dbs",
+        "address": {"space": "wmaze.ovr", "offset": "0x357a"},
+        "type": "offline_decode_plus_live_oracle",
+        "details": "Per-range byte-exact check of the on-disk record vs live *0x4faa: N(+0x60,192B) 0 diffs; W(+0x120,192B) 0 diffs; special4(+0x1f8,384B) 0 diffs; orient2(+0x378,192B) 0 diffs; pit(+0x43a,96B) 0 diffs; gxBase(+0x1e0,12B) 0 diffs; gyBase(+0x1ec,12B) 0 diffs. All within the 1346-byte record. The plane offsets + cell-index formula are carried from maze-classify-projection.json (cell-index-compute @wmaze 0x38ba) / maze-classify-gating.json (resolver-and-region-tables @wmaze 0x357a) and confirmed here by the byte-exact field decode."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "byte-exact-reproduction-result",
+      "claim": "BYTE-EXACT REPRODUCTION (the gate): extractMazeLevel(0) (tools/parity/extract-mazedata.ts; loadAssetDb reads DISK.HDR/MASTER.HDR/SCENARIO.DBS, decodeAsset(bank=2, record=0), decodeMazeBlock decodes the 5 bit-planes + 2 region tables) reproduces the live in-RAM MazeBlock for the starting level (12 regions × 64 cells × 5 fields + gxBase[12] + gyBase[12], 549/768 cells non-empty) with 0 diffs across EVERY region plane AND both region tables. No emulator, no decompression. Validated against two independent live oracles.",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "scenario.dbs",
+        "type": "offline_decode_plus_live_oracle",
+        "details": "tools/parity/validate-maze-level.ts (nightly core + maze-corridor.state, reads *0x4faa, decodes with the SAME offline decodeMazeBlock, diffs): 'BYTE-EXACT: 0 diffs across all planes + region tables.' (exit 0). Independent cross-check: extractMazeLevel(0) vs /tmp/maze-block.json (the maze-block-dump.ts oracle, a separate read+decode path): diffs = 0, gxBase/gyBase match."
+      },
+      "confidence": "high"
+    }
+  ],
+  "level_to_record_map": {
+    "db_file": "SCENARIO.DBS",
+    "bank": 2,
+    "base": 37896,
+    "recsize": 1346,
+    "record_address": "SCENARIO.DBS[ 37896 + levelId*1346 .. +1346 ]",
+    "starting_level": "levelId 0 -> bank 2 record 0 (zone 0 / the committed maze-corridor.state)",
+    "note": "Records 2..13 of bank 2 are the floor IMAGES for zones 0..11 (maze-asset-loader.json), so the maze-DEFINITION records are 0/1 (and 14/15). The general per-level record map is UNVERIFIED beyond level 0 (no second-level oracle); see unresolved."
+  },
+  "decompressor": "NONE — the maze block is stored UNCOMPRESSED and read verbatim by the bank reader (wroot FUN_0882, plain lseek+read), identical to the floor/ceiling load path.",
+  "asm_anchors": [
+    {"space": "wroot.exe", "offset": "0x10882", "name": "scenario_bank_record_read", "note": "FUN_0882: lseek(*0x842, base[bank]@0x3048 + recIdx*recsize[bank]@0x3300, SEEK_SET) + read. Reached from wmaze via thunk 0xC31E. The maze block (bank 2) and the floor images (bank 2 rec zone+2) come through the same reader."},
+    {"space": "wmaze.ovr", "offset": "0x42", "name": "view_lazy_alloc_maze_block", "note": "cmp [0x4faa],0 / push [0x3304](=recsize[2]=1346) / call 0xf4be(malloc) / mov [0x4faa],ax — lazily allocates the 1346-byte block into *0x4faa (the maze block / 'floor near-buffer'). The maze-DEFINITION record is loaded into this buffer."},
+    {"space": "wmaze.ovr", "offset": "0x357a", "name": "fine_in_region_test", "note": "region r matches iff gxBase[r]@(maze_block+0x1e0) <= gx <= +7 AND gyBase[r]@(+0x1ec) <= gy <= +7. The region tables that tile the 12 × 64-cell planes."},
+    {"space": "wmaze.ovr", "offset": "0x38ba", "name": "cell_index_compute", "note": "cell = z*64 + cellA*8 + cellB (z = the resolver's region index); the index into all five bit-planes."}
+  ],
+  "dgroup_anchors": {
+    "0x4faa": "maze_block near ptr (the 1346-byte bank-2 record, loaded verbatim); sub-tables +0x60 N(2b), +0x120 W(2b), +0x1e0 gxBase(12B), +0x1ec gyBase(12B), +0x1f8 special4(4b), +0x378 orient2(2b), +0x43a pit(1b)",
+    "0x363c": "current level/zone index (the record selector candidate; record 0 for the starting level)",
+    "0x3048": "per-bank base offsets (DISK.HDR); base[2]=37896",
+    "0x3300": "per-bank record sizes (MASTER.HDR); recsize[2]=1346 (0x3304)",
+    "0x842": "SCENARIO.DBS file descriptor"
+  },
+  "artifacts": [
+    "tools/parity/extract-mazedata.ts — extractMazeLevel(levelId, db?) -> MazeBlock; decodeMazeBlock(record) decodes the 5 bit-planes + 2 region tables; reuses decode-asset.ts's loadAssetDb/decodeAsset (the cracked bank reader).",
+    "tools/parity/validate-maze-level.ts — the byte-exact gate: reads the live *0x4faa block (nightly core + maze-corridor.state), decodes with the same decodeMazeBlock, diffs vs extractMazeLevel(0). 0 diffs = exit 0."
+  ],
+  "unresolved": [
+    "The per-level record map is verified only for level 0 (record 0) — the only level with a live oracle (maze-corridor.state is zone 0). extractMazeLevel uses record == levelId. Whether deeper levels live at record == levelId in bank 2 (interleaved with the floor-image records 2..13) OR follow a different selector is UNVERIFIED. To confirm: reach a second dungeon level live, read *0x4faa, and find() its head/region-tables against scenario.dbs to pin its (bank, record). NOTE the likely tension: bank-2 records 2..13 ARE the floor images, so maze definitions for zones 1..11 cannot also be records 2..13 — the per-level maze-definition records are probably 0/1/14/15 (only 4 maze-def slots in bank 2) OR the per-level map uses a different bank/indexing. This is the one open question for the general (multi-level) extractor; level 0 (the START-NEW-GAME / starting dungeon, which is all Stages B/C need) is byte-exact.",
+    "Which DGROUP word selects the maze-DEFINITION record at load (0x363c current-zone vs a separate level index) was not traced to the load site this pass — the record index was determined empirically (live *0x4faa == bank 2 record 0). The bank reader (FUN_0882) + the lazy-alloc (wmaze 0x42) are pinned; the exact record-selection arg at the maze-block load call was not isolated."
+  ],
+  "caveat_for_prior_findings": "EXTENDS maze-asset-loader.json: that pass labelled DGROUP *0x4faa the 'floor near-buffer' (malloc dest, size recsize[2]=1346) — it is more precisely the MAZE-BLOCK buffer holding bank-2 record `levelId` (the maze cell-map definition), which is 1346 B because the maze-definition record and the floor-image record share the bank-2 record size. The floor IMAGES are bank-2 records 2..13; the maze DEFINITIONS are records 0/1 (and 14/15). No prior byte result is contradicted; this finding pins the SOURCE of the in-RAM MazeBlock the classify findings (maze-classify-projection.json / -gating.json) read at *0x4faa — it is bank 2 record `levelId`, read verbatim from disk, byte-exact."
+}
