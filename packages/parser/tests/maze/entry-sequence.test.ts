@@ -4,15 +4,31 @@
  * Uses a hand-built minimal MazeBlock with an open forward corridor along
  * facing 0 (north), so facing-0 steps advance gy by +1.
  *
+ * Also tests against the REAL level-0 MazeBlock (extracted/maze/level-0.json) to
+ * prove the forced march walks gy 118→119→120→121 even though tryStepForward would
+ * block at gy=118 (north=2, wall) and gy=120 (north=3, door).
+ *
  * Engine reference: wmaze scripted entry (narration → gate-walk → free),
  * CLAUDE.md overlay state table + ScriptedEntry schema (Task 1).
  *
  * Level-0 scriptedEntry.start: gx=127, gy=118, z=0, facing=0 (from plan).
  */
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { advanceEntry, type EntryState } from '../../src/maze/entry-sequence.js';
 import { decodeNarrationLines } from '../../src/maze/entry-sequence.js';
+import { tryStepForward } from '../../src/maze/movement.js';
 import type { MazeBlock, MazeParty, MessageDb } from '@wiz6/data';
+
+// Real level-0 MazeBlock loaded from extracted/maze/level-0.json (fs is fine in tests).
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(HERE, '..', '..', '..', '..');
+const REAL_LEVEL_0 = JSON.parse(
+  readFileSync(resolve(REPO_ROOT, 'extracted', 'maze', 'level-0.json'), 'utf8'),
+) as { mazeBlock: MazeBlock };
+const REAL_BLOCK: MazeBlock = REAL_LEVEL_0.mazeBlock;
 
 // ---------------------------------------------------------------------------
 // MazeBlock helper — open corridor along facing 0 (north) at gx=127,gy=118+.
@@ -128,6 +144,74 @@ describe('advanceEntry', () => {
     const next = advanceEntry(s, OPEN_BLOCK);
     expect(next).toBe(s); // same reference — no allocation
     expect(next.entryMode).toBe('free');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real level-0 block — forced-march regression guard
+//
+// The level-0 cells at gx=127:
+//   gy=118: north=2 (solid wall)  → tryStepForward BLOCKS here
+//   gy=119: north=0 (open)
+//   gy=120: north=3 (door/gate)   → tryStepForward BLOCKS here too
+//   gy=121: north=0 (open)
+//
+// advanceEntry's gate-walk MUST advance through both blocked edges — it is a
+// forced march. tryStepForward must stay unchanged (collision still guards free-roam).
+// ---------------------------------------------------------------------------
+describe('advanceEntry — real level-0 block (forced march through gate)', () => {
+  const GATE_WALK_START: MazeParty = { gx: 127, gy: 118, z: 0, facing: 0 };
+
+  it('tryStepForward on the REAL block at gy=118 returns party UNCHANGED (proves edge is solid)', () => {
+    // This documents WHY the fix is needed: free-movement collision blocks here.
+    const result = tryStepForward(GATE_WALK_START, REAL_BLOCK);
+    expect(result.gy).toBe(118); // unchanged — north=2 blocks
+    expect(result).toEqual(GATE_WALK_START);
+  });
+
+  it('tryStepForward on the REAL block at gy=120 returns party UNCHANGED (door blocks)', () => {
+    const at120: MazeParty = { ...GATE_WALK_START, gy: 120 };
+    const result = tryStepForward(at120, REAL_BLOCK);
+    expect(result.gy).toBe(120); // unchanged — north=3 (door) blocks
+  });
+
+  it('gate-walk step 1 on real block: gy 118→119 (crosses solid north=2 wall)', () => {
+    const s: EntryState = { party: GATE_WALK_START, entryMode: 'gate-walk', stepsRemaining: 3 };
+    const next = advanceEntry(s, REAL_BLOCK);
+    expect(next.party.gy).toBe(119);
+    expect(next.party.gx).toBe(127);
+    expect(next.party.facing).toBe(0);
+    expect(next.entryMode).toBe('gate-walk');
+    expect(next.stepsRemaining).toBe(2);
+  });
+
+  it('gate-walk step 2 on real block: gy 119→120 (open north=0)', () => {
+    const s: EntryState = { party: { ...GATE_WALK_START, gy: 119 }, entryMode: 'gate-walk', stepsRemaining: 2 };
+    const next = advanceEntry(s, REAL_BLOCK);
+    expect(next.party.gy).toBe(120);
+    expect(next.entryMode).toBe('gate-walk');
+    expect(next.stepsRemaining).toBe(1);
+  });
+
+  it('gate-walk step 3 on real block: gy 120→121 (crosses door north=3) → free', () => {
+    const s: EntryState = { party: { ...GATE_WALK_START, gy: 120 }, entryMode: 'gate-walk', stepsRemaining: 1 };
+    const next = advanceEntry(s, REAL_BLOCK);
+    expect(next.party.gy).toBe(121);
+    expect(next.entryMode).toBe('free');
+    expect(next.stepsRemaining).toBe(0);
+  });
+
+  it('3 successive gate-walk calls on real block: gy 118→121 (stepsRemaining 3→0, entryMode→free)', () => {
+    // The main regression guard: forced march through the outer gate.
+    let s: EntryState = { party: GATE_WALK_START, entryMode: 'gate-walk', stepsRemaining: 3 };
+    s = advanceEntry(s, REAL_BLOCK);
+    s = advanceEntry(s, REAL_BLOCK);
+    s = advanceEntry(s, REAL_BLOCK);
+    expect(s.party.gy).toBe(121);
+    expect(s.party.gx).toBe(127);
+    expect(s.party.facing).toBe(0);
+    expect(s.entryMode).toBe('free');
+    expect(s.stepsRemaining).toBe(0);
   });
 });
 

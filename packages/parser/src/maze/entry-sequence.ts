@@ -12,7 +12,7 @@
 
 import type { MazeBlock, MazeParty } from '@wiz6/data';
 import type { MessageDb } from '@wiz6/data';
-import { tryStepForward } from './movement.js';
+import { step } from './maze-geometry.js';
 
 export interface EntryState {
   party: MazeParty;
@@ -35,7 +35,13 @@ export function advanceEntry(s: EntryState, block: MazeBlock): EntryState {
       return { ...s, entryMode: 'gate-walk' };
 
     case 'gate-walk': {
-      const party2 = tryStepForward(s.party, block);
+      // Forced march: advance one cell forward IGNORING walls (the START-NEW-GAME
+      // scripted gate-walk crosses a one-way gate that tryStepForward would block).
+      // Use the bare geometry step — same forward delta as tryStepForward, minus the
+      // isSolid collision guard.
+      const { gx, gy, facing } = s.party;
+      const [ngx, ngy] = step(gx, gy, facing, 0, 1);
+      const party2: MazeParty = { ...s.party, gx: ngx, gy: ngy };
       const steps = s.stepsRemaining - 1;
       if (steps <= 0) {
         return { party: party2, entryMode: 'free', stepsRemaining: 0 };
