@@ -8,6 +8,9 @@
 // Public entry point
 export { renderMazeViewport } from './render.js';
 
+// Discrete movement (turn + wall-collision step)
+export { turn, tryStepForward } from './movement.js';
+
 // Individual stages (for tests, parity tooling, and viewer assembly)
 export { classifyVisibleWalls } from './classify.js';
 export { deriveCorridorSpans, refineSpanColumns, cornerSolidSeamIdx } from './build.js';

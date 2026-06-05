@@ -35,6 +35,8 @@ export { renderEgaScreen } from './formats/ega-screen-render.js';
 
 // Maze renderer pipeline
 export { renderMazeViewport } from './maze/render.js';
+// Maze movement (discrete turn + wall-collision step)
+export { turn, tryStepForward } from './maze/movement.js';
 // Maze block decoder (pure — I/O-free; used by the CLI extractor + parity tools)
 export {
   decodeMazeBlock,
