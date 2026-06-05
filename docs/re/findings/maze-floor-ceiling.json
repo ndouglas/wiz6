@@ -1,0 +1,76 @@
+{
+  "topic": "maze-floor-ceiling",
+  "subagent_run": "2026-06-04 (T11a: lookback full-viewport byte-exact attempt — floor/ceiling + terminal element)",
+  "binaries": ["wmaze.ovr", "ega.drv", "wroot.exe"],
+  "status": "BLOCKED / DONE_WITH_CONCERNS — full-viewport byte-exact NOT achieved this pass. The blocker is a TOOLING/FIXTURE mismatch, not a missing algorithm: the committed lookback fixture cannot be re-reached pixel-identically on the only core that can capture the compose page.",
+  "saves": [
+    "Committed engine fixture tools/parity/fixtures/engine/maze-corridor-lookback.idx.gz (COMPOSED_PALETTE index space, facing 2). Committed serialize-state test-fixtures/states/maze-corridor.state.gz (613923 B) unserializes on the NIGHTLY core (reaches game_state 5) but the nightly core has NO trace/capture (err notrace). The PATCHED trace core (built this run via build-core.sh, 588156-B serialize format) CANNOT unserialize the committed 613923-B state — so live page-capture must DRIVE FRESH, which reaches a structurally-similar but NOT pixel-identical lookback frame."
+  ],
+  "reference_frame": {
+    "name": "maze-corridor-lookback",
+    "game_state": 5, "facing": 2, "zone": 0, "z": 0, "gx": 127, "gy": 121, "parity": 0,
+    "viewport": "x72..247 (w176) y32..143 (h112)",
+    "view": "looking back down the corridor: dithered grey stone ceiling+floor+side-walls + a large central stained-glass window/portcullis (the terminal element) filling most of the lower-center"
+  },
+  "findings": [
+    {
+      "id": "lookback-viewport-region-map",
+      "claim": "The lookback viewport (176x112) is NOT a clean floor-band + ceiling-band + 4-side-walls + small-terminal decomposition. It is a DENSE dithered-stone scene (idx 8 dark-grey 5393px, idx 9 light-grey 8243px, idx 0 black-seam 3947px, idx 1 white 1183px) with a LARGE central terminal element — the stained-glass window/portcullis — whose colored pixels (idx 5 yellow, 10 bright-green, 12 bright-red, 13 magenta, 14 bright-yellow; 946 px total) span x74..246 / y52..143 (nearly the full lower-center width, not a small far cap). The whole viewport is geometry+dither, so 'add a static floor/ceiling backdrop' is not viable (confirmed by maze-background-nature.json) and there is no small isolated terminal element to decode separately.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "fixture_measurement",
+        "details": "Decoded maze-corridor-lookback.idx.gz viewport crop. Index histogram {0:3947,1:1183,5:216,8:5393,9:8243,10:35,12:111,13:294,14:290}. Colored (window) px: 946, x[74..246] y[52..143]. The current wall pipeline (renderMazeViewport, blank page) emits ONLY the 4 wt=2 side spans = 1839 non-zero px and scores 29.35% RGB-via-COMPOSED_PALETTE vs the fixture viewport. The remaining ~70% (floor+ceiling dither + window) is unrendered."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "compose-page-is-the-complete-renderer-for-lookback-too",
+      "claim": "The maze-planar-transform.json result (the 4-plane compose page at seg 0x41820, plane stride 0x2000, 40 B/row, decoded uniformly, IS the complete screen — page->VRAM is offset-preserving identity) HOLDS for the lookback facing-2 frame, not just the forward corridor. A fresh patched-core drive to lookback (clean corridor -> right x2) then capturing the page at the plane-0 store (cs=0x6b91 ip 0x909, lin 0x6c219) and uniformly decoding it matches that frame's OWN live framebuffer at 100.00% viewport + 100.00% chrome. So decodePageRgba (packages/parser/src/maze/page.ts decodePageIndex) is confirmed the complete renderer for ALL facings; the only open work is the STAGE-1 compositor that FILLS the page (source-texture/asset -> page) for the floor/ceiling/window.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture_plus_pixel_match",
+        "details": "Patched trace core (build-core.sh). Fresh drive (trace-maze.ts reach -> CLEAN_STATE) then right x2 to facing 2. Plane-0 store count = 137. Captured all 4 planes at the last store (PAGE=0x41820 + p*0x2000), uniform 40B/row 4-plane decode, majority-vote palette from the SAME-FRAME live fb: viewport (x72..247/y32..143) = 100.00%, chrome (y144..199) = 100.00%. The decoded page is a structurally-correct lookback (dithered stone + central window). Reproduces with the capvp pattern adapted for the 2-right-turn redraw."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "committed-fixture-not-reachable-on-trace-core",
+      "claim": "BLOCKER. A fresh patched-core drive to lookback reaches a DIFFERENT frame than the committed maze-corridor-lookback fixture — divergent EVERYWHERE, not just in the animated window. Band-by-band, the fresh-drive compose page vs the committed fixture (RGB via COMPOSED_PALETTE): left side-wall x72..115 = 38.2%, right side-wall x205..248 = 40.2%, center/window x115..205 = 47.4%, ceiling y32..52 = 50.3%, floor y112..144 = 62.3%; full viewport = 43.43%. The dithered stone is POSITION/PHASE-dependent, so even a sub-cell or animation-phase difference scrambles the dither across the whole view. Because the committed 613923-B serialize-state will NOT unserialize on the 588156-B patched trace core (and the nightly core that CAN load it has no trace/capture), there is no way to capture the compose page (or RE the source->page transform) for the EXACT committed frame. Byte-exact (tolerance 0) reproduction of the committed fixture is therefore not attainable until this fixture/core mismatch is resolved.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture_plus_pixel_match",
+        "details": "Committed state unserializes on nightly (game_state 5) but `traceSet` -> 'trace: err notrace'. Patched core unserialize of the committed 613923-B state was reported incompatible by the prior pass (613923 vs 588156) and is the documented mismatch. Fresh-drive page vs OWN fb = 100%/100%; fresh-drive page vs COMMITTED fixture = 43.43% viewport (bands above). Conclusion: the fresh frame != the committed frame at the pixel level; the committed frame's page is uncapturable on the trace core."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "floor-ceiling-window-source-format-still-uncracked",
+      "claim": "Even with a capturable frame, porting the floor/ceiling+window FROM-ASSET requires (a) the proprietary masked-image PIXEL decoder (the in-RAM floor id=1346 / ceiling id=1740 blocks + the window element are the wroot/EGA-driver masked-run encoding, NOT a flat planar bitmap — still UNCRACKED per wmaze-texture-rasterizer.json texture-in-ram-format-proprietary-masked, confidence medium) and (b) the source->page blit transform. The static-disasm thunk 0xfb27 (the claimed floor/ceiling blit) has NO literal `call 0xfb27` site in wmaze.ovr (0 matches scanning every E8 rel16) — so that finding's blit-entry label is unconfirmed/likely wrong; the floor/ceiling fill is reached by another path. The 0xf148 edge-emit thunk has 28 call sites but its wroot target is still unresolved (the -0xBA9C delta law fails for these high thunks). So the source->page compositor for floor/ceiling/window is NOT yet RE'd, independent of the fixture blocker.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "disasm",
+        "details": "Capstone scan of wmaze.ovr for E8 rel16 with target 0xfb27: 0 sites. Target 0xf148: 28 sites (0x40af,0x40f5,0x42ab,...). The 0x3fcf region the prior finding labelled 'view_load_zone_and_fill' disassembles as the tail of span_append (0x3f8d) + the start of wall_emit_quad (0x406c), not a floor/ceiling loader. The floor/ceiling source blocks (decompressed, at heap segs) + the masked-image decode + the blit remain to be reversed."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "what_generalizes_vs_lookback_specific": {
+    "generalizes": [
+      "The compose-page format + page->screen identity decode (decodePageIndex) is the complete renderer for ANY facing — confirmed 100%/100% for facing 2 (lookback), as previously for facing 0 (corridor). Filling the page is the only remaining work for every frame.",
+      "The wt=2 side-wall pipeline (classify->build->flush->compositor) is byte-exact at the span level for lookback's 4 spans (1839 px), and generalizes (validated across 11/12 captured frames per classify.ts)."
+    ],
+    "lookback_specific": [
+      "Nothing about the floor/ceiling/window is lookback-specific per se — they are per-view geometry rasterizations. But the DITHER is position/phase-sensitive, so a frame that is even slightly off geometrically diverges across the whole viewport (this is what makes the fresh-drive vs committed-fixture mismatch fatal for byte-exact)."
+    ]
+  },
+  "recommendation": "TWO independent blockers must clear before lookback full-viewport byte-exact is attainable: (1) FIXTURE/CORE MISMATCH (the gating one): make the committed lookback frame capturable on the trace core — either re-mint the maze fixtures (maze-corridor.state + the 4 derived frames) on the PATCHED trace core so live page-capture matches the committed pixels, OR add patched-core support for the nightly 613923-B serialize format. Without this, no source->page RE can be validated against the committed answer. (2) SOURCE->PAGE COMPOSITOR RE (the deep one): crack the proprietary masked-image pixel decoder for the floor (id 1346) / ceiling (id 1740) / window blocks and reverse the blit that places them into the compose page (the 0xf148 edge-emit + the real floor/ceiling fill path; resolve the wroot thunk targets via runtime single-step since the delta law fails). Suggest doing (1) first (cheap, unblocks validation), then (2) with live page-capture as the oracle (capture the committed frame's page, decode it 100%, then reverse source->page with the page as ground truth — from-asset, not a fixture slice).",
+  "unresolved": [
+    "Re-mint the maze fixtures on the patched trace core (or teach the patched core the nightly serialize format) so the committed lookback frame is capturable.",
+    "The proprietary masked-image pixel decoder (floor 1346 / ceiling 1740 / window).",
+    "The real floor/ceiling fill path + blit (0xfb27 label is unconfirmed; no call site) and the 0xf148 edge-emit wroot target."
+  ]
+}
