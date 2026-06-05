@@ -5,13 +5,19 @@
  * facing 0 (north), so facing-0 steps advance gy by +1.
  *
  * Also tests against the REAL level-0 MazeBlock (extracted/maze/level-0.json) to
- * prove the forced march walks gy 118→119→120→121 even though tryStepForward would
- * block at gy=118 (north=2, wall) and gy=120 (north=3, door).
+ * prove the forced march walks gy 117→118→119→120→121 even though tryStepForward
+ * would block at the gate cells (north=2 wall, north=3 door).
  *
- * Engine reference: wmaze scripted entry (narration → gate-walk → free),
- * CLAUDE.md overlay state table + ScriptedEntry schema (Task 1).
+ * Engine reference: wmaze scripted entry (title → narration → gate-walk → bump →
+ * free), CLAUDE.md overlay state table + ScriptedEntry schema (Task 1).
  *
- * Level-0 scriptedEntry.start: gx=127, gy=118, z=0, facing=0 (from plan).
+ * Pin: docs/re/findings/maze-newgame-byteexact.json (per_enter_pin_addendum).
+ * Level-0 scriptedEntry.start: gx=127, gy=117, z=0, facing=0 (the ENTERING title).
+ * Per-ENTER (locked to the committed fixtures newgame-seq-02..06, Task 5):
+ *   title(117) → narration(118) → gate-walk(119) → bump(120) → bump(121) → free.
+ * gy=120 shows HMMMM (a front-wall bump, frame 05), NOT a plain gate-walk — the
+ * Task-5 reconciliation moved BUMP_GY 121→120 and made bump step once more (gy
+ * 120→121, HMMMM persists) before going free at the dead-end (gy=121).
  */
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -56,82 +62,83 @@ function makeOpenBlock(gxBase: number, gyBase: number): MazeBlock {
   };
 }
 
-// Party at the level-0 scriptedEntry start position (gx=127, gy=118, z=0, facing=0).
-const START_PARTY: MazeParty = { gx: 127, gy: 118, z: 0, facing: 0 };
+// Party at the level-0 scriptedEntry start position — the ENTERING title-card
+// (gx=127, gy=117, z=0, facing=0).
+const START_PARTY: MazeParty = { gx: 127, gy: 117, z: 0, facing: 0 };
 
-// Open block covering gx 127..134, gy 118..125 — all north walls open.
-const OPEN_BLOCK: MazeBlock = makeOpenBlock(127, 118);
+// Open block covering gx 127..134, gy 117..124 — all north walls open.
+const OPEN_BLOCK: MazeBlock = makeOpenBlock(127, 117);
 
 // ---------------------------------------------------------------------------
-// advanceEntry FSM
+// advanceEntry FSM — title → narration → gate-walk → bump → free
+//
+// Per-ENTER contract (locked to fixtures newgame-seq-02..06, Task 5):
+//   title(117)    --ENTER--> narration(118)   (+1 forward step)
+//   narration(118)--ENTER--> gate-walk(119)   (+1 forward step; dismisses text)
+//   gate-walk(119)--ENTER--> bump(120)        (+1 forward step; inner gate → HMMMM)
+//   bump(120)     --ENTER--> bump(121)        (+1 forward step; HMMMM persists → dead-end)
+//   bump(121)     --ENTER--> free(121)        (no move)
 // ---------------------------------------------------------------------------
 describe('advanceEntry', () => {
-  it('narration → gate-walk: party unchanged, stepsRemaining unchanged', () => {
-    const s: EntryState = { party: START_PARTY, entryMode: 'narration', stepsRemaining: 3 };
+  it('title → narration: +1 forward step (gy 117→118)', () => {
+    const s: EntryState = { party: START_PARTY, entryMode: 'title', stepsRemaining: 4 };
     const next = advanceEntry(s, OPEN_BLOCK);
-    expect(next.entryMode).toBe('gate-walk');
-    expect(next.party).toEqual(START_PARTY);
+    expect(next.entryMode).toBe('narration');
+    expect(next.party.gy).toBe(118);
+    expect(next.party.gx).toBe(127);
+    expect(next.party.facing).toBe(0);
     expect(next.stepsRemaining).toBe(3);
   });
 
-  it('gate-walk step 1: party advances gy +1, stepsRemaining 3→2', () => {
-    const s: EntryState = { party: START_PARTY, entryMode: 'gate-walk', stepsRemaining: 3 };
+  it('narration → gate-walk: +1 forward step (gy 118→119, dismisses text)', () => {
+    const s: EntryState = { party: { ...START_PARTY, gy: 118 }, entryMode: 'narration', stepsRemaining: 3 };
     const next = advanceEntry(s, OPEN_BLOCK);
     expect(next.entryMode).toBe('gate-walk');
     expect(next.party.gy).toBe(119);
-    expect(next.party.gx).toBe(127);
-    expect(next.party.facing).toBe(0);
     expect(next.stepsRemaining).toBe(2);
   });
 
-  it('gate-walk step 2: gy 119→120, stepsRemaining 2→1', () => {
-    const s: EntryState = {
-      party: { ...START_PARTY, gy: 119 },
-      entryMode: 'gate-walk',
-      stepsRemaining: 2,
-    };
+  it('gate-walk final step: gy 119→120 → bump (inner gate HMMMM), stepsRemaining 2→1', () => {
+    const s: EntryState = { party: { ...START_PARTY, gy: 119 }, entryMode: 'gate-walk', stepsRemaining: 2 };
     const next = advanceEntry(s, OPEN_BLOCK);
-    expect(next.entryMode).toBe('gate-walk');
+    expect(next.entryMode).toBe('bump');
     expect(next.party.gy).toBe(120);
     expect(next.stepsRemaining).toBe(1);
   });
 
-  it('gate-walk step 3 (final): gy 120→121, entryMode→free, stepsRemaining=0', () => {
-    const s: EntryState = {
-      party: { ...START_PARTY, gy: 120 },
-      entryMode: 'gate-walk',
-      stepsRemaining: 1,
-    };
+  it('bump persists: gy 120→121, stays bump (HMMMM), stepsRemaining 1→0', () => {
+    const s: EntryState = { party: { ...START_PARTY, gy: 120 }, entryMode: 'bump', stepsRemaining: 1 };
+    const next = advanceEntry(s, OPEN_BLOCK);
+    expect(next.entryMode).toBe('bump');
+    expect(next.party.gy).toBe(121);
+    expect(next.stepsRemaining).toBe(0);
+  });
+
+  it('bump → free: no move (gy stays 121)', () => {
+    const s: EntryState = { party: { ...START_PARTY, gy: 121 }, entryMode: 'bump', stepsRemaining: 0 };
     const next = advanceEntry(s, OPEN_BLOCK);
     expect(next.entryMode).toBe('free');
     expect(next.party.gy).toBe(121);
     expect(next.stepsRemaining).toBe(0);
   });
 
-  it('three successive gate-walk calls advance gy by 3 total', () => {
-    // Full 3-step walk starting from gate-walk mode at start position.
-    let s: EntryState = { party: START_PARTY, entryMode: 'gate-walk', stepsRemaining: 3 };
+  it('full sequence on open block: title→narration→gate-walk→bump→free, gy 117→121', () => {
+    let s: EntryState = { party: START_PARTY, entryMode: 'title', stepsRemaining: 4 };
     s = advanceEntry(s, OPEN_BLOCK);
-    s = advanceEntry(s, OPEN_BLOCK);
-    s = advanceEntry(s, OPEN_BLOCK);
-    expect(s.entryMode).toBe('free');
-    expect(s.party.gy).toBe(START_PARTY.gy + 3);
-    expect(s.stepsRemaining).toBe(0);
-  });
-
-  it('full sequence: narration → dismiss → 3 gate-walk steps → free', () => {
-    let s: EntryState = { party: START_PARTY, entryMode: 'narration', stepsRemaining: 3 };
-    // Dismiss narration
+    expect(s.entryMode).toBe('narration');
+    expect(s.party.gy).toBe(118);
     s = advanceEntry(s, OPEN_BLOCK);
     expect(s.entryMode).toBe('gate-walk');
-    expect(s.party).toEqual(START_PARTY); // party unchanged by narration dismiss
-    expect(s.stepsRemaining).toBe(3);
-    // 3 forward steps
+    expect(s.party.gy).toBe(119);
     s = advanceEntry(s, OPEN_BLOCK);
+    expect(s.entryMode).toBe('bump');
+    expect(s.party.gy).toBe(120);
     s = advanceEntry(s, OPEN_BLOCK);
+    expect(s.entryMode).toBe('bump');
+    expect(s.party.gy).toBe(121);
     s = advanceEntry(s, OPEN_BLOCK);
     expect(s.entryMode).toBe('free');
-    expect(s.party.gy).toBe(START_PARTY.gy + 3);
+    expect(s.party.gy).toBe(121); // bump → free does not move
     expect(s.stepsRemaining).toBe(0);
   });
 
@@ -150,67 +157,61 @@ describe('advanceEntry', () => {
 // ---------------------------------------------------------------------------
 // Real level-0 block — forced-march regression guard
 //
-// The level-0 cells at gx=127:
+// The level-0 cells at gx=127 (re-extracted with the gy=117 start):
+//   gy=117: north=2 (solid wall)  → tryStepForward BLOCKS here
 //   gy=118: north=2 (solid wall)  → tryStepForward BLOCKS here
 //   gy=119: north=0 (open)
 //   gy=120: north=3 (door/gate)   → tryStepForward BLOCKS here too
-//   gy=121: north=0 (open)
+//   gy=121: north=0 (open) — the bump cell / free-control position
 //
-// advanceEntry's gate-walk MUST advance through both blocked edges — it is a
-// forced march. tryStepForward must stay unchanged (collision still guards free-roam).
+// advanceEntry MUST advance through every blocked edge — it is a forced march.
+// tryStepForward must stay unchanged (collision still guards free-roam).
 // ---------------------------------------------------------------------------
 describe('advanceEntry — real level-0 block (forced march through gate)', () => {
-  const GATE_WALK_START: MazeParty = { gx: 127, gy: 118, z: 0, facing: 0 };
+  const TITLE_START: MazeParty = { gx: 127, gy: 117, z: 0, facing: 0 };
 
-  it('tryStepForward on the REAL block at gy=118 returns party UNCHANGED (proves edge is solid)', () => {
-    // This documents WHY the fix is needed: free-movement collision blocks here.
-    const result = tryStepForward(GATE_WALK_START, REAL_BLOCK);
-    expect(result.gy).toBe(118); // unchanged — north=2 blocks
-    expect(result).toEqual(GATE_WALK_START);
+  it('tryStepForward on the REAL block at gy=117 returns party UNCHANGED (proves edge is solid)', () => {
+    const result = tryStepForward(TITLE_START, REAL_BLOCK);
+    expect(result.gy).toBe(117); // unchanged — north=2 blocks
+    expect(result).toEqual(TITLE_START);
   });
 
   it('tryStepForward on the REAL block at gy=120 returns party UNCHANGED (door blocks)', () => {
-    const at120: MazeParty = { ...GATE_WALK_START, gy: 120 };
+    const at120: MazeParty = { ...TITLE_START, gy: 120 };
     const result = tryStepForward(at120, REAL_BLOCK);
     expect(result.gy).toBe(120); // unchanged — north=3 (door) blocks
   });
 
-  it('gate-walk step 1 on real block: gy 118→119 (crosses solid north=2 wall)', () => {
-    const s: EntryState = { party: GATE_WALK_START, entryMode: 'gate-walk', stepsRemaining: 3 };
-    const next = advanceEntry(s, REAL_BLOCK);
-    expect(next.party.gy).toBe(119);
-    expect(next.party.gx).toBe(127);
-    expect(next.party.facing).toBe(0);
-    expect(next.entryMode).toBe('gate-walk');
-    expect(next.stepsRemaining).toBe(2);
-  });
+  it('full forced march on real block: title→narration→gate-walk→bump→free, gy 117→121', () => {
+    // The main regression guard: the scripted entry crosses two solid walls
+    // (gy=117, gy=118) and a door (gy=120) that free-roam collision would block.
+    let s: EntryState = { party: TITLE_START, entryMode: 'title', stepsRemaining: 4 };
 
-  it('gate-walk step 2 on real block: gy 119→120 (open north=0)', () => {
-    const s: EntryState = { party: { ...GATE_WALK_START, gy: 119 }, entryMode: 'gate-walk', stepsRemaining: 2 };
-    const next = advanceEntry(s, REAL_BLOCK);
-    expect(next.party.gy).toBe(120);
-    expect(next.entryMode).toBe('gate-walk');
-    expect(next.stepsRemaining).toBe(1);
-  });
+    s = advanceEntry(s, REAL_BLOCK); // title → narration, crosses north=2 @ gy117
+    expect(s.entryMode).toBe('narration');
+    expect(s.party.gy).toBe(118);
+    expect(s.stepsRemaining).toBe(3);
 
-  it('gate-walk step 3 on real block: gy 120→121 (crosses door north=3) → free', () => {
-    const s: EntryState = { party: { ...GATE_WALK_START, gy: 120 }, entryMode: 'gate-walk', stepsRemaining: 1 };
-    const next = advanceEntry(s, REAL_BLOCK);
-    expect(next.party.gy).toBe(121);
-    expect(next.entryMode).toBe('free');
-    expect(next.stepsRemaining).toBe(0);
-  });
+    s = advanceEntry(s, REAL_BLOCK); // narration → gate-walk, crosses north=2 @ gy118
+    expect(s.entryMode).toBe('gate-walk');
+    expect(s.party.gy).toBe(119);
+    expect(s.stepsRemaining).toBe(2);
 
-  it('3 successive gate-walk calls on real block: gy 118→121 (stepsRemaining 3→0, entryMode→free)', () => {
-    // The main regression guard: forced march through the outer gate.
-    let s: EntryState = { party: GATE_WALK_START, entryMode: 'gate-walk', stepsRemaining: 3 };
-    s = advanceEntry(s, REAL_BLOCK);
-    s = advanceEntry(s, REAL_BLOCK);
-    s = advanceEntry(s, REAL_BLOCK);
+    s = advanceEntry(s, REAL_BLOCK); // gate-walk → bump, open north=0 @ gy119 (inner gate HMMMM)
+    expect(s.entryMode).toBe('bump');
+    expect(s.party.gy).toBe(120);
+    expect(s.stepsRemaining).toBe(1);
+
+    s = advanceEntry(s, REAL_BLOCK); // bump persists, crosses door north=3 @ gy120 → dead-end
+    expect(s.entryMode).toBe('bump');
+    expect(s.party.gy).toBe(121);
+    expect(s.stepsRemaining).toBe(0);
+
+    s = advanceEntry(s, REAL_BLOCK); // bump → free (no move)
+    expect(s.entryMode).toBe('free');
     expect(s.party.gy).toBe(121);
     expect(s.party.gx).toBe(127);
     expect(s.party.facing).toBe(0);
-    expect(s.entryMode).toBe('free');
     expect(s.stepsRemaining).toBe(0);
   });
 });

@@ -41,14 +41,19 @@ export function extractMazeLevel(opts: ExtractMazeLevelOpts): DungeonLevel {
   };
   const entrance = KNOWN_ENTRANCES[opts.levelId] ?? { gx: 0, gy: 0, z: 0, facing: 0 };
 
-  // Level-0 scripted entry: OUTER GATE (gy=118) → 3-line narration → 3 ENTER-steps → free (gy=121).
-  // narrationMsgIds 10010/10011/10012 + bumpMsgId 10020 are the VERIFIED entry-narration
-  // message IDs (decode exactly to "APPROACHING THE GATE..." / "HMMMM..."; gated byte-exact by
-  // maze-entry-narration-parity.test.ts). RE: docs/re/findings/maze-entry-{narration,sequence}.json.
+  // Level-0 scripted entry: ENTERING title (gy=117) → 3-line narration (gy=118) →
+  //   walk gy 119/120/121 → HMMMM front-wall bump (gy=121) → free control.
+  // The TRUE start is gy=117 (the ENTERING/BANE-OF-THE-COSMIC-FORGE title-card frame);
+  // the prior first pass started at gy=118 (narration) and missed the title frame.
+  // 4 forward steps total (gy 117→121). titleMsgIds 1212/1213 = "ENTERING" /
+  // "BANE OF THE COSMIC FORGE"; narrationMsgIds 10010/10011/10012 = "APPROACHING THE
+  // GATE..."; bumpMsgId 10020 = "HMMMM...". RE: docs/re/findings/maze-newgame-byteexact.json
+  // (per_enter_pin_addendum — live per-ENTER pin) + maze-entry-{narration,sequence}.json.
   const KNOWN_SCRIPTED_ENTRIES: Record<number, ScriptedEntry> = {
     0: {
-      start: { gx: 127, gy: 118, z: 0, facing: 0 },
-      steps: 3,
+      start: { gx: 127, gy: 117, z: 0, facing: 0 },
+      steps: 4,
+      titleMsgIds: [1212, 1213],
       narrationMsgIds: [10010, 10011, 10012],
       bumpMsgId: 10020,
     },

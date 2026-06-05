@@ -2,34 +2,45 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   MAZE_VIEWPORT,
+  type ActivePartyMember,
   type Font,
+  type Font4bpp,
   type MazeRenderAssets,
   type MessageDb,
   type Palette,
+  type PortraitSet,
 } from '@wiz6/data';
 import {
   advanceEntry,
   decodeNarrationLines,
-  drawNarrationStrip,
+  drawEntryStrip,
   renderMazeViewport,
+  oracleViewportForGy,
   turn,
   tryStepForward,
   type CapturedSpansTable,
+  type EntryStripText,
+  type NewgameViewports,
 } from '@wiz6/parser';
 import { CanvasPresenter } from '../../lib/presenter.js';
 import {
   loadFont,
+  loadFont4bpp,
   loadMazeAssets,
   loadMazeWallSpans,
   loadMessageDb,
+  loadNewgameViewports,
+  loadPortraitSet,
 } from '../../data-loader.js';
+import { readActiveParty } from '../../lib/active-party-store.js';
 import {
   readGameSession,
   updateParty,
   updateSession,
   type GameSession,
 } from '../../game/game-session-store.js';
-import { composeMazeFrame } from './compose-maze-frame.js';
+import { composeMazeFrame, type MazePartyPanels } from './compose-maze-frame.js';
+import type { PanelFontSet } from './party-panel-compose.js';
 import styles from './CastleScreen.module.css';
 
 const ENGINE_W = 320;
@@ -61,16 +72,28 @@ const NARRATION_PALETTE: Palette = {
 };
 
 /**
- * Render the maze viewport for `(block, party)` to a 176×112 palette-index buffer,
- * GRACEFULLY: unhandled off-corridor view-cases (Stage C) must not crash the view.
- * On any error we return a blank (all-zero / black) viewport so the chrome still
- * presents and movement keeps working.
+ * Render the maze viewport for `(block, party)` to a 176×112 palette-index buffer.
+ *
+ * During the scripted entry sequence (entryMode !== 'free'), PREFER the
+ * framebuffer oracle if loaded — it returns committed engine pixels for the
+ * gate view that the geometry renderer cannot reproduce byte-exact (banked
+ * tile atlas). Falls back to the live renderer if the oracle is not yet loaded
+ * or the gy is not one of the 5 scripted frames.
+ *
+ * GRACEFULLY: unhandled off-corridor view-cases (Stage C) must not crash the
+ * view. On any error we return a blank (all-zero / black) viewport so the
+ * chrome still presents and movement keeps working.
  */
 function safeRenderViewport(
   session: GameSession,
   assets: MazeRenderAssets,
   wallSpans: CapturedSpansTable | null,
+  newgameViewports: NewgameViewports | null,
 ): Uint8Array {
+  // Oracle path: scripted entry frames with committed engine pixels.
+  const oracle = oracleViewportForGy(newgameViewports, session.party.gy, session.entryMode);
+  if (oracle !== null) return oracle;
+
   try {
     return renderMazeViewport(
       session.level.mazeBlock,
@@ -89,15 +112,23 @@ function safeRenderViewport(
  * per-(cell,facing) wall viewport blitted in at MAZE_VIEWPORT. The wall viewport
  * is rendered over black (the floor/ceiling background page is Stage C); for the
  * walkable milestone walls-over-black is acceptable.
+ *
+ * During the scripted entry sequence, the oracle viewport (committed engine
+ * pixels) is preferred over the live renderer for the gate frames.
  */
 function composeFrame(
   session: GameSession,
   assets: MazeRenderAssets,
   wallSpans: CapturedSpansTable | null,
-  narration: { lines: string[]; font: Font } | null,
+  newgameViewports: NewgameViewports | null,
+  stripText: { text: EntryStripText; font: Font } | null,
+  partyPanels: MazePartyPanels | undefined,
 ): Uint8Array {
-  const frame = composeMazeFrame(); // static chrome + (static) viewport baseline
-  const vp = safeRenderViewport(session, assets, wallSpans);
+  // Static chrome + LIVE party panels (the player's actual party) + viewport
+  // baseline. partyPanels is undefined until the panel fonts/active party load;
+  // until then the baked chrome panels show (cleared once the fonts arrive).
+  const frame = composeMazeFrame(partyPanels);
+  const vp = safeRenderViewport(session, assets, wallSpans, newgameViewports);
   const { x: vx, y: vy, w: vw, h: vh } = MAZE_VIEWPORT;
   for (let row = 0; row < vh; row++) {
     for (let col = 0; col < vw; col++) {
@@ -111,23 +142,25 @@ function composeFrame(
     }
   }
 
-  // Bottom-strip state machine. Only the 'narration' mode overlays text; the
-  // 'gate-walk' strip is the normal dungeon strip (the static chrome already
-  // drawn above), and 'free' is the movement widget baked into the chrome.
-  if (narration && session.entryMode === 'narration') {
-    drawNarration(frame, narration.lines, narration.font);
+  // Bottom-strip per-`entryMode` state machine (y144–199). The shared
+  // drawEntryStrip helper OVERWRITES the strip for title/narration/gate-walk/bump
+  // (so the narration/bump land on a CLEAN BLACK strip — the fix for the shipped
+  // bug where the text was drawn OVER the gray OPTIONS/TURN widget). For 'free' it
+  // is a no-op (the baked gray widget from the static chrome stays). The same
+  // helper backs the per-state strip parity gates so the live render can't drift.
+  if (stripText && session.entryMode !== 'free') {
+    const rgba = new Uint8ClampedArray(frame.buffer);
+    drawEntryStrip(
+      rgba,
+      ENGINE_W,
+      ENGINE_H,
+      session.entryMode,
+      stripText.text,
+      stripText.font,
+      NARRATION_PALETTE,
+    );
   }
   return frame;
-}
-
-/** Overlay the 3 narration lines onto the bottom strip via the shared, gated
- *  helper (palette idx 5 glyphs on idx 0). The same drawNarrationStrip backs the
- *  pixel-parity gate (maze-entry-narration-parity.test.ts) so the live render and
- *  the gate can't drift. */
-function drawNarration(frame: Uint8Array, lines: string[], font: Font): void {
-  // renderTextRun expects a Uint8ClampedArray RGBA view; share the buffer.
-  const rgba = new Uint8ClampedArray(frame.buffer);
-  drawNarrationStrip(rgba, ENGINE_W, ENGINE_H, lines, font, NARRATION_PALETTE);
 }
 
 /**
@@ -152,10 +185,38 @@ export function MazeView() {
   const sessionRef = useRef<GameSession | null>(null);
   const assetsRef = useRef<MazeRenderAssets | null>(null);
   const wallSpansRef = useRef<CapturedSpansTable | null>(null);
+  // Oracle viewports for the 5 scripted entry frames (loaded once on mount for
+  // levels with a scriptedEntry). Null until loaded or if not a scripted level.
+  const newgameViewportsRef = useRef<NewgameViewports | null>(null);
   const presenterRef = useRef<CanvasPresenter | null>(null);
-  // Decoded narration lines + the message font, loaded once. Null until both
-  // resolve (or if the level has no scriptedEntry — then there's no narration).
-  const narrationRef = useRef<{ lines: string[]; font: Font } | null>(null);
+  // Decoded per-mode strip text (title/narration/bump) + the message font, loaded
+  // once. Null until both resolve (or if the level has no scriptedEntry — then
+  // there's no scripted strip and the baked free-roam widget shows).
+  const stripTextRef = useRef<{ text: EntryStripText; font: Font } | null>(null);
+
+  // Live party-panel inputs: the player's actual active party (read once on
+  // mount — it doesn't change mid-dungeon) + the panel fonts + portrait sets.
+  // composeMazeFrame uses these to OVERWRITE the baked chrome side panels (which
+  // carry the RE drive's fixed party) with the real party. Built once both the
+  // fonts and portraits load (mazePartyPanelsRef stays undefined until then, so
+  // the baked chrome shows briefly during load — then gets cleared/replaced).
+  const activePartyRef = useRef<ReadonlyArray<ActivePartyMember>>([]);
+  const panelFontsRef = useRef<PanelFontSet>({
+    font0: null,
+    font1: null,
+    font3: null,
+    font4: null,
+  });
+  const portraitSetsRef = useRef<PortraitSet[] | null>(null);
+
+  /** Build the live party-panel arg if the fonts have loaded and there's a
+   *  party to draw; undefined otherwise (keeps the baked chrome panels). */
+  function partyPanelsArg(): MazePartyPanels | undefined {
+    const members = activePartyRef.current;
+    const fonts = panelFontsRef.current;
+    if (members.length === 0 || !fonts.font3) return undefined;
+    return { members, fonts, portraitSets: portraitSetsRef.current };
+  }
 
   // Mount: read session (redirect if absent) + load assets once.
   useEffect(() => {
@@ -167,7 +228,43 @@ export function MazeView() {
     }
     sessionRef.current = session;
 
+    // Read the player's active party once (it doesn't change mid-dungeon).
+    activePartyRef.current = readActiveParty().members;
+
     let cancelled = false;
+
+    // Load the party-panel fonts (wfont0/1/3/4) + the 3 wport portrait sets so
+    // the LEFT/RIGHT party panels render LIVE (overwriting the baked chrome's
+    // fixed-party portraits). Each is non-fatal: until they resolve the baked
+    // chrome panels show through. wfont3 is the gate — partyPanelsArg() returns
+    // undefined until it's present.
+    Promise.all([
+      loadFont('/fonts/wfont0.json'),
+      loadFont4bpp('/fonts/wfont1.json'),
+      loadFont4bpp('/fonts/wfont3.json'),
+      loadFont4bpp('/fonts/wfont4.json'),
+    ])
+      .then(([font0, font1, font3, font4]: [Font, Font4bpp, Font4bpp, Font4bpp]) => {
+        if (cancelled) return;
+        panelFontsRef.current = { font0, font1, font3, font4 };
+        present();
+      })
+      .catch((err: unknown) => {
+        console.warn('[MazeView] failed to load party-panel fonts (baked chrome panels remain):', err);
+      });
+    Promise.all([
+      loadPortraitSet('/portraits/wport1.json'),
+      loadPortraitSet('/portraits/wport2.json'),
+      loadPortraitSet('/portraits/wport3.json'),
+    ])
+      .then((sets: PortraitSet[]) => {
+        if (cancelled) return;
+        portraitSetsRef.current = sets;
+        present();
+      })
+      .catch((err: unknown) => {
+        console.warn('[MazeView] failed to load portrait sets (party panels render without portraits):', err);
+      });
     // Load the captured wall spans alongside the atlas. A failure here is
     // non-fatal: the renderer falls back to the generation path (corridor) when
     // no captured spans are available.
@@ -190,20 +287,36 @@ export function MazeView() {
         console.error('[MazeView] failed to load maze assets:', err);
       });
 
-    // Decode the entry narration once: load the message db + the small UI font,
-    // then resolve the level's narrationMsgIds to display strings. Guard: no
-    // scriptedEntry → no narration (back-compat free-roam sessions).
+    // Load the scripted-entry oracle viewports for levels with a scriptedEntry.
+    // Non-fatal: during the scripted sequence the live renderer will be used as a
+    // fallback (renders the gate generically, not byte-exact).
     const scriptedEntry = session.level.scriptedEntry;
     if (scriptedEntry) {
-      Promise.all([loadMessageDb(MSG_DB_URL), loadFont(MESSAGE_FONT_URL)])
-        .then(([msgDb, font]: [MessageDb, Font]) => {
+      loadNewgameViewports()
+        .then((vps) => {
           if (cancelled) return;
-          const lines = decodeNarrationLines(msgDb, scriptedEntry.narrationMsgIds);
-          narrationRef.current = { lines, font };
+          newgameViewportsRef.current = vps;
           present();
         })
         .catch((err: unknown) => {
-          console.warn('[MazeView] failed to load narration (message db/font):', err);
+          console.warn('[MazeView] failed to load newgame oracle viewports (falling back to live renderer):', err);
+        });
+
+      // Decode the entry strip text once: load the message db + the small UI font,
+      // then resolve the level's title/narration/bump msg IDs to display strings.
+      Promise.all([loadMessageDb(MSG_DB_URL), loadFont(MESSAGE_FONT_URL)])
+        .then(([msgDb, font]: [MessageDb, Font]) => {
+          if (cancelled) return;
+          const text: EntryStripText = {
+            title: decodeNarrationLines(msgDb, scriptedEntry.titleMsgIds),
+            narration: decodeNarrationLines(msgDb, scriptedEntry.narrationMsgIds),
+            bump: decodeNarrationLines(msgDb, [scriptedEntry.bumpMsgId])[0] ?? '',
+          };
+          stripTextRef.current = { text, font };
+          present();
+        })
+        .catch((err: unknown) => {
+          console.warn('[MazeView] failed to load entry strip text (message db/font):', err);
         });
     }
     return () => {
@@ -218,7 +331,14 @@ export function MazeView() {
     const a = assetsRef.current;
     if (!canvas || !session || !a) return;
     if (!presenterRef.current) presenterRef.current = new CanvasPresenter(canvas);
-    const frame = composeFrame(session, a, wallSpansRef.current, narrationRef.current);
+    const frame = composeFrame(
+      session,
+      a,
+      wallSpansRef.current,
+      newgameViewportsRef.current,
+      stripTextRef.current,
+      partyPanelsArg(),
+    );
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
   }
 
@@ -233,10 +353,11 @@ export function MazeView() {
       const session = sessionRef.current;
       if (!session) return;
 
-      // Scripted entry (narration + gate-walk): ENTER advances the FSM; arrow
-      // keys are no-ops (the engine ignores them during the scripted walk —
-      // RE: docs/re/findings/maze-entry-sequence.json).
-      if (session.entryMode === 'narration' || session.entryMode === 'gate-walk') {
+      // Scripted entry (title → narration → gate-walk → bump): ENTER advances the
+      // FSM; arrow keys are no-ops (the engine ignores them during the scripted
+      // entry — RE: docs/re/findings/maze-newgame-byteexact.json per_enter_pin_addendum).
+      // (Title/bump strip RENDERING is Tasks 3-4; here we only keep the FSM driveable.)
+      if (session.entryMode !== 'free') {
         if (e.key === 'Enter') {
           e.preventDefault();
           const next = advanceEntry(

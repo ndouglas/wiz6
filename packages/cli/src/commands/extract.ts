@@ -13,6 +13,7 @@ import { extractPic } from '../extractors/extract-pic.js';
 import { extractSnd } from '../extractors/extract-snd.js';
 import { extractDocs } from '../extractors/extract-docs.js';
 import { extractMazeLevel } from '../extractors/maze-level.js';
+import { extractNewgameViewports } from '../extractors/extract-newgame-viewports.js';
 import { loadMazeAssetsRaw } from '@wiz6/parser';
 import { resolveOriginalDir } from '../lib/loaders.js';
 import type { CliIO } from '../index.js';
@@ -253,6 +254,14 @@ function extractOneType(
       } else {
         io.write(`skip ${extractedDir}/maze/wall-spans.json (fixture not found at ${spansSrc})\n`);
       }
+      // Browser-ready oracle viewports for the 5 scripted entry frames.  Each
+      // gy key maps to a 176×112 palette-index buffer (base64) sliced from the
+      // committed engine fixture — so the browser composites byte-exact gate
+      // pixels during the scripted entry without re-deriving them from geometry.
+      const fixturesDir = join(repoRoot, 'tools', 'parity', 'fixtures', 'engine');
+      const viewportsDst = join(extractedDir, 'maze', 'newgame-viewports.json');
+      const vr = extractNewgameViewports({ fixturesDir, outputPath: viewportsDst });
+      io.write(`wrote ${extractedDir}/maze/newgame-viewports.json (${vr.frameCount} scripted-entry oracle viewports)\n`);
       return;
     }
   }

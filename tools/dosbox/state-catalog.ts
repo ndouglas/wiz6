@@ -21,6 +21,16 @@ export interface SaveStateRecipe {
   steps: string[];
   /** Extra settle (ms) after the final step before saving (default 0). */
   settleMs?: number;
+  /** For committed-frozen-state frames (`--check`): the number of frames to advance
+   *  after `unserialize` before reading the framebuffer (default 5). Most frozen
+   *  states are byte-stable at step(5), but a frame whose bottom message-window TEXT
+   *  is NOT in the serialized framebuffer (the engine re-runs the message draw a few
+   *  frames after unserialize — e.g. the START-NEW-GAME narration / HMMMM / ENTRANCE
+   *  strips) needs a larger settle so the text is present AND on a stable flicker
+   *  phase. The freeze tool captures the committed fixture at the SAME step, so the
+   *  re-mint diffs 0. (Picked to land on a flicker phase that matches step-5 multiples
+   *  — see freeze-newgame-states.ts.) */
+  remintStep?: number;
   /** Optional committed pcfile name (test-fixtures/states/<pcfileFixture>.pcfile.dbs)
    *  to OVERLAY on the pinned game image before booting. dosbox-pure's savestate
    *  does NOT capture host-mounted-file writes, so an in-game SAVE never survives
@@ -1053,9 +1063,70 @@ const BOOT_RECIPES: readonly SaveStateRecipe[] = [
   },
 ];
 
+// ── START-NEW-GAME entry sequence scripted frames (TODO #078) ────────────────
+// Each scripted entry frame (the "ENTERING / BANE OF THE COSMIC FORGE" title-card
+// and the gate-walk frames gy=118..121) renders FROM a COMMITTED frozen
+// serialize-state (test-fixtures/states/newgame-seq-NN-*.state.gz), exactly like
+// MAZE_CORRIDOR_RECIPE — because (a) the MAGICWORD empty-pass + the title flash
+// are non-deterministic by tap-cadence, and (b) the MAZE_VIEWPORT has a
+// free-running torch/gate flicker that a live re-drive can't reproduce byte-exact.
+// build-state.ts renders the fixture from the committed state (unserialize ->
+// step(5) -> fb) and `--check` gates it at 100%. To re-mint a NEW phase, delete
+// the committed state.gz + re-run tools/libretro/freeze-newgame-states.ts (which
+// state-drives the whole sequence + re-freezes every frame).
+// Do NOT run `build-state <name> --mint` on these: --mint calls dumpDraft()
+// (creation-screen-specific) and fails on a state-5 maze frame.
+// The `steps` below are DOCUMENTARY (the drive freeze-newgame-states.ts performs);
+// the committed state.gz is the actual source.
+// remintStep=60 (only on the text frames 03/05/06/07): the bottom message-window
+// TEXT (narration/HMMMM/ENTRANCE) is NOT in the serialized framebuffer — the engine
+// re-runs the draw ~30 frames after unserialize, and the torch/gate flicker is on a
+// stable phase at 60 (verified 0-diff across 3 runs). step(5) renders a BLANK strip
+// (the bug that made the prior fixtures missing-text "100% matches"). The freeze
+// tool captures at the same 60. Frames 02 (ENTERING title; text in the framebuffer)
+// and 04 (clean black, no text) use the DEFAULT step(5) — their committed states
+// were frozen at the step(5) animation phase (02's magicword icons are random per
+// roll and the animation differs between step 5 and 60).
+function newgameSeqRecipe(name: string, shows: string, remintStep?: number): SaveStateRecipe {
+  return {
+    name,
+    description:
+      `START-NEW-GAME entry frame: ${shows}. 6-member pinned-roster party ` +
+      `(THESUS/TEMPEST/LYSANDR/NOBAL/TREON/PENTAG). Renders from a COMMITTED ` +
+      `frozen serialize-state (non-deterministic phase). Re-mint via ` +
+      `tools/libretro/freeze-newgame-states.ts.`,
+    steps: [
+      ...makeCastleRecipe(6).steps, // form the 6-member party
+      'down down',                  // -> START NEW GAME
+      'enter',                      // START NEW GAME -> MAGICWORD prompt (ENTERING title shows here)
+      'enter', 'enter', 'enter',    // magicword empty-pass -> dungeon load (narration auto-draws)
+      // (per-frame: state-driven walk; see freeze-newgame-states.ts)
+    ],
+    settleMs: 300,
+    ...(remintStep !== undefined ? { remintStep } : {}),
+  };
+}
+const NEWGAME_SEQ_RECIPES: readonly SaveStateRecipe[] = [
+  newgameSeqRecipe('newgame-seq-02-entering-title', '"ENTERING / BANE OF THE COSMIC FORGE" title-card (blue text on the gray widget) over the MAGICWORD prompt; game_state 0xffff, party not yet placed (gy=0). NOT a dungeon frame — the copy-protection screen with the scenario title. (Random magicword icons; committed roll. step(5).)'),
+  newgameSeqRecipe('newgame-seq-03-narration', '"APPROACHING THE GATE WITH CONFIDENCE..." 3-line narration (msg 1313/1314/1315, yellow on the BLACK strip) over the close inner gate, party gy=118 game_state=5 (auto-drawn on dungeon load)', 60),
+  newgameSeqRecipe('newgame-seq-04-walk-gy119', 'scripted forward step, party gy=119, CLEAN BLACK strip (no message)'),
+  // NOTE the legacy filenames "walk-gy120 / walk-gy121-hmmm" are kept (consumers
+  // reference them) but the TRUE content is a "HMMMM..." front-wall bump at BOTH
+  // gy=120 (inner-gate view) and gy=121 (dead-end wall view) — NOT plain walks.
+  // See docs/re/findings/maze-newgame-byteexact.json (2026-06-05 re-capture).
+  // These use DEFAULT step(5): the "HMMMM..." text IS in the serialized framebuffer
+  // (unlike the multi-line narration/ENTRANCE, which the engine redraws ~30 frames
+  // later), so the committed step(5)-phase states already show the bump text. Kept
+  // at the prior committed roll so the gy=120/121 oracle viewport asset stays valid.
+  newgameSeqRecipe('newgame-seq-05-walk-gy120', 'TRUE: "HMMMM..." front-wall bump (msg 1316, yellow on the BLACK strip) at party gy=120, inner-gate viewport (legacy name says "walk" — it is a bump)'),
+  newgameSeqRecipe('newgame-seq-06-walk-gy121-hmmm', 'dead-end at gy=121: "HMMMM..." (msg 1316) on the BLACK strip, dead-end stone-wall viewport'),
+  newgameSeqRecipe('newgame-seq-07-entrance-chamber-gy121', '"YOU ARE IN THE ENTRANCE CHAMBER OF THE CASTLE..." 3-line narration (msg 1317/1318/1319, yellow on the BLACK strip) at gy=121, same dead-end viewport as 06', 60),
+];
+
 export const STATE_CATALOG: readonly SaveStateRecipe[] = [
   ...SEED_CATALOG,
   ...BOOT_RECIPES,
+  ...NEWGAME_SEQ_RECIPES,
   ...CASTLE_RECIPES,
   ...CASTLE_MEMBERS_ALIASES,
   ADD_PARTY_PICKER_RECIPE,

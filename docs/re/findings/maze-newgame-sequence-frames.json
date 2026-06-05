@@ -1,0 +1,144 @@
+{
+  "topic": "maze-newgame-sequence-frames",
+  "subagent_run": "2026-06-05 (RE ground-truth pass: full-screen per-frame parity fixtures for the WHOLE START-NEW-GAME entry sequence; resolve the contested 'narration over black vs over the gate' question)",
+  "binaries": ["wroot.exe", "wbase.ovr", "wmaze.ovr", "msg.dbs", "scenario.dbs"],
+  "tool": "dosbox-pure (libretro) live harness via HostClient (packages/mcp/src/live/host-client.js), NIGHTLY (unpatched) core — behavioral capture only, no traceSet/regs needed. Fresh boot (3000 frames) -> title (enter) -> MASTER OPTIONS -> formed a FULL 6-member pinned-roster party -> START NEW GAME -> MAGICWORD copy-protection prompt -> dungeon entry -> narration -> scripted 3-step gate-walk. Captured every distinct frame as full 320x200 framebuffers; single-frame-resolution trace of the game_state 65535->5 flip to hunt for a transient black frame. Probe scripts: tools/libretro/capture-newgame-fixtures.ts (commits the fixtures), probe-newgame-screens.ts (per-ENTER screen walk), probe-magicword.ts (magicword pass), probe-flip-frames.ts (single-frame flip trace), probe-second-narration.ts (full walk + 2nd-narration hunt). Core left as found (no rebuild).",
+  "summary": "RESOLVED THE CRUX: in the default START-NEW-GAME -> BANE OF THE COSMIC FORGE path, the scripted entry narration ('APPROACHING THE GATE WITH CONFIDENCE...') is drawn into the bottom MESSAGE STRIP over the FULLY-RENDERED live dungeon view — the green/colored portcullis inner gate is in the MAZE_VIEWPORT the whole time. The viewport is NEVER solid black. A single-frame-resolution trace of the game_state 65535->5 flip shows the viewport's non-black pixel count stays ~12.5k continuously (never drops to 0) across the entire transition; no black/fade frame exists. No SECOND narration block (msg 10030-10035 'ENTRANCE CHAMBER') fires anywhere in this default path (verified across 10 walk steps). NEW FINDING (not in prior docs): the entry sequence is gated by a MAGICWORD copy-protection prompt ('TYPE THE MAGICWORD FOR THESE ICONS', 4 icon glyphs) that appears immediately after START NEW GAME — in the dosbox-pure environment an EMPTY answer (3 ENTER taps) passes it. After the magicword, a transient 'ENTERING / BANE OF THE COSMIC FORGE' scenario title-card flashes (~8 frames, game_state still 0xffff) before the dungeon loads and the narration draws. Full ordered distinct-frame list + committed fixtures below. NOTE on the user's 'solid black background' recollection: in THIS path it is definitively NOT black — the narration is over the gate. If the user's memory is of the original retail box (with copy protection ENFORCED and possibly a different code path) or a different scenario, that is untested here; but the engine, driven to the BANE default, renders the narration over the dungeon, confirming maze-entry-narration.json / maze-entry-sequence.json.",
+  "findings": [
+    {
+      "id": "black-vs-gate-verdict",
+      "claim": "THE CRUX, RESOLVED: the entry narration ('APPROACHING THE GATE...') renders over the LIVE, FULLY-COMPOSED dungeon view (chrome banner + 6-member party panel + the colored portcullis inner gate filling the MAZE_VIEWPORT). The background behind the narration text is the dungeon, NOT solid black. The viewport is rendered continuously from before the narration through the entire scripted walk; at NO point in the transition is it black.",
+      "category": "background_verdict",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "single_frame_framebuffer_trace",
+        "details": "probe-flip-frames.ts steps ONE frame at a time across the game_state 65535->5 flip (the 3rd magicword ENTER). The viewport rect (x64..216, y16..143) non-black pixel count = 12546 at f00..f24 (magicword box up), 12546..12548 f25..f41 (box clears, ENTERING title, gs flips at f32->6 then f33->5, narration draws ~f37), and 13663..14456 f42+ (inner-gate render settles). It NEVER drops below ~12500 — i.e. the dungeon is drawn the whole time, no all-black frame. Committed fixture newgame-seq-03-narration.png shows the 'APPROACHING THE GATE' text over the rendered dungeon (gate in the viewport). Cross-checked: the prior tools/parity/fixtures/engine/maze-entry-narration.png is the SAME frame (narration over the gate) — this pass confirms it was NOT a post-transition artifact; it is the genuine, only narration frame."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "magicword-copy-protection-gate",
+      "claim": "NEW: START NEW GAME does NOT go straight to a scenario pick — it raises a MAGICWORD copy-protection prompt: a bottom-strip box titled 'TYPE THE MAGICWORD FOR THESE ICONS' with 4 small icon glyphs (over the MASTER OPTIONS castle-gate backdrop). The icons vary run-to-run. In the dosbox-pure harness an EMPTY answer is accepted: pressing ENTER 3 times reliably passes the prompt and loads the dungeon (game_state flips 65535->5). The prior maze-corridor / maze-entry recipes' 'enter, enter, enter after START NEW GAME' were in fact (1) START NEW GAME, then (2)(3) two of the magicword passes — the magicword screen was previously mis-identified as a 'scenario pick'.",
+      "category": "copy_protection",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "type": "live_drive_framewise",
+        "details": "probe-magicword.ts: from the magicword prompt, ENTER#1/#2 leave game_state=65535; ENTER#3 -> game_state=5 (reproduced). Committed fixture newgame-seq-01-magicword.png shows the 'TYPE THE MAGICWORD FOR THESE ICONS' box + 4 icon glyphs. The icon row differs between independent drives (copy-protection is keyed to the manual's icon->word table), but an empty submit passes in this environment — likely because the retail copy-protection enforcement is not active under dosbox-pure, OR the engine accepts an empty/blank answer. NOT pinned to the asm check routine (behavioral only)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "entering-scenario-title-card",
+      "claim": "NEW: after the magicword passes and before the dungeon-with-narration appears, a transient scenario title-card flashes in the bottom strip: 'ENTERING / BANE OF THE COSMIC FORGE' (the default scenario name), over the dungeon corridor (gate at the far end). It is shown for ~8 frames while game_state is still 0xffff (pre-flip), then the state flips to 5 and the narration draws. It is hard to freeze with a tap+step cadence (very brief).",
+      "category": "title_card",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "type": "single_frame_framebuffer_trace",
+        "details": "probe-flip-frames.ts + a dedicated single-frame scan: the bottom-strip non-black count is ~10560 (magicword box) f00..f24, jumps to ~16960 at f26..f33 (the 'ENTERING BANE OF THE COSMIC FORGE' title band), then game_state flips at f34. Committed fixture newgame-seq-02-entering-title.png shows the title over the corridor. The scenario name 'BANE OF THE COSMIC FORGE' is the Wizardry VI subtitle / default scenario."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "no-second-narration-block",
+      "claim": "No SECOND narration block fires in the default path. The 10030-10035 'ENTRANCE CHAMBER' block (flagged unverified in maze-entry-narration.json) did NOT appear at any point — not at entry, not during the 3-step walk, not at the dead-end. The only narration is the 10010-10012 'APPROACHING THE GATE' page. (So the user's 'black background narration' is also NOT a hidden second block in this path.)",
+      "category": "flow_mechanics",
+      "evidence": {
+        "binary": "msg.dbs",
+        "type": "live_drive_framewise",
+        "details": "probe-second-narration.ts: after dismissing the 'APPROACHING THE GATE' page, pressed ENTER through 10 steps; the viewport non-black count stayed ~14000-14500 the whole time (never black), the party walked gy 118->119->120->121 then stopped, and the only further strip text was 'HMMMM...' (msg 10020) at the gy=121 dead-end. No 'ENTRANCE CHAMBER' text observed."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "full-frame-sequence",
+      "claim": "The full ordered distinct-frame sequence of the default START-NEW-GAME entry (each with its advance trigger): (0) MASTER OPTIONS, 6-member party formed [advance: down,down -> START NEW GAME, ENTER]; (1) MAGICWORD prompt [advance: ENTER x3, empty answer passes]; (2) 'ENTERING BANE OF THE COSMIC FORGE' title-card, transient [auto, no input — flashes then the state flips]; (3) NARRATION 'APPROACHING THE GATE...' over the dungeon, party at gy=118 [advance: 1st ENTER dismisses text, no move]; (4) walk step gy=119 [advance: ENTER]; (5) walk step gy=120 [advance: ENTER]; (6) dead-end gy=121 with 'HMMMM...' bump [advance: free-roam begins — ARROWS now move, ENTER='PRESS RETURN FOR OPTIONS']. game_state stays 5 from frame (3) onward; the scripted-walk vs free-roam distinction is a wmaze-internal sub-mode (NOT the game_state word — see maze-entry-sequence.json two-input-modes finding).",
+      "category": "sequence",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_drive_framewise + state_driven_capture",
+        "details": "capture-newgame-fixtures.ts drives the sequence STATE-DRIVEN (polls game_state==5 and party_gy at DGROUP 0x4fa2 to land each frame deterministically, because the magicword pass + title-flash frame-timing is non-deterministic run-to-run). Committed: newgame-seq-00..06. Walk gy confirmed per frame: seq-03 gy=118, seq-04 gy=119, seq-05 gy=120, seq-06 gy=121. The 3-step walk + gy values reproduce maze-entry-sequence.json exactly."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "party-used-reproducible",
+      "claim": "Party used: the FULL 6-member pinned roster from test-fixtures/original/pcfile.dbs (slots 0..5: THESUS, TEMPEST, LYSANDR, NOBAL, TREON, PENTAG), formed via the makeCastleRecipe(6) pattern (x6: ADD PARTY MEMBER [enter] -> pick first available char [enter] -> re-anchor cursor [up x4]). Reproducible: this is the SAME deterministic roster the castle-N-members fixtures use (re-mintable byte-exact per tools/dosbox/state-catalog.ts). For a parity test, seed the same 6 pinned roster records.",
+      "category": "party_provenance",
+      "evidence": {
+        "binary": "pcfile.dbs",
+        "type": "live_render + recipe_cross_ref",
+        "details": "Committed fixture newgame-seq-00-master-options.png shows the 6-member MASTER OPTIONS: LEFT col THESUS/LYSANDR/TREON, RIGHT col TEMPEST/NOBAL/PENTAG. Matches castle-6-members provenance (test-fixtures/original/pcfile.dbs THESUS/TEMPEST/LYSANDR/NOBAL/TREON/PENTAG slots 0..5). makeCastleRecipe(n) in state-catalog.ts always picks the first available roster char, so the party is slots 0..5 in order."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "party-panel-layout",
+      "claim": "The dungeon party panel is the SAME panel renderer as MASTER OPTIONS (FUN_1b2d @ wbase 0x1b2d) and is ALREADY fully RE'd + ported. Layout: 6 slots, EVEN slots (0,2,4) -> LEFT panel window (DGROUP 0x4fba) at screen origin (8,40); ODD slots (1,3,5) -> RIGHT panel window (DGROUP 0x4fb8) at screen origin (256,40). Each slot = a 7-wide x 4-tall cell block; panelRow = (slot/2)*4. Portrait = cols 0..2 (3x3 wport tiles) blitted at x=8 (left) / x=256 (right). Portrait slot-0 Y baseline = panel row 1 = screen y=48; per-slot Y stride = 4 cell rows = 32 px (so left portraits at y=48/80/112; right mirror at x=256, same y). Name text + HP/stat bars occupy the remaining cols of each slot block. Empty slots render as the panel's cleared background (char 0x20, attr 0x03). In the captured fixture the LEFT panel content fills screen x~0..71 (the panel + its right edge at x=71) and the RIGHT panel x~248..319. The central MAZE_VIEWPORT (x=72,y=32,w=176,h=112) sits between them.",
+      "category": "party_panel",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0x1b2d"},
+        "type": "code_cross_ref + captured_framebuffer_analysis",
+        "details": "Existing port: packages/viewer/src/pages/game/party-panel-render.ts (composePartyPanel: column = slot%2===0?'left':'right'; panelRow=(slot/2)*4) and castle-frame.ts (PORTRAIT_BLIT_X_LEFT=8, PORTRAIT_BLIT_X_RIGHT=256, panel window screenY=40, portrait slot-0 at row1=y=48, 32px stride; LEFT panel DGROUP 0x4fba @ cell(1,5)=screen(8,40) 7x12 cells, RIGHT 0x4fb8 @ cell(32,5)=screen(256,40)). Fixture row-scan of newgame-seq-03-narration.idx.gz: left-panel content x 0..71, right-panel x 248..319, from y~32 down — matching the (8,40)/(256,40) panel windows. The dungeon panel reuses this composer (castle-frame.ts ACTIVE-PARTY section calls composePartyPanel per member). RE anchors: wbase-party-panel-redraw.json, wbase-party-portrait-blit.json, wbase-party-panel-hand-icons.json."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "per-frame-composition-regions",
+      "claim": "Per-frame composition regions (320x200): (A) TOP CHROME y=0..31 — the static 'Wizardry' banner + the row of small spell/status icons (x ~0..319). (B) MAZE_VIEWPORT x=72..247, y=32..143 (w=176,h=112) — the dynamic first-person dungeon 3D view (gate/walls/floor/ceiling). (C) LEFT PARTY PANEL x~0..71, y~32..143 (even slots). (D) RIGHT PARTY PANEL x~248..319, y~32..143 (odd slots). (E) MESSAGE STRIP / lower UI y=144..199, x=0..319 — solid palette-0 black band that hosts narration text / 'HMMMM' / 'ENTERING' title / the magicword box / the free-roam 'PRESS RETURN FOR OPTIONS' + TURN widget. The narration is drawn directly into (E) as 3 text lines (white palette-5 on black palette-0), NO window border — geometry per maze-entry-sequence.json narration-modal-geometry (line1 y=153..158, line2 y=161..166, line3 y=169..174, x>=8, 8px line pitch).",
+      "category": "composition",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "captured_framebuffer_analysis + const_cross_ref",
+        "details": "MAZE_VIEWPORT = {x:72,y:32,w:176,h:112} (packages/data/src/maze/corridor-geometry.ts). Strip band y>=144 is palette-0 black in the captured idx (per maze-entry-sequence.json). Banner+icon chrome y<32 is static across all 7 fixtures (top-band non-black count constant = 2640 in the digest). The narration text geometry is unchanged from maze-entry-sequence.json (this pass re-captured the same narration frame as newgame-seq-03-narration)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fixtures-committed",
+      "claim": "Committed full-screen per-frame parity fixtures (tools/parity/fixtures/engine/, each .idx.gz COMPOSED_PALETTE indices + .png, all 0 non-palette px): newgame-seq-00-master-options (MASTER OPTIONS, 6-member party), newgame-seq-01-magicword (copy-protection prompt), newgame-seq-02-entering-title ('ENTERING BANE OF THE COSMIC FORGE' title-card), newgame-seq-03-narration ('APPROACHING THE GATE' over the dungeon, gy=118 — THE CRUX FRAME), newgame-seq-04-walk-gy119, newgame-seq-05-walk-gy120, newgame-seq-06-walk-gy121-hmmm ('HMMMM' dead-end). For a parity gate use the MESSAGE STRIP region (y>=144) as the deterministic band; the MAZE_VIEWPORT has a free-running torch/gate flicker (palette 5<->8 at the gate center) so it is partial-fidelity — exclude or region-tolerance the viewport. The party-panel region (the side columns) is deterministic for a seeded roster.",
+      "category": "test_fixture",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "fixture_capture",
+        "details": "Capture: tools/libretro/capture-newgame-fixtures.ts (state-driven: polls game_state + party_gy to land each frame). Mouse parked off-screen (mouse(-4000,-4000)) so the composited cursor sprite doesn't pollute the frame. seq-02 (ENTERING title) is captured via a dedicated single-frame scan (the title flashes ~8 frames and is non-deterministic by tap-cadence) and committed from /tmp/tc-f28.rgba via the same COMPOSED_PALETTE pipeline; the other 6 land deterministically. Strip-content sanity per fixture verified (seq-03 strip=2202 narration text, seq-06 strip=161 HMMMM)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "asm_anchors": [
+    {"space": "wbase.ovr", "offset": "0x1b2d", "name": "FUN_1b2d / composePartyPanel source", "note": "per-slot party-panel cell composer; even slot->LEFT (DGROUP 0x4fba), odd->RIGHT (0x4fb8), panelRow=(slot/2)*4"},
+    {"space": "wmaze.ovr", "offset": "0x58ed", "name": "msg_show_short_in_window", "note": "narration display routine (loads msg 10010-10012, draws into the bottom strip) — from maze-entry-narration.json"},
+    {"space": "wroot.dgroup", "offset": "0x363a", "name": "game_state", "note": "65535 during MASTER OPTIONS / magicword / ENTERING title; flips to 5 when the dungeon loads (observed flip 65535->6->5)"},
+    {"space": "wroot.dgroup", "offset": "0x4fa2", "name": "party_gy", "note": "118 (narration/entry) -> 121 (walk end / free-roam) — used to state-drive the fixture capture"}
+  ],
+  "sequence_data": {
+    "default_scenario": "BANE OF THE COSMIC FORGE",
+    "party": ["THESUS", "TEMPEST", "LYSANDR", "NOBAL", "TREON", "PENTAG"],
+    "party_layout": {"left_column_slots": [0, 2, 4], "right_column_slots": [1, 3, 5], "left_origin_xy": [8, 40], "right_origin_xy": [256, 40], "portrait_slot0_y": 48, "portrait_y_stride": 32, "slot_block_cells": "7 wide x 4 tall"},
+    "maze_viewport": {"x": 72, "y": 32, "w": 176, "h": 112},
+    "message_strip": {"x": 0, "y": 144, "w": 320, "h": 56, "text_color_idx": 5, "bg_color_idx": 0},
+    "frames": [
+      {"name": "newgame-seq-00-master-options", "shows": "MASTER OPTIONS, 6-member party, cursor on REVIEW MEMBER", "advance": "down, down -> START NEW GAME; ENTER"},
+      {"name": "newgame-seq-01-magicword", "shows": "MAGICWORD copy-protection prompt (4 icon glyphs) over the castle-gate backdrop", "advance": "ENTER x3 (empty answer passes)"},
+      {"name": "newgame-seq-02-entering-title", "shows": "'ENTERING / BANE OF THE COSMIC FORGE' title-card over the dungeon corridor (transient ~8 frames, game_state still 0xffff)", "advance": "auto (state flips to 5)"},
+      {"name": "newgame-seq-03-narration", "shows": "'APPROACHING THE GATE WITH CONFIDENCE...' narration over the rendered dungeon (colored portcullis inner gate in viewport), party gy=118. NOT black.", "advance": "ENTER dismisses text (no move)"},
+      {"name": "newgame-seq-04-walk-gy119", "shows": "scripted forward step, party gy=119, gate closer in viewport, empty strip", "advance": "ENTER"},
+      {"name": "newgame-seq-05-walk-gy120", "shows": "scripted forward step, party gy=120", "advance": "ENTER"},
+      {"name": "newgame-seq-06-walk-gy121-hmmm", "shows": "dead-end at gy=121, 'HMMMM...' front-wall bump (msg 10020); free-roam begins (arrows move, ENTER=PRESS RETURN FOR OPTIONS)", "advance": "free-roam"}
+    ]
+  },
+  "unresolved": [
+    "Whether the MAGICWORD copy-protection is enforced in the original retail environment (and would there render the narration differently / over black). In dosbox-pure an empty ENTER passes; the asm check routine was not pinned. If the user's 'solid black' recollection is from the retail box, a code path behind a SATISFIED-with-correct-word magicword (vs the empty-bypass here) is untested.",
+    "The exact frame timing of the magicword empty-pass + the ENTERING title flash is NON-DETERMINISTIC run-to-run (the empty-answer accept fires on a variable frame). seq-02 (title) had to be captured via a dedicated single-frame scan rather than a fixed tap+step. This does not affect the BEHAVIORAL model (3 ENTER passes, title flashes, then narration) but means a recipe-replay re-mint of seq-02 may land off-frame; treat seq-02 as a single-frame snapshot, not a deterministic recipe waypoint.",
+    "The torch/gate flicker in the MAZE_VIEWPORT (palette 5<->8 at the gate center, free-running) makes the viewport region non-deterministic across captures — same caveat as maze-corridor.state. A parity gate should region-exclude or tolerance the viewport and assert on the strip + party-panel regions.",
+    "The msg 10030-10035 'ENTRANCE CHAMBER' second narration block STILL not observed firing anywhere — consistent with maze-entry-narration.json. Likely a different scenario or a post-gate-open condition; not in the default BANE path."
+  ],
+  "tooling_notes": [
+    "Used the committed NIGHTLY (unpatched) libretro core (tools/libretro/dosbox_pure_libretro.dylib) — behavioral capture only, no traceSet/regs. NO core rebuild; workspace left as found (verified git-clean).",
+    "MASTER OPTIONS navigation (CRITICAL — easy to get wrong): from EMPTY-party MASTER OPTIONS the cursor is on ADD PARTY MEMBER (top-left). To form a member: ENTER (open roster picker, cursor on first available char) -> ENTER (pick it) -> up x4 (re-anchor cursor to the top-left). Doing up x3 (as some older recipes) can drift the cursor into CHARACTER MENU on the next ENTER — use up x4 to be safe. After N adds the LEFT menu column is REVIEW MEMBER / DISMISS MEMBER / START NEW GAME / CHARACTER MENU with the cursor on REVIEW MEMBER, so START NEW GAME = down, down, ENTER.",
+    "game_state (DGROUP 0x363a via anchor()+read) reads 0xffff (65535) during MASTER OPTIONS / magicword / ENTERING title — it is only a valid small value (5) once the dungeon loads. Do NOT rely on it to detect menu sub-states; use framebuffer digests there.",
+    "Capture is STATE-DRIVEN (poll game_state==5 and party_gy at 0x4fa2) because the magicword empty-pass frame timing is non-deterministic; blind tap+step counts slip the whole downstream sequence by a frame or more. capture-newgame-fixtures.ts encapsulates the reproducible drive.",
+    "DGROUP party-field offsets (anchor()-relative): facing 0x4f9a, z 0x4f9c, cellA 0x4f9e, cellB 0x4fa0, gy 0x4fa2, gx 0x4fa4 (matches maze-entry-sequence.json)."
+  ]
+}

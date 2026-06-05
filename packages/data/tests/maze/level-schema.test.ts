@@ -25,8 +25,9 @@ describe('DungeonLevel schema', () => {
 
   it('parses a level WITH a valid scriptedEntry (round-trips)', () => {
     const scriptedEntry: ScriptedEntry = {
-      start: { gx: 127, gy: 118, z: 0, facing: 0 },
-      steps: 3,
+      start: { gx: 127, gy: 117, z: 0, facing: 0 },
+      steps: 4,
+      titleMsgIds: [1212, 1213],
       narrationMsgIds: [10010, 10011, 10012],
       bumpMsgId: 10020,
     };
@@ -37,6 +38,8 @@ describe('DungeonLevel schema', () => {
       scriptedEntry,
     });
     expect(lvl.scriptedEntry).toEqual(scriptedEntry);
+    expect(lvl.scriptedEntry?.titleMsgIds).toEqual([1212, 1213]);
+    expect(lvl.scriptedEntry?.start.gy).toBe(117);
     expect(lvl.entrance.gy).toBe(121);
   });
 
@@ -51,30 +54,43 @@ describe('DungeonLevel schema', () => {
 });
 
 describe('ScriptedEntrySchema', () => {
-  it('accepts a valid scripted entry', () => {
+  it('accepts a valid scripted entry (titleMsgIds round-trips)', () => {
     const entry: ScriptedEntry = ScriptedEntrySchema.parse({
-      start: { gx: 127, gy: 118, z: 0, facing: 0 },
-      steps: 3,
+      start: { gx: 127, gy: 117, z: 0, facing: 0 },
+      steps: 4,
+      titleMsgIds: [1212, 1213],
       narrationMsgIds: [10010, 10011, 10012],
       bumpMsgId: 10020,
     });
-    expect(entry.steps).toBe(3);
+    expect(entry.steps).toBe(4);
+    expect(entry.titleMsgIds).toEqual([1212, 1213]);
     expect(entry.narrationMsgIds).toHaveLength(3);
   });
 
   it('rejects negative steps', () => {
     expect(() => ScriptedEntrySchema.parse({
-      start: { gx: 127, gy: 118, z: 0, facing: 0 },
+      start: { gx: 127, gy: 117, z: 0, facing: 0 },
       steps: -1,
+      titleMsgIds: [1212, 1213],
       narrationMsgIds: [],
+      bumpMsgId: 10020,
+    })).toThrow();
+  });
+
+  it('rejects a missing titleMsgIds', () => {
+    expect(() => ScriptedEntrySchema.parse({
+      start: { gx: 127, gy: 117, z: 0, facing: 0 },
+      steps: 4,
+      narrationMsgIds: [10010],
       bumpMsgId: 10020,
     })).toThrow();
   });
 
   it('accepts steps === 0 (nonnegative boundary)', () => {
     expect(() => ScriptedEntrySchema.parse({
-      start: { gx: 127, gy: 118, z: 0, facing: 0 },
+      start: { gx: 127, gy: 117, z: 0, facing: 0 },
       steps: 0,
+      titleMsgIds: [],
       narrationMsgIds: [],
       bumpMsgId: 10020,
     })).not.toThrow();
