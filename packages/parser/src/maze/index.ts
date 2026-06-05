@@ -35,9 +35,6 @@ export {
   composeBackgroundFromAsset,
 } from './callist.js';
 
-// Dungeon level loader (reads committed extracted/maze/level-<id>.json)
-export { loadDungeonLevel } from './level.js';
-
 // Maze block decoder (pure, no I/O)
 export {
   decodeMazeBlock,

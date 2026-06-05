@@ -35,8 +35,6 @@ export { renderEgaScreen } from './formats/ega-screen-render.js';
 
 // Maze renderer pipeline
 export { renderMazeViewport } from './maze/render.js';
-// Dungeon level loader (reads committed extracted/maze/level-<id>.json)
-export { loadDungeonLevel } from './maze/level.js';
 // Maze block decoder (pure — I/O-free; used by the CLI extractor + parity tools)
 export {
   decodeMazeBlock,

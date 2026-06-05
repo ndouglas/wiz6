@@ -1,18 +1,21 @@
 /**
- * level.test.ts — loader gate for extracted/maze/level-0.json.
+ * load-level.test.ts — loader gate for extracted/maze/level-0.json.
  *
  * Validates the committed JSON round-trips through DungeonLevelSchema and that
  * key fields match what extractMazeLevel(0) produces offline.
+ *
+ * Moved here from packages/parser/tests/maze/level.test.ts when the Node-fs
+ * loader was relocated to @wiz6/cli (parser must remain isomorphic).
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DungeonLevelSchema } from '@wiz6/data';
-import { loadDungeonLevel } from '../../src/maze/level.js';
-import { decodeMazeBlock, MAZE_BANK } from '../../src/maze/maze-block.js';
+import { loadDungeonLevel } from '../../src/lib/load-level.js';
+import { decodeMazeBlock, MAZE_BANK } from '@wiz6/parser';
 
-// Resolve repo root (packages/parser/tests/maze/ → up 4 = repo root)
+// Resolve repo root (packages/cli/tests/lib/ → up 4 = repo root)
 const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(here, '..', '..', '..', '..');
 const TEST_FIXTURES_DIR = join(REPO_ROOT, 'test-fixtures', 'original');

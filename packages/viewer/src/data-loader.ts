@@ -10,6 +10,7 @@ import { EgaScreenSchema, type EgaScreen } from '@wiz6/data';
 import { MessageDbSchema, type MessageDb } from '@wiz6/data';
 import { NewgameDbSchema, type NewgameDb } from '@wiz6/data';
 import { ScenarioDbSchema, type ScenarioDb } from '@wiz6/data';
+import { DungeonLevelSchema, type DungeonLevel } from '@wiz6/data';
 
 export async function loadFont(url: string): Promise<Font> {
   const response = await fetch(url);
@@ -72,4 +73,14 @@ export async function loadScenarioDb(url: string): Promise<ScenarioDb> {
   }
   const data: unknown = await res.json();
   return ScenarioDbSchema.parse(data);
+}
+
+export async function loadDungeonLevel(id: number): Promise<DungeonLevel> {
+  const url = `/maze/level-${id}.json`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to load dungeon level ${id} from ${url}: ${res.status}`);
+  }
+  const data: unknown = await res.json();
+  return DungeonLevelSchema.parse(data);
 }
