@@ -439,12 +439,12 @@ describe('MazeView — scripted entry (title → narration → gate-walk → bum
     await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
 
     fireEvent.keyDown(window, { key: 'Enter' }); // narration → gate-walk (gy119)
-    fireEvent.keyDown(window, { key: 'Enter' }); // gate-walk (gy120)
-    fireEvent.keyDown(window, { key: 'Enter' }); // gate-walk → bump (gy121)
+    fireEvent.keyDown(window, { key: 'Enter' }); // gate-walk → bump (gy120, inner-gate HMMMM)
+    fireEvent.keyDown(window, { key: 'Enter' }); // bump → bump (gy121, dead-end HMMMM)
     fireEvent.keyDown(window, { key: 'Enter' }); // bump → free
 
     const modes = mockUpdateSession.mock.calls.map((c) => (c[0] as { entryMode: string }).entryMode);
-    expect(modes).toEqual(['gate-walk', 'gate-walk', 'bump', 'free']);
+    expect(modes).toEqual(['gate-walk', 'bump', 'bump', 'free']);
     // A 5th Enter in free-roam is the OPTIONS no-op: no further updateSession.
     fireEvent.keyDown(window, { key: 'Enter' });
     expect(mockUpdateSession).toHaveBeenCalledTimes(4);

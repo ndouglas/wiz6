@@ -68,7 +68,6 @@ export {
 // Maze entry bottom strip — shared per-mode layout + draw (MazeView + parity gates)
 export {
   drawEntryStrip,
-  drawNarrationStrip,
   NARRATION_FG_IDX,
   NARRATION_BG_IDX,
   NARRATION_X,

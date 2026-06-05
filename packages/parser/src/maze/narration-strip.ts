@@ -57,7 +57,6 @@ export const NARRATION_X = 8;
 /** The bottom strip's pixel band (inclusive top, exclusive bottom). */
 export const STRIP_Y0 = 144;
 export const STRIP_Y1 = 200; // exclusive
-const SCREEN_W = 320;
 
 /**
  * Top y at which each glyph is DRAWN (8px pitch). The lines' VISIBLE pixel bands
@@ -209,39 +208,5 @@ function blackRow(destRgba: Uint8ClampedArray, destW: number, destH: number, y: 
     destRgba[o + 1] = 0;
     destRgba[o + 2] = 0;
     destRgba[o + 3] = 0xff;
-  }
-}
-
-/**
- * drawNarrationStrip — LEGACY single-purpose helper kept for the existing
- * narration parity gate (maze-entry-narration-parity.test.ts). Draws ONLY the
- * 3 yellow left-aligned narration lines (idx 5 on idx 0) at NARRATION_LINE_Y,
- * WITHOUT clearing the strip background (the caller supplies a black canvas).
- *
- * New call sites should use `drawEntryStrip(..., 'narration', ...)` which also
- * blanks the strip to black. SCREEN_W is used only for the legacy doc note.
- */
-export function drawNarrationStrip(
-  destRgba: Uint8ClampedArray,
-  destW: number,
-  destH: number,
-  lines: readonly string[],
-  font: Font,
-  palette: Palette,
-): void {
-  void SCREEN_W;
-  for (let i = 0; i < lines.length && i < NARRATION_LINE_Y.length; i++) {
-    renderTextRun(
-      destRgba,
-      destW,
-      destH,
-      NARRATION_X,
-      NARRATION_LINE_Y[i]!,
-      lines[i]!,
-      font,
-      NARRATION_FG_IDX,
-      palette,
-      NARRATION_BG_IDX,
-    );
   }
 }

@@ -13,8 +13,11 @@
  *
  * Pin: docs/re/findings/maze-newgame-byteexact.json (per_enter_pin_addendum).
  * Level-0 scriptedEntry.start: gx=127, gy=117, z=0, facing=0 (the ENTERING title).
- * Per-ENTER: title(117) → narration(118) → gate-walk(119) → gate-walk(120) →
- *            bump(121) → free.
+ * Per-ENTER (locked to the committed fixtures newgame-seq-02..06, Task 5):
+ *   title(117) → narration(118) → gate-walk(119) → bump(120) → bump(121) → free.
+ * gy=120 shows HMMMM (a front-wall bump, frame 05), NOT a plain gate-walk — the
+ * Task-5 reconciliation moved BUMP_GY 121→120 and made bump step once more (gy
+ * 120→121, HMMMM persists) before going free at the dead-end (gy=121).
  */
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -69,11 +72,11 @@ const OPEN_BLOCK: MazeBlock = makeOpenBlock(127, 117);
 // ---------------------------------------------------------------------------
 // advanceEntry FSM — title → narration → gate-walk → bump → free
 //
-// Per-ENTER contract (pin: maze-newgame-byteexact.json per_enter_pin_addendum):
+// Per-ENTER contract (locked to fixtures newgame-seq-02..06, Task 5):
 //   title(117)    --ENTER--> narration(118)   (+1 forward step)
 //   narration(118)--ENTER--> gate-walk(119)   (+1 forward step; dismisses text)
-//   gate-walk(119)--ENTER--> gate-walk(120)   (+1 forward step)
-//   gate-walk(120)--ENTER--> bump(121)        (+1 forward step; next cell = bump)
+//   gate-walk(119)--ENTER--> bump(120)        (+1 forward step; inner gate → HMMMM)
+//   bump(120)     --ENTER--> bump(121)        (+1 forward step; HMMMM persists → dead-end)
 //   bump(121)     --ENTER--> free(121)        (no move)
 // ---------------------------------------------------------------------------
 describe('advanceEntry', () => {
@@ -95,16 +98,16 @@ describe('advanceEntry', () => {
     expect(next.stepsRemaining).toBe(2);
   });
 
-  it('gate-walk step: gy 119→120, stays gate-walk, stepsRemaining 2→1', () => {
+  it('gate-walk final step: gy 119→120 → bump (inner gate HMMMM), stepsRemaining 2→1', () => {
     const s: EntryState = { party: { ...START_PARTY, gy: 119 }, entryMode: 'gate-walk', stepsRemaining: 2 };
     const next = advanceEntry(s, OPEN_BLOCK);
-    expect(next.entryMode).toBe('gate-walk');
+    expect(next.entryMode).toBe('bump');
     expect(next.party.gy).toBe(120);
     expect(next.stepsRemaining).toBe(1);
   });
 
-  it('gate-walk final step: gy 120→121 → bump, stepsRemaining 1→0', () => {
-    const s: EntryState = { party: { ...START_PARTY, gy: 120 }, entryMode: 'gate-walk', stepsRemaining: 1 };
+  it('bump persists: gy 120→121, stays bump (HMMMM), stepsRemaining 1→0', () => {
+    const s: EntryState = { party: { ...START_PARTY, gy: 120 }, entryMode: 'bump', stepsRemaining: 1 };
     const next = advanceEntry(s, OPEN_BLOCK);
     expect(next.entryMode).toBe('bump');
     expect(next.party.gy).toBe(121);
@@ -128,7 +131,7 @@ describe('advanceEntry', () => {
     expect(s.entryMode).toBe('gate-walk');
     expect(s.party.gy).toBe(119);
     s = advanceEntry(s, OPEN_BLOCK);
-    expect(s.entryMode).toBe('gate-walk');
+    expect(s.entryMode).toBe('bump');
     expect(s.party.gy).toBe(120);
     s = advanceEntry(s, OPEN_BLOCK);
     expect(s.entryMode).toBe('bump');
@@ -194,12 +197,12 @@ describe('advanceEntry — real level-0 block (forced march through gate)', () =
     expect(s.party.gy).toBe(119);
     expect(s.stepsRemaining).toBe(2);
 
-    s = advanceEntry(s, REAL_BLOCK); // gate-walk, open north=0 @ gy119
-    expect(s.entryMode).toBe('gate-walk');
+    s = advanceEntry(s, REAL_BLOCK); // gate-walk → bump, open north=0 @ gy119 (inner gate HMMMM)
+    expect(s.entryMode).toBe('bump');
     expect(s.party.gy).toBe(120);
     expect(s.stepsRemaining).toBe(1);
 
-    s = advanceEntry(s, REAL_BLOCK); // gate-walk → bump, crosses door north=3 @ gy120
+    s = advanceEntry(s, REAL_BLOCK); // bump persists, crosses door north=3 @ gy120 → dead-end
     expect(s.entryMode).toBe('bump');
     expect(s.party.gy).toBe(121);
     expect(s.stepsRemaining).toBe(0);

@@ -13,8 +13,8 @@
  *   6. ArrowLeft turns the party; canvas changes (proving free-roam is live).
  *
  * Pixel assertions are behavioral (non-blank strip check + canvas-diff after
- * arrow) rather than byte-exact fixture comparisons; the byte-exact narration
- * gate lives in maze-entry-narration-parity.test.ts. The TITLE/BUMP strip
+ * arrow) rather than byte-exact fixture comparisons; the byte-exact full-screen
+ * per-frame gate lives in tests/game/newgame-sequence-parity.test.ts. The TITLE/BUMP strip
  * rendering is a later task — this spec only proves the FSM drives end-to-end to
  * free control (the Task-1 integration contract).
  */
@@ -168,9 +168,9 @@ test('START NEW GAME: title → Enter→narration → Enter dismisses → walk t
   ).toBeLessThan(100);
 
   // ── Step 5: Enter ×N force-walks to the bump, then bump → free ───────────
-  // After title→narration→gate-walk consumed 2 of 4 steps, 2 more gate-walk
-  // Enters reach the bump cell (gy=121), and one more (bump → free) hands over
-  // control. A few extra presses are harmless (free-roam Enter is a no-op).
+  // From gate-walk (gy=119): Enter → bump (gy=120, inner-gate HMMMM), Enter →
+  // bump (gy=121, dead-end HMMMM), Enter → free. So 3 presses hand over control;
+  // a few extra presses are harmless (free-roam Enter is a no-op).
   for (let i = 0; i < 4; i++) {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(150);
