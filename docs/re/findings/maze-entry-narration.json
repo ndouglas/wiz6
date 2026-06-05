@@ -1,0 +1,131 @@
+{
+  "topic": "maze-entry-narration",
+  "subagent_run": "2026-06-05 (TODO #078: capture the START-NEW-GAME scripted entry narration text + provenance)",
+  "binaries": ["wroot.exe", "wmaze.ovr", "msg.dbs", "msg.hdr"],
+  "tool": "dosbox-pure (libretro) live harness via HostClient. Rebuilt the PATCHED trace core (tools/libretro/build-core.sh) to use traceSet/traceDrain/regs; drove a fresh boot (3000 frames) -> title -> MASTER OPTIONS -> add 3 party members (THESUS/TEMPEST/LYSANDR) -> START NEW GAME -> scenario pick -> dungeon entry; screenshot each frame + traced load_msg_into_buf (wroot CS 0x1a8:0x75b, lin 0x21db) and play_sound_entry (wroot 0x1a8:0xaaa, lin 0x252a) reading the stack[] words from each trace record for the msg-id/sound-id arg. Cross-checked captured on-screen text vs extracted/messages/msg.json. Nightly core restored afterward.",
+  "summary": "The START-NEW-GAME scripted entry narration is a SINGLE modal message page shown on dungeon entry (game_state=5, wmaze-internal): 'APPROACHING THE GATE WITH CONFIDENCE, YOU KNOW IF THINGS GET TOO HAIRY YOU CAN ALWAYS TURN AND RUN BACK OUT...'. It is msg.dbs IDs 10010/10011/10012 (the multi-line message renderer loads consecutive IDs starting at 10010 until it hits an empty/absent record at 10013). Dismissed by ENTER, which then begins a scripted forward gate-walk (each subsequent ENTER = one forward step; ~10-13 taps reach the closed inner gate, where ENTER yields the 'HMMMM...' bump message = msg 10020). The '~10 ENTER taps' in the prior finding were the walk steps, NOT 10 message pages. CRITICAL #025 UPDATE: the msg.dbs high range (>=718) is NOW fully decodable in extracted/messages/msg.json (4562 IDs >=718 decoded, up to id 18961) via the bank-structured decoder in packages/parser/src/formats/message-db.ts. The narration IDs (10010-10012, bank 20, rangeIndex 112) decode VERBATIM-MATCHING the on-screen render. #025 is NOT a blocker; recommended port path is DECODE-FROM-MSG (no fixture-capture needed). Caller: wmaze msg_show_short_in_window (wmaze file ~0x5943, return offset CS:0x9eac = file 0x5948 via the 0x4564 delta law).",
+  "findings": [
+    {
+      "id": "narration-text-3-lines",
+      "claim": "The scripted entry narration for the START-NEW-GAME (default Bane scenario) flow is exactly ONE modal page of THREE lines, verbatim: line1='APPROACHING THE GATE WITH CONFIDENCE,', line2='YOU KNOW IF THINGS GET TOO HAIRY YOU ' (note trailing space), line3='^CAN ALWAYS TURN AND RUN BACK OUT...'. The leading '^' on line3 is the engine's anchored-x format code (per msg_window_draw_text_wrapped @ wmaze 0x57a8 which handles '$'=newline and '^'=anchored-x), not literal text. The text is drawn into the bottom message window (screen band y>=176).",
+      "category": "narration_content",
+      "evidence": {
+        "binary": "msg.dbs",
+        "type": "live_render + msg_decode_crosscheck",
+        "details": "Screenshot /tmp/wiz6-narr2-00.png (saved during the drive) shows the three lines in the bottom message window over the live dungeon view with the 3-member party panel (THESUS/TEMPEST/LYSANDR). msg.json IDs 10010='APPROACHING THE GATE WITH CONFIDENCE,', 10011='YOU KNOW IF THINGS GET TOO HAIRY YOU ', 10012='^CAN ALWAYS TURN AND RUN BACK OUT...' match the render character-for-character."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "narration-msg-ids",
+      "claim": "The narration loads msg.dbs IDs 10010, 10011, 10012 (and probes 10013 which is empty/absent = the terminator). Captured by tracing load_msg_into_buf (wroot image 0x75b) during dungeon entry: 4 hits with msg_id args 10010,10011,10012,10013, all from the same caller return offset 0x9eac. The message renderer walks consecutive IDs from a start ID until an empty record terminates. Same pattern for the wall-bump 'HMMMM...' message: ID 10020 (+ 10021 terminator).",
+      "category": "msg_ids",
+      "evidence": {
+        "binary": "msg.dbs",
+        "address": {"space": "wroot.exe", "offset": "0x75b"},
+        "type": "trace_breakpoint_arg_capture",
+        "details": "traceSet((0x1a8<<4)+0x75b); on dungeon-entry ENTER: 10 total load_msg hits; the narration-range (>=10000) ones were msg_id=10010/10011/10012/10013 all with stack[0] (return offset) = 0x9eac. The other 6 hits at this commit: 1300-1303 ('PRESS'/'RETURN'/'FOR'/'OPTIONS' = status-bar hint, ret 0x84f) and 2000/2001 (party-panel chrome glyphs, ret 0x4e9a/0x4ea8). 13 forward-walk taps later: msg_id=10020/10021 (the 'HMMMM...' wall bump)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "msg-source-bank20",
+      "claim": "The narration text lives in msg.dbs (the main message database), bank 20, rangeIndex 112 (NOT newgame.dbs, NOT scenario.dbs/scenario.hdr). newgame.dbs is character-template data, not narration. The IDs are in the 10000-range message bank which also contains: 10000 'you_fell_to_your_death', 10010-10012 the gate narration, 10020 'HMMMM...' (wall bump), 10030-10035 a SECOND entrance-chamber narration block ('YOU ARE IN THE ENTRANCE CHAMBER OF THE / CASTLE. IT APPEARS TO BE EMPTY, AND A / ... / @SMALL SCAMPERING NOISES ECHO DOWN FAR / DISTANT CORRIDORS, A REMINDER THAT IT / ^IS YOU WHO ARE THE INTRUDER HERE...').",
+      "category": "msg_source",
+      "evidence": {
+        "binary": "msg.dbs",
+        "type": "extractor_metadata",
+        "details": "extracted/messages/msg.json sourceFile=msg.dbs, indexSourceFile=msg.hdr; entries for 10010/10011/10012 carry bank=20 rangeIndex=112. The 10030-10035 entrance-chamber block exists in the data but did NOT trigger in the default-scenario START-NEW-GAME path (traced through 13 forward taps to the inner gate; never loaded). It is likely a different scenario's intro or a post-gate-open condition — UNVERIFIED which trigger fires it."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "025-not-a-blocker",
+      "claim": "TODO #025 (high-range msg.dbs ID->section/offset decode) is RESOLVED for the purposes of this port. The current extracted/messages/msg.json decodes the full range: 4712 of 5161 indexed IDs have decodedText, including 4562 IDs >=718 (max decoded id = 18961). The bank-structured decoder (packages/parser/src/formats/message-db.ts: parse ranges from msg.hdr as packed=(bank_idx<<8)|id_span, then walk id_span+1 consecutive records per range) handles bank 20. So porting the narration does NOT require any further #025 work. Recommended port path: DECODE-FROM-MSG (read IDs 10010-10012 from msg.json), NOT fixture-capture-as-strings. (Fixture capture remains a viable fallback — /tmp/wiz6-narr2-00.png is committed-ready ground truth for a pixel-parity test of the narration page.)",
+      "category": "port_path",
+      "evidence": {
+        "binary": "msg.dbs",
+        "type": "extractor_output_audit",
+        "details": "python3 over extracted/messages/msg.json: with-decodedText=4712, decoded-id-range 100..18961, decoded-with-id>=718 = 4562. IDs 10010-10012 present with correct text. The prior 'IDs 0..717 only' note (carried in wbase-add-party-member.json and TODO #025) is STALE — the extractor was extended since."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "narration-flow-mechanics",
+      "claim": "Flow: the narration page appears IMMEDIATELY on the dungeon-entry frame (game_state already = 5, dungeon view + party panel already live, party already positioned at the entrance) — the message is shown BEFORE/AT the party-at-entrance frame, gating only input. ONE ENTER dismisses the text page; subsequent ENTERs drive a scripted forward gate-walk (each ENTER = one forward step). It is a single modal box, ENTER-dismissed; not a data-driven list of multiple narration pages in this path (only the one 10010-block fires).",
+      "category": "flow_mechanics",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_drive_framewise",
+        "details": "Frame-by-frame screenshots: page0 (pre-extra-ENTER) shows the narration; after 1 ENTER the text is gone and the view advances; taps 1-12 = forward walk through the corridor (no further text); tap 13 = inner closed gate -> 'HMMMM...' (msg 10020). game_state stayed 5 throughout. The narration is wmaze-internal (matches prior maze-start-new-game.json)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "narration-caller-wmaze",
+      "claim": "The narration is displayed by msg_show_short_in_window (wmaze 0x58ed, 'Opens a small window, draws message, waits, closes'). The load_msg_into_buf calls return to wmaze CS:0x9eac, which is wmaze file offset 0x9eac - 0x4564 = 0x5948 (per the wmaze 0x4564 overlay delta), inside the 0x58ed..0x5a28 function. wmaze runtime CS observed = 0x6b91, DGROUP phys base = 0xffa0 (anchor) in this session.",
+      "category": "narration_anchor",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x5948"},
+        "type": "trace_return_address",
+        "details": "All four 10010-10013 load_msg hits had trace stack[0] (return offset within wmaze CS) = 0x9eac. wmaze.ovr is 0x973d bytes; 0x9eac > 0x973d so the delta law applies: 0x9eac - 0x4564 = 0x5948, which falls inside msg_show_short_in_window (0x58ed-0x5a28) per docs/re/wmaze-functions.md. The CALL instruction is ~5 bytes before, ~0x5943. NOTE: the routine that DECIDES to show 10010 on dungeon entry (the trigger) was not separately localized — only the display routine."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "narration-no-dedicated-sound",
+      "claim": "The narration text page itself plays NO dedicated sound. play_sound_entry (wroot 0xaaa) fires during dungeon entry, but those calls come from other call sites (sound IDs 3 from ret 0x4fcd; 10/11/12 from ret 0x4679 = gate-walk footstep/movement SFX), NOT from the narration display routine (ret 0x9eac). So a faithful port does not need to play a sound when showing the narration box.",
+      "category": "audio",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0xaaa"},
+        "type": "trace_breakpoint_arg_capture",
+        "details": "traceSet((0x1a8<<4)+0xaaa) over the dungeon-entry ENTER: 12 hits, none with return offset 0x9eac. sound_id args: 0x3 x3 (ret 0x4fcd), then 0xa/0xb/0xc (ret 0x4679) — these accompany the scripted walk/gate, not the text box."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "asm_anchors": [
+    {"space": "wroot.exe", "offset": "0x75b", "name": "load_msg_into_buf", "note": "string loader; traced at lin (0x1a8<<4)+0x75b=0x21db; msg_id = stack[1] at entry"},
+    {"space": "wroot.exe", "offset": "0xaaa", "name": "play_sound_entry", "note": "sound dispatch; sound_id = stack[1]"},
+    {"space": "wmaze.ovr", "offset": "0x58ed", "name": "msg_show_short_in_window", "note": "narration display routine (load+draw+wait+close); contains the load_msg call site at file ~0x5943 (return 0x5948)"},
+    {"space": "wmaze.ovr", "offset": "0x57a8", "name": "msg_window_draw_text_wrapped", "note": "handles '$'=newline and '^'=anchored-x format codes seen in 10012"}
+  ],
+  "narration_data": {
+    "default_scenario": {
+      "page_count": 1,
+      "dismiss_key": "ENTER (single tap)",
+      "msg_ids": [10010, 10011, 10012],
+      "terminator_id": 10013,
+      "lines": [
+        "APPROACHING THE GATE WITH CONFIDENCE,",
+        "YOU KNOW IF THINGS GET TOO HAIRY YOU ",
+        "^CAN ALWAYS TURN AND RUN BACK OUT..."
+      ],
+      "note": "After dismiss, ENTER drives a scripted forward gate-walk (~10-13 steps to the inner closed gate). The wall-bump message at the closed gate is msg 10020 'HMMMM...'."
+    },
+    "second_block_unverified": {
+      "msg_ids": [10030, 10031, 10032, 10033, 10034, 10035],
+      "lines": [
+        "YOU ARE IN THE ENTRANCE CHAMBER OF THE",
+        "CASTLE.  IT APPEARS TO BE EMPTY, AND A",
+        "",
+        "@SMALL SCAMPERING NOISES ECHO DOWN FAR",
+        "DISTANT CORRIDORS, A REMINDER THAT IT",
+        "^IS YOU WHO ARE THE INTRUDER HERE..."
+      ],
+      "note": "Exists in msg.dbs bank 20 but did NOT trigger in the default START-NEW-GAME path traced here. Likely a different scenario intro or a post-gate-open condition. Trigger UNVERIFIED."
+    }
+  },
+  "unresolved": [
+    "The exact wmaze TRIGGER that decides to show msg 10010 on dungeon entry (vs the display routine msg_show_short_in_window which was localized) was not pinned. The display call returns to wmaze file 0x5948; the trigger is upstream in the dungeon-entry path.",
+    "Whether the 10030-10035 'ENTRANCE CHAMBER' block fires for a different scenario, after the gate is opened, or on a save-resume — not tested. Only the default Bane scenario START-NEW-GAME path was driven.",
+    "Whether multi-member-party count changes the narration (the prior '~10 taps' hint): debunked for content — the count is constant (1 text page); the taps are walk steps, party-size-independent in this trace (3-member party). Single/4+ member parties not separately tested but the narration is party-position-driven, not party-size-driven."
+  ],
+  "tooling_notes": [
+    "Required rebuilding the PATCHED trace core: the committed tools/libretro/dosbox_pure_libretro.dylib was the UNPATCHED nightly (traceSet -> 'err notrace'). Ran tools/libretro/build-core.sh (rebuilds + signs the patched core with dbp_trace_*/dbp_regs exports), did the traces, then RESTORED the nightly core (cp + codesign) so the workspace is left as found.",
+    "wroot resident CS = 0x1a8; a wroot image offset X is traceable at linear (0x1a8<<4)+X. wmaze runtime CS = 0x6b91 this session.",
+    "Trace-record stack[] = top 8 words at ss:sp captured AT the breakpoint; for a cdecl fn at entry, stack[0]=return offset, stack[1]=arg0, stack[2]=arg1. (Re-reading ss:sp from RAM after traceDrain returns stale/zero data — use the record's stack[] words.)"
+  ]
+}

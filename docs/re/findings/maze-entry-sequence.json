@@ -1,0 +1,146 @@
+{
+  "topic": "maze-entry-sequence",
+  "subagent_run": "2026-06-05 (TODO #078: resolve the START-NEW-GAME scripted gate-walk (B) mechanics + capture the narration parity fixture)",
+  "binaries": ["wmaze.ovr", "wroot.exe", "msg.dbs"],
+  "tool": "dosbox-pure (libretro) live harness via HostClient. Drove a fresh boot (3000 frames) -> title -> MASTER OPTIONS -> add 3 party members (castle-3: THESUS/TEMPEST/LYSANDR) -> START NEW GAME -> scenario pick -> dungeon entry; then probed key-by-key (ENTER vs each arrow) reading DGROUP party fields (facing 0x4f9a / z 0x4f9c / cellA 0x4f9e / cellB 0x4fa0 / gy 0x4fa2 / gx 0x4fa4 / game_state 0x363a) before/after each press with generous settle, plus framebuffer screenshots per step. Probe scripts: tools/libretro/probe-entry-fullwalk.ts (one-ENTER-at-a-time walk trace) + tools/libretro/capture-narration-fixture.ts (parity fixture). Cross-checked the committed free-roam maze-corridor.state.",
+  "summary": "RESOLVED the (B)-vs-(C) input-mode conflict. The START-NEW-GAME entry is: (A) ONE narration modal page (msg 10010/10011/10012) drawn into the bottom black message strip over the LIVE dungeon view (party at gx=127 gy=118 z=0 facing=0, game_state=5). (B) the scripted gate-walk is driven by ENTER ONLY: the FIRST ENTER dismisses the narration text (no move); each SUBSEQUENT ENTER advances the party ONE cell forward (facing stays 0; gy 118->119->120->121 = exactly 3 steps). ARROW keys are NO-OPS during (A)+(B) (confirmed: repeated UP/LEFT/RIGHT/DOWN do nothing). The walk ENDS at gy=121 (= the committed maze-corridor.state cell), where the party bumps the front wall and the 'HMMMM...' message (msg 10020) shows. (C) free-roam then uses ARROWS (left/right turn, up step) with ENTER='PRESS RETURN FOR OPTIONS' (per maze-harness-movement.json). So BOTH prior findings were right about their own phase: maze-entry-narration.json's 'each ENTER = one forward step' is CORRECT for (B) but the step count is ~3 (NOT 10-13), and the 'inner closed gate / HMMMM' fires at the gy=121 walk endpoint (the front-wall bump), not 10-13 steps in. maze-harness-movement.json's 'ENTER=OPTIONS, arrows=move' is CORRECT for (C) free-roam. They are two DISTINCT wmaze-internal input modes within game_state=5. CAPTURED parity fixture: tools/parity/fixtures/engine/maze-entry-narration.idx.gz + .png. Modal = 3 text lines (palette-5 white on palette-0 black) in the bottom message strip, NO window border: line1 y=153..158, line2 y=161..166, line3 y=169..174, all x>=8, line pitch 8px. The (B)->(C) input-mode flip is wmaze-internal and was NOT pinned to a single DGROUP byte (see unresolved).",
+  "findings": [
+    {
+      "id": "scripted-walk-is-enter-only",
+      "claim": "The scripted gate-walk (B) is advanced by ENTER and ONLY ENTER. Arrow keys are no-ops throughout (A)+(B). The first ENTER dismisses the narration TEXT (no party move); each subsequent ENTER advances the party exactly one cell forward in the facing-0 direction. Total walk = 3 forward steps: gy 118 -> 119 -> 120 -> 121 (cellA 2 -> 3 -> 4 -> 5), facing stays 0, gx stays 127, z stays 0 the whole time.",
+      "category": "input_handler",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wroot.dgroup", "offset": "0x4fa2"},
+        "type": "live_before_after_delta",
+        "details": "tools/libretro/probe-entry-fullwalk.ts: one ENTER at a time, 300-frame settle, read DGROUP party fields. NARRATION frame: facing=0 cellA=2 cellB=7 gy=118 gx=127. ENTER#1: no move (dismiss text). ENTER#2: gy 118->119. ENTER#4: gy 119->120. ENTER#5: gy 120->121. ENTER#6..#12: no further change (walk exhausted). Repeated 'up' from the narration frame (probe with 250-frame settle x20): ZERO change (UP is a no-op during the walk). Repeated other arrows: also no-ops. Reproduced across 4 independent fresh drives."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "narration-position-gy118",
+      "claim": "The narration modal appears with the party at gx=127, gy=118, z=0, facing=0 (cellA=2, cellB=7), game_state=5, zone=0 — i.e. AT the outer gate facing it (north). This is 3 cells NORTH of the free-control start (gy=121). NOTE: maze-start-new-game.json reported gy=120 'mid-scripted-walk' as the narration position — that was actually a partially-walked frame (after some ENTER taps); the TRUE narration frame (immediately on dungeon entry, before any dismiss) is gy=118. The scripted walk then carries the party SOUTH (gy increasing, facing-0 forward = gy+=1 per maze_step_global_xy 0x108b) from gy=118 to gy=121.",
+      "category": "party_position",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wroot.dgroup", "offset": "0x4f9a"},
+        "type": "live_read",
+        "details": "Fresh drive, read DGROUP immediately after dungeon-entry ENTER (600-frame settle), BEFORE any dismiss: game_state=5 zone=0 facing=0 z=0 cellA=2 cellB=7 gy=118 gx=127. Screenshot /tmp/wiz6-entry-narration.fb (= committed tools/parity/fixtures/engine/maze-entry-narration.png) shows the green-portcullis outer gate dead ahead with the 3 narration lines in the bottom strip."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "walk-endpoint-is-gy121-with-hmmm",
+      "claim": "The scripted walk ends at gy=121 (cellA=5, gx=127, facing=0) — IDENTICAL cell to the committed maze-corridor.state free-roam frame. At this endpoint the party bumps the front wall (the inner gate/dead-end ahead at the next cell) and the 'HMMMM...' message (msg 10020) is displayed. So 'HMMMM' is the front-wall bump at the END of the 3-step walk, NOT a separate gate 10-13 steps in. The committed maze-corridor.state is this SAME cell after 'HMMMM' has cleared to the free-roam 'PRESS RETURN FOR OPTIONS / TURN' widget.",
+      "category": "flow_mechanics",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "msg.dbs", "offset": "10020"},
+        "type": "live_drive_framewise + pixel_diff",
+        "details": "After the 3-step ENTER walk the frame (gy=121) shows 'HMMMM . . .' in the bottom strip (screenshot /tmp/wiz6-fw-e5.fb). Pixel-diff of this gy=121 frame vs the committed maze-corridor.state PNG: 13429 differing px confined to y>=68 (the message strip 'HMMMM' vs the 'TURN' widget, + the gate/torch flicker animation at x160 y68) — the WALL GEOMETRY (y<68) is identical, confirming same cell. msg 10020='HMMMM...' per extracted/messages/msg.json (and maze-entry-narration.json's trace of 10020/10021 at the wall bump)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "two-input-modes-within-state5",
+      "claim": "(B) scripted-entry and (C) free-roam are two DISTINCT input modes, BOTH under game_state=5 (the game-state word at DGROUP 0x363a does NOT change between them — it stays 5 the entire time). In (B) ENTER advances the scripted walk and arrows are dead; in (C) arrows move (turn/step) and ENTER opens OPTIONS. The mode flip is wmaze-internal. The port's maze session must model these as two sub-modes of the dungeon state, switching from scripted to free after the 3-step walk completes (at gy=121).",
+      "category": "state_machine",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wroot.dgroup", "offset": "0x363a"},
+        "type": "live_read_invariant",
+        "details": "game_state (0x363a) read as 5 at: narration, every walk step, and the gy=121 endpoint. The committed maze-corridor.state (free-roam, arrows work) is also game_state=5. So the scripted-vs-free distinction is NOT the game_state word. Confirmed arrows work in free-roam by unserializing the committed maze-corridor.state and reading facing 0->3 on 'left' / back on 'right' (matches maze-harness-movement.json)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "narration-modal-geometry",
+      "claim": "The narration is NOT a bordered window box — it is 3 text lines drawn directly into the standard bottom BLACK message strip (palette index 0), in WHITE text (palette index 5), over the undimmed live dungeon view above. Geometry (320x200 framebuffer, byte-exact from the captured idx): the dungeon viewport ends at y~143; the message strip is solid palette-0 black from y=144 to y=199. Text rows: line1 y=153..158, line2 y=161..166, line3 y=169..174 (each glyph ~6px tall, line pitch = 8px). Left margin x>=8 for all three lines. Line widths: line1 x=8..300, line2 x=8..295, line3 x=8..284. The leading '^' on line 3 (msg 10012) is the anchored-x format code and renders line 3 LEFT-aligned at the same x=8 as lines 1/2 (no visible indent here). No blink/cursor in the text region (verified deterministic: text rows y153..174 are 0-pixel-diff across two independent captures).",
+      "category": "narration_geometry",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x58ed"},
+        "type": "captured_framebuffer_analysis",
+        "details": "tools/parity/fixtures/engine/maze-entry-narration.idx.gz (gzipped 320x200 palette-index frame, COMPOSED_PALETTE indices). Row scan for palette-5 (text): bands y153-158/y161-166/y169-174; everything y144-199 outside text = palette-0 black (no border lines, no window-frame palette-9 double-lines). Display routine = msg_show_short_in_window @ wmaze 0x58ed (per maze-entry-narration.json), which loads msg 10010-10012 and draws via msg_window_draw_text_wrapped @ wmaze 0x57a8 (handles '$'=newline, '^'=anchored-x). Palette: idx0=(0,0,0) black, idx5 = wiz6-main AC[5]=0x16 (white-ish text). Font is the small UI message font (~6px glyphs); pinning wfont1-vs-wfont3 is a code follow-up — the existing message-render path in the port already knows the message-strip font."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "narration-fixture-captured",
+      "claim": "Committed parity fixture of the narration frame: tools/parity/fixtures/engine/maze-entry-narration.idx.gz + .png (full 320x200 frame: party panels + outer gate + 3 narration lines). For the region-gated parity test, use the MODAL bounding rect = the bottom message strip y=144..199 (text rows y=153..174), x=0..319 — this region is byte-deterministic across captures. The dungeon view above (y<144) is partial-fidelity in OUR port and should be EXCLUDED from the gate. CAVEAT: the bottom-RIGHT corner x=313..319 y=184..190 carries the composited mouse-cursor sprite (palette 12/1), which lands run-to-run (32 px) — exclude that sub-rect too, or it is harmless if the gate region is the text band y153..174.",
+      "category": "test_fixture",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "fixture_capture",
+        "details": "tools/libretro/capture-narration-fixture.ts drives a fresh boot to the narration frame and writes the idx.gz (rgbaToIndices over COMPOSED_PALETTE) + png + a serialize-state (tools/libretro/states/maze-entry-narration.state). Determinism: two captures differ only at the cursor corner (x313-319 y184-190, 32px); the text rows y153-174 are 0-diff. The capture reported NO non-palette pixels (frame is fully within WIZ6_MAIN)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "asm_anchors": [
+    {"space": "wmaze.ovr", "offset": "0x58ed", "name": "msg_show_short_in_window", "note": "narration display routine; loads msg 10010-10012 + draws into bottom strip (from maze-entry-narration.json)"},
+    {"space": "wmaze.ovr", "offset": "0x57a8", "name": "msg_window_draw_text_wrapped", "note": "handles '$'=newline + '^'=anchored-x format codes (msg 10012 leading '^')"},
+    {"space": "wmaze.ovr", "offset": "0x108b", "name": "maze_step_global_xy", "note": "switch(dir){0:y+=n;...} — facing-0 forward = gy+=1, why the walk goes gy 118->121 at facing 0"},
+    {"space": "wmaze.ovr", "offset": "0x2abc", "name": "dungeon_main_loop", "note": "dungeon state-machine; hosts BOTH the scripted-entry ENTER handler and the free-roam arrow handler (mode flip is internal here)"},
+    {"space": "wroot.dgroup", "offset": "0x363a", "name": "game_state", "note": "stays 5 across narration / walk / free-roam — the scripted-vs-free flag is NOT this word"},
+    {"space": "wroot.dgroup", "offset": "0x4f9a", "name": "party_facing", "note": "0 (north) throughout the walk"},
+    {"space": "wroot.dgroup", "offset": "0x4fa2", "name": "party_gy", "note": "118 (narration/gate) -> 121 (walk end / free-roam start)"},
+    {"space": "wroot.dgroup", "offset": "0x4fa4", "name": "party_gx", "note": "127 throughout"}
+  ],
+  "entry_sequence_data": {
+    "phase_A_narration": {
+      "msg_ids": [10010, 10011, 10012],
+      "terminator_id": 10013,
+      "party": {"facing": 0, "z": 0, "cellA": 2, "cellB": 7, "gy": 118, "gx": 127, "game_state": 5, "zone": 0},
+      "dismiss": "ONE ENTER (no party move). Arrows are no-ops.",
+      "modal_geometry": {
+        "border": "none (text on the bottom black message strip)",
+        "strip_rect": {"x": 0, "y": 144, "w": 320, "h": 56},
+        "text_color_idx": 5,
+        "bg_color_idx": 0,
+        "lines": [
+          {"text": "APPROACHING THE GATE WITH CONFIDENCE,", "y": [153, 158], "x": [8, 300]},
+          {"text": "YOU KNOW IF THINGS GET TOO HAIRY YOU ", "y": [161, 166], "x": [8, 295]},
+          {"text": "^CAN ALWAYS TURN AND RUN BACK OUT...",  "y": [169, 174], "x": [8, 284]}
+        ],
+        "line_pitch_px": 8,
+        "anchored_x_caret": "line 3 leading '^' = anchored-x format code; renders left-aligned at x=8 (no visible indent)"
+      }
+    },
+    "phase_B_scripted_walk": {
+      "advance_key": "ENTER only (arrows dead)",
+      "steps": 3,
+      "path": [
+        {"enter": 2, "gy": 119, "cellA": 3},
+        {"enter": 4, "gy": 120, "cellA": 4},
+        {"enter": 5, "gy": 121, "cellA": 5}
+      ],
+      "facing": 0,
+      "gx": 127,
+      "z": 0,
+      "end": {"gy": 121, "cellA": 5, "front_wall_bump_msg": 10020, "bump_text": "HMMMM..."}
+    },
+    "phase_C_free_roam": {
+      "start": {"facing": 0, "z": 0, "cellA": 5, "cellB": 7, "gy": 121, "gx": 127, "game_state": 5, "fixture": "tools/libretro/states/maze-corridor.state"},
+      "keys": "ARROWS move (left/right turn -/+1 mod 4; up step forward; down=no-op). ENTER = 'PRESS RETURN FOR OPTIONS' (camp/main-menu).",
+      "note": "Per maze-harness-movement.json. The committed maze-corridor.state IS this gy=121 free-roam frame (HMMMM cleared to the TURN widget)."
+    }
+  },
+  "conflict_resolution": {
+    "maze-entry-narration.json": "CONFIRMED for phase B: 'each ENTER = one forward step' is correct. CORRECTIONS: (1) step count is ~3 (gy 118->121), NOT '10-13'. (2) the 'HMMMM' (msg 10020) fires at the gy=121 walk END (front-wall bump), NOT '10-13 steps later at an inner closed gate'. There is no separate inner gate in this path — the dead-end ahead of gy=121 IS the bump target.",
+    "maze-harness-movement.json": "CONFIRMED for phase C: 'ENTER=OPTIONS, arrows move' is correct for free-roam. It does NOT apply during (A)+(B), where ENTER is the scripted-advance key and arrows are dead. The earlier 'briefly modal post-narration' caveat it noted is exactly this: phases (A)+(B) are the modal/scripted window.",
+    "verdict": "No mis-attribution — both findings described their own phase correctly. The reconciliation is that game_state=5 hosts TWO input modes (scripted-entry then free-roam) and the transition is the completion of the 3-step ENTER walk at gy=121."
+  },
+  "unresolved": [
+    "The exact DGROUP byte (or code-path flag) that distinguishes (B) scripted-entry from (C) free-roam was NOT pinned. game_state (0x363a) stays 5 in both. A DGROUP diff of the fresh-locked gy=121 (arrows dead) vs the committed free-roam gy=121 (arrows work), outside the render/span churn band, left only 4 candidate bytes (0x4ee8/0x4ee9 word ff..->24 00; 0x4eec d6->d0; 0x4f80 02->00). Poking each of those into the locked state did NOT unlock arrows, and serialize/unserialize round-trip + long idle + ENTER/SPACE/ESC spam did NOT clear the lock either. So the scripted/free mode is held by wmaze-internal CPU state (a local var / pending-message flag in dungeon_main_loop 0x2abc), not a single observable DGROUP boolean. RECOMMENDATION for the port: model it as a session sub-mode FSM (scripted-walk -> free) keyed off 'walk steps remaining', not off a memory byte. Pinning the exact handler branch is a static-disasm follow-up (dungeon_main_loop 0x2abc input dispatch) if the port needs byte-level fidelity.",
+    "How the engine's HMMMM (msg 10020) auto-clears to the free-roam widget in the COMMITTED state but stays up in every fresh harness drive I did — this is a harness key-cadence artifact (the committed state was frozen at the post-HMMMM free-roam idle; my tap cadence freezes WITH HMMMM up). It does not affect the port's behavioral model (the bump message is dismissed like any message; free-roam follows). Not a port blocker.",
+    "Whether the 10030-10035 'ENTRANCE CHAMBER' second narration block (noted unverified in maze-entry-narration.json) fires anywhere in this default path — still not observed; the only narration in the START-NEW-GAME default-scenario path is the 10010-10012 page.",
+    "Font identity (wfont1 vs wfont3) for the message-strip text not separately confirmed this pass — glyphs are ~6px; the port's existing message-render path already selects the strip font."
+  ],
+  "tooling_notes": [
+    "tools/libretro/capture-narration-fixture.ts: drives a fresh boot to the narration frame and writes tools/parity/fixtures/engine/maze-entry-narration.{idx.gz,png} + a serialize-state. encodePngRgba signature is (width, height, rgba). rgbaToIndices maps via COMPOSED_PALETTE (from tools/parity/decode-screen.ts).",
+    "tools/libretro/probe-entry-fullwalk.ts: one-ENTER-at-a-time scripted-walk trace (DGROUP party deltas + per-step framebuffer). Reproduces the gy 118->121 path.",
+    "Used the NIGHTLY (unpatched) libretro core throughout — no traceSet/regs needed (behavioral deltas + framebuffer sufficed). No core rebuild; workspace left as found.",
+    "DGROUP party-field offsets (anchor()-relative, base 0xffa0 this session): facing 0x4f9a, z 0x4f9c, cellA(y) 0x4f9e, cellB(x) 0x4fa0, gy 0x4fa2, gx 0x4fa4, game_state 0x363a, zone 0x363c. (NOTE: these match discover-entrance.ts; the task-prompt's facing=0x4f9a is right but its gy/gx were swapped vs the actual 0x4fa2/0x4fa4.)"
+  ]
+}
