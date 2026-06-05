@@ -88,10 +88,12 @@ const MSG_FONT: Font = FontSchema.parse(
   JSON.parse(readFileSync(resolve(REPO_ROOT, 'extracted', 'fonts', 'wfont0.json'), 'utf8')),
 );
 
-// Scripted entry config (level-0): 3 narration lines, 3-step gate-walk.
+// Scripted entry config (level-0): ENTERING title (gy=117) → 3 narration lines →
+// 4-step walk to the HMMMM bump (gy=121).
 const SCRIPTED_ENTRY = {
-  start: { gx: 127, gy: 118, z: 0, facing: 0 },
-  steps: 3,
+  start: { gx: 127, gy: 117, z: 0, facing: 0 },
+  steps: 4,
+  titleMsgIds: [1212, 1213],
   narrationMsgIds: [10010, 10011, 10012],
   bumpMsgId: 10020,
 } as const;
@@ -155,7 +157,7 @@ describe('MazeView — no session', () => {
 describe('MazeView — with a session', () => {
   beforeEach(() => {
     mockReadGameSession.mockReturnValue({
-      schemaVersion: 2,
+      schemaVersion: 3,
       level: LEVEL_0,
       party: { ...ENTRANCE },
       entryMode: 'free',
@@ -237,8 +239,9 @@ describe('MazeView — with a session', () => {
   });
 });
 
-describe('MazeView — scripted entry (narration + gate-walk)', () => {
-  const NARRATION_PARTY: MazeParty = { ...SCRIPTED_ENTRY.start };
+describe('MazeView — scripted entry (title → narration → gate-walk → bump → free)', () => {
+  // The narration frame sits at gy=118 (one step past the gy=117 title start).
+  const NARRATION_PARTY: MazeParty = { ...SCRIPTED_ENTRY.start, gy: 118 };
 
   /** Install a singleton ctx whose putImageData records the presented ImageData. */
   function spyPresent(): { frames: ImageData[]; restore: () => void } {
@@ -255,7 +258,7 @@ describe('MazeView — scripted entry (narration + gate-walk)', () => {
 
   beforeEach(() => {
     mockReadGameSession.mockReturnValue({
-      schemaVersion: 2,
+      schemaVersion: 3,
       level: LEVEL_0_SCRIPTED,
       party: { ...NARRATION_PARTY },
       entryMode: 'narration',
@@ -289,7 +292,7 @@ describe('MazeView — scripted entry (narration + gate-walk)', () => {
     }
   });
 
-  it('Enter advances narration → gate-walk (party unchanged)', async () => {
+  it('Enter advances narration → gate-walk (+1 forward step, dismisses text)', async () => {
     renderMazeView();
     await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
     fireEvent.keyDown(window, { key: 'Enter' });
@@ -298,7 +301,7 @@ describe('MazeView — scripted entry (narration + gate-walk)', () => {
       LEVEL_0_SCRIPTED.mazeBlock,
     );
     expect(expected.entryMode).toBe('gate-walk');
-    expect(expected.party).toEqual(NARRATION_PARTY); // narration ENTER = no move
+    expect(expected.party.gy).toBe(119); // narration ENTER steps gy 118→119
     expect(mockUpdateSession).toHaveBeenCalledWith(expected);
     expect(mockUpdateParty).not.toHaveBeenCalled();
   });
@@ -314,22 +317,23 @@ describe('MazeView — scripted entry (narration + gate-walk)', () => {
     expect(mockUpdateSession).not.toHaveBeenCalled();
   });
 
-  it('4 Enters drive the FSM narration → gate-walk → free (via MazeView dispatch)', async () => {
+  it('Enters drive the FSM narration → gate-walk → bump → free (via MazeView dispatch)', async () => {
     // MazeView chains each advanceEntry result through its local sessionRef, so
     // consecutive Enter presses walk the FSM forward. Verify the *wiring*: the
-    // sequence of updateSession entryMode values, ending in 'free' after the
-    // 3-step gate-walk is exhausted. (The exact party gy at the endpoint is owned
-    // by the movement-geometry / pixel-parity task, not this wiring test.)
+    // sequence of updateSession entryMode values, ending in 'free'. The seeded
+    // frame is the narration frame (gy=118, stepsRemaining=3 — one step already
+    // consumed by title→narration). (The exact pixel rendering of each frame is
+    // owned by the pixel-parity task, not this wiring test.)
     renderMazeView();
     await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
 
-    fireEvent.keyDown(window, { key: 'Enter' }); // narration → gate-walk
-    fireEvent.keyDown(window, { key: 'Enter' }); // gate-walk step 1
-    fireEvent.keyDown(window, { key: 'Enter' }); // gate-walk step 2
-    fireEvent.keyDown(window, { key: 'Enter' }); // gate-walk step 3 → free
+    fireEvent.keyDown(window, { key: 'Enter' }); // narration → gate-walk (gy119)
+    fireEvent.keyDown(window, { key: 'Enter' }); // gate-walk (gy120)
+    fireEvent.keyDown(window, { key: 'Enter' }); // gate-walk → bump (gy121)
+    fireEvent.keyDown(window, { key: 'Enter' }); // bump → free
 
     const modes = mockUpdateSession.mock.calls.map((c) => (c[0] as { entryMode: string }).entryMode);
-    expect(modes).toEqual(['gate-walk', 'gate-walk', 'gate-walk', 'free']);
+    expect(modes).toEqual(['gate-walk', 'gate-walk', 'bump', 'free']);
     // A 5th Enter in free-roam is the OPTIONS no-op: no further updateSession.
     fireEvent.keyDown(window, { key: 'Enter' });
     expect(mockUpdateSession).toHaveBeenCalledTimes(4);
@@ -344,7 +348,7 @@ describe('MazeView — captured wall spans (Task D1 byte-exact case)', () => {
     // substantive tile-2 walls), so the captured-span lookup HITS and the live
     // render draws real wall pixels.
     mockReadGameSession.mockReturnValue({
-      schemaVersion: 2,
+      schemaVersion: 3,
       level: { ...LEVEL_0_REAL, entrance: CASE_04_PARTY },
       party: { ...CASE_04_PARTY },
       entryMode: 'free',

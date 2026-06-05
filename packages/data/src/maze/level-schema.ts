@@ -8,13 +8,17 @@ export const DungeonEntranceSchema = z.object({
 });
 export type DungeonEntrance = z.infer<typeof DungeonEntranceSchema>;
 
-// Scripted entry sequence: narration → gate-walk → free control.
-// narrationMsgIds: message IDs shown on the bottom strip before ENTER is accepted.
-// bumpMsgId: message shown if the player tries to move during narration/gate-walk.
-// steps: number of ENTER-key forward steps before the party reaches free-control position.
+// Scripted entry sequence: title → narration → gate-walk → bump → free control.
+// titleMsgIds:    message IDs for the "ENTERING / <scenario>" title-card (blue on gray
+//                 widget) shown at the start position (gy=117) before the dungeon loads.
+// narrationMsgIds: message IDs shown on the black strip at the narration frame (gy=118).
+// bumpMsgId:      message shown at the front-wall bump that ends the walk (gy=121).
+// steps:          number of forward steps from `start` to the bump cell
+//                 (gy 117 → 121 = 4 steps).
 export const ScriptedEntrySchema = z.object({
   start: DungeonEntranceSchema,
   steps: z.number().int().nonnegative(),
+  titleMsgIds: z.array(z.number().int()),
   narrationMsgIds: z.array(z.number().int()),
   bumpMsgId: z.number().int(),
 });

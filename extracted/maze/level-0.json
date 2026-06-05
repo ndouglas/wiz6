@@ -5441,11 +5441,15 @@
   "scriptedEntry": {
     "start": {
       "gx": 127,
-      "gy": 118,
+      "gy": 117,
       "z": 0,
       "facing": 0
     },
-    "steps": 3,
+    "steps": 4,
+    "titleMsgIds": [
+      1212,
+      1213
+    ],
     "narrationMsgIds": [
       10010,
       10011,

@@ -6,15 +6,17 @@
  *
  *   1. Seed a non-empty active party in localStorage.
  *   2. Navigate to /castle/start-new-game → StartNewGamePage loads level-0,
- *      calls initGameSession (entryMode:'narration'), redirects to /game/maze.
- *   3. MazeView renders the narration strip (3 lines on the bottom band).
- *   4. Enter dismisses the narration (→ entryMode:'gate-walk').
- *   5. Enter ×3 force-walks the party gy 118→121 (→ entryMode:'free').
+ *      calls initGameSession (entryMode:'title', gy=117), redirects to /game/maze.
+ *   3. Enter advances title → narration; MazeView renders the narration strip.
+ *   4. Enter dismisses the narration + steps (→ entryMode:'gate-walk').
+ *   5. Enter ×N force-walks the party to the HMMMM bump (gy=121), then bump → free.
  *   6. ArrowLeft turns the party; canvas changes (proving free-roam is live).
  *
  * Pixel assertions are behavioral (non-blank strip check + canvas-diff after
  * arrow) rather than byte-exact fixture comparisons; the byte-exact narration
- * gate lives in maze-entry-narration-parity.test.ts.
+ * gate lives in maze-entry-narration-parity.test.ts. The TITLE/BUMP strip
+ * rendering is a later task — this spec only proves the FSM drives end-to-end to
+ * free control (the Task-1 integration contract).
  */
 
 import { test, expect } from '@playwright/test';
@@ -109,7 +111,7 @@ async function canvasHash(page: import('@playwright/test').Page): Promise<number
 // Test
 // ---------------------------------------------------------------------------
 
-test('START NEW GAME: narration → Enter dismisses → Enter×3 gate-walk → arrow turns view', async ({ page }) => {
+test('START NEW GAME: title → Enter→narration → Enter dismisses → walk to bump → free → arrow turns view', async ({ page }) => {
   // ── Step 1: Seed a non-empty active party ────────────────────────────────
   // Navigate to the root first so the app is loaded + localStorage is accessible.
   await page.goto('/');
@@ -122,7 +124,7 @@ test('START NEW GAME: narration → Enter dismisses → Enter×3 gate-walk → a
 
   // ── Step 2: Navigate to /castle/start-new-game ───────────────────────────
   // StartNewGamePage reads the active party, loads level-0.json, calls
-  // initGameSession (entryMode:'narration', gy=118, stepsRemaining=3), then
+  // initGameSession (entryMode:'title', gy=117, stepsRemaining=4), then
   // navigates to /game/maze.
   await page.goto('/castle/start-new-game');
 
@@ -136,19 +138,24 @@ test('START NEW GAME: narration → Enter dismisses → Enter×3 gate-walk → a
   // independently; give them a beat to all paint before asserting).
   await waitForStableCanvas(page, 'canvas');
 
-  // ── Step 3: Assert narration text (yellow glyphs) is present ────────────
-  // The narration text is palette index 5 = EGA yellow (255,255,85). The
-  // engine fixture has ~2202 yellow pixels in the strip. Chrome uses grays,
-  // not yellow, so any substantial yellow count means narration is active.
-  const yellowBefore = await narrationStripYellowPixels(page);
+  // ── Step 3: Enter advances title → narration; narration text appears ──────
+  // The session starts in 'title' mode (gy=117); the first Enter steps to the
+  // narration frame (gy=118). The narration text is palette index 5 = EGA
+  // yellow (255,255,85); the chrome uses grays, so a substantial yellow count
+  // proves the narration frame is active. (Title-card strip rendering is a
+  // later task; here we drive the FSM forward.)
+  await page.keyboard.press('Enter'); // title → narration
+  await page.waitForTimeout(200);
+  await waitForStableCanvas(page, 'canvas');
+
+  const yellowNarration = await narrationStripYellowPixels(page);
   expect(
-    yellowBefore,
-    `narration strip should have ≥ 500 yellow (255,255,85) glyph pixels when entryMode='narration', got ${yellowBefore}`,
+    yellowNarration,
+    `narration strip should have ≥ 500 yellow (255,255,85) glyph pixels when entryMode='narration', got ${yellowNarration}`,
   ).toBeGreaterThan(500);
 
-  // ── Step 4: Enter dismisses narration (→ gate-walk) ──────────────────────
+  // ── Step 4: Enter dismisses narration + steps (→ gate-walk) ──────────────
   await page.keyboard.press('Enter');
-  // Give the RAF a couple frames to re-render.
   await page.waitForTimeout(200);
   await waitForStableCanvas(page, 'canvas');
 
@@ -160,10 +167,11 @@ test('START NEW GAME: narration → Enter dismisses → Enter×3 gate-walk → a
     `narration yellow glyphs should be gone after Enter (entryMode='gate-walk'), got ${yellowAfterEnter}`,
   ).toBeLessThan(100);
 
-  // ── Step 5: Enter ×3 force-walks the party (gate-walk → free) ────────────
-  // Each Enter steps the party forward one cell. After 3 presses,
-  // stepsRemaining hits 0 and entryMode transitions to 'free'.
-  for (let i = 0; i < 3; i++) {
+  // ── Step 5: Enter ×N force-walks to the bump, then bump → free ───────────
+  // After title→narration→gate-walk consumed 2 of 4 steps, 2 more gate-walk
+  // Enters reach the bump cell (gy=121), and one more (bump → free) hands over
+  // control. A few extra presses are harmless (free-roam Enter is a no-op).
+  for (let i = 0; i < 4; i++) {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(150);
   }

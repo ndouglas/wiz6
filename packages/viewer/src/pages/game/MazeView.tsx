@@ -233,10 +233,11 @@ export function MazeView() {
       const session = sessionRef.current;
       if (!session) return;
 
-      // Scripted entry (narration + gate-walk): ENTER advances the FSM; arrow
-      // keys are no-ops (the engine ignores them during the scripted walk —
-      // RE: docs/re/findings/maze-entry-sequence.json).
-      if (session.entryMode === 'narration' || session.entryMode === 'gate-walk') {
+      // Scripted entry (title → narration → gate-walk → bump): ENTER advances the
+      // FSM; arrow keys are no-ops (the engine ignores them during the scripted
+      // entry — RE: docs/re/findings/maze-newgame-byteexact.json per_enter_pin_addendum).
+      // (Title/bump strip RENDERING is Tasks 3-4; here we only keep the FSM driveable.)
+      if (session.entryMode !== 'free') {
         if (e.key === 'Enter') {
           e.preventDefault();
           const next = advanceEntry(
