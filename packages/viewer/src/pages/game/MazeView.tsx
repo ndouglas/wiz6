@@ -13,12 +13,13 @@ import {
 import {
   advanceEntry,
   decodeNarrationLines,
-  drawNarrationStrip,
+  drawEntryStrip,
   renderMazeViewport,
   oracleViewportForGy,
   turn,
   tryStepForward,
   type CapturedSpansTable,
+  type EntryStripText,
   type NewgameViewports,
 } from '@wiz6/parser';
 import { CanvasPresenter } from '../../lib/presenter.js';
@@ -120,7 +121,7 @@ function composeFrame(
   assets: MazeRenderAssets,
   wallSpans: CapturedSpansTable | null,
   newgameViewports: NewgameViewports | null,
-  narration: { lines: string[]; font: Font } | null,
+  stripText: { text: EntryStripText; font: Font } | null,
   partyPanels: MazePartyPanels | undefined,
 ): Uint8Array {
   // Static chrome + LIVE party panels (the player's actual party) + viewport
@@ -141,23 +142,25 @@ function composeFrame(
     }
   }
 
-  // Bottom-strip state machine. Only the 'narration' mode overlays text; the
-  // 'gate-walk' strip is the normal dungeon strip (the static chrome already
-  // drawn above), and 'free' is the movement widget baked into the chrome.
-  if (narration && session.entryMode === 'narration') {
-    drawNarration(frame, narration.lines, narration.font);
+  // Bottom-strip per-`entryMode` state machine (y144–199). The shared
+  // drawEntryStrip helper OVERWRITES the strip for title/narration/gate-walk/bump
+  // (so the narration/bump land on a CLEAN BLACK strip — the fix for the shipped
+  // bug where the text was drawn OVER the gray OPTIONS/TURN widget). For 'free' it
+  // is a no-op (the baked gray widget from the static chrome stays). The same
+  // helper backs the per-state strip parity gates so the live render can't drift.
+  if (stripText && session.entryMode !== 'free') {
+    const rgba = new Uint8ClampedArray(frame.buffer);
+    drawEntryStrip(
+      rgba,
+      ENGINE_W,
+      ENGINE_H,
+      session.entryMode,
+      stripText.text,
+      stripText.font,
+      NARRATION_PALETTE,
+    );
   }
   return frame;
-}
-
-/** Overlay the 3 narration lines onto the bottom strip via the shared, gated
- *  helper (palette idx 5 glyphs on idx 0). The same drawNarrationStrip backs the
- *  pixel-parity gate (maze-entry-narration-parity.test.ts) so the live render and
- *  the gate can't drift. */
-function drawNarration(frame: Uint8Array, lines: string[], font: Font): void {
-  // renderTextRun expects a Uint8ClampedArray RGBA view; share the buffer.
-  const rgba = new Uint8ClampedArray(frame.buffer);
-  drawNarrationStrip(rgba, ENGINE_W, ENGINE_H, lines, font, NARRATION_PALETTE);
 }
 
 /**
@@ -186,9 +189,10 @@ export function MazeView() {
   // levels with a scriptedEntry). Null until loaded or if not a scripted level.
   const newgameViewportsRef = useRef<NewgameViewports | null>(null);
   const presenterRef = useRef<CanvasPresenter | null>(null);
-  // Decoded narration lines + the message font, loaded once. Null until both
-  // resolve (or if the level has no scriptedEntry — then there's no narration).
-  const narrationRef = useRef<{ lines: string[]; font: Font } | null>(null);
+  // Decoded per-mode strip text (title/narration/bump) + the message font, loaded
+  // once. Null until both resolve (or if the level has no scriptedEntry — then
+  // there's no scripted strip and the baked free-roam widget shows).
+  const stripTextRef = useRef<{ text: EntryStripText; font: Font } | null>(null);
 
   // Live party-panel inputs: the player's actual active party (read once on
   // mount — it doesn't change mid-dungeon) + the panel fonts + portrait sets.
@@ -298,17 +302,21 @@ export function MazeView() {
           console.warn('[MazeView] failed to load newgame oracle viewports (falling back to live renderer):', err);
         });
 
-      // Decode the entry narration once: load the message db + the small UI font,
-      // then resolve the level's narrationMsgIds to display strings.
+      // Decode the entry strip text once: load the message db + the small UI font,
+      // then resolve the level's title/narration/bump msg IDs to display strings.
       Promise.all([loadMessageDb(MSG_DB_URL), loadFont(MESSAGE_FONT_URL)])
         .then(([msgDb, font]: [MessageDb, Font]) => {
           if (cancelled) return;
-          const lines = decodeNarrationLines(msgDb, scriptedEntry.narrationMsgIds);
-          narrationRef.current = { lines, font };
+          const text: EntryStripText = {
+            title: decodeNarrationLines(msgDb, scriptedEntry.titleMsgIds),
+            narration: decodeNarrationLines(msgDb, scriptedEntry.narrationMsgIds),
+            bump: decodeNarrationLines(msgDb, [scriptedEntry.bumpMsgId])[0] ?? '',
+          };
+          stripTextRef.current = { text, font };
           present();
         })
         .catch((err: unknown) => {
-          console.warn('[MazeView] failed to load narration (message db/font):', err);
+          console.warn('[MazeView] failed to load entry strip text (message db/font):', err);
         });
     }
     return () => {
@@ -328,7 +336,7 @@ export function MazeView() {
       a,
       wallSpansRef.current,
       newgameViewportsRef.current,
-      narrationRef.current,
+      stripTextRef.current,
       partyPanelsArg(),
     );
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);

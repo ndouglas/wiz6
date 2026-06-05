@@ -58,19 +58,27 @@ export {
   advanceEntry,
   decodeNarrationLines,
   type EntryState,
+  type EntryMode,
 } from './maze/entry-sequence.js';
 // Maze scripted entry oracle viewport (framebuffer-oracle for the gate frames)
 export {
   oracleViewportForGy,
   type NewgameViewports,
 } from './maze/newgame-oracle.js';
-// Maze entry narration strip — shared layout + draw (MazeView + parity gate)
+// Maze entry bottom strip — shared per-mode layout + draw (MazeView + parity gates)
 export {
+  drawEntryStrip,
   drawNarrationStrip,
   NARRATION_FG_IDX,
   NARRATION_BG_IDX,
   NARRATION_X,
   NARRATION_LINE_Y,
+  TITLE_FG_IDX,
+  TITLE_BG_IDX,
+  TITLE_LINE_Y,
+  STRIP_Y0,
+  STRIP_Y1,
+  type EntryStripText,
 } from './maze/narration-strip.js';
 // Maze block decoder (pure — I/O-free; used by the CLI extractor + parity tools)
 export {
