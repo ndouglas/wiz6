@@ -23,7 +23,7 @@
  * Usage: pnpm tsx tools/libretro/trace-maze.ts <phase> [args]
  */
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { HostClient } from '../../packages/mcp/src/live/host-client.js';
+import { HostClient, type TraceRecord } from '../../packages/mcp/src/live/host-client.js';
 
 const DGROUP_GAME_STATE = 0x363a;
 // The wmaze render-frame signature (prior pass): exactly one copy in RAM, at
@@ -1797,6 +1797,104 @@ async function phaseFine(c: HostClient): Promise<void> {
   }
 }
 
+/** `expander` — GAP A: trace ega.drv FUN_0x631 (dispatch entry 6), the routine
+ *  that loads the per-view maze background graphics file into the cs:[0x149] data
+ *  segment and builds the placement (cs:[0x190]) + image-descriptor (cs:[0x18e])
+ *  tables. Captures, at the FIRST render: (a) which DOS file handle it reads + the
+ *  raw input bytes (the on-disk record = expander INPUT), (b) the resulting
+ *  dataSeg contents (the work buffer the OR-blit reads = expander OUTPUT). Writes
+ *  /tmp/wiz6-expander/{meta.json,input.bin,output.bin}. */
+async function phaseExpander(c: HostClient): Promise<void> {
+  const { mkdirSync } = await import('node:fs');
+  const outDir = process.argv[3] ?? '/tmp/wiz6-expander';
+  mkdirSync(outDir, { recursive: true });
+  if (!existsSync(CLEAN_STATE)) { console.log('run `reach` first'); return; }
+
+  // Resolve base from the settled-replay recompose (reproducible).
+  const base = await resolveOrBaseReplay(c);
+  if (base < 0) { console.log('no OR cluster — abort'); return; }
+  const entry = base + OR_ENTRY_FILE;
+  console.log(`reloc base = 0x${base.toString(16)} entry=0x${entry.toString(16)}`);
+
+  // Capture the table pointers AT the OR-blit entry fire (capture-on-breakpoint
+  // — the cs:0x140 region is only valid mid-render).
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(entry); await c.traceDrain();
+  await forceRedraw(c);
+  const er = await c.traceDrain(); await c.traceOff();
+  if (!er.length) { console.log('OR entry did not fire on replay'); return; }
+  const cs = er[0]!.cs; const segBase = cs << 4;
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(entry); await c.captureSet(segBase + 0x140, 0x60, 0);
+  await forceRedraw(c);
+  const tbl = (await c.captureGet())!; await c.traceOff();
+  const at = (o: number) => tbl[o - 0x140]! | (tbl[o - 0x140 + 1]! << 8);
+  const dataSeg = at(0x149), pageSeg = at(0x14d), imgDescOff = at(0x18e), placeOff = at(0x190);
+  console.log(`cs=0x${cs.toString(16)} dataSeg=0x${dataSeg.toString(16)} pageSeg=0x${pageSeg.toString(16)} imgDescOff=0x${imgDescOff.toString(16)} placeOff=0x${placeOff.toString(16)}`);
+
+  // The OUTPUT buffer is the dataSeg region, captured AT the OR-blit entry (the
+  // work buffer is only valid mid-render). Read a generous window.
+  const OUT_LEN = 0xa000;
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(entry); await c.captureSet(dataSeg << 4, OUT_LEN, 0);
+  await forceRedraw(c);
+  const output = (await c.captureGet())!; await c.traceOff();
+  writeFileSync(`${outDir}/output.bin`, Buffer.from(output));
+  console.log(`output.bin = dataSeg 0x${dataSeg.toString(16)} +${OUT_LEN.toString(16)}; first16 ${Array.from(output.slice(0, 16)).map((b) => b.toString(16).padStart(2, '0')).join('')}`);
+  // Placement + descriptor tables (captured at entry).
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(entry); await c.captureSet((dataSeg << 4) + placeOff, 0x800, 0);
+  await forceRedraw(c); const placeRaw = (await c.captureGet())!; await c.traceOff();
+  await c.unserialize(CLEAN_STATE); await c.step(2);
+  await c.traceSet(entry); await c.captureSet((dataSeg << 4) + imgDescOff, 0x400, 0);
+  await forceRedraw(c); const descRaw = (await c.captureGet())!; await c.traceOff();
+  writeFileSync(`${outDir}/place.bin`, Buffer.from(placeRaw));
+  writeFileSync(`${outDir}/desc.bin`, Buffer.from(descRaw));
+
+  // --- TRACE FUN_0x631 (entry 6 = the loader/expander) during a FRESH first
+  // render. base differs per heap layout; resolve in the fresh session, then
+  // trace base+0x631. Capture its int21 read args (ds:dx buffer, cx len, bx handle)
+  // and the ds:0 buffer before/after. ---
+  {
+    const cE = new HostClient();
+    try {
+      await driveToDungeonEntry(cE);
+      const w2 = new Map<number, number>();
+      await cE.wwatchSet(COMPOSE_PAGE, COMPOSE_PAGE + 0x8000);
+      await cE.key('enter', 'tap');
+      for (let i = 0; i < 60; i++) { await cE.step(6); for (const w of await cE.wwatchDrain()) w2.set(w.cseip, (w2.get(w.cseip) ?? 0) + 1); }
+      await cE.wwatchSet(0, 0);
+      const base2 = recoverOrBase(w2);
+      console.log(`\nfresh-session base = 0x${base2.toString(16)} — but FUN_0x631 already ran (pre-OR). Re-driving to trace it.`);
+    } finally { cE.close(); }
+    // Second fresh session: arm the FUN_0x631 trace BEFORE firing the render. We
+    // can't know base2 ahead of time, but the relocated copy has been stable at
+    // 0x6ba10 across runs — trace base+0x631 on the assumption, and also the
+    // in-image ega.drv copy 0x6a1b0+0x631 as a fallback. Capture int21 read sites.
+    const cF = new HostClient();
+    try {
+      await driveToDungeonEntry(cF);
+      const loaderEntry = 0x6ba10 + 0x631; // relocated FUN_0x631
+      const int21Read = 0x6ba10 + 0x64d;   // the first int21 ah=3f in FUN_0x631
+      await cF.traceSet(loaderEntry); await cF.traceDrain();
+      await cF.key('enter', 'tap');
+      const hits: TraceRecord[] = [];
+      for (let i = 0; i < 40; i++) { await cF.step(6); for (const r of await cF.traceDrain()) hits.push(r); }
+      await cF.traceOff();
+      console.log(`FUN_0x631 (loaderEntry 0x${loaderEntry.toString(16)}) hits during first render: ${hits.length}`);
+      for (const r of hits.slice(0, 6)) console.log(`  cs=${r.cs.toString(16)} ip=${r.eip.toString(16)} ds=${r.ds.toString(16)} ax=${r.eax.toString(16)} bx=${r.ebx.toString(16)} cx=${r.ecx.toString(16)} dx=${r.edx.toString(16)} si=${r.esi.toString(16)} di=${r.edi.toString(16)} bp=${r.ebp.toString(16)} stack=[${r.stack.map((w) => w.toString(16)).join(',')}]`);
+      void int21Read;
+    } finally { cF.close(); }
+  }
+
+  const meta = {
+    note: 'Gap A expander OUTPUT: the cs:[0x149] dataSeg work buffer (resident in CLEAN_STATE) + table pointers',
+    reloc_base: base.toString(16), cs: cs.toString(16), out_len: OUT_LEN,
+    table_pointers: { dataSeg: dataSeg.toString(16), pageSeg: pageSeg.toString(16), imgDescOff: imgDescOff.toString(16), placeOff: placeOff.toString(16) },
+  };
+  writeFileSync(`${outDir}/meta.json`, JSON.stringify(meta, null, 2));
+}
+
 async function main() {
   const phase = process.argv[2];
   const c = new HostClient();
@@ -1832,6 +1930,7 @@ async function main() {
     else if (phase === 'firstrender') await phaseFirstRender(c);
     else if (phase === 'firstcheck') await phaseFirstCheck(c);
     else if (phase === 'fine') await phaseFine(c);
+    else if (phase === 'expander') await phaseExpander(c);
     else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();
