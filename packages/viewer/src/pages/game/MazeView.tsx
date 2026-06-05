@@ -1,17 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { MAZE_VIEWPORT, type MazeRenderAssets } from '@wiz6/data';
 import {
+  MAZE_VIEWPORT,
+  type Font,
+  type MazeRenderAssets,
+  type MessageDb,
+  type Palette,
+} from '@wiz6/data';
+import {
+  advanceEntry,
+  decodeNarrationLines,
   renderMazeViewport,
+  renderTextRun,
   turn,
   tryStepForward,
   type CapturedSpansTable,
 } from '@wiz6/parser';
 import { CanvasPresenter } from '../../lib/presenter.js';
-import { loadMazeAssets, loadMazeWallSpans } from '../../data-loader.js';
+import {
+  loadFont,
+  loadMazeAssets,
+  loadMazeWallSpans,
+  loadMessageDb,
+} from '../../data-loader.js';
 import {
   readGameSession,
   updateParty,
+  updateSession,
   type GameSession,
 } from '../../game/game-session-store.js';
 import { composeMazeFrame } from './compose-maze-frame.js';
@@ -20,6 +35,19 @@ import styles from './CastleScreen.module.css';
 const ENGINE_W = 320;
 const ENGINE_H = 200;
 const SCALE = 3;
+
+/** Message db URL — served from extracted/ via the viewer publicDir. */
+const MSG_DB_URL = '/messages/msg.json';
+/** The small 1bpp UI message font (wfont0) used for the bottom strip text. */
+const MESSAGE_FONT_URL = '/fonts/wfont0.json';
+
+/** Narration strip layout (RE: docs/re/findings/maze-entry-sequence.json):
+ *  3 white (palette idx 5) lines on the black (idx 0) bottom strip, left
+ *  margin x=8, 8px line pitch starting at y=153. */
+const NARRATION_FG_IDX = 5;
+const NARRATION_BG_IDX = 0;
+const NARRATION_X = 8;
+const NARRATION_LINE_Y = [153, 161, 169] as const;
 
 /** The 16-entry composed EGA palette (index → [r,g,b]). The maze renderer returns
  *  palette indices 0..15; this is the standard EGA palette the corridor fixtures
@@ -30,6 +58,14 @@ const COMPOSED_PALETTE: readonly [number, number, number][] = [
   [85, 85, 85], [170, 170, 170], [0, 0, 170], [170, 0, 170],
   [170, 0, 0], [170, 85, 0], [0, 170, 0], [0, 170, 170],
 ];
+
+/** COMPOSED_PALETTE as a `Palette` object for the text-run renderer (which
+ *  indexes `palette.colors[i]`). The narration strip uses index 5 (white) on 0. */
+const NARRATION_PALETTE: Palette = {
+  name: 'composed-ega',
+  provenance: 'MazeView COMPOSED_PALETTE',
+  colors: COMPOSED_PALETTE.map((c) => [...c]) as Palette['colors'],
+};
 
 /**
  * Render the maze viewport for `(block, party)` to a 176×112 palette-index buffer,
@@ -65,6 +101,7 @@ function composeFrame(
   session: GameSession,
   assets: MazeRenderAssets,
   wallSpans: CapturedSpansTable | null,
+  narration: { lines: string[]; font: Font } | null,
 ): Uint8Array {
   const frame = composeMazeFrame(); // static chrome + (static) viewport baseline
   const vp = safeRenderViewport(session, assets, wallSpans);
@@ -80,7 +117,35 @@ function composeFrame(
       frame[o + 3] = 0xff;
     }
   }
+
+  // Bottom-strip state machine. Only the 'narration' mode overlays text; the
+  // 'gate-walk' strip is the normal dungeon strip (the static chrome already
+  // drawn above), and 'free' is the movement widget baked into the chrome.
+  if (narration && session.entryMode === 'narration') {
+    drawNarration(frame, narration.lines, narration.font);
+  }
   return frame;
+}
+
+/** Overlay the 3 narration lines onto the bottom strip: white (idx 5) glyphs on
+ *  black (idx 0), via the 1bpp font run renderer. */
+function drawNarration(frame: Uint8Array, lines: string[], font: Font): void {
+  // renderTextRun expects a Uint8ClampedArray RGBA view; share the buffer.
+  const rgba = new Uint8ClampedArray(frame.buffer);
+  for (let i = 0; i < lines.length && i < NARRATION_LINE_Y.length; i++) {
+    renderTextRun(
+      rgba,
+      ENGINE_W,
+      ENGINE_H,
+      NARRATION_X,
+      NARRATION_LINE_Y[i]!,
+      lines[i]!,
+      font,
+      NARRATION_FG_IDX,
+      NARRATION_PALETTE,
+      NARRATION_BG_IDX,
+    );
+  }
 }
 
 /**
@@ -106,6 +171,9 @@ export function MazeView() {
   const assetsRef = useRef<MazeRenderAssets | null>(null);
   const wallSpansRef = useRef<CapturedSpansTable | null>(null);
   const presenterRef = useRef<CanvasPresenter | null>(null);
+  // Decoded narration lines + the message font, loaded once. Null until both
+  // resolve (or if the level has no scriptedEntry — then there's no narration).
+  const narrationRef = useRef<{ lines: string[]; font: Font } | null>(null);
 
   // Mount: read session (redirect if absent) + load assets once.
   useEffect(() => {
@@ -139,6 +207,23 @@ export function MazeView() {
       .catch((err: unknown) => {
         console.error('[MazeView] failed to load maze assets:', err);
       });
+
+    // Decode the entry narration once: load the message db + the small UI font,
+    // then resolve the level's narrationMsgIds to display strings. Guard: no
+    // scriptedEntry → no narration (back-compat free-roam sessions).
+    const scriptedEntry = session.level.scriptedEntry;
+    if (scriptedEntry) {
+      Promise.all([loadMessageDb(MSG_DB_URL), loadFont(MESSAGE_FONT_URL)])
+        .then(([msgDb, font]: [MessageDb, Font]) => {
+          if (cancelled) return;
+          const lines = decodeNarrationLines(msgDb, scriptedEntry.narrationMsgIds);
+          narrationRef.current = { lines, font };
+          present();
+        })
+        .catch((err: unknown) => {
+          console.warn('[MazeView] failed to load narration (message db/font):', err);
+        });
+    }
     return () => {
       cancelled = true;
     };
@@ -151,7 +236,7 @@ export function MazeView() {
     const a = assetsRef.current;
     if (!canvas || !session || !a) return;
     if (!presenterRef.current) presenterRef.current = new CanvasPresenter(canvas);
-    const frame = composeFrame(session, a, wallSpansRef.current);
+    const frame = composeFrame(session, a, wallSpansRef.current, narrationRef.current);
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
   }
 
@@ -165,6 +250,30 @@ export function MazeView() {
     function onKeyDown(e: KeyboardEvent) {
       const session = sessionRef.current;
       if (!session) return;
+
+      // Scripted entry (narration + gate-walk): ENTER advances the FSM; arrow
+      // keys are no-ops (the engine ignores them during the scripted walk —
+      // RE: docs/re/findings/maze-entry-sequence.json).
+      if (session.entryMode === 'narration' || session.entryMode === 'gate-walk') {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const next = advanceEntry(
+            {
+              party: session.party,
+              entryMode: session.entryMode,
+              stepsRemaining: session.stepsRemaining,
+            },
+            session.level.mazeBlock,
+          );
+          updateSession(next);
+          sessionRef.current = { ...session, ...next };
+          present();
+        }
+        return; // arrows (and everything else) inert during scripted entry
+      }
+
+      // Free-roam: arrows turn/step; Enter is reserved for OPTIONS/camp (deferred
+      // — see TODO #078 / the faithful-START-NEW-GAME spec "Deferred"), no-op for now.
       let nextParty = session.party;
       switch (e.key) {
         case 'ArrowLeft':
@@ -178,6 +287,8 @@ export function MazeView() {
           break;
         case 'ArrowDown':
           return; // no back-step in Wiz6
+        case 'Enter':
+          return; // OPTIONS/camp menu deferred (TODO #078)
         default:
           return;
       }

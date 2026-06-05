@@ -8,12 +8,10 @@
  * Viewer MVP:
  *   - Empty party → show a brief "no party" message; back link stays in castle.
  *   - Non-empty party → loadDungeonLevel(0) → initGameSession(level) → /game/maze.
- *   - Scripted intro narration is DEFERRED (MVP only; not reproduced here).
- *     See TODO #078 for the narration port.
  *
- * Scripted intro deferral is intentional and noted: the engine shows a modal
- * text sequence ("YOU APPROACH THE GATE…") before the first controllable frame.
- * The viewer skips straight to /game/maze to keep the MVP unblocked.
+ * initGameSession now seeds the scripted-entry FSM (entryMode:'narration' at the
+ * scripted start). The narration text + 3-step gate-walk are rendered/driven in
+ * MazeView (Tasks 3+4); this page just delegates to initGameSession and navigates.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';

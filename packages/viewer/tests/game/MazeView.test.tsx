@@ -19,8 +19,17 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import type { DungeonLevel, MazeBlock, MazeParty, MazeRenderAssets } from '@wiz6/data';
+import type {
+  DungeonLevel,
+  Font,
+  MazeBlock,
+  MazeParty,
+  MazeRenderAssets,
+  MessageDb,
+} from '@wiz6/data';
+import { FontSchema, MessageDbSchema } from '@wiz6/data';
 import {
+  advanceEntry,
   turn,
   tryStepForward,
   loadMazeAssets as nodeLoadMazeAssets,
@@ -34,24 +43,33 @@ import {
 vi.mock('../../src/data-loader.js', () => ({
   loadMazeAssets: vi.fn(),
   loadMazeWallSpans: vi.fn(),
+  loadMessageDb: vi.fn(),
+  loadFont: vi.fn(),
 }));
 
 vi.mock('../../src/game/game-session-store.js', () => ({
   readGameSession: vi.fn(),
   updateParty: vi.fn(),
+  updateSession: vi.fn(),
 }));
 
 import { MazeView } from '../../src/pages/game/MazeView.js';
-import { loadMazeAssets, loadMazeWallSpans } from '../../src/data-loader.js';
-import { readGameSession, updateParty } from '../../src/game/game-session-store.js';
+import { loadMazeAssets, loadMazeWallSpans, loadMessageDb, loadFont } from '../../src/data-loader.js';
+import { readGameSession, updateParty, updateSession } from '../../src/game/game-session-store.js';
 
 const mockLoadMazeAssets = vi.mocked(loadMazeAssets);
 const mockLoadMazeWallSpans = vi.mocked(loadMazeWallSpans);
+const mockLoadMessageDb = vi.mocked(loadMessageDb);
+const mockLoadFont = vi.mocked(loadFont);
 const mockReadGameSession = vi.mocked(readGameSession);
 const mockUpdateParty = vi.mocked(updateParty);
+const mockUpdateSession = vi.mocked(updateSession);
 
 // Real assets (so renderMazeViewport runs end-to-end without crashing).
 const ASSETS: MazeRenderAssets = nodeLoadMazeAssets();
+
+// Real committed message db + 1bpp UI font (the browser-served copies), so the
+// narration decode + glyph render run end-to-end without I/O.
 
 // Real committed level-0 block + captured wall spans (the browser-served copies).
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
@@ -62,6 +80,21 @@ const WALL_SPANS: CapturedSpansTable = JSON.parse(
   readFileSync(resolve(REPO_ROOT, 'extracted', 'maze', 'wall-spans.json'), 'utf8'),
 ) as CapturedSpansTable;
 const REAL_BLOCK: MazeBlock = LEVEL_0_REAL.mazeBlock;
+
+const MSG_DB: MessageDb = MessageDbSchema.parse(
+  JSON.parse(readFileSync(resolve(REPO_ROOT, 'extracted', 'messages', 'msg.json'), 'utf8')),
+);
+const MSG_FONT: Font = FontSchema.parse(
+  JSON.parse(readFileSync(resolve(REPO_ROOT, 'extracted', 'fonts', 'wfont0.json'), 'utf8')),
+);
+
+// Scripted entry config (level-0): 3 narration lines, 3-step gate-walk.
+const SCRIPTED_ENTRY = {
+  start: { gx: 127, gy: 118, z: 0, facing: 0 },
+  steps: 3,
+  narrationMsgIds: [10010, 10011, 10012],
+  bumpMsgId: 10020,
+} as const;
 
 // case-04 (door@d0/front-wall/corridor) — a byte-exact captured wall case with
 // substantive tile-2 spans. Representative from the committed wall-spans fixture.
@@ -79,6 +112,9 @@ const LEVEL_0: DungeonLevel = {
   },
 };
 
+// Same minimal level, but WITH a scripted entry (drives the narration + walk).
+const LEVEL_0_SCRIPTED: DungeonLevel = { ...LEVEL_0, scriptedEntry: SCRIPTED_ENTRY };
+
 function renderMazeView() {
   return render(
     <MemoryRouter initialEntries={['/game/maze']}>
@@ -92,6 +128,10 @@ function renderMazeView() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default narration loaders resolve to the real fixtures; tests that don't
+  // exercise narration simply ignore them (free-roam levels have no scriptedEntry).
+  mockLoadMessageDb.mockResolvedValue(MSG_DB);
+  mockLoadFont.mockResolvedValue(MSG_FONT);
 });
 
 describe('MazeView — no session', () => {
@@ -115,9 +155,11 @@ describe('MazeView — no session', () => {
 describe('MazeView — with a session', () => {
   beforeEach(() => {
     mockReadGameSession.mockReturnValue({
-      schemaVersion: 1,
+      schemaVersion: 2,
       level: LEVEL_0,
       party: { ...ENTRANCE },
+      entryMode: 'free',
+      stepsRemaining: 0,
     });
     mockLoadMazeAssets.mockResolvedValue(ASSETS);
     mockLoadMazeWallSpans.mockResolvedValue(WALL_SPANS);
@@ -181,9 +223,118 @@ describe('MazeView — with a session', () => {
     expect(mockUpdateParty).not.toHaveBeenCalled();
   });
 
+  it('Enter → no-op in free-roam (OPTIONS/camp deferred)', async () => {
+    renderMazeView();
+    await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(mockUpdateParty).not.toHaveBeenCalled();
+    expect(mockUpdateSession).not.toHaveBeenCalled();
+  });
+
   it('renders the screen reader heading', () => {
     renderMazeView();
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+  });
+});
+
+describe('MazeView — scripted entry (narration + gate-walk)', () => {
+  const NARRATION_PARTY: MazeParty = { ...SCRIPTED_ENTRY.start };
+
+  /** Install a singleton ctx whose putImageData records the presented ImageData. */
+  function spyPresent(): { frames: ImageData[]; restore: () => void } {
+    const frames: ImageData[] = [];
+    const stableCtx = {
+      imageSmoothingEnabled: false,
+      putImageData: (img: ImageData) => frames.push(img),
+    } as unknown as CanvasRenderingContext2D;
+    const spy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(stableCtx as unknown as ReturnType<HTMLCanvasElement['getContext']>);
+    return { frames, restore: () => spy.mockRestore() };
+  }
+
+  beforeEach(() => {
+    mockReadGameSession.mockReturnValue({
+      schemaVersion: 2,
+      level: LEVEL_0_SCRIPTED,
+      party: { ...NARRATION_PARTY },
+      entryMode: 'narration',
+      stepsRemaining: 3,
+    });
+    mockLoadMazeAssets.mockResolvedValue(ASSETS);
+    mockLoadMazeWallSpans.mockResolvedValue(WALL_SPANS);
+  });
+
+  it('renders white narration text in the bottom strip text band (y=153..174)', async () => {
+    const { frames, restore } = spyPresent();
+    try {
+      renderMazeView();
+      await waitFor(() => expect(mockLoadMessageDb).toHaveBeenCalledWith('/messages/msg.json'));
+      await waitFor(() => expect(mockLoadFont).toHaveBeenCalledWith('/fonts/wfont0.json'));
+      // Wait for a frame presented AFTER the narration loaded (non-black text band).
+      await waitFor(() => {
+        const img = frames[frames.length - 1];
+        if (!img) throw new Error('no frame yet');
+        let nonBlack = 0;
+        for (let y = 153; y <= 174; y++) {
+          for (let x = 8; x < 312; x++) {
+            const o = (y * 320 + x) * 4;
+            if (img.data[o] || img.data[o + 1] || img.data[o + 2]) nonBlack++;
+          }
+        }
+        if (nonBlack === 0) throw new Error('text band still blank');
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it('Enter advances narration → gate-walk (party unchanged)', async () => {
+    renderMazeView();
+    await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
+    fireEvent.keyDown(window, { key: 'Enter' });
+    const expected = advanceEntry(
+      { party: NARRATION_PARTY, entryMode: 'narration', stepsRemaining: 3 },
+      LEVEL_0_SCRIPTED.mazeBlock,
+    );
+    expect(expected.entryMode).toBe('gate-walk');
+    expect(expected.party).toEqual(NARRATION_PARTY); // narration ENTER = no move
+    expect(mockUpdateSession).toHaveBeenCalledWith(expected);
+    expect(mockUpdateParty).not.toHaveBeenCalled();
+  });
+
+  it('arrow keys are inert during narration', async () => {
+    renderMazeView();
+    await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(mockUpdateParty).not.toHaveBeenCalled();
+    expect(mockUpdateSession).not.toHaveBeenCalled();
+  });
+
+  it('4 Enters drive the FSM narration → gate-walk → free (via MazeView dispatch)', async () => {
+    // MazeView chains each advanceEntry result through its local sessionRef, so
+    // consecutive Enter presses walk the FSM forward. Verify the *wiring*: the
+    // sequence of updateSession entryMode values, ending in 'free' after the
+    // 3-step gate-walk is exhausted. (The exact party gy at the endpoint is owned
+    // by the movement-geometry / pixel-parity task, not this wiring test.)
+    renderMazeView();
+    await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
+
+    fireEvent.keyDown(window, { key: 'Enter' }); // narration → gate-walk
+    fireEvent.keyDown(window, { key: 'Enter' }); // gate-walk step 1
+    fireEvent.keyDown(window, { key: 'Enter' }); // gate-walk step 2
+    fireEvent.keyDown(window, { key: 'Enter' }); // gate-walk step 3 → free
+
+    const modes = mockUpdateSession.mock.calls.map((c) => (c[0] as { entryMode: string }).entryMode);
+    expect(modes).toEqual(['gate-walk', 'gate-walk', 'gate-walk', 'free']);
+    // A 5th Enter in free-roam is the OPTIONS no-op: no further updateSession.
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(mockUpdateSession).toHaveBeenCalledTimes(4);
+    // The party never moved via updateParty during the scripted entry.
+    expect(mockUpdateParty).not.toHaveBeenCalled();
   });
 });
 
@@ -193,9 +344,11 @@ describe('MazeView — captured wall spans (Task D1 byte-exact case)', () => {
     // substantive tile-2 walls), so the captured-span lookup HITS and the live
     // render draws real wall pixels.
     mockReadGameSession.mockReturnValue({
-      schemaVersion: 1,
+      schemaVersion: 2,
       level: { ...LEVEL_0_REAL, entrance: CASE_04_PARTY },
       party: { ...CASE_04_PARTY },
+      entryMode: 'free',
+      stepsRemaining: 0,
     });
     mockLoadMazeAssets.mockResolvedValue(ASSETS);
     mockLoadMazeWallSpans.mockResolvedValue(WALL_SPANS);
