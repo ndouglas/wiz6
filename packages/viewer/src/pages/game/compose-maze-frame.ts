@@ -2,30 +2,37 @@
  * Pure full-frame (320×200) assembler for the zone-0 first-person corridor
  * screen. No DOM, no canvas.
  *
- * CHROME APPROACH — static full-frame background:
+ * CHROME APPROACH — static background chrome + LIVE party panels:
  * The maze screen is the 3D dungeon VIEWPORT (MAZE_VIEWPORT rect) surrounded by
  * UI chrome — the red "Wizardry" banner across the top, the party portrait/status
- * panels down the left, and the bottom OPTIONS/TURN panel. That chrome is a
- * specific in-dungeon frame: the castle-frame compositor (castle-frame.ts /
- * party-panel-render.ts) draws the MASTER OPTIONS screen and needs live party +
- * window state it can't reconstruct for a dungeon frame, so it can't reproduce
- * this chrome byte-for-byte.
+ * panels down the LEFT and RIGHT, and the bottom OPTIONS/TURN panel.
  *
- * Instead, extract-maze-tiles.ts cuts the WHOLE 320×200 engine frame as a static
- * `chrome` tile (committed in maze-corridor-tiles.json). We paint that chrome
- * full-frame, then blit the already-pixel-exact composed viewport
- * (composeMazeViewport) on top at MAZE_VIEWPORT.{x,y}. Outside the viewport the
- * chrome is identity with the engine frame; inside it the viewport composer is
- * identity; so the assembled frame is byte-exact vs the engine fixture (the
- * gate: tools/parity/maze-corridor-parity.test.ts, 100% at tolerance 0).
+ * extract-maze-tiles.ts cut the WHOLE 320×200 engine frame as a static `chrome`
+ * tile (committed in maze-corridor-tiles.json). That capture is from an RE drive
+ * with a FIXED party (THESUS/LYSANDR/TEMPEST), so its two side party-panel
+ * columns are baked with the WRONG characters. We paint the chrome full-frame as
+ * the background, then OVERWRITE the two party-panel columns with the LIVE party
+ * (RE-confirmed: the dungeon party panel is pixel-identical to the MASTER OPTIONS
+ * panel, so we reuse the same byte-exact `composePartyPanels` the castle uses).
+ * Finally we blit the composed dungeon viewport on top at MAZE_VIEWPORT.{x,y}.
  *
- * This is the accepted foundation-milestone approach: it locks full-frame parity
- * now; a later task can replace the static chrome with the live party-panel
- * renderer once dungeon-frame chrome state is modelled.
+ * Layering, in order:
+ *   1. static chrome (banner, borders, bottom strip)
+ *   2. LIVE party panels over the side columns (covers the baked portraits)
+ *   3. dungeon viewport blit
+ *
+ * When no party / fonts are supplied (the parity fixture path) the panels are
+ * skipped and the baked chrome shows through — preserving the existing
+ * full-frame parity gate (tools/parity/maze-corridor-parity.test.ts).
  */
 
-import { MAZE_VIEWPORT } from '@wiz6/data';
+import {
+  MAZE_VIEWPORT,
+  type ActivePartyMember,
+  type PortraitSet,
+} from '@wiz6/data';
 import { composeMazeViewport, type MazeTiles } from './compose-maze-view.js';
+import { composePartyPanels, type PanelFontSet } from './party-panel-compose.js';
 import mazeCorridorTiles from '../../data/maze-corridor-tiles.json' with { type: 'json' };
 
 const SCREEN_W = 320;
@@ -33,12 +40,25 @@ const SCREEN_H = 200;
 
 const TILES = mazeCorridorTiles as unknown as MazeTiles;
 
+/** Optional live-party panel inputs for composeMazeFrame. When `members` is
+ *  empty or `fonts.font3` is null, the baked chrome panels show through (the
+ *  parity-fixture path). */
+export interface MazePartyPanels {
+  members: ReadonlyArray<ActivePartyMember>;
+  fonts: PanelFontSet;
+  portraitSets: ReadonlyArray<PortraitSet> | null;
+}
+
 /**
  * Compose the full 320×200 maze corridor frame to RGBA. Returns a fresh
- * (SCREEN_W * SCREEN_H * 4)-byte buffer: the static chrome with the composed
- * dungeon viewport blitted in at MAZE_VIEWPORT.
+ * (SCREEN_W * SCREEN_H * 4)-byte buffer: the static chrome, the LIVE party
+ * panels (if supplied) over the side columns, and the composed dungeon viewport
+ * blitted in at MAZE_VIEWPORT.
+ *
+ * @param panels Live party-panel inputs, or undefined to keep the baked chrome
+ *               panels (parity-fixture path).
  */
-export function composeMazeFrame(): Uint8Array {
+export function composeMazeFrame(panels?: MazePartyPanels): Uint8Array {
   const buf = new Uint8Array(SCREEN_W * SCREEN_H * 4);
 
   // 1. Paint the static chrome (full-frame background).
@@ -59,7 +79,19 @@ export function composeMazeFrame(): Uint8Array {
     }
   }
 
-  // 2. Blit the composed dungeon viewport on top, at MAZE_VIEWPORT.{x,y}.
+  // 2. LIVE party panels — overwrite the two side columns (baked with the RE
+  //    drive's fixed party) with the player's actual party. Same byte-exact
+  //    compositor the castle MASTER OPTIONS screen uses (RE: dungeon panel is
+  //    pixel-identical). Skipped when no party/fonts are supplied (the parity
+  //    fixture path keeps the baked chrome panels). composePartyPanels clears
+  //    each panel window to solid gray before drawing, so empty slots and the
+  //    baked stale portraits are both overwritten.
+  if (panels) {
+    const rgba = new Uint8ClampedArray(buf.buffer);
+    composePartyPanels(rgba, panels.members, panels.fonts, panels.portraitSets);
+  }
+
+  // 3. Blit the composed dungeon viewport on top, at MAZE_VIEWPORT.{x,y}.
   const vp = composeMazeViewport(TILES);
   const { x: vpX, y: vpY, w: vpW, h: vpH } = MAZE_VIEWPORT;
   for (let yy = 0; yy < vpH; yy++) {

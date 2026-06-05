@@ -20,14 +20,24 @@ import { fileURLToPath } from 'node:url';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import type {
+  ActiveParty,
+  ActivePartyMember,
   DungeonLevel,
   Font,
+  Font4bpp,
   MazeBlock,
   MazeParty,
   MazeRenderAssets,
   MessageDb,
+  PortraitSet,
 } from '@wiz6/data';
-import { FontSchema, MessageDbSchema } from '@wiz6/data';
+import {
+  ActivePartySchema,
+  FontSchema,
+  Font4bppSchema,
+  MessageDbSchema,
+  PortraitSetSchema,
+} from '@wiz6/data';
 import {
   advanceEntry,
   turn,
@@ -46,6 +56,8 @@ vi.mock('../../src/data-loader.js', () => ({
   loadMazeWallSpans: vi.fn(),
   loadMessageDb: vi.fn(),
   loadFont: vi.fn(),
+  loadFont4bpp: vi.fn(),
+  loadPortraitSet: vi.fn(),
   loadNewgameViewports: vi.fn(),
 }));
 
@@ -55,18 +67,34 @@ vi.mock('../../src/game/game-session-store.js', () => ({
   updateSession: vi.fn(),
 }));
 
+vi.mock('../../src/lib/active-party-store.js', () => ({
+  readActiveParty: vi.fn(),
+}));
+
 import { MazeView } from '../../src/pages/game/MazeView.js';
-import { loadMazeAssets, loadMazeWallSpans, loadMessageDb, loadFont, loadNewgameViewports } from '../../src/data-loader.js';
+import {
+  loadMazeAssets,
+  loadMazeWallSpans,
+  loadMessageDb,
+  loadFont,
+  loadFont4bpp,
+  loadPortraitSet,
+  loadNewgameViewports,
+} from '../../src/data-loader.js';
 import { readGameSession, updateParty, updateSession } from '../../src/game/game-session-store.js';
+import { readActiveParty } from '../../src/lib/active-party-store.js';
 
 const mockLoadMazeAssets = vi.mocked(loadMazeAssets);
 const mockLoadMazeWallSpans = vi.mocked(loadMazeWallSpans);
 const mockLoadMessageDb = vi.mocked(loadMessageDb);
 const mockLoadFont = vi.mocked(loadFont);
+const mockLoadFont4bpp = vi.mocked(loadFont4bpp);
+const mockLoadPortraitSet = vi.mocked(loadPortraitSet);
 const mockLoadNewgameViewports = vi.mocked(loadNewgameViewports);
 const mockReadGameSession = vi.mocked(readGameSession);
 const mockUpdateParty = vi.mocked(updateParty);
 const mockUpdateSession = vi.mocked(updateSession);
+const mockReadActiveParty = vi.mocked(readActiveParty);
 
 // Real assets (so renderMazeViewport runs end-to-end without crashing).
 const ASSETS: MazeRenderAssets = nodeLoadMazeAssets();
@@ -98,9 +126,61 @@ const NEWGAME_VIEWPORTS: NewgameViewports = Object.fromEntries(
 const MSG_DB: MessageDb = MessageDbSchema.parse(
   JSON.parse(readFileSync(resolve(REPO_ROOT, 'extracted', 'messages', 'msg.json'), 'utf8')),
 );
-const MSG_FONT: Font = FontSchema.parse(
+
+// Real committed party-panel fonts + portrait sets (browser-served copies), so
+// the LIVE party-panel render runs end-to-end without I/O. wfont0 doubles as the
+// narration/message font (loadFont serves it for both).
+const WFONT0: Font = FontSchema.parse(
   JSON.parse(readFileSync(resolve(REPO_ROOT, 'extracted', 'fonts', 'wfont0.json'), 'utf8')),
 );
+const WFONT1: Font4bpp = Font4bppSchema.parse(
+  JSON.parse(readFileSync(resolve(REPO_ROOT, 'extracted', 'fonts', 'wfont1.json'), 'utf8')),
+);
+const WFONT3: Font4bpp = Font4bppSchema.parse(
+  JSON.parse(readFileSync(resolve(REPO_ROOT, 'extracted', 'fonts', 'wfont3.json'), 'utf8')),
+);
+const WFONT4: Font4bpp = Font4bppSchema.parse(
+  JSON.parse(readFileSync(resolve(REPO_ROOT, 'extracted', 'fonts', 'wfont4.json'), 'utf8')),
+);
+const WPORT1: PortraitSet = PortraitSetSchema.parse(
+  JSON.parse(readFileSync(resolve(REPO_ROOT, 'extracted', 'portraits', 'wport1.json'), 'utf8')),
+);
+const WPORT2: PortraitSet = PortraitSetSchema.parse(
+  JSON.parse(readFileSync(resolve(REPO_ROOT, 'extracted', 'portraits', 'wport2.json'), 'utf8')),
+);
+const WPORT3: PortraitSet = PortraitSetSchema.parse(
+  JSON.parse(readFileSync(resolve(REPO_ROOT, 'extracted', 'portraits', 'wport3.json'), 'utf8')),
+);
+
+/** Build a minimal valid ActivePartyMember (validated by ActivePartySchema). */
+function fakeMember(overrides: Partial<ActivePartyMember> = {}): ActivePartyMember {
+  return {
+    id: '00000000-0000-4000-8000-000000000001',
+    name: 'AAA',
+    race: 0,
+    class: 0,
+    level: 1,
+    savedOldLevel: 0,
+    xp: 0,
+    gold: 0,
+    conditions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    dead: false,
+    paralyzed: false,
+    attributes: { str: 10, int: 10, pie: 10, vit: 10, dex: 10, spd: 10, per: 10, kar: 10 },
+    schoolMana: [0, 0, 0, 0, 0, 0],
+    schoolManaMax: [0, 0, 0, 0, 0, 0],
+    skills: new Array(30).fill(0),
+    reaction: 50,
+    sex: 0,
+    portraitSlotId: 0,
+    rosterCharacterId: '00000000-0000-4000-8000-000000000001',
+    ...overrides,
+  } as ActivePartyMember;
+}
+
+function partyOf(members: ActivePartyMember[]): ActiveParty {
+  return ActivePartySchema.parse({ schemaVersion: 1, members });
+}
 
 // Scripted entry config (level-0): ENTERING title (gy=117) → 3 narration lines →
 // 4-step walk to the HMMMM bump (gy=121).
@@ -147,7 +227,21 @@ beforeEach(() => {
   // Default narration loaders resolve to the real fixtures; tests that don't
   // exercise narration simply ignore them (free-roam levels have no scriptedEntry).
   mockLoadMessageDb.mockResolvedValue(MSG_DB);
-  mockLoadFont.mockResolvedValue(MSG_FONT);
+  // loadFont serves wfont0 for BOTH narration and panel font0; the real wfont0.
+  mockLoadFont.mockResolvedValue(WFONT0);
+  // Panel fonts (wfont1/3/4) + portrait sets — keyed by URL so the right asset
+  // resolves for each loader call.
+  mockLoadFont4bpp.mockImplementation((url: string) =>
+    Promise.resolve(
+      url.includes('wfont1') ? WFONT1 : url.includes('wfont4') ? WFONT4 : WFONT3,
+    ),
+  );
+  mockLoadPortraitSet.mockImplementation((url: string) =>
+    Promise.resolve(url.includes('wport2') ? WPORT2 : url.includes('wport3') ? WPORT3 : WPORT1),
+  );
+  // Default active party: a single member (the panel renders LIVE). Individual
+  // tests override per-scenario.
+  mockReadActiveParty.mockReturnValue(partyOf([fakeMember()]));
   // Default oracle viewports resolve to the real committed asset; tests that
   // don't exercise the scripted entry (free-roam levels) simply ignore them.
   mockLoadNewgameViewports.mockResolvedValue(NEWGAME_VIEWPORTS);
@@ -508,5 +602,153 @@ describe('MazeView — captured wall spans (Task D1 byte-exact case)', () => {
     const generated = renderMazeViewport(REAL_BLOCK, CASE_26, ASSETS);
     expect(captured.some((v) => v !== 0)).toBe(true);
     expect(Buffer.from(captured).equals(Buffer.from(generated))).toBe(false);
+  });
+});
+
+describe('MazeView — LIVE party panel (Task 3: not the baked party)', () => {
+  /** Install a singleton ctx whose putImageData records the presented ImageData. */
+  function spyPresent(): { frames: ImageData[]; restore: () => void } {
+    const frames: ImageData[] = [];
+    const stableCtx = {
+      imageSmoothingEnabled: false,
+      putImageData: (img: ImageData) => frames.push(img),
+    } as unknown as CanvasRenderingContext2D;
+    const spy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(stableCtx as unknown as ReturnType<HTMLCanvasElement['getContext']>);
+    return { frames, restore: () => spy.mockRestore() };
+  }
+
+  beforeEach(() => {
+    mockReadGameSession.mockReturnValue({
+      schemaVersion: 3,
+      level: LEVEL_0,
+      party: { ...ENTRANCE },
+      entryMode: 'free',
+      stepsRemaining: 0,
+    });
+    mockLoadMazeAssets.mockResolvedValue(ASSETS);
+    mockLoadMazeWallSpans.mockResolvedValue(WALL_SPANS);
+  });
+
+  // The two side party-panel columns the live render overwrites: LEFT panel
+  // window @ screen (8,40), RIGHT @ (256,40), each 7 cells (56px) × 12 cells
+  // (96px). Sample only the name-row band so two distinct names visibly differ.
+  const LEFT = { x: 8, y: 40, w: 56, h: 96 };
+  const RIGHT = { x: 256, y: 40, w: 56, h: 96 };
+
+  function regionBytes(img: ImageData, r: { x: number; y: number; w: number; h: number }): number[] {
+    const out: number[] = [];
+    for (let row = 0; row < r.h; row++) {
+      for (let col = 0; col < r.w; col++) {
+        const o = ((r.y + row) * 320 + (r.x + col)) * 4;
+        out.push(img.data[o]!, img.data[o + 1]!, img.data[o + 2]!);
+      }
+    }
+    return out;
+  }
+
+  async function presentForParty(members: ActivePartyMember[]): Promise<ImageData> {
+    mockReadActiveParty.mockReturnValue(partyOf(members));
+    const { frames, restore } = spyPresent();
+    try {
+      renderMazeView();
+      await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
+      // Panel fonts must load before the live panel is drawn.
+      await waitFor(() => expect(mockLoadFont4bpp).toHaveBeenCalledWith('/fonts/wfont3.json'));
+      await waitFor(() => expect(frames.length).toBeGreaterThan(0));
+      return frames[frames.length - 1]!;
+    } finally {
+      restore();
+    }
+  }
+
+  it('the LEFT/RIGHT panel columns differ for two different parties', async () => {
+    const partyA = await presentForParty([
+      fakeMember({ name: 'NATHAN', portraitIndex: 0 }),
+      fakeMember({ name: 'GANDALF', portraitIndex: 5 }),
+    ]);
+    const leftA = regionBytes(partyA, LEFT);
+    const rightA = regionBytes(partyA, RIGHT);
+
+    vi.clearAllMocks();
+    // Re-establish the per-suite defaults cleared above.
+    mockLoadMessageDb.mockResolvedValue(MSG_DB);
+    mockLoadFont.mockResolvedValue(WFONT0);
+    mockLoadFont4bpp.mockImplementation((url: string) =>
+      Promise.resolve(url.includes('wfont1') ? WFONT1 : url.includes('wfont4') ? WFONT4 : WFONT3),
+    );
+    mockLoadPortraitSet.mockImplementation((url: string) =>
+      Promise.resolve(url.includes('wport2') ? WPORT2 : url.includes('wport3') ? WPORT3 : WPORT1),
+    );
+    mockLoadNewgameViewports.mockResolvedValue(NEWGAME_VIEWPORTS);
+    mockReadGameSession.mockReturnValue({
+      schemaVersion: 3,
+      level: LEVEL_0,
+      party: { ...ENTRANCE },
+      entryMode: 'free',
+      stepsRemaining: 0,
+    });
+    mockLoadMazeAssets.mockResolvedValue(ASSETS);
+    mockLoadMazeWallSpans.mockResolvedValue(WALL_SPANS);
+
+    const partyB = await presentForParty([
+      fakeMember({ name: 'ZOLTAN', portraitIndex: 14 }),
+      fakeMember({ name: 'MERLINX', portraitIndex: 28 }),
+    ]);
+    const leftB = regionBytes(partyB, LEFT);
+    const rightB = regionBytes(partyB, RIGHT);
+
+    // Different parties → different panel pixels (NOT a baked, party-invariant set).
+    expect(leftA).not.toEqual(leftB);
+    expect(rightA).not.toEqual(rightB);
+  });
+
+  it('the panel columns match composePartyPanels output at the slot coords', async () => {
+    const members = [
+      fakeMember({ name: 'NATHAN', portraitIndex: 0 }),
+      fakeMember({ name: 'GANDALF', portraitIndex: 5 }),
+      fakeMember({ name: 'BORIS', portraitIndex: 17 }),
+    ];
+    const img = await presentForParty(members);
+
+    // Build the EXPECTED panel pixels directly via the shared compositor over a
+    // black background, then assert the presented frame's panel regions match.
+    const { composePartyPanels } = await import('../../src/pages/game/party-panel-compose.js');
+    const expected = new Uint8ClampedArray(320 * 200 * 4);
+    composePartyPanels(
+      expected,
+      members,
+      { font0: WFONT0, font1: WFONT1, font3: WFONT3, font4: WFONT4 },
+      [WPORT1, WPORT2, WPORT3],
+    );
+    const expImg = { data: expected } as ImageData;
+
+    // The panel windows fully overwrite the side columns, so the frame's panel
+    // region must equal the compositor's output there.
+    expect(regionBytes(img, LEFT)).toEqual(regionBytes(expImg, LEFT));
+    expect(regionBytes(img, RIGHT)).toEqual(regionBytes(expImg, RIGHT));
+  });
+
+  it('a partial party leaves empty slots blank (no stale baked portrait)', async () => {
+    // Single member in slot 0 (LEFT). Slot 1 (RIGHT) and slots 2..5 are empty —
+    // they must render as the engine's solid-gray cleared panel, NOT a baked
+    // portrait. Compare against the compositor's ground truth.
+    const members = [fakeMember({ name: 'SOLO', portraitIndex: 3 })];
+    const img = await presentForParty(members);
+
+    const { composePartyPanels } = await import('../../src/pages/game/party-panel-compose.js');
+    const expected = new Uint8ClampedArray(320 * 200 * 4);
+    composePartyPanels(
+      expected,
+      members,
+      { font0: WFONT0, font1: WFONT1, font3: WFONT3, font4: WFONT4 },
+      [WPORT1, WPORT2, WPORT3],
+    );
+    const expImg = { data: expected } as ImageData;
+
+    // The RIGHT column (all slots empty) must equal the cleared-panel ground
+    // truth — i.e. uniform gray space, not the baked THESUS/LYSANDR portraits.
+    expect(regionBytes(img, RIGHT)).toEqual(regionBytes(expImg, RIGHT));
   });
 });

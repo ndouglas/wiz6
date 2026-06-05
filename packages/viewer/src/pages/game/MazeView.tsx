@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   MAZE_VIEWPORT,
+  type ActivePartyMember,
   type Font,
+  type Font4bpp,
   type MazeRenderAssets,
   type MessageDb,
   type Palette,
+  type PortraitSet,
 } from '@wiz6/data';
 import {
   advanceEntry,
@@ -21,18 +24,22 @@ import {
 import { CanvasPresenter } from '../../lib/presenter.js';
 import {
   loadFont,
+  loadFont4bpp,
   loadMazeAssets,
   loadMazeWallSpans,
   loadMessageDb,
   loadNewgameViewports,
+  loadPortraitSet,
 } from '../../data-loader.js';
+import { readActiveParty } from '../../lib/active-party-store.js';
 import {
   readGameSession,
   updateParty,
   updateSession,
   type GameSession,
 } from '../../game/game-session-store.js';
-import { composeMazeFrame } from './compose-maze-frame.js';
+import { composeMazeFrame, type MazePartyPanels } from './compose-maze-frame.js';
+import type { PanelFontSet } from './party-panel-compose.js';
 import styles from './CastleScreen.module.css';
 
 const ENGINE_W = 320;
@@ -114,8 +121,12 @@ function composeFrame(
   wallSpans: CapturedSpansTable | null,
   newgameViewports: NewgameViewports | null,
   narration: { lines: string[]; font: Font } | null,
+  partyPanels: MazePartyPanels | undefined,
 ): Uint8Array {
-  const frame = composeMazeFrame(); // static chrome + (static) viewport baseline
+  // Static chrome + LIVE party panels (the player's actual party) + viewport
+  // baseline. partyPanels is undefined until the panel fonts/active party load;
+  // until then the baked chrome panels show (cleared once the fonts arrive).
+  const frame = composeMazeFrame(partyPanels);
   const vp = safeRenderViewport(session, assets, wallSpans, newgameViewports);
   const { x: vx, y: vy, w: vw, h: vh } = MAZE_VIEWPORT;
   for (let row = 0; row < vh; row++) {
@@ -179,6 +190,30 @@ export function MazeView() {
   // resolve (or if the level has no scriptedEntry — then there's no narration).
   const narrationRef = useRef<{ lines: string[]; font: Font } | null>(null);
 
+  // Live party-panel inputs: the player's actual active party (read once on
+  // mount — it doesn't change mid-dungeon) + the panel fonts + portrait sets.
+  // composeMazeFrame uses these to OVERWRITE the baked chrome side panels (which
+  // carry the RE drive's fixed party) with the real party. Built once both the
+  // fonts and portraits load (mazePartyPanelsRef stays undefined until then, so
+  // the baked chrome shows briefly during load — then gets cleared/replaced).
+  const activePartyRef = useRef<ReadonlyArray<ActivePartyMember>>([]);
+  const panelFontsRef = useRef<PanelFontSet>({
+    font0: null,
+    font1: null,
+    font3: null,
+    font4: null,
+  });
+  const portraitSetsRef = useRef<PortraitSet[] | null>(null);
+
+  /** Build the live party-panel arg if the fonts have loaded and there's a
+   *  party to draw; undefined otherwise (keeps the baked chrome panels). */
+  function partyPanelsArg(): MazePartyPanels | undefined {
+    const members = activePartyRef.current;
+    const fonts = panelFontsRef.current;
+    if (members.length === 0 || !fonts.font3) return undefined;
+    return { members, fonts, portraitSets: portraitSetsRef.current };
+  }
+
   // Mount: read session (redirect if absent) + load assets once.
   useEffect(() => {
     const session = readGameSession();
@@ -189,7 +224,43 @@ export function MazeView() {
     }
     sessionRef.current = session;
 
+    // Read the player's active party once (it doesn't change mid-dungeon).
+    activePartyRef.current = readActiveParty().members;
+
     let cancelled = false;
+
+    // Load the party-panel fonts (wfont0/1/3/4) + the 3 wport portrait sets so
+    // the LEFT/RIGHT party panels render LIVE (overwriting the baked chrome's
+    // fixed-party portraits). Each is non-fatal: until they resolve the baked
+    // chrome panels show through. wfont3 is the gate — partyPanelsArg() returns
+    // undefined until it's present.
+    Promise.all([
+      loadFont('/fonts/wfont0.json'),
+      loadFont4bpp('/fonts/wfont1.json'),
+      loadFont4bpp('/fonts/wfont3.json'),
+      loadFont4bpp('/fonts/wfont4.json'),
+    ])
+      .then(([font0, font1, font3, font4]: [Font, Font4bpp, Font4bpp, Font4bpp]) => {
+        if (cancelled) return;
+        panelFontsRef.current = { font0, font1, font3, font4 };
+        present();
+      })
+      .catch((err: unknown) => {
+        console.warn('[MazeView] failed to load party-panel fonts (baked chrome panels remain):', err);
+      });
+    Promise.all([
+      loadPortraitSet('/portraits/wport1.json'),
+      loadPortraitSet('/portraits/wport2.json'),
+      loadPortraitSet('/portraits/wport3.json'),
+    ])
+      .then((sets: PortraitSet[]) => {
+        if (cancelled) return;
+        portraitSetsRef.current = sets;
+        present();
+      })
+      .catch((err: unknown) => {
+        console.warn('[MazeView] failed to load portrait sets (party panels render without portraits):', err);
+      });
     // Load the captured wall spans alongside the atlas. A failure here is
     // non-fatal: the renderer falls back to the generation path (corridor) when
     // no captured spans are available.
@@ -258,6 +329,7 @@ export function MazeView() {
       wallSpansRef.current,
       newgameViewportsRef.current,
       narrationRef.current,
+      partyPanelsArg(),
     );
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
   }
