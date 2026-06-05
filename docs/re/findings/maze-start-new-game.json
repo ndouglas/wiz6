@@ -1,0 +1,59 @@
+{
+  "topic": "maze-start-new-game",
+  "subagent_run": "2026-06-05 (Task B3: discover the START NEW GAME entrance + wire the viewer handler)",
+  "binaries": ["wroot.exe", "wmaze.ovr"],
+  "tool": "dosbox-pure (libretro) live harness via HostClient (packages/mcp/src/live/host-client.ts). Fresh boot → title → MASTER OPTIONS → 3 party members added → navigate to START NEW GAME → scenario pick → dungeon entry → narration dismissed (10× enter) → read DGROUP party fields (0x4f9a/0x4f9c/0x4f9e/0x4fa0/0x4fa2/0x4fa4) via anchor() + read().",
+  "summary": "Fresh START NEW GAME places the party at gx=127, gy=120, z=0, facing=0 (game_state=5, zone=0). This is Region 0 of the level-0 MazeBlock: cellA(0x4f9e)=4 / cellB(0x4fa0)=7 (i.e. gy-gyBase[0]=120-116=4, gx-gxBase[0]=127-120=7 — the top-right corner cell of Region 0's 8×8 plane). The START→dungeon ordering is: scenario pick → scripted entry narration (modal, dismissed with multiple ENTER taps) → first controllable dungeon frame (game_state stays 5 throughout). The narration is a series of modal ENTER-dismiss prompts; after ~10 ENTER taps the engine reaches the settled controllable frame.",
+  "reference_frame": {
+    "state": "fresh boot (no saved state)",
+    "game_state": 5,
+    "zone": 0,
+    "dgroup_base_phys": "0xffa0 (anchor())",
+    "party_fields": {
+      "facing_0x4f9a": 0,
+      "z_0x4f9c": 0,
+      "cellA_0x4f9e": 4,
+      "cellB_0x4fa0": 7,
+      "gy_0x4fa2": 120,
+      "gx_0x4fa4": 127
+    }
+  },
+  "findings": [
+    {
+      "id": "entrance-gx127-gy120-z0-facing0",
+      "claim": "Fresh START NEW GAME places the party at gx=127, gy=120, z=0, facing=0 in zone 0 (the starting level). This is Region 0 of the level-0 MazeBlock (gxBase[0]=120, gyBase[0]=116): cellB=gx-120=7, cellA=gy-116=4, cellIdx=0*64+4*8+7=39. Verified: game_state=5 (wmaze), zone=0, match between live 0x4f9e/0x4fa0 (4/7) and the resolved region cell.",
+      "category": "party_position",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wroot.dgroup", "offset": "0x4f9a"},
+        "type": "live_read",
+        "details": "tools/libretro/discover-entrance.ts: fresh HostClient boot (3000 frames), title→MASTER OPTIONS (enter), add 3 party members, navigate START NEW GAME, scenario pick (enter), dungeon entry (enter), dismiss narration (10× enter tap), settle 200 frames, read DGROUP: game_state=5, zone=0, gx=127, gy=120, z=0, facing=0, cellA=4, cellB=7. Cross-verified: cellA=gy-gyBase[0]=120-116=4 ✓; cellB=gx-gxBase[0]=127-120=7 ✓; cell=0*64+4*8+7=39."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "start-dungeon-ordering",
+      "claim": "The START→dungeon flow ordering is: (1) MASTER OPTIONS → START NEW GAME (enter); (2) scenario pick screen (enter selects the only/default scenario); (3) scripted entry narration — a modal sequence of text prompts each dismissed by ENTER; (4) first controllable dungeon frame (game_state=5, party at entrance). The narration requires ~10 ENTER taps to fully dismiss in a 3-member party run. game_state stays 5 throughout; the narration is NOT a separate game_state, it is a wmaze-internal modal.",
+      "category": "flow_ordering",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_drive",
+        "details": "tools/libretro/discover-entrance.ts drive: after 3rd enter (dungeon entry), 10× (enter-down 20 frames, enter-up 80 frames) + 200 settle reaches a stable controllable frame with game_state=5, party at gx=127/gy=120. Without the narration-dismiss loop, fewer taps still land in game_state=5 but party position may be mid-narration (gx/gy stable at entrance). The scripted narration is wmaze-internal (the dungeon view + party fields are already live; only input is gated)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "asm_anchors": [
+    {"space": "wroot.dgroup", "offset": "0x4f9a", "name": "party_facing", "note": "0 at entrance"},
+    {"space": "wroot.dgroup", "offset": "0x4f9c", "name": "party_z", "note": "0 at entrance (region 0)"},
+    {"space": "wroot.dgroup", "offset": "0x4f9e", "name": "party_cellA", "note": "4 at entrance (gy-gyBase[0])"},
+    {"space": "wroot.dgroup", "offset": "0x4fa0", "name": "party_cellB", "note": "7 at entrance (gx-gxBase[0])"},
+    {"space": "wroot.dgroup", "offset": "0x4fa2", "name": "party_gy", "note": "120 at entrance"},
+    {"space": "wroot.dgroup", "offset": "0x4fa4", "name": "party_gx", "note": "127 at entrance"}
+  ],
+  "unresolved": [
+    "The entrance for levels other than 0 has not been discovered. The cli extractor uses a KNOWN_ENTRANCES table (Task B3); other levels default to {0,0,0,0} until a live oracle is run for them.",
+    "The scripted entry narration content (the actual text strings) was not captured this pass — not needed for the MVP viewer, which skips the narration and navigates straight to /game/maze.",
+    "The exact wmaze.ovr address that positions the party at entrance (the 'place party at entrance' call site) was not traced this pass — the behavioral evidence (live gx/gy read) is sufficient for the viewer's enterance value."
+  ]
+}

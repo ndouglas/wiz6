@@ -13,11 +13,15 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#078**
+Next free ID: **#079**
 
 ---
 
 ## Open
+
+- #078 [open] — START NEW GAME: port the scripted entry narration
+  - `StartNewGamePage` (viewer B3) skips the narration and navigates straight to `/game/maze`. The engine shows a modal text sequence ("YOU APPROACH THE GATE…") between scenario pick and the first controllable frame (wmaze-internal modal, game_state stays 5 throughout; dismissed by ENTER). Port: (a) RE the narration text IDs from wmaze.ovr; (b) decode the strings from msg.dbs; (c) add a modal text overlay before /game/maze navigation.
+  - Blocked on: msg.dbs decoding for arbitrary IDs (#025); wmaze narration-entry address trace.
 
 - #077 [open] — Maze FROM-ASSET background: close the 18px deep-door residual + GENERATE the call list
   - **2026-06-05:** the gy=121 oracle frame now reproduces **99.909%** (19694/19712) FROM-ASSET (mazedata.ega + the gy=121 blit call list captured live, reproducible). `packages/parser/src/maze/callist.ts` (composeCallList/composeBackgroundFromAsset) + the committed list `src/maze/__fixtures__/maze-corridor-callist-gy121.json` + `maze-corridor-fromasset-parity.diagnostic.test.ts` (99.9% floor). RE: `docs/re/findings/maze-callist-generation.json`.
