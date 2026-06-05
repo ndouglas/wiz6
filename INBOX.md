@@ -10,4 +10,3 @@ Freeform jot pad. Add anything — bug, idea, half-baked thought, "remember to l
 ---
 
 ## Items
-- I don't think exporting the roster to .dbs works completely; seems to miss equipment, possibly other things. We need to verify the roundtrip for all formats.

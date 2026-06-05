@@ -13,11 +13,14 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#081**
+Next free ID: **#082**
 
 ---
 
 ## Open
+
+- #081 [open] — Roster `.dbs` export roundtrip drops equipment (verify + fix)
+  - Nate (2026-06-05, INBOX): exporting the roster to `.dbs` (pcfile) "seems to miss equipment, possibly other things." Verify the **pcfile/`.dbs` roundtrip** (decode → re-encode → byte-compare against the original; and a round-trip through the viewer's roster export/import → `.dbs`). Equipment is the known suspect; check for other dropped fields too. Scope confirmed = `.dbs` (pcfile/roster); JSON/`.sav` roundtrips can follow if this surfaces shared gaps. Likely in the `.dbs` encoder (the decode path is exercised by castle/party fixtures; the ENCODE/export path is the untested side). Start: a roundtrip test that decodes `test-fixtures/original/pcfile.dbs`, re-encodes, and diffs — find where equipment bytes diverge.
 
 - #080 [open] — Hoist the engine-remapped dungeon palette into `@wiz6/data` (dedup x3)
   - The maze viewport's 16-entry palette is the engine's DAC-reprogrammed ordering (NOT IBM-EGA `EGA_DEFAULT`), and is currently triplicated byte-identically: `MazeView.tsx` `COMPOSED_PALETTE`, `packages/viewer/src/data/maze-corridor-tiles.json` `palette`, and `CalibratePalette.tsx`. Hoist to a single named export in `@wiz6/data`'s palette catalog + reference it everywhere. Minor maintainability; surfaced by the walkable-MVP final review (2026-06-05). Also note: no test gates the index→RGB mapping (parity compares `.idx.gz` palette *indices*; the MazeView render test only asserts non-blank) — a palette-ordering regression here is caught only by the eyeball smoke test.
