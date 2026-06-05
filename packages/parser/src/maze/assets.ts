@@ -1,45 +1,37 @@
 /**
- * assets.ts — loader for the committed maze render assets (atlas + piece descriptors).
+ * assets.ts — node-side loader for the committed maze render assets (atlas +
+ * piece descriptors).
  *
  * The assets are captured from the engine (see tools/parity/extract-maze-assets.ts)
- * and committed as a JSON fixture. This module decodes the base64 fields and
- * returns a validated MazeRenderAssets.
+ * and committed as a JSON fixture. This module imports that fixture and decodes it
+ * via the ISOMORPHIC decoder (assets-decode.ts) — so it has NO `node:*` imports
+ * and is safe to pull through the @wiz6/parser barrel from the browser. The
+ * heavier node-only background-page loader (which needs `node:zlib`) lives in
+ * assets-node.ts and is NOT re-exported from the barrel.
  *
  * Usage:
  *   import { loadMazeAssets } from '@wiz6/parser/maze/assets.js';
  *   const { atlas, pieceDescriptors } = loadMazeAssets();
+ *
+ * Browser path: the viewer fetches extracted/maze/assets.json (same shape) and
+ * calls decodeMazeAssets() directly — see packages/viewer/src/data-loader.ts.
  */
 
-import { gunzipSync } from 'node:zlib';
-import { MazeRenderAssetsSchema, type MazeRenderAssets } from '@wiz6/data';
+import { type MazeRenderAssets } from '@wiz6/data';
+import { decodeMazeAssets, type MazeAssetsRaw } from './assets-decode.js';
 import raw from './__fixtures__/maze-assets.json' with { type: 'json' };
-import corridorBg from './__fixtures__/maze-corridor-background.json' with { type: 'json' };
 
 export function loadMazeAssets(): MazeRenderAssets {
-  const atlas = Uint8Array.from(Buffer.from(raw.atlasB64, 'base64'));
-  const pieceDescriptors = raw.pieceDescriptors.map((d) => ({
-    srcPtr: d.srcPtr,
-    w: d.w,
-    h: d.h,
-    presenceBitmap: Uint8Array.from(Buffer.from(d.bitmapB64, 'base64')),
-  }));
-  return MazeRenderAssetsSchema.parse({ atlas, pieceDescriptors });
+  return decodeMazeAssets(raw as unknown as MazeAssetsRaw);
 }
 
 /**
- * Load the engine's OR-blit BACKGROUND compose page for the maze-corridor frame
- * (zone-0, facing 0). 4-plane EGA page (4 * PLANE_STRIDE = 0x8000 bytes), suitable
- * as the `page` arg of renderMazeViewport.
- *
- * This is the engine's actual composed page, read deterministically from the
- * committed serialize-state (no live capture). It reproduces the maze-corridor
- * viewport BYTE-EXACT (100%, the first full-viewport gate —
- * tests/maze/maze-corridor-viewport-parity.test.ts). The from-on-disk-asset
- * placement-list generator that would let composeBackground rebuild this page from
- * the floor/ceiling/window assets is tracked work (still blocked — see
- * docs/re/findings/maze-background-fromasset.json).
+ * Return the RAW committed maze-assets JSON (atlasB64 + pieceDescriptors). Used by
+ * the CLI extractor to emit the browser-ready asset (extracted/maze/assets.json),
+ * which the viewer fetches + decodes via the same decodeMazeAssets() — so the
+ * browser and node MazeRenderAssets bytes are guaranteed identical.
  */
-export function loadMazeCorridorBackgroundPage(): Uint8Array {
-  const gz = Uint8Array.from(Buffer.from(corridorBg.pageGzB64, 'base64'));
-  return new Uint8Array(gunzipSync(gz));
+export function loadMazeAssetsRaw(): MazeAssetsRaw {
+  const r = raw as unknown as { atlasB64: string; pieceDescriptors: MazeAssetsRaw['pieceDescriptors'] };
+  return { atlasB64: r.atlasB64, pieceDescriptors: r.pieceDescriptors };
 }

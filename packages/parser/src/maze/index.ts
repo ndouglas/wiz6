@@ -25,7 +25,8 @@ export {
   PAGE_ROW_BYTES,
 } from './compositor.js';
 export { decodePageIndex, decodePageRgba } from './page.js';
-export { loadMazeAssets } from './assets.js';
+export { loadMazeAssets, loadMazeAssetsRaw } from './assets.js';
+export { decodeMazeAssets, type MazeAssetsRaw } from './assets-decode.js';
 export { composeBackground, applyPlacedImage, applyMaskedMirror, MAZE_BITREV } from './background.js';
 export { buildBackgroundPage } from './render.js';
 export {

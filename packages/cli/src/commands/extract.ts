@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util';
-import { readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { extractWfont } from '../extractors/extract-wfont.js';
 import { extractWfont4bpp } from '../extractors/extract-wfont-4bpp.js';
 import { extractWport } from '../extractors/extract-wport.js';
@@ -13,6 +13,7 @@ import { extractPic } from '../extractors/extract-pic.js';
 import { extractSnd } from '../extractors/extract-snd.js';
 import { extractDocs } from '../extractors/extract-docs.js';
 import { extractMazeLevel } from '../extractors/maze-level.js';
+import { loadMazeAssetsRaw } from '@wiz6/parser';
 import { resolveOriginalDir } from '../lib/loaders.js';
 import type { CliIO } from '../index.js';
 
@@ -220,6 +221,16 @@ function extractOneType(
           if (c.north || c.west || c.special4 || c.orient2 || c.pit) nz++;
       io.write(
         `wrote ${extractedDir}/maze/level-0.json (${level.mazeBlock.regions.length} regions, ${nz} non-empty cells)\n`,
+      );
+      // Browser-ready maze render assets (atlas + piece descriptors) — same JSON
+      // shape as the parser fixture; the viewer fetches + decodes via the shared
+      // isomorphic decoder (decodeMazeAssets), guaranteeing byte-identical assets.
+      const assetsRaw = loadMazeAssetsRaw();
+      const assetsPath = join(extractedDir, 'maze', 'assets.json');
+      mkdirSync(dirname(assetsPath), { recursive: true });
+      writeFileSync(assetsPath, JSON.stringify(assetsRaw, null, 2));
+      io.write(
+        `wrote ${extractedDir}/maze/assets.json (${assetsRaw.pieceDescriptors.length} piece descriptors)\n`,
       );
       return;
     }
