@@ -59,6 +59,11 @@ export {
   decodeNarrationLines,
   type EntryState,
 } from './maze/entry-sequence.js';
+// Maze scripted entry oracle viewport (framebuffer-oracle for the gate frames)
+export {
+  oracleViewportForGy,
+  type NewgameViewports,
+} from './maze/newgame-oracle.js';
 // Maze entry narration strip — shared layout + draw (MazeView + parity gate)
 export {
   drawNarrationStrip,

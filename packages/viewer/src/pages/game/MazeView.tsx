@@ -12,9 +12,11 @@ import {
   decodeNarrationLines,
   drawNarrationStrip,
   renderMazeViewport,
+  oracleViewportForGy,
   turn,
   tryStepForward,
   type CapturedSpansTable,
+  type NewgameViewports,
 } from '@wiz6/parser';
 import { CanvasPresenter } from '../../lib/presenter.js';
 import {
@@ -22,6 +24,7 @@ import {
   loadMazeAssets,
   loadMazeWallSpans,
   loadMessageDb,
+  loadNewgameViewports,
 } from '../../data-loader.js';
 import {
   readGameSession,
@@ -61,16 +64,28 @@ const NARRATION_PALETTE: Palette = {
 };
 
 /**
- * Render the maze viewport for `(block, party)` to a 176×112 palette-index buffer,
- * GRACEFULLY: unhandled off-corridor view-cases (Stage C) must not crash the view.
- * On any error we return a blank (all-zero / black) viewport so the chrome still
- * presents and movement keeps working.
+ * Render the maze viewport for `(block, party)` to a 176×112 palette-index buffer.
+ *
+ * During the scripted entry sequence (entryMode !== 'free'), PREFER the
+ * framebuffer oracle if loaded — it returns committed engine pixels for the
+ * gate view that the geometry renderer cannot reproduce byte-exact (banked
+ * tile atlas). Falls back to the live renderer if the oracle is not yet loaded
+ * or the gy is not one of the 5 scripted frames.
+ *
+ * GRACEFULLY: unhandled off-corridor view-cases (Stage C) must not crash the
+ * view. On any error we return a blank (all-zero / black) viewport so the
+ * chrome still presents and movement keeps working.
  */
 function safeRenderViewport(
   session: GameSession,
   assets: MazeRenderAssets,
   wallSpans: CapturedSpansTable | null,
+  newgameViewports: NewgameViewports | null,
 ): Uint8Array {
+  // Oracle path: scripted entry frames with committed engine pixels.
+  const oracle = oracleViewportForGy(newgameViewports, session.party.gy, session.entryMode);
+  if (oracle !== null) return oracle;
+
   try {
     return renderMazeViewport(
       session.level.mazeBlock,
@@ -89,15 +104,19 @@ function safeRenderViewport(
  * per-(cell,facing) wall viewport blitted in at MAZE_VIEWPORT. The wall viewport
  * is rendered over black (the floor/ceiling background page is Stage C); for the
  * walkable milestone walls-over-black is acceptable.
+ *
+ * During the scripted entry sequence, the oracle viewport (committed engine
+ * pixels) is preferred over the live renderer for the gate frames.
  */
 function composeFrame(
   session: GameSession,
   assets: MazeRenderAssets,
   wallSpans: CapturedSpansTable | null,
+  newgameViewports: NewgameViewports | null,
   narration: { lines: string[]; font: Font } | null,
 ): Uint8Array {
   const frame = composeMazeFrame(); // static chrome + (static) viewport baseline
-  const vp = safeRenderViewport(session, assets, wallSpans);
+  const vp = safeRenderViewport(session, assets, wallSpans, newgameViewports);
   const { x: vx, y: vy, w: vw, h: vh } = MAZE_VIEWPORT;
   for (let row = 0; row < vh; row++) {
     for (let col = 0; col < vw; col++) {
@@ -152,6 +171,9 @@ export function MazeView() {
   const sessionRef = useRef<GameSession | null>(null);
   const assetsRef = useRef<MazeRenderAssets | null>(null);
   const wallSpansRef = useRef<CapturedSpansTable | null>(null);
+  // Oracle viewports for the 5 scripted entry frames (loaded once on mount for
+  // levels with a scriptedEntry). Null until loaded or if not a scripted level.
+  const newgameViewportsRef = useRef<NewgameViewports | null>(null);
   const presenterRef = useRef<CanvasPresenter | null>(null);
   // Decoded narration lines + the message font, loaded once. Null until both
   // resolve (or if the level has no scriptedEntry — then there's no narration).
@@ -190,11 +212,23 @@ export function MazeView() {
         console.error('[MazeView] failed to load maze assets:', err);
       });
 
-    // Decode the entry narration once: load the message db + the small UI font,
-    // then resolve the level's narrationMsgIds to display strings. Guard: no
-    // scriptedEntry → no narration (back-compat free-roam sessions).
+    // Load the scripted-entry oracle viewports for levels with a scriptedEntry.
+    // Non-fatal: during the scripted sequence the live renderer will be used as a
+    // fallback (renders the gate generically, not byte-exact).
     const scriptedEntry = session.level.scriptedEntry;
     if (scriptedEntry) {
+      loadNewgameViewports()
+        .then((vps) => {
+          if (cancelled) return;
+          newgameViewportsRef.current = vps;
+          present();
+        })
+        .catch((err: unknown) => {
+          console.warn('[MazeView] failed to load newgame oracle viewports (falling back to live renderer):', err);
+        });
+
+      // Decode the entry narration once: load the message db + the small UI font,
+      // then resolve the level's narrationMsgIds to display strings.
       Promise.all([loadMessageDb(MSG_DB_URL), loadFont(MESSAGE_FONT_URL)])
         .then(([msgDb, font]: [MessageDb, Font]) => {
           if (cancelled) return;
@@ -218,7 +252,13 @@ export function MazeView() {
     const a = assetsRef.current;
     if (!canvas || !session || !a) return;
     if (!presenterRef.current) presenterRef.current = new CanvasPresenter(canvas);
-    const frame = composeFrame(session, a, wallSpansRef.current, narrationRef.current);
+    const frame = composeFrame(
+      session,
+      a,
+      wallSpansRef.current,
+      newgameViewportsRef.current,
+      narrationRef.current,
+    );
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
   }
 

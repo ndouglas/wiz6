@@ -36,6 +36,7 @@ import {
   renderMazeViewport,
   viewConfigKeyFor,
   type CapturedSpansTable,
+  type NewgameViewports,
 } from '@wiz6/parser';
 
 // ── mocks ──────────────────────────────────────────────────────────────────
@@ -45,6 +46,7 @@ vi.mock('../../src/data-loader.js', () => ({
   loadMazeWallSpans: vi.fn(),
   loadMessageDb: vi.fn(),
   loadFont: vi.fn(),
+  loadNewgameViewports: vi.fn(),
 }));
 
 vi.mock('../../src/game/game-session-store.js', () => ({
@@ -54,13 +56,14 @@ vi.mock('../../src/game/game-session-store.js', () => ({
 }));
 
 import { MazeView } from '../../src/pages/game/MazeView.js';
-import { loadMazeAssets, loadMazeWallSpans, loadMessageDb, loadFont } from '../../src/data-loader.js';
+import { loadMazeAssets, loadMazeWallSpans, loadMessageDb, loadFont, loadNewgameViewports } from '../../src/data-loader.js';
 import { readGameSession, updateParty, updateSession } from '../../src/game/game-session-store.js';
 
 const mockLoadMazeAssets = vi.mocked(loadMazeAssets);
 const mockLoadMazeWallSpans = vi.mocked(loadMazeWallSpans);
 const mockLoadMessageDb = vi.mocked(loadMessageDb);
 const mockLoadFont = vi.mocked(loadFont);
+const mockLoadNewgameViewports = vi.mocked(loadNewgameViewports);
 const mockReadGameSession = vi.mocked(readGameSession);
 const mockUpdateParty = vi.mocked(updateParty);
 const mockUpdateSession = vi.mocked(updateSession);
@@ -80,6 +83,17 @@ const WALL_SPANS: CapturedSpansTable = JSON.parse(
   readFileSync(resolve(REPO_ROOT, 'extracted', 'maze', 'wall-spans.json'), 'utf8'),
 ) as CapturedSpansTable;
 const REAL_BLOCK: MazeBlock = LEVEL_0_REAL.mazeBlock;
+
+// Real committed oracle viewports (newgame-viewports.json).
+const NEWGAME_VIEWPORTS_RAW = JSON.parse(
+  readFileSync(resolve(REPO_ROOT, 'extracted', 'maze', 'newgame-viewports.json'), 'utf8'),
+) as Record<string, string>;
+const NEWGAME_VIEWPORTS: NewgameViewports = Object.fromEntries(
+  Object.entries(NEWGAME_VIEWPORTS_RAW).map(([k, v]) => [
+    Number(k),
+    Uint8Array.from(atob(v), (c) => c.charCodeAt(0)),
+  ]),
+);
 
 const MSG_DB: MessageDb = MessageDbSchema.parse(
   JSON.parse(readFileSync(resolve(REPO_ROOT, 'extracted', 'messages', 'msg.json'), 'utf8')),
@@ -134,6 +148,9 @@ beforeEach(() => {
   // exercise narration simply ignore them (free-roam levels have no scriptedEntry).
   mockLoadMessageDb.mockResolvedValue(MSG_DB);
   mockLoadFont.mockResolvedValue(MSG_FONT);
+  // Default oracle viewports resolve to the real committed asset; tests that
+  // don't exercise the scripted entry (free-roam levels) simply ignore them.
+  mockLoadNewgameViewports.mockResolvedValue(NEWGAME_VIEWPORTS);
 });
 
 describe('MazeView — no session', () => {
@@ -339,6 +356,72 @@ describe('MazeView — scripted entry (title → narration → gate-walk → bum
     expect(mockUpdateSession).toHaveBeenCalledTimes(4);
     // The party never moved via updateParty during the scripted entry.
     expect(mockUpdateParty).not.toHaveBeenCalled();
+  });
+
+  it('oracle viewport: scripted-entry frame (gy=118) viewport region is non-blank and matches the committed fixture slice', async () => {
+    // The oracle viewports are loaded alongside other assets. Once
+    // loadNewgameViewports resolves, composeFrame should blit the committed gate
+    // pixels into the MAZE_VIEWPORT rect of the presented frame.
+    const { frames, restore } = spyPresent();
+    try {
+      renderMazeView();
+      await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
+      // Wait for the oracle viewports to load (triggers a re-present).
+      await waitFor(() => expect(mockLoadNewgameViewports).toHaveBeenCalled());
+      // Wait for at least one frame to be presented after oracle load.
+      await waitFor(() => expect(frames.length).toBeGreaterThan(0));
+
+      const img = frames[frames.length - 1]!;
+      // The viewport rect in the 320×200 frame.
+      const ENGINE_W = 320;
+      const { x: vx, y: vy, w: vw, h: vh } = { x: 72, y: 32, w: 176, h: 112 };
+
+      // (a) Non-blank: the oracle data has 15797 non-zero pixels for gy=118; the
+      //     viewport should contain non-black RGBA pixels.
+      let nonBlack = 0;
+      for (let row = 0; row < vh; row++) {
+        for (let col = 0; col < vw; col++) {
+          const o = ((vy + row) * ENGINE_W + (vx + col)) * 4;
+          if (img.data[o] || img.data[o + 1] || img.data[o + 2]) nonBlack++;
+        }
+      }
+      expect(nonBlack, 'viewport should contain non-black pixels (oracle gate)').toBeGreaterThan(0);
+
+      // (b) Viewport region matches the oracle buffer for gy=118 mapped through
+      //     COMPOSED_PALETTE (the same palette MazeView uses).
+      const COMPOSED_PALETTE: readonly [number, number, number][] = [
+        [0, 0, 0], [255, 255, 255], [85, 85, 255], [255, 85, 255],
+        [255, 85, 85], [255, 255, 85], [85, 255, 85], [85, 255, 255],
+        [85, 85, 85], [170, 170, 170], [0, 0, 170], [170, 0, 170],
+        [170, 0, 0], [170, 85, 0], [0, 170, 0], [0, 170, 170],
+      ];
+      const oracleBuf = NEWGAME_VIEWPORTS[118]!;
+      let mismatches = 0;
+      let firstDiff: string | null = null;
+      for (let row = 0; row < vh; row++) {
+        for (let col = 0; col < vw; col++) {
+          const idx = oracleBuf[row * vw + col]!;
+          const [er, eg, eb] = COMPOSED_PALETTE[idx] ?? COMPOSED_PALETTE[0]!;
+          const frameOff = ((vy + row) * ENGINE_W + (vx + col)) * 4;
+          if (
+            img.data[frameOff] !== er ||
+            img.data[frameOff + 1] !== eg ||
+            img.data[frameOff + 2] !== eb
+          ) {
+            mismatches++;
+            if (firstDiff === null) {
+              firstDiff = `vp(${col},${row}) got [${img.data[frameOff]},${img.data[frameOff + 1]},${img.data[frameOff + 2]}] want [${er},${eg},${eb}]`;
+            }
+          }
+        }
+      }
+      expect(
+        mismatches,
+        `viewport should match oracle pixels (${mismatches}/${vw * vh} differ; first: ${firstDiff})`,
+      ).toBe(0);
+    } finally {
+      restore();
+    }
   });
 });
 

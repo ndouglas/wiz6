@@ -15,6 +15,7 @@ import {
   decodeMazeAssets,
   type MazeAssetsRaw,
   type CapturedSpansTable,
+  type NewgameViewports,
 } from '@wiz6/parser';
 import { type MazeRenderAssets } from '@wiz6/data';
 
@@ -130,6 +131,50 @@ export async function loadMazeWallSpans(): Promise<CapturedSpansTable> {
     throw new Error(`Malformed maze wall spans from ${url}: expected { cases: CapturedSpanCase[] }`);
   }
   return data as CapturedSpansTable;
+}
+
+/**
+ * Browser loader for the scripted-entry oracle viewports (Task 2). Fetches the
+ * committed extracted/maze/newgame-viewports.json (served via Vite publicDir)
+ * and decodes each base64 entry into a Uint8Array (176×112 palette-index buffer).
+ *
+ * Returns a Record<number, Uint8Array> keyed by gy (117..121). The viewer passes
+ * this to oracleViewportForGy() to composite the gate pixels during the scripted
+ * entry sequence instead of the live renderer (which cannot draw the banked gate
+ * byte-exact).
+ */
+export async function loadNewgameViewports(): Promise<NewgameViewports> {
+  const url = '/maze/newgame-viewports.json';
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to load newgame viewports from ${url}: ${res.status}`);
+  }
+  const data: unknown = await res.json();
+  // Fail-fast guard: must be an object with string keys whose values are base64
+  // strings (each decoding to exactly VW*VH = 19712 bytes).
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    throw new Error(`Malformed newgame viewports from ${url}: expected Record<string, base64>`);
+  }
+  const VW = 176, VH = 112;
+  const EXPECTED = VW * VH;
+  const out: NewgameViewports = {};
+  for (const [key, val] of Object.entries(data as Record<string, unknown>)) {
+    const gy = Number(key);
+    if (!Number.isFinite(gy)) {
+      throw new Error(`Malformed newgame viewports from ${url}: non-numeric key "${key}"`);
+    }
+    if (typeof val !== 'string') {
+      throw new Error(`Malformed newgame viewports from ${url}: gy=${gy} value is not a string`);
+    }
+    const buf = Uint8Array.from(atob(val), (c) => c.charCodeAt(0));
+    if (buf.length !== EXPECTED) {
+      throw new Error(
+        `Malformed newgame viewports from ${url}: gy=${gy} buffer length ${buf.length}, expected ${EXPECTED}`,
+      );
+    }
+    out[gy] = buf;
+  }
+  return out;
 }
 
 export async function loadDungeonLevel(id: number): Promise<DungeonLevel> {
