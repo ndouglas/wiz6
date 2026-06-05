@@ -10,8 +10,8 @@ import {
 import {
   advanceEntry,
   decodeNarrationLines,
+  drawNarrationStrip,
   renderMazeViewport,
-  renderTextRun,
   turn,
   tryStepForward,
   type CapturedSpansTable,
@@ -40,14 +40,6 @@ const SCALE = 3;
 const MSG_DB_URL = '/messages/msg.json';
 /** The small 1bpp UI message font (wfont0) used for the bottom strip text. */
 const MESSAGE_FONT_URL = '/fonts/wfont0.json';
-
-/** Narration strip layout (RE: docs/re/findings/maze-entry-sequence.json):
- *  3 white (palette idx 5) lines on the black (idx 0) bottom strip, left
- *  margin x=8, 8px line pitch starting at y=153. */
-const NARRATION_FG_IDX = 5;
-const NARRATION_BG_IDX = 0;
-const NARRATION_X = 8;
-const NARRATION_LINE_Y = [153, 161, 169] as const;
 
 /** The 16-entry composed EGA palette (index → [r,g,b]). The maze renderer returns
  *  palette indices 0..15; this is the standard EGA palette the corridor fixtures
@@ -127,25 +119,14 @@ function composeFrame(
   return frame;
 }
 
-/** Overlay the 3 narration lines onto the bottom strip: white (idx 5) glyphs on
- *  black (idx 0), via the 1bpp font run renderer. */
+/** Overlay the 3 narration lines onto the bottom strip via the shared, gated
+ *  helper (palette idx 5 glyphs on idx 0). The same drawNarrationStrip backs the
+ *  pixel-parity gate (maze-entry-narration-parity.test.ts) so the live render and
+ *  the gate can't drift. */
 function drawNarration(frame: Uint8Array, lines: string[], font: Font): void {
   // renderTextRun expects a Uint8ClampedArray RGBA view; share the buffer.
   const rgba = new Uint8ClampedArray(frame.buffer);
-  for (let i = 0; i < lines.length && i < NARRATION_LINE_Y.length; i++) {
-    renderTextRun(
-      rgba,
-      ENGINE_W,
-      ENGINE_H,
-      NARRATION_X,
-      NARRATION_LINE_Y[i]!,
-      lines[i]!,
-      font,
-      NARRATION_FG_IDX,
-      NARRATION_PALETTE,
-      NARRATION_BG_IDX,
-    );
-  }
+  drawNarrationStrip(rgba, ENGINE_W, ENGINE_H, lines, font, NARRATION_PALETTE);
 }
 
 /**
