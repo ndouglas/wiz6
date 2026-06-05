@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import styles from './EngineeringNotes.module.css';
 
 type Tag =
@@ -1802,6 +1803,20 @@ const TAG_COUNTS: Record<Tag, number> = (() => {
 
 export function EngineeringNotes() {
   const [activeTags, setActiveTags] = useState<Set<Tag>>(new Set());
+  const { hash } = useLocation();
+
+  // SPA navigation doesn't trigger the browser's native hash-fragment scroll,
+  // so permalinks like /explore/notes#bonus-point-lottery (and the inline
+  // RECommentary badges) land at the top instead of the card. Scroll the
+  // matching <article id={note.id}> into view after layout. (#048)
+  useEffect(() => {
+    if (!hash) return;
+    const id = hash.slice(1);
+    const raf = requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [hash]);
 
   function toggleTag(t: Tag) {
     setActiveTags((prev) => {

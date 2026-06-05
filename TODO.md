@@ -57,10 +57,6 @@ Next free ID: **#078**
 - #065 [open] — Visual regression harness for headless playthroughs
   - Once dynamic-driving is exercised in real use (`pnpm test:integration`), capture reference screenshot sequences for known game flows. Re-run the same sequence in CI; diff each frame against the reference. Catches gameplay-flow regressions the existing pixel-parity tests don't (they cover isolated frames, not transitions).
 
-- #067 [open] — AddPartyPage omits wfont4 in its castle-scene composite
-  - `AddPartyPage.tsx` calls `composeCastleFrame(...)` with only 12 args (missing the 13th, `wfont4`), so equipment glyphs in the party-panel portraits behind the ADD picker render wrong. Surfaced 2026-06-01 while fixing the same omission in `PartyMemberPicker.tsx` (the REVIEW/DISMISS picker fix) — there the browser e2e caught it via a 204px diff. `CastleScreen.tsx` and the fixed `PartyMemberPicker.tsx` both load + pass `wfont4`; AddPartyPage should too.
-  - Fix is a 1-line analog (add wfont4 state + loader + the 13th arg). No pixel-parity gate exists for the ADD picker yet (only a cell fixture), so capture a `add-party-picker` engine fixture + parity test when fixing, or verify by browser e2e like the REVIEW picker.
-
 - #059 [open] — Cursor position reset on ESC/Cancel in EDIT-submenu sub-flows
   - Per #040 final-review and Nate's smoke: ESC from `edit-submenu` returns to `action-menu` with `cursorIdx: 0`; N in `profession-confirm` returns to `profession-picker` with `cursorIdx: 0`. The user loses their selected position.
   - Resolve by carrying the "return cursor" through the reducer's state shape (e.g., `edit-submenu` remembers which action menu index it came from; `profession-confirm` remembers picker cursor). Minor UX; not blocking.
@@ -100,16 +96,6 @@ Next free ID: **#078**
   - Target UX: ArrowUp/Down stays inside the active column; ArrowLeft/Right hops to the matching row of the adjacent column. Mirrors the engine's grid picker semantics.
   - Verify whether this needs to apply to RACE picker too (also has columnar layout).
 
-- #051 [open] — Shorten the bonus-points QoL description
-  - `packages/data/src/schemas/house-rules.ts` — `HOUSE_RULES_META.pinMaxBonusRoll.description` is ~500 words explaining the bonus-roll grind. The card it links to (`/explore/notes#bonus-point-lottery` in EngineeringNotes.tsx around line 108) already has the full pitch + math.
-  - Trim the META description to 2-3 sentences (pitch + the "see linked card" hand-off). Keep the `learnMoreUrl` intact so the rich card is one click away.
-
-- #048 [open] — Engineering-note permalinks don't scroll to the anchor
-  - `/explore/notes` (`EngineeringNotes.tsx`) and the inline `<RECommentary>` cards: clicking a link like `/explore/notes#bonus-point-lottery` loads the page but does NOT scroll to the matching `<h2 id="bonus-point-lottery">`.
-  - Likely cause: SPA navigation via react-router-dom does not trigger the browser's native hash-fragment scroll. Need a `useEffect(() => { if (hash) document.getElementById(hash.slice(1))?.scrollIntoView() }, [hash])` somewhere — either page-level (EngineeringNotes) or a global router-level scroll-to-hash hook.
-
-- #047 [open] — gitignore `tools/dosbox/dosbox-autodrive.log`
-  - DOSBox-X auto-creates this log when launched; it's per-run/local state and shouldn't be tracked. Single-line `.gitignore` addition.
 
 - #046 [open] — Remove the "browser audio requires a gesture" user-facing message
   - Audio is unlocked silently on first keydown/pointerdown by `packages/viewer/src/lib/audio.ts` — the gesture-requirement is plumbing, not something the user needs to read about.
