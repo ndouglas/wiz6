@@ -46,7 +46,7 @@
  * engine redraws the message window), by which point the engine's MOUSE CURSOR
  * has been drawn into the bottom-right of the strip — a NON-DETERMINISTIC
  * software cursor (idx 12 dark-red [170,0,0] + idx 1 white outline), bounded
- * EXACTLY to x=313..319, y=184..190 (32 px). Frames 02/04/05/06 were captured at
+ * EXACTLY to x=313..319, y=184..190 (49 px, 7×7). Frames 02/04/05/06 were captured at
  * phases where the cursor is not in that spot. We exclude that 7×7 cursor rect
  * (a deliberate, documented per-region exclusion per CLAUDE.md — NOT a tolerance
  * lift; everything outside it is gated at tolerance 0). The existing
