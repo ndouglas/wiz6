@@ -1779,6 +1779,213 @@ async function phaseFirstCheck(c: HostClient): Promise<void> {
   }
 }
 
+/** `placements` — GAP B (b1): capture the ORDERED placement-INDEX list the engine
+ *  emits at the OR-blit for the maze-corridor frame, over a COMPLETE single
+ *  recompose pass (deterministic, reproducible).
+ *
+ *  The OR-blit (ega.drv FUN_0a93, file 0xa93) is called ONCE PER PLACEMENT. Its
+ *  arg [bp+0xc] is the placement index into cs:[0x190] (asm 0x0aaa:
+ *  `mov bx,[bp+0xc]; mov ax,5; mul bx; add ax,cs:[0x190]; mov si,ax`). The je at
+ *  0x0aa4 (when [bp+0x10]==0xffff) routes to 0x0aa9->0x0aaa->0x0aad — so any
+ *  execution reaching file 0x0aad is the OR branch; the non-OR branch jumps away
+ *  at 0x0aa6. We trace at 0x0aad (snapshot taken BEFORE the instruction) where
+ *  ebx already holds the placement index.
+ *
+ *  Completeness: a forceRedraw runs N identical recompose passes. We collect a
+ *  generous run of hits, then extract ONE FULL PASS as the maximal cycle that
+ *  repeats (the index sequence between two occurrences of the pass start). The
+ *  pass is the deterministic per-view placement-index list.
+ *
+ *  Usage: pnpm tsx tools/libretro/trace-maze.ts placements [outFile] */
+async function phasePlacements(c: HostClient): Promise<void> {
+  const outFile = process.argv[3] ?? '/tmp/wiz6-placements.json';
+  if (!existsSync(CLEAN_STATE)) {
+    console.log('CLEAN_STATE absent — driving `reach` to build it…');
+    await driveToMaze(c);
+    await c.serialize(CLEAN_STATE); await c.fb(CLEAN_PNG);
+  }
+  const base = await resolveOrBaseReplay(c);
+  if (base < 0) { console.log('FAILED to resolve OR-blit base from replay — abort'); return; }
+  const entry = base + 0xa93;
+  // The blit (FUN_0a93) has TWO branches keyed by arg [bp+0x10]:
+  //   arg10 == 0xffff  -> OR branch (file 0xaa9..): single-image OR-blit of
+  //                       placement [bp+0xc] into the page (forward read).
+  //   arg10 != 0xffff  -> MASKED branch (file 0xbc6..): a two-index, xlatb-LUT,
+  //                       REVERSE-read blit — arg10 is the placement (dest geom),
+  //                       [bp+0xc] is the source image; OR-merge or REPLACE per
+  //                       [bp+0xe]. This is the horizontally-mirrored right-half
+  //                       (and some left) pieces. Both branches WRITE the page, so
+  //                       a from-asset compose needs BOTH.
+  //
+  // To capture the interleaved call list deterministically (held-ENTER runs N
+  // identical passes), trace three points over the SAME redraw:
+  //   0x0aa1 (`cmp ax,0xffff`): eax = arg10 for EVERY call (both branches) — the
+  //                             ordered branch/arg10 sequence.
+  //   0x0aad (OR branch):       ebx = arg0c for OR calls, in order.
+  //   0x0bca (masked branch):   ebx = arg0c for masked calls, in order.
+  // Reconstruct by walking the 0xaa1 sequence, consuming OR/masked arg0c in turn.
+  const cmpPt = base + 0xaa1;
+  const orArgPt = base + 0xaad;
+  const mArgPt = base + 0xbca;
+  console.log(`reloc base=0x${base.toString(16)} cmp=0x${cmpPt.toString(16)} OR-arg=0x${orArgPt.toString(16)} masked-arg=0x${mArgPt.toString(16)}`);
+
+  // The SETTLED maze-corridor frame (CLEAN_STATE) recomposes FULLY on the first
+  // forceRedraw frame, then does dirty-only PARTIAL redraws. The FULL first compose
+  // is the complete background. Trace each branch point ALONE over the settled
+  // forceRedraw: at 0xaad (OR) and 0xbca (masked) the snapshot has eax=arg10 AND
+  // ebx=arg0c. The cmp point (0xaa1) gives arg10 for EVERY call -> the interleave
+  // order. Take the FIRST compose pass = the prefix before the OR head recurs.
+  const traceAll = async (pt: number): Promise<TraceRecord[]> => {
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(pt); await c.traceDrain();
+    const out: TraceRecord[] = [];
+    await c.key('enter', 'down');
+    for (let i = 0; i < 22; i++) { await c.step(4); for (const r of await c.traceDrain()) out.push(r); if (i === 16) await c.key('enter', 'up'); }
+    await c.key('enter', 'up'); await c.traceOff();
+    return out;
+  };
+
+  // Capture the live table pointers + tables at the OR-blit entry fire (settled).
+  const segBaseHolder: { dataSeg: number; placeOff: number; imgDescOff: number; placeTbl: Uint8Array | null; descTbl: Uint8Array | null } = { dataSeg: 0, placeOff: 0, imgDescOff: 0, placeTbl: null, descTbl: null };
+  {
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(entry); await c.traceDrain();
+    await forceRedraw(c);
+    const er = await c.traceDrain(); await c.traceOff();
+    if (er.length) {
+      const segBase = er[0]!.cs << 4;
+      await c.unserialize(CLEAN_STATE); await c.step(2);
+      await c.traceSet(entry); await c.captureSet(segBase + 0x140, 0x60, 0);
+      await forceRedraw(c);
+      const ptrs = await c.captureGet(); await c.traceOff();
+      if (ptrs) {
+        segBaseHolder.dataSeg = u16(ptrs, 0x149 - 0x140);
+        segBaseHolder.placeOff = u16(ptrs, 0x190 - 0x140);
+        segBaseHolder.imgDescOff = u16(ptrs, 0x18e - 0x140);
+        await c.unserialize(CLEAN_STATE); await c.step(2);
+        await c.traceSet(entry); await c.captureSet((segBaseHolder.dataSeg << 4) + segBaseHolder.placeOff, 0x800, 0);
+        await forceRedraw(c); segBaseHolder.placeTbl = await c.captureGet(); await c.traceOff();
+        await c.unserialize(CLEAN_STATE); await c.step(2);
+        await c.traceSet(entry); await c.captureSet((segBaseHolder.dataSeg << 4) + segBaseHolder.imgDescOff, 0x400, 0);
+        await forceRedraw(c); segBaseHolder.descTbl = await c.captureGet(); await c.traceOff();
+      }
+    }
+  }
+
+  interface Call { branch: 'OR' | 'masked'; arg0c: number; arg10: number; orFlag?: number }
+  const cmpRecs = await traceAll(cmpPt);
+  const orRecs = await traceAll(orArgPt);
+  const mRecs = await traceAll(mArgPt);
+  // Per-masked-call [bp+0xe] flag (OR-merge vs REPLACE). Trace 0xbca (masked entry,
+  // bp set), capture the stack word [bp+0xe] per masked-call skip index.
+  const mFlags: number[] = [];
+  for (let k = 0; k < mRecs.length; k++) {
+    const r = mRecs[k]!;
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(mArgPt); await c.captureSet((r.ss << 4) + ((r.ebp + 0xe) & 0xffff), 2, k);
+    await forceRedraw(c); const w = await c.captureGet(); await c.traceOff();
+    mFlags.push(w ? u16(w, 0) : -1);
+  }
+  console.log(`masked flags (first ${Math.min(30, mFlags.length)}): [${mFlags.slice(0, 30).join(',')}]`);
+  // masked branch [bp+0xe] (OR-merge vs REPLACE flag): captured at 0xc5f where
+  // `cmp [bp+0xe],0` runs. ds/si there point at the LUT — grab xlatb LUT too.
+  const mFlagRecs = await traceAll(base + 0xc5f);
+  console.log(`settled redraw hits: cmp=${cmpRecs.length}, OR=${orRecs.length}, masked=${mRecs.length}, mFlag=${mFlagRecs.length}`);
+  if (cmpRecs.length === 0) { console.log('no blit hits — abort'); return; }
+  // Capture the xlatb LUT (CS:[0x192], 256 bytes — the `cs: xlatb` at 0xc69 uses a
+  // CS segment override) at the first masked-blit fire. segBase = cs<<4.
+  let lut: Uint8Array | null = null;
+  if (mFlagRecs.length) {
+    const fr = mFlagRecs[0]!;
+    const segBase = fr.cs << 4;
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(base + 0xc5f); await c.captureSet(segBase + 0x192, 0x100, 0);
+    await forceRedraw(c); lut = await c.captureGet(); await c.traceOff();
+    const r = mFlagRecs[0]!;
+    await c.unserialize(CLEAN_STATE); await c.step(2);
+    await c.traceSet(base + 0xc5f); await c.captureSet((r.ss << 4) + ((r.ebp + 0xe) & 0xffff), 2, 0);
+    await forceRedraw(c); const fw = await c.captureGet(); await c.traceOff();
+    const flag = fw ? u16(fw, 0) : -1;
+    const isIdentity = lut ? lut.every((b, i) => b === i) : false;
+    console.log(`masked [bp+0xe] flag=${flag} (0=REPLACE, !=0 OR-merge); LUT identity=${isIdentity}; LUT[0..15]=${lut ? [...lut.subarray(0, 16)].map((b) => b.toString(16).padStart(2, '0')).join(' ') : 'n/a'}`);
+    if (lut) writeFileSync('/tmp/wiz6-maze-xlat-lut.bin', Buffer.from(lut));
+  }
+
+  // Reconstruct the FULL interleaved sequence; take the FIRST COMPOSE PASS = the
+  // prefix before the OR head recurs (the dirty partial-redraws follow).
+  const allCalls: Call[] = [];
+  let oi = 0, mi = 0;
+  for (const r of cmpRecs) {
+    const a10 = r.eax & 0xffff;
+    if (a10 === 0xffff) { const rr = orRecs[oi++]; allCalls.push({ branch: 'OR', arg0c: (rr?.ebx ?? -1) & 0xffff, arg10: (rr?.eax ?? a10) & 0xffff }); }
+    else { const rr = mRecs[mi++]; allCalls.push({ branch: 'masked', arg0c: (rr?.ebx ?? -1) & 0xffff, arg10: a10 }); }
+  }
+  const eq = (a: Call, b: Call) => a.branch === b.branch && a.arg0c === b.arg0c && a.arg10 === b.arg10;
+  let firstPassLen = allCalls.length;
+  const firstOr = allCalls.findIndex((cc) => cc.branch === 'OR');
+  if (firstOr >= 0) {
+    const head = allCalls[firstOr]!;
+    for (let p = firstOr + 1; p < allCalls.length; p++) if (allCalls[p]!.branch === 'OR' && eq(allCalls[p]!, head)) { firstPassLen = p; break; }
+  }
+  const passCalls = allCalls.slice(0, firstPassLen);
+  const orPass = passCalls.filter((cc) => cc.branch === 'OR');
+  const mPass = passCalls.filter((cc) => cc.branch === 'masked');
+  const pass = passCalls.map((cc) => cc.arg0c);
+  console.log(`first compose pass = ${passCalls.length} blit calls (${orPass.length} OR, ${mPass.length} masked)`);
+  console.log(`masked: [${mPass.map((cc) => `${cc.arg0c}->${cc.arg10}`).join(', ')}]`);
+  console.log(`OR: [${orPass.map((cc) => cc.arg0c).join(', ')}]`);
+  const reproducible = firstPassLen < allCalls.length;
+
+  // Dump the LIVE placement + descriptor records for each index, to compare to the
+  // offline expander (mazedata.ega). Read from the captured live tables.
+  const liveRecs: Array<Record<string, number>> = [];
+  const pt = segBaseHolder.placeTbl, dt = segBaseHolder.descTbl;
+  if (pt && dt) {
+    for (const idx of pass) {
+      const po = idx * 5;
+      const imgIdx = pt[po]!;
+      const do2 = imgIdx * 5;
+      liveRecs.push({ idx, imgIdx, destX: pt[po + 1]!, destRow: pt[po + 2]!, bias: pt[po + 3]!, count: pt[po + 4]!, segDelta: u16(dt, do2), srcOffLow: dt[do2 + 2]!, w: dt[do2 + 3]!, h: dt[do2 + 4]! });
+    }
+    console.log('live placement records (idx -> {imgIdx,destX,destRow,bias,count} desc{segDelta,srcOffLow,w,h}):');
+    for (const r of liveRecs.slice(0, 8)) console.log(`  ${r.idx}: img${r.imgIdx}@(${r.destX},${r.destRow}) b${r.bias} c${r.count}  seg+0x${r.segDelta.toString(16)}/off0x${r.srcOffLow.toString(16)}/w${r.w}/h${r.h}`);
+  }
+
+  writeFileSync(outFile, JSON.stringify({
+    note: 'maze-corridor (zone0, facing0) blit call list — first full compose pass at ega.drv FUN_0a93. OR branch (arg10==ffff) = single-image forward OR-blit of placement arg0c. masked branch (arg10!=ffff) = xlatb-LUT reverse-read blit, dest=placement arg10, src image=placement arg0c. Static placement records live in mazedata.ega (366). This is the per-view SELECTION + the masked-mirror pairing.',
+    reloc_base: base.toString(16),
+    frame: { game_state: 5, zone: 0, facing: 0, name: 'maze-corridor' },
+    total_hits: cmpRecs.length,
+    pass_length: passCalls.length,
+    reproducible,
+    placementIndices: pass,
+    calls: passCalls.map((cc) => ({ branch: cc.branch, arg0c: cc.arg0c, arg10: cc.arg10 })),
+    masked_flags: mFlags,
+    table_pointers: { dataSeg: segBaseHolder.dataSeg.toString(16), placeOff: segBaseHolder.placeOff.toString(16), imgDescOff: segBaseHolder.imgDescOff.toString(16) },
+    liveRecords: liveRecs,
+  }, null, 2));
+  console.log(`\n-> ${outFile}`);
+}
+
+/** `placecheck` — reproducibility gate for `placements`: capture TWICE (two fresh
+ *  boots) and confirm the placement-index lists are byte-identical. */
+async function phasePlaceCheck(c: HostClient): Promise<void> {
+  const a = '/tmp/wiz6-placements-a.json', b = '/tmp/wiz6-placements-b.json';
+  process.argv[3] = a; await phasePlacements(c); c.close();
+  const c2 = new HostClient();
+  let listA: number[] = [], listB: number[] = [];
+  try {
+    process.argv[3] = b; await phasePlacements(c2);
+    listA = JSON.parse(readFileSync(a, 'utf8')).placementIndices;
+    listB = JSON.parse(readFileSync(b, 'utf8')).placementIndices;
+  } finally { c2.close(); }
+  const equal = JSON.stringify(listA) === JSON.stringify(listB);
+  console.log(`\n=== PLACEMENT REPRODUCIBILITY ===`);
+  console.log(`  A: ${listA.length} indices, B: ${listB.length} indices`);
+  console.log(`  equal: ${equal ? '✓ reproducible' : 'DIFFER'}`);
+  if (!equal) { console.log(`  A=[${listA.join(',')}]`); console.log(`  B=[${listB.join(',')}]`); }
+}
+
 async function phaseFine(c: HostClient): Promise<void> {
   const ovl = ovlBase();
   const offs = process.argv.slice(3).map((s) => parseInt(s, 16));
@@ -1930,6 +2137,8 @@ async function main() {
     else if (phase === 'firstrender') await phaseFirstRender(c);
     else if (phase === 'firstcheck') await phaseFirstCheck(c);
     else if (phase === 'fine') await phaseFine(c);
+    else if (phase === 'placements') await phasePlacements(c);
+    else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
     else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
