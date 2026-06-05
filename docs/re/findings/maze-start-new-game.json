@@ -3,7 +3,7 @@
   "subagent_run": "2026-06-05 (Task B3: discover the START NEW GAME entrance + wire the viewer handler)",
   "binaries": ["wroot.exe", "wmaze.ovr"],
   "tool": "dosbox-pure (libretro) live harness via HostClient (packages/mcp/src/live/host-client.ts). Fresh boot → title → MASTER OPTIONS → 3 party members added → navigate to START NEW GAME → scenario pick → dungeon entry → narration dismissed (10× enter) → read DGROUP party fields (0x4f9a/0x4f9c/0x4f9e/0x4fa0/0x4fa2/0x4fa4) via anchor() + read().",
-  "summary": "Fresh START NEW GAME places the party at gx=127, gy=120, z=0, facing=0 (game_state=5, zone=0). This is Region 0 of the level-0 MazeBlock: cellA(0x4f9e)=4 / cellB(0x4fa0)=7 (i.e. gy-gyBase[0]=120-116=4, gx-gxBase[0]=127-120=7 — the top-right corner cell of Region 0's 8×8 plane). The START→dungeon ordering is: scenario pick → scripted entry narration (modal, dismissed with multiple ENTER taps) → first controllable dungeon frame (game_state stays 5 throughout). The narration is a series of modal ENTER-dismiss prompts; after ~10 ENTER taps the engine reaches the settled controllable frame.",
+  "summary": "Fresh START NEW GAME places the party at gx=127, gy=120, z=0, facing=0 during the scripted gate-walk (game_state=5, zone=0). NOTE: gy=120 is NOT the first arrow-controllable frame — it is mid-scripted-walk; the first STEERABLE frame is gy=121 (= committed maze-corridor.state). The KNOWN_ENTRANCES table has been corrected to gy=121. See maze-view-cases.json entrance_discrepancy for the C1 arrow-BFS verification. The gy=120 frame resolves to Region 0, cellA=4, cellB=7; the correct gy=121 frame resolves to Region 0, cellA=5, cellB=7.",
   "reference_frame": {
     "state": "fresh boot (no saved state)",
     "game_state": 5,
@@ -21,15 +21,15 @@
   "findings": [
     {
       "id": "entrance-gx127-gy120-z0-facing0",
-      "claim": "Fresh START NEW GAME places the party at gx=127, gy=120, z=0, facing=0 in zone 0 (the starting level). This is Region 0 of the level-0 MazeBlock (gxBase[0]=120, gyBase[0]=116): cellB=gx-120=7, cellA=gy-116=4, cellIdx=0*64+4*8+7=39. Verified: game_state=5 (wmaze), zone=0, match between live 0x4f9e/0x4fa0 (4/7) and the resolved region cell.",
+      "claim": "CORRECTED (2026-06-05): B3 read gy=120 during the scripted gate-walk, which is NOT arrow-controllable. The correct steerable entrance is gy=121 (= committed maze-corridor.state). The KNOWN_ENTRANCES table in packages/cli/src/extractors/maze-level.ts has been updated to gy=121. Cross-reference: maze-view-cases.json entrance_discrepancy (C1 arrow-BFS confirmed gy=120 is engine-unreachable via arrows). The gy=120 frame is Region 0, cellA=4, cellB=7; the steerable gy=121 frame is Region 0, cellA=5, cellB=7.",
       "category": "party_position",
       "evidence": {
         "binary": "wmaze.ovr",
         "address": {"space": "wroot.dgroup", "offset": "0x4f9a"},
         "type": "live_read",
-        "details": "tools/libretro/discover-entrance.ts: fresh HostClient boot (3000 frames), title→MASTER OPTIONS (enter), add 3 party members, navigate START NEW GAME, scenario pick (enter), dungeon entry (enter), dismiss narration (10× enter tap), settle 200 frames, read DGROUP: game_state=5, zone=0, gx=127, gy=120, z=0, facing=0, cellA=4, cellB=7. Cross-verified: cellA=gy-gyBase[0]=120-116=4 ✓; cellB=gx-gxBase[0]=127-120=7 ✓; cell=0*64+4*8+7=39."
+        "details": "tools/libretro/discover-entrance.ts: fresh HostClient boot (3000 frames), title→MASTER OPTIONS (enter), add 3 party members, navigate START NEW GAME, scenario pick (enter), dungeon entry (enter), dismiss narration (10× enter tap), settle 200 frames, read DGROUP: game_state=5, zone=0, gx=127, gy=120, z=0, facing=0, cellA=4, cellB=7. NOTE: this is mid-scripted-walk — movement keys are not yet active here. The C1 arrow-BFS (maze-view-cases.json) confirmed the steerable area starts at gy=121 and the gy<=120 room is engine-unreachable via arrows."
       },
-      "confidence": "high"
+      "confidence": "corrected"
     },
     {
       "id": "start-dungeon-ordering",

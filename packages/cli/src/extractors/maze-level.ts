@@ -6,8 +6,10 @@
  * a DungeonLevel (validated against DungeonLevelSchema), and writes the result
  * to extracted/maze/level-<id>.json.
  *
- * Entrance for level 0: discovered via live engine drive in Task B3 (gx=127,
- * gy=120, z=0, facing=0). For other levels, entrance defaults to {0,0,0,0}
+ * Entrance for level 0: gy=121 (the first arrow-controllable frame, = committed
+ * maze-corridor.state). gy=120 was a B3 mis-read — that frame is mid-scripted-walk,
+ * not yet arrow-controllable. See docs/re/findings/maze-view-cases.json
+ * entrance_discrepancy. For other levels, entrance defaults to {0,0,0,0}
  * until a live oracle is available.
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -27,13 +29,15 @@ export function extractMazeLevel(opts: ExtractMazeLevelOpts): DungeonLevel {
   const record = decodeAsset(db, MAZE_BANK, opts.levelId);
   const mazeBlock = decodeMazeBlock(record);
 
-  // Level-0 entrance: discovered via live engine drive in Task B3.
-  // Fresh START NEW GAME → scenario pick → dungeon loads → party placed at
-  // gx=127, gy=120, z=0, facing=0 (DGROUP 0x4fa4/0x4fa2/0x4f9c/0x4f9a).
-  // Verified: resolves to Region 0, cellA=4, cellB=7 in the MazeBlock.
+  // Level-0 entrance: gy=121 (the first arrow-controllable frame).
+  // B3 read gy=120 right after narration dismiss — but that frame is mid-scripted
+  // gate-walk and is NOT arrow-controllable. The first steerable frame is gy=121
+  // (= committed maze-corridor.state). Verified by the C1 arrow-BFS:
+  // docs/re/findings/maze-view-cases.json → entrance_discrepancy.
+  // Region 0, cellA=5, cellB=7 (gy-gyBase[0]=121-116=5, gx-gxBase[0]=127-120=7).
   // Other levels: entrance unknown; placeholder until a live oracle is available.
   const KNOWN_ENTRANCES: Record<number, { gx: number; gy: number; z: number; facing: number }> = {
-    0: { gx: 127, gy: 120, z: 0, facing: 0 },
+    0: { gx: 127, gy: 121, z: 0, facing: 0 },
   };
   const entrance = KNOWN_ENTRANCES[opts.levelId] ?? { gx: 0, gy: 0, z: 0, facing: 0 };
 
