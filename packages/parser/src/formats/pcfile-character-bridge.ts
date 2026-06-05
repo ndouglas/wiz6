@@ -59,6 +59,9 @@ export function pcfileSlotToCharacter(slot: PcfileSlot, id: string): Character {
     // falls back to 10 (drawArmorClass `?? 10`), which only matches Fighter-base
     // characters — a Faerie Ninja's stored 8 rendered as 10. RE: +0x4548 base AC.
     derivedAc: slot.derivedAc,
+    // School rank thresholds: 14-byte array at +0x152..+0x15f.
+    // Carries through so the reverse bridge can reconstruct them byte-exactly.
+    schoolRankThresholds: [...slot.schoolRankThresholds],
     // Carried inventory + equipped body-slots. Previously omitted, so every
     // character loaded from a pcfile (viewer roster import via pc-file-io.ts)
     // came through with an empty pack — the review screen + equip menu showed
@@ -128,16 +131,26 @@ export function characterToPcfileSlot(c: Character, slotIndex: number): PcfileSl
     skills: [...c.skills],
     bodyAc: c.bodyAc ? [...c.bodyAc] : [0, 0, 10, 10, 10, 10, 10],
     reaction: c.reaction,
-    npcRaceReaction: new Array<number>(31).fill(c.reaction),
-    spellSlotsKnown: new Array<number>(20).fill(0),
-    portraitIndex: 0, // +0x1ab creation default; not the rendered portrait (that's raw[0x19c])
-    inventoryCount: 0,
-    inventoryCountPage2: 0,
-    derivedAc: 10,
+    npcRaceReaction: c.npcRaceReaction ? [...c.npcRaceReaction] : new Array<number>(31).fill(c.reaction),
+    spellSlotsKnown: c.spellSlotsKnown ? [...c.spellSlotsKnown] : new Array<number>(20).fill(0),
+    portraitIndex: c.portraitIndex ?? 0, // +0x1ab creation default; not the rendered portrait (that's raw[0x19c])
+    // inventoryCount / inventoryCountPage2 are not on the Character schema; derive them
+    // from inventory so the roundtrip is byte-exact at +0x1ac/+0x1ad.
+    // Engine definition: inventoryCount = number of occupied slots (itemId > 0) in slots 0..9;
+    // inventoryCountPage2 = occupied slots in 10..21. Matches the stock record values (all 5,0).
+    inventoryCount: c.inventory
+      ? c.inventory.slice(0, 10).filter((it) => it.itemId > 0).length
+      : 0,
+    inventoryCountPage2: c.inventory
+      ? c.inventory.slice(10, 22).filter((it) => it.itemId > 0).length
+      : 0,
+    derivedAc: c.derivedAc ?? 10,
     savedOldLevel: c.savedOldLevel,
-    schoolRankThresholds: new Array<number>(14).fill(0),
-    inventory: new Array(22).fill(null).map(() => ({ ...EMPTY_ITEM })),
-    equipment: new Array<number>(8).fill(0xff),
+    schoolRankThresholds: c.schoolRankThresholds ? [...c.schoolRankThresholds] : new Array<number>(14).fill(0),
+    inventory: c.inventory
+      ? c.inventory.map((it) => ({ ...it, pad: 0 }))
+      : new Array(22).fill(null).map(() => ({ ...EMPTY_ITEM })),
+    equipment: c.equipment ? [...c.equipment] : new Array<number>(8).fill(0xff),
     raw,
   };
 }
