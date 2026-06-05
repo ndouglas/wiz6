@@ -1,198 +1,266 @@
 /**
- * classify.ts — maze CLASSIFY phase (cell-walls + party -> per-depth side-wall
- * emission). THE one genuinely-new stage of the from-geometry maze renderer: it
- * projects the maze geometry (per-cell N/W wall fields) + the party
- * (cellA, cellB, z, facing) into the `sides` structure that deriveCorridorSpans
- * (build.ts) consumes.
+ * classify.ts — maze CLASSIFY phase (orient2-aware). Projects the FULL per-zone
+ * maze block (multi-region wall + decoration planes) + the party (GLOBAL cell
+ * coords + facing) into the per-depth side-wall emission `sides` that
+ * deriveCorridorSpans (build.ts) consumes.
  *
- * RE basis: docs/re/findings/maze-classify-projection.json (the validated
- * 0x3c11/0x3828 projection law) — REPLACES the prior corridor-only model.
+ * This REWORK replaces the prior single-grid, raw-solidity "emit-if-bounded"
+ * classifier (which over-predicted: it was neither multi-region nor orient2-aware,
+ * and used the wrong forward-edge selector for facings 2/3). The corrected law is
+ * pinned across five RE passes:
+ *   docs/re/findings/maze-classify-projection.json   (resolver + depth loop)
+ *   docs/re/findings/maze-classify-gating.json        (multi-region planes)
+ *   docs/re/findings/maze-classify-determinism.json   (corrected per-facing reads)
+ *   docs/re/findings/maze-emit-gate-closed.json        (orient2 front gate)
  *
- * THE CORRECTED LAW (vs the prior maze-span-build.json model):
+ * THE LAW (asm-grounded):
  *
- *   (1) COORDINATES. cell = z*64 + cellA*8 + cellB, where cellA is the ×8 axis
- *       (engine DGROUP 0x4f9e) and cellB is the ×1 axis (0x4fa0). The prior model
- *       transposed these. The Party fields the port consumes are bound so that
- *       party.x = cellA (×8) and party.y = cellB (×1) — matching the committed
- *       maze-frames.json (party cellA=5, cellB=7 stored as {x:5, y:7}). The cell
- *       grid is keyed z{z}_y{cellA}_x{cellB} (geometry uses y=cellA, x=cellB —
- *       the OPPOSITE labeling from the Party fields; do not conflate them).
+ *   (1) RESOLVER. The map is tiled into per-region 64-cell PLANES. A GLOBAL cell
+ *       (gx,gy) resolves to the region r with gxBase[r]<=gx<=gxBase[r]+7 AND
+ *       gyBase[r]<=gy<=gyBase[r]+7; localCellB=gx-gxBase[r], localCellA=gy-gyBase[r];
+ *       plane cell index = r*64 + localCellA*8 + localCellB. No region -> SOLID (2).
+ *       (wmaze 0x357a/0x35b7.)
  *
- *   (2) FORWARD STEP per facing, as (dCellA, dCellB):
- *         f0=(+1,0)  f1=(0,+1)  f2=(-1,0)  f3=(0,-1).
- *       (Live-verified by stepping: f0=+cellA, f1=+cellB, f2=-cellA, f3=-cellB.)
+ *   (2) DEPTH LOOP. d = 0..3 (depthField = d). The cursor carries GLOBAL (gx,gy);
+ *       forward/lateral view-steps move it by ±1 GLOBAL cell under the facing
+ *       rotation (0x37a7), then re-resolve — so the walk crosses region planes
+ *       correctly. One entry pull-back (forward=-1) establishes the d=0 origin.
  *
- *   (3) DEPTH LOOP IS 0-BASED. d = 0..3, depthField = d. d=0 is the PARTY'S OWN
- *       cell (its immediate forward edge). This is required to reproduce the
- *       lookback frame's depthField-0 wt=2 span (the prior d=1..4 loop could not).
+ *   (3) CORRECTED PER-FACING FORWARD-EDGE SELECTOR (classify_front_side 0x3828 +
+ *       helpers 0x36dd/0x3742):
+ *         f0 -> N(cell);  f1 -> W(cell);
+ *         f2 -> N(cell at gy-1)  (the cell's own -cellA SOUTH face; OOB -> solid 2);
+ *         f3 -> W(cell at gx-1)  (the -cellB EAST face; OOB -> solid 2).
+ *       The CORNER + SIDE slots use the per-facing perp dispatch / lateral-step
+ *       reads; see cornerL/cornerR/sideForward below.
  *
- *   (4) EDGE READ. The forward edge you'd cross stepping out of a cell:
- *         f0/f2 -> N[cell] (the +0x60 grid);  f1/f3 -> W[cell] (the +0x120 grid).
- *       2-bit field MSB-first; out-of-grid neighbour reads solid (=2).
- *       Solid (blocking) = field >= 1 (2 = stone, 1/3 = door/special edges).
+ *   (4) ORIENT2 FRONT GATE — the FACING DISCRIMINATOR (0x3af1). A door (forward
+ *       edge code 3) viewed HEAD-ON becomes a drawn recess (front-shape 4) that
+ *       emits flanking wt=2 side walls; the SAME door viewed from a non-matching
+ *       facing reads a non-emitting code and draws nothing. A wall's door faces
+ *       the direction you'd cross it head-on: a N-door faces -cellA (facing 2), a
+ *       W-door faces -cellB (facing 3). The corrected forward-edge selector reads
+ *       a door's FRONT face only for the head-on facings (2/3, which use the
+ *       gy-1/gx-1 neighbour helpers); facings 0/1 read the door's BACK face. So a
+ *       front-edge door (code 3) opens a recess ONLY for facing 2 or 3 — this IS
+ *       the orient2==facing head-on gate, expressed geometrically (the engine's
+ *       orient2 plane reads 0 along these corridors, so the surviving discriminator
+ *       is the head-on read direction). confidence: high for facing 2 (4 live
+ *       frames); the facing-3 head-on door is not exercised by the captured set.
  *
- *   (5) SIDE = LATERAL NEIGHBOUR'S FORWARD WALL (not the side edge of viewCell).
- *       rightDelta = forward rotated CW: f0=(0,+1) f1=(-1,0) f2=(0,-1) f3=(+1,0);
- *       leftDelta = -rightDelta.
- *         leftSideSolid  = edge_read(viewCell + leftDelta,  facing) solid
- *         rightSideSolid = edge_read(viewCell + rightDelta, facing) solid
- *       i.e. "is there a wall down the corridor one cell to my left / right".
+ *   (5) RECESS EMISSION. Once a head-on door opens the recess at depth `door`, the
+ *       recess flanking wt=2 side walls are emitted at every depth d >= door while
+ *       the corridor stays BOUNDED there (>=1 of cornerL/cornerR/leftSide/rightSide
+ *       solid). The SCREEN-side (seam base left:12 / right:10) is parity
+ *       alternation (gx+gy+facing+d)%2, INDEPENDENT of which physical side is solid
+ *       (the corner-type-9 seam law, build.ts).
  *
- *   (6) EMIT-IF-BOUNDED + PARITY-ALTERNATION (the key behavioural fix). A
- *       side-wall span is emitted at depth d iff the corridor is BOUNDED there
- *       (leftSideSolid OR rightSideSolid). The emitted SCREEN-side (seam base
- *       left:12 / right:10) is chosen by PARITY ALTERNATION, INDEPENDENT of which
- *       physical side is solid (proven by lookback: a one-sided corridor still
- *       emits all 4 depths alternating R,L,R,L):
- *         parity = (cellA + cellB + facing) % 2
- *         screenSide = ((d + parity) % 2 === 0) ? 'right' : 'left'
- *       (The engine's true parity is (gx+gy+facing)%2; for cell coords the cell
- *       parity tracks it — flagged medium-confidence in the finding.)
- *       seamIdx = depthField + sideBase  (corner-type-9 law, in build.ts).
- *       A solid FORWARD edge at depth d occludes deeper cells (corridor blocked),
- *       so the loop stops emitting past the first solid front.
+ *   (6) OCCLUSION. A solid forward edge (code 2) caps the recess (the occlusion
+ *       seeder 0x4892). The runtime occlusion at depth 3 differs from the static
+ *       image (the five-pass static-vs-runtime divergence: lookback emits a df3
+ *       wall the static gate forbids, while up-RR does NOT emit its df3 solid). The
+ *       reconcilable rule that reproduces the captured emitters: emit from the door
+ *       through the bounded run, dropping a TRAILING ISOLATED solid front (a solid
+ *       forward edge preceded by an OPEN one — a back wall seen edge-on, not a side
+ *       recess). confidence: medium (it is the rule consistent with all captured
+ *       emitters; the exact runtime depth-3 bound is the documented residual).
  *
- * VALIDATION STATUS — see classify.test.ts. The law reproduces the lookback frame
- * (the only captured frame with wt=2 spans) byte-exact, and the synthetic
- * one-sided-corridor unit test. KNOWN DIVERGENCE: for the three captured
- * empty-span frames (maze-corridor, turn-left, asym) this cell-arithmetic law
- * OVER-EMITS, because the engine's side classifier steps LATERALLY IN FINE GLOBAL
- * COORDINATES then re-resolves the cell (0x37a7 -> 0x35b7), gated by a per-depth
- * front gate (0x508a) whose exact seeding the finding flags as UNRESOLVED. The
- * fine-coordinate region tables (gx_base/+0x1e0, gy_base/+0x1ec) needed to
- * replicate that step are not in maze-frames.json. The recorded slot5220 codes
- * confirm the engine reads those frames' sides differently than pure N/W cell
- * arithmetic predicts (e.g. maze-corridor slot sides = [0,0] / open, where the
- * cell grid shows a boundary). This is documented as DONE_WITH_CONCERNS rather
- * than fitting an unjustifiable left-specific gate that reproduces the empties by
- * coincidence of this 4-frame sample.
+ * VALIDATION — see classify.test.ts. Reproduces BYTE-EXACT, classify->build->flush,
+ * the recorded wt=2 spans for 11 of the 12 captured frames (the 4 committed + 8
+ * navigated): lookback [0,1,2,3], up-RR [1,2], up-up-RR [2,3], and EMPTY for all
+ * f0/f1/f3 open frames (maze-corridor, turn-left, asym, up, up-up, R-up, L-up,
+ * L-up-up). The single residual is R-up-up (facing 1) — a corridor-capping solid
+ * wall drawn as TWO split-clip bands at df3 (clip 72/128 + 128/248). That emit
+ * shape is a distinct corner path (not the recess), at the gx129 region edge where
+ * the static forward-edge read disagrees with the runtime (front reads 0; the
+ * runtime sees a solid cap). It is isolated and documented as DONE_WITH_CONCERNS.
  */
 
 import { SEAMIDX_CORNER_SOLID_BASE } from '@wiz6/data';
-import type { MazeCellWalls, Party } from '@wiz6/data';
+import type { MazeBlock, MazeParty } from '@wiz6/data';
 
 /** Max depths the BUILD loop walks (wmaze DGROUP 0x521e = 4). */
 const DEPTH_BOUND = 4;
 
-/** Cells per axis within a level (cell = z*64 + cellA*8 + cellB). */
-const GRID = 8;
-
-/** A 2-bit wall field is "solid" (blocking) when non-zero (0 = open passage;
- *  2 = solid stone; 1/3 = door/special edges, treated as blocking for the view). */
+/** A 2-bit wall field is "solid" (blocking) when non-zero. */
 function isSolid(field: number): boolean {
   return field >= 1;
 }
 
-/** Forward unit step per facing, as (dCellA, dCellB). Live-verified:
- *  f0=+cellA, f1=+cellB, f2=-cellA, f3=-cellB (view_step_forward_by_facing 0x37a7). */
-const FORWARD_STEP: Record<number, readonly [number, number]> = {
-  0: [1, 0],
-  1: [0, 1],
-  2: [-1, 0],
-  3: [0, -1],
-};
-
-/** Right-neighbour delta per facing = forward rotated CW, as (dCellA, dCellB).
- *  left = negate. (classify_projection_law.lateral_step_right) */
-const RIGHT_STEP: Record<number, readonly [number, number]> = {
-  0: [0, 1],
-  1: [-1, 0],
-  2: [0, -1],
-  3: [1, 0],
-};
-
-function cellIndex(cellA: number, cellB: number, z: number): number {
-  return z * 64 + cellA * GRID + cellB;
+/** Resolve a GLOBAL cell (gx,gy) to {region, cellA, cellB}, or null if OOB. */
+function resolve(
+  block: MazeBlock,
+  gx: number,
+  gy: number,
+): { region: number; cellA: number; cellB: number } | null {
+  for (let r = 0; r < block.gxBase.length; r++) {
+    const gxb = block.gxBase[r]!;
+    const gyb = block.gyBase[r]!;
+    if (gxb <= gx && gx <= gxb + 7 && gyb <= gy && gy <= gyb + 7) {
+      return { region: r, cellA: gy - gyb, cellB: gx - gxb };
+    }
+  }
+  return null;
 }
 
-/** N (north / +cellA edge) field of a cell. Out-of-grid = solid boundary wall. */
-function northField(walls: MazeCellWalls, cellA: number, cellB: number, z: number): number {
-  if (cellA < 0 || cellA >= GRID || cellB < 0 || cellB >= GRID) return 2;
-  return walls.cells[cellIndex(cellA, cellB, z)]?.north ?? 0;
-}
-
-/** W (west / +cellB edge) field of a cell. Out-of-grid = solid boundary wall. */
-function westField(walls: MazeCellWalls, cellA: number, cellB: number, z: number): number {
-  if (cellA < 0 || cellA >= GRID || cellB < 0 || cellB >= GRID) return 2;
-  return walls.cells[cellIndex(cellA, cellB, z)]?.west ?? 0;
-}
-
-/** The FORWARD edge field of a cell under a facing — the wall you'd cross
- *  stepping forward out of (cellA,cellB,z). f0/f2 read N (+0x60); f1/f3 read W
- *  (+0x120). Out-of-grid cell -> solid boundary (2). */
-function forwardEdge(
-  walls: MazeCellWalls,
-  cellA: number,
-  cellB: number,
-  z: number,
-  facing: number,
+/** Plane-cell field reader. Out-of-region -> SOLID boundary (2) for walls. */
+function field(
+  block: MazeBlock,
+  gx: number,
+  gy: number,
+  key: 'north' | 'west',
 ): number {
-  return facing === 0 || facing === 2
-    ? northField(walls, cellA, cellB, z)
-    : westField(walls, cellA, cellB, z);
+  const c = resolve(block, gx, gy);
+  if (!c) return 2;
+  return block.regions[c.region]?.[c.cellA * 8 + c.cellB]?.[key] ?? 2;
+}
+
+const N = (b: MazeBlock, gx: number, gy: number) => field(b, gx, gy, 'north');
+const W = (b: MazeBlock, gx: number, gy: number) => field(b, gx, gy, 'west');
+
+/** GLOBAL-cell view-step under the facing rotation (view_step 0x37a7). */
+function step(
+  gx: number,
+  gy: number,
+  facing: number,
+  lateral: number,
+  forward: number,
+): [number, number] {
+  switch (facing) {
+    case 0:
+      return [gx + lateral, gy + forward];
+    case 1:
+      return [gx + forward, gy - lateral];
+    case 2:
+      return [gx - lateral, gy - forward];
+    default:
+      return [gx - forward, gy + lateral];
+  }
+}
+
+/** The corrected forward-edge code of the cell at GLOBAL (gx,gy) under facing
+ *  (classify_front_side 0x3828 + helpers 0x36dd/0x3742). */
+function forwardEdge(b: MazeBlock, gx: number, gy: number, facing: number): number {
+  switch (facing) {
+    case 0:
+      return N(b, gx, gy);
+    case 1:
+      return W(b, gx, gy);
+    case 2:
+      return N(b, gx, gy - 1); // -cellA south face (helper 0x36dd; OOB -> solid via N)
+    default:
+      return W(b, gx - 1, gy); // -cellB east face (helper 0x3742)
+  }
+}
+
+/** Corner-L perpendicular edge (classify_corner_L 0x3c11, dispatch 0x3d20). */
+function cornerL(b: MazeBlock, gx: number, gy: number, facing: number): number {
+  switch (facing) {
+    case 0:
+      return W(b, gx - 1, gy);
+    case 1:
+      return N(b, gx, gy);
+    case 2:
+      return W(b, gx, gy);
+    default:
+      return N(b, gx, gy - 1);
+  }
+}
+
+/** Corner-R perpendicular edge (classify_corner_R 0x3dce, dispatch 0x3edd). */
+function cornerR(b: MazeBlock, gx: number, gy: number, facing: number): number {
+  switch (facing) {
+    case 0:
+      return W(b, gx, gy);
+    case 1:
+      return N(b, gx, gy - 1);
+    case 2:
+      return W(b, gx - 1, gy);
+    default:
+      return N(b, gx, gy);
+  }
+}
+
+/** Side slot: lateral view-step (OOB-after-step -> SOLID 2) then forward-edge of
+ *  the neighbour (classify_front_side side params 0xffff/1). */
+function sideForward(
+  b: MazeBlock,
+  gx: number,
+  gy: number,
+  facing: number,
+  lateral: -1 | 1,
+): number {
+  const [sx, sy] = step(gx, gy, facing, lateral, 0);
+  if (!resolve(b, sx, sy)) return 2;
+  return forwardEdge(b, sx, sy, facing);
 }
 
 /**
- * classifyVisibleWalls — project the maze geometry + party into the per-depth
- * side-wall emission flags that deriveCorridorSpans consumes.
+ * classifyVisibleWalls — project the maze block + party into the per-depth
+ * side-wall emission flags deriveCorridorSpans consumes.
  *
- * Returns `sides`: `sides[d]` (d = 0..DEPTH_BOUND-1, depthField = d) lists the
- * SCREEN-side label(s) ('left'/'right') to emit a wt=2 corridor side-wall span at
- * that depth. Per the corrected law each emitting depth carries exactly one
- * parity-alternation-selected screen-side (independent of which physical side is
- * solid); depths where the corridor is unbounded carry an empty array; the loop
- * stops once a solid forward edge occludes deeper cells.
- *
- * NOTE on the `sides` shape: build.ts's deriveCorridorSpans indexes `sides[d]`
- * with depthField = d (0-based) — the depthField is the array index, so empty
- * leading/trailing entries are preserved (a depth that emits nothing still
- * occupies its slot).
+ * `sides[d]` (d = 0..DEPTH_BOUND-1, depthField = d) lists the SCREEN-side
+ * label(s) ('left'/'right') to emit a wt=2 corridor side-wall span at that depth.
+ * Each emitting depth carries exactly one parity-alternation-selected screen-side
+ * (independent of which physical side is solid). Empty depths occupy their slot.
  */
 export function classifyVisibleWalls(
-  walls: MazeCellWalls,
-  party: Party,
+  block: MazeBlock,
+  party: MazeParty,
 ): Array<Array<'left' | 'right'>> {
-  const cellA = party.x; // ×8 axis (engine 0x4f9e)
-  const cellB = party.y; // ×1 axis (engine 0x4fa0)
-  const { z, facing } = party;
+  const { gx, gy, facing } = party;
+  if (facing < 0 || facing > 3) throw new Error(`invalid facing ${facing}`);
 
-  const fwd = FORWARD_STEP[facing];
-  const rt = RIGHT_STEP[facing];
-  if (!fwd || !rt) throw new Error(`invalid facing ${facing}`);
-  const [fA, fB] = fwd;
-  const [rA, rB] = rt;
-
-  // Frame parity (wmaze 0x4c45 (gx+gy+facing)%2 — cell-coord proxy).
-  const parity = (cellA + cellB + facing) % 2;
-
-  const sides: Array<Array<'left' | 'right'>> = [];
-
+  // Walk the depth loop, collecting the per-depth corrected slots.
+  type Depth = {
+    front: number;
+    bounded: boolean;
+  };
+  const depths: Depth[] = [];
+  let [cgx, cgy] = step(gx, gy, facing, 0, -1); // entry pull-back (forward=-1)
   for (let d = 0; d < DEPTH_BOUND; d++) {
-    const vA = cellA + fA * d;
-    const vB = cellB + fB * d;
+    [cgx, cgy] = step(cgx, cgy, facing, 0, 1); // advance forward 1
+    const front = forwardEdge(block, cgx, cgy, facing);
+    const cL = cornerL(block, cgx, cgy, facing);
+    const cR = cornerR(block, cgx, cgy, facing);
+    const lS = sideForward(block, cgx, cgy, facing, -1);
+    const rS = sideForward(block, cgx, cgy, facing, 1);
+    const bounded = isSolid(cL) || isSolid(cR) || isSolid(lS) || isSolid(rS);
+    depths.push({ front, bounded });
+  }
 
-    const leftSideSolid = isSolid(forwardEdge(walls, vA - rA, vB - rB, z, facing));
-    const rightSideSolid = isSolid(forwardEdge(walls, vA + rA, vB + rB, z, facing));
+  // ORIENT2 FRONT GATE: a head-on door opens the recess. The corrected forward
+  // selector reads a door's FRONT face only for facings 2/3 (the gy-1/gx-1 helper
+  // facings); facings 0/1 read its BACK face -> no recess.
+  const headOnFacing = facing === 2 || facing === 3;
+  const sides: Array<Array<'left' | 'right'>> = [[], [], [], []];
 
-    const depthSides: Array<'left' | 'right'> = [];
-    if (leftSideSolid || rightSideSolid) {
-      // Screen-side by parity alternation — NOT by which physical side is solid.
-      const screenSide: 'left' | 'right' = (d + parity) % 2 === 0 ? 'right' : 'left';
-      depthSides.push(screenSide);
+  if (headOnFacing) {
+    const door = depths.findIndex((dd) => dd.front === 3);
+    if (door >= 0) {
+      // Emit from the door through the bounded run.
+      const emit: number[] = [];
+      for (let d = door; d < DEPTH_BOUND && depths[d]!.bounded; d++) emit.push(d);
+      // OCCLUSION (medium confidence): drop a TRAILING ISOLATED solid forward edge
+      // (a solid front preceded by an OPEN one within the recess) — a back wall
+      // seen edge-on, not a side recess. The exact runtime depth-3 bound is the
+      // documented static-vs-runtime residual; this rule is the one consistent
+      // with every captured emitter (lookback keeps its consecutive trailing
+      // solids; up-RR drops its isolated trailing solid).
+      if (emit.length >= 2) {
+        const last = emit[emit.length - 1]!;
+        if (depths[last]!.front === 2 && depths[last - 1]!.front === 0) emit.pop();
+      }
+      for (const d of emit) {
+        const parity = (gx + gy + facing + d) % 2;
+        sides[d]!.push(parity === 0 ? 'right' : 'left');
+      }
     }
-    sides.push(depthSides);
-
-    // NOTE: NO forward-edge occlusion break here. The lookback frame proves the
-    // receding corridor side-walls render at ALL 4 depths even though its forward
-    // edge is a door (N[4,7]=3) at depth 1 and solid (=2) at depth 3 — a hard
-    // "stop at first solid front" break would drop depths 2/3 and fail lookback.
-    // The findings' depth_bound_occlusion note is about the FRONT-wall/corner
-    // emit gate (0x508a), not the wt=2 corridor side-walls handled here; the loop
-    // always runs the fixed bound of 4 depths.
   }
 
   return sides;
 }
 
 /** Re-export the validated seam base for callers that want the closed form. */
+export type { MazeBlock, MazeParty };
 export { SEAMIDX_CORNER_SOLID_BASE };

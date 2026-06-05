@@ -21,7 +21,7 @@
  */
 
 import { SEAM_X0_WT2, SEAM_X1_WT2, MAZE_VIEWPORT, PLANE_STRIDE } from '@wiz6/data';
-import type { MazeCellWalls, Party, MazeRenderAssets } from '@wiz6/data';
+import type { MazeBlock, MazeParty, MazeRenderAssets } from '@wiz6/data';
 import { classifyVisibleWalls } from './classify.js';
 import { deriveCorridorSpans } from './build.js';
 import { generateCallList } from './flush.js';
@@ -31,8 +31,8 @@ import { decodePageIndex } from './page.js';
 /**
  * Render the maze first-person corridor view into a 176×112 palette-index buffer.
  *
- * @param cellWalls  Per-cell N/W wall fields for the current level (facing-relative model)
- * @param party      Party position + facing (x, y, z, facing 0-3)
+ * @param block      Full per-zone maze block (multi-region wall + decoration planes)
+ * @param party      Party GLOBAL cell coords + facing (gx, gy, z, facing 0-3)
  * @param assets     Atlas + piece descriptors from loadMazeAssets()
  * @param page       Optional pre-filled 4-plane EGA page (4 * PLANE_STRIDE bytes).
  *                   Defaults to a blank (all-zero) page. Pass a floor/ceiling page
@@ -41,13 +41,13 @@ import { decodePageIndex } from './page.js';
  *                   cropped to MAZE_VIEWPORT (x=72, y=32, w=176, h=112).
  */
 export function renderMazeViewport(
-  cellWalls: MazeCellWalls,
-  party: Party,
+  block: MazeBlock,
+  party: MazeParty,
   assets: MazeRenderAssets,
   page?: Uint8Array,
 ): Uint8Array {
   // Stage 1: classify — per-depth solid-side flags
-  const sides = classifyVisibleWalls(cellWalls, party);
+  const sides = classifyVisibleWalls(block, party);
 
   // Stage 2: build — span list from solid sides + seam tables
   const spans = deriveCorridorSpans(sides, SEAM_X0_WT2, SEAM_X1_WT2);

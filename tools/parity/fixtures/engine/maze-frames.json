@@ -1,1656 +1,7227 @@
 {
- "provenance": {
-  "source_state": "test-fixtures/states/maze-corridor.state.gz",
-  "description": "Per-frame party/slots/spans + shared cell geometry for zone-0 stub corridor. All frames start from the committed corridor state (facing 0, cell x=5 gx=127 gy=121). Turn-left = one left key; lookback = two right keys (180\u00b0 turn).",
-  "captured": "2026-06-04T21:25:32.691Z",
-  "cell_layout": "z=0, FULL 8\u00d78 grid. JSON key z{z}_y{cellA}_x{cellB}: cellA = DGROUP 0x4f9e (\u00d78 axis, engine forward for facing 0 = +cellA); cellB = DGROUP 0x4fa0 (\u00d71 axis). Cell index = z*64 + cellA*8 + cellB. N-wall at maze_ptr+0x60, W-wall at maze_ptr+0x120, 2 bits/cell MSB-first. Party is at cellA=5 cellB=7. Forward axis per facing: f0=+cellA, f1=+cellB, f2=-cellA, f3=-cellB. See docs/re/findings/maze-classify-projection.json. CRITICAL (see docs/re/findings/maze-classify-gating.json): this 8\u00d78 grid is REGION 0's wall plane ONLY. The engine resolves cells across MULTIPLE regions (each a separate 64-cell plane) via the fine-coord region tables; emission needs that multi-region data, not just this single grid.",
-  "multiRegion_added": "2026-06-04: each frame now carries a multiRegion.depths array (per-depth center/left/right resolved cells across all touched 64-cell planes + perpWall/fwdEdge/special4/orient2/pit). This is the offline input the port needs to DRIVE the depth walk + resolver for all 4 frames. The emit PREDICATE remains OPEN (see maze-classify-gating.json) \u2014 the multiRegion data drives the walk, not the emission decision.",
-  "correctedSlots_added": "2026-06-04: each frame now carries correctedSlots (asm-accurate per-facing front/corner/side classifier reads). The earlier multiRegion.perpWallL/R + fwdEdge are MIS-DERIVED for facing 2/3 (wrong forward-edge selector) \u2014 use correctedSlots. See docs/re/findings/maze-classify-determinism.json.",
-  "emitGate_added": "2026-06-04: emit-gate mechanism PINNED (docs/re/findings/maze-emit-gate-closed.json). The wt=2 side-wall discriminator is the FRONT-classifier ORIENTATION GATE (orient2==facing, asm 0x3af1): a head-on door/recess cell (orient2 matching the viewing facing) classifies as front-shape code 4 and draws its flanking wt=2 walls; the SAME cell from a non-matching facing reads a non-emitting code -> no walls. This is why lookback (f2) emits while maze-corridor (f0) does not for the same door. CRITICAL CAVEAT: the maze build RE-RUNS EVERY FRAME (continuous redraw), so a live span-list/slot5220 read after a settle is a MID-BUILD snapshot and OSCILLATES (lookback cycles []/[0,1]/[0,1,2,3] at constant door-phase 0x363e). The COMPLETE build is the committed fixture's span list; do NOT trust a live settled residual as the emission. correctedSlots over RAW N/W bits OVER-PREDICTS the non-emitters because it omits the orientation gate (the engine's live slot5220 for f0 corridors is mostly OPEN). The offline classifier must apply the orient2 gate before deciding emission."
- },
- "regionTables": {
-  "note": "Per-zone STATIC region tables read live (identical across all 4 frames). maze_ptr+0x1e0 (gxBase, 12 bytes) / +0x1ec (gyBase, 12 bytes). The resolver (wmaze 0x357a/0x35b7) maps the party's GLOBAL CELL coords (gx=0x4fa4, gy=0x4fa2) to a region r where gxBase[r]<=gx<=gxBase[r]+7 AND gyBase[r]<=gy<=gyBase[r]+7, then cellB=gx-gxBase[r], cellA=gy-gyBase[r], and the wall cell index = r*64 + cellA*8 + cellB (region replaces the z slot). Regions 0..5 form a 2(gx)\u00d73(gy) block of 8\u00d78 cell planes; regions 6..11 are a separate area. Out-of-region (no r matches) = SOLID wall.",
-  "gxBase": [
-   120,
-   128,
-   120,
-   128,
-   120,
-   128,
-   10,
-   18,
-   10,
-   18,
-   26,
-   26
-  ],
-  "gyBase": [
-   116,
-   116,
-   124,
-   124,
-   132,
-   132,
-   10,
-   10,
-   18,
-   18,
-   10,
-   18
-  ],
-  "party_region": 0,
-  "party_global": {
-   "gx": 127,
-   "gy": 121
-  }
- },
- "frames": [
-  {
-   "name": "maze-corridor",
-   "fixture": "maze-corridor",
-   "party": {
-    "game_state": 5,
-    "facing": 0,
-    "z": 0,
-    "x": 5,
-    "y": 7,
-    "gx": 127,
-    "gy": 121,
-    "parity": 0
-   },
-   "slot5220": [
-    8,
-    1,
-    1,
-    0,
-    0
-   ],
-   "fineCoordGate": {
-    "region": 0,
-    "front_0x508a": [
-     1,
-     1,
-     1,
-     0
+  "provenance": {
+    "source_state": "test-fixtures/states/maze-corridor.state.gz",
+    "description": "Per-frame party/slots/spans + shared cell geometry for zone-0 stub corridor. All frames start from the committed corridor state (facing 0, cell x=5 gx=127 gy=121). Turn-left = one left key; lookback = two right keys (180\u00b0 turn).",
+    "captured": "2026-06-04T21:25:32.691Z",
+    "cell_layout": "z=0, FULL 8\u00d78 grid. JSON key z{z}_y{cellA}_x{cellB}: cellA = DGROUP 0x4f9e (\u00d78 axis, engine forward for facing 0 = +cellA); cellB = DGROUP 0x4fa0 (\u00d71 axis). Cell index = z*64 + cellA*8 + cellB. N-wall at maze_ptr+0x60, W-wall at maze_ptr+0x120, 2 bits/cell MSB-first. Party is at cellA=5 cellB=7. Forward axis per facing: f0=+cellA, f1=+cellB, f2=-cellA, f3=-cellB. See docs/re/findings/maze-classify-projection.json. CRITICAL (see docs/re/findings/maze-classify-gating.json): this 8\u00d78 grid is REGION 0's wall plane ONLY. The engine resolves cells across MULTIPLE regions (each a separate 64-cell plane) via the fine-coord region tables; emission needs that multi-region data, not just this single grid.",
+    "multiRegion_added": "2026-06-04: each frame now carries a multiRegion.depths array (per-depth center/left/right resolved cells across all touched 64-cell planes + perpWall/fwdEdge/special4/orient2/pit). This is the offline input the port needs to DRIVE the depth walk + resolver for all 4 frames. The emit PREDICATE remains OPEN (see maze-classify-gating.json) \u2014 the multiRegion data drives the walk, not the emission decision.",
+    "correctedSlots_added": "2026-06-04: each frame now carries correctedSlots (asm-accurate per-facing front/corner/side classifier reads). The earlier multiRegion.perpWallL/R + fwdEdge are MIS-DERIVED for facing 2/3 (wrong forward-edge selector) \u2014 use correctedSlots. See docs/re/findings/maze-classify-determinism.json.",
+    "emitGate_added": "2026-06-04: emit-gate mechanism PINNED (docs/re/findings/maze-emit-gate-closed.json). The wt=2 side-wall discriminator is the FRONT-classifier ORIENTATION GATE (orient2==facing, asm 0x3af1): a head-on door/recess cell (orient2 matching the viewing facing) classifies as front-shape code 4 and draws its flanking wt=2 walls; the SAME cell from a non-matching facing reads a non-emitting code -> no walls. This is why lookback (f2) emits while maze-corridor (f0) does not for the same door. CRITICAL CAVEAT: the maze build RE-RUNS EVERY FRAME (continuous redraw), so a live span-list/slot5220 read after a settle is a MID-BUILD snapshot and OSCILLATES (lookback cycles []/[0,1]/[0,1,2,3] at constant door-phase 0x363e). The COMPLETE build is the committed fixture's span list; do NOT trust a live settled residual as the emission. correctedSlots over RAW N/W bits OVER-PREDICTS the non-emitters because it omits the orientation gate (the engine's live slot5220 for f0 corridors is mostly OPEN). The offline classifier must apply the orient2 gate before deciding emission."
+  },
+  "regionTables": {
+    "note": "Per-zone STATIC region tables read live (identical across all 4 frames). maze_ptr+0x1e0 (gxBase, 12 bytes) / +0x1ec (gyBase, 12 bytes). The resolver (wmaze 0x357a/0x35b7) maps the party's GLOBAL CELL coords (gx=0x4fa4, gy=0x4fa2) to a region r where gxBase[r]<=gx<=gxBase[r]+7 AND gyBase[r]<=gy<=gyBase[r]+7, then cellB=gx-gxBase[r], cellA=gy-gyBase[r], and the wall cell index = r*64 + cellA*8 + cellB (region replaces the z slot). Regions 0..5 form a 2(gx)\u00d73(gy) block of 8\u00d78 cell planes; regions 6..11 are a separate area. Out-of-region (no r matches) = SOLID wall.",
+    "gxBase": [
+      120,
+      128,
+      120,
+      128,
+      120,
+      128,
+      10,
+      18,
+      10,
+      18,
+      26,
+      26
     ],
-    "leftA_0x5072": [
-     0,
-     1,
-     0,
-     0
+    "gyBase": [
+      116,
+      116,
+      124,
+      124,
+      132,
+      132,
+      10,
+      10,
+      18,
+      18,
+      10,
+      18
     ],
-    "rightA_0x5092": [
-     1,
-     1,
-     0,
-     0
-    ],
-    "wt2_emit_depths": [],
-    "note": "Residual per-depth gate arrays read live AFTER build settles. front[3]=0 (depth-3 cell crosses into region 2). NO wt=2 side-wall spans emitted (single wt=1 door span at df2)."
-   },
-   "spans": [
-    {
-     "x0": 158,
-     "x1": 68,
-     "clipLo": 72,
-     "clipHi": 248,
-     "walltype": 1,
-     "seamIdx": 6,
-     "depthField": 2
+    "party_region": 0,
+    "party_global": {
+      "gx": 127,
+      "gy": 121
     }
-   ],
-   "multiRegion": {
-    "note": "Per-depth MULTI-REGION resolved geometry (the engine reads cells across distinct 64-cell wall planes via the resolver). center/left/right are the resolved cells (region,cA,cB) + their N/W/special4/orient2/pit; perpWallL/R = the literal corridor-flanking perpendicular walls (screen left/right by facing); fwdEdge = forward wall of the center cell. Read live via tools/libretro/maze-multiregion-dump.ts. CAVEAT: this is sufficient to DRIVE lookback (the positive frame) but the emit PREDICATE that separates lookback (emits 4) from corridor (emits 0) is NOT closed from this geometry \u2014 see docs/re/findings/maze-classify-gating.json.",
-    "depths": [
-     {
-      "d": 0,
-      "center": {
-       "gx": 127,
-       "gy": 121,
-       "region": 0,
-       "cA": 5,
-       "cB": 7,
-       "N": 0,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "left": {
-       "gx": 126,
-       "gy": 121,
-       "region": 0,
-       "cA": 5,
-       "cB": 6,
-       "N": 0,
-       "W": 0,
-       "special4": 7,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 128,
-       "gy": 121,
-       "region": 1,
-       "cA": 5,
-       "cB": 0,
-       "N": 0,
-       "W": 2,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 0,
-      "perpWallL": 0,
-      "perpWallR": 2,
-      "spanParity": 0
-     },
-     {
-      "d": 1,
-      "center": {
-       "gx": 127,
-       "gy": 122,
-       "region": 0,
-       "cA": 6,
-       "cB": 7,
-       "N": 0,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "left": {
-       "gx": 126,
-       "gy": 122,
-       "region": 0,
-       "cA": 6,
-       "cB": 6,
-       "N": 2,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 128,
-       "gy": 122,
-       "region": 1,
-       "cA": 6,
-       "cB": 0,
-       "N": 0,
-       "W": 3,
-       "special4": 3,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 0,
-      "perpWallL": 0,
-      "perpWallR": 3,
-      "spanParity": 1
-     },
-     {
-      "d": 2,
-      "center": {
-       "gx": 127,
-       "gy": 123,
-       "region": 0,
-       "cA": 7,
-       "cB": 7,
-       "N": 3,
-       "W": 2,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "left": {
-       "gx": 126,
-       "gy": 123,
-       "region": 0,
-       "cA": 7,
-       "cB": 6,
-       "N": 2,
-       "W": 2,
-       "special4": 3,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 128,
-       "gy": 123,
-       "region": 1,
-       "cA": 7,
-       "cB": 0,
-       "N": 2,
-       "W": 2,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 3,
-      "perpWallL": 2,
-      "perpWallR": 2,
-      "spanParity": 0
-     },
-     {
-      "d": 3,
-      "center": {
-       "gx": 127,
-       "gy": 124,
-       "region": 2,
-       "cA": 0,
-       "cB": 7,
-       "N": 0,
-       "W": 2,
-       "special4": 9,
-       "orient2": 0,
-       "pit": 0
-      },
-      "left": {
-       "gx": 126,
-       "gy": 124,
-       "region": 2,
-       "cA": 0,
-       "cB": 6,
-       "N": 2,
-       "W": 2,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 128,
-       "gy": 124,
-       "region": 3,
-       "cA": 0,
-       "cB": 0,
-       "N": 0,
-       "W": 2,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 0,
-      "perpWallL": 2,
-      "perpWallR": 2,
-      "spanParity": 1
-     }
-    ]
-   },
-   "correctedSlots": {
-    "note": "CORRECTED per-facing classifier reads (asm-accurate; see docs/re/findings/maze-classify-determinism.json). Replaces the WRONG fwdEdge/perpWall in multiRegion (which read the cell own N for facing 2/3 instead of the -cellA south / -cellB east neighbour face via helpers 0x36dd/0x3742). front=fwdEdge(center); cornerL/R=per-facing perp dispatch; leftSide/rightSide=lateral-step-then-forward-edge-of-neighbour (OOB-after-step -> SOLID 2). Slot code: 0=open, 2=solid, 3=door, >=5=shape. Emit-if-bounded (>=1 corner/side solid at a non-occluded depth) + parity-alternation screen-side reproduces lookback [0,1,2,3] byte-exact; over-predicts the 3 non-emitters pending the exact emit-gate map.",
-    "facing": 0,
-    "depths": [
-     {
-      "d": 0,
-      "gx": 127,
-      "gy": 121,
-      "front": 0,
-      "cornerL": 0,
-      "cornerR": 0,
-      "leftSide": 0,
-      "rightSide": 0,
-      "frontGate": 1,
-      "spanParity": 0
-     },
-     {
-      "d": 1,
-      "gx": 127,
-      "gy": 122,
-      "front": 0,
-      "cornerL": 0,
-      "cornerR": 0,
-      "leftSide": 2,
-      "rightSide": 0,
-      "frontGate": 1,
-      "spanParity": 1
-     },
-     {
-      "d": 2,
-      "gx": 127,
-      "gy": 123,
-      "front": 3,
-      "cornerL": 2,
-      "cornerR": 2,
-      "leftSide": 2,
-      "rightSide": 2,
-      "frontGate": 1,
-      "spanParity": 0
-     },
-     {
-      "d": 3,
-      "gx": 127,
-      "gy": 124,
-      "front": 0,
-      "cornerL": 2,
-      "cornerR": 2,
-      "leftSide": 2,
-      "rightSide": 0,
-      "frontGate": 0,
-      "spanParity": 1
-     }
-    ]
-   }
   },
-  {
-   "name": "maze-corridor-turn-left",
-   "fixture": "maze-corridor-turn-left",
-   "party": {
-    "game_state": 5,
-    "facing": 3,
-    "z": 0,
-    "x": 5,
-    "y": 7,
-    "gx": 127,
-    "gy": 121,
-    "parity": 1
-   },
-   "slot5220": [
-    0,
-    2,
-    0,
-    2,
-    0
-   ],
-   "fineCoordGate": {
-    "region": 0,
-    "front_0x508a": [
-     1,
-     1,
-     1,
-     1
-    ],
-    "leftA_0x5072": [
-     0,
-     0,
-     0,
-     1
-    ],
-    "rightA_0x5092": [
-     1,
-     1,
-     1,
-     1
-    ],
-    "wt2_emit_depths": [],
-    "note": "Walking down the cellB axis (facing 3, -cellB) within region 0. Front gate all-1 (corridor open ahead) but NO wt=2 side-wall spans \u2014 the orientation-gated corner classifier returns code 2 (edge marker), not 9 (solid quad), for these cells."
-   },
-   "spans": [],
-   "multiRegion": {
-    "note": "Per-depth MULTI-REGION resolved geometry (the engine reads cells across distinct 64-cell wall planes via the resolver). center/left/right are the resolved cells (region,cA,cB) + their N/W/special4/orient2/pit; perpWallL/R = the literal corridor-flanking perpendicular walls (screen left/right by facing); fwdEdge = forward wall of the center cell. Read live via tools/libretro/maze-multiregion-dump.ts. CAVEAT: this is sufficient to DRIVE lookback (the positive frame) but the emit PREDICATE that separates lookback (emits 4) from corridor (emits 0) is NOT closed from this geometry \u2014 see docs/re/findings/maze-classify-gating.json.",
-    "depths": [
-     {
-      "d": 0,
-      "center": {
-       "gx": 127,
-       "gy": 121,
-       "region": 0,
-       "cA": 5,
-       "cB": 7,
-       "N": 0,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "left": {
-       "gx": 127,
-       "gy": 120,
-       "region": 0,
-       "cA": 4,
-       "cB": 7,
-       "N": 3,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 127,
-       "gy": 122,
-       "region": 0,
-       "cA": 6,
-       "cB": 7,
-       "N": 0,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 0,
-      "perpWallL": 0,
-      "perpWallR": 0,
-      "spanParity": 1
-     },
-     {
-      "d": 1,
-      "center": {
-       "gx": 126,
-       "gy": 121,
-       "region": 0,
-       "cA": 5,
-       "cB": 6,
-       "N": 0,
-       "W": 0,
-       "special4": 7,
-       "orient2": 0,
-       "pit": 0
-      },
-      "left": {
-       "gx": 126,
-       "gy": 120,
-       "region": 0,
-       "cA": 4,
-       "cB": 6,
-       "N": 2,
-       "W": 2,
-       "special4": 7,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 126,
-       "gy": 122,
-       "region": 0,
-       "cA": 6,
-       "cB": 6,
-       "N": 2,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 0,
-      "perpWallL": 0,
-      "perpWallR": 2,
-      "spanParity": 0
-     },
-     {
-      "d": 2,
-      "center": {
-       "gx": 125,
-       "gy": 121,
-       "region": 0,
-       "cA": 5,
-       "cB": 5,
-       "N": 0,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "left": {
-       "gx": 125,
-       "gy": 120,
-       "region": 0,
-       "cA": 4,
-       "cB": 5,
-       "N": 2,
-       "W": 2,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 125,
-       "gy": 122,
-       "region": 0,
-       "cA": 6,
-       "cB": 5,
-       "N": 2,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 0,
-      "perpWallL": 0,
-      "perpWallR": 2,
-      "spanParity": 1
-     },
-     {
-      "d": 3,
-      "center": {
-       "gx": 124,
-       "gy": 121,
-       "region": 0,
-       "cA": 5,
-       "cB": 4,
-       "N": 0,
-       "W": 0,
-       "special4": 0,
-       "orient2": 2,
-       "pit": 0
-      },
-      "left": {
-       "gx": 124,
-       "gy": 120,
-       "region": 0,
-       "cA": 4,
-       "cB": 4,
-       "N": 2,
-       "W": 2,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 124,
-       "gy": 122,
-       "region": 0,
-       "cA": 6,
-       "cB": 4,
-       "N": 0,
-       "W": 0,
-       "special4": 3,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 0,
-      "perpWallL": 0,
-      "perpWallR": 0,
-      "spanParity": 0
-     }
-    ]
-   },
-   "correctedSlots": {
-    "note": "CORRECTED per-facing classifier reads (asm-accurate; see docs/re/findings/maze-classify-determinism.json). Replaces the WRONG fwdEdge/perpWall in multiRegion (which read the cell own N for facing 2/3 instead of the -cellA south / -cellB east neighbour face via helpers 0x36dd/0x3742). front=fwdEdge(center); cornerL/R=per-facing perp dispatch; leftSide/rightSide=lateral-step-then-forward-edge-of-neighbour (OOB-after-step -> SOLID 2). Slot code: 0=open, 2=solid, 3=door, >=5=shape. Emit-if-bounded (>=1 corner/side solid at a non-occluded depth) + parity-alternation screen-side reproduces lookback [0,1,2,3] byte-exact; over-predicts the 3 non-emitters pending the exact emit-gate map.",
-    "facing": 3,
-    "depths": [
-     {
-      "d": 0,
-      "gx": 127,
-      "gy": 121,
-      "front": 0,
-      "cornerL": 3,
-      "cornerR": 0,
-      "leftSide": 2,
-      "rightSide": 0,
-      "frontGate": 1,
-      "spanParity": 1
-     },
-     {
-      "d": 1,
-      "gx": 126,
-      "gy": 121,
-      "front": 0,
-      "cornerL": 2,
-      "cornerR": 0,
-      "leftSide": 2,
-      "rightSide": 0,
-      "frontGate": 1,
-      "spanParity": 0
-     },
-     {
-      "d": 2,
-      "gx": 125,
-      "gy": 121,
-      "front": 0,
-      "cornerL": 2,
-      "cornerR": 0,
-      "leftSide": 2,
-      "rightSide": 0,
-      "frontGate": 1,
-      "spanParity": 1
-     },
-     {
-      "d": 3,
-      "gx": 124,
-      "gy": 121,
-      "front": 0,
-      "cornerL": 2,
-      "cornerR": 0,
-      "leftSide": 0,
-      "rightSide": 0,
-      "frontGate": 1,
-      "spanParity": 0
-     }
-    ]
-   }
-  },
-  {
-   "name": "maze-corridor-lookback",
-   "fixture": "maze-corridor-lookback",
-   "party": {
-    "game_state": 5,
-    "facing": 2,
-    "z": 0,
-    "x": 5,
-    "y": 7,
-    "gx": 127,
-    "gy": 121,
-    "parity": 0
-   },
-   "slot5220": [
-    0,
-    2,
-    2,
-    2,
-    2
-   ],
-   "fineCoordGate": {
-    "region": 0,
-    "front_0x508a": [
-     1,
-     1,
-     1,
-     1
-    ],
-    "leftA_0x5072": [
-     0,
-     0,
-     0,
-     0
-    ],
-    "rightA_0x5092": [
-     1,
-     0,
-     0,
-     0
-    ],
-    "wt2_emit_depths": [
-     0,
-     1,
-     2,
-     3
-    ],
-    "note": "THE positive frame. Walking -cellA within region 0; right side (gx-1=126, region 0) has a continuous solid W wall down the corridor and the left side resolves into region 1 (gx128). Front gate all-1 at every depth (forward edges open/door, never a SOLID stop) -> corners emit at all 4 depths; the corner classifier returns the solid-quad code (9) -> 4 wt=2 spans at df0..3."
-   },
-   "spans": [
-    {
-     "x0": 136,
-     "x1": 52,
-     "clipLo": 72,
-     "clipHi": 248,
-     "walltype": 2,
-     "seamIdx": 10,
-     "depthField": 0
-    },
-    {
-     "x0": 23,
-     "x1": 26,
-     "clipLo": 23,
-     "clipHi": 26,
-     "walltype": 255,
-     "seamIdx": 0,
-     "depthField": 0
-    },
-    {
-     "x0": 29,
-     "x1": 32,
-     "clipLo": 32,
-     "clipHi": 29,
-     "walltype": 255,
-     "seamIdx": 0,
-     "depthField": 0
-    },
-    {
-     "x0": 136,
-     "x1": 53,
-     "clipLo": 72,
-     "clipHi": 248,
-     "walltype": 2,
-     "seamIdx": 13,
-     "depthField": 1
-    },
-    {
-     "x0": 153,
-     "x1": 64,
-     "clipLo": 72,
-     "clipHi": 248,
-     "walltype": 2,
-     "seamIdx": 12,
-     "depthField": 2
-    },
-    {
-     "x0": 25,
-     "x1": 28,
-     "clipLo": 25,
-     "clipHi": 28,
-     "walltype": 255,
-     "seamIdx": 0,
-     "depthField": 2
-    },
-    {
-     "x0": 31,
-     "x1": 34,
-     "clipLo": 34,
-     "clipHi": 31,
-     "walltype": 255,
-     "seamIdx": 0,
-     "depthField": 2
-    },
-    {
-     "x0": 152,
-     "x1": 64,
-     "clipLo": 72,
-     "clipHi": 248,
-     "walltype": 2,
-     "seamIdx": 15,
-     "depthField": 3
-    }
-   ],
-   "multiRegion": {
-    "note": "Per-depth MULTI-REGION resolved geometry (the engine reads cells across distinct 64-cell wall planes via the resolver). center/left/right are the resolved cells (region,cA,cB) + their N/W/special4/orient2/pit; perpWallL/R = the literal corridor-flanking perpendicular walls (screen left/right by facing); fwdEdge = forward wall of the center cell. Read live via tools/libretro/maze-multiregion-dump.ts. CAVEAT: this is sufficient to DRIVE lookback (the positive frame) but the emit PREDICATE that separates lookback (emits 4) from corridor (emits 0) is NOT closed from this geometry \u2014 see docs/re/findings/maze-classify-gating.json.",
-    "depths": [
-     {
-      "d": 0,
-      "center": {
-       "gx": 127,
-       "gy": 121,
-       "region": 0,
-       "cA": 5,
-       "cB": 7,
-       "N": 0,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "left": {
-       "gx": 128,
-       "gy": 121,
-       "region": 1,
-       "cA": 5,
-       "cB": 0,
-       "N": 0,
-       "W": 2,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 126,
-       "gy": 121,
-       "region": 0,
-       "cA": 5,
-       "cB": 6,
-       "N": 0,
-       "W": 0,
-       "special4": 7,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 0,
-      "perpWallL": 2,
-      "perpWallR": 0,
-      "spanParity": 0
-     },
-     {
-      "d": 1,
-      "center": {
-       "gx": 127,
-       "gy": 120,
-       "region": 0,
-       "cA": 4,
-       "cB": 7,
-       "N": 3,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "left": {
-       "gx": 128,
-       "gy": 120,
-       "region": 1,
-       "cA": 4,
-       "cB": 0,
-       "N": 2,
-       "W": 2,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 126,
-       "gy": 120,
-       "region": 0,
-       "cA": 4,
-       "cB": 6,
-       "N": 2,
-       "W": 2,
-       "special4": 7,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 3,
-      "perpWallL": 2,
-      "perpWallR": 0,
-      "spanParity": 1
-     },
-     {
-      "d": 2,
-      "center": {
-       "gx": 127,
-       "gy": 119,
-       "region": 0,
-       "cA": 3,
-       "cB": 7,
-       "N": 0,
-       "W": 0,
-       "special4": 0,
-       "orient2": 2,
-       "pit": 0
-      },
-      "left": {
-       "gx": 128,
-       "gy": 119,
-       "region": 1,
-       "cA": 3,
-       "cB": 0,
-       "N": 0,
-       "W": 2,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 126,
-       "gy": 119,
-       "region": 0,
-       "cA": 3,
-       "cB": 6,
-       "N": 0,
-       "W": 2,
-       "special4": 7,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 0,
-      "perpWallL": 2,
-      "perpWallR": 0,
-      "spanParity": 0
-     },
-     {
-      "d": 3,
-      "center": {
-       "gx": 127,
-       "gy": 118,
-       "region": 0,
-       "cA": 2,
-       "cB": 7,
-       "N": 2,
-       "W": 0,
-       "special4": 0,
-       "orient2": 1,
-       "pit": 0
-      },
-      "left": {
-       "gx": 128,
-       "gy": 118,
-       "region": 1,
-       "cA": 2,
-       "cB": 0,
-       "N": 2,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 126,
-       "gy": 118,
-       "region": 0,
-       "cA": 2,
-       "cB": 6,
-       "N": 2,
-       "W": 2,
-       "special4": 7,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 2,
-      "perpWallL": 0,
-      "perpWallR": 0,
-      "spanParity": 1
-     }
-    ]
-   },
-   "correctedSlots": {
-    "note": "CORRECTED per-facing classifier reads (asm-accurate; see docs/re/findings/maze-classify-determinism.json). Replaces the WRONG fwdEdge/perpWall in multiRegion (which read the cell own N for facing 2/3 instead of the -cellA south / -cellB east neighbour face via helpers 0x36dd/0x3742). front=fwdEdge(center); cornerL/R=per-facing perp dispatch; leftSide/rightSide=lateral-step-then-forward-edge-of-neighbour (OOB-after-step -> SOLID 2). Slot code: 0=open, 2=solid, 3=door, >=5=shape. Emit-if-bounded (>=1 corner/side solid at a non-occluded depth) + parity-alternation screen-side reproduces lookback [0,1,2,3] byte-exact; over-predicts the 3 non-emitters pending the exact emit-gate map.",
-    "facing": 2,
-    "depths": [
-     {
-      "d": 0,
-      "gx": 127,
-      "gy": 121,
-      "front": 3,
-      "cornerL": 0,
-      "cornerR": 0,
-      "leftSide": 2,
-      "rightSide": 2,
-      "frontGate": 1,
-      "spanParity": 0
-     },
-     {
-      "d": 1,
-      "gx": 127,
-      "gy": 120,
-      "front": 0,
-      "cornerL": 0,
-      "cornerR": 2,
-      "leftSide": 0,
-      "rightSide": 0,
-      "frontGate": 1,
-      "spanParity": 1
-     },
-     {
-      "d": 2,
-      "gx": 127,
-      "gy": 119,
-      "front": 2,
-      "cornerL": 0,
-      "cornerR": 2,
-      "leftSide": 2,
-      "rightSide": 2,
-      "frontGate": 1,
-      "spanParity": 0
-     },
-     {
-      "d": 3,
-      "gx": 127,
-      "gy": 118,
-      "front": 2,
-      "cornerL": 0,
-      "cornerR": 2,
-      "leftSide": 2,
-      "rightSide": 2,
-      "frontGate": 1,
-      "spanParity": 1
-     }
-    ]
-   }
-  },
-  {
-   "name": "maze-corridor-asym",
-   "fixture": "maze-corridor-asym",
-   "party": {
-    "game_state": 5,
-    "facing": 1,
-    "z": 0,
-    "x": 5,
-    "y": 7,
-    "gx": 127,
-    "gy": 121,
-    "parity": 1
-   },
-   "slot5220": [
-    0,
-    0,
-    2,
-    0,
-    2
-   ],
-   "fineCoordGate": {
-    "region": 0,
-    "front_0x508a": [
-     1,
-     1,
-     1,
-     1
-    ],
-    "leftA_0x5072": [
-     0,
-     1,
-     1,
-     1
-    ],
-    "rightA_0x5092": [
-     0,
-     0,
-     0,
-     1
-    ],
-    "wt2_emit_depths": [],
-    "note": "Facing 1 (+cellB / +gx). Depth-1 cursor crosses into region 1 (gx128). Front gate all-1 but NO wt=2 spans (corner classifier returns 2, not 9). Asymmetric left/right gate pattern (leftA vs rightA) reflects the one-sided geometry but does not promote to a settled wt=2 span (open ahead)."
-   },
-   "spans": [],
-   "multiRegion": {
-    "note": "Per-depth MULTI-REGION resolved geometry (the engine reads cells across distinct 64-cell wall planes via the resolver). center/left/right are the resolved cells (region,cA,cB) + their N/W/special4/orient2/pit; perpWallL/R = the literal corridor-flanking perpendicular walls (screen left/right by facing); fwdEdge = forward wall of the center cell. Read live via tools/libretro/maze-multiregion-dump.ts. CAVEAT: this is sufficient to DRIVE lookback (the positive frame) but the emit PREDICATE that separates lookback (emits 4) from corridor (emits 0) is NOT closed from this geometry \u2014 see docs/re/findings/maze-classify-gating.json.",
-    "depths": [
-     {
-      "d": 0,
-      "center": {
-       "gx": 127,
-       "gy": 121,
-       "region": 0,
-       "cA": 5,
-       "cB": 7,
-       "N": 0,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "left": {
-       "gx": 127,
-       "gy": 122,
-       "region": 0,
-       "cA": 6,
-       "cB": 7,
-       "N": 0,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 127,
-       "gy": 120,
-       "region": 0,
-       "cA": 4,
-       "cB": 7,
-       "N": 3,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 0,
-      "perpWallL": 0,
-      "perpWallR": 0,
-      "spanParity": 1
-     },
-     {
-      "d": 1,
-      "center": {
-       "gx": 128,
-       "gy": 121,
-       "region": 1,
-       "cA": 5,
-       "cB": 0,
-       "N": 0,
-       "W": 2,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "left": {
-       "gx": 128,
-       "gy": 122,
-       "region": 1,
-       "cA": 6,
-       "cB": 0,
-       "N": 0,
-       "W": 3,
-       "special4": 3,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 128,
-       "gy": 120,
-       "region": 1,
-       "cA": 4,
-       "cB": 0,
-       "N": 2,
-       "W": 2,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 2,
-      "perpWallL": 0,
-      "perpWallR": 0,
-      "spanParity": 0
-     },
-     {
-      "d": 2,
-      "center": {
-       "gx": 129,
-       "gy": 121,
-       "region": 1,
-       "cA": 5,
-       "cB": 1,
-       "N": 0,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "left": {
-       "gx": 129,
-       "gy": 122,
-       "region": 1,
-       "cA": 6,
-       "cB": 1,
-       "N": 0,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 129,
-       "gy": 120,
-       "region": 1,
-       "cA": 4,
-       "cB": 1,
-       "N": 3,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 0,
-      "perpWallL": 0,
-      "perpWallR": 0,
-      "spanParity": 1
-     },
-     {
-      "d": 3,
-      "center": {
-       "gx": 130,
-       "gy": 121,
-       "region": 1,
-       "cA": 5,
-       "cB": 2,
-       "N": 0,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "left": {
-       "gx": 130,
-       "gy": 122,
-       "region": 1,
-       "cA": 6,
-       "cB": 2,
-       "N": 2,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "right": {
-       "gx": 130,
-       "gy": 120,
-       "region": 1,
-       "cA": 4,
-       "cB": 2,
-       "N": 2,
-       "W": 0,
-       "special4": 0,
-       "orient2": 0,
-       "pit": 0
-      },
-      "fwdEdge": 0,
-      "perpWallL": 2,
-      "perpWallR": 0,
-      "spanParity": 0
-     }
-    ]
-   },
-   "correctedSlots": {
-    "note": "CORRECTED per-facing classifier reads (asm-accurate; see docs/re/findings/maze-classify-determinism.json). Replaces the WRONG fwdEdge/perpWall in multiRegion (which read the cell own N for facing 2/3 instead of the -cellA south / -cellB east neighbour face via helpers 0x36dd/0x3742). front=fwdEdge(center); cornerL/R=per-facing perp dispatch; leftSide/rightSide=lateral-step-then-forward-edge-of-neighbour (OOB-after-step -> SOLID 2). Slot code: 0=open, 2=solid, 3=door, >=5=shape. Emit-if-bounded (>=1 corner/side solid at a non-occluded depth) + parity-alternation screen-side reproduces lookback [0,1,2,3] byte-exact; over-predicts the 3 non-emitters pending the exact emit-gate map.",
-    "facing": 1,
-    "depths": [
-     {
-      "d": 0,
-      "gx": 127,
-      "gy": 121,
-      "front": 0,
-      "cornerL": 0,
-      "cornerR": 3,
-      "leftSide": 0,
-      "rightSide": 0,
-      "frontGate": 1,
-      "spanParity": 1
-     },
-     {
-      "d": 1,
-      "gx": 128,
-      "gy": 121,
-      "front": 2,
-      "cornerL": 0,
-      "cornerR": 2,
-      "leftSide": 3,
-      "rightSide": 2,
-      "frontGate": 1,
-      "spanParity": 0
-     },
-     {
-      "d": 2,
-      "gx": 129,
-      "gy": 121,
-      "front": 0,
-      "cornerL": 0,
-      "cornerR": 3,
-      "leftSide": 0,
-      "rightSide": 0,
-      "frontGate": 1,
-      "spanParity": 1
-     },
-     {
-      "d": 3,
-      "gx": 130,
-      "gy": 121,
-      "front": 0,
-      "cornerL": 0,
-      "cornerR": 2,
-      "leftSide": 0,
-      "rightSide": 0,
-      "frontGate": 1,
-      "spanParity": 0
-     }
-    ]
-   }
-  }
- ],
- "geometry": {
-  "cells": {
-   "z0_y0_x0": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y0_x1": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y0_x2": {
-    "north": 2,
-    "west": 0
-   },
-   "z0_y0_x3": {
-    "north": 2,
-    "west": 2
-   },
-   "z0_y0_x4": {
-    "north": 2,
-    "west": 0
-   },
-   "z0_y0_x5": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y0_x6": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y0_x7": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y1_x0": {
-    "north": 2,
-    "west": 0
-   },
-   "z0_y1_x1": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y1_x2": {
-    "north": 2,
-    "west": 2
-   },
-   "z0_y1_x3": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y1_x4": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y1_x5": {
-    "north": 2,
-    "west": 2
-   },
-   "z0_y1_x6": {
-    "north": 2,
-    "west": 0
-   },
-   "z0_y1_x7": {
-    "north": 2,
-    "west": 0
-   },
-   "z0_y2_x0": {
-    "north": 2,
-    "west": 0
-   },
-   "z0_y2_x1": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y2_x2": {
-    "north": 2,
-    "west": 0
-   },
-   "z0_y2_x3": {
-    "north": 2,
-    "west": 0
-   },
-   "z0_y2_x4": {
-    "north": 2,
-    "west": 2
-   },
-   "z0_y2_x5": {
-    "north": 2,
-    "west": 2
-   },
-   "z0_y2_x6": {
-    "north": 2,
-    "west": 2
-   },
-   "z0_y2_x7": {
-    "north": 2,
-    "west": 0
-   },
-   "z0_y3_x0": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y3_x1": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y3_x2": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y3_x3": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y3_x4": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y3_x5": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y3_x6": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y3_x7": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y4_x0": {
-    "north": 2,
-    "west": 0
-   },
-   "z0_y4_x1": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y4_x2": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y4_x3": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y4_x4": {
-    "north": 2,
-    "west": 2
-   },
-   "z0_y4_x5": {
-    "north": 2,
-    "west": 2
-   },
-   "z0_y4_x6": {
-    "north": 2,
-    "west": 2
-   },
-   "z0_y4_x7": {
-    "north": 3,
-    "west": 0
-   },
-   "z0_y5_x0": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y5_x1": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y5_x2": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y5_x3": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y5_x4": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y5_x5": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y5_x6": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y5_x7": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y6_x0": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y6_x1": {
-    "north": 0,
-    "west": 3
-   },
-   "z0_y6_x2": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y6_x3": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y6_x4": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y6_x5": {
-    "north": 2,
-    "west": 0
-   },
-   "z0_y6_x6": {
-    "north": 2,
-    "west": 0
-   },
-   "z0_y6_x7": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y7_x0": {
-    "north": 2,
-    "west": 0
-   },
-   "z0_y7_x1": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y7_x2": {
-    "north": 0,
-    "west": 2
-   },
-   "z0_y7_x3": {
-    "north": 0,
-    "west": 0
-   },
-   "z0_y7_x4": {
-    "north": 2,
-    "west": 1
-   },
-   "z0_y7_x5": {
-    "north": 0,
-    "west": 1
-   },
-   "z0_y7_x6": {
-    "north": 2,
-    "west": 2
-   },
-   "z0_y7_x7": {
-    "north": 3,
-    "west": 2
-   }
-  }
- },
- "navigatedFrames": {
-  "note": "8 frames navigated from maze-corridor.state via arrow keys (left/right turn, up forward; see maze-harness-movement.json). Geometry via the corrected per-facing reads. SETTLED wt2 are render-timing-sensitive MID-BUILD snapshots (the build re-runs every frame) \u2014 for the emitters the complete-build target is noted separately. These are NOT committed fixtures yet; reproduce via tools/libretro/maze-navigate-probe.ts (geometry) + /tmp captures. To promote to byte-exact gates, commit per-frame serialize-states captured at a complete-build moment.",
   "frames": [
-   {
-    "name": "up",
-    "facing": 0,
-    "gx": 127,
-    "gy": 122,
-    "keys": [
-     "up"
-    ],
-    "wt2_complete": [],
-    "note": "f0 step forward; no emit (door at d1 reads recess-from-behind code 8)."
-   },
-   {
-    "name": "up-up",
-    "facing": 0,
-    "gx": 127,
-    "gy": 123,
-    "keys": [
-     "up",
-     "up"
-    ],
-    "wt2_complete": [],
-    "note": "f0 2 steps; raw front [3,0,2,2] like lookback but FACING 0 -> orient gate off -> no emit. Cleanest f0/f2 contrast."
-   },
-   {
-    "name": "up-RR",
-    "facing": 2,
-    "gx": 127,
-    "gy": 122,
-    "keys": [
-     "up",
-     "right",
-     "right"
-    ],
-    "wt2_complete": [
-     1,
-     2
-    ],
-    "spans_complete": [
-     {
-      "depthField": 1,
-      "seamIdx": 11,
-      "x0": 147,
-      "x1": 59,
-      "walltype": 2,
-      "clipLo": 72,
-      "clipHi": 248
-     },
-     {
-      "depthField": 2,
-      "seamIdx": 14,
-      "x0": 144,
-      "x1": 60,
-      "walltype": 2,
-      "clipLo": 72,
-      "clipHi": 248
-     }
-    ],
-    "stable": "STABLE [1,2] across 4 settled-read trials",
-    "note": "f2 emitter distinct from lookback (matches maze-span y3 frame)."
-   },
-   {
-    "name": "up-up-RR",
-    "facing": 2,
-    "gx": 127,
-    "gy": 123,
-    "keys": [
-     "up",
-     "up",
-     "right",
-     "right"
-    ],
-    "wt2_complete": "UNCONFIRMED",
-    "note": "settled residual []; mid-build briefly [2,3]; complete-build emission unconfirmed (render-timing)."
-   },
-   {
-    "name": "R-up",
-    "facing": 1,
-    "gx": 128,
-    "gy": 121,
-    "keys": [
-     "right",
-     "up"
-    ],
-    "wt2_complete": [],
-    "note": "f1 step; solid front d0 but no head-on door shape -> no wt2."
-   },
-   {
-    "name": "R-up-up",
-    "facing": 1,
-    "gx": 129,
-    "gy": 121,
-    "keys": [
-     "right",
-     "up",
-     "up"
-    ],
-    "wt2_complete": [
-     3,
-     3
-    ],
-    "spans_complete": [
-     {
-      "depthField": 3,
-      "seamIdx": 15,
-      "x0": 120,
-      "x1": 64,
-      "walltype": 2,
-      "clipLo": 72,
-      "clipHi": 128
-     },
-     {
-      "depthField": 3,
-      "seamIdx": 15,
-      "x0": 120,
-      "x1": 64,
-      "walltype": 2,
-      "clipLo": 128,
-      "clipHi": 248
-     }
-    ],
-    "stable": "STABLE [3,3] mid-build across trials",
-    "note": "f1 emitter; TWO wt2 spans at df3, same seam/x0 but SPLIT vertical clips (one corridor-capping solid wall drawn as two stacked clip bands). New emit shape."
-   },
-   {
-    "name": "L-up",
-    "facing": 3,
-    "gx": 126,
-    "gy": 121,
-    "keys": [
-     "left",
-     "up"
-    ],
-    "wt2_complete": [],
-    "note": "f3 step; no emit."
-   },
-   {
-    "name": "L-up-up",
-    "facing": 3,
-    "gx": 125,
-    "gy": 121,
-    "keys": [
-     "left",
-     "up",
-     "up"
-    ],
-    "wt2_complete": [],
-    "note": "f3 2 steps; no emit."
-   }
+    {
+      "name": "maze-corridor",
+      "fixture": "maze-corridor",
+      "party": {
+        "game_state": 5,
+        "facing": 0,
+        "z": 0,
+        "x": 5,
+        "y": 7,
+        "gx": 127,
+        "gy": 121,
+        "parity": 0
+      },
+      "slot5220": [
+        8,
+        1,
+        1,
+        0,
+        0
+      ],
+      "fineCoordGate": {
+        "region": 0,
+        "front_0x508a": [
+          1,
+          1,
+          1,
+          0
+        ],
+        "leftA_0x5072": [
+          0,
+          1,
+          0,
+          0
+        ],
+        "rightA_0x5092": [
+          1,
+          1,
+          0,
+          0
+        ],
+        "wt2_emit_depths": [],
+        "note": "Residual per-depth gate arrays read live AFTER build settles. front[3]=0 (depth-3 cell crosses into region 2). NO wt=2 side-wall spans emitted (single wt=1 door span at df2)."
+      },
+      "spans": [
+        {
+          "x0": 158,
+          "x1": 68,
+          "clipLo": 72,
+          "clipHi": 248,
+          "walltype": 1,
+          "seamIdx": 6,
+          "depthField": 2
+        }
+      ],
+      "multiRegion": {
+        "note": "Per-depth MULTI-REGION resolved geometry (the engine reads cells across distinct 64-cell wall planes via the resolver). center/left/right are the resolved cells (region,cA,cB) + their N/W/special4/orient2/pit; perpWallL/R = the literal corridor-flanking perpendicular walls (screen left/right by facing); fwdEdge = forward wall of the center cell. Read live via tools/libretro/maze-multiregion-dump.ts. CAVEAT: this is sufficient to DRIVE lookback (the positive frame) but the emit PREDICATE that separates lookback (emits 4) from corridor (emits 0) is NOT closed from this geometry \u2014 see docs/re/findings/maze-classify-gating.json.",
+        "depths": [
+          {
+            "d": 0,
+            "center": {
+              "gx": 127,
+              "gy": 121,
+              "region": 0,
+              "cA": 5,
+              "cB": 7,
+              "N": 0,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "left": {
+              "gx": 126,
+              "gy": 121,
+              "region": 0,
+              "cA": 5,
+              "cB": 6,
+              "N": 0,
+              "W": 0,
+              "special4": 7,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 128,
+              "gy": 121,
+              "region": 1,
+              "cA": 5,
+              "cB": 0,
+              "N": 0,
+              "W": 2,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 0,
+            "perpWallL": 0,
+            "perpWallR": 2,
+            "spanParity": 0
+          },
+          {
+            "d": 1,
+            "center": {
+              "gx": 127,
+              "gy": 122,
+              "region": 0,
+              "cA": 6,
+              "cB": 7,
+              "N": 0,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "left": {
+              "gx": 126,
+              "gy": 122,
+              "region": 0,
+              "cA": 6,
+              "cB": 6,
+              "N": 2,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 128,
+              "gy": 122,
+              "region": 1,
+              "cA": 6,
+              "cB": 0,
+              "N": 0,
+              "W": 3,
+              "special4": 3,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 0,
+            "perpWallL": 0,
+            "perpWallR": 3,
+            "spanParity": 1
+          },
+          {
+            "d": 2,
+            "center": {
+              "gx": 127,
+              "gy": 123,
+              "region": 0,
+              "cA": 7,
+              "cB": 7,
+              "N": 3,
+              "W": 2,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "left": {
+              "gx": 126,
+              "gy": 123,
+              "region": 0,
+              "cA": 7,
+              "cB": 6,
+              "N": 2,
+              "W": 2,
+              "special4": 3,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 128,
+              "gy": 123,
+              "region": 1,
+              "cA": 7,
+              "cB": 0,
+              "N": 2,
+              "W": 2,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 3,
+            "perpWallL": 2,
+            "perpWallR": 2,
+            "spanParity": 0
+          },
+          {
+            "d": 3,
+            "center": {
+              "gx": 127,
+              "gy": 124,
+              "region": 2,
+              "cA": 0,
+              "cB": 7,
+              "N": 0,
+              "W": 2,
+              "special4": 9,
+              "orient2": 0,
+              "pit": 0
+            },
+            "left": {
+              "gx": 126,
+              "gy": 124,
+              "region": 2,
+              "cA": 0,
+              "cB": 6,
+              "N": 2,
+              "W": 2,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 128,
+              "gy": 124,
+              "region": 3,
+              "cA": 0,
+              "cB": 0,
+              "N": 0,
+              "W": 2,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 0,
+            "perpWallL": 2,
+            "perpWallR": 2,
+            "spanParity": 1
+          }
+        ]
+      },
+      "correctedSlots": {
+        "note": "CORRECTED per-facing classifier reads (asm-accurate; see docs/re/findings/maze-classify-determinism.json). Replaces the WRONG fwdEdge/perpWall in multiRegion (which read the cell own N for facing 2/3 instead of the -cellA south / -cellB east neighbour face via helpers 0x36dd/0x3742). front=fwdEdge(center); cornerL/R=per-facing perp dispatch; leftSide/rightSide=lateral-step-then-forward-edge-of-neighbour (OOB-after-step -> SOLID 2). Slot code: 0=open, 2=solid, 3=door, >=5=shape. Emit-if-bounded (>=1 corner/side solid at a non-occluded depth) + parity-alternation screen-side reproduces lookback [0,1,2,3] byte-exact; over-predicts the 3 non-emitters pending the exact emit-gate map.",
+        "facing": 0,
+        "depths": [
+          {
+            "d": 0,
+            "gx": 127,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 0
+          },
+          {
+            "d": 1,
+            "gx": 127,
+            "gy": 122,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 1
+          },
+          {
+            "d": 2,
+            "gx": 127,
+            "gy": 123,
+            "front": 3,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "frontGate": 1,
+            "spanParity": 0
+          },
+          {
+            "d": 3,
+            "gx": 127,
+            "gy": 124,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 0,
+            "frontGate": 0,
+            "spanParity": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "maze-corridor-turn-left",
+      "fixture": "maze-corridor-turn-left",
+      "party": {
+        "game_state": 5,
+        "facing": 3,
+        "z": 0,
+        "x": 5,
+        "y": 7,
+        "gx": 127,
+        "gy": 121,
+        "parity": 1
+      },
+      "slot5220": [
+        0,
+        2,
+        0,
+        2,
+        0
+      ],
+      "fineCoordGate": {
+        "region": 0,
+        "front_0x508a": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "leftA_0x5072": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "rightA_0x5092": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "wt2_emit_depths": [],
+        "note": "Walking down the cellB axis (facing 3, -cellB) within region 0. Front gate all-1 (corridor open ahead) but NO wt=2 side-wall spans \u2014 the orientation-gated corner classifier returns code 2 (edge marker), not 9 (solid quad), for these cells."
+      },
+      "spans": [],
+      "multiRegion": {
+        "note": "Per-depth MULTI-REGION resolved geometry (the engine reads cells across distinct 64-cell wall planes via the resolver). center/left/right are the resolved cells (region,cA,cB) + their N/W/special4/orient2/pit; perpWallL/R = the literal corridor-flanking perpendicular walls (screen left/right by facing); fwdEdge = forward wall of the center cell. Read live via tools/libretro/maze-multiregion-dump.ts. CAVEAT: this is sufficient to DRIVE lookback (the positive frame) but the emit PREDICATE that separates lookback (emits 4) from corridor (emits 0) is NOT closed from this geometry \u2014 see docs/re/findings/maze-classify-gating.json.",
+        "depths": [
+          {
+            "d": 0,
+            "center": {
+              "gx": 127,
+              "gy": 121,
+              "region": 0,
+              "cA": 5,
+              "cB": 7,
+              "N": 0,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "left": {
+              "gx": 127,
+              "gy": 120,
+              "region": 0,
+              "cA": 4,
+              "cB": 7,
+              "N": 3,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 127,
+              "gy": 122,
+              "region": 0,
+              "cA": 6,
+              "cB": 7,
+              "N": 0,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 0,
+            "perpWallL": 0,
+            "perpWallR": 0,
+            "spanParity": 1
+          },
+          {
+            "d": 1,
+            "center": {
+              "gx": 126,
+              "gy": 121,
+              "region": 0,
+              "cA": 5,
+              "cB": 6,
+              "N": 0,
+              "W": 0,
+              "special4": 7,
+              "orient2": 0,
+              "pit": 0
+            },
+            "left": {
+              "gx": 126,
+              "gy": 120,
+              "region": 0,
+              "cA": 4,
+              "cB": 6,
+              "N": 2,
+              "W": 2,
+              "special4": 7,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 126,
+              "gy": 122,
+              "region": 0,
+              "cA": 6,
+              "cB": 6,
+              "N": 2,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 0,
+            "perpWallL": 0,
+            "perpWallR": 2,
+            "spanParity": 0
+          },
+          {
+            "d": 2,
+            "center": {
+              "gx": 125,
+              "gy": 121,
+              "region": 0,
+              "cA": 5,
+              "cB": 5,
+              "N": 0,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "left": {
+              "gx": 125,
+              "gy": 120,
+              "region": 0,
+              "cA": 4,
+              "cB": 5,
+              "N": 2,
+              "W": 2,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 125,
+              "gy": 122,
+              "region": 0,
+              "cA": 6,
+              "cB": 5,
+              "N": 2,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 0,
+            "perpWallL": 0,
+            "perpWallR": 2,
+            "spanParity": 1
+          },
+          {
+            "d": 3,
+            "center": {
+              "gx": 124,
+              "gy": 121,
+              "region": 0,
+              "cA": 5,
+              "cB": 4,
+              "N": 0,
+              "W": 0,
+              "special4": 0,
+              "orient2": 2,
+              "pit": 0
+            },
+            "left": {
+              "gx": 124,
+              "gy": 120,
+              "region": 0,
+              "cA": 4,
+              "cB": 4,
+              "N": 2,
+              "W": 2,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 124,
+              "gy": 122,
+              "region": 0,
+              "cA": 6,
+              "cB": 4,
+              "N": 0,
+              "W": 0,
+              "special4": 3,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 0,
+            "perpWallL": 0,
+            "perpWallR": 0,
+            "spanParity": 0
+          }
+        ]
+      },
+      "correctedSlots": {
+        "note": "CORRECTED per-facing classifier reads (asm-accurate; see docs/re/findings/maze-classify-determinism.json). Replaces the WRONG fwdEdge/perpWall in multiRegion (which read the cell own N for facing 2/3 instead of the -cellA south / -cellB east neighbour face via helpers 0x36dd/0x3742). front=fwdEdge(center); cornerL/R=per-facing perp dispatch; leftSide/rightSide=lateral-step-then-forward-edge-of-neighbour (OOB-after-step -> SOLID 2). Slot code: 0=open, 2=solid, 3=door, >=5=shape. Emit-if-bounded (>=1 corner/side solid at a non-occluded depth) + parity-alternation screen-side reproduces lookback [0,1,2,3] byte-exact; over-predicts the 3 non-emitters pending the exact emit-gate map.",
+        "facing": 3,
+        "depths": [
+          {
+            "d": 0,
+            "gx": 127,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 3,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 1
+          },
+          {
+            "d": 1,
+            "gx": 126,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 0
+          },
+          {
+            "d": 2,
+            "gx": 125,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 1
+          },
+          {
+            "d": 3,
+            "gx": 124,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 2,
+            "cornerR": 0,
+            "leftSide": 0,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "maze-corridor-lookback",
+      "fixture": "maze-corridor-lookback",
+      "party": {
+        "game_state": 5,
+        "facing": 2,
+        "z": 0,
+        "x": 5,
+        "y": 7,
+        "gx": 127,
+        "gy": 121,
+        "parity": 0
+      },
+      "slot5220": [
+        0,
+        2,
+        2,
+        2,
+        2
+      ],
+      "fineCoordGate": {
+        "region": 0,
+        "front_0x508a": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "leftA_0x5072": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "rightA_0x5092": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "wt2_emit_depths": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "note": "THE positive frame. Walking -cellA within region 0; right side (gx-1=126, region 0) has a continuous solid W wall down the corridor and the left side resolves into region 1 (gx128). Front gate all-1 at every depth (forward edges open/door, never a SOLID stop) -> corners emit at all 4 depths; the corner classifier returns the solid-quad code (9) -> 4 wt=2 spans at df0..3."
+      },
+      "spans": [
+        {
+          "x0": 136,
+          "x1": 52,
+          "clipLo": 72,
+          "clipHi": 248,
+          "walltype": 2,
+          "seamIdx": 10,
+          "depthField": 0
+        },
+        {
+          "x0": 23,
+          "x1": 26,
+          "clipLo": 23,
+          "clipHi": 26,
+          "walltype": 255,
+          "seamIdx": 0,
+          "depthField": 0
+        },
+        {
+          "x0": 29,
+          "x1": 32,
+          "clipLo": 32,
+          "clipHi": 29,
+          "walltype": 255,
+          "seamIdx": 0,
+          "depthField": 0
+        },
+        {
+          "x0": 136,
+          "x1": 53,
+          "clipLo": 72,
+          "clipHi": 248,
+          "walltype": 2,
+          "seamIdx": 13,
+          "depthField": 1
+        },
+        {
+          "x0": 153,
+          "x1": 64,
+          "clipLo": 72,
+          "clipHi": 248,
+          "walltype": 2,
+          "seamIdx": 12,
+          "depthField": 2
+        },
+        {
+          "x0": 25,
+          "x1": 28,
+          "clipLo": 25,
+          "clipHi": 28,
+          "walltype": 255,
+          "seamIdx": 0,
+          "depthField": 2
+        },
+        {
+          "x0": 31,
+          "x1": 34,
+          "clipLo": 34,
+          "clipHi": 31,
+          "walltype": 255,
+          "seamIdx": 0,
+          "depthField": 2
+        },
+        {
+          "x0": 152,
+          "x1": 64,
+          "clipLo": 72,
+          "clipHi": 248,
+          "walltype": 2,
+          "seamIdx": 15,
+          "depthField": 3
+        }
+      ],
+      "multiRegion": {
+        "note": "Per-depth MULTI-REGION resolved geometry (the engine reads cells across distinct 64-cell wall planes via the resolver). center/left/right are the resolved cells (region,cA,cB) + their N/W/special4/orient2/pit; perpWallL/R = the literal corridor-flanking perpendicular walls (screen left/right by facing); fwdEdge = forward wall of the center cell. Read live via tools/libretro/maze-multiregion-dump.ts. CAVEAT: this is sufficient to DRIVE lookback (the positive frame) but the emit PREDICATE that separates lookback (emits 4) from corridor (emits 0) is NOT closed from this geometry \u2014 see docs/re/findings/maze-classify-gating.json.",
+        "depths": [
+          {
+            "d": 0,
+            "center": {
+              "gx": 127,
+              "gy": 121,
+              "region": 0,
+              "cA": 5,
+              "cB": 7,
+              "N": 0,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "left": {
+              "gx": 128,
+              "gy": 121,
+              "region": 1,
+              "cA": 5,
+              "cB": 0,
+              "N": 0,
+              "W": 2,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 126,
+              "gy": 121,
+              "region": 0,
+              "cA": 5,
+              "cB": 6,
+              "N": 0,
+              "W": 0,
+              "special4": 7,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 0,
+            "perpWallL": 2,
+            "perpWallR": 0,
+            "spanParity": 0
+          },
+          {
+            "d": 1,
+            "center": {
+              "gx": 127,
+              "gy": 120,
+              "region": 0,
+              "cA": 4,
+              "cB": 7,
+              "N": 3,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "left": {
+              "gx": 128,
+              "gy": 120,
+              "region": 1,
+              "cA": 4,
+              "cB": 0,
+              "N": 2,
+              "W": 2,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 126,
+              "gy": 120,
+              "region": 0,
+              "cA": 4,
+              "cB": 6,
+              "N": 2,
+              "W": 2,
+              "special4": 7,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 3,
+            "perpWallL": 2,
+            "perpWallR": 0,
+            "spanParity": 1
+          },
+          {
+            "d": 2,
+            "center": {
+              "gx": 127,
+              "gy": 119,
+              "region": 0,
+              "cA": 3,
+              "cB": 7,
+              "N": 0,
+              "W": 0,
+              "special4": 0,
+              "orient2": 2,
+              "pit": 0
+            },
+            "left": {
+              "gx": 128,
+              "gy": 119,
+              "region": 1,
+              "cA": 3,
+              "cB": 0,
+              "N": 0,
+              "W": 2,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 126,
+              "gy": 119,
+              "region": 0,
+              "cA": 3,
+              "cB": 6,
+              "N": 0,
+              "W": 2,
+              "special4": 7,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 0,
+            "perpWallL": 2,
+            "perpWallR": 0,
+            "spanParity": 0
+          },
+          {
+            "d": 3,
+            "center": {
+              "gx": 127,
+              "gy": 118,
+              "region": 0,
+              "cA": 2,
+              "cB": 7,
+              "N": 2,
+              "W": 0,
+              "special4": 0,
+              "orient2": 1,
+              "pit": 0
+            },
+            "left": {
+              "gx": 128,
+              "gy": 118,
+              "region": 1,
+              "cA": 2,
+              "cB": 0,
+              "N": 2,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 126,
+              "gy": 118,
+              "region": 0,
+              "cA": 2,
+              "cB": 6,
+              "N": 2,
+              "W": 2,
+              "special4": 7,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 2,
+            "perpWallL": 0,
+            "perpWallR": 0,
+            "spanParity": 1
+          }
+        ]
+      },
+      "correctedSlots": {
+        "note": "CORRECTED per-facing classifier reads (asm-accurate; see docs/re/findings/maze-classify-determinism.json). Replaces the WRONG fwdEdge/perpWall in multiRegion (which read the cell own N for facing 2/3 instead of the -cellA south / -cellB east neighbour face via helpers 0x36dd/0x3742). front=fwdEdge(center); cornerL/R=per-facing perp dispatch; leftSide/rightSide=lateral-step-then-forward-edge-of-neighbour (OOB-after-step -> SOLID 2). Slot code: 0=open, 2=solid, 3=door, >=5=shape. Emit-if-bounded (>=1 corner/side solid at a non-occluded depth) + parity-alternation screen-side reproduces lookback [0,1,2,3] byte-exact; over-predicts the 3 non-emitters pending the exact emit-gate map.",
+        "facing": 2,
+        "depths": [
+          {
+            "d": 0,
+            "gx": 127,
+            "gy": 121,
+            "front": 3,
+            "cornerL": 0,
+            "cornerR": 0,
+            "leftSide": 2,
+            "rightSide": 2,
+            "frontGate": 1,
+            "spanParity": 0
+          },
+          {
+            "d": 1,
+            "gx": 127,
+            "gy": 120,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 1
+          },
+          {
+            "d": 2,
+            "gx": 127,
+            "gy": 119,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "frontGate": 1,
+            "spanParity": 0
+          },
+          {
+            "d": 3,
+            "gx": 127,
+            "gy": 118,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 2,
+            "rightSide": 2,
+            "frontGate": 1,
+            "spanParity": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "maze-corridor-asym",
+      "fixture": "maze-corridor-asym",
+      "party": {
+        "game_state": 5,
+        "facing": 1,
+        "z": 0,
+        "x": 5,
+        "y": 7,
+        "gx": 127,
+        "gy": 121,
+        "parity": 1
+      },
+      "slot5220": [
+        0,
+        0,
+        2,
+        0,
+        2
+      ],
+      "fineCoordGate": {
+        "region": 0,
+        "front_0x508a": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "leftA_0x5072": [
+          0,
+          1,
+          1,
+          1
+        ],
+        "rightA_0x5092": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "wt2_emit_depths": [],
+        "note": "Facing 1 (+cellB / +gx). Depth-1 cursor crosses into region 1 (gx128). Front gate all-1 but NO wt=2 spans (corner classifier returns 2, not 9). Asymmetric left/right gate pattern (leftA vs rightA) reflects the one-sided geometry but does not promote to a settled wt=2 span (open ahead)."
+      },
+      "spans": [],
+      "multiRegion": {
+        "note": "Per-depth MULTI-REGION resolved geometry (the engine reads cells across distinct 64-cell wall planes via the resolver). center/left/right are the resolved cells (region,cA,cB) + their N/W/special4/orient2/pit; perpWallL/R = the literal corridor-flanking perpendicular walls (screen left/right by facing); fwdEdge = forward wall of the center cell. Read live via tools/libretro/maze-multiregion-dump.ts. CAVEAT: this is sufficient to DRIVE lookback (the positive frame) but the emit PREDICATE that separates lookback (emits 4) from corridor (emits 0) is NOT closed from this geometry \u2014 see docs/re/findings/maze-classify-gating.json.",
+        "depths": [
+          {
+            "d": 0,
+            "center": {
+              "gx": 127,
+              "gy": 121,
+              "region": 0,
+              "cA": 5,
+              "cB": 7,
+              "N": 0,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "left": {
+              "gx": 127,
+              "gy": 122,
+              "region": 0,
+              "cA": 6,
+              "cB": 7,
+              "N": 0,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 127,
+              "gy": 120,
+              "region": 0,
+              "cA": 4,
+              "cB": 7,
+              "N": 3,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 0,
+            "perpWallL": 0,
+            "perpWallR": 0,
+            "spanParity": 1
+          },
+          {
+            "d": 1,
+            "center": {
+              "gx": 128,
+              "gy": 121,
+              "region": 1,
+              "cA": 5,
+              "cB": 0,
+              "N": 0,
+              "W": 2,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "left": {
+              "gx": 128,
+              "gy": 122,
+              "region": 1,
+              "cA": 6,
+              "cB": 0,
+              "N": 0,
+              "W": 3,
+              "special4": 3,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 128,
+              "gy": 120,
+              "region": 1,
+              "cA": 4,
+              "cB": 0,
+              "N": 2,
+              "W": 2,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 2,
+            "perpWallL": 0,
+            "perpWallR": 0,
+            "spanParity": 0
+          },
+          {
+            "d": 2,
+            "center": {
+              "gx": 129,
+              "gy": 121,
+              "region": 1,
+              "cA": 5,
+              "cB": 1,
+              "N": 0,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "left": {
+              "gx": 129,
+              "gy": 122,
+              "region": 1,
+              "cA": 6,
+              "cB": 1,
+              "N": 0,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 129,
+              "gy": 120,
+              "region": 1,
+              "cA": 4,
+              "cB": 1,
+              "N": 3,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 0,
+            "perpWallL": 0,
+            "perpWallR": 0,
+            "spanParity": 1
+          },
+          {
+            "d": 3,
+            "center": {
+              "gx": 130,
+              "gy": 121,
+              "region": 1,
+              "cA": 5,
+              "cB": 2,
+              "N": 0,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "left": {
+              "gx": 130,
+              "gy": 122,
+              "region": 1,
+              "cA": 6,
+              "cB": 2,
+              "N": 2,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "right": {
+              "gx": 130,
+              "gy": 120,
+              "region": 1,
+              "cA": 4,
+              "cB": 2,
+              "N": 2,
+              "W": 0,
+              "special4": 0,
+              "orient2": 0,
+              "pit": 0
+            },
+            "fwdEdge": 0,
+            "perpWallL": 2,
+            "perpWallR": 0,
+            "spanParity": 0
+          }
+        ]
+      },
+      "correctedSlots": {
+        "note": "CORRECTED per-facing classifier reads (asm-accurate; see docs/re/findings/maze-classify-determinism.json). Replaces the WRONG fwdEdge/perpWall in multiRegion (which read the cell own N for facing 2/3 instead of the -cellA south / -cellB east neighbour face via helpers 0x36dd/0x3742). front=fwdEdge(center); cornerL/R=per-facing perp dispatch; leftSide/rightSide=lateral-step-then-forward-edge-of-neighbour (OOB-after-step -> SOLID 2). Slot code: 0=open, 2=solid, 3=door, >=5=shape. Emit-if-bounded (>=1 corner/side solid at a non-occluded depth) + parity-alternation screen-side reproduces lookback [0,1,2,3] byte-exact; over-predicts the 3 non-emitters pending the exact emit-gate map.",
+        "facing": 1,
+        "depths": [
+          {
+            "d": 0,
+            "gx": 127,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 3,
+            "leftSide": 0,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 1
+          },
+          {
+            "d": 1,
+            "gx": 128,
+            "gy": 121,
+            "front": 2,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 3,
+            "rightSide": 2,
+            "frontGate": 1,
+            "spanParity": 0
+          },
+          {
+            "d": 2,
+            "gx": 129,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 3,
+            "leftSide": 0,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 1
+          },
+          {
+            "d": 3,
+            "gx": 130,
+            "gy": 121,
+            "front": 0,
+            "cornerL": 0,
+            "cornerR": 2,
+            "leftSide": 0,
+            "rightSide": 0,
+            "frontGate": 1,
+            "spanParity": 0
+          }
+        ]
+      }
+    }
   ],
-  "buildIsContinuous": "Reading the live wt2 span list across 60 consecutive frames after the lookback 2nd turn, with door-phase 0x363e CONSTANT at 0, the list cycles []/[0,1]/[0,1,2,3] \u2014 proving the depth-loop build re-runs every emulator frame and the complete build (= the committed fixture) is [0,1,2,3]. Reproduce: /tmp/doorphase.ts pattern (unserialize maze-corridor -> right -> step40 -> right -> step 1 x60, read 0x50ce/0x50d0 + 0x363e each frame).",
-  "doorCellOrient2": "Corridor column cB7 (gx127): cell(127,120) N=3(door) orient2=0; (127,119) orient2=2; (127,118) orient2=1. The orient2 plane is non-trivial; the front orientation gate (orient2==facing) is the facing-dependent emit key."
- }
+  "geometry": {
+    "cells": {
+      "z0_y0_x0": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y0_x1": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y0_x2": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y0_x3": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y0_x4": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y0_x5": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y0_x6": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y0_x7": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y1_x0": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y1_x1": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y1_x2": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y1_x3": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y1_x4": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y1_x5": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y1_x6": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y1_x7": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y2_x0": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y2_x1": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y2_x2": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y2_x3": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y2_x4": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y2_x5": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y2_x6": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y2_x7": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y3_x0": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y3_x1": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y3_x2": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y3_x3": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y3_x4": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y3_x5": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y3_x6": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y3_x7": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y4_x0": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y4_x1": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y4_x2": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y4_x3": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y4_x4": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y4_x5": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y4_x6": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y4_x7": {
+        "north": 3,
+        "west": 0
+      },
+      "z0_y5_x0": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y5_x1": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y5_x2": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y5_x3": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y5_x4": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y5_x5": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y5_x6": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y5_x7": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y6_x0": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y6_x1": {
+        "north": 0,
+        "west": 3
+      },
+      "z0_y6_x2": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y6_x3": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y6_x4": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y6_x5": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y6_x6": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y6_x7": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y7_x0": {
+        "north": 2,
+        "west": 0
+      },
+      "z0_y7_x1": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y7_x2": {
+        "north": 0,
+        "west": 2
+      },
+      "z0_y7_x3": {
+        "north": 0,
+        "west": 0
+      },
+      "z0_y7_x4": {
+        "north": 2,
+        "west": 1
+      },
+      "z0_y7_x5": {
+        "north": 0,
+        "west": 1
+      },
+      "z0_y7_x6": {
+        "north": 2,
+        "west": 2
+      },
+      "z0_y7_x7": {
+        "north": 3,
+        "west": 2
+      }
+    }
+  },
+  "navigatedFrames": {
+    "note": "8 frames navigated from maze-corridor.state via arrow keys (left/right turn, up forward; see maze-harness-movement.json). Geometry via the corrected per-facing reads. SETTLED wt2 are render-timing-sensitive MID-BUILD snapshots (the build re-runs every frame) \u2014 for the emitters the complete-build target is noted separately. These are NOT committed fixtures yet; reproduce via tools/libretro/maze-navigate-probe.ts (geometry) + /tmp captures. To promote to byte-exact gates, commit per-frame serialize-states captured at a complete-build moment.",
+    "frames": [
+      {
+        "name": "up",
+        "facing": 0,
+        "gx": 127,
+        "gy": 122,
+        "keys": [
+          "up"
+        ],
+        "wt2_complete": [],
+        "note": "f0 step forward; no emit (door at d1 reads recess-from-behind code 8)."
+      },
+      {
+        "name": "up-up",
+        "facing": 0,
+        "gx": 127,
+        "gy": 123,
+        "keys": [
+          "up",
+          "up"
+        ],
+        "wt2_complete": [],
+        "note": "f0 2 steps; raw front [3,0,2,2] like lookback but FACING 0 -> orient gate off -> no emit. Cleanest f0/f2 contrast."
+      },
+      {
+        "name": "up-RR",
+        "facing": 2,
+        "gx": 127,
+        "gy": 122,
+        "keys": [
+          "up",
+          "right",
+          "right"
+        ],
+        "wt2_complete": [
+          1,
+          2
+        ],
+        "spans_complete": [
+          {
+            "depthField": 1,
+            "seamIdx": 11,
+            "x0": 147,
+            "x1": 59,
+            "walltype": 2,
+            "clipLo": 72,
+            "clipHi": 248
+          },
+          {
+            "depthField": 2,
+            "seamIdx": 14,
+            "x0": 144,
+            "x1": 60,
+            "walltype": 2,
+            "clipLo": 72,
+            "clipHi": 248
+          }
+        ],
+        "stable": "STABLE [1,2] across 4 settled-read trials",
+        "note": "f2 emitter distinct from lookback (matches maze-span y3 frame)."
+      },
+      {
+        "name": "up-up-RR",
+        "facing": 2,
+        "gx": 127,
+        "gy": 123,
+        "keys": [
+          "up",
+          "up",
+          "right",
+          "right"
+        ],
+        "wt2_complete": "UNCONFIRMED",
+        "note": "settled residual []; mid-build briefly [2,3]; complete-build emission unconfirmed (render-timing)."
+      },
+      {
+        "name": "R-up",
+        "facing": 1,
+        "gx": 128,
+        "gy": 121,
+        "keys": [
+          "right",
+          "up"
+        ],
+        "wt2_complete": [],
+        "note": "f1 step; solid front d0 but no head-on door shape -> no wt2."
+      },
+      {
+        "name": "R-up-up",
+        "facing": 1,
+        "gx": 129,
+        "gy": 121,
+        "keys": [
+          "right",
+          "up",
+          "up"
+        ],
+        "wt2_complete": [
+          3,
+          3
+        ],
+        "spans_complete": [
+          {
+            "depthField": 3,
+            "seamIdx": 15,
+            "x0": 120,
+            "x1": 64,
+            "walltype": 2,
+            "clipLo": 72,
+            "clipHi": 128
+          },
+          {
+            "depthField": 3,
+            "seamIdx": 15,
+            "x0": 120,
+            "x1": 64,
+            "walltype": 2,
+            "clipLo": 128,
+            "clipHi": 248
+          }
+        ],
+        "stable": "STABLE [3,3] mid-build across trials",
+        "note": "f1 emitter; TWO wt2 spans at df3, same seam/x0 but SPLIT vertical clips (one corridor-capping solid wall drawn as two stacked clip bands). New emit shape."
+      },
+      {
+        "name": "L-up",
+        "facing": 3,
+        "gx": 126,
+        "gy": 121,
+        "keys": [
+          "left",
+          "up"
+        ],
+        "wt2_complete": [],
+        "note": "f3 step; no emit."
+      },
+      {
+        "name": "L-up-up",
+        "facing": 3,
+        "gx": 125,
+        "gy": 121,
+        "keys": [
+          "left",
+          "up",
+          "up"
+        ],
+        "wt2_complete": [],
+        "note": "f3 2 steps; no emit."
+      }
+    ],
+    "buildIsContinuous": "Reading the live wt2 span list across 60 consecutive frames after the lookback 2nd turn, with door-phase 0x363e CONSTANT at 0, the list cycles []/[0,1]/[0,1,2,3] \u2014 proving the depth-loop build re-runs every emulator frame and the complete build (= the committed fixture) is [0,1,2,3]. Reproduce: /tmp/doorphase.ts pattern (unserialize maze-corridor -> right -> step40 -> right -> step 1 x60, read 0x50ce/0x50d0 + 0x363e each frame).",
+    "doorCellOrient2": "Corridor column cB7 (gx127): cell(127,120) N=3(door) orient2=0; (127,119) orient2=2; (127,118) orient2=1. The orient2 plane is non-trivial; the front orientation gate (orient2==facing) is the facing-dependent emit key."
+  },
+  "mazeBlock": {
+    "note": "FULL per-zone maze block (the orient2-aware CLASSIFY input). Static per-zone data read live from maze-corridor.state via tools/libretro/maze-block-dump.ts. gxBase/gyBase = region tables (maze_ptr+0x1e0/+0x1ec, 12 entries). regions[r] = the r-th 64-cell plane, regions[r][cellA*8+cellB] = {north,west,special4,orient2,pit}. Cell index = region*64 + cellA*8 + cellB. Out-of-region = SOLID. See docs/re/findings/maze-classify-gating.json + maze-classify-determinism.json.",
+    "gxBase": [
+      120,
+      128,
+      120,
+      128,
+      120,
+      128,
+      10,
+      18,
+      10,
+      18,
+      26,
+      26
+    ],
+    "gyBase": [
+      116,
+      116,
+      124,
+      124,
+      132,
+      132,
+      10,
+      10,
+      18,
+      18,
+      10,
+      18
+    ],
+    "regions": [
+      [
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 1,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 2,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 1,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 7,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 2,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 9,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 7,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 2,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 7,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 3,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 2,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 7,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 3,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 3,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 3,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 3,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        }
+      ],
+      [
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 1,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 2,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 1,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 2,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 11,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 3,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 3,
+          "special4": 3,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 3,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        }
+      ],
+      [
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 9,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 3,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 1,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 11,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 3,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 3,
+          "west": 2,
+          "special4": 9,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 4,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 3,
+          "special4": 3,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 2,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 3,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 3,
+          "west": 2,
+          "special4": 1,
+          "orient2": 0,
+          "pit": 0
+        }
+      ],
+      [
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 9,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 3,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 11,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 3,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 3,
+          "west": 0,
+          "special4": 9,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 3,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 3,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 3,
+          "west": 0,
+          "special4": 1,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        }
+      ],
+      [
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 3,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 1,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 7,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 13,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 13,
+          "orient2": 2,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 13,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 7,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 13,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 13,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 13,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 13,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 13,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 13,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 13,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 13,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 13,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 7,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 7,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 13,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 7,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 13,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 13,
+          "orient2": 0,
+          "pit": 0
+        }
+      ],
+      [
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 5,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 1,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        }
+      ],
+      [
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 1,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 1,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 3,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 1,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 2,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        }
+      ],
+      [
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 1,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 1,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 3,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 2,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 1,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        }
+      ],
+      [
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 1,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 3,
+          "west": 2,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 5,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 1,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 1,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        }
+      ],
+      [
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 1,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 3,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 1,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 1,
+          "west": 1,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        }
+      ],
+      [
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 1,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 1,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        }
+      ],
+      [
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 1,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 3,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 2,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 0,
+          "orient2": 2,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 1,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 2,
+          "west": 2,
+          "special4": 1,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 0
+        },
+        {
+          "north": 2,
+          "west": 0,
+          "special4": 0,
+          "orient2": 2,
+          "pit": 0
+        },
+        {
+          "north": 0,
+          "west": 2,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        },
+        {
+          "north": 0,
+          "west": 0,
+          "special4": 0,
+          "orient2": 0,
+          "pit": 1
+        }
+      ]
+    ]
+  },
+  "classifyFrames": {
+    "note": "Per-frame GLOBAL party (gx,gy,z,facing) + complete-build wt=2 span depthFields. The byte-exact target for the orient2-aware classify->build->flush gate. Reads are deterministic (step(40) settles the build; confirmed identical across 3 runs via maze-block-dump.ts). R-up-up is the documented residual (split-clip f1 cap, region-edge static-vs-runtime divergence).",
+    "frames": [
+      {
+        "name": "maze-corridor",
+        "party": {
+          "gx": 127,
+          "gy": 121,
+          "z": 0,
+          "facing": 0
+        },
+        "wt2_depthFields": []
+      },
+      {
+        "name": "maze-corridor-turn-left",
+        "party": {
+          "gx": 127,
+          "gy": 121,
+          "z": 0,
+          "facing": 3
+        },
+        "wt2_depthFields": []
+      },
+      {
+        "name": "maze-corridor-lookback",
+        "party": {
+          "gx": 127,
+          "gy": 121,
+          "z": 0,
+          "facing": 2
+        },
+        "wt2_depthFields": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "name": "maze-corridor-asym",
+        "party": {
+          "gx": 127,
+          "gy": 121,
+          "z": 0,
+          "facing": 1
+        },
+        "wt2_depthFields": []
+      },
+      {
+        "name": "up",
+        "party": {
+          "gx": 127,
+          "gy": 122,
+          "z": 0,
+          "facing": 0
+        },
+        "wt2_depthFields": []
+      },
+      {
+        "name": "up-up",
+        "party": {
+          "gx": 127,
+          "gy": 123,
+          "z": 0,
+          "facing": 0
+        },
+        "wt2_depthFields": []
+      },
+      {
+        "name": "up-RR",
+        "party": {
+          "gx": 127,
+          "gy": 122,
+          "z": 0,
+          "facing": 2
+        },
+        "wt2_depthFields": [
+          1,
+          2
+        ]
+      },
+      {
+        "name": "up-up-RR",
+        "party": {
+          "gx": 127,
+          "gy": 123,
+          "z": 0,
+          "facing": 2
+        },
+        "wt2_depthFields": [
+          2,
+          3
+        ]
+      },
+      {
+        "name": "R-up",
+        "party": {
+          "gx": 128,
+          "gy": 121,
+          "z": 0,
+          "facing": 1
+        },
+        "wt2_depthFields": []
+      },
+      {
+        "name": "R-up-up",
+        "party": {
+          "gx": 129,
+          "gy": 121,
+          "z": 0,
+          "facing": 1
+        },
+        "wt2_depthFields": [
+          3
+        ]
+      },
+      {
+        "name": "L-up",
+        "party": {
+          "gx": 126,
+          "gy": 121,
+          "z": 0,
+          "facing": 3
+        },
+        "wt2_depthFields": []
+      },
+      {
+        "name": "L-up-up",
+        "party": {
+          "gx": 125,
+          "gy": 121,
+          "z": 0,
+          "facing": 3
+        },
+        "wt2_depthFields": []
+      }
+    ]
+  }
 }
