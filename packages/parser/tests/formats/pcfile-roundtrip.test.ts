@@ -7,6 +7,8 @@
  *
  * Step 1 asserts the BUG (equipment/inventory dropped) — should FAIL before fix.
  * Step 2 asserts the RESIDUAL (raw-only bytes) — acceptable after fix.
+ * Step 3 (equipped-char) asserts the ACTUAL reported bug: a Character with NON-empty
+ *   equipment + inventory roundtrips exactly through the export path.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -15,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { decodePcfile } from '../../src/formats/pcfile.js';
 import { pcfileSlotToCharacter, characterToPcfileSlot } from '../../src/formats/pcfile-character-bridge.js';
 import { encodeCharacterRecord } from '../../src/formats/encode-character-record.js';
+import type { Character } from '@wiz6/data';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PCFILE = join(HERE, '..', '..', '..', '..', 'test-fixtures', 'original', 'pcfile.dbs');
@@ -215,6 +218,136 @@ describe('pcfile full roundtrip (pcfileSlotToCharacter → characterToPcfileSlot
         throw new Error(
           `${slot.name}: unexpected non-residual diffs (${unexpectedDiffs.length}):\n  ${summary}`,
         );
+      }
+    }
+  });
+});
+
+/**
+ * Equipped-character roundtrip — the critical missing gate for #081.
+ *
+ * Background: all 6 stock chars in pcfile.dbs have equipment=[0xFF×8] (nothing
+ * pre-equipped), so the stock-char tests above exercise inventory carry but pass
+ * trivially for equipment. A regression that re-breaks equipment carrying would
+ * sail through CI. This suite builds a Character with NON-empty equipment AND
+ * distinct inventory items and asserts the full export path preserves them exactly.
+ *
+ * Design: we take a decoded stock char (THESUS, slot 0), update it to have
+ * equipment slot 0 = inventory index 0 (LONGSWORD) and slot 1 = inventory index 4
+ * (BUCKLER SHIELD). This gives us two equipment entries and the 5 existing inventory
+ * items. We then:
+ *   1. Run the full roundtrip: Character → PcfileSlot → encodeCharacterRecord → bytes.
+ *   2. Assert slot.equipment matches the input exactly (non-0xFF values survive).
+ *   3. Assert slot.inventory matches the input exactly (all fields per item).
+ *   4. Assert the encoded bytes at +0x110..+0x117 equal [0,4,255,255,255,255,255,255].
+ *   5. Assert the encoded bytes at +0x40..+0xef (inventory) equal the input items.
+ *   6. Re-decode via pcfileSlotToCharacter and assert the resulting Character's
+ *      equipment and inventory equal the originals.
+ *
+ * Revert test: if characterToPcfileSlot were reverted to `new Array(8).fill(0xff)`
+ * for equipment (the pre-fix default), assertions 2 and 4 would fail because
+ * slot.equipment would be [255×8] instead of [0,4,255,255,255,255,255,255].
+ */
+describe('equipped-character roundtrip — gates the #081 fix (non-trivial equipment+inventory)', () => {
+  const pcfileBytes = new Uint8Array(readFileSync(PCFILE));
+  const { slots } = decodePcfile(pcfileBytes);
+  // THESUS (slot 0): 5 items in inventory; stock equipment all 0xFF.
+  // We promote him to "equipped" by setting body-slot 0 (weapon) = inv index 0
+  // and body-slot 1 (off-hand/shield) = inv index 4 (BUCKLER SHIELD).
+  const thesusSlot = slots[0]!;
+  const UUID = '00000000-0000-4000-8000-000000000099';
+
+  // Build the base Character from the stock record, then override equipment.
+  const baseChar = pcfileSlotToCharacter(thesusSlot, UUID);
+  const equippedChar: Character = {
+    ...baseChar,
+    // inventory already has 5 items from the stock record:
+    //   [0] = LONGSWORD (itemId=8, weight=50, equipSlot=0, spriteIdx=1, qty=0, flags=0)
+    //   [1] = LEATHER CUIRASS (itemId=135, weight=140, equipSlot=7, spriteIdx=41, qty=0, flags=0)
+    //   [2] = FUR LEGGING (itemId=132, weight=50, equipSlot=8, spriteIdx=44, qty=0, flags=0)
+    //   [3] = SANDALS (itemId=130, weight=15, equipSlot=10, spriteIdx=46, qty=0, flags=0)
+    //   [4] = BUCKLER SHIELD (itemId=141, weight=40, equipSlot=11, spriteIdx=38, qty=0, flags=0)
+    // equipment: weapon=inv0 (LONGSWORD), shield=inv4 (BUCKLER), rest empty.
+    equipment: [0, 4, 255, 255, 255, 255, 255, 255],
+  };
+
+  it('slot.equipment matches the non-0xFF input after characterToPcfileSlot', () => {
+    const slot2 = characterToPcfileSlot(equippedChar, 0);
+    // If the fix were reverted, this would be [255,255,...] — the default.
+    expect(slot2.equipment).toEqual([0, 4, 255, 255, 255, 255, 255, 255]);
+  });
+
+  it('slot.inventory carries all 5 item fields exactly', () => {
+    const slot2 = characterToPcfileSlot(equippedChar, 0);
+    // All 5 non-empty items must survive with every field intact.
+    const expectedItems = equippedChar.inventory!.slice(0, 5);
+    for (let i = 0; i < 5; i++) {
+      const got = slot2.inventory[i]!;
+      const want = expectedItems[i]!;
+      expect(got.itemId, `item[${i}].itemId`).toBe(want.itemId);
+      expect(got.weight, `item[${i}].weight`).toBe(want.weight);
+      expect(got.equipSlot, `item[${i}].equipSlot`).toBe(want.equipSlot);
+      expect(got.spriteIdx, `item[${i}].spriteIdx`).toBe(want.spriteIdx);
+      expect(got.quantity, `item[${i}].quantity`).toBe(want.quantity);
+      expect(got.flags, `item[${i}].flags`).toBe(want.flags);
+    }
+    // Slots 5..21 are empty (itemId=0).
+    for (let i = 5; i < 22; i++) {
+      expect(slot2.inventory[i]!.itemId, `item[${i}].itemId`).toBe(0);
+    }
+  });
+
+  it('encoded bytes at +0x110..+0x117 equal the equipment array (not 0xFF×8)', () => {
+    const slot2 = characterToPcfileSlot(equippedChar, 0);
+    const encoded = encodeCharacterRecord(slot2);
+    // If the fix were reverted, all 8 bytes would be 0xFF.
+    expect(Array.from(encoded.subarray(0x110, 0x118))).toEqual([0, 4, 255, 255, 255, 255, 255, 255]);
+  });
+
+  it('encoded bytes at +0x40..+0xef match the inventory items field-for-field', () => {
+    const slot2 = characterToPcfileSlot(equippedChar, 0);
+    const encoded = encodeCharacterRecord(slot2);
+    const inputItems = equippedChar.inventory!;
+    for (let i = 0; i < 22; i++) {
+      const off = 0x40 + i * 8;
+      const view = new DataView(encoded.buffer, encoded.byteOffset, encoded.byteLength);
+      const encodedItemId = view.getUint16(off, true);
+      const want = inputItems[i]!;
+      expect(encodedItemId, `encoded item[${i}].itemId at +0x${off.toString(16)}`).toBe(want.itemId);
+      if (want.itemId > 0) {
+        // For non-empty slots, check every field.
+        expect(encoded[off + 2], `encoded item[${i}].weight`).toBe(want.weight);
+        expect(encoded[off + 4], `encoded item[${i}].equipSlot`).toBe(want.equipSlot);
+        expect(encoded[off + 5], `encoded item[${i}].spriteIdx`).toBe(want.spriteIdx);
+        expect(encoded[off + 6], `encoded item[${i}].quantity`).toBe(want.quantity);
+        expect(encoded[off + 7], `encoded item[${i}].flags`).toBe(want.flags);
+      }
+    }
+  });
+
+  it('full roundtrip: re-decoded Character equipment and inventory equal the originals', () => {
+    const slot2 = characterToPcfileSlot(equippedChar, 0);
+    const encoded = encodeCharacterRecord(slot2);
+    // Re-decode by feeding the encoded record back through pcfileSlotToCharacter.
+    // We need to give it a populated PcfileSlot, so re-use slot2 with raw replaced.
+    const reDecoded = pcfileSlotToCharacter({ ...slot2, raw: Array.from(encoded) }, UUID);
+
+    // Equipment: [0,4,255,255,255,255,255,255] must survive verbatim.
+    expect(reDecoded.equipment).toEqual(equippedChar.equipment);
+
+    // Inventory: every item field must match the original Character.
+    expect(reDecoded.inventory).toBeDefined();
+    const inputItems = equippedChar.inventory!;
+    for (let i = 0; i < 22; i++) {
+      const got = reDecoded.inventory![i]!;
+      const want = inputItems[i]!;
+      expect(got.itemId, `roundtrip item[${i}].itemId`).toBe(want.itemId);
+      if (want.itemId > 0) {
+        expect(got.weight, `roundtrip item[${i}].weight`).toBe(want.weight);
+        expect(got.equipSlot, `roundtrip item[${i}].equipSlot`).toBe(want.equipSlot);
+        expect(got.spriteIdx, `roundtrip item[${i}].spriteIdx`).toBe(want.spriteIdx);
+        expect(got.quantity, `roundtrip item[${i}].quantity`).toBe(want.quantity);
+        expect(got.flags, `roundtrip item[${i}].flags`).toBe(want.flags);
       }
     }
   });
