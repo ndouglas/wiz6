@@ -13,14 +13,18 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#082**
+Next free ID: **#083**
 
 ---
 
 ## Open
 
-- #081 [open] — Roster `.dbs` export roundtrip drops equipment (verify + fix)
-  - Nate (2026-06-05, INBOX): exporting the roster to `.dbs` (pcfile) "seems to miss equipment, possibly other things." Verify the **pcfile/`.dbs` roundtrip** (decode → re-encode → byte-compare against the original; and a round-trip through the viewer's roster export/import → `.dbs`). Equipment is the known suspect; check for other dropped fields too. Scope confirmed = `.dbs` (pcfile/roster); JSON/`.sav` roundtrips can follow if this surfaces shared gaps. Likely in the `.dbs` encoder (the decode path is exercised by castle/party fixtures; the ENCODE/export path is the untested side). Start: a roundtrip test that decodes `test-fixtures/original/pcfile.dbs`, re-encodes, and diffs — find where equipment bytes diverge.
+- #082 [open] — Roster `.dbs` roundtrip: byte-exact residual (unknown/raw-only regions)
+  - The equipment+inventory drop (#081) is FIXED + gated (`characterToPcfileSlot` now carries inventory/equipment/spells/counts/thresholds; `pcfile-roundtrip.test.ts` incl. an equipped-char gate). The decode→Character→encode roundtrip is byte-exact on all MODELED fields, but a few **unknown/un-modeled** regions still diverge (the Character has no `raw`, so `characterToPcfileSlot` synthesizes a zeroed raw and these become 0):
+    - **`+0xf0..+0x10f`** (32 bytes) — an unknown engine structure (16-byte repeating pattern, pad=2/flags=32; RULED OUT as inventory slots 22-25 — item-2 weight mismatch). Per `character-record-inventory-equipment.json`: possibly spell-known bitmaps / skill bumps; not decoded.
+    - **`+0x118..+0x121`** (10 bytes) — `unknown_0x118` class school-capacity flags; **non-zero for casters** (NOBAL/TREON/PENTAG 0x01-0x03) → POSSIBLY gameplay-relevant (spell-slot capacity?). A created caster exported to `.dbs` gets these zeroed.
+    - `+0x1ab` creation-default portrait (Character models only the rendered portrait at raw+0x19c), + a few always-constant unknowns (`+0x1a6/1a7/1a9/1aa`=1/10/1/1, `+0x1ae`=100).
+  - To make import→export **byte-exact**: retain the original 432-byte `raw` on the Character when decoded from pcfile (optional `pcfileRaw` field; `characterToPcfileSlot` seeds from it) — covers ALL residual for imported chars. For CREATED chars, the `+0x118` school flags would need modeling (RE the school-capacity derivation). Lower priority than #081 (no equipment/item loss); revisit if real-play saves roundtrip wrong or casters export broken.
 
 - #080 [open] — Hoist the engine-remapped dungeon palette into `@wiz6/data` (dedup x3)
   - The maze viewport's 16-entry palette is the engine's DAC-reprogrammed ordering (NOT IBM-EGA `EGA_DEFAULT`), and is currently triplicated byte-identically: `MazeView.tsx` `COMPOSED_PALETTE`, `packages/viewer/src/data/maze-corridor-tiles.json` `palette`, and `CalibratePalette.tsx`. Hoist to a single named export in `@wiz6/data`'s palette catalog + reference it everywhere. Minor maintainability; surfaced by the walkable-MVP final review (2026-06-05). Also note: no test gates the index→RGB mapping (parity compares `.idx.gz` palette *indices*; the MazeView render test only asserts non-blank) — a palette-ordering regression here is caught only by the eyeball smoke test.
