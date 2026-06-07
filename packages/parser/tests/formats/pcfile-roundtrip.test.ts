@@ -45,46 +45,48 @@ function diffBytes(
 }
 
 /**
- * Known-acceptable residual ranges after fixing inventory/equipment.
- * These bytes live only in `raw`; `characterToPcfileSlot` builds a zeroed raw,
- * so they become 0 in the roundtripped record.
+ * Known-acceptable residual ranges after fixing inventory/equipment (#081) and
+ * before the pcfileRaw retention fix (#082).
+ *
+ * NOTE (#082 implemented): for IMPORTED characters that carry pcfileRaw, ALL of
+ * these ranges are now PRESERVED verbatim — the residual diff is 0 for every
+ * imported char. These ranges are listed here as documentation for what WAS the
+ * acceptable gap (pre-#082) and what remains acceptable for PORT-CREATED characters
+ * that lack pcfileRaw (zeroed-raw synthesis is a separate follow-up).
  *
  * Ranges (inclusive):
- *   +0x118..+0x121  10 bytes  unknown_0x118 (class-dependent school capacity flags;
- *                             NOBAL/TREON/PENTAG have non-zero values 0x01–0x03 here)
- *   +0x1a0          1 byte    high_water_level (all 0 in stock chars → no diff)
- *   +0x1a2..+0x1a5  4 bytes   unknown_0x1a2 (all 0 in stock chars → no diff)
- *   +0x1a6          1 byte    unknown_0x1a6 (always 1 in stock chars → diff: 1→0)
- *   +0x1a7          1 byte    unknown_0x1a7 (always 10 in stock chars → diff: 10→0)
- *   +0x1a8          1 byte    spells_to_learn (all 0 in stock chars → no diff)
- *   +0x1a9          1 byte    unknown_0x1a9 (always 1 in stock chars → diff: 1→0)
- *   +0x1aa          1 byte    unknown_0x1aa (always 1 in stock chars → diff: 1→0)
- *   +0x1ae          1 byte    unknown_0x1ae (always 100 in stock chars → diff: 100→0)
+ *   +0xf0..+0x10f  32 bytes  combat/AC block (engine-written, READ on load; NOT recomputed;
+ *                            zeroing on export = REAL BUG per RE. NOW PRESERVED via pcfileRaw.)
+ *   +0x118..+0x121 10 bytes  per-school used/capacity counters (class-derived at creation,
+ *                            READ as authoritative; zeroing = 0 spell capacity. NOW PRESERVED.)
+ *   +0x1ab         1 byte    portraitIndex creation default (NOW PRESERVED via pcfileRaw seeding)
+ *   +0x1a0         1 byte    high_water_level (0 for all stock chars → no diff in practice)
+ *   +0x1a2..+0x1a5 4 bytes   unknown_0x1a2 (0 for all stock chars → no diff in practice)
+ *   +0x1a6         1 byte    unknown_0x1a6 (1 in stock chars → NOW PRESERVED via pcfileRaw)
+ *   +0x1a7         1 byte    unknown_0x1a7 (10 in stock chars → NOW PRESERVED via pcfileRaw)
+ *   +0x1a8         1 byte    spells_to_learn (0 for all stock chars → no diff in practice)
+ *   +0x1a9         1 byte    unknown_0x1a9 (1 in stock chars → NOW PRESERVED via pcfileRaw)
+ *   +0x1aa         1 byte    unknown_0x1aa (1 in stock chars → NOW PRESERVED via pcfileRaw)
+ *   +0x1ae         1 byte    unknown_0x1ae (100 in stock chars → NOW PRESERVED via pcfileRaw)
+ *
+ * These ranges remain "acceptable" only for PORT-CREATED characters (no pcfileRaw).
+ * The 'full record diff' test below uses this list as a fallback for the pre-#082
+ * "documents acceptable gaps" assertion. With pcfileRaw, imported chars pass the
+ * stricter 0-diff test in the #082 suite above.
  */
 const RESIDUAL_RANGES: Array<[number, number]> = [
-  [0x0f0, 0x10f], // gap between inventory end (0xef) and equipment start (0x110):
-                  // 32 bytes = 4 potential extra inventory slots (22-25); non-zero values seen
-                  // (e.g. THESUS +0xf0: 2,0,2,2,0…,32; same pattern in all stock chars).
-                  // Not decoded by pcfile.ts or encoded by encodeCharacterRecord. Raw-only.
-                  // Possibly more inventory slots, or unknown engine state. Low gameplay risk
-                  // since all stock chars have the same pattern — looks like engine-written state.
-  [0x118, 0x121], // unknown_0x118 (class-dependent school capacity flags;
-                  // NOBAL/TREON/PENTAG have non-zero values 0x01–0x03 here)
-  [0x1ab, 0x1ab], // portraitIndex creation default (+0x1ab, 0..13).
-                  // Distinct from Character.portraitIndex which maps raw[+0x19c] (the RENDERED
-                  // portrait 0..41 the engine actually draws). The Character schema only models
-                  // the rendered portrait; the +0x1ab creation default is PcfileSlot-only.
-                  // Not gameplay-critical (engine draws the +0x19c value), but a follow-up
-                  // could add a 'creationPortraitIndex' field to carry it through for
-                  // byte-exact roundtrip.
+  [0x0f0, 0x10f], // combat/AC block — NOW PRESERVED for imported chars (pcfileRaw).
+                  // Still zeroed for port-created chars (follow-up synthesis task).
+  [0x118, 0x121], // per-school used/capacity counters — NOW PRESERVED for imported chars.
+  [0x1ab, 0x1ab], // portraitIndex creation default — NOW PRESERVED for imported chars.
   [0x1a0, 0x1a0], // high_water_level (0 for all stock chars — no actual diff)
   [0x1a2, 0x1a5], // unknown_0x1a2 (0 for all stock chars — no actual diff)
-  [0x1a6, 0x1a6], // unknown_0x1a6 (1 in stock chars → 0 after roundtrip)
-  [0x1a7, 0x1a7], // unknown_0x1a7 (10 in stock chars → 0 after roundtrip)
+  [0x1a6, 0x1a6], // unknown_0x1a6 — NOW PRESERVED for imported chars.
+  [0x1a7, 0x1a7], // unknown_0x1a7 — NOW PRESERVED for imported chars.
   [0x1a8, 0x1a8], // spells_to_learn (0 for all stock chars — no actual diff)
-  [0x1a9, 0x1a9], // unknown_0x1a9 (1 in stock chars → 0 after roundtrip)
-  [0x1aa, 0x1aa], // unknown_0x1aa (1 in stock chars → 0 after roundtrip)
-  [0x1ae, 0x1ae], // unknown_0x1ae (100 in stock chars → 0 after roundtrip)
+  [0x1a9, 0x1a9], // unknown_0x1a9 — NOW PRESERVED for imported chars.
+  [0x1aa, 0x1aa], // unknown_0x1aa — NOW PRESERVED for imported chars.
+  [0x1ae, 0x1ae], // unknown_0x1ae — NOW PRESERVED for imported chars.
 ];
 
 function isResidualOffset(offset: number): boolean {
@@ -220,6 +222,132 @@ describe('pcfile full roundtrip (pcfileSlotToCharacter → characterToPcfileSlot
         );
       }
     }
+  });
+});
+
+/**
+ * #082 — Byte-exact roundtrip for imported chars via pcfileRaw retention.
+ *
+ * Pre-fix: the residual regions (+0xf0..+0x10f and +0x118..+0x121) are
+ * zeroed in the re-exported record because characterToPcfileSlot builds
+ * a zeroed raw. Post-fix: pcfileSlotToCharacter stores the original
+ * 432-byte record as base64 in Character.pcfileRaw, and
+ * characterToPcfileSlot uses it to seed slot.raw, so all 432 bytes are
+ * preserved verbatim (modulo the modeled-field overwrites).
+ */
+describe('#082 byte-exact roundtrip for imported chars (pcfileRaw retention)', () => {
+  const pcfileBytes = new Uint8Array(readFileSync(PCFILE));
+  const { slots } = decodePcfile(pcfileBytes);
+  const populated = slots.filter((s) => s.populated);
+
+  it('all 6 stock chars: full 432-byte record is byte-exact after roundtrip (pcfileRaw present)', () => {
+    for (const slot of populated) {
+      const uuid = `${UUID_BASE}${String(slot.slot + 1).padStart(2, '0')}`;
+      const char = pcfileSlotToCharacter(slot, uuid);
+
+      // Guard: pcfileRaw must be set by the forward bridge.
+      expect(char.pcfileRaw, `${slot.name} pcfileRaw present`).toBeDefined();
+
+      const slot2 = characterToPcfileSlot(char, slot.slot);
+      const encoded = encodeCharacterRecord(slot2);
+
+      const recStart = HEADER_SIZE + slot.slot * RECORD_STRIDE;
+      const original = pcfileBytes.subarray(recStart, recStart + RECORD_STRIDE);
+
+      const diffs = diffBytes(encoded, original);
+      expect(
+        diffs,
+        `${slot.name}: expected 0-diff but got ${diffs.length} diffs at offsets ${diffs.map((d) => `+0x${d.offset.toString(16)}`).join(', ')}`,
+      ).toEqual([]);
+    }
+  });
+
+  it('residual regions (+0xf0..+0x10f and +0x118..+0x121) are preserved verbatim', () => {
+    for (const slot of populated) {
+      const uuid = `${UUID_BASE}${String(slot.slot + 1).padStart(2, '0')}`;
+      const char = pcfileSlotToCharacter(slot, uuid);
+      const slot2 = characterToPcfileSlot(char, slot.slot);
+      const encoded = encodeCharacterRecord(slot2);
+
+      const recStart = HEADER_SIZE + slot.slot * RECORD_STRIDE;
+      const original = pcfileBytes.subarray(recStart, recStart + RECORD_STRIDE);
+
+      const f0Diffs = diffBytes(encoded, original).filter(
+        (d) => d.offset >= 0x0f0 && d.offset <= 0x10f,
+      );
+      expect(f0Diffs, `${slot.name} +0xf0..+0x10f residual preserved`).toEqual([]);
+
+      const x118Diffs = diffBytes(encoded, original).filter(
+        (d) => d.offset >= 0x118 && d.offset <= 0x121,
+      );
+      expect(x118Diffs, `${slot.name} +0x118..+0x121 residual preserved`).toEqual([]);
+    }
+  });
+
+  it('edits to modeled fields (equipment) still apply; residual is still the original', () => {
+    // Take THESUS (slot 0), modify equipment, roundtrip; assert:
+    //   - equipment bytes reflect the edit (modeled-field overwrite wins)
+    //   - +0xf0 and +0x118..+0x121 still match the ORIGINAL raw (residual preserved)
+    const slot = populated[0]!; // THESUS
+    const uuid = `${UUID_BASE}${String(slot.slot + 1).padStart(2, '0')}`;
+    const baseChar = pcfileSlotToCharacter(slot, uuid);
+    const editedChar: Character = {
+      ...baseChar,
+      equipment: [0, 4, 255, 255, 255, 255, 255, 255], // weapon=inv0, shield=inv4
+    };
+
+    const slot2 = characterToPcfileSlot(editedChar, slot.slot);
+    const encoded = encodeCharacterRecord(slot2);
+
+    const recStart = HEADER_SIZE + slot.slot * RECORD_STRIDE;
+    const original = pcfileBytes.subarray(recStart, recStart + RECORD_STRIDE);
+
+    // Equipment bytes must reflect the edit.
+    expect(
+      Array.from(encoded.subarray(0x110, 0x118)),
+      'equipment bytes after edit',
+    ).toEqual([0, 4, 255, 255, 255, 255, 255, 255]);
+
+    // Residual bytes must still be preserved from the original.
+    const f0Diffs = diffBytes(encoded, original).filter(
+      (d) => d.offset >= 0x0f0 && d.offset <= 0x10f,
+    );
+    expect(f0Diffs, 'residual +0xf0 preserved despite equipment edit').toEqual([]);
+
+    const x118Diffs = diffBytes(encoded, original).filter(
+      (d) => d.offset >= 0x118 && d.offset <= 0x121,
+    );
+    expect(x118Diffs, 'residual +0x118 preserved despite equipment edit').toEqual([]);
+  });
+
+  it('created char (no pcfileRaw) still roundtrips without throwing', () => {
+    // Characters created in the port have no pcfileRaw; the zeroed-raw path
+    // must remain intact. Residual will be 0 (documented, not a regression here).
+    const createdChar: Character = {
+      id: '00000000-0000-4000-8000-000000000099',
+      name: 'NEWGUY',
+      race: 0,
+      class: 0,
+      level: 1,
+      savedOldLevel: 0,
+      xp: 0,
+      gold: 0,
+      conditions: new Array<number>(10).fill(0),
+      dead: false,
+      paralyzed: false,
+      attributes: { str: 10, int: 10, pie: 10, vit: 10, dex: 10, spd: 10, per: 10, kar: 0 },
+      schoolMana: new Array<number>(6).fill(0),
+      schoolManaMax: new Array<number>(6).fill(0),
+      skills: new Array<number>(30).fill(0),
+      reaction: 50,
+      sex: 0,
+      // No pcfileRaw — port-created character.
+    };
+
+    expect(() => {
+      const slot2 = characterToPcfileSlot(createdChar, 0);
+      encodeCharacterRecord(slot2);
+    }).not.toThrow();
   });
 });
 

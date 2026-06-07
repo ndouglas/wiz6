@@ -1,0 +1,130 @@
+{
+  "topic": "character-residual-read-vs-recompute",
+  "subagent_run": "2026-06-06T00:00:00Z",
+  "binaries": [
+    "original/wbase.ovr",
+    "original/wpcmk.ovr",
+    "original/wpcvw.ovr",
+    "original/wmaze.ovr",
+    "original/pcfile.dbs",
+    "tools/dosbox/save/1.sav"
+  ],
+  "todo": "#082",
+  "summary": "VERDICT for TODO #082: BOTH unmodeled regions are READ from the on-disk record (not recomputed on load). They are written ONCE at character CREATION by wpcmk from class-dependent tables, then carried into the active-party slot by the verbatim 432-byte memcpy in wbase add_party_member (the only post-memcpy call, wbase 0x1b2d, is a party-panel RENDERER — it draws the slot, it does not recompute). No load/activate path re-derives them from class/level. They are persistent mutable state at runtime: +0xf0 is mutated by combat/AC/NPC code (wdopt/wpcvw/wmnpc/wmexe write into it), and +0x118/+0x11c are spell-slot used/capacity counters mutated by wpcvw spell-learn and wmaze (read with a floor-of-1 clamp, never a class recompute). CONCLUSION: zeroing these on roster .dbs export is a REAL BUG for created/edited casters — the engine will read the zeros as authoritative (0 school capacity = caster cannot learn/hold spells; the +0xf0 combat/AC block reset to 0). Live confirmation: save/1.sav holds a 6-member CREATED party (BEAU/VEXA/SABLE/EMBER/QUILL/TWINK) mid-dungeon whose live +0x11c school-capacity values are class-keyed and include patterns absent from any stock char ([3,3,4,4,3,4] Bishop, [4,4,3,3,3,4] Alchemist, [2,2,2,2,2,2]), and whose +0xf0 block carries runtime combat drift — both impossible if the engine recomputed-on-load.",
+  "findings": [
+    {
+      "id": "load-is-verbatim-memcpy-then-render",
+      "claim": "The character record→live-party-slot load (wbase ADD PARTY MEMBER) is a verbatim 432-byte rep movsw from the disk buffer into the BSS party slot (0x43e8 + slot*0x1b0). The ONLY call after the memcpy is wbase 0x1b2d, which is a party-PANEL RENDERER (computes a portrait x-coord from slot parity via *0x4fba/*0x4fb8, then calls cross-overlay draw thunks 0xbda7/0xdfb9/0xfaab with the slot pointer). No recompute / class-table re-derivation runs on load. Therefore every byte of the record — including +0xf0..+0x10f and +0x118..+0x121 — reaches the live struct exactly as stored on disk.",
+      "category": "load_path",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "addresses": [
+          "0x259f: lea si,[bp-0x1b2]  ; src = 432-byte disk buffer",
+          "0x25a6: imul word [0x43ce] ; partySize * 0x1b0",
+          "0x25ac: add ax,0x43e8      ; di = BSS party slot base",
+          "0x25b5: mov cx,0xd8        ; 216 words = 432 bytes",
+          "0x25b8: rep movsw          ; VERBATIM copy",
+          "0x25be: call 0x1b2d        ; the ONLY post-copy call",
+          "0x25c2: inc word [0x43ce]   ; partySize++ then ret",
+          "0x1b2d: party-panel renderer — *0x4fba/*0x4fb8 portrait coords, draw thunks 0xbda7/0xdfb9/0xfaab; NO writes to record fields"
+        ],
+        "type": "disassembly",
+        "details": "Confirms and extends pcfile-dbs.json#pcfile-dbs-memcpy. The post-memcpy call was the only place a recompute could hide; it is a renderer, ruling out recompute-on-load."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "school-cap-written-at-creation-only",
+      "claim": "+0x118..+0x121 region: bytes +0x11c..+0x121 are the 6 per-magic-school CAPACITY values, written ONCE at character CREATION by a wpcmk setter at file 0x487c. That function takes 6 args (the 6 school capacities, passed by the class-selection code), clamps each to a minimum of 1, and stores them at draft offsets 0x558c..0x5591 (= record +0x11c..+0x121, draft base 0x5470). It has 13 call sites (0x4924..0x4a65) — the per-class capacity-table dispatch in the creation flow. bytes +0x118..+0x11b are the matching per-school USED counters (start 0).",
+      "category": "creation_init",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "addresses": [
+          "0x487c: school-capacity setter — for each of 6 args [bp+4..bp+e]: if arg<1 then arg=1; mov [0x558c+i],al (i=0..5 -> record +0x11c..+0x121)",
+          "0x4924,0x4949,0x4973,0x4986,0x49b0,0x49c3,0x49e7,0x49fa,0x4a1d,0x4a2f,0x4a41,0x4a53,0x4a65: 13 call sites of 0x487c (per-class capacity dispatch)"
+        ],
+        "type": "disassembly",
+        "byte_evidence": "draft base 0x5470 + 0x11c = 0x558c. Setter writes 0x558c..0x5591 exactly. Stock pcfile.dbs +0x11c values verified by direct read: THESUS/TEMPEST/LYSANDR(class 0/1/Thief)=[1,1,1,1,1,1], NOBAL(Priest)=[2,2,3,3,2,3], TREON/PENTAG(Mage)=[3,3,2,2,2,3]."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "school-cap-read-and-floored-at-runtime",
+      "claim": "+0x11c is READ as an authoritative per-school capacity at runtime; it is never recomputed from class. wpcvw spell-learn reads [bx+0x4504] (+0x11c) and adds it as a capacity parameter into mana/spell math, and increments/decrements [bx+0x4500] (+0x118, the used counter). wmaze 0x1e3e applies only a floor-of-1 CLAMP (cmp [bx+0x4504],1; jnc skip; mov [bx+0x4504],1) before reading it — a sanity floor, not a class re-derivation. This proves the stored byte is treated as ground truth: a stored 0 would be floored to 1 by wmaze but otherwise the loaded value is used directly.",
+      "category": "runtime_read",
+      "evidence": {
+        "binary": "wpcvw.ovr / wmaze.ovr",
+        "addresses": [
+          "wpcvw 0xafc5: mov al,[bx+0x4504] — reads +0x11c capacity into spell/mana computation",
+          "wpcvw 0xaed0: inc byte [bx+0x4500] — increments +0x118 used-counter (learn a spell)",
+          "wpcvw 0x415a: dec byte [bx+0x4500] — decrements +0x118 used-counter",
+          "wpcvw 0xb338: cmp byte [bx+0x4500],0; gates a per-school loop call 0x3def by the used-counter",
+          "wmaze 0x1e37-0x1e3e: cmp byte [bx+0x4504],1 / jnc / mov byte [bx+0x4504],1 — FLOOR-of-1 clamp, then read"
+        ],
+        "type": "disassembly",
+        "details": "All references treat +0x11c as stored capacity and +0x118 as stored used-count. None recompute either from the class index. The wmaze floor-of-1 is the only write outside creation, and it is a clamp not a recompute."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "f0-block-written-at-creation-and-mutated-in-combat",
+      "claim": "+0xf0..+0x10f (32 bytes) is a two-block (2 x 16-byte) DERIVED COMBAT/AC structure, written at CREATION by wpcmk in a 2-iteration loop (file ~0x40d4..0x4137): for block i in {0,1} (bx = i<<4, base 0x5560 = record +0xf0): byte[+0]=0(b0), byte[+2]=2, byte[+3]=2, byte[+14]=0, byte[+15]=0x20(=32) — matching the observed [b0,0,2,2,0..0,32] pattern. Immediately after, class-specific code special-cases Monk(0xc)/Ninja(0xd) (cmp [0x560f],0xd / 0xc) to adjust byte +3, byte +10, and OR 0x40 into byte +15. It is NOT recomputed on load: it is mutated at runtime by combat/AC/dungeon/NPC code in multiple overlays, so it carries persistent per-character state.",
+      "category": "creation_init",
+      "evidence": {
+        "binary": "wpcmk.ovr / wpcvw.ovr / wdopt.ovr / wmnpc.ovr / wmexe.ovr",
+        "addresses": [
+          "wpcmk 0x40d4..0x4137: 2-iteration init loop writing 0x5560/0x5562/0x5563/0x556e/0x556f per 16-byte block (record +0xf0)",
+          "wpcmk 0x4152: cmp byte [0x560f],0xd (Ninja) / 0x4159: cmp 0xc (Monk) — class special-casing of the +0xf0 block",
+          "wpcvw 0x8d06,0x8d11: inc/dec byte [bx+0x44d8] — runtime mutation of +0xf0",
+          "wpcvw 0x1734,0x8c6f,0x9458; wdopt 0x7e2; wmnpc 0x220e; wmexe 0x2a37: additional writes to abs 0x44d8 (+0xf0) across combat/dungeon/NPC overlays"
+        ],
+        "type": "disassembly_plus_byte_read",
+        "byte_evidence": "draft 0x5470 + 0xf0 = 0x5560. Stock pcfile.dbs +0xf0: two 16-byte blocks [b0,0,2,2,0,0,0,0,0,0,0,0,0,0,0,32] with b0=THESUS:2, others:0 — matches the wpcmk init writes. The runtime write set proves the field is persistent mutable state, incompatible with recompute-on-load."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "live-created-party-confirms-read",
+      "claim": "LIVE CONFIRMATION (save/1.sav, game_state 5 = dungeon, party_size 6, CREATED chars BEAU/VEXA/SABLE/EMBER/QUILL/TWINK, DGROUP base 0x18048). The live active-party slots at 0x43e8+slot*0x1b0 hold class-keyed +0x11c values that include patterns absent from every stock char, and a runtime-mutated +0xf0 block. This is only possible if the engine READ these from the roster record into the slot and never recomputed them on load/activate.",
+      "category": "live_evidence",
+      "evidence": {
+        "binary": "tools/dosbox/save/1.sav",
+        "type": "live_memory_read",
+        "details": "Per-slot +0x11c (last 6 of +0x118..+0x121) read from wroot.dgroup: BEAU(class 9 Bishop)=[3,3,4,4,3,4]; VEXA(class 2 Priest)=[3,3,4,4,3,4]; SABLE=[3,3,2,2,2,3]; EMBER=[2,2,3,3,2,3]; QUILL=[4,4,3,3,3,4]; TWINK(class 5 Alchemist)=[2,2,2,2,2,2]. Patterns [3,3,4,4,3,4]/[4,4,3,3,3,4]/[2,2,2,2,2,2] do not occur in any of the 6 stock pcfile records. +0xf0 for BEAU read live = [01 00 02 04 00 00 00 00 00 00 01 00 00 00 fb 03] block0 / [00 00 00 00 00 00 01 00 00 00 fb 00 ...] block1 — runtime-drifted away from the creation-time [b0,0,2,2,...,32] template (combat/AC mutation), proving it is carried persistent state, not recomputed from class on load.",
+        "addresses": [
+          "wroot.dgroup+0x4500 (+0x118 slot0)..+0x4d70 (slot5): per-slot +0x118 region reads",
+          "wroot.dgroup+0x44d8 (+0xf0 slot0): runtime-mutated combat/AC block",
+          "wroot.dgroup+0x4587 (+0x19f class byte): BEAU=9, VEXA=2, TWINK=5"
+        ]
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "f0-identity-best-guess",
+      "claim": "Best-evidence identity of +0xf0..+0x10f: a 2 x 16-byte per-character COMBAT/ATTACK or AC sub-record (2 entries, e.g. two weapon-hand / two attack-stance blocks). Each 16-byte block has byte0 = a small index/count (b0; THESUS=2 on disk), byte2=byte3=2 (a pair, possibly attack count / parry), byte15=0x20=32 (a cap/flag), with Monk/Ninja class adjustments (extra to-hit or unarmed-attack scaling). It is runtime-mutated by combat (wmexe), dungeon options (wdopt), NPC (wmnpc), and equip/view (wpcvw). Not fully decoded field-by-field this pass; the read-vs-recompute verdict does not depend on the exact semantics.",
+      "category": "field_identity",
+      "evidence": {
+        "binary": "wpcmk.ovr",
+        "type": "disassembly_plus_byte_pattern",
+        "details": "wpcmk 0x40d4 loop + Monk/Ninja special-case at 0x4152; runtime write set across combat overlays. Two parallel 16-byte blocks strongly suggests a 2-entry array (per-hand or per-attack). LOW confidence on exact field names."
+      },
+      "confidence": "low"
+    }
+  ],
+  "verdict": {
+    "region_0x11c_school_capacity": "READ — written once from a class-dependent capacity table at creation (wpcmk 0x487c, 13 call sites), copied verbatim into the live party slot on ADD PARTY MEMBER (wbase rep movsw, no recompute), then read as authoritative capacity at runtime (wpcvw spell math; wmaze floor-of-1 clamp). Zeroing on export = REAL BUG for created/edited casters (0 capacity blocks spell learning/holding).",
+    "region_0xf0_combat_block": "READ — written once at creation from a class-dependent template (wpcmk 0x40d4 loop + Monk/Ninja special-casing), copied verbatim on load, and runtime-mutated by combat/AC/NPC overlays. It is persistent per-character state (live save shows combat drift), not recomputed on load. Zeroing on export = REAL BUG (resets a combat/AC sub-record to 0).",
+    "implication_for_082": "REAL BUG (not cosmetic) for both regions. The engine reads the stored bytes as ground truth on load/activate; it never re-derives them from class/level. Recommended fix: either (a) RAW-RETAIN both regions on roster .dbs export (preserve the 32 bytes at +0xf0 and the 10 bytes at +0x118..+0x121 verbatim), or (b) MODEL the class capacity table + the +0xf0 creation template so the exporter can regenerate them from class. RAW-RETAIN is the lower-risk fix and also preserves runtime-drifted +0xf0; modeling is only needed if the exporter must synthesize records for chars created entirely in the TS port. Closing #082 as cosmetic would be incorrect."
+  },
+  "caveats": [
+    "Static disassembly is authoritative here; the wbase add_party_member memcpy + sole post-call (0x1b2d renderer) was read directly, and the wpcmk creation writers + runtime readers were each disassembled. Live save/1.sav corroborates with class-keyed +0x11c values and runtime-drifted +0xf0.",
+    "The exact draft base for wpcmk writes is the creation draft buffer at DGROUP 0x5470 (record-shaped scratch), confirmed by 0x5470+0x11c=0x558c and 0x5470+0xf0=0x5560 matching the setter/loop targets. The live party slots use base 0x43e8 (abs +0x4504/+0x44d8).",
+    "+0xf0 exact field semantics are LOW confidence (best guess: 2-entry combat/attack/AC sub-record); the read-vs-recompute verdict is HIGH confidence and independent of the field decode.",
+    "Class byte confirmed at record +0x19f (abs 0x4587) by live reads (BEAU=9 Bishop, VEXA=2 Priest, TWINK=5 Alchemist) — consistent with the class-keyed +0x11c patterns; this corrects pcfile-dbs.json's uncertainty between +0x19c/+0x19f."
+  ],
+  "unresolved": [
+    "Exact per-class capacity table feeding wpcmk 0x487c's 6 args (13 call sites map to class groups; not individually decoded this pass).",
+    "Field-by-field meaning of the +0xf0 two-block structure (byte0 index, byte2/3 pair, byte15=0x20 flag, Monk/Ninja adjustments).",
+    "Whether +0x118 (used counters) are ever reset to 0 on a full rest / load (only the wmaze floor-of-1 clamp was found; no reset path observed)."
+  ]
+}
