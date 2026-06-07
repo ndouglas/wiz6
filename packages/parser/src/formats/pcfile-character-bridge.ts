@@ -1,5 +1,25 @@
 import type { Character, PcfileInventoryItem, PcfileSlot } from '@wiz6/data';
 
+// ---------------------------------------------------------------------------
+// Isomorphic base64 helpers — NO node:Buffer / node:* imports.
+// Use globalThis.btoa / globalThis.atob (present in Node 16+ and all browsers).
+// ---------------------------------------------------------------------------
+
+/** Encode a number[] (or Uint8Array) of byte values to a base64 string. */
+function bytesToBase64(bytes: number[] | Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
+  return btoa(s);
+}
+
+/** Decode a base64 string back into a number[]. */
+function base64ToNumberArray(b64: string): number[] {
+  const s = atob(b64);
+  const out = new Array<number>(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+
 /** Record offsets for fields the engine keeps but PcfileSlot only preserves in `raw`. */
 const OFF_RENDERED_PORTRAIT = 0x19c; // global portrait index 0..41 (the drawn portrait)
 // Sex is +0x19e (0 = male, 1 = female), now a first-class PcfileSlot.sex field.
@@ -76,6 +96,12 @@ export function pcfileSlotToCharacter(slot: PcfileSlot, id: string): Character {
       flags: it.flags,
     })),
     equipment: [...slot.equipment],
+    // Retain the original 432-byte record as base64 so that characterToPcfileSlot
+    // can restore raw-only regions (+0xf0 combat/AC block, +0x118..+0x121 school
+    // capacity) that the Character schema does not model. Without this, those bytes
+    // are zeroed on re-export — a real engine bug (school capacity 0 = no spells).
+    // RE: docs/re/findings/character-residual-read-vs-recompute.json (#082).
+    pcfileRaw: bytesToBase64(slot.raw),
   };
 }
 
@@ -94,7 +120,13 @@ const EMPTY_ITEM: PcfileInventoryItem = {
  * to +0x19e, and we also stamp raw[+0x19e] so the round-trip is byte-exact.
  */
 export function characterToPcfileSlot(c: Character, slotIndex: number): PcfileSlot {
-  const raw = new Array<number>(432).fill(0);
+  // Seed raw from the original on-disk record if available (imported characters),
+  // so raw-only regions (+0xf0..+0x10f combat/AC block, +0x118..+0x121 school
+  // capacity) are preserved verbatim. For port-created characters (no pcfileRaw),
+  // fall back to the zeroed-raw path — synthesis of these fields is a follow-up.
+  const raw = c.pcfileRaw
+    ? base64ToNumberArray(c.pcfileRaw)
+    : new Array<number>(432).fill(0);
   raw[OFF_RENDERED_PORTRAIT] = (c.portraitIndex ?? 0) & 0xff;
   raw[OFF_SEX] = c.sex & 0xff;
 
@@ -133,7 +165,12 @@ export function characterToPcfileSlot(c: Character, slotIndex: number): PcfileSl
     reaction: c.reaction,
     npcRaceReaction: c.npcRaceReaction ? [...c.npcRaceReaction] : new Array<number>(31).fill(c.reaction),
     spellSlotsKnown: c.spellSlotsKnown ? [...c.spellSlotsKnown] : new Array<number>(20).fill(0),
-    portraitIndex: c.portraitIndex ?? 0, // +0x1ab creation default; not the rendered portrait (that's raw[0x19c])
+    // +0x1ab creation default portrait index. When pcfileRaw is present, recover
+    // the original creation default directly from the raw bytes (raw is already
+    // seeded from pcfileRaw, so raw[0x1ab] holds the original on-disk value;
+    // encodeCharacterRecord will stamp it back). Fall back to c.portraitIndex (the
+    // rendered portrait from +0x19c) for port-created characters without pcfileRaw.
+    portraitIndex: raw[0x1ab] ?? (c.portraitIndex ?? 0),
     // inventoryCount / inventoryCountPage2 are not on the Character schema; derive them
     // from inventory so the roundtrip is byte-exact at +0x1ac/+0x1ad.
     // Engine definition: inventoryCount = number of occupied slots (itemId > 0) in slots 0..9;

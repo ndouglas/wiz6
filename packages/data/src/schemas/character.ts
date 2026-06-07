@@ -203,6 +203,28 @@ export const CharacterSchema = z.object({
    */
   sex: z.union([z.literal(0), z.literal(1)]).default(0),
   /**
+   * Original 432-byte pcfile record, encoded as base64. Present for characters
+   * imported from a .dbs file (pcfileSlotToCharacter sets it); absent for
+   * characters created in the TS port.
+   *
+   * Used by characterToPcfileSlot to seed slot.raw with the real on-disk bytes,
+   * preserving raw-only regions the Character schema does not model — including:
+   *   +0xf0..+0x10f  32-byte combat/AC block (runtime-mutated; engine reads on load)
+   *   +0x118..+0x121 10 bytes: +0x118..+0x11b per-school used counters,
+   *                             +0x11c..+0x121 per-school capacity values
+   *                  (class-derived at creation; engine reads as authoritative;
+   *                   zeroing = caster with no spell capacity — a real bug)
+   *
+   * Encoded as base64 (not number[432]) for compact JSON serialisation. Isomorphic:
+   * the encode/decode helpers in pcfile-character-bridge.ts use btoa/atob (no node:Buffer).
+   *
+   * Optional: absent for port-created characters (zeroed-raw behaviour is retained
+   * as the synthesis path; that is a separate follow-up). Back-compat: existing stored
+   * rosters without this field continue to parse and roundtrip (without byte-exactness
+   * for the residual regions).
+   */
+  pcfileRaw: z.string().optional(),
+  /**
    * Monster Kill Statistic (MKS). Manual p. 23. u32. At record +0x10.
    * wmexe.ovr increments per kill. Stock chars all 0.
    * Optional for backwards-compatibility.
