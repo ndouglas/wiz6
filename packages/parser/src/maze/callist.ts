@@ -82,6 +82,14 @@ export const EMIT_BASES = {
   CORNER_R_NEAR: [19, 15] as const,
   /** top_strip_emit (0x4a15) — 6 chrome strips, stride 3, no depth dependence. */
   TOP_STRIPS: [346, 349, 352, 355, 358, 361] as const,
+  /** The CLOSED-FRONT near full-height wall family (a solid stone / closed-doorway
+   *  wall met at the party's OWN cell, perspective depth 0). The flat face is the
+   *  NEAR_WALL leaf (base 0, the img0 full-height piece); the two flanking
+   *  full-height corner walls are corner-L base 83 / corner-R base 87 (the
+   *  wall_emit_corner near-wall pair [bp+0x10]/[bp+0x12], confirmed byte-exact vs
+   *  v6 in maze-index-arithmetic.json). These render at p0 only (a wall at the
+   *  party's forward edge fills the whole viewport center). */
+  CLOSED_FRONT_NEAR: { leaf: 0, cornerL: 83, cornerR: 87 } as const,
 } as const;
 
 /**
@@ -199,28 +207,109 @@ export function computeVisibleDepths(block: MazeBlock, party: MazeParty): number
   return visible;
 }
 
+// ---------------------------------------------------------------------------
+// WALL-FAMILY SEEDING (the per-depth SIDE / CORNER / NEAR-WALL OR-blit families).
+//
+// RE pinned in docs/re/findings/maze-wall-family-seeding.json. Decomposing the 4
+// parity-EVEN captures (v1/v2/v5/v6) by destRow band (the PERSPECTIVE depth p) +
+// the `base + p` law (maze-index-arithmetic.json) reveals the wall families. Two
+// pieces are PINNED byte-exact; the side-wall SURFACE EXTENT is documented residue.
+//
+// 1) THE CLOSED-FRONT NEAR-WALL FAMILY (pinned). When the corridor is capped by a
+//    SOLID/closed-doorway forward edge AT THE PARTY'S OWN CELL (occlusion stop at
+//    depth 0 — computeVisibleDepths === [0]), the engine fills the viewport center
+//    with the near full-height wall: the NEAR_WALL leaf (placement 0, the img0
+//    full-height face) flanked by corner-L 83 + corner-R 87 (the wall_emit_corner
+//    near-wall pair, confirmed byte-exact vs v6). Rendered at perspective depth 0.
+//    This is byte-exact for v6 (the only captured depth-0 cap).
+//
+// 2) THE SIDE-WALL SURFACE LADDER (base arithmetic PINNED; extent = RESIDUE). A
+//    corridor side wall is drawn as a perspective-tapering surface. A surface that
+//    spans perspective slots [s .. e] emits, at slot p in that run, the ceiling
+//    PAIR (and the implied floor twins +28): LEFT  { 134 - 4·(p-s), 134 - 4·(p-s-1) }
+//    (drop the 2nd term at the near slot p=s); RIGHT { 138, 142 } at the body slot,
+//    { 138 } at the near slot — the mirror. (+ ceiling→floor twin +28; the engine
+//    emits both bands.) VERIFIED: v1 LEFT ladder s=0..e=1 == {(0,134),(1,130),(1,134)}
+//    byte-exact; v5/v2 follow the same ladder anchored at their surface start. The
+//    REMAINING residue is the per-side SURFACE START/END (which perspective slots a
+//    given corridor side wall spans) — it is NOT a clean per-depth function of the
+//    side-solidity profile; it is the engine's perspective ray-march extent, the
+//    decompiler-resistant classifier post-pass (wmaze 0x3931/0x3946/0x3951 seeding
+//    the [0x5072..0x50a2] gates). Pinning it byte-exact needs a depth-keyed LIVE
+//    BUILD trace (trace-maze.ts `depthemit`), which is currently BLOCKED for poked
+//    geometry: the poke-then-recompose path replays the OR-blit from the cached span
+//    list WITHOUT re-running the BUILD loop (0 span/slot writes observed), so the
+//    build depth [0x5040] is not live during a poked recompose. A navigation-reach
+//    harness (walk the party to each geometry) is the unblock. See the findings doc.
+// ---------------------------------------------------------------------------
+
 /**
- * Generate the byte-exact placement-index SET the engine emits for a parity-EVEN
- * open-front corridor view, from the maze block + party (NO captured frame):
+ * The CLOSED-FRONT near full-height wall family (byte-exact). Returns the OR
+ * placement indices for a corridor whose forward edge OCCLUDES at the party's own
+ * cell (visibleDepths === [0]): the NEAR_WALL leaf + the corner-L/corner-R flanks,
+ * all at perspective depth 0. Empty when the corridor is open at depth 0.
+ *
+ * (Pinned vs v6 — gx127 gy123 f0, a closed doorway head-on at depth 0.)
+ */
+export function generateClosedFrontNearWall(visibleDepths: number[]): number[] {
+  if (visibleDepths.length !== 1 || visibleDepths[0] !== 0) return [];
+  const { leaf, cornerL: cl, cornerR: cr } = EMIT_BASES.CLOSED_FRONT_NEAR;
+  return [leaf, cl, cr];
+}
+
+/**
+ * The per-slot LEFT/RIGHT side-wall SURFACE ladder (base arithmetic, pinned). For a
+ * surface spanning perspective slots [start .. end] on `side`, returns the ceiling
+ * placement indices (idx = base + p) it emits. NOTE: this is the ARITHMETIC only —
+ * the caller must supply [start, end] (the surface extent), which is the documented
+ * residue (not yet derivable byte-exact from the maze block; see the findings doc).
+ */
+export function sideWallSurfaceLadder(
+  side: 'left' | 'right',
+  start: number,
+  end: number,
+): number[] {
+  const out: number[] = [];
+  for (let p = start; p <= end; p++) {
+    const dp = p - start;
+    if (side === 'left') {
+      out.push((134 - 4 * dp) + p); // near edge: base 134-4·Δp, at perspective p
+      if (dp >= 1) out.push((134 - 4 * (dp - 1)) + p); // far edge of the trapezoid
+    } else {
+      out.push(138 + p);
+      if (dp >= 1) out.push(142 + p);
+    }
+  }
+  return out;
+}
+
+/**
+ * Generate the placement-index SET the engine emits for a parity-EVEN corridor view,
+ * from the maze block + party (NO captured frame):
  *
  *   - the per-depth ceiling twin (122 + d) and floor twin (150 + d) for every
- *     VISIBLE depth (the occlusion stop, computeVisibleDepths), and
- *   - the 6 constant top-strip chrome pieces.
+ *     VISIBLE depth (the occlusion stop, computeVisibleDepths),
+ *   - the 6 constant top-strip chrome pieces, and
+ *   - the CLOSED-FRONT near-wall family (byte-exact) when the corridor caps at
+ *     depth 0.
  *
- * This is the gate-seeding (which depths fire + the occlusion stop) combined
- * with the index law (base + depth). It reproduces the captured ceiling/floor +
- * strip SET byte-exact for the parity-EVEN views (v1/v2/v5/v6), INCLUDING v1's
- * door-cap (visible = [0,1,2]) and v6's depth-0 cap.
+ * This is the gate-seeding (which depths fire + the occlusion stop) combined with
+ * the index law (base + depth). It reproduces the captured ceiling/floor + strip +
+ * closed-front SET byte-exact for v6 (depth-0 cap) and the ceiling/floor + strip
+ * skeleton for v1/v2/v5.
  *
- * SCOPE — the deterministic layer only. The per-depth SIDE / CORNER / DOOR-RECESS
- * family pieces (bases 130/134/138/142 + floor twins, the near-wall img0/img3
- * family, the far-door 85/89) are NOT emitted: their gate-seeding is the
- * medium-confidence residue (see maze-gate-seeding.json). Callers comparing to a
- * captured ORDERED list should compare the returned SET — the engine's flush
- * re-orders within a frame.
+ * SCOPE — the side-wall SURFACE families (the tapering ladder, bases 130/134/138/142
+ * + deeper) are NOT emitted: their base ARITHMETIC is pinned (sideWallSurfaceLadder)
+ * but their per-side SURFACE EXTENT is the documented residue (see
+ * maze-wall-family-seeding.json). Callers comparing to a captured ORDERED list
+ * should compare the returned SET — the engine's flush re-orders within a frame.
  */
 export function generateCallist(block: MazeBlock, party: MazeParty): number[] {
-  return generateSkeletonIndices(computeVisibleDepths(block, party));
+  const visible = computeVisibleDepths(block, party);
+  return [
+    ...generateSkeletonIndices(visible),
+    ...generateClosedFrontNearWall(visible),
+  ];
 }
 
 export type { MazeBlock, MazeParty };

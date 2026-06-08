@@ -28,6 +28,8 @@ import {
   generateSkeletonIndices,
   computeVisibleDepths,
   generateCallist,
+  generateClosedFrontNearWall,
+  sideWallSurfaceLadder,
 } from '../../src/maze/callist.js';
 import { MazeBlockSchema, type MazeBlock, type MazeParty } from '@wiz6/data';
 
@@ -182,13 +184,14 @@ describe('computeVisibleDepths: the occlusion-stop rule', () => {
 
 describe('generateCallist(block, party) reproduces the captured skeleton (SET)', () => {
   it.each(PARITY_EVEN)(
-    'ceiling/floor twins + strips match the capture for $view (no captured frame)',
+    'ceiling/floor twins + strips (+ closed-front near-wall) match the capture for $view',
     ({ view, party }) => {
       const gen = new Set(generateCallist(BLOCK, party));
 
-      // The captured deterministic skeleton: ceiling+floor twins for the visible
-      // depths + the 6 strips. (The side/corner/door families are out of scope —
-      // documented residue in maze-gate-seeding.json.)
+      // The captured deterministic layer: ceiling+floor twins for the visible
+      // depths + the 6 strips + (when the view caps at depth 0) the closed-front
+      // near-wall family. (The side-wall SURFACE families are out of scope —
+      // documented residue in maze-wall-family-seeding.json.)
       const present = new Set(loadView(view).placementIndices);
       const vis = computeVisibleDepths(BLOCK, party);
       const captured = new Set<number>();
@@ -197,10 +200,56 @@ describe('generateCallist(block, party) reproduces the captured skeleton (SET)',
         captured.add(EMIT_BASES.FLOOR + d);
       }
       for (const s of EMIT_BASES.TOP_STRIPS) captured.add(s);
+      for (const idx of generateClosedFrontNearWall(vis)) captured.add(idx);
 
       expect(gen).toEqual(captured);
       // every generated index actually appears in the captured call list:
       for (const idx of gen) expect(present.has(idx)).toBe(true);
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// WALL-FAMILY SEEDING — the pinned sub-families (maze-wall-family-seeding.json).
+//   (1) the CLOSED-FRONT near-wall family (byte-exact vs v6), and
+//   (2) the side-wall SURFACE ladder ARITHMETIC (byte-exact vs v1's LEFT surface).
+// The per-side surface EXTENT is documented residue (not asserted byte-exact here).
+// ---------------------------------------------------------------------------
+
+describe('closed-front near-wall family (byte-exact vs v6)', () => {
+  it('emits NEAR_WALL leaf + corner 83/87 only when the view caps at depth 0', () => {
+    // v6: gx127 gy123 f0 — closed doorway head-on at depth 0; visibleDepths === [0].
+    const v6 = { gx: 127, gy: 123, z: 0, facing: 0 };
+    expect(computeVisibleDepths(BLOCK, v6)).toEqual([0]);
+    expect(new Set(generateClosedFrontNearWall([0]))).toEqual(new Set([0, 83, 87]));
+    // and those indices are exactly the v6 capture's non-skeleton OR indices.
+    const present = new Set(loadView('v6-gy123f0').placementIndices);
+    for (const idx of [0, 83, 87]) expect(present.has(idx)).toBe(true);
+  });
+
+  it('emits nothing for an open corridor (visible depth > 0)', () => {
+    expect(generateClosedFrontNearWall([0, 1, 2])).toEqual([]);
+    expect(generateClosedFrontNearWall([0, 1])).toEqual([]);
+  });
+});
+
+describe('side-wall surface ladder arithmetic (byte-exact vs v1 LEFT surface)', () => {
+  it('LEFT surface slots 0..1 == v1 captured LEFT ceiling bases {(0,134),(1,130),(1,134)}', () => {
+    // v1's LEFT side-wall surface spans perspective slots 0..1; the ladder emits
+    // ceiling indices 134 (p0), 130+134 (p1) — i.e. placement {134, 131, 135}.
+    expect(new Set(sideWallSurfaceLadder('left', 0, 1))).toEqual(
+      new Set([134, 130 + 1, 134 + 1]), // 134, 131, 135
+    );
+    // Cross-check vs the v1 capture: those indices ARE present (LEFT, destX<16).
+    const present = new Set(loadView('v1-gy121f0').placementIndices);
+    for (const idx of [134, 131, 135]) expect(present.has(idx)).toBe(true);
+  });
+
+  it('RIGHT surface slots 0..1 == v1 captured RIGHT ceiling bases {138, 138+1, 142+1}', () => {
+    expect(new Set(sideWallSurfaceLadder('right', 0, 1))).toEqual(
+      new Set([138, 138 + 1, 142 + 1]), // 138, 139, 143
+    );
+    const present = new Set(loadView('v1-gy121f0').placementIndices);
+    for (const idx of [138, 139, 143]) expect(present.has(idx)).toBe(true);
+  });
 });

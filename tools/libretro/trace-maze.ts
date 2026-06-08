@@ -2255,6 +2255,152 @@ async function phasePokeView(c: HostClient): Promise<void> {
   } catch { /* phasePlacements may have aborted */ }
 }
 
+/** `depthemit` — DEPTH-KEYED EMIT TRACE. For an arbitrary (gx,gy,facing) view,
+ *  trap the ega.drv OR-blit ARG point (base+0xaad, ebx=arg0c=placement index) and,
+ *  at EACH hit, read the LIVE wmaze DGROUP depth counter [0x5040] + frame parity
+ *  [0x521a] + the per-depth gate bytes [0x508a..] (front) / [0x5072..] (left-side) /
+ *  [0x5092..] (right-side). The OR-blits emit during the FLUSH walk, where [0x5040]
+ *  counts DOWN from 4 to 0 — that flush depth IS the perspective depth the piece is
+ *  drawn at. Output: per-OR-call (perspectiveDepth, parity, placementIndex) — the
+ *  decisive evidence for which wall-family base fires at which perspective depth.
+ *
+ *  Usage: pnpm tsx tools/libretro/trace-maze.ts depthemit <gx> <gy> <facing> [out] [gxBase] [gyBase] */
+async function phaseDepthEmit(c: HostClient): Promise<void> {
+  const gx = Number(process.argv[3]);
+  const gy = Number(process.argv[4]);
+  const facing = Number(process.argv[5]);
+  const outFile = process.argv[6] ?? `/tmp/wiz6-depthemit-${gx}-${gy}-f${facing}.json`;
+  const gxBase = Number(process.argv[7] ?? 120);
+  const gyBase = Number(process.argv[8] ?? 116);
+  if (!Number.isFinite(gx) || !Number.isFinite(gy) || !Number.isFinite(facing)) {
+    console.log('usage: depthemit <gx> <gy> <facing> [out] [gxBase] [gyBase]'); return;
+  }
+  const STATE = `/tmp/wiz6-depthemit-origin.state`;
+  const w16 = async (b: number, o: number, v: number) => c.write(b + o, [v & 0xff, (v >> 8) & 0xff]);
+  const rdU16 = async (b: number, o: number) => { const x = await c.read(b + o, 2); return x[0]! | (x[1]! << 8); };
+
+  console.log(`depthemit target gx=${gx} gy=${gy} facing=${facing}`);
+  await driveToMaze(c);
+  let dg = await c.anchor();
+  await w16(dg, PK_FACING, facing); await w16(dg, PK_Z, 0);
+  await w16(dg, PK_CELLA, gy - gyBase); await w16(dg, PK_CELLB, gx - gxBase);
+  await w16(dg, PK_GY, gy); await w16(dg, PK_GX, gx);
+  await c.step(4);
+  dg = await c.anchor();
+  const rgx = await rdU16(dg, PK_GX), rgy = await rdU16(dg, PK_GY), rf = await rdU16(dg, PK_FACING);
+  const stuck = rgx === gx && rgy === gy && rf === facing;
+  console.log(`poked -> readback gx=${rgx} gy=${rgy} f=${rf} ${stuck ? 'STUCK✓' : 'SNAPPED✗'}`);
+  await c.serialize(STATE);
+
+  // The LIVE renderer runs from a RELOCATED transient copy of wmaze (the resident
+  // image copy logs 0 hits). Scan ALL RAM copies of the renderer-entry signature
+  // (RENDER_SIG @ file 0x4ad7); each copy's emit fn is at copyBase + 0x406c. Test
+  // each candidate by tracing base+0x406c over an in-place recompose; the live copy
+  // is the one that fires.
+  await c.unserialize(STATE); await c.step(2);
+  const sigBytes = RENDER_SIG.match(/../g)!.map((h) => parseInt(h, 16));
+  const scanAll = async (): Promise<number[]> => {
+    const hits: number[] = []; const CHUNK = 0x10000;
+    for (let b = 0; b < 0xc0000; b += CHUNK - 32) {
+      let buf: Uint8Array;
+      try { buf = await c.read(b, CHUNK); } catch { continue; }
+      for (let i = 0; i + sigBytes.length <= buf.length; i++) {
+        let ok = true; for (let j = 0; j < sigBytes.length; j++) if (buf[i + j] !== sigBytes[j]) { ok = false; break; }
+        if (ok) hits.push(b + i);
+      }
+    }
+    return [...new Set(hits)];
+  };
+  const sigHits = await scanAll();
+  const candBases = sigHits.map((h) => h - SIG_OFFSET);
+  console.log(`render-sig copies: ${sigHits.map((h) => '0x' + h.toString(16)).join(' ')} -> bases ${candBases.map((b) => '0x' + b.toString(16)).join(' ')}`);
+  let wbase = -1;
+  for (const cand of candBases) {
+    await c.unserialize(STATE); await c.step(2);
+    await c.key('left', 'tap'); await c.step(40);
+    await c.traceSet(cand + 0x406c); await c.traceDrain();
+    await c.key('right', 'tap'); await c.step(40);
+    const recs = await c.traceDrain(); await c.traceOff();
+    console.log(`  cand 0x${cand.toString(16)}: base+0x406c hits=${recs.length}`);
+    if (recs.length > 0) { wbase = cand; break; }
+  }
+  if (wbase < 0) { console.log('FAILED: no candidate emit fn fired'); return; }
+  console.log(`LIVE wmaze base=0x${wbase.toString(16)}`);
+
+  // Trap the BUILD-loop emit fns. At each hit the wmaze DGROUP depth counter
+  // [0x5040] is the LIVE build depth. wall_emit_quad 0x406c front/side; the front
+  // wall+corner emits run inside the depth loop. We trap:
+  //   - 0x406c wall_emit_quad ENTRY  ([bp+0x6]=slot code, [bp+0x8]=side-array base)
+  //   - 0x45b4 wall_emit_corner ENTRY ([bp+0x6]=corner-type)
+  // and read [0x5040] + slot/parity per hit.
+  const QUAD = wbase + 0x406c, CORNER = wbase + 0x45b4;
+  const DG_DEPTH = 0x5040, DG_PARITY = 0x521a, DG_SPANPAR = 0x521c;
+  // Slot codes the classifier produced (read settled in DGROUP after build):
+  const SLOT = 0x5220; // 5 words: front, cornerL, cornerR, leftSide, rightSide
+
+  // Drive an in-place recompose with a trace armed at `pt`; collect hits.
+  const traceAt = async (pt: number): Promise<TraceRecord[]> => {
+    await c.unserialize(STATE); await c.step(2);
+    await c.key('left', 'tap'); await c.step(40);
+    await c.traceSet(pt); await c.traceDrain();
+    const out: TraceRecord[] = [];
+    await c.key('right', 'tap');
+    for (let i = 0; i < 20; i++) { await c.step(4); for (const r of await c.traceDrain()) out.push(r); }
+    await c.traceOff();
+    return out;
+  };
+  // Per-hit: capture [0x5040]/[0x521a]/[0x521c] + the stack frame at skip=k.
+  const captureAt = async (pt: number, ss: number, off: number, len: number, k: number): Promise<Uint8Array | null> => {
+    await c.unserialize(STATE); await c.step(2);
+    await c.key('left', 'tap'); await c.step(40);
+    await c.traceSet(pt); await c.captureSet(ss + off, len, k);
+    await c.key('right', 'tap'); await c.step(40);
+    const w = await c.captureGet(); await c.traceOff();
+    return w ?? null;
+  };
+
+  const quadRecs = await traceAt(QUAD);
+  const cornRecs = await traceAt(CORNER);
+  console.log(`wall_emit_quad hits=${quadRecs.length} wall_emit_corner hits=${cornRecs.length}`);
+
+  // First-pass length: the recompose runs N identical passes; split by the depth
+  // counter resetting. We read depth per hit, then cut the pass at the first repeat
+  // of the (fn, hit#0 depth) cycle. Simpler: capture depth for ALL hits, find when
+  // the depth sequence repeats its prefix.
+  const dgNow = await c.anchor();
+  const sampleDepth = async (pt: number, recs: TraceRecord[], extraFrame: boolean) => {
+    const out: Array<{ depth: number; parity: number; spanpar: number; slot: number[]; bpFrame: number[] }> = [];
+    for (let k = 0; k < Math.min(recs.length, 48); k++) {
+      // DGROUP window for depth/parity/slot.
+      const wDG = await captureAt(pt, dgNow, 0x5040, 0x1e4, k); // 0x5040..0x5224
+      if (!wDG) { out.push({ depth: -1, parity: -1, spanpar: -1, slot: [], bpFrame: [] }); continue; }
+      const at = (o: number) => wDG[o - 0x5040]! | (wDG[o - 0x5040 + 1]! << 8);
+      const depth = at(DG_DEPTH), parity = at(DG_PARITY), spanpar = at(DG_SPANPAR);
+      const slot = [0, 1, 2, 3, 4].map((i) => at(SLOT + i * 2));
+      let bpFrame: number[] = [];
+      if (extraFrame) {
+        const r = recs[k]!; const ss = r.ss << 4; const sp = r.esp & 0xffff;
+        const wS = await captureAt(pt, ss, sp, 0x10, k);
+        if (wS) bpFrame = [0, 2, 4, 6, 8].map((o) => wS[o]! | (wS[o + 1]! << 8));
+      }
+      out.push({ depth, parity, spanpar, slot, bpFrame });
+    }
+    return out;
+  };
+  const quadD = await sampleDepth(QUAD, quadRecs, true);
+  const cornD = await sampleDepth(CORNER, cornRecs, true);
+  console.log('wall_emit_quad per-hit (k: depth parity spanpar slot[F,cL,cR,lS,rS] | stack[ret,a0,a1,a2,a3]):');
+  for (let k = 0; k < quadD.length; k++) { const t = quadD[k]!; console.log(`  q${k}: d=${t.depth} par=${t.parity} sp=${t.spanpar} slot=[${t.slot.join(',')}] stk=[${t.bpFrame.join(',')}]`); }
+  console.log('wall_emit_corner per-hit (k: depth parity spanpar slot | stack[ret,a0(=[bp+4]),a1(type),a2,a3]):');
+  for (let k = 0; k < cornD.length; k++) { const t = cornD[k]!; console.log(`  c${k}: d=${t.depth} par=${t.parity} sp=${t.spanpar} slot=[${t.slot.join(',')}] stk=[${t.bpFrame.join(',')}]`); }
+  writeFileSync(outFile, JSON.stringify({
+    note: 'depth-keyed emit trace: per emit-fn hit, live wmaze [0x5040]=build depth, [0x521a] parity, [0x521c] span-parity, slot codes [0x5220], stack frame.',
+    target: { gx, gy, facing, gxBase, gyBase, cellA: gy - gyBase, cellB: gx - gxBase }, poke_stuck: stuck,
+    reloc_wmaze: wbase.toString(16), wall_emit_quad: quadD, wall_emit_corner: cornD,
+  }, null, 2));
+  console.log(`-> ${outFile}`);
+}
+
 /** `placecheck` — reproducibility gate for `placements`: capture TWICE (two fresh
  *  boots) and confirm the placement-index lists are byte-identical. */
 async function phasePlaceCheck(c: HostClient): Promise<void> {
@@ -2429,6 +2575,7 @@ async function main() {
     else if (phase === 'placements') await phasePlacements(c);
     else if (phase === 'placements121') await phasePlacements121(c);
     else if (phase === 'pokeview') await phasePokeView(c);
+    else if (phase === 'depthemit') await phaseDepthEmit(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
     else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');

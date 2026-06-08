@@ -1,0 +1,98 @@
+{
+  "topic": "maze-wall-family-seeding",
+  "subagent_run": "2026-06-08 (the LAST + hardest piece of the maze renderer: the per-depth WALL-FAMILY gate-seeding — which SIDE / CORNER / NEAR-WALL background OR-blit families fire at each build/perspective depth, so the generator reproduces the FULL corridor, not just the ceiling/floor occlusion skeleton. Builds on maze-gate-seeding.json (occlusion stop, DONE) + maze-index-arithmetic.json (placementIndex=base+depth) + maze-classify-projection.json.)",
+  "binaries": ["wmaze.ovr", "ega.drv", "dosbox_pure_libretro.dylib"],
+  "tool": "Decomposition of the 4 parity-EVEN pokeview captures (docs/re/findings/maze-views/{v1,v2,v5,v6}.json) by destRow PERSPECTIVE band + the base+depth law, cross-referenced with the per-build-depth cell profile (forwardEdge/cornerL/cornerR/sideForward from maze-geometry.ts on extracted/maze level-0 in maze-frames.json). PLUS a new depth-keyed live-trace harness (trace-maze.ts `depthemit`) — which proved the poke-recompose path does NOT re-run the BUILD loop (see blocked-live-trace finding).",
+  "status": "PARTIAL — two sub-families PINNED byte-exact; the side-wall SURFACE EXTENT is the documented residue. PINNED: (1) the CLOSED-FRONT near-wall family (NEAR_WALL leaf 0 + corner-L 83 + corner-R 87 at perspective depth 0, byte-exact vs v6's depth-0 cap); (2) the side-wall SURFACE LADDER base ARITHMETIC (LEFT { 134-4·Δp, 134-4·(Δp-1) }, RIGHT { 138, 142 } at perspective slot p, Δp = p-surfaceStart — byte-exact vs v1's LEFT+RIGHT surfaces). RESIDUE: the per-side SURFACE START/END (which perspective slots a corridor side wall spans) is NOT a clean per-depth function of the side-solidity profile — it is the engine's perspective ray-march extent (the decompiler-resistant classifier post-pass wmaze 0x3931/0x3946/0x3951 seeding [0x5072..0x50a2]). generateCallist(block,party) (callist.ts) now emits the deterministic skeleton + closed-front near-wall byte-exact; the side-wall surfaces are exposed (sideWallSurfaceLadder) but not auto-emitted (extent unknown). Honest confidence: the base arithmetic + closed-front family HIGH; the surface-extent law NOT pinned.",
+  "decomposition": {
+    "method": "Each captured OR placement index maps to (familyBase, perspectiveDepth) where perspectiveDepth p is read from the liveRecord destRow band (ceiling rows 32/39/51/59 = p0..3; floor rows 128/104/88/83 = p0..3) and familyBase = idx - p (the base+depth law). Side (LEFT vs RIGHT screen half) is read from destX (<16 = LEFT, >=16 = RIGHT). The center ceiling/floor (base 122/150) is the skeleton; everything else is a wall family.",
+    "v1_gy121f0": {
+      "party": "gx127 gy121 f0", "visibleDepths": "[0,1,2]", "profile_per_buildDepth": "lS[0,2,2,2] rS[0,0,2,0] F[0,0,3,0]",
+      "LEFT_ceiling_(p,base)": "[(0,134),(1,130),(1,134)]", "RIGHT_ceiling_(p,base)": "[(0,138),(1,138),(1,142)]",
+      "masked": "[(13,4),(10,7),(7,10),(4,13)]  — the door-recess REPLACE pieces at the corridor vanishing point",
+      "note": "PURE-background corridor (no wt=2 REPLACE walls). LEFT surface ladder spans slots 0..1 (134@p0; 130+134@p1). RIGHT mirror 138/142. Ladder reproduces this byte-exact."
+    },
+    "v2_gy119f0": {
+      "party": "gx127 gy119 f0", "visibleDepths": "[0,1,2,3]", "profile_per_buildDepth": "lS[0,2,0,2] rS[0,2,0,0] F[0,3,0,0]",
+      "LEFT_ceiling_(p,base)": "[(0,15),(2,134),(3,130),(3,134)]", "RIGHT_ceiling_(p,base)": "[(0,19),(2,138),(3,138),(3,142)]",
+      "note": "The p0 bases 15/19 are the NEAR full-height wall pair (the img3/img7 tall pieces, h112) — the cL2 wall at the party's own cell flank. The LEFT/RIGHT side-wall SURFACE is anchored at perspective slot 2 (start s=2): 134@p2, 130+134@p3 — same ladder, shifted start."
+    },
+    "v5_gx125f0": {
+      "party": "gx125 gy121 f0", "visibleDepths": "[0,1]", "profile_per_buildDepth": "lS[0,0,2,0] rS[0,2,2,2] F[0,2,0,0]",
+      "LEFT_ceiling_(p,base)": "[(0,134),(1,130),(1,134),(2,126),(2,130),(3,34),(3,126)]", "RIGHT_ceiling_(p,base)": "[(0,138),(1,138),(1,142)]",
+      "note": "KEY anti-occlusion-stop case: the occlusion stop is depth 1 (solid front), but the LEFT side-wall SURFACE renders ALL FOUR perspective slots (the wall recedes past the front cap). The LEFT ladder s=0: 134@p0, 130+134@p1, 126+130@p2, then p3 = {34,126} (34 substitutes for the expected 122-banked deepest near-edge — a special deepest-taper base). This is the 'a single family-base fires at MULTIPLE perspective depths' pattern, and proves the side-wall extent is NOT capped by the front occlusion stop."
+    },
+    "v6_gy123f0": {
+      "party": "gx127 gy123 f0", "visibleDepths": "[0]", "profile_per_buildDepth": "lS[2,2,2,2] rS[2,0,2,2] F[3,0,2,2]",
+      "OR_set": "[0, 83, 87, 122, 150, + 6 strips]", "masked": "[] (none)",
+      "note": "CLOSED-DOORWAY head-on at depth 0 (front=3, cL=2, cR=2). The viewport center is the near full-height wall: NEAR_WALL leaf base 0 (img0, destX13 w14 h87 — the closed door face) + corner-L base 83 + corner-R base 87 (the flanking full-height walls). This family is PINNED byte-exact (the only captured depth-0 cap)."
+    }
+  },
+  "findings": [
+    {
+      "id": "closed-front-near-wall-family",
+      "claim": "When the corridor is capped by an OCCLUDING forward edge AT THE PARTY'S OWN CELL (computeVisibleDepths === [0]: a solid wall, or a closed doorway = front 3 framed by solid corners), the engine fills the viewport center with the NEAR full-height wall family at perspective depth 0: the NEAR_WALL leaf (placement 0, the img0 full-height face) flanked by corner-L (placement 83) + corner-R (placement 87). PINNED byte-exact vs v6 (the captured depth-0 cap): v6's non-skeleton OR set is EXACTLY {0,83,87}.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x40be"},
+        "type": "capture_decomposition_plus_asm_base",
+        "details": "wall_emit_quad NEAR_WALL base [bp+0x12]=0 (0x40be, the close occluder img0). The corner-L/corner-R full-height pair bases 83/87 are wall_emit_corner [bp+0x10]/[bp+0x12] (corner_L_emit_corner_0x4e24 / corner_R_emit_corner_0x4e80 in maze-index-arithmetic.json call_sites), confirmed byte-exact vs v6 in maze-index-arithmetic.json fresh-capture-cross-validation. Reproduced by generateClosedFrontNearWall(visibleDepths) (callist.ts): returns [0,83,87] iff visibleDepths===[0], else []. Tested in tests/maze/index-arithmetic.test.ts."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "side-wall-surface-ladder-arithmetic",
+      "claim": "A corridor side wall is drawn as a perspective-tapering SURFACE across consecutive perspective slots. For a surface spanning perspective slots [s..e] on the LEFT, slot p emits the ceiling PAIR { (134-4·(p-s)) + p, (134-4·(p-s-1)) + p } (drop the 2nd term at the near slot p=s); RIGHT mirror emits { 138+p, 142+p } at the body slots, { 138+p } at p=s. (Plus the floor twin +28 — the engine emits both bands.) The LADDER ARITHMETIC is PINNED: v1's LEFT surface (s=0,e=1) == captured {134 (p0), 131,135 (p1)} byte-exact; RIGHT == {138, 139,143} byte-exact. v2's surface anchors at s=2 (same ladder shifted); v5's LEFT tapers across all 4 slots (s=0,e=3) with a special deepest base (34) at p3.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4e24"},
+        "type": "capture_decomposition",
+        "details": "Decomposed LEFT/RIGHT ceiling-band bases per perspective depth across v1/v2/v5. The base LADDER is stride-4 (138/142 RIGHT near→far; 134/130/126/... LEFT) keyed to the perspective scale (the destRow band). The bases ARE the wall_emit_corner corner-family bases (maze-index-arithmetic call_sites corner_L 0x4e24: 7/4/15/19/83/87/106/114/...; the 130/134/138/142 are the wall_emit_quad side-emit family). Reproduced by sideWallSurfaceLadder(side,start,end) (callist.ts), tested byte-exact vs v1's LEFT/RIGHT surfaces. The v5 p3 base 34 (vs the ladder's 122) is the special deepest-taper substitution — a documented sub-residue."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "side-wall-extent-not-occlusion-capped",
+      "claim": "The side-wall SURFACE extent is NOT capped by the front OCCLUSION stop (computeVisibleDepths). v5's occlusion stop is depth 1 (solid front), yet its LEFT side-wall surface renders all FOUR perspective slots (the wall recedes past the cap). This is the 'a single family-base fires at MULTIPLE perspective depths' pattern the task flagged: the ceiling/floor occlusion (which depths get a center floor/ceiling) and the side-wall surface extent (how far a side wall tapers) are INDEPENDENT walks. The side-wall extent depends on the corridor's side-opening geometry (where side walls start/stop being solid), not on the front-edge profile alone — it is the engine's perspective ray-march, the decompiler-resistant residue.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "capture_decomposition",
+        "details": "v5 (lS[0,0,2,0] rS[0,2,2,2], occlusion stop d1) LEFT surface bases span p0..p3. v1 (lS[0,2,2,2], stop d2) LEFT surface spans only p0..p1. v2 (lS[0,2,0,2], stop none) LEFT surface anchored at p2..p3. The start/end do NOT map to a single per-depth predicate over lS/rS — confirmed by exhaustive comparison. This is the residue."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "blocked-live-trace-poke-no-build",
+      "claim": "A depth-keyed LIVE BUILD trace (the task's decisive primary approach) is BLOCKED for poked geometry. The pokeview/recompose path (poke party DGROUP fields then turn left/right) replays the ega.drv OR-blit from the CACHED span list WITHOUT re-running the wmaze BUILD loop: a write-watch over the span-list region (DGROUP 0x50d0..) AND the slot array (DGROUP 0x5220..) observed ZERO writes on a poked turn/forward recompose, and the renderer-entry breakpoint (file 0x4ad7) logged 0 hits while the OR-blit (ega.drv) fired 31 times. So the build-depth counter [0x5040] is NOT live during a poked recompose (it reads 0 / stale at OR-blit time, and the gate bytes [0x5072..0x50a2] read recycled garbage). Recovering the LIVE wmaze relocated base via the span-store cseips also fails (no span stores fire). The unblock is a NAVIGATION-reach harness (walk the party to each target geometry from the 3-cell stub, arming the build watch on the genuine move) — but most parity-EVEN geometries are not navigable from the committed stub. trace-maze.ts `depthemit` is committed for the future navigation-driven trace.",
+      "category": "test_harness",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "type": "live_negative_result",
+        "details": "trace-maze.ts phaseDepthEmit: poked v1 (gx127 gy121 f0, STUCK✓), OR-blit base 0x6ba10 resolved + 27 OR hits, but [0x5040]=0 at every OR hit and gate bytes were recycled. Span-list + slot-array write-watch on a poked left/right turn AND a forward step: 0 writes. Renderer-entry sig (RENDER_SIG) found ONE physical copy at phys 0x925b (base 0x4784); a trace there logged 0 hits — the live relocated renderer executes elsewhere and only re-runs on a genuine party MOVE, not a poke-recompose."
+      },
+      "confidence": "high"
+    }
+  ],
+  "asm_anchors": [
+    {"space": "wmaze.ovr", "offset": "0x40be", "name": "near_wall_emit", "note": "wall_emit_quad NEAR_WALL base [bp+0x12]=0 (the img0 close occluder = the closed-front leaf)."},
+    {"space": "wmaze.ovr", "offset": "0x4e24", "name": "corner_L_emit", "note": "wall_emit_corner corner-L call site; near full-height wall pair [bp+0x10]/[bp+0x12]=83/87; the side-family bases 130/134 ladder."},
+    {"space": "wmaze.ovr", "offset": "0x4e80", "name": "corner_R_emit", "note": "wall_emit_corner corner-R (mirror); 87/83; side-family 138/142."},
+    {"space": "wmaze.ovr", "offset": "0x3931", "name": "gate_seed_post", "note": "the decompiler-resistant classifier post-pass that seeds [0x5072..0x50a2] — the side-wall surface EXTENT residue lives here."},
+    {"space": "wmaze.dgroup", "offset": "0x5040", "name": "depth_counter", "note": "build 0..3 / flush 4..0. NOT live during a poked OR-blit recompose (build loop not re-run)."}
+  ],
+  "deliverable_status": {
+    "generateCallist": "Emits the deterministic skeleton (ceiling/floor twins for visible depths + 6 top-strips) + the CLOSED-FRONT near-wall family. BYTE-EXACT OR set vs v6 (full set: 0,83,87,122,150 + strips). For v1/v2/v5 it emits the skeleton byte-exact; the side-wall SURFACE families are NOT auto-emitted (extent residue).",
+    "sideWallSurfaceLadder": "Exposed + tested byte-exact (LEFT/RIGHT ladder arithmetic vs v1). Needs the per-side [start,end] (residue) to auto-emit.",
+    "stretch_fromAsset_viewport": "NOT attempted — would require the full side-wall extent law to compose the v1 corridor from asset; the existing maze-corridor-fromasset-parity.diagnostic.test.ts (99.909% from the CAPTURED call list) remains the from-asset baseline."
+  },
+  "remaining": [
+    "SIDE-WALL SURFACE EXTENT (the per-side [start,end] perspective-slot run for each corridor side wall). This is the engine's perspective ray-march, seeded by the classifier post-pass 0x3931/0x3946/0x3951 into [0x5072..0x50a2]. NOT byte-exact derivable from the 4 captures (risk of overfit per the findings-fallibility ethos). UNBLOCK: a navigation-reach depth-keyed live BUILD trace (trace-maze.ts depthemit, once a walk-to-geometry harness exists) — the poke-recompose path does not re-run the build.",
+    "SPECIAL DEEPEST-TAPER BASE (v5 p3 LEFT uses base 34 where the stride-4 ladder predicts 122). One captured instance; needs more deep-corridor captures or the live trace.",
+    "MASKED side pieces (v1's (13,4)(10,7)(7,10)(4,13) door-recess REPLACE-mirror set; v2's (33,30)(30,33)(24,24)(27,27)). The masked-MIRROR GEOMETRY is byte-exact (maze-masked-mirror.json); the per-view SELECTION of which masked pairs fire is part of the same extent residue.",
+    "PARITY-ODD views (the masked-mirror branch, oscillates run-to-run — maze-generation-law.json)."
+  ],
+  "caveat_for_prior_findings": "EXTENDS maze-gate-seeding.json (occlusion stop, DONE) + maze-index-arithmetic.json (base+depth, DONE) with the wall families. Does NOT contradict them. REFINES the residue in both: the side/corner/door family base ARITHMETIC is now pinned (the ladder + the closed-front family), narrowing the open question to the per-side SURFACE EXTENT (which slots a side wall spans). The KEY correction to the prior model: the side-wall families are NOT capped by the front occlusion stop (v5 proves they recede past it) — the ceiling/floor occlusion walk and the side-wall surface walk are INDEPENDENT. Confidence HIGH for the closed-front family + the ladder arithmetic + the extent-not-occlusion-capped structural claim; the EXTENT law itself is unpinned (residue)."
+}
