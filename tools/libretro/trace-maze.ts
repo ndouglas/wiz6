@@ -1511,7 +1511,10 @@ async function resolveOrBaseReplayState(c: HostClient, state: string, inPlace = 
   await c.unserialize(state); await c.step(2);
   const writers = inPlace
     ? await watchComposePage(c, async () => { await c.key('left', 'tap'); await c.step(40); await c.key('right', 'tap'); })
-    : await watchComposePage(c, async () => { await c.key('enter', 'down'); });
+    // Forward arrival: a held-ENTER that is RELEASED (down/settle/up) reliably
+    // walks one cell + drives the full recompose; a never-released hold often
+    // leaves the party in place (no OR-blit full pass, so the cluster is absent).
+    : await watchComposePage(c, async () => { await c.key('enter', 'down'); await c.step(24); await c.key('enter', 'up'); });
   await c.key('enter', 'up');
   return recoverOrBase(writers);
 }
@@ -1927,7 +1930,8 @@ async function phasePlacements(c: HostClient): Promise<void> {
   // Resolve the OR-blit base IN-PLACE (turn left/right) — the base is
   // frame-independent, and in-place resolution avoids walking the party off a
   // capture cell whose forward neighbour differs (gy=120 standing one behind).
-  let base = await resolveOrBaseReplayState(c, CLEAN_STATE, true);
+  let base = process.env.WIZ6_ORBASE ? parseInt(process.env.WIZ6_ORBASE, 16) : -1;
+  if (base < 0) base = await resolveOrBaseReplayState(c, CLEAN_STATE, true);
   if (base < 0) base = await resolveOrBaseReplayState(c, CLEAN_STATE, false);
   if (base < 0) { console.log('FAILED to resolve OR-blit base from replay — abort'); return; }
   const entry = base + 0xa93;
@@ -2063,13 +2067,38 @@ async function phasePlacements(c: HostClient): Promise<void> {
     else { const rr = mRecs[mi++]; allCalls.push({ branch: 'masked', arg0c: (rr?.ebx ?? -1) & 0xffff, arg10: a10 }); }
   }
   const eq = (a: Call, b: Call) => a.branch === b.branch && a.arg0c === b.arg0c && a.arg10 === b.arg10;
+  // The recompose runs N identical passes. PRIMARY pass boundary: the first OR call
+  // and its next recurrence (the OR-head heuristic — proven exact for open/corridor
+  // views whose OR-head is the ceiling strip 122). Start AT the first OR so a leading
+  // masked fragment is dropped cleanly.
   let firstPassLen = allCalls.length;
-  const firstOr = allCalls.findIndex((cc) => cc.branch === 'OR');
-  if (firstOr >= 0) {
-    const head = allCalls[firstOr]!;
-    for (let p = firstOr + 1; p < allCalls.length; p++) if (allCalls[p]!.branch === 'OR' && eq(allCalls[p]!, head)) { firstPassLen = p; break; }
+  let passStart = 0;
+  {
+    const firstOr = allCalls.findIndex((cc) => cc.branch === 'OR');
+    if (firstOr >= 0) {
+      const head = allCalls[firstOr]!;
+      passStart = firstOr;
+      for (let p = firstOr + 1; p < allCalls.length; p++) if (allCalls[p]!.branch === 'OR' && eq(allCalls[p]!, head)) { firstPassLen = p - firstOr; break; }
+    }
   }
-  const passCalls = allCalls.slice(0, firstPassLen);
+  // FALLBACK (blocked-front / heavily-masked views where the OR-head recurs only a
+  // full cycle later, e.g. all 6 OR top-strips are contiguous): use the DOMINANT
+  // consecutive gap between repeats of the FIRST captured call. NOTE: for such views
+  // the masked src->dst PAIRING + order oscillate run-to-run (mid-build); only the
+  // placement-index SET, the OR list, and the pass LENGTH are deterministic.
+  if (firstPassLen === allCalls.length) {
+    const head = allCalls[0];
+    if (head) {
+      const recurs: number[] = [0];
+      for (let i = 1; i < allCalls.length; i++) if (eq(allCalls[i]!, head)) recurs.push(i);
+      const counts = new Map<number, number>();
+      for (let i = 1; i < recurs.length; i++) { const g = recurs[i]! - recurs[i - 1]!; counts.set(g, (counts.get(g) ?? 0) + 1); }
+      let bestG = 0, bestC = -1;
+      for (const [g, ct] of counts) if (ct > bestC) { bestC = ct; bestG = g; }
+      if (bestG > 0 && recurs.length >= 2) { firstPassLen = bestG; passStart = recurs[0]!; }
+    }
+  }
+  const passCalls = allCalls.slice(passStart, passStart + firstPassLen);
   const orPass = passCalls.filter((cc) => cc.branch === 'OR');
   const mPass = passCalls.filter((cc) => cc.branch === 'masked');
   const pass = passCalls.map((cc) => cc.arg0c);
@@ -2105,6 +2134,7 @@ async function phasePlacements(c: HostClient): Promise<void> {
     masked_flags: mFlags,
     table_pointers: { dataSeg: segBaseHolder.dataSeg.toString(16), placeOff: segBaseHolder.placeOff.toString(16), imgDescOff: segBaseHolder.imgDescOff.toString(16) },
     liveRecords: liveRecs,
+    raw_calls: allCalls.map((cc) => ({ branch: cc.branch, arg0c: cc.arg0c, arg10: cc.arg10 })),
   }, null, 2));
   console.log(`\n-> ${outFile}`);
 }
@@ -2155,6 +2185,74 @@ async function phasePlacements121(c: HostClient): Promise<void> {
   PLACEMENTS_INPLACE = process.env.WIZ6_PLACE121_INPLACE !== '0';
   process.argv[3] = outFile;
   await phasePlacements(c);
+}
+
+// Party DGROUP fields (poke targets) — same as probe-maze-poke.ts.
+const PK_FACING = 0x4f9a, PK_Z = 0x4f9c, PK_CELLA = 0x4f9e, PK_CELLB = 0x4fa0, PK_GY = 0x4fa2, PK_GX = 0x4fa4;
+// Forward (gx,gy) delta per facing (classify findings): f0=+gy, f1=+gx, f2=-gy, f3=-gx.
+const FWD_GXGY: Array<[number, number]> = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+
+/** `pokeview` — capture a FULL-recompose blit call list for an ARBITRARY (gx,gy,
+ *  facing) view. The full (non-dirty) recompose only fires when the party STEPS
+ *  INTO a cell. So: poke the party ONE cell BACK along the forward axis (target -
+ *  forward_delta), serialize that "origin" state, then let phasePlacements capture
+ *  via a forward step (PLACEMENTS_INPLACE=false) — the forward `up` walks origin->
+ *  target = a complete recompose of the TARGET view. Region-0 mapping: cellA=gy-116,
+ *  cellB=gx-120 (poke per the target's region bases; default region 0).
+ *
+ *  Usage: pnpm tsx tools/libretro/trace-maze.ts pokeview <gx> <gy> <facing> [outFile] [gxBase=120] [gyBase=116] */
+async function phasePokeView(c: HostClient): Promise<void> {
+  const gx = Number(process.argv[3]);
+  const gy = Number(process.argv[4]);
+  const facing = Number(process.argv[5]);
+  const outFile = process.argv[6] ?? `/tmp/wiz6-pokeview-${gx}-${gy}-f${facing}.json`;
+  const gxBase = Number(process.argv[7] ?? 120);
+  const gyBase = Number(process.argv[8] ?? 116);
+  const z = 0;
+  if (!Number.isFinite(gx) || !Number.isFinite(gy) || !Number.isFinite(facing)) {
+    console.log('usage: pokeview <gx> <gy> <facing> [outFile] [gxBase] [gyBase]'); return;
+  }
+  const STATE = `/tmp/wiz6-pokeview-origin.state`;
+  const w16 = async (base: number, off: number, v: number) => c.write(base + off, [v & 0xff, (v >> 8) & 0xff]);
+  const rdU16 = async (base: number, off: number) => { const b = await c.read(base + off, 2); return b[0]! | (b[1]! << 8); };
+
+  console.log(`pokeview target gx=${gx} gy=${gy} facing=${facing} (region base gx${gxBase} gy${gyBase})`);
+  console.log('driving fresh boot to maze…');
+  await driveToMaze(c);
+
+  // Poke DIRECTLY to the target cell, settle, serialize. Capture is an IN-PLACE
+  // turn-left/right recompose at the target (the reliable, reproducible trigger —
+  // same mechanism placements121 used for gy=121). This is a DIRTY recompose: it
+  // emits the full per-view placement list (the SELECTION + dest geometry we are
+  // characterizing) but may drop the single deepest sub-pixel door-leaf detail
+  // (the known 18px residual). That residual is a sub-placement draw-path gap, NOT
+  // a missing placement, so the IN-PLACE list is the correct ground truth for the
+  // GENERATION pattern (which placement indices + their dest geometry per view).
+  let base = await c.anchor();
+  await w16(base, PK_FACING, facing); await w16(base, PK_Z, z);
+  await w16(base, PK_CELLA, gy - gyBase); await w16(base, PK_CELLB, gx - gxBase);
+  await w16(base, PK_GY, gy); await w16(base, PK_GX, gx);
+  await c.step(4); // rebuild from the poked party
+  base = await c.anchor();
+  const rgx = await rdU16(base, PK_GX), rgy = await rdU16(base, PK_GY), rf = await rdU16(base, PK_FACING);
+  const stuck = rgx === gx && rgy === gy && rf === facing;
+  console.log(`poked target gx=${gx} gy=${gy} f=${facing} -> readback gx=${rgx} gy=${rgy} f=${rf} ${stuck ? 'STUCK✓' : 'SNAPPED✗ (poke rejected — cell is a wall/void; capture invalid)'}`);
+  await c.serialize(STATE);
+  await c.fb(`/tmp/wiz6-pokeview-${gx}-${gy}-f${facing}.fb`);
+
+  PLACEMENTS_STATE = STATE;
+  PLACEMENTS_INPLACE = true; // in-place turn recompose at the target (reliable)
+  process.argv[3] = outFile;
+  await phasePlacements(c);
+
+  // Annotate the output with the target info.
+  try {
+    const j = JSON.parse(readFileSync(outFile, 'utf8'));
+    j.target = { gx, gy, facing, gxBase, gyBase, cellA: gy - gyBase, cellB: gx - gxBase };
+    j.poke_stuck = stuck;
+    j.capture_trigger = 'poke-target + in-place turn recompose (dirty; full placement list, may drop deepest sub-pixel detail)';
+    writeFileSync(outFile, JSON.stringify(j, null, 2));
+  } catch { /* phasePlacements may have aborted */ }
 }
 
 /** `placecheck` — reproducibility gate for `placements`: capture TWICE (two fresh
@@ -2330,6 +2428,7 @@ async function main() {
     else if (phase === 'maskedloop') await phaseMaskedLoop(c);
     else if (phase === 'placements') await phasePlacements(c);
     else if (phase === 'placements121') await phasePlacements121(c);
+    else if (phase === 'pokeview') await phasePokeView(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
     else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
