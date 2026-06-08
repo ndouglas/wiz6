@@ -1,0 +1,691 @@
+{
+  "note": "maze-corridor (zone0, facing0) blit call list — first full compose pass at ega.drv FUN_0a93. OR branch (arg10==ffff) = single-image forward OR-blit of placement arg0c. masked branch (arg10!=ffff) = xlatb-LUT reverse-read blit, dest=placement arg10, src image=placement arg0c. Static placement records live in mazedata.ega (366). This is the per-view SELECTION + the masked-mirror pairing.",
+  "reloc_base": "6ba10",
+  "frame": {
+    "game_state": 5,
+    "zone": 0,
+    "facing": 0,
+    "name": "maze-corridor"
+  },
+  "total_hits": 91,
+  "pass_length": 11,
+  "reproducible": true,
+  "placementIndices": [
+    122,
+    0,
+    150,
+    83,
+    87,
+    361,
+    349,
+    355,
+    346,
+    352,
+    358
+  ],
+  "calls": [
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    }
+  ],
+  "masked_flags": [],
+  "table_pointers": {
+    "dataSeg": "2181",
+    "placeOff": "301",
+    "imgDescOff": "4"
+  },
+  "liveRecords": [
+    {
+      "idx": 122,
+      "imgIdx": 44,
+      "destX": 11,
+      "destRow": 32,
+      "bias": 0,
+      "count": 18,
+      "segDelta": 2082,
+      "srcOffLow": 11,
+      "w": 18,
+      "h": 7
+    },
+    {
+      "idx": 0,
+      "imgIdx": 0,
+      "destX": 13,
+      "destRow": 40,
+      "bias": 0,
+      "count": 14,
+      "segDelta": 162,
+      "srcOffLow": 7,
+      "w": 14,
+      "h": 87
+    },
+    {
+      "idx": 150,
+      "imgIdx": 56,
+      "destX": 11,
+      "destRow": 128,
+      "bias": 0,
+      "count": 18,
+      "segDelta": 2276,
+      "srcOffLow": 3,
+      "w": 18,
+      "h": 16
+    },
+    {
+      "idx": 83,
+      "imgIdx": 23,
+      "destX": 9,
+      "destRow": 32,
+      "bias": 0,
+      "count": 4,
+      "segDelta": 1310,
+      "srcOffLow": 15,
+      "w": 4,
+      "h": 112
+    },
+    {
+      "idx": 87,
+      "imgIdx": 26,
+      "destX": 27,
+      "destRow": 32,
+      "bias": 0,
+      "count": 4,
+      "segDelta": 1513,
+      "srcOffLow": 11,
+      "w": 4,
+      "h": 112
+    },
+    {
+      "idx": 361,
+      "imgIdx": 148,
+      "destX": 28,
+      "destRow": 7,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 6353,
+      "srcOffLow": 15,
+      "w": 2,
+      "h": 16
+    },
+    {
+      "idx": 349,
+      "imgIdx": 136,
+      "destX": 6,
+      "destRow": 7,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 6257,
+      "srcOffLow": 15,
+      "w": 2,
+      "h": 16
+    },
+    {
+      "idx": 355,
+      "imgIdx": 142,
+      "destX": 32,
+      "destRow": 7,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 6305,
+      "srcOffLow": 15,
+      "w": 2,
+      "h": 16
+    },
+    {
+      "idx": 346,
+      "imgIdx": 133,
+      "destX": 2,
+      "destRow": 7,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 6233,
+      "srcOffLow": 15,
+      "w": 2,
+      "h": 16
+    },
+    {
+      "idx": 352,
+      "imgIdx": 139,
+      "destX": 10,
+      "destRow": 7,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 6281,
+      "srcOffLow": 15,
+      "w": 2,
+      "h": 16
+    },
+    {
+      "idx": 358,
+      "imgIdx": 145,
+      "destX": 36,
+      "destRow": 7,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 6329,
+      "srcOffLow": 15,
+      "w": 2,
+      "h": 16
+    }
+  ],
+  "raw_calls": [
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 65535,
+      "arg10": 65535
+    }
+  ],
+  "target": {
+    "gx": 127,
+    "gy": 123,
+    "facing": 0,
+    "gxBase": 120,
+    "gyBase": 116,
+    "cellA": 7,
+    "cellB": 7
+  },
+  "poke_stuck": true,
+  "capture_trigger": "poke-target + in-place turn recompose (dirty; full placement list, may drop deepest sub-pixel detail)"
+}
