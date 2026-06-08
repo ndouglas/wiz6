@@ -64,10 +64,10 @@ describe('GameSession store', () => {
     expect(s?.party).toEqual({ gx: 127, gy: 117, z: 0, facing: 0 });
   });
 
-  it('init WITH scriptedEntry seeds entryMode:title', () => {
+  it('init WITH scriptedEntry seeds entryMode:door-open (the castle doors slide apart first)', () => {
     initGameSession(LEVEL_WITH_ENTRY);
     const s = readGameSession();
-    expect(s?.entryMode).toBe('title');
+    expect(s?.entryMode).toBe('door-open');
   });
 
   it('init WITH scriptedEntry seeds stepsRemaining = steps (4)', () => {

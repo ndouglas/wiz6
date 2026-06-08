@@ -18,7 +18,11 @@ import { gunzipSync } from 'node:zlib';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MAZE_VIEWPORT } from '@wiz6/data';
-import { oracleViewportForGy, type NewgameViewports } from '../../src/maze/newgame-oracle.js';
+import {
+  oracleViewportForGy,
+  oracleAnimViewport,
+  type NewgameViewports,
+} from '../../src/maze/newgame-oracle.js';
 import type { EntryMode } from '../../src/maze/entry-sequence.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -43,7 +47,7 @@ function loadViewports(): NewgameViewports {
   ) as Record<string, string>;
   const out: NewgameViewports = {};
   for (const [key, val] of Object.entries(data)) {
-    out[Number(key)] = Uint8Array.from(atob(val), (c) => c.charCodeAt(0));
+    out[key] = Uint8Array.from(atob(val), (c) => c.charCodeAt(0));
   }
   return out;
 }
@@ -126,4 +130,35 @@ describe('oracleViewportForGy — byte-equality vs engine fixture viewport slice
       ).toBe(0);
     });
   }
+});
+
+describe('oracleAnimViewport — animation frame resolver', () => {
+  const viewports = loadViewports();
+  const SIZE = MAZE_VIEWPORT.w * MAZE_VIEWPORT.h;
+
+  it('returns a 176×112 buffer for door:0..7', () => {
+    for (let frame = 0; frame <= 7; frame++) {
+      const buf = oracleAnimViewport(viewports, 'door', frame);
+      expect(buf, `door:${frame}`).not.toBeNull();
+      expect(buf!.length, `door:${frame} size`).toBe(SIZE);
+    }
+  });
+
+  it('returns a 176×112 buffer for gate:0..7', () => {
+    for (let frame = 0; frame <= 7; frame++) {
+      const buf = oracleAnimViewport(viewports, 'gate', frame);
+      expect(buf, `gate:${frame}`).not.toBeNull();
+      expect(buf!.length, `gate:${frame} size`).toBe(SIZE);
+    }
+  });
+
+  it('returns null for a missing frame', () => {
+    expect(oracleAnimViewport(viewports, 'door', 8)).toBeNull();
+    expect(oracleAnimViewport(viewports, 'gate', 99)).toBeNull();
+  });
+
+  it('returns null when viewports is null', () => {
+    expect(oracleAnimViewport(null, 'door', 0)).toBeNull();
+    expect(oracleAnimViewport(null, 'gate', 0)).toBeNull();
+  });
 });

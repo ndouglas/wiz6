@@ -102,6 +102,15 @@ export class HostClient {
     if (r !== 'ok') throw new Error(`step: ${r}`);
   }
 
+  /** Set the dosbox_pure_cycles core option live (e.g. "315", "7800", "max").
+   *  Slows/speeds the emulated CPU so the game's CRT-calibrated busy-wait delays
+   *  span more/fewer retro_run frames — used to expose transient animations (the
+   *  gate-open lift) that otherwise complete within a single frame. */
+  async cycles(value: string): Promise<void> {
+    const r = await this.cmd(`cycles ${value}`);
+    if (!/^ok /.test(r)) throw new Error(`cycles: ${r}`);
+  }
+
   /** Press a key (arrows/enter/esc/space/a-z). mode: down | up | tap (press+release). */
   async key(name: string, mode: 'down' | 'up' | 'tap' = 'tap'): Promise<void> {
     const r = await this.cmd(`key ${name} ${mode}`);

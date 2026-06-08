@@ -56,6 +56,8 @@ export { turn, tryStepForward } from './maze/movement.js';
 // Maze scripted entry FSM + narration decoder
 export {
   advanceEntry,
+  tickEntry,
+  ANIM_LAST,
   decodeNarrationLines,
   type EntryState,
   type EntryMode,
@@ -63,6 +65,7 @@ export {
 // Maze scripted entry oracle viewport (framebuffer-oracle for the gate frames)
 export {
   oracleViewportForGy,
+  oracleAnimViewport,
   type NewgameViewports,
 } from './maze/newgame-oracle.js';
 // Maze entry bottom strip — shared per-mode layout + draw (MazeView + parity gates)

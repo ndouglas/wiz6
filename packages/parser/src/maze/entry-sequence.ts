@@ -45,11 +45,25 @@ const BUMP_GY = 120;
 /** The final dead-end gy: ENTER here ends the scripted entry → free control. */
 const FREE_GY = 121;
 
-export type EntryMode = 'title' | 'narration' | 'gate-walk' | 'bump' | 'free';
+export type EntryMode =
+  | 'door-open'
+  | 'title'
+  | 'narration'
+  | 'gate-walk'
+  | 'gate-open'
+  | 'bump'
+  | 'free';
+
+/** Last animation frame index (8 frames, 0..7). Both the castle-door slide and
+ *  the dungeon-portcullis lift play 8 captured oracle frames. */
+export const ANIM_LAST = 7;
 
 export interface EntryState {
   party: MazeParty;
   entryMode: EntryMode;
+  /** 0-based animation frame index for animation modes ('door-open', 'gate-open');
+   *  0 for non-animation modes. The TIMER advances this via tickEntry. */
+  animFrame: number;
   /** Forward steps still to take in the scripted walk (informational; the FSM
    *  also keys on the gy target so it can't drift). 0 once the walk is done. */
   stepsRemaining: number;
@@ -68,33 +82,63 @@ function forcedStep(party: MazeParty): MazeParty {
  * advanceEntry — ENTER pressed during the scripted entry.
  * Returns the next EntryState (always a new object unless inert; never mutates).
  *
+ * ENTER SKIPS both viewport animations (door slide / portcullis lift) — those
+ * play only on the TIMER (tickEntry). ENTER jumps straight to the post-anim state.
+ *
+ * door-open  → title       (skip the door slide; no party move)
  * title      → narration   (+1 forward step: gy 117→118)
  * narration  → gate-walk   (+1 forward step: gy 118→119; dismisses the text)
- * gate-walk  → +1 forward step; if the new cell is a bump cell (gy>=120) → bump,
- *              else stay gate-walk (gy 119)
+ * gate-walk  → +1 forward step; if the new cell is the gate cell (gy>=120) →
+ *              gate-open (START the portcullis anim), else stay gate-walk (gy 119)
+ * gate-open  → bump        (skip the portcullis anim; +1 forward step gy 120→121)
  * bump       → if not yet at the dead-end (gy<121): +1 forward step, STAY bump
- *              (gy 120→121, HMMMM persists across the inner gate → dead-end);
- *              else (gy>=121): → free (no move)
+ *              (HMMMM persists); else (gy>=121): → free (no move)
  * free       → no-op (returns s unchanged)
  */
 export function advanceEntry(s: EntryState, _block: MazeBlock): EntryState {
   switch (s.entryMode) {
+    case 'door-open':
+      // ENTER skips the door slide — jump to the ENTERING title still (no move).
+      return { ...s, entryMode: 'title', animFrame: 0 };
+
     case 'title': {
       const party = forcedStep(s.party);
-      return { party, entryMode: 'narration', stepsRemaining: Math.max(0, s.stepsRemaining - 1) };
+      return {
+        party,
+        entryMode: 'narration',
+        animFrame: 0,
+        stepsRemaining: Math.max(0, s.stepsRemaining - 1),
+      };
     }
 
     case 'narration': {
       const party = forcedStep(s.party);
-      const mode: EntryMode = party.gy >= BUMP_GY ? 'bump' : 'gate-walk';
-      return { party, entryMode: mode, stepsRemaining: Math.max(0, s.stepsRemaining - 1) };
+      const mode: EntryMode = party.gy >= BUMP_GY ? 'gate-open' : 'gate-walk';
+      return {
+        party,
+        entryMode: mode,
+        animFrame: 0,
+        stepsRemaining: Math.max(0, s.stepsRemaining - 1),
+      };
     }
 
     case 'gate-walk': {
       const party = forcedStep(s.party);
       const steps = Math.max(0, s.stepsRemaining - 1);
-      const mode: EntryMode = party.gy >= BUMP_GY ? 'bump' : 'gate-walk';
-      return { party, entryMode: mode, stepsRemaining: steps };
+      // Reaching the gate cell (gy>=120) STARTS the portcullis animation.
+      const mode: EntryMode = party.gy >= BUMP_GY ? 'gate-open' : 'gate-walk';
+      return { party, entryMode: mode, animFrame: 0, stepsRemaining: steps };
+    }
+
+    case 'gate-open': {
+      // ENTER skips the portcullis anim — step through to the dead-end (gy 120→121).
+      const party = forcedStep(s.party);
+      return {
+        party,
+        entryMode: 'bump',
+        animFrame: 0,
+        stepsRemaining: Math.max(0, s.stepsRemaining - 1),
+      };
     }
 
     case 'bump': {
@@ -102,12 +146,44 @@ export function advanceEntry(s: EntryState, _block: MazeBlock): EntryState {
       // Step forward once more while short of the dead-end, then go free.
       if (s.party.gy < FREE_GY) {
         const party = forcedStep(s.party);
-        return { party, entryMode: 'bump', stepsRemaining: Math.max(0, s.stepsRemaining - 1) };
+        return {
+          party,
+          entryMode: 'bump',
+          animFrame: 0,
+          stepsRemaining: Math.max(0, s.stepsRemaining - 1),
+        };
       }
-      return { ...s, entryMode: 'free', stepsRemaining: 0 };
+      return { ...s, entryMode: 'free', animFrame: 0, stepsRemaining: 0 };
     }
 
     case 'free':
+      return s;
+  }
+}
+
+/**
+ * tickEntry — TIMER-driven animation advance (NOT ENTER). Drives the two
+ * viewport animations one captured oracle frame per tick.
+ *
+ * door-open : animFrame < ANIM_LAST → advance one frame (gy stays at the start
+ *             cell 117); at animFrame===ANIM_LAST → title, animFrame 0 (doors
+ *             finished opening → the ENTERING title still; no party move).
+ * gate-open : animFrame < ANIM_LAST → advance one frame (gy stays at the gate
+ *             cell 120); at animFrame===ANIM_LAST → bump, animFrame 0, forcedStep
+ *             one cell forward (portcullis fully open → party pushed to gy=121).
+ * any other mode: returns s UNCHANGED (same reference — stills don't tick).
+ */
+export function tickEntry(s: EntryState): EntryState {
+  switch (s.entryMode) {
+    case 'door-open':
+      if (s.animFrame < ANIM_LAST) return { ...s, animFrame: s.animFrame + 1 };
+      return { ...s, entryMode: 'title', animFrame: 0 };
+
+    case 'gate-open':
+      if (s.animFrame < ANIM_LAST) return { ...s, animFrame: s.animFrame + 1 };
+      return { ...s, party: forcedStep(s.party), entryMode: 'bump', animFrame: 0 };
+
+    default:
       return s;
   }
 }

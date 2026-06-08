@@ -193,6 +193,50 @@ export function drawEntryStrip(
       return;
     }
 
+    case 'door-open': {
+      // The castle-door slide shows the gray maze WIDGET BACKGROUND with NO text:
+      // a 50% black/gray dither (idx 0/8, checkerboard — black where (x+y) is odd)
+      // across the central band y152–191, SOLID gray at y145–150 and y192–198, and
+      // black separator rows at y144 / y151 / y199. Byte-exact vs the committed
+      // newgame-anim-door-NN fixtures (the ENTERING title text appears later, at the
+      // 'title' still — not during the slide).
+      fillStrip(destRgba, destW, destH, TITLE_BG_IDX, palette); // solid gray
+      blackRow(destRgba, destW, destH, STRIP_Y0); // y144 separator
+      blackRow(destRgba, destW, destH, 151); // y151 inner-window top border
+      blackRow(destRgba, destW, destH, STRIP_Y1 - 1); // y199 baseline
+      const black = palette.colors[NARRATION_BG_IDX] ?? [0, 0, 0];
+      for (let y = 152; y <= 191 && y < destH; y++) {
+        for (let x = (y & 1) === 0 ? 1 : 0; x < destW; x += 2) {
+          // black where (x+y) is odd (gray stays where (x+y) is even)
+          const o = (y * destW + x) * 4;
+          destRgba[o] = black[0]!;
+          destRgba[o + 1] = black[1]!;
+          destRgba[o + 2] = black[2]!;
+          destRgba[o + 3] = 0xff;
+        }
+      }
+      return;
+    }
+
+    case 'gate-open': {
+      // Clean black strip + a single yellow centered "HMMMM..." line — identical
+      // to the 'bump' path (the portcullis frames show HMMMM, verified captures).
+      fillStrip(destRgba, destW, destH, NARRATION_BG_IDX, palette);
+      renderTextRun(
+        destRgba,
+        destW,
+        destH,
+        centeredX(text.bump, destW),
+        NARRATION_LINE_Y[0]!,
+        text.bump,
+        font,
+        NARRATION_FG_IDX,
+        palette,
+        NARRATION_BG_IDX,
+      );
+      return;
+    }
+
     case 'free':
       // No-op: the caller keeps the baked gray OPTIONS/TURN widget.
       return;

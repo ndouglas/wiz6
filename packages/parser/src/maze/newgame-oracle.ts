@@ -15,10 +15,13 @@ import type { EntryMode } from './entry-sequence.js';
 const ORACLE_GYS = new Set<number>([117, 118, 119, 120, 121]);
 
 /**
- * Record mapping gy (as number) to a 176×112 palette-index buffer (Uint8Array).
- * Produced by `loadNewgameViewports()` in the viewer's data-loader.
+ * Record mapping a STRING key to a 176×112 palette-index buffer (Uint8Array).
+ * Keys are either a gy-as-string ("117".."121", the scripted stills) or an
+ * animation key "door:N" / "gate:N" (N=0..7, the two viewport animations: castle
+ * doors sliding apart / dungeon portcullis lifting). Produced by
+ * `loadNewgameViewports()` in the viewer's data-loader.
  */
-export type NewgameViewports = Record<number, Uint8Array>;
+export type NewgameViewports = Record<string, Uint8Array>;
 
 /**
  * oracleViewportForGy — return the 176×112 index buffer for a scripted frame, or
@@ -41,5 +44,22 @@ export function oracleViewportForGy(
   if (entryMode === 'free') return null;
   if (viewports === null) return null;
   if (!ORACLE_GYS.has(gy)) return null;
-  return viewports[gy] ?? null;
+  return viewports[String(gy)] ?? null;
+}
+
+/**
+ * oracleAnimViewport — return the 176×112 index buffer for an animation frame, or
+ * null if viewports were not loaded or the key is missing.
+ *
+ * @param viewports  Loaded oracle viewports (or null if not yet loaded).
+ * @param seq        Which animation: 'door' (castle doors) or 'gate' (portcullis).
+ * @param frame      0-based frame index (0=closed .. 7=fully open).
+ */
+export function oracleAnimViewport(
+  viewports: NewgameViewports | null,
+  seq: 'door' | 'gate',
+  frame: number,
+): Uint8Array | null {
+  if (viewports === null) return null;
+  return viewports[`${seq}:${frame}`] ?? null;
 }

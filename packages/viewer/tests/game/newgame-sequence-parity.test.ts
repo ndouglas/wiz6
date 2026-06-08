@@ -244,4 +244,61 @@ describe('START-NEW-GAME sequence FULL-SCREEN per-frame parity (GATE, tolerance 
       expect(diff, `${cs.fixture}: ${diff} diff px — ${samples.join(' | ')}`).toBe(0);
     });
   }
+
+  // ── ANIMATION FRAMES (Stage 4) — the two entry viewport animations ──
+  // door:0..7 = castle doors sliding apart (entryMode 'door-open' → clean-black strip)
+  // gate:0..7 = dungeon portcullis lifting open (entryMode 'gate-open' → black + HMMMM)
+  // Byte-exact by construction: the viewport is the committed `<seq>:<n>` oracle slice
+  // (=== the fixture's MAZE_VIEWPORT), and chrome+panel+strip are rendered. The mouse
+  // is parked off-screen in these captures (no cursor exclusion needed).
+  /** Compose the full frame for an animation oracle key `<seq>:<n>` + entry mode. */
+  function composeAnimFull(seq: 'door' | 'gate', frame: number, mode: EntryMode): Uint8Array {
+    const f = composeMazeFrame(panels);
+    const b64 = viewportsJson[`${seq}:${frame}`];
+    if (!b64) throw new Error(`no oracle viewport for ${seq}:${frame}`);
+    const vp = indicesToRgba(Uint8Array.from(Buffer.from(b64, 'base64')));
+    const { x: vx, y: vy, w: vw, h: vh } = MAZE_VIEWPORT;
+    for (let r = 0; r < vh; r++) {
+      for (let c = 0; c < vw; c++) {
+        const s = (r * vw + c) * 4;
+        const d = ((vy + r) * W + (vx + c)) * 4;
+        f[d] = vp[s]!;
+        f[d + 1] = vp[s + 1]!;
+        f[d + 2] = vp[s + 2]!;
+        f[d + 3] = 0xff;
+      }
+    }
+    const rgba = new Uint8ClampedArray(f.buffer);
+    drawEntryStrip(rgba, W, H, mode, text, wfont0, PALETTE);
+    return f;
+  }
+
+  const ANIM_CASES: { seq: 'door' | 'gate'; mode: EntryMode }[] = [
+    { seq: 'door', mode: 'door-open' },
+    { seq: 'gate', mode: 'gate-open' },
+  ];
+  for (const { seq, mode } of ANIM_CASES) {
+    for (let n = 0; n < 8; n++) {
+      const fixture = `newgame-anim-${seq}-${String(n).padStart(2, '0')}.idx.gz`;
+      it(`${fixture} (${seq}:${n}, ${mode}): FULL-SCREEN byte-exact (0 diff)`, () => {
+        const ours = composeAnimFull(seq, n, mode);
+        const eng = engineRgba(fixture);
+        let diff = 0;
+        const samples: string[] = [];
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W; x++) {
+            const o = (y * W + x) * 4;
+            if (ours[o] !== eng[o] || ours[o + 1] !== eng[o + 1] || ours[o + 2] !== eng[o + 2]) {
+              diff++;
+              if (samples.length < 12)
+                samples.push(
+                  `(${x},${y}) ours=${ours[o]},${ours[o + 1]},${ours[o + 2]} eng=${eng[o]},${eng[o + 1]},${eng[o + 2]}`,
+                );
+            }
+          }
+        }
+        expect(diff, `${fixture}: ${diff} diff px — ${samples.join(' | ')}`).toBe(0);
+      });
+    }
+  }
 });
