@@ -59,6 +59,8 @@ export {
   tickEntry,
   isAnimationMode,
   ANIM_LAST,
+  ENTRY_ANIM_FRAME_COUNTS,
+  animLastForMode,
   TITLE_HOLD,
   TEXT_HOLD,
   WALK_HOLD,

@@ -26,6 +26,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { dirname } from 'node:path';
+import { ENTRY_ANIM_FRAME_COUNTS } from '@wiz6/parser';
 
 /** The five scripted-entry STILL frames: oracle key (party gy) → fixture file. */
 const NEWGAME_FRAMES: { key: string; file: string }[] = [
@@ -41,11 +42,10 @@ const NEWGAME_FRAMES: { key: string; file: string }[] = [
  *  gate:N = the dungeon portcullis lifting open at the entrance gate.
  *  Keys are `<seq>:<frame>` (frame 0 = closed, last = fully open). These are pinned
  *  single-frame snapshots (NOT re-mintable: free-running flicker + transient timing). */
-const ANIM_FRAME_COUNT = 8;
 function animFrames(): { key: string; file: string }[] {
   const out: { key: string; file: string }[] = [];
   for (const seq of ['door', 'gate1', 'gate2'] as const) {
-    for (let n = 0; n < ANIM_FRAME_COUNT; n++) {
+    for (let n = 0; n < ENTRY_ANIM_FRAME_COUNTS[seq]; n++) {
       out.push({ key: `${seq}:${n}`, file: `newgame-anim-${seq}-${String(n).padStart(2, '0')}.idx.gz` });
     }
   }

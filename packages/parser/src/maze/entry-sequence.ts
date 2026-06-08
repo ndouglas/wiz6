@@ -54,9 +54,23 @@ export type EntryMode =
   | 'gate2-open'
   | 'free';
 
-/** Last animation frame index (8 frames, 0..7). The castle-door slide and both
- *  dungeon-portcullis lifts each play 8 captured oracle frames. */
-export const ANIM_LAST = 7;
+/** Per-sequence captured-oracle frame counts. The gate1 lift spans far more
+ *  engine frames than the door slide, so it needs MORE frames to play smoothly at
+ *  the same per-frame interval (8 was too few — it skipped lift states). The
+ *  extractor, parity gate, and viewer all key off these counts. */
+export const ENTRY_ANIM_FRAME_COUNTS = { door: 8, gate1: 12, gate2: 8 } as const;
+export type EntryAnimSeq = keyof typeof ENTRY_ANIM_FRAME_COUNTS;
+
+/** Last animation frame index for an animation mode's sequence (count − 1). */
+export function animLastForMode(mode: EntryMode): number {
+  if (mode === 'door-open') return ENTRY_ANIM_FRAME_COUNTS.door - 1;
+  if (mode === 'gate1-open') return ENTRY_ANIM_FRAME_COUNTS.gate1 - 1;
+  if (mode === 'gate2-open') return ENTRY_ANIM_FRAME_COUNTS.gate2 - 1;
+  return 0;
+}
+
+/** Back-compat default (door/gate2 sequence length − 1). Prefer animLastForMode. */
+export const ANIM_LAST = ENTRY_ANIM_FRAME_COUNTS.door - 1;
 
 /** Hold thresholds, in CUTSCENE ticks (see MazeView CUTSCENE_TICK_MS for the
  *  ms-per-tick). A hold beat advances when holdTicks reaches the threshold.
@@ -106,7 +120,7 @@ export function tickEntry(s: EntryState): EntryState {
   switch (s.entryMode) {
     case 'door-open':
       // Castle doors slide apart (gy stays 117); finished → ENTERING title.
-      if (s.animFrame < ANIM_LAST) return { ...s, animFrame: s.animFrame + 1 };
+      if (s.animFrame < animLastForMode(s.entryMode)) return { ...s, animFrame: s.animFrame + 1 };
       return { ...s, entryMode: 'title', animFrame: 0, holdTicks: 0 };
 
     case 'title':
@@ -127,7 +141,7 @@ export function tickEntry(s: EntryState): EntryState {
 
     case 'gate1-open':
       // First portcullis lifts (gy stays 118); finished → walk through (gy 118→119).
-      if (s.animFrame < ANIM_LAST) return { ...s, animFrame: s.animFrame + 1 };
+      if (s.animFrame < animLastForMode(s.entryMode)) return { ...s, animFrame: s.animFrame + 1 };
       return {
         party: forcedStep(s.party),
         entryMode: 'walk',
@@ -153,7 +167,7 @@ export function tickEntry(s: EntryState): EntryState {
 
     case 'gate2-open':
       // Second portcullis lifts (gy stays 120); finished → free-roam (gy 120→121).
-      if (s.animFrame < ANIM_LAST) return { ...s, animFrame: s.animFrame + 1 };
+      if (s.animFrame < animLastForMode(s.entryMode)) return { ...s, animFrame: s.animFrame + 1 };
       return {
         party: forcedStep(s.party),
         entryMode: 'free',

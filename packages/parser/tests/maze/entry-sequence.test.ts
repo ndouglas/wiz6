@@ -25,6 +25,8 @@ import {
   tickEntry,
   isAnimationMode,
   ANIM_LAST,
+  ENTRY_ANIM_FRAME_COUNTS,
+  animLastForMode,
   TITLE_HOLD,
   TEXT_HOLD,
   WALK_HOLD,
@@ -86,8 +88,12 @@ describe('isAnimationMode', () => {
 // tickEntry — the cutscene driver (one call per tick), drives the WHOLE thing.
 // ---------------------------------------------------------------------------
 describe('tickEntry — animation modes advance one frame per tick', () => {
-  it('ANIM_LAST is 7 (8 frames, 0..7)', () => {
-    expect(ANIM_LAST).toBe(7);
+  it('per-sequence frame counts: door 8, gate1 12, gate2 8 (gate1 lift needs more frames)', () => {
+    expect(ANIM_LAST).toBe(7); // back-compat default (door/gate2)
+    expect(ENTRY_ANIM_FRAME_COUNTS).toEqual({ door: 8, gate1: 12, gate2: 8 });
+    expect(animLastForMode('door-open')).toBe(7);
+    expect(animLastForMode('gate1-open')).toBe(11);
+    expect(animLastForMode('gate2-open')).toBe(7);
   });
 
   it('door-open: ticks animFrame 0→7 (gy stays 117), then → title (no move)', () => {
@@ -106,9 +112,13 @@ describe('tickEntry — animation modes advance one frame per tick', () => {
     expect(s.holdTicks).toBe(0);
   });
 
-  it('gate1-open: ticks animFrame 0→7 (gy stays 118), then → walk + forcedStep (gy 118→119)', () => {
+  it('gate1-open: ticks animFrame 0→11 (12 frames; gy stays 118), then → walk + forcedStep (gy 118→119)', () => {
+    // The first gate has MORE frames than the door/second gate (its lift spans more
+    // engine frames) — it advances to animLastForMode('gate1-open'), not ANIM_LAST.
+    const last = animLastForMode('gate1-open');
+    expect(last).toBe(11);
     let s = st('gate1-open', 118, 0);
-    for (let f = 0; f < ANIM_LAST; f++) {
+    for (let f = 0; f < last; f++) {
       s = tickEntry(s);
       expect(s.entryMode).toBe('gate1-open');
       expect(s.animFrame).toBe(f + 1);
