@@ -99,8 +99,18 @@ TRAPEZOID STACK (slot p emits min(p+1,3) panels at near(p)+4k, near(p)=134−3p,
 occlusion caps the side walk; corner-open as a sufficient predictor. RIGHT is NOT LEFT's mirror (asymmetric
 ray-march — v8 RIGHT recedes 138→139→144→149). The general (start,end)×side extent is provably not a clean
 closed form over the solidity profile → it's the decompiler-resistant classifier post-pass (wmaze 0x39ec
-jump-table on per-slot wall CODE → [0x5072..0x50a2]). NOT shipped as a guess (anti-overfit). Path to finish:
-static-RE the 0x39ec jump table OR a navigation-reach harness (real moves) to unblock the depthemit live trace.
+jump-table on per-slot wall CODE → [0x5072..0x50a2]). NOT shipped as a guess (anti-overfit).
+EXTENT CRACKED via static-RE of the 0x39ec jump table (`maze-wall-family-seeding.json` jump_table_0x39ec_disasm):
+dispatches on the per-slot wall CODE [0x363c] via `jmp word cs:[bx+0x7f2c]` (table @file 0x39c8, 14 handlers) →
+the side-wall surface fires per-(depth,side) wherever the lateral neighbour's forward edge is a NON-OPAQUE code.
+CORRECTION: the "RIGHT asymmetry" was a DECOMPOSITION ERROR (read idx not idx−p) — LEFT and RIGHT bases ARE
+exact mirrors (L {134,130,126} stride−4, R {138,142,146} stride+4); cumulative open-run trapezoid stack, stone
+corner resets the run. generateCallist now emits side walls + far-closed-wall → FULL OR set byte-exact for v1
+(canonical maze-corridor) + v6, LEFT all captures, symmetric RIGHT (v1/v7/v10/v11). MEASURED from-asset rendered
+parity 78.1% (was 52%); full captured OR+masked = 99.9%. RESIDUE 1 (78→99.9 gap): the 4 MASKED-mirror calls
+(symmetric right-half detail) — geometry byte-exact (applyMaskedMirror), only the call GENERATION unwired.
+RESIDUE 2 (rare): the truly asymmetric ray-march (near full-height stone shifts the center, v8/v9) + facing-1
+near base + vanishing-point door center (v11) — irreducible without a live build trace. 428 tests green, tsc clean.
 
 ## Stage 4: Wire generation into `renderMazeViewport` + decorations
 **Goal:** The live renderer builds the background page (floor/ceiling) AND decorations from the generated

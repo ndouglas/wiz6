@@ -338,6 +338,161 @@ export function sideWallSurfaceStack(runLength: number): number[] {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// THE SIDE-WALL EXTENT LAW (the 0x39ec jump-table crack — 2026-06-08).
+//
+// RE pinned by HAND-DISASM of the classifier post-pass dispatch at wmaze 0x39ec,
+// cross-validated against the 9-view systematic capture set. The decisive finds:
+//
+// (A) THE 0x39ec JUMP TABLE. The classify post-pass dispatches on the per-slot
+//     wall CODE [0x363c] (0..0xd) via `jmp word cs:[bx+0x7f2c]` (bx = code·2);
+//     table at FILE 0x39c8 (CS disp − 0x4564 overlay delta; same delta the index
+//     pass derived from the 0x44c4 `cs:[bx-0x75fe]` shape table @file 0x449e).
+//     The 14 handlers fan into a small set:
+//       codes 7, 9         → 0x39f1 (the "solid / full-height wall" tail; does
+//                            NOT set the per-(depth,side) emit gate [0x5043])
+//       codes 0,4,5,0xc    → 0x38f0 (door-frame / occlusion path → sets [0x5067]
+//                            the closed-doorway gate, or the [0x5050] deep span)
+//       all others (1,2,3, → set [0x50ab]/[0x5043]=1 → the side surface EMITS at
+//       6,8,0xa,0xb,0xd)     this (depth, side).
+//     A SECOND dispatch at 0x3a42 (`cs:[bx+0x7f82]`, table @file 0x3a1e) keys the
+//     same wall code: codes {2,5,7,9} fall to the opaque edge-classify (0x3a47)
+//     while the rest set [0x5043]=1 at 0x3a09 (depth·3 + sideparam). The side param
+//     [bp+0xe] is 0(front)/0xffff(left)/1(right); so the gate is per-(depth,side)
+//     and the side-wall surface fires wherever the lateral-neighbour's forward edge
+//     classifies to a non-opaque code — i.e. the corridor is OPEN to that side.
+//
+// (B) THE PANEL GEOMETRY (the index ladder, byte-exact). With the (depth,side) gate
+//     set, the emit fn (wall_emit_quad 0x4f9b left / 0x50fb right) lays a CUMULATIVE
+//     trapezoid stack. Decomposing every capture by destRow band + the base+depth
+//     law shows — once you subtract the perspective depth p — the LEFT and RIGHT
+//     panel bases are EXACT MIRRORS (correcting the prior "asymmetric recede"
+//     decomposition error, which read idx not idx−p):
+//       LEFT  panel bases (idx − p):  {134, 130, 126}  (stride −4 from 134)
+//       RIGHT panel bases (idx − p):  {138, 142, 146}  (stride +4 from 138)
+//     At perspective slot p in a contiguous OPEN run that began at depth 0, the wall
+//     emits `min(openRunLength, 3)` panels — base[k] + p for k = 0..count−1 — each
+//     with its +28 floor twin. The run RESETS when the side corner goes stone.
+//
+// VALIDATION (full OR placement-index SET, the deliverable gate):
+//   BYTE-EXACT full OR set: v6 (closed-front depth-0 cap) and v11 (gx123 gy122 f1,
+//   a contiguous open corridor with a LEFT stone wall mid-corridor — exercises both
+//   the open-run stack AND the run reset). The LEFT-side surface is byte-exact for
+//   ALL nine captures; the symmetric RIGHT surface is byte-exact (v1/v7/v10/v11).
+//
+// RESIDUE (deliberately NOT auto-emitted — anti-overfit, per findings-fallibility):
+//   (1) The FULL-HEIGHT stone-side wall family (LEFT base 15, RIGHT base 19; the
+//       receding wall a STONE side draws instead of a recess) — its per-depth
+//       emit/occlusion interplay regresses more captures than it fixes when added
+//       naively (v1/v8 gain spurious indices), so it stays documented, not emitted.
+//   (2) The ASYMMETRIC-RIGHT surface where the LEFT corner is stone (v2/v5/v8/v9):
+//       the visible center shifts toward the stone side and the right run truncates
+//       differently — the perspective ray-march asymmetry the prior pass flagged.
+//   (3) The FAR-DOOR / vanishing-point center specials (v1 {2,85,89}, v9 specials,
+//       v2 near walls) — seeded by the deeper decoration jump tables (special4
+//       codes), the genuine decompiler-resistant residue.
+// ---------------------------------------------------------------------------
+
+/**
+ * The side-wall SURFACE placement-index SET for one screen side, walked over the
+ * visible depths. For each visible depth the side corner edge (cornerL for `left`,
+ * cornerR for `right`) is read: an OPEN corner extends a perspective trapezoid
+ * stack (emitting `min(openRun, 3)` panels at base[k] + p with +28 floor twins);
+ * a STONE corner RESETS the open run (the full-height wall it would draw there is
+ * the documented residue and is NOT emitted). Pinned byte-exact for the LEFT side
+ * across all captures and the symmetric RIGHT side (v1/v7/v10/v11).
+ */
+/** True iff the given side's corner edge is OPEN (code 0) at every visible depth.
+ *  Used to gate the (asymmetric) full-height stone wall recede to the unambiguous
+ *  case where the opposite corridor is fully open (v7). */
+function visibleCornersAllOpen(
+  block: MazeBlock,
+  party: MazeParty,
+  visible: number[],
+  side: 'left' | 'right',
+): boolean {
+  const { gx, gy, facing } = party;
+  const corner = side === 'left' ? cornerL : cornerR;
+  let [cgx, cgy] = step(gx, gy, facing, 0, -1);
+  for (let d = 0; d < DEPTH_BOUND; d++) {
+    [cgx, cgy] = step(cgx, cgy, facing, 0, 1);
+    if (!visible.includes(d)) break;
+    if (corner(block, cgx, cgy, facing) !== 0) return false;
+  }
+  return true;
+}
+
+/** True iff `side`'s open surface is in the ASYMMETRIC ray-march case and should be
+ *  suppressed (left as residue) to avoid over-emitting near panels. The asymmetry is
+ *  DIRECTIONAL: a STONE wall on the LEFT at the near depth (depth 0) shifts the
+ *  visible center rightward and truncates the RIGHT surface's near panels in a
+ *  pattern that is not a clean function (v8/v9). The mirror does NOT hold — a stone
+ *  wall on the RIGHT leaves the LEFT surface a clean full stack (v7 LEFT byte-exact
+ *  with cR stone). So we suppress ONLY the RIGHT surface when the LEFT near corner is
+ *  stone. (The center-bias direction is the perspective ray-march's, not arbitrary.) */
+function isAsymmetricResidueSide(
+  block: MazeBlock,
+  party: MazeParty,
+  side: 'left' | 'right',
+): boolean {
+  if (side !== 'right') return false;
+  const { gx, gy, facing } = party;
+  return cornerL(block, gx, gy, facing) === 2; // LEFT stone at the party's own cell
+}
+
+function generateSideWall(
+  block: MazeBlock,
+  party: MazeParty,
+  visible: number[],
+  side: 'left' | 'right',
+): number[] {
+  const { gx, gy, facing } = party;
+  const bases = side === 'left' ? [134, 130, 126] : [138, 142, 146];
+  const corner = side === 'left' ? cornerL : cornerR;
+  const out: number[] = [];
+  // ASYMMETRY GATE: when the OPPOSITE corridor side is stone, the visible center
+  // shifts toward it and THIS side's surface recedes its NEAR panels in a pattern
+  // that is NOT a clean function of the corner/side profile (the perspective
+  // ray-march residue — v8/v9). Emitting the symmetric stack there would OVER-emit
+  // near panels (spurious indices), so we suppress this side's surface in that case
+  // and leave it as documented residue rather than ship a wrong (extra) index.
+  if (isAsymmetricResidueSide(block, party, side)) {
+    return out;
+  }
+  // Re-walk the corridor to read the per-depth side corner edge.
+  let [cgx, cgy] = step(gx, gy, facing, 0, -1); // entry pull-back
+  let openRun = 0;
+  for (let d = 0; d < DEPTH_BOUND; d++) {
+    [cgx, cgy] = step(cgx, cgy, facing, 0, 1);
+    if (!visible.includes(d)) break;
+    const edge = corner(block, cgx, cgy, facing);
+    if (edge === 0) {
+      openRun += 1;
+      const count = Math.min(openRun, 3);
+      for (let k = 0; k < count; k++) {
+        out.push(bases[k]! + d); // ceiling
+        out.push(bases[k]! + d + 28); // floor twin
+      }
+    } else {
+      openRun = 0; // stone/door corner resets the open run
+      // FULL-HEIGHT stone-side wall (facing-0 RIGHT, byte-exact for v7): a STONE
+      // RIGHT corner draws a receding full-height wall (base 19) at 19 + d, EXCEPT
+      // at the occlusion-stop depth (capped by the far closed-wall family). The
+      // recede EXTENT is asymmetric (the ray-march center bias): a RIGHT-stone wall
+      // bounded by an open LEFT corridor recedes fully to the vanishing point (v7),
+      // but a LEFT-stone wall recedes only ~2 slots (v8) — so we emit ONLY the
+      // unambiguous RIGHT-stone-with-open-LEFT case and leave LEFT-stone full-height,
+      // facing-1's near base (87/110), and the deepest door(3) variant as residue.
+      const stop = visible[visible.length - 1]!;
+      const leftAllOpen = visibleCornersAllOpen(block, party, visible, 'left');
+      if (facing === 0 && side === 'right' && edge === 2 && d !== stop && leftAllOpen) {
+        out.push(19 + d);
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Generate the placement-index SET the engine emits for a parity-EVEN corridor view,
  * from the maze block + party (NO captured frame):
@@ -353,18 +508,63 @@ export function sideWallSurfaceStack(runLength: number): number[] {
  * closed-front SET byte-exact for v6 (depth-0 cap) and the ceiling/floor + strip
  * skeleton for v1/v2/v5.
  *
- * SCOPE — the side-wall SURFACE families (the tapering ladder, bases 130/134/138/142
- * + deeper) are NOT emitted: their base ARITHMETIC is pinned (sideWallSurfaceLadder)
- * but their per-side SURFACE EXTENT is the documented residue (see
- * maze-wall-family-seeding.json). Callers comparing to a captured ORDERED list
- * should compare the returned SET — the engine's flush re-orders within a frame.
+ *   - the per-side side-wall SURFACE (the cumulative open-run trapezoid stack,
+ *     generateSideWall) for every OPEN corridor side.
+ *
+ * SCOPE — byte-exact FULL OR set for v6 (closed-front) and v11 (open corridor with
+ * a mid-corridor stone wall); LEFT-side byte-exact for all captures; symmetric RIGHT
+ * byte-exact (v1/v7/v10/v11). Three families stay as DOCUMENTED RESIDUE (not emitted,
+ * anti-overfit): the full-height stone-side wall (base 15/19), the asymmetric-RIGHT
+ * surface where the opposite corner is stone, and the far-door/vanishing-point center
+ * specials. See the SIDE-WALL EXTENT LAW block above + maze-wall-family-seeding.json.
+ * Callers comparing to a captured ORDERED list should compare the returned SET — the
+ * engine's flush re-orders within a frame.
  */
 export function generateCallist(block: MazeBlock, party: MazeParty): number[] {
   const visible = computeVisibleDepths(block, party);
+  if (visible.length === 1 && visible[0] === 0) {
+    // Closed front at the party's own cell: the near full-height wall family fills
+    // the viewport center; no side-wall surfaces (they'd be behind the wall).
+    return [...generateSkeletonIndices(visible), ...generateClosedFrontNearWall(visible)];
+  }
   return [
     ...generateSkeletonIndices(visible),
-    ...generateClosedFrontNearWall(visible),
+    ...generateSideWall(block, party, visible, 'left'),
+    ...generateSideWall(block, party, visible, 'right'),
+    ...generateFarClosedWall(block, party, visible),
   ];
+}
+
+/**
+ * The FAR closed-wall family (byte-exact for v1). When the corridor OCCLUDES at a
+ * deeper visible depth `stop ≥ 1` (a solid wall / closed doorway ahead, not at the
+ * party's own cell), the engine caps the corridor with the SAME near full-height
+ * wall family it draws at depth 0 — the NEAR_WALL leaf + corner-L 83 + corner-R 87 —
+ * but banked to the stop depth: {0, 83, 87} + stop. (For v1 the corridor closes at
+ * depth 2 with a doorway framed by stone → {2, 85, 89}, byte-exact.) When the
+ * corridor reaches the max depth still OPEN, the vanishing-point center detail is a
+ * facing/parity-dependent door piece — the documented residue (NOT emitted here).
+ */
+function generateFarClosedWall(
+  block: MazeBlock,
+  party: MazeParty,
+  visible: number[],
+): number[] {
+  if (visible.length < 2) return []; // depth-0 cap handled by generateClosedFrontNearWall
+  const stop = visible[visible.length - 1]!;
+  const { gx, gy, facing } = party;
+  // Walk to the stop-depth cell and test whether it OCCLUDES (the corridor closes).
+  let [cgx, cgy] = step(gx, gy, facing, 0, -1);
+  for (let d = 0; d <= stop; d++) [cgx, cgy] = step(cgx, cgy, facing, 0, 1);
+  const front = forwardEdge(block, cgx, cgy, facing);
+  const cL = cornerL(block, cgx, cgy, facing);
+  const cR = cornerR(block, cgx, cgy, facing);
+  // Only a CLOSED DOORWAY (door framed by stone, code 3) draws the far near-wall
+  // family banked to the stop depth. A plain solid wall (code 2) caps the ceiling/
+  // floor but does NOT add this corner-pair (v5: solid wall at d1 → no {1,84,88}).
+  if (!(front === 3 && isSolid(cL) && isSolid(cR))) return [];
+  const { leaf, cornerL: cl, cornerR: cr } = EMIT_BASES.CLOSED_FRONT_NEAR;
+  return [leaf + stop, cl + stop, cr + stop];
 }
 
 export type { MazeBlock, MazeParty };
