@@ -76,6 +76,7 @@ import {
   pcfileSlotToCharacter,
   decodeNarrationLines,
   drawEntryStrip,
+  ENTRY_ANIM_FRAME_COUNTS,
   type EntryMode,
   type EntryStripText,
 } from '@wiz6/parser';
@@ -280,7 +281,7 @@ describe('START-NEW-GAME sequence FULL-SCREEN per-frame parity (GATE, tolerance 
     { seq: 'gate2', mode: 'gate2-open' },
   ];
   for (const { seq, mode } of ANIM_CASES) {
-    for (let n = 0; n < 8; n++) {
+    for (let n = 0; n < ENTRY_ANIM_FRAME_COUNTS[seq]; n++) {
       const fixture = `newgame-anim-${seq}-${String(n).padStart(2, '0')}.idx.gz`;
       it(`${fixture} (${seq}:${n}, ${mode}): FULL-SCREEN byte-exact (0 diff)`, () => {
         const ours = composeAnimFull(seq, n, mode);
