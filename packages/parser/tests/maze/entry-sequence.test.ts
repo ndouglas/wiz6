@@ -150,17 +150,20 @@ describe('tickEntry — hold modes accumulate ticks then auto-push', () => {
     expect(s.holdTicks).toBe(0);
   });
 
-  it('approach1: holds TEXT_HOLD ticks then → gate1-open (no move)', () => {
+  it('approach1: INERT in tickEntry — WAITS for ENTER (no auto-advance)', () => {
+    // The APPROACHING beat is the one interactive pause; tickEntry must NOT
+    // advance it regardless of how many ticks elapse — only ENTER (advanceEntry)
+    // starts the first portcullis lift.
     let s = st('approach1', 118, 0, 0);
-    for (let t = 0; t < TEXT_HOLD; t++) {
+    for (let t = 0; t < TEXT_HOLD + 5; t++) {
       s = tickEntry(s);
       expect(s.entryMode).toBe('approach1');
-      expect(s.holdTicks).toBe(t + 1);
+      expect(s.party.gy).toBe(118);
     }
-    s = tickEntry(s);
-    expect(s.entryMode).toBe('gate1-open');
-    expect(s.animFrame).toBe(0);
-    expect(s.party.gy).toBe(118); // no move
+    const next = advanceEntry(s, OPEN_BLOCK);
+    expect(next.entryMode).toBe('gate1-open');
+    expect(next.animFrame).toBe(0);
+    expect(next.party.gy).toBe(118); // no move
   });
 
   it('walk: holds WALK_HOLD ticks then → approach2 + forcedStep (gy 119→120)', () => {
@@ -196,14 +199,16 @@ describe('tickEntry — hold modes accumulate ticks then auto-push', () => {
 });
 
 describe('tickEntry — full cutscene drives door-open → free with the gy progression', () => {
-  it('walks 117,117,118,118,119,120,120,121 with no input', () => {
+  it('walks 117,117,118,118,119,120,120,121 (auto-push; ONE ENTER at the APPROACHING beat)', () => {
     let s = st('door-open', 117, 0, 0);
-    // Tick until 'free' (cap iterations so a bug can't hang the test).
+    // Tick until 'free' (cap iterations so a bug can't hang the test). approach1
+    // is the one interactive beat — tickEntry stalls there, so ENTER (advanceEntry)
+    // advances it; every other beat auto-pushes on the timer.
     const seen: { mode: string; gy: number }[] = [];
     let prevMode = s.entryMode;
     seen.push({ mode: s.entryMode, gy: s.party.gy });
     for (let i = 0; i < 1000 && s.entryMode !== 'free'; i++) {
-      s = tickEntry(s);
+      s = s.entryMode === 'approach1' ? advanceEntry(s, OPEN_BLOCK) : tickEntry(s);
       if (s.entryMode !== prevMode) {
         seen.push({ mode: s.entryMode, gy: s.party.gy });
         prevMode = s.entryMode;

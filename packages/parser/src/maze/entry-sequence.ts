@@ -11,7 +11,8 @@
  *   title      — "ENTERING / BANE OF THE COSMIC FORGE" card on the gray widget,
  *                gy=117. Held a few seconds, then AUTO-pushes → approach1 (gy 117→118).
  *   approach1  — "APPROACHING THE GATE..." 3-line narration + the FIRST gate (closed)
- *                ahead, gy=118. Held, then → gate1-open (no move).
+ *                ahead, gy=118. WAITS for ENTER (the one interactive beat), then →
+ *                gate1-open (no move). tickEntry does NOT auto-advance this beat.
  *   gate1-open — the FIRST portcullis lifts (gate1:0→7), gy=118, sound plays.
  *                Animation mode. → walk (gy 118→119).
  *   walk       — transit, clean black strip, gy=119. Held ~2s, then → approach2
@@ -119,10 +120,10 @@ export function tickEntry(s: EntryState): EntryState {
       };
 
     case 'approach1':
-      // Hold the APPROACHING narration in front of the first (closed) gate, then
-      // START the first portcullis lift (no party move — the gate is the cell ahead).
-      if (s.holdTicks < TEXT_HOLD) return { ...s, holdTicks: s.holdTicks + 1 };
-      return { ...s, entryMode: 'gate1-open', animFrame: 0, holdTicks: 0 };
+      // The APPROACHING narration in front of the first (closed) gate WAITS for the
+      // player to press ENTER (the engine's one interactive beat) — tickEntry does
+      // NOT auto-advance it. advanceEntry (ENTER) starts the first portcullis lift.
+      return s;
 
     case 'gate1-open':
       // First portcullis lifts (gy stays 118); finished → walk through (gy 118→119).

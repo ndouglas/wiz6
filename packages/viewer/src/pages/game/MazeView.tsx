@@ -419,11 +419,11 @@ export function MazeView() {
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
   }
 
-  /** Play the gate clang (SOUND04 then SOUND13) when a portcullis starts lifting.
-   *  Silent no-op until the user has gestured / if the files didn't load. */
-  function playGateClang() {
+  /** Play the gate "shk" drag (SOUND04) — called once per portcullis-lift FRAME
+   *  so the gate makes a shk...shk...shk dragging sound as it opens. Silent no-op
+   *  until the user has gestured / if the file didn't load. */
+  function playGateShk() {
     if (sound04Ref.current) playSnd(sound04Ref.current);
-    if (sound13Ref.current) playSnd(sound13Ref.current);
   }
 
   // Drive the WHOLE auto-push cutscene. Self-reschedules one tickEntry per
@@ -438,7 +438,9 @@ export function MazeView() {
       cutsceneTimerRef.current = null;
     }
     const s = sessionRef.current;
-    if (!s || s.entryMode === 'free') return;
+    // 'free' = cutscene over; 'approach1' = the one INTERACTIVE beat (APPROACHING
+    // waits for ENTER) — stop the timer there and let the keydown handler resume.
+    if (!s || s.entryMode === 'free' || s.entryMode === 'approach1') return;
     cutsceneTimerRef.current = setTimeout(() => {
       const cur = sessionRef.current;
       if (!cur) return;
@@ -448,12 +450,11 @@ export function MazeView() {
         animFrame: cur.animFrame,
         holdTicks: cur.holdTicks,
       });
-      // A portcullis lift just STARTED (mode transitioned into gate{1,2}-open)?
-      // Play the clang once, at the start of the lift.
-      const startedLift =
-        next.entryMode !== cur.entryMode &&
-        (next.entryMode === 'gate1-open' || next.entryMode === 'gate2-open');
-      if (startedLift) playGateClang();
+      // The portcullis lift drags a "shk" on EVERY frame (mode-enter or animFrame
+      // advance while in a gate-open mode) → shk...shk...shk as it opens.
+      const inLift = next.entryMode === 'gate1-open' || next.entryMode === 'gate2-open';
+      const frameChanged = next.entryMode !== cur.entryMode || next.animFrame !== cur.animFrame;
+      if (inLift && frameChanged) playGateShk();
       updateSession(next);
       sessionRef.current = { ...cur, ...next };
       present(); // re-render every tick (incl. the final 'free' transition — issue A)
@@ -488,12 +489,12 @@ export function MazeView() {
             },
             session.level.mazeBlock,
           );
-          // ENTER that skips an approach beat STARTS the next portcullis lift —
-          // play the clang at the lift start, same as the timer path.
+          // ENTER at APPROACHING STARTS the first portcullis lift — play the
+          // first "shk" at the lift start; the timer plays one per subsequent frame.
           const startedLift =
             next.entryMode !== session.entryMode &&
             (next.entryMode === 'gate1-open' || next.entryMode === 'gate2-open');
-          if (startedLift) playGateClang();
+          if (startedLift) playGateShk();
           updateSession(next);
           sessionRef.current = { ...session, ...next };
           present();

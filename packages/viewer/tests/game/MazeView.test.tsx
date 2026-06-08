@@ -467,10 +467,10 @@ describe('MazeView — scripted cutscene (door-open → title → approach1 → 
     }
   });
 
-  it('cutscene AUTO-advances on the timer with NO input: door-open eventually reaches free', async () => {
+  it('cutscene AUTO-advances to the APPROACHING beat (no input), WAITS, then ENTER → free', async () => {
     // Seed a fresh door-open session (the cutscene STARTS at the castle door
-    // slide). The cutscene timer self-advances one tickEntry per CUTSCENE_TICK_MS;
-    // with NO ENTER it drives the WHOLE thing to 'free'.
+    // slide). The timer auto-pushes door-open → title → approach1 with NO input,
+    // then STALLS at approach1 (the one interactive beat); ENTER drives it to free.
     mockReadGameSession.mockReturnValue({
       schemaVersion: 5,
       level: LEVEL_0_SCRIPTED,
@@ -482,16 +482,18 @@ describe('MazeView — scripted cutscene (door-open → title → approach1 → 
     vi.useFakeTimers();
     try {
       renderMazeView();
-      // Advance well past the whole cutscene (~75 ticks needed; give 200) WITHOUT
-      // any ENTER — the timer alone must auto-push door-open → title → ... → free.
+      // Auto-push (no input) — reaches the APPROACHING beat and stops there.
       await vi.advanceTimersByTimeAsync(CUTSCENE_TICK_MS * 200);
-      const modes = mockUpdateSession.mock.calls.map(
+      let modes = mockUpdateSession.mock.calls.map(
         (c) => (c[0] as { entryMode: string }).entryMode,
       );
-      expect(modes.length).toBeGreaterThan(0);
-      // door-open auto-advances to 'title' (issue B: no keypress needed)...
-      expect(modes).toContain('title');
-      // ...and the cutscene reaches 'free' on the timer alone (issue D: auto-push).
+      expect(modes).toContain('title'); // door-open auto-advanced (issue B: no keypress)
+      expect(modes).toContain('approach1'); // auto-pushed to APPROACHING (issue D)
+      expect(modes[modes.length - 1]).toBe('approach1'); // WAITS for ENTER (does not auto-open the gate)
+      // Press ENTER to continue past APPROACHING; the timer then drives to 'free'.
+      fireEvent.keyDown(window, { key: 'Enter' });
+      await vi.advanceTimersByTimeAsync(CUTSCENE_TICK_MS * 200);
+      modes = mockUpdateSession.mock.calls.map((c) => (c[0] as { entryMode: string }).entryMode);
       expect(modes[modes.length - 1]).toBe('free');
       // The party never moved via updateParty during the cutscene.
       expect(mockUpdateParty).not.toHaveBeenCalled();

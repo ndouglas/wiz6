@@ -154,7 +154,7 @@ async function canvasHash(page: import('@playwright/test').Page): Promise<number
 // Give the test a generous timeout for the auto-paced cadence.
 // ---------------------------------------------------------------------------
 
-test('START NEW GAME: cutscene auto-plays (doors + both gates animate, no input) → free → arrow turns view', async ({
+test('START NEW GAME: doors + auto-push to APPROACHING (no input) → ENTER → both gates animate → free → arrow turns', async ({
   page,
 }) => {
   test.setTimeout(60_000);
@@ -170,34 +170,45 @@ test('START NEW GAME: cutscene auto-plays (doors + both gates animate, no input)
   await page.waitForURL('**/game/maze', { timeout: 15_000 });
   await waitForNonBlankCanvas(page, 'canvas', 500, 20_000);
 
-  // ── Step 3: The cutscene AUTO-PLAYS — sample the viewport across it with NO
-  //     input. Over ~15s we sample every 250ms (~60 samples). The door slide,
-  //     auto-push movement, and BOTH portcullis lifts all change the viewport, so
-  //     we expect MANY distinct viewport frames — proving the timed auto-push +
-  //     gate animations run without any keypress (issues B, D, E). We also catch
-  //     the peak yellow-pixel count (the APPROACHING narration auto-appears).
+  // ── Step 3: The cutscene AUTO-PUSHES with NO input — castle doors slide apart,
+  //     ENTERING auto-advances (issue B), and the party auto-pushes forward to the
+  //     APPROACHING beat (issue D), where it WAITS for ENTER. Sample the viewport
+  //     (~9s) to prove it animates without a keypress + the APPROACHING narration
+  //     auto-appears (peak yellow).
   const viewportFrames = new Set<number>();
   let peakYellow = 0;
-  // ~18s window (72 × 250ms) brackets the whole ~15s cutscene; one round-trip
-  // per sample keeps the spec comfortably under its 60s timeout.
-  for (let i = 0; i < 72; i++) {
+  for (let i = 0; i < 36; i++) {
     const { vpHash, yellow } = await sampleViewportAndYellow(page);
     viewportFrames.add(vpHash);
     peakYellow = Math.max(peakYellow, yellow);
     await page.waitForTimeout(250);
   }
+  const framesBeforeEnter = viewportFrames.size;
   expect(
-    viewportFrames.size,
-    `cutscene should ANIMATE the viewport over many distinct frames with NO input ` +
-      `(door slide + auto-push + two gate lifts), saw ${viewportFrames.size} distinct viewport hashes`,
-  ).toBeGreaterThan(4);
+    framesBeforeEnter,
+    `the door slide + auto-push should ANIMATE the viewport with NO input, saw ${framesBeforeEnter} distinct frames`,
+  ).toBeGreaterThan(3);
   expect(
     peakYellow,
-    `the APPROACHING narration (yellow idx 5) should auto-appear during the cutscene ` +
-      `with NO input (issue B: ENTERING auto-advances), peak yellow seen = ${peakYellow}`,
+    `the APPROACHING narration (yellow idx 5) should auto-appear with NO input (issue B), peak = ${peakYellow}`,
   ).toBeGreaterThan(500);
 
-  // ── Step 4: Let the cutscene fully settle to free-roam ───────────────────
+  // ── Step 4: ENTER continues past APPROACHING (the one interactive beat) — the
+  //     FIRST gate lifts, the party walks to the SECOND gate (HMMM, auto), it lifts,
+  //     then free-roam. Sample across it; BOTH gate lifts add more distinct frames.
+  await page.keyboard.press('Enter');
+  for (let i = 0; i < 44; i++) {
+    const { vpHash } = await sampleViewportAndYellow(page);
+    viewportFrames.add(vpHash);
+    await page.waitForTimeout(250);
+  }
+  expect(
+    viewportFrames.size,
+    `both portcullis gates should ANIMATE after ENTER (more distinct frames than the ${framesBeforeEnter} ` +
+      `seen pre-ENTER), saw ${viewportFrames.size} total`,
+  ).toBeGreaterThan(framesBeforeEnter);
+
+  // ── Step 5: Let the cutscene fully settle to free-roam ───────────────────
   await waitForStableCanvas(page, 'canvas');
 
   // Issue A: in free-roam the bottom strip shows the OPTIONS/TURN widget — the
