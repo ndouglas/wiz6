@@ -3,18 +3,30 @@ import { DungeonLevelSchema, MazePartySchema, type DungeonLevel, type MazeParty 
 
 const KEY = 'wiz6:session';
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const GameSessionSchema = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
   level: DungeonLevelSchema,
   party: MazePartySchema,
-  entryMode: z.enum(['door-open', 'title', 'narration', 'gate-walk', 'gate-open', 'bump', 'free']),
-  // Animation frame index for the door-open / gate-open viewport animations
-  // (0 for non-animation modes). Defaults to 0 for back-compat with sessions
-  // persisted before the animation sub-states were added (Stage 2).
+  // The 8-beat auto-push cutscene FSM (see entry-sequence.ts):
+  //   door-open → title → approach1 → gate1-open → walk → approach2 → gate2-open → free.
+  entryMode: z.enum([
+    'door-open',
+    'title',
+    'approach1',
+    'gate1-open',
+    'walk',
+    'approach2',
+    'gate2-open',
+    'free',
+  ]),
+  // Animation frame index for the door-open / gate1-open / gate2-open viewport
+  // animations (0 for non-animation modes). Defaults to 0 for back-compat.
   animFrame: z.number().int().nonnegative().default(0),
-  stepsRemaining: z.number().int().nonnegative(),
+  // Ticks elapsed in the current non-animation HOLD beat (title/approach1/walk/
+  // approach2); 0 in animation modes. The cutscene timer (tickEntry) accumulates it.
+  holdTicks: z.number().int().nonnegative().default(0),
 });
 
 export type GameSession = z.infer<typeof GameSessionSchema>;
@@ -22,11 +34,11 @@ export type GameSession = z.infer<typeof GameSessionSchema>;
 /** Start a new session for the given level.
  *
  * If the level has a scriptedEntry, places the party at the scripted start
- * position (gy=117, the ENTERING title-card frame) and seeds entryMode:'door-open'
- * (the castle doors slide apart first) + stepsRemaining from the config.
+ * position (gy=117) and seeds entryMode:'door-open' (the castle doors slide apart
+ * first) + animFrame:0 + holdTicks:0. The cutscene then auto-pushes on a timer.
  *
  * If no scriptedEntry (back-compat), places the party at the entrance and
- * seeds entryMode:'free' + stepsRemaining:0.
+ * seeds entryMode:'free'.
  */
 export function initGameSession(level: DungeonLevel): void {
   const { scriptedEntry } = level;
@@ -37,7 +49,7 @@ export function initGameSession(level: DungeonLevel): void {
         party: { ...scriptedEntry.start },
         entryMode: 'door-open',
         animFrame: 0,
-        stepsRemaining: scriptedEntry.steps,
+        holdTicks: 0,
       }
     : {
         schemaVersion: SCHEMA_VERSION,
@@ -45,7 +57,7 @@ export function initGameSession(level: DungeonLevel): void {
         party: { ...level.entrance },
         entryMode: 'free',
         animFrame: 0,
-        stepsRemaining: 0,
+        holdTicks: 0,
       };
   window.localStorage.setItem(KEY, JSON.stringify(GameSessionSchema.parse(session)));
 }

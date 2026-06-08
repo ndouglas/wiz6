@@ -34,6 +34,12 @@ import {
   loadNewgameViewports,
   loadPortraitSet,
 } from '../../data-loader.js';
+import {
+  loadSnd,
+  playSnd,
+  installAudioUnlockListener,
+  type PlayableSnd,
+} from '../../lib/audio.js';
 import { readActiveParty } from '../../lib/active-party-store.js';
 import {
   readGameSession,
@@ -49,10 +55,25 @@ const ENGINE_W = 320;
 const ENGINE_H = 200;
 const SCALE = 3;
 
-/** Per-frame interval for the door-slide / portcullis-lift viewport animations.
- *  FEEL-tuned, NOT wall-clock parity (8 frames ≈ 0.7s slide) — see CLAUDE.md
- *  "Wall-clock parity ≠ byte parity": tune the per-frame interval to feel right. */
-export const ANIM_FRAME_MS = 90;
+/** The cutscene tick interval (ms). tickEntry is called once per tick for every
+ *  non-free scripted mode. One ANIMATION FRAME advances per tick (8 frames →
+ *  ~1.6s gate/door slide); HOLD beats accumulate ticks (entry-sequence.ts
+ *  TITLE_HOLD/TEXT_HOLD/WALK_HOLD thresholds give the per-beat durations below).
+ *
+ *  FEEL-tuned, NOT wall-clock parity (CLAUDE.md "Wall-clock parity ≠ byte
+ *  parity"). At 200ms/tick the cutscene cadence is:
+ *    door slide  : 8 frames × 200ms          ≈ 1.6s
+ *    ENTERING     : TITLE_HOLD(13) × 200ms    ≈ 2.6s
+ *    APPROACHING  : TEXT_HOLD(13) × 200ms     ≈ 2.6s
+ *    gate1 lift   : 8 frames × 200ms          ≈ 1.6s
+ *    walk (cell)  : WALK_HOLD(10) × 200ms     ≈ 2.0s
+ *    HMMM         : TEXT_HOLD(13) × 200ms     ≈ 2.6s
+ *    gate2 lift   : 8 frames × 200ms          ≈ 1.6s
+ *  Whole cutscene ≈ 14.6s (auto-push; no input required).
+ *
+ *  Kept exported under the old name `ANIM_FRAME_MS` is gone; tests reference
+ *  CUTSCENE_TICK_MS. */
+export const CUTSCENE_TICK_MS = 200;
 
 /** Message db URL — served from extracted/ via the viewer publicDir. */
 const MSG_DB_URL = '/messages/msg.json';
@@ -97,18 +118,33 @@ function safeRenderViewport(
   wallSpans: CapturedSpansTable | null,
   newgameViewports: NewgameViewports | null,
 ): Uint8Array {
-  // Animation path: the door-slide / portcullis-lift viewport animations play
-  // captured oracle frames keyed by "door:N" / "gate:N" (animFrame is the index).
+  // Animation path: the door-slide / two portcullis-lift viewport animations play
+  // captured oracle frames keyed by "door:N" / "gate1:N" / "gate2:N" (animFrame
+  // is the frame index).
   if (session.entryMode === 'door-open') {
     const a = oracleAnimViewport(newgameViewports, 'door', session.animFrame);
     if (a !== null) return a;
   }
-  if (session.entryMode === 'gate-open') {
-    const a = oracleAnimViewport(newgameViewports, 'gate', session.animFrame);
+  if (session.entryMode === 'gate1-open') {
+    const a = oracleAnimViewport(newgameViewports, 'gate1', session.animFrame);
+    if (a !== null) return a;
+  }
+  if (session.entryMode === 'gate2-open') {
+    const a = oracleAnimViewport(newgameViewports, 'gate2', session.animFrame);
+    if (a !== null) return a;
+  }
+  // Approach beats show the CLOSED gate (frame 0) ahead while the text is held.
+  if (session.entryMode === 'approach1') {
+    const a = oracleAnimViewport(newgameViewports, 'gate1', 0);
+    if (a !== null) return a;
+  }
+  if (session.entryMode === 'approach2') {
+    const a = oracleAnimViewport(newgameViewports, 'gate2', 0);
     if (a !== null) return a;
   }
 
-  // Oracle path: scripted entry stills with committed engine pixels (keyed by gy).
+  // Oracle path: scripted entry stills with committed engine pixels (keyed by gy:
+  // title→gy117 corridor, walk→gy119 corridor).
   const oracle = oracleViewportForGy(newgameViewports, session.party.gy, session.entryMode);
   if (oracle !== null) return oracle;
 
@@ -161,11 +197,12 @@ function composeFrame(
   }
 
   // Bottom-strip per-`entryMode` state machine (y144–199). The shared
-  // drawEntryStrip helper OVERWRITES the strip for title/narration/gate-walk/bump
-  // (so the narration/bump land on a CLEAN BLACK strip — the fix for the shipped
-  // bug where the text was drawn OVER the gray OPTIONS/TURN widget). For 'free' it
-  // is a no-op (the baked gray widget from the static chrome stays). The same
-  // helper backs the per-state strip parity gates so the live render can't drift.
+  // drawEntryStrip helper OVERWRITES the strip for every scripted mode (title/
+  // approach1/gate1-open/walk/approach2/gate2-open land on the mode-appropriate
+  // fill so the text never lands on the gray OPTIONS/TURN widget). For 'free' it
+  // is a NO-OP — the baked gray OPTIONS/TURN widget from the static chrome shows
+  // through (issue A: no stale HMMM in free-roam). The same helper backs the
+  // per-state strip parity gates so the live render can't drift.
   if (stripText && session.entryMode !== 'free') {
     const rgba = new Uint8ClampedArray(frame.buffer);
     drawEntryStrip(
@@ -211,10 +248,18 @@ export function MazeView() {
   // once. Null until both resolve (or if the level has no scriptedEntry — then
   // there's no scripted strip and the baked free-roam widget shows).
   const stripTextRef = useRef<{ text: EntryStripText; font: Font } | null>(null);
-  // Self-rescheduling timer that drives the door-slide / portcullis-lift viewport
-  // animations (the session lives in sessionRef, not React state, so we use a
-  // timer ref rather than a reactive effect).
-  const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Self-rescheduling timer that drives the WHOLE auto-push cutscene (the session
+  // lives in sessionRef, not React state, so we use a timer ref rather than a
+  // reactive effect). It calls tickEntry once per CUTSCENE_TICK_MS for every
+  // non-free scripted mode and stops at 'free'.
+  const cutsceneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Gate-clang sounds (SOUND04 then SOUND13) played when EACH portcullis starts
+  // lifting (RE: the engine's gate routine calls play_sound(4) then
+  // play_sound(0xd=13) — docs/re/findings/maze-gate-open-animation.json). Loaded
+  // on mount; silently no-op until the user has gestured (audio.ts autoplay gate).
+  const sound04Ref = useRef<PlayableSnd | null>(null);
+  const sound13Ref = useRef<PlayableSnd | null>(null);
 
   // Live party-panel inputs: the player's actual active party (read once on
   // mount — it doesn't change mid-dungeon) + the panel fonts + portrait sets.
@@ -249,11 +294,17 @@ export function MazeView() {
       return;
     }
     sessionRef.current = session;
-    // Auto-play the door slide (or any animation mode) on entry.
-    scheduleAnimTick();
+    // Auto-drive the cutscene on entry (door slide → ... → free, no input).
+    scheduleCutsceneTick();
 
     // Read the player's active party once (it doesn't change mid-dungeon).
     activePartyRef.current = readActiveParty().members;
+
+    // Install the audio-unlock listener + preload the gate-clang sounds. Silently
+    // no-ops if the files are missing or the user hasn't gestured yet.
+    const removeAudioUnlock = installAudioUnlockListener();
+    loadSnd('/sounds/sound04.snd', { slotN: 4 }).then((s) => { sound04Ref.current = s; }).catch(() => {});
+    loadSnd('/sounds/sound13.snd', { slotN: 13 }).then((s) => { sound13Ref.current = s; }).catch(() => {});
 
     let cancelled = false;
 
@@ -345,7 +396,8 @@ export function MazeView() {
     }
     return () => {
       cancelled = true;
-      if (animTimerRef.current) clearTimeout(animTimerRef.current);
+      if (cutsceneTimerRef.current) clearTimeout(cutsceneTimerRef.current);
+      removeAudioUnlock();
     };
   }, [navigate]);
 
@@ -367,32 +419,46 @@ export function MazeView() {
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
   }
 
-  // Drive the door-slide / portcullis-lift viewport animations. Self-reschedules
-  // one tickEntry per ANIM_FRAME_MS while the session is in an animation mode.
-  // tickEntry transitions OFF the animation mode at the last frame, so the
-  // re-scheduled call sees a non-anim mode and returns — no infinite loop.
-  function scheduleAnimTick() {
-    if (animTimerRef.current) {
-      clearTimeout(animTimerRef.current);
-      animTimerRef.current = null;
+  /** Play the gate clang (SOUND04 then SOUND13) when a portcullis starts lifting.
+   *  Silent no-op until the user has gestured / if the files didn't load. */
+  function playGateClang() {
+    if (sound04Ref.current) playSnd(sound04Ref.current);
+    if (sound13Ref.current) playSnd(sound13Ref.current);
+  }
+
+  // Drive the WHOLE auto-push cutscene. Self-reschedules one tickEntry per
+  // CUTSCENE_TICK_MS for every non-free scripted mode (animation frames advance,
+  // hold beats accumulate, the party auto-pushes at each beat threshold).
+  // tickEntry returns 'free' at the end, so the re-scheduled call sees 'free' and
+  // returns — no infinite loop. When a tick ENTERS a gate-open mode (the lift
+  // starts), the gate clang plays.
+  function scheduleCutsceneTick() {
+    if (cutsceneTimerRef.current) {
+      clearTimeout(cutsceneTimerRef.current);
+      cutsceneTimerRef.current = null;
     }
     const s = sessionRef.current;
-    if (!s) return;
-    if (s.entryMode !== 'door-open' && s.entryMode !== 'gate-open') return;
-    animTimerRef.current = setTimeout(() => {
+    if (!s || s.entryMode === 'free') return;
+    cutsceneTimerRef.current = setTimeout(() => {
       const cur = sessionRef.current;
       if (!cur) return;
       const next = tickEntry({
         party: cur.party,
         entryMode: cur.entryMode,
         animFrame: cur.animFrame,
-        stepsRemaining: cur.stepsRemaining,
+        holdTicks: cur.holdTicks,
       });
+      // A portcullis lift just STARTED (mode transitioned into gate{1,2}-open)?
+      // Play the clang once, at the start of the lift.
+      const startedLift =
+        next.entryMode !== cur.entryMode &&
+        (next.entryMode === 'gate1-open' || next.entryMode === 'gate2-open');
+      if (startedLift) playGateClang();
       updateSession(next);
       sessionRef.current = { ...cur, ...next };
-      present();
-      scheduleAnimTick();
-    }, ANIM_FRAME_MS);
+      present(); // re-render every tick (incl. the final 'free' transition — issue A)
+      scheduleCutsceneTick();
+    }, CUTSCENE_TICK_MS);
   }
 
   // Render whenever assets become available.
@@ -406,10 +472,10 @@ export function MazeView() {
       const session = sessionRef.current;
       if (!session) return;
 
-      // Scripted entry (title → narration → gate-walk → bump): ENTER advances the
-      // FSM; arrow keys are no-ops (the engine ignores them during the scripted
-      // entry — RE: docs/re/findings/maze-newgame-byteexact.json per_enter_pin_addendum).
-      // (Title/bump strip RENDERING is Tasks 3-4; here we only keep the FSM driveable.)
+      // Scripted AUTO-PUSH cutscene: ENTER SKIPS the current beat (fast-forwards
+      // what the timer would do); arrow keys are no-ops. The timer keeps driving
+      // the rest of the cutscene (scheduleCutsceneTick reschedules off the new
+      // mode). RE: docs/re/findings/maze-gate-open-animation.json.
       if (session.entryMode !== 'free') {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -418,17 +484,23 @@ export function MazeView() {
               party: session.party,
               entryMode: session.entryMode,
               animFrame: session.animFrame,
-              stepsRemaining: session.stepsRemaining,
+              holdTicks: session.holdTicks,
             },
             session.level.mazeBlock,
           );
+          // ENTER that skips an approach beat STARTS the next portcullis lift —
+          // play the clang at the lift start, same as the timer path.
+          const startedLift =
+            next.entryMode !== session.entryMode &&
+            (next.entryMode === 'gate1-open' || next.entryMode === 'gate2-open');
+          if (startedLift) playGateClang();
           updateSession(next);
           sessionRef.current = { ...session, ...next };
           present();
-          // Reaching gate-open via the walk starts the portcullis animation.
-          scheduleAnimTick();
+          // Resume the timer off the new mode (or stop if we skipped to 'free').
+          scheduleCutsceneTick();
         }
-        return; // arrows (and everything else) inert during scripted entry
+        return; // arrows (and everything else) inert during the scripted cutscene
       }
 
       // Free-roam: arrows turn/step; Enter is reserved for OPTIONS/camp (deferred

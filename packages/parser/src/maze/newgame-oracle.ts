@@ -17,9 +17,10 @@ const ORACLE_GYS = new Set<number>([117, 118, 119, 120, 121]);
 /**
  * Record mapping a STRING key to a 176×112 palette-index buffer (Uint8Array).
  * Keys are either a gy-as-string ("117".."121", the scripted stills) or an
- * animation key "door:N" / "gate:N" (N=0..7, the two viewport animations: castle
- * doors sliding apart / dungeon portcullis lifting). Produced by
- * `loadNewgameViewports()` in the viewer's data-loader.
+ * animation key "door:N" / "gate1:N" / "gate2:N" (N=0..7, the three viewport
+ * animations: castle doors sliding apart / the FIRST dungeon portcullis lifting /
+ * the SECOND dungeon portcullis lifting). Produced by `loadNewgameViewports()` in
+ * the viewer's data-loader.
  */
 export type NewgameViewports = Record<string, Uint8Array>;
 
@@ -47,17 +48,22 @@ export function oracleViewportForGy(
   return viewports[String(gy)] ?? null;
 }
 
+/** The three viewport animation sequences: the castle-door slide, the first
+ *  dungeon portcullis lift, and the second dungeon portcullis lift. */
+export type AnimSeq = 'door' | 'gate1' | 'gate2';
+
 /**
  * oracleAnimViewport — return the 176×112 index buffer for an animation frame, or
  * null if viewports were not loaded or the key is missing.
  *
  * @param viewports  Loaded oracle viewports (or null if not yet loaded).
- * @param seq        Which animation: 'door' (castle doors) or 'gate' (portcullis).
+ * @param seq        Which animation: 'door' (castle doors), 'gate1' (first
+ *                   portcullis), or 'gate2' (second portcullis).
  * @param frame      0-based frame index (0=closed .. 7=fully open).
  */
 export function oracleAnimViewport(
   viewports: NewgameViewports | null,
-  seq: 'door' | 'gate',
+  seq: AnimSeq,
   frame: number,
 ): Uint8Array | null {
   if (viewports === null) return null;

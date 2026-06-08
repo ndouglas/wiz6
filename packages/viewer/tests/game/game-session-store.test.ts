@@ -41,11 +41,11 @@ describe('GameSession store', () => {
     expect(s?.level.id).toBe(0);
   });
 
-  it('init without scriptedEntry seeds entryMode:free + stepsRemaining:0', () => {
+  it('init without scriptedEntry seeds entryMode:free + holdTicks:0', () => {
     initGameSession(LEVEL);
     const s = readGameSession();
     expect(s?.entryMode).toBe('free');
-    expect(s?.stepsRemaining).toBe(0);
+    expect(s?.holdTicks).toBe(0);
   });
 
   it('updateParty mutates + persists the party', () => {
@@ -70,10 +70,11 @@ describe('GameSession store', () => {
     expect(s?.entryMode).toBe('door-open');
   });
 
-  it('init WITH scriptedEntry seeds stepsRemaining = steps (4)', () => {
+  it('init WITH scriptedEntry seeds animFrame:0 + holdTicks:0', () => {
     initGameSession(LEVEL_WITH_ENTRY);
     const s = readGameSession();
-    expect(s?.stepsRemaining).toBe(4);
+    expect(s?.animFrame).toBe(0);
+    expect(s?.holdTicks).toBe(0);
   });
 
   it('entrance is NOT overwritten by scriptedEntry.start', () => {
@@ -97,15 +98,17 @@ describe('GameSession store', () => {
     expect(readGameSession()).toBeNull();
   });
 
-  it('readGameSession discards a stored v2 blob (old 3-state FSM)', () => {
-    // A valid-shaped v2 session must be discarded after the schemaVersion bump.
+  it('readGameSession discards a stored v4 blob (old 7-mode FSM + stepsRemaining)', () => {
+    // A valid-shaped v4 session must be discarded after the schemaVersion bump to
+    // the v5 8-beat cutscene (entryMode enum + stepsRemaining→holdTicks change).
     window.localStorage.setItem(
       'wiz6:session',
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 4,
         level: LEVEL,
         party: { gx: 2, gy: 3, z: 0, facing: 0 },
         entryMode: 'narration',
+        animFrame: 0,
         stepsRemaining: 3,
       }),
     );

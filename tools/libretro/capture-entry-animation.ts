@@ -58,28 +58,29 @@ async function main() {
     await c.key('enter', 'tap'); await c.step(120);   // START NEW GAME → magicword prompt
 
     // DOOR window: submit the (cracked) magicword and capture EVERY frame from the
-    // submit through the slide. The slide plays over the first ~20 frames.
+    // submit through the slide (the slide plays over the first ~25 frames — capture
+    // densely so we can include the fully-closed + earliest-opening frames).
     await c.key('enter', 'tap');                       // submit empty → cracked success → DOOR SLIDE
-    for (let f = 0; f < 120; f++) {
+    for (let f = 0; f < 60; f++) {
       await park(c);
       await save(c, `door-${String(f).padStart(3, '0')}-gs${await gsv(c)}-gy${await gy(c)}`);
       await c.step(1);
     }
     console.log(`door window done, gy=${await gy(c)} gs=${await gsv(c)}`);
 
-    // Walk to gy=120 (proven tap+step40 cadence, no captures to avoid jitter).
-    for (let e = 0; e < 50 && (await gy(c)) < 120; e++) { await c.key('enter', 'tap'); await c.step(40); }
-    console.log(`at gy=${await gy(c)} — capturing GATE window`);
-
-    // GATE window: tap ENTER to cross 120→121, capturing every frame.
-    let gf = 0;
-    for (let e = 0; e < 30 && (await gy(c)) < 121; e++) {
-      await c.key('enter', 'tap');
-      for (let s = 0; s < 30; s++) { await park(c); await save(c, `gate-${String(gf).padStart(3, '0')}-gy${await gy(c)}`); gf++; await c.step(1); if ((await gy(c)) >= 121) break; }
+    // Auto-push (cracked) reaches gy118 (FIRST gate) then gy120 (SECOND gate).
+    // Capture EVERY frame while gy∈{118,120} (the gate-open dwells) with periodic
+    // ENTER to keep the auto-push advancing. gate1 = gy118, gate2 = gy120.
+    let n118 = 0, n120 = 0, lastEnter = 0;
+    for (let f = 0; f < 3000; f++) {
+      const g = await gy(c);
+      if (g === 118 && n118 < 130) { await park(c); await save(c, `gate1-${String(n118).padStart(3, '0')}`); n118++; }
+      else if (g === 120 && n120 < 130) { await park(c); await save(c, `gate2-${String(n120).padStart(3, '0')}`); n120++; }
+      if (f - lastEnter >= 100) { await c.key('enter', 'tap'); lastEnter = f; }
+      await c.step(1);
+      if (g >= 121) break;
     }
-    // A few frames after crossing.
-    for (let s = 0; s < 20; s++) { await park(c); await save(c, `gate-${String(gf).padStart(3, '0')}-gy${await gy(c)}`); gf++; await c.step(1); }
-    console.log(`gate window done (${gf} frames), gy=${await gy(c)}`);
+    console.log(`gate windows done: gate1(gy118)=${n118} gate2(gy120)=${n120}, gy=${await gy(c)}`);
   } finally { c.close(); }
 }
 main().catch((e) => { console.error(e); process.exit(1); });

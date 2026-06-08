@@ -1,47 +1,45 @@
 /**
- * faithful-start-new-game.spec.ts — e2e for the START NEW GAME animated scripted entry.
+ * faithful-start-new-game.spec.ts — e2e for the START NEW GAME TIMED AUTO-PUSH
+ * cutscene.
  *
- * Drives the REAL app through the full sequence the engine runs when a new
- * game begins (docs/re/findings/maze-start-new-game.json +
- * maze-gate-open-animation.json), INCLUDING the two viewport animations the
- * user recalls (castle doors slide apart on entry; the dungeon portcullis lifts
- * as the party reaches the gate):
+ * Drives the REAL app through the full cutscene the engine runs when a new game
+ * begins (docs/re/findings/maze-gate-open-animation.json). The entry is an
+ * AUTO-PUSH cutscene — the party advances on a timer with NO per-step input,
+ * pausing at text beats, while TWO portcullis gates lift open:
  *
  *   1. Seed a non-empty active party in localStorage.
  *   2. Navigate to /castle/start-new-game → StartNewGamePage loads level-0,
  *      calls initGameSession (entryMode:'door-open', gy=117), redirects to
  *      /game/maze.
- *   3. DOOR-OPEN (auto-animates): on mount the castle-door slide-apart animation
- *      AUTO-PLAYS on a self-rescheduling timer (8 frames × ANIM_FRAME_MS=90ms ≈
- *      720ms), then transitions to 'title' (the ENTERING still). We capture an
- *      EARLY frame (mid-slide) and a SETTLED frame (after the slide finishes) and
- *      assert the doors visibly MOVED (hashes differ) — no Enter pressed during it.
- *   4. Enter advances title → narration; MazeView renders the yellow narration strip.
- *   5. Enter dismisses the narration (yellow glyphs gone) → gate-walk (gy 118→119).
- *   6. Enter from gate-walk steps to the gate cell (gy 119→120) → gate-open: the
- *      PORTCULLIS lift AUTO-ANIMATES on the timer (8 frames). We capture hashes a
- *      few frames apart WHILE NO ENTER IS PRESSED and assert a timer-driven change
- *      occurs during the lift. The animation then transitions to bump (gy=121).
- *   7. Enter from bump (gy=121, dead-end) → free.
- *   8. ArrowLeft turns the party; canvas changes (proving free-roam is live).
+ *   3. The WHOLE cutscene auto-plays on a self-rescheduling timer (no input):
+ *        door-open (castle doors slide) → title (ENTERING) → approach1
+ *        (APPROACHING + first gate closed) → gate1-open (first portcullis lifts)
+ *        → walk → approach2 (HMMM + second gate closed) → gate2-open (second
+ *        portcullis lifts) → free.
+ *   4. Once 'free', the bottom strip shows the OPTIONS/TURN widget — NO stale
+ *      HMMM (issue A).
+ *   5. ArrowLeft turns the party; canvas changes (free control is live).
  *
- * Beat order (FSM, packages/parser/src/maze/entry-sequence.ts):
- *   door-open (auto→title) → [Enter] title→narration(gy118) →
- *   [Enter] narration→gate-walk(gy119) → [Enter] gate-walk→gate-open(gy120, auto-lift→bump gy121) →
- *   [Enter] bump→free.
+ * ── ASSERTIONS (behavioral, no per-step ENTER) ──
+ *  - The viewport ANIMATES on its own (many distinct viewport frames across the
+ *    cutscene with NO input) — proves the door slide + auto-push + both gate
+ *    lifts run on the timer (issues B, D, E).
+ *  - The APPROACHING narration (yellow, palette idx 5) appears at some point
+ *    during the cutscene WITHOUT any keypress (issue B: ENTERING auto-advances).
+ *  - After the cutscene settles to free-roam, the bottom strip has ~0 yellow
+ *    pixels — the stale HMMM is gone (issue A).
+ *  - ArrowLeft changes the canvas (free-roam turn is live).
  *
- * Pixel assertions are BEHAVIORAL (canvas-diff hashes + narration yellow-pixel
- * counts), not byte-exact fixture comparisons; the byte-exact full-screen
- * per-frame gate (incl. the 8 door + 8 gate animation frames) lives in
- * tests/game/newgame-sequence-parity.test.ts. This spec proves the FSM + the two
- * auto-animations drive end-to-end to free control in the real app.
+ * The byte-exact full-screen per-frame gate (incl. the 8 door + 8 gate1 + 8 gate2
+ * animation frames) lives in tests/game/newgame-sequence-parity.test.ts; this spec
+ * proves the auto-push cutscene drives end-to-end to free control in the real app.
  */
 
 import { test, expect } from '@playwright/test';
 import { captureCanvas, waitForNonBlankCanvas, waitForStableCanvas } from './lib/canvas.js';
 
 // ---------------------------------------------------------------------------
-// Minimal party-member seed (same shape as castle-menu-nav.spec.ts / dismiss-member-flow.spec.ts)
+// Minimal party-member seed
 // ---------------------------------------------------------------------------
 
 function seedMember(idx: number, name: string) {
@@ -78,37 +76,61 @@ function seedMember(idx: number, name: string) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Count EGA yellow (255,255,85) pixels in the bottom narration strip
- * (y=140..175).
- *
- * The narration text is rendered in palette index 5 = EGA yellow (255,255,85)
- * on a black background (confirmed from the maze-entry-narration fixture:
- * ~2202 yellow pixels in that band). The chrome in that region uses grays
- * (indices 8/9) and black, NOT yellow. After Enter dismisses narration the
- * yellow glyph pixels disappear.
- */
-async function narrationStripYellowPixels(page: import('@playwright/test').Page): Promise<number> {
+/** Count EGA yellow (255,255,85) pixels in the bottom strip (y=140..175). The
+ *  APPROACHING narration + HMMM text render in palette idx 5 = EGA yellow on
+ *  black; the chrome there uses grays/black, NOT yellow. */
+async function stripYellowPixels(page: import('@playwright/test').Page): Promise<number> {
   const cap = await captureCanvas(page, 'canvas');
   const { width, rgba } = cap;
   let count = 0;
   for (let y = 140; y <= 175; y++) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
-      const r = rgba[i]!;
-      const g = rgba[i + 1]!;
-      const b = rgba[i + 2]!;
-      // EGA yellow = (255, 255, 85). Only narration text produces this in the strip.
-      if (r === 255 && g === 255 && b === 85) count++;
+      if (rgba[i] === 255 && rgba[i + 1] === 255 && rgba[i + 2] === 85) count++;
     }
   }
   return count;
 }
 
-/**
- * Compute a cheap content hash of the full 320×200 canvas buffer.
- * Used to detect that a frame changed (after a keypress OR a timer tick).
- */
+/** Single-round-trip sample: the viewport hash AND the strip yellow-pixel count,
+ *  read from one getImageData call (halves the page round-trips during the
+ *  cutscene sampling loop, which keeps the spec well under its timeout). */
+async function sampleViewportAndYellow(
+  page: import('@playwright/test').Page,
+): Promise<{ vpHash: number; yellow: number }> {
+  return page.evaluate(() => {
+    const c = document.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!c) return { vpHash: -1, yellow: 0 };
+    const ctx = c.getContext('2d');
+    if (!ctx) return { vpHash: -1, yellow: 0 };
+    const W = c.width;
+    const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    // Viewport hash (MAZE_VIEWPORT = x16..191 / y8..119).
+    let h = 0x811c9dc5;
+    for (let y = 8; y < 120; y++) {
+      for (let x = 16; x < 192; x++) {
+        const i = (y * W + x) * 4;
+        h ^= d[i]!;
+        h = Math.imul(h, 0x01000193);
+        h ^= d[i + 1]!;
+        h = Math.imul(h, 0x01000193);
+        h ^= d[i + 2]!;
+        h = Math.imul(h, 0x01000193);
+      }
+    }
+    // Strip yellow (255,255,85) count, y140..175.
+    let yellow = 0;
+    for (let y = 140; y <= 175; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4;
+        if (d[i] === 255 && d[i + 1] === 255 && d[i + 2] === 85) yellow++;
+      }
+    }
+    return { vpHash: h >>> 0, yellow };
+  });
+}
+
+/** Cheap content hash of the full 320×200 canvas (detects ANY frame change). */
 async function canvasHash(page: import('@playwright/test').Page): Promise<number> {
   return page.evaluate(() => {
     const c = document.querySelector('canvas') as HTMLCanvasElement | null;
@@ -125,173 +147,75 @@ async function canvasHash(page: import('@playwright/test').Page): Promise<number
   });
 }
 
-/**
- * Hash the VIEWPORT region only (the center maze window, MAZE_VIEWPORT =
- * x16..191 / y8..119). The two entry animations play ENTIRELY in the viewport
- * (door slide / portcullis lift), so a viewport-only hash isolates the animation
- * from any incidental strip/panel paints.
- */
-async function viewportHash(page: import('@playwright/test').Page): Promise<number> {
-  return page.evaluate(() => {
-    const c = document.querySelector('canvas') as HTMLCanvasElement | null;
-    if (!c) return -1;
-    const ctx = c.getContext('2d');
-    if (!ctx) return -1;
-    const d = ctx.getImageData(0, 0, c.width, c.height).data;
-    const W = c.width;
-    // MAZE_VIEWPORT: x 16..191 (w=176), y 8..119 (h=112).
-    let h = 0x811c9dc5;
-    for (let y = 8; y < 120; y++) {
-      for (let x = 16; x < 192; x++) {
-        const i = (y * W + x) * 4;
-        h ^= d[i]!;
-        h = Math.imul(h, 0x01000193);
-        h ^= d[i + 1]!;
-        h = Math.imul(h, 0x01000193);
-        h ^= d[i + 2]!;
-        h = Math.imul(h, 0x01000193);
-      }
-    }
-    return h >>> 0;
-  });
-}
-
-/**
- * Sample the viewport hash N times spaced `intervalMs` apart and return the set
- * of distinct values seen. >1 distinct value during a window in which NO key is
- * pressed proves a timer-driven viewport animation played.
- */
-async function sampleViewportHashes(
-  page: import('@playwright/test').Page,
-  samples: number,
-  intervalMs: number,
-): Promise<Set<number>> {
-  const seen = new Set<number>();
-  for (let i = 0; i < samples; i++) {
-    seen.add(await viewportHash(page));
-    if (i < samples - 1) await page.waitForTimeout(intervalMs);
-  }
-  return seen;
-}
-
 // ---------------------------------------------------------------------------
 // Test
+//
+// The cutscene runs ~15s wall-clock (CUTSCENE_TICK_MS=200, see MazeView.tsx).
+// Give the test a generous timeout for the auto-paced cadence.
 // ---------------------------------------------------------------------------
 
-test('START NEW GAME: door slide animates → title → narration → gate portcullis animates → free → arrow turns view', async ({ page }) => {
+test('START NEW GAME: cutscene auto-plays (doors + both gates animate, no input) → free → arrow turns view', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+
   // ── Step 1: Seed a non-empty active party ────────────────────────────────
-  // Navigate to the root first so the app is loaded + localStorage is accessible.
   await page.goto('/');
   await page.evaluate((members) => {
-    window.localStorage.setItem(
-      'wiz6:active-party',
-      JSON.stringify({ schemaVersion: 1, members }),
-    );
+    window.localStorage.setItem('wiz6:active-party', JSON.stringify({ schemaVersion: 1, members }));
   }, [seedMember(0, 'THESUS')]);
 
-  // ── Step 2: Navigate to /castle/start-new-game ───────────────────────────
-  // StartNewGamePage reads the active party, loads level-0.json, calls
-  // initGameSession (entryMode:'door-open', gy=117, stepsRemaining=4), then
-  // navigates to /game/maze.
+  // ── Step 2: Navigate to /castle/start-new-game → redirects to /game/maze ──
   await page.goto('/castle/start-new-game');
-
-  // Wait for the redirect to /game/maze.
   await page.waitForURL('**/game/maze', { timeout: 15_000 });
-
-  // ── Step 3: DOOR-OPEN auto-animation (castle doors slide apart) ──────────
-  // On mount the session is in entryMode:'door-open' (gy=117); the door slide
-  // auto-plays on a self-rescheduling timer (8 frames × 90ms ≈ 720ms), then
-  // transitions to 'title'. Capture the viewport AS EARLY AS POSSIBLE after the
-  // first non-blank frame (mid-slide) — NO Enter is pressed during the slide.
   await waitForNonBlankCanvas(page, 'canvas', 500, 20_000);
 
-  // Sample the viewport across the slide window WITHOUT any input. The slide is
-  // ~720ms; sampling 8× @ 100ms (~700ms) brackets it and reliably catches ≥2
-  // distinct frames even if the very first read races a frame or two in. This is
-  // the primary "the doors visibly MOVED" assertion (timer-driven, no input).
-  const slideHashes = await sampleViewportHashes(page, 8, 100);
+  // ── Step 3: The cutscene AUTO-PLAYS — sample the viewport across it with NO
+  //     input. Over ~15s we sample every 250ms (~60 samples). The door slide,
+  //     auto-push movement, and BOTH portcullis lifts all change the viewport, so
+  //     we expect MANY distinct viewport frames — proving the timed auto-push +
+  //     gate animations run without any keypress (issues B, D, E). We also catch
+  //     the peak yellow-pixel count (the APPROACHING narration auto-appears).
+  const viewportFrames = new Set<number>();
+  let peakYellow = 0;
+  // ~18s window (72 × 250ms) brackets the whole ~15s cutscene; one round-trip
+  // per sample keeps the spec comfortably under its 60s timeout.
+  for (let i = 0; i < 72; i++) {
+    const { vpHash, yellow } = await sampleViewportAndYellow(page);
+    viewportFrames.add(vpHash);
+    peakYellow = Math.max(peakYellow, yellow);
+    await page.waitForTimeout(250);
+  }
   expect(
-    slideHashes.size,
-    `castle door-slide should ANIMATE the viewport over multiple distinct frames ` +
-      `with no input (door-open auto-timer), saw ${slideHashes.size} distinct viewport hashes`,
-  ).toBeGreaterThan(1);
-
-  // Now let the slide fully settle (→ 'title' still). waitForStableCanvas
-  // returns once the timer stops ticking (no more frame changes).
-  await waitForStableCanvas(page, 'canvas');
-
-  // ── Step 4: Enter advances title → narration; narration text appears ──────
-  // After the door slide settles the session is at 'title' (gy=117); the first
-  // Enter steps to the narration frame (gy=118). The narration text is palette
-  // index 5 = EGA yellow (255,255,85); the chrome uses grays, so a substantial
-  // yellow count proves the narration frame is active.
-  await page.keyboard.press('Enter'); // title → narration
-  await page.waitForTimeout(200);
-  await waitForStableCanvas(page, 'canvas');
-
-  const yellowNarration = await narrationStripYellowPixels(page);
+    viewportFrames.size,
+    `cutscene should ANIMATE the viewport over many distinct frames with NO input ` +
+      `(door slide + auto-push + two gate lifts), saw ${viewportFrames.size} distinct viewport hashes`,
+  ).toBeGreaterThan(4);
   expect(
-    yellowNarration,
-    `narration strip should have ≥ 500 yellow (255,255,85) glyph pixels when entryMode='narration', got ${yellowNarration}`,
+    peakYellow,
+    `the APPROACHING narration (yellow idx 5) should auto-appear during the cutscene ` +
+      `with NO input (issue B: ENTERING auto-advances), peak yellow seen = ${peakYellow}`,
   ).toBeGreaterThan(500);
 
-  // ── Step 5: Enter dismisses narration + steps (→ gate-walk, gy 118→119) ───
-  await page.keyboard.press('Enter');
-  await page.waitForTimeout(200);
+  // ── Step 4: Let the cutscene fully settle to free-roam ───────────────────
   await waitForStableCanvas(page, 'canvas');
 
-  const yellowAfterEnter = await narrationStripYellowPixels(page);
-  // After dismissal, the narration text (yellow glyphs) should be gone from
-  // the strip. The chrome uses grays/blacks there — near-zero yellow pixels.
+  // Issue A: in free-roam the bottom strip shows the OPTIONS/TURN widget — the
+  // stale HMMM must be GONE (~0 yellow pixels in the strip band).
+  const yellowFree = await stripYellowPixels(page);
   expect(
-    yellowAfterEnter,
-    `narration yellow glyphs should be gone after Enter (entryMode='gate-walk'), got ${yellowAfterEnter}`,
+    yellowFree,
+    `free-roam strip should have NO yellow HMMM pixels (issue A: stale HMMM gone), got ${yellowFree}`,
   ).toBeLessThan(100);
 
-  // ── Step 6: Enter reaches the gate → portcullis lift AUTO-animates ───────
-  // From gate-walk (gy=119): one Enter forced-steps to the gate cell (gy=120),
-  // which enters 'gate-open' and the portcullis lift AUTO-plays on the timer
-  // (8 frames × 90ms ≈ 720ms), then transitions to 'bump' (gy=121).
-  //
-  // Capture viewport hashes a few frames apart WHILE NO ENTER IS PRESSED and
-  // assert a timer-driven change occurs during the lift — the viewport changes
-  // on its own, proving the portcullis animation plays.
-  await page.keyboard.press('Enter'); // gate-walk → gate-open (gy 119→120)
-
-  // Sample immediately after the gate-reaching Enter; the lift starts right away.
-  const liftHashes = await sampleViewportHashes(page, 8, 100);
-  expect(
-    liftHashes.size,
-    `dungeon portcullis should ANIMATE the viewport over multiple distinct frames ` +
-      `with no input (gate-open auto-timer), saw ${liftHashes.size} distinct viewport hashes`,
-  ).toBeGreaterThan(1);
-
-  // Let the lift settle (→ 'bump' at gy=121).
-  await waitForStableCanvas(page, 'canvas');
-
-  // ── Step 7: Enter from bump (gy=121, dead-end) → free ────────────────────
-  // A couple of presses to be robust: bump@121 → free, then free-roam Enter is
-  // a no-op (OPTIONS/camp deferred), so extra presses are harmless.
-  for (let i = 0; i < 2; i++) {
-    await page.keyboard.press('Enter');
-    await page.waitForTimeout(150);
-  }
-  await waitForStableCanvas(page, 'canvas');
-
-  // ── Step 8: Arrow key turns the view (free control is live) ──────────────
-  // Capture the canvas before the turn.
+  // ── Step 5: ArrowLeft turns the party (free control is live) ─────────────
   const hashBeforeTurn = await canvasHash(page);
-
-  // ArrowLeft turns the party left; the viewport should re-render to a new
-  // facing direction — the canvas hash must change. (Arrows are inert during
-  // the scripted entry, so a change here proves entryMode='free'.)
   await page.keyboard.press('ArrowLeft');
   await page.waitForTimeout(200);
   await waitForStableCanvas(page, 'canvas');
-
   const hashAfterTurn = await canvasHash(page);
   expect(
     hashAfterTurn,
-    'Canvas should change after ArrowLeft (free-roam turn proves entryMode=\'free\')',
+    "Canvas should change after ArrowLeft (free-roam turn proves entryMode='free')",
   ).not.toBe(hashBeforeTurn);
 });

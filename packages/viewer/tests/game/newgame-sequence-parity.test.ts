@@ -130,10 +130,10 @@ interface SeqCase {
 
 const CASES: SeqCase[] = [
   { fixture: 'newgame-seq-02-entering-title.idx.gz', gy: 117, mode: 'title', excludeCursor: false },
-  { fixture: 'newgame-seq-03-narration.idx.gz', gy: 118, mode: 'narration', excludeCursor: true },
-  { fixture: 'newgame-seq-04-walk-gy119.idx.gz', gy: 119, mode: 'gate-walk', excludeCursor: false },
-  { fixture: 'newgame-seq-05-walk-gy120.idx.gz', gy: 120, mode: 'bump', excludeCursor: false },
-  { fixture: 'newgame-seq-06-walk-gy121-hmmm.idx.gz', gy: 121, mode: 'bump', excludeCursor: false },
+  { fixture: 'newgame-seq-03-narration.idx.gz', gy: 118, mode: 'approach1', excludeCursor: true },
+  { fixture: 'newgame-seq-04-walk-gy119.idx.gz', gy: 119, mode: 'walk', excludeCursor: false },
+  { fixture: 'newgame-seq-05-walk-gy120.idx.gz', gy: 120, mode: 'approach2', excludeCursor: false },
+  { fixture: 'newgame-seq-06-walk-gy121-hmmm.idx.gz', gy: 121, mode: 'approach2', excludeCursor: false },
 ];
 
 describe('START-NEW-GAME sequence FULL-SCREEN per-frame parity (GATE, tolerance 0)', () => {
@@ -245,14 +245,15 @@ describe('START-NEW-GAME sequence FULL-SCREEN per-frame parity (GATE, tolerance 
     });
   }
 
-  // ── ANIMATION FRAMES (Stage 4) — the two entry viewport animations ──
-  // door:0..7 = castle doors sliding apart (entryMode 'door-open' → clean-black strip)
-  // gate:0..7 = dungeon portcullis lifting open (entryMode 'gate-open' → black + HMMMM)
+  // ── ANIMATION FRAMES (Stage 4) — the three entry viewport animations ──
+  // door:0..7  = castle doors sliding apart (entryMode 'door-open' → gray dither strip)
+  // gate1:0..7 = FIRST dungeon portcullis lifting (entryMode 'gate1-open' → APPROACHING)
+  // gate2:0..7 = SECOND dungeon portcullis lifting (entryMode 'gate2-open' → HMMM)
   // Byte-exact by construction: the viewport is the committed `<seq>:<n>` oracle slice
   // (=== the fixture's MAZE_VIEWPORT), and chrome+panel+strip are rendered. The mouse
   // is parked off-screen in these captures (no cursor exclusion needed).
   /** Compose the full frame for an animation oracle key `<seq>:<n>` + entry mode. */
-  function composeAnimFull(seq: 'door' | 'gate', frame: number, mode: EntryMode): Uint8Array {
+  function composeAnimFull(seq: 'door' | 'gate1' | 'gate2', frame: number, mode: EntryMode): Uint8Array {
     const f = composeMazeFrame(panels);
     const b64 = viewportsJson[`${seq}:${frame}`];
     if (!b64) throw new Error(`no oracle viewport for ${seq}:${frame}`);
@@ -273,9 +274,10 @@ describe('START-NEW-GAME sequence FULL-SCREEN per-frame parity (GATE, tolerance 
     return f;
   }
 
-  const ANIM_CASES: { seq: 'door' | 'gate'; mode: EntryMode }[] = [
+  const ANIM_CASES: { seq: 'door' | 'gate1' | 'gate2'; mode: EntryMode }[] = [
     { seq: 'door', mode: 'door-open' },
-    { seq: 'gate', mode: 'gate-open' },
+    { seq: 'gate1', mode: 'gate1-open' },
+    { seq: 'gate2', mode: 'gate2-open' },
   ];
   for (const { seq, mode } of ANIM_CASES) {
     for (let n = 0; n < 8; n++) {
