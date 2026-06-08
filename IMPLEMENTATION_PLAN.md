@@ -60,15 +60,22 @@ helpers (0x3828/0x3c11/0x3dce/0x4892) where the decompiler allows, cross-checked
 **Deliverables:** `packages/parser/src/maze/callist-gen.ts` (pure) + unit tests vs the captured lists;
 findings promoted to prose.
 **Success:** generated call-list == captured call-list for all Stage-1 fixtures (byte-exact).
-**Status:** PARTIAL (laws pinned; index arithmetic OPEN). Byte-exact laws found (`maze-generation-law.json`):
+**Status:** INDEX ARITHMETIC CRACKED (`maze-index-arithmetic.json`, byte-exact, 6 views). Laws pinned across two passes:
 (1) frame parity `(gx+gy+facing)%2` selects the blit BRANCH — even → direct forward OR blits, odd →
 whole-frame MASKED MIRROR; (2) the masked branch is a horizontal MIRROR about page col 20 / screen px 160
 (`src.destX + dst.destX + dst.w == 40`); (3) depth-bank structure (ceiling 122.., floor = ceiling+28,
 per-depth wall/corner/door families back-to-front + 6 constant top-strips 346..361); (4) per-depth cell-data
-(forward-edge code + side solidity + special4) selects the piece FAMILIES. STILL OPEN (the crack): the exact
-per-depth `(slot-code, depth, door-orientation) → placement-INDEX` arithmetic — lives in the
-decompiler-resistant slot helpers wmaze 0x3828/0x3c11/0x3dce/0x4892. PATH: hand-disasm those helpers OR a
-depth-counter-keyed live trace of FUN_0a93 arg0c, against the pokeview dataset (extend it to more views).
+(forward-edge code + side solidity + special4) selects the piece FAMILIES.
+**THE CRACK:** `placementIndex = base + depth`, where `base` is a COMPILE-TIME IMMEDIATE pushed at each emit
+call site (NOT slot-code table arithmetic — which is why the decompiler's table-lookup hunt failed; there is
+no table). Found by hand-disasm of the emit fns `wall_emit_quad` 0x406c / `wall_emit_corner` 0x45b4 /
+`top_strip_emit` 0x4a15 (the slot helpers only classify + seed gates). Implemented as `EMIT_BASES` +
+`placementIndex(base,depth)` + `generateSkeletonIndices(visibleDepths)` in `callist.ts`; gated by
+`tests/maze/index-arithmetic.test.ts` (24 tests, byte-exact vs v1/v2/v5/v6 captures). REMAINING (Stage-3 tail,
+medium conf): the per-depth GATE-SEEDING map (which family FIRES at each depth for a given forward-edge profile)
++ the DGROUP per-depth side table `[bx+0x42]`/`[bx+0x4a]` (not in the overlay file). The index law GIVEN a fired
+(site,depth) is byte-exact; which sites fire is the open piece. Door-cap visibility is genuinely gate-driven
+(v1 door@d2 caps, v2 door@d1 doesn't), not a clean function of the edge profile.
 
 ## Stage 4: Wire generation into `renderMazeViewport` + decorations
 **Goal:** The live renderer builds the background page (floor/ceiling) AND decorations from the generated

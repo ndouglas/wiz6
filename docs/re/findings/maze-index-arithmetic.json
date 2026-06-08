@@ -1,0 +1,169 @@
+{
+  "topic": "maze-index-arithmetic",
+  "subagent_run": "2026-06-08 (pin the per-depth placement-INDEX arithmetic in the wmaze emit helpers; produce a reproducing function for the deterministic parity-EVEN open-front views). Builds on maze-generation-law.json (BRANCH+MIRROR+depth-bank) and maze-classify-projection.json (slot codes).",
+  "binaries": ["wmaze.ovr", "ega.drv", "dosbox_pure_libretro.dylib"],
+  "status": "INDEX ARITHMETIC CRACKED (the last open piece). The per-depth placement-INDEX law is `placementIndex = base_constant + depth`, where `base_constant` is a COMPILE-TIME ARGUMENT pushed at each emit call site and `depth` is the build depth counter [0x5040] (0..3). Frame parity [0x521a] = (gx+gy+facing)%2 selects WHICH of a left/right base pair becomes the OR-blit's arg0c (and which the mirror arg10). This was read by HAND-DISASM of the three emit functions (wall_emit_quad 0x406c, wall_emit_corner 0x45b4, top-strips 0x4a15) where the DECOMPILER failed — capstone + manual read of the `mov ax, IMM; add ax, [bp+4]; push ax; call <orblit thunk>` idiom that repeats at every emit site. VALIDATED byte-exact against the captured liveRecords: every captured idx satisfies idx = (its family base) + depth, and the family bases match the disasm IMM constants EXACTLY (ceiling base 0x7a=122, floor base 0x96=150, top-strip bases 0x15a/0x15d/0x160/0x163/0x166/0x169 = 346/349/352/355/358/361). A reproducing function `generateSkeletonIndices(visibleDepths)` (packages/parser/src/maze/callist.ts) emits the deterministic SKELETON (ceiling 122+d / floor 150+d for the visible depths + the 6 constant top-strips) byte-exact, and exposes the full per-emit-site BASE TABLES so the side/corner/door families can be emitted once their per-depth gate state is known. Remaining gap: the per-depth GATE-SEEDING that decides which family/depth FIRES (the [0x5042]/[0x508a]/[0x5072] gate bytes the classifier sets) is medium-confidence — the index arithmetic GIVEN a fired (site,depth,parity) is HIGH confidence and byte-exact.",
+  "key_law": {
+    "one_liner": "placementIndex = base + depth.  arg0c (the OR/forward piece) = base_left + depth if parity==0 else base_right + depth.  arg10 (the mirror dst geom) = the opposite base + depth (0xffff if parity==0 i.e. forward OR).",
+    "depth": "the build depth counter DGROUP [0x5040], 0..3 (0=party's own cell). Passed as [bp+4] to every emit fn.",
+    "parity": "DGROUP [0x521a] = (gx+gy+facing)%2, computed at 0x4c45. parity==0 => the LEFT-base becomes arg0c with arg10=0xffff (a direct forward OR-blit). parity!=0 => the RIGHT-base becomes arg0c and the LEFT-base+depth becomes arg10 (a horizontal-mirror masked blit). (Per-emit some sites use a per-SPAN parity [0x521c]=(gx+gy+facing+depth)%2 instead — see emit_idioms.)",
+    "base_constants": "are COMPILE-TIME IMMEDIATES pushed at each call site as a big argument block (see call_sites). They are NOT computed from geometry — they are the static placement-table SLOT IDs for each (piece-family, screen-side). The placement table (cs:[0x190], 366 records) is a fixed descriptor table; base+depth indexes the depth-banked twin within a family.",
+    "emit_thunk": "every emit is `push arg10; push mode(0/1); push arg0c; call 0xfffff148` — the near-call wraps to the ega.drv FUN_0a93 OR-blit thunk. arg0c=placement idx of the source piece; arg10=0xffff (forward OR) or the mirror-dst placement idx (masked). This is exactly the (branch, arg0c, arg10) the pokeview capture records."
+  },
+  "findings": [
+    {
+      "id": "index-is-base-plus-depth",
+      "claim": "The per-depth placement INDEX = base_constant + depth, with the base a compile-time immediate argument. PROVEN by hand-disasm of wall_emit_quad (0x406c): the ceiling emit at 0x4084-0x40b2 computes arg0c = `[bp+0xe] + [bp+4]` where [bp+0xe]=0x7a=122 (the ceiling base) and [bp+4]=depth; the floor emit at 0x44ff-0x452d computes arg0c = `[bp+0x42] + [bp+4]` where [bp+0x42]=0x96=150 (the floor base). VALIDATED byte-exact vs captured liveRecords: ALL ceiling idx (122,123,124,125 at depths 0,1,2,3) satisfy idx-depth==122; ALL floor idx (150,151,152,153) satisfy idx-depth==150 — matching the disasm IMMs exactly.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x406c"},
+        "type": "static_disasm_plus_capture_validation",
+        "details": "wall_emit_quad 0x406c ceiling: 0x4084 mov ax,0xffff; 0x4087 cmp [0x521a],0; je 0x4094 (parity0 keeps 0xffff as arg10); 0x408e mov ax,[bp+0xe]; add ax,[bp+4] (=122+depth, arg10 when parity!=0); push; push 1; 0x4099 cmp [0x521a],0; je 0x40a8 (parity0: ax=[bp+0xe]+depth=122+d as arg0c) else ax=[bp+0x10]+depth (the other 122 of the pair) ; push ax (arg0c); call 0xfffff148. Floor (0x44c9 edge-only path): 0x44ff identical idiom with [bp+0x42]/[bp+0x44]=150. Captured: docs/re/findings/maze-views/v1..v4 liveRecords — ceiling/floor idx-depth == base for every record."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "parity-picks-base-pair-and-branch",
+      "claim": "Frame parity [0x521a]=(gx+gy+facing)%2 simultaneously (a) selects which of the LEFT/RIGHT base-pair becomes the source arg0c, and (b) selects the OR (forward, arg10=0xffff) vs masked-mirror (arg10 = the OTHER base + depth) branch. parity==0: arg10=0xffff (forward OR), arg0c=LEFT_base+depth. parity!=0: arg10=LEFT_base+depth, arg0c=RIGHT_base+depth (masked mirror). This is the EMIT-SITE manifestation of the parity OR-vs-masked branch law (maze-generation-law.json parity-selects-or-vs-masked-branch) — the WHOLE-frame branch toggle is just every emit site reading the same [0x521a]. The masked mirror geometry (dst.destX+src.destX+dst.w==40) is then a property of the placement RECORDS the two bases point at (the table stores mirror-twin geometry).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4087"},
+        "type": "static_disasm",
+        "details": "The idiom repeats verbatim at every emit site: `mov ax,0xffff; cmp [0x521a],0; je KEEP; mov ax,[bp+L]; add ax,[bp+4]; KEEP: push ax (arg10); mov ax,1; push ax (mode); cmp [0x521a],0; je USE_L; mov ax,[bp+R]; add ax,[bp+4]; jmp PUSH; USE_L: mov ax,[bp+L]; add ax,[bp+4]; PUSH: push ax (arg0c); call 0xfffff148`. Sites: 0x4084(ceiling), 0x44ff(floor), 0x45d0/0x4610/0x468e/0x46c2/0x4743(corner emit blocks), and the side-panel wall_emit_quad re-calls. Some sites swap [0x521a] for the per-span [0x521c]=(gx+gy+facing+depth)%2 (e.g. wall_emit_quad 0x40ca near-wall, 0x4574 trailing pair) — same idiom, alternating screen-side per depth."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "emit-call-sites-and-base-tables",
+      "claim": "Per build depth (loop 0x4c60), the engine calls FIVE emit fns in a fixed order, each with a big block of compile-time base IMMs (the per-family, per-screen-side placement-slot bases). The full base tables (read from the call-site disasm) are in `call_sites` below. wall_emit_quad(front, slot[0x5220]) @0x4d90 carries the CEILING (122) + near-wall (0) + FLOOR (150) bases + the front-recess bases. wall_emit_corner(corner-L, slot[0x5222]) @0x4e24 and (corner-R, slot[0x5224]) @0x4e80 carry the corner/side-wall bases (7/4/15/19/83/87/106/114/193/196/272/275/293/296 for L). wall_emit_quad(left-side, slot[0x5226]) @0x4f9b/@0x504b and (right-side, slot[0x5228]) @0x50fb/@0x51ab carry the deep side-wall family bases. The top-strips (0x4a15) carry bases 346/349/352/355/358/361 (stride 3, 6 strips), each offset by the door-phase word [0x3646] or facing — emitted ALWAYS, in every frame.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4c60"},
+        "type": "static_disasm_call_site_args",
+        "details": "Depth-loop call order @0x4d90..0x51ab: (1) call 0x406c slot[0x5220] front; (2) call 0x45b4 slot[0x5222] corner-L @0x4e61; (3) call 0x45b4 slot[0x5224] corner-R @0x4ebd; (4) call 0x406c slot[0x5226] left-side @0x4f9b + a 2nd 0x406c @0x504b; (5) call 0x406c slot[0x5228] right-side @0x50fb + 2nd @0x51ab. Each gated by a per-depth gate byte ([bx+0x508a] front, [bx+0x5082] corner-L pre, [bx+0x5072] left-side, etc.). Top-strips 0x4a15 (called from flush 0x5361) loop 6 strips bases 0x15a/0x15d/0x160/0x163/0x166/0x169. The argument blocks are transcribed in call_sites below (program-order pushes reversed to [bp+off])."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "visible-depth-occlusion",
+      "claim": "Ceiling/floor (and the per-depth families) emit at depth d only while the per-depth VISIBILITY gate [bx+0x5042] (bx=depth*3+sideArrayBase) is clear — wall_emit_quad 0x407d (`cmp byte [bx+0x5042],0; jne skip-ceiling`). The gate is SEEDED by the occlusion logic in the slot helpers (0x4892 etc): a SOLID forward edge at depth d occludes deeper depths. Captured evidence: v4 (solid front at depth0) emits ONLY depth-0 ceiling/floor (122/150) — 13 calls total; v1 (door at depth2) emits ceiling depths 0,1,2 (122,123,124); v2 emits all 4 depths (122-125). The exact gate-seeding map (which depth's gate is set for which forward-edge profile) is the MEDIUM-confidence part inherited from maze-classify-projection.json — the INDEX arithmetic given a visible depth is HIGH-confidence/byte-exact.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x407d"},
+        "type": "static_disasm_plus_capture",
+        "details": "0x406f: ax=depth*3 (shl1+add dx); add ax,[bp+8] (=1, the side-array base); bx=ax; 0x407d cmp byte [bx+0x5042],0; jne 0x40b5 (skip the ceiling emit). [0x5042..] is the per-depth visibility gate array. Captured visible-ceiling-depths: v1=[0,1,2], v2=[0,1,2,3], v3(parity-odd facing3)=[1,2,3] (depth0 mirrored away, not occluded), v4=[0] (solid front occludes 1..3). The gate is SET (occluded) by 0x4892 when the forward edge is solid (cmp [bp+6],2 je seed)."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "top-strips-always-six",
+      "claim": "The 6 top-strip chrome pieces (placement idx 346/349/352/355/358/361) are emitted in EVERY frame by routine 0x4a15 (called from the flush at 0x5361), with no depth dependence. Each strip's base IMM (0x15a=346, 0x15d=349, 0x160=352, 0x163=355, 0x166=358, 0x169=361 — a stride-3 sequence) is added to a per-strip offset (the door-phase word [0x3646], or facing [0x4f9a] for one strip, times a scale [0x4f86] for another). For the settled deterministic views [0x3646]=0 so the bases ARE the emitted indices. Validated: all 4 captured views contain exactly {346,349,352,355,358,361} (the SET; flush order varies).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4a15"},
+        "type": "static_disasm_plus_capture",
+        "details": "0x4a25 mov [bp-4],0x15a; 0x4a2a ax=[0x3646]; inc; ... 0x4a33 0x15d; 0x4a41 0x160; 0x4a4f 0x169 (ax=[0x4f9a]+1, the facing-keyed one); 0x4a5d 0x163 (ax=[0x3646]*[0x4f86]+1); 0x4a6f 0x166. Loop body 0x4a96 emits each. Captured: every view's placementIndices contains the 6 strips."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "reproducing-function-status",
+      "claim": "A pure reproducing function `generateSkeletonIndices(visibleDepths)` (packages/parser/src/maze/callist.ts) emits the DETERMINISTIC SKELETON byte-exact: the visible-depth ceiling (122+d) + floor (150+d) twins + the 6 top-strips. `placementIndex(base, depth)` is the raw `base+depth` primitive; `EMIT_BASES` exposes the per-family base constants. Validated by the unit test packages/parser/tests/maze/index-arithmetic.test.ts (24 tests) against SIX captured views (v1..v4 + fresh v5/v6) SKELETON subsets (ceiling+floor+strips). The SIDE/CORNER/DOOR family emission (the recess pieces 131/135/139/143, the side-panel pieces, the far-door 85/89) is NOT yet emitted by the function — those require the per-depth gate-seeding map (medium confidence). The function EXPOSES the full base tables (EMIT_BASES) so a follow-up can add the family emits once the gate map is pinned. STATUS: byte-exact for the skeleton across all six views; the side/corner/door families are documented (base tables) but not generated.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "pure_function_plus_unit_test",
+        "details": "callist.ts generateSkeletonIndices + placementIndex + EMIT_BASES; tests/maze/index-arithmetic.test.ts (24 tests, all green) validates the skeleton (ceiling/floor visible-depth set + 6 strips) against SIX captured view JSONs (v1..v4 + the 2 fresh anti-overfit captures v5/v6)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fresh-capture-cross-validation",
+      "claim": "ANTI-OVERFIT: captured TWO fresh parity-EVEN open-front views (different inputs from v1..v4) and the `base + depth` law held byte-exact WITHOUT any tuning. v5 (gx125 gy121 f0, a different lateral cell, deep corridor): ceiling 122/123, floor 150/151, all match base+depth; door-recess family present. v6 (gx127 gy123 f0, near-blocked depth-0-only view): ceiling 122, floor 150, near-wall idx 0 (NEAR_WALL base 0 + depth0), AND corner-L pieces idx 83/87 = the corner-L arg-table bases [bp+0x10]=83/[bp+0x12]=87 + depth0 — validating a SECOND emit fn's (wall_emit_corner) base table beyond ceiling/floor. Both captured via WIZ6_ORBASE=0x6ba10 (the in-place resolver fails at some facings; the base was stable this pass).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "fresh_live_capture",
+        "details": "docs/re/findings/maze-views/v5-gx125f0.json (OR list incl 122,150,123,151 + door-recess family), v6-gy123f0.json (placementIndices [122,0,150,83,87,361,349,355,346,352,358]). v6's 83/87 confirm corner-L bases; 0 confirms NEAR_WALL base. captured via trace-maze.ts pokeview."
+      },
+      "confidence": "high"
+    }
+  ],
+  "call_sites": {
+    "front_wall_emit_quad_0x4d90": {
+      "fn": "wall_emit_quad 0x406c", "slot": "[0x5220] front",
+      "args_by_bp_offset": {
+        "0x4": "depth", "0x6": "slot code [0x5220]", "0x8": "1 (side-array stride base)",
+        "0xa": 72, "0xc": 248, "0xe": 122, "0x10": 122, "0x12": 0, "0x14": 0,
+        "0x16": 91, "0x18": 23, "0x1a": 23, "0x1c": 26, "0x1e": 26, "0x20": 29,
+        "0x22": 32, "0x24": 32, "0x26": 29, "0x28": 178, "0x2a": 178, "0x2c": 199,
+        "0x2e": 199, "0x30": 242, "0x32": 257, "0x34": 278, "0x36": 278, "0x38": 299,
+        "0x3a": 299, "0x3c": 314, "0x3e": 314, "0x40": 329, "0x42": 150, "0x44": 150,
+        "0x46": 214, "0x48": 214
+      },
+      "note": "[bp+0xe]=[bp+0x10]=122 ceiling pair; [bp+0x42]=[bp+0x44]=150 floor pair; [bp+0x12]=0 near-wall pair (the img0 close occluder, idx 0/9); [bp+0x16]=91 far-door base; [bp+0x46]=214 trailing-pair base."
+    },
+    "corner_L_emit_corner_0x4e24": {
+      "fn": "wall_emit_corner 0x45b4", "slot": "[0x5222] corner-L",
+      "args_by_bp_offset": {
+        "0x4": "depth", "0x6": "slot code [0x5222]",
+        "0x8": 7, "0xa": 4, "0xc": 15, "0xe": 19, "0x10": 83, "0x12": 87,
+        "0x14": 106, "0x16": 114, "0x18": 193, "0x1a": 196, "0x1c": 272, "0x1e": 275,
+        "0x20": 293, "0x22": 296
+      },
+      "note": "[bp+0xc]=15/[bp+0xe]=19 near full-height wall pair (the img3/img7 idx 15/19); the rest are the corner/side family bases for the door-recess shapes."
+    },
+    "corner_R_emit_corner_0x4e80": {
+      "fn": "wall_emit_corner 0x45b4", "slot": "[0x5224] corner-R",
+      "args_by_bp_offset": {
+        "0x4": "depth", "0x6": "slot code [0x5224]",
+        "0x8": 13, "0xa": 7, "0xc": 19, "0xe": 15, "0x10": 87, "0x12": 83,
+        "0x14": 110, "0x16": 118, "0x18": 196, "0x1a": 193, "0x1c": 275, "0x1e": 272,
+        "0x20": 296, "0x22": 293
+      },
+      "note": "MIRROR of corner-L: the L/R bases are swapped within each pair (15<->19, 83<->87, etc.), which is exactly the screen-side swap parity selects."
+    },
+    "left_side_emit_quad_0x4f9b": {
+      "fn": "wall_emit_quad 0x406c", "slot": "[0x5226] left-side",
+      "note": "carries a 33-arg block; the depth-banked side-wall family bases. The 5th-from-last push is a PER-DEPTH table lookup `shl bx,1; push [bx+0x42]` (bx=depth) — the ONLY emit arg that is table-indexed by depth rather than a single IMM (the [bx+0x42] table content lives in DGROUP, not the overlay file, and was NOT dumped this pass — see remaining). The raw push IMMs (program order, 0x4f0d..0x4f8f) are listed in `raw_pushes_hex`; reversed they map to [bp+4]=depth, [bp+6]=slot[0x5226], [bp+8]=0, [bp+0xa]=0x48, [bp+0xc]=<[bx+0x42] per-depth>, then the IMMs.",
+      "raw_pushes_hex": ["0xea", "0xde", "0xaa", "0x9e", "0x14c", "0x146", "0x13d", "0x137", "0x12e", "0x122", "0x119", "0x104", "0xf5", "0xd3", "0xca", "0xbe", "0xb5", "0x4a", "0x35", "0x50", "0x2f", "0x44", "0x29", "0x3e", "0x23", "0x5e", "0xc", "0x3", "0x8e", "0x82", "[bx+0x42] per-depth", "0x48", "0x0", "slot[0x5226]", "depth"]
+    },
+    "right_side_emit_quad_0x50fb": {
+      "fn": "wall_emit_quad 0x406c", "slot": "[0x5228] right-side",
+      "note": "mirror of the left-side block; full block at disasm 0x5065..0x50fb."
+    },
+    "top_strips_0x4a15": {
+      "fn": "top_strip_emit 0x4a15", "called_from": "flush 0x5361",
+      "bases": [346, 349, 352, 355, 358, 361],
+      "note": "6 strips, stride 3. Each base + a per-strip offset: most + [0x3646]+1 (door-phase, 0 when settled); 361 + [0x4f9a]+1 (facing); 355 + [0x3646]*[0x4f86]+1. For settled deterministic views the bases ARE the emitted idx."
+    }
+  },
+  "emit_idioms": {
+    "or_or_masked": "mov ax,0xffff; cmp [0x521a],0; je K; mov ax,[bp+L]; add ax,[bp+4]; K: push ax (arg10); mov ax,1; push ax (mode); cmp [0x521a],0; je U; mov ax,[bp+R]; add ax,[bp+4]; jmp P; U: mov ax,[bp+L]; add ax,[bp+4]; P: push ax (arg0c); call 0xfffff148.",
+    "per_span_parity_variant": "some sites read [0x521c]=(gx+gy+facing+depth)%2 instead of [0x521a] — alternates the screen-side per depth (the corner side-wall path).",
+    "mode_byte": "the pushed `1` is the OR-merge mode; the door-recess path pushes 0xff (REPLACE-carve) — see wall_emit_quad 0x4101 case (span_append 0x3f8d, mode 0xff)."
+  },
+  "asm_anchors": [
+    {"space": "wmaze.ovr", "offset": "0x406c", "name": "wall_emit_quad", "note": "the ceiling/floor/near-wall/front-recess emitter. ceiling 0x4084 (base [bp+0xe]=122), near-wall 0x40be ([bp+0x12]=0), shape dispatch 0x40fb -> jump table @file 0x449e (delta 0x4564; case0=edge-only 0x44c9, case1=door/recess 0x4101). edge-only 0x44c9 emits floor (base [bp+0x42]=150) + the trailing 0x4574 pair (base [bp+0x46]=214)."},
+    {"space": "wmaze.ovr", "offset": "0x45b4", "name": "wall_emit_corner", "note": "the corner/side-wall emitter. emit blocks at 0x45d0/0x4610/0x468e/0x46c2/0x4743 (each base+depth, parity-picked); dispatch 0x4792 jump table @ (cs:[bx-0x7326]) on [bp+6] corner-type."},
+    {"space": "wmaze.ovr", "offset": "0x4a15", "name": "top_strip_emit", "note": "the 6 top-strip chrome emitter (bases 346/349/352/355/358/361). called from flush 0x5361. NO depth dependence; always all 6."},
+    {"space": "wmaze.ovr", "offset": "0x4c45", "name": "frame_parity", "note": "[0x521a]=(gx+gy+facing)%2; per-span [0x521c]=(gx+gy+facing+depth)%2 @0x4c6c."},
+    {"space": "wmaze.ovr", "offset": "0x4c60", "name": "build_depth_loop", "note": "depth [0x5040]=0..3. Per depth calls the 5 emit fns @0x4d90..0x51ab."},
+    {"space": "wmaze.ovr", "offset": "0x407d", "name": "visibility_gate", "note": "[bx+0x5042] (bx=depth*3+1) — per-depth visibility/occlusion gate; clear=emit. seeded by 0x4892."},
+    {"space": "wmaze.dgroup", "offset": "0x5042", "name": "visibility_gate_array", "note": "per-depth (stride 3) visibility gate; set=occluded."},
+    {"space": "wmaze.dgroup", "offset": "0x521a", "name": "frame_parity"},
+    {"space": "wmaze.dgroup", "offset": "0x5040", "name": "depth_counter"}
+  ],
+  "remaining": [
+    "SIDE/CORNER/DOOR FAMILY EMISSION: the reproducing function emits the byte-exact SKELETON (ceiling/floor/strips). To emit the door-recess family (131/135/139/143 + twins), the side-panel family, and the far-door (85/89), the per-depth GATE-SEEDING map (which of [0x5072..0x50aa] gate bytes is set for which slot at which depth, set inside the classifier post-pass 0x3931/0x3946/0x3951 + the occlusion seeder 0x4892) must be pinned. The base TABLES are now known (call_sites); only the gate map is missing. Medium confidence.",
+    "PER-DEPTH SIDE TABLE [bx+0x42]: the left/right side wall_emit_quad sites use a depth-indexed base ([bx+0x42], not a single IMM). The 4-entry table content (at DGROUP 0x42 relative to the depth*2 index) was not dumped this pass — needed to byte-generate the side-panel family.",
+    "PARITY-ODD ORDERED PAIRING: still oscillates run-to-run (maze-generation-law.json parity-odd-pairing-oscillates). The index SET + base+depth law holds, but the ordered masked pairing for parity-odd views is non-deterministic in the dirty in-place recompose.",
+    "TOP-STRIP OFFSET TERMS: [0x3646] (door-phase) and [0x4f86] (a scale) are 0 / settled-constant for the captured views; a frame with a non-zero door phase is needed to validate the offset terms (would shift strip 355 by [0x3646]*[0x4f86])."
+  ],
+  "caveat_for_prior_findings": "COMPLETES maze-generation-law.json's `what_is_unpinned` (the (slot-code,depth)->placement-index arithmetic). The answer: it is NOT slot-code-keyed arithmetic at all — it is `base_constant + depth` with the base a compile-time IMM argument per emit site, and slot-code only GATES whether a site fires + which shape-dispatch branch runs. The decompiler failed because the emit fns are huge flat functions with ~15 near-identical parity-branch idioms over a 30+ IMM argument block; capstone + the repeated-idiom pattern made the manual read tractable. Does NOT contradict the depth-bank structure (ceiling=122+d, floor=ceiling+28) — it EXPLAINS it: ceiling base 122, floor base 150 (=122+28), both +depth. Confirms the parity branch law at the emit-site level. Confidence HIGH for the index arithmetic; MEDIUM for the gate-seeding occlusion map (inherited)."
+}
