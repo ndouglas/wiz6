@@ -37,6 +37,11 @@ export {
 export {
   composeCallList,
   composeBackgroundFromAsset,
+  EMIT_BASES,
+  placementIndex,
+  generateSkeletonIndices,
+  computeVisibleDepths,
+  generateCallist,
 } from './callist.js';
 
 // Maze block decoder (pure, no I/O)

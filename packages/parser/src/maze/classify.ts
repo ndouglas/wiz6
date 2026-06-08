@@ -78,38 +78,17 @@
 
 import { SEAMIDX_CORNER_SOLID_BASE } from '@wiz6/data';
 import type { MazeBlock, MazeParty } from '@wiz6/data';
-import { isSolid, resolve, N, W, step, forwardEdge } from './maze-geometry.js';
+import {
+  isSolid,
+  resolve,
+  step,
+  forwardEdge,
+  cornerL,
+  cornerR,
+} from './maze-geometry.js';
 
 /** Max depths the BUILD loop walks (wmaze DGROUP 0x521e = 4). */
 const DEPTH_BOUND = 4;
-
-/** Corner-L perpendicular edge (classify_corner_L 0x3c11, dispatch 0x3d20). */
-function cornerL(b: MazeBlock, gx: number, gy: number, facing: number): number {
-  switch (facing) {
-    case 0:
-      return W(b, gx - 1, gy);
-    case 1:
-      return N(b, gx, gy);
-    case 2:
-      return W(b, gx, gy);
-    default:
-      return N(b, gx, gy - 1);
-  }
-}
-
-/** Corner-R perpendicular edge (classify_corner_R 0x3dce, dispatch 0x3edd). */
-function cornerR(b: MazeBlock, gx: number, gy: number, facing: number): number {
-  switch (facing) {
-    case 0:
-      return W(b, gx, gy);
-    case 1:
-      return N(b, gx, gy - 1);
-    case 2:
-      return W(b, gx - 1, gy);
-    default:
-      return N(b, gx, gy);
-  }
-}
 
 /** Side slot: lateral view-step (OOB-after-step -> SOLID 2) then forward-edge of
  *  the neighbour (classify_front_side side params 0xffff/1). */

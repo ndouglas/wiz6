@@ -26,6 +26,7 @@
  */
 
 import { PLANE_STRIDE } from '@wiz6/data';
+import type { MazeBlock, MazeParty } from '@wiz6/data';
 import {
   composeBackground,
   applyMaskedMirror,
@@ -36,6 +37,7 @@ import {
   maskedMirrorFor,
   type MazeWorkBuffer,
 } from './maze-data.js';
+import { isSolid, step, forwardEdge, cornerL, cornerR } from './maze-geometry.js';
 
 // ---------------------------------------------------------------------------
 // PLACEMENT-INDEX ARITHMETIC (the per-depth `base + depth` law)
@@ -114,6 +116,114 @@ export function generateSkeletonIndices(visibleDepths: number[]): number[] {
   out.push(...EMIT_BASES.TOP_STRIPS);
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// GATE-SEEDING / OCCLUSION-STOP (the per-depth visibility law).
+//
+// RE pinned in docs/re/findings/maze-gate-seeding.json. The BUILD depth loop
+// (wmaze 0x4c60) walks d = 0..3 front-to-back. The per-depth VISIBILITY gate
+// [0x5042] (wmaze 0x407d gates the ceiling/floor emit) is cleared (visible)
+// only up to — and INCLUDING — the first depth whose forward edge OCCLUDES the
+// view. The occlusion seeder (wmaze 0x4892, occ_seed_front) fires when the
+// front edge is solid (code 2) or a doorway FRAMED by solid corners on both
+// sides (a closed doorway, code 3 with cornerL & cornerR solid); from that
+// depth on the deeper front/corner gates are cleared and the depth bound
+// [0x521e] is pulled in.
+//
+// OCCLUSION-STOP RULE (validated byte-exact vs the 4 parity-EVEN captures
+// v1/v2/v5/v6 — see maze-gate-seeding.json): walking d = 0..3, the view stops
+// (inclusive) at the first depth `d` where
+//
+//     front == 2                              (a solid wall ends the corridor)
+//   OR (front == 3 && cornerL solid && cornerR solid)
+//                                             (a closed doorway — door framed by
+//                                              solid walls on BOTH sides)
+//
+// `visibleDepths = [0 .. stop]`. If no depth occludes, all four are visible.
+//
+// This pins the v1-vs-v2 puzzle exactly: v1's door at depth 2 has BOTH corners
+// solid (a closed doorway → occludes; visible = [0,1,2]); v2's door at depth 1
+// has cornerR OPEN (a side passage, not a wall → does NOT occlude; visible =
+// [0,1,2,3]). v5 stops at the solid wall (depth 1); v6 stops at the closed
+// doorway at depth 0. A plain door with at least one open corner reads as a
+// see-through opening and the walk continues past it.
+//
+// CONFIDENCE: high for the ceiling/floor twins + this stop rule (byte-exact on
+// all 4 parity-EVEN captures, and consistent with the occ_seed_front asm at
+// 0x4892: front==2 || the door-frame gate [0x5067]). The per-depth SIDE / CORNER
+// / DOOR-RECESS family emission (bases 130/134/138/142 + twins, the near-wall
+// img0/img3 family, the far-door 85/89) is NOT generated here — it needs the
+// medium-confidence per-slot gate-seeding post-pass (wmaze 0x3931/0x3946/0x3951)
+// that the decompiler resists. Documented as the remaining residue.
+// ---------------------------------------------------------------------------
+
+/** Max depths the BUILD loop walks (wmaze DGROUP 0x521e = 4). */
+const DEPTH_BOUND = 4;
+
+/**
+ * Whether the forward edge at a build depth OCCLUDES the view (caps the walk).
+ * A solid wall (code 2) always occludes; a door (code 3) occludes only when it
+ * is a CLOSED doorway — framed by solid walls on both the left and right corner
+ * edges. A door with an open corner is a see-through side opening. (wmaze
+ * occ_seed_front 0x4892: front==2 || the door-frame corner gate [0x5067].)
+ */
+function frontOccludes(front: number, cL: number, cR: number): boolean {
+  if (front === 2) return true;
+  if (front === 3 && isSolid(cL) && isSolid(cR)) return true;
+  return false;
+}
+
+/**
+ * The per-depth VISIBILITY set (the gate-seeding occlusion stop). Walks the
+ * BUILD depth loop d = 0..3 from the party cell forward (with the one-cell
+ * entry pull-back that establishes the d=0 origin) and returns the depths whose
+ * ceiling/floor the engine emits — `[0 .. stop]`, where `stop` is the first
+ * occluding forward edge (inclusive), or all four if the corridor never closes.
+ *
+ * This IS the input `visibleDepths` to generateSkeletonIndices / generateCallist
+ * derived from the maze block + party rather than read off a captured frame.
+ */
+export function computeVisibleDepths(block: MazeBlock, party: MazeParty): number[] {
+  const { gx, gy, facing } = party;
+  if (facing < 0 || facing > 3) throw new Error(`invalid facing ${facing}`);
+  let [cgx, cgy] = step(gx, gy, facing, 0, -1); // entry pull-back (forward=-1)
+  const visible: number[] = [];
+  for (let d = 0; d < DEPTH_BOUND; d++) {
+    [cgx, cgy] = step(cgx, cgy, facing, 0, 1); // advance forward 1
+    visible.push(d);
+    const front = forwardEdge(block, cgx, cgy, facing);
+    const cL = cornerL(block, cgx, cgy, facing);
+    const cR = cornerR(block, cgx, cgy, facing);
+    if (frontOccludes(front, cL, cR)) break; // inclusive stop
+  }
+  return visible;
+}
+
+/**
+ * Generate the byte-exact placement-index SET the engine emits for a parity-EVEN
+ * open-front corridor view, from the maze block + party (NO captured frame):
+ *
+ *   - the per-depth ceiling twin (122 + d) and floor twin (150 + d) for every
+ *     VISIBLE depth (the occlusion stop, computeVisibleDepths), and
+ *   - the 6 constant top-strip chrome pieces.
+ *
+ * This is the gate-seeding (which depths fire + the occlusion stop) combined
+ * with the index law (base + depth). It reproduces the captured ceiling/floor +
+ * strip SET byte-exact for the parity-EVEN views (v1/v2/v5/v6), INCLUDING v1's
+ * door-cap (visible = [0,1,2]) and v6's depth-0 cap.
+ *
+ * SCOPE — the deterministic layer only. The per-depth SIDE / CORNER / DOOR-RECESS
+ * family pieces (bases 130/134/138/142 + floor twins, the near-wall img0/img3
+ * family, the far-door 85/89) are NOT emitted: their gate-seeding is the
+ * medium-confidence residue (see maze-gate-seeding.json). Callers comparing to a
+ * captured ORDERED list should compare the returned SET — the engine's flush
+ * re-orders within a frame.
+ */
+export function generateCallist(block: MazeBlock, party: MazeParty): number[] {
+  return generateSkeletonIndices(computeVisibleDepths(block, party));
+}
+
+export type { MazeBlock, MazeParty };
 
 /** One background blit call. */
 export type BackgroundCall =
