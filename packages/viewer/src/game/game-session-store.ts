@@ -3,13 +3,17 @@ import { DungeonLevelSchema, MazePartySchema, type DungeonLevel, type MazeParty 
 
 const KEY = 'wiz6:session';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const GameSessionSchema = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
   level: DungeonLevelSchema,
   party: MazePartySchema,
-  entryMode: z.enum(['title', 'narration', 'gate-walk', 'bump', 'free']),
+  entryMode: z.enum(['door-open', 'title', 'narration', 'gate-walk', 'gate-open', 'bump', 'free']),
+  // Animation frame index for the door-open / gate-open viewport animations
+  // (0 for non-animation modes). Defaults to 0 for back-compat with sessions
+  // persisted before the animation sub-states were added (Stage 2).
+  animFrame: z.number().int().nonnegative().default(0),
   stepsRemaining: z.number().int().nonnegative(),
 });
 
@@ -18,8 +22,8 @@ export type GameSession = z.infer<typeof GameSessionSchema>;
 /** Start a new session for the given level.
  *
  * If the level has a scriptedEntry, places the party at the scripted start
- * position (gy=117, the ENTERING title-card frame) and seeds entryMode:'title' +
- * stepsRemaining from the config.
+ * position (gy=117, the ENTERING title-card frame) and seeds entryMode:'door-open'
+ * (the castle doors slide apart first) + stepsRemaining from the config.
  *
  * If no scriptedEntry (back-compat), places the party at the entrance and
  * seeds entryMode:'free' + stepsRemaining:0.
@@ -31,7 +35,8 @@ export function initGameSession(level: DungeonLevel): void {
         schemaVersion: SCHEMA_VERSION,
         level,
         party: { ...scriptedEntry.start },
-        entryMode: 'title',
+        entryMode: 'door-open',
+        animFrame: 0,
         stepsRemaining: scriptedEntry.steps,
       }
     : {
@@ -39,6 +44,7 @@ export function initGameSession(level: DungeonLevel): void {
         level,
         party: { ...level.entrance },
         entryMode: 'free',
+        animFrame: 0,
         stepsRemaining: 0,
       };
   window.localStorage.setItem(KEY, JSON.stringify(GameSessionSchema.parse(session)));

@@ -138,10 +138,13 @@ export async function loadMazeWallSpans(): Promise<CapturedSpansTable> {
  * committed extracted/maze/newgame-viewports.json (served via Vite publicDir)
  * and decodes each base64 entry into a Uint8Array (176×112 palette-index buffer).
  *
- * Returns a Record<number, Uint8Array> keyed by gy (117..121). The viewer passes
- * this to oracleViewportForGy() to composite the gate pixels during the scripted
- * entry sequence instead of the live renderer (which cannot draw the banked gate
- * byte-exact).
+ * Returns a Record<string, Uint8Array> keyed by the JSON's STRING keys: the
+ * scripted stills ("117".."121", keyed by gy) and the two viewport animations
+ * ("door:0".."door:7" castle doors / "gate:0".."gate:7" portcullis). The viewer
+ * passes this to oracleViewportForGy() / oracleAnimViewport() to composite the
+ * gate pixels during the scripted entry sequence instead of the live renderer
+ * (which cannot draw the banked gate byte-exact). Keys are kept as-is (NOT
+ * coerced to numbers) so the "door:N"/"gate:N" animation keys survive.
  */
 export async function loadNewgameViewports(): Promise<NewgameViewports> {
   const url = '/maze/newgame-viewports.json';
@@ -159,20 +162,16 @@ export async function loadNewgameViewports(): Promise<NewgameViewports> {
   const EXPECTED = VW * VH;
   const out: NewgameViewports = {};
   for (const [key, val] of Object.entries(data as Record<string, unknown>)) {
-    const gy = Number(key);
-    if (!Number.isFinite(gy)) {
-      throw new Error(`Malformed newgame viewports from ${url}: non-numeric key "${key}"`);
-    }
     if (typeof val !== 'string') {
-      throw new Error(`Malformed newgame viewports from ${url}: gy=${gy} value is not a string`);
+      throw new Error(`Malformed newgame viewports from ${url}: key "${key}" value is not a string`);
     }
     const buf = Uint8Array.from(atob(val), (c) => c.charCodeAt(0));
     if (buf.length !== EXPECTED) {
       throw new Error(
-        `Malformed newgame viewports from ${url}: gy=${gy} buffer length ${buf.length}, expected ${EXPECTED}`,
+        `Malformed newgame viewports from ${url}: key "${key}" buffer length ${buf.length}, expected ${EXPECTED}`,
       );
     }
-    out[gy] = buf;
+    out[key] = buf;
   }
   return out;
 }

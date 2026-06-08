@@ -1,0 +1,47 @@
+{
+  "topic": "wbase-magicword-handler",
+  "subagent_run": "2026-06-08 (locate + RE the magicword copy-protection handler in wbase.ovr — never asm-pinned before, only behavioral. Goal: find why the dosbox-pure empty-magicword entry is non-animated while the user's retail recollection has the gates sliding open. Patched traceable core (build-core.sh) + wwatch.)",
+  "binaries": ["wbase.ovr", "winit.ovr", "msg.dbs"],
+  "tool": "Static capstone CS_MODE_16 over test-fixtures/original/wbase.ovr + winit.ovr. Live dosbox-pure PATCHED core via HostClient: write-watch on door_phase across the entry, memory POKE of the 0x4fc0 flag, fresh-boot drives. Probes: tools/libretro/probe-magicword-flag.ts, probe-gate-wwatch2.ts.",
+  "summary": "PINNED the magicword handler at wbase.ovr 0xedb-0x11a5 (entry prologue 0xedb 'push bp;mov bp,sp;add sp,-0x60'). Flow: (1) 0xee1 'cmp word [0x4fc0],1; jne 0xeef' — IF the copy-protection-passed flag 0x4fc0==1, return ax=0 immediately (skip the prompt). (2) Else build the prompt: ui_window_create (thunk 0xbbb6, col0 row0x13 w0x28 h5), draw msg 1050 'TYPE THE MAGICWORD FOR THESE ICONS' (mov ax,0x41a @0xf43 -> msg-load thunk 0xc1f7), draw the icon glyph grid (loop 0xfbb), and pick 3 random icons via thunk 0xc47e called with args 8,8,4 (-> stored bp-5a, bp-5e, and a derived bp-5c). (3) Compute an index from the 3 icons: idx = ((bp-5c)<<3 + (bp-5e)<<6 + (bp-5a)) %% 0x4f (0x1117-0x1135), then load the EXPECTED magicword string = msg(0xfa0 + idx) i.e. msg 4000+idx (the per-icon-combo manual word). (4) Read the player's typed answer (input field thunk 0xd3a, maxlen 0xf at row5) and strcmp it against the expected (call 0x3979 @0x118a). (5) DECISION @0x1190 'test ax,ax; je 0x119a': MATCH (ax==0) -> 0x119a 'mov word [0x4fc0],1' + return ax=0 (SUCCESS); MISMATCH -> 'mov ax,0xffff' + return (FAIL/retry). The empty answer never matches -> 0xffff each time; the caller retries (hence the observed 3 ENTERs) and ultimately proceeds LENIENTLY without 0x4fc0 ever being set. winit 0x8e7 'mov word [0x4fc0],0' resets the flag right before 'mov [0x363a],1' (state->title) at boot. UNRESOLVED: the magicword handler's CALLER (the START NEW GAME action) and how it branches on the 0/0xffff return — this branch is the suspected animated-vs-degenerate entry divergence, NOT yet pinned. Poking [0x4fc0]=1 at MASTER OPTIONS did NOT skip the prompt nor animate the entry (the flag is evidently reset between the poke and the 0xee1 check, or the prompt is driven by the caller regardless), so 0x4fc0 alone is not the entry-animation gate.",
+  "findings": [
+    {
+      "id": "magicword-handler-located",
+      "claim": "The magicword copy-protection handler is wbase.ovr 0xedb-0x11a5. It loads msg 1050 (the prompt), draws 3 random icon glyphs (thunk 0xc47e x3, args 8/8/4), derives an index idx=((i1<<3)+(i2<<6)+i0)%0x4f from the icons, loads the expected word = msg(0xfa0+idx) [msg 4000+idx], reads the typed answer (input thunk 0xd3a, maxlen 15), and strcmps (call 0x3979). Returns ax=0 on match (and sets [0x4fc0]=1), ax=0xffff on mismatch.",
+      "category": "copy_protection",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "address": {"space": "wbase.ovr", "offset": "0xedb"},
+        "type": "static_disasm",
+        "details": "mov ax,0x41a @0xf43 (only push/mov of msg 1050 across all binaries). Random icon thunk 0xc47e @0x103d/0x1048/0x1053. Expected-word load: add ax,0xfa0 @0x1137 then msg-load thunk 0xc1f7 @0x113b. strcmp 0x3979 @0x118a. Decision test ax,ax;je @0x1190 -> success 0x119a (mov [0x4fc0],1; ret 0) / fail 0x1194 (mov ax,0xffff; ret)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "flag-0x4fc0-is-prompt-skip-not-entry-gate",
+      "claim": "0x4fc0 is the 'magicword already passed this run' flag: wbase 0xee1 'cmp [0x4fc0],1; jne prompt' returns success early (skips the prompt) when it is 1; success sets it to 1 (0x119c); winit 0x8e7 resets it to 0 at boot (before state->title). It is NOT the entry-animation gate: poking [0x4fc0]=1 at MASTER OPTIONS neither skipped the prompt nor animated the entry — so the flag is reset between the poke and the check (or the prompt is re-driven by the caller). The animated-vs-degenerate entry must be decided elsewhere (the caller's branch on the 0/0xffff return).",
+      "category": "copy_protection",
+      "evidence": {
+        "binary": "wbase.ovr",
+        "type": "static_disasm + live_poke",
+        "details": "Readers/setters of 0x4fc0 (byte scan 'c0 4f'): wbase read 0xee1 (cmp ==1), wbase set 0x119c (=1 on success), winit set 0x8e7 (=0). probe-magicword-flag.ts control(flag 0) vs test(poke 1): BOTH showed gs=65535 after START NEW GAME (prompt up), no door_phase gate-anim writes during the walk, gy stuck at 118 with 1 ENTER. Poke had no effect."
+      },
+      "confidence": "high"
+    }
+  ],
+  "next_experiments": [
+    "RE the magicword handler's CALLER (the START NEW GAME menu action in wbase) and how it branches on the ax=0 (pass) vs ax=0xffff (fail) return — the suspected animated-vs-degenerate entry divergence. Find the caller via a near-call to 0xedb within wbase, or a cross-overlay thunk.",
+    "Answer the magicword CORRECTLY to test whether the SUCCESS path runs the animated entry: with the patched core, regs() at the input wait gives ss:bp -> read the expected-word buffer (or read the 3 icon values bp-5a/5c/5e, compute idx, look up msg 4000+idx in extracted/messages/msg.json), then type it. If the success path animates (door_phase fires + auto-push), the hypothesis is confirmed.",
+    "RE the wbase castle-doors slide-apart animation (the MASTER OPTIONS two-door open on START NEW GAME the user describes FIRST) — a separate wbase routine, never examined; likely not door_phase.",
+    "For the PORT specifically: it skips the magicword by design, so it can run the SUCCESS (animated) path unconditionally. The remaining RE need is the ANIMATIONS themselves (castle-door slide + gate slide-open via door_phase 0x1446), not the copy-protection — capture them by driving the success path (force ax=0 / answer correctly)."
+  ],
+  "asm_anchors": [
+    {"space": "wbase.ovr", "offset": "0xedb", "name": "magicword_handler", "note": "entry. 0xee1 cmp [0x4fc0],1 (skip if passed); builds prompt+icons; expected=msg(0xfa0+idx); input 0xd3a; strcmp 0x3979 @0x118a; 0x1190 test ax;je success(0x119a set [0x4fc0]=1, ret 0)/fail(0x1194 ret 0xffff)."},
+    {"space": "wbase.ovr", "offset": "0x118a", "name": "magicword_strcmp", "note": "call 0x3979 — compares typed answer vs expected magicword. Returns 0 on match."},
+    {"space": "wbase.dgroup", "offset": "0x4fc0", "name": "copyprotection_passed_flag", "note": "1 = magicword passed (skip prompt). Set wbase 0x119c on success; reset winit 0x8e7 (=0) at boot. NOT the entry-animation gate (poke had no effect)."},
+    {"space": "wroot.thunk", "offset": "0xc47e", "name": "rng_thunk", "note": "0xc47e-0xBA9C=0x9e2 wroot-image. Random icon generator (3 calls, args 8/8/4)."},
+    {"space": "wroot.thunk", "offset": "0xc1f7", "name": "msg_load_thunk", "note": "load a msg string by id into a buffer (buf,msgid)."},
+    {"space": "wroot.thunk", "offset": "0xd3a (wbase-local)", "name": "input_field", "note": "text input field (window, buf, maxlen 0xf, row 5)."}
+  ],
+  "caveat_for_prior_findings": "Pins the asm for maze-newgame-sequence-frames.json 'magicword-copy-protection-gate' (previously behavioral only). Confirms the empty-answer LENIENT pass (fail return 0xffff, caller proceeds). Companion to maze-gate-open-animation.json: the dungeon gate-open animation (door_phase 0x1446) does NOT fire on the empty-magicword (fail) entry path; the animated entry the user recalls is the SUCCESS path (or a separate mechanism), divergence not yet pinned to the caller."
+}

@@ -71,7 +71,7 @@ vi.mock('../../src/lib/active-party-store.js', () => ({
   readActiveParty: vi.fn(),
 }));
 
-import { MazeView } from '../../src/pages/game/MazeView.js';
+import { MazeView, ANIM_FRAME_MS } from '../../src/pages/game/MazeView.js';
 import {
   loadMazeAssets,
   loadMazeWallSpans,
@@ -118,7 +118,7 @@ const NEWGAME_VIEWPORTS_RAW = JSON.parse(
 ) as Record<string, string>;
 const NEWGAME_VIEWPORTS: NewgameViewports = Object.fromEntries(
   Object.entries(NEWGAME_VIEWPORTS_RAW).map(([k, v]) => [
-    Number(k),
+    k,
     Uint8Array.from(atob(v), (c) => c.charCodeAt(0)),
   ]),
 );
@@ -268,10 +268,11 @@ describe('MazeView — no session', () => {
 describe('MazeView — with a session', () => {
   beforeEach(() => {
     mockReadGameSession.mockReturnValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       level: LEVEL_0,
       party: { ...ENTRANCE },
       entryMode: 'free',
+      animFrame: 0,
       stepsRemaining: 0,
     });
     mockLoadMazeAssets.mockResolvedValue(ASSETS);
@@ -350,7 +351,7 @@ describe('MazeView — with a session', () => {
   });
 });
 
-describe('MazeView — scripted entry (title → narration → gate-walk → bump → free)', () => {
+describe('MazeView — scripted entry (door-open → title → narration → gate-walk → gate-open → bump → free)', () => {
   // The narration frame sits at gy=118 (one step past the gy=117 title start).
   const NARRATION_PARTY: MazeParty = { ...SCRIPTED_ENTRY.start, gy: 118 };
 
@@ -369,10 +370,11 @@ describe('MazeView — scripted entry (title → narration → gate-walk → bum
 
   beforeEach(() => {
     mockReadGameSession.mockReturnValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       level: LEVEL_0_SCRIPTED,
       party: { ...NARRATION_PARTY },
       entryMode: 'narration',
+      animFrame: 0,
       stepsRemaining: 3,
     });
     mockLoadMazeAssets.mockResolvedValue(ASSETS);
@@ -408,7 +410,7 @@ describe('MazeView — scripted entry (title → narration → gate-walk → bum
     await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
     fireEvent.keyDown(window, { key: 'Enter' });
     const expected = advanceEntry(
-      { party: NARRATION_PARTY, entryMode: 'narration', stepsRemaining: 3 },
+      { party: NARRATION_PARTY, entryMode: 'narration', animFrame: 0, stepsRemaining: 3 },
       LEVEL_0_SCRIPTED.mazeBlock,
     );
     expect(expected.entryMode).toBe('gate-walk');
@@ -428,28 +430,60 @@ describe('MazeView — scripted entry (title → narration → gate-walk → bum
     expect(mockUpdateSession).not.toHaveBeenCalled();
   });
 
-  it('Enters drive the FSM narration → gate-walk → bump → free (via MazeView dispatch)', async () => {
+  it('Enters drive the FSM narration → gate-walk → gate-open → bump → free (via MazeView dispatch)', async () => {
     // MazeView chains each advanceEntry result through its local sessionRef, so
     // consecutive Enter presses walk the FSM forward. Verify the *wiring*: the
     // sequence of updateSession entryMode values, ending in 'free'. The seeded
     // frame is the narration frame (gy=118, stepsRemaining=3 — one step already
-    // consumed by title→narration). (The exact pixel rendering of each frame is
-    // owned by the pixel-parity task, not this wiring test.)
+    // consumed by title→narration). ENTER SKIPS the gate-open portcullis anim
+    // (the anim plays only on the timer — Stage 3). (The exact pixel rendering of
+    // each frame is owned by the pixel-parity task, not this wiring test.)
     renderMazeView();
     await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
 
     fireEvent.keyDown(window, { key: 'Enter' }); // narration → gate-walk (gy119)
-    fireEvent.keyDown(window, { key: 'Enter' }); // gate-walk → bump (gy120, inner-gate HMMMM)
-    fireEvent.keyDown(window, { key: 'Enter' }); // bump → bump (gy121, dead-end HMMMM)
+    fireEvent.keyDown(window, { key: 'Enter' }); // gate-walk → gate-open (gy120, gate cell)
+    fireEvent.keyDown(window, { key: 'Enter' }); // gate-open → bump (skip anim, gy121 dead-end HMMMM)
     fireEvent.keyDown(window, { key: 'Enter' }); // bump → free
 
     const modes = mockUpdateSession.mock.calls.map((c) => (c[0] as { entryMode: string }).entryMode);
-    expect(modes).toEqual(['gate-walk', 'bump', 'bump', 'free']);
+    expect(modes).toEqual(['gate-walk', 'gate-open', 'bump', 'free']);
     // A 5th Enter in free-roam is the OPTIONS no-op: no further updateSession.
     fireEvent.keyDown(window, { key: 'Enter' });
     expect(mockUpdateSession).toHaveBeenCalledTimes(4);
     // The party never moved via updateParty during the scripted entry.
     expect(mockUpdateParty).not.toHaveBeenCalled();
+  });
+
+  it('door-open auto-advances on the timer: 8 ticks → entryMode becomes title', async () => {
+    // Seed a fresh door-open session (the scripted entry now STARTS at the castle
+    // door slide). The animation timer self-advances one oracle frame per
+    // ANIM_FRAME_MS; after 8 ticks tickEntry transitions door-open → title.
+    mockReadGameSession.mockReturnValue({
+      schemaVersion: 4,
+      level: LEVEL_0_SCRIPTED,
+      party: { ...SCRIPTED_ENTRY.start },
+      entryMode: 'door-open',
+      animFrame: 0,
+      stepsRemaining: SCRIPTED_ENTRY.steps,
+    });
+    vi.useFakeTimers();
+    try {
+      renderMazeView();
+      // Advance past 8 frames of the door slide (0→7 advance + final → title).
+      await vi.advanceTimersByTimeAsync(ANIM_FRAME_MS * 9);
+      // The component chains tickEntry results through updateSession; the LAST
+      // call must have flipped entryMode to 'title' (door slide complete).
+      const modes = mockUpdateSession.mock.calls.map(
+        (c) => (c[0] as { entryMode: string }).entryMode,
+      );
+      expect(modes.length).toBeGreaterThan(0);
+      expect(modes[modes.length - 1]).toBe('title');
+      // The party never moved via updateParty during the door slide.
+      expect(mockUpdateParty).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('oracle viewport: scripted-entry frame (gy=118) viewport region is non-blank and matches the committed fixture slice', async () => {
@@ -525,10 +559,11 @@ describe('MazeView — captured wall spans (Task D1 byte-exact case)', () => {
     // substantive tile-2 walls), so the captured-span lookup HITS and the live
     // render draws real wall pixels.
     mockReadGameSession.mockReturnValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       level: { ...LEVEL_0_REAL, entrance: CASE_04_PARTY },
       party: { ...CASE_04_PARTY },
       entryMode: 'free',
+      animFrame: 0,
       stepsRemaining: 0,
     });
     mockLoadMazeAssets.mockResolvedValue(ASSETS);
@@ -621,10 +656,11 @@ describe('MazeView — LIVE party panel (Task 3: not the baked party)', () => {
 
   beforeEach(() => {
     mockReadGameSession.mockReturnValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       level: LEVEL_0,
       party: { ...ENTRANCE },
       entryMode: 'free',
+      animFrame: 0,
       stepsRemaining: 0,
     });
     mockLoadMazeAssets.mockResolvedValue(ASSETS);
@@ -683,10 +719,11 @@ describe('MazeView — LIVE party panel (Task 3: not the baked party)', () => {
     );
     mockLoadNewgameViewports.mockResolvedValue(NEWGAME_VIEWPORTS);
     mockReadGameSession.mockReturnValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       level: LEVEL_0,
       party: { ...ENTRANCE },
       entryMode: 'free',
+      animFrame: 0,
       stepsRemaining: 0,
     });
     mockLoadMazeAssets.mockResolvedValue(ASSETS);

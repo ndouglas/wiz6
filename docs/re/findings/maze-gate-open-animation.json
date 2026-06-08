@@ -1,0 +1,124 @@
+{
+  "topic": "maze-gate-open-animation",
+  "subagent_run": "2026-06-07 (deepen RE of the START-NEW-GAME dungeon-entry sequence: WHY the port 'isn't animated'. User clarified: movement is engine-controlled with pauses to read text, and the gates open per their normal in-game animation — that gate-open animation is what the port is missing.)",
+  "binaries": ["wmaze.ovr", "wroot.exe"],
+  "tool": "Static capstone CS_MODE_16 over test-fixtures/original/wmaze.ovr + wroot.exe (tools/parity/maze_disasm.py + ad-hoc capstone). Live dosbox-pure NIGHTLY (unpatched) core via HostClient: fresh-boot drive to the scripted entry, fine-frame sampling of door_phase(0x363e)+gy(0x4fa2)+game_state(0x363a), direct memory POKE of door_phase + forced redraw, committed-state gy readback, AND a new host CPU-slowdown lever (cycles command) that disproved the frame-collapse hypothesis. Probes (tools/libretro/): probe-gate-autowalk.ts (per-frame walk trace), probe-gate-poke.ts / probe-gate-livepoke.ts (poke settled+live approach positions), probe-gate-watch.ts (write-watch attempt — core unpatched), probe-gate-slowcap.ts (slow CPU + capture entry step), probe-gate-freeroam.ts / probe-gate-fr2.ts (free-roam crossing attempts).",
+  "summary": "MAJOR CORRECTION (2026-06-08, after visually inspecting captured frames): THE ENTRY *IS* ANIMATED — the castle doors slide apart in the center viewport during the post-magicword transition (gs=65535), revealing the hallway, EXACTLY as the user recalls. This animation is a VIEWPORT animation visible frame-by-frame at NORMAL speed (does NOT collapse), and is NOT driven by door_phase. door_phase (0x363e / wmaze 0x1446) was a RED HERRING for the entry: it is a separate free-roam interior-door mechanic. The earlier 'entry doesn't animate' / 'force-step bypass' conclusions were an artifact of (a) fixating on the door_phase number and (b) never densely capturing + LOOKING at the transition frames. Capture proof: tools/libretro/probe-entry-densecap.ts dumped every 3rd frame through the transition; the contact sheet (/tmp/dc-sheet1.png) shows the doors progressively sliding apart over ~10-15 frames into an open lit corridor. The door-slide is oracle-capturable (a per-frame viewport sequence) like the rest of the entry viewport. The magicword pass/fail does NOT gate the animation (cracking je->jmp @wbase 0x1192 to force success changed nothing). REMAINING: capture the FULL slide sequence + any subsequent dungeon-gate animations during the walk (the walk past gy=118 needs the engine's auto-push, not yet reliably driven via the harness). OLD (now-retracted) summary below for history.\n\n[RETRACTED] THE PORT IS MISSING A REAL, ASM-CONFIRMED GATE-OPEN ANIMATION — and the deeper truth (CORRECTED from an earlier frame-collapse guess) is that the SCRIPTED ENTRY DOES NOT TRIGGER IT. (1) The scripted entry is ENGINE-CONTROLLED: the party spawns at gy=117 (gx=127,facing 0=N) and AUTO-steps to gy=118 ~26 frames after the dungeon loads (game_state flips to 5) with NO input; it then PAUSES at gy=118 for the 'APPROACHING THE GATE' narration (msg 10010-12). 600 input-free frames do NOT advance past 118 — the remaining forward steps require an advance input (ENTER), timer-gated/jittery (~5 taps per accepted step), walking 118->119->120->121 (entrance gy=121; scriptedEntry.steps=4). (2) THE GATE-OPEN ANIMATION is wmaze 0x1446, reached from the FREE-ROAM movement handler (0x13e5): on a forward-move whose target wall classifies as a HEAD-ON door (shape==3 AND move-dir==facing[0x4f9a]) it runs a BLOCKING animation: play_sound(4) -> door_phase(0x363e)=1 -> redraw(0x5367) -> play_sound(0xd) -> delay(0xc43f,2) -> door_phase=2 -> redraw -> delay(2) -> door_phase=0 -> step-through(0x1190). The recess draw (0x4101/0x4116) lifts the gate seam by (door_phase+0xf) when door_phase>0 at depth0. door_phase is a 3-state counter: 0=closed,1=ajar,2=open. (3) THE ENTRANCE GATE EXISTS ON THE PATH: cell (127,120) has north==3 (a door) with orient2==0 — crossed on the 120->121 step facing north (0). BUT the scripted entry FORCE-STEPS through it WITHOUT the animation: door_phase stays 0 across that step EVEN WITH THE CPU SLOWED 40x (cycles=315, which stretched the step from instant to ~100-400 frames yet never showed door_phase 1/2). This DISPROVES the initial frame-collapse hypothesis for the entry — the entry's forced step bypasses the door-classification path (0x13e5->0x1446) entirely, matching the port's existing forcedStep model ('crosses the one-way gate free-roam collision would block'). (4) The animation IS a normal free-roam mechanic (a forward 'up' move into a head-on door), but capturing its lift pixels was blocked this pass by input-state issues (see capture-blockers): unserialized states have DEAD keyboard input, and the party at the gy=121 entrance would not accept turn/move keys in any fresh-boot drive (likely a still-active scripted/entrance-chamber sub-mode). (5) So the user's recollection ('gates open per their normal animation during entry') and the captured dosbox-pure entry DIVERGE: the engine's entry, as driven here, does not animate the entrance gate. Whether the retail/proper-magicword entry differs, or the recollection is of the free-roam gate-open, is UNRESOLVED and needs a decision (see port_implications).",
+  "findings": [
+    {
+      "id": "entry-animations-are-viewport-animations-CONFIRMED",
+      "claim": "CONFIRMED BY CAPTURE (2026-06-08): the entry has TWO viewport gate animations, both visible frame-by-frame at NORMAL speed (no slowdown), both oracle-capturable, NEITHER driven by door_phase. (1) CASTLE DOORS: during the post-magicword transition (game_state=65535, before the walk), the two closed wooden doors in the center viewport SLIDE APART revealing the lit corridor — over ~10-15 frames (probe-entry-densecap.ts contact sheet). (2) DUNGEON PORTCULLIS: as the party reaches the gate (~gy 120-121), a closed green/yellow portcullis grid (with a lock) is shown close-up with 'HMMMM...' text, then the grid LIFTS/retracts progressively (dark opening grows from the grid to a full dark doorway) and the party is pushed through into the next corridor (probe-walk-to-gate.ts contact sheets /tmp/wg-gateopen.png). door_phase stayed 0 across the entire walk INCLUDING the gy120->121 crossing (wwatch confirmed) — so these are NOT the 0x1446/door_phase mechanic. They are scripted viewport transition animations (the dungeon viewport is a banked tile atlas, already framebuffer-oracle'd in the port; the door/gate slides are extra frames of that same viewport).",
+      "category": "animation_capture",
+      "evidence": {
+        "binary": "wmaze.ovr/wbase.ovr",
+        "type": "dense_frame_capture",
+        "details": "probe-entry-densecap.ts (door slide), probe-walk-to-gate.ts (portcullis open, reached gy=121 via tap+step40 cadence). Contact sheets: /tmp/dc-sheet1.png (door slide closed->open), /tmp/wg-gateopen.png (portcullis grid lifting, temporal order). door_phase wwatch during the walk: only f1481 scratch garbage (192,102), no 1/2 writes, even at the gy120->121 gate crossing."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "auto-push-mechanism",
+      "claim": "The scripted entry 'auto-push' = ENTER-to-continue with engine-animated forward movement, NOT arrow-key walking and NOT a free-running timer. gy 117->118 is AUTOMATIC (~26 frames after the dungeon loads, no input). From gy=118 onward each forward push is triggered by an advance input (ENTER): the engine animates the forward step (and, at a gate cell, the gate-open animation) per accepted ENTER; the player does not steer. In the dosbox-pure harness the ENTER accept is timer-gated/jittery (~5-10 taps land one accept; sometimes stalls), which is a HARNESS input artifact — the real engine takes one clean ENTER per scripted beat (the user presses ENTER at each text pause: 'APPROACHING THE GATE', 'HMMMM'). Walk reaches gy 117(auto)->118->119->120->121 (entrance); the portcullis opens at the 120->121 crossing.",
+      "category": "control_flow",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_drive",
+        "details": "probe-gate-autowalk.ts: 117->118 auto (f260, no input), then stalls at 118 with no input for 600 frames. probe-walk-to-gate.ts: tap+step40 cadence advances 118->119(ENTER#12)->120(#24)->121(#34) — jittery but reaches the entrance; the gate-open animation + HMMMM render at gy120->121. NOTE: party-position writes (0x4f9a..0x4fa6) are NOT caught by the patched-core write-watch (the mover uses an instruction form the hook misses; door_phase direct movs ARE caught) — so the stepper's cs:ip was not pinned this pass."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "entry-is-engine-controlled",
+      "claim": "The scripted entry walk is engine-controlled, not free-roam stepping. Party spawns at gy=117; ~26 frames after game_state flips to 5 it AUTO-advances to gy=118 with no input; then it pauses at gy=118 for the narration and does not auto-advance further (600 frames, no input, stays gy=118). Advancing 118->119->120->121 requires an ENTER advance input that is timer-gated and jittery (~5 taps per accepted step). ENTER does NOT open a menu during the scripted walk (it advances); 'up' arrow only moves once free-roam begins (after gy=121).",
+      "category": "control_flow",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_frame_trace",
+        "details": "probe-gate-autowalk.ts (fresh boot, NO input after the 3 magicword ENTERs): f228 gy=117, f233 game_state=6, f234 game_state=5, f260 gy=118, then static at gy=118 through f600. With ENTER taps + step: ENTER#5 moved 118->119, ENTER#9 119->120, ENTER#13 120->121 (4 dead taps between accepts). probe-gate-walkmode.ts: 'up' arrow moves 121->122->123 only after the scripted walk ends. The serialize/unserialize-loaded states DROP the wmaze-internal scripted sub-mode (a contaminated drive read gy=121 at 'narration' because step()/key() after unserialize ran against the already-loaded dungeon, not a reboot — beware: c.step(3000) after unserialize does NOT reboot)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "gate-open-animation-routine",
+      "claim": "wmaze 0x1446 is the gate-open animation, reached from the forward-move handler when the cell ahead is a head-on door (local [bp-2]==3 AND [bp-4]==facing[0x4f9a]). Sequence: call thunk 0xc546(4) [play sound #4]; mov [0x363e],1 [door_phase=1]; call 0x5367 [maze redraw]; call 0xc546(0xd) [play sound #13]; call 0xc43f(2) [delay]; mov [0x363e],2 [door_phase=2]; call 0x5367 [redraw]; call 0xc43f(2) [delay]; mov [0x363e],0 [door_phase=0]; call 0x1190 [advance party through the gate]; loop. So the gate animates over 3 states (0 closed, 1 ajar, 2 open) with two sound effects and two inter-frame delays, then the party steps through.",
+      "category": "animation_mechanism",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x1446"},
+        "type": "static_disasm",
+        "details": "tools/parity/maze_disasm.py 0x1440 0x70. Door_phase writers in wmaze.ovr (grep 3e 36 LE): 0x0979 (init=0), 0x145d (=1), 0x1476 (=2), 0x1487 (=0) — the last three are exactly the 0x1446 animation. Thunks: 0xc546 = play-sound (CLAUDE.md audio: play-sound entry wroot 0x10AAA, overlays call via 0xc546); 0xc43f-0xBA9C=0x9a3 wroot-image (delay/wait, arg=2). The head-on-door gate (local==3, orient2==facing) is the SAME orient2==facing discriminator pinned in maze-emit-gate-closed.json (0x3af1)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "door-phase-lifts-the-recess-seam",
+      "claim": "The door-recess draw handler at wmaze 0x4101/0x4116 reads door_phase(0x363e) and, when door_phase>0 at depth 0 for a door-shape cell ([bp+6]==3, [bp+8]==1, [bp+4]==0), draws the recess lifted: it pushes (door_phase + 0xf) as a parameter to the span draw 0x3f8d. door_phase<=0 -> the closed-gate seam is drawn instead. So door_phase is literally the gate-lift animation counter consumed by the renderer.",
+      "category": "render",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4116"},
+        "type": "static_disasm",
+        "details": "0x4110 cmp [bp+4],0 (depth==0); 0x4116 cmp [0x363e],0; 0x411b jle 0x413e (closed); 0x4126 mov ax,[0x363e]; 0x4129 add ax,0xf; push ax; call 0x3f8d (the lifted draw). The closed path (0x413e/0x416e) draws the seam with fixed args. Caveat: the exact pixel meaning of (door_phase+0xf) — seam Y, height, or row count — is not yet measured (the lift frames could not be captured; see capture-wall finding)."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "entry-force-steps-bypass-not-frame-collapse",
+      "claim": "CORRECTION of an initial hypothesis: the entry's missing gate animation is NOT frame-collapse — the scripted entry never invokes 0x1446 at all. A new host CPU-slowdown lever (cycles command, see tooling) set dosbox_pure_cycles=315, which stretched the 120->121 entry step from instant to ~100-400 retro_run frames; door_phase stayed 0 on EVERY frame. If the animation ran (and merely collapsed), slowing 40x would expose door_phase 1/2 — it did not. Therefore the scripted entry uses a forced/no-collision step that skips the 0x13e5->0x1446 door-classification path. (Frame-collapse IS still the expected behavior for a NORMAL free-roam door crossing under fast emulation — but that path was not captured this pass; see capture-blockers.)",
+      "category": "control_flow",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "cpu_slowdown + frame_trace",
+        "details": "probe-gate-slowcap.ts: drive to gy=120 at normal speed, cycles('315'), single clean ENTER tap (quiet observe so a buffered ENTER can't skip the delay), fine-sample. Result: gy 120->121, door_phase==0 throughout, dumps=0. The movement fn 0x13e5 classifies the move-dir wall ([bp-2]=shape via call 0xf2a) and only branches to the gate animation 0x1446 when shape==3 AND move-dir==facing; the scripted forced step does not run this classification. The entrance door is real (level-0 cell (127,120) north==3, orient2==0) and would animate on a free-roam north crossing — but the entry forces past it."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wwatch-confirms-no-gate-anim-in-bypass-entry",
+      "claim": "PATCHED-CORE WRITE-WATCH CONFIRMATION (definitive, input-independent): a write-watch armed on door_phase (0x363e) across the entire dosbox-pure entry shows door_phase is NEVER written during the dungeon WALK (game_state==5, gy 118->119->120->121 — every per-ENTER drain was empty). The only writes to that address occur during the title/magicword phases (game_state!=5) from a scratch-reuse routine at cs:ip=f1481 with garbage byte values (0x79,0xec,0x99,0xc0,0x66,...) — winit/wbase reusing the DGROUP slot before wmaze owns it, NOT the gate animation. Since the gate animation (0x1446) WRITES door_phase=1,2,0 regardless of whether its delays are skipped or frame-collapsed, the absence of any 1/2 write during the walk proves 0x1446 does not execute. CONCLUSION: the empty-magicword bypass entry does NOT animate the gates. Combined with the user's firm recollection that the gates DO slide open (with auto-push movement + a single ENTER at APPROACHING), the animated sequence is the RETAIL path; the bypass is degenerate. The magicword copy-protection is the suspected divergence point.",
+      "category": "control_flow",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "patched_core_write_watch",
+        "details": "tools/libretro/build-core.sh built the patched traceable core (dbp_wwatch_* exports verified). probe-gate-wwatch2.ts: wwatchSet on [anchor+0x363e, +2) across START NEW GAME->magicword->dungeon->walk. Per-phase drains: title/magicword phases show writes from cs:ip=f1481 (garbage); walk ENTER#1..N (gy<121) drains ALL EMPTY; only post-121 ENTER#9 had 2 garbage writes. NOTE: also need to RE the separate wbase castle-doors-slide-apart animation (the MASTER OPTIONS two-door open on START NEW GAME) — never examined; likely a wbase routine, not door_phase."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "lift-not-renderable-by-poke",
+      "claim": "door_phase only affects the render inside the move-step's own redraw, not on stationary frames. Poking door_phase to 1/2/4/8 at gy118/119/120 — both in unserialized states AND in the live, actively-redrawing game — leaves the viewport byte-identical (vpHash constant per position, different ACROSS positions, so the redraw is live and tracks gy). The recess-lift draw branch (0x4116->0x411d) requires the move-step's transient depth0/shape3 geometry, which a settled frame does not have. So the lift frames cannot be captured by poke; they must be captured live during an actual animating move.",
+      "category": "capture_limitation",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "live_poke",
+        "details": "probe-gate-poke.ts (unserialized seq-04/05/06): all phases identical vp_hash. probe-gate-livepoke.ts (live): gy118 vpHash 3118968738, gy119 1242635558, gy120 2884561604 — constant across phases 0/1/2/4."
+      },
+      "confidence": "high"
+    }
+  ],
+  "port_implications": {
+    "what_the_port_must_add": [
+      "A controlled (engine-driven) entry walk with pauses: spawn at gy=117, auto-step to gy=118, PAUSE for the title card + narration, then advance to the gate. The port's entry-sequence.ts FSM already models the pauses + the forced step; the gap is the GATE ANIMATION.",
+      "A 3-state gate-open animation (closed->ajar->open) with two sounds (#4 then #13) and a short inter-phase delay, then step through — to be used for FREE-ROAM head-on door crossings (confirmed engine mechanic, 0x1446), and ALSO during the entry IF we honor the user's recollection (the captured dosbox-pure entry force-steps without it — a deliberate divergence, see decision_needed).",
+      "Tune timing to FEEL right (CLAUDE.md wall-clock caveat); the engine delay(2) busy-waits are CRT-calibrated, not portable durations."
+    ],
+    "decision_needed": "The captured dosbox-pure scripted entry does NOT animate the entrance gate (force-step). The user recalls it animating. Resolve before porting: (a) honor the recollection — the port's entry walks THROUGH the gate using the gate-open animation (slight divergence from the captured forced-step path; may match the retail/proper-magicword entry we could not drive); or (b) treat the gate-open as a free-roam-only mechanic and leave the entry as a forced approach. Per the project's 'user's lived recollection is the spec' principle, (a) is favored.",
+    "blocker_for_byte_exact_lift_pixels": "We have door_phase=0 (closed/open endpoints) but NOT the door_phase=1/2 lift pixels. The CPU-slowdown method now works (cycles command added + verified), so a live capture during an actual animating move is feasible — but this pass could not get a free-roam head-on door crossing to execute: (1) unserialized states have DEAD keyboard input; (2) the party at the gy=121 entrance refused turn/move keys in fresh-boot drives (a still-active scripted/entrance-chamber sub-mode is the likely cause). NEXT: find a committed FREE-ROAM state where arrow input is live (the emit-gate pass drove maze-corridor.state with arrows via maze-navigate-probe.ts), navigate to a head-on door, set cycles low, step through, and fb-capture door_phase 1 + 2. Alternative: rebuild the patched core for trace/VRAM-capture at redraw PCs 0x1463/0x147c (blocked on the #079 overlay relocation)."
+  },
+  "asm_anchors": [
+    {"space": "wmaze.ovr", "offset": "0x1446", "name": "gate_open_animation", "note": "head-on-door gate-open animation. Guard 0x1446 cmp [bp-2],3; 0x144f cmp [bp-4],[0x4f9a](facing). Body: play_sound(4), door_phase=1, redraw 0x5367, play_sound(0xd), delay 0xc43f(2), door_phase=2, redraw, delay(2), door_phase=0, step-through 0x1190."},
+    {"space": "wmaze.ovr", "offset": "0x4101", "name": "door_recess_draw", "note": "door-shape recess draw. 0x4101 cmp [bp+6],3 (door shape); 0x410a cmp [bp+8],1; 0x4110 cmp [bp+4],0 (depth0); 0x4116 cmp [0x363e],0 -> jle closed; else push (door_phase+0xf) to 0x3f8d (lifted). Closed seam at 0x413e/0x416e."},
+    {"space": "wmaze.dgroup", "offset": "0x363e", "name": "door_phase", "note": "gate-open animation counter: 0=closed, 1=ajar, 2=open. Written only by init (0x0979=0) and the 0x1446 animation (0x145d=1, 0x1476=2, 0x1487=0). Read by the recess draw 0x4116/0x4126."},
+    {"space": "wmaze.dgroup", "offset": "0x4f9a", "name": "facing", "note": "party facing (0=N). The gate animation fires only when the door's orient2 == facing (head-on)."},
+    {"space": "wmaze.dgroup", "offset": "0x4fa2", "name": "party_gy", "note": "117 spawn -> 118 auto-step (narration pause) -> 119 -> 120 -> 121 entrance (gate crossed on the 120->121 step)."},
+    {"space": "wroot.thunk", "offset": "0xc546", "name": "play_sound_thunk", "note": "overlay->wroot play-sound thunk (wroot 0x10AAA). Gate anim plays #4 then #0xd(13)."},
+    {"space": "wroot.thunk", "offset": "0xc43f", "name": "delay_thunk", "note": "0xc43f-0xBA9C=0x9a3 wroot-image. Inter-phase delay (arg 2). CRT-calibrated busy-wait on original hw; near-instant under dosbox-pure (collapses the animation into one retro_run)."}
+  ],
+  "unresolved": [
+    "Pixel meaning of (door_phase + 0xf) in the recess draw (0x4126): seam Y-offset, gate height, or row count — needs the lift frames captured (see port_implications.blocker_for_byte_exact).",
+    "Whether the 118->121 forward steps are truly input(ENTER)-gated or auto-advance on a timer that ENTER merely skips. Observed: no advance past 118 in 600 input-free frames -> at least the narration pause is input-gated. The ~5-taps-per-step jitter is the documented timer-gated accept (entry-sequence.ts) — but whether a long input-free wait would eventually auto-walk past 118 (e.g. a multi-second narration timeout) was not tested beyond 600 frames.",
+    "newgame-seq-07-entrance-chamber-gy121.state exists (a 2nd narration / 'ENTRANCE CHAMBER' frame at gy=121) that prior findings (maze-newgame-sequence-frames.json) said did NOT fire — reconcile: is there a second narration page after the gate, msg 10030-35?",
+    "Exact sound IDs #4 and #13 -> which sound00..38.snd slots, and whether they are the 'gate clang' the user recalls."
+  ],
+  "caveat_for_prior_findings": "EXTENDS maze-newgame-sequence-frames.json and maze-newgame-byteexact.json: those captured the entry as 5 discrete door_phase=0 stills (gy 117/118/119/120/121) and explicitly deferred 'the title card's exact timing' and 'a generated viewport' — they did not identify that the gate OPENS with a 3-state animation (0x1446) on the gate-crossing step, because that animation is frame-collapsed under fast emulation and invisible to framebuffer capture. The discrete-stills oracle is correct for the ENDPOINTS but is missing the in-between gate-lift motion. USES the orient2==facing head-on-door discriminator from maze-emit-gate-closed.json (0x3af1) — the gate animation 0x1446 gates on the same condition."
+}

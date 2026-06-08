@@ -16,6 +16,8 @@ import {
   drawEntryStrip,
   renderMazeViewport,
   oracleViewportForGy,
+  oracleAnimViewport,
+  tickEntry,
   turn,
   tryStepForward,
   type CapturedSpansTable,
@@ -46,6 +48,11 @@ import styles from './CastleScreen.module.css';
 const ENGINE_W = 320;
 const ENGINE_H = 200;
 const SCALE = 3;
+
+/** Per-frame interval for the door-slide / portcullis-lift viewport animations.
+ *  FEEL-tuned, NOT wall-clock parity (8 frames ≈ 0.7s slide) — see CLAUDE.md
+ *  "Wall-clock parity ≠ byte parity": tune the per-frame interval to feel right. */
+export const ANIM_FRAME_MS = 90;
 
 /** Message db URL — served from extracted/ via the viewer publicDir. */
 const MSG_DB_URL = '/messages/msg.json';
@@ -90,7 +97,18 @@ function safeRenderViewport(
   wallSpans: CapturedSpansTable | null,
   newgameViewports: NewgameViewports | null,
 ): Uint8Array {
-  // Oracle path: scripted entry frames with committed engine pixels.
+  // Animation path: the door-slide / portcullis-lift viewport animations play
+  // captured oracle frames keyed by "door:N" / "gate:N" (animFrame is the index).
+  if (session.entryMode === 'door-open') {
+    const a = oracleAnimViewport(newgameViewports, 'door', session.animFrame);
+    if (a !== null) return a;
+  }
+  if (session.entryMode === 'gate-open') {
+    const a = oracleAnimViewport(newgameViewports, 'gate', session.animFrame);
+    if (a !== null) return a;
+  }
+
+  // Oracle path: scripted entry stills with committed engine pixels (keyed by gy).
   const oracle = oracleViewportForGy(newgameViewports, session.party.gy, session.entryMode);
   if (oracle !== null) return oracle;
 
@@ -193,6 +211,10 @@ export function MazeView() {
   // once. Null until both resolve (or if the level has no scriptedEntry — then
   // there's no scripted strip and the baked free-roam widget shows).
   const stripTextRef = useRef<{ text: EntryStripText; font: Font } | null>(null);
+  // Self-rescheduling timer that drives the door-slide / portcullis-lift viewport
+  // animations (the session lives in sessionRef, not React state, so we use a
+  // timer ref rather than a reactive effect).
+  const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Live party-panel inputs: the player's actual active party (read once on
   // mount — it doesn't change mid-dungeon) + the panel fonts + portrait sets.
@@ -227,6 +249,8 @@ export function MazeView() {
       return;
     }
     sessionRef.current = session;
+    // Auto-play the door slide (or any animation mode) on entry.
+    scheduleAnimTick();
 
     // Read the player's active party once (it doesn't change mid-dungeon).
     activePartyRef.current = readActiveParty().members;
@@ -321,6 +345,7 @@ export function MazeView() {
     }
     return () => {
       cancelled = true;
+      if (animTimerRef.current) clearTimeout(animTimerRef.current);
     };
   }, [navigate]);
 
@@ -340,6 +365,34 @@ export function MazeView() {
       partyPanelsArg(),
     );
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
+  }
+
+  // Drive the door-slide / portcullis-lift viewport animations. Self-reschedules
+  // one tickEntry per ANIM_FRAME_MS while the session is in an animation mode.
+  // tickEntry transitions OFF the animation mode at the last frame, so the
+  // re-scheduled call sees a non-anim mode and returns — no infinite loop.
+  function scheduleAnimTick() {
+    if (animTimerRef.current) {
+      clearTimeout(animTimerRef.current);
+      animTimerRef.current = null;
+    }
+    const s = sessionRef.current;
+    if (!s) return;
+    if (s.entryMode !== 'door-open' && s.entryMode !== 'gate-open') return;
+    animTimerRef.current = setTimeout(() => {
+      const cur = sessionRef.current;
+      if (!cur) return;
+      const next = tickEntry({
+        party: cur.party,
+        entryMode: cur.entryMode,
+        animFrame: cur.animFrame,
+        stepsRemaining: cur.stepsRemaining,
+      });
+      updateSession(next);
+      sessionRef.current = { ...cur, ...next };
+      present();
+      scheduleAnimTick();
+    }, ANIM_FRAME_MS);
   }
 
   // Render whenever assets become available.
@@ -364,6 +417,7 @@ export function MazeView() {
             {
               party: session.party,
               entryMode: session.entryMode,
+              animFrame: session.animFrame,
               stepsRemaining: session.stepsRemaining,
             },
             session.level.mazeBlock,
@@ -371,6 +425,8 @@ export function MazeView() {
           updateSession(next);
           sessionRef.current = { ...session, ...next };
           present();
+          // Reaching gate-open via the walk starts the portcullis animation.
+          scheduleAnimTick();
         }
         return; // arrows (and everything else) inert during scripted entry
       }

@@ -68,6 +68,15 @@ static const char *SCRATCH = "/tmp/wiz6-libretro";
 static struct retro_memory_descriptor g_desc[64];
 static unsigned g_ndesc = 0;
 
+// Runtime-overridable "dosbox_pure_cycles" core option. Empty = let the core use
+// its default (auto/max). Set via the "cycles <val>" command to slow the emulated
+// CPU so the game's CRT-calibrated busy-wait delays (CS:0x1fe2/0x1fe4) span
+// multiple retro_run frames — exposing transient animations (e.g. the gate-open
+// lift) that otherwise complete within a single frame. g_vars_dirty pulses
+// GET_VARIABLE_UPDATE so the core re-reads the option live.
+static char g_cycles[32] = "";
+static int g_vars_dirty = 0;
+
 // framebuffer (latest frame)
 static uint8_t *g_fb = NULL; static unsigned g_fw = 0, g_fh = 0; static size_t g_fpitch = 0;
 static int g_pixfmt = 1; // 0=0RGB1555 1=XRGB8888 2=RGB565
@@ -89,8 +98,9 @@ static bool env(unsigned cmd, void *data) {
     case 15: { struct retro_variable *v = data;                    // GET_VARIABLE
                if (strstr(v->key, "cpu_core")) { v->value = "normal"; return true; }
                if (strstr(v->key, "cpu_type")) { v->value = "386"; return true; }
+               if (!strcmp(v->key, "dosbox_pure_cycles") && g_cycles[0]) { v->value = g_cycles; return true; }
                v->value = NULL; return false; }
-    case 17: if (data) *(bool*)data = false; return true;          // GET_VARIABLE_UPDATE
+    case 17: if (data) { *(bool*)data = g_vars_dirty ? true : false; g_vars_dirty = 0; } return true; // GET_VARIABLE_UPDATE
     case 36: { const struct retro_memory_map *mm = data;           // SET_MEMORY_MAPS
                g_ndesc = mm->num_descriptors > 64 ? 64 : mm->num_descriptors;
                for (unsigned i = 0; i < g_ndesc; i++) g_desc[i] = mm->descriptors[i];
@@ -283,6 +293,14 @@ int main(int argc, char **argv) {
       free(buf);
       if (!put) { printf("err unmapped\n"); continue; }
       printf("ok %zu\n", put);
+    }
+    else if (!strcmp(cmd, "cycles")) {
+      // Set the dosbox_pure_cycles core option live (e.g. "315", "7800", "max").
+      // Pulses GET_VARIABLE_UPDATE so the core re-applies it on the next run.
+      if (nf < 2) { printf("err arg\n"); continue; }
+      snprintf(g_cycles, sizeof g_cycles, "%s", a1);
+      g_vars_dirty = 1;
+      printf("ok cycles=%s\n", g_cycles);
     }
     else if (!strcmp(cmd, "mouse")) {
       // Relative move (clamped to screen by the DOS driver). Park the cursor in
