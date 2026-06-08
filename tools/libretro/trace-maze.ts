@@ -2108,11 +2108,17 @@ async function phasePlacements(c: HostClient): Promise<void> {
   const reproducible = firstPassLen < allCalls.length;
 
   // Dump the LIVE placement + descriptor records for each index, to compare to the
-  // offline expander (mazedata.ega). Read from the captured live tables.
+  // offline expander (mazedata.ega). Read from the captured live tables. Include
+  // BOTH the OR/masked SOURCE indices (`pass` = arg0c) AND the masked DEST indices
+  // (arg10) — the masked dst supplies the mirror GEOMETRY, so recording it lets a
+  // downstream check verify the mirror law src.destX + dst.destX + dst.w == 40
+  // (the masked-mirror branch geometry) without re-deriving dst from mazedata.ega.
   const liveRecs: Array<Record<string, number>> = [];
   const pt = segBaseHolder.placeTbl, dt = segBaseHolder.descTbl;
   if (pt && dt) {
-    for (const idx of pass) {
+    const recIndices = new Set<number>(pass);
+    for (const cc of mPass) recIndices.add(cc.arg10); // masked DST geometry indices
+    for (const idx of [...recIndices].sort((a, b) => a - b)) {
       const po = idx * 5;
       const imgIdx = pt[po]!;
       const do2 = imgIdx * 5;
@@ -2120,6 +2126,15 @@ async function phasePlacements(c: HostClient): Promise<void> {
     }
     console.log('live placement records (idx -> {imgIdx,destX,destRow,bias,count} desc{segDelta,srcOffLow,w,h}):');
     for (const r of liveRecs.slice(0, 8)) console.log(`  ${r.idx}: img${r.imgIdx}@(${r.destX},${r.destRow}) b${r.bias} c${r.count}  seg+0x${r.segDelta.toString(16)}/off0x${r.srcOffLow.toString(16)}/w${r.w}/h${r.h}`);
+    // Verify the masked-mirror geometry law for every masked call we captured.
+    for (const cc of mPass) {
+      const sp = liveRecs.find((r) => r.idx === cc.arg0c);
+      const dp = liveRecs.find((r) => r.idx === cc.arg10);
+      if (sp && dp) {
+        const sum = sp.destX! + dp.destX! + dp.w!;
+        console.log(`  masked ${cc.arg0c}->${cc.arg10}: srcX${sp.destX}+dstX${dp.destX}+w${dp.w}=${sum} ${sum === 40 ? 'mirror-law-OK' : 'MIRROR-LAW-MISMATCH'}`);
+      }
+    }
   }
 
   writeFileSync(outFile, JSON.stringify({

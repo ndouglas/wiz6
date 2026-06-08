@@ -111,6 +111,17 @@ parity 78.1% (was 52%); full captured OR+masked = 99.9%. RESIDUE 1 (78→99.9 ga
 (symmetric right-half detail) — geometry byte-exact (applyMaskedMirror), only the call GENERATION unwired.
 RESIDUE 2 (rare): the truly asymmetric ray-march (near full-height stone shifts the center, v8/v9) + facing-1
 near base + vanishing-point door center (v11) — irreducible without a live build trace. 428 tests green, tsc clean.
+MASKED-CALL GENERATION CRACKED (`maze-masked-generation.json`): the near-wall FLANK strips (mazedata imgIdx=1,
+the close corridor walls) are NEVER forward-OR'd — each side is a horizontal MIRROR of the opposite twin
+(FUN_0a93 masked branch, law `src.destX+dst.destX+dst.w==40`): center self-mirror (idx1) + pairs by count
+(4↔13 cnt4, 7↔10 cnt3). Fires iff open passage (both depth-0 corners open + forward open). `generateFullCallList`
+(OR+masked, leaves generateCallist's number[] contract intact) composed entirely from mazedata.ega reaches
+**99.909% (19694/19712) of the maze-corridor viewport — fully GENERATED, no captured frame** (== the captured
+baseline; residual 18px = the pre-existing deep-door-center TODO). Gated by `tests/maze/gen-callist-parity.test.ts`.
+pokeview extended to capture the masked branch (v12 committed). RESIDUE 3: non-canonical open-passage flank
+SUBSET oscillates run-to-run (ray-march); parity-ODD whole-frame masked is separate. 438 tests green.
+**Stage-3 result: the CANONICAL CORRIDOR is fully generated at 99.9% — functionally complete for straight
+corridors; remaining residues = non-canonical/asymmetric views + the 18px deep-door detail.**
 
 ## Stage 4: Wire generation into `renderMazeViewport` + decorations
 **Goal:** The live renderer builds the background page (floor/ceiling) AND decorations from the generated

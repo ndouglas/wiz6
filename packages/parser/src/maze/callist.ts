@@ -567,6 +567,128 @@ function generateFarClosedWall(
   return [leaf + stop, cl + stop, cr + stop];
 }
 
+// ---------------------------------------------------------------------------
+// THE NEAR-WALL FLANK MASKED-MIRROR FAMILY (the last background piece).
+//
+// RE pinned in docs/re/findings/maze-masked-generation.json. The OR families
+// above (skeleton + side walls + far-closed wall) reproduce the FULL OR set
+// byte-exact, but they do NOT include the few MASKED-mirror blits the engine
+// emits per frame for the NEAR-WALL VERTICAL FLANK strips — the close corridor
+// walls at the party's immediate left/right sides (placement family imgIdx=1,
+// the h=51 strips). Those strips are NEVER drawn by a forward OR-blit; the
+// engine draws each side's flank as a HORIZONTAL MIRROR of the OPPOSITE side's
+// twin (ega.drv FUN_0a93 masked branch, file 0xbc6; the mirror law
+// `src.destX + dst.destX + dst.w == 40` about page col 20, byte-exact —
+// maze-masked-mirror.json). For the canonical maze-corridor (gx127 gy121 f0)
+// this is the entire 78.1%→99.9% from-asset gap: 4 masked calls.
+//
+// THE FLANK FAMILY (mazedata.ega placements, all imgIdx=1, w=8 h=51):
+//   idx  1 destX 16  bias 0  count 8   — CENTER (self-mirror about col 20)
+//   idx  4 destX  8  bias 1  count 4   — LEFT  (count-4 pair)
+//   idx 13 destX 24  bias 3  count 4   — RIGHT (count-4 pair)
+//   idx  7 destX  8  bias 5  count 3   — LEFT  (count-3 pair)
+//   idx 10 destX 24  bias 0  count 3   — RIGHT (count-3 pair)
+// The mirror PAIRS are by `count` on opposite screen sides:
+//   count-4 pair: LEFT 4  ↔ RIGHT 13   (8 + 24 + 8 = 40)
+//   count-3 pair: LEFT 7  ↔ RIGHT 10   (8 + 24 + 8 = 40)
+// For the canonical corridor the engine draws BOTH sides, EACH as the mirror of
+// the other:  dst 4 ← src 13,  dst 7 ← src 10,  dst 10 ← src 7,  dst 13 ← src 4
+// (all OR-merge, masked flag = 1). VERIFIED reproducible byte-exact across 3
+// fresh pokeview captures of gy121 (docs/re/findings/maze-masked-generation.json).
+//
+// FIRING GATE (byte-exact for gy121; honest residue otherwise): the near-flank
+// family fires only when the party stands in an OPEN PASSAGE — both the LEFT and
+// RIGHT corner edges at the party's own (depth-0) cell are OPEN (code 0) and the
+// forward edge is open — AND the frame is parity-EVEN facing-0 (the forward-OR
+// branch; parity-odd frames draw the WHOLE frame through the masked branch, a
+// different / run-to-run-oscillating case — maze-generation-law.json). When a
+// flank corner is STONE (v6/v7/v9/v10) the near wall is drawn by the OR side-wall
+// family instead and NO flank masked fires (confirmed: those views capture zero
+// near-flank masked calls).
+//
+// RESIDUE (documented, NOT emitted — anti-overfit): for OTHER open-passage views
+// (e.g. gx124 gy122 f0, gx121 gy118 f1) the flank SUBSET that fires + the deeper
+// door-recess masked pairs OSCILLATE run-to-run (the same mid-build
+// non-determinism the parity-odd pairing shows — maze-generation-law.json). Only
+// the gy121-class corridor (deep, straight, both-open, parity-even facing-0) is
+// byte-exact and stable. We emit the canonical 4-flank set for that class and
+// document the rest.
+// ---------------------------------------------------------------------------
+
+/** The near-wall flank mirror PAIRS (imgIdx=1 family), keyed by `count`. Each
+ *  entry is [leftIdx, rightIdx] — the two flank strips on opposite screen sides
+ *  whose geometry mirrors about page col 20 (`leftX + rightX + w == 40`). */
+const FLANK_MIRROR_PAIRS = [
+  [4, 13], // count-4 pair (LEFT destX 8, RIGHT destX 24)
+  [7, 10], // count-3 pair
+] as const;
+
+/**
+ * The NEAR-WALL FLANK masked-mirror calls for a parity-EVEN facing-0 OPEN-passage
+ * corridor (byte-exact for the canonical maze-corridor gy121 class). Returns the
+ * masked `BackgroundCall`s that draw the close corridor side walls: for each
+ * mirror pair the engine draws BOTH the left flank (as a mirror of the right
+ * twin) and the right flank (as a mirror of the left twin), all OR-merge.
+ *
+ * Empty when the party is NOT in an open passage (a flank corner is stone — the
+ * near wall is then an OR side-wall family, not a mirror), when the frame is
+ * parity-odd (whole-frame masked branch — a different, oscillating case), or when
+ * the corridor caps at depth 0 (a closed front fills the center).
+ */
+export function generateNearFlankMasked(
+  block: MazeBlock,
+  party: MazeParty,
+): BackgroundCall[] {
+  const { gx, gy, facing } = party;
+  // Parity-odd frames draw the whole view through the masked branch (a different,
+  // run-to-run-oscillating case); only the parity-EVEN forward-OR branch emits the
+  // few near-flank mirrors deterministically.
+  if ((gx + gy + facing) % 2 !== 0) return [];
+  const visible = computeVisibleDepths(block, party);
+  // A closed front at the party's own cell fills the center with the near
+  // full-height wall (no flanks behind it).
+  if (visible.length === 1 && visible[0] === 0) return [];
+  // OPEN PASSAGE gate: both depth-0 corner edges open AND the forward edge open.
+  const [c0x, c0y] = step(gx, gy, facing, 0, 0); // the party's own cell
+  const front = forwardEdge(block, c0x, c0y, facing);
+  const cL = cornerL(block, c0x, c0y, facing);
+  const cR = cornerR(block, c0x, c0y, facing);
+  if (front !== 0 || cL !== 0 || cR !== 0) return [];
+  // Draw both flanks of each mirror pair, each as the mirror of the opposite twin.
+  const calls: BackgroundCall[] = [];
+  for (const [left, right] of FLANK_MIRROR_PAIRS) {
+    calls.push({ kind: 'masked', src: right, dst: left, mode: 'or' });
+    calls.push({ kind: 'masked', src: left, dst: right, mode: 'or' });
+  }
+  return calls;
+}
+
+/**
+ * The FULL per-view background blit CALL LIST (OR forward-blits + the near-wall
+ * flank MASKED-mirror calls) derived from the maze block + party — no captured
+ * frame. The OR set comes from `generateCallist` (the skeleton + side-wall +
+ * far-closed families, byte-exact); the masked calls come from
+ * `generateNearFlankMasked` (the near-flank mirror family, byte-exact for the
+ * canonical gy121-class corridor). Compose with `composeCallList` /
+ * `composeBackgroundFromAsset`.
+ *
+ * BYTE-EXACT for the canonical maze-corridor (gx127 gy121 facing0): the 27 OR
+ * calls + the 4 near-flank masked calls (13→4, 10→7, 7→10, 4→13) reproduce the
+ * captured call list; from-asset compose reaches ≥99.9% of the engine viewport
+ * (the residual 18px is the deep-door-center detail, a draw path beyond the
+ * OR/masked background blit — maze-corridor-fromasset-parity.diagnostic.test.ts).
+ *
+ * For other open-passage views the flank subset + deeper door-recess masked pairs
+ * are the documented ray-march residue (maze-masked-generation.json).
+ */
+export function generateFullCallList(block: MazeBlock, party: MazeParty): CallList {
+  const orCalls: CallList = generateCallist(block, party).map((src) => ({
+    kind: 'OR',
+    src,
+  }));
+  return [...orCalls, ...generateNearFlankMasked(block, party)];
+}
+
 export type { MazeBlock, MazeParty };
 
 /** One background blit call. */
