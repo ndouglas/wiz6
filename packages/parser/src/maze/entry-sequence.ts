@@ -54,11 +54,13 @@ export type EntryMode =
   | 'gate2-open'
   | 'free';
 
-/** Per-sequence captured-oracle frame counts. The gate1 lift spans far more
- *  engine frames than the door slide, so it needs MORE frames to play smoothly at
- *  the same per-frame interval (8 was too few — it skipped lift states). The
- *  extractor, parity gate, and viewer all key off these counts. */
-export const ENTRY_ANIM_FRAME_COUNTS = { door: 8, gate1: 12, gate2: 8 } as const;
+/** Per-sequence captured-oracle frame counts — each animation uses exactly the
+ *  engine's DISTINCT visual states, no more, no fewer (too few skips states;
+ *  duplicates make it look like it jumps). The castle doors snap between 6 fixed
+ *  slide positions; the first portcullis lifts over 12 frames (its lift spans far
+ *  more engine frames); the second over 8. The extractor, parity gate, and viewer
+ *  all key off these counts. */
+export const ENTRY_ANIM_FRAME_COUNTS = { door: 6, gate1: 12, gate2: 8 } as const;
 export type EntryAnimSeq = keyof typeof ENTRY_ANIM_FRAME_COUNTS;
 
 /** Last animation frame index for an animation mode's sequence (count − 1). */
@@ -69,8 +71,9 @@ export function animLastForMode(mode: EntryMode): number {
   return 0;
 }
 
-/** Back-compat default (door/gate2 sequence length − 1). Prefer animLastForMode. */
-export const ANIM_LAST = ENTRY_ANIM_FRAME_COUNTS.door - 1;
+/** Back-compat default (the standard 8-frame sequence length − 1 = gate2's).
+ *  Prefer animLastForMode(mode) — per-sequence counts differ. */
+export const ANIM_LAST = ENTRY_ANIM_FRAME_COUNTS.gate2 - 1;
 
 /** Hold thresholds, in CUTSCENE ticks (see MazeView CUTSCENE_TICK_MS for the
  *  ms-per-tick). A hold beat advances when holdTicks reaches the threshold.
