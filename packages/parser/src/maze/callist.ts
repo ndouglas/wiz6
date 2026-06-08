@@ -283,6 +283,61 @@ export function sideWallSurfaceLadder(
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// SIDE-WALL SURFACE — the CUMULATIVE PANEL STACK (byte-exact for the LEFT
+// full-open run; the corrected geometry of the ladder above).
+//
+// RE refined 2026-06-08 (maze-wall-family-seeding.json residue pass) from a
+// SYSTEMATIC 12-capture pokeview dataset (docs/re/findings/maze-views/v7..v11 +
+// the originals v1/v6). DECISIVE EVIDENCE: a corridor side wall is NOT a single
+// pair per slot — it is a TRAPEZOID STACK that ACCUMULATES panels as it recedes.
+// Decomposing v7 (gx121 gy119 f0: cornerL OPEN all 4 depths, cornerR STONE all 4)
+// by destRow band shows the LEFT ceiling indices PER perspective slot p:
+//   p0: {134}   p1: {131,135}   p2: {128,132,136}   p3: {129,133,137}
+// i.e. at slot p the wall emits `min(p+1, 3)` panels at base `near(p) + 4·k`
+// (k = 0..count-1), with the NEAR base receding `near(p) = 134 - 3·p` for p ≤ 2,
+// and the DEEPEST slot (p = 3, the h=3 far strip) clamping to `near(2) + 1 = 129`
+// (the "deepest-taper" adjustment — the same one-off substitution v5's base-34 p3
+// flagged). Each ceiling panel has its FLOOR twin at `+28` (162/159/156/157…).
+// VERIFIED byte-exact: the LEFT full-open stack {128,129,131,132,133,134,135,136,
+// 137} (+ the +28 floor twins) == v7's AND v10's captured LEFT-side OR indices.
+//
+// CRITICAL RESIDUE (anti-overfit): this stack is byte-exact for the LEFT side of a
+// contiguous OPEN run from depth 0, but the RIGHT side is NOT its mirror — RIGHT's
+// near base receds `138 → 139 → 144 → 149` with a DIFFERENT per-slot panel count
+// (1,2,2,1 in v8), because the visible center shifts toward the stone side and the
+// perspective ray-march is asymmetric. Likewise the far-door / deepest specials
+// (84/85/89/91, 58/61, 98/101) appear at the corridor vanishing point per view in
+// a pattern the corner-solidity profile does NOT predict. So the FULL per-view
+// (start,end)×(side) extent is still the decompiler-resistant ray-march residue
+// (the classifier post-pass jump-table @wmaze 0x39ec seeding [0x5072..0x50a2]).
+// We pin the LEFT full-open stack + the closed-front family + the ladder; we do
+// NOT auto-emit the asymmetric RIGHT / occluded / door-recess surfaces.
+// ---------------------------------------------------------------------------
+
+/**
+ * The LEFT side-wall SURFACE as a cumulative panel STACK, for a contiguous OPEN
+ * run of `runLength` perspective slots starting at depth 0 (byte-exact vs v7/v10).
+ * Returns the ceiling indices AND their +28 floor twins (the engine emits both
+ * bands). `runLength` is the number of consecutive front-to-back depths whose
+ * LEFT corner edge is non-stone (the open run); the run is capped at 4 slots.
+ */
+export function sideWallSurfaceStack(runLength: number): number[] {
+  const out: number[] = [];
+  const n = Math.min(Math.max(runLength, 0), 4);
+  for (let p = 0; p < n; p++) {
+    const count = Math.min(p + 1, 3);
+    // Near base recedes 134 → 131 → 128 for p ≤ 2; the deepest slot (h=3 strip)
+    // clamps to near(2) + 1 = 129 (the deepest-taper adjustment, v7/v10/v5-base34).
+    const near = p <= 2 ? 134 - 3 * p : 134 - 3 * 2 + 1;
+    for (let k = 0; k < count; k++) {
+      out.push(near + 4 * k); // ceiling
+      out.push(near + 4 * k + 28); // floor twin
+    }
+  }
+  return out;
+}
+
 /**
  * Generate the placement-index SET the engine emits for a parity-EVEN corridor view,
  * from the maze block + party (NO captured frame):

@@ -30,6 +30,7 @@ import {
   generateCallist,
   generateClosedFrontNearWall,
   sideWallSurfaceLadder,
+  sideWallSurfaceStack,
 } from '../../src/maze/callist.js';
 import { MazeBlockSchema, type MazeBlock, type MazeParty } from '@wiz6/data';
 
@@ -252,4 +253,60 @@ describe('side-wall surface ladder arithmetic (byte-exact vs v1 LEFT surface)', 
     const present = new Set(loadView('v1-gy121f0').placementIndices);
     for (const idx of [138, 139, 143]) expect(present.has(idx)).toBe(true);
   });
+});
+
+// ---------------------------------------------------------------------------
+// SIDE-WALL SURFACE — the cumulative panel STACK (byte-exact for the LEFT
+// full-open run). Pinned vs v7/v10 (the 2026-06-08 systematic capture pass).
+//   v7 = gx121 gy119 f0 (cornerL OPEN all 4 depths → LEFT wall recedes full run).
+//   v10 = gx124 gy121 f1 (mirror facing, same LEFT full-open profile).
+// The LEFT side surface decomposes (destX < 16, ceiling rows 32/39/51/59 + floor
+// rows 128/104/88/83) to EXACTLY sideWallSurfaceStack(4). The RIGHT side is the
+// asymmetric stone near-wall family in both, NOT a mirror (documented residue).
+// ---------------------------------------------------------------------------
+describe('side-wall surface STACK (byte-exact LEFT full-open run vs v7/v10)', () => {
+  // Center skeleton ceiling/floor bases (destX 11/13/16/18) + the 6 top-strips,
+  // excluded so the test isolates the LEFT side surface.
+  const SKEL = new Set([
+    122, 123, 124, 125, 150, 151, 152, 153, 346, 349, 352, 355, 358, 361,
+  ]);
+  // The expected LEFT full-open stack (ceiling 134/131,135/128,132,136/129,133,137
+  // + their +28 floor twins). This IS sideWallSurfaceStack(4).
+  const LEFT_FULL = new Set(sideWallSurfaceStack(4));
+
+  it('sideWallSurfaceStack(4) is the v7-decomposed LEFT full-open surface', () => {
+    expect(LEFT_FULL).toEqual(
+      new Set([
+        134, 131, 135, 128, 132, 136, 129, 133, 137, // ceiling
+        162, 159, 163, 156, 160, 164, 157, 161, 165, // +28 floor twins
+      ]),
+    );
+  });
+
+  it.each(['v7-gx121gy119f0', 'v10-gx124gy121f1'])(
+    'the LEFT-side (destX<16) OR indices == sideWallSurfaceStack(4) (%s)',
+    (name) => {
+      const view = loadView(name) as unknown as {
+        placementIndices: number[];
+        liveRecords: Array<{
+          idx: number;
+          destX: number;
+          destRow: number;
+        }>;
+      };
+      const orset = new Set(view.placementIndices);
+      // LEFT-side wall records: destX < 16, in a ceiling/floor band, not skeleton.
+      const left = new Set<number>();
+      for (const r of view.liveRecords) {
+        if (!orset.has(r.idx)) continue;
+        if (SKEL.has(r.idx)) continue;
+        if (r.destX >= 16) continue; // LEFT screen half
+        const band =
+          r.destRow in CEILING_ROW_DEPTH || r.destRow in FLOOR_ROW_DEPTH;
+        if (!band) continue;
+        left.add(r.idx);
+      }
+      expect(left).toEqual(LEFT_FULL);
+    },
+  );
 });

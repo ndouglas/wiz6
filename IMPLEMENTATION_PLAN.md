@@ -92,7 +92,15 @@ wall spans) — the engine's perspective ray-march / classifier post-pass (wmaze
 write-watches on the span list 0x50d0 + slot array 0x5220 saw ZERO writes on a poked turn) — so the
 depth-keyed `depthemit` trace reads stale garbage. Unblock = a navigation-reach harness (real moves to each
 geometry) OR data-driven extent inference (pokeview CAPTURE still works — decompose many side-wall captures →
-the extent law). Hypothesis to test: extent == the contiguous solid-side-cell run. Ceiling/floor + v6 DONE.
+the extent law). Ceiling/floor + v6 DONE.
+EXTENT — data-driven pass (12-view dataset, v7..v11 committed): the LEFT open-run surface is a cumulative
+TRAPEZOID STACK (slot p emits min(p+1,3) panels at near(p)+4k, near(p)=134−3p, deepest clamps to 129; each
++28 floor twin) — byte-exact vs v7/v10 LEFT (`sideWallSurfaceStack`). REFUTED: contiguous-run = extent;
+occlusion caps the side walk; corner-open as a sufficient predictor. RIGHT is NOT LEFT's mirror (asymmetric
+ray-march — v8 RIGHT recedes 138→139→144→149). The general (start,end)×side extent is provably not a clean
+closed form over the solidity profile → it's the decompiler-resistant classifier post-pass (wmaze 0x39ec
+jump-table on per-slot wall CODE → [0x5072..0x50a2]). NOT shipped as a guess (anti-overfit). Path to finish:
+static-RE the 0x39ec jump table OR a navigation-reach harness (real moves) to unblock the depthemit live trace.
 
 ## Stage 4: Wire generation into `renderMazeViewport` + decorations
 **Goal:** The live renderer builds the background page (floor/ceiling) AND decorations from the generated
