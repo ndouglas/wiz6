@@ -32,6 +32,10 @@ export function loadMazeAssets(): MazeRenderAssets {
  * browser and node MazeRenderAssets bytes are guaranteed identical.
  */
 export function loadMazeAssetsRaw(): MazeAssetsRaw {
-  const r = raw as unknown as { atlasB64: string; pieceDescriptors: MazeAssetsRaw['pieceDescriptors'] };
-  return { atlasB64: r.atlasB64, pieceDescriptors: r.pieceDescriptors };
+  const r = raw as unknown as {
+    atlasB64: string;
+    mazedataB64: string;
+    pieceDescriptors: MazeAssetsRaw['pieceDescriptors'];
+  };
+  return { atlasB64: r.atlasB64, mazedataB64: r.mazedataB64, pieceDescriptors: r.pieceDescriptors };
 }

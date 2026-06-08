@@ -51,6 +51,15 @@ export {
 // Maze render assets (isomorphic decoder + node-side loaders)
 export { loadMazeAssets, loadMazeAssetsRaw } from './maze/assets.js';
 export { decodeMazeAssets, type MazeAssetsRaw } from './maze/assets-decode.js';
+// Maze from-asset background generator (free-roam viewport background page)
+export {
+  generateFullCallList,
+  composeCallList,
+  composeBackgroundFromAsset,
+  type BackgroundCall,
+  type CallList,
+} from './maze/callist.js';
+export { expandMazeData, type MazeWorkBuffer } from './maze/maze-data.js';
 // Maze movement (discrete turn + wall-collision step)
 export { turn, tryStepForward } from './maze/movement.js';
 // Maze scripted entry FSM + narration decoder
