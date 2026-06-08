@@ -42,6 +42,8 @@ export {
   generateSkeletonIndices,
   computeVisibleDepths,
   generateCallist,
+  generateNearFlankMasked,
+  generateFullCallList,
 } from './callist.js';
 
 // Maze block decoder (pure, no I/O)
