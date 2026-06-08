@@ -1,29 +1,35 @@
 /**
- * entry-sequence.test.ts — gate for advanceEntry (entry FSM) + decodeNarrationLines.
+ * entry-sequence.test.ts — gate for the START-NEW-GAME cutscene FSM (tickEntry +
+ * advanceEntry + isAnimationMode) + decodeNarrationLines.
  *
- * Uses a hand-built minimal MazeBlock with an open forward corridor along
- * facing 0 (north), so facing-0 steps advance gy by +1.
+ * The entry is a TIMED AUTO-PUSH CUTSCENE (8 beats): the party advances ~1 cell
+ * every couple of seconds on a timer (tickEntry), pausing at text beats, while TWO
+ * portcullis gates lift open. ENTER (advanceEntry) skips the current beat.
  *
- * Also tests against the REAL level-0 MazeBlock (extracted/maze/level-0.json) to
- * prove the forced march walks gy 117→118→119→120→121 even though tryStepForward
- * would block at the gate cells (north=2 wall, north=3 door).
+ * Beat order + gy progression:
+ *   door-open(117) → title(117) → approach1(118) → gate1-open(118) → walk(119) →
+ *   approach2(120) → gate2-open(120) → free(121)
  *
- * Engine reference: wmaze scripted entry (title → narration → gate-walk → bump →
- * free), CLAUDE.md overlay state table + ScriptedEntry schema (Task 1).
+ * Uses a hand-built open-corridor MazeBlock + the REAL level-0 block to prove the
+ * forced march crosses the two solid gate walls free-roam collision would block.
  *
- * Pin: docs/re/findings/maze-newgame-byteexact.json (per_enter_pin_addendum).
- * Level-0 scriptedEntry.start: gx=127, gy=117, z=0, facing=0 (the ENTERING title).
- * Per-ENTER (locked to the committed fixtures newgame-seq-02..06, Task 5):
- *   title(117) → narration(118) → gate-walk(119) → bump(120) → bump(121) → free.
- * gy=120 shows HMMMM (a front-wall bump, frame 05), NOT a plain gate-walk — the
- * Task-5 reconciliation moved BUMP_GY 121→120 and made bump step once more (gy
- * 120→121, HMMMM persists) before going free at the dead-end (gy=121).
+ * Engine reference: docs/re/findings/maze-gate-open-animation.json (the two
+ * viewport gate animations + auto-push + gate sounds).
  */
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
-import { advanceEntry, tickEntry, ANIM_LAST, type EntryState } from '../../src/maze/entry-sequence.js';
+import {
+  advanceEntry,
+  tickEntry,
+  isAnimationMode,
+  ANIM_LAST,
+  TITLE_HOLD,
+  TEXT_HOLD,
+  WALK_HOLD,
+  type EntryState,
+} from '../../src/maze/entry-sequence.js';
 import { decodeNarrationLines } from '../../src/maze/entry-sequence.js';
 import { tryStepForward } from '../../src/maze/movement.js';
 import type { MazeBlock, MazeParty, MessageDb } from '@wiz6/data';
@@ -37,15 +43,7 @@ const REAL_LEVEL_0 = JSON.parse(
 const REAL_BLOCK: MazeBlock = REAL_LEVEL_0.mazeBlock;
 
 // ---------------------------------------------------------------------------
-// MazeBlock helper — open corridor along facing 0 (north) at gx=127,gy=118+.
-//
-// MazeBlock maps global coords to cells via gxBase/gyBase per region (8×8).
-// Region base (16, 14) covers gx 16..23, gy 14..21 — but the coords in the
-// plan (gx127,gy118) are far outside a single 8-cell region; we just need a
-// block whose cells are all-open at the coords we'll use.
-//
-// Simplest approach: use a single region with gxBase=127, gyBase=118 covering
-// gx 127..134, gy 118..125. All north walls = 0 (open). 64 cells, all open.
+// MazeBlock helper — open corridor along facing 0 (north) at gx=127,gy=117+.
 // ---------------------------------------------------------------------------
 function makeOpenBlock(gxBase: number, gyBase: number): MazeBlock {
   const cells = Array.from({ length: 64 }, () => ({
@@ -55,238 +53,305 @@ function makeOpenBlock(gxBase: number, gyBase: number): MazeBlock {
     orient2: 0,
     pit: 0,
   }));
-  return {
-    gxBase: [gxBase],
-    gyBase: [gyBase],
-    regions: [cells],
-  };
+  return { gxBase: [gxBase], gyBase: [gyBase], regions: [cells] };
 }
 
-// Party at the level-0 scriptedEntry start position — the ENTERING title-card
-// (gx=127, gy=117, z=0, facing=0).
+// Party at the level-0 scriptedEntry start position (the ENTERING title card).
 const START_PARTY: MazeParty = { gx: 127, gy: 117, z: 0, facing: 0 };
-
 // Open block covering gx 127..134, gy 117..124 — all north walls open.
 const OPEN_BLOCK: MazeBlock = makeOpenBlock(127, 117);
 
+/** Build an EntryState concisely. */
+function st(mode: EntryState['entryMode'], gy: number, animFrame = 0, holdTicks = 0): EntryState {
+  return { party: { ...START_PARTY, gy }, entryMode: mode, animFrame, holdTicks };
+}
+
 // ---------------------------------------------------------------------------
-// advanceEntry FSM — title → narration → gate-walk → bump → free
-//
-// Per-ENTER contract (locked to fixtures newgame-seq-02..06, Task 5):
-//   title(117)    --ENTER--> narration(118)   (+1 forward step)
-//   narration(118)--ENTER--> gate-walk(119)   (+1 forward step; dismisses text)
-//   gate-walk(119)--ENTER--> bump(120)        (+1 forward step; inner gate → HMMMM)
-//   bump(120)     --ENTER--> bump(121)        (+1 forward step; HMMMM persists → dead-end)
-//   bump(121)     --ENTER--> free(121)        (no move)
+// isAnimationMode
 // ---------------------------------------------------------------------------
-describe('advanceEntry', () => {
-  it('door-open → title: ENTER skips the door slide (no party move)', () => {
-    const s: EntryState = { party: START_PARTY, entryMode: 'door-open', animFrame: 3, stepsRemaining: 4 };
-    const next = advanceEntry(s, OPEN_BLOCK);
-    expect(next.entryMode).toBe('title');
-    expect(next.animFrame).toBe(0);
-    expect(next.party.gy).toBe(117); // no move
-    expect(next.stepsRemaining).toBe(4);
+describe('isAnimationMode', () => {
+  it('true for the three viewport-animation modes', () => {
+    expect(isAnimationMode('door-open')).toBe(true);
+    expect(isAnimationMode('gate1-open')).toBe(true);
+    expect(isAnimationMode('gate2-open')).toBe(true);
   });
-
-  it('title → narration: +1 forward step (gy 117→118)', () => {
-    const s: EntryState = { party: START_PARTY, entryMode: 'title', animFrame: 0, stepsRemaining: 4 };
-    const next = advanceEntry(s, OPEN_BLOCK);
-    expect(next.entryMode).toBe('narration');
-    expect(next.animFrame).toBe(0);
-    expect(next.party.gy).toBe(118);
-    expect(next.party.gx).toBe(127);
-    expect(next.party.facing).toBe(0);
-    expect(next.stepsRemaining).toBe(3);
-  });
-
-  it('narration → gate-walk: +1 forward step (gy 118→119, dismisses text)', () => {
-    const s: EntryState = { party: { ...START_PARTY, gy: 118 }, entryMode: 'narration', animFrame: 0, stepsRemaining: 3 };
-    const next = advanceEntry(s, OPEN_BLOCK);
-    expect(next.entryMode).toBe('gate-walk');
-    expect(next.party.gy).toBe(119);
-    expect(next.stepsRemaining).toBe(2);
-  });
-
-  it('gate-walk final step: gy 119→120 → gate-open (START portcullis anim), stepsRemaining 2→1', () => {
-    const s: EntryState = { party: { ...START_PARTY, gy: 119 }, entryMode: 'gate-walk', animFrame: 0, stepsRemaining: 2 };
-    const next = advanceEntry(s, OPEN_BLOCK);
-    expect(next.entryMode).toBe('gate-open');
-    expect(next.animFrame).toBe(0);
-    expect(next.party.gy).toBe(120);
-    expect(next.stepsRemaining).toBe(1);
-  });
-
-  it('gate-open → bump: ENTER skips the portcullis anim, steps gy 120→121', () => {
-    const s: EntryState = { party: { ...START_PARTY, gy: 120 }, entryMode: 'gate-open', animFrame: 4, stepsRemaining: 1 };
-    const next = advanceEntry(s, OPEN_BLOCK);
-    expect(next.entryMode).toBe('bump');
-    expect(next.animFrame).toBe(0);
-    expect(next.party.gy).toBe(121);
-    expect(next.stepsRemaining).toBe(0);
-  });
-
-  it('bump → free: no move (gy stays 121)', () => {
-    const s: EntryState = { party: { ...START_PARTY, gy: 121 }, entryMode: 'bump', animFrame: 0, stepsRemaining: 0 };
-    const next = advanceEntry(s, OPEN_BLOCK);
-    expect(next.entryMode).toBe('free');
-    expect(next.party.gy).toBe(121);
-    expect(next.stepsRemaining).toBe(0);
-  });
-
-  it('full sequence on open block: title→narration→gate-walk→gate-open→bump→free, gy 117→121', () => {
-    let s: EntryState = { party: START_PARTY, entryMode: 'title', animFrame: 0, stepsRemaining: 4 };
-    s = advanceEntry(s, OPEN_BLOCK);
-    expect(s.entryMode).toBe('narration');
-    expect(s.party.gy).toBe(118);
-    s = advanceEntry(s, OPEN_BLOCK);
-    expect(s.entryMode).toBe('gate-walk');
-    expect(s.party.gy).toBe(119);
-    s = advanceEntry(s, OPEN_BLOCK);
-    expect(s.entryMode).toBe('gate-open');
-    expect(s.party.gy).toBe(120);
-    s = advanceEntry(s, OPEN_BLOCK);
-    expect(s.entryMode).toBe('bump');
-    expect(s.party.gy).toBe(121);
-    s = advanceEntry(s, OPEN_BLOCK);
-    expect(s.entryMode).toBe('free');
-    expect(s.party.gy).toBe(121); // bump → free does not move
-    expect(s.stepsRemaining).toBe(0);
-  });
-
-  it('free is inert: ENTER in free mode returns state unchanged', () => {
-    const s: EntryState = {
-      party: { ...START_PARTY, gy: 121 },
-      entryMode: 'free',
-      animFrame: 0,
-      stepsRemaining: 0,
-    };
-    const next = advanceEntry(s, OPEN_BLOCK);
-    expect(next).toBe(s); // same reference — no allocation
-    expect(next.entryMode).toBe('free');
+  it('false for the hold / still / free modes', () => {
+    for (const m of ['title', 'approach1', 'walk', 'approach2', 'free'] as const) {
+      expect(isAnimationMode(m)).toBe(false);
+    }
   });
 });
 
 // ---------------------------------------------------------------------------
-// tickEntry — TIMER-driven animation advance (NOT ENTER)
-//
-//   door-open : ticks animFrame 0→7 (party stays at gy=117); the 8th tick (from
-//               animFrame===ANIM_LAST) → title, animFrame 0 (no party move).
-//   gate-open : ticks animFrame 0→7 (party stays at gy=120); the 8th tick → bump,
-//               animFrame 0, forcedStep (gy 120→121).
-//   any other mode: returns the SAME reference (stills don't tick).
+// tickEntry — the cutscene driver (one call per tick), drives the WHOLE thing.
 // ---------------------------------------------------------------------------
-describe('tickEntry', () => {
+describe('tickEntry — animation modes advance one frame per tick', () => {
   it('ANIM_LAST is 7 (8 frames, 0..7)', () => {
     expect(ANIM_LAST).toBe(7);
   });
 
-  it('door-open: ticks animFrame 0→7, gy unchanged (start position 117)', () => {
-    let s: EntryState = { party: START_PARTY, entryMode: 'door-open', animFrame: 0, stepsRemaining: 4 };
+  it('door-open: ticks animFrame 0→7 (gy stays 117), then → title (no move)', () => {
+    let s = st('door-open', 117, 0);
     for (let f = 0; f < ANIM_LAST; f++) {
       s = tickEntry(s);
       expect(s.entryMode).toBe('door-open');
       expect(s.animFrame).toBe(f + 1);
       expect(s.party.gy).toBe(117);
     }
-    expect(s.animFrame).toBe(ANIM_LAST);
+    // animFrame===ANIM_LAST: next tick transitions.
+    s = tickEntry(s);
+    expect(s.entryMode).toBe('title');
+    expect(s.animFrame).toBe(0);
+    expect(s.party.gy).toBe(117);
+    expect(s.holdTicks).toBe(0);
   });
 
-  it('door-open: tick at animFrame===ANIM_LAST → title, animFrame 0, no party move', () => {
-    const s: EntryState = { party: START_PARTY, entryMode: 'door-open', animFrame: ANIM_LAST, stepsRemaining: 4 };
-    const next = tickEntry(s);
-    expect(next.entryMode).toBe('title');
-    expect(next.animFrame).toBe(0);
-    expect(next.party.gy).toBe(117);
-    expect(next.stepsRemaining).toBe(4);
-  });
-
-  it('gate-open: ticks animFrame 0→7, gy unchanged (gate cell 120)', () => {
-    let s: EntryState = { party: { ...START_PARTY, gy: 120 }, entryMode: 'gate-open', animFrame: 0, stepsRemaining: 1 };
+  it('gate1-open: ticks animFrame 0→7 (gy stays 118), then → walk + forcedStep (gy 118→119)', () => {
+    let s = st('gate1-open', 118, 0);
     for (let f = 0; f < ANIM_LAST; f++) {
       s = tickEntry(s);
-      expect(s.entryMode).toBe('gate-open');
+      expect(s.entryMode).toBe('gate1-open');
+      expect(s.animFrame).toBe(f + 1);
+      expect(s.party.gy).toBe(118);
+    }
+    s = tickEntry(s);
+    expect(s.entryMode).toBe('walk');
+    expect(s.animFrame).toBe(0);
+    expect(s.party.gy).toBe(119);
+  });
+
+  it('gate2-open: ticks animFrame 0→7 (gy stays 120), then → free + forcedStep (gy 120→121)', () => {
+    let s = st('gate2-open', 120, 0);
+    for (let f = 0; f < ANIM_LAST; f++) {
+      s = tickEntry(s);
+      expect(s.entryMode).toBe('gate2-open');
       expect(s.animFrame).toBe(f + 1);
       expect(s.party.gy).toBe(120);
     }
-    expect(s.animFrame).toBe(ANIM_LAST);
+    s = tickEntry(s);
+    expect(s.entryMode).toBe('free');
+    expect(s.animFrame).toBe(0);
+    expect(s.party.gy).toBe(121);
+  });
+});
+
+describe('tickEntry — hold modes accumulate ticks then auto-push', () => {
+  it('title: holds TITLE_HOLD ticks then → approach1 + forcedStep (gy 117→118)', () => {
+    let s = st('title', 117, 0, 0);
+    for (let t = 0; t < TITLE_HOLD; t++) {
+      s = tickEntry(s);
+      expect(s.entryMode).toBe('title');
+      expect(s.holdTicks).toBe(t + 1);
+      expect(s.party.gy).toBe(117);
+    }
+    s = tickEntry(s);
+    expect(s.entryMode).toBe('approach1');
+    expect(s.party.gy).toBe(118);
+    expect(s.holdTicks).toBe(0);
   });
 
-  it('gate-open: tick at animFrame===ANIM_LAST → bump, animFrame 0, forcedStep gy 120→121', () => {
-    const s: EntryState = { party: { ...START_PARTY, gy: 120 }, entryMode: 'gate-open', animFrame: ANIM_LAST, stepsRemaining: 1 };
-    const next = tickEntry(s);
-    expect(next.entryMode).toBe('bump');
+  it('approach1: INERT in tickEntry — WAITS for ENTER (no auto-advance)', () => {
+    // The APPROACHING beat is the one interactive pause; tickEntry must NOT
+    // advance it regardless of how many ticks elapse — only ENTER (advanceEntry)
+    // starts the first portcullis lift.
+    let s = st('approach1', 118, 0, 0);
+    for (let t = 0; t < TEXT_HOLD + 5; t++) {
+      s = tickEntry(s);
+      expect(s.entryMode).toBe('approach1');
+      expect(s.party.gy).toBe(118);
+    }
+    const next = advanceEntry(s, OPEN_BLOCK);
+    expect(next.entryMode).toBe('gate1-open');
+    expect(next.animFrame).toBe(0);
+    expect(next.party.gy).toBe(118); // no move
+  });
+
+  it('walk: holds WALK_HOLD ticks then → approach2 + forcedStep (gy 119→120)', () => {
+    let s = st('walk', 119, 0, 0);
+    for (let t = 0; t < WALK_HOLD; t++) {
+      s = tickEntry(s);
+      expect(s.entryMode).toBe('walk');
+      expect(s.holdTicks).toBe(t + 1);
+    }
+    s = tickEntry(s);
+    expect(s.entryMode).toBe('approach2');
+    expect(s.party.gy).toBe(120);
+    expect(s.holdTicks).toBe(0);
+  });
+
+  it('approach2: holds TEXT_HOLD ticks then → gate2-open (no move)', () => {
+    let s = st('approach2', 120, 0, 0);
+    for (let t = 0; t < TEXT_HOLD; t++) {
+      s = tickEntry(s);
+      expect(s.entryMode).toBe('approach2');
+      expect(s.holdTicks).toBe(t + 1);
+    }
+    s = tickEntry(s);
+    expect(s.entryMode).toBe('gate2-open');
+    expect(s.animFrame).toBe(0);
+    expect(s.party.gy).toBe(120); // no move
+  });
+
+  it('free: inert (returns the SAME reference)', () => {
+    const s = st('free', 121);
+    expect(tickEntry(s)).toBe(s);
+  });
+});
+
+describe('tickEntry — full cutscene drives door-open → free with the gy progression', () => {
+  it('walks 117,117,118,118,119,120,120,121 (auto-push; ONE ENTER at the APPROACHING beat)', () => {
+    let s = st('door-open', 117, 0, 0);
+    // Tick until 'free' (cap iterations so a bug can't hang the test). approach1
+    // is the one interactive beat — tickEntry stalls there, so ENTER (advanceEntry)
+    // advances it; every other beat auto-pushes on the timer.
+    const seen: { mode: string; gy: number }[] = [];
+    let prevMode = s.entryMode;
+    seen.push({ mode: s.entryMode, gy: s.party.gy });
+    for (let i = 0; i < 1000 && s.entryMode !== 'free'; i++) {
+      s = s.entryMode === 'approach1' ? advanceEntry(s, OPEN_BLOCK) : tickEntry(s);
+      if (s.entryMode !== prevMode) {
+        seen.push({ mode: s.entryMode, gy: s.party.gy });
+        prevMode = s.entryMode;
+      }
+    }
+    expect(s.entryMode).toBe('free');
+    expect(seen.map((x) => x.mode)).toEqual([
+      'door-open',
+      'title',
+      'approach1',
+      'gate1-open',
+      'walk',
+      'approach2',
+      'gate2-open',
+      'free',
+    ]);
+    expect(seen.map((x) => x.gy)).toEqual([117, 117, 118, 118, 119, 120, 120, 121]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// advanceEntry — ENTER skips each beat (fast-forward what tickEntry would do).
+// ---------------------------------------------------------------------------
+describe('advanceEntry — ENTER skips each beat', () => {
+  it('door-open → title (no party move)', () => {
+    const next = advanceEntry(st('door-open', 117, 3), OPEN_BLOCK);
+    expect(next.entryMode).toBe('title');
+    expect(next.animFrame).toBe(0);
+    expect(next.party.gy).toBe(117);
+  });
+
+  it('title → approach1 (+1 forward step gy 117→118)', () => {
+    const next = advanceEntry(st('title', 117), OPEN_BLOCK);
+    expect(next.entryMode).toBe('approach1');
+    expect(next.party.gy).toBe(118);
+    expect(next.party.gx).toBe(127);
+    expect(next.party.facing).toBe(0);
+  });
+
+  it('approach1 → gate1-open (no move, animFrame 0)', () => {
+    const next = advanceEntry(st('approach1', 118), OPEN_BLOCK);
+    expect(next.entryMode).toBe('gate1-open');
+    expect(next.animFrame).toBe(0);
+    expect(next.party.gy).toBe(118);
+  });
+
+  it('gate1-open → walk (+1 forward step gy 118→119, skips the lift)', () => {
+    const next = advanceEntry(st('gate1-open', 118, 4), OPEN_BLOCK);
+    expect(next.entryMode).toBe('walk');
+    expect(next.animFrame).toBe(0);
+    expect(next.party.gy).toBe(119);
+  });
+
+  it('walk → approach2 (+1 forward step gy 119→120)', () => {
+    const next = advanceEntry(st('walk', 119), OPEN_BLOCK);
+    expect(next.entryMode).toBe('approach2');
+    expect(next.party.gy).toBe(120);
+  });
+
+  it('approach2 → gate2-open (no move, animFrame 0)', () => {
+    const next = advanceEntry(st('approach2', 120), OPEN_BLOCK);
+    expect(next.entryMode).toBe('gate2-open');
+    expect(next.animFrame).toBe(0);
+    expect(next.party.gy).toBe(120);
+  });
+
+  it('gate2-open → free (+1 forward step gy 120→121, skips the lift)', () => {
+    const next = advanceEntry(st('gate2-open', 120, 4), OPEN_BLOCK);
+    expect(next.entryMode).toBe('free');
     expect(next.animFrame).toBe(0);
     expect(next.party.gy).toBe(121);
   });
 
-  it('non-animation modes return the SAME reference (stills do not tick)', () => {
-    for (const mode of ['title', 'narration', 'gate-walk', 'bump', 'free'] as const) {
-      const s: EntryState = { party: START_PARTY, entryMode: mode, animFrame: 0, stepsRemaining: 0 };
-      expect(tickEntry(s)).toBe(s);
+  it('free is inert: ENTER returns the SAME reference', () => {
+    const s = st('free', 121);
+    expect(advanceEntry(s, OPEN_BLOCK)).toBe(s);
+  });
+
+  it('full skip sequence on open block: door-open → free, gy 117→121', () => {
+    let s = st('door-open', 117, 0, 0);
+    const modes: string[] = [];
+    for (let i = 0; i < 100 && s.entryMode !== 'free'; i++) {
+      s = advanceEntry(s, OPEN_BLOCK);
+      modes.push(s.entryMode);
     }
+    expect(modes).toEqual([
+      'title',
+      'approach1',
+      'gate1-open',
+      'walk',
+      'approach2',
+      'gate2-open',
+      'free',
+    ]);
+    expect(s.party.gy).toBe(121);
   });
 });
 
 // ---------------------------------------------------------------------------
 // Real level-0 block — forced-march regression guard
 //
-// The level-0 cells at gx=127 (re-extracted with the gy=117 start):
-//   gy=117: north=2 (solid wall)  → tryStepForward BLOCKS here
-//   gy=118: north=2 (solid wall)  → tryStepForward BLOCKS here
+// The level-0 cells at gx=127:
+//   gy=117: north=2 (solid wall)  → tryStepForward BLOCKS
+//   gy=118: north=2 (solid wall)  → tryStepForward BLOCKS
 //   gy=119: north=0 (open)
-//   gy=120: north=3 (door/gate)   → tryStepForward BLOCKS here too
-//   gy=121: north=0 (open) — the bump cell / free-control position
+//   gy=120: north=3 (door/gate)   → tryStepForward BLOCKS
+//   gy=121: north=0 (open) — the free-control position
 //
-// advanceEntry MUST advance through every blocked edge — it is a forced march.
-// tryStepForward must stay unchanged (collision still guards free-roam).
+// advanceEntry (and tickEntry) MUST advance through every blocked edge.
 // ---------------------------------------------------------------------------
-describe('advanceEntry — real level-0 block (forced march through gate)', () => {
+describe('cutscene — real level-0 block (forced march through both gates)', () => {
   const TITLE_START: MazeParty = { gx: 127, gy: 117, z: 0, facing: 0 };
 
-  it('tryStepForward on the REAL block at gy=117 returns party UNCHANGED (proves edge is solid)', () => {
-    const result = tryStepForward(TITLE_START, REAL_BLOCK);
-    expect(result.gy).toBe(117); // unchanged — north=2 blocks
-    expect(result).toEqual(TITLE_START);
+  it('tryStepForward on the REAL block at gy=117 returns party UNCHANGED (edge solid)', () => {
+    expect(tryStepForward(TITLE_START, REAL_BLOCK)).toEqual(TITLE_START);
   });
 
   it('tryStepForward on the REAL block at gy=120 returns party UNCHANGED (door blocks)', () => {
     const at120: MazeParty = { ...TITLE_START, gy: 120 };
-    const result = tryStepForward(at120, REAL_BLOCK);
-    expect(result.gy).toBe(120); // unchanged — north=3 (door) blocks
+    expect(tryStepForward(at120, REAL_BLOCK).gy).toBe(120);
   });
 
-  it('full forced march on real block: title→narration→gate-walk→gate-open→bump→free, gy 117→121', () => {
-    // The main regression guard: the scripted entry crosses two solid walls
-    // (gy=117, gy=118) and a door (gy=120) that free-roam collision would block.
-    let s: EntryState = { party: TITLE_START, entryMode: 'title', animFrame: 0, stepsRemaining: 4 };
-
-    s = advanceEntry(s, REAL_BLOCK); // title → narration, crosses north=2 @ gy117
-    expect(s.entryMode).toBe('narration');
+  it('full ENTER-skip forced march on real block: door-open → free, gy 117→121', () => {
+    let s: EntryState = { party: TITLE_START, entryMode: 'door-open', animFrame: 0, holdTicks: 0 };
+    s = advanceEntry(s, REAL_BLOCK); // door-open → title
+    expect(s.party.gy).toBe(117);
+    s = advanceEntry(s, REAL_BLOCK); // title → approach1, crosses north=2 @ gy117
+    expect(s.entryMode).toBe('approach1');
     expect(s.party.gy).toBe(118);
-    expect(s.stepsRemaining).toBe(3);
-
-    s = advanceEntry(s, REAL_BLOCK); // narration → gate-walk, crosses north=2 @ gy118
-    expect(s.entryMode).toBe('gate-walk');
+    s = advanceEntry(s, REAL_BLOCK); // approach1 → gate1-open (no move)
+    expect(s.party.gy).toBe(118);
+    s = advanceEntry(s, REAL_BLOCK); // gate1-open → walk, crosses north=2 @ gy118
+    expect(s.entryMode).toBe('walk');
     expect(s.party.gy).toBe(119);
-    expect(s.stepsRemaining).toBe(2);
-
-    s = advanceEntry(s, REAL_BLOCK); // gate-walk → gate-open, open north=0 @ gy119 (gate cell reached)
-    expect(s.entryMode).toBe('gate-open');
+    s = advanceEntry(s, REAL_BLOCK); // walk → approach2, open north=0 @ gy119
     expect(s.party.gy).toBe(120);
-    expect(s.stepsRemaining).toBe(1);
-
-    s = advanceEntry(s, REAL_BLOCK); // gate-open ENTER-skip, crosses door north=3 @ gy120 → dead-end
-    expect(s.entryMode).toBe('bump');
-    expect(s.party.gy).toBe(121);
-    expect(s.stepsRemaining).toBe(0);
-
-    s = advanceEntry(s, REAL_BLOCK); // bump → free (no move)
+    s = advanceEntry(s, REAL_BLOCK); // approach2 → gate2-open (no move)
+    expect(s.party.gy).toBe(120);
+    s = advanceEntry(s, REAL_BLOCK); // gate2-open → free, crosses door north=3 @ gy120
     expect(s.entryMode).toBe('free');
     expect(s.party.gy).toBe(121);
     expect(s.party.gx).toBe(127);
     expect(s.party.facing).toBe(0);
-    expect(s.stepsRemaining).toBe(0);
   });
 });
 
@@ -335,26 +400,17 @@ function makeNarrationDb(): MessageDb {
 
 describe('decodeNarrationLines', () => {
   it('resolves all three narration IDs', () => {
-    const db = makeNarrationDb();
-    const lines = decodeNarrationLines(db, [10010, 10011, 10012]);
+    const lines = decodeNarrationLines(makeNarrationDb(), [10010, 10011, 10012]);
     expect(lines).toHaveLength(3);
   });
 
   it('10010: no leading ^, returns text verbatim', () => {
-    const db = makeNarrationDb();
-    const [line] = decodeNarrationLines(db, [10010]);
+    const [line] = decodeNarrationLines(makeNarrationDb(), [10010]);
     expect(line).toBe('APPROACHING THE GATE WITH CONFIDENCE,');
   });
 
-  it('10011: no leading ^, returns text verbatim', () => {
-    const db = makeNarrationDb();
-    const [line] = decodeNarrationLines(db, [10011]);
-    expect(line).toBe('YOU KNOW IF THINGS GET TOO HAIRY YOU ');
-  });
-
   it('10012: leading ^ stripped → "CAN ALWAYS TURN AND RUN BACK OUT..."', () => {
-    const db = makeNarrationDb();
-    const [line] = decodeNarrationLines(db, [10012]);
+    const [line] = decodeNarrationLines(makeNarrationDb(), [10012]);
     expect(line).toBe('CAN ALWAYS TURN AND RUN BACK OUT...');
   });
 
@@ -368,14 +424,7 @@ describe('decodeNarrationLines', () => {
       records: [],
       indexedCount: 1,
       indexedMessages: [
-        {
-          id: 9999,
-          rangeIndex: 0,
-          bank: 0,
-          offset: 0,
-          recordPos: 0,
-          decodedText: '^HELLO ^WORLD',
-        },
+        { id: 9999, rangeIndex: 0, bank: 0, offset: 0, recordPos: 0, decodedText: '^HELLO ^WORLD' },
       ],
     };
     const [line] = decodeNarrationLines(db, [9999]);
@@ -383,14 +432,11 @@ describe('decodeNarrationLines', () => {
   });
 
   it('missing ID → empty string', () => {
-    const db = makeNarrationDb();
-    const lines = decodeNarrationLines(db, [99999]);
-    expect(lines).toEqual(['']);
+    expect(decodeNarrationLines(makeNarrationDb(), [99999])).toEqual(['']);
   });
 
   it('mixed present + missing IDs', () => {
-    const db = makeNarrationDb();
-    const lines = decodeNarrationLines(db, [10010, 99999, 10012]);
+    const lines = decodeNarrationLines(makeNarrationDb(), [10010, 99999, 10012]);
     expect(lines[0]).toBe('APPROACHING THE GATE WITH CONFIDENCE,');
     expect(lines[1]).toBe('');
     expect(lines[2]).toBe('CAN ALWAYS TURN AND RUN BACK OUT...');

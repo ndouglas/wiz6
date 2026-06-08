@@ -1,76 +1,90 @@
 /**
  * entry-sequence.ts — pure FSM reducer for the START-NEW-GAME scripted entry.
  *
- * The engine drives a scripted entry (copy-protection SKIPPED in the port) across
- * five frames before handing the player free control. Each ENTER advances one step:
+ * The engine drives the dungeon entry as a TIMED AUTO-PUSH CUTSCENE (copy-protection
+ * SKIPPED in the port): the party advances ~1 cell every couple of seconds on a
+ * timer (NOT ENTER-stepped), pausing at text beats, while TWO portcullis gates lift
+ * open with sound. The 8 cutscene beats:
  *
- *   title      — "ENTERING / BANE OF THE COSMIC FORGE" card (gy=117, blue text on the
- *                gray widget). ENTER → narration + one forward step (gy 117→118).
- *   narration  — 3-line narration on the black strip (gy=118). ENTER dismisses the
- *                text AND steps once → gate-walk (gy 118→119).
- *   gate-walk  — forced march one cell forward per ENTER (crosses the one-way gate
- *                that free-roam collision would block). When the next step lands on
- *                the bump cell (gy>=120) → bump.
- *   bump       — "HMMMM..." front-wall bump. The committed fixtures show HMMMM at
- *                BOTH gy=120 (inner gate, frame 05) and gy=121 (dead-end, frame 06):
- *                ENTER at gy=120 forced-steps to gy=121 and STAYS bump; ENTER at
- *                gy=121 (the dead-end) → free (no move).
- *   free       — normal dungeon movement; this reducer is inert (ENTER handled
- *                elsewhere).
+ *   door-open  — castle doors slide apart in the viewport (door:0→7), gy=117.
+ *                Animation mode (animFrame ticks). → title.
+ *   title      — "ENTERING / BANE OF THE COSMIC FORGE" card on the gray widget,
+ *                gy=117. Held a few seconds, then AUTO-pushes → approach1 (gy 117→118).
+ *   approach1  — "APPROACHING THE GATE..." 3-line narration + the FIRST gate (closed)
+ *                ahead, gy=118. WAITS for ENTER (the one interactive beat), then →
+ *                gate1-open (no move). tickEntry does NOT auto-advance this beat.
+ *   gate1-open — the FIRST portcullis lifts (gate1:0→7), gy=118, sound plays.
+ *                Animation mode. → walk (gy 118→119).
+ *   walk       — transit, clean black strip, gy=119. Held ~2s, then → approach2
+ *                (gy 119→120).
+ *   approach2  — "HMMM..." + the SECOND gate (closed) ahead, gy=120. Held, then →
+ *                gate2-open (no move).
+ *   gate2-open — the SECOND portcullis lifts (gate2:0→7), gy=120, sound plays.
+ *                Animation mode. → free (gy 120→121).
+ *   free       — free-roam begins; this reducer is inert (movement handled elsewhere).
  *
- * The FSM keys on the party's GY TARGET (117→118→119→120→121), not a raw ENTER
- * count, because the engine's accept-ENTER is timer-gated and frame-jittery (the
- * documented non-determinism). Keying on gy makes the port match the committed
- * byte-exact fixtures (newgame-seq-02..06) and cannot drift on that jitter.
+ * The gy progression across the cutscene: 117, 117, 118, 118, 119, 120, 120, 121.
  *
- * Per-gy → (entryMode, strip) mapping locked to the fixtures (Task 5):
- *   gy=117 → title      (frame 02: gray widget + blue ENTERING/BANE title)
- *   gy=118 → narration  (frame 03: black + 3-line yellow APPROACHING THE GATE...)
- *   gy=119 → gate-walk  (frame 04: clean black, NO text)
- *   gy=120 → bump       (frame 05: black + yellow HMMMM... — front-wall bump)
- *   gy=121 → bump       (frame 06: black + yellow HMMMM... — dead-end)
+ * Two drive functions:
+ *   tickEntry(s)  — the viewer's per-tick cutscene driver. Advances animation
+ *                   frames, accumulates hold ticks, and AUTO-pushes the party
+ *                   forward at each beat's threshold. Drives the WHOLE cutscene
+ *                   without input. 'free' is inert (returns the same ref).
+ *   advanceEntry(s, block) — ENTER pressed: SKIP the current beat to its end/next
+ *                   (an impatient player fast-forwards what tickEntry would do).
  *
- * Engine reference: wmaze state 5/6/23 (CLAUDE.md overlay state table).
- * Pin: docs/re/findings/maze-newgame-byteexact.json (per_enter_pin_addendum).
  * Pure — no I/O, no Date, no random, no node:* imports.
+ *
+ * Engine reference: wmaze state 5/6/23 (CLAUDE.md overlay state table); the two
+ * viewport gate animations + auto-push + gate sounds (#4 then #13) are pinned in
+ * docs/re/findings/maze-gate-open-animation.json.
  */
 
 import type { MazeBlock, MazeParty } from '@wiz6/data';
 import type { MessageDb } from '@wiz6/data';
 import { step } from './maze-geometry.js';
 
-/** The gy at which the HMMMM front-wall bump FIRST shows (inner gate). The bump
- *  persists through gy=121 (the dead-end); see advanceEntry's 'bump' case. */
-const BUMP_GY = 120;
-/** The final dead-end gy: ENTER here ends the scripted entry → free control. */
-const FREE_GY = 121;
-
 export type EntryMode =
   | 'door-open'
   | 'title'
-  | 'narration'
-  | 'gate-walk'
-  | 'gate-open'
-  | 'bump'
+  | 'approach1'
+  | 'gate1-open'
+  | 'walk'
+  | 'approach2'
+  | 'gate2-open'
   | 'free';
 
-/** Last animation frame index (8 frames, 0..7). Both the castle-door slide and
- *  the dungeon-portcullis lift play 8 captured oracle frames. */
+/** Last animation frame index (8 frames, 0..7). The castle-door slide and both
+ *  dungeon-portcullis lifts each play 8 captured oracle frames. */
 export const ANIM_LAST = 7;
+
+/** Hold thresholds, in CUTSCENE ticks (see MazeView CUTSCENE_TICK_MS for the
+ *  ms-per-tick). A hold beat advances when holdTicks reaches the threshold.
+ *  Text beats hold ~2.5s; the transit cell holds ~2s (a couple seconds/cell). */
+export const TITLE_HOLD = 13;
+export const TEXT_HOLD = 13;
+export const WALK_HOLD = 10;
 
 export interface EntryState {
   party: MazeParty;
   entryMode: EntryMode;
-  /** 0-based animation frame index for animation modes ('door-open', 'gate-open');
-   *  0 for non-animation modes. The TIMER advances this via tickEntry. */
+  /** 0-based animation frame index for animation modes ('door-open',
+   *  'gate1-open', 'gate2-open'); 0 for non-animation modes. tickEntry advances it. */
   animFrame: number;
-  /** Forward steps still to take in the scripted walk (informational; the FSM
-   *  also keys on the gy target so it can't drift). 0 once the walk is done. */
-  stepsRemaining: number;
+  /** Ticks elapsed in the current non-animation HOLD beat (title/approach1/walk/
+   *  approach2). 0 in animation modes and reset to 0 on every beat transition. */
+  holdTicks: number;
 }
 
-/** Forced march: advance one cell forward IGNORING walls (the scripted gate-walk
- *  crosses a one-way gate that free-roam collision would block). Same forward
+/** True iff the mode is one of the three viewport-animation modes (door slide /
+ *  first portcullis lift / second portcullis lift). The viewer uses this to pick
+ *  the per-frame oracle viewport and to drive the per-frame anim sound/timer. */
+export function isAnimationMode(mode: EntryMode): boolean {
+  return mode === 'door-open' || mode === 'gate1-open' || mode === 'gate2-open';
+}
+
+/** Forced march: advance one cell forward IGNORING walls (the scripted cutscene
+ *  crosses one-way gates that free-roam collision would block). Same forward
  *  delta as tryStepForward, minus the isSolid guard. */
 function forcedStep(party: MazeParty): MazeParty {
   const { gx, gy, facing } = party;
@@ -79,82 +93,73 @@ function forcedStep(party: MazeParty): MazeParty {
 }
 
 /**
- * advanceEntry — ENTER pressed during the scripted entry.
- * Returns the next EntryState (always a new object unless inert; never mutates).
+ * tickEntry — the cutscene driver (one call per CUTSCENE_TICK_MS). Drives the
+ * WHOLE auto-push cutscene; the viewer calls it on a timer for every non-free
+ * scripted mode and stops once it reaches 'free'.
  *
- * ENTER SKIPS both viewport animations (door slide / portcullis lift) — those
- * play only on the TIMER (tickEntry). ENTER jumps straight to the post-anim state.
- *
- * door-open  → title       (skip the door slide; no party move)
- * title      → narration   (+1 forward step: gy 117→118)
- * narration  → gate-walk   (+1 forward step: gy 118→119; dismisses the text)
- * gate-walk  → +1 forward step; if the new cell is the gate cell (gy>=120) →
- *              gate-open (START the portcullis anim), else stay gate-walk (gy 119)
- * gate-open  → bump        (skip the portcullis anim; +1 forward step gy 120→121)
- * bump       → if not yet at the dead-end (gy<121): +1 forward step, STAY bump
- *              (HMMMM persists); else (gy>=121): → free (no move)
- * free       → no-op (returns s unchanged)
+ * Animation modes advance one captured frame per tick to ANIM_LAST, then
+ * transition (some with a forcedStep). Hold modes accumulate holdTicks until the
+ * beat threshold, then transition (some with a forcedStep), resetting holdTicks.
+ * 'free' returns the SAME reference (inert).
  */
-export function advanceEntry(s: EntryState, _block: MazeBlock): EntryState {
+export function tickEntry(s: EntryState): EntryState {
   switch (s.entryMode) {
     case 'door-open':
-      // ENTER skips the door slide — jump to the ENTERING title still (no move).
-      return { ...s, entryMode: 'title', animFrame: 0 };
+      // Castle doors slide apart (gy stays 117); finished → ENTERING title.
+      if (s.animFrame < ANIM_LAST) return { ...s, animFrame: s.animFrame + 1 };
+      return { ...s, entryMode: 'title', animFrame: 0, holdTicks: 0 };
 
-    case 'title': {
-      const party = forcedStep(s.party);
+    case 'title':
+      // Hold the ENTERING title, then auto-push toward the first gate (gy 117→118).
+      if (s.holdTicks < TITLE_HOLD) return { ...s, holdTicks: s.holdTicks + 1 };
       return {
-        party,
-        entryMode: 'narration',
+        party: forcedStep(s.party),
+        entryMode: 'approach1',
         animFrame: 0,
-        stepsRemaining: Math.max(0, s.stepsRemaining - 1),
+        holdTicks: 0,
       };
-    }
 
-    case 'narration': {
-      const party = forcedStep(s.party);
-      const mode: EntryMode = party.gy >= BUMP_GY ? 'gate-open' : 'gate-walk';
+    case 'approach1':
+      // The APPROACHING narration in front of the first (closed) gate WAITS for the
+      // player to press ENTER (the engine's one interactive beat) — tickEntry does
+      // NOT auto-advance it. advanceEntry (ENTER) starts the first portcullis lift.
+      return s;
+
+    case 'gate1-open':
+      // First portcullis lifts (gy stays 118); finished → walk through (gy 118→119).
+      if (s.animFrame < ANIM_LAST) return { ...s, animFrame: s.animFrame + 1 };
       return {
-        party,
-        entryMode: mode,
+        party: forcedStep(s.party),
+        entryMode: 'walk',
         animFrame: 0,
-        stepsRemaining: Math.max(0, s.stepsRemaining - 1),
+        holdTicks: 0,
       };
-    }
 
-    case 'gate-walk': {
-      const party = forcedStep(s.party);
-      const steps = Math.max(0, s.stepsRemaining - 1);
-      // Reaching the gate cell (gy>=120) STARTS the portcullis animation.
-      const mode: EntryMode = party.gy >= BUMP_GY ? 'gate-open' : 'gate-walk';
-      return { party, entryMode: mode, animFrame: 0, stepsRemaining: steps };
-    }
-
-    case 'gate-open': {
-      // ENTER skips the portcullis anim — step through to the dead-end (gy 120→121).
-      const party = forcedStep(s.party);
+    case 'walk':
+      // Transit on the clean black strip, then auto-push to the second gate (gy 119→120).
+      if (s.holdTicks < WALK_HOLD) return { ...s, holdTicks: s.holdTicks + 1 };
       return {
-        party,
-        entryMode: 'bump',
+        party: forcedStep(s.party),
+        entryMode: 'approach2',
         animFrame: 0,
-        stepsRemaining: Math.max(0, s.stepsRemaining - 1),
+        holdTicks: 0,
       };
-    }
 
-    case 'bump': {
-      // HMMMM persists from the inner gate (gy=120) through the dead-end (gy=121).
-      // Step forward once more while short of the dead-end, then go free.
-      if (s.party.gy < FREE_GY) {
-        const party = forcedStep(s.party);
-        return {
-          party,
-          entryMode: 'bump',
-          animFrame: 0,
-          stepsRemaining: Math.max(0, s.stepsRemaining - 1),
-        };
-      }
-      return { ...s, entryMode: 'free', animFrame: 0, stepsRemaining: 0 };
-    }
+    case 'approach2':
+      // Hold the HMMM... in front of the second (closed) gate, then START the
+      // second portcullis lift (no party move — the gate is the cell ahead).
+      if (s.holdTicks < TEXT_HOLD) return { ...s, holdTicks: s.holdTicks + 1 };
+      return { ...s, entryMode: 'gate2-open', animFrame: 0, holdTicks: 0 };
+
+    case 'gate2-open':
+      // Second portcullis lifts (gy stays 120); finished → free-roam (gy 120→121).
+      if (s.animFrame < ANIM_LAST) return { ...s, animFrame: s.animFrame + 1 };
+      return {
+        party: forcedStep(s.party),
+        entryMode: 'free',
+        animFrame: 0,
+        holdTicks: 0,
+      };
 
     case 'free':
       return s;
@@ -162,28 +167,63 @@ export function advanceEntry(s: EntryState, _block: MazeBlock): EntryState {
 }
 
 /**
- * tickEntry — TIMER-driven animation advance (NOT ENTER). Drives the two
- * viewport animations one captured oracle frame per tick.
+ * advanceEntry — ENTER pressed during the cutscene: SKIP the current beat to its
+ * end / next beat (fast-forward exactly what tickEntry would eventually do).
+ * Returns a new EntryState (except 'free', which returns the same reference).
  *
- * door-open : animFrame < ANIM_LAST → advance one frame (gy stays at the start
- *             cell 117); at animFrame===ANIM_LAST → title, animFrame 0 (doors
- *             finished opening → the ENTERING title still; no party move).
- * gate-open : animFrame < ANIM_LAST → advance one frame (gy stays at the gate
- *             cell 120); at animFrame===ANIM_LAST → bump, animFrame 0, forcedStep
- *             one cell forward (portcullis fully open → party pushed to gy=121).
- * any other mode: returns s UNCHANGED (same reference — stills don't tick).
+ * door-open  → title       (skip the door slide; no party move)
+ * title      → approach1   (+1 forward step: gy 117→118)
+ * approach1  → gate1-open   (start the first lift; no move)
+ * gate1-open → walk         (skip the first lift; +1 forward step: gy 118→119)
+ * walk       → approach2    (+1 forward step: gy 119→120)
+ * approach2  → gate2-open   (start the second lift; no move)
+ * gate2-open → free         (skip the second lift; +1 forward step: gy 120→121)
+ * free       → no-op (returns s unchanged)
  */
-export function tickEntry(s: EntryState): EntryState {
+export function advanceEntry(s: EntryState, _block: MazeBlock): EntryState {
   switch (s.entryMode) {
     case 'door-open':
-      if (s.animFrame < ANIM_LAST) return { ...s, animFrame: s.animFrame + 1 };
-      return { ...s, entryMode: 'title', animFrame: 0 };
+      return { ...s, entryMode: 'title', animFrame: 0, holdTicks: 0 };
 
-    case 'gate-open':
-      if (s.animFrame < ANIM_LAST) return { ...s, animFrame: s.animFrame + 1 };
-      return { ...s, party: forcedStep(s.party), entryMode: 'bump', animFrame: 0 };
+    case 'title':
+      return {
+        party: forcedStep(s.party),
+        entryMode: 'approach1',
+        animFrame: 0,
+        holdTicks: 0,
+      };
 
-    default:
+    case 'approach1':
+      return { ...s, entryMode: 'gate1-open', animFrame: 0, holdTicks: 0 };
+
+    case 'gate1-open':
+      return {
+        party: forcedStep(s.party),
+        entryMode: 'walk',
+        animFrame: 0,
+        holdTicks: 0,
+      };
+
+    case 'walk':
+      return {
+        party: forcedStep(s.party),
+        entryMode: 'approach2',
+        animFrame: 0,
+        holdTicks: 0,
+      };
+
+    case 'approach2':
+      return { ...s, entryMode: 'gate2-open', animFrame: 0, holdTicks: 0 };
+
+    case 'gate2-open':
+      return {
+        party: forcedStep(s.party),
+        entryMode: 'free',
+        animFrame: 0,
+        holdTicks: 0,
+      };
+
+    case 'free':
       return s;
   }
 }

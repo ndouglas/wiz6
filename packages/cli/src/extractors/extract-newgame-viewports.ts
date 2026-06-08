@@ -10,11 +10,12 @@
  *   gy=120 → frame 05 (gate-walk:  two steps forward)
  *   gy=121 → frame 06 (bump:       HMMMM front-wall view)
  * plus two ANIMATION sequences (viewport-only) keyed `<seq>:<frame>`:
- *   door:0..7 → the castle doors sliding apart (post-magicword success transition)
- *   gate:0..7 → the dungeon portcullis lifting open at the entrance gate
+ *   door:0..7  → the castle doors sliding apart (post-magicword success transition)
+ *   gate1:0..7 → the FIRST dungeon portcullis lifting open (gy118, APPROACHING)
+ *   gate2:0..7 → the SECOND dungeon portcullis lifting open (gy120, HMMM)
  * (frame 0 = closed, 7 = fully open). See docs/re/findings/maze-gate-open-animation.json.
  *
- * Output format: { "117": "<base64 19712 bytes>", ..., "door:0": "...", "gate:7": "..." }
+ * Output format: { "117": "...", ..., "door:0": "...", "gate1:0": "...", "gate2:7": "..." }
  * Each value is the raw 176×112 palette-index buffer (MAZE_VIEWPORT rect),
  * one byte per pixel, base64-encoded.
  *
@@ -43,7 +44,7 @@ const NEWGAME_FRAMES: { key: string; file: string }[] = [
 const ANIM_FRAME_COUNT = 8;
 function animFrames(): { key: string; file: string }[] {
   const out: { key: string; file: string }[] = [];
-  for (const seq of ['door', 'gate'] as const) {
+  for (const seq of ['door', 'gate1', 'gate2'] as const) {
     for (let n = 0; n < ANIM_FRAME_COUNT; n++) {
       out.push({ key: `${seq}:${n}`, file: `newgame-anim-${seq}-${String(n).padStart(2, '0')}.idx.gz` });
     }

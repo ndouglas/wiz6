@@ -57,7 +57,11 @@ export { turn, tryStepForward } from './maze/movement.js';
 export {
   advanceEntry,
   tickEntry,
+  isAnimationMode,
   ANIM_LAST,
+  TITLE_HOLD,
+  TEXT_HOLD,
+  WALK_HOLD,
   decodeNarrationLines,
   type EntryState,
   type EntryMode,
@@ -67,6 +71,7 @@ export {
   oracleViewportForGy,
   oracleAnimViewport,
   type NewgameViewports,
+  type AnimSeq,
 } from './maze/newgame-oracle.js';
 // Maze entry bottom strip — shared per-mode layout + draw (MazeView + parity gates)
 export {

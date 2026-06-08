@@ -72,7 +72,7 @@ describe('oracleViewportForGy — unit tests', () => {
   const viewports = loadViewports();
 
   it('returns a 176×112 buffer for each scripted gy during scripted entry modes', () => {
-    const SCRIPTED_MODES: EntryMode[] = ['title', 'narration', 'gate-walk', 'bump'];
+    const SCRIPTED_MODES: EntryMode[] = ['title', 'approach1', 'walk', 'approach2'];
     for (const gy of SCRIPTED_GYS) {
       for (const mode of SCRIPTED_MODES) {
         const buf = oracleViewportForGy(viewports, gy, mode);
@@ -89,8 +89,8 @@ describe('oracleViewportForGy — unit tests', () => {
   });
 
   it('returns null for a non-scripted gy', () => {
-    expect(oracleViewportForGy(viewports, 100, 'gate-walk')).toBeNull();
-    expect(oracleViewportForGy(viewports, 122, 'narration')).toBeNull();
+    expect(oracleViewportForGy(viewports, 100, 'walk')).toBeNull();
+    expect(oracleViewportForGy(viewports, 122, 'approach1')).toBeNull();
   });
 
   it('returns null when viewports is null', () => {
@@ -144,21 +144,25 @@ describe('oracleAnimViewport — animation frame resolver', () => {
     }
   });
 
-  it('returns a 176×112 buffer for gate:0..7', () => {
-    for (let frame = 0; frame <= 7; frame++) {
-      const buf = oracleAnimViewport(viewports, 'gate', frame);
-      expect(buf, `gate:${frame}`).not.toBeNull();
-      expect(buf!.length, `gate:${frame} size`).toBe(SIZE);
+  it('returns a 176×112 buffer for gate1:0..7 and gate2:0..7', () => {
+    for (const seq of ['gate1', 'gate2'] as const) {
+      for (let frame = 0; frame <= 7; frame++) {
+        const buf = oracleAnimViewport(viewports, seq, frame);
+        expect(buf, `${seq}:${frame}`).not.toBeNull();
+        expect(buf!.length, `${seq}:${frame} size`).toBe(SIZE);
+      }
     }
   });
 
   it('returns null for a missing frame', () => {
     expect(oracleAnimViewport(viewports, 'door', 8)).toBeNull();
-    expect(oracleAnimViewport(viewports, 'gate', 99)).toBeNull();
+    expect(oracleAnimViewport(viewports, 'gate1', 99)).toBeNull();
+    expect(oracleAnimViewport(viewports, 'gate2', 99)).toBeNull();
   });
 
   it('returns null when viewports is null', () => {
     expect(oracleAnimViewport(null, 'door', 0)).toBeNull();
-    expect(oracleAnimViewport(null, 'gate', 0)).toBeNull();
+    expect(oracleAnimViewport(null, 'gate1', 0)).toBeNull();
+    expect(oracleAnimViewport(null, 'gate2', 0)).toBeNull();
   });
 });

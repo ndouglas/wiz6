@@ -10,19 +10,20 @@
  * ── PER-MODE STRIP (RE: docs/re/findings/maze-newgame-byteexact.json, verified
  *    against the committed fixtures tools/parity/fixtures/engine/newgame-seq-0N) ──
  *
+ *   door-open  — GRAY widget background with a 50% black/gray dither central band
+ *                (the castle-door slide). No text.
  *   title      — GRAY widget background (idx 8) with two BLUE (idx 1) centered
  *                title lines ("ENTERING" y161, "BANE OF THE COSMIC FORGE" y169).
- *                Frame 02. (Fills the strip gray first, blanking any baked
- *                OPTIONS/TURN chrome glyphs, then draws the blue centered title.)
- *   narration  — CLEAN BLACK (idx 0) across the WHOLE strip y144–199 + three
- *                YELLOW (idx 5) left-aligned lines (x=8, y153/161/169). This
- *                BLANKS the gray widget — the fix for the shipped bug where the
- *                narration was drawn OVER the gray OPTIONS/TURN widget.
- *   bump       — CLEAN BLACK + one YELLOW CENTERED line ("HMMMM…" y153). Frame
- *                05/06.
- *   gate-walk  — CLEAN BLACK strip, no text. Frame 04. (The committed fixtures
- *                show the gate-walk strip as black, NOT the gray free-roam widget
- *                — see the note below.)
+ *                (Fills the strip gray first, blanking any baked OPTIONS/TURN
+ *                chrome glyphs, then draws the blue centered title.)
+ *   approach1  — CLEAN BLACK (idx 0) across the WHOLE strip y144–199 + three
+ *                YELLOW (idx 5) left-aligned lines (x=8, y153/161/169) — the
+ *                "APPROACHING THE GATE..." narration, in front of the first gate.
+ *   walk       — CLEAN BLACK strip, no text. Shared by the transit cell ('walk')
+ *  gate1-open    and the first portcullis lift ('gate1-open' — its committed
+ *                fixtures show pure black, the APPROACHING text dismissed).
+ *   approach2  — CLEAN BLACK + one YELLOW CENTERED line ("HMMM…" y153). Both the
+ *  gate2-open    approach2 still and the second-gate lift carry this strip.
  *   free       — NOT handled here: the caller leaves the baked gray OPTIONS/TURN
  *                widget (the static chrome) untouched.
  *
@@ -31,11 +32,11 @@
  * calls it "white" but white is index 1), index 1 is blue [85,85,255], index 8
  * is gray [85,85,85], index 0 is black. The INDEX is the parity ground truth.
  *
- * ── gate-walk gray-vs-black caveat ── The plan/prose describe the gate-walk
+ * ── walk gray-vs-black caveat ── The plan/prose describe the transit ('walk')
  * strip as the gray OPTIONS/TURN widget, but the committed byte-exact fixture
  * (newgame-seq-04-walk-gy119) shows it as a CLEAN BLACK strip (histogram {0:17920}
  * — pure black, no gray, no text). The fixtures are the gate, so we match them:
- * gate-walk = clean black. (The engine keeps the borderless message window open
+ * walk = clean black. (The engine keeps the borderless message window open
  * across the forced walk; the gray widget only returns at free-roam.)
  */
 
@@ -107,9 +108,9 @@ function centeredX(text: string, width: number): number {
  * Draw the bottom strip for the given entry `mode` onto an RGBA destination
  * buffer. The caller passes the SAME COMPOSED_PALETTE the frame is composed with.
  *
- * `gate-walk` / `bump` / `narration` / `title` OVERWRITE the strip (the
- * mode-appropriate background fill + text). `free` is a no-op here — the caller
- * leaves the baked gray OPTIONS/TURN widget for free-roam.
+ * Every scripted mode OVERWRITES the strip (the mode-appropriate background fill
+ * + text). `free` is a no-op here — the caller leaves the baked gray OPTIONS/TURN
+ * widget for free-roam.
  *
  * Returns nothing; mutates `destRgba` in place.
  */
@@ -123,76 +124,6 @@ export function drawEntryStrip(
   palette: Palette,
 ): void {
   switch (mode) {
-    case 'title': {
-      // Gray widget background (blanks any baked OPTIONS/TURN glyphs) + black
-      // y144 separator / y199 baseline, then the two blue centered title lines.
-      fillStrip(destRgba, destW, destH, TITLE_BG_IDX, palette);
-      blackRow(destRgba, destW, destH, STRIP_Y0); // y144 separator
-      blackRow(destRgba, destW, destH, 151); // y151 inner-window top border
-      blackRow(destRgba, destW, destH, STRIP_Y1 - 1); // y199 baseline
-      for (let i = 0; i < text.title.length && i < TITLE_LINE_Y.length; i++) {
-        const line = text.title[i]!;
-        renderTextRun(
-          destRgba,
-          destW,
-          destH,
-          centeredX(line, destW),
-          TITLE_LINE_Y[i]!,
-          line,
-          font,
-          TITLE_FG_IDX,
-          palette,
-          TITLE_BG_IDX,
-        );
-      }
-      return;
-    }
-
-    case 'narration': {
-      // Clean black strip (blanks the gray widget — the bug fix) + 3 yellow
-      // left-aligned lines.
-      fillStrip(destRgba, destW, destH, NARRATION_BG_IDX, palette);
-      for (let i = 0; i < text.narration.length && i < NARRATION_LINE_Y.length; i++) {
-        renderTextRun(
-          destRgba,
-          destW,
-          destH,
-          NARRATION_X,
-          NARRATION_LINE_Y[i]!,
-          text.narration[i]!,
-          font,
-          NARRATION_FG_IDX,
-          palette,
-          NARRATION_BG_IDX,
-        );
-      }
-      return;
-    }
-
-    case 'bump': {
-      // Clean black strip + a single yellow centered line ("HMMMM...").
-      fillStrip(destRgba, destW, destH, NARRATION_BG_IDX, palette);
-      renderTextRun(
-        destRgba,
-        destW,
-        destH,
-        centeredX(text.bump, destW),
-        NARRATION_LINE_Y[0]!,
-        text.bump,
-        font,
-        NARRATION_FG_IDX,
-        palette,
-        NARRATION_BG_IDX,
-      );
-      return;
-    }
-
-    case 'gate-walk': {
-      // Clean black strip, no text (matches newgame-seq-04 byte-exact).
-      fillStrip(destRgba, destW, destH, NARRATION_BG_IDX, palette);
-      return;
-    }
-
     case 'door-open': {
       // The castle-door slide shows the gray maze WIDGET BACKGROUND with NO text:
       // a 50% black/gray dither (idx 0/8, checkerboard — black where (x+y) is odd)
@@ -218,9 +149,70 @@ export function drawEntryStrip(
       return;
     }
 
-    case 'gate-open': {
-      // Clean black strip + a single yellow centered "HMMMM..." line — identical
-      // to the 'bump' path (the portcullis frames show HMMMM, verified captures).
+    case 'title': {
+      // Gray widget background (blanks any baked OPTIONS/TURN glyphs) + black
+      // y144 separator / y199 baseline, then the two blue centered title lines.
+      fillStrip(destRgba, destW, destH, TITLE_BG_IDX, palette);
+      blackRow(destRgba, destW, destH, STRIP_Y0); // y144 separator
+      blackRow(destRgba, destW, destH, 151); // y151 inner-window top border
+      blackRow(destRgba, destW, destH, STRIP_Y1 - 1); // y199 baseline
+      for (let i = 0; i < text.title.length && i < TITLE_LINE_Y.length; i++) {
+        const line = text.title[i]!;
+        renderTextRun(
+          destRgba,
+          destW,
+          destH,
+          centeredX(line, destW),
+          TITLE_LINE_Y[i]!,
+          line,
+          font,
+          TITLE_FG_IDX,
+          palette,
+          TITLE_BG_IDX,
+        );
+      }
+      return;
+    }
+
+    case 'approach1': {
+      // Clean black strip (blanks the gray widget) + the APPROACHING 3-line yellow
+      // narration, shown in front of the first (closed) gate. (The lift frames
+      // 'gate1-open' DISMISS this text — the committed newgame-anim-gate1 fixtures'
+      // strip is pure black, NOT APPROACHING.)
+      fillStrip(destRgba, destW, destH, NARRATION_BG_IDX, palette);
+      for (let i = 0; i < text.narration.length && i < NARRATION_LINE_Y.length; i++) {
+        renderTextRun(
+          destRgba,
+          destW,
+          destH,
+          NARRATION_X,
+          NARRATION_LINE_Y[i]!,
+          text.narration[i]!,
+          font,
+          NARRATION_FG_IDX,
+          palette,
+          NARRATION_BG_IDX,
+        );
+      }
+      return;
+    }
+
+    case 'walk':
+    case 'gate1-open': {
+      // Clean black strip, no text. 'walk' = the transit cell (newgame-seq-04
+      // byte-exact); 'gate1-open' = the first portcullis lift, whose committed
+      // newgame-anim-gate1 fixtures show a pure-black strip (the APPROACHING text
+      // is dismissed once the gate begins lifting).
+      fillStrip(destRgba, destW, destH, NARRATION_BG_IDX, palette);
+      return;
+    }
+
+    case 'approach2':
+    case 'gate2-open': {
+      // Clean black strip + a single yellow centered "HMMM..." line. The second
+      // gate (closed) is in the viewport during 'approach2'; the lift frames
+      // (gate2:0→7) play during 'gate2-open' — both carry the same HMMM strip
+      // (verified against the newgame-anim-gate2 fixtures).
       fillStrip(destRgba, destW, destH, NARRATION_BG_IDX, palette);
       renderTextRun(
         destRgba,
