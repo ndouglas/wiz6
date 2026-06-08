@@ -88,23 +88,25 @@ describe('isAnimationMode', () => {
 // tickEntry — the cutscene driver (one call per tick), drives the WHOLE thing.
 // ---------------------------------------------------------------------------
 describe('tickEntry — animation modes advance one frame per tick', () => {
-  it('per-sequence frame counts: door 8, gate1 12, gate2 8 (gate1 lift needs more frames)', () => {
-    expect(ANIM_LAST).toBe(7); // back-compat default (door/gate2)
-    expect(ENTRY_ANIM_FRAME_COUNTS).toEqual({ door: 8, gate1: 12, gate2: 8 });
-    expect(animLastForMode('door-open')).toBe(7);
+  it('per-sequence frame counts: door 6, gate1 12, gate2 8 (each = the engine\'s distinct states)', () => {
+    expect(ANIM_LAST).toBe(7); // back-compat default (the standard 8-frame seq = gate2)
+    expect(ENTRY_ANIM_FRAME_COUNTS).toEqual({ door: 6, gate1: 12, gate2: 8 });
+    expect(animLastForMode('door-open')).toBe(5);
     expect(animLastForMode('gate1-open')).toBe(11);
     expect(animLastForMode('gate2-open')).toBe(7);
   });
 
-  it('door-open: ticks animFrame 0→7 (gy stays 117), then → title (no move)', () => {
+  it('door-open: ticks animFrame 0→5 (6 slide positions; gy stays 117), then → title (no move)', () => {
+    const last = animLastForMode('door-open');
+    expect(last).toBe(5);
     let s = st('door-open', 117, 0);
-    for (let f = 0; f < ANIM_LAST; f++) {
+    for (let f = 0; f < last; f++) {
       s = tickEntry(s);
       expect(s.entryMode).toBe('door-open');
       expect(s.animFrame).toBe(f + 1);
       expect(s.party.gy).toBe(117);
     }
-    // animFrame===ANIM_LAST: next tick transitions.
+    // animFrame===last: next tick transitions.
     s = tickEntry(s);
     expect(s.entryMode).toBe('title');
     expect(s.animFrame).toBe(0);
@@ -132,7 +134,7 @@ describe('tickEntry — animation modes advance one frame per tick', () => {
 
   it('gate2-open: ticks animFrame 0→7 (gy stays 120), then → free + forcedStep (gy 120→121)', () => {
     let s = st('gate2-open', 120, 0);
-    for (let f = 0; f < ANIM_LAST; f++) {
+    for (let f = 0; f < animLastForMode('gate2-open'); f++) {
       s = tickEntry(s);
       expect(s.entryMode).toBe('gate2-open');
       expect(s.animFrame).toBe(f + 1);

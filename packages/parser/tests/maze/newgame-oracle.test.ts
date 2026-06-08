@@ -23,7 +23,7 @@ import {
   oracleAnimViewport,
   type NewgameViewports,
 } from '../../src/maze/newgame-oracle.js';
-import type { EntryMode } from '../../src/maze/entry-sequence.js';
+import { ENTRY_ANIM_FRAME_COUNTS, type EntryMode } from '../../src/maze/entry-sequence.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../../../..');
@@ -136,17 +136,9 @@ describe('oracleAnimViewport — animation frame resolver', () => {
   const viewports = loadViewports();
   const SIZE = MAZE_VIEWPORT.w * MAZE_VIEWPORT.h;
 
-  it('returns a 176×112 buffer for door:0..7', () => {
-    for (let frame = 0; frame <= 7; frame++) {
-      const buf = oracleAnimViewport(viewports, 'door', frame);
-      expect(buf, `door:${frame}`).not.toBeNull();
-      expect(buf!.length, `door:${frame} size`).toBe(SIZE);
-    }
-  });
-
-  it('returns a 176×112 buffer for gate1:0..7 and gate2:0..7', () => {
-    for (const seq of ['gate1', 'gate2'] as const) {
-      for (let frame = 0; frame <= 7; frame++) {
+  it('returns a 176×112 buffer for every frame of each sequence (per-seq counts)', () => {
+    for (const seq of ['door', 'gate1', 'gate2'] as const) {
+      for (let frame = 0; frame < ENTRY_ANIM_FRAME_COUNTS[seq]; frame++) {
         const buf = oracleAnimViewport(viewports, seq, frame);
         expect(buf, `${seq}:${frame}`).not.toBeNull();
         expect(buf!.length, `${seq}:${frame} size`).toBe(SIZE);
@@ -154,8 +146,8 @@ describe('oracleAnimViewport — animation frame resolver', () => {
     }
   });
 
-  it('returns null for a missing frame', () => {
-    expect(oracleAnimViewport(viewports, 'door', 8)).toBeNull();
+  it('returns null for a missing frame (one past each sequence end)', () => {
+    expect(oracleAnimViewport(viewports, 'door', ENTRY_ANIM_FRAME_COUNTS.door)).toBeNull();
     expect(oracleAnimViewport(viewports, 'gate1', 99)).toBeNull();
     expect(oracleAnimViewport(viewports, 'gate2', 99)).toBeNull();
   });
