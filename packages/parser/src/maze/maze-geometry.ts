@@ -46,6 +46,22 @@ export function field(
 export const N = (b: MazeBlock, gx: number, gy: number) => field(b, gx, gy, 'north');
 export const W = (b: MazeBlock, gx: number, gy: number) => field(b, gx, gy, 'west');
 
+/** The 4-bit `special4` DECORATION code (+0x1f8) of the cell at GLOBAL (gx,gy).
+ *  Out-of-region -> 0 (no decoration). */
+export function special4(b: MazeBlock, gx: number, gy: number): number {
+  const c = resolve(b, gx, gy);
+  if (!c) return 0;
+  return b.regions[c.region]?.[c.cellA * 8 + c.cellB]?.special4 ?? 0;
+}
+
+/** The 2-bit `orient2` DECORATION ORIENTATION (+0x378) of the cell at GLOBAL
+ *  (gx,gy). Out-of-region -> -1 (gate never matches). */
+export function orient2(b: MazeBlock, gx: number, gy: number): number {
+  const c = resolve(b, gx, gy);
+  if (!c) return -1;
+  return b.regions[c.region]?.[c.cellA * 8 + c.cellB]?.orient2 ?? -1;
+}
+
 /** GLOBAL-cell view-step under the facing rotation (view_step 0x37a7).
  *  Returns [newGx, newGy] after applying (lateral, forward) in the facing frame. */
 export function step(

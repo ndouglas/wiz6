@@ -37,7 +37,15 @@ import {
   maskedMirrorFor,
   type MazeWorkBuffer,
 } from './maze-data.js';
-import { isSolid, step, forwardEdge, cornerL, cornerR } from './maze-geometry.js';
+import {
+  isSolid,
+  step,
+  forwardEdge,
+  cornerL,
+  cornerR,
+  special4,
+  orient2,
+} from './maze-geometry.js';
 
 // ---------------------------------------------------------------------------
 // PLACEMENT-INDEX ARITHMETIC (the per-depth `base + depth` law)
@@ -661,6 +669,153 @@ export function generateNearFlankMasked(
     calls.push({ kind: 'masked', src: left, dst: right, mode: 'or' });
   }
   return calls;
+}
+
+// ---------------------------------------------------------------------------
+// THE DECORATION-SELECTION LAW (the special4 / orient2 plane — the wmaze
+// classifier's decoration override). RE pinned 2026-06-08 by HAND-DISASM of the
+// front/side classifier `classify_front_side` 0x3828 (the decoration override at
+// file 0x3ac7..0x3b09) + the 16-way special4 jump table at FILE 0x3bc5 (the
+// `jmp word cs:[bx-0x7ed7]` dispatch, bx = special4·2, overlay delta 0x4564).
+// Cross-checked against docs/re/findings/maze-classify-projection.json.
+//
+// DECISIVE EVIDENCE (static, byte-exact over wmaze.ovr):
+//  (1) THE GATE (0x3af1..0x3b03). After reading the cell's wall edge, the
+//      classifier ALWAYS reads special4 (+0x1f8) and orient2 (+0x378). It enters
+//      the special4 dispatch iff:
+//          orient2 == facing   ||   special4 == 6   ||   special4 <= 0xc
+//      For the LEVEL-0 decoration cells (all orient2 == 0) this means the
+//      decoration is consulted facing-INDEPENDENTLY for any special4 in 1..0xc,
+//      but the dispatch only changes the rendered wall when the orientation gate
+//      `orient2 == facing` selects the decorated FACE — for orient2==0 that is
+//      facing 0 (north). (The `special4<=0xc` clause feeds the dispatch even when
+//      the orientation does not match, but special4=0 maps to the no-op entry, so
+//      a plain cell is unchanged.)
+//  (2) THE special4 -> SHAPE-CODE TABLE (file 0x3bc5, 16 entries):
+//          special4  1 -> code 5      special4  7 -> code 4
+//          special4  2 -> code 6      special4  8 -> code 7
+//          special4  3 -> code 8      special4  9 -> code 0xa
+//          special4  4 -> code 9      special4 0xa -> code 0xb
+//          special4  5 -> code 0xe    special4 0xb -> code 0xc
+//          special4 0xc -> code 0xd
+//          special4 0 -> (no-op, raw wall field stands)
+//          special4 6  -> sets the OCCLUSION-FRONT gate [0x50b8]
+//          special4 0xd-> sets the DEEP-SPAN gate [0x5050]
+//          special4 0xe-> sets the SIDE-EMIT gate [0x50ab]
+//      The shape code (4..0xe) is written into the per-(depth,slot) walltype
+//      array [0x5220] and fed to wall_emit_quad 0x406c / wall_emit_corner 0x45b4,
+//      which translate it (via the span-flush piece table @0x36e4) into the
+//      actual mazedata.ega placement blits.
+//
+// THE FOUNTAIN. special4 == 7 (shape code 4) is the most prominent repeated
+// SIDE-WALL decoration in level-0 region 0 — a 4-cell column at gx126 gy118..121
+// (cellB 6, cellA 2..5), all orient2 == 0 (so it decorates the north/facing-0
+// face). It is the wall fixture the player walks PAST down the entry corridor —
+// the "fountain" of the user's lived recollection ("fountains at the wrong
+// angles"). Codes 2 (special4=1) and 8 (special4=3) are the other common
+// side/alcove fixtures; the door/recess at the corridor end is the door-edge
+// re-classification path (NOT a special4 code).
+//
+// RESIDUE (the decompiler-resistant span->placement translation): the shape code
+// -> mazedata.ega placement-index mapping runs through the SAME span-flush piece
+// table (0x36e4 / wall_emit_quad 0x406c) that the side-wall extent law documents
+// as residue (maze-wall-family-seeding.json). It cannot be pinned byte-exact from
+// static disasm alone, and a live capture of a fountain-facing view is BLOCKED:
+// the committed maze states do not round-trip on the patched trace core, a fresh
+// drive cannot reach the decorated cells, and a poke-recompose replays the cached
+// span list WITHOUT re-running the build loop (so no decoration emit fires — see
+// maze-piece-inventory.json tooling-rootcause). So this module pins the
+// SELECTION (which cells decorate at which facing + the shape code) byte-exact and
+// leaves the placement emit as documented residue. The canonical maze-corridor
+// view (v1, gx127 gy121 f0) — which DOES pass through the gx126 special4=7 column
+// on its left — already reproduces to 99.9% via the near-flank masked family
+// (gen-callist-parity); the residual 18px deep-door-center detail is the only gap.
+// ---------------------------------------------------------------------------
+
+/** special4 -> wall SHAPE CODE (the value written into the [0x5220] walltype slot
+ *  and fed to wall_emit_quad/corner). 0 = no decoration; codes 6/0xd/0xe set
+ *  internal gates rather than a shape (returned as -1 here — "gate, not a shape").
+ *  Pinned byte-exact from the file-0x3bc5 jump table (overlay delta 0x4564). */
+export function decorationShapeCode(special4Code: number): number {
+  switch (special4Code) {
+    case 1: return 5;
+    case 2: return 6;
+    case 3: return 8;
+    case 4: return 9;
+    case 5: return 0xe;
+    case 7: return 4;
+    case 8: return 7;
+    case 9: return 0xa;
+    case 0xa: return 0xb;
+    case 0xb: return 0xc;
+    case 0xc: return 0xd;
+    case 6: // occlusion-front gate [0x50b8]
+    case 0xd: // deep-span gate [0x5050]
+    case 0xe: // side-emit gate [0x50ab]
+      return -1;
+    default: return 0; // special4 == 0 -> no decoration
+  }
+}
+
+/** One visible decorated cell + its selected shape code. */
+export interface DecorationHit {
+  /** perspective depth (0..3) of the decorated cell from the party. */
+  depth: number;
+  /** which screen slot the decoration sits on. */
+  slot: 'front' | 'left' | 'right';
+  /** GLOBAL cell coords of the decorated cell. */
+  gx: number;
+  gy: number;
+  /** the raw special4 plane value. */
+  special4: number;
+  /** the orient2 plane value. */
+  orient2: number;
+  /** the wall SHAPE CODE the classifier selects (4..0xe), or 0 / -1 (gate). */
+  shapeCode: number;
+}
+
+/**
+ * DETECT the decorations the engine's classifier would consult for a given view:
+ * walk the visible depths front-to-back and, for the FRONT cell and the LEFT /
+ * RIGHT lateral neighbours at each depth, read the special4 / orient2 planes and
+ * apply the gate (`orient2 == facing`) + the special4 -> shape-code table.
+ *
+ * Returns one `DecorationHit` per decorated face whose orientation gate matches
+ * the party's facing (so it would actually render on this view). This IS the
+ * engine's decoration SELECTION (byte-exact). The shape-code -> placement-blit
+ * translation is the documented span-flush residue; this function reports the
+ * SELECTION so callers (and the gate test) can assert "decorations are detected
+ * only for decorated visible cells, never for a plain corridor."
+ */
+export function generateDecorations(block: MazeBlock, party: MazeParty): DecorationHit[] {
+  const { facing } = party;
+  const visible = computeVisibleDepths(block, party);
+  const hits: DecorationHit[] = [];
+  // entry pull-back, mirroring computeVisibleDepths / the build loop origin.
+  let [cgx, cgy] = step(party.gx, party.gy, facing, 0, -1);
+  for (let d = 0; d < DEPTH_BOUND; d++) {
+    [cgx, cgy] = step(cgx, cgy, facing, 0, 1);
+    if (!visible.includes(d)) break;
+    // FRONT cell + the LEFT (lateral -1) and RIGHT (lateral +1) neighbours.
+    const slots: Array<['front' | 'left' | 'right', number, number]> = [
+      ['front', cgx, cgy],
+      ['left', ...step(cgx, cgy, facing, -1, 0)],
+      ['right', ...step(cgx, cgy, facing, 1, 0)],
+    ];
+    for (const [slot, sx, sy] of slots) {
+      const sp = special4(block, sx, sy);
+      if (sp === 0) continue; // no decoration on this cell
+      const o = orient2(block, sx, sy);
+      // The orientation gate: the decoration renders on the face the party is
+      // looking at only when `orient2 == facing` (the 0x3af1 gate). (The engine
+      // also enters the dispatch for special4<=0xc regardless, but the rendered
+      // FACE is the orientation-selected one; a non-matching orientation draws the
+      // decoration on a different face, invisible from this view.)
+      if (o !== facing) continue;
+      hits.push({ depth: d, slot, gx: sx, gy: sy, special4: sp, orient2: o, shapeCode: decorationShapeCode(sp) });
+    }
+  }
+  return hits;
 }
 
 /**
