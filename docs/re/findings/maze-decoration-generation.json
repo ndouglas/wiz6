@@ -1,0 +1,61 @@
+{
+  "topic": "maze-decoration-generation",
+  "subagent_run": "2026-06-08T19:00:00Z",
+  "binaries": ["wmaze.ovr"],
+  "summary": "Cracked the maze DECORATION-SELECTION law (the special4 +0x1f8 / orient2 +0x378 planes -> wall SHAPE CODE) byte-exact from static disasm of the front/side classifier classify_front_side @0x3828 + the 16-way special4 jump table at FILE 0x3bc5 (jmp word cs:[bx-0x7ed7], bx=special4*2, overlay delta 0x4564). Decoration emit is GATED by orient2==facing (file 0x3af1). special4 indexes a 16-entry table to a shape code 4..0xe written into the per-(depth,slot) walltype array [0x5220] and fed to wall_emit_quad/corner. IDENTIFIED THE FOUNTAIN: special4==7 (shape code 4) — the gx126 gy118..121 column in level-0 region 0 (all orient2==0, decorates the facing-0/north face), the repeated side-wall fixture the party walks past entering the dungeon. The selection is now generated (generateDecorations / decorationShapeCode in packages/parser/src/maze/callist.ts) and gated by packages/parser/tests/maze/maze-decoration-parity.test.ts. The shape-code -> mazedata.ega placement-blit translation runs through the decompiler-resistant span-flush piece table (0x36e4 / wall_emit_quad 0x406c) and a live fountain-facing capture is BLOCKED by the documented serialize round-trip / poke-recompose tooling gap (maze-piece-inventory.json) — so it stays documented residue, NOT fabricated OR indices.",
+  "findings": [
+    {
+      "id": "decoration-orientation-gate",
+      "claim": "Decoration emit is gated by `orient2 == facing`. The classifier always reads special4 (+0x1f8) into [bp-6] and orient2 (+0x378) into [bp-8] after the wall-edge read, then enters the special4 dispatch iff (orient2==facing) || (special4==6) || (special4<=0xc). For special4==0 the table entry is a no-op (the raw wall field stands), so a plain cell is unchanged; the dispatch only changes the rendered FACE when orient2==facing selects the decorated face. For ALL level-0 decoration cells orient2==0, so decorations render only when facing 0 (north). This is the mechanical root of the user's 'fountains at the wrong angle' complaint.",
+      "category": "maze_decoration",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": "0x3ac7..0x3b09",
+        "type": "static_disasm",
+        "details": "0x3acf reads +0x1f8 (special4, into [bp-6]); 0x3ae4 reads +0x378 (orient2, into [bp-8]); 0x3af1 `cmp ax(orient2),[0x4f9a](facing); je 0x3b06`; 0x3af7 `cmp [bp-6],6; je 0x3b06`; 0x3afd `cmp [bp-6],0xc; jg 0x3b06`; 0x3b03 `jmp 0x3bf2` (no-dispatch path). 0x3b06: `mov ax,[bp-6](special4); jmp 0x3be5` (the special4 dispatch). Confirmed via tools/parity/maze_disasm.py 0x3a40 0x1b0."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "special4-shape-code-table",
+      "claim": "The 16-way special4 jump table at FILE 0x3bc5 maps special4 -> wall SHAPE CODE: 1->5, 2->6, 3->8, 4->9, 5->0xe, 7->4, 8->7, 9->0xa, 0xa->0xb, 0xb->0xc, 0xc->0xd. special4==0 -> no-op (raw wall field stands). special4==6 sets the occlusion-front gate [0x50b8]; special4==0xd sets the deep-span gate [0x5050]; special4==0xe sets the side-emit gate [0x50ab]. The shape code (4..0xe) is written into the per-(depth,slot) walltype array [0x5220] and fed to wall_emit_quad 0x406c / wall_emit_corner 0x45b4.",
+      "category": "maze_decoration",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": "0x3bed (dispatch); 0x3bc5 (table)",
+        "type": "jump_table_decode",
+        "details": "0x3be5: `cmp ax,0x10; jae 0x3bf2; xchg bx,ax; shl bx,1; jmp word cs:[bx-0x7ed7]`. Table file offset = (0x10000-0x7ed7)-0x4564 = 0x3bc5 (overlay delta 0x4564). Decoded 16 entries -> targets 0x3b0c(code5)/0x3b14(code6)/0x3b1c(code8)/0x3b24(code9)/0x3b2c(code0xe)/0x3b34(gate[0x50b8])/0x3b51(code4)/0x3b59(code7)/0x3b61(code0xa)/0x3b69(code0xb)/0x3b71(code0xc)/0x3b78(code0xd)/0x3b7f(gate[0x5050])/0x3b9b(gate[0x50ab]); special4=0 -> 0x3bf2 (default no-op). The shape-code writers at 0x3b0c.. each `mov [bp-4], <code>`."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fountain-identification",
+      "claim": "The FOUNTAIN is special4 == 7 (shape code 4): a 4-cell column at gx126 gy118..121 in level-0 region 0 (cellB 6, cellA 2..5), all orient2 == 0 (so it decorates the facing-0/north face). It is the repeated side-wall fixture immediately to the LEFT of the entry corridor (gx127 column) as the party enters facing north — the wall the player walks PAST, matching the user's lived recollection of 'fountains'. special4==7 is the most common SIDE-wall decoration code in region 0 (9 cells level-wide). The other common decorations: special4==1 (code 5) and special4==3 (code 8) are the alcove/recess fixtures; the door/portcullis at a corridor end is a DOOR-edge re-classification (wall field 3), a separate path from special4.",
+      "category": "maze_decoration",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": "n/a (data: extracted/maze/level-0.json region 0)",
+        "type": "data_plus_render_eyeball",
+        "details": "Region-0 special4 column: (cellA2,cellB6)=gx126gy118 sp7; (3,6)=gx126gy119 sp7; (4,6)=gx126gy120 sp7; (5,6)=gx126gy121 sp7. generateDecorations({gx127,gy121,f0}) detects this column on the LEFT slot at depth 0 (shape code 4). The maze-corridor engine fixture (tools/parity/fixtures/engine/maze-corridor.png) is exactly this view (gx127 gy121 f0) and shows the side-wall decoration; it composes to 99.909% via the wired generateFullCallList path. Eyeballed pokeview framebuffers (probe-maze-poke.ts) confirm the entry corridor renders these side fixtures."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "selection-vs-placement-split",
+      "claim": "The decoration SELECTION (which cell decorates at which facing + the shape code) is now pinned byte-exact and generated. The shape-code -> mazedata.ega placement-INDEX translation is NOT pinned: it runs through the span-flush piece table (0x36e4) inside wall_emit_quad 0x406c (e.g. code 4 emits via span_append 0x3f8d @0x41a9 with a per-depth-indexed source [bx+0x52]), the same decompiler-resistant path the side-wall extent law documents as residue (maze-wall-family-seeding.json). For the canonical maze-corridor view the fountain column's near-wall placements are ALREADY emitted by the near-flank masked-mirror family (generateNearFlankMasked: 13->4 4->13 10->7 7->10), so the view reaches 99.9% without a separate decoration OR-blit — the residual 18px is the deep-door-center detail.",
+      "category": "maze_decoration",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": "0x406c / 0x3f8d / 0x36e4",
+        "type": "static_disasm_plus_callist_diff",
+        "details": "generateCallist(v1) vs the v1 capture (docs/re/findings/maze-views/v1-gy121f0.json) diff: the only captured-but-not-generated indices are {4,7,10,13} which generateFullCallList already emits as the masked near-flank set (4->13,7->10,10->7,13->4) — NO missing OR decoration placement in this view. wall_emit_quad 0x4197 (code 4) -> 0x3f8d span_append with base [bp+4]+0xa and per-depth source [bx+0x52]; 0x3f8d writes the span list @0x50d0 indexed by span count @0x50ce, piece bytes from [bx+0x36e4]."
+      },
+      "confidence": "high"
+    }
+  ],
+  "unresolved": [
+    "The shape-code (4..0xe) -> mazedata.ega placement-index mapping is the span-flush residue (0x36e4 piece table / wall_emit_quad). Pinning it byte-exact needs a depth-keyed LIVE build trace of a decoration-facing view, which is BLOCKED: committed maze states don't round-trip on the patched trace core (maze-piece-inventory.json tooling-rootcause), a fresh drive can't reach the decorated cells (party blocked at x=3), and poke-recompose replays the cached span list WITHOUT re-running the build loop (trace-maze depthemit/pokeview both returned 0 emit hits / failed to resolve the OR base for poked facing-0 decoration cells this run). A navigation-reach harness that walks the party to a fountain-facing cell on the patched core is the unblock.",
+    "The orient2==facing gate uses orient2 DIRECTLY for the FRONT/side classifier (0x3828, 0x3af1) but the CORNER classifier (0x3c11/0x3dce) uses (orient2+1)%4==facing (0x3d5b) — the two gates differ. generateDecorations models the front/side gate; corner decorations (if any level-0 cell decorates a corner edge) are not yet modeled.",
+    "The door/portcullis at a corridor end (wall field 1/3) is re-classified to a shape code via a path SEPARATE from special4 (the maze-corridor front slot is code 8 even though the forward cells have special4==0). That door-orientation re-classification is not part of this decoration-selection crack."
+  ]
+}
