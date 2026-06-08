@@ -15,8 +15,13 @@ describe('maze render schemas', () => {
     expect(d.w).toBe(4);
   });
   it('parses MazeRenderAssets', () => {
-    const a = MazeRenderAssetsSchema.parse({ atlas: new Uint8Array(0x4000), pieceDescriptors: [] });
+    const a = MazeRenderAssetsSchema.parse({
+      atlas: new Uint8Array(0x4000),
+      pieceDescriptors: [],
+      mazedata: new Uint8Array(0x100),
+    });
     expect(a.atlas.length).toBe(0x4000);
+    expect(a.mazedata.length).toBe(0x100);
   });
   it('parses MazeCellWalls (a local wall grid keyed by cell index)', () => {
     const w = MazeCellWallsSchema.parse({ cells: { 195: { north: 2, west: 0, pit: false } } });

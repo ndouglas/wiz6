@@ -41,13 +41,14 @@
  *   pnpm tsx tools/parity/extract-maze-assets.ts
  */
 
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { HostClient } from '../../packages/mcp/src/live/host-client.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
 const STATE_FILE = resolve(REPO_ROOT, 'tools/libretro/states/maze-corridor.state');
 const OUT_FILE = resolve(REPO_ROOT, 'packages/parser/src/maze/__fixtures__/maze-assets.json');
+const MAZEDATA_FILE = resolve(REPO_ROOT, 'test-fixtures/original/mazedata.ega');
 
 const PIECE_COUNT = 0x18;     // 24 pieces total in the descriptor table
 const ATLAS_SIZE  = 0x4000;   // 16 KiB — the full descriptor seg snapshot
@@ -143,6 +144,11 @@ async function main(): Promise<void> {
     console.log(`\n${nonZeroDescs}/${PIECE_COUNT} descriptors have non-zero fields`);
     if (nonZeroDescs < 4) throw new Error('too few non-zero descriptors — something is wrong with the read');
 
+    // --- Read mazedata.ega (the from-asset background generator source) ---
+    console.log(`reading mazedata.ega from ${MAZEDATA_FILE}...`);
+    const mazedata = readFileSync(MAZEDATA_FILE);
+    console.log(`mazedata.ega read OK (${mazedata.length} bytes)`);
+
     // --- Write the JSON ---
     mkdirSync(resolve(REPO_ROOT, 'packages/parser/src/maze/__fixtures__'), { recursive: true });
     const output = {
@@ -157,8 +163,11 @@ async function main(): Promise<void> {
         'The atlas is the full 0x4000-byte descriptor+source-cell segment; srcPtr in each descriptor',
         'addresses the source 8x8 4-plane cells within this same buffer.',
         'See tools/parity/render-maze-frame.ts for the descriptor/atlas format documentation.',
+        'mazedataB64 is the raw test-fixtures/original/mazedata.ega file bytes — the source for the',
+        'from-asset background generator (expandMazeData -> generateFullCallList -> composeCallList).',
       ],
       atlasB64: Buffer.from(atlas).toString('base64'),
+      mazedataB64: Buffer.from(mazedata).toString('base64'),
       pieceDescriptors,
     };
 

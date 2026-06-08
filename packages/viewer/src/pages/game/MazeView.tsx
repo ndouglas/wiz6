@@ -12,8 +12,11 @@ import {
 } from '@wiz6/data';
 import {
   advanceEntry,
+  composeCallList,
   decodeNarrationLines,
   drawEntryStrip,
+  expandMazeData,
+  generateFullCallList,
   renderMazeViewport,
   oracleViewportForGy,
   oracleAnimViewport,
@@ -22,6 +25,7 @@ import {
   tryStepForward,
   type CapturedSpansTable,
   type EntryStripText,
+  type MazeWorkBuffer,
   type NewgameViewports,
 } from '@wiz6/parser';
 import { CanvasPresenter } from '../../lib/presenter.js';
@@ -117,6 +121,7 @@ function safeRenderViewport(
   assets: MazeRenderAssets,
   wallSpans: CapturedSpansTable | null,
   newgameViewports: NewgameViewports | null,
+  mazeWorkBuffer: MazeWorkBuffer | null,
 ): Uint8Array {
   // Animation path: the door-slide / two portcullis-lift viewport animations play
   // captured oracle frames keyed by "door:N" / "gate1:N" / "gate2:N" (animFrame
@@ -144,9 +149,31 @@ function safeRenderViewport(
   }
 
   // Oracle path: scripted entry stills with committed engine pixels (keyed by gy:
-  // title→gy117 corridor, walk→gy119 corridor).
+  // title→gy117 corridor, walk→gy119 corridor). Returns null in 'free' mode, so
+  // free-roam falls through to the GENERATED background page below.
   const oracle = oracleViewportForGy(newgameViewports, session.party.gy, session.entryMode);
   if (oracle !== null) return oracle;
+
+  // FREE-ROAM background: compose the floor/ceiling/walls/portcullis background
+  // page from mazedata.ega via the byte-exact from-asset generator
+  // (generateFullCallList → composeCallList(expandMazeData(mazedata))) and feed it
+  // as renderMazeViewport's `page`. This replaces the prior walls-over-black
+  // (mostly-black) free-roam render. Scoped to free-roam only — the scripted entry
+  // oracle paths above are unchanged. The work buffer is pre-expanded once when
+  // assets load (expandMazeData parses 102KB) and reused per frame.
+  if (session.entryMode === 'free' && mazeWorkBuffer !== null) {
+    try {
+      const calls = generateFullCallList(session.level.mazeBlock, session.party);
+      const page = composeCallList(mazeWorkBuffer, calls);
+      return renderMazeViewport(session.level.mazeBlock, session.party, assets, {
+        page,
+        ...(wallSpans ? { capturedSpans: wallSpans } : {}),
+      });
+    } catch (err) {
+      console.warn('[MazeView] free-roam background generation threw; falling back', err);
+      // fall through to the prior (walls-over-black) path below
+    }
+  }
 
   try {
     return renderMazeViewport(
@@ -177,12 +204,13 @@ function composeFrame(
   newgameViewports: NewgameViewports | null,
   stripText: { text: EntryStripText; font: Font } | null,
   partyPanels: MazePartyPanels | undefined,
+  mazeWorkBuffer: MazeWorkBuffer | null,
 ): Uint8Array {
   // Static chrome + LIVE party panels (the player's actual party) + viewport
   // baseline. partyPanels is undefined until the panel fonts/active party load;
   // until then the baked chrome panels show (cleared once the fonts arrive).
   const frame = composeMazeFrame(partyPanels);
-  const vp = safeRenderViewport(session, assets, wallSpans, newgameViewports);
+  const vp = safeRenderViewport(session, assets, wallSpans, newgameViewports, mazeWorkBuffer);
   const { x: vx, y: vy, w: vw, h: vh } = MAZE_VIEWPORT;
   for (let row = 0; row < vh; row++) {
     for (let col = 0; col < vw; col++) {
@@ -239,6 +267,10 @@ export function MazeView() {
   // the latest party without re-subscribing the listener every change.
   const sessionRef = useRef<GameSession | null>(null);
   const assetsRef = useRef<MazeRenderAssets | null>(null);
+  // The expanded mazedata.ega work buffer for the free-roam from-asset background
+  // generator. Computed ONCE when assets load (expandMazeData parses 102KB) and
+  // reused per frame — never per-render.
+  const mazeWorkBufferRef = useRef<MazeWorkBuffer | null>(null);
   const wallSpansRef = useRef<CapturedSpansTable | null>(null);
   // Oracle viewports for the 5 scripted entry frames (loaded once on mount for
   // levels with a scriptedEntry). Null until loaded or if not a scripted level.
@@ -356,6 +388,14 @@ export function MazeView() {
       .then((a) => {
         if (cancelled) return;
         assetsRef.current = a;
+        // Pre-expand the mazedata.ega work buffer ONCE (102KB parse) so the
+        // free-roam from-asset background generator can compose per frame cheaply.
+        // Non-fatal: on failure free-roam falls back to walls-over-black.
+        try {
+          mazeWorkBufferRef.current = expandMazeData(a.mazedata);
+        } catch (err) {
+          console.warn('[MazeView] failed to expand mazedata.ega (free-roam background disabled):', err);
+        }
         setAssets(a);
       })
       .catch((err: unknown) => {
@@ -415,6 +455,7 @@ export function MazeView() {
       newgameViewportsRef.current,
       stripTextRef.current,
       partyPanelsArg(),
+      mazeWorkBufferRef.current,
     );
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
   }

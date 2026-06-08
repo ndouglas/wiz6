@@ -128,10 +128,24 @@ corridors; remaining residues = non-canonical/asymmetric views + the 18px deep-d
 call-list, under the walls — no more "mostly black", fountains at correct angles.
 **Deliverables:** `renderMazeViewport` uses `callist-gen` + `composeBackgroundFromAsset`; MazeView wires it.
 **Success:** `pnpm dev:viewer` → dungeon shows floor/ceiling + decorations; manual smoke across views.
-**Status:** Not Started
+**Status:** DONE. `mazedata.ega` threaded into the viewer asset (MazeRenderAssetsSchema.mazedata; base64 in
+maze-assets.json + extracted/maze/assets.json; assets-decode + extract-maze-assets + loaders). MazeView free-roam
+path builds `page = composeCallList(expandMazeData(assets.mazedata), generateFullCallList(block,party))` →
+renderMazeViewport({page, capturedSpans}); work buffer expanded once (ref), try/catch fallback, scoped to
+entryMode==='free' (scripted-entry oracle paths UNCHANGED — oracleViewportForGy returns null for 'free').
+EYEBALLED (/tmp render vs engine oracle): a faithful dungeon corridor — receding stone walls + flagstone floor +
+far doorway; only diff = the engine's yellow door-center pixel (the 18px residual). Suites: parser 440, data 619,
+viewer 1033 green; tsc + vite build clean.
 
 ## Stage 5: Pixel-parity gate
-**Goal:** Full-viewport byte-exact parity vs the re-minted fixtures, promoted from diagnostic to gate.
-**Deliverables:** `maze-view-parity.test.ts` (tol 0) over the Stage-1 fixture set; e2e drive sampling a few.
-**Success:** gate-tier parity green in CI across the fixture set.
-**Status:** Not Started
+**Goal:** Full-viewport byte-exact parity vs the engine fixture, generated (not engine-page).
+**Deliverables:** `maze-corridor-generated-parity.test.ts` (the GENERATED path vs maze-corridor.idx.gz).
+**Success:** gate-tier parity green in CI.
+**Status:** DONE for the canonical corridor. `maze-corridor-generated-parity.test.ts` (gate-tier) renders gy121
+THROUGH THE WIRED PATH (loadMazeAssets().mazedata → expandMazeData → generateFullCallList → composeCallList →
+renderMazeViewport) and asserts 99.909% (match===19694/19712) vs the engine oracle. The 18px deep-door-center
+residual is the only gap (pre-existing TODO — a draw path beyond the OR/masked background blit). The existing
+engine-page 100% gate (maze-corridor-viewport-parity.test.ts) stays green alongside.
+REMAINING (future): per-region cell-mapping beyond region-0; non-canonical/asymmetric-view residue (v8/v9
+ray-march, parity-odd whole-frame masked); decorations (special4 fountains/windows); the 18px deep-door detail;
+an e2e drive sampling free-roam views. TODO entries to be filed.

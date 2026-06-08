@@ -16,6 +16,8 @@ import { MazeRenderAssetsSchema, type MazeRenderAssets } from '@wiz6/data';
 export interface MazeAssetsRaw {
   atlasB64: string;
   pieceDescriptors: { srcPtr: number; w: number; h: number; bitmapB64: string }[];
+  /** base64 of the raw `mazedata.ega` file bytes (the from-asset background source). */
+  mazedataB64: string;
 }
 
 /** Isomorphic base64 → Uint8Array (no Buffer; uses atob in the browser, a manual
@@ -52,11 +54,12 @@ function base64ToBytes(b64: string): Uint8Array {
 /** Decode the parsed maze-assets JSON into a validated MazeRenderAssets. Pure. */
 export function decodeMazeAssets(raw: MazeAssetsRaw): MazeRenderAssets {
   const atlas = base64ToBytes(raw.atlasB64);
+  const mazedata = base64ToBytes(raw.mazedataB64);
   const pieceDescriptors = raw.pieceDescriptors.map((d) => ({
     srcPtr: d.srcPtr,
     w: d.w,
     h: d.h,
     presenceBitmap: base64ToBytes(d.bitmapB64),
   }));
-  return MazeRenderAssetsSchema.parse({ atlas, pieceDescriptors });
+  return MazeRenderAssetsSchema.parse({ atlas, pieceDescriptors, mazedata });
 }

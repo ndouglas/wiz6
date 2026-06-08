@@ -79,6 +79,11 @@ export type PieceDescriptor = z.infer<typeof PieceDescriptorSchema>;
 export const MazeRenderAssetsSchema = z.object({
   atlas: z.instanceof(Uint8Array),
   pieceDescriptors: z.array(PieceDescriptorSchema),
+  /** Raw `mazedata.ega` file bytes — the source for the from-asset background
+   *  generator (expandMazeData → generateFullCallList → composeCallList). Threaded
+   *  through the same asset pipeline as the atlas so free-roam can compose the
+   *  floor/ceiling/walls/portcullis background page in the browser. */
+  mazedata: z.instanceof(Uint8Array),
 });
 export type MazeRenderAssets = z.infer<typeof MazeRenderAssetsSchema>;
 
