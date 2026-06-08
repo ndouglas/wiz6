@@ -71,11 +71,21 @@ call site (NOT slot-code table arithmetic — which is why the decompiler's tabl
 no table). Found by hand-disasm of the emit fns `wall_emit_quad` 0x406c / `wall_emit_corner` 0x45b4 /
 `top_strip_emit` 0x4a15 (the slot helpers only classify + seed gates). Implemented as `EMIT_BASES` +
 `placementIndex(base,depth)` + `generateSkeletonIndices(visibleDepths)` in `callist.ts`; gated by
-`tests/maze/index-arithmetic.test.ts` (24 tests, byte-exact vs v1/v2/v5/v6 captures). REMAINING (Stage-3 tail,
-medium conf): the per-depth GATE-SEEDING map (which family FIRES at each depth for a given forward-edge profile)
-+ the DGROUP per-depth side table `[bx+0x42]`/`[bx+0x4a]` (not in the overlay file). The index law GIVEN a fired
-(site,depth) is byte-exact; which sites fire is the open piece. Door-cap visibility is genuinely gate-driven
-(v1 door@d2 caps, v2 door@d1 doesn't), not a clean function of the edge profile.
+`tests/maze/index-arithmetic.test.ts` (33 tests, byte-exact vs v1/v2/v5/v6 captures).
+GATE-SEEDING — OCCLUSION-STOP CRACKED (`maze-gate-seeding.json`, byte-exact ceiling/floor skeleton, all 4 views):
+the per-depth VISIBILITY gate [0x5042] (wmaze 0x407d gates ceiling/floor inside wall_emit_quad) is clear for
+depths `[0..stop]`, where `stop` = first depth whose FORWARD edge OCCLUDES:
+`front==2 (solid) OR (front==3 AND cornerL solid AND cornerR solid)` (a CLOSED doorway). A plain door with ≥1
+OPEN corner is see-through and does NOT cap. This resolves the v1-vs-v2 door puzzle exactly (v1 door@d2 closed
+→ caps `[0,1,2]`; v2 door@d1 has an open corner → no cap `[0,1,2,3]`; v5 solid@d1 → `[0,1]`; v6 closed-door@d0
+→ `[0]`). Implemented as `frontOccludes`/`computeVisibleDepths`/`generateCallist(block,party)` in `callist.ts`
+(derived from block+party, NO captured frame) + 33-test gate. `cornerL`/`cornerR` DRY-moved to maze-geometry.ts.
+REMAINING (Stage-3 tail, medium conf — the LAST piece): the per-depth SIDE/CORNER/DOOR-RECESS wall-family
+emission (bases 130/134/138/142, near-wall img0/img3, far-door 85/89) — base tables known, but the per-slot
+per-depth gate bits ([0x5072..0x50a2], seeded by the decompiler-resistant classifier post-pass 0x3931/0x3946/
+0x3951) aren't pinned. A single family-base fires at MULTIPLE perspective depths (v5 base130 at depths 1&2), so
+it's a richer per-depth-pair pattern than the front-only stop → needs a depth-keyed live emit trace over a
+systematic pokeview set. Ceiling/floor (the dominant "mostly black" fix) is DONE.
 
 ## Stage 4: Wire generation into `renderMazeViewport` + decorations
 **Goal:** The live renderer builds the background page (floor/ceiling) AND decorations from the generated

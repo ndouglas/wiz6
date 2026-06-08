@@ -1,0 +1,86 @@
+{
+  "topic": "maze-gate-seeding",
+  "subagent_run": "2026-06-08 (the last open piece of Stage 3: the per-depth GATE-SEEDING map / OCCLUSION-STOP — which build depths fire ceiling/floor + where the front-to-back walk STOPS. Builds on the CRACKED index law in maze-index-arithmetic.json (placementIndex = base + depth) + the classify projection in maze-classify-projection.json (per-depth front/corner/side reads). Resolves the v1-vs-v2 door-cap puzzle.)",
+  "binaries": ["wmaze.ovr"],
+  "tool": "Static capstone CS_MODE_16 over test-fixtures/original/wmaze.ovr (tools/parity/maze_disasm.py; file offset == capstone offset). Cross-referenced against the 4 captured parity-EVEN pokeview call-lists (docs/re/findings/maze-views/{v1,v2,v5,v6}.json) decomposed into per-depth families by destRow band + the per-depth cell-data profiles (forward edge + cornerL/cornerR) computed from extracted/maze/level-0.json via the pinned classify geometry (maze-geometry.ts forwardEdge/cornerL/cornerR).",
+  "status": "OCCLUSION-STOP CRACKED (byte-exact for the ceiling/floor skeleton across all 4 parity-EVEN views, INCLUDING the v1-vs-v2 door-cap difference). The per-depth VISIBILITY gate [0x5042] (wmaze 0x407d gates the ceiling/floor emit inside wall_emit_quad) is clear (=visible) for depths [0 .. stop] where `stop` is the first build depth whose FORWARD edge OCCLUDES: front==2 (solid wall) OR (front==3 AND cornerL solid AND cornerR solid) (a CLOSED doorway — a door framed by solid walls on both sides). A plain door with at least one OPEN corner is a see-through side opening and does NOT cap the walk. Combined with the index law (placementIndex = base + depth), this yields a pure generateCallist(block, party) (packages/parser/src/maze/callist.ts) that reproduces the captured ceiling/floor twins + 6 top-strips SET byte-exact for v1 (visible [0,1,2], door-cap), v2 (visible [0,1,2,3], door-NOT-cap), v5 (visible [0,1], solid-cap), v6 (visible [0], closed-door-cap) — DERIVED FROM THE MAZE BLOCK + PARTY, no captured frame. The per-depth SIDE/CORNER/DOOR-RECESS family emission (bases 130/134/138/142 + floor twins, the near-wall img0/img3 family, the far-door 85/89) is NOT generated — its gate-seeding is the medium-confidence residue (the decompiler-resistant classifier post-pass at 0x3931/0x3946/0x3951 seeds [0x5072..0x50a2] per slot). The base TABLES are known (maze-index-arithmetic.json call_sites); only the per-slot per-depth gate bits remain.",
+  "occlusion_stop_law": {
+    "one_liner": "Walking BUILD depth d=0..3 front-to-back, the view is VISIBLE for depths [0 .. stop], where `stop` is the FIRST depth whose forward edge OCCLUDES (inclusive). If no depth occludes, all four are visible. occludes(d) := front==2 OR (front==3 AND cornerL_solid AND cornerR_solid).",
+    "ceiling_floor_emit": "For each visible depth d the engine emits the ceiling twin (placement 122+d) and the floor twin (150+d). These are gated INSIDE wall_emit_quad by the per-depth visibility byte [bx+0x5042] (bx=depth*3+1) at 0x407d (cmp byte [bx+0x5042],0; jne skip-ceiling).",
+    "front_code_meaning": "0=open passage, 2=solid stone wall, 3=door/special edge (1 also a door-class edge). cornerL/cornerR = the perpendicular wall edges of the viewed cell (classify_corner_L 0x3c11 / classify_corner_R 0x3dce; see maze-geometry.ts cornerL/cornerR for the per-facing dispatch).",
+    "why_door_caps_or_not": "A door (code 3) read HEAD-ON in a corridor that is solid on BOTH lateral corners is a CLOSED DOORWAY — a wall with a door-shaped recess that the view cannot see past (it occludes). The SAME door code where one corner is OPEN is a passage opening / T-junction mouth, which the view sees through (it does NOT occlude). This is the geometric manifestation of occ_seed_front's two-pronged condition (front==2 || the door-frame corner gate [0x5067]).",
+    "confidence": "high"
+  },
+  "validation": {
+    "v1-gy121f0": {"party": "gx127 gy121 f0 (cellA5 cellB7)", "front_profile": "[0,0,3,0]", "corners_at_door_d2": "cL=2 cR=2 (CLOSED doorway)", "visible_depths": "[0,1,2]", "captured_ceil": "122,123,124", "captured_floor": "150,151,152", "result": "STOP at d2 (door framed both sides) — byte-exact"},
+    "v2-gy119f0": {"party": "gx127 gy119 f0 (cellA3 cellB7)", "front_profile": "[0,3,0,0]", "corners_at_door_d1": "cL=2 cR=0 (cornerR OPEN — passage, not a closed doorway)", "visible_depths": "[0,1,2,3]", "captured_ceil": "122,123,124,125", "captured_floor": "150,151,152,153", "result": "door at d1 does NOT cap — walk continues to d3 — byte-exact (RESOLVES the v1-vs-v2 puzzle)"},
+    "v5-gx125f0": {"party": "gx125 gy121 f0 (cellA5 cellB5)", "front_profile": "[0,2,0,0]", "stop_at": "d1 front==2 solid", "visible_depths": "[0,1]", "captured_ceil": "122,123", "captured_floor": "150,151", "result": "STOP at d1 (solid wall) — byte-exact"},
+    "v6-gy123f0": {"party": "gx127 gy123 f0 (cellA7 cellB7)", "front_profile": "[3,0,2,2]", "corners_at_d0": "cL=2 cR=2 (CLOSED doorway head-on at depth 0)", "visible_depths": "[0]", "captured_ceil": "122", "captured_floor": "150", "result": "STOP at d0 (closed doorway at the party's own forward edge) — byte-exact. Renders as a solid near wall (placement 0 img0 + corner 83/87 — the near full-height wall family)"}
+  },
+  "findings": [
+    {
+      "id": "occlusion-stop-is-first-occluding-front-edge",
+      "claim": "The per-depth VISIBILITY of the ceiling/floor twins is a front-to-back occlusion: depths [0 .. stop] are visible, stop = first depth whose forward edge OCCLUDES (front==2 solid OR front==3 with BOTH corners solid = a closed doorway). PROVEN byte-exact vs all 4 parity-EVEN captures' ceiling-depth SETs: v1 [0,1,2] (door-cap at d2, both corners solid), v2 [0,1,2,3] (door at d1 has cornerR open -> NOT a cap), v5 [0,1] (solid wall cap at d1), v6 [0] (closed-door cap at d0). The visible depths derived from the maze block (computeVisibleDepths) EQUAL the captured ceiling depths for every view.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x407d"},
+        "type": "static_disasm_plus_four_view_capture",
+        "details": "0x407d cmp byte [bx+0x5042],0; jne skip-ceiling (bx=depth*3+1) gates the per-depth ceiling/floor emit inside wall_emit_quad 0x406c. occ_seed_front 0x4892(front,depth): 0x4895 cmp [bp+6],2 je SEED; 0x489b cmp [bp+6],5 jge SEED; else 0x48ac cmp byte [depth*3+0x5067],1 jne RET — i.e. SEED (clear deeper gates + lower the depth bound [0x521e] to depth+3) when front==2 OR (front<5 AND the door-frame corner gate [0x5067] is set). The corner gate [0x5067] is the byte-level manifestation of 'both corners solid' (the classifier sets it for a door framed by solid walls). Captured ceiling depths (placementIndices containing 122+d): v1={0,1,2}, v2={0,1,2,3}, v5={0,1}, v6={0}. computeVisibleDepths(BLOCK, party) returns EXACTLY these (test: index-arithmetic.test.ts 'the visible depths match the captured ceiling depths exactly')."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "v1-vs-v2-door-cap-is-corner-framing",
+      "claim": "The v1-vs-v2 difference (door at depth 2 CAPS the view in v1; door at depth 1 does NOT cap in v2) is NOT distance-keyed and NOT a clean function of the forward-edge profile alone — it is whether the door is FRAMED by solid corners on both sides. v1's door cell (gy123) has cornerL=2 AND cornerR=2 (a closed doorway in a corridor -> occludes). v2's door cell (gy120) has cornerL=2 but cornerR=0 (a doorway at a T-junction / passage opening -> see-through, does NOT occlude). So the occlusion predicate must read the corner edges, not just the front code. This is the precise discriminator the task flagged as 'depth-walked occlusion, not a clean function of the edge profile.'",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4892"},
+        "type": "cell_data_cross_reference_plus_asm",
+        "details": "Per-depth cell-data via maze-geometry.ts forwardEdge/cornerL/cornerR on extracted/maze/level-0.json. v1: d2 cell(127,123) front=3 cL=2 cR=2 -> closed doorway -> stop at d2 (visible [0,1,2]). v2: d1 cell(127,120) front=3 cL=2 cR=0 -> open-cornered door -> NOT a stop (visible [0,1,2,3]). Both match the captured ceiling SETs byte-exact. The asm anchor: occ_seed_front fires on front==2 OR (front<5 AND corner gate [0x5067]) — the corner gate carries the 'both corners solid' state the classifier seeds. Confidence high for the predicate (4/4 views); the exact engine encoding of [0x5067] (whether it is precisely 'cL_solid AND cR_solid' vs an orient2-derived door-frame flag) is medium — the geometric predicate reproduces all 4 captures regardless."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "generate-callist-pure-function",
+      "claim": "A pure generateCallist(block, party) (packages/parser/src/maze/callist.ts) combines the gate-seeding occlusion stop (computeVisibleDepths) with the index law (base+depth) to emit the DETERMINISTIC SKELETON — the ceiling twin (122+d) + floor twin (150+d) for every visible depth + the 6 constant top-strips — DERIVED FROM THE MAZE BLOCK + PARTY (no captured frame). Reproduces the captured skeleton SET byte-exact for v1/v2/v5/v6 incl. v1's door-cap and v6's depth-0 cap. The side/corner/door families are out of scope (documented residue). VALIDATED by packages/parser/tests/maze/index-arithmetic.test.ts (computeVisibleDepths + generateCallist suites, 11 new cases all green).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "type": "pure_function_plus_unit_test",
+        "details": "callist.ts: frontOccludes(front,cL,cR), computeVisibleDepths(block,party) (walks d=0..3 with the entry pull-back, breaks inclusive at the first occluding front), generateCallist(block,party)=generateSkeletonIndices(computeVisibleDepths(...)). cornerL/cornerR moved into maze-geometry.ts (shared with classify.ts; DRY). Tests load tools/parity/fixtures/engine/maze-frames.json mazeBlock + the 4 parity-EVEN party coords; assert computeVisibleDepths == captured ceiling depths AND generateCallist SET == captured ceiling/floor+strip SET. pnpm --filter @wiz6/parser test: 414 passed, 1 skipped."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "per-depth-emit-call-order-and-gates",
+      "claim": "The BUILD depth loop body (wmaze 0x4d90..0x5059) calls the emit fns in a fixed order, EACH gated by a per-depth gate BYTE indexed by the depth counter [0x5040]: (1) front wall_emit_quad 0x406c gated by [depth+0x508a]==1; then occ_seed_front 0x4892. (2) corner-L wall_emit_corner 0x45b4 gated by [depth+0x508a]==1; then occ_seed_2 0x48f5. (3) corner-R 0x45b4 gated by [depth+0x508a]==1; then occ_seed_3 0x4926. (4) left-side emit 0x47a3 gated by [depth+0x5082]==1. (5) left-side wall_emit_quad 0x406c gated by [depth+0x5072]==1; then occ_seed_4 0x4957. (6) right-side path gated by [depth+0x5092]/[0x509a]; then occ_seed_5 0x4984. So the FRONT gate [0x508a] drives the front wall + BOTH corners (the near full-height wall + door-recess flanks); the side gates [0x5072]/[0x5082]/[0x5092] drive the per-depth side-wall families. These gate bytes are SEEDED by the classifier post-pass (0x3931 clears [0x5072/0x507a/0x5082], 0x3946 clears [0x508a], 0x3951 clears [0x5092/0x509a/0x50a2]) based on the per-slot code dispatch — this is the medium-confidence residue for the side/corner/door family emission.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4d90"},
+        "type": "static_disasm",
+        "details": "0x4d99 cmp byte [bx+0x508a],1 (bx=[0x5040]) jne skip-front-quad; 0x4e05 call 0x406c. 0x4e13 call 0x4892 (occ_seed_front). 0x4e1d cmp [bx+0x508a],1 jne skip-cornerL; 0x4e61 call 0x45b4. 0x4e6f call 0x48f5. 0x4e79 cmp [bx+0x508a],1 jne skip-cornerR; 0x4ebd call 0x45b4. 0x4ecb call 0x4926. 0x4ed5 cmp [bx+0x5082],1 jne; 0x4ef9 call 0x47a3. 0x4f03 cmp [bx+0x5072],1 je do-left-side-quad (0x4f0d push block); call 0x406c. 0x5059 call 0x4984. Gate seeders 0x3931/0x3946/0x3951 (post-classify) clear the gates per the side param [bp+0xe] (0xffff/0/1) + slot-code branch."
+      },
+      "confidence": "high"
+    }
+  ],
+  "asm_anchors": [
+    {"space": "wmaze.ovr", "offset": "0x4c60", "name": "build_depth_loop", "note": "d=[0x5040]=0..3; cmp < [0x521e]=4. Per-depth emit body @0x4d90..0x5059."},
+    {"space": "wmaze.ovr", "offset": "0x407d", "name": "visibility_gate_check", "note": "cmp byte [bx+0x5042],0; jne skip-ceiling (bx=depth*3+1). The per-depth ceiling/floor visibility gate inside wall_emit_quad 0x406c."},
+    {"space": "wmaze.ovr", "offset": "0x4892", "name": "occ_seed_front", "note": "occ_seed_front(front=[bp+6], depth=[bp+4]): SEED (clear deeper front/corner gates [depth+0x508b..0x509c] + lower depth bound [0x521e] to depth+3) when front==2 OR (front<5 AND [depth*3+0x5067]==1 the door-frame corner gate). This is the occlusion-stop seeder."},
+    {"space": "wmaze.ovr", "offset": "0x4d99", "name": "front_gate_check", "note": "cmp byte [bx+0x508a],1 (bx=depth); gates the front wall + both corner emits."},
+    {"space": "wmaze.ovr", "offset": "0x3931", "name": "gate_seed_side_post", "note": "post-classify gate seeder: clears [depth+0x5072/0x507a/0x5082] (side param 0xffff), [depth+0x508a] (param 0, front), [depth+0x5092/0x509a/0x50a2] (param 1, right). The per-slot per-depth gate-seeding residue."},
+    {"space": "wmaze.dgroup", "offset": "0x5042", "name": "visibility_gate_array", "note": "per-depth (stride 3) ceiling/floor visibility gate; clear=visible. Seeded by the occlusion law."},
+    {"space": "wmaze.dgroup", "offset": "0x5067", "name": "door_frame_corner_gate", "note": "per-depth (stride 3) corner/door-frame gate read by occ_seed_front; carries the 'door framed by solid corners' state."},
+    {"space": "wmaze.dgroup", "offset": "0x508a", "name": "front_gate", "note": "per-depth (stride 1) front-wall + corner emit gate."},
+    {"space": "wmaze.dgroup", "offset": "0x521e", "name": "depth_bound", "note": "=4; lowered by occ_seed_front to depth+3 at a solid/closed-door front."}
+  ],
+  "remaining": [
+    "SIDE/CORNER/DOOR-RECESS FAMILY GATE-SEEDING (medium confidence): the per-depth emission of the recess/corner families (ceiling bases 130/134/138/142 + floor twins 158/162/166/170, the near full-height wall family img0/img3 placement 0/15/19 + corner 83/87, the far-door 85/89, the deep door-leaf 2) is NOT generated. The base TABLES are known (maze-index-arithmetic.json call_sites) and the gate BYTES are known ([0x5072]/[0x5082]/[0x5092]/[0x508a]); the missing piece is the per-slot, per-depth SEEDING law inside the classifier post-pass 0x3931/0x3946/0x3951 (which gate is set for which slot code at which depth). The decompiler resists these helpers; pinning them byte-exact needs a depth-keyed live emit trace (trace the 3 emit fns + read [0x5040]/[0x5042]/[0x508a] at each hit across a systematic pokeview set varying the per-depth side/corner profile). Per the family decomposition, a single family-base fires at MULTIPLE perspective depths (e.g. v5 base130 ceiling fires at perspective depths 1 AND 2), so the side/corner emission is a richer per-depth-pair pattern than the front-only occlusion stop.",
+    "PARITY-ODD VIEWS: this pass pinned only the parity-EVEN occlusion stop. Parity-odd views draw the whole frame through the masked-mirror branch and the ordered pairing oscillates run-to-run (maze-generation-law.json parity-odd-pairing-oscillates) — the occlusion stop should still hold for the ceiling/floor SET but is not validated here.",
+    "OTHER ZONES / DECORATIONS: only zone-0 region-0 parity-EVEN views captured. The special4 decoration codes and pit cells are not cross-referenced. The door-frame corner gate [0x5067] encoding (exact 'cL_solid AND cR_solid' vs an orient2-derived door-frame flag) is inferred from the geometric predicate matching all 4 captures, not read bit-for-bit from the classifier — confidence high for the predicate's PREDICTIONS, medium for its exact byte-level mechanism."
+  ],
+  "caveat_for_prior_findings": "COMPLETES the gate-seeding gap flagged MEDIUM in maze-index-arithmetic.json (visible-depth-occlusion finding) and maze-classify-projection.json (depth_bound_occlusion). The occlusion STOP for the ceiling/floor skeleton is now HIGH confidence + byte-exact across the 4 parity-EVEN views (the index law given a visible depth was already high). Does NOT contradict any prior result; it REFINES the occlusion rule from 'a solid forward edge caps' to 'a solid OR closed-doorway (front==3 with both corners solid) forward edge caps' — which is what resolves the v1-vs-v2 door difference (v1's door has both corners solid -> caps; v2's door has an open corner -> does not). The SIDE/CORNER/DOOR-RECESS family gate-seeding remains the documented medium-confidence residue."
+}

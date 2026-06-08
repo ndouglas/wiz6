@@ -26,10 +26,16 @@ import {
   EMIT_BASES,
   placementIndex,
   generateSkeletonIndices,
+  computeVisibleDepths,
+  generateCallist,
 } from '../../src/maze/callist.js';
+import { MazeBlockSchema, type MazeBlock, type MazeParty } from '@wiz6/data';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const viewsDir = resolve(here, '../../../../docs/re/findings/maze-views');
+const framesPath = resolve(here, '../../../../tools/parity/fixtures/engine/maze-frames.json');
+const FRAMES = JSON.parse(readFileSync(framesPath, 'utf8'));
+const BLOCK: MazeBlock = MazeBlockSchema.parse(FRAMES.mazeBlock);
 
 type LiveRecord = {
   idx: number;
@@ -129,4 +135,72 @@ describe('generateSkeletonIndices reproduces the captured skeleton (SET)', () =>
     const present = new Set(view.placementIndices);
     for (const idx of gen) expect(present.has(idx)).toBe(true);
   });
+});
+
+// ---------------------------------------------------------------------------
+// GATE-SEEDING / OCCLUSION-STOP — generateCallist(block, party).
+//
+// The gate-seeding map (which depths fire + the occlusion stop) DERIVED from the
+// maze block + party (no captured frame), pinned in
+// docs/re/findings/maze-gate-seeding.json. The stop rule: walking d=0..3, the
+// view stops (inclusive) at the first occluding forward edge — solid (code 2) or
+// a CLOSED doorway (code 3 framed by solid corners on both sides). Validated
+// byte-exact vs the 4 parity-EVEN captures, INCLUDING v1's door-cap and v6's
+// depth-0 cap (the v1-vs-v2 puzzle the task flags).
+// ---------------------------------------------------------------------------
+
+// The 4 parity-EVEN captured views with their party (gx,gy,facing) and the
+// EXPECTED occlusion stop (visible ceiling depths read off the capture).
+const PARITY_EVEN: Array<{
+  view: string;
+  party: MazeParty;
+  expectedVisible: number[];
+}> = [
+  { view: 'v1-gy121f0', party: { gx: 127, gy: 121, z: 0, facing: 0 }, expectedVisible: [0, 1, 2] },
+  { view: 'v2-gy119f0', party: { gx: 127, gy: 119, z: 0, facing: 0 }, expectedVisible: [0, 1, 2, 3] },
+  { view: 'v5-gx125f0', party: { gx: 125, gy: 121, z: 0, facing: 0 }, expectedVisible: [0, 1] },
+  { view: 'v6-gy123f0', party: { gx: 127, gy: 123, z: 0, facing: 0 }, expectedVisible: [0] },
+];
+
+describe('computeVisibleDepths: the occlusion-stop rule', () => {
+  it.each(PARITY_EVEN)(
+    'derives the captured visible depths for $view',
+    ({ party, expectedVisible }) => {
+      expect(computeVisibleDepths(BLOCK, party)).toEqual(expectedVisible);
+    },
+  );
+
+  it('the visible depths match the captured ceiling depths exactly', () => {
+    for (const { view, party } of PARITY_EVEN) {
+      const present = new Set(loadView(view).placementIndices);
+      const capturedDepths: number[] = [];
+      for (let d = 0; d < 4; d++) if (present.has(EMIT_BASES.CEILING + d)) capturedDepths.push(d);
+      expect(computeVisibleDepths(BLOCK, party)).toEqual(capturedDepths);
+    }
+  });
+});
+
+describe('generateCallist(block, party) reproduces the captured skeleton (SET)', () => {
+  it.each(PARITY_EVEN)(
+    'ceiling/floor twins + strips match the capture for $view (no captured frame)',
+    ({ view, party }) => {
+      const gen = new Set(generateCallist(BLOCK, party));
+
+      // The captured deterministic skeleton: ceiling+floor twins for the visible
+      // depths + the 6 strips. (The side/corner/door families are out of scope —
+      // documented residue in maze-gate-seeding.json.)
+      const present = new Set(loadView(view).placementIndices);
+      const vis = computeVisibleDepths(BLOCK, party);
+      const captured = new Set<number>();
+      for (const d of vis) {
+        captured.add(EMIT_BASES.CEILING + d);
+        captured.add(EMIT_BASES.FLOOR + d);
+      }
+      for (const s of EMIT_BASES.TOP_STRIPS) captured.add(s);
+
+      expect(gen).toEqual(captured);
+      // every generated index actually appears in the captured call list:
+      for (const idx of gen) expect(present.has(idx)).toBe(true);
+    },
+  );
 });

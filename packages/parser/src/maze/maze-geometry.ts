@@ -86,3 +86,33 @@ export function forwardEdge(b: MazeBlock, gx: number, gy: number, facing: number
       return W(b, gx - 1, gy);
   }
 }
+
+/** Corner-L perpendicular edge of the cell at GLOBAL (gx,gy) under facing
+ *  (classify_corner_L 0x3c11, dispatch 0x3d20). */
+export function cornerL(b: MazeBlock, gx: number, gy: number, facing: number): number {
+  switch (facing) {
+    case 0:
+      return W(b, gx - 1, gy);
+    case 1:
+      return N(b, gx, gy);
+    case 2:
+      return W(b, gx, gy);
+    default:
+      return N(b, gx, gy - 1);
+  }
+}
+
+/** Corner-R perpendicular edge of the cell at GLOBAL (gx,gy) under facing
+ *  (classify_corner_R 0x3dce, dispatch 0x3edd). */
+export function cornerR(b: MazeBlock, gx: number, gy: number, facing: number): number {
+  switch (facing) {
+    case 0:
+      return W(b, gx, gy);
+    case 1:
+      return N(b, gx, gy - 1);
+    case 2:
+      return W(b, gx - 1, gy);
+    default:
+      return N(b, gx, gy);
+  }
+}
