@@ -1,0 +1,2581 @@
+{
+  "note": "maze-corridor (zone0, facing0) blit call list — first full compose pass at ega.drv FUN_0a93. OR branch (arg10==ffff) = single-image forward OR-blit of placement arg0c. masked branch (arg10!=ffff) = xlatb-LUT reverse-read blit, dest=placement arg10, src image=placement arg0c. Static placement records live in mazedata.ega (366). This is the per-view SELECTION + the masked-mirror pairing.",
+  "reloc_base": "6ba10",
+  "frame": {
+    "game_state": 5,
+    "zone": 0,
+    "facing": 0,
+    "name": "maze-corridor"
+  },
+  "total_hits": 354,
+  "pass_length": 42,
+  "reproducible": true,
+  "placementIndices": [
+    140,
+    168,
+    144,
+    172,
+    148,
+    176,
+    125,
+    153,
+    18,
+    141,
+    169,
+    145,
+    173,
+    149,
+    177,
+    361,
+    349,
+    355,
+    346,
+    352,
+    358,
+    122,
+    150,
+    134,
+    162,
+    138,
+    166,
+    123,
+    151,
+    131,
+    13,
+    159,
+    135,
+    10,
+    163,
+    139,
+    167,
+    143,
+    171,
+    124,
+    152,
+    17
+  ],
+  "calls": [
+    {
+      "branch": "OR",
+      "arg0c": 140,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 168,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 144,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 172,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 148,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 176,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 125,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 153,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 18,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 141,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 169,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 145,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 173,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 149,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 177,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 134,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 162,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 138,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 166,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 123,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 151,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 131,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 13,
+      "arg10": 4
+    },
+    {
+      "branch": "OR",
+      "arg0c": 159,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 135,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 10,
+      "arg10": 7
+    },
+    {
+      "branch": "OR",
+      "arg0c": 163,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 139,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 167,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 143,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 171,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 124,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 152,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 17,
+      "arg10": 65535
+    }
+  ],
+  "masked_flags": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1
+  ],
+  "table_pointers": {
+    "dataSeg": "2181",
+    "placeOff": "301",
+    "imgDescOff": "4"
+  },
+  "liveRecords": [
+    {
+      "idx": 140,
+      "imgIdx": 54,
+      "destX": 22,
+      "destRow": 51,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 2253,
+      "srcOffLow": 11,
+      "w": 9,
+      "h": 8
+    },
+    {
+      "idx": 168,
+      "imgIdx": 66,
+      "destX": 22,
+      "destRow": 88,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 2628,
+      "srcOffLow": 11,
+      "w": 9,
+      "h": 16
+    },
+    {
+      "idx": 144,
+      "imgIdx": 54,
+      "destX": 22,
+      "destRow": 51,
+      "bias": 2,
+      "count": 3,
+      "segDelta": 2253,
+      "srcOffLow": 11,
+      "w": 9,
+      "h": 8
+    },
+    {
+      "idx": 172,
+      "imgIdx": 66,
+      "destX": 22,
+      "destRow": 88,
+      "bias": 2,
+      "count": 3,
+      "segDelta": 2628,
+      "srcOffLow": 11,
+      "w": 9,
+      "h": 16
+    },
+    {
+      "idx": 148,
+      "imgIdx": 54,
+      "destX": 22,
+      "destRow": 51,
+      "bias": 5,
+      "count": 4,
+      "segDelta": 2253,
+      "srcOffLow": 11,
+      "w": 9,
+      "h": 8
+    },
+    {
+      "idx": 176,
+      "imgIdx": 66,
+      "destX": 22,
+      "destRow": 88,
+      "bias": 5,
+      "count": 4,
+      "segDelta": 2628,
+      "srcOffLow": 11,
+      "w": 9,
+      "h": 16
+    },
+    {
+      "idx": 125,
+      "imgIdx": 47,
+      "destX": 18,
+      "destRow": 59,
+      "bias": 0,
+      "count": 4,
+      "segDelta": 2172,
+      "srcOffLow": 3,
+      "w": 4,
+      "h": 3
+    },
+    {
+      "idx": 153,
+      "imgIdx": 59,
+      "destX": 18,
+      "destRow": 83,
+      "bias": 0,
+      "count": 4,
+      "segDelta": 2464,
+      "srcOffLow": 3,
+      "w": 4,
+      "h": 5
+    },
+    {
+      "idx": 18,
+      "imgIdx": 6,
+      "destX": 18,
+      "destRow": 60,
+      "bias": 0,
+      "count": 1,
+      "segDelta": 798,
+      "srcOffLow": 11,
+      "w": 1,
+      "h": 27
+    },
+    {
+      "idx": 141,
+      "imgIdx": 55,
+      "destX": 21,
+      "destRow": 59,
+      "bias": 0,
+      "count": 1,
+      "segDelta": 2271,
+      "srcOffLow": 11,
+      "w": 6,
+      "h": 3
+    },
+    {
+      "idx": 169,
+      "imgIdx": 67,
+      "destX": 21,
+      "destRow": 83,
+      "bias": 0,
+      "count": 1,
+      "segDelta": 2664,
+      "srcOffLow": 11,
+      "w": 6,
+      "h": 5
+    },
+    {
+      "idx": 145,
+      "imgIdx": 55,
+      "destX": 21,
+      "destRow": 59,
+      "bias": 1,
+      "count": 2,
+      "segDelta": 2271,
+      "srcOffLow": 11,
+      "w": 6,
+      "h": 3
+    },
+    {
+      "idx": 173,
+      "imgIdx": 67,
+      "destX": 21,
+      "destRow": 83,
+      "bias": 1,
+      "count": 2,
+      "segDelta": 2664,
+      "srcOffLow": 11,
+      "w": 6,
+      "h": 5
+    },
+    {
+      "idx": 149,
+      "imgIdx": 55,
+      "destX": 21,
+      "destRow": 59,
+      "bias": 3,
+      "count": 3,
+      "segDelta": 2271,
+      "srcOffLow": 11,
+      "w": 6,
+      "h": 3
+    },
+    {
+      "idx": 177,
+      "imgIdx": 67,
+      "destX": 21,
+      "destRow": 83,
+      "bias": 3,
+      "count": 3,
+      "segDelta": 2664,
+      "srcOffLow": 11,
+      "w": 6,
+      "h": 5
+    },
+    {
+      "idx": 361,
+      "imgIdx": 148,
+      "destX": 28,
+      "destRow": 7,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 6353,
+      "srcOffLow": 15,
+      "w": 2,
+      "h": 16
+    },
+    {
+      "idx": 349,
+      "imgIdx": 136,
+      "destX": 6,
+      "destRow": 7,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 6257,
+      "srcOffLow": 15,
+      "w": 2,
+      "h": 16
+    },
+    {
+      "idx": 355,
+      "imgIdx": 142,
+      "destX": 32,
+      "destRow": 7,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 6305,
+      "srcOffLow": 15,
+      "w": 2,
+      "h": 16
+    },
+    {
+      "idx": 346,
+      "imgIdx": 133,
+      "destX": 2,
+      "destRow": 7,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 6233,
+      "srcOffLow": 15,
+      "w": 2,
+      "h": 16
+    },
+    {
+      "idx": 352,
+      "imgIdx": 139,
+      "destX": 10,
+      "destRow": 7,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 6281,
+      "srcOffLow": 15,
+      "w": 2,
+      "h": 16
+    },
+    {
+      "idx": 358,
+      "imgIdx": 145,
+      "destX": 36,
+      "destRow": 7,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 6329,
+      "srcOffLow": 15,
+      "w": 2,
+      "h": 16
+    },
+    {
+      "idx": 122,
+      "imgIdx": 44,
+      "destX": 11,
+      "destRow": 32,
+      "bias": 0,
+      "count": 18,
+      "segDelta": 2082,
+      "srcOffLow": 11,
+      "w": 18,
+      "h": 7
+    },
+    {
+      "idx": 150,
+      "imgIdx": 56,
+      "destX": 11,
+      "destRow": 128,
+      "bias": 0,
+      "count": 18,
+      "segDelta": 2276,
+      "srcOffLow": 3,
+      "w": 18,
+      "h": 16
+    },
+    {
+      "idx": 134,
+      "imgIdx": 48,
+      "destX": 9,
+      "destRow": 32,
+      "bias": 0,
+      "count": 4,
+      "segDelta": 2175,
+      "srcOffLow": 3,
+      "w": 4,
+      "h": 7
+    },
+    {
+      "idx": 162,
+      "imgIdx": 60,
+      "destX": 9,
+      "destRow": 128,
+      "bias": 0,
+      "count": 4,
+      "segDelta": 2469,
+      "srcOffLow": 3,
+      "w": 4,
+      "h": 16
+    },
+    {
+      "idx": 138,
+      "imgIdx": 52,
+      "destX": 27,
+      "destRow": 32,
+      "bias": 0,
+      "count": 4,
+      "segDelta": 2225,
+      "srcOffLow": 11,
+      "w": 4,
+      "h": 7
+    },
+    {
+      "idx": 166,
+      "imgIdx": 64,
+      "destX": 27,
+      "destRow": 128,
+      "bias": 0,
+      "count": 4,
+      "segDelta": 2570,
+      "srcOffLow": 11,
+      "w": 4,
+      "h": 16
+    },
+    {
+      "idx": 123,
+      "imgIdx": 45,
+      "destX": 13,
+      "destRow": 39,
+      "bias": 0,
+      "count": 14,
+      "segDelta": 2114,
+      "srcOffLow": 3,
+      "w": 14,
+      "h": 12
+    },
+    {
+      "idx": 151,
+      "imgIdx": 57,
+      "destX": 13,
+      "destRow": 104,
+      "bias": 0,
+      "count": 14,
+      "segDelta": 2348,
+      "srcOffLow": 3,
+      "w": 14,
+      "h": 24
+    },
+    {
+      "idx": 131,
+      "imgIdx": 49,
+      "destX": 9,
+      "destRow": 39,
+      "bias": 0,
+      "count": 4,
+      "segDelta": 2182,
+      "srcOffLow": 3,
+      "w": 7,
+      "h": 12
+    },
+    {
+      "idx": 13,
+      "imgIdx": 1,
+      "destX": 24,
+      "destRow": 52,
+      "bias": 3,
+      "count": 4,
+      "segDelta": 466,
+      "srcOffLow": 15,
+      "w": 8,
+      "h": 51
+    },
+    {
+      "idx": 159,
+      "imgIdx": 61,
+      "destX": 9,
+      "destRow": 104,
+      "bias": 0,
+      "count": 4,
+      "segDelta": 2485,
+      "srcOffLow": 3,
+      "w": 7,
+      "h": 24
+    },
+    {
+      "idx": 135,
+      "imgIdx": 49,
+      "destX": 9,
+      "destRow": 39,
+      "bias": 4,
+      "count": 3,
+      "segDelta": 2182,
+      "srcOffLow": 3,
+      "w": 7,
+      "h": 12
+    },
+    {
+      "idx": 10,
+      "imgIdx": 1,
+      "destX": 24,
+      "destRow": 52,
+      "bias": 0,
+      "count": 3,
+      "segDelta": 466,
+      "srcOffLow": 15,
+      "w": 8,
+      "h": 51
+    },
+    {
+      "idx": 163,
+      "imgIdx": 61,
+      "destX": 9,
+      "destRow": 104,
+      "bias": 4,
+      "count": 3,
+      "segDelta": 2485,
+      "srcOffLow": 3,
+      "w": 7,
+      "h": 24
+    },
+    {
+      "idx": 139,
+      "imgIdx": 53,
+      "destX": 24,
+      "destRow": 39,
+      "bias": 0,
+      "count": 3,
+      "segDelta": 2232,
+      "srcOffLow": 11,
+      "w": 7,
+      "h": 12
+    },
+    {
+      "idx": 167,
+      "imgIdx": 65,
+      "destX": 24,
+      "destRow": 104,
+      "bias": 0,
+      "count": 3,
+      "segDelta": 2586,
+      "srcOffLow": 11,
+      "w": 7,
+      "h": 24
+    },
+    {
+      "idx": 143,
+      "imgIdx": 53,
+      "destX": 24,
+      "destRow": 39,
+      "bias": 3,
+      "count": 4,
+      "segDelta": 2232,
+      "srcOffLow": 11,
+      "w": 7,
+      "h": 12
+    },
+    {
+      "idx": 171,
+      "imgIdx": 65,
+      "destX": 24,
+      "destRow": 104,
+      "bias": 3,
+      "count": 4,
+      "segDelta": 2586,
+      "srcOffLow": 11,
+      "w": 7,
+      "h": 24
+    },
+    {
+      "idx": 124,
+      "imgIdx": 46,
+      "destX": 16,
+      "destRow": 51,
+      "bias": 0,
+      "count": 8,
+      "segDelta": 2156,
+      "srcOffLow": 3,
+      "w": 8,
+      "h": 8
+    },
+    {
+      "idx": 152,
+      "imgIdx": 58,
+      "destX": 16,
+      "destRow": 88,
+      "bias": 0,
+      "count": 8,
+      "segDelta": 2432,
+      "srcOffLow": 3,
+      "w": 8,
+      "h": 16
+    },
+    {
+      "idx": 17,
+      "imgIdx": 5,
+      "destX": 16,
+      "destRow": 52,
+      "bias": 0,
+      "count": 2,
+      "segDelta": 773,
+      "srcOffLow": 3,
+      "w": 2,
+      "h": 51
+    }
+  ],
+  "raw_calls": [
+    {
+      "branch": "OR",
+      "arg0c": 140,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 168,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 144,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 172,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 148,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 176,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 125,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 153,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 18,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 141,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 169,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 145,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 173,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 149,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 177,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 134,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 162,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 138,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 166,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 123,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 151,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 131,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 13,
+      "arg10": 4
+    },
+    {
+      "branch": "OR",
+      "arg0c": 159,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 135,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 10,
+      "arg10": 7
+    },
+    {
+      "branch": "OR",
+      "arg0c": 163,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 139,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 167,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 143,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 171,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 124,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 152,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 17,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 140,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 168,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 144,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 172,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 148,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 176,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 125,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 153,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 18,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 141,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 169,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 145,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 173,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 149,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 177,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 134,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 138,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 166,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 123,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 151,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 131,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 159,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 13,
+      "arg10": 4
+    },
+    {
+      "branch": "OR",
+      "arg0c": 135,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 163,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 10,
+      "arg10": 7
+    },
+    {
+      "branch": "OR",
+      "arg0c": 139,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 167,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 143,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 171,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 124,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 152,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 17,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 140,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 168,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 144,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 172,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 148,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 176,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 125,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 153,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 18,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 141,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 169,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 145,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 173,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 149,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 177,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 134,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 162,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 138,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 166,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 123,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 151,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 131,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 159,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 13,
+      "arg10": 4
+    },
+    {
+      "branch": "OR",
+      "arg0c": 135,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 163,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 10,
+      "arg10": 7
+    },
+    {
+      "branch": "OR",
+      "arg0c": 139,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 167,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 143,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 171,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 124,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 152,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 17,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 140,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 168,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 144,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 172,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 148,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 176,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 125,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 153,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 18,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 141,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 169,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 145,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 173,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 149,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 177,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 134,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 162,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 138,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 166,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 123,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 151,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 131,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 159,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 13,
+      "arg10": 4
+    },
+    {
+      "branch": "OR",
+      "arg0c": 135,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 163,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 10,
+      "arg10": 7
+    },
+    {
+      "branch": "OR",
+      "arg0c": 139,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 167,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 143,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 171,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 124,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 152,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 17,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 140,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 168,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 144,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 172,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 148,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 176,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 125,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 153,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 18,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 141,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 169,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 145,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 173,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 149,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 177,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 134,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 162,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 138,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 166,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 123,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 151,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 131,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 159,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 13,
+      "arg10": 4
+    },
+    {
+      "branch": "OR",
+      "arg0c": 135,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 163,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 10,
+      "arg10": 7
+    },
+    {
+      "branch": "OR",
+      "arg0c": 139,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 167,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 143,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 171,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 124,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 152,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 17,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 140,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 168,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 144,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 172,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 148,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 176,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 125,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 153,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 18,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 141,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 169,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 145,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 173,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 149,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 177,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 134,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 162,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 138,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 166,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 123,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 151,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 131,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 13,
+      "arg10": 4
+    },
+    {
+      "branch": "OR",
+      "arg0c": 159,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 135,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 10,
+      "arg10": 7
+    },
+    {
+      "branch": "OR",
+      "arg0c": 163,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 139,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 167,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 143,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 171,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 124,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 152,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 17,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 140,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 168,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 144,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 172,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 148,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 176,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 125,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 153,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 18,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 141,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 169,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 145,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 173,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 149,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 177,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 134,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 162,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 138,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 166,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 123,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 151,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 131,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 13,
+      "arg10": 4
+    },
+    {
+      "branch": "OR",
+      "arg0c": 159,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 135,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 10,
+      "arg10": 7
+    },
+    {
+      "branch": "OR",
+      "arg0c": 163,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 139,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 167,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 143,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 171,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 124,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 152,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 17,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 140,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 168,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 144,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 172,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 148,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 176,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 125,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 153,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 18,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 141,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 169,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 145,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 173,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 149,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 177,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 134,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 162,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 138,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 166,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 123,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 151,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 131,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 13,
+      "arg10": 4
+    },
+    {
+      "branch": "OR",
+      "arg0c": 159,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 135,
+      "arg10": 65535
+    },
+    {
+      "branch": "masked",
+      "arg0c": 10,
+      "arg10": 7
+    },
+    {
+      "branch": "OR",
+      "arg0c": 163,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 139,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 167,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 143,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 171,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 124,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 152,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 17,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 140,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 168,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 144,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 172,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 148,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 176,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 125,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 153,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 18,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 141,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 169,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 145,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 173,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 149,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 177,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 65535,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 65535,
+      "arg10": 65535
+    }
+  ],
+  "target": {
+    "gx": 123,
+    "gy": 122,
+    "facing": 1,
+    "gxBase": 120,
+    "gyBase": 116,
+    "cellA": 6,
+    "cellB": 3
+  },
+  "poke_stuck": true,
+  "capture_trigger": "poke-target + in-place turn recompose (dirty; full placement list, may drop deepest sub-pixel detail)"
+}
