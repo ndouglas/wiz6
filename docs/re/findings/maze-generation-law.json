@@ -1,0 +1,121 @@
+{
+  "topic": "maze-generation-law",
+  "subagent_run": "2026-06-08 (build the multi-view blit call-list dataset + characterize the (cell,facing)->call-list GENERATION pattern; extend #077 maze-callist-generation beyond the single gy=121 captured frame)",
+  "binaries": ["wmaze.ovr", "ega.drv", "dosbox_pure_libretro.dylib", "mazedata.ega"],
+  "status": "TOOLING WIN + PARTIAL LAW. New `pokeview` harness phase captures a reproducible blit call-list for ANY (gx,gy,facing) in zone 0 (poke the party DGROUP fields to the target cell, serialize, capture an in-place turn recompose at ega.drv FUN_0a93). Captured 4 DISTINCT views (gy121-f0 reference, gy119-f0 door-near, gx127-f3 parity-odd-decoration, gx126gy117-f0 blocked-front-decoration) + cross-referenced each against level-0 cell-data. CHARACTERIZED the placement-table structure (depth-banked ceiling/floor twins, per-depth side/corner/door families, constant top-strip chrome) and the two BLIT laws that ARE byte-exact: (1) the OR-vs-MASKED branch is selected by FRAME PARITY (gx+gy+facing)%2 — even=>direct OR blits, odd=>whole-frame horizontal-mirror via the masked branch; (2) the masked branch is a HORIZONTAL MIRROR about page-byte column 20 (screen px 160): src.destX + dst.destX + dst.w == 40 for EVERY masked pair (19/19 in V3, all pairs in V1/V2/V4). NOT cracked: the per-depth (slot-code,depth)->placement-index arithmetic still lives in the decompiler-resistant slot helpers (wmaze 0x3828/0x3c11/0x3dce/0x4892); no reproducing function. Also found: for parity-ODD / blocked-front views the masked src->dst PAIRING + ORDER OSCILLATE run-to-run (mid-build), so only the placement-index SET, the OR list, the pass LENGTH, and the mirror law are deterministic for those — the exact ordered pairing is NOT.",
+  "reference_frame": {
+    "patched_core": "tools/libretro/dosbox_pure_libretro.dylib (nm -gU | grep _dbp_ = 11 exports). Built via tools/libretro/build-core.sh.",
+    "or_blit": "ega.drv entry-15 FUN_0a93 (file 0xa93). reloc base stable at 0x6ba10 across fresh boots this pass; resolve per-run via the OR plane-store 4-sibling cluster (resolveOrBaseReplayState) or override with WIZ6_ORBASE.",
+    "cell_data": "extracted/maze/level-0.json mazeBlock.regions[12] (each an 8x8 cell grid keyed cellA*8+cellB). Region 0: gxBase=120 gyBase=116 => cellA=gy-116 (x8 axis), cellB=gx-120 (x1 axis). Party fields: facing 0x4f9a / z 0x4f9c / cellA 0x4f9e / cellB 0x4fa0 / gy 0x4fa2 / gx 0x4fa4."
+  },
+  "findings": [
+    {
+      "id": "pokeview-arbitrary-view-capture",
+      "claim": "ARBITRARY-VIEW capture is now a single reliable harness command (the key tooling deliverable). `pnpm tsx tools/libretro/trace-maze.ts pokeview <gx> <gy> <facing> [out] [gxBase] [gyBase]` drives a fresh boot to the maze, POKES the party DGROUP fields (facing/z/cellA/cellB/gy/gx) to the target cell, settles (the maze rebuilds every frame from these — pokes STICK for valid cells), serializes, then captures the blit call list via an IN-PLACE turn-left/right recompose at the resolved ega.drv FUN_0a93 (reusing phasePlacements + the per-run OR-base resolver). This replaces the navigation-bound `placements121` (which could only reach gy=121 by walking) — pokeview reaches ANY zone-0 (cell,facing). Verified: pokeview at gx127 gy121 f0 reproduces the committed gy=121 list EXACTLY (27 OR + 4 masked, OR=[122,150,134,162,138,166,123,151,131,159,135,163,139,167,143,171,124,2,152,85,89,361,349,355,346,352,358], masked=[13->4,10->7,7->10,4->13]). For valid open cells the capture is byte-reproducible across runs (V1 OR list identical x2).",
+      "category": "test_harness",
+      "evidence": {
+        "binary": "dosbox_pure_libretro.dylib",
+        "address": {"space": "ega.drv", "offset": "0xa93"},
+        "type": "live_capture_harness",
+        "details": "tools/libretro/trace-maze.ts NEW phase phasePokeView (dispatched as `pokeview`). Pokes via c.write to PK_FACING=0x4f9a/PK_Z=0x4f9c/PK_CELLA=0x4f9e/PK_CELLB=0x4fa0/PK_GY=0x4fa2/PK_GX=0x4fa4 (region-0: cellA=gy-gyBase, cellB=gx-gxBase), step(4), serialize, then PLACEMENTS_STATE=that state + PLACEMENTS_INPLACE=true + phasePlacements. The in-place trigger is a DIRTY recompose (per #077 it may drop the single deepest sub-pixel door-leaf detail = the 18px residual) but emits the FULL per-view placement SELECTION + dest geometry, which is the generation-pattern ground truth. WIZ6_ORBASE env var skips the per-run resolver (the in-place left/right resolver can fail at some facings; the reloc base was a stable 0x6ba10 this pass). Captured artifacts: docs/re/findings/maze-views/{v1-gy121f0,v2-gy119f0,v3-gx127f3,v4-gx126gy117f0}.json."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "parity-selects-or-vs-masked-branch",
+      "claim": "FRAME PARITY = (gx+gy+facing)%2 selects the blit BRANCH for (nearly) the WHOLE frame. PARITY EVEN (V1 gx127gy121f0 par0: 27 OR/4 masked; V2 gx127gy119f0 par0: 30 OR/4 masked): the perspective pieces are drawn by DIRECT forward OR-blits (arg10==0xffff), with only the 4 near side-panel mirrors going through the masked branch. PARITY ODD (V3 gx127gy121f3 par1: 7 OR/27 masked; V4 gx126gy117f0 par1: 6 OR/7 masked): essentially the ENTIRE frame is drawn through the MASKED (horizontal-mirror) branch — the same pieces, mirrored. The only OR calls that survive in a parity-odd frame are the 6 top-strip chrome pieces (346/349/352/355/358/361) plus any thin asymmetric decoration (V3's idx114). This is the BLIT-LEVEL manifestation of the classify-stage parity-alternation law (maze-classify-projection.json parity-alternation-not-geometry): the engine pre-mirrors the right half by toggling the whole compose between forward-OR and mirror-masked on parity.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4c45"},
+        "type": "four_view_capture_plus_parity",
+        "details": "frame parity @0x4c45 = (gx+gy+facing)%2 (classify findings). V1 par0 -> docs/re/findings/maze-views/v1-gy121f0.json (27 OR/4 masked). V2 par0 -> v2-gy119f0.json (30 OR/4 masked). V3 par1 -> v3-gx127f3.json (7 OR/27 masked). V4 par1 -> v4-gx126gy117f0.json (6 OR/7 masked). The OR/masked split tracks parity perfectly across all 4 views; the 6 top-strips stay OR in every view."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "masked-branch-is-horizontal-mirror-about-col-20",
+      "claim": "The MASKED branch is a HORIZONTAL MIRROR of the source placement about page-byte column 20 (= screen pixel 160, the viewport horizontal center). For every masked call (src=arg0c, dst=arg10): dst.destX + src.destX + dst.w == 40 (page row = 40 bytes). Self-symmetric center pieces map to themselves (e.g. 123->123: destX 13, w14, 13+13+14=40; 124->124: 16+16+8=40). Left/right pieces swap (134@destX9 <-> 138@destX27; 162@9 <-> 166@27). VERIFIED for ALL masked pairs: 19/19 in V3, 4/4 in V1, 4/4 in V2, all in V4. This is the byte-exact geometry of the masked-mirror branch (consistent with maze-masked-mirror's prior masked-GEOMETRY gate).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xbc6"},
+        "type": "geometric_law_all_pairs",
+        "details": "For each masked call, src/dst placement records read from the live cs:[0x190] placement table at capture time. Law dst.destX + src.destX + dst.w == 40 holds universally. V1: 13->4 (24+8+8=40), 10->7, 7->10, 4->13. V2: 33->30 (16+22+2=40), 30->33, 24->24, 27->27. V3 cross-pairs e.g. 134->138 (27+9+4=40), 162->166, 131->143, etc — 19/19. Page row stride = 40 bytes (320px/8)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "placement-table-depth-bank-structure",
+      "claim": "The placement table is organized into DEPTH-BANKED families that the wmaze depth loop (0x4c60) indexes per depth (0..3, back-to-front). Confirmed families from the union of 4 views' live records: (1) CEILING strips 122/123/124/125 = depths 0/1/2/3, destRow 32/39/51/59, w 18/14/8/4, destX converging 11/13/16/18 (perspective). (2) FLOOR TWIN = ceiling idx + 28 (122->150, 123->151, 124->152, 125->153; destRow 128/104/88/83 — the mirrored vertical). (3) SIDE/CORNER pieces per depth: a left cluster (destX 9/13) and right cluster (destX 24/27/21/22), e.g. 131/135/139/143 (+ floor twins 159/163/167/171) at the door-recess depths, 133/137/141/145 (+161/165/169/173) shallower. (4) NEAR full-height walls 15/19 (img3/img7, w4 h112) emitted when bounded at d0/d1. (5) TOP-STRIP chrome 346/349/352/355/358/361 (stride 3, destRow 7, w2 h16) — ALWAYS emitted, all 6, in EVERY view (the screen-top band). Every full call list has the shape [122, 150, <per-depth wall/decoration pieces back-to-front>, <6 top strips>]. The leading 122/150 (d0 ceiling+floor) and trailing 6 strips are constant; the middle is the depth-loop emit selected by per-depth cell-data.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4c60"},
+        "type": "table_structure_from_four_views",
+        "details": "Union of liveRecords across the 4 view JSONs (docs/re/findings/maze-views/*.json). idx->geometry: 122 img44 (11,32) w18h7; 123 (13,39) w14h12; 124 (16,51) w8h8; 125 (18,59) w4h3; +28 floor twins at row 128/104/88/83. V1 (door at depth2) emits the 131/135/139/143 door-recess family; V2 (door at depth1) emits 133/137/141/145 + 136/140 shallower families + the near 15/19 walls. V3 (open, sp4=7 decoration at d1) emits the thin column idx114 (img38 w1 h95). The depth banks match #077's placement-table-is-depth-banked finding and extend it with the destX-cluster left/right split + the constant top-strip set."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "cell-data-selects-piece-families",
+      "claim": "The per-depth CELL-DATA (forward-edge code + side solidity + special4 decoration) selects WHICH piece families emit at each depth — the SELECTION half of the generation law. Cross-referenced (cell-data depth profiles via the FORWARD edge read N/W per facing + lateral-neighbour side reads, per the classify projection): V1 fwdEdge profile [0,0,3,0] (door code 3 at depth2) -> emits the deep door-recess family (131/135/139/143 + twins) at the mid depths + the small far door pieces (2/85/89). V2 fwdEdge [0,3,0,0] (door code 3 at depth1, CLOSER) -> emits the near full-height walls (15/19) + a LARGER door-frame family (133/137/141/145, 136/140 + twins) — the same door rendered bigger because it is one depth nearer. V4 fwdEdge [2,2,0,2] (SOLID front at depth0, blocked) -> the frame fills with the near wall via the mirror branch (img0 idx0/9 w14 h87) + ceiling/floor + the 6 strips, total only 13 calls (a near wall occludes the deeper pieces). V3 (facing3, sp4=7 at d1 to the left) -> emits the thin decoration column idx114. So: forward-edge code (open/solid/door) at each depth gates the wall/door family; special4 decoration adds the decoration piece; a solid near edge occludes deeper depths (fewer total calls). This is the classify slot-code (maze-classify-projection.json) feeding the placement-index arithmetic.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4c60"},
+        "type": "cell_data_cross_reference",
+        "details": "Cell-data profiles computed from extracted/maze/level-0.json (forward edge: f0/f2 read N, f1/f3 read W; lateral neighbour forward wall for side solidity — classify edge_read law). V1 gx127gy121f0: d0[N0]d1[N0]d2[N3=door]d3[N0]. V2 gx127gy119f0: d0[N0]d1[N3=door]d2[N0]d3[N0]. V3 gx127gy121f3: open corridor, sp4=7 at d1 left. V4 gx126gy117f0: d0[N2=solid front]d1[N2,sp4=7]d2[N0]d3[N2] — blocked, 13 calls. The mapping {door at depth d} -> {door-recess family scaled to depth d} is evidenced by V1 vs V2 (same map door at gy123, different RENDERED depth -> different family). Confidence MEDIUM on the exact family<->depth index map (the slot-code->index arithmetic is unpinned)."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "parity-odd-pairing-oscillates",
+      "claim": "For parity-ODD and blocked-front views, the masked src->dst PAIRING and the call ORDER OSCILLATE run-to-run (the in-place recompose is mid-build / not fully settled), so they are NOT deterministic. Across 3 V4 captures the masked pairing varied ([150->122,15->0,...] vs [122->134,0->6,...] vs [15->150,138->19,...]) and across 2 V3 captures the masked head moved phase. What IS deterministic for these views: the placement-index SET (V4 always {0,6,9,15,19,122,134,138,150,162,166} + OR {346,349,352,355,358,361}), the pass LENGTH (V4 always 13, V3 always 34), the OR list, and the horizontal-mirror law (every pairing variant still satisfies destX+destX+w==40). For parity-EVEN open views (V1) the full ordered list IS byte-reproducible. CAVEAT for any reproducing function: validate parity-odd views by the SET + mirror law + length, not the exact ordered pairing.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "multi_run_reproducibility",
+        "details": "V4 captured 3x: period (head-recurrence gap) = 13 every time; masked-pair SET identical; ordered pairing different each run. V1 captured 2x: OR list byte-identical. The oscillation matches the project constraint 'live span/slot reads can be mid-build (oscillate)'. The pass-extraction in phasePlacements uses the first-OR-recurrence period (robust to the leading partial pass); for parity-odd views the period is correct but the in-pass pairing is a snapshot of an unsettled build."
+      },
+      "confidence": "high"
+    }
+  ],
+  "generation_pattern_summary": {
+    "call_list_shape": "[ceiling_d0 (122), floor_d0 (150), <depth-loop emit, back-to-front: per-depth ceiling 122+d / floor 150+d / side+corner+door families selected by that depth's cell-data>, <6 constant top-strips 346/349/352/355/358/361>].",
+    "branch_selection": "parity = (gx+gy+facing)%2. EVEN => direct forward OR-blits (arg10==0xffff). ODD => whole-frame horizontal-mirror via the masked branch (arg10 = the mirror-image placement of the source arg0c).",
+    "masked_mirror_geometry": "BYTE-EXACT: for a masked call src->dst, dst.destX + src.destX + dst.w == 40 (mirror about page-byte col 20 / screen px 160). Self-symmetric center pieces map to themselves.",
+    "depth_banks": "ceiling = 122+d (d=0..3); floor twin = ceiling+28; per-depth side/corner pieces in left (destX 9/13) and right (destX 24/27/21/22) clusters; near full-height walls 15/19; constant top strips 346..361 (stride 3).",
+    "selection_inputs": "per-depth forward-edge code (open 0 / solid 2 / door 1|3) gates wall+door family; special4 adds the decoration piece (e.g. sp4=7 -> column idx114); a solid near edge occludes deeper depths (shorter list).",
+    "what_is_unpinned": "the exact (slot-code, depth) -> placement-index arithmetic (which idx in a family fires for which door-orientation/depth). This lives in the slot helpers wmaze 0x3828/0x3c11/0x3dce/0x4892 which defeat the Ghidra decompiler; no static-disasm byte-confirmation this pass. No reproducing callist-gen function (the per-view list is still CAPTURED, not GENERATED)."
+  },
+  "captured_views": [
+    {"name": "v1-gy121f0", "gx": 127, "gy": 121, "facing": 0, "parity": 0, "calls": 31, "or": 27, "masked": 4, "cell_profile_fwdEdge": [0, 0, 3, 0], "note": "the committed gy=121 ORACLE perspective; pokeview reproduces it exactly; door at depth 2.", "artifact": "docs/re/findings/maze-views/v1-gy121f0.json"},
+    {"name": "v2-gy119f0", "gx": 127, "gy": 119, "facing": 0, "parity": 0, "calls": 34, "or": 30, "masked": 4, "cell_profile_fwdEdge": [0, 3, 0, 0], "note": "same door (map gy123) rendered NEARER (depth 1) -> near full walls 15/19 + larger door-frame family.", "artifact": "docs/re/findings/maze-views/v2-gy119f0.json"},
+    {"name": "v3-gx127f3", "gx": 127, "gy": 121, "facing": 3, "parity": 1, "calls": 34, "or": 7, "masked": 27, "cell_profile_fwdEdge": [0, 0, 0, 0], "note": "parity-ODD open corridor with sp4=7 decoration at depth1 left -> whole-frame mirror branch + decoration column idx114. Masked pairing oscillates run-to-run; SET+length+mirror-law stable.", "artifact": "docs/re/findings/maze-views/v3-gx127f3.json"},
+    {"name": "v4-gx126gy117f0", "gx": 126, "gy": 117, "facing": 0, "parity": 1, "calls": 13, "or": 6, "masked": 7, "cell_profile_fwdEdge": [2, 2, 0, 2], "note": "SOLID front at depth0 (blocked) + sp4=7 column -> near wall (img0) fills the frame via mirror, deeper depths occluded, only 13 calls. Pairing oscillates; SET={0,6,9,15,19,122,134,138,150,162,166}+OR{346,349,352,355,358,361} stable.", "artifact": "docs/re/findings/maze-views/v4-gx126gy117f0.json"}
+  ],
+  "asm_anchors": [
+    {"space": "wmaze.ovr", "offset": "0x4c45", "name": "frame_parity", "note": "parity=(gx+gy+facing)%2 — selects OR (even) vs masked-mirror (odd) blit branch for the whole frame."},
+    {"space": "wmaze.ovr", "offset": "0x4c60", "name": "view_depth_loop", "note": "back-to-front depth loop d=0..3; emits per-depth ceiling 122+d / floor 150+d / side+corner+door families via the slot helpers. The (slot-code,depth)->placement-index arithmetic is here / in the helpers (decompiler fails)."},
+    {"space": "ega.drv", "offset": "0xa93", "name": "ega_blit_entry15_FUN_0a93", "note": "blit entry. arg10==0xffff -> OR forward blit of placement arg0c. arg10!=0xffff -> masked horizontal-mirror blit: src=placement arg0c, dst geom=placement arg10 (mirror about page col 20: dst.destX+src.destX+dst.w==40)."},
+    {"space": "wmaze.ovr", "offset": "0x3828", "name": "classify_front_side", "note": "per-depth forward/side classifier (slot code 0/2/4..0xe) — the SELECTION input; decompiler-resistant index arithmetic downstream."}
+  ],
+  "artifacts": [
+    "tools/libretro/trace-maze.ts — NEW phase `pokeview <gx> <gy> <facing>` (arbitrary-view capture by poking the party + in-place recompose). Improved phasePlacements pass-extraction (first-OR-recurrence period, robust to a leading partial pass + blocked-front views; falls back to dominant head-recurrence gap). Added WIZ6_ORBASE override + raw_calls dump.",
+    "docs/re/findings/maze-views/{v1-gy121f0,v2-gy119f0,v3-gx127f3,v4-gx126gy117f0}.json — the 4 captured call lists + per-call placement records (imgIdx, destX, destRow, w, h, count) + targets.",
+    "tools/parity/fixtures/engine/maze-corridor-callist-gy121.json (existing) — the committed gy=121 list pokeview reproduces."
+  ],
+  "remaining": [
+    "REPRODUCING FUNCTION (the real goal): pin the (slot-code, depth, door-orientation) -> placement-index arithmetic so callist-gen can EMIT the per-depth wall/corner/door family indices. Needs hand-disasm of wmaze 0x3828/0x3c11/0x3dce/0x4892 (decompiler fails) OR a per-depth live trace of the FUN_0a93 arg0c keyed to the depth counter [0x5040]. The branch-selection (parity) + masked-mirror geometry + depth-bank structure ARE pinned; the index-selection arithmetic is the last gap.",
+    "PARITY-ODD ORDERED PAIRING: the masked pairing/order oscillates for parity-odd/blocked views (mid-build). A FULL (non-dirty, settled) recompose for arbitrary views — e.g. a forward-arrival trace gated on the POST-move position, or a forced state-4->5 re-render at a poked cell — would give the deterministic ordered list. The forward-step-into-cell trigger fires the OR-blit for the ORIGIN frame (frame-lag, #077), so a post-move-gated capture is needed.",
+    "OTHER ZONES / DECORATIONS: only zone-0 region-0 captured. The sp4 decoration codes 1/2/3/9 (and other special4 values among the 73 zone-0 decoration cells) and pit cells are not yet cross-referenced to their placement pieces."
+  ],
+  "concerns": [
+    "The in-place poked recompose is a DIRTY recompose (per #077): it emits the full placement SELECTION but may drop the single deepest sub-pixel door-leaf detail (the 18px residual). That residual is a sub-placement draw-path gap, NOT a missing placement, so the SELECTION + geometry characterization is unaffected. Do not use these lists to chase the deep-door 100% gate.",
+    "For parity-odd / blocked-front views the masked PAIRING + ORDER are non-deterministic run-to-run; only the index SET, pass LENGTH, OR list, and mirror law are reliable. Any validation of a future reproducing function against these views must use the SET + mirror law, not the exact ordered pairing.",
+    "The reloc OR-blit base was a stable 0x6ba10 across fresh boots this pass, but it is heap-dependent in principle — the resolver re-derives it per run (WIZ6_ORBASE only short-circuits when known). The in-place left/right resolver can fail at some facings (V3 needed the override); a more robust forward-walk resolver is a follow-up.",
+    "Cell-data profiles use the classify edge-read law (maze-classify-projection.json) which is HIGH confidence for open/solid but MEDIUM for door-shape codes — the family<->depth index mapping inherits that medium confidence."
+  ],
+  "caveat_for_prior_findings": "EXTENDS docs/re/findings/maze-callist-generation.json (#077): confirms the placement-table-is-depth-banked finding with 4 views (was 2: gy118+gy121) and ADDS the constant top-strip set + the left/right destX-cluster split. PROMOTES the parity-alternation law (maze-classify-projection.json) from the classify stage to the BLIT stage: parity selects OR-vs-masked for the whole frame. PINS the masked-mirror branch geometry as dst.destX+src.destX+dst.w==40 (byte-exact, all pairs). Does NOT contradict any prior result. Does NOT claim the law cracked — there is still NO reproducing callist-gen function (the per-depth index arithmetic is unpinned)."
+}
