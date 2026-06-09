@@ -257,6 +257,13 @@ export const NOTE_INDEX: NoteIndexEntry[] = [
       'To draw the corridor, the engine picks which floor/ceiling/wall tile goes where by a placement INDEX. We spent a long time looking for the lookup table that produces those indices. There is no table. The index is literally base + depth, and the “base” is a constant baked into each draw instruction.',
     tags: ['maze', 'reimplementation', 'engine'],
   },
+  {
+    id: 'maze-dither-was-a-door',
+    title: 'The Dither That Was a Door',
+    pitch:
+      'A stubborn smear of mismatched pixels at the corridor’s vanishing point looked like dithered-stone texture noise and capped the renderer for a dozen passes. It wasn’t noise. It was a single door-leaf tile animating between two frames — a 1-pixel flicker — and our static screenshot had frozen the other frame.',
+    tags: ['maze', 'reimplementation', 'quirk', 'engine'],
+  },
 ];
 
 export function findNote(id: string): NoteIndexEntry | undefined {

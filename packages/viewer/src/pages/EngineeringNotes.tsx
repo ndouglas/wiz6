@@ -1836,6 +1836,79 @@ call  emit_or_blit`}</CodeBlock>
       { label: 'findings: maze-masked-generation.json', href: '/explore/docs/findings/maze-masked-generation.json' },
     ],
   },
+  {
+    id: 'maze-dither-was-a-door',
+    title: 'The Dither That Was a Door',
+    tags: ['maze', 'reimplementation', 'quirk', 'engine'],
+    pitch:
+      'A stubborn smear of mismatched pixels at the corridor’s vanishing point looked like dithered-stone texture noise and capped the renderer for a dozen passes. It wasn’t noise. It was a single door-leaf tile animating between two frames — a 1-pixel flicker — and our static screenshot had frozen the other frame.',
+    body: (
+      <>
+        <ProseRow>
+          The reimplemented dungeon corridor matched the engine almost perfectly,
+          except for a stubborn 18-pixel smudge right at the vanishing point &mdash;
+          the far door at the end of the hall. It moved when we changed almost
+          nothing; it survived every generation fix. We filed it as
+          &ldquo;dither-phase&rdquo;: the stone is a two-shade dithered pattern, and
+          we assumed our composed frame simply landed a different dither phase than
+          the engine&rsquo;s, so a scatter of pixels would always disagree. Several
+          larger views were capped the same way. For about eleven reverse-engineering
+          passes, &ldquo;it&rsquo;s just dither&rdquo; was the accepted ceiling.
+        </ProseRow>
+        <ProseRow>
+          It was not dither. The trick to seeing it was a capture-timing one. The
+          engine only fully redraws the far door on a <em>real move into a cell</em>;
+          turning in place is a dirty repaint that reuses the cached deep tile. Every
+          prior capture had turned in place, so the door tile was never re-emitted and
+          our generator never learned it existed. Forcing a full redraw &mdash; by
+          stepping <em>out</em> of the cell, which repaints the origin frame in full
+          &mdash; finally exposed it: the &ldquo;dither&rdquo; was a single wall-tile
+          the generator wasn&rsquo;t drawing at all.
+        </ProseRow>
+        <ProseRow>
+          And reading the engine&rsquo;s own settled draw list for that frame showed
+          why it shimmered. The far-door piece doesn&rsquo;t use one tile &mdash; it
+          alternates between two adjacent tiles in the atlas, frame by frame:
+        </ProseRow>
+        <CodeBlock>{`; the corridor far-door is ONE compositor span at the vanishing point:
+{ x0: 158, x1: 68, clip: 72/248, walltype: 1, depthField: 2, seamIdx: 5 }
+;                                                              ^^^^^^^^^
+; …and on alternate frames the engine emits the very same span with seamIdx 6.
+; seamIdx selects the atlas sub-tile, so the door-stile detail flickers 5 <-> 6
+; — a one-pixel shimmer at screen (160, 68).`}</CodeBlock>
+        <ProseRow>
+          So the residual was two unrelated mistakes wearing one disguise. First, the
+          door tile was missing from our generated frame (the dirty-capture blind
+          spot). Second, even once drawn, a <em>single</em> committed reference
+          screenshot can only ever freeze <em>one</em> of the two animation frames
+          &mdash; so any honest renderer disagrees with it by exactly the flickering
+          pixel, forever, no matter how correct it is. That second pixel is what we
+          had been calling &ldquo;dither phase.&rdquo;
+        </ProseRow>
+        <ProseRow>
+          The fix is to model the animation instead of fighting it: each animated
+          span carries both tiles (<Code>seamIdx</Code> and <Code>seamAlt</Code>), the
+          composer takes a phase, the parity tests render phase 0 (the frozen-fixture
+          frame, byte-exact), and the live viewer toggles the phase on a clock so the
+          door shimmers the way it did in 1990. With the tile generated and the phase
+          modeled, the entrance corridor reaches 100% of the engine&rsquo;s pixels.
+        </ProseRow>
+        <Aside title="The lesson">
+          &ldquo;It&rsquo;s just dither noise&rdquo; is the renderer-RE equivalent of
+          &ldquo;it&rsquo;s just rounding error&rdquo; &mdash; a comforting label for a
+          residual you haven&rsquo;t explained. A structurally-correct frame that
+          disagrees in a small, <em>stable</em> patch of pixels is usually hiding
+          something specific: a tile you didn&rsquo;t draw, or a frame of animation the
+          fixture froze. Localized and persistent beats &ldquo;noise&rdquo; &mdash;
+          look closer.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'findings: maze-deepdoor-drawpath.json', href: '/explore/docs/findings/maze-deepdoor-drawpath.json' },
+      { label: 'findings: maze-callist-generation.json', href: '/explore/docs/findings/maze-callist-generation.json' },
+    ],
+  },
 ];
 
 const ALL_TAGS: Tag[] = [
