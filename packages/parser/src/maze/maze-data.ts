@@ -48,6 +48,20 @@ function u16(b: Uint8Array, o: number): number {
 }
 
 /**
+ * Sign-extend a destX BYTE the way the engine does. ega.drv FUN_0a93 loads the
+ * placement's destX with `mov al,[si+1]; cbw` (file 0xad7 in the OR branch, 0xc11
+ * in the masked-mirror branch), so destX is a SIGNED i8: a stored 0xff (255) is
+ * dest column −1, not +255. Three placements carry a negative destX (6/38/44, all
+ * destX=255 = −1) — the LEFT-side full-height corner-wall flanks (img0 w14 h87),
+ * whose dest page column is one byte LEFT of the page origin. Without this the
+ * piece lands ~256 bytes downstream (wrong screen side); with it the LEFT/RIGHT
+ * corner walls mirror symmetrically about the viewport centre.
+ */
+function signExtendDestX(destX: number): number {
+  return destX >= 128 ? destX - 256 : destX;
+}
+
+/**
  * Reproduce ega.drv FUN_0631: parse `mazedata.ega` and normalize the descriptor
  * table in place. The pixel blob + placement records are copied VERBATIM; only the
  * 153 descriptors are rewritten (segDelta:srcOffLow ← blob-relative segment:offset).
@@ -101,7 +115,7 @@ export function orPlacementFor(wb: MazeWorkBuffer, placementIdx: number): Backgr
   return {
     src: wb.buffer,
     si: d.segDelta * 16 + d.srcOffLow + p.bias,
-    di: p.destX + p.bias + 0x28 * p.destRow,
+    di: signExtendDestX(p.destX) + p.bias + 0x28 * p.destRow,
     cx: p.count,
     w: d.w,
     h: d.h,
@@ -116,8 +130,10 @@ export function orPlacementFor(wb: MazeWorkBuffer, placementIdx: number): Backgr
  * see docs/re/findings/maze-masked-mirror.json.
  *
  *   cx     = dest.count
- *   di     = dest.destX + dest.bias + 0x28*dest.destRow
+ *   di     = signExtend(dest.destX) + dest.bias + 0x28*dest.destRow
  *   siBase = S.segDelta*16 + S.srcOffLow + (S.w-1) - dest.bias
+ *
+ * destX is a SIGNED i8 (engine `cbw` at file 0xc11): a stored 0xff is column −1.
  *   w/h/planeStride = the SOURCE image descriptor
  */
 export function maskedMirrorFor(
@@ -135,7 +151,7 @@ export function maskedMirrorFor(
   return {
     src: wb.buffer,
     siBase: S.segDelta * 16 + S.srcOffLow + (S.w - 1) - dp.bias,
-    di: dp.destX + dp.bias + 0x28 * dp.destRow,
+    di: signExtendDestX(dp.destX) + dp.bias + 0x28 * dp.destRow,
     cx: dp.count,
     w: S.w,
     h: S.h,

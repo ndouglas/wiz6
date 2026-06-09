@@ -11,6 +11,29 @@
   },
   "findings": [
     {
+      "id": "destx-sign-extension-fix",
+      "claim": "COMPOSITOR FIX (2026-06-09 masked-mirror compositor pass). The placement destX field is a SIGNED i8, not unsigned. ega.drv FUN_0a93 loads it with `mov al,[si+1]; cbw` (file 0xad7 in the OR branch at 0xa93, file 0xc11 in the masked-mirror branch at 0xbc6 — both re-disassembled in full this pass via capstone over ega.drv). So a stored 0xff (255) on placements 6/38/44 means dest column −1, not +255. Both maskedMirrorFor and orPlacementFor previously used the raw byte, so placement 6 (the LEFT full-height corner-wall flank, img0 w14 h87, destX255 bias10 destRow40) computed di = 255+10+0x28*40 = 1865 (page col 25, right-of-centre, colliding with its right-side mirror twin 9). With sign-extension di = −1+10+1600 = 1609 (page col 9, LEFT side) — the LEFT/RIGHT corner walls now mirror symmetrically about the viewport centre. FIX: added signExtendDestX() in maze-data.ts, applied to both orPlacementFor.di and maskedMirrorFor.di. Only placements 6/38/44 carry destX>=128 (enumerated over all 366 records); none are in the entrance's generated call-list, so the entrance gates (maze-corridor-generated 99.9% + maze-corridor-fromasset 99.909% + maze-masked-mirror call#0 byte-exact) all stay green.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xc11"},
+        "type": "disasm_full_branch",
+        "details": "capstone CS_MODE_16 over ega.drv: 0xbc6 masked setup (bx=arg0c → si=arg0c*5+cs:[0x190] source placement; [bp-2]=imgIdx*5+cs:[0x18e] source img desc; si=arg10*5+cs:[0x190] DEST placement) then 0xc0e `mov al,[si+1]; cbw` (0x98 = CBW in 16-bit) → ax=signExtend(DEST.destX). The OR branch 0xa93 has the same `mov al,[si+1]; cbw` at 0xad4/0xad7. The byte at file 0xc11 is 0x98 (CBW), confirmed by hexdump. Validated: maskedMirrorFor(9,6).di < maskedMirrorFor(6,9).di (left twin west of right) — gated in maze-masked-callist-fromasset-parity.diagnostic.test.ts."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "masked-callist-fromasset-frame-mismatch-confirmed",
+      "claim": "The masked-heavy captured call-lists (gate look-back gy121-f2: 14 OR + 24 masked; dead-end gy123-f0: 7 OR + 12 masked) reproduce their committed fixtures only ~30.2% / ~33.4% — and this is a FRAME MISMATCH, NOT a compositor defect. The full masked branch was re-disassembled this pass (ega.drv 0xbc6..0xd2e): the per-row dest address (di = signExtend(destX)+bias+0x28*destRow), the source siBase = S.segDelta*16 + S.srcOffLow + (S.w-1) - dst.bias, the backward read (`dec si`) + CS:[0x192] bit-reverse, the per-plane restart to siBase + p·(S.w*S.h), and the per-row advance (di += 0x28; siBase += S.w) ALL match applyMaskedMirror/maskedMirrorFor EXACTLY. DECISIVE EVIDENCE the residual is a frame mismatch: the PURE-OR view gx127-gy121-f1 (37 OR calls, ZERO masked) ALSO reproduces only ~52% of its fixture, with a salt-and-pepper dither-phase diff over a structurally-correct corridor — the OR compositor (byte-exact-gated 99.909% for the entrance gy121-f0, where the captured list MATCHES the fixture frame) cannot reach its fixture when the captured list is off-frame. EYEBALL: gy123-f0's captured list composes a symmetric RECEDING CORRIDOR (correct for that call-list) while its committed fixture is a FLAT DEAD-END WALL — simply different frames; the compositor cannot turn a corridor list into a dead-end. So ≥99% from THESE call-lists is unreachable; it needs a frame-matched capture (the blocked DBPSerialize_CPU bridge) or a GENERATED frame-matched call-list (the per-view selection law — maze-callist-generation.json residue).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "fromasset_compose_vs_fixture_plus_pure_or_control",
+        "details": "Composed each captured call-list (docs/re/findings/maze-views/freeroam-*-callist.json `calls`) via composeBackgroundFromAsset → decode viewport (MAZE_VIEWPORT x72 y32 w176 h112) vs the committed maze-freeroam-*.idx.gz. Post-fix vp%: gy121-f2 30.2%, gy123-f0 33.4%, gy121-f1 (pure OR control) 52.4%, gy123-f1 83.9%, gx124-gy121-f0 (328 masked) 59.9%. The masked-heavy views are NOT systematically worse than the OR-only ones — the spread tracks how close each captured frame is to the committed fixture, not masked-call count. Pinned in maze-masked-callist-fromasset-parity.diagnostic.test.ts (achieved-% + the corner-twin sign-extension geometry guard)."
+      },
+      "confidence": "high"
+    },
+    {
       "id": "masked-mirror-geometry-byte-exact",
       "claim": "The masked-mirror branch (ega.drv FUN_0a93, file 0xbc6..0xd2e) places a HORIZONTALLY-MIRRORED copy of the SOURCE image (arg [bp+0xc]'s placement -> its image descriptor) into the DEST placement's geometry (arg [bp+0x10]). The asm-derived per-row geometry is: cx (bytes/row, [bp-4]) = dest.count; di (dest plane-0 row-0) = dest.destX + dest.bias + 0x28*dest.destRow; siBase (source plane-0 row-0, within seg dataSeg+S.segDelta) = S.srcOffLow + (S.w-1) - dest.bias; row si advance = S.w ([bp-6]); outer rows = S.h; plane stride = S.w*S.h. The inner loop reads cx bytes BACKWARD (`mov al,[si]; dec si`) and runs each through the CS:[0x192] LUT (`cs: xlatb` at 0xc69 = exact 8-bit bit-reverse table) — backward-read + bit-reverse = a horizontal mirror. The 4 planes are at di+0/0x2000/0x4000/0x6000; each plane's source restarts at siBase + p*planeStride (the asm pops si back to siBase between planes, then adds planeStride). [bp+0xe] selects merge: != 0 -> OR-merge (0xc66 branch, `or al,es:[di]; stosb`); 0 -> REPLACE (0xcc3 branch, plain `stosb` — the corridor void carve). VERIFIED BYTE-EXACT: applyMaskedMirror over the engine's captured 'before' region reproduces the engine's captured 'after' region for call#0 (masked 122->122 OR), all 4 planes x 7 rows x 18 bytes = 504 bytes, 100%. The prior pass's failure was NOT geometry — it was (a) validating against a contaminated/transient whole-page snapshot and (b) the gy=118-vs-gy=121 frame mismatch.",
       "category": "render_algorithm",
@@ -65,7 +88,8 @@
   },
   "artifacts": [
     "packages/parser/src/maze/background.ts — applyMaskedMirror + MAZE_BITREV (the masked-mirror walk + LUT).",
-    "packages/parser/src/maze/maze-data.ts — expandMazeData + orPlacementFor + maskedMirrorFor (parser-self-contained; ported byte-exact from tools/parity/expand-asset.ts).",
+    "packages/parser/src/maze/maze-data.ts — expandMazeData + orPlacementFor + maskedMirrorFor + signExtendDestX (the destX sign-extension fix, 2026-06-09).",
+    "packages/parser/tests/maze/maze-masked-callist-fromasset-parity.diagnostic.test.ts — NEW: composes the masked-heavy captured call-lists (gate/dead-end) vs their fixtures; documents the achieved ~30-33% + the frame-mismatch root cause + guards the corner-twin sign-extension geometry.",
     "packages/data/src/maze/render-schema.ts — MaskedMirrorPlacementSchema.",
     "packages/parser/src/maze/__fixtures__/maze-masked-mirror-call0.json — engine GROUND-TRUTH per-call write (call#0, 4 planes before+after).",
     "packages/parser/tests/maze/maze-masked-mirror-parity.test.ts — the byte-exact GEOMETRY gate.",
