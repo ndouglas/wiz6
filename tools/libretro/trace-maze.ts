@@ -3181,21 +3181,35 @@ async function phaseGateCapList(c: HostClient): Promise<void> {
   const base = await driveToFreeRoam(c);
   const ent = '/tmp/wiz6-gatecap-ent.state';
   await c.serialize(ent);
-  await c.unserialize(ent); await c.step(2);
-  const b = await c.anchor();
-  await frDrivePath(c, b, path);
+  // Free-roam navigation is non-deterministic (a move can fail to register); retry
+  // the path from the serialized entrance until the party lands on the target.
+  const navOnce = async (): Promise<number | null> => {
+    await c.unserialize(ent); await c.step(2);
+    const bb = await c.anchor();
+    try { await frDrivePath(c, bb, path); } catch (e) { console.log(`  nav attempt failed: ${e}`); return null; }
+    const a = await frParty(c, bb);
+    if (a.gx === gx && a.gy === gy && a.f === facing) return bb;
+    console.log(`  nav landed wrong: gx${a.gx} gy${a.gy} f${a.f}`);
+    return null;
+  };
+  let b: number | null = null;
+  for (let attempt = 1; attempt <= 8 && b === null; attempt++) {
+    console.log(`nav attempt ${attempt}/8…`);
+    b = await navOnce();
+  }
+  if (b === null) { console.log('FAILED to navigate to target in 8 attempts — abort'); return; }
   const at = await frParty(c, b);
   console.log(`arrived: gx${at.gx} gy${at.gy} f${at.f} gs${at.gs} span${at.sp}`);
-  if (at.gx !== gx || at.gy !== gy || at.f !== facing) { console.log('POSITION MISMATCH — abort'); return; }
   // Verify a forward step MOVES (the trace needs a real full-recompose, not a bump).
   const before = await frParty(c, b);
   const moved = await frMove(c, b, 'up');
   const after = await frParty(c, b);
   console.log(`forward-step probe: moved=${moved} (gy${before.gy}->gy${after.gy})`);
+  if (!moved) { console.log('forward step BLOCKED — full recompose unreachable for this view, abort'); return; }
   // Re-arrive at the target (the probe consumed one step), then serialize.
-  await c.unserialize(ent); await c.step(2);
-  const b2 = await c.anchor();
-  await frDrivePath(c, b2, path);
+  let b2: number | null = null;
+  for (let attempt = 1; attempt <= 8 && b2 === null; attempt++) b2 = await navOnce();
+  if (b2 === null) { console.log('FAILED to re-navigate after probe — abort'); return; }
   await c.step(80);
   const st = '/tmp/wiz6-gatecap-target.state';
   await c.serialize(st);
