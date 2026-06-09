@@ -63,10 +63,22 @@
         "details": "Per-move: arm wwatch, press ENTER, drain. On moves where [0x50ce] changed (7->4, 4->3, 3->1 etc.) the drained write count was 0 for all three watched regions. The value-change proves the write occurred; the empty drain proves the wwatch missed it."
       },
       "confidence": "high"
+    },
+    {
+      "id": "dectrace-extension-real-move-instruction-trace",
+      "claim": "EXTENDED to `dectrace` (tools/libretro/trace-maze.ts): the INSTRUCTION-trace approach the prior unresolved note called for WORKS on a real-move frame. The trick the wwatch note missed: the SPAN-LIST write-watch [0x50d0] logs 0, but the COMPOSE-PAGE write-watch [0x41820] IS observable, and its OR plane-store cluster recovers the relocated ega.drv OR-blit base PER RUN (recoverOrBase -> 0x6ba10 on the cold-boot heap). With the base resolved, an instruction trace at the OR-blit ARG point (base+0xaad, ebx=arg0c=placement index) over each genuine forward step captures the full per-move emitted placement-index SET (the build loop re-ran: spanCount 7->4->3->1). dectrace drove gy118->121 and captured View A (gy120) and View B (gy121=maze-corridor) emit sets on real moves. RESULT: the gy121 set EQUALS generateCallist byte-for-byte; the gx126 fountain emits NO separate decoration index (it is the side-wall surface). See maze-decoration-generation.json dectrace-instruction-trace-on-real-move + slot-face-attribution-fix.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "ega.drv (relocated 0x6ba10) / wmaze.ovr",
+        "address": "OR-blit base+0xaad (arg0c=placement index); compose-page [0x41820] plane-store cluster for base recovery",
+        "type": "live_instruction_trace_real_move",
+        "details": "tools/libretro/trace-maze.ts `dectrace` -> /tmp/wiz6-dectrace.json. The span-list wwatch still logs 0 (the documented blindness), but the compose-page wwatch + the instruction trace at the OR ARG point succeed where the span-list trap failed. Head-on fountain nav (turn to gx126 facing north) remained blocked this run (LEFT consumed as a forward step — the entry-walk turn-lock is non-deterministic)."
+      },
+      "confidence": "high"
     }
   ],
   "unresolved": [
-    "A turnable free-roam navigateTo on the patched core is blocked: the scripted entry walk holds turn keys locked AND committed turnable states won't unserialize. Unblocking it likely needs the magicword SUCCESS entry path (the animated gate-open that hands off to free-roam — see wiz6-dungeon-entry-animation memory), or a patched-core serialize-state recapture so a turnable frame round-trips.",
-    "The build-loop emit stores remain unobservable via the patched-core write-watch (logs 0 even on a real move with a span-count change), so the shape-code->placement-index law still cannot be pinned by trapping span_append. A different trap (an instruction trace at wall_emit_quad 0x406c / span_append 0x3f8d on a fresh real-move frame, reading the stack args per hit) may work where the wwatch does not — but that needs the relocated wmaze base resolved on the cold-boot (not unserialized) heap."
+    "A turnable free-roam navigateTo on the patched core is STILL flaky: the scripted entry walk consumes turn keys as forward steps NON-DETERMINISTICALLY (navreach saw LEFT turn once at gy121; the dectrace run had LEFT consumed as forward). So a reliable head-on decorated-cell view (e.g. gx126 facing north for the fountain's FRONT face) needs the magicword SUCCESS entry path or a patched-core turnable serialize-state.",
+    "RESOLVED for the decoration question: the build-loop emit law no longer needs the span-list write-watch — the dectrace instruction trace at the OR-blit ARG point (via the observable compose-page base recovery) captures the emitted placement indices on a real move. See dectrace-extension-real-move-instruction-trace."
   ]
 }

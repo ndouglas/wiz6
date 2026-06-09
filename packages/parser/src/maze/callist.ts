@@ -806,12 +806,28 @@ export function generateDecorations(block: MazeBlock, party: MazeParty): Decorat
       const sp = special4(block, sx, sy);
       if (sp === 0) continue; // no decoration on this cell
       const o = orient2(block, sx, sy);
-      // The orientation gate: the decoration renders on the face the party is
-      // looking at only when `orient2 == facing` (the 0x3af1 gate). (The engine
-      // also enters the dispatch for special4<=0xc regardless, but the rendered
-      // FACE is the orientation-selected one; a non-matching orientation draws the
-      // decoration on a different face, invisible from this view.)
-      if (o !== facing) continue;
+      // SLOT-AWARE orientation gate (the slot/face attribution, corrected by the
+      // dectrace real-move emit trace — docs/re/findings/maze-decoration-generation
+      // .json `decoration-slot-gate-from-trace`). The FRONT cell is classified by
+      // classify_front_side (0x3828), whose gate is `orient2 == facing` (0x3af1).
+      // The LATERAL neighbours (LEFT/RIGHT) are classified by the CORNER classifiers
+      // (corner-L 0x3c11 / corner-R 0x3dce), whose gate is `(orient2 + 1) % 4 ==
+      // facing` (0x3d5b: inc; idiv 4). So a decoration renders on a face ONLY when
+      // its slot's gate matches:
+      //   front: orient2 == facing
+      //   left/right: (orient2 + 1) % 4 == facing
+      // For level-0 (all orient2 == 0) this means the FRONT face decorates at facing
+      // 0 (north) and the lateral faces would decorate only at facing 1 — i.e. the
+      // fountain (gx126 column, orient2 0) renders as a FRONT wall when the party
+      // stands IN that column facing north, NOT as a LEFT side wall when passing it
+      // in the adjacent gx127 corridor. This is the slot offset the eyeball pass saw
+      // (view-case-09 rendered on the FRONT wall while the model attributed LEFT) and
+      // the dectrace confirmed: the gy121 LEFT-slot fountain emits NO decoration —
+      // its visual is the ordinary side-wall surface family.
+      const gateMatches = slot === 'front'
+        ? o === facing
+        : ((o + 1) & 3) === facing;
+      if (!gateMatches) continue;
       hits.push({ depth: d, slot, gx: sx, gy: sy, special4: sp, orient2: o, shapeCode: decorationShapeCode(sp) });
     }
   }
