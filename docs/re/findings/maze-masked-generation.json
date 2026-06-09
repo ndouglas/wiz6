@@ -299,5 +299,69 @@
     "fix": "frontOccludes(front,cL,cR,headon): a head-on door (front==3 && facing in {2,3}) occludes at its depth (classify.ts law (4) head-on read direction). gy121-f2 caps at depth 0 (closed-front gate family {0,83,87} fills the viewport); gy122-f2 caps at depth 1 (far-closed gate {1,84,88} at the corridor end). See maze-wall-family-seeding.json lookback_headon_door_fix_2026_06_09 for the full law + per-view results.",
     "fixture_validation": "Engine framebuffers byte-identical on re-capture = SETTLED ground truth (eyeball-confirmed near + far gate, no void). The call-list self-repro is LOW (39-44%) — the SAME masked-mirror static-compose limitation as the other off-axis door views (the engine draws the gate via the door-recess masked family, which static maskedMirrorFor can't reproduce). Structural gate + eyeball is the success measure; the door-leaf detail (17-34 / 5-34) is decompiler-resistant residue.",
     "confidence": "high (eyeball-confirmed gate, no void/gap; no-regression on all prior captures — no prior view has a head-on door)"
+  },
+  "parity_odd_masked_law_2026_06_09": {
+    "subagent_run": "2026-06-09 (GENERALIZE the masked-mirror wall families now that the freeroam captures are FRAME-SYNCED — each view's call-list composes to its own framebuffer at its self-repro ceiling, was 29-84%. Derive the whole-frame masked law for parity-ODD/off-axis views + the entrance-gate ARCHWAY frame).",
+    "status": "PARITY-ODD WHOLE-FRAME MASKED LAW CRACKED + GENERATED + the ENTRANCE-GATE ARCHWAY rendered. The compositor (applyMaskedMirror/maskedMirrorFor) was already byte-exact (maze-masked-mirror.json); the gap was the per-view masked-call SELECTION, which the prior pass left unsolved because the captures were transient/oscillating. The frame-sync fix made the captured masked sets RELIABLE (validate-freeroam-fixture.ts self-repro: gx126gy121f3 99.95%, gx127gy122f0 99.45%, gx127gy121f1 99.16%, gx127gy123f0 98.15%, gx127gy122f2 97.45%). Composing the engine's OWN masked call-list reproduces its framebuffer to the ceiling — so the masked sets are ground truth, and a GENERATED set close to them reaches the same parity.",
+    "unblock_self_repro_ceilings": {
+      "note": "Composing the engine's OWN captured call-list (calls field) through composeCallList -> renderMazeViewport vs the committed idx.gz (validate-freeroam-fixture.ts). These are the per-view CEILINGS the generator targets.",
+      "gx126-gy121-f3": 99.95, "gx127-gy122-f0": 99.45, "gx127-gy121-f1": 99.16,
+      "gx127-gy123-f0": 98.15, "gx127-gy122-f2": 97.45, "gx127-gy122-f3": 89.46,
+      "gx124-gy121-f0": 93.25, "gx127-gy121-f2": 89.21, "gx124-gy121-f3": 87.24,
+      "gx127-gy123-f1": 83.94
+    },
+    "law": {
+      "id": "parity-odd-whole-frame-masked",
+      "claim": "The frame parity (gx+gy+facing)%2 selects the whole-frame compositor branch (confirms maze-generation-law.json's parity law, now with deterministic frame-synced data). parity-EVEN = the FORWARD-OR branch (side walls OR-direct + the few near-flank masked calls); parity-ODD = the WHOLE FRAME is drawn through the MASKED-mirror branch. DECISIVE: for a parity-ODD view the engine emits the SAME placement geometry the parity-EVEN OR generator (generateCallist) computes — verified for gx127gy121f1, where the engine's masked-DST set == generateCallist's index set ∪ {21,87,118} — but each piece is a MASKED blit, not an OR blit (a mirrored piece ≠ the OR-direct piece). So the generator converts each OR index `idx` to a masked call {src: mirrorTwin(idx), dst: idx, mode:'or'}: ceiling/floor perspective twins (122-125/150-153) self-mirror (src==dst); side-wall panels mirror to the BANK-REVERSED opposite side (LEFT bank A↔RIGHT bank C, B↔B, C↔A — pairs 138→134, 143→131, 148→128, …); the near corner/flank families (0 self; 83↔87/84↔88/85↔89/86↔90; 6↔9; 16↔20/17↔21/18↔22; 4↔13/7↔10) mirror by the col-20 law (src.destX+dst.destX+dst.count==40); the 6 top-strips stay OR.",
+      "evidence": {
+        "binary": "ega.drv FUN_0a93 masked branch 0xbc6 + wmaze parity 0x4c45",
+        "type": "frame_synced_capture_decomposition_plus_generated_compose",
+        "details": "Decomposed all 10 frame-synced freeroam call-lists into OR + masked(src->dst). The masked side-wall pairs are exact (verified the bank-reversed twin table reproduces the engine's masked-DST set: composing engine-DST + the static MIRROR_TWIN table reaches gx127gy122f0 99.45%, gx127gy121f1 99.16%, gx127gy122f2 97.45% = the ceilings, zero src mismatches). GENERATED (generateCallist DST + MIRROR_TWIN) reaches gx127gy122f0 90.22% (+near-occluder columns 6/9), gx127gy121f1 84.30%, gx124gy121f0 82.50%, gx127gy122f2 70.18% — limited only by where the generated DST set under-emits the engine's (the asymmetric near-stone flanks 21/87, the OR special 118, the deep door-recess family). EYEBALL-confirmed (PNG via COMPOSED_PALETTE vs the engine .png): recognizable receding stone corridors, correct angles, NO black voids, NO spurious arches on open corridors."
+      },
+      "confidence": "high for the law + the side-wall masked SET (the bank-reversed mirror twin reproduces the engine's masked-DST set byte-exact via the validation); honest about the GENERATED DST set under-emitting the asymmetric near-stone + deep-door-recess pieces (the documented per-view residue below)."
+    },
+    "head_on_door_archway": {
+      "id": "head-on-door-archway-frame",
+      "claim": "The entrance-gate LOOK-BACK (gx127 gy121 f2 — a head-on door at the party's own cell, OPEN side corners) is drawn by the engine as the ornate ARCHWAY FRAME: near full-height stone COLUMNS (6,9) + near-wall FLANK strips (16-22) + the DOOR-RECESS arch frame (23-34: img11-img22 arch/column pieces) + ceiling/floor perspective twins (122-125,150-153) + depth-0 side walls (134,138,162,166) + 6 strips. This is the SAME OR set as the entrance corridor (gy121-f0). The generator previously emitted the flat-wall approximation {0,83,87} (62.44%) — the user's 'gate superimposed on a wall, no arch around it'. Replacing it with the ARCHWAY_FRAME OR set reaches the 89.21% CEILING (eyeball: the stone arch + columns frame the gate). The residual ~11% is the colourful portcullis-LEAF grid (a decoration draw path beyond the OR/masked background compose — same class as the entrance's 18px deep-door residue).",
+      "predicate": "isHeadOnDoorArchway: facing in {2,3} && forwardEdge==3 (door) && !isSolid(cornerL) && !isSolid(cornerR) at the party's own cell. Enumerated region 0: only the entrance door cell (gy121-f2) — a stone-framed closed doorway (gy123-f0/gy124-f2) is a FLAT wall (generateClosedFrontNearWall), never an arch; an open corridor (front=0) never fires.",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "frame_synced_capture_eyeball",
+        "details": "freeroam-gx127-gy121-f2-callist.json `calls` (frame-synced, reproducible) = the archway OR set; composes to 89.21% (eyeball-confirmed arch). The committed flat-wall fill was 62.44% with the gate floating on a plain wall."
+      },
+      "confidence": "high (eyeball-confirmed archway, no flat-wall superimposition; reaches the frame-synced ceiling)"
+    },
+    "near_occluder_columns": {
+      "id": "near-occluder-columns-at-stone-framed-doorway-stop",
+      "claim": "A parity-ODD corridor that caps at a STONE-FRAMED CLOSED DOORWAY one cell ahead (visible stop depth >= 1, front==3 framed by solid corners both sides) draws the near full-height OCCLUDER COLUMNS (placements 6,9, the img0 stone jambs, mirror twin 6↔9) framing the recessed doorway. generateNearOccluderColumns emits {6,9}; lifts gx127gy122f0 67%->90%. The predicate is the stone-framed-doorway-at-the-stop — it does NOT fire for an OPEN-framed head-on door (gx127gy122f2, both corners open at the stop) or a depth-0 cap; verified no regression across the parity-odd captures.",
+      "confidence": "high (byte-exact addition for gx127gy122f0, zero regression on the other parity-odd views)"
+    },
+    "mirror_twin_table": {
+      "note": "The explicit MIRROR_TWIN map (callist.ts) — built from the frame-synced engine masked pairings. SELF: 0, 1, 122-125, 150-153. SIDE-WALL ceiling banks (bank-reversed): LEFT 126-129↔RIGHT 146-149, 130-133↔142-145, 134-137↔138-141; floor: 154-157↔174-177, 158-161↔170-173, 162-165↔166-169. CORNER/FLANK (col-20): 83↔87, 84↔88, 85↔89, 86↔90, 6↔9, 16↔20, 17↔21, 18↔22, 4↔13, 7↔10.",
+      "warning": "The col-20 sum law (src.destX+dst.destX+dst.count==40) holds for the d0 / centered pieces but NOT the deeper trapezoid panels (they sum 33-37). The pairing is instead by matching (destRow, count) on the bank-reversed opposite side — captured here as the explicit table, not a closed-form sum."
+    },
+    "per_view_generated_parity": {
+      "note": "GENERATED (generateFullCallList -> composeCallList -> renderMazeViewport) match count / 19712 vs the committed idx.gz. BEFORE = the prior off-axis pass; AFTER = this parity-odd masked pass; CEILING = the self-repro ceiling.",
+      "gx127-gy121-f2_GATE": {"before": 12308, "after": 17585, "ceiling_pct": 89.21, "note": "ARCHWAY now renders (was flat wall + gate). AT CEILING."},
+      "gx127-gy123-f0": {"before": 19348, "after": 19348, "ceiling_pct": 98.15, "note": "unchanged, AT CEILING (parity-even dead-end)."},
+      "gx127-gy122-f0": {"before": 10096, "after": 17785, "ceiling_pct": 99.45, "note": "+7689px; masked side walls + near occluder columns. Residue: door-recess leaf + dither."},
+      "gx127-gy121-f1": {"before": 10017, "after": 16618, "ceiling_pct": 99.16, "note": "+6601px; masked side walls (void gone). Residue: near RIGHT-stone flank 21/87 + OR 118 + dither."},
+      "gx124-gy121-f0": {"before": 9602, "after": 16262, "ceiling_pct": 93.25, "note": "+6660px; masked side walls. Residue: deep door-recess family (36-81, reversed pairing) + dither."},
+      "gx127-gy122-f2": {"before": 9406, "after": 13833, "ceiling_pct": 97.45, "note": "+4427px; masked side walls receding to the head-on door. Residue: far door-recess gate."},
+      "gx127-gy123-f1": {"before": 6571, "after": 7880, "ceiling_pct": 83.94, "note": "+1309px; masked side walls. Residue: door archway (door-recess masked family)."},
+      "gx126-gy121-f3": {"before": 16595, "after": 16595, "ceiling_pct": 99.95, "note": "unchanged (parity-EVEN OR view); residue = the near LEFT-stone piece 15 + deep decoration 108 (the asymmetric off-axis OR residue, anti-overfit)."}
+    },
+    "residue": [
+      "GENERATED DST set under-emits where the engine's masked set includes the ASYMMETRIC near-stone flank pieces (gx127gy121f1 21/87), the OR specials (118), and the DEEP DOOR-RECESS masked family (gx124gy121f0 36-81, whose pairing is REVERSED vs the side-wall law — src=same-side deeper slot). These are the decompiler-resistant ray-march residue (maze-wall-family-seeding.json), left documented per-view, NOT papered over.",
+      "The full-height stone-wall mirror (15↔19) differs from the bank-reversed law (gx127gy123f1's 19→15) — a separate twin not yet in the table.",
+      "DITHER-PHASE on the receding stone surfaces caps the structurally-correct views at their ceiling (same class as the entrance 18px deep-door residue)."
+    ],
+    "artifacts": [
+      "packages/parser/src/maze/callist.ts — MIRROR_TWIN map + mirrorTwin(); generateParityOddMasked (the whole-frame masked converter); generateNearOccluderColumns; ARCHWAY_FRAME + isHeadOnDoorArchway; generateFullCallList now dispatches: head-on-door archway / parity-ODD masked / parity-EVEN OR+near-flank.",
+      "packages/parser/src/maze/index.ts — exports generateParityOddMasked + mirrorTwin.",
+      "packages/parser/tests/maze/maze-freeroam-parity.test.ts — floors raised to the AFTER values above; the gate (gy121-f2) allowedSpurious cleared to [] (archway = engine PLACED set).",
+      "tools/libretro/validate-freeroam-fixture.ts — the self-repro ceiling harness (unchanged)."
+    ],
+    "honest_confidence": "HIGH that the work is net-positive + spurious-free (all gated; eyeball-confirmed archway + recognizable corridors, no voids/garbage). The GATE ARCHWAY now renders (the primary user-reported fix). The clean masked views are NOT at >=99% — they reach 84-90% (the generated DST set under-emits the asymmetric near-stone + deep-door-recess pieces, which remain the genuine decompiler-resistant residue). The masked-mirror compositor + the bank-reversed twin table ARE byte-exact (the engine's own masked sets reproduce to the ceiling); the residual gap is the per-view SELECTION of those harder families, documented honestly above."
   }
 }

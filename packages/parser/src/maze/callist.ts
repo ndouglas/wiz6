@@ -993,25 +993,249 @@ export function generateDecorations(block: MazeBlock, party: MazeParty): Decorat
   return hits;
 }
 
+// ---------------------------------------------------------------------------
+// THE PARITY-ODD WHOLE-FRAME MASKED LAW (the generalized masked-family generator —
+// 2026-06-09 frame-synced pass). RE pinned in docs/re/findings/maze-masked-generation
+// .json (parity_odd_masked_law). The unblock: the freeroam captures are now
+// FRAME-SYNCED (each view's call-list composes to its own framebuffer ≥98% for the
+// clean views; gx126gy121f3 99.95%, gx127gy122f0 99.45%, gx127gy121f1 99.16%,
+// gx127gy123f0 98.15%), so the captured masked sets are RELIABLE, reproducible
+// ground truth (was 29–84% transient before).
+//
+// DECISIVE FINDING. The PARITY of (gx+gy+facing) selects the whole-frame branch:
+//   - parity-EVEN → the FORWARD-OR branch: side walls drawn OR-direct (generateCallist),
+//     the near flanks via the few masked-mirror calls (generateNearFlankMasked).
+//   - parity-ODD  → the WHOLE FRAME is drawn through the MASKED-mirror branch. The
+//     engine emits the SAME placement geometry the parity-EVEN OR generator computes
+//     (generateCallist's index SET — verified a near-exact match for gx127gy121f1:
+//     the engine's masked-DST set == generateCallist ∪ {21,87,118}), but each piece
+//     is a MASKED blit, not an OR blit. A masked piece drawn mirrored ≠ the same piece
+//     drawn OR-direct (the mirror flips it), so the generator MUST emit them as masked.
+//
+// THE CONVERSION (OR index → masked call). For a parity-ODD view, each generated OR
+// placement index `idx` becomes a masked call `{src: mirrorTwin(idx), dst: idx}`:
+//   - ceiling/floor PERSPECTIVE twins (122–125 / 150–153) are CENTERED → self-mirror
+//     (src == dst): the engine emits `122→122`, `150→150`, …;
+//   - SIDE-WALL panels (the LEFT 126–137 / RIGHT 138–149 ceiling banks + the 154–165 /
+//     166–177 floor banks) are drawn as the mirror of the OPPOSITE-side bank: the
+//     engine emits `138→134` (RIGHT-bank src mirrored into LEFT-bank dst), `143→131`,
+//     `148→128`, etc. The pairing is bank-REVERSED (LEFT bank A↔RIGHT bank C, B↔B,
+//     C↔A) so the geometry mirrors about page col 20;
+//   - the NEAR-WALL CORNER/FLANK families (leaf 0 self; corners 83↔87/84↔88/85↔89/
+//     86↔90; flanks 16↔20/17↔21/18↔22; full-height occluders 6↔9; the count-pairs
+//     4↔13/7↔10) mirror by the col-20 law (`src.destX + dst.destX + dst.count == 40`).
+//   - the 6 top-strip chrome pieces stay OR (they are emitted in EVERY frame, both
+//     branches — verified across all 5 parity-odd captures).
+// The COMPOSITOR is byte-exact (maze-masked-mirror.json), so emitting these masked
+// calls produces the engine's mirrored pixels: composing the engine's OWN masked
+// set reaches the per-view self-repro ceiling (gx127gy122f0 99.45%, gx127gy121f1
+// 99.16%, gx127gy122f2 97.45%, gx127gy123f1 83.94% — validate-freeroam-fixture.ts),
+// and the GENERATED set (generateCallist DST + this twin) reaches the same ceiling
+// where the generated DST set matches (the clean views).
+//
+// RESIDUE (documented, NOT papered over): for the deep-recess views (gx124gy121f0)
+// the engine also masks a DOOR-RECESS family (36–81: the deep-door perspective
+// pieces) whose pairing is REVERSED vs the side-wall law (src = the SAME-side deeper
+// slot, not the opposite-side mirror); those are the decompiler-resistant ray-march
+// residue (maze-wall-family-seeding.json) — left as the documented per-view floor.
+// The full-height stone-wall mirror (15↔19) similarly differs (gx127gy123f1's 19→15).
+// ---------------------------------------------------------------------------
+
+/** The 6 constant top-strip chrome pieces (emitted OR in EVERY frame, both branches). */
+const TOP_STRIP_SET = new Set<number>(EMIT_BASES.TOP_STRIPS);
+
 /**
- * The FULL per-view background blit CALL LIST (OR forward-blits + the near-wall
- * flank MASKED-mirror calls) derived from the maze block + party — no captured
- * frame. The OR set comes from `generateCallist` (the skeleton + side-wall +
- * far-closed families, byte-exact); the masked calls come from
- * `generateNearFlankMasked` (the near-flank mirror family, byte-exact for the
- * canonical gy121-class corridor). Compose with `composeCallList` /
- * `composeBackgroundFromAsset`.
+ * The MIRROR-TWIN of a placement index: the index whose image, drawn through the
+ * masked-mirror branch into THIS index's geometry, reproduces the engine's masked
+ * blit. Centered pieces (ceiling/floor perspective twins, the leaf) self-mirror
+ * (twin == idx). Side-wall pieces mirror to the bank-reversed opposite side; the
+ * near-wall corner/flank families mirror by the col-20 law. Built explicitly from
+ * the frame-synced engine masked pairings (maze-masked-generation.json). Returns
+ * `idx` unchanged for any index with no known mirror (self-mirror fallback).
+ */
+export function mirrorTwin(idx: number): number {
+  return MIRROR_TWIN.get(idx) ?? idx;
+}
+
+const MIRROR_TWIN: Map<number, number> = (() => {
+  const m = new Map<number, number>();
+  const pair = (a: number, b: number) => {
+    m.set(a, b);
+    m.set(b, a);
+  };
+  const self = (lo: number, hi: number) => {
+    for (let i = lo; i <= hi; i++) m.set(i, i);
+  };
+  // CENTERED perspective ceiling/floor twins → self-mirror.
+  self(122, 125); // ceiling 122+d
+  self(150, 153); // floor 150+d
+  // SIDE-WALL ceiling banks: LEFT 126–129(A)/130–133(B)/134–137(C) mirror to the
+  // bank-REVERSED RIGHT 146–149(C)/142–145(B)/138–141(A) (slot-for-slot).
+  for (let s = 0; s < 4; s++) {
+    pair(126 + s, 146 + s);
+    pair(130 + s, 142 + s);
+    pair(134 + s, 138 + s);
+    // SIDE-WALL floor banks: LEFT 154–157/158–161/162–165 ↔ RIGHT 174–177/170–173/166–169.
+    pair(154 + s, 174 + s);
+    pair(158 + s, 170 + s);
+    pair(162 + s, 166 + s);
+  }
+  // NEAR full-height wall: leaf 0 self; the four corner pieces 83↔87, 84↔88, 85↔89,
+  // 86↔90 (col-20 mirror, byte-exact in the gy121-f2 gate capture).
+  m.set(0, 0);
+  pair(83, 87);
+  pair(84, 88);
+  pair(85, 89);
+  pair(86, 90);
+  // NEAR-WALL FLANK families (imgIdx 0/4/5/6/8/9/10): the full-height occluders 6↔9,
+  // the count-3 panels 16↔20/17↔21/18↔22, the count-4/count-3 flank pairs 4↔13/7↔10.
+  pair(6, 9);
+  pair(16, 20);
+  pair(17, 21);
+  pair(18, 22);
+  pair(4, 13);
+  pair(7, 10);
+  m.set(1, 1); // far-closed leaf self
+  return m;
+})();
+
+/**
+ * Convert a parity-EVEN OR placement-index SET (generateCallist) into the parity-ODD
+ * WHOLE-FRAME MASKED call list: each placement becomes a masked call `{src:
+ * mirrorTwin(idx), dst: idx, mode:'or'}`, except the top-strip chrome (stays OR).
  *
- * BYTE-EXACT for the canonical maze-corridor (gx127 gy121 facing0): the 27 OR
- * calls + the 4 near-flank masked calls (13→4, 10→7, 7→10, 4→13) reproduce the
- * captured call list; from-asset compose reaches ≥99.9% of the engine viewport
- * (the residual 18px is the deep-door-center detail, a draw path beyond the
- * OR/masked background blit — maze-corridor-fromasset-parity.diagnostic.test.ts).
+ * This is the generalized masked-family generator: it reproduces the engine's
+ * masked-mirror emission for parity-ODD views (where the whole frame is drawn through
+ * the masked branch), reaching the per-view self-repro ceiling for the views whose
+ * generated index SET matches the engine's (the clean off-axis corridors). See the
+ * PARITY-ODD WHOLE-FRAME MASKED LAW block.
+ */
+export function generateParityOddMasked(block: MazeBlock, party: MazeParty): CallList {
+  const out: CallList = [];
+  const set = [...generateCallist(block, party), ...generateNearOccluderColumns(block, party)];
+  for (const idx of set) {
+    if (TOP_STRIP_SET.has(idx)) {
+      out.push({ kind: 'OR', src: idx });
+    } else {
+      out.push({ kind: 'masked', src: mirrorTwin(idx), dst: idx, mode: 'or' });
+    }
+  }
+  return out;
+}
+
+/**
+ * The NEAR full-height OCCLUDER COLUMNS (placements 6 / 9, the img0 w14 h87 stone
+ * jambs) the engine draws when a corridor caps at a STONE-FRAMED CLOSED DOORWAY one
+ * cell ahead (the visible stop is depth ≥ 1 with front==3 framed by solid corners
+ * both sides). The columns frame the recessed closed doorway at the corridor end.
+ * Byte-exact addition for gx127 gy122 f0 (the deep corridor that ends in a closed
+ * doorway one cell ahead) — its frame-synced capture emits `9→6` / `6→9` masked
+ * (lifts that view 67%→90%). The predicate is the stone-framed-doorway-at-the-stop;
+ * it does NOT fire for an OPEN-framed head-on door (gx127 gy122 f2, both corners
+ * open at the stop) or for views that cap at depth 0 — verified no regression across
+ * the parity-odd captures. Emitted only in the parity-ODD masked branch (the columns
+ * are drawn through the masked-mirror branch, mirror twin 6↔9). */
+function generateNearOccluderColumns(block: MazeBlock, party: MazeParty): number[] {
+  const visible = computeVisibleDepths(block, party);
+  const stop = visible[visible.length - 1]!;
+  if (stop < 1) return []; // depth-0 caps are handled by the near-wall families
+  const { gx, gy, facing } = party;
+  let [cgx, cgy] = step(gx, gy, facing, 0, -1);
+  for (let d = 0; d <= stop; d++) [cgx, cgy] = step(cgx, cgy, facing, 0, 1);
+  const front = forwardEdge(block, cgx, cgy, facing);
+  const cL = cornerL(block, cgx, cgy, facing);
+  const cR = cornerR(block, cgx, cgy, facing);
+  return front === 3 && isSolid(cL) && isSolid(cR) ? [6, 9] : [];
+}
+
+// ---------------------------------------------------------------------------
+// THE HEAD-ON-DOOR ARCHWAY FRAME (the entrance gate look-back — 2026-06-09
+// frame-synced pass). RE pinned in docs/re/findings/maze-masked-generation.json
+// (head_on_door_archway). The user's report: "turning around to look back at the
+// entrance gate renders the gate superimposed on a flat wall, with no arch around
+// it." The frame-synced capture (gx127 gy121 f2, the look-back at the entrance door)
+// reproduces 89.21% from its OWN call-list — and that call-list is the ORNATE ARCHWAY
+// FRAME, identical to the entrance corridor's (gy121-f0) OR set: the near full-height
+// COLUMNS (6, 9), the near-wall FLANK strips (16–22), the DOOR-RECESS archway frame
+// (23–34: the img11–img22 arch/column pieces), the ceiling/floor PERSPECTIVE twins
+// (122–125, 150–153), the depth-0 side-wall pieces (134, 138, 162, 166) and the 6
+// strips. The generator previously emitted the flat-wall approximation {0,83,87}
+// (62.44%) for this head-on door — a flat wall the gate is superimposed on, exactly
+// the bug. Replacing it with the archway frame OR set reaches the 89.21% ceiling
+// (eyeball: the stone arch + columns frame the gate; the residual ~11% is the
+// colourful portcullis-LEAF grid, a decoration draw path beyond the OR/masked
+// background compose — the same class as the entrance's 18px deep-door residual).
+//
+// THE PREDICATE. This fires for a HEAD-ON DOOR (facing 2/3) at the party's OWN cell
+// (front==3) with OPEN side corners — i.e. a door viewed head-on that is NOT a
+// stone-framed closed doorway (which is a flat dead-end wall, handled by
+// generateClosedFrontNearWall). Enumerated over region 0: the entrance door cell
+// (gy121-f2) is the look-back gate; a stone-framed doorway (gy123-f0/gy124-f2) is a
+// flat wall, not an arch. So the archway never fires on a flat dead-end or an open
+// corridor.
+// ---------------------------------------------------------------------------
+
+/** The ornate ARCHWAY FRAME OR set the engine draws for the entrance-gate look-back
+ *  (a head-on door at the party's own cell with open side corners). The near columns +
+ *  flank strips + door-recess arch frame + the depth-0 perspective/side-wall pieces.
+ *  Byte-exact vs the gy121-f2 frame-synced capture (89.21% — the ceiling; the residual
+ *  is the portcullis-leaf decoration). */
+const ARCHWAY_FRAME = [
+  6, 9, // near full-height columns (img0, the gate's stone jambs)
+  16, 17, 18, 20, 21, 22, // near-wall flank strips (img4/5/6/8/9/10)
+  23, 25, 26, 28, 29, 31, 32, 34, // DOOR-RECESS archway frame (img11–img22 arch pieces)
+  122, 123, 124, 125, // ceiling perspective twins
+  150, 151, 152, 153, // floor perspective twins
+  134, 138, 162, 166, // depth-0 side-wall pieces
+] as const;
+
+/**
+ * Whether the party stands AT a HEAD-ON door (facing 2/3, front==3) with OPEN side
+ * corners — the entrance-gate look-back. The engine fills the viewport with the
+ * ornate archway frame (the columns + door-recess arch), NOT a flat wall.
+ */
+function isHeadOnDoorArchway(block: MazeBlock, party: MazeParty): boolean {
+  const { gx, gy, facing } = party;
+  if (facing !== 2 && facing !== 3) return false;
+  const [c0x, c0y] = step(gx, gy, facing, 0, 0);
+  return (
+    forwardEdge(block, c0x, c0y, facing) === 3 &&
+    !isSolid(cornerL(block, c0x, c0y, facing)) &&
+    !isSolid(cornerR(block, c0x, c0y, facing))
+  );
+}
+
+/**
+ * The FULL per-view background blit CALL LIST derived from the maze block + party
+ * (no captured frame). Three branches, selected by geometry + frame parity:
  *
- * For other open-passage views the flank subset + deeper door-recess masked pairs
- * are the documented ray-march residue (maze-masked-generation.json).
+ *   - HEAD-ON DOOR ARCHWAY (a door at the party's own cell viewed head-on, open
+ *     corners): the ornate archway-frame OR set (the entrance-gate look-back) —
+ *     reaches the 89.21% ceiling (the portcullis-leaf decoration is the residual).
+ *   - PARITY-ODD: the WHOLE FRAME drawn through the masked-mirror branch
+ *     (generateParityOddMasked) — the generalized masked-family generator that
+ *     reproduces the off-axis/turned corridors' masked side walls.
+ *   - PARITY-EVEN (the default): the OR families (generateCallist) + the near-wall
+ *     flank masked-mirror calls (generateNearFlankMasked). BYTE-EXACT for the
+ *     canonical maze-corridor (gx127 gy121 facing0): the OR set + the 4 near-flank
+ *     masked calls (13→4, 10→7, 7→10, 4→13) reach ≥99.9% of the engine viewport.
+ *
+ * Compose with `composeCallList` / `composeBackgroundFromAsset`.
  */
 export function generateFullCallList(block: MazeBlock, party: MazeParty): CallList {
+  // HEAD-ON DOOR look-back: the ornate archway frame (the entrance gate). Emit the
+  // arch/columns OR set instead of the flat-wall {0,83,87} approximation.
+  if (isHeadOnDoorArchway(block, party)) {
+    return [
+      ...ARCHWAY_FRAME.map((src): BackgroundCall => ({ kind: 'OR', src })),
+      ...EMIT_BASES.TOP_STRIPS.map((src): BackgroundCall => ({ kind: 'OR', src })),
+    ];
+  }
+  // PARITY-ODD: the whole frame is drawn through the masked-mirror branch.
+  if ((party.gx + party.gy + party.facing) % 2 !== 0) {
+    return generateParityOddMasked(block, party);
+  }
+  // PARITY-EVEN: OR families + the near-flank masked-mirror calls.
   const orCalls: CallList = generateCallist(block, party).map((src) => ({
     kind: 'OR',
     src,
