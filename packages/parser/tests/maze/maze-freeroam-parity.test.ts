@@ -104,11 +104,17 @@ const CASES: ViewCase[] = [
   {
     view: 'gx124-gy121-f0',
     party: { gx: 124, gy: 121, z: 0, facing: 0 },
-    floor: 9602, // 48.71%
+    floor: 16262, // 82.50% — PARITY-ODD WHOLE-FRAME MASKED pass (2026-06-09). Was 9602
+    // (48.71%): the side walls are now drawn through the masked-mirror branch
+    // (generateParityOddMasked) instead of OR-direct, matching the engine's parity-odd
+    // emission. +6660px. The remaining residue is the DEEP-DOOR-RECESS masked family
+    // (36–81: src=same-side deeper slot, a REVERSED pairing vs the side-wall law) +
+    // dither — the genuine decompiler-resistant ray-march residue.
     allowedSpurious: [2, 85, 89],
     residue:
-      'deep-solid far-wall family {2,85,89} now fills the centre (was a black void band); ' +
-      'the deep recess + side walls are otherwise masked-mirror-drawn (decompiler-resistant) + dither',
+      'PARITY-ODD masked side walls (+6660px). Deep-solid far-wall family {2,85,89} ' +
+      'fills the centre; the deep door-recess masked family (36–81, reversed pairing) ' +
+      'is decompiler-resistant residue + dither.',
   },
   {
     view: 'gx124-gy121-f3',
@@ -132,14 +138,17 @@ const CASES: ViewCase[] = [
   {
     view: 'gx127-gy121-f1',
     party: { gx: 127, gy: 121, z: 0, facing: 1 },
-    floor: 10017, // 50.82% — was a BLACK VOID (9532); the offset-wall occlusion +
-    // right-stone wall now fill it as a recognizable corridor.
+    floor: 16618, // 84.30% — PARITY-ODD WHOLE-FRAME MASKED pass (2026-06-09). Was
+    // 10017 (50.82%): the side walls are now masked-mirror (generateParityOddMasked),
+    // matching the engine's parity-odd emission. +6601px (a recognizable receding
+    // stone corridor, no void). The residual ~15% to the 99.16% ceiling is the near
+    // RIGHT-stone flank pieces (21/87 — the asymmetric near-stone wall) + the OR
+    // special 118 + dither; the generated DST set is otherwise the engine's masked set.
     allowedSpurious: [20],
     residue:
-      'VOID FIXED 2026-06-09: offset-wall occlusion exception extends the view to depth 3 + the ' +
-      'right-stone wall fills the right (eyeballed: a stone corridor receding east). +485px. ' +
-      'Residue = dither phase on the receding stone surface (the structural void is gone). ' +
-      'Spurious 20 = the one-slot-off d1 right-stone (engine placed 19/21/22).',
+      'PARITY-ODD masked side walls (+6601px, void gone). The remaining gap to the ' +
+      '99.16% ceiling = the asymmetric near RIGHT-stone flank (21/87) + the OR special ' +
+      '118 + dither. Spurious 20 = the one-slot-off d1 right-stone (engine placed 19/21/22).',
   },
   {
     view: 'gx127-gy122-f3',
@@ -151,7 +160,11 @@ const CASES: ViewCase[] = [
   {
     view: 'gx127-gy123-f1',
     party: { gx: 127, gy: 123, z: 0, facing: 1 },
-    floor: 6571, // 33.34% — lowered from 7381 by the SPURIOUS-SIDE-ARCH fix (2026-06-09):
+    floor: 7880, // 39.98% — PARITY-ODD WHOLE-FRAME MASKED pass (2026-06-09): the side
+    // walls are now masked-mirror (+1309px). The front-door junction's door ARCHWAY is
+    // the engine masked-mirror door-recess family (128/148/156/176 + 19/15 + 29/32/23/26)
+    // whose pairing is the decompiler-resistant residue (the 83.94% ceiling).
+    // (was 6571 / 33.34% — lowered from 7381 by the SPURIOUS-SIDE-ARCH fix 2026-06-09:
     // the closed-front family no longer OR-emits 0/83/87 for a facing-0/1 closed front
     // (the engine draws the near wall via the masked-mirror branch, NOT OR side arches —
     // real-move ground truth). The prior {0,83,87} fill inflated the match by ~810px of
@@ -190,14 +203,17 @@ const CASES: ViewCase[] = [
   {
     view: 'gx127-gy122-f0',
     party: { gx: 127, gy: 122, z: 0, facing: 0 },
-    floor: 10096, // 51.22% — one cell back: the deep receding corridor + far wall.
+    floor: 17785, // 90.22% — PARITY-ODD WHOLE-FRAME MASKED pass (2026-06-09). Was 10096
+    // (51.22%): the side walls are now masked-mirror (generateParityOddMasked), AND the
+    // near full-height OCCLUDER COLUMNS {6,9} are emitted for the stone-framed closed
+    // doorway one cell ahead (generateNearOccluderColumns) — the engine frames the
+    // recessed doorway with these columns (mirror twin 6↔9). +7689px. Residue = the
+    // door-recess leaf detail + dither (the 99.45% ceiling).
     allowedSpurious: [1, 84, 88],
     residue:
-      'DEEP CORRIDOR one cell back (parity-even). EYEBALLED: receding stone corridor, ' +
-      'far wall at the end, plain side walls, NO spurious arches. The far-closed family ' +
-      '{1,84,88} lands one occlusion-depth shallow vs the engine\'s {2,85,89} (the ' +
-      'computeVisibleDepths stop is d1 here, engine d2) — a PRE-EXISTING occlusion-depth ' +
-      'off-by-one (the deep-corridor residue), NOT the side-arch bug and NOT garbage.',
+      'DEEP CORRIDOR ending in a closed doorway. PARITY-ODD masked side walls + near ' +
+      'occluder columns {6,9} (+7689px). Far-closed family {1,84,88}; the door-recess ' +
+      'leaf + dither are the residue to the 99.45% ceiling. NO void, NO arches.',
   },
   // LOOK-BACK / HEAD-ON DOOR views (2026-06-09 maze-freeroam look-back pass). Turning
   // around (facing 2) at the entrance to look BACK at the gate the party came through.
@@ -214,22 +230,28 @@ const CASES: ViewCase[] = [
   {
     view: 'gx127-gy121-f2',
     party: { gx: 127, gy: 121, z: 0, facing: 2 },
-    floor: 12308, // 62.44% — was a BLACK VOID + deep wrong-angle corridor. Now the
-    // head-on door caps at depth 0: the closed-front gate family fills the centre.
-    allowedSpurious: [0, 83, 87],
+    floor: 17585, // 89.21% (THE CEILING) — ARCHWAY-FRAME pass (2026-06-09). Was 12308
+    // (62.44%): the flat-wall {0,83,87} approximation (the gate "superimposed on a wall,
+    // no arch") is REPLACED by the ornate ARCHWAY FRAME OR set (generateFullCallList's
+    // isHeadOnDoorArchway branch: near columns 6/9 + flank strips 16–22 + door-recess
+    // arch 23–34 + perspective twins + depth-0 side walls). +5277px — reaches the
+    // self-repro CEILING of this view's frame-synced capture. The residual ~11% is the
+    // colourful portcullis-LEAF grid (a decoration draw path beyond the OR/masked
+    // background compose — same class as the entrance's 18px deep-door residue).
+    allowedSpurious: [],
     residue:
-      'LOOK-BACK at the entrance gate (door at the party own cell). Head-on-door ' +
-      'occlusion caps the view at depth 0 → the closed-front near-wall family {0,83,87} ' +
-      'draws the centred gate face + stone frame (the gate the engine shows near and ' +
-      'large). The colourful portcullis-leaf detail (door-recess 17–34) + the engine ' +
-      'near-flank masked side walls are decompiler-resistant residue. NO void.',
+      'LOOK-BACK at the entrance gate (the user-reported "no arch" view). The ornate ' +
+      'ARCHWAY FRAME (stone columns + door-recess arch) now frames the gate — reaches ' +
+      'the 89.21% ceiling. Residue = the portcullis-leaf decoration grid. NO void, ' +
+      'NO flat-wall superimposition.',
   },
   {
     view: 'gx127-gy122-f2',
     party: { gx: 127, gy: 122, z: 0, facing: 2 },
-    floor: 9406, // 47.72% — was a BLACK VOID on the right + corridor running PAST the
-    // gate. Now the head-on door caps at depth 1: far-closed gate family at the
-    // corridor end, side walls recede to it.
+    floor: 13833, // 70.18% — PARITY-ODD WHOLE-FRAME MASKED pass (2026-06-09). Was 9406
+    // (47.72%): the head-on door caps at depth 1 and the side walls recede to it via the
+    // masked-mirror branch (generateParityOddMasked). +4427px. The far gate at the
+    // corridor end is the door-recess masked family (the 97.45% ceiling residue).
     allowedSpurious: [1, 84, 88, 131, 134, 138, 143, 159, 162, 166, 171],
     residue:
       'LOOK-BACK one cell deeper (door one cell ahead). Head-on-door occlusion caps at ' +

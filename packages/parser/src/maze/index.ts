@@ -43,6 +43,8 @@ export {
   computeVisibleDepths,
   generateCallist,
   generateNearFlankMasked,
+  generateParityOddMasked,
+  mirrorTwin,
   generateFullCallList,
 } from './callist.js';
 
