@@ -73,10 +73,16 @@ async function driveToMaze(c: HostClient): Promise<void> {
   }
 }
 
-/** Force ONE 3D redraw via a forward step (held ENTER), settle. */
+// The "forward step" key used by forceRedraw / OR-base resolution. In the legacy
+// CLEAN_STATE (gy118, scripted-entry mode) ENTER IS forward; in TRUE free-roam
+// (the `freeroam` phase's origin states) the forward key is the UP arrow (ENTER
+// opens OPTIONS). phaseFreeRoam flips this to 'up' for its capture.
+let FORWARD_KEY = 'enter';
+
+/** Force ONE 3D redraw via a forward step (held FORWARD_KEY), settle. */
 async function forceRedraw(c: HostClient): Promise<void> {
-  await c.key('enter', 'down'); await c.step(20);
-  await c.key('enter', 'up'); await c.step(60);
+  await c.key(FORWARD_KEY, 'down'); await c.step(20);
+  await c.key(FORWARD_KEY, 'up'); await c.step(60);
 }
 
 /** Count differing pixels inside the 3D viewport between two raw-RGBA frames. */
@@ -1512,11 +1518,11 @@ async function resolveOrBaseReplayState(c: HostClient, state: string, inPlace = 
   await c.unserialize(state); await c.step(2);
   const writers = inPlace
     ? await watchComposePage(c, async () => { await c.key('left', 'tap'); await c.step(40); await c.key('right', 'tap'); })
-    // Forward arrival: a held-ENTER that is RELEASED (down/settle/up) reliably
-    // walks one cell + drives the full recompose; a never-released hold often
-    // leaves the party in place (no OR-blit full pass, so the cluster is absent).
-    : await watchComposePage(c, async () => { await c.key('enter', 'down'); await c.step(24); await c.key('enter', 'up'); });
-  await c.key('enter', 'up');
+    // Forward arrival: a held FORWARD_KEY that is RELEASED (down/settle/up)
+    // reliably walks one cell + drives the full recompose. FORWARD_KEY is ENTER
+    // for the legacy scripted-entry CLEAN_STATE, UP for free-roam origin states.
+    : await watchComposePage(c, async () => { await c.key(FORWARD_KEY, 'down'); await c.step(24); await c.key(FORWARD_KEY, 'up'); });
+  await c.key(FORWARD_KEY, 'up');
   return recoverOrBase(writers);
 }
 
@@ -2207,6 +2213,233 @@ async function phasePlacements121(c: HostClient): Promise<void> {
 const PK_FACING = 0x4f9a, PK_Z = 0x4f9c, PK_CELLA = 0x4f9e, PK_CELLB = 0x4fa0, PK_GY = 0x4fa2, PK_GX = 0x4fa4;
 // Forward (gx,gy) delta per facing (classify findings): f0=+gy, f1=+gx, f2=-gy, f3=-gx.
 const FWD_GXGY: Array<[number, number]> = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+
+// ===========================================================================
+// FREE-ROAM NAVIGATION (the turn-unlock — primary deliverable).
+// ---------------------------------------------------------------------------
+// THE UNLOCK (proven by tools/libretro/probe-freeroam-turn.ts):
+//   The START-NEW-GAME entry has two input modes inside game_state=5
+//   (maze-entry-sequence.json): (B) scripted gate-walk — ENTER-only, steps gy
+//   118->121, ARROWS NO-OP; (C) free-roam — ARROWS turn/step. The handoff from
+//   B to C does NOT happen merely on reaching gy=121 (the 'HMMMM' front-wall
+//   bump leaves the scripted walker still holding control). It completes after
+//   ~5-6 MORE ENTERs DRAIN the walker. The reliable unlock detector: keep
+//   pressing ENTER and after each, test a LEFT tap — when facing 0x4f9a changes
+//   (f0->f3), the walker has released and free-roam ARROWS work. Confirmed:
+//   LEFT cycles 0->3->2->1->0, RIGHT 0->1->2->3->0, UP steps when the cell
+//   ahead is open (gy121 f0->forward gy122; f3->gx126; f1->gx126->127). This is
+//   the SAME core that cannot unserialize the nightly-minted maze-corridor.state
+//   (err unser), so a free-roam frame is reached by COLD-BOOT + this unlock, not
+//   by loading a committed state.
+// ===========================================================================
+
+/** Press ENTER (held-tap) — the scripted-walk forward / drain key. */
+async function frEnter(c: HostClient): Promise<void> {
+  await c.key('enter', 'down'); await c.step(24); await c.key('enter', 'up'); await c.step(70);
+}
+
+/** Read the live party (game_state, facing, gx, gy, span count). */
+async function frParty(c: HostClient, base: number) {
+  const rd = async (off: number) => u16(await c.read(base + off, 2), 0);
+  return { gs: await rd(0x363a), f: await rd(PK_FACING), gx: await rd(PK_GX), gy: await rd(PK_GY), sp: await rd(0x50ce) };
+}
+
+/** Cold-boot to the dungeon and UNLOCK free-roam (drain the scripted walker).
+ *  Returns the DGROUP base, leaving the party at gx127 gy121 facing0 in TRUE
+ *  free-roam (arrows verified working). Throws if the unlock can't be reached. */
+async function driveToFreeRoam(c: HostClient): Promise<number> {
+  await c.step(3000);
+  await c.key('enter', 'tap'); await c.step(800); // title -> MASTER OPTIONS
+  for (let i = 0; i < 3; i++) {
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('up', 'tap'); await c.key('up', 'tap'); await c.key('up', 'tap'); await c.step(60);
+  }
+  await c.key('down', 'tap'); await c.key('down', 'tap'); await c.key('down', 'tap'); await c.step(60);
+  await c.key('enter', 'tap'); await c.step(200); // START NEW GAME
+  await c.key('enter', 'tap'); await c.step(200); // scenario
+  await c.key('enter', 'tap'); await c.step(400); // -> dungeon (mode B)
+  let base = await c.anchor();
+  // mode B: ENTER-walk to gy>=121 (the front-wall bump frame).
+  for (let i = 0; i < 25; i++) {
+    const p = await frParty(c, base);
+    if (p.gs !== 5) throw new Error(`encounter/menu (game_state=${p.gs}) during entry walk`);
+    if (p.gy >= 121) break;
+    await frEnter(c);
+  }
+  // unlock: drain the walker with ENTERs until a LEFT tap rotates facing. The
+  // probing LEFT itself turns the party; we then turn back RIGHT to leave a clean
+  // facing-0 free-roam frame. The drain count is mildly non-deterministic
+  // (observed 6..>14 across runs), so use a generous budget.
+  for (let i = 0; i < 30; i++) {
+    await frEnter(c);
+    const fb = await frParty(c, base);
+    await c.key('left', 'tap'); await c.step(50);
+    const fa = await frParty(c, base);
+    if (fa.f !== fb.f) {
+      await c.key('right', 'tap'); await c.step(50); // back to facing 0
+      const p = await frParty(c, base);
+      if (p.f !== 0) throw new Error(`unlock left facing=${p.f} (expected 0 after left+right)`);
+      return base;
+    }
+  }
+  throw new Error('free-roam unlock failed (scripted walker never released after 30 drain-ENTERs)');
+}
+
+/** Drive a single free-roam move (verified). Returns true if it took effect. */
+async function frMove(c: HostClient, base: number, key: 'left' | 'right' | 'up'): Promise<boolean> {
+  const b = await frParty(c, base);
+  await c.key(key, 'tap'); await c.step(45);
+  const a = await frParty(c, base);
+  return a.f !== b.f || a.gx !== b.gx || a.gy !== b.gy;
+}
+
+/** Replay a movement.ts key-PATH (left/right/forward) live in free-roam, verifying
+ *  each move took. forward maps to `up`. Aborts (throws) on an encounter. */
+async function frDrivePath(c: HostClient, base: number, path: string[]): Promise<void> {
+  for (const mv of path) {
+    const key = mv === 'forward' ? 'up' : (mv as 'left' | 'right');
+    const p0 = await frParty(c, base);
+    if (p0.gs !== 5) throw new Error(`encounter (game_state=${p0.gs}) mid-path`);
+    const took = await frMove(c, base, key);
+    if (!took && mv === 'forward') throw new Error(`forward step blocked at gx${p0.gx} gy${p0.gy} f${p0.f} (path divergence)`);
+  }
+}
+
+/**
+ * `freeroam` — DRIVE the engine to an arbitrary (gx,gy,facing) view via REAL
+ * collision-gated moves (the turn-unlock applied), capture the engine framebuffer
+ * AND the full background blit call-list there, on a genuine BUILD-LOOP-rerun
+ * frame (a forward step into the target = a complete recompose).
+ *
+ * Unlike `pokeview` (which POKES coords + does an in-place DIRTY recompose that
+ * replays a cached span list — wrong placement selection per navreach), this
+ * NAVIGATES via the validated movement.ts path, so the build loop genuinely runs
+ * for the target view. We drive to the cell ONE step behind the target along its
+ * forward axis (the "origin"), serialize that PATCHED-CORE-NATIVE state (it
+ * unserializes fine — same core), then capture the call-list via phasePlacements'
+ * forward-step path (PLACEMENTS_INPLACE=false → full recompose of the target).
+ *
+ * Usage: pnpm tsx tools/libretro/trace-maze.ts freeroam <gx> <gy> <facing> [outDir]
+ */
+async function phaseFreeRoam(c: HostClient): Promise<void> {
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
+  const { encodePngRgba } = await import('../../packages/cli/src/lib/png.js');
+  const gx = Number(process.argv[3]), gy = Number(process.argv[4]), facing = Number(process.argv[5]);
+  const outDir = process.argv[6] ?? '/tmp/wiz6-freeroam';
+  if (![gx, gy, facing].every(Number.isFinite)) { console.log('usage: freeroam <gx> <gy> <facing> [outDir]'); return; }
+  mkdirSync(outDir, { recursive: true });
+  const tag = `gx${gx}-gy${gy}-f${facing}`;
+
+  const rgbToIdx = new Map<number, number>();
+  COMPOSED_PALETTE.forEach((rgb: readonly number[], i: number) => rgbToIdx.set(((rgb[0]! << 16) | (rgb[1]! << 8) | rgb[2]!) >>> 0, i));
+  const rgbaToIdx = (rgba: Uint8Array): Uint8Array | null => {
+    const idx = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
+    for (let p = 0; p < idx.length; p++) {
+      const i = rgbToIdx.get(((rgba[p * 4]! << 16) | (rgba[p * 4 + 1]! << 8) | rgba[p * 4 + 2]!) >>> 0);
+      if (i === undefined) return null;
+      idx[p] = i;
+    }
+    return idx;
+  };
+
+  // Plan the real-move path offline (movement.ts collision rules).
+  const { block } = loadLevel0();
+  // origin = one cell behind the target along its forward axis (so a forward step
+  // lands ON the target with a full recompose). If the target IS the entrance
+  // facing/cell, origin == target (no behind cell needed).
+  const [dgx, dgy] = FWD_GXGY[facing]!;
+  const target = { gx, gy, facing };
+  const origin = { gx: gx - dgx, gy: gy - dgy, facing };
+  const pathToTarget = pathTo(block, ENGINE_ENTRANCE, target);
+  const pathToOrigin = pathTo(block, ENGINE_ENTRANCE, origin);
+  console.log(`freeroam target ${tag}; entrance=(gx${ENGINE_ENTRANCE.gx},gy${ENGINE_ENTRANCE.gy},f${ENGINE_ENTRANCE.facing})`);
+  console.log(`  path->target: ${pathToTarget ? `[${pathToTarget.join(',')}]` : 'UNREACHABLE'}`);
+  console.log(`  origin (one behind)=(gx${origin.gx},gy${origin.gy},f${facing}); path->origin: ${pathToOrigin ? `[${pathToOrigin.join(',')}]` : 'UNREACHABLE'}`);
+  if (!pathToTarget) { console.log('target unreachable under movement.ts — abort'); return; }
+
+  // UNLOCK ONCE, serialize the entrance free-roam frame (PATCHED-CORE-NATIVE, so
+  // it round-trips on this core), then drive each capture from an unserialize of
+  // that frame — avoids a fragile second cold-boot unlock per session.
+  const base = await driveToFreeRoam(c);
+  console.log(`unlocked free-roam: ${JSON.stringify(await frParty(c, base))}`);
+  const entranceState = `${outDir}/freeroam-entrance.state`;
+  await c.serialize(entranceState);
+  const fromEntrance = async (path: string[]): Promise<number> => {
+    await c.unserialize(entranceState); await c.step(2);
+    const b = await c.anchor();
+    await frDrivePath(c, b, path);
+    return b;
+  };
+
+  // 1) Drive to TARGET via real moves; capture the framebuffer there.
+  const tbase = await fromEntrance(pathToTarget);
+  const at = await frParty(c, tbase);
+  console.log(`arrived: gx${at.gx} gy${at.gy} f${at.f} gs${at.gs} span${at.sp}`);
+  if (at.gx !== gx || at.gy !== gy || at.f !== facing) {
+    console.log(`POSITION MISMATCH (got gx${at.gx} gy${at.gy} f${at.f}) — abort`); return;
+  }
+  await c.fb(`${outDir}/${tag}.rgba`);
+  const rgba = new Uint8Array(readFileSync(`${outDir}/${tag}.rgba`));
+  writeFileSync(`${outDir}/${tag}.png`, encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));
+  const idx = rgbaToIdx(rgba);
+  if (idx) {
+    writeFileSync(`${outDir}/${tag}.idx.gz`, gzipSync(idx));
+    console.log(`framebuffer -> ${tag}.idx.gz + .png (${new Set(idx).size} distinct palette indices)`);
+  } else {
+    console.log(`framebuffer -> ${tag}.png ONLY (non-WIZ6_MAIN colour — transition/narration frame)`);
+  }
+
+  // 2) Drive to ORIGIN (one behind target), serialize the native state, then
+  //    capture the call-list via a forward step (full recompose of the target).
+  //    If origin == target (no behind cell reachable), capture in-place.
+  const originState = `${outDir}/${tag}-origin.state`;
+  let inPlace = false;
+  if (pathToOrigin && (origin.gx !== target.gx || origin.gy !== target.gy)) {
+    try {
+      const obase = await fromEntrance(pathToOrigin);
+      const o = await frParty(c, obase);
+      console.log(`origin frame: gx${o.gx} gy${o.gy} f${o.f} gs${o.gs}`);
+      if (o.gx !== origin.gx || o.gy !== origin.gy || o.f !== facing) {
+        console.log(`origin mismatch — falling back to in-place capture at target`);
+        inPlace = true;
+      }
+    } catch (e: any) {
+      // The origin cell can be engine-unreachable even when movement.ts plans a
+      // path (e.g. gy120 is north of the one-way N3 gate). Fall back to in-place.
+      console.log(`origin drive failed (${e.message}) — falling back to in-place capture at target`);
+      inPlace = true;
+    }
+  } else {
+    inPlace = true; // capture in-place at the target
+  }
+  if (inPlace) await fromEntrance(pathToTarget);
+  await c.serialize(originState);
+  console.log(`serialized ${inPlace ? 'target (in-place)' : 'origin'} state -> ${originState}`);
+
+  PLACEMENTS_STATE = originState;
+  PLACEMENTS_INPLACE = inPlace;
+  // In TRUE free-roam the forward key is UP (ENTER = OPTIONS). The legacy
+  // phasePlacements forceRedraw/OR-base-resolution default to ENTER (scripted
+  // CLEAN_STATE); flip to UP so the forward-step full recompose actually fires.
+  const savedForward = FORWARD_KEY;
+  FORWARD_KEY = 'up';
+  try {
+    process.argv[3] = `${outDir}/${tag}-callist.json`;
+    await phasePlacements(c);
+  } finally {
+    FORWARD_KEY = savedForward;
+  }
+  try {
+    const j = JSON.parse(readFileSync(`${outDir}/${tag}-callist.json`, 'utf8'));
+    j.target = { gx, gy, facing };
+    j.capture = inPlace ? 'in-place turn recompose at target' : 'forward step origin->target (full recompose, real-move build-loop)';
+    j.path_to_target = pathToTarget;
+    writeFileSync(`${outDir}/${tag}-callist.json`, JSON.stringify(j, null, 2));
+  } catch { /* phasePlacements may have aborted */ }
+  console.log(`call-list -> ${outDir}/${tag}-callist.json`);
+}
 
 /** `pokeview` — capture a FULL-recompose blit call list for an ARBITRARY (gx,gy,
  *  facing) view. The full (non-dirty) recompose only fires when the party STEPS
@@ -2916,6 +3149,7 @@ async function main() {
     else if (phase === 'placements') await phasePlacements(c);
     else if (phase === 'placements121') await phasePlacements121(c);
     else if (phase === 'pokeview') await phasePokeView(c);
+    else if (phase === 'freeroam') await phaseFreeRoam(c);
     else if (phase === 'depthemit') await phaseDepthEmit(c);
     else if (phase === 'dectrace') await phaseDecTrace(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
