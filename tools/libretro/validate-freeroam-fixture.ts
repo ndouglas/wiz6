@@ -22,10 +22,15 @@ import { expandMazeData } from '../../packages/parser/src/maze/maze-data.js';
 import { MazeBlockSchema, MAZE_VIEWPORT, type MazeBlock } from '../../packages/data/src/index.js';
 
 const ROOT = resolve(import.meta.dirname, '../..');
-const FIX = resolve(ROOT, 'tools/parity/fixtures/engine');
-const FINDINGS = resolve(ROOT, 'docs/re/findings/maze-views');
+// Default to the committed fixtures/findings; override via env to validate a fresh
+// /tmp capture dir before committing (WIZ6_FREEROAM_DIR holds maze-freeroam-*.idx.gz
+// as <view>.idx.gz and <view>-callist.json — i.e. the raw `freeroam` outDir).
+const RAW_DIR = process.env.WIZ6_FREEROAM_DIR ?? null;
+const COMMITTED_FIX = resolve(ROOT, 'tools/parity/fixtures/engine');
+const FIX = RAW_DIR ?? COMMITTED_FIX;
+const FINDINGS = RAW_DIR ?? resolve(ROOT, 'docs/re/findings/maze-views');
 
-const FRAMES = JSON.parse(readFileSync(resolve(FIX, 'maze-frames.json'), 'utf8'));
+const FRAMES = JSON.parse(readFileSync(resolve(COMMITTED_FIX, 'maze-frames.json'), 'utf8'));
 const BLOCK: MazeBlock = MazeBlockSchema.parse(FRAMES.mazeBlock);
 const N = MAZE_VIEWPORT.w * MAZE_VIEWPORT.h;
 
@@ -34,7 +39,11 @@ const ALL = [
   'gx124-gy121-f3',
   'gx126-gy121-f3',
   'gx127-gy121-f1',
+  'gx127-gy121-f2',
+  'gx127-gy122-f0',
+  'gx127-gy122-f2',
   'gx127-gy122-f3',
+  'gx127-gy123-f0',
   'gx127-gy123-f1',
 ];
 
@@ -43,8 +52,11 @@ function partyFromView(view: string) {
   return { gx: +m[1]!, gy: +m[2]!, z: 0, facing: +m[3]! };
 }
 
+const IDX_NAME = (view: string) => (RAW_DIR ? `${view}.idx.gz` : `maze-freeroam-${view}.idx.gz`);
+const CALLIST_NAME = (view: string) => (RAW_DIR ? `${view}-callist.json` : `freeroam-${view}-callist.json`);
+
 function engineViewport(view: string): Uint8Array {
-  const raw = gunzipSync(readFileSync(resolve(FIX, `maze-freeroam-${view}.idx.gz`)));
+  const raw = gunzipSync(readFileSync(resolve(FIX, IDX_NAME(view))));
   const full = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
   const { x, y, w, h } = MAZE_VIEWPORT;
   const out = new Uint8Array(w * h);
@@ -54,9 +66,13 @@ function engineViewport(view: string): Uint8Array {
 
 /** The fixture's OWN captured engine call-list as a CallList. */
 function engineCallList(view: string): CallList {
-  const j = JSON.parse(readFileSync(resolve(FINDINGS, `freeroam-${view}-callist.json`), 'utf8'));
+  const j = JSON.parse(readFileSync(resolve(FINDINGS, CALLIST_NAME(view)), 'utf8'));
   const out: CallList = [];
   for (const c of j.calls as Array<{ branch: string; arg0c: number; arg10: number }>) {
+    // A well-formed placement index is < 366. arg0c == 0xffff (or any out-of-range
+    // value) signals a malformed / mid-build capture — skip it so the validator
+    // can still measure a (low) self-repro % instead of crashing.
+    if (c.arg0c >= 366 || c.arg0c < 0) continue;
     if (c.branch === 'OR') out.push({ kind: 'OR', src: c.arg0c });
     else out.push({ kind: 'masked', src: c.arg0c, dst: c.arg10, mode: 'or' });
   }
@@ -76,7 +92,17 @@ function main() {
     let match = 0;
     for (let i = 0; i < N; i++) if (ours[i] === eng[i]) match++;
     const pct = ((100 * match) / N).toFixed(2);
-    const verdict = match / N >= 0.95 ? 'SETTLED (good ground truth)' : 'LOW — likely MID-BUILD';
+    // Verdict bands (post frame-sync fix). A frame-MATCHED capture self-reproduces
+    // ≥99% for OR/masked-reproducible views. 85–99% = frame-matched but capped by a
+    // DECORATION (a draw path beyond the OR/masked background compose, e.g. the
+    // colourful portcullis leaf) or by the not-yet-cracked masked-mirror generation
+    // law. <70% = a TRANSIENT/MID-BUILD capture whose call-list and framebuffer are
+    // out of sync (the bug this harness fixed) — re-capture.
+    const r = match / N;
+    const verdict = r >= 0.99 ? 'GROUND TRUTH (frame-matched ≥99%)'
+      : r >= 0.85 ? 'FRAME-MATCHED (residue: decoration / masked-mirror generation)'
+      : r >= 0.70 ? 'PARTIAL (masked-mirror-heavy; re-capture for a cleaner pass)'
+      : 'LOW — TRANSIENT/MID-BUILD (re-capture)';
     console.log(`${view}: self-repro ${match}/${N} (${pct}%) — ${verdict}  [${calls.length} calls]`);
   }
 }

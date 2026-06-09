@@ -121,10 +121,13 @@ const CASES: ViewCase[] = [
     view: 'gx126-gy121-f3',
     party: { gx: 126, gy: 121, z: 0, facing: 3 },
     floor: 16595, // 84.19%
-    allowedSpurious: [137, 165, 3, 86, 90],
+    allowedSpurious: [137, 165, 3, 86, 90, 17],
     residue:
       'LEFT stone wall filled (was black void). The deep-solid far-wall family {3,86,90} ' +
-      'is emitted but lands off-centre/occluded here (floor +1px) — correct-family residue, not garbage; dither',
+      'is emitted but lands off-centre/occluded here (floor +1px) — correct-family residue, not garbage; dither. ' +
+      '17 = a near-flank side-wall piece: the FRAME-SYNCED re-capture (2026-06-09) is a pure-OR settled compose ' +
+      'that placed this side wall via OR indices {15,85,108} instead of the prior masked twins {17,83,114}, so ' +
+      'the generator-emitted 17 is no longer in the engine PLACED set — same one-slot-off side-wall residue class.',
   },
   {
     view: 'gx127-gy121-f1',
