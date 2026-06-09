@@ -76,9 +76,27 @@ export const PieceDescriptorSchema = z.object({
 });
 export type PieceDescriptor = z.infer<typeof PieceDescriptorSchema>;
 
-export const MazeRenderAssetsSchema = z.object({
+/** One tile's source atlas (descriptor-table + 4-plane source cells, 0x4000 B)
+ *  + its parsed 0x18 piece descriptors. The wall compositor selects which tile's
+ *  atlas to use per FUN_1c94 call via the call's `tile` arg (= span.walltype):
+ *  the engine resolves it as cs:[0x17a+2*tile] + cs:[0x169] (a per-tile
+ *  descriptor-table segment). docs/re/findings/maze-tile-atlas-extract.json. */
+export const TileAtlasSchema = z.object({
   atlas: z.instanceof(Uint8Array),
   pieceDescriptors: z.array(PieceDescriptorSchema),
+});
+export type TileAtlas = z.infer<typeof TileAtlasSchema>;
+
+export const MazeRenderAssetsSchema = z.object({
+  /** The tile-2 atlas (BACK-COMPAT default; == atlasByTile[2].atlas). The corridor
+   *  solid-wall path uses tile 2; older call sites pass this directly. */
+  atlas: z.instanceof(Uint8Array),
+  /** The tile-2 piece descriptors (BACK-COMPAT default; == atlasByTile[2].pieceDescriptors). */
+  pieceDescriptors: z.array(PieceDescriptorSchema),
+  /** Per-tile atlases keyed by tile index (0/1/2 = the wall tiles). The compositor
+   *  selects the atlas+descriptors per call by the call's `tile` (= span.walltype).
+   *  Tiles not present here fall back to the tile-2 atlas. */
+  atlasByTile: z.record(z.coerce.number().int(), TileAtlasSchema).default({}),
   /** Raw `mazedata.ega` file bytes — the source for the from-asset background
    *  generator (expandMazeData → generateFullCallList → composeCallList). Threaded
    *  through the same asset pipeline as the atlas so free-roam can compose the

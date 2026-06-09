@@ -12,10 +12,20 @@
 
 import { MazeRenderAssetsSchema, type MazeRenderAssets } from '@wiz6/data';
 
-/** The on-disk JSON shape of the committed maze-assets asset. */
-export interface MazeAssetsRaw {
+/** One tile's atlas in the on-disk JSON. */
+export interface TileAtlasRaw {
   atlasB64: string;
   pieceDescriptors: { srcPtr: number; w: number; h: number; bitmapB64: string }[];
+}
+
+/** The on-disk JSON shape of the committed maze-assets asset. */
+export interface MazeAssetsRaw {
+  /** tile-2 atlas (BACK-COMPAT default; == atlasByTile["2"]). */
+  atlasB64: string;
+  pieceDescriptors: { srcPtr: number; w: number; h: number; bitmapB64: string }[];
+  /** Per-tile atlases keyed by tile index (string keys "0"/"1"/"2"). Optional for
+   *  back-compat with older fixtures (which only carried the tile-2 atlas). */
+  atlasByTile?: Record<string, TileAtlasRaw>;
   /** base64 of the raw `mazedata.ega` file bytes (the from-asset background source). */
   mazedataB64: string;
 }
@@ -51,15 +61,30 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-/** Decode the parsed maze-assets JSON into a validated MazeRenderAssets. Pure. */
-export function decodeMazeAssets(raw: MazeAssetsRaw): MazeRenderAssets {
-  const atlas = base64ToBytes(raw.atlasB64);
-  const mazedata = base64ToBytes(raw.mazedataB64);
-  const pieceDescriptors = raw.pieceDescriptors.map((d) => ({
+function decodeDescriptors(
+  descs: { srcPtr: number; w: number; h: number; bitmapB64: string }[],
+) {
+  return descs.map((d) => ({
     srcPtr: d.srcPtr,
     w: d.w,
     h: d.h,
     presenceBitmap: base64ToBytes(d.bitmapB64),
   }));
-  return MazeRenderAssetsSchema.parse({ atlas, pieceDescriptors, mazedata });
+}
+
+/** Decode the parsed maze-assets JSON into a validated MazeRenderAssets. Pure. */
+export function decodeMazeAssets(raw: MazeAssetsRaw): MazeRenderAssets {
+  const atlas = base64ToBytes(raw.atlasB64);
+  const mazedata = base64ToBytes(raw.mazedataB64);
+  const pieceDescriptors = decodeDescriptors(raw.pieceDescriptors);
+  const atlasByTile: Record<number, { atlas: Uint8Array; pieceDescriptors: ReturnType<typeof decodeDescriptors> }> = {};
+  if (raw.atlasByTile) {
+    for (const [k, t] of Object.entries(raw.atlasByTile)) {
+      atlasByTile[Number(k)] = {
+        atlas: base64ToBytes(t.atlasB64),
+        pieceDescriptors: decodeDescriptors(t.pieceDescriptors),
+      };
+    }
+  }
+  return MazeRenderAssetsSchema.parse({ atlas, pieceDescriptors, atlasByTile, mazedata });
 }

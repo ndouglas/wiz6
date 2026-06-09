@@ -36,6 +36,13 @@ export function loadMazeAssetsRaw(): MazeAssetsRaw {
     atlasB64: string;
     mazedataB64: string;
     pieceDescriptors: MazeAssetsRaw['pieceDescriptors'];
+    atlasByTile?: MazeAssetsRaw['atlasByTile'];
   };
-  return { atlasB64: r.atlasB64, mazedataB64: r.mazedataB64, pieceDescriptors: r.pieceDescriptors };
+  const out: MazeAssetsRaw = {
+    atlasB64: r.atlasB64,
+    mazedataB64: r.mazedataB64,
+    pieceDescriptors: r.pieceDescriptors,
+  };
+  if (r.atlasByTile) out.atlasByTile = r.atlasByTile;
+  return out;
 }
