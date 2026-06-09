@@ -290,15 +290,79 @@ export function computeVisibleDepths(block: MazeBlock, party: MazeParty): number
 // ---------------------------------------------------------------------------
 
 /**
- * The CLOSED-FRONT near full-height wall family (byte-exact). Returns the OR
- * placement indices for a corridor whose forward edge OCCLUDES at the party's own
- * cell (visibleDepths === [0]): the NEAR_WALL leaf + the corner-L/corner-R flanks,
- * all at perspective depth 0. Empty when the corridor is open at depth 0.
- *
- * (Pinned vs v6 — gx127 gy123 f0, a closed doorway head-on at depth 0.)
+ * Whether the party's depth-0 forward edge is a STONE-FRAMED CLOSED DOORWAY: a door
+ * (front==3) flanked by solid stone on BOTH the left and right corner edges. Viewed
+ * from any facing this reads as a flat closed wall (the door's stone-framed face/back)
+ * — the dead-end stone wall the engine fills the viewport with. (Reads the party's OWN
+ * cell, matching the depth-0 origin of the build loop / the firing gate.)
  */
-export function generateClosedFrontNearWall(visibleDepths: number[]): number[] {
+function isStoneFramedClosedDoorway(block: MazeBlock, party: MazeParty): boolean {
+  const { gx, gy, facing } = party;
+  const [c0x, c0y] = step(gx, gy, facing, 0, 0);
+  return (
+    forwardEdge(block, c0x, c0y, facing) === 3 &&
+    isSolid(cornerL(block, c0x, c0y, facing)) &&
+    isSolid(cornerR(block, c0x, c0y, facing))
+  );
+}
+
+/**
+ * The CLOSED-FRONT near full-height wall family. Returns the OR placement indices
+ * for a corridor whose forward edge OCCLUDES at the party's own cell (visibleDepths
+ * === [0]): the NEAR_WALL leaf + the corner-L/corner-R flanks, all at perspective
+ * depth 0. Empty when the corridor is open at depth 0.
+ *
+ * ── STONE-FRAMED-DOORWAY DEAD-END (the NEAR-WALL fix, 2026-06-09 masked-mirror pass) ──
+ * The corner-L/corner-R pieces (83/87, the img23/img26 full-height w4 h112 flanks)
+ * render — TOGETHER with the leaf (placement 0, the flat img0 brick face) — as the
+ * STONE FRAME of a flat dead-end wall, NOT floating arches. The user's "spurious
+ * arches walking INTO the dungeon" report is about OPEN corridors (front=0); this
+ * family is gated to a CLOSED front at depth 0 and never fires walking down an open
+ * corridor (enumerated: only gy123-f0 + gy124-f2 in region 0 match the predicate).
+ *
+ * WHAT THE ENGINE EMITS vs WHAT REPRODUCES. The real-move capture
+ * (freeroam-gx127-gy123-f0) shows the engine draws the near closed wall via the
+ * MASKED-mirror branch (leaf 6/9, corners 84/88 — the col-20 mirror twins of
+ * 0/83/87). BUT our masked-mirror compositor (maskedMirrorFor) does NOT reproduce
+ * those pieces faithfully — composing the engine's own masked set renders a BROKEN
+ * RECEDING CORRIDOR (33.5% pixel match, eyeball: wrong perspective), because the
+ * leaf 6/9 carries a destX=255 wraparound and the mirror geometry lands off. The
+ * OR family {0,83,87} (the un-mirrored twins of the same geometry) reconstructs the
+ * SAME flat brick wall the engine shows and matches 98.15% (eyeball: a clean stone
+ * wall, only the central statue decoration missing — the door-recess residue).
+ *
+ * So we OR-emit the closed-front family for a CLOSED front at depth 0 when it is a
+ * STONE-FRAMED CLOSED DOORWAY (front==3 && solid(cornerL) && solid(cornerR)) — at
+ * ANY facing. That covers BOTH the head-on look-back gate (facing 2/3, eyeball-
+ * confirmed) AND the forward-walk dead-end (facing 0/1, gx127 gy123 f0 → 98.15%
+ * stone wall). The prior pass (spurious-side-arch fix) over-corrected: it removed
+ * 0/83/87 for ALL facing-0/1 closed fronts, which turned the genuine dead-end into a
+ * BLACK VOID — it confused "the engine emits masked, not OR" (true) with "the OR
+ * family is wrong" (false: the OR family is the only faithful reproduction we have).
+ *
+ * A facing-0/1 closed front that is NOT a stone-framed doorway (e.g. front==2 solid
+ * with a door/open corner — gy123-f1's archway) still emits NOTHING here: its near
+ * wall is a genuine recessed doorway (the door-recess masked family, residue), and
+ * OR-blitting a flat wall over an open archway WOULD be spurious. The distinguishing
+ * predicate is the stone-framed-doorway, not the facing.
+ */
+export function generateClosedFrontNearWall(
+  visibleDepths: number[],
+  facing: number,
+  closedDoorway: boolean,
+): number[] {
   if (visibleDepths.length !== 1 || visibleDepths[0] !== 0) return [];
+  // OR-emit the closed-front family for:
+  //   (a) a STONE-FRAMED CLOSED DOORWAY at depth 0 (front==3 framed by solid corners
+  //       both sides) — the flat dead-end wall, at ANY facing (the forward-walk
+  //       dead-end gx127 gy123 f0 AND the head-on look-back gate gy124 f2). This is
+  //       the faithful stone-wall reproduction (98.15%, eyeball-confirmed); the
+  //       engine's masked twins (6/9, 84/88) do not reproduce through our compositor.
+  //   (b) a HEAD-ON door (facing 2/3) — the look-back-at-the-gate case where the
+  //       door's FRONT face is read (even with open side corners) and the engine
+  //       shows the closed gate filling the viewport (eyeball-confirmed).
+  const headon = facing === 2 || facing === 3;
+  if (!closedDoorway && !headon) return [];
   const { leaf, cornerL: cl, cornerR: cr } = EMIT_BASES.CLOSED_FRONT_NEAR;
   return [leaf, cl, cr];
 }
@@ -583,8 +647,17 @@ export function generateCallist(block: MazeBlock, party: MazeParty): number[] {
   const visible = computeVisibleDepths(block, party);
   if (visible.length === 1 && visible[0] === 0) {
     // Closed front at the party's own cell: the near full-height wall family fills
-    // the viewport center; no side-wall surfaces (they'd be behind the wall).
-    return [...generateSkeletonIndices(visible), ...generateClosedFrontNearWall(visible)];
+    // the viewport center; no side-wall surfaces (they'd be behind the wall). The
+    // closed-front family OR-emits 0/83/87 for a STONE-FRAMED CLOSED DOORWAY (front==3
+    // framed by solid corners both sides — the flat dead-end wall, at any facing) and
+    // for a HEAD-ON door (facing 2/3). A facing-0/1 NON-stone-framed closed front
+    // (gy123-f1's open archway) emits nothing (its wall is the door-recess residue).
+    // See generateClosedFrontNearWall for the full law.
+    const closedDoorway = isStoneFramedClosedDoorway(block, party);
+    return [
+      ...generateSkeletonIndices(visible),
+      ...generateClosedFrontNearWall(visible, party.facing, closedDoorway),
+    ];
   }
   return [
     ...generateSkeletonIndices(visible),

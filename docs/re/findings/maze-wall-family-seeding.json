@@ -330,5 +330,42 @@
       "docs/re/findings/maze-views/freeroam-gx127-gy12{1,2}-f2-callist.json (engine call-lists; gy122 = clean 38-OR full recompose, gy121 = masked-heavy oscillating)."
     ],
     "honest_confidence": "The head-on-door occlusion law fixes the look-back VOID/gap (eyeball-confirmed near + far gate, no void, no wrong-angle walls) and regresses nothing (no prior capture exercises a head-on door). NOT byte-exact: the colourful portcullis-leaf detail (door-recess families) + the engine's masked-mirror near-flank/side-wall surfaces are the same decompiler-resistant residue that caps gx127gy123f1. The STRUCTURAL gate (head-on occlusion + closed-front/far-closed gate family + no-garbage subset) + eyeball is the success measure; pixel parity is dither + door-recess capped."
+  },
+  "spurious_side_arches_fix_2026_06_09": {
+    "subagent_run": "2026-06-09 (fix the user-reported SPURIOUS ARCHES on the E/W side walls while walking INTO the dungeon; reconcile the stale v6 poked capture against REAL-MOVE ground truth + the user's recollection)",
+    "summary": "The user reported spurious ARCHWAY/COLUMN shapes on the EAST and WEST side walls when walking forward into the dungeon. The corner-L/corner-R pieces 83/87 (img23/img26, full-height w4 h112 flanks) render as exactly those archway/column shapes at the top corners of the side walls. generateClosedFrontNearWall OR-emitted {0,83,87} for ANY depth-0 cap (visibleDepths===[0]), citing the v6 capture (gx127 gy123 f0). VERDICT (REAL-MOVE ground truth): v6 was a STALE POKED capture and its OR {0,83,87} is WRONG. A fresh REAL-MOVE capture (trace-maze.ts freeroam 127 123 0 — cold-boot + turn-unlock + collision-gated forward moves to the gy123 dead-end, settled +60 frames, framebuffer BYTE-IDENTICAL on independent re-capture = settled ground truth) shows the engine draws the near closed wall ENTIRELY via the MASKED-mirror branch (corners 84/88, leaf 6/9, ceiling/floor 122/150 as self-mirrors) and OR-blits NEITHER 0 NOR 83/87. The first-pass OR set is just {1, 346,349,352,355,358,361} (the parity-odd centre flank + 6 chrome strips). EYEBALLED the engine framebuffer (COMPOSED_PALETTE): plain stone side walls, a centre decoration, NO arches/columns at the corners. The user's recollection is CONFIRMED by the engine. FIX: generateClosedFrontNearWall now OR-emits {0,83,87} ONLY for a HEAD-ON door (facing 2/3 — the look-back-at-the-gate views, where the prior look-back pass eyeball-confirmed the {0,83,87} structural gate fill is right); for a facing-0/1 closed front (the forward-walk stone-framed doorway-BACK at gy123, or a plain solid wall) it emits NOTHING — the near wall is the engine's masked-mirror family (decompiler-resistant residue we don't reproduce), and OR-blitting 83/87 there is the spurious side-arch bug. This corrects gy123 f0 AND gy123 f1 (both facing-0/1 closed fronts).",
+    "ground_truth_captures": [
+      {
+        "view": "gx127-gy123-f0",
+        "capture": "REAL-MOVE forward-step origin(gy122)->target, settled +60f; framebuffer byte-identical on independent re-capture",
+        "engine_OR_set": "{1, 346,349,352,355,358,361}",
+        "engine_masked": "[6->9,9->6, 84->88,88->84, 122->122,123->123,134->138,138->134,150->150,151->151,162->166,166->162]",
+        "eyeball": "flat stone wall dead ahead + centre statue decoration; plain stone side walls; NO arches/columns at the corners",
+        "no_OR": "0, 83, 87 (the spurious arches) — ABSENT from the engine OR set"
+      },
+      {
+        "view": "gx127-gy122-f0",
+        "capture": "REAL-MOVE forward-step origin(gy121)->target, settled +60f",
+        "engine_OR_set": "{122,150,134,162,138,166,123,151,131,159,135,163,139,167,143,171,124,2,152,85,89, 346,349,352,355,358,361}",
+        "engine_masked": "[13->4,10->7,7->10,4->13] (the canonical near-flank mirror set)",
+        "eyeball": "receding stone corridor + far wall at the end; plain side walls; NO spurious arches",
+        "note": "the far-closed family here is {2,85,89} (occlusion stop d2); our generator computes stop d1 and emits {1,84,88} — a PRE-EXISTING occlusion-depth off-by-one (deep-corridor residue), unrelated to the arch bug"
+      }
+    ],
+    "v6_verdict": "STALE. docs/re/findings/maze-views/v6-gy123f0.json (gx127 gy123 f0) is a pokeview capture — its own JSON flags poke_stuck:true + capture_trigger 'poke-target + in-place turn recompose (dirty; ... may drop deepest sub-pixel detail)'. The in-place dirty recompose replays a cached span list WITHOUT re-running the build loop, so its OR set {0,83,87,122,150,strips} is NOT what the live build emits. Superseded by the real-move freeroam-gx127-gy123-f0 capture for the OR-set claim. (v6's visibleDepths===[0] structural claim is still correct — the corridor IS closed at depth 0; only the corner-piece OR-emission was wrong.)",
+    "law": {
+      "id": "closed-front-near-wall-head-on-door-only",
+      "claim": "generateClosedFrontNearWall(visibleDepths, facing) OR-emits the near full-height wall family {leaf 0, cornerL 83, cornerR 87} ONLY for a HEAD-ON door (facing 2/3). For a facing-0/1 closed front at depth 0 (the forward-walk stone-framed doorway-back, or a solid wall) it emits NOTHING — the engine draws the near closed wall via the masked-mirror branch (corners 84/88, leaf 6/9), which is decompiler-resistant residue we don't reproduce. OR-blitting 83/87 there draws spurious full-height side arches (img23/img26 w4 h112) at the side-wall corners — the user-reported bug.",
+      "validation": "REAL-MOVE freeroam-gx127-gy123-f0 (settled, byte-identical re-capture) has no OR 0/83/87. EYEBALL: plain stone side walls. 479 parser tests green (entrance byte-exact, look-back f2 head-on-door {0,83,87} preserved, junction-void, decoration gates all unchanged). The fix LOWERED gx127-gy123-f1's pixel floor 7381->6571 because the prior {0,83,87} fill was inflating the match with VISUALLY-WRONG arches; spurious indices for that view are now ZERO.",
+      "confidence": "high (real-move settled ground truth + eyeball + user recollection all agree; the head-on-door retention is the prior pass's eyeball-confirmed look-back behaviour, untouched)"
+    },
+    "artifacts": [
+      "packages/parser/src/maze/callist.ts — generateClosedFrontNearWall(visibleDepths, facing): head-on-door-only OR emission; generateCallist passes party.facing.",
+      "packages/parser/tests/maze/index-arithmetic.test.ts — removed v6 from BYTE_EXACT (stale); rewrote the closed-front describe block to head-on-door-only + a real-move 'no side arches' assertion against freeroam-gx127-gy123-f0.",
+      "packages/parser/tests/maze/maze-freeroam-parity.test.ts — gx127-gy123-f1 floor 7381->6571 + allowedSpurious []; 2 new GATE cases gx127-gy123-f0 (floor 6518, allowedSpurious []) + gx127-gy122-f0 (floor 10096, allowedSpurious [1,84,88] = deep-corridor occlusion residue).",
+      "tools/parity/fixtures/engine/maze-freeroam-gx127-gy12{2,3}-f0.idx.gz + .png (SETTLED real-move engine framebuffers).",
+      "docs/re/findings/maze-views/freeroam-gx127-gy12{2,3}-f0-callist.json (engine call-lists)."
+    ],
+    "honest_confidence": "HIGH that the side arches are SPURIOUS and the fix removes them (real-move settled framebuffer + eyeball + user recollection converge; the engine OR set lacks 0/83/87 for facing-0/1 closed fronts). The corrected views are NOT byte-exact pixel reproductions — the near closed wall + decoration are the engine's masked-mirror family (decompiler-resistant residue), so the centre is empty in our compose. That is honest residue, not a void to paper over with arches. gy122 f0's far-closed off-by-one is a separate pre-existing occlusion-depth issue, documented but not fixed in this pass (out of arch scope)."
   }
 }
