@@ -2657,6 +2657,164 @@ async function phasePokeView(c: HostClient): Promise<void> {
  *
  * Usage: pnpm tsx tools/libretro/trace-maze.ts dectrace [outFile]
  */
+/**
+ * `decwatch` — DECORATION-DRAWPATH write-watch. Drive (free-roam) to a target view
+ * whose framebuffer carries a CENTERED decoration sprite the FUN_0a93 OR/masked
+ * call-list does NOT reproduce (dead-end gx127 gy123 f0 SWORD/STATUE; gate
+ * look-back gx127 gy121 f2 LEAF-GRID). Settle, then write-watch the EXACT
+ * off-screen-page byte region those residue pixels map to during an in-place
+ * recompose, and tally the WRITER cseips — separating the known relocated FUN_0a93
+ * OR-blit stores (orBase + {0xb31,0xb45,0xb5c,0xb75,...}) from ANY OTHER routine
+ * that writes the same bytes (the decoration draw-path entry).
+ *
+ * Page layout: COMPOSE_PAGE (0x41820), 4 EGA planes × 0x2000, 40 bytes/row.
+ * Screen pixel (x,y) -> plane byte = y*40 + (x>>3), at plane p offset COMPOSE_PAGE
+ * + p*0x2000. The residue bbox is given on the command line as screen coords.
+ *
+ * Usage: pnpm tsx tools/libretro/trace-maze.ts decwatch <gx> <gy> <facing> <sx0> <sx1> <sy0> <sy1> [out]
+ */
+async function phaseDecWatch(c: HostClient): Promise<void> {
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const gx = Number(process.argv[3]), gy = Number(process.argv[4]), facing = Number(process.argv[5]);
+  const sx0 = Number(process.argv[6]), sx1 = Number(process.argv[7]);
+  const sy0 = Number(process.argv[8]), sy1 = Number(process.argv[9]);
+  const outFile = process.argv[10] ?? '/tmp/wiz6-decwatch.json';
+  if (![gx, gy, facing, sx0, sx1, sy0, sy1].every(Number.isFinite)) {
+    console.log('usage: decwatch <gx> <gy> <facing> <sx0> <sx1> <sy0> <sy1> [out]'); return;
+  }
+  const PS = 0x2000, ROWB = 40;
+  const colLo = sx0 >> 3, colHi = sx1 >> 3;
+  console.log(`decwatch target gx${gx}gy${gy}f${facing}, residue screen x[${sx0}..${sx1}] y[${sy0}..${sy1}] -> page cols[${colLo}..${colHi}] rows[${sy0}..${sy1}]`);
+
+  // Drive to the target via free-roam (the only reachable path on this core).
+  const { block } = loadLevel0();
+  const pathToTarget = pathTo(block, ENGINE_ENTRANCE, { gx, gy, facing });
+  if (!pathToTarget) { console.log('target unreachable under movement.ts — abort'); return; }
+  console.log(`path->target: [${pathToTarget.join(',')}]`);
+  const base = await driveToFreeRoam(c);
+  const entranceState = `/tmp/wiz6-decwatch-entrance.state`;
+  await c.serialize(entranceState);
+  await c.unserialize(entranceState); await c.step(2);
+  const b = await c.anchor();
+  await frDrivePath(c, b, pathToTarget);
+  const at = await frParty(c, b);
+  console.log(`arrived: gx${at.gx} gy${at.gy} f${at.f} gs${at.gs} span${at.sp}`);
+  if (at.gx !== gx || at.gy !== gy || at.f !== facing) { console.log('POSITION MISMATCH — abort'); return; }
+  await c.step(80);
+  const captureState = `/tmp/wiz6-decwatch-capture.state`;
+  await c.serialize(captureState);
+
+  // Resolve the relocated OR-blit base via the compose-page cluster (so we can
+  // LABEL FUN_0a93 stores). Use an in-place turn recompose (free-roam UP=forward,
+  // so a turn is non-moving). recoverOrBase returns cseip-of-plane0-store - 0xb31.
+  FORWARD_KEY = 'up';
+  await c.unserialize(captureState); await c.step(2);
+  const orWriters = await watchComposePage(c, async () => { await c.key('left', 'tap'); await c.step(40); await c.key('right', 'tap'); });
+  const orBase = recoverOrBase(orWriters);
+  console.log(`OR-blit base = ${orBase < 0 ? 'NONE' : '0x' + orBase.toString(16)}`);
+
+  // The off-screen page region the residue pixels land in. Watch JUST that region
+  // (small) during an in-place recompose so the writer ring never floods.
+  const out: any = {
+    note: 'decwatch: write-watch the off-screen page bytes the unreproduced decoration sprite lands in; tally writer cseips, separating FUN_0a93 OR-blit stores from the decoration draw-path.',
+    target: { gx, gy, facing }, residueScreen: { sx0, sx1, sy0, sy1 },
+    orBase: orBase < 0 ? null : orBase.toString(16),
+    writers: [] as any[],
+  };
+
+  // Watch the RESIDUE sub-region AND a CONTROL sub-region (same rows, a column
+  // range with NO sprite — far left of the viewport). A cseip that writes the
+  // residue but is ABSENT/rare in the control is the DECORATION draw-path; the
+  // OR/masked wall stores hit BOTH equally. SINGLE recompose per pass (one turn),
+  // short drain — minimizes idle-redraw noise. Control cols: viewport-left wall.
+  const ctlColLo = 9, ctlColHi = 11; // screen x ~72..95 (far-left wall)
+  type WMap = Map<number, { count: number; minAddr: number; maxAddr: number; planes: Set<number> }>;
+  const tally = (m: WMap, w: { cseip: number; addr: number }, plane: number) => {
+    let e = m.get(w.cseip);
+    if (!e) { e = { count: 0, minAddr: w.addr, maxAddr: w.addr, planes: new Set() }; m.set(w.cseip, e); }
+    e.count++; e.planes.add(plane);
+    if (w.addr < e.minAddr) e.minAddr = w.addr;
+    if (w.addr > e.maxAddr) e.maxAddr = w.addr;
+  };
+  const watchRegion = async (cLo: number, cHi: number): Promise<WMap> => {
+    const m: WMap = new Map();
+    for (let plane = 0; plane < 4; plane++) {
+      const planeBase = COMPOSE_PAGE + plane * PS;
+      const lo = planeBase + sy0 * ROWB + cLo;
+      const hi = planeBase + sy1 * ROWB + cHi + 1;
+      await c.unserialize(captureState); await c.step(2);
+      await c.wwatchSet(lo, hi);
+      await c.key('left', 'tap'); await c.step(40); // SINGLE recompose (one turn)
+      for (let i = 0; i < 12; i++) {
+        await c.step(6);
+        for (const w of await c.wwatchDrain()) { if (w.addr >= lo && w.addr < hi) tally(m, w, plane); }
+      }
+      await c.wwatchSet(0, 0);
+    }
+    return m;
+  };
+  const byWriter = await watchRegion(colLo, colHi);
+  const ctlWriter = await watchRegion(ctlColLo, ctlColHi);
+
+  // FUN_1c94 (decoration masked-blit) arg trace: at orBase+0x1c94, the stack frame
+  // carries [bp+0xc]=bank index, [bp+0xe]/[bp+0x12]=dest x-range, [bp+0x16]=flags
+  // (bit0 LUT-clear/bit1 hflip), [bp+0x18]=VGA-direct flag, [bp+0x1a]=descriptor
+  // stream ptr. Capture the stack window at each hit over an in-place recompose.
+  if (orBase >= 0) {
+    const FUN_1C94 = orBase + 0x1c94;
+    await c.unserialize(captureState); await c.step(2);
+    await c.traceSet(FUN_1C94); await c.traceDrain();
+    await c.key('left', 'tap'); await c.step(40);
+    const hits: TraceRecord[] = [];
+    for (let k = 0; k < 10; k++) { await c.step(4); for (const r of await c.traceDrain()) hits.push(r); }
+    await c.traceOff();
+    console.log(`\nFUN_1c94 (decoration masked-blit @0x${FUN_1C94.toString(16)}): ${hits.length} hits on in-place recompose`);
+    out.fun1c94Hits = hits.length;
+    out.fun1c94Args = [];
+    // For up to the first few hits, capture the stack frame to read the args.
+    const seen = new Set<string>();
+    for (let hi = 0; hi < Math.min(hits.length, 24); hi++) {
+      const r = hits[hi]!;
+      const sig = `${(r.esp & 0xffff).toString(16)}:${r.ss.toString(16)}`;
+      if (seen.has(sig)) continue; // dedup identical frames across passes
+      seen.add(sig);
+      // re-run, capture the bp frame at the hi-th hit (bp = sp on entry after push bp).
+      await c.unserialize(captureState); await c.step(2);
+      await c.traceSet(FUN_1C94); await c.captureSet((r.ss << 4) + (r.esp & 0xffff), 0x40, hi);
+      await c.key('left', 'tap'); await c.step(40);
+      const stk = await c.captureGet(); await c.traceOff();
+      if (!stk) continue;
+      // On entry, [sp]=return ip, [sp+2]=return cs; bp not yet set. Args are at
+      // caller's [sp+4+N] = bp+2+N after `push bp;mov bp,sp`. So arg at bp+K is at
+      // captured offset (K-2) from the entry sp... but entry sp points at return.
+      // Frame after push bp;mov bp,sp: bp=oldsp-2. bp+K maps to entry_sp + (K-2).
+      const argAt = (k: number) => stk[k - 2]! | (stk[k - 1]! << 8);
+      const args = {
+        retIp: argAt(0), bank: argAt(0xc), destXlo: argAt(0xe), destXmid: argAt(0x10),
+        destXhi: argAt(0x12), flags16: argAt(0x16), flags18: argAt(0x18), descPtr: argAt(0x1a),
+      };
+      out.fun1c94Args.push(args);
+      console.log(`  hit${hi}: bank=${args.bank} destX[${args.destXlo}..${args.destXhi}] flags16=0x${args.flags16.toString(16)} flags18=0x${args.flags18.toString(16)} descPtr=0x${args.descPtr.toString(16)} (retIp=0x${args.retIp.toString(16)})`);
+    }
+  }
+
+  const ovl = (() => { try { return ovlBase(); } catch { return -1; } })();
+  console.log(`\nwriters of residue page bytes (cseip -> residueCount / controlCount, plane set, dest span):`);
+  for (const [cseip, e] of [...byWriter.entries()].sort((x, y) => y[1].count - x[1].count)) {
+    const egaOff = orBase >= 0 ? cseip - orBase : NaN;
+    const label = orBase >= 0 && egaOff >= 0 && egaOff < 0x2262 ? `ega.drv@0x${egaOff.toString(16)}` : tagLin(cseip, ovl);
+    const isOr = orBase >= 0 && OR_PLANE_STORES.some((d) => cseip === orBase + d);
+    const ctl = ctlWriter.get(cseip)?.count ?? 0;
+    const residueOnly = ctl === 0 || e.count > ctl * 3;
+    const planeSpan = (e.maxAddr - e.minAddr);
+    const flag = isOr ? ' [FUN_0a93 OR-store]' : residueOnly ? ' <== DECORATION DRAW-PATH (residue-biased)' : ' (also writes control wall)';
+    console.log(`  cseip 0x${cseip.toString(16)} = ${label}${flag}  res x${e.count} / ctl x${ctl}  planes{${[...e.planes].join('')}} dest 0x${e.minAddr.toString(16)}..0x${e.maxAddr.toString(16)} (span 0x${planeSpan.toString(16)})`);
+    out.writers.push({ cseip: cseip.toString(16), egaOff: orBase >= 0 ? (cseip - orBase).toString(16) : null, label, isOrStore: isOr, residueCount: e.count, controlCount: ctl, residueBiased: !isOr && residueOnly, planes: [...e.planes], destMin: e.minAddr.toString(16), destMax: e.maxAddr.toString(16) });
+  }
+  writeFileSync(outFile, JSON.stringify(out, null, 2));
+  console.log(`\n-> ${outFile}`);
+}
+
 async function phaseDecTrace(c: HostClient): Promise<void> {
   const outFile = process.argv[3] ?? '/tmp/wiz6-dectrace.json';
   const u16f = (b: Uint8Array, o: number) => b[o]! | (b[o + 1]! << 8);
@@ -3280,6 +3438,7 @@ async function main() {
     else if (phase === 'freeroam') await phaseFreeRoam(c);
     else if (phase === 'depthemit') await phaseDepthEmit(c);
     else if (phase === 'dectrace') await phaseDecTrace(c);
+    else if (phase === 'decwatch') await phaseDecWatch(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
