@@ -184,4 +184,43 @@ describe('maze-decoration: from-asset viewport parity (no regression)', () => {
     expect(pct).toBeGreaterThanOrEqual(99.9);
     expect(match).toBe(19694);
   });
+
+  // maze-fountain.idx.gz — a FRESH real-move build-loop render of the same
+  // fountain-column view (gx127 gy121 f0), captured by the navreach harness
+  // (tools/libretro/trace-maze.ts navreach) driving genuine forward moves from a
+  // cold boot on the PATCHED trace core (NOT a poke-recompose). It is the same
+  // view as maze-corridor.idx.gz (its viewport matches the committed corridor
+  // fixture at 99.99%, animation phase aside), captured independently as the
+  // navreach deliverable + proof the build loop re-runs on a real move (the
+  // spanCount [0x50ce] changes on every cell step). See
+  // docs/re/findings/maze-navreach.json.
+  function fountainViewport(): Uint8Array {
+    const raw = gunzipSync(
+      readFileSync(resolve(ROOT, 'tools/parity/fixtures/engine/maze-fountain.idx.gz')),
+    );
+    const full = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+    const out = new Uint8Array(w * h);
+    for (let r = 0; r < h; r++)
+      for (let c = 0; c < w; c++) out[r * w + c] = full[(y + r) * 320 + x + c]!;
+    return out;
+  }
+
+  it('the navreach fresh-real-move fountain fixture (gx127 gy121 f0) renders ≥99.9%', () => {
+    const mazedata = new Uint8Array(
+      readFileSync(resolve(ROOT, 'test-fixtures/original/mazedata.ega')),
+    );
+    const calls = generateFullCallList(BLOCK, { gx: 127, gy: 121, z: 0, facing: 0 });
+    const ours = decodeViewport(composeBackgroundFromAsset(mazedata, calls));
+    const eng = fountainViewport();
+    const N = w * h;
+    let match = 0;
+    for (let i = 0; i < N; i++) if (ours[i] === eng[i]) match++;
+    const pct = (100 * match) / N;
+    // Same 17px deep-door-center residual as maze-corridor (1px animation-phase
+    // delta from the corridor fixture). The fountain SELECTION is detected on the
+    // gx126 sp7 column; the per-piece placement-index emission is the documented
+    // span-flush residue (see maze-navreach.json: the build-loop write-watch
+    // logs 0 stores even on a real move, so the placement law stays unpinned).
+    expect(pct).toBeGreaterThanOrEqual(99.9);
+  });
 });
