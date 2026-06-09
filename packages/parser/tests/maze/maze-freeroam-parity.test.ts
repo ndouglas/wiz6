@@ -148,11 +148,53 @@ const CASES: ViewCase[] = [
   {
     view: 'gx127-gy123-f1',
     party: { gx: 127, gy: 123, z: 0, facing: 1 },
-    floor: 7381, // 37.44%
+    floor: 6571, // 33.34% — lowered from 7381 by the SPURIOUS-SIDE-ARCH fix (2026-06-09):
+    // the closed-front family no longer OR-emits 0/83/87 for a facing-0/1 closed front
+    // (the engine draws the near wall via the masked-mirror branch, NOT OR side arches —
+    // real-move ground truth). The prior {0,83,87} fill inflated the match by ~810px of
+    // VISUALLY-WRONG side arches; removing them is correct (the user reported them).
+    allowedSpurious: [],
+    residue:
+      'front-door junction — the near closed wall + door archway are the engine masked-mirror ' +
+      'family (decompiler-resistant residue), NOT OR side arches. NO void, NO spurious arches.',
+  },
+  // FORWARD-WALK closed-front views (2026-06-09 SPURIOUS-SIDE-ARCH pass). Walking
+  // straight INTO the dungeon to the dead-end gy123 (front=3 door framed by STONE
+  // corners, viewed facing 0 = the door's BACK face) and one cell back (gy122, the
+  // deep corridor). REAL-MOVE engine captures (trace-maze.ts freeroam 127 12{3,2} 0;
+  // settled +60 frames; framebuffers EYEBALLED — plain stone side walls, NO archway/
+  // column shapes at the corners). These replace the STALE poked v6 capture, which
+  // reported OR {0,83,87} (full-height side arches) the engine never draws — it draws
+  // the near closed wall via the masked-mirror branch (corners 84/88, leaf 6/9). The
+  // fix (generateClosedFrontNearWall = head-on-door-only) removes the spurious arches.
+  {
+    view: 'gx127-gy123-f0',
+    party: { gx: 127, gy: 123, z: 0, facing: 0 },
+    floor: 19348, // 98.15% — the forward-walk dead-end now renders as a STONE WALL.
+    // NEAR-WALL FIX 2026-06-09 (masked-mirror pass): the stone-framed-doorway dead-end
+    // (front=3 framed by stone) OR-emits the closed-front family {0,83,87} = the flat
+    // brick face + stone frame. This reconstructs the SAME wall the engine draws via its
+    // masked twins (6/9, 84/88) at 98.15% (eyeball: clean stone wall). The PRIOR pass
+    // removed {0,83,87} here, leaving a BLACK VOID (6518px / 33%) — that over-correction
+    // is reverted for the stone-framed dead-end (open corridors still never fire).
     allowedSpurious: [0, 83, 87],
     residue:
-      'front-door junction — renders the closed-front STONE WALL (no void), but the door ' +
-      'ARCHWAY (door-recess family, masked-mirror) is decompiler-resistant residue. NOT a void.',
+      'FORWARD-WALK DEAD-END (the user-reported view). OR {0,83,87} draws the flat stone ' +
+      'wall (98.15%, eyeball-confirmed); the engine emits the masked twins (6/9, 84/88) ' +
+      'but those do NOT reproduce through our compositor (broken corridor, 33.5%). The ' +
+      'only residue is the central statue decoration (door-recess family). NO void, NO arches.',
+  },
+  {
+    view: 'gx127-gy122-f0',
+    party: { gx: 127, gy: 122, z: 0, facing: 0 },
+    floor: 10096, // 51.22% — one cell back: the deep receding corridor + far wall.
+    allowedSpurious: [1, 84, 88],
+    residue:
+      'DEEP CORRIDOR one cell back (parity-even). EYEBALLED: receding stone corridor, ' +
+      'far wall at the end, plain side walls, NO spurious arches. The far-closed family ' +
+      '{1,84,88} lands one occlusion-depth shallow vs the engine\'s {2,85,89} (the ' +
+      'computeVisibleDepths stop is d1 here, engine d2) — a PRE-EXISTING occlusion-depth ' +
+      'off-by-one (the deep-corridor residue), NOT the side-arch bug and NOT garbage.',
   },
   // LOOK-BACK / HEAD-ON DOOR views (2026-06-09 maze-freeroam look-back pass). Turning
   // around (facing 2) at the entrance to look BACK at the gate the party came through.

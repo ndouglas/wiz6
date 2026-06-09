@@ -209,9 +209,14 @@ describe('computeVisibleDepths: the occlusion-stop rule', () => {
 // ---------------------------------------------------------------------------
 describe('generateCallist(block, party): full OR placement-index SET', () => {
   // Views whose full OR set the extent law reproduces BYTE-EXACT.
+  // NOTE: v6-gy123f0 was REMOVED here (2026-06-09 spurious-side-arch fix). The v6
+  // capture is a STALE POKED capture (pokeview = a dirty in-place recompose that does
+  // NOT re-run the build loop) and reports OR {0,83,87} that the REAL engine does NOT
+  // emit. The real-move capture (freeroam-gx127-gy123-f0) draws the near closed wall
+  // entirely via the masked-mirror branch (no OR 0/83/87). gy123 f0 is now covered by
+  // the dedicated real-move test below ('forward-walk closed front emits no side arches').
   const BYTE_EXACT: Array<{ view: string; party: MazeParty }> = [
     { view: 'v1-gy121f0', party: { gx: 127, gy: 121, z: 0, facing: 0 } },
-    { view: 'v6-gy123f0', party: { gx: 127, gy: 123, z: 0, facing: 0 } },
   ];
 
   it.each(BYTE_EXACT)('OR set == captured OR set byte-exact ($view)', ({ view, party }) => {
@@ -277,20 +282,56 @@ describe('generateSideWall: the LEFT full-open stack is byte-exact (v7/v10)', ()
 // The per-side surface EXTENT is documented residue (not asserted byte-exact here).
 // ---------------------------------------------------------------------------
 
-describe('closed-front near-wall family (byte-exact vs v6)', () => {
-  it('emits NEAR_WALL leaf + corner 83/87 only when the view caps at depth 0', () => {
-    // v6: gx127 gy123 f0 — closed doorway head-on at depth 0; visibleDepths === [0].
-    const v6 = { gx: 127, gy: 123, z: 0, facing: 0 };
-    expect(computeVisibleDepths(BLOCK, v6)).toEqual([0]);
-    expect(new Set(generateClosedFrontNearWall([0]))).toEqual(new Set([0, 83, 87]));
-    // and those indices are exactly the v6 capture's non-skeleton OR indices.
-    const present = new Set(loadView('v6-gy123f0').placementIndices);
-    for (const idx of [0, 83, 87]) expect(present.has(idx)).toBe(true);
+describe('closed-front near-wall family (stone-framed-doorway dead-end + head-on door)', () => {
+  // NEAR-WALL FIX (2026-06-09 masked-mirror pass). The corner pieces 83/87 (full-height
+  // w4 h112 flanks) render — together with the leaf 0 (flat img0 brick face) — as the
+  // STONE FRAME of a flat dead-end wall, NOT floating arches. EYEBALL: OR {0,83,87} at
+  // gx127 gy123 f0 is a clean brick wall (98.15% match vs the engine framebuffer).
+  //
+  // The engine EMITS the wall via the masked-mirror branch (leaf 6/9, corners 84/88 —
+  // the col-20 mirror twins of 0/83/87), but our maskedMirrorFor does NOT reproduce
+  // those faithfully (the leaf's destX=255 wraparound + mirror geometry compose to a
+  // BROKEN RECEDING CORRIDOR, 33.5% match). The OR family {0,83,87} is the only
+  // faithful reproduction we have — so we emit it for the stone-framed-doorway dead-end.
+  //
+  // The PRIOR pass (spurious-side-arch fix) over-corrected: it removed 0/83/87 for ALL
+  // facing-0/1 closed fronts, turning the dead-end into a BLACK VOID. The genuine fix is
+  // the STONE-FRAMED-DOORWAY predicate (front==3 framed by solid corners both sides),
+  // which fires for the dead-end (gy123 f0) + the head-on gate (gy124 f2) and NOT for
+  // open corridors (front=0, the "arches walking in" the user reported never fire).
+  const STONE_FRAMED_DEADEND = { gx: 127, gy: 123, z: 0, facing: 0 } as const;
+
+  it('emits NEAR_WALL leaf + corner 83/87 for a stone-framed closed doorway (any facing)', () => {
+    // closedDoorway=true: emits the family regardless of facing (the flat dead-end wall).
+    expect(new Set(generateClosedFrontNearWall([0], 0, true))).toEqual(new Set([0, 83, 87]));
+    expect(new Set(generateClosedFrontNearWall([0], 1, true))).toEqual(new Set([0, 83, 87]));
+  });
+
+  it('emits NEAR_WALL leaf + corner 83/87 for a head-on door (facing 2/3)', () => {
+    // headon door (look-back gate) emits even without a stone frame.
+    expect(new Set(generateClosedFrontNearWall([0], 2, false))).toEqual(new Set([0, 83, 87]));
+    expect(new Set(generateClosedFrontNearWall([0], 3, false))).toEqual(new Set([0, 83, 87]));
+  });
+
+  it('emits NOTHING for a facing-0/1 NON-stone-framed closed front (an open archway)', () => {
+    // gy123-f1 (front=2 solid, cL=3 door, cR=0 open) is a recessed archway, NOT a flat
+    // wall — its near wall is the door-recess masked family (residue). OR-blitting a flat
+    // wall over an open archway would be spurious.
+    expect(generateClosedFrontNearWall([0], 0, false)).toEqual([]);
+    expect(generateClosedFrontNearWall([0], 1, false)).toEqual([]);
+  });
+
+  it('generateCallist emits the closed-front family for the stone-framed dead-end (gy123 f0)', () => {
+    expect(computeVisibleDepths(BLOCK, STONE_FRAMED_DEADEND)).toEqual([0]);
+    const gen = new Set(generateCallist(BLOCK, STONE_FRAMED_DEADEND));
+    // The flat stone wall: leaf 0 + corner-L 83 + corner-R 87 (98.15% pixel match — the
+    // dead-end renders as a recognizable stone wall, not a void; eyeball-confirmed).
+    for (const idx of [0, 83, 87]) expect(gen.has(idx)).toBe(true);
   });
 
   it('emits nothing for an open corridor (visible depth > 0)', () => {
-    expect(generateClosedFrontNearWall([0, 1, 2])).toEqual([]);
-    expect(generateClosedFrontNearWall([0, 1])).toEqual([]);
+    expect(generateClosedFrontNearWall([0, 1, 2], 0, false)).toEqual([]);
+    expect(generateClosedFrontNearWall([0, 1], 2, false)).toEqual([]);
   });
 });
 

@@ -258,6 +258,41 @@
     "fixture_validation": "Built tools/libretro/validate-freeroam-fixture.ts: composes each fixture's OWN engine call-list through the wired viewport path and measures self-reproduction. The 6 framebuffers ARE settled (byte-identical on re-capture with +60 settle frames); only the CALL-LISTS were mid-build (in-place-turn captures, masked-heavy). Re-captured f0 (97 OR+328 masked full build) + f1 (37 OR full recompose). The masked-mirror side-wall family (gx124gy121f0 sides) + the door-recess archway (gx127gy123f1) remain the genuine decompiler-resistant residue \u2014 NOT generated OR-direct.",
     "confidence": "high (eyeball-confirmed corridors; all gated tests green)"
   },
+  "front_occlusion_near_wall_fix_2026_06_09": {
+    "subagent_run": "2026-06-09 (generate the front-occluded NEAR-WALL so dead-end / closed-front views render as STONE WALLS, not a black void). Follow-up that REVERSES part of spurious_side_arches_fix_2026_06_09.",
+    "summary": "The forward-walk dead-end (gx127 gy123 f0) was rendering as a near-total BLACK VOID after the spurious-arch pass removed the closed-front OR family {0,83,87} for facing-0/1 closed fronts. DECISIVE NEW FINDING (eyeball + pixel measure): for a STONE-FRAMED CLOSED DOORWAY (front==3 framed by solid corners both sides — the flat dead-end wall), the OR family {0,83,87} reconstructs the engine's flat brick wall at 98.15% (19348/19712) — a recognizable stone wall. The engine EMITS the wall via the masked-mirror branch (leaf 6/9, corners 84/88 — the col-20 mirror twins of 0/83/87), but our maskedMirrorFor does NOT reproduce those pieces: composing the engine's OWN captured masked set renders a BROKEN RECEDING CORRIDOR (33.5%, wrong perspective) because leaf 6/9 carries a destX=255 wraparound and the mirror geometry lands off. So the OR family is the only faithful reproduction we have. The prior 'spurious arches' pass conflated 'engine emits masked not OR' (TRUE) with 'the OR family is wrong' (FALSE) — it over-corrected and voided the dead-end. The genuine fix is the STONE-FRAMED-DOORWAY predicate, which fires for the dead-end (gy123 f0) + the head-on look-back gate (gy124 f2) and NEVER for open corridors (front=0 — the 'arches walking IN' the user reported never fire; enumerated: only 2 cells in region 0 match the predicate).",
+    "law": {
+      "id": "front-occlusion-near-wall-stone-framed-doorway",
+      "claim": "generateClosedFrontNearWall(visibleDepths, facing, closedDoorway) OR-emits the near full-height wall family {leaf 0, cornerL 83, cornerR 87} for: (a) a STONE-FRAMED CLOSED DOORWAY at depth 0 (front==3 && isSolid(cornerL) && isSolid(cornerR)) at ANY facing — the flat dead-end wall; OR (b) a HEAD-ON door (facing 2/3) — the look-back gate. A facing-0/1 NON-stone-framed closed front (front==2 solid with a door/open corner, e.g. gy123-f1's recessed archway) emits NOTHING — its near wall is the door-recess masked family (residue), and OR-blitting a flat wall over an open archway would be spurious. The distinguishing predicate is the stone-framed-doorway, NOT the facing.",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "real_move_capture_plus_from_asset_eyeball",
+        "details": "REAL-MOVE settled capture freeroam-gx127-gy123-f0 (byte-identical re-capture). Engine OR set = {1, 346,349,352,355,358,361}; engine masked = self-mirrors {122,150,123,151} + small side panels {138<->134, 166<->162} + leaf {6<->9} + corners {84<->88}, all col-20 mirror-law-OK (verified inline: srcDestX + dstDestX + srcW == 40 for 10/12 pairs; the 2 leaf pairs have destX=255 wraparound). Composing the engine's masked set through composeCallList = 33.5% (broken corridor, eyeballed). OR {0,83,87} over the skeleton = 98.15% (clean stone wall, eyeballed; only the central statue decoration missing = door-recess residue). Enumerated all region-0 cells: only gx127 gy123 f0 + gx127 gy124 f2 match the stone-framed-doorway predicate (front=3 cL=2 cR=2)."
+      },
+      "confidence": "high (real-move settled ground truth + eyeball-confirmed stone wall at 98.15% + tight geometric predicate that does not fire on open corridors)"
+    },
+    "per_view_result": [
+      {
+        "view": "gx127-gy123-f0",
+        "before": "BLACK VOID (6518px / 33.07% — only ceiling/floor strips, no wall)",
+        "after": "STONE WALL 19348px (98.15%); OR {0,83,87} draws the flat brick face + stone frame (eyeball-confirmed clean wall)",
+        "residue": "central statue decoration (door-recess family, decompiler-resistant) — the only gap"
+      },
+      {
+        "view": "gx127-gy123-f1",
+        "before": "33.34% (archway residue)",
+        "after": "33.34% UNCHANGED — front=2 cL=3 cR=0 is NOT a stone-framed doorway (it is a recessed open archway), so no OR wall is painted over the opening; the door-recess archway stays residue",
+        "residue": "door-recess masked family (decompiler-resistant); NO spurious flat wall over the opening"
+      }
+    ],
+    "reverses": "spurious_side_arches_fix_2026_06_09 (the head-on-door-ONLY emission). That pass was RIGHT that open corridors must not draw {0,83,87} and RIGHT that the engine emits masked not OR — but WRONG to conclude the OR family is unusable for the dead-end. The masked twins do not reproduce through maskedMirrorFor; the OR family is the faithful stone wall. The corrected predicate (stone-framed-doorway) keeps open corridors arch-free while restoring the dead-end wall.",
+    "artifacts": [
+      "packages/parser/src/maze/callist.ts — generateClosedFrontNearWall(visibleDepths, facing, closedDoorway) + isStoneFramedClosedDoorway(block, party); generateCallist passes the predicate.",
+      "packages/parser/tests/maze/index-arithmetic.test.ts — rewrote the closed-front describe block to the stone-framed-doorway + head-on law (5 cases).",
+      "packages/parser/tests/maze/maze-freeroam-parity.test.ts — gx127-gy123-f0 floor 6518 -> 19348, allowedSpurious [] -> [0,83,87]."
+    ],
+    "honest_confidence": "HIGH: the dead-end renders as a recognizable STONE WALL (98.15%, eyeball-confirmed, NO void, NO arches). The only residue is the central statue decoration (door-recess family). gy123-f1's open archway is correctly left as door-recess residue (no spurious wall). The OR family is NOT byte-identical to the engine's masked EMISSION (the engine uses 6/9/84/88), but it is the faithful visual REPRODUCTION — our masked compositor cannot reproduce the engine's pieces (a separate maskedMirrorFor limitation, documented). All gates green (481 parser tests)."
+  },
   "lookback_headon_door_fix_2026_06_09": {
     "status": "LOOK-BACK (head-on door) FIXED. The user-reported 'turning around to look back at the entrance gate renders wrong — a closed green portcullis with a BLACK GAP between it and the right wall'. Drove the engine to free-roam facing 2 at gx127 gy121 + gy122 (the look-back), captured the SETTLED framebuffer (byte-identical on re-capture) + call-list.",
     "root_cause": "The generator did NOT treat a DOOR (north=3) viewed HEAD-ON (facing 2/3) as an occluder — computeVisibleDepths only occluded front==3 when BOTH side corners were stone. The look-back door has OPEN side corners, so the generator walked to depth 3: a deep receding corridor with the cornerR=2 stone wall drawn partial = the 'black gap', and the gate floating small/deep instead of the engine's near, large head-on gate.",
