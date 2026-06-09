@@ -250,6 +250,13 @@ export const NOTE_INDEX: NoteIndexEntry[] = [
       'The same dungeon corridor, viewed from opposite ends, renders differently — and we briefly concluded the engine wasn’t drawing from geometry at all. We were wrong: a door is a directional object, and the renderer reads every wall relative to your facing. It’s fully deterministic geometry.',
     tags: ['maze', 'engine', 'quirk', 'reimplementation'],
   },
+  {
+    id: 'maze-no-placement-table',
+    title: 'The Decompiler Hunted For a Table That Isn’t There',
+    pitch:
+      'To draw the corridor, the engine picks which floor/ceiling/wall tile goes where by a placement INDEX. We spent a long time looking for the lookup table that produces those indices. There is no table. The index is literally base + depth, and the “base” is a constant baked into each draw instruction.',
+    tags: ['maze', 'reimplementation', 'engine'],
+  },
 ];
 
 export function findNote(id: string): NoteIndexEntry | undefined {

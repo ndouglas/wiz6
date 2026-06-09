@@ -1769,6 +1769,73 @@ call draw_msg_in_window`}
       { label: 'findings: maze-classify-projection.json', href: '/explore/docs/findings/maze-classify-projection.json' },
     ],
   },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'maze-no-placement-table',
+    title: 'The Decompiler Hunted For a Table That Isn’t There',
+    tags: ['maze', 'reimplementation', 'engine'],
+    pitch:
+      'To draw the corridor, the engine picks which floor/ceiling/wall tile goes where by a placement INDEX. We spent a long time looking for the lookup table that produces those indices. There is no table. The index is literally base + depth, and the “base” is a constant baked into each draw instruction.',
+    body: (
+      <>
+        <ProseRow>
+          The first-person maze paints its background by OR-blitting a list of
+          sub-images into an off-screen page &mdash; one per <em>placement</em>,
+          each identified by a numeric index into the asset’s piece table. Crack
+          how the engine chooses those indices for any <em>(cell, facing)</em> and
+          you can regenerate the whole view from the map instead of screenshotting
+          it. So: where does the index come from?
+        </ProseRow>
+        <ProseRow>
+          The decompiler was sure it came from a table. Every attempt to lift the
+          slot-helper routines produced something shaped like{' '}
+          <Code>table[slotCode * stride + depth]</Code> &mdash; and every attempt
+          was wrong, because that table never resolves to the indices we captured
+          live. We chased the supposed table for an embarrassingly long time.
+        </ProseRow>
+        <ProseRow>
+          Hand-disassembling the emit functions settled it. The index is just:
+        </ProseRow>
+        <CodeBlock>{`placementIndex = base + depth        ; depth = 0..3 down the corridor
+
+; …and "base" is an IMMEDIATE pushed at the call site:
+mov   ax, 0x7a        ; 122 = the ceiling base, a literal
+add   ax, [bp+4]      ; + depth
+push  ax              ; placement index for this slot
+call  emit_or_blit`}</CodeBlock>
+        <ProseRow>
+          That’s the whole law. The ceiling base is 122, the floor base is 150
+          (= 122 + 28), and both just add the depth. There is no array, no
+          arithmetic on a slot code, no indirection &mdash; the &ldquo;table&rdquo;
+          is a scattering of <Code>mov ax, IMM</Code> constants, one frozen into
+          each draw site at compile time in 1990. The decompiler kept inventing a
+          data structure because that’s the shape modern code would take; the
+          original just open-coded a different literal everywhere.
+        </ProseRow>
+        <Aside title="Why this was the keystone">
+          Once the law was &ldquo;base + depth,&rdquo; the rest of the renderer
+          fell quickly: the side walls turned out to be exact left/right mirrors
+          (an apparent asymmetry was our own decomposition bug, reading the index
+          instead of <Code>index − depth</Code>), and the near-wall flanks are
+          drawn by mirroring one column onto the other. Our reimplementation now
+          regenerates the entrance corridor from the map at 99.9% of the engine’s
+          own pixels &mdash; no screenshot required.
+        </Aside>
+        <Aside title="The lesson">
+          A decompiler models the past in the idioms of the present. When its
+          output looks like a clean table lookup that <em>doesn’t reproduce the
+          data</em>, suspect that the table is a fiction and the real code is
+          open-coded constants. Read the actual instructions.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'findings: maze-index-arithmetic.json', href: '/explore/docs/findings/maze-index-arithmetic.json' },
+      { label: 'findings: maze-wall-family-seeding.json', href: '/explore/docs/findings/maze-wall-family-seeding.json' },
+      { label: 'findings: maze-masked-generation.json', href: '/explore/docs/findings/maze-masked-generation.json' },
+    ],
+  },
 ];
 
 const ALL_TAGS: Tag[] = [
