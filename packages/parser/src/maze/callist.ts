@@ -1457,6 +1457,100 @@ function headOnDoorAheadStop(block: MazeBlock, party: MazeParty): number | null 
   return forwardEdge(block, cgx, cgy, facing) === 3 ? stop : null;
 }
 
+// ---------------------------------------------------------------------------
+// THE DEEP DOOR-RECESS MASKED FAMILY (the recessed-doorway frame at a recess cell —
+// 2026-06-09 door-recess cross-capture pass). RE pinned in
+// docs/re/findings/maze-masked-generation.json (deep_door_recess_family). The prior
+// pass left this as single-capture residue; this pass DERIVES it from the cross-diff
+// of two byte-identical captures.
+//
+// DECISIVE CROSS-CAPTURE EVIDENCE. Diffing the two captured views at the party's own
+// `orient2=2` recess cell (gx124 gy121 f0 PARITY-ODD vs f3 PARITY-EVEN) leaves exactly
+// ONE shared family — the SAME 8 masked pairs + 2 OR pieces, byte-identical across both
+// captures AND both parities:
+//
+//   masked (src→dst, all OR-merge):
+//     36→63  39→60  42→69  45→66  48→81  51→78  54→75  57→72
+//   OR: 101, 104
+//
+// (Everything else differed because f0 draws its skeleton through the masked branch and
+// f3 through OR — the parity split. The door-recess family is the parity-INDEPENDENT
+// overlay.) The 8 pairs draw the recessed doorway frame at the corridor vanishing point
+// (page x[192..247] y[52..103] — right-of-centre, mid-height; img11–img22 arch/jamb
+// pieces). Adding them reconstructs gx124-gy121-f0 to its 93.25% self-repro CEILING and
+// lifts gx124-gy121-f3 toward its 87.24% ceiling (the rest is dither + the near pieces
+// that the parity branch already supplies).
+//
+// THE PAIRING (a fixed REVERSED/cross mapping, NOT the col-20 side-wall law). The dst
+// pieces are the 8 "depth band" slots 60+3k (k=0..7); each pairs with the src slot
+// 36+3·perm(k) where perm = [1,0,3,2,7,6,5,4] (swap-within-pairs for k<4, reverse for
+// k≥4). Captured as the explicit table below (it does NOT satisfy a single closed-form
+// mirror sum — 6/8 pairs satisfy src.destX+dst.destX+dst.w==40, the other 2 use the
+// destX=0 source pieces). Byte-identical in BOTH captures, so it is the engine's fixed
+// emission, not noise.
+//
+// THE FIRING PREDICATE (single-cell-validated — honest residue note). The family fires
+// at the party's OWN cell when that cell has `orient2 != 0` (a recess marker) AND the
+// recess is seen "down the corridor" — captured: at gx124 gy121 (orient2=2) it fires
+// for facing 0 and 3, NOT for facing 1 or 2. The relation that separates the fire set
+// {0,3} from the no-fire set {1,2} is `(facing − orient2 + 4) % 4 ∈ {1, 2}`. CAVEAT:
+// only ONE triggering cell is reachable on the current trace core (the other orient2=2
+// cells are north of the one-way gate / behind movement.ts collision divergences, so an
+// INDEPENDENT cross-cell validation is BLOCKED — see maze-freeroam-nav.json). The fire
+// SET and the no-fire SET are both confirmed (4 facings, 2 byte-identical fires + 2
+// negative controls), but the exact rotation of the predicate is one of several
+// equivalent single-cell fits. It is gated conservatively to orient2 != 0 cells, so it
+// CANNOT add spurious pieces to any orient2=0 capture (all 10 prior freeroam views).
+// ---------------------------------------------------------------------------
+
+/** The deep door-recess masked pairs (src→dst), byte-identical across the gx124-gy121
+ *  f0/f3 captures (both parities). The recessed-doorway frame at the corridor end. */
+const DEEP_DOOR_RECESS_MASKED: ReadonlyArray<readonly [number, number]> = [
+  [36, 63],
+  [39, 60],
+  [42, 69],
+  [45, 66],
+  [48, 81],
+  [51, 78],
+  [54, 75],
+  [57, 72],
+] as const;
+
+/** The deep door-recess OR pieces (the near count-pair + deep decoration shared by both
+ *  captures, parity-independent). */
+const DEEP_DOOR_RECESS_OR: readonly number[] = [101, 104] as const;
+
+/**
+ * Whether the party's OWN cell carries a recess (orient2 != 0) viewed so the deep
+ * door-recess family fires. Single-cell-validated: at gx124 gy121 (orient2=2) the family
+ * fires for facing 0/3 and not 1/2; the separating relation is
+ * `(facing − orient2 + 4) % 4 ∈ {1, 2}`. Gated to orient2 != 0 so it never fires on a
+ * plain (orient2=0) corridor cell. See the DEEP DOOR-RECESS block for the honest
+ * cross-cell-validation caveat.
+ */
+function isDeepDoorRecessView(block: MazeBlock, party: MazeParty): boolean {
+  const o = orient2(block, party.gx, party.gy);
+  if (o <= 0) return false;
+  const rel = (party.facing - o + 4) % 4;
+  return rel === 1 || rel === 2;
+}
+
+/**
+ * The deep door-recess family CALL LIST (the recessed-doorway frame at the corridor
+ * vanishing point): the 8 fixed masked pairs (OR-merge) + the 2 OR pieces. Empty unless
+ * the party stands at a recess cell viewed down the corridor (isDeepDoorRecessView).
+ * Parity-INDEPENDENT — appended in both the parity-odd and parity-even branches.
+ */
+function generateDeepDoorRecess(block: MazeBlock, party: MazeParty): CallList {
+  if (!isDeepDoorRecessView(block, party)) return [];
+  return [
+    ...DEEP_DOOR_RECESS_MASKED.map(
+      ([src, dst]): BackgroundCall => ({ kind: 'masked', src, dst, mode: 'or' }),
+    ),
+    ...DEEP_DOOR_RECESS_OR.map((src): BackgroundCall => ({ kind: 'OR', src })),
+  ];
+}
+
 /**
  * The FULL per-view background blit CALL LIST derived from the maze block + party
  * (no captured frame). Three branches, selected by geometry + frame parity:
@@ -1471,6 +1565,9 @@ function headOnDoorAheadStop(block: MazeBlock, party: MazeParty): number | null 
  *     flank masked-mirror calls (generateNearFlankMasked). BYTE-EXACT for the
  *     canonical maze-corridor (gx127 gy121 facing0): the OR set + the 4 near-flank
  *     masked calls (13→4, 10→7, 7→10, 4→13) reach ≥99.9% of the engine viewport.
+ *
+ * The DEEP DOOR-RECESS family (the recessed-doorway frame at a recess cell, orient2 !=
+ * 0) is a parity-INDEPENDENT overlay appended to both parity branches.
  *
  * Compose with `composeCallList` / `composeBackgroundFromAsset`.
  */
@@ -1513,16 +1610,19 @@ export function generateFullCallList(block: MazeBlock, party: MazeParty): CallLi
       ),
     ];
   }
+  // The DEEP DOOR-RECESS family (the recessed doorway at a recess cell) is a
+  // parity-INDEPENDENT overlay appended to whichever branch fires.
+  const doorRecess = generateDeepDoorRecess(block, party);
   // PARITY-ODD: the whole frame is drawn through the masked-mirror branch.
   if ((party.gx + party.gy + party.facing) % 2 !== 0) {
-    return generateParityOddMasked(block, party);
+    return [...generateParityOddMasked(block, party), ...doorRecess];
   }
   // PARITY-EVEN: OR families + the near-flank masked-mirror calls.
   const orCalls: CallList = generateCallist(block, party).map((src) => ({
     kind: 'OR',
     src,
   }));
-  return [...orCalls, ...generateNearFlankMasked(block, party)];
+  return [...orCalls, ...generateNearFlankMasked(block, party), ...doorRecess];
 }
 
 export type { MazeBlock, MazeParty };
