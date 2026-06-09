@@ -22,7 +22,8 @@
  *
  * Usage: pnpm tsx tools/libretro/trace-maze.ts <phase> [args]
  */
-import { writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { HostClient, type TraceRecord } from '../../packages/mcp/src/live/host-client.js';
 
 const DGROUP_GAME_STATE = 0x363a;
@@ -2551,11 +2552,146 @@ async function phaseExpander(c: HostClient): Promise<void> {
   writeFileSync(`${outDir}/meta.json`, JSON.stringify(meta, null, 2));
 }
 
+/**
+ * navreach — NAVIGATION-REACH HARNESS (the build-loop-on-real-move unblock).
+ *
+ * Cold-boots a fresh party into dungeon level 0 and drives REAL forward moves
+ * (arrow/ENTER taps, one at a time) up the entry corridor, reading the party
+ * DGROUP after each key to confirm the move took. At each NEW grid cell it
+ * captures the live framebuffer as a committed-format `.idx.gz` (320×200 EGA
+ * palette index, gzipped — the SAME format as the maze-corridor fixtures) + a
+ * PNG for eyeballing, and snapshots the span count [0x50ce] / spans pointer
+ * before+after the move to demonstrate the BUILD LOOP re-runs on a genuine move
+ * (the thing pokeview could NOT do — pokeview replays a cached span list).
+ *
+ * WHAT THIS HARNESS PROVES / its limits (honest):
+ *   - Cold-boot driveToMaze lands the party at gx127 gy118 facing0, game_state 5
+ *     (DGROUP base read confirms cellA=gy-116, cellB=gx-120 region-0 mapping).
+ *   - Pressing ENTER/UP advances the party NORTH up the gx127 column
+ *     (gy 118 -> 119 -> 120 -> 121); the span COUNT [0x50ce] changes value on
+ *     each genuine cell change -> the build loop DID re-run (vs pokeview's 0).
+ *   - BUT: the scripted gate-entry walk consumes ENTER/UP as forward steps and
+ *     keeps the TURN keys (left/right) LOCKED for the whole entry corridor, so a
+ *     free-roam `navigateTo(arbitrary gx,gy,facing)` is NOT achievable from a
+ *     cold boot on the patched trace core: you can only walk the entry column
+ *     forward, never turn. (Committed maze states that WOULD give a turnable
+ *     free-roam frame do NOT unserialize on the patched core — `err unser`.)
+ *   - The span-list region [0x50d0] write-watch logs ZERO writes even on a real
+ *     move whose span COUNT changes, so the wwatch can't be used to trap the
+ *     BUILD-loop emit stores in this configuration (a known tracer limitation).
+ *
+ * So this harness delivers the FALLBACK the task spec anticipated: a set of
+ * FRESH real-move build-loop framebuffer captures along the entry corridor
+ * (gx127 gy118..121 facing0) — each a genuine build-loop render — for eyeballing
+ * the decorations, plus the build-loop-re-runs-on-real-move confirmation.
+ *
+ * Usage: pnpm tsx tools/libretro/trace-maze.ts navreach [outDir]
+ */
+async function phaseNavReach(c: HostClient): Promise<void> {
+  const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
+  const { encodePngRgba } = await import('../../packages/cli/src/lib/png.js');
+  const outDir = process.argv[3] ?? '/tmp/wiz6-navreach';
+  mkdirSync(outDir, { recursive: true });
+  const rgbToIdx = new Map<number, number>();
+  COMPOSED_PALETTE.forEach((rgb: readonly number[], i: number) => rgbToIdx.set(((rgb[0]! << 16) | (rgb[1]! << 8) | rgb[2]!) >>> 0, i));
+  const rgbaToIdx = (rgba: Uint8Array): Uint8Array => {
+    const idx = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
+    for (let p = 0; p < idx.length; p++) {
+      const k = ((rgba[p * 4]! << 16) | (rgba[p * 4 + 1]! << 8) | rgba[p * 4 + 2]!) >>> 0;
+      const i = rgbToIdx.get(k);
+      if (i === undefined) return new Uint8Array(0); // non-palette colour -> signal
+      idx[p] = i;
+    }
+    return idx;
+  };
+  const PF = { game_state: 0x363a, facing: 0x4f9a, z: 0x4f9c, cellA: 0x4f9e, cellB: 0x4fa0, gy: 0x4fa2, gx: 0x4fa4, spanCount: 0x50ce };
+  let base = 0;
+  const rd = async (o: number) => { const b = await c.read(base + o, 2); return b[0]! | (b[1]! << 8); };
+  const party = async () => ({
+    gs: await rd(PF.game_state), f: await rd(PF.facing), gx: await rd(PF.gx), gy: await rd(PF.gy),
+    cellA: await rd(PF.cellA), cellB: await rd(PF.cellB), sp: await rd(PF.spanCount),
+  });
+
+  console.log('navreach: cold-boot drive into dungeon level 0…');
+  await driveToMaze(c);
+  base = await c.anchor();
+  let p = await party();
+  console.log(`landed: base=0x${base.toString(16)} gs=${p.gs} gx=${p.gx} gy=${p.gy} f=${p.f} cellA=${p.cellA} cellB=${p.cellB} sp=${p.sp}`);
+  console.log(`region-0 mapping check: cellA(${p.cellA})==gy-116(${p.gy - 116})? ${p.cellA === p.gy - 116}; cellB(${p.cellB})==gx-120(${p.gx - 120})? ${p.cellB === p.gx - 120}`);
+
+  const captures: Array<{ gx: number; gy: number; facing: number; fixture: string; distinctIdx: number }> = [];
+  const moveLog: Array<{ key: string; before: { gx: number; gy: number; f: number; sp: number }; after: { gx: number; gy: number; f: number; sp: number }; moved: boolean; spanCountChanged: boolean }> = [];
+  const captured = new Set<string>();
+
+  const capture = async (pp: { gx: number; gy: number; f: number }) => {
+    const key = `gx${pp.gx}-gy${pp.gy}-f${pp.f}`;
+    if (captured.has(key)) return;
+    const rgbaPath = `${outDir}/${key}.rgba`;
+    await c.fb(rgbaPath);
+    const rgba = new Uint8Array(readFileSync(rgbaPath));
+    const idx = rgbaToIdx(rgba);
+    writeFileSync(`${outDir}/${key}.png`, encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));
+    if (idx.length) {
+      writeFileSync(`${outDir}/${key}.idx.gz`, gzipSync(idx));
+      const distinctIdx = new Set(idx).size;
+      captures.push({ gx: pp.gx, gy: pp.gy, facing: pp.f, fixture: `${key}.idx.gz`, distinctIdx });
+      console.log(`  captured ${key}: ${distinctIdx} distinct palette indices -> ${key}.idx.gz + .png`);
+    } else {
+      console.log(`  captured ${key}: PNG only (framebuffer has non-WIZ6_MAIN colours — narration/transition frame)`);
+    }
+    captured.add(key);
+  };
+
+  await capture({ gx: p.gx, gy: p.gy, f: p.f });
+
+  // Drive forward up the entry corridor with ENTER taps (the scripted-walk
+  // forward step). Read the party after EACH key; record whether the cell moved
+  // and whether the span COUNT changed (= build loop re-ran). Stop on encounter
+  // (game_state != 5) or when forward progress stalls.
+  // narration dismissal can eat many ENTER taps between cell advances, so allow a
+  // generous stall budget before giving up on forward progress.
+  let stall = 0;
+  for (let i = 0; i < 60 && stall < 18; i++) {
+    const before = await party();
+    if (before.gs !== 5) { console.log(`  encounter (game_state=${before.gs}) at gx${before.gx} gy${before.gy} — stopping walk`); break; }
+    await c.key('enter', 'tap'); await c.step(70);
+    const after = await party();
+    const moved = after.gx !== before.gx || after.gy !== before.gy;
+    const spanCountChanged = after.sp !== before.sp;
+    moveLog.push({ key: 'enter', before: { gx: before.gx, gy: before.gy, f: before.f, sp: before.sp }, after: { gx: after.gx, gy: after.gy, f: after.f, sp: after.sp }, moved, spanCountChanged });
+    if (moved) { stall = 0; console.log(`  MOVE gx${before.gx}gy${before.gy} -> gx${after.gx}gy${after.gy}  spanCount ${before.sp}->${after.sp} ${spanCountChanged ? '(BUILD LOOP RE-RAN)' : ''}`); await capture({ gx: after.gx, gy: after.gy, f: after.f }); }
+    else stall++;
+  }
+
+  // Demonstrate the TURN-LOCK: try a turn from the final corridor frame.
+  const fb = await party();
+  await c.key('left', 'tap'); await c.step(60);
+  const fa = await party();
+  const turnWorks = fa.f !== fb.f;
+  console.log(`turn-lock probe at gx${fb.gx}gy${fb.gy}: LEFT f${fb.f}->f${fa.f} ${turnWorks ? 'TURN WORKS' : 'TURN LOCKED (scripted entry walk holds the turn keys)'}`);
+
+  const buildLoopReran = moveLog.some((m) => m.moved && m.spanCountChanged);
+  const out = {
+    note: 'navreach: cold-boot real-move walk up the dungeon entry corridor (gx127 facing0). Each NEW cell framebuffer is a FRESH build-loop render. spanCountChanged on a moved frame == the build loop re-ran (vs pokeview = 0).',
+    landed: { base: base.toString(16), gx: p.gx, gy: p.gy, facing: p.f, game_state: p.gs },
+    region0_mapping_ok: p.cellA === p.gy - 116 && p.cellB === p.gx - 120,
+    build_loop_reran_on_real_move: buildLoopReran,
+    turn_keys_locked_in_entry_walk: !turnWorks,
+    move_log: moveLog,
+    captures,
+  };
+  writeFileSync(`${outDir}/navreach.json`, JSON.stringify(out, null, 2));
+  console.log(`\nbuild-loop-re-runs-on-real-move: ${buildLoopReran ? 'CONFIRMED' : 'NOT observed'}`);
+  console.log(`turn keys locked in entry walk: ${!turnWorks}`);
+  console.log(`-> ${outDir}/navreach.json (${captures.length} idx.gz fixtures)`);
+}
+
 async function main() {
   const phase = process.argv[2];
   const c = new HostClient();
   try {
-    if (phase === 'reach') await phaseReach(c);
+    if (phase === 'navreach') await phaseNavReach(c);
+    else if (phase === 'reach') await phaseReach(c);
     else if (phase === 'calibrate') await phaseCalibrate(c);
     else if (phase === 'coarse') await phaseCoarse(c);
     else if (phase === 'funcs') await phaseFuncs(c);
@@ -2593,7 +2729,7 @@ async function main() {
     else if (phase === 'depthemit') await phaseDepthEmit(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
-    else console.log('phases: reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
+    else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();
   }
