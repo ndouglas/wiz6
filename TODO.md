@@ -13,11 +13,16 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#085**
+Next free ID: **#086**
 
 ---
 
 ## Open
+
+- #085 [open] — Gate look-back portcullis LATTICE residue (gx127 gy121 f2, ~89.2%)
+  - **The user-reported "facing the gate isn't 1:1."** The entrance portcullis renders as gray bars with BLACK see-through gaps in the engine; our compose FILLS the gaps gray (~1148px ours-gray-vs-eng-black + ~664px idx8↔9 dither). The lattice is the door-recess arch family {23..34}.
+  - **CHARACTERIZED 2026-06-09 (full diagnosis in `docs/re/findings/maze-deepdoor-drawpath.json` unresolved[0]); NOT cracked — 5 dead-ends ruled out:** (1) NOT a decode bug — `applyPlacedImage` OR-blit is faithful (corridor byte-exact); (2) NOT placement selection — composing the engine's OWN captured OR call-list also fills the gaps gray; (3) NOT REPLACE-carve — the full recompose is 0-masked, the gap is MISSING OR pieces; (4) gy121-f2 full-recompose UNCAPTURABLE — the forward-step trigger is blocked by the occluding gate (`gatecaplist`: moved=false); (5) gy122-f2 full list (42 OR incl. the full {23..34} arch) composes naively to only 53.75% (WORSE than generation's 98.29%) — the parity-EVEN forward-OR placements need the masked-mirror transform, so a raw captured-list replay is not a fix.
+  - **Remaining path (deferred — decompiler-resistant):** crack the masked-mirror generation law for the door-recess arch {23..34} (static RE of the wmaze emitter — the same long-open wall as the #084 masked-mirror residue). Substantial, uncertain payoff. The gate renders as a recognizable stone portcullis at 89% (solid bars vs see-through lattice — sub-perceptual texture detail). Tooling: `trace-maze.ts gatecaplist`. Cross-ref #084, #077.
 
 - #084 [open] — Maze renderer: the non-canonical-view generation residue (beyond the byte-exact canonical corridor)
   - **BANKED 2026-06-09 (user-directed, after ~10 fix passes this session).** The dungeon renders FAITHFULLY + explorable: NO remaining view-specific bugs. Most early views 89-99.9%, structurally correct (gate archway + leaf grid render, side doors render, recessed doors render, no voids/spurious-arches; the start views were partly a STALE-VIEWER artifact — a clean `pnpm dev:viewer` rebuild + hard-refresh fixed them). Shipped this session: parity-odd whole-frame masked generation (MIRROR_TWIN), 4 masked families (centered-leaf/near-stone-flank/jog/head-on-archway), the deep door-recess family, the head-on-door occlusion (look-back gate), the spurious-arch fix, the destX sign-ext compositor fix, the freeroam capture frame-sync, and the tile-0/1 atlas extraction (wall-cases 15→22/32). Findings: maze-{masked-generation,wall-family-seeding,gate-seeding,masked-mirror,freeroam-nav,decoration-drawpath,gate-arch,tile-atlas-extract}.json.
