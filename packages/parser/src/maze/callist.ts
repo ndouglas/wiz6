@@ -548,6 +548,9 @@ function generateSideWall(
   const bases = side === 'left' ? [134, 130, 126] : [138, 142, 146];
   const corner = side === 'left' ? cornerL : cornerR;
   const out: number[] = [];
+  // CONTINUOUS NEAR-STONE WALL: this side is filled by the near-flank stack family
+  // (generateNearStoneFlank), not the per-depth receding wall — suppress here.
+  if (isContinuousNearStoneWall(block, party, visible, side)) return out;
   // FULL-HEIGHT stone-side wall law (generalized 2026-06-09 — maze-freeroam pass).
   // A STONE side corner draws a receding full-height wall: base 15 (LEFT) / 19 (RIGHT)
   // at `base + d`. This is the receding stone wall the player sees when turned to face
@@ -567,6 +570,17 @@ function generateSideWall(
   // leftAllOpen`) only drew the v7 RIGHT-stone case and left LEFT-stone + facing≠0 as
   // residue — which is exactly what left the turned corridors black.
   const stop = visible[visible.length - 1]!;
+  // NEAR-STONE JOG: a side that is STONE from the party's own cell (d0) for a run, then
+  // OPENS, draws a near-stone wall that OCCLUDES the opening behind it. The engine caps
+  // that wall's far edge at the last stone depth with the count-1 flank tip (img6 18 LEFT
+  // / img10 22 RIGHT) + the banked corner (83/87 + lastStoneDepth), and draws NO open
+  // side-surface past it. FRAME-SYNCED gx126-gy121-f3 (LEFT 2-2-2-0): the stone run is
+  // d0..d2 → STONE_WALL {15,16,17→capped}, flank tip 18 + corner 85 at d2, and the d3
+  // opening is occluded (no 137/165). Reaches 99.63% (the residual is the single-capture
+  // deep special 108, left as documented residue). Detect the run length here.
+  const nearStoneJogRun = nearStoneJogRunLength(block, party, visible, side);
+  const jogLastDepth = nearStoneJogRun - 1;
+  const jogFlankTip = side === 'left' ? 18 : 22; // img6 / img10 count-1 flank tip
   // Re-walk the corridor to read the per-depth side corner edge.
   let [cgx, cgy] = step(gx, gy, facing, 0, -1); // entry pull-back
   let openRun = 0;
@@ -582,6 +596,9 @@ function generateSideWall(
     if (!visible.includes(d)) break;
     const edge = corner(block, cgx, cgy, facing);
     if (edge === 0) {
+      // A near-stone JOG occludes the opening behind it — suppress the open side-surface
+      // for the depths past the jog's stone run (the wall blocks the view of the opening).
+      if (nearStoneJogRun > 0 && d >= nearStoneJogRun) { passedPassage = true; continue; }
       openRun += 1;
       const count = Math.min(openRun, 3);
       for (let k = 0; k < count; k++) {
@@ -592,16 +609,26 @@ function generateSideWall(
       passedPassage = true;
     } else if (edge === 2) {
       openRun = 0; // stone corner resets the open run
-      const firstStoneOfNearRun = !prevStone; // a stone depth not preceded by stone
+      void prevStone;
       const front = forwardEdge(block, cgx, cgy, facing);
       const skipDoorStop = d === stop && front === 3;
-      // Emit the receding stone wall (base + d) UNLESS it's a door-capped stop, AND
-      // either it continues a stone run (not the near edge) OR a passage precedes it
-      // (a stone wall seen DOWN the corridor — the off-axis turned-corridor wall the
-      // freeroam views need; generalized 2026-06-09). The near-cell stone with no
-      // preceding passage stays excluded (the engine's near occluder, byte-exact vs
-      // v10's missing-19 / gx126gy121f3's missing-16/17).
-      if (!skipDoorStop && (!firstStoneOfNearRun || passedPassage)) {
+      // Emit the receding stone wall (base + d) UNLESS it's a door-capped stop. The
+      // near-cell stone occluder (a CONTINUOUS near-stone wall) is handled separately
+      // by generateNearStoneFlank (suppressed at the top of this fn), so a stone corner
+      // reached here is a turned-corridor / stone-jog side wall and DOES emit at its
+      // depth — INCLUDING d0 (the near stone wall at the party's own cell). FRAME-SYNCED
+      // gx126-gy121-f3 (LEFT 2-2-2-0, a stone-from-d0 jog that opens at d3) draws the
+      // d0 stone `15` — the prior `firstStoneOfNearRun` skip came from a stale transient
+      // capture (the frame-synced ground truth has it). +2816px on that view.
+      if (nearStoneJogRun >= 2 && d === jogLastDepth) {
+        // The jog's far edge (only for a RECEDING jog, run ≥ 2): cap with the count-1
+        // flank tip + the banked corner (83/87 + depth) instead of the plain receding
+        // stone index (frame-synced gx126-gy121-f3: d2 draws flank 18 + corner 85, NOT
+        // stone 17). A length-1 jog (just d0, e.g. gx124-gy121-f3 LEFT 2-0-0-0) has no
+        // far flank edge — it draws the plain near stone wall (STONE_WALL + 0).
+        out.push(jogFlankTip);
+        out.push((side === 'left' ? 83 : 87) + d);
+      } else if (!skipDoorStop) {
         out.push(STONE_WALL_BASE[side] + d);
       }
       prevStone = true;
@@ -619,6 +646,95 @@ function generateSideWall(
  *  w4 h112; the wall a solid corridor side draws at perspective depth d as base + d).
  *  LEFT 15, RIGHT 19 — confirmed against v7 (RIGHT) + the freeroam captures (LEFT). */
 const STONE_WALL_BASE = { left: 15, right: 19 } as const;
+
+/**
+ * The length of a NEAR-STONE JOG run on `side`: the # of contiguous STONE corner depths
+ * starting at the party's own cell (d0) that is then followed by an OPEN corner (the
+ * jog — the near stone wall occludes the opening behind it). Returns 0 when the side is
+ * not a stone-from-d0 run that opens (a pure stone run to the stop, a door-interleaved
+ * continuous wall, or an open-from-d0 side are all 0). Frame-synced gx126-gy121-f3 LEFT
+ * 2-2-2-0 → 3.
+ */
+function nearStoneJogRunLength(
+  block: MazeBlock,
+  party: MazeParty,
+  visible: number[],
+  side: 'left' | 'right',
+): number {
+  const { gx, gy, facing } = party;
+  const corner = side === 'left' ? cornerL : cornerR;
+  let [jx, jy] = step(gx, gy, facing, 0, -1);
+  let run = 0;
+  let opensAfter = false;
+  for (let d = 0; d < DEPTH_BOUND; d++) {
+    [jx, jy] = step(jx, jy, facing, 0, 1);
+    if (!visible.includes(d)) break;
+    const e = corner(block, jx, jy, facing);
+    if (e === 2 && run === d) run = d + 1; // extend the contiguous stone run from d0
+    else if (e === 0 && run > 0) { opensAfter = true; break; }
+    else break; // a door (or non-d0 open) breaks the pure stone-from-d0 jog
+  }
+  return opensAfter ? run : 0;
+}
+
+// ---------------------------------------------------------------------------
+// THE NEAR-STONE WALL FLANK family (the asymmetric near-stone occluder).
+//
+// RE refined 2026-06-09 (maze-masked-generation parity-odd ceiling pass). When ONE
+// corridor side is a CONTINUOUS WALL (never open — every visible-depth corner is
+// stone OR a door, code != 0) and at least one of those corners is STONE, the engine
+// does NOT draw the per-depth receding stone wall (STONE_WALL_BASE + d). Instead it
+// fills that side's near band with the NEAR-WALL FLANK STACK — the same img4/5/6
+// (LEFT 16/17/18) / img8/9/10 (RIGHT 20/21/22) panels the entrance corridor draws as
+// its near side walls — plus the full-height corner piece (83 LEFT / 87 RIGHT), and
+// (RIGHT only) the thin outer-edge vertical 118 (img41, destX 30, w1 h95). All drawn
+// through the masked-mirror branch in a parity-ODD frame (twins 16↔20, 17↔21, 18↔22,
+// 83↔87). FRAME-SYNCED ground truth: gx127 gy121 f1 (RIGHT profile 3-2-3-2, a
+// door/stone-alternating continuous wall) emits exactly {20,21,22} + 87 + OR 118 and
+// reaches the 99.16% ceiling. The CONTINUOUS-WALL gate (no open corner on that side)
+// is what distinguishes it from a turned corridor that OPENS at some depth (gx126 f3
+// LEFT 2-2-2-0, gx127 gy122 f3 RIGHT 0-2-2-0) — those draw the per-depth STONE_WALL +
+// side-surface families instead, and this near-flank family does NOT fire (verified
+// no-spurious across all freeroam captures).
+// ---------------------------------------------------------------------------
+
+/** The near-wall FLANK STACK + corner indices for a side, used when that side is a
+ *  continuous near-stone wall. LEFT = img4/5/6 flank {16,17,18} + corner 83; RIGHT =
+ *  img8/9/10 flank {20,21,22} + corner 87. The thin outer-edge vertical (118 RIGHT) is
+ *  a per-view edge detail gated separately (see generateNearStoneFlank): it appears for
+ *  a DOOR-interleaved wall (gy121-f1 R 3-2-3-2 → 118) but is RUN-DEPENDENT/absent for a
+ *  pure-stone wall (v7/v10 R 2-2-2-3 captured 110 / none — the documented oscillation).*/
+const NEAR_STONE_FLANK = {
+  left: { flank: [16, 17, 18], corner: 83 },
+  right: { flank: [20, 21, 22], corner: 87 },
+} as const;
+
+/**
+ * Whether `side` is a CONTINUOUS near-stone wall in this view: every visible-depth
+ * corner edge on that side is non-open (stone code 2 or door code 3) AND at least one
+ * is STONE. Such a side is filled by the near-flank stack (NEAR_STONE_FLANK), not the
+ * per-depth receding stone wall. Reads the visible depths only.
+ */
+function isContinuousNearStoneWall(
+  block: MazeBlock,
+  party: MazeParty,
+  visible: number[],
+  side: 'left' | 'right',
+): boolean {
+  const { gx, gy, facing } = party;
+  const corner = side === 'left' ? cornerL : cornerR;
+  let [cgx, cgy] = step(gx, gy, facing, 0, -1);
+  let sawStone = false;
+  let allWalled = true;
+  for (let d = 0; d < DEPTH_BOUND; d++) {
+    [cgx, cgy] = step(cgx, cgy, facing, 0, 1);
+    if (!visible.includes(d)) break;
+    const edge = corner(block, cgx, cgy, facing);
+    if (edge === 0) allWalled = false;
+    if (edge === 2) sawStone = true;
+  }
+  return allWalled && sawStone;
+}
 
 /**
  * Generate the placement-index SET the engine emits for a parity-EVEN corridor view,
@@ -663,12 +779,65 @@ export function generateCallist(block: MazeBlock, party: MazeParty): number[] {
       ...generateClosedFrontNearWall(visible, party.facing, closedDoorway),
     ];
   }
+  // A near-stone JOG on either side occludes the corridor's deep stop, so the deep-solid
+  // FAR-closed wall family ({leaf,83,87}+stop) does NOT fire (it would land behind the
+  // near stone wall — spurious; frame-synced gx126-gy121-f3 has no {3,86,90}).
+  const jogOccludes =
+    nearStoneJogRunLength(block, party, visible, 'left') > 0 ||
+    nearStoneJogRunLength(block, party, visible, 'right') > 0;
   return [
     ...generateSkeletonIndices(visible),
     ...generateSideWall(block, party, visible, 'left'),
     ...generateSideWall(block, party, visible, 'right'),
-    ...generateFarClosedWall(block, party, visible),
+    ...generateNearStoneFlank(block, party, visible, 'left'),
+    ...generateNearStoneFlank(block, party, visible, 'right'),
+    ...(jogOccludes ? [] : generateFarClosedWall(block, party, visible)),
   ];
+}
+
+/**
+ * The NEAR-STONE WALL FLANK placement indices for one side, emitted when that side is
+ * a CONTINUOUS near-stone wall (isContinuousNearStoneWall): the near-flank stack
+ * {16,17,18} (LEFT) / {20,21,22} (RIGHT) + the full-height corner 83/87 + (RIGHT) the
+ * thin outer vertical 118. Empty otherwise. These mirror through the parity-ODD masked
+ * branch (twins 16↔20, 17↔21, 18↔22, 83↔87); 118 stays OR (the LEAF_OR_SET-style
+ * centered/edge piece). Byte-exact addition for gx127 gy121 f1 (RIGHT 3-2-3-2 → the
+ * 99.16% ceiling).
+ */
+function generateNearStoneFlank(
+  block: MazeBlock,
+  party: MazeParty,
+  visible: number[],
+  side: 'left' | 'right',
+): number[] {
+  if (!isContinuousNearStoneWall(block, party, visible, side)) return [];
+  const fam = NEAR_STONE_FLANK[side];
+  const out: number[] = [...fam.flank, fam.corner];
+  // The thin outer-edge vertical (118, img41 destX 30) shows the deeper structure through
+  // a DOOR-INTERLEAVED near wall (a corner code 3 within the run). It does NOT appear for
+  // a pure-stone wall (the v7/v10 oscillation). Gate on a door corner present in the run.
+  if (side === 'right' && hasDoorCornerInRun(block, party, visible, side)) out.push(118);
+  return out;
+}
+
+/** Whether the near wall on `side` has a DOOR corner (code 3) in the NEAR band (depth
+ *  0 or 1). A door at the wall's FAR end (d3) does not let the edge detail through —
+ *  only a near door (gy121-f1 doors at d0/d2) does; v7/v10's lone d3 door does not. */
+function hasDoorCornerInRun(
+  block: MazeBlock,
+  party: MazeParty,
+  visible: number[],
+  side: 'left' | 'right',
+): boolean {
+  const { gx, gy, facing } = party;
+  const corner = side === 'left' ? cornerL : cornerR;
+  let [cgx, cgy] = step(gx, gy, facing, 0, -1);
+  for (let d = 0; d < DEPTH_BOUND; d++) {
+    [cgx, cgy] = step(cgx, cgy, facing, 0, 1);
+    if (!visible.includes(d)) break;
+    if (d <= 1 && corner(block, cgx, cgy, facing) === 3) return true;
+  }
+  return false;
 }
 
 /**
@@ -1113,14 +1282,47 @@ const MIRROR_TWIN: Map<number, number> = (() => {
 export function generateParityOddMasked(block: MazeBlock, party: MazeParty): CallList {
   const out: CallList = [];
   const set = [...generateCallist(block, party), ...generateNearOccluderColumns(block, party)];
+  // The CENTERED far-closed / near-wall LEAF (placement `0 + stop`, the img0 flat
+  // doorway/wall face at the corridor vanishing point) is drawn OR-DIRECT even in the
+  // parity-ODD branch — its image is centered on page col 20, so the engine emits a
+  // plain OR-blit (not a self-mirror). VERIFIED frame-synced: gy122-f0 emits `OR 1`
+  // (leaf 0 + stop 1), NOT a masked `1→1` (which lands the wrong half: 90%→99.45%).
+  // The flanking corners (83/87 + stop) STILL mirror (84↔88) — only the leaf stays OR.
+  const leafOr = new Set<number>(LEAF_OR_SET(block, party));
+  // The near-stone wall's thin outer-edge vertical (118, img41 destX 30) is OR-direct
+  // even in the parity-ODD branch (it sits at the page edge, not mirrored — frame-synced
+  // gy121-f1 emits `OR 118`).
+  leafOr.add(118);
   for (const idx of set) {
-    if (TOP_STRIP_SET.has(idx)) {
+    if (TOP_STRIP_SET.has(idx) || leafOr.has(idx)) {
       out.push({ kind: 'OR', src: idx });
     } else {
       out.push({ kind: 'masked', src: mirrorTwin(idx), dst: idx, mode: 'or' });
     }
   }
   return out;
+}
+
+/** The centered LEAF placement index that stays OR-direct in the parity-ODD branch:
+ *  the far-closed-wall leaf (`0 + stop`, the img0 flat doorway face at the corridor
+ *  vanishing point) when the corridor caps at a CLOSED DOORWAY or a HEAD-ON door. Its
+ *  image is centered on page col 20 so the engine OR-blits it rather than self-mirroring
+ *  (frame-synced gy122-f0: `OR 1`, not masked `1→1`). The flanking corners (83/87 + stop)
+ *  STILL mirror. The leaf is NOT kept OR for a DEEP-SOLID stop (the `{2,85,89}` family is
+ *  itself spurious there — the engine draws the door-recess family instead). */
+function LEAF_OR_SET(block: MazeBlock, party: MazeParty): number[] {
+  const visible = computeVisibleDepths(block, party);
+  if (visible.length < 2) return [];
+  const stop = visible[visible.length - 1]!;
+  const { gx, gy, facing } = party;
+  let [cgx, cgy] = step(gx, gy, facing, 0, -1);
+  for (let d = 0; d <= stop; d++) [cgx, cgy] = step(cgx, cgy, facing, 0, 1);
+  const front = forwardEdge(block, cgx, cgy, facing);
+  const cL = cornerL(block, cgx, cgy, facing);
+  const cR = cornerR(block, cgx, cgy, facing);
+  const closedDoor = front === 3 && isSolid(cL) && isSolid(cR);
+  const headonDoor = front === 3 && (facing === 2 || facing === 3);
+  return closedDoor || headonDoor ? [EMIT_BASES.NEAR_WALL + stop] : [];
 }
 
 /**
@@ -1205,6 +1407,56 @@ function isHeadOnDoorArchway(block: MazeBlock, party: MazeParty): boolean {
   );
 }
 
+// ---------------------------------------------------------------------------
+// THE HEAD-ON-DOOR-AHEAD ARCHWAY (the look-back with the gate ONE CELL AHEAD —
+// 2026-06-09 parity-odd ceiling pass). When the party looks head-on (facing 2/3)
+// down an OPEN passage that caps at a door at depth `stop ≥ 1` (the look-back where
+// the entrance gate is one cell ahead — gx127 gy122 f2), the engine draws the open
+// passage's NEAR-WALL FLANK family at the party's own cell (the count-pairs 4/7/10/13
+// OR + the flank panels 17/18/21/22 masked) framing the corridor, PLUS the door-recess
+// arch banked to the stop depth (`{23,26,29,32} + stop` OR — the recessed gate at the
+// corridor end), on top of the ceiling/floor twins + side walls (generateCallist). This
+// REPLACES the spurious far-closed flat gate ({1,84,88}) the parity-odd converter would
+// emit. FRAME-SYNCED gx127 gy122 f2 → 97.45% (the ceiling; residual = the portcullis-leaf
+// decoration grid). The predicate distinguishes it from the door-AT-own-cell archway
+// (isHeadOnDoorArchway, stop 0) and the stone-framed closed doorway (a flat wall).
+// ---------------------------------------------------------------------------
+
+/** The near-wall open-passage FLANK count-pairs (img2/img7-family, the 4/7/10/13 strips
+ *  the entrance corridor draws as its close side walls) — OR-direct at the party's own
+ *  cell when looking head-on down an open passage to a door ahead. */
+const HEADON_NEAR_FLANK_OR = [4, 7, 10, 13] as const;
+/** The depth-1 flank PANELS (img5/6/9/10) drawn masked-mirror in the head-on-door-ahead
+ *  archway (twins 17↔21, 18↔22). */
+const HEADON_NEAR_FLANK_MASKED = [17, 18, 21, 22] as const;
+/** The door-recess arch BASE indices (img11/14/17/20 arch pieces); the recessed gate
+ *  draws `base + stop` for a door at depth `stop`. */
+const DOOR_RECESS_ARCH_BASE = [23, 26, 29, 32] as const;
+
+/**
+ * Whether the party looks head-on (facing 2/3) down an OPEN passage that caps at a DOOR
+ * one or more cells ahead (the look-back with the gate ahead): open d0 corners + front
+ * open at d0, the occlusion stop is a head-on door at depth ≥ 1.
+ */
+function headOnDoorAheadStop(block: MazeBlock, party: MazeParty): number | null {
+  const { gx, gy, facing } = party;
+  if (facing !== 2 && facing !== 3) return null;
+  const visible = computeVisibleDepths(block, party);
+  const stop = visible[visible.length - 1]!;
+  if (stop < 1) return null;
+  // The party's own cell must be an open passage (the flanks frame an open corridor).
+  const [c0x, c0y] = step(gx, gy, facing, 0, 0);
+  if (
+    forwardEdge(block, c0x, c0y, facing) !== 0 ||
+    cornerL(block, c0x, c0y, facing) !== 0 ||
+    cornerR(block, c0x, c0y, facing) !== 0
+  ) return null;
+  // The stop must be a head-on door.
+  let [cgx, cgy] = step(gx, gy, facing, 0, -1);
+  for (let d = 0; d <= stop; d++) [cgx, cgy] = step(cgx, cgy, facing, 0, 1);
+  return forwardEdge(block, cgx, cgy, facing) === 3 ? stop : null;
+}
+
 /**
  * The FULL per-view background blit CALL LIST derived from the maze block + party
  * (no captured frame). Three branches, selected by geometry + frame parity:
@@ -1229,6 +1481,36 @@ export function generateFullCallList(block: MazeBlock, party: MazeParty): CallLi
     return [
       ...ARCHWAY_FRAME.map((src): BackgroundCall => ({ kind: 'OR', src })),
       ...EMIT_BASES.TOP_STRIPS.map((src): BackgroundCall => ({ kind: 'OR', src })),
+    ];
+  }
+  // HEAD-ON DOOR ONE CELL AHEAD (the look-back with the gate ahead): the open-passage
+  // near flanks frame the corridor + the door-recess arch recesses the gate at the stop.
+  const headonStop = headOnDoorAheadStop(block, party);
+  if (headonStop !== null) {
+    // The ceiling/floor twins + side-wall surfaces (drawn through the parity branch),
+    // EXCLUDING the spurious far-closed flat gate ({leaf,83,87}+stop / {1,84,88}).
+    const farGate = new Set<number>([
+      EMIT_BASES.NEAR_WALL + headonStop, 1,
+      83 + headonStop, 87 + headonStop, 84, 88,
+    ]);
+    const parityOdd = (party.gx + party.gy + party.facing) % 2 !== 0;
+    const skeleton = generateCallist(block, party).filter((i) => !farGate.has(i));
+    const skelCalls: CallList = parityOdd
+      ? skeleton.map((idx) =>
+          TOP_STRIP_SET.has(idx)
+            ? ({ kind: 'OR', src: idx } as const)
+            : ({ kind: 'masked', src: mirrorTwin(idx), dst: idx, mode: 'or' } as const),
+        )
+      : skeleton.map((src) => ({ kind: 'OR', src }) as const);
+    return [
+      ...skelCalls,
+      ...HEADON_NEAR_FLANK_OR.map((src): BackgroundCall => ({ kind: 'OR', src })),
+      ...HEADON_NEAR_FLANK_MASKED.map(
+        (dst): BackgroundCall => ({ kind: 'masked', src: mirrorTwin(dst), dst, mode: 'or' }),
+      ),
+      ...DOOR_RECESS_ARCH_BASE.map(
+        (b): BackgroundCall => ({ kind: 'OR', src: b + headonStop }),
+      ),
     ];
   }
   // PARITY-ODD: the whole frame is drawn through the masked-mirror branch.
