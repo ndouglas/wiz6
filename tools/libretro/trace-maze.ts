@@ -3160,6 +3160,54 @@ async function phaseSpanList(c: HostClient): Promise<void> {
   console.log(`\n-> ${outFile}`);
 }
 
+/**
+ * `gatecaplist <gx> <gy> <facing> [out]` — capture the FULL OR+masked call-list for
+ * ANY reachable view via the forward-step-OUT (full-recompose) trigger, not the
+ * dirty in-place turn the `freeroam` phase used. The dirty capture drops the
+ * door-recess REPLACE-carve (masked-branch) calls that carve the portcullis-leaf
+ * LATTICE gaps — so the look-back gate composes solid bars instead of a see-through
+ * lattice. This drives free-roam to the target, serializes, then runs the
+ * phasePlacements call-list trace with PLACEMENTS_INPLACE=false (forward step).
+ */
+async function phaseGateCapList(c: HostClient): Promise<void> {
+  const gx = Number(process.argv[3]), gy = Number(process.argv[4]), facing = Number(process.argv[5]);
+  const outFile = process.argv[6] ?? `/tmp/wiz6-gatecaplist-${gx}-${gy}-${facing}.json`;
+  if (![gx, gy, facing].every(Number.isFinite)) { console.log('usage: gatecaplist <gx> <gy> <facing> [out]'); return; }
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const { block } = loadLevel0();
+  const path = pathTo(block, ENGINE_ENTRANCE, { gx, gy, facing });
+  if (!path) { console.log('target unreachable under movement.ts — abort'); return; }
+  console.log(`gatecaplist gx${gx} gy${gy} f${facing}; path=[${path.join(',')}]`);
+  const base = await driveToFreeRoam(c);
+  const ent = '/tmp/wiz6-gatecap-ent.state';
+  await c.serialize(ent);
+  await c.unserialize(ent); await c.step(2);
+  const b = await c.anchor();
+  await frDrivePath(c, b, path);
+  const at = await frParty(c, b);
+  console.log(`arrived: gx${at.gx} gy${at.gy} f${at.f} gs${at.gs} span${at.sp}`);
+  if (at.gx !== gx || at.gy !== gy || at.f !== facing) { console.log('POSITION MISMATCH — abort'); return; }
+  // Verify a forward step MOVES (the trace needs a real full-recompose, not a bump).
+  const before = await frParty(c, b);
+  const moved = await frMove(c, b, 'up');
+  const after = await frParty(c, b);
+  console.log(`forward-step probe: moved=${moved} (gy${before.gy}->gy${after.gy})`);
+  // Re-arrive at the target (the probe consumed one step), then serialize.
+  await c.unserialize(ent); await c.step(2);
+  const b2 = await c.anchor();
+  await frDrivePath(c, b2, path);
+  await c.step(80);
+  const st = '/tmp/wiz6-gatecap-target.state';
+  await c.serialize(st);
+  // Run the full call-list trace via the FORWARD-STEP (full-recompose) trigger.
+  PLACEMENTS_STATE = st;
+  PLACEMENTS_INPLACE = false;
+  PLACEMENTS_FB_OUT = `/tmp/wiz6-gatecaplist-${gx}-${gy}-${facing}.fb`;
+  FORWARD_KEY = 'up';
+  process.argv[3] = outFile;
+  await phasePlacements(c);
+}
+
 /** Multi-target span-list capture: ONE cold-boot, serialize the entrance free-roam
  *  frame, then navigate to each (gx,gy,facing) and dump its settled 0x50d0 list. */
 async function phaseSpanListMulti(c: HostClient): Promise<void> {
@@ -3845,6 +3893,7 @@ async function main() {
     else if (phase === 'deepdoor') await phaseDeepDoor(c);
     else if (phase === 'deepdoorspans') await phaseDeepDoorSpans(c);
     else if (phase === 'spanlist') await phaseSpanList(c);
+    else if (phase === 'gatecaplist') await phaseGateCapList(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
