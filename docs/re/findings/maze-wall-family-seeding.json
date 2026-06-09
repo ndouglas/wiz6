@@ -297,5 +297,38 @@
       "docs/re/findings/maze-views/freeroam-gx127-gy121-f1-callist.json (re-captured full recompose)"
     ],
     "honest_confidence": "The three OR-direct laws fix the VOID (eyeball-confirmed recognizable corridors/walls) and hold all gated byte-exact + subset tests. They are NOT byte-exact pixel reproductions \u2014 the dither phase and the engine's masked-mirror side-wall/door-recess families (gx124gy121f0 sides, gx127gy123f1 archway) remain the documented decompiler-resistant residue. Pixel floors are dither-capped; the STRUCTURAL gate is call-list-set near-subset + no-garbage + eyeball."
+  },
+  "lookback_headon_door_fix_2026_06_09": {
+    "subagent_run": "2026-06-09 (fix the LOOK-BACK view: turning around to face the entrance gate the party came through)",
+    "summary": "Fixed the user-reported 'looking back at the entrance gates renders wrong (closed green portcullis with a BLACK GAP between it and the right wall)'. Drove the engine to TRUE free-roam (turn-unlock per maze-freeroam-nav.json), turned to facing 2 at gx127 gy121 and gy122, settled (+60 frames), captured the framebuffer (byte-identical on re-capture = SETTLED ground truth) + call-list. ROOT CAUSE: the generator did NOT treat a DOOR (north=3) viewed HEAD-ON (facing 2/3) as an occluder. computeVisibleDepths only occluded front==3 when BOTH side corners were stone (a corner-framed closed doorway). The look-back door at gy121 has OPEN side corners (the entry corridor), so the generator ran the depth walk to depth 3 \u2014 rendering a deep receding corridor with the right stone wall (cornerR=2 from d1) drawn as a partial/black surface = the user's 'black gap', and the gate floating small/deep instead of near. FIX: a head-on door (front==3 && facing in {2,3}) OCCLUDES at its depth (the head-on read direction is classify.ts law (4): facings 2/3 read a door's FRONT face = a closed gate; facings 0/1 read its BACK face). EYEBALL-confirmed vs the engine .png: gy121-f2 caps at depth 0 (the gate fills the viewport, near + large) and gy122-f2 caps at depth 1 (the gate recessed into the far wall at the corridor end). The black void is GONE; the gate is centred + stone-framed; no spurious wrong-angle walls.",
+    "laws": [
+      {
+        "id": "head-on-door-occludes",
+        "claim": "A door (forward-edge code 3) viewed HEAD-ON \u2014 facing 2 (a north-door's south/-cellA face) or facing 3 (a west-door's east/-cellB face) \u2014 is a CLOSED gate that OCCLUDES the view at its depth, even when BOTH side corners are OPEN. The PRIOR rule (front==3 occludes only when isSolid(cornerL) && isSolid(cornerR), the corner-framed closed doorway) left the open-corridor look-back door see-through. frontOccludes() now takes a `headon` flag (facing===2||facing===3) and returns true for any head-on front==3. Facings 0/1 read a door's BACK face and still do NOT occlude on a plain front==3 (the corner-framed case is unchanged). generateFarClosedWall() likewise extended: a head-on door at a deep stop draws the closed-front near-wall family {leaf,83,87}+stop (the gate's stone frame + recess) so the corridor end is the gate, not a void.",
+        "validation": "NO existing capture has a head-on door (v1/v2/v5/v6 + all 6 prior freeroam views are facing 0/1/3 with front==3 only at NON-head-on facings; verified by enumeration). So this rule fires ONLY for the two new look-back views and regresses NOTHING (475 parser tests green, all prior byte-exact + subset gates unchanged). gx127gy121f2: visibleDepths [0,1,2,3]->[0], OR {0,83,87,122,150,strips}, render 62.44%, gate fills viewport (eyeball). gx127gy122f2: visibleDepths [0,1,2,3]->[0,1], far-closed {1,84,88}, render 47.72%, gate at corridor end (eyeball).",
+        "confidence": "high (eyeball vs settled engine framebuffer + no-regression on all prior captures + the head-on read direction is the asm-grounded classify.ts law (4))"
+      }
+    ],
+    "per_view_result": [
+      {
+        "view": "gx127-gy121-f2",
+        "before": "deep receding corridor, BLACK GAP on the right (cornerR=2 stone partial), gate floating small/deep",
+        "after": "head-on door caps at depth 0; closed-front gate family {0,83,87} fills the centre (near gate + stone frame). 12308px (62.44%). void GONE (eyeballed)",
+        "residue": "colourful portcullis-LEAF detail (door-recess 17-34) + engine near-flank masked side walls are decompiler-resistant; placement 0 (img0) draws the gate FACE structurally"
+      },
+      {
+        "view": "gx127-gy122-f2",
+        "before": "corridor running PAST the gate to depth 3, BLACK VOID on the right",
+        "after": "head-on door caps at depth 1; far-closed gate family {1,84,88} recesses the gate into the far wall, side walls frame the corridor. 9406px (47.72%). void GONE (eyeballed)",
+        "residue": "door-leaf detail (5-34) + side-wall panels one-slot-off vs engine (132/135/136/139/140/144) = structural recede, not garbage; dither"
+      }
+    ],
+    "artifacts": [
+      "packages/parser/src/maze/callist.ts \u2014 frontOccludes(front,cL,cR,headon) + computeVisibleDepths (headon flag) + generateFarClosedWall (head-on door case).",
+      "packages/parser/tests/maze/maze-freeroam-parity.test.ts \u2014 2 new cases (gx127-gy121-f2, gx127-gy122-f2) with floors + allowedSpurious + residue.",
+      "tools/parity/fixtures/engine/maze-freeroam-gx127-gy12{1,2}-f2.idx.gz + .png (SETTLED engine framebuffers).",
+      "docs/re/findings/maze-views/freeroam-gx127-gy12{1,2}-f2-callist.json (engine call-lists; gy122 = clean 38-OR full recompose, gy121 = masked-heavy oscillating)."
+    ],
+    "honest_confidence": "The head-on-door occlusion law fixes the look-back VOID/gap (eyeball-confirmed near + far gate, no void, no wrong-angle walls) and regresses nothing (no prior capture exercises a head-on door). NOT byte-exact: the colourful portcullis-leaf detail (door-recess families) + the engine's masked-mirror near-flank/side-wall surfaces are the same decompiler-resistant residue that caps gx127gy123f1. The STRUCTURAL gate (head-on occlusion + closed-front/far-closed gate family + no-garbage subset) + eyeball is the success measure; pixel parity is dither + door-recess capped."
   }
 }
