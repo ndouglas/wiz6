@@ -4,37 +4,48 @@
  * SOURCE PATH: live engine capture (NOT offline decode).
  *
  * WHY NOT OFFLINE:
- *   The atlas (piece descriptor table + 4-plane 8x8 source cells) lives in a
- *   segment that is filled at boot by a .pic RLE decode into one of the segs
- *   0x4e0e/0x4f8e/0x514e/0x540e/0x550e/… (10 whole-file decodes, see
- *   docs/re/findings/maze-texture-decode.json "decompressor-is-pic-rle-decoder-relocated").
- *   The SOURCE FILE whose decode fills that segment is NOT yet identified (listed
- *   as an open question in maze-texture-decode.json). Without the file name we
- *   cannot reproduce the decode offline. Therefore we read the atlas from a
- *   committed serialized engine state (tools/libretro/states/maze-corridor.state)
- *   using the HostClient read() API (nightly core — no tracing required).
+ *   The atlases (per-tile piece-descriptor table + 4-plane 8x8 source cells) live
+ *   in segments filled at boot by a .pic RLE decode (the 10 whole-file decodes,
+ *   see docs/re/findings/maze-texture-decode.json). The SOURCE FILE is not
+ *   identified — but we do not need it: we read the DECODED atlas straight from
+ *   the engine.
  *
- * HOW WE FIND THE SEGMENT:
- *   The descriptor table format at the source seg is:
- *     per piece p (1-indexed): entry at (p-1)*0x18 = {srcPtr(u16), w(cells),
- *     h(cell-rows), presenceBitmap[0x14 bytes]}
- *   From docs/re/findings/maze-stage1-compositor.json
- *   (compositor-bridge-walltype-depth-to-piece-source) piece 0xb is:
- *     {srcPtr=0x1cd8, w=4, h=6, bitmap=ff ff ff...}
- *   We search for the 0xb-entry signature (starting at desc_base + 0xf0 = 0xa*0x18):
- *     d8 1c 04 06 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
- *   That locates the descriptor TABLE base = match - 0xf0. The full 0x4000-byte
- *   atlas = 0x4000 bytes from that table base.
+ * THE PER-TILE SELECTION (#079 — the key RE):
+ *   The wall compositor (ega.drv FUN_1c94, entry 10) selects which atlas +
+ *   descriptor table to use per call by its `tile` arg ([bp+0xc] = span.walltype):
+ *     descSeg = cs:[0x169] + cs:[0x17a + 2*tile]
+ *   cs:[0x169] is the atlas BASE segment; cs:[0x17a+2*tile] is the per-tile
+ *   descriptor-table pointer (BYTE offset >> 4 actually a paragraph delta). For the
+ *   corridor frame: cs:[0x169]=0x4e0e and the tile segs are
+ *   tile0=0x4e0e, tile1=0x4f8e, tile2=0x514e. The corridor solid walls draw tile 2;
+ *   the non-corridor wall cases (front-walls / far-shapes) draw tile 0 and tile 1.
+ *   docs/re/findings/maze-tile-atlas-extract.json.
+ *
+ * THE STALENESS GOTCHA:
+ *   A SETTLED-state read() of these segments returns STALE/overwritten bytes (the
+ *   buffers are re-decoded per FUN_1c94 group; see maze-texture-decode.json
+ *   source-region-decode-not-stone). The descriptor table + atlas are only valid
+ *   AT a FUN_1c94 hit. So we CAPTURE each tile segment ON BREAKPOINT (the patched
+ *   tracing core's capture-on-breakpoint armed at the relocated FUN_1c94 entry).
+ *   This is also why we DRIVE A FRESH BOOT rather than unserialize a committed
+ *   state: the patched (tracing) core cannot unserialize the committed states
+ *   (`err unser`), but it CAN drive a fresh boot into the corridor + trace.
+ *
+ * VALIDATION:
+ *   - The captured tile-2 atlas is byte-identical to the previously-committed
+ *     tile-2 atlas (cross-check piece 0xb {srcPtr=0x1cd8,w4,h6}, 0xe {0x22d8,w4,h5}).
+ *   - The captured tile-0/1/2 segments are byte-identical across two fresh-boot
+ *     runs (reproducible, not heap noise).
+ *   - Each tile's pieces decode (4-plane EGA cell format) to recognizable dithered
+ *     stone wall textures, eyeballed via the per-piece PNGs.
  *
  * OUTPUT: packages/parser/src/maze/__fixtures__/maze-assets.json
  *   {
- *     "source":  "engine-capture",
- *     "stateFile": "tools/libretro/states/maze-corridor.state",
- *     "atlasB64": "<base64 of 0x4000 bytes>",
- *     "pieceDescriptors": [
- *       { "srcPtr": N, "w": N, "h": N, "bitmapB64": "<base64 of 0x14 bytes>" },
- *       ...  (0x18 descriptors, pieces 1..0x18)
- *     ]
+ *     "source": "engine-capture",
+ *     "atlasB64": "<tile-2 atlas, 0x4000 B — BACK-COMPAT default>",
+ *     "pieceDescriptors": [ {srcPtr,w,h,bitmapB64}, ... 0x18 ],  // tile-2
+ *     "atlasByTile": { "0": {atlasB64, pieceDescriptors}, "1": {...}, "2": {...} },
+ *     "mazedataB64": "<raw mazedata.ega file bytes>"
  *   }
  *
  * Usage (run once; the output is committed):
@@ -46,135 +57,156 @@ import { resolve } from 'node:path';
 import { HostClient } from '../../packages/mcp/src/live/host-client.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
-const STATE_FILE = resolve(REPO_ROOT, 'tools/libretro/states/maze-corridor.state');
 const OUT_FILE = resolve(REPO_ROOT, 'packages/parser/src/maze/__fixtures__/maze-assets.json');
 const MAZEDATA_FILE = resolve(REPO_ROOT, 'test-fixtures/original/mazedata.ega');
 
-const PIECE_COUNT = 0x18;     // 24 pieces total in the descriptor table
-const ATLAS_SIZE  = 0x4000;   // 16 KiB — the full descriptor seg snapshot
-const DESC_STRIDE = 0x18;     // bytes per descriptor entry
+const PIECE_COUNT = 0x18;   // 24 descriptors per tile
+const ATLAS_SIZE = 0x4000;  // 16 KiB descriptor-table+source-cell segment
+const DESC_STRIDE = 0x18;
 
-// Known signature for piece 0xb (the left-wall face piece), verified in
-// docs/re/findings/maze-stage1-compositor.json (compositor-bridge finding):
-//   offset in table: (0xb - 1) * 0x18 = 0xf0
-//   bytes: srcPtr=0x1cd8 (d8 1c LE), w=4 (cells), h=6 (rows), bitmap=ff*24 bytes (all-present)
-// NOTE: the bitmap is 0x14 bytes per descriptor, only the first 3 bytes used for
-// a 4x6 = 24-cell piece (all bits set = all cells present). The remaining 0x11
-// bytes are padding zeros in the engine record.
-const SIG_PIECE_B  = Uint8Array.from([
-  0xd8, 0x1c, 0x04, 0x06, // srcPtr=0x1cd8, w=4, h=6
-  0xff, 0xff, 0xff,        // bitmap bytes 0..2 (24 cells, all present)
-]);
-const SIG_PIECE_B_OFFSET = (0xb - 1) * DESC_STRIDE; // = 0xf0
-
-function toHex(b: Uint8Array): string {
-  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join(' ');
-}
+const RENDER_SIG = '558bec83c4f056a1a44f8946fea1a24f';
+const SIG_OFFSET = 0x4ad7;
+const FWD = 'enter';
+// Tiles to extract: the three wall tiles (0/1/2). Tiles 3..7 are other graphics
+// (e.g. tile 4 = a shared font/UI heap, decodes to readable text — NOT walls).
+const WALL_TILES = [0, 1, 2];
 
 function u16(buf: Uint8Array, off: number): number {
   return (buf[off]! | (buf[off + 1]! << 8)) & 0xffff;
 }
+function toHex(b: Uint8Array): string {
+  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join(' ');
+}
+
+async function driveToMaze(c: HostClient): Promise<void> {
+  await c.step(3000);
+  await c.key('enter', 'tap'); await c.step(800);
+  for (let i = 0; i < 3; i++) {
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('enter', 'tap'); await c.step(60);
+    await c.key('up', 'tap'); await c.key('up', 'tap'); await c.key('up', 'tap');
+    await c.step(60);
+  }
+  await c.key('down', 'tap'); await c.key('down', 'tap'); await c.key('down', 'tap');
+  await c.step(60);
+  await c.key('enter', 'tap'); await c.step(200);
+  await c.key('enter', 'tap'); await c.step(200);
+  await c.key('enter', 'tap'); await c.step(400);
+  for (let i = 0; i < 6; i++) {
+    await c.key('enter', 'down'); await c.step(20);
+    await c.key('enter', 'up'); await c.step(60);
+  }
+}
+async function forceRedraw(c: HostClient): Promise<void> {
+  await c.key(FWD, 'down'); await c.step(20);
+  await c.key(FWD, 'up'); await c.step(60);
+}
+
+function parseDescriptors(atlas: Uint8Array) {
+  const descs: Array<{ srcPtr: number; w: number; h: number; bitmapB64: string }> = [];
+  for (let p = 1; p <= PIECE_COUNT; p++) {
+    const off = (p - 1) * DESC_STRIDE;
+    descs.push({
+      srcPtr: u16(atlas, off),
+      w: atlas[off + 2]!,
+      h: atlas[off + 3]!,
+      bitmapB64: Buffer.from(atlas.slice(off + 4, off + 4 + 0x14)).toString('base64'),
+    });
+  }
+  return descs;
+}
 
 async function main(): Promise<void> {
-  console.log(`booting harness...`);
+  console.log('booting harness + driving to maze (fresh boot)…');
   const c = new HostClient();
   try {
-    // Boot the harness (runs a few frames of initialization).
-    await c.step(3000);
+    await driveToMaze(c);
+    const sigPhys = await c.find(RENDER_SIG);
+    if (sigPhys < 0) throw new Error('render signature not found — not in the maze view');
+    const ovl = sigPhys - SIG_OFFSET;
+    console.log(`OVL base = 0x${ovl.toString(16)} (expect ~0x4784)`);
 
-    // Restore the committed corridor state.
-    console.log(`unserializing ${STATE_FILE}...`);
-    await c.unserialize(STATE_FILE);
-    await c.step(2);
+    // Locate the relocated FUN_1c94 entry (heap-dependent; the documented value is
+    // 0x6d6a4 — probe a small set in case the heap differs).
+    let ENTRY = 0;
+    let entryRecs: Awaited<ReturnType<HostClient['traceDrain']>> = [];
+    for (const cand of [0x6d6a4, 0x6c6a4, 0x6e6a4, 0x6b6a4, 0x6f6a4, 0x6a6a4]) {
+      await c.traceSet(cand); await c.traceDrain();
+      await forceRedraw(c);
+      const recs = await c.traceDrain(); await c.traceOff();
+      if (recs.length > 0) { ENTRY = cand; entryRecs = recs; break; }
+    }
+    if (ENTRY === 0) throw new Error('FUN_1c94 entry not found at candidates');
+    const cs = entryRecs[0]!.cs;
+    console.log(`FUN_1c94 entry = 0x${ENTRY.toString(16)} (${entryRecs.length} hits) cs=0x${cs.toString(16)}`);
 
-    // --- Locate the descriptor table via the known piece-0xb signature ---
-    console.log(`searching for piece-0xb signature: ${toHex(SIG_PIECE_B)}...`);
-    const sigHex = Array.from(SIG_PIECE_B, (x) => x.toString(16).padStart(2, '0')).join('');
-    const sigPhys = await c.find(sigHex);
-    if (sigPhys < 0) throw new Error('piece-0xb signature not found in guest memory — wrong state or corrupted atlas');
-    const tableBase = sigPhys - SIG_PIECE_B_OFFSET;
-    const atlasSeg  = tableBase >> 4; // the segment value (lin = seg << 4)
-    console.log(`found piece-0xb sig at lin 0x${sigPhys.toString(16)}`);
-    console.log(`descriptor table base = 0x${tableBase.toString(16)} (seg 0x${atlasSeg.toString(16)})`);
-
-    // --- Read the atlas (0x4000 bytes from the table base) ---
-    console.log(`reading ${ATLAS_SIZE} bytes of atlas from lin 0x${tableBase.toString(16)}...`);
-    const atlas = await c.read(tableBase, ATLAS_SIZE);
-    console.log(`atlas read OK (${atlas.length} bytes)`);
-
-    // --- Parse + verify the descriptor table ---
-    console.log(`parsing ${PIECE_COUNT} piece descriptors...`);
-    const pieceDescriptors: Array<{ srcPtr: number; w: number; h: number; bitmapB64: string }> = [];
-    for (let p = 1; p <= PIECE_COUNT; p++) {
-      const off = (p - 1) * DESC_STRIDE;
-      const srcPtr   = u16(atlas, off);
-      const w        = atlas[off + 2]!;
-      const h        = atlas[off + 3]!;
-      const bitmap   = atlas.slice(off + 4, off + 4 + 0x14);
-      const bitmapB64 = Buffer.from(bitmap).toString('base64');
-      pieceDescriptors.push({ srcPtr, w, h, bitmapB64 });
-      if (p <= 6 || p === 0xb || p === 0xe) {
-        console.log(`  piece 0x${p.toString(16).padStart(2,'0')}: srcPtr=0x${srcPtr.toString(16)} w=${w} h=${h} bitmap[0..3]=${toHex(bitmap.slice(0,4))}`);
-      }
+    // Resolve cs:[0x169] + cs:[0x17a+2*tile] CAPTURED AT THE HIT (volatile in the
+    // transient copy — an idle read is stale).
+    await c.traceSet(ENTRY); await c.captureSet((cs << 4) + 0x160, 0x40, 0);
+    await forceRedraw(c);
+    const csWin = (await c.captureGet())!; await c.traceOff();
+    const atlasBaseSeg = u16(csWin, 0x169 - 0x160);
+    console.log(`cs:[0x169] atlas base seg = 0x${atlasBaseSeg.toString(16)}`);
+    const tileSeg: Record<number, number> = {};
+    for (let t = 0; t < 8; t++) {
+      const ptr = u16(csWin, 0x17a - 0x160 + 2 * t);
+      tileSeg[t] = (atlasBaseSeg + ptr) & 0xffff;
+    }
+    for (const t of WALL_TILES) {
+      console.log(`  tile ${t} descSeg = 0x${tileSeg[t]!.toString(16)} (lin 0x${(tileSeg[t]! << 4).toString(16)})`);
     }
 
-    // --- Cross-check the known RE-confirmed values ---
-    const pb = pieceDescriptors[0xb - 1]!;
-    const pe = pieceDescriptors[0xe - 1]!;
-    const bitmapB_raw = Buffer.from(pb.bitmapB64, 'base64');
-    console.log(`\nCross-check piece 0xb: srcPtr=0x${pb.srcPtr.toString(16)} w=${pb.w} h=${pb.h}`);
-    console.log(`  Expected: srcPtr=0x1cd8 w=4 h=6`);
-    if (pb.srcPtr !== 0x1cd8 || pb.w !== 4 || pb.h !== 6) {
-      throw new Error(`piece 0xb mismatch! Expected srcPtr=0x1cd8 w=4 h=6, got srcPtr=0x${pb.srcPtr.toString(16)} w=${pb.w} h=${pb.h}`);
+    // Capture each wall tile's segment ON BREAKPOINT (valid only at the hit).
+    const atlasByTile: Record<string, { atlasB64: string; pieceDescriptors: ReturnType<typeof parseDescriptors> }> = {};
+    for (const t of WALL_TILES) {
+      const seg = tileSeg[t]!;
+      await c.traceSet(ENTRY); await c.captureSet(seg << 4, ATLAS_SIZE, 0);
+      await forceRedraw(c);
+      const atlas = (await c.captureGet())!; await c.traceOff();
+      if (atlas.length !== ATLAS_SIZE) throw new Error(`tile ${t} capture wrong size ${atlas.length}`);
+      const descs = parseDescriptors(atlas);
+      atlasByTile[String(t)] = { atlasB64: Buffer.from(atlas).toString('base64'), pieceDescriptors: descs };
+      const d1 = descs[0]!;
+      console.log(`  tile ${t} captured: piece1 srcPtr=0x${d1.srcPtr.toString(16)} w=${d1.w} h=${d1.h}; ${descs.filter((d) => d.w > 0 && d.h > 0).length}/${PIECE_COUNT} non-empty`);
     }
-    console.log(`  OK ✓`);
-    console.log(`Cross-check piece 0xe: srcPtr=0x${pe.srcPtr.toString(16)} w=${pe.w} h=${pe.h}`);
-    console.log(`  Expected: srcPtr=0x22d8 w=4 h=5`);
-    if (pe.srcPtr !== 0x22d8 || pe.w !== 4 || pe.h !== 5) {
-      throw new Error(`piece 0xe mismatch! Expected srcPtr=0x22d8 w=4 h=5, got srcPtr=0x${pe.srcPtr.toString(16)} w=${pe.w} h=${pe.h}`);
-    }
-    console.log(`  OK ✓`);
-    void bitmapB_raw;
 
-    // --- Verify bitmaps are non-zero (sanity check against reading garbage) ---
-    let nonZeroDescs = 0;
-    for (const d of pieceDescriptors) {
-      if (d.w > 0 || d.h > 0 || d.srcPtr > 0) nonZeroDescs++;
-    }
-    console.log(`\n${nonZeroDescs}/${PIECE_COUNT} descriptors have non-zero fields`);
-    if (nonZeroDescs < 4) throw new Error('too few non-zero descriptors — something is wrong with the read');
+    // --- Cross-check the tile-2 RE-confirmed pieces (the corridor wall faces) ---
+    const t2 = atlasByTile['2']!.pieceDescriptors;
+    const pb = t2[0xb - 1]!, pe = t2[0xe - 1]!;
+    console.log(`\nCross-check tile-2 piece 0xb: srcPtr=0x${pb.srcPtr.toString(16)} w=${pb.w} h=${pb.h} (expect 0x1cd8/4/6)`);
+    if (pb.srcPtr !== 0x1cd8 || pb.w !== 4 || pb.h !== 6) throw new Error(`tile-2 piece 0xb mismatch`);
+    console.log(`Cross-check tile-2 piece 0xe: srcPtr=0x${pe.srcPtr.toString(16)} w=${pe.w} h=${pe.h} (expect 0x22d8/4/5)`);
+    if (pe.srcPtr !== 0x22d8 || pe.w !== 4 || pe.h !== 5) throw new Error(`tile-2 piece 0xe mismatch`);
+    console.log('  tile-2 cross-check OK ✓');
 
-    // --- Read mazedata.ega (the from-asset background generator source) ---
-    console.log(`reading mazedata.ega from ${MAZEDATA_FILE}...`);
+    // --- mazedata.ega (the from-asset background generator source) ---
+    console.log(`reading mazedata.ega from ${MAZEDATA_FILE}…`);
     const mazedata = readFileSync(MAZEDATA_FILE);
     console.log(`mazedata.ega read OK (${mazedata.length} bytes)`);
 
-    // --- Write the JSON ---
-    mkdirSync(resolve(REPO_ROOT, 'packages/parser/src/maze/__fixtures__'), { recursive: true });
+    // tile-2 is the BACK-COMPAT default (atlasB64 / pieceDescriptors at top level).
+    const t2atlas = atlasByTile['2']!;
+    void toHex;
     const output = {
-      // Provenance header (used by loadMazeAssets and for audit).
       source: 'engine-capture' as const,
-      stateFile: 'tools/libretro/states/maze-corridor.state',
+      captureMethod: 'fresh-boot drive to corridor (state 5) on the patched tracing core; per-tile descriptor segment resolved via cs:[0x169]+cs:[0x17a+2*tile] captured at the FUN_1c94 hit; each tile segment captured ON BREAKPOINT (the settled-state read is stale).',
       captureNotes: [
-        'Atlas captured from committed serialized state (maze-corridor.state) using HostClient.read().',
-        'Segment located by searching for the piece-0xb descriptor signature (srcPtr=0x1cd8, w=4, h=6, bitmap=ff ff ff).',
-        'Cross-checked: piece 0xb {srcPtr=0x1cd8, w=4, h=6} and piece 0xe {srcPtr=0x22d8, w=4, h=5}',
-        'match docs/re/findings/maze-stage1-compositor.json (compositor-bridge-walltype-depth-to-piece-source).',
-        'The atlas is the full 0x4000-byte descriptor+source-cell segment; srcPtr in each descriptor',
-        'addresses the source 8x8 4-plane cells within this same buffer.',
-        'See tools/parity/render-maze-frame.ts for the descriptor/atlas format documentation.',
-        'mazedataB64 is the raw test-fixtures/original/mazedata.ega file bytes — the source for the',
-        'from-asset background generator (expandMazeData -> generateFullCallList -> composeCallList).',
+        'tile-2 atlas is byte-identical to the prior committed atlas (piece 0xb {0x1cd8,4,6}, 0xe {0x22d8,4,5}).',
+        'tile-0 (7 pieces), tile-1 (front-walls, 22 pieces) decode to recognizable dithered stone wall textures.',
+        'The compositor selects the per-tile atlas by each FUN_1c94 call.tile (= span.walltype).',
+        'See docs/re/findings/maze-tile-atlas-extract.json for the cs:[0x17a]/[0x169] resolution + validation.',
+        'mazedataB64 is the raw test-fixtures/original/mazedata.ega bytes (the from-asset background source).',
       ],
-      atlasB64: Buffer.from(atlas).toString('base64'),
+      atlasB64: t2atlas.atlasB64,
+      pieceDescriptors: t2atlas.pieceDescriptors,
+      atlasByTile,
       mazedataB64: Buffer.from(mazedata).toString('base64'),
-      pieceDescriptors,
     };
 
+    mkdirSync(resolve(REPO_ROOT, 'packages/parser/src/maze/__fixtures__'), { recursive: true });
     writeFileSync(OUT_FILE, JSON.stringify(output, null, 2));
     console.log(`\nwrote ${OUT_FILE}`);
-    console.log(`atlas size: ${atlas.length} bytes  pieces: ${pieceDescriptors.length}`);
-
+    console.log(`tiles: ${WALL_TILES.join(',')}  (each ${ATLAS_SIZE} B atlas + ${PIECE_COUNT} descriptors)`);
   } finally {
     c.close();
   }

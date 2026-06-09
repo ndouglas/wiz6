@@ -17,6 +17,7 @@ export { deriveCorridorSpans, refineSpanColumns, cornerSolidSeamIdx } from './bu
 export { generateCallList } from './flush.js';
 export {
   renderFrameFromGeometry,
+  renderFrameFromAssets,
   renderPieceCall,
   decodePieceToComposeBuffer,
   applyStore,

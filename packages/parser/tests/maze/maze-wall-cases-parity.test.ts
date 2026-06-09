@@ -31,15 +31,25 @@
  *   pnpm tsx tools/libretro/capture-maze-wall-spans.ts --check  (diff vs committed)
  *
  * ── GATED vs KNOWN-GAP ──
- * GATED (byte-exact): the empty cases + the tile-2 cases whose full span list was
- * captured (corridor solids + door recesses). KNOWN-GAP (documented, NOT gated):
- * cases whose drawn spans use tile-0/tile-1 pieces (front-walls / far-shapes). The
- * compositor renders any piece, but tile selects a DIFFERENT descriptor table +
- * source atlas (FUN_1c94 [bp+0xc] → cs:[0x17a+2*tile]+cs:[0x169]) — only the tile-2
- * atlas is committed (maze-assets.json). Capturing the tile-0/1 atlases needs a
- * LOAD-TIME pixel-source capture on the patched core (the settled-state atlas is
- * stale per maze-texture-decode.json) which cannot unserialize the committed
- * states (maze-background-fromasset.json). See docs/re/findings/maze-wall-cases-c2.json.
+ * GATED (byte-exact): the empty cases + the tile-2 cases (corridor solids + door
+ * recesses) + the tile-0/1 cases whose full span list was captured AND whose
+ * clip window is full-viewport (front-walls). The tile-0/1 atlases are now
+ * extracted + committed (#079): the FUN_1c94 tile arg selects atlasByTile[tile]
+ * (cs:[0x17a+2*tile]+cs:[0x169]); renderFrameFromAssets picks the per-tile atlas.
+ * The per-tile atlas was captured ON BREAKPOINT during the load compose (the
+ * settled read is stale) on the patched core via a fresh-boot drive — see
+ * tools/parity/extract-maze-assets.ts + docs/re/findings/maze-tile-atlas-extract.json.
+ *
+ * KNOWN-GAP (documented, NOT gated): two residual classes —
+ *   (a) per-span x-CLIP not ported: cases with a non-full clip window
+ *       (case-12/13/23/25/29/31 — clipLo/clipHi != 72/248). The compositor's
+ *       planar writer does not yet honor the cl-aware clip (maze-wall-cases-c2.json
+ *       per-span-x-clip-not-yet-ported). These overdraw beyond the window.
+ *   (b) span-list under-capture: a few full-clip tile-0/1 cases (case-00/03/09)
+ *       render ~95-98% — the captured span list misses the small centerpiece
+ *       pieces a front-wall recess emits at depth. The ATLAS is correct (other
+ *       tile-1 cases are byte-exact); the gap is the captured spans, not the atlas.
+ * See docs/re/findings/maze-wall-cases-c2.json + maze-tile-atlas-extract.json.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -48,7 +58,7 @@ import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MAZE_VIEWPORT, PLANE_STRIDE } from '@wiz6/data';
 import { generateCallList } from '../../src/maze/flush.js';
-import { renderFrameFromGeometry, type MazeSpan } from '../../src/maze/compositor.js';
+import { renderFrameFromAssets, type MazeSpan } from '../../src/maze/compositor.js';
 import { decodePageIndex } from '../../src/maze/page.js';
 import { loadMazeAssets } from '../../src/maze/assets.js';
 
@@ -81,6 +91,16 @@ const GATED_EXACT = new Set([
   'case-26',
   'case-27',
   'case-28',
+  // tile-0/1 substantive — NOW byte-exact via the per-tile atlas (#079): the
+  // FUN_1c94 tile arg selects atlasByTile[tile]; tile-0/1 atlases are extracted
+  // + committed. docs/re/findings/maze-tile-atlas-extract.json.
+  'case-07', // tile-1 front-wall (open-ahead)
+  'case-08', // tile-1 deadend@d1
+  'case-16', // tile-1 deadend@d3
+  'case-17', // tile-1 front-wall/corridor
+  'case-18', // tile-1+2 front-wall/left-open
+  'case-19', // tile-1+2 front-wall/right-open
+  'case-21', // tile-1 front-wall/right-open
   // empty (no wall spans — pure background, C3)
   'case-01',
   'case-02',
@@ -115,7 +135,7 @@ function renderViewport(spans: MazeSpan[], size: number, fill: number): Uint8Arr
       if ((fill >> p) & 1) page.fill(0xff, p * PLANE_STRIDE, (p + 1) * PLANE_STRIDE);
     }
   }
-  renderFrameFromGeometry(page, assets.atlas, assets.pieceDescriptors, generateCallList(spans, size));
+  renderFrameFromAssets(page, assets, generateCallList(spans, size));
   const full = decodePageIndex(page, 320, 200);
   const out = new Uint8Array(N);
   for (let r = 0; r < VH; r++)
@@ -153,8 +173,8 @@ describe('maze WALL-region pixel-parity (C2 gate, tolerance 0)', () => {
     });
   }
 
-  it('gates the expected set (5 tile-2 substantive + 10 empty = 15 cases)', () => {
+  it('gates the expected set (5 tile-2 + 7 tile-0/1 substantive + 10 empty = 22 cases)', () => {
     const gatedPresent = SPANS_DATA.cases.filter((c) => GATED_EXACT.has(c.id)).length;
-    expect(gatedPresent).toBe(15);
+    expect(gatedPresent).toBe(22);
   });
 });

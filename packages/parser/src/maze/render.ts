@@ -30,7 +30,7 @@ import type {
 import { classifyVisibleWalls } from './classify.js';
 import { deriveCorridorSpans } from './build.js';
 import { generateCallList } from './flush.js';
-import { renderFrameFromGeometry, type MazeSpan } from './compositor.js';
+import { renderFrameFromAssets, type MazeSpan } from './compositor.js';
 import { composeBackground } from './background.js';
 import { decodePageIndex } from './page.js';
 import { viewConfigKeyFor } from './view-config.js';
@@ -147,7 +147,7 @@ export function renderMazeViewport(
 
   // Stage 4: compositor — render wall pieces into a 4-plane EGA page
   const workPage = page ?? new Uint8Array(4 * PLANE_STRIDE);
-  renderFrameFromGeometry(workPage, assets.atlas, assets.pieceDescriptors, calls);
+  renderFrameFromAssets(workPage, assets, calls);
 
   // Stage 5: decode — 4-plane page -> 320×200 flat palette-index buffer
   const full = decodePageIndex(workPage, 320, 200);

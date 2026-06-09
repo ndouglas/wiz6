@@ -1,0 +1,74 @@
+{
+  "topic": "maze-tile-atlas-extract",
+  "subagent_run": "2026-06-09 (#079: extract the tile-0/tile-1 wall-texture atlases + wire per-tile selection into the wall rasterizer)",
+  "binaries": ["ega.drv"],
+  "tool": "PATCHED dosbox-pure tracing core (tools/libretro/dosbox_pure_libretro.dylib, build-core.sh) driven by HostClient (packages/mcp/src/live/host-client.ts): drive a FRESH BOOT to the corridor (state 5), trace the relocated FUN_1c94 entry, capture-on-breakpoint the cs-relative selection tables + each per-tile descriptor segment. Offline 4-plane EGA cell decode for eyeball validation. Render-side wiring in packages/parser/src/maze/{compositor,assets-decode,assets}.ts + packages/data/src/maze/render-schema.ts; gate maze-wall-cases-parity.test.ts.",
+  "confidence": "high",
+  "summary": "RESOLVED the long-open #079 blocker: the tile-0 and tile-1 wall-texture atlases are extracted, eyeball-validated as real dithered stone textures, committed, and wired into the wall rasterizer's per-tile atlas selection. RESULT: maze-wall-cases-parity.test.ts lifts from 15/32 to 22/32 byte-exact gated cases (the 7 newly-gated cases are tile-0/1 front-walls/far-shapes: case-07/08/16/17/18/19/21, all 100.00% wall-region byte-exact). THE KEY RE: FUN_1c94 (ega.drv entry 10) selects its descriptor-table+atlas segment per call as descSeg = cs:[0x169] + cs:[0x17a + 2*tile], where cs:[0x169] is the atlas BASE segment (=0x4e0e in the corridor frame) and cs:[0x17a+2*tile] is the per-tile paragraph delta. For the corridor: tile0 desc seg = 0x4e0e, tile1 = 0x4f8e, tile2 = 0x514e (matching the prior tile-2 finding). THE STALENESS GOTCHA (the reason this was blocked): cs:[0x169]/cs:[0x17a] AND the descriptor segments themselves are VOLATILE in the relocated transient copy — an idle/settled read() returns stale/overwritten bytes (per maze-texture-decode.json source-region-decode-not-stone). Both the selection words and each tile segment are valid ONLY at a FUN_1c94 hit, so they must be CAPTURED ON BREAKPOINT (the patched core's capture-on-breakpoint armed at the FUN_1c94 entry). The patched core cannot unserialize the committed states (err unser, the documented maze-background-fromasset.json wall) — but it CAN drive a fresh boot into the corridor + trace, which is the path taken (no committed-state load needed). VALIDATIONS: (a) the captured tile-2 atlas is BYTE-IDENTICAL to the previously-committed tile-2 atlas (0 diffs across 0x4000 B; piece 0xb {srcPtr 0x1cd8,w4,h6}, piece 0xe {0x22d8,w4,h5} cross-check passes). (b) the captured tile-0/1/2 segments are byte-identical across two independent fresh-boot runs (reproducible, not heap noise). (c) tile-0 (7 pieces) and tile-1 (22 pieces, the 3x5/2x3/1x2 perspective front-wall sequence) decode (4-plane EGA cell format) to recognizable dithered stone wall textures (eyeballed via per-piece PNGs). NOTE: not all 8 tile slots are walls — tile 4 (seg 0x550e) decodes to readable TEXT ('DBASIC3'/'BORDENG' with a blue UI frame) = a shared font/UI heap, NOT a wall atlas; tiles 5/6 are empty. Only tiles 0/1/2 are wall atlases (and they are exactly the tiles the 32 C1 wall-cases draw).",
+  "findings": [
+    {
+      "id": "per-tile-selection-cs169-cs17a",
+      "claim": "FUN_1c94 (ega.drv entry 10, the wall/sprite compositor) resolves its per-call descriptor-table + source-atlas segment as descSeg = cs:[0x169] + cs:[0x17a + 2*tile], where tile = the call's [bp+0xc] arg (= span.walltype). cs:[0x169] = the atlas BASE segment; cs:[0x17a + 2*tile] = a per-tile paragraph (>>4 segment) delta. Captured at a FUN_1c94 hit on a fresh-boot corridor frame: cs:[0x169]=0x4e0e; tile deltas {0:0x0, 1:0x180, 2:0x340, 3:0x600, 4:0x700, ...} -> tile segs {0:0x4e0e, 1:0x4f8e, 2:0x514e, 3:0x540e, 4:0x550e, ...}. The tile-2 seg 0x514e matches docs/re/findings/maze-stage1-compositor.json (the corridor draws tile 2). The resolved ds (after FUN_1c94's `mov ds,bx`) for the 2 corridor wall pieces was 0x514e = tile 2, confirming the selection.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0x1c94"},
+        "type": "live_capture_plus_byte_id",
+        "details": "tools/libretro/probe-tile-atlas.ts (+ the integrated tools/parity/extract-maze-assets.ts): drive fresh boot to state 5, find the wmaze render sig (OVL 0x4784), trace the relocated FUN_1c94 entry (lin 0x6d6a4, cs=0x6b91, 11 hits), capture-on-breakpoint the cs segment window [cs<<4+0x160, +0x40) at the first hit -> read cs:[0x169]=0x4e0e + cs:[0x17a+2t]. The corridor's resolved ds per FUN_1c94 call (traced at AFTER_DS = entry + (0x1cc9-0x1c94)) = 0x514e 0x514e = tile 2. AN IDLE read() of (cs<<4)+0x169 returned the STALE value 0x1c0 (wrong) — confirming the volatility; the capture-at-hit value 0x4e0e is correct."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "per-tile-segment-staleness-needs-capture-at-hit",
+      "claim": "The per-tile descriptor segments (0x4e0e/0x4f8e/0x514e) hold valid descriptor-table + 4-plane source cells ONLY at a FUN_1c94 hit; a settled/idle read returns stale/overwritten bytes (the buffers are re-decoded per group, per maze-texture-decode.json). An idle read of tile-2 seg 0x514e in a redrawn-then-settled frame decoded to garbage (p1: src=0xf801,w=248,h=248), while a capture-on-breakpoint of the same seg at the FUN_1c94 hit gave the correct descriptor table (p1: src=0x258,w=7,h=6; piece 0xb {0x1cd8,4,6}). So the c2 blocker ('tile-0/1 atlas cannot be captured from settled states') is RESOLVED not by re-minting states under the patched core, but by capturing each tile segment ON BREAKPOINT during a fresh-boot corridor redraw — the tile-0/1 descriptor tables + atlases are fully resident at that instant regardless of which tile the current frame draws (the cs:[0x17a] table holds all tiles' segs).",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "live_capture_plus_byte_id",
+        "details": "extract-maze-assets.ts: for each wall tile t in {0,1,2}, traceSet(FUN_1c94 entry) + captureSet(tileSeg<<4, 0x4000, 0) + forceRedraw + captureGet -> the 0x4000-byte segment snapshot. Parse 0x18 descriptors (srcPtr u16, w cells, h rows, presence-bitmap 0x14). tile-2 capture == prior committed tile-2 atlas: 0 byte diffs over 0x4000. tile-0/1/2 captures byte-identical across run1 vs run2 (cmp: IDENTICAL). Non-empty descriptor counts: tile-0 7/24, tile-1 22/24, tile-2 17/24."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "tile-atlases-decode-to-real-wall-textures",
+      "claim": "The tile-0 and tile-1 pieces decode (the cracked 4-plane EGA 8x8 32-byte cell format — egadrv-blit-internals.json / maze-texture-decode.json) to recognizable DITHERED STONE WALL TEXTURES, not noise. tile-1 piece 1 (3x5 = 24x40px) = a stone-block column with vertical mortar lines + a transparent right margin (a perspective front-wall face); tile-1 holds the receding 3x5 -> 2x3 -> 1x2 perspective sequence (4 such triads). tile-0 piece 3 (7x7 = 56x56px) = a dense dithered near-wall block face. tile-2 piece 0xb (the known corridor wall face) = a regular brick/mortar grid (byte-identical to the prior committed atlas). The colors render as EGA-default magenta/cyan (color 13/3) because the Wiz6 palette remap (13->grey etc.) is applied downstream; the mortar/stone STRUCTURE is unambiguous. CAVEAT (NOT-walls): tile 4 (seg 0x550e) decodes to readable TEXT ('DBASIC3'/'BORDENG' in a blue UI frame) = a shared font/UI graphics heap; tiles 5/6 are empty. Only tiles 0/1/2 are wall atlases — and those are exactly the tiles the 32 C1 wall-cases draw (per maze-wall-cases-c2.json per_case_table).",
+      "category": "graphics_source",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "offline_render_eyeball",
+        "details": "Offline 4-plane decode (G=cell[0..7], B=[8..15], R=[16..23], I=[24..31]; color=G|B<<1|R<<2|I<<3; 15=transparent; presence-bitmap rotating from bit0) of the captured tile segments -> per-piece PNGs (/tmp/tile{0,1,2}-piece*.png). tile1-piece1 = stone column w/ mortar + transparent edge; tile0-piece3 = dithered 56x56 block; tile2-pieceb = brick grid == prior committed. tile4-piece1 = the 'DBASIC3'/'BORDENG' UI text frame (NOT a wall) -> tile 4 excluded. WALL_TILES = [0,1,2] in extract-maze-assets.ts."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "wall-cases-lift-15-to-22",
+      "claim": "Wiring per-tile atlas selection (renderFrameFromAssets selects assets.atlasByTile[call.tile] per FUN_1c94 call, falling back to tile-2) lifts maze-wall-cases-parity.test.ts from 15/32 to 22/32 byte-exact gated cases. NEWLY BYTE-EXACT (tile-0/1, full-viewport clip): case-07 (45px), case-08 (45px), case-16 (320px), case-17 (247px), case-18 (1137px, tile1+2), case-19 (1172px, tile1+2), case-21 (234px) — all 100.00% wall-region. The tile-2 path is UNCHANGED (the committed top-level atlas == atlasByTile[2], byte-identical; case-04/15/26/27/28 still 100%). RESIDUAL GAPS (NOT a tile-atlas problem): (a) per-span x-CLIP not ported — case-12/13/23/25/29/31 carry a non-full clip window (clipLo/clipHi != 72/248) the compositor planar writer does not yet honor (the documented maze-wall-cases-c2.json per-span-x-clip residual); (b) span-list under-capture — case-00/03/09 have a FULL clip yet render ~95-98% because the captured span list misses the small centerpiece pieces a front-wall recess emits (the ATLAS is correct — other tile-1 cases are byte-exact — the gap is the captured spans).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "pixel_match",
+        "details": "32-case wall-region report (render spans onto all-0 + all-15 background pages; pixels identical = wall-overwritten = the wall region; compare to the C1 fixture crop). PASS 23/32 in the full report incl. degenerate empties; the GATE is 22 (5 tile-2 substantive + 7 tile-0/1 substantive + 10 true empties). The 6 FAILs split: case-12(75%)/29(53.6%)/31(64.1%) = tile-2 clip; case-13(89.6%)/23(87%)/25(88.5%) = tile-0/1 with non-full clip; case-00(97.8%)/03(95.7%)/09(96.4%) = tile-0/1 full-clip span-list under-capture (31/864 px off for case-09, localized adjacent-index diffs in the centerpiece)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "files_changed": [
+    "tools/parity/extract-maze-assets.ts (REWRITTEN: fresh-boot drive + capture-on-breakpoint per-tile atlas extraction; emits atlasByTile {0,1,2} + the back-compat top-level tile-2 atlas + mazedataB64)",
+    "tools/libretro/probe-tile-atlas.ts (NEW: standalone probe — resolve cs:[0x169]/cs:[0x17a+2*tile] + dump per-tile segments at-hit, for audit)",
+    "packages/data/src/maze/render-schema.ts (NEW TileAtlasSchema + MazeRenderAssets.atlasByTile: Record<tile, TileAtlas>; tile-2 atlas/pieceDescriptors kept as back-compat default)",
+    "packages/data/src/index.ts (export TileAtlasSchema/TileAtlas)",
+    "packages/parser/src/maze/assets-decode.ts (decode atlasByTile)",
+    "packages/parser/src/maze/assets.ts (loadMazeAssetsRaw passes through atlasByTile)",
+    "packages/parser/src/maze/compositor.ts (NEW renderFrameFromAssets — selects per-tile atlas by call.tile)",
+    "packages/parser/src/maze/render.ts (renderMazeViewport uses renderFrameFromAssets)",
+    "packages/parser/src/maze/index.ts (export renderFrameFromAssets)",
+    "packages/parser/src/maze/__fixtures__/maze-assets.json (regenerated: + atlasByTile {0,1,2}; tile-2 default byte-identical)",
+    "extracted/maze/assets.json (regenerated viewer copy: + atlasByTile)",
+    "packages/parser/tests/maze/maze-wall-cases-parity.test.ts (use renderFrameFromAssets; GATED_EXACT 15 -> 22; updated docstring)"
+  ],
+  "remaining_for_full_32": [
+    "Per-span x-CLIP (cl-aware) in the compositor planar writer — case-12/13/23/25/29/31 (clipLo/clipHi != 72/248). The naive bit-clip regresses complementary-clip cases (26/27); the fix is the cl-correct screen-x<->store-bit mapping (maze-wall-cases-c2.json per-span-x-clip-not-yet-ported). NOT a tile-atlas problem.",
+    "Span-list under-capture for the front-wall recess centerpieces — case-00/03/09 render ~95-98% on a FULL clip; the captured DGROUP 0x50d0 span list misses the small deep-depth pieces. Re-capture (tools/libretro/capture-maze-wall-spans.ts) to a fuller settle, or derive the BUILD-phase span emission (still uncloseable offline per maze-classify-gating.json). The atlas is correct."
+  ],
+  "caveat_for_prior_findings": "RESOLVES maze-wall-cases-c2.json's tile01-atlas-blocked-by-loadtime-capture-wall: the tile-0/1 atlas IS reachable — not from a settled state, and not requiring a re-mint under the patched core, but by capture-on-breakpoint of each per-tile segment during a FRESH-BOOT corridor redraw on the patched tracing core (cs:[0x17a] holds all tiles' segs regardless of the current frame's tile). CONFIRMS maze-stage1-compositor.json's compositor-bridge (the cs:[0x17a+2*tile]+cs:[0x169] selection; tile-2 seg 0x514e) and the 4-plane cell format (maze-texture-decode.json / egadrv-blit-internals.json). Does NOT contradict any prior finding; the per-span x-clip + span-build residuals remain exactly as maze-wall-cases-c2.json documents."
+}

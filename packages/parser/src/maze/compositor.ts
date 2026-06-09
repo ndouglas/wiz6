@@ -21,7 +21,7 @@
  *   - .js extensions on all relative imports (TS ESM)
  */
 
-import { PLANE_STRIDE, PAGE_ROW_BYTES, type PieceDescriptor } from '@wiz6/data';
+import { PLANE_STRIDE, PAGE_ROW_BYTES, type PieceDescriptor, type MazeRenderAssets } from '@wiz6/data';
 
 // Re-export PAGE_ROW_BYTES for callers that only import compositor.
 export { PLANE_STRIDE, PAGE_ROW_BYTES };
@@ -234,6 +234,34 @@ export function renderFrameFromGeometry(
   calls: CompositorCall[],
 ): void {
   for (const call of calls) {
+    const d = descriptors[call.piece - 1];
+    if (!d || d.w === 0 || d.h === 0) continue;
+    renderPieceCall(page, atlas, d, call);
+  }
+}
+
+/** Render a whole frame's wall pieces into `page`, selecting the SOURCE ATLAS +
+ *  DESCRIPTORS per call by the call's `tile` (= span.walltype). The engine's
+ *  FUN_1c94 resolves the per-tile descriptor-table + atlas segment via
+ *  cs:[0x17a+2*tile]+cs:[0x169] (docs/re/findings/maze-tile-atlas-extract.json);
+ *  here `assets.atlasByTile[tile]` holds each tile's extracted atlas. A tile not
+ *  present in atlasByTile (or a call with no tile) falls back to the tile-2
+ *  default (`assets.atlas`/`assets.pieceDescriptors`).
+ *
+ * @param page    4-plane EGA page (4 * PLANE_STRIDE bytes), pre-filled background
+ * @param assets  MazeRenderAssets from loadMazeAssets() (tile-2 default + atlasByTile)
+ * @param calls   CompositorCall[] from generateCallList() (each carries .tile)
+ */
+export function renderFrameFromAssets(
+  page: Uint8Array,
+  assets: MazeRenderAssets,
+  calls: CompositorCall[],
+): void {
+  for (const call of calls) {
+    const tile = call.tile ?? 2;
+    const ta = assets.atlasByTile[tile];
+    const atlas = ta?.atlas ?? assets.atlas;
+    const descriptors = ta?.pieceDescriptors ?? assets.pieceDescriptors;
     const d = descriptors[call.piece - 1];
     if (!d || d.w === 0 || d.h === 0) continue;
     renderPieceCall(page, atlas, d, call);
