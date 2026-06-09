@@ -19,10 +19,10 @@
  * maze-corridor-viewport-parity.test.ts, which must stay green). This gate proves
  * the GENERATED render reproduces the corridor through the wired path.
  *
- * Floor: ≥99.9% (19694/19712). The residual 18px is the deep-door-center detail —
- * a draw path beyond the OR/masked background blit (the pre-existing documented
- * residue, tracked in TODO; see callist.ts generateFullCallList docstring +
- * maze-corridor-fromasset-parity.diagnostic.test.ts). Do NOT relax below 99.9%.
+ * 100% (19712/19712, tol 0). The deep-door-center detail (#077) is now GENERATED:
+ * deriveDoorCenterpieceSpans emits the wt=1 far-door span at the vanishing point
+ * (CRACKED 2026-06-09 — docs/re/findings/maze-deepdoor-drawpath.json; the door
+ * piece animates seamIdx 5↔6, oracle = seam 5). The prior 18px residual is closed.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -72,7 +72,7 @@ describe('maze-corridor GENERATED free-roam parity (GATE — wired viewer path)'
     expect(assets.mazedata.length).toBe(102303);
   });
 
-  it('the WIRED free-roam render reaches ≥99.9% of the gy121 engine oracle', () => {
+  it('the WIRED free-roam render is byte-exact (100%) vs the gy121 engine oracle', () => {
     const assets = loadMazeAssets();
     // EXACTLY the viewer free-roam path: expand mazedata → generate calls → compose
     // page → renderMazeViewport with that page.
@@ -87,10 +87,26 @@ describe('maze-corridor GENERATED free-roam parity (GATE — wired viewer path)'
     let match = 0;
     for (let i = 0; i < N; i++) if (ours[i] === eng[i]) match++;
     const pct = (100 * match) / N;
-    if (pct < 99.9) console.error(`generated viewport ${match}/${N} = ${pct.toFixed(4)}%`);
-    expect(pct).toBeGreaterThanOrEqual(99.9);
-    // 19694/19712 — the same byte-exact reach the from-asset diagnostic hits; the
-    // 18px residual is the deep-door-center detail (documented TODO).
-    expect(match).toBe(19694);
+    if (pct < 100) console.error(`generated viewport ${match}/${N} = ${pct.toFixed(4)}%`);
+    // Byte-exact: the far-door centerpiece (#077) is now generated, closing the
+    // prior 18px deep-door residual.
+    expect(match).toBe(19712);
+  });
+
+  it('the door animates: phase 1 renders the alternate seam frame (the flicker)', () => {
+    const assets = loadMazeAssets();
+    const wb = expandMazeData(assets.mazedata);
+    const page0 = composeCallList(wb, generateFullCallList(BLOCK, CORRIDOR));
+    const phase0 = renderMazeViewport(BLOCK, CORRIDOR, assets, { page: page0, phase: 0 });
+    const page1 = composeCallList(wb, generateFullCallList(BLOCK, CORRIDOR));
+    const phase1 = renderMazeViewport(BLOCK, CORRIDOR, assets, { page: page1, phase: 1 });
+    // The two phases differ ONLY at the animating deep-door centerpiece (a tiny
+    // door-stile flicker) — a small, nonzero, LOCALIZED set of pixels.
+    let diff = 0;
+    for (let i = 0; i < phase0.length; i++) if (phase0[i] !== phase1[i]) diff++;
+    expect(diff).toBeGreaterThan(0); // it animates
+    expect(diff).toBeLessThan(8); // ...but only the door stile (the deep-door 1px region)
+    // Phase 0 stays the byte-exact oracle frame (asserted above); phase 1 is the
+    // valid alternate engine frame (seam 6 vs seam 5).
   });
 });

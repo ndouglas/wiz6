@@ -16,7 +16,9 @@
  */
 
 import { SEAMIDX_CORNER_SOLID_BASE } from '@wiz6/data';
+import type { MazeBlock, MazeParty } from '@wiz6/data';
 import type { MazeSpan } from './compositor.js';
+import { forwardEdge, step } from './maze-geometry.js';
 
 /** The seam-refinement law (span_append 0x3f8d): given the per-walltype seam
  *  tables (DGROUP 0x36e4 / 0x3717, stride 0x13a) and a span emitted with base
@@ -72,4 +74,60 @@ export function deriveCorridorSpans(
     }
   }
   return out;
+}
+
+const DOOR_CODE = 3;
+const SOLID_CODE = 2;
+/**
+ * The FAR-DOOR CENTERPIECE — the #077 "deep-door-center detail" (the door leaf at
+ * the corridor vanishing point). CRACKED 2026-06-09 (tools/libretro/trace-maze.ts
+ * `deepdoor` + `deepdoorspans`, docs/re/findings/maze-deepdoor-drawpath.json):
+ *
+ *   - It is a single FUN_1c94 (entry-10 masked wall compositor) span — walltype 1
+ *     (the tile-1 atlas), NOT a wt=2 corridor side-wall and NOT any of the 366
+ *     static mazedata.ega OR/masked placements (exhaustively ruled out).
+ *   - For the canonical gy121 corridor the engine's SETTLED span list (DGROUP
+ *     0x50d0) is EXACTLY this one span: x0=158 x1=68 clip=72/248 wt=1 df=2.
+ *   - The piece ANIMATES between seamIdx 5 and 6 (the long-mislabelled
+ *     "dither-phase" flicker); the committed maze-corridor.idx.gz oracle is the
+ *     seam=5 phase, so we emit seam 5 (byte-exact 19712/19712 — see
+ *     maze-corridor-generated-parity.test.ts).
+ *   - It only appears on a FULL arrival recompose; the in-place-turn DIRTY redraw
+ *     reuses the cached piece (which is why the gy121 call-list captured via an
+ *     in-place turn — and deriveCorridorSpans, which never emits wt=1 — both
+ *     dropped it, leaving the documented 18px gap).
+ *
+ * Geometry gate: a door (forwardEdge==3) seen from a NON-head-on facing (0/1) down
+ * an OPEN corridor renders as this far centerpiece. (Head-on facings 2/3 render a
+ * door as a wt=2 RECESS instead — classifyVisibleWalls.) Only the depth-2 far door
+ * is captured ground truth; other door depths await capture (TODO #077).
+ */
+export function deriveDoorCenterpieceSpans(
+  block: MazeBlock,
+  party: MazeParty,
+): MazeSpan[] {
+  const { gx, gy, facing } = party;
+  // Head-on facings render a door as a wt=2 recess (classifyVisibleWalls), not a
+  // far centerpiece. Only facings 0/1 read a door's far/back face.
+  if (facing === 2 || facing === 3) return [];
+  // Walk forward (same pull-back-then-advance as classifyVisibleWalls). Find the
+  // first forward door reached down an OPEN corridor; a solid front occludes first.
+  let [cgx, cgy] = step(gx, gy, facing, 0, -1);
+  for (let d = 0; d < 4; d++) {
+    [cgx, cgy] = step(cgx, cgy, facing, 0, 1);
+    const front = forwardEdge(block, cgx, cgy, facing);
+    if (front === DOOR_CODE) {
+      // Ground-truth far-door centerpiece (depth 2 only — see docstring).
+      if (d === 2) {
+        // seamIdx 5 (phase 0 = the maze-corridor oracle frame); the door flickers
+        // to seam 6 (phase 1) — the engine's global door-animation clock.
+        return [
+          { x0: 158, x1: 68, clipLo: 72, clipHi: 248, walltype: 1, seamIdx: 5, seamAlt: 6, depthField: 2 },
+        ];
+      }
+      return []; // other door depths: not yet captured (TODO #077)
+    }
+    if (front === SOLID_CODE) return []; // a solid wall occludes before any door
+  }
+  return [];
 }

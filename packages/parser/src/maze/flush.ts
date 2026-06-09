@@ -22,15 +22,22 @@ export type { MazeSpan, CompositorCall };
  *    for depth = SIZE..0:  for i = count-1..0:
  *      if span[i].depthField == depth && span[i].walltype != 0xff:
  *        emit(piece=seamIdx, x0, arg10=x1, tile=walltype)
- *  SIZE defaults to 4 (DGROUP 0x521e in the corridor). */
-export function generateCallList(spans: MazeSpan[], size = 4): CompositorCall[] {
+ *  SIZE defaults to 4 (DGROUP 0x521e in the corridor).
+ *
+ *  `phase` selects the door-piece ANIMATION frame: 0 = the span's `seamIdx`,
+ *  1 = its `seamAlt` (when present). The engine flickers door/recess pieces
+ *  between two adjacent atlas pieces on a global clock; a span with no seamAlt
+ *  is static. Parity fixtures render at phase 0 (their captured frame); the
+ *  viewer animates the phase. */
+export function generateCallList(spans: MazeSpan[], size = 4, phase: 0 | 1 = 0): CompositorCall[] {
   const out: CompositorCall[] = [];
   for (let depth = size; depth >= 0; depth--) {
     for (let i = spans.length - 1; i >= 0; i--) {
       const s = spans[i]!;
       if (s.depthField === depth && s.walltype !== 0xff) {
+        const piece = phase === 1 && s.seamAlt !== undefined ? s.seamAlt : s.seamIdx;
         out.push({
-          piece: s.seamIdx,
+          piece,
           x0: s.x0,
           arg10: s.x1,
           tile: s.walltype,

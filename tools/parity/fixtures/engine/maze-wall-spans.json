@@ -26,8 +26,9 @@
           "clipLo": 72,
           "clipHi": 248,
           "walltype": 1,
-          "seamIdx": 6,
-          "depthField": 2
+          "seamIdx": 5,
+          "depthField": 2,
+          "seamAlt": 6
         }
       ]
     },
@@ -72,8 +73,9 @@
           "clipLo": 72,
           "clipHi": 248,
           "walltype": 1,
-          "seamIdx": 3,
-          "depthField": 1
+          "seamIdx": 4,
+          "depthField": 1,
+          "seamAlt": 3
         }
       ]
     },
@@ -283,8 +285,9 @@
           "clipLo": 72,
           "clipHi": 248,
           "walltype": 1,
-          "seamIdx": 1,
-          "depthField": 0
+          "seamIdx": 2,
+          "depthField": 0,
+          "seamAlt": 1
         }
       ]
     },
@@ -331,31 +334,34 @@
       "depthBound": 4,
       "spans": [
         {
-          "x0": 0,
-          "x1": 0,
-          "clipLo": 0,
-          "clipHi": 0,
-          "walltype": 0,
-          "seamIdx": 0,
-          "depthField": 0
+          "x0": 93,
+          "x1": 65,
+          "clipLo": 72,
+          "clipHi": 104,
+          "walltype": 1,
+          "seamIdx": 3,
+          "depthField": 1,
+          "seamAlt": 4
         },
         {
-          "x0": 0,
-          "x1": 0,
-          "clipLo": 0,
-          "clipHi": 0,
-          "walltype": 0,
-          "seamIdx": 0,
-          "depthField": 0
+          "x0": 93,
+          "x1": 65,
+          "clipLo": 104,
+          "clipHi": 248,
+          "walltype": 1,
+          "seamIdx": 3,
+          "depthField": 1,
+          "seamAlt": 4
         },
         {
-          "x0": 0,
-          "x1": 0,
-          "clipLo": 0,
-          "clipHi": 0,
-          "walltype": 0,
-          "seamIdx": 0,
-          "depthField": 0
+          "x0": 190,
+          "x1": 68,
+          "clipLo": 192,
+          "clipHi": 248,
+          "walltype": 1,
+          "seamIdx": 5,
+          "depthField": 2,
+          "seamAlt": 6
         }
       ]
     },
@@ -461,8 +467,9 @@
           "clipLo": 72,
           "clipHi": 216,
           "walltype": 1,
-          "seamIdx": 4,
-          "depthField": 1
+          "seamIdx": 3,
+          "depthField": 1,
+          "seamAlt": 4
         },
         {
           "x0": 221,
@@ -470,8 +477,9 @@
           "clipLo": 216,
           "clipHi": 248,
           "walltype": 1,
-          "seamIdx": 4,
-          "depthField": 1
+          "seamIdx": 3,
+          "depthField": 1,
+          "seamAlt": 4
         },
         {
           "x0": 126,
@@ -479,8 +487,9 @@
           "clipLo": 72,
           "clipHi": 128,
           "walltype": 1,
-          "seamIdx": 6,
-          "depthField": 2
+          "seamIdx": 5,
+          "depthField": 2,
+          "seamAlt": 6
         }
       ]
     },
@@ -789,7 +798,8 @@
           "clipHi": 248,
           "walltype": 1,
           "seamIdx": 22,
-          "depthField": 1
+          "depthField": 1,
+          "seamAlt": 21
         },
         {
           "x0": 96,

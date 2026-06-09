@@ -1,0 +1,71 @@
+{
+  "topic": "maze-deepdoor-drawpath",
+  "subagent_run": "2026-06-09 (parent-driven live RE on the patched trace core; new trace-maze.ts phases `deepdoor` + `deepdoorspans`)",
+  "binaries": ["ega.drv", "wmaze.ovr"],
+  "tool": "tools/libretro/trace-maze.ts deepdoor / deepdoorspans (patched dosbox-pure core, dbp_wwatch/dbp_capture). Verified offline against the committed maze-corridor.idx.gz oracle.",
+  "summary": "CRACKED — the #077 '18px deep-door-center detail' (the door leaf at the canonical gy121 corridor's vanishing point, page bx19..20 y68..76 / viewport x86..90 y36..44) is a SINGLE FUN_1c94 (entry-10 masked 4-plane WALL compositor) span: walltype=1 (the tile-1 atlas), x0=158 x1=68 clip=72/248 depthField=2. It is NOT any of the 366 static mazedata.ega OR/masked placements (exhaustively ruled out by maze-callist-generation.json) and NOT a separate decoration subsystem (maze-decoration-drawpath.json). The engine's SETTLED span list (DGROUP 0x50d0) for gy121 is EXACTLY this one span. Adding it to the wt=1 wall-span generation reproduces the corridor BYTE-EXACT (19712/19712 = 100%, maze-corridor-generated-parity.test.ts), closing the long-standing 99.909% residual. KEY: the door piece ANIMATES between seamIdx 5 and 6 — this is the 'dither-phase' that capped several maze views and was mislabelled as texture noise; the committed maze-corridor.idx.gz oracle is the seam=5 phase. The reason every prior pass missed this draw path: (1) deriveCorridorSpans only ever emits wt=2 corridor side-walls, never a wt=1 centerpiece; (2) the gy121 call-list / wall-span captures were taken via an IN-PLACE TURN, which is a DIRTY recompose that reuses the cached deep piece and re-issues NO blit for it — so the captured list dropped it. The door only (re)draws on a FULL ARRIVAL recompose. And a forward step fires the build/OR-blit for the ORIGIN cell before the position updates, so the FULL recompose of frame gy121 is the forward step OUT of gy121 (gy121->gy122), NOT into it — the untried trigger that finally exposed the writer.",
+  "findings": [
+    {
+      "id": "deepdoor-is-one-fun1c94-wt1-span",
+      "claim": "The deep-door is a single FUN_1c94 (ega.drv entry-10 masked wall compositor) span with walltype=1 (tile-1 atlas), x0=158, x1=68, clipLo=72, clipHi=248, depthField=2. The `deepdoor` write-watch of the residue page region (bx19..20 y68..76) during a forward-step-OUT recompose found FUN_1c94's planar writer (ega.drv 0x1fcd/0x201c/0x206d/0x20be) firing fwd x252 / turn x9 (full-recompose-biased), with captured args bank=1 destX[lo=158,mid=68,hi=72] flags16=0 flags18=0. The writer's dest range 0x422d3..0x42414 decodes to page rows 68..76 cols 19..20 — exactly the residue region. `deepdoorspans` then read the SETTLED DGROUP 0x50d0 span list at gy121 and found EXACTLY one span: x0=158 x1=68 clip=72/248 wt=1 sm=6 df=2 (and the seam=5 twin on alternate frames).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0x1c94"},
+        "type": "live_write_watch_plus_settled_span_read",
+        "details": "/tmp/wiz6-deepdoor.json: fwd-only writers ega.drv@0x1fcd..0x20be (one per plane), fwd 252/225 vs turn 9; fun1c94Args [{bank:1,destXlo:158,destXmid:68,destXhi:72,flags16:0,flags18:0,descPtr:0xffb4},{bank:1,destXlo:157,destXmid:65,...,descPtr:0xffbe}]. /tmp/wiz6-deepdoorspans2.json: settled 0x50d0 list count=1, alternating [x0=158 x1=68 c=72/248 wt=1 sm=6 df=2] (8 hits) and [...sm=5...] (7 hits). The x0=157/sm=4/df=1 span seen during the forward step is the gy122 DESTINATION frame's door (one cell closer) — discard; it wrecks parity (19553/19712)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "seam-5-6-animation-is-the-dither-phase",
+      "claim": "The deep-door piece animates between seamIdx 5 and 6 (same x0/x1/wt/df). seamIdx selects the atlas sub-piece (generateCallList: piece = seamIdx), so the two phases differ by a ~1px door-stile detail at the vanishing point (screen x160 y68: index 5 vs 8). The committed maze-corridor.idx.gz oracle is the seam=5 phase: emitting seam=5 yields 19712/19712 (100%); seam=6 yields 19711/19712 (1px at viewport 88,36). This identifies the 'dither-phase' that capped several maze views (memory: 'DITHER-PHASE caps pixel parity ~84%, texture-noise phase') as, at least here, a real door-piece ANIMATION — a frozen single-frame fixture catches one phase (cf. wiz6-fixture-blink-phase).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "offline_pixel_diff_vs_oracle",
+        "details": "Verified offline (packages/parser): generateCallList([{x0:158,x1:68,clipLo:72,clipHi:248,walltype:1,seamIdx,depthField:2}]) over the generated OR background page (generateFullCallList) -> renderFrameFromAssets (tile-1 atlas) -> decode -> crop. seam=5: 19712/19712. seam=6: 19711/19712 (miss vx88,vy36 ours=8 eng=5). The DGROUP 0x50d0 settled read showed both phases recurring (sm=5 7x, sm=6 8x)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "why-prior-captures-missed-it",
+      "claim": "Every prior capture of the gy121 frame missed the deep-door because (a) it was taken via an IN-PLACE TURN, a DIRTY recompose that reuses the cached deep piece and re-issues NO FUN_1c94/FUN_0a93 blit for it (the `deepdoor` write-watch: door region writers fwd 252 vs turn 9), and (b) a FORWARD step fires the build/OR-blit for the ORIGIN cell before the position updates, so stepping INTO gy121 (the prior attempt, maze-callist-generation.json) renders the gy120 frame (37% of the gy121 oracle). The clean trigger is the forward step OUT of gy121 (gy121->gy122): the origin (gy121) gets a FULL recompose that re-draws the deep-door. deriveCorridorSpans separately never emits a wt=1 span (only wt=2 side-walls), so the GENERATION path also dropped it.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "ega.drv",
+        "type": "trigger_analysis",
+        "details": "trace-maze.ts phaseDeepDoor/phaseDeepDoorSpans drive cold-boot -> free-roam (driveToFreeRoam lands gx127 gy121 f0), serialize, then compare a forward-step-OUT (key 'up') vs an in-place turn (key 'left'). The off-screen compose page is PERSISTENT (cached), so the FINAL door-region bytes match between fwd and turn — only the WRITER tally (and the freshly-issued spans) reveal the full recompose. Cross-ref maze-callist-generation.json#in-place-redraw-is-dirty."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "generation-and-gate",
+      "claim": "PORTED + GATED. deriveDoorCenterpieceSpans (packages/parser/src/maze/build.ts) detects a forward door (forwardEdge==3) reached down an OPEN corridor from a NON-head-on facing (0/1; head-on 2/3 render a door as a wt=2 recess via classifyVisibleWalls) and emits the wt=1 far-door span. renderMazeViewport's generation branch now appends it. maze-corridor-generated-parity.test.ts asserts byte-exact 19712/19712 (was 19694). All 45 parser test files (499 tests) green; tsc clean; no regression in maze-freeroam-parity (31) or maze-wall-cases-parity (23). Only the depth-2 far door is captured ground truth; deriveDoorCenterpieceSpans emits ONLY for depth 2 and returns [] for other door depths (TODO #077 — capture more door-depth views to generalize the per-depth seam/x0/x1).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "n/a (port)",
+        "type": "test_gate",
+        "details": "packages/parser/src/maze/build.ts deriveDoorCenterpieceSpans; render.ts generation branch; maze-corridor-generated-parity.test.ts expect(match).toBe(19712)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "relation_to_prompt_lead": {
+    "prompt_hypothesis": "The #077 18px deep-door is 'a draw path beyond the OR/masked background blit' — possibly a runtime-clipped door piece or a separate door-leaf draw.",
+    "verdict": "CONFIRMED + RESOLVED. It IS beyond the OR/masked FUN_0a93 background blit — it is a FUN_1c94 (entry-10) WALL-compositor span (the same masked compositor that draws ordinary walls), walltype=1, which the OR/masked generator (generateFullCallList) and the wt2-only deriveCorridorSpans both omit. Not a NEW subsystem (consistent with maze-decoration-drawpath.json) — the already-known wall compositor, with a span class (the far-door wt=1 centerpiece) the generator did not emit."
+  },
+  "crack_or_blocker": {
+    "status": "CRACKED + ported + gated (byte-exact 19712/19712).",
+    "remaining": "Generalize deriveDoorCenterpieceSpans to door depths != 2 (only depth 2 captured for the GENERATION path). The seam 5<->6 ANIMATION phase flag is SHIPPED 2026-06-09: MazeSpan.seamAlt + generateCallList(spans,size,phase) + renderMazeViewport opts.phase (0=fixture frame, 1=alternate); the viewer (MazeView) toggles the phase every DOOR_ANIM_TICK_MS so the door flickers like the engine; parity gates render phase 0 (byte-exact). The wall-cases campaign re-captured 00/03/09/11/13 to byte-exact (30/32 gated) and tagged each with its seamAlt (both phases extracted from the spanlist variants — all wt=1 door spans toggle seam+-1 in sync on a global clock). case-12 (75%) / case-23 (96%) remain (structural residue beyond clip/seam)."
+  },
+  "symbol_map": [
+    {"space": "ega.drv", "offset": "0x1c94", "name": "ega_compose_and_blit_entry10", "note": "FUN_1c94 masked 4-plane wall compositor; draws the deep-door with bank=1 (tile-1 atlas), flags=0. Live relocated ~orBase(0x6ba10)+0x1c94 = 0x6d6a4. Planar writer stores at +0x1fcd/0x201c/0x206d/0x20be (one per plane)."},
+    {"space": "wmaze.ovr", "offset": "0x50d0", "name": "dgroup_span_list", "note": "settled wall-span list (count @0x50ce, 11-byte records). gy121 corridor = exactly 1 span (the deep-door, wt=1, alternating seam 5/6)."}
+  ],
+  "unresolved": [
+    "Per-depth far-door geometry (seam/x0/x1 for door depths 0/1/3) — only depth 2 captured. The gy122 destination frame (df=1) showed x0=157 sm=4; capture clean df!=2 far-door views to pin the per-depth law.",
+    "The seam 5<->6 animation cadence (how many frames per phase) is not pinned — only that both phases recur in the settled 0x50d0 read."
+  ],
+  "caveat_for_prior_findings": "RESOLVES maze-callist-generation.json#deep-door-residual-not-in-static-table (the '18px draw path beyond OR/masked' IS the FUN_1c94 wt=1 far-door span). CONSISTENT with maze-decoration-drawpath.json (no separate decoration subsystem; it is the ordinary wall compositor). RE-INTERPRETS part of the #084 'dither-phase' ceiling: at least the deep-door's contribution is a real seam 5<->6 piece animation, not texture noise."
+}

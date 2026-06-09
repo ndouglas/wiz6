@@ -38,6 +38,29 @@ interface CompositorStore {
   cl: number; // sub-byte X phase (the shr ax,cl convergence)
   bx: number; // set-mask (post not-bx)
   dx: number; // clear-mask (post xchg dl,dh)
+  clipLo?: number | undefined; // screen-x clip window lo (inclusive); columns left of this keep their page value
+  clipHi?: number | undefined; // screen-x clip window hi (exclusive); columns at/right of this keep their page value
+}
+
+/**
+ * The per-store screen-x CLIP mask. Each store writes a 16-bit word covering two
+ * page byte-columns (di and di+1 within the row, stride 0x28). EGA bit order: a
+ * byte's bit 7 is its leftmost pixel. So in the little-endian word `out`
+ * (= page[di] | page[di+1]<<8): bit b in 0..7 maps to screen-x = xbase+7-b (column
+ * di), and bit b in 8..15 maps to screen-x = xbase+23-b (column di+1). A set mask
+ * bit = pixel INSIDE [clipLo, clipHi) (written); a clear bit keeps the page's
+ * original pixel. Pieces with the full viewport clip (72/248) are unaffected in the
+ * cropped comparison; clipped pieces (e.g. 72/216) stop their overdraw at clipHi,
+ * and complementary pairs (72/216 + 216/248) tile the full width without overwrite.
+ */
+function clipWord(di: number, clipLo: number, clipHi: number): number {
+  const xbase = (di % 0x28) * 8;
+  let mask = 0;
+  for (let b = 0; b < 16; b++) {
+    const x = b < 8 ? xbase + 7 - b : xbase + 23 - b;
+    if (x >= clipLo && x < clipHi) mask |= 1 << b;
+  }
+  return mask & 0xffff;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +87,11 @@ export interface MazeSpan {
   walltype: number;   // 0xff = edge-marker (Pass A only); else FUN_1c94 tile index
   seamIdx: number;    // -> the FUN_1c94 piece byte (the descriptor index)
   depthField: number; // the depth this edge belongs to (flush matches 0x5040)
+  seamAlt?: number;   // ANIMATION 2nd-frame piece: the door/recess piece flickers
+                      // between seamIdx (phase 0) and seamAlt (phase 1). The engine
+                      // toggles a global clock; all animated spans toggle in sync.
+                      // Absent = static piece. See deriveDoorCenterpieceSpans + the
+                      // recaptured wall-cases (docs/re/findings/maze-deepdoor-drawpath.json).
 }
 
 // ---------------------------------------------------------------------------
@@ -75,16 +103,21 @@ export interface MazeSpan {
  * `atlas` is the source segment bytes (ds=0x6a0f base) for this store's group.
  */
 export function applyStore(page: Uint8Array, atlas: Uint8Array, s: CompositorStore): void {
-  const { si, di, cl, bx, dx } = s;
+  const { si, di, cl, bx, dx, clipLo, clipHi } = s;
+  // Per-store screen-x clip: outside [clipLo, clipHi) the page keeps its original
+  // pixel. cmask bit set = inside the window (written). Full window when unset.
+  const cmask = clipLo !== undefined && clipHi !== undefined ? clipWord(di, clipLo, clipHi) : 0xffff;
   for (let p = 0; p < 4; p++) {
     let ax = ((atlas[si + PLANE_SRC_OFF[p]!] ?? 0) << 8) & 0xffff; // ah:00
     ax = (ax >>> cl) & 0xffff; // shr ax,cl
     ax &= bx; // and ax,bx (set-mask)
     const merged = (((ax & 0xff) << 8) | ((ax >> 8) & 0xff)) & 0xffff; // xchg al,ah
     const base = p * PLANE_STRIDE + di;
-    let d = (page[base]! | (page[base + 1]! << 8)) & 0xffff;
-    d = (d & dx) & 0xffff; // and ax,dx (clear-mask)
-    const out = (d | merged) & 0xffff;
+    const orig = (page[base]! | (page[base + 1]! << 8)) & 0xffff;
+    let d = (orig & dx) & 0xffff; // and ax,dx (clear-mask)
+    let out = (d | merged) & 0xffff;
+    // Restore clipped-out pixels to the original page value.
+    if (cmask !== 0xffff) out = ((out & cmask) | (orig & ~cmask)) & 0xffff;
     page[base] = out & 0xff;
     page[base + 1] = (out >> 8) & 0xff;
   }
@@ -153,9 +186,9 @@ export function decodePieceToComposeBuffer(atlas: Uint8Array, d: PieceDescriptor
 
 /** One planar-writer column store with masks derived from cl + source
  *  transparency (the validated rcr build). */
-function applyStoreDerived(page: Uint8Array, buf: Uint8Array, si: number, di: number, cl: number): void {
+function applyStoreDerived(page: Uint8Array, buf: Uint8Array, si: number, di: number, cl: number, clipLo?: number, clipHi?: number): void {
   const { bx, dx } = deriveMasks(buf, si, cl);
-  applyStore(page, buf, { si, di, cl, bx, dx });
+  applyStore(page, buf, { si, di, cl, bx, dx, clipLo, clipHi });
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +229,10 @@ export function renderPieceCall(
   // Concretely (matching the asm): outer = h (cell-rows), middle = w (cells
   // across), inner = 8 (the 8 bytes of a cell's plane-0 = 8 screen rows).
   const w = d.w, h = d.h;
+  // Per-span screen-x clip (the engine's [bp+0x12]/[bp+0x14] window). Full-clip
+  // pieces (72/248) are unaffected within the cropped viewport; clipped pieces
+  // (e.g. 72/216) stop their overdraw, and complementary pairs tile cleanly.
+  const clipLo = call.clipLo, clipHi = call.clipHi;
   let si = 0;
   for (let cy = 0; cy < h; cy++) {
     const diOuter = (diColBase + cy * 0x140) & 0xffff;
@@ -203,7 +240,7 @@ export function renderPieceCall(
     for (let cx = 0; cx < w; cx++) {
       let di = diCol;
       for (let k = 0; k < 8; k++) {
-        applyStoreDerived(page, buf, si, di, cl);
+        applyStoreDerived(page, buf, si, di, cl, clipLo, clipHi);
         si = (si + 1) & 0xffff;
         di = (di + 0x28) & 0xffff;
       }

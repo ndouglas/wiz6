@@ -41,10 +41,12 @@
  * tools/parity/extract-maze-assets.ts + docs/re/findings/maze-tile-atlas-extract.json.
  *
  * KNOWN-GAP (documented, NOT gated): two residual classes —
- *   (a) per-span x-CLIP not ported: cases with a non-full clip window
- *       (case-12/13/23/25/29/31 — clipLo/clipHi != 72/248). The compositor's
- *       planar writer does not yet honor the cl-aware clip (maze-wall-cases-c2.json
- *       per-span-x-clip-not-yet-ported). These overdraw beyond the window.
+ *   (a) per-span x-CLIP — NOW PORTED 2026-06-09 (compositor `clipWord`): each store
+ *       keeps the page's original pixel outside [clipLo, clipHi), so complementary
+ *       clip pairs (72/216 + 216/248) tile cleanly instead of overdrawing. This
+ *       lifted case-25/29/31 to byte-exact (now GATED). case-12/13/23 improved
+ *       (75–96%) but carry ADDITIONAL residue (the seam-animation phase / extra
+ *       spans) — still not gated.
  *   (b) span-list under-capture: a few full-clip tile-0/1 cases (case-00/03/09)
  *       render ~95-98% — the captured span list misses the small centerpiece
  *       pieces a front-wall recess emits at depth. The ATLAS is correct (other
@@ -101,6 +103,21 @@ const GATED_EXACT = new Set([
   'case-18', // tile-1+2 front-wall/left-open
   'case-19', // tile-1+2 front-wall/right-open
   'case-21', // tile-1 front-wall/right-open
+  // per-span x-CLIP now honored (2026-06-09, compositor clipWord) — the
+  // complementary clip windows (e.g. 72/216 + 216/248) tile cleanly instead of
+  // overdrawing. These 3 are now byte-exact on the wall region.
+  'case-25',
+  'case-29',
+  'case-31',
+  // span-list RE-CAPTURED 2026-06-09 (trace-maze.ts spanlist, full settled list +
+  // matching seam-animation phase) — the committed spans now carry the complete
+  // complementary-clipped pieces + the oracle's door-seam phase. Byte-exact.
+  'case-00', // entrance deep-door — committed span set to the seam=5 phase (matches
+             // BOTH the wall-cases oracle and maze-corridor.idx.gz; the door animates 5↔6)
+  'case-03',
+  'case-09',
+  'case-11',
+  'case-13',
   // empty (no wall spans — pure background, C3)
   'case-01',
   'case-02',
@@ -173,8 +190,8 @@ describe('maze WALL-region pixel-parity (C2 gate, tolerance 0)', () => {
     });
   }
 
-  it('gates the expected set (5 tile-2 + 7 tile-0/1 substantive + 10 empty = 22 cases)', () => {
+  it('gates the expected set (6 tile-2 + 7 tile-0/1 + 3 clip + 4 recaptured + 10 empty = 30 cases)', () => {
     const gatedPresent = SPANS_DATA.cases.filter((c) => GATED_EXACT.has(c.id)).length;
-    expect(gatedPresent).toBe(22);
+    expect(gatedPresent).toBe(30);
   });
 });

@@ -28,7 +28,7 @@ import type {
   BackgroundPlacement,
 } from '@wiz6/data';
 import { classifyVisibleWalls } from './classify.js';
-import { deriveCorridorSpans } from './build.js';
+import { deriveCorridorSpans, deriveDoorCenterpieceSpans } from './build.js';
 import { generateCallList } from './flush.js';
 import { renderFrameFromAssets, type MazeSpan } from './compositor.js';
 import { composeBackground } from './background.js';
@@ -98,6 +98,10 @@ export interface RenderBackgroundOpts {
    * generation path — never throws.
    */
   capturedSpans?: CapturedSpansTable;
+  /** Door-piece ANIMATION frame: 0 = each span's seamIdx (the parity-fixture
+   *  phase), 1 = seamAlt where present. The viewer toggles this on a clock so the
+   *  door/recess pieces flicker like the engine; defaults to 0. */
+  phase?: 0 | 1;
 }
 
 /** Look up the captured case for a (block, party) view-config, or undefined.
@@ -132,17 +136,21 @@ export function renderMazeViewport(
   // view-cases) when this view-config matches a captured case; else fall back to
   // the generated corridor path (byte-exact for the straight corridor only).
   // Graceful: a missing/partial captured case never throws.
+  const phase = o.phase ?? 0;
   const captured = lookupCapturedCase(o.capturedSpans, block, party);
   let calls;
   if (captured) {
-    calls = generateCallList(captured.spans, captured.depthBound || 4);
+    calls = generateCallList(captured.spans, captured.depthBound || 4, phase);
   } else {
     // Stage 1: classify — per-depth solid-side flags
     const sides = classifyVisibleWalls(block, party);
-    // Stage 2: build — span list from solid sides + seam tables
+    // Stage 2: build — span list from solid sides + seam tables, PLUS the
+    // far-door centerpiece (the #077 deep-door, a wt=1 vanishing-point piece the
+    // wt=2 side-wall path never emits — see deriveDoorCenterpieceSpans).
     const spans = deriveCorridorSpans(sides, SEAM_X0_WT2, SEAM_X1_WT2);
+    spans.push(...deriveDoorCenterpieceSpans(block, party));
     // Stage 3: flush — compositor call-list from spans
-    calls = generateCallList(spans);
+    calls = generateCallList(spans, 4, phase);
   }
 
   // Stage 4: compositor — render wall pieces into a 4-plane EGA page

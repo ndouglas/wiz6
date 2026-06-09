@@ -2815,6 +2815,409 @@ async function phaseDecWatch(c: HostClient): Promise<void> {
   console.log(`\n-> ${outFile}`);
 }
 
+/**
+ * `deepdoor` — #077 18px DEEP-DOOR draw-path hunt. The canonical gy121 corridor
+ * renders 99.909% from the OR/masked call list (FUN_0a93/FUN_1c94); the 18px
+ * residual at page bx19..20 y68..76 (the door leaf at the corridor vanishing
+ * point) is NOT any of the 366 static mazedata.ega placements — a draw path
+ * BEYOND the captured call list (maze-callist-generation.json).
+ *
+ * THE TRAP (stated 3x in that finding, never acted on): an IN-PLACE turn
+ * recompose is DIRTY — it reuses cached deep pieces and NEVER redraws the
+ * deep-door. Only a FULL arrival recompose draws it. And a forward step fires the
+ * OR-blit for the ORIGIN cell BEFORE the position updates — so the FULL recompose
+ * of frame gy121 is the forward step OUT of gy121 (gy121->gy122), NOT the step
+ * INTO it. Prior passes only stepped INTO gy121 (renders gy120, 37% of the gy121
+ * oracle) or turned in place (dirty, drops the door). Forward-from-gy121 is the
+ * untried clean trigger.
+ *
+ * Method (drive free-roam to gy121 f0 — driveToFreeRoam lands there):
+ *   (1) VALIDATE: read the deep-door page bytes after a forward step vs an
+ *       in-place turn. The forward step must set the engine's deep-door bits the
+ *       turn drops (the finding's anchor: p0 y68 bx20 == 0x88 engine vs 0x08 dirty).
+ *   (2) ISOLATE: write-watch bx19..20 y68..76 during BOTH a forward step and an
+ *       in-place turn; a writer present on the forward step but ABSENT/rare on the
+ *       turn is the deep-door draw path (the differential the dead-end decwatch
+ *       could not see, because it only ever did an in-place turn).
+ *   (3) CHARACTERIZE: for the isolated writer, capture FUN_1c94 args (bank/destX/
+ *       flags/descPtr) and label it via the relocated OR base.
+ *
+ * Usage: pnpm tsx tools/libretro/trace-maze.ts deepdoor [out]
+ */
+async function phaseDeepDoor(c: HostClient): Promise<void> {
+  const outFile = process.argv[3] ?? '/tmp/wiz6-deepdoor.json';
+  const ROWB = 40, PLANE = 0x2000;
+  // The deep-door residue region (maze-callist-generation.json): page byte-cols
+  // 19..20, rows 68..76. Planes 0/2/3 carry the missing bits.
+  const colLo = 19, colHi = 20, yLo = 68, yHi = 76;
+  // A no-decoration CONTROL band: same rows, far-left viewport wall (cols 9..11).
+  const ctlColLo = 9, ctlColHi = 11;
+
+  console.log('driving cold boot -> free-roam (lands gx127 gy121 f0)…');
+  const base = await driveToFreeRoam(c);
+  const at = await frParty(c, base);
+  console.log(`free-roam: gx${at.gx} gy${at.gy} f${at.f} gs${at.gs} span${at.sp}`);
+  if (at.gx !== 127 || at.gy !== 121 || at.f !== 0) { console.log('NOT at gx127 gy121 f0 — abort'); return; }
+  const clean = '/tmp/wiz6-deepdoor-gy121.state';
+  await c.serialize(clean);
+
+  const out: any = {
+    note: 'deepdoor: forward-step-OUT-of-gy121 (full recompose of the gy121 frame, deep-door drawn) vs in-place turn (dirty, deep-door dropped); write-watch the deep-door page region bx19..20 y68..76; the FWD-only writer is the #077 draw path.',
+    target: { gx: 127, gy: 121, facing: 0 }, region: { colLo, colHi, yLo, yHi },
+    validation: {}, orBase: null as string | null, writers: [] as any[],
+  };
+
+  // ---- (1) VALIDATION: does forward-step-OUT actually draw the deep-door? ----
+  // Read the deep-door page bytes (p0/p2/p3, rows yLo..yHi, cols colLo..colHi)
+  // after each trigger and compare. Forward step should set bits the turn drops.
+  const readDoorBytes = async (): Promise<Record<string, number>> => {
+    const m: Record<string, number> = {};
+    for (const p of [0, 2, 3]) for (let y = yLo; y <= yHi; y++) {
+      const b = await c.read(COMPOSE_PAGE + p * PLANE + y * ROWB + colLo, colHi - colLo + 1);
+      for (let i = 0; i <= colHi - colLo; i++) m[`p${p}y${y}c${colLo + i}`] = b[i]!;
+    }
+    return m;
+  };
+  const popcount = (m: Record<string, number>) => Object.values(m).reduce((s, v) => s + ((v.toString(2).match(/1/g) ?? []).length), 0);
+
+  // Forward step OUT (gy121 -> gy122): full recompose of gy121.
+  await c.unserialize(clean); await c.step(2);
+  const moved = await frMove(c, base, 'up');
+  await c.step(40);
+  const fwdBytes = await readDoorBytes();
+  const fwdAt = await frParty(c, base);
+
+  // In-place turn (dirty redraw of gy121, deep-door NOT redrawn).
+  await c.unserialize(clean); await c.step(2);
+  await c.key('left', 'tap'); await c.step(40); await c.key('right', 'tap'); await c.step(40);
+  const turnBytes = await readDoorBytes();
+
+  const fwdPop = popcount(fwdBytes), turnPop = popcount(turnBytes);
+  let p0y68c20 = fwdBytes['p0y68c20'] ?? -1;
+  out.validation = {
+    forwardStepTook: moved, fwdArrivedGy: fwdAt.gy,
+    deepDoorSetBits_forward: fwdPop, deepDoorSetBits_turn: turnPop,
+    anchor_p0y68c20_forward: p0y68c20, anchor_p0y68c20_turn: turnBytes['p0y68c20'] ?? -1,
+    fwdBytes, turnBytes,
+  };
+  console.log(`\nVALIDATION (deep-door region bx${colLo}..${colHi} y${yLo}..${yHi}):`);
+  console.log(`  forward-step-OUT set-bits = ${fwdPop} (arrived gy${fwdAt.gy}); in-place-turn set-bits = ${turnPop}`);
+  console.log(`  anchor p0 y68 c20: forward=0x${(p0y68c20 >>> 0).toString(16)}  turn=0x${((turnBytes['p0y68c20'] ?? 0) >>> 0).toString(16)}  (finding: engine 0x88, dirty 0x08)`);
+  if (fwdPop <= turnPop) {
+    console.log('  ⚠ forward step did NOT add deep-door bits over the turn — frame hypothesis NOT confirmed; writer tally below may be meaningless.');
+  } else {
+    console.log('  ✓ forward step adds deep-door bits the dirty turn drops — the FULL recompose of gy121 DOES draw the deep-door.');
+  }
+
+  // ---- Resolve the relocated OR-blit base (to LABEL FUN_0a93 stores). ----
+  FORWARD_KEY = 'up';
+  await c.unserialize(clean); await c.step(2);
+  const orWriters = await watchComposePage(c, async () => { await c.key('left', 'tap'); await c.step(40); await c.key('right', 'tap'); });
+  const orBase = recoverOrBase(orWriters);
+  out.orBase = orBase < 0 ? null : orBase.toString(16);
+  console.log(`\nOR-blit base = ${orBase < 0 ? 'NONE' : '0x' + orBase.toString(16)}`);
+
+  // ---- (2) ISOLATE: write-watch the deep-door region during FWD vs TURN. ----
+  type WMap = Map<number, { count: number; minAddr: number; maxAddr: number; planes: Set<number> }>;
+  const tally = (m: WMap, w: { cseip: number; addr: number }, plane: number) => {
+    let e = m.get(w.cseip);
+    if (!e) { e = { count: 0, minAddr: w.addr, maxAddr: w.addr, planes: new Set() }; m.set(w.cseip, e); }
+    e.count++; e.planes.add(plane);
+    if (w.addr < e.minAddr) e.minAddr = w.addr;
+    if (w.addr > e.maxAddr) e.maxAddr = w.addr;
+  };
+  // trigger: 'fwd' (forward step OUT) or 'turn' (in-place left turn). Watch one
+  // plane's deep-door sub-range per pass (re-unserialize each — the fwd step moves).
+  const watchRegion = async (cLo: number, cHi: number, trigger: 'fwd' | 'turn'): Promise<WMap> => {
+    const m: WMap = new Map();
+    for (let plane = 0; plane < 4; plane++) {
+      const planeBase = COMPOSE_PAGE + plane * PLANE;
+      const lo = planeBase + yLo * ROWB + cLo;
+      const hi = planeBase + yHi * ROWB + cHi + 1;
+      await c.unserialize(clean); await c.step(2);
+      await c.wwatchSet(lo, hi);
+      if (trigger === 'fwd') { await c.key('up', 'tap'); } else { await c.key('left', 'tap'); }
+      for (let i = 0; i < 14; i++) {
+        await c.step(6);
+        for (const w of await c.wwatchDrain()) { if (w.addr >= lo && w.addr < hi) tally(m, w, plane); }
+      }
+      await c.wwatchSet(0, 0);
+    }
+    return m;
+  };
+  const fwdDoor = await watchRegion(colLo, colHi, 'fwd');
+  const turnDoor = await watchRegion(colLo, colHi, 'turn');
+  const fwdCtl = await watchRegion(ctlColLo, ctlColHi, 'fwd');
+
+  // ---- (3) CHARACTERIZE: FUN_1c94 arg trace over the forward step. ----
+  if (orBase >= 0) {
+    const FUN_1C94 = orBase + 0x1c94;
+    await c.unserialize(clean); await c.step(2);
+    await c.traceSet(FUN_1C94); await c.traceDrain();
+    await c.key('up', 'tap'); await c.step(45);
+    const hits: TraceRecord[] = [];
+    for (let k = 0; k < 12; k++) { await c.step(4); for (const r of await c.traceDrain()) hits.push(r); }
+    await c.traceOff();
+    console.log(`\nFUN_1c94 (masked compositor @0x${FUN_1C94.toString(16)}): ${hits.length} hits on the forward-step recompose`);
+    out.fun1c94Hits = hits.length;
+    out.fun1c94Args = [];
+    const seen = new Set<string>();
+    for (let hi = 0; hi < Math.min(hits.length, 32); hi++) {
+      const r = hits[hi]!;
+      const sig = `${(r.esp & 0xffff).toString(16)}:${r.ss.toString(16)}`;
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      await c.unserialize(clean); await c.step(2);
+      await c.traceSet(FUN_1C94); await c.captureSet((r.ss << 4) + (r.esp & 0xffff), 0x40, hi);
+      await c.key('up', 'tap'); await c.step(45);
+      const stk = await c.captureGet(); await c.traceOff();
+      if (!stk) continue;
+      const argAt = (k: number) => stk[k - 2]! | (stk[k - 1]! << 8);
+      const args = {
+        retIp: argAt(0), bank: argAt(0xc), destXlo: argAt(0xe), destXmid: argAt(0x10),
+        destXhi: argAt(0x12), flags16: argAt(0x16), flags18: argAt(0x18), descPtr: argAt(0x1a),
+      };
+      out.fun1c94Args.push(args);
+      console.log(`  hit${hi}: bank=${args.bank} destX[${args.destXlo}..${args.destXhi}] flags16=0x${args.flags16.toString(16)} flags18=0x${args.flags18.toString(16)} descPtr=0x${args.descPtr.toString(16)} (retIp=0x${args.retIp.toString(16)})`);
+    }
+  }
+
+  // ---- Report writers: FWD count / TURN count / CTL count. ----
+  const ovl = (() => { try { return ovlBase(); } catch { return -1; } })();
+  console.log(`\nwriters of the deep-door page bytes (cseip -> fwd / turn / ctl, planes, dest span):`);
+  for (const [cseip, e] of [...fwdDoor.entries()].sort((x, y) => y[1].count - x[1].count)) {
+    const egaOff = orBase >= 0 ? cseip - orBase : NaN;
+    const label = orBase >= 0 && egaOff >= 0 && egaOff < 0x2262 ? `ega.drv@0x${egaOff.toString(16)}` : tagLin(cseip, ovl);
+    const isOr = orBase >= 0 && OR_PLANE_STORES.some((d) => cseip === orBase + d);
+    const turn = turnDoor.get(cseip)?.count ?? 0;
+    const ctl = fwdCtl.get(cseip)?.count ?? 0;
+    // The deep-door draw path: writes the door region on the FULL forward recompose
+    // but NOT (or rarely) on the dirty in-place turn.
+    const fwdOnly = !isOr && (turn === 0 || e.count > turn * 3);
+    const flag = isOr ? ' [FUN_0a93 OR-store]' : fwdOnly ? ' <== DEEP-DOOR DRAW PATH (fwd-only)' : ' (also on dirty turn)';
+    console.log(`  cseip 0x${cseip.toString(16)} = ${label}${flag}  fwd x${e.count} / turn x${turn} / ctl x${ctl}  planes{${[...e.planes].join('')}} dest 0x${e.minAddr.toString(16)}..0x${e.maxAddr.toString(16)}`);
+    out.writers.push({ cseip: cseip.toString(16), egaOff: orBase >= 0 ? (cseip - orBase).toString(16) : null, label, isOrStore: isOr, fwdCount: e.count, turnCount: turn, ctlCount: ctl, fwdOnly, planes: [...e.planes], destMin: e.minAddr.toString(16), destMax: e.maxAddr.toString(16) });
+  }
+  writeFileSync(outFile, JSON.stringify(out, null, 2));
+  console.log(`\n-> ${outFile}`);
+}
+
+/**
+ * `deepdoorspans` — capture the gy121 corridor's DGROUP 0x50d0 wall-span list two
+ * ways and diff: (a) SETTLED sitting still (what capture-maze-wall-spans.ts reads
+ * — the dirty/reduced list the build loop leaves after arrival); (b) sampled
+ * DURING the forward-step-OUT FULL recompose (which re-runs the build emitter and
+ * draws the deep-door). The spans present in (b) but not (a) are the missing
+ * front-wall-recess centerpiece (#077 / #079 under-capture). The deepdoor probe
+ * showed the door is FUN_1c94 bank=1 at x0=157/158 destrow=65/68 — look for the
+ * span(s) whose x0 lands at the vanishing point (~157/158).
+ *
+ * Usage: pnpm tsx tools/libretro/trace-maze.ts deepdoorspans [out]
+ */
+async function phaseDeepDoorSpans(c: HostClient): Promise<void> {
+  const outFile = process.argv[3] ?? '/tmp/wiz6-deepdoorspans.json';
+  const SPAN_COUNT = 0x50ce, SPAN_LIST = 0x50d0, DEPTH_BOUND = 0x521e, REC = 0xb;
+  const rd16 = async (base: number, off: number) => u16(await c.read(base + off, 2), 0);
+  const readSpans = async (base: number) => {
+    const cnt = await rd16(base, SPAN_COUNT);
+    const depthBound = await rd16(base, DEPTH_BOUND);
+    const spans: any[] = [];
+    if (cnt > 0 && cnt <= 0x1e) {
+      const sb = await c.read(base + SPAN_LIST, cnt * REC);
+      for (let i = 0; i < cnt; i++) {
+        const o = i * REC;
+        spans.push({ x0: u16(sb, o), x1: u16(sb, o + 2), clipLo: u16(sb, o + 4), clipHi: u16(sb, o + 6), walltype: sb[o + 8]!, seamIdx: sb[o + 9]!, depthField: sb[o + 10]! });
+      }
+    }
+    return { cnt, depthBound, spans };
+  };
+  const key = (s: any) => `${s.x0},${s.x1},${s.clipLo},${s.clipHi},${s.walltype},${s.seamIdx},${s.depthField}`;
+
+  console.log('driving cold boot -> free-roam (gx127 gy121 f0)…');
+  const base = await driveToFreeRoam(c);
+  const at = await frParty(c, base);
+  console.log(`free-roam: gx${at.gx} gy${at.gy} f${at.f} gs${at.gs} span${at.sp}`);
+  if (at.gx !== 127 || at.gy !== 121 || at.f !== 0) { console.log('NOT at gx127 gy121 f0 — abort'); return; }
+  const clean = '/tmp/wiz6-deepdoorspans-gy121.state';
+  await c.serialize(clean);
+
+  // (a) SETTLED sitting-still span list (sample, keep the largest recurring).
+  await c.unserialize(clean); await c.step(2);
+  const settledByKey = new Map<string, { rec: any; hits: number }>();
+  for (let i = 0; i < 30; i++) {
+    await c.step(12);
+    const r = await readSpans(base);
+    if (r.depthBound === 0) continue;
+    const k = JSON.stringify(r.spans);
+    const e = settledByKey.get(k);
+    if (e) e.hits++; else settledByKey.set(k, { rec: r, hits: 1 });
+  }
+  let settled = { cnt: 0, depthBound: 0, spans: [] as any[] };
+  for (const { rec, hits } of settledByKey.values()) if (hits >= 2 && rec.spans.length > settled.spans.length) settled = rec;
+  console.log('\nALL distinct settled lists seen (count / hits):');
+  for (const { rec, hits } of [...settledByKey.values()].sort((a, b) => b.rec.spans.length - a.rec.spans.length)) {
+    console.log(`  cnt=${rec.cnt} hits=${hits} db=${rec.depthBound}: ${rec.spans.map((s: any) => `[x0=${s.x0} x1=${s.x1} c=${s.clipLo}/${s.clipHi} wt=${s.walltype} sm=${s.seamIdx} df=${s.depthField}]`).join(' ')}`);
+  }
+
+  // (b) FULL span list sampled DURING the forward-step-OUT recompose (gy121->gy122).
+  // The build emitter re-runs on the move; the OR-blit/build fire for the ORIGIN
+  // (gy121) frame. Sample 0x50d0 densely right after the key and keep the LARGEST.
+  await c.unserialize(clean); await c.step(2);
+  await c.key('up', 'tap'); // SINGLE forward step (gy121->gy122), not held.
+  let full = { cnt: 0, depthBound: 0, spans: [] as any[] };
+  const fullSamples: any[] = [];
+  for (let i = 0; i < 30; i++) {
+    await c.step(3);
+    const r = await readSpans(base);
+    const here = await frParty(c, base);
+    fullSamples.push({ step: i, cnt: r.cnt, depthBound: r.depthBound, gy: here.gy });
+    if (here.gy <= 122 && r.depthBound !== 0 && r.spans.length > full.spans.length) full = r;
+  }
+  await c.step(20);
+  const arrived = await frParty(c, base);
+
+  const settledKeys = new Set(settled.spans.map(key));
+  const onlyInFull = full.spans.filter((s) => !settledKeys.has(key(s)));
+
+  console.log(`\n(a) SETTLED span list: count=${settled.cnt} depthBound=${settled.depthBound}`);
+  for (const s of settled.spans) console.log(`    x0=${s.x0} x1=${s.x1} clip=${s.clipLo}/${s.clipHi} wt=${s.walltype} seam=${s.seamIdx} df=${s.depthField}`);
+  console.log(`\n(b) FULL span list (during forward-step-OUT, arrived gy${arrived.gy}): count=${full.cnt} depthBound=${full.depthBound}`);
+  for (const s of full.spans) console.log(`    x0=${s.x0} x1=${s.x1} clip=${s.clipLo}/${s.clipHi} wt=${s.walltype} seam=${s.seamIdx} df=${s.depthField}`);
+  console.log(`\nSPANS IN FULL BUT NOT SETTLED (${onlyInFull.length}) — the missing deep-door centerpiece candidates:`);
+  for (const s of onlyInFull) {
+    const vp = s.x0 >= 150 && s.x0 <= 170 ? '  <== VANISHING-POINT (deep-door)' : '';
+    console.log(`    x0=${s.x0} x1=${s.x1} clip=${s.clipLo}/${s.clipHi} wt=${s.walltype} seam=${s.seamIdx} df=${s.depthField}${vp}`);
+  }
+  writeFileSync(outFile, JSON.stringify({ settled, full, onlyInFull, fullSamples, arrivedGy: arrived.gy }, null, 2));
+  console.log(`\n-> ${outFile}`);
+}
+
+/**
+ * `spanlist <gx> <gy> <facing> [out]` — drive free-roam to ANY zone-0 view and dump
+ * the SETTLED DGROUP 0x50d0 wall-span list (the FUN_1c94 wall-compositor spans). The
+ * settled read retains the cached deep pieces (proven by the gy121 deep-door, which
+ * the settled read captures as its one wt=1 span) — so this is the full span list,
+ * unlike the freeroam phase's in-place-turn CALL-LIST capture which drops them.
+ * Use to close the off-axis "dither" residue (the deep-door class, generalized).
+ */
+async function phaseSpanList(c: HostClient): Promise<void> {
+  // Single target: `spanlist <gx> <gy> <facing> [out]`.
+  // Multi target:  `spanlist multi <gx,gy,f;gx,gy,f;...> [out]` — ONE boot, navigate
+  //                 to each from the serialized entrance (much faster).
+  const SPAN_COUNT = 0x50ce, SPAN_LIST = 0x50d0, DEPTH_BOUND = 0x521e, REC = 0xb;
+  if (process.argv[3] === 'multi') return phaseSpanListMulti(c);
+  const gx = Number(process.argv[3]), gy = Number(process.argv[4]), facing = Number(process.argv[5]);
+  const outFile = process.argv[6] ?? `/tmp/wiz6-spanlist-${gx}-${gy}-${facing}.json`;
+  if (![gx, gy, facing].every(Number.isFinite)) { console.log('usage: spanlist <gx> <gy> <facing> [out] | spanlist multi <list> [out]'); return; }
+  const rd16 = async (base: number, off: number) => u16(await c.read(base + off, 2), 0);
+  const readSpans = async (base: number) => {
+    const cnt = await rd16(base, SPAN_COUNT);
+    const depthBound = await rd16(base, DEPTH_BOUND);
+    const spans: any[] = [];
+    if (cnt > 0 && cnt <= 0x1e) {
+      const sb = await c.read(base + SPAN_LIST, cnt * REC);
+      for (let i = 0; i < cnt; i++) {
+        const o = i * REC;
+        spans.push({ x0: u16(sb, o), x1: u16(sb, o + 2), clipLo: u16(sb, o + 4), clipHi: u16(sb, o + 6), walltype: sb[o + 8]!, seamIdx: sb[o + 9]!, depthField: sb[o + 10]! });
+      }
+    }
+    return { cnt, depthBound, spans };
+  };
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const { block } = loadLevel0();
+  const path = pathTo(block, ENGINE_ENTRANCE, { gx, gy, facing });
+  if (!path) { console.log('target unreachable under movement.ts — abort'); return; }
+  console.log(`spanlist gx${gx} gy${gy} f${facing}; path=[${path.join(',')}]`);
+  const base = await driveToFreeRoam(c);
+  const entrance = '/tmp/wiz6-spanlist-entrance.state';
+  await c.serialize(entrance);
+  await c.unserialize(entrance); await c.step(2);
+  const b = await c.anchor();
+  await frDrivePath(c, b, path);
+  const at = await frParty(c, b);
+  console.log(`arrived: gx${at.gx} gy${at.gy} f${at.f} gs${at.gs} span${at.sp}`);
+  if (at.gx !== gx || at.gy !== gy || at.f !== facing) { console.log('POSITION MISMATCH — abort'); return; }
+  // Settle, then sample the 0x50d0 list and keep the LARGEST recurring (full build).
+  await c.step(80);
+  const byKey = new Map<string, { rec: any; hits: number }>();
+  for (let i = 0; i < 30; i++) {
+    await c.step(12);
+    const r = await readSpans(b);
+    if (r.depthBound === 0) continue;
+    const k = JSON.stringify(r.spans);
+    const e = byKey.get(k);
+    if (e) e.hits++; else byKey.set(k, { rec: r, hits: 1 });
+  }
+  let best = { cnt: 0, depthBound: 0, spans: [] as any[] };
+  for (const { rec, hits } of byKey.values()) if (hits >= 2 && rec.spans.length > best.spans.length) best = rec;
+  console.log(`\nSETTLED span list: count=${best.cnt} depthBound=${best.depthBound}`);
+  for (const s of best.spans) console.log(`    x0=${s.x0} x1=${s.x1} clip=${s.clipLo}/${s.clipHi} wt=${s.walltype} sm=${s.seamIdx} df=${s.depthField}`);
+  console.log('\nALL distinct settled lists (count/hits):');
+  for (const { rec, hits } of [...byKey.values()].sort((a, z) => z.rec.spans.length - a.rec.spans.length)) {
+    console.log(`  cnt=${rec.cnt} hits=${hits}: ${rec.spans.map((s: any) => `[${s.x0},${s.x1},c${s.clipLo}/${s.clipHi},wt${s.walltype},sm${s.seamIdx},df${s.depthField}]`).join(' ')}`);
+  }
+  writeFileSync(outFile, JSON.stringify({ target: { gx, gy, facing }, settled: best, all: [...byKey.values()].map((e) => ({ ...e.rec, hits: e.hits })) }, null, 2));
+  console.log(`\n-> ${outFile}`);
+}
+
+/** Multi-target span-list capture: ONE cold-boot, serialize the entrance free-roam
+ *  frame, then navigate to each (gx,gy,facing) and dump its settled 0x50d0 list. */
+async function phaseSpanListMulti(c: HostClient): Promise<void> {
+  const SPAN_COUNT = 0x50ce, SPAN_LIST = 0x50d0, DEPTH_BOUND = 0x521e, REC = 0xb;
+  const targets = (process.argv[4] ?? '').split(';').filter(Boolean).map((t) => {
+    const [gx, gy, f] = t.split(',').map(Number); return { gx: gx!, gy: gy!, facing: f! };
+  });
+  const outFile = process.argv[5] ?? '/tmp/wiz6-spanlist-multi.json';
+  if (!targets.length) { console.log('usage: spanlist multi <gx,gy,f;gx,gy,f;...> [out]'); return; }
+  const rd16 = async (base: number, off: number) => u16(await c.read(base + off, 2), 0);
+  const readSpans = async (base: number) => {
+    const cnt = await rd16(base, SPAN_COUNT);
+    const depthBound = await rd16(base, DEPTH_BOUND);
+    const spans: any[] = [];
+    if (cnt > 0 && cnt <= 0x1e) {
+      const sb = await c.read(base + SPAN_LIST, cnt * REC);
+      for (let i = 0; i < cnt; i++) {
+        const o = i * REC;
+        spans.push({ x0: u16(sb, o), x1: u16(sb, o + 2), clipLo: u16(sb, o + 4), clipHi: u16(sb, o + 6), walltype: sb[o + 8]!, seamIdx: sb[o + 9]!, depthField: sb[o + 10]! });
+      }
+    }
+    return { cnt, depthBound, spans };
+  };
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const { block } = loadLevel0();
+  const base = await driveToFreeRoam(c);
+  const entrance = '/tmp/wiz6-spanlist-entrance.state';
+  await c.serialize(entrance);
+  const results: any[] = [];
+  for (const t of targets) {
+    const path = pathTo(block, ENGINE_ENTRANCE, t);
+    if (!path) { console.log(`\ngx${t.gx} gy${t.gy} f${t.facing}: UNREACHABLE`); results.push({ target: t, unreachable: true }); continue; }
+    await c.unserialize(entrance); await c.step(2);
+    const b = await c.anchor();
+    try { await frDrivePath(c, b, path); } catch (e) { console.log(`\ngx${t.gx} gy${t.gy} f${t.facing}: drive failed (${e})`); results.push({ target: t, driveFailed: true }); continue; }
+    const at = await frParty(c, b);
+    if (at.gx !== t.gx || at.gy !== t.gy || at.f !== t.facing) { console.log(`\ngx${t.gx} gy${t.gy} f${t.facing}: MISMATCH (got gx${at.gx} gy${at.gy} f${at.f})`); results.push({ target: t, mismatch: { gx: at.gx, gy: at.gy, f: at.f } }); continue; }
+    await c.step(80);
+    const byKey = new Map<string, { rec: any; hits: number }>();
+    for (let i = 0; i < 30; i++) {
+      await c.step(12);
+      const r = await readSpans(b);
+      if (r.depthBound === 0) continue;
+      const k = JSON.stringify(r.spans);
+      const e = byKey.get(k);
+      if (e) e.hits++; else byKey.set(k, { rec: r, hits: 1 });
+    }
+    let bestRec = { cnt: 0, depthBound: 0, spans: [] as any[] };
+    for (const { rec, hits } of byKey.values()) if (hits >= 2 && rec.spans.length > bestRec.spans.length) bestRec = rec;
+    console.log(`\ngx${t.gx} gy${t.gy} f${t.facing}: count=${bestRec.cnt} db=${bestRec.depthBound}`);
+    for (const s of bestRec.spans) console.log(`    x0=${s.x0} x1=${s.x1} clip=${s.clipLo}/${s.clipHi} wt=${s.walltype} sm=${s.seamIdx} df=${s.depthField}`);
+    const variants = [...byKey.values()].sort((a, z) => z.rec.spans.length - a.rec.spans.length).map((e) => ({ ...e.rec, hits: e.hits }));
+    results.push({ target: t, settled: bestRec, variants });
+  }
+  writeFileSync(outFile, JSON.stringify(results, null, 2));
+  console.log(`\n-> ${outFile}`);
+}
+
 async function phaseDecTrace(c: HostClient): Promise<void> {
   const outFile = process.argv[3] ?? '/tmp/wiz6-dectrace.json';
   const u16f = (b: Uint8Array, o: number) => b[o]! | (b[o + 1]! << 8);
@@ -3439,6 +3842,9 @@ async function main() {
     else if (phase === 'depthemit') await phaseDepthEmit(c);
     else if (phase === 'dectrace') await phaseDecTrace(c);
     else if (phase === 'decwatch') await phaseDecWatch(c);
+    else if (phase === 'deepdoor') await phaseDeepDoor(c);
+    else if (phase === 'deepdoorspans') await phaseDeepDoorSpans(c);
+    else if (phase === 'spanlist') await phaseSpanList(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');

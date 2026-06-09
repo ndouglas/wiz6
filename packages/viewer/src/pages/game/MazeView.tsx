@@ -79,6 +79,12 @@ const SCALE = 3;
  *  CUTSCENE_TICK_MS. */
 export const CUTSCENE_TICK_MS = 200;
 
+/** Door/recess piece animation cadence: the seam phase toggles every this-many ms
+ *  in free-roam so the dungeon door shimmers between its two atlas frames. Tuned
+ *  to feel like the engine's flicker (not wall-clock-matched — the original is a
+ *  CPU busy-wait clock). */
+export const DOOR_ANIM_TICK_MS = 350;
+
 /** Message db URL — served from extracted/ via the viewer publicDir. */
 const MSG_DB_URL = '/messages/msg.json';
 /** The small 1bpp UI message font (wfont0) used for the bottom strip text. */
@@ -122,6 +128,7 @@ function safeRenderViewport(
   wallSpans: CapturedSpansTable | null,
   newgameViewports: NewgameViewports | null,
   mazeWorkBuffer: MazeWorkBuffer | null,
+  phase: 0 | 1 = 0,
 ): Uint8Array {
   // Animation path: the door-slide / two portcullis-lift viewport animations play
   // captured oracle frames keyed by "door:N" / "gate1:N" / "gate2:N" (animFrame
@@ -167,6 +174,7 @@ function safeRenderViewport(
       const page = composeCallList(mazeWorkBuffer, calls);
       return renderMazeViewport(session.level.mazeBlock, session.party, assets, {
         page,
+        phase,
         ...(wallSpans ? { capturedSpans: wallSpans } : {}),
       });
     } catch (err) {
@@ -180,7 +188,7 @@ function safeRenderViewport(
       session.level.mazeBlock,
       session.party,
       assets,
-      wallSpans ? { capturedSpans: wallSpans } : undefined,
+      wallSpans ? { capturedSpans: wallSpans, phase } : { phase },
     );
   } catch (err) {
     console.warn('[MazeView] renderMazeViewport threw (unhandled view-case); rendering blank', err);
@@ -205,12 +213,13 @@ function composeFrame(
   stripText: { text: EntryStripText; font: Font } | null,
   partyPanels: MazePartyPanels | undefined,
   mazeWorkBuffer: MazeWorkBuffer | null,
+  phase: 0 | 1 = 0,
 ): Uint8Array {
   // Static chrome + LIVE party panels (the player's actual party) + viewport
   // baseline. partyPanels is undefined until the panel fonts/active party load;
   // until then the baked chrome panels show (cleared once the fonts arrive).
   const frame = composeMazeFrame(partyPanels);
-  const vp = safeRenderViewport(session, assets, wallSpans, newgameViewports, mazeWorkBuffer);
+  const vp = safeRenderViewport(session, assets, wallSpans, newgameViewports, mazeWorkBuffer, phase);
   const { x: vx, y: vy, w: vw, h: vh } = MAZE_VIEWPORT;
   for (let row = 0; row < vh; row++) {
     for (let col = 0; col < vw; col++) {
@@ -272,6 +281,11 @@ export function MazeView() {
   // reused per frame — never per-render.
   const mazeWorkBufferRef = useRef<MazeWorkBuffer | null>(null);
   const wallSpansRef = useRef<CapturedSpansTable | null>(null);
+  // Door-piece ANIMATION phase (0/1). The dungeon door/recess pieces flicker
+  // between two adjacent atlas frames on the engine's global clock; we toggle this
+  // on a timer in free-roam so the door shimmers like the engine. Lives in a ref
+  // (read by present()) + a timer started once below.
+  const phaseRef = useRef<0 | 1>(0);
   // Oracle viewports for the 5 scripted entry frames (loaded once on mount for
   // levels with a scriptedEntry). Null until loaded or if not a scripted level.
   const newgameViewportsRef = useRef<NewgameViewports | null>(null);
@@ -456,6 +470,7 @@ export function MazeView() {
       stripTextRef.current,
       partyPanelsArg(),
       mazeWorkBufferRef.current,
+      phaseRef.current,
     );
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
   }
@@ -506,6 +521,22 @@ export function MazeView() {
   // Render whenever assets become available.
   useEffect(() => {
     if (assets) present();
+  }, [assets]);
+
+  // Door-piece animation: toggle the seam phase on a slow clock so the dungeon
+  // door/recess pieces shimmer between their two atlas frames like the engine.
+  // Only repaints in free-roam (the scripted-entry oracle frames are pre-captured
+  // and ignore the phase). Interval tuned to feel like the engine's flicker, not
+  // wall-clock-matched (the original is a busy-wait clock — see CLAUDE.md).
+  useEffect(() => {
+    if (!assets) return;
+    const id = setInterval(() => {
+      phaseRef.current = phaseRef.current === 0 ? 1 : 0;
+      if (sessionRef.current?.entryMode === 'free') present();
+    }, DOOR_ANIM_TICK_MS);
+    return () => clearInterval(id);
+    // present/refs are stable; re-arm only when assets (re)load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assets]);
 
   // Keydown: movement. Registered once; reads/writes the session ref.
