@@ -53,6 +53,30 @@
         "details": "diff-freeroam-callist.ts per view. gx127gy121f1: engine 37 OR / 0 masked, gen 16 OR / 0 masked (gen subset, missing [19,21,22,88,119,124,125,128,129,132,133,136,137,152,153,156,157,160,161,164,165]). gx127gy123f1: engine 9 OR / 18 masked, gen 11 OR / 0 masked. gx124gy121f3: engine 9 OR / 34 masked, gen 12 OR / 0 masked. gx126gy121f3: engine 7 OR / 30 masked, gen 16 OR / 0 masked. gx127gy122f3: engine 10 OR / 34 masked, gen 36 OR / 4 masked. The masked-mirror geometry law sp.destX+dp.destX+dp.w==40 also MISMATCHES on these views (e.g. 124->167: 16+24+7=47), so the gy121-corridor mirror-pairing law does not generalize."
       },
       "confidence": "high"
+    },
+    {
+      "id": "freeroam-capture-frame-sync-fix",
+      "claim": "FIXED the freeroam capture frame-mismatch (2026-06-09). The prior `freeroam` phase paired a FRAMEBUFFER grabbed at the settled TARGET (after a real-move drive + c.step(60)) with a CALL-LIST traced from a SEPARATELY-driven ORIGIN forward-step — two DIFFERENT composes. Composing a capture's OWN call-list reproduced only 30-84% of its paired framebuffer. The fix: capture BOTH the call-list AND the framebuffer from ONE serialized state via ONE identical trigger. phaseFreeRoam now drives to the target, SETTLES (c.step(80)), serializes that settled-target state, and phasePlacements (a) traces the call-list via an IN-PLACE turn-left→turn-right recompose, and (b) via PLACEMENTS_FB_OUT re-runs the IDENTICAL unserialize(state)+trigger with NO trace armed and grabs the framebuffer. Because the compose is deterministic, the framebuffer is the rendered result of the traced call-list — same frame. CONFIRMATION: the re-captured framebuffers are BYTE-IDENTICAL to the prior committed .idx.gz (the framebuffers were always settled+correct; only the call-lists were transient). Self-repro jumped: gx126gy121f3 36.31%->99.95%, gx127gy123f0 (dead-end) 33.40%->98.12% (pure-OR variant), gx127gy121f2 (gate) 39.81%->89.21%.",
+      "category": "maze_render",
+      "evidence": {
+        "binary": "tools/libretro/trace-maze.ts (phaseFreeRoam + phasePlacements PLACEMENTS_FB_OUT/grabSyncedFb)",
+        "address": "ega.drv FUN_0a93 (reloc base 0x6ba10); compose-page 0x41820",
+        "type": "self_reproduction_validation",
+        "details": "Validate with tools/libretro/validate-freeroam-fixture.ts (composeBackgroundFromAsset over the captured call-list vs the captured idx.gz). Two fixes in phasePlacements: (1) PLACEMENTS_FB_OUT grabs the framebuffer from the same state+trigger as the trace; (2) a ROBUST periodic-pass detector keyed on the per-call signature branch:arg0c:arg10 over the VALID (arg0c<366) prefix, preferring max coverage and rejecting degenerate single-element periods — it isolates the FULL first compose pass and excludes the trailing 0xffff arg-underrun garbage (the legacy OR-head heuristic failed when the OR head doesn't recur)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "freeroam-masked-self-repro-residue",
+      "claim": "After the frame-sync fix, OR-DOMINANT views frame-match to >=98-99.95% (gx126gy121f3 99.95%, gx127gy123f0 dead-end 98.12% in its pure-OR variant). MASKED-HEAVY views stay LOW (gx127gy122f0 ~40%, gx124gy121f0 ~51%, gx127gy121f1 ~33%) for TWO reasons, both downstream of the capture (NOT a frame-sync defect): (1) composeCallList's masked-mirror path (applyMaskedMirror) is not a faithful reproduction of the engine's xlatb-LUT reverse-read masked blit for arbitrary views — the documented follow-up generation RE; (2) the masked branch is NON-DETERMINISTIC run-to-run: the same view's in-place recompose emits a varying masked-vs-OR mix (gx127gy123f0 observed 0/10/12 masked across runs; gx126gy121f3 OLD=30 masked, NEW=0 masked — the 0-masked variant reproduces best). The masked side-wall pieces ARE part of the real settled view (the framebuffer is byte-identical regardless), so a masked-inclusive call-list IS frame-matched ground truth; it just cannot SELF-reproduce until the masked-mirror generation law is cracked. Capture-quality is therefore maximized by preferring the pure-OR recompose variant (best-of-N retry on self-repro).",
+      "category": "maze_render",
+      "evidence": {
+        "binary": "packages/parser/src/maze/callist.ts (applyMaskedMirror / maskedMirrorFor) + ega.drv FUN_0a93 masked branch 0xbca",
+        "address": "ega.drv masked branch 0xbca/0xc5f (xlatb LUT cs:[0x192])",
+        "type": "self_reproduction_by_branch_mix",
+        "details": "validate-freeroam-fixture.ts per view. Pure-OR captures (0 masked) reproduce >=98%; masked-inclusive captures of the SAME view reproduce 85-90% (gx127gy123f0) down to 33-51% (gx127gy122f0/gx124gy121f0 where the masked count is 150-313 and the pass does not stabilize, reproducible=false). The masked-mirror src->dst pairing + merge-mode (masked_flags 0=REPLACE/!=0 OR-merge) law for arbitrary views is the open follow-up."
+      },
+      "confidence": "high"
     }
   ],
   "unresolved": [

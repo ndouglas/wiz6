@@ -7,10 +7,16 @@
     "facing": 0,
     "name": "maze-corridor"
   },
-  "total_hits": 233,
+  "total_hits": 243,
   "pass_length": 27,
   "reproducible": true,
   "placementIndices": [
+    122,
+    150,
+    19,
+    134,
+    162,
+    123,
     1,
     151,
     16,
@@ -31,15 +37,39 @@
     355,
     346,
     352,
-    358,
-    122,
-    150,
-    19,
-    134,
-    162,
-    123
+    358
   ],
   "calls": [
+    {
+      "branch": "masked",
+      "arg0c": 122,
+      "arg10": 122
+    },
+    {
+      "branch": "masked",
+      "arg0c": 150,
+      "arg10": 150
+    },
+    {
+      "branch": "masked",
+      "arg0c": 19,
+      "arg10": 15
+    },
+    {
+      "branch": "masked",
+      "arg0c": 134,
+      "arg10": 138
+    },
+    {
+      "branch": "masked",
+      "arg0c": 162,
+      "arg10": 166
+    },
+    {
+      "branch": "masked",
+      "arg0c": 123,
+      "arg10": 123
+    },
     {
       "branch": "OR",
       "arg0c": 1,
@@ -144,36 +174,6 @@
       "branch": "OR",
       "arg0c": 358,
       "arg10": 65535
-    },
-    {
-      "branch": "masked",
-      "arg0c": 122,
-      "arg10": 122
-    },
-    {
-      "branch": "masked",
-      "arg0c": 150,
-      "arg10": 150
-    },
-    {
-      "branch": "masked",
-      "arg0c": 19,
-      "arg10": 15
-    },
-    {
-      "branch": "masked",
-      "arg0c": 134,
-      "arg10": 138
-    },
-    {
-      "branch": "masked",
-      "arg0c": 162,
-      "arg10": 166
-    },
-    {
-      "branch": "masked",
-      "arg0c": 123,
-      "arg10": 123
     }
   ],
   "masked_flags": [
@@ -267,22 +267,40 @@
     0,
     0,
     0,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    0,
-    0,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
     -1,
     -1,
     -1,
@@ -1856,88 +1874,138 @@
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 122,
       "arg10": 122
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 150,
       "arg10": 150
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 19,
       "arg10": 15
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 134,
       "arg10": 138
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 162,
       "arg10": 166
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 123,
       "arg10": 123
     },
     {
       "branch": "OR",
-      "arg0c": 65535,
+      "arg0c": 1,
       "arg10": 65535
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 151,
       "arg10": 151
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 16,
       "arg10": 20
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 139,
       "arg10": 135
     },
     {
       "branch": "OR",
-      "arg0c": 65535,
+      "arg0c": 7,
       "arg10": 65535
     },
     {
       "branch": "OR",
-      "arg0c": 65535,
+      "arg0c": 285,
       "arg10": 65535
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 167,
       "arg10": 163
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 131,
       "arg10": 143
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 159,
       "arg10": 171
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 128,
       "arg10": 148
     },
     {
       "branch": "masked",
-      "arg0c": 65535,
+      "arg0c": 156,
       "arg10": 176
+    },
+    {
+      "branch": "masked",
+      "arg0c": 32,
+      "arg10": 29
+    },
+    {
+      "branch": "masked",
+      "arg0c": 29,
+      "arg10": 32
+    },
+    {
+      "branch": "masked",
+      "arg0c": 23,
+      "arg10": 23
+    },
+    {
+      "branch": "masked",
+      "arg0c": 26,
+      "arg10": 26
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
     }
   ],
   "target": {
@@ -1945,7 +2013,8 @@
     "gy": 123,
     "facing": 1
   },
-  "capture": "in-place turn recompose at target",
+  "capture": "in-place turn recompose at SETTLED TARGET; framebuffer grabbed from the SAME state+trigger (frame-synced; best-of-N by self-repro)",
+  "self_repro": 0.8393871753246753,
   "path_to_target": [
     "forward",
     "forward",

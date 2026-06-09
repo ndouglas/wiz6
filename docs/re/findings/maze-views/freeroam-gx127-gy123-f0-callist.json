@@ -7,36 +7,23 @@
     "facing": 0,
     "name": "maze-corridor"
   },
-  "total_hits": 122,
-  "pass_length": 19,
+  "total_hits": 129,
+  "pass_length": 11,
   "reproducible": true,
   "placementIndices": [
-    1,
     361,
     349,
     355,
     346,
     352,
-    122,
-    150,
-    138,
-    9,
-    166,
-    134,
-    6,
-    162,
-    123,
     358,
-    151,
-    88,
-    84
+    122,
+    0,
+    150,
+    83,
+    87
   ],
   "calls": [
-    {
-      "branch": "OR",
-      "arg0c": 1,
-      "arg10": 65535
-    },
     {
       "branch": "OR",
       "arg0c": 361,
@@ -63,149 +50,37 @@
       "arg10": 65535
     },
     {
-      "branch": "masked",
-      "arg0c": 122,
-      "arg10": 122
-    },
-    {
-      "branch": "masked",
-      "arg0c": 150,
-      "arg10": 150
-    },
-    {
-      "branch": "masked",
-      "arg0c": 138,
-      "arg10": 134
-    },
-    {
-      "branch": "masked",
-      "arg0c": 9,
-      "arg10": 6
-    },
-    {
-      "branch": "masked",
-      "arg0c": 166,
-      "arg10": 162
-    },
-    {
-      "branch": "masked",
-      "arg0c": 134,
-      "arg10": 138
-    },
-    {
-      "branch": "masked",
-      "arg0c": 6,
-      "arg10": 9
-    },
-    {
-      "branch": "masked",
-      "arg0c": 162,
-      "arg10": 166
-    },
-    {
-      "branch": "masked",
-      "arg0c": 123,
-      "arg10": 123
-    },
-    {
       "branch": "OR",
       "arg0c": 358,
       "arg10": 65535
     },
     {
-      "branch": "masked",
-      "arg0c": 151,
-      "arg10": 151
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
     },
     {
-      "branch": "masked",
-      "arg0c": 88,
-      "arg10": 84
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
     },
     {
-      "branch": "masked",
-      "arg0c": 84,
-      "arg10": 88
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
     }
   ],
-  "masked_flags": [
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1
-  ],
+  "masked_flags": [],
   "table_pointers": {
     "dataSeg": "2181",
     "placeOff": "301",
@@ -213,64 +88,40 @@
   },
   "liveRecords": [
     {
-      "idx": 1,
-      "imgIdx": 1,
-      "destX": 16,
-      "destRow": 52,
-      "bias": 0,
-      "count": 8,
-      "segDelta": 466,
-      "srcOffLow": 15,
-      "w": 8,
-      "h": 51
-    },
-    {
-      "idx": 6,
+      "idx": 0,
       "imgIdx": 0,
-      "destX": 255,
-      "destRow": 40,
-      "bias": 10,
-      "count": 4,
-      "segDelta": 162,
-      "srcOffLow": 7,
-      "w": 14,
-      "h": 87
-    },
-    {
-      "idx": 9,
-      "imgIdx": 0,
-      "destX": 27,
-      "destRow": 40,
-      "bias": 0,
-      "count": 4,
-      "segDelta": 162,
-      "srcOffLow": 7,
-      "w": 14,
-      "h": 87
-    },
-    {
-      "idx": 84,
-      "imgIdx": 24,
       "destX": 13,
       "destRow": 40,
       "bias": 0,
-      "count": 3,
-      "segDelta": 1422,
-      "srcOffLow": 15,
-      "w": 3,
+      "count": 14,
+      "segDelta": 162,
+      "srcOffLow": 7,
+      "w": 14,
       "h": 87
     },
     {
-      "idx": 88,
-      "imgIdx": 27,
-      "destX": 24,
-      "destRow": 40,
+      "idx": 83,
+      "imgIdx": 23,
+      "destX": 9,
+      "destRow": 32,
       "bias": 0,
-      "count": 3,
-      "segDelta": 1625,
+      "count": 4,
+      "segDelta": 1310,
+      "srcOffLow": 15,
+      "w": 4,
+      "h": 112
+    },
+    {
+      "idx": 87,
+      "imgIdx": 26,
+      "destX": 27,
+      "destRow": 32,
+      "bias": 0,
+      "count": 4,
+      "segDelta": 1513,
       "srcOffLow": 11,
-      "w": 3,
-      "h": 87
+      "w": 4,
+      "h": 112
     },
     {
       "idx": 122,
@@ -285,42 +136,6 @@
       "h": 7
     },
     {
-      "idx": 123,
-      "imgIdx": 45,
-      "destX": 13,
-      "destRow": 39,
-      "bias": 0,
-      "count": 14,
-      "segDelta": 2114,
-      "srcOffLow": 3,
-      "w": 14,
-      "h": 12
-    },
-    {
-      "idx": 134,
-      "imgIdx": 48,
-      "destX": 9,
-      "destRow": 32,
-      "bias": 0,
-      "count": 4,
-      "segDelta": 2175,
-      "srcOffLow": 3,
-      "w": 4,
-      "h": 7
-    },
-    {
-      "idx": 138,
-      "imgIdx": 52,
-      "destX": 27,
-      "destRow": 32,
-      "bias": 0,
-      "count": 4,
-      "segDelta": 2225,
-      "srcOffLow": 11,
-      "w": 4,
-      "h": 7
-    },
-    {
       "idx": 150,
       "imgIdx": 56,
       "destX": 11,
@@ -330,42 +145,6 @@
       "segDelta": 2276,
       "srcOffLow": 3,
       "w": 18,
-      "h": 16
-    },
-    {
-      "idx": 151,
-      "imgIdx": 57,
-      "destX": 13,
-      "destRow": 104,
-      "bias": 0,
-      "count": 14,
-      "segDelta": 2348,
-      "srcOffLow": 3,
-      "w": 14,
-      "h": 24
-    },
-    {
-      "idx": 162,
-      "imgIdx": 60,
-      "destX": 9,
-      "destRow": 128,
-      "bias": 0,
-      "count": 4,
-      "segDelta": 2469,
-      "srcOffLow": 3,
-      "w": 4,
-      "h": 16
-    },
-    {
-      "idx": 166,
-      "imgIdx": 64,
-      "destX": 27,
-      "destRow": 128,
-      "bias": 0,
-      "count": 4,
-      "segDelta": 2570,
-      "srcOffLow": 11,
-      "w": 4,
       "h": 16
     },
     {
@@ -444,11 +223,6 @@
   "raw_calls": [
     {
       "branch": "OR",
-      "arg0c": 1,
-      "arg10": 65535
-    },
-    {
-      "branch": "OR",
       "arg0c": 361,
       "arg10": 65535
     },
@@ -471,51 +245,6 @@
       "branch": "OR",
       "arg0c": 352,
       "arg10": 65535
-    },
-    {
-      "branch": "masked",
-      "arg0c": 122,
-      "arg10": 122
-    },
-    {
-      "branch": "masked",
-      "arg0c": 150,
-      "arg10": 150
-    },
-    {
-      "branch": "masked",
-      "arg0c": 138,
-      "arg10": 134
-    },
-    {
-      "branch": "masked",
-      "arg0c": 9,
-      "arg10": 6
-    },
-    {
-      "branch": "masked",
-      "arg0c": 166,
-      "arg10": 162
-    },
-    {
-      "branch": "masked",
-      "arg0c": 134,
-      "arg10": 138
-    },
-    {
-      "branch": "masked",
-      "arg0c": 6,
-      "arg10": 9
-    },
-    {
-      "branch": "masked",
-      "arg0c": 162,
-      "arg10": 166
-    },
-    {
-      "branch": "masked",
-      "arg0c": 123,
-      "arg10": 123
     },
     {
       "branch": "OR",
@@ -523,23 +252,28 @@
       "arg10": 65535
     },
     {
-      "branch": "masked",
-      "arg0c": 151,
-      "arg10": 151
-    },
-    {
-      "branch": "masked",
-      "arg0c": 88,
-      "arg10": 84
-    },
-    {
-      "branch": "masked",
-      "arg0c": 84,
-      "arg10": 88
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
     },
     {
       "branch": "OR",
-      "arg0c": 1,
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
       "arg10": 65535
     },
     {
@@ -566,51 +300,6 @@
       "branch": "OR",
       "arg0c": 352,
       "arg10": 65535
-    },
-    {
-      "branch": "masked",
-      "arg0c": 122,
-      "arg10": 122
-    },
-    {
-      "branch": "masked",
-      "arg0c": 150,
-      "arg10": 150
-    },
-    {
-      "branch": "masked",
-      "arg0c": 138,
-      "arg10": 134
-    },
-    {
-      "branch": "masked",
-      "arg0c": 9,
-      "arg10": 6
-    },
-    {
-      "branch": "masked",
-      "arg0c": 166,
-      "arg10": 162
-    },
-    {
-      "branch": "masked",
-      "arg0c": 134,
-      "arg10": 138
-    },
-    {
-      "branch": "masked",
-      "arg0c": 6,
-      "arg10": 9
-    },
-    {
-      "branch": "masked",
-      "arg0c": 162,
-      "arg10": 166
-    },
-    {
-      "branch": "masked",
-      "arg0c": 123,
-      "arg10": 123
     },
     {
       "branch": "OR",
@@ -618,23 +307,28 @@
       "arg10": 65535
     },
     {
-      "branch": "masked",
-      "arg0c": 151,
-      "arg10": 151
-    },
-    {
-      "branch": "masked",
-      "arg0c": 88,
-      "arg10": 84
-    },
-    {
-      "branch": "masked",
-      "arg0c": 84,
-      "arg10": 88
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
     },
     {
       "branch": "OR",
-      "arg0c": 1,
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
       "arg10": 65535
     },
     {
@@ -661,51 +355,6 @@
       "branch": "OR",
       "arg0c": 352,
       "arg10": 65535
-    },
-    {
-      "branch": "masked",
-      "arg0c": 122,
-      "arg10": 122
-    },
-    {
-      "branch": "masked",
-      "arg0c": 150,
-      "arg10": 150
-    },
-    {
-      "branch": "masked",
-      "arg0c": 138,
-      "arg10": 134
-    },
-    {
-      "branch": "masked",
-      "arg0c": 9,
-      "arg10": 6
-    },
-    {
-      "branch": "masked",
-      "arg0c": 166,
-      "arg10": 162
-    },
-    {
-      "branch": "masked",
-      "arg0c": 134,
-      "arg10": 138
-    },
-    {
-      "branch": "masked",
-      "arg0c": 6,
-      "arg10": 9
-    },
-    {
-      "branch": "masked",
-      "arg0c": 162,
-      "arg10": 166
-    },
-    {
-      "branch": "masked",
-      "arg0c": 123,
-      "arg10": 123
     },
     {
       "branch": "OR",
@@ -713,23 +362,28 @@
       "arg10": 65535
     },
     {
-      "branch": "masked",
-      "arg0c": 151,
-      "arg10": 151
-    },
-    {
-      "branch": "masked",
-      "arg0c": 88,
-      "arg10": 84
-    },
-    {
-      "branch": "masked",
-      "arg0c": 84,
-      "arg10": 88
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
     },
     {
       "branch": "OR",
-      "arg0c": 1,
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
       "arg10": 65535
     },
     {
@@ -756,51 +410,6 @@
       "branch": "OR",
       "arg0c": 352,
       "arg10": 65535
-    },
-    {
-      "branch": "masked",
-      "arg0c": 122,
-      "arg10": 122
-    },
-    {
-      "branch": "masked",
-      "arg0c": 150,
-      "arg10": 150
-    },
-    {
-      "branch": "masked",
-      "arg0c": 138,
-      "arg10": 134
-    },
-    {
-      "branch": "masked",
-      "arg0c": 9,
-      "arg10": 6
-    },
-    {
-      "branch": "masked",
-      "arg0c": 166,
-      "arg10": 162
-    },
-    {
-      "branch": "masked",
-      "arg0c": 134,
-      "arg10": 138
-    },
-    {
-      "branch": "masked",
-      "arg0c": 6,
-      "arg10": 9
-    },
-    {
-      "branch": "masked",
-      "arg0c": 162,
-      "arg10": 166
-    },
-    {
-      "branch": "masked",
-      "arg0c": 123,
-      "arg10": 123
     },
     {
       "branch": "OR",
@@ -808,23 +417,28 @@
       "arg10": 65535
     },
     {
-      "branch": "masked",
-      "arg0c": 151,
-      "arg10": 151
-    },
-    {
-      "branch": "masked",
-      "arg0c": 88,
-      "arg10": 84
-    },
-    {
-      "branch": "masked",
-      "arg0c": 84,
-      "arg10": 88
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
     },
     {
       "branch": "OR",
-      "arg0c": 1,
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
       "arg10": 65535
     },
     {
@@ -851,51 +465,6 @@
       "branch": "OR",
       "arg0c": 352,
       "arg10": 65535
-    },
-    {
-      "branch": "masked",
-      "arg0c": 122,
-      "arg10": 122
-    },
-    {
-      "branch": "masked",
-      "arg0c": 150,
-      "arg10": 150
-    },
-    {
-      "branch": "masked",
-      "arg0c": 138,
-      "arg10": 134
-    },
-    {
-      "branch": "masked",
-      "arg0c": 9,
-      "arg10": 6
-    },
-    {
-      "branch": "masked",
-      "arg0c": 166,
-      "arg10": 162
-    },
-    {
-      "branch": "masked",
-      "arg0c": 134,
-      "arg10": 138
-    },
-    {
-      "branch": "masked",
-      "arg0c": 6,
-      "arg10": 9
-    },
-    {
-      "branch": "masked",
-      "arg0c": 162,
-      "arg10": 166
-    },
-    {
-      "branch": "masked",
-      "arg0c": 123,
-      "arg10": 123
     },
     {
       "branch": "OR",
@@ -903,23 +472,28 @@
       "arg10": 65535
     },
     {
-      "branch": "masked",
-      "arg0c": 151,
-      "arg10": 151
-    },
-    {
-      "branch": "masked",
-      "arg0c": 88,
-      "arg10": 84
-    },
-    {
-      "branch": "masked",
-      "arg0c": 84,
-      "arg10": 88
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
     },
     {
       "branch": "OR",
-      "arg0c": 1,
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
       "arg10": 65535
     },
     {
@@ -946,51 +520,6 @@
       "branch": "OR",
       "arg0c": 352,
       "arg10": 65535
-    },
-    {
-      "branch": "masked",
-      "arg0c": 122,
-      "arg10": 122
-    },
-    {
-      "branch": "masked",
-      "arg0c": 150,
-      "arg10": 150
-    },
-    {
-      "branch": "masked",
-      "arg0c": 138,
-      "arg10": 134
-    },
-    {
-      "branch": "masked",
-      "arg0c": 9,
-      "arg10": 6
-    },
-    {
-      "branch": "masked",
-      "arg0c": 166,
-      "arg10": 162
-    },
-    {
-      "branch": "masked",
-      "arg0c": 134,
-      "arg10": 138
-    },
-    {
-      "branch": "masked",
-      "arg0c": 6,
-      "arg10": 9
-    },
-    {
-      "branch": "masked",
-      "arg0c": 162,
-      "arg10": 166
-    },
-    {
-      "branch": "masked",
-      "arg0c": 123,
-      "arg10": 123
     },
     {
       "branch": "OR",
@@ -998,23 +527,28 @@
       "arg10": 65535
     },
     {
-      "branch": "masked",
-      "arg0c": 151,
-      "arg10": 151
-    },
-    {
-      "branch": "masked",
-      "arg0c": 88,
-      "arg10": 84
-    },
-    {
-      "branch": "masked",
-      "arg0c": 84,
-      "arg10": 88
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
     },
     {
       "branch": "OR",
-      "arg0c": 1,
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
       "arg10": 65535
     },
     {
@@ -1043,14 +577,294 @@
       "arg10": 65535
     },
     {
-      "branch": "masked",
-      "arg0c": 122,
-      "arg10": 122
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
     },
     {
-      "branch": "masked",
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
       "arg0c": 150,
-      "arg10": 150
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 150,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 83,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 87,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 361,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 349,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 355,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 346,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 352,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 358,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 122,
+      "arg10": 65535
+    },
+    {
+      "branch": "OR",
+      "arg0c": 0,
+      "arg10": 65535
     }
   ],
   "target": {
@@ -1058,7 +872,7 @@
     "gy": 123,
     "facing": 0
   },
-  "capture": "forward step origin->target (full recompose, real-move build-loop)",
+  "capture": "in-place turn recompose at SETTLED TARGET; framebuffer grabbed from the SAME state+trigger (frame-synced)",
   "path_to_target": [
     "forward",
     "forward"

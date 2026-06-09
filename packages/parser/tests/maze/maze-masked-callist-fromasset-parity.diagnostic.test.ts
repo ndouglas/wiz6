@@ -22,24 +22,25 @@
  * bytes downstream on the WRONG screen side; with it the LEFT/RIGHT corner walls
  * mirror symmetrically (see maze-data.ts signExtendDestX + maze-masked-mirror.json).
  *
- * WHY THESE STILL ONLY REACH ~30-33%: the captured call-lists describe a DIFFERENT
- * FRAME than the committed fixtures — the well-documented gy=118-vs-gy=121
- * transient-frame mismatch (maze-masked-mirror.json fromasset-gate-blocked-by-frame
- * -mismatch). DECISIVE EVIDENCE captured this pass: the PURE-OR view gx127-gy121-f1
- * (37 OR calls, ZERO masked) ALSO reproduces only ~52% of its fixture, and its diff
- * is salt-and-pepper dither-phase noise over a structurally-correct corridor — i.e.
- * the OR compositor (byte-exact-gated at 99.909% for the entrance gy121-f0, where the
- * call-list MATCHES the fixture frame) cannot reach its fixture either when the
- * captured list is off-frame. The gy123-f0 call-list is a receding-corridor list
- * while its fixture is a flat dead-end wall — they are simply different frames. The
- * compositor renders the call-list it is given faithfully; it cannot turn a corridor
- * call-list into a dead-end. So ≥99% here is NOT reachable from these call-lists; it
- * needs a frame-matched capture (the blocked DBPSerialize_CPU bridge) or a GENERATED
- * call-list (the per-view selection law — maze-callist-generation.json residue).
- *
- * This test pins the ACHIEVED reproduction so a future frame-matched capture (or the
- * generator) can be measured against it, and guards that the sign-extension fix keeps
- * placements 6/9 (the corner-wall mirror twins) landing on opposite screen sides.
+ * ── FRAME-SYNC FIX (2026-06-09 freeroam capture-sync pass) ──
+ * The captured call-lists USED to describe a DIFFERENT FRAME than the committed
+ * fixtures (the prior `freeroam` phase paired a settled-target framebuffer with a
+ * call-list traced from a SEPARATELY-driven origin forward-step). That mismatch is
+ * now FIXED in tools/libretro/trace-maze.ts: phaseFreeRoam captures the call-list AND
+ * the framebuffer from ONE serialized settled-target state via ONE identical in-place
+ * turn-recompose trigger (built-in best-of-N by self-repro), so the call-list and
+ * framebuffer are the SAME compose. The re-captured framebuffers are byte-identical
+ * to the prior committed .idx.gz (they were always settled); only the call-lists were
+ * transient. With the frame-synced call-lists, from-asset self-repro JUMPED:
+ *   - gy121-f1 (pure-OR corridor): ~52% → 99.16%
+ *   - gy123-f0 (dead-end):          ~33% → 98.15%
+ *   - gy121-f2 (look-back gate):    ~30% → ~80% (this decode path; ~89% via
+ *                                   renderMazeViewport — capped by the colourful
+ *                                   portcullis-leaf DECORATION, a draw path beyond the
+ *                                   OR/masked background compose).
+ * This DIAGNOSTIC now pins the ACHIEVED frame-synced reproduction (a floor that must
+ * not regress) + guards that the sign-extension fix keeps placements 6/9 (the
+ * corner-wall mirror twins) landing on opposite screen sides.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -108,7 +109,7 @@ function viewportPct(name: string): number {
   return (100 * match) / ours.length;
 }
 
-describe('masked-heavy captured call-lists from-asset (DIAGNOSTIC — frame-mismatch)', () => {
+describe('masked-heavy captured call-lists from-asset (DIAGNOSTIC — frame-SYNCED)', () => {
   it('the destX SIGN-EXTENSION lands the corner-wall mirror twins on opposite screen sides', () => {
     const wb = expandMazeData(loadMazeData());
     // Placement 6 carries destX=255 (= signed −1); its mirror twin 9 carries destX=27.
@@ -124,25 +125,28 @@ describe('masked-heavy captured call-lists from-asset (DIAGNOSTIC — frame-mism
     expect(left.di).toBe(1609);
   });
 
-  it('documents the ACHIEVED from-asset reproduction of the GATE look-back (gy121-f2)', () => {
+  it('FRAME-SYNCED: the GATE look-back (gy121-f2) reproduces ~80% from its own call-list (was ~30%)', () => {
     const pct = viewportPct('freeroam-gx127-gy121-f2');
-    // ~30.2% — the captured corridor call-list vs the committed gate fixture (frame
-    // mismatch). The compositor is faithful; this is NOT a compositor defect.
-    expect(pct).toBeGreaterThan(28);
-    expect(pct).toBeLessThan(40);
+    // ~79.9% (this decode path) — the frame-synced gate call-list now reproduces its
+    // OWN framebuffer. The residue is the colourful portcullis-LEAF decoration (door-
+    // recess family), a draw path beyond the OR/masked background compose — NOT a frame
+    // mismatch. Floor that must not regress.
+    expect(pct).toBeGreaterThan(70);
   });
 
-  it('documents the ACHIEVED from-asset reproduction of the DEAD-END (gy123-f0)', () => {
+  it('FRAME-SYNCED: the DEAD-END (gy123-f0) reproduces ≥98% from its own call-list (was ~33%)', () => {
     const pct = viewportPct('freeroam-gx127-gy123-f0');
-    // ~33.4% — captured receding-corridor call-list vs the committed flat-dead-end
-    // fixture (different frames). Frame mismatch, not a compositor defect.
-    expect(pct).toBeGreaterThan(30);
-    expect(pct).toBeLessThan(40);
+    // ~98.2% — the frame-synced dead-end call-list reproduces its OWN flat-wall
+    // framebuffer. Residue = the central sword/statue decoration. Frame-matched.
+    expect(pct).toBeGreaterThan(97);
   });
 
-  it('CONTROL: the pure-OR gy121-f1 (zero masked calls) ALSO only ~52% — proves frame mismatch, not the masked compositor', () => {
+  it('FRAME-SYNCED: the pure-OR corridor gy121-f1 reproduces ≥99% from its own call-list (was ~52%)', () => {
     const pct = viewportPct('freeroam-gx127-gy121-f1');
-    expect(pct).toBeGreaterThan(45);
-    expect(pct).toBeLessThan(60);
+    // ~99.2% — the frame-synced corridor call-list reproduces its OWN framebuffer
+    // near-perfectly (masked side-walls included). This proves the masked compositor
+    // IS faithful when the call-list is the clean settled pass — the prior ~52% was the
+    // off-frame transient capture, now fixed.
+    expect(pct).toBeGreaterThan(98);
   });
 });
