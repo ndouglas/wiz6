@@ -104,27 +104,32 @@ const CASES: ViewCase[] = [
   {
     view: 'gx124-gy121-f0',
     party: { gx: 124, gy: 121, z: 0, facing: 0 },
-    floor: 16262, // 82.50% — PARITY-ODD WHOLE-FRAME MASKED pass (2026-06-09). Was 9602
-    // (48.71%): the side walls are now drawn through the masked-mirror branch
-    // (generateParityOddMasked) instead of OR-direct, matching the engine's parity-odd
-    // emission. +6660px. The remaining residue is the DEEP-DOOR-RECESS masked family
-    // (36–81: src=same-side deeper slot, a REVERSED pairing vs the side-wall law) +
-    // dither — the genuine decompiler-resistant ray-march residue.
+    floor: 16308, // 82.73% — DEEP DOOR-RECESS pass (2026-06-09): the recessed-doorway frame
+    // (the 8 fixed masked pairs 36→63…57→72 + OR 101/104, byte-identical across the f0/f3
+    // captures) is now emitted (generateDeepDoorRecess). +46px over the prior 16262. The
+    // door-recess masked pairs were the only piece the prior pass left as residue here;
+    // adding them frames the recess but the near-arch detail (5/8/21/22/25/28/31/34, the
+    // PARITY-ODD masked near-arch) + the depth-3 twins + dither are the remaining gap to the
+    // 93.25% ceiling. Was 9602 (48.71%) before the parity-odd masked side walls.
     allowedSpurious: [2, 85, 89],
     residue:
-      'PARITY-ODD masked side walls (+6660px). Deep-solid far-wall family {2,85,89} ' +
-      'fills the centre; the deep door-recess masked family (36–81, reversed pairing) ' +
-      'is decompiler-resistant residue + dither.',
+      'PARITY-ODD masked side walls + the DEEP DOOR-RECESS family (8 masked pairs + 101/104). ' +
+      'Deep-solid far-wall {2,85,89} fills part of the centre (overlaps the recess). Remaining ' +
+      'gap = the parity-odd near-arch pieces + depth-3 twins + dither.',
   },
   {
     view: 'gx124-gy121-f3',
     party: { gx: 124, gy: 121, z: 0, facing: 3 },
-    floor: 11959, // 60.67% — near-stone-jog d0 wall (15) lifted +4pp. Door-recess view
-    // (ceiling 87.24%, decompiler-resistant residue). Spurious 15 = the near stone wall
-    // at the party's own cell; the engine places 14 here (one-slot-off, the door-recess
-    // interaction shifts the near stone index) — same one-slot-off side-wall residue class.
+    floor: 14069, // 71.37% — DEEP DOOR-RECESS pass (2026-06-09): the recessed-doorway frame
+    // (the SAME 8 masked pairs + 101/104 as f0, byte-identical cross-capture) now renders
+    // the pink recessed door at the corridor end. +2110px over the prior 11959 (60.67%).
+    // Spurious 15 = the near stone wall at the party's own cell (engine places 14 — one-slot-off,
+    // the door-recess interaction shifts the near stone index); the LEFT near-stone wall is the
+    // remaining residue (the black band, separate from the door-recess family). Ceiling 87.24%.
     allowedSpurious: [15],
-    residue: 'door-recess family + dither; near-stone-jog d0 wall (15) lifted +4pp (engine 14)',
+    residue:
+      'DEEP DOOR-RECESS family (8 masked pairs + 101/104) renders the recessed door (+2110px); ' +
+      'remaining = the LEFT near-stone wall (15 vs engine 14, one-slot-off) + dither.',
   },
   {
     view: 'gx126-gy121-f3',
@@ -353,6 +358,16 @@ describe('maze-freeroam off-axis parity (GATE — wired viewer path, documented 
       contains: [4, 7, 10, 13, 17, 18, 21, 22, 24, 27, 30, 33],
       why: 'head-on-door-AHEAD archway: the open-passage near flanks {4,7,10,13}+{17,18,21,22} framing the corridor + the door-recess arch {24,27,30,33} recessing the gate one cell ahead.',
     },
+    {
+      view: 'gx124-gy121-f0', party: { gx: 124, gy: 121, z: 0, facing: 0 },
+      contains: [60, 63, 66, 69, 72, 75, 78, 81, 101, 104],
+      why: 'DEEP DOOR-RECESS family (parity-ODD): the recessed-doorway frame at the recess cell (orient2=2) — the 8 fixed masked dsts {60,63,66,69,72,75,78,81} + OR {101,104}. Byte-identical to the f3 capture (parity-EVEN), so the family is parity-independent.',
+    },
+    {
+      view: 'gx124-gy121-f3', party: { gx: 124, gy: 121, z: 0, facing: 3 },
+      contains: [60, 63, 66, 69, 72, 75, 78, 81, 101, 104],
+      why: 'DEEP DOOR-RECESS family (parity-EVEN): the SAME recessed-doorway frame as f0 (cross-capture byte-identical), confirming the family fires identically at this orient2=2 cell for both facing 0 and facing 3.',
+    },
   ];
   it.each(FAMILY_SIGNATURES)(
     'generates the derived family signature placements ($view)',
@@ -361,6 +376,30 @@ describe('maze-freeroam off-axis parity (GATE — wired viewer path, documented 
       for (const c of generateFullCallList(BLOCK, party)) placed.add(c.kind === 'OR' ? c.src : c.dst);
       const missing = contains.filter((i) => !placed.has(i));
       expect(missing, why).toEqual([]);
+    },
+  );
+
+  // DEEP DOOR-RECESS FIRING GATE — lock the firing predicate against the negative
+  // controls captured at the SAME recess cell (gx124 gy121, orient2=2). The family
+  // fires at facing 0/3 (above) but NOT facing 1/2 (a recess seen behind / to the wrong
+  // side), and never at a plain orient2=0 cell. The 8 door-recess masked dsts (60…81)
+  // must be ABSENT from those views — otherwise the family is over-firing (spurious
+  // recess at a non-recess view). This is the anti-overfit guard for the firing law.
+  const DOOR_RECESS_DST = [60, 63, 66, 69, 72, 75, 78, 81];
+  const NEGATIVE_CONTROLS: Array<{ party: MazeParty; why: string }> = [
+    { party: { gx: 124, gy: 121, z: 0, facing: 1 }, why: 'recess cell facing 1 — recess to the wrong side, no fire (captured negative control)' },
+    { party: { gx: 124, gy: 121, z: 0, facing: 2 }, why: 'recess cell facing 2 — recess face is the FRONT/own face, no fire (captured negative control)' },
+    { party: { gx: 127, gy: 121, z: 0, facing: 0 }, why: 'entrance corridor (orient2=0) — never a door-recess view' },
+    { party: { gx: 127, gy: 121, z: 0, facing: 1 }, why: 'orient2=0 corridor — never fires' },
+    { party: { gx: 127, gy: 123, z: 0, facing: 1 }, why: 'front-door junction (orient2=0) — the open-archway family, not the deep door-recess' },
+  ];
+  it.each(NEGATIVE_CONTROLS)(
+    'does NOT emit the deep door-recess family on a non-recess view (gx$party.gx-gy$party.gy-f$party.facing)',
+    ({ party, why }) => {
+      const placed = new Set<number>();
+      for (const c of generateFullCallList(BLOCK, party)) placed.add(c.kind === 'OR' ? c.src : c.dst);
+      const leaked = DOOR_RECESS_DST.filter((i) => placed.has(i));
+      expect(leaked, why).toEqual([]);
     },
   );
 });
