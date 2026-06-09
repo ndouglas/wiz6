@@ -2380,6 +2380,12 @@ async function phaseFreeRoam(c: HostClient): Promise<void> {
   if (at.gx !== gx || at.gy !== gy || at.f !== facing) {
     console.log(`POSITION MISMATCH (got gx${at.gx} gy${at.gy} f${at.f}) — abort`); return;
   }
+  // SETTLE: the forward-step move only stepped 45 frames in frMove; the engine's
+  // background build loop (the OR/masked compose passes) + the wall raster can run
+  // for several more frames before the framebuffer is final. A framebuffer grabbed
+  // before the build settles is a MID-BUILD capture (floor+ceiling+void). Step
+  // extra frames so the page is fully composited before the grab.
+  await c.step(60);
   await c.fb(`${outDir}/${tag}.rgba`);
   const rgba = new Uint8Array(readFileSync(`${outDir}/${tag}.rgba`));
   writeFileSync(`${outDir}/${tag}.png`, encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));

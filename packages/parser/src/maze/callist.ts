@@ -184,7 +184,28 @@ const DEPTH_BOUND = 4;
  * occ_seed_front 0x4892: front==2 || the door-frame corner gate [0x5067].)
  */
 function frontOccludes(front: number, cL: number, cR: number): boolean {
-  if (front === 2) return true;
+  if (front === 2) {
+    // OFFSET-WALL EXCEPTION (maze-freeroam pass 2026-06-09). A solid forward edge
+    // with EXACTLY ONE stone side corner (the other open) is a corridor JOG, not a
+    // cap — the view continues past it (the offset wall reads as the receding side
+    // wall, the opening leads the eye deeper). This is the off-axis turned-corridor
+    // geometry the entrance-relative parity-EVEN captures never exercised: a wall
+    // ahead-and-to-one-side while the other side opens.
+    //
+    // Validated against ALL FOUR byte-exact occlusion captures (v1/v2/v5/v6 — see
+    // index-arithmetic.test.ts), which it leaves unchanged: v5's d1 solid front has
+    // BOTH corners OPEN (a true corridor cap → still occludes); v6 caps at d0
+    // (handled before reaching here); v1/v2 cap on doors. It extends the off-axis
+    // freeroam views (gx127gy121f1, gx124gy121f0, gx127gy123f1) from a depth-1/0
+    // truncated VOID to the full depth-3 corridor the engine renders.
+    // The jog side must be STONE specifically (code 2), not a door (1/3): a door
+    // ahead-and-to-one-side is a closed/openable doorway that frames the corridor,
+    // not a receding wall to see past. (Restricting to code 2 keeps fr-f0's d2
+    // door-corner cap at depth 2 — its OLD, correct stop — while still opening the
+    // genuine stone-jog views fr-f1/the f3 turns.)
+    const oneStoneOneOpen = (cL === 2 && cR === 0) || (cL === 0 && cR === 2);
+    return !oneStoneOneOpen;
+  }
   if (front === 3 && isSolid(cL) && isSolid(cR)) return true;
   return false;
 }
@@ -465,6 +486,12 @@ function generateSideWall(
   let [cgx, cgy] = step(gx, gy, facing, 0, -1); // entry pull-back
   let openRun = 0;
   let prevStone = false;
+  // Whether ANY visible passage (open OR door corner) precedes this depth. A stone
+  // wall reached THROUGH a passage is a receding side wall the eye sees down the
+  // corridor — it must emit. A stone wall at the party's OWN near cell with no
+  // preceding passage is the near full-height occluder (handled elsewhere / drawn
+  // by the engine's near piece, NOT the receding base+d) and stays excluded.
+  let passedPassage = false;
   for (let d = 0; d < DEPTH_BOUND; d++) {
     [cgx, cgy] = step(cgx, cgy, facing, 0, 1);
     if (!visible.includes(d)) break;
@@ -477,12 +504,19 @@ function generateSideWall(
         out.push(bases[k]! + d + 28); // floor twin
       }
       prevStone = false;
+      passedPassage = true;
     } else if (edge === 2) {
       openRun = 0; // stone corner resets the open run
       const firstStoneOfNearRun = !prevStone; // a stone depth not preceded by stone
       const front = forwardEdge(block, cgx, cgy, facing);
       const skipDoorStop = d === stop && front === 3;
-      if (!firstStoneOfNearRun && !skipDoorStop) {
+      // Emit the receding stone wall (base + d) UNLESS it's a door-capped stop, AND
+      // either it continues a stone run (not the near edge) OR a passage precedes it
+      // (a stone wall seen DOWN the corridor — the off-axis turned-corridor wall the
+      // freeroam views need; generalized 2026-06-09). The near-cell stone with no
+      // preceding passage stays excluded (the engine's near occluder, byte-exact vs
+      // v10's missing-19 / gx126gy121f3's missing-16/17).
+      if (!skipDoorStop && (!firstStoneOfNearRun || passedPassage)) {
         out.push(STONE_WALL_BASE[side] + d);
       }
       prevStone = true;
@@ -490,6 +524,7 @@ function generateSideWall(
       openRun = 0; // a DOOR/recess corner (edge 1|3) resets the run; its recede is the
       // door-recess family (documented residue, not emitted by this side-wall fn).
       prevStone = false;
+      passedPassage = true; // a door is a visible passage forward
     }
   }
   return out;
@@ -566,10 +601,19 @@ function generateFarClosedWall(
   const front = forwardEdge(block, cgx, cgy, facing);
   const cL = cornerL(block, cgx, cgy, facing);
   const cR = cornerR(block, cgx, cgy, facing);
-  // Only a CLOSED DOORWAY (door framed by stone, code 3) draws the far near-wall
-  // family banked to the stop depth. A plain solid wall (code 2) caps the ceiling/
-  // floor but does NOT add this corner-pair (v5: solid wall at d1 → no {1,84,88}).
-  if (!(front === 3 && isSolid(cL) && isSolid(cR))) return [];
+  // The far near-wall family (NEAR_WALL leaf + corner-L 83 + corner-R 87, banked to
+  // the stop depth) caps the corridor when:
+  //   (1) a CLOSED DOORWAY (door framed by stone, code 3) closes the view — byte-exact
+  //       vs v1 (door at d2 → {2,85,89}); OR
+  //   (2) a SOLID wall (code 2) closes the view at a DEEP stop (depth ≥ 2). At a deep
+  //       stop the far wall is a distinct small piece centred at the vanishing point
+  //       (gx124gy121f0: solid wall at d2 → {2,85,89} fills the centre void). At a
+  //       SHALLOW solid stop (depth 1) the wall merges with the near side surface and
+  //       NO distinct far piece is drawn — v5 (solid wall at d1) has no {1,84,88}, so
+  //       the depth bound preserves v5's byte-exact set.
+  const closedDoor = front === 3 && isSolid(cL) && isSolid(cR);
+  const deepSolid = front === 2 && stop >= 2;
+  if (!closedDoor && !deepSolid) return [];
   const { leaf, cornerL: cl, cornerR: cr } = EMIT_BASES.CLOSED_FRONT_NEAR;
   return [leaf + stop, cl + stop, cr + stop];
 }

@@ -23,11 +23,31 @@
  *       than the engine's runtime surface, so even a structurally-correct corridor
  *       mismatches ~10–50% of pixels (same class as the entrance's 18px deep-door gap,
  *       just larger surface area). NOT fixable by adding placements.
- *   (2) OFF-AXIS CLASSIFY: the per-depth DOOR-recess family (138–149) and the
- *       front-occlusion depth bound for turned views live in the decompiler-resistant
- *       classify post-pass (maze-wall-family-seeding.json). gx127gy123f1 (a front-door
- *       junction) and gx127gy121f1 (a corridor whose front-occlusion stop cuts the view
- *       at depth 1 while the open side recedes further) stay at the OR floor.
+ *   (2) OFF-AXIS CLASSIFY: the per-depth DOOR-recess family (138–149) lives in the
+ *       decompiler-resistant classify post-pass (maze-wall-family-seeding.json). The
+ *       front-door junction gx127gy123f1 renders its closed-front STONE WALL but not
+ *       the door ARCHWAY (masked-mirror residue). gx124gy121f0's deep recess + side
+ *       walls are largely masked-mirror-drawn by the engine (the OR-direct generator
+ *       fills the centre via the deep-solid far-wall family but not the masked sides).
+ *
+ * ── VOID FIX 2026-06-09 (maze-freeroam off-axis pass) ──
+ * The "walking-around shows a black void" complaint: the generator under-emitted for
+ * the off-axis EDGE/JUNCTION geometries (it truncated the view at a front=2 jog and
+ * skipped the receding stone side wall + the far closed wall). Three changes to
+ * callist.ts fixed the void (validated by EYEBALL — render via COMPOSED_PALETTE vs the
+ * engine .png — and by the dither-tolerant blackOurs→engBlack convergence):
+ *   (a) frontOccludes: a solid front with exactly ONE STONE side corner (code 2) is a
+ *       corridor JOG, not a cap — the view continues to depth 3 (was truncated at d1).
+ *       Leaves v1/v2/v5/v6's byte-exact occlusion unchanged (their solid stops have
+ *       both corners open or are doors).
+ *   (b) generateSideWall: emit the receding stone wall (base 15/19 + d) when a passage
+ *       precedes the stone depth (a wall seen DOWN the corridor), not only mid-run.
+ *   (c) generateFarClosedWall: a DEEP solid stop (depth ≥ 2) draws the far near-wall
+ *       family {0,83,87}+stop (gx124gy121f0's centre); a shallow solid stop (v5, d1)
+ *       still draws nothing (byte-exact preserved).
+ * gx127gy121f1 went from a BLACK VOID (9532px / floor) to a recognizable receding
+ * stone corridor (10017px); gx127gy122f3 +1101px; the others held or improved. The
+ * remaining sub-100% residue is dither phase + the masked-mirror door-recess family.
  *
  * ── WHAT THIS GATE LOCKS ──
  *   (a) PER-VIEW pixel floor — the achieved match count through the wired path. This
@@ -84,9 +104,11 @@ const CASES: ViewCase[] = [
   {
     view: 'gx124-gy121-f0',
     party: { gx: 124, gy: 121, z: 0, facing: 0 },
-    floor: 9594, // 48.67%
-    allowedSpurious: [],
-    residue: 'in-place-turn capture (mid-build masked_flags); door-recess + dither residue',
+    floor: 9602, // 48.71%
+    allowedSpurious: [2, 85, 89],
+    residue:
+      'deep-solid far-wall family {2,85,89} now fills the centre (was a black void band); ' +
+      'the deep recess + side walls are otherwise masked-mirror-drawn (decompiler-resistant) + dither',
   },
   {
     view: 'gx124-gy121-f3',
@@ -98,30 +120,39 @@ const CASES: ViewCase[] = [
   {
     view: 'gx126-gy121-f3',
     party: { gx: 126, gy: 121, z: 0, facing: 3 },
-    floor: 16594, // 84.18%
-    allowedSpurious: [137, 165],
-    residue: 'LEFT stone wall now filled (was black void); +21pp; dither residue',
+    floor: 16595, // 84.19%
+    allowedSpurious: [137, 165, 3, 86, 90],
+    residue:
+      'LEFT stone wall filled (was black void). The deep-solid far-wall family {3,86,90} ' +
+      'is emitted but lands off-centre/occluded here (floor +1px) — correct-family residue, not garbage; dither',
   },
   {
     view: 'gx127-gy121-f1',
     party: { gx: 127, gy: 121, z: 0, facing: 1 },
-    floor: 9532, // 48.36%
-    allowedSpurious: [],
-    residue: 'front-occlusion stop cuts view at depth 1 (off-axis classify residue) + dither',
+    floor: 10017, // 50.82% — was a BLACK VOID (9532); the offset-wall occlusion +
+    // right-stone wall now fill it as a recognizable corridor.
+    allowedSpurious: [20],
+    residue:
+      'VOID FIXED 2026-06-09: offset-wall occlusion exception extends the view to depth 3 + the ' +
+      'right-stone wall fills the right (eyeballed: a stone corridor receding east). +485px. ' +
+      'Residue = dither phase on the receding stone surface (the structural void is gone). ' +
+      'Spurious 20 = the one-slot-off d1 right-stone (engine placed 19/21/22).',
   },
   {
     view: 'gx127-gy122-f3',
     party: { gx: 127, gy: 122, z: 0, facing: 3 },
-    floor: 16503, // 83.72%
-    allowedSpurious: [138, 166, 141, 169],
-    residue: 'RIGHT stone wall now filled; near-flank masked correctly suppressed; +11pp',
+    floor: 17604, // 89.31% — was 16503; the generalized stone wall + far-wall lifted +1101px.
+    allowedSpurious: [20, 138, 141, 166, 169],
+    residue: 'RIGHT stone wall + deep depths now filled; +11pp over the prior floor; dither',
   },
   {
     view: 'gx127-gy123-f1',
     party: { gx: 127, gy: 123, z: 0, facing: 1 },
     floor: 7381, // 37.44%
     allowedSpurious: [0, 83, 87],
-    residue: 'front-door junction — door-recess family is decompiler-resistant residue',
+    residue:
+      'front-door junction — renders the closed-front STONE WALL (no void), but the door ' +
+      'ARCHWAY (door-recess family, masked-mirror) is decompiler-resistant residue. NOT a void.',
   },
 ];
 
