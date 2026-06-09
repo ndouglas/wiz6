@@ -154,6 +154,45 @@ const CASES: ViewCase[] = [
       'front-door junction — renders the closed-front STONE WALL (no void), but the door ' +
       'ARCHWAY (door-recess family, masked-mirror) is decompiler-resistant residue. NOT a void.',
   },
+  // LOOK-BACK / HEAD-ON DOOR views (2026-06-09 maze-freeroam look-back pass). Turning
+  // around (facing 2) at the entrance to look BACK at the gate the party came through.
+  // The door at gy121 (north=3) viewed head-on is a CLOSED gate that CAPS the view at
+  // its depth (the head-on-door occlusion law in frontOccludes/computeVisibleDepths) —
+  // BEFORE the fix these rendered a deep receding corridor with a BLACK VOID on the
+  // right (the user's report). Now: gy121-f2 caps at depth 0 (near gate fills the
+  // viewport, closed-front family {0,83,87}); gy122-f2 caps at depth 1 (gate recessed
+  // into the far wall, far-closed family {1,84,88}). EYEBALL-confirmed vs the engine
+  // .png: recognizable centred portcullis gate, NO black void/gap, stone frame. The
+  // colourful portcullis-LEAF detail (door-recess families 17–34 / 5–34) + the engine's
+  // masked-mirror near-flank + side-wall surfaces are the decompiler-resistant residue
+  // that caps the pixel parity (same class as gx127gy123f1).
+  {
+    view: 'gx127-gy121-f2',
+    party: { gx: 127, gy: 121, z: 0, facing: 2 },
+    floor: 12308, // 62.44% — was a BLACK VOID + deep wrong-angle corridor. Now the
+    // head-on door caps at depth 0: the closed-front gate family fills the centre.
+    allowedSpurious: [0, 83, 87],
+    residue:
+      'LOOK-BACK at the entrance gate (door at the party own cell). Head-on-door ' +
+      'occlusion caps the view at depth 0 → the closed-front near-wall family {0,83,87} ' +
+      'draws the centred gate face + stone frame (the gate the engine shows near and ' +
+      'large). The colourful portcullis-leaf detail (door-recess 17–34) + the engine ' +
+      'near-flank masked side walls are decompiler-resistant residue. NO void.',
+  },
+  {
+    view: 'gx127-gy122-f2',
+    party: { gx: 127, gy: 122, z: 0, facing: 2 },
+    floor: 9406, // 47.72% — was a BLACK VOID on the right + corridor running PAST the
+    // gate. Now the head-on door caps at depth 1: far-closed gate family at the
+    // corridor end, side walls recede to it.
+    allowedSpurious: [1, 84, 88, 131, 134, 138, 143, 159, 162, 166, 171],
+    residue:
+      'LOOK-BACK one cell deeper (door one cell ahead). Head-on-door occlusion caps at ' +
+      'depth 1 → far-closed gate family {1,84,88} recesses the gate into the far wall; ' +
+      'the receding side-wall surface (131/134/138/143 + 28-floor twins) frames the ' +
+      'corridor (one-slot-off vs the engine 132/135/136/139/140/144 — structural recede, ' +
+      'not garbage). Door-leaf detail (5–34) is decompiler-resistant residue. NO void.',
+  },
 ];
 
 function engineViewport(view: string): Uint8Array {

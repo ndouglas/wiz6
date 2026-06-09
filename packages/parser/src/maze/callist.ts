@@ -178,12 +178,28 @@ const DEPTH_BOUND = 4;
 
 /**
  * Whether the forward edge at a build depth OCCLUDES the view (caps the walk).
- * A solid wall (code 2) always occludes; a door (code 3) occludes only when it
+ * A solid wall (code 2) always occludes; a door (code 3) occludes either when it
  * is a CLOSED doorway — framed by solid walls on both the left and right corner
- * edges. A door with an open corner is a see-through side opening. (wmaze
+ * edges — OR when it is viewed HEAD-ON (`headon`, facing 2 or 3). A door with an
+ * open corner viewed from the side (facing 0/1) is a see-through opening. (wmaze
  * occ_seed_front 0x4892: front==2 || the door-frame corner gate [0x5067].)
+ *
+ * THE LOOK-BACK / HEAD-ON DOOR LAW (maze-freeroam look-back pass 2026-06-09). A
+ * door's `front==3` code is read as its FRONT face only for the head-on facings
+ * (2/3 — the gy-1/gx-1 helper selectors; classify.ts law (4)). When the party
+ * looks AT a door head-on, it is a CLOSED gate that fills the viewport (a recessed
+ * portcullis), capping the view at the door's depth — exactly like a solid wall
+ * or a corner-framed closed doorway. EYEBALL-confirmed vs the engine for the
+ * entrance look-back: gx127 gy121 f2 (door at the party's own cell → near gate,
+ * visibleDepths [0]) and gx127 gy122 f2 (door one cell ahead → gate at the
+ * corridor end, visibleDepths [0,1]). Facings 0/1 read a door's BACK face and do
+ * NOT occlude on a plain `front==3` (the corner-framed gate is handled below). NO
+ * existing capture has a head-on door (all v1/v2/v5/v6 + the 6 freeroam views are
+ * facing 0/1/3 with `front==3` only at non-head-on facings), so this rule fires
+ * ONLY for the look-back views and regresses nothing.
  */
-function frontOccludes(front: number, cL: number, cR: number): boolean {
+function frontOccludes(front: number, cL: number, cR: number, headon: boolean): boolean {
+  if (front === 3 && headon) return true; // head-on door = closed gate, caps the view
   if (front === 2) {
     // OFFSET-WALL EXCEPTION (maze-freeroam pass 2026-06-09). A solid forward edge
     // with EXACTLY ONE stone side corner (the other open) is a corridor JOG, not a
@@ -223,6 +239,7 @@ function frontOccludes(front: number, cL: number, cR: number): boolean {
 export function computeVisibleDepths(block: MazeBlock, party: MazeParty): number[] {
   const { gx, gy, facing } = party;
   if (facing < 0 || facing > 3) throw new Error(`invalid facing ${facing}`);
+  const headon = facing === 2 || facing === 3; // head-on door read direction (classify.ts (4))
   let [cgx, cgy] = step(gx, gy, facing, 0, -1); // entry pull-back (forward=-1)
   const visible: number[] = [];
   for (let d = 0; d < DEPTH_BOUND; d++) {
@@ -231,7 +248,7 @@ export function computeVisibleDepths(block: MazeBlock, party: MazeParty): number
     const front = forwardEdge(block, cgx, cgy, facing);
     const cL = cornerL(block, cgx, cgy, facing);
     const cR = cornerR(block, cgx, cgy, facing);
-    if (frontOccludes(front, cL, cR)) break; // inclusive stop
+    if (frontOccludes(front, cL, cR, headon)) break; // inclusive stop
   }
   return visible;
 }
@@ -613,7 +630,15 @@ function generateFarClosedWall(
   //       the depth bound preserves v5's byte-exact set.
   const closedDoor = front === 3 && isSolid(cL) && isSolid(cR);
   const deepSolid = front === 2 && stop >= 2;
-  if (!closedDoor && !deepSolid) return [];
+  // HEAD-ON DOOR (look-back pass 2026-06-09). A door (code 3) viewed head-on
+  // (facing 2/3) caps the corridor as a closed gate even with OPEN side corners —
+  // the same closed-front near-wall family banked to the stop depth. EYEBALL-
+  // confirmed vs the engine for gx127 gy122 f2 (door at the corridor end, the gate
+  // recessed into the far wall). The colourful portcullis-leaf detail is the
+  // documented door-recess residue; the {leaf,83,87}+stop family draws the gate's
+  // stone frame + recess structure (no void).
+  const headonDoor = front === 3 && (facing === 2 || facing === 3);
+  if (!closedDoor && !deepSolid && !headonDoor) return [];
   const { leaf, cornerL: cl, cornerR: cr } = EMIT_BASES.CLOSED_FRONT_NEAR;
   return [leaf + stop, cl + stop, cr + stop];
 }
