@@ -410,44 +410,28 @@ export function sideWallSurfaceStack(runLength: number): number[] {
  * the documented residue and is NOT emitted). Pinned byte-exact for the LEFT side
  * across all captures and the symmetric RIGHT side (v1/v7/v10/v11).
  */
-/** True iff the given side's corner edge is OPEN (code 0) at every visible depth.
- *  Used to gate the (asymmetric) full-height stone wall recede to the unambiguous
- *  case where the opposite corridor is fully open (v7). */
-function visibleCornersAllOpen(
-  block: MazeBlock,
-  party: MazeParty,
-  visible: number[],
-  side: 'left' | 'right',
-): boolean {
-  const { gx, gy, facing } = party;
-  const corner = side === 'left' ? cornerL : cornerR;
-  let [cgx, cgy] = step(gx, gy, facing, 0, -1);
-  for (let d = 0; d < DEPTH_BOUND; d++) {
-    [cgx, cgy] = step(cgx, cgy, facing, 0, 1);
-    if (!visible.includes(d)) break;
-    if (corner(block, cgx, cgy, facing) !== 0) return false;
-  }
-  return true;
-}
-
-/** True iff `side`'s open surface is in the ASYMMETRIC ray-march case and should be
- *  suppressed (left as residue) to avoid over-emitting near panels. The asymmetry is
- *  DIRECTIONAL: a STONE wall on the LEFT at the near depth (depth 0) shifts the
- *  visible center rightward and truncates the RIGHT surface's near panels in a
- *  pattern that is not a clean function (v8/v9). The mirror does NOT hold — a stone
- *  wall on the RIGHT leaves the LEFT surface a clean full stack (v7 LEFT byte-exact
- *  with cR stone). So we suppress ONLY the RIGHT surface when the LEFT near corner is
- *  stone. (The center-bias direction is the perspective ray-march's, not arbitrary.) */
-function isAsymmetricResidueSide(
-  block: MazeBlock,
-  party: MazeParty,
-  side: 'left' | 'right',
-): boolean {
-  if (side !== 'right') return false;
-  const { gx, gy, facing } = party;
-  return cornerL(block, gx, gy, facing) === 2; // LEFT stone at the party's own cell
-}
-
+/**
+ * The side-wall SURFACE placement-index SET for one screen side, walked over the
+ * visible depths. For each visible depth the side corner edge (cornerL for `left`,
+ * cornerR for `right`) is read:
+ *   - OPEN (code 0): extends the cumulative perspective trapezoid stack — emitting
+ *     `min(openRun, 3)` panels at base[k] + d (LEFT bases {134,130,126}, RIGHT
+ *     {138,142,146}) each with its +28 floor twin;
+ *   - STONE (code 2): draws the full-height receding stone wall (base 15 LEFT / 19
+ *     RIGHT at base + d) — see the STONE_WALL_BASE law below;
+ *   - DOOR/recess (code 1|3): resets the open run; the door-recess piece is the
+ *     documented decompiler-resistant residue (NOT emitted here).
+ *
+ * GENERALIZED 2026-06-09 (maze-freeroam pass): emits the symmetric stack on BOTH
+ * sides (gated only by each side's own corner edge) and the full-height stone wall
+ * for ANY (side, facing). The prior version SUPPRESSED the receding side wall of
+ * turned corridors (kept `generated ⊆ captured` for the v8/v9 poke captures but
+ * left the off-axis views BLACK — the "void" the player saw). The generalized
+ * emission stays a SUBSET of every gated capture (v1/v5/v6/v7/v10/v11) — see
+ * index-arithmetic.test.ts (byte-exact + generated⊆captured) — and lifts the
+ * off-axis freeroam views (gx126gy121f3 +21pp, gx127gy122f3 +11pp via the wired
+ * render). The entrance (gy121 f0) is unchanged (both sides open → identical set).
+ */
 function generateSideWall(
   block: MazeBlock,
   party: MazeParty,
@@ -458,18 +442,29 @@ function generateSideWall(
   const bases = side === 'left' ? [134, 130, 126] : [138, 142, 146];
   const corner = side === 'left' ? cornerL : cornerR;
   const out: number[] = [];
-  // ASYMMETRY GATE: when the OPPOSITE corridor side is stone, the visible center
-  // shifts toward it and THIS side's surface recedes its NEAR panels in a pattern
-  // that is NOT a clean function of the corner/side profile (the perspective
-  // ray-march residue — v8/v9). Emitting the symmetric stack there would OVER-emit
-  // near panels (spurious indices), so we suppress this side's surface in that case
-  // and leave it as documented residue rather than ship a wrong (extra) index.
-  if (isAsymmetricResidueSide(block, party, side)) {
-    return out;
-  }
+  // FULL-HEIGHT stone-side wall law (generalized 2026-06-09 — maze-freeroam pass).
+  // A STONE side corner draws a receding full-height wall: base 15 (LEFT) / 19 (RIGHT)
+  // at `base + d`. This is the receding stone wall the player sees when turned to face
+  // down a corridor with a solid wall along one side — the "black void" the off-axis
+  // views showed. Two depths are EXCLUDED (matching every captured set byte-exact, zero
+  // spurious across v1/v6/v7/v10/v11 + the 6 freeroam captures):
+  //   (1) the NEAR depth of a stone run that begins at the party's own cell (the very
+  //       first contiguous-from-near stone depth) — the engine fills that with the near
+  //       full-height occluding piece, NOT the receding base+d (v10 has 20,21,22 but not
+  //       19; gx126gy121f3 has 16,17 not 15);
+  //   (2) the OCCLUSION-STOP depth when the front there is a DOOR (code 3) — the doorway
+  //       is capped by the door-recess family, not a stone wall (v1's stop at d2 is a
+  //       door → no 15/19 there). A SOLID-front (code 2) stop still draws the stone wall.
+  // This is the single biggest off-axis win (gx126gy121f3 63%→84%, gx127gy122f3
+  // 72%→84% via the wired render; the residual is dither-phase + door-recess residue,
+  // NOT a missing wall). The PREVIOUS gate (`facing===0 && side==='right' &&
+  // leftAllOpen`) only drew the v7 RIGHT-stone case and left LEFT-stone + facing≠0 as
+  // residue — which is exactly what left the turned corridors black.
+  const stop = visible[visible.length - 1]!;
   // Re-walk the corridor to read the per-depth side corner edge.
   let [cgx, cgy] = step(gx, gy, facing, 0, -1); // entry pull-back
   let openRun = 0;
+  let prevStone = false;
   for (let d = 0; d < DEPTH_BOUND; d++) {
     [cgx, cgy] = step(cgx, cgy, facing, 0, 1);
     if (!visible.includes(d)) break;
@@ -481,25 +476,29 @@ function generateSideWall(
         out.push(bases[k]! + d); // ceiling
         out.push(bases[k]! + d + 28); // floor twin
       }
-    } else {
-      openRun = 0; // stone/door corner resets the open run
-      // FULL-HEIGHT stone-side wall (facing-0 RIGHT, byte-exact for v7): a STONE
-      // RIGHT corner draws a receding full-height wall (base 19) at 19 + d, EXCEPT
-      // at the occlusion-stop depth (capped by the far closed-wall family). The
-      // recede EXTENT is asymmetric (the ray-march center bias): a RIGHT-stone wall
-      // bounded by an open LEFT corridor recedes fully to the vanishing point (v7),
-      // but a LEFT-stone wall recedes only ~2 slots (v8) — so we emit ONLY the
-      // unambiguous RIGHT-stone-with-open-LEFT case and leave LEFT-stone full-height,
-      // facing-1's near base (87/110), and the deepest door(3) variant as residue.
-      const stop = visible[visible.length - 1]!;
-      const leftAllOpen = visibleCornersAllOpen(block, party, visible, 'left');
-      if (facing === 0 && side === 'right' && edge === 2 && d !== stop && leftAllOpen) {
-        out.push(19 + d);
+      prevStone = false;
+    } else if (edge === 2) {
+      openRun = 0; // stone corner resets the open run
+      const firstStoneOfNearRun = !prevStone; // a stone depth not preceded by stone
+      const front = forwardEdge(block, cgx, cgy, facing);
+      const skipDoorStop = d === stop && front === 3;
+      if (!firstStoneOfNearRun && !skipDoorStop) {
+        out.push(STONE_WALL_BASE[side] + d);
       }
+      prevStone = true;
+    } else {
+      openRun = 0; // a DOOR/recess corner (edge 1|3) resets the run; its recede is the
+      // door-recess family (documented residue, not emitted by this side-wall fn).
+      prevStone = false;
     }
   }
   return out;
 }
+
+/** Full-height receding STONE side-wall base index per screen side (img3/img7 family,
+ *  w4 h112; the wall a solid corridor side draws at perspective depth d as base + d).
+ *  LEFT 15, RIGHT 19 — confirmed against v7 (RIGHT) + the freeroam captures (LEFT). */
+const STONE_WALL_BASE = { left: 15, right: 19 } as const;
 
 /**
  * Generate the placement-index SET the engine emits for a parity-EVEN corridor view,
@@ -662,6 +661,20 @@ export function generateNearFlankMasked(
   const cL = cornerL(block, c0x, c0y, facing);
   const cR = cornerR(block, c0x, c0y, facing);
   if (front !== 0 || cL !== 0 || cR !== 0) return [];
+  // STRAIGHT-CORRIDOR gate (added 2026-06-09, maze-freeroam validation). The flank
+  // mirror is the symmetric near-wall blit of a STRAIGHT corridor; it only renders
+  // correctly when the passage stays open one cell DEEPER too (depth-1 corners open,
+  // or the view stops at depth 0). When a side corner goes stone at depth 1 (e.g.
+  // gx127 gy122 f3, cornerR=2 at depth 1) the engine draws a DIFFERENT (asymmetric)
+  // masked set, and emitting the canonical symmetric flanks there is SPURIOUS — it
+  // measurably REGRESSES that view's pixel parity (82%→72% through the wired path).
+  // The entrance / v5 / v11 corridors keep depth-1 corners open and are unaffected.
+  if (visible.includes(1)) {
+    const [c1x, c1y] = step(gx, gy, facing, 0, 1); // one cell forward
+    if (cornerL(block, c1x, c1y, facing) !== 0 || cornerR(block, c1x, c1y, facing) !== 0) {
+      return [];
+    }
+  }
   // Draw both flanks of each mirror pair, each as the mirror of the opposite twin.
   const calls: BackgroundCall[] = [];
   for (const [left, right] of FLANK_MIRROR_PAIRS) {
