@@ -119,36 +119,40 @@ const CASES: ViewCase[] = [
   {
     view: 'gx124-gy121-f3',
     party: { gx: 124, gy: 121, z: 0, facing: 3 },
-    floor: 11200, // 56.82%
-    allowedSpurious: [135, 163],
-    residue: 'door-recess family + dither; symmetric side-wall fill lifted +9pp',
+    floor: 11959, // 60.67% — near-stone-jog d0 wall (15) lifted +4pp. Door-recess view
+    // (ceiling 87.24%, decompiler-resistant residue). Spurious 15 = the near stone wall
+    // at the party's own cell; the engine places 14 here (one-slot-off, the door-recess
+    // interaction shifts the near stone index) — same one-slot-off side-wall residue class.
+    allowedSpurious: [15],
+    residue: 'door-recess family + dither; near-stone-jog d0 wall (15) lifted +4pp (engine 14)',
   },
   {
     view: 'gx126-gy121-f3',
     party: { gx: 126, gy: 121, z: 0, facing: 3 },
-    floor: 16595, // 84.19%
-    allowedSpurious: [137, 165, 3, 86, 90, 17],
+    floor: 19683, // 99.85% (the 99.95% ceiling) — NEAR-STONE-JOG pass (2026-06-09). Was
+    // 16595 (84.19%): the LEFT stone-from-d0 jog (2-2-2-0) now draws the d0 near stone
+    // wall (15) + the receding stones (16) + the jog's far flank tip (18) + banked corner
+    // (85) and SUPPRESSES the d3-open side surface (occluded by the near wall) + the
+    // spurious deep-solid far-wall ({3,86,90}, which lands behind the jog). +3088px. The
+    // residual 29px to the 99.95% ceiling is the single-capture deep special 108 (a
+    // per-view decoration draw-path edge detail) + dither — documented residue.
+    allowedSpurious: [],
     residue:
-      'LEFT stone wall filled (was black void). The deep-solid far-wall family {3,86,90} ' +
-      'is emitted but lands off-centre/occluded here (floor +1px) — correct-family residue, not garbage; dither. ' +
-      '17 = a near-flank side-wall piece: the FRAME-SYNCED re-capture (2026-06-09) is a pure-OR settled compose ' +
-      'that placed this side wall via OR indices {15,85,108} instead of the prior masked twins {17,83,114}, so ' +
-      'the generator-emitted 17 is no longer in the engine PLACED set — same one-slot-off side-wall residue class.',
+      'NEAR-STONE-JOG LEFT wall (15/16 + flank tip 18 + corner 85), d3 opening occluded, ' +
+      'deep-solid far-wall suppressed. Residual = the single-capture deep special 108 + dither.',
   },
   {
     view: 'gx127-gy121-f1',
     party: { gx: 127, gy: 121, z: 0, facing: 1 },
-    floor: 16618, // 84.30% — PARITY-ODD WHOLE-FRAME MASKED pass (2026-06-09). Was
-    // 10017 (50.82%): the side walls are now masked-mirror (generateParityOddMasked),
-    // matching the engine's parity-odd emission. +6601px (a recognizable receding
-    // stone corridor, no void). The residual ~15% to the 99.16% ceiling is the near
-    // RIGHT-stone flank pieces (21/87 — the asymmetric near-stone wall) + the OR
-    // special 118 + dither; the generated DST set is otherwise the engine's masked set.
-    allowedSpurious: [20],
+    floor: 19546, // 99.16% (THE CEILING) — NEAR-STONE-FLANK pass (2026-06-09). Was 16618
+    // (84.30%): the RIGHT continuous near-stone wall (3-2-3-2, a door/stone-alternating
+    // wall) now draws the full near-flank stack {20,21,22} + corner 87 (generateNearStoneFlank)
+    // + the door-interleaved outer-edge vertical 118 (OR) — exactly the engine's masked set.
+    // +2928px reaches the self-repro ceiling. No spurious, no missing.
+    allowedSpurious: [],
     residue:
-      'PARITY-ODD masked side walls (+6601px, void gone). The remaining gap to the ' +
-      '99.16% ceiling = the asymmetric near RIGHT-stone flank (21/87) + the OR special ' +
-      '118 + dither. Spurious 20 = the one-slot-off d1 right-stone (engine placed 19/21/22).',
+      'NEAR-STONE-FLANK RIGHT wall {20,21,22} + corner 87 + edge 118 (door-interleaved) ' +
+      '= the engine masked set byte-for-byte. AT CEILING. Residual = dither only.',
   },
   {
     view: 'gx127-gy122-f3',
@@ -203,17 +207,15 @@ const CASES: ViewCase[] = [
   {
     view: 'gx127-gy122-f0',
     party: { gx: 127, gy: 122, z: 0, facing: 0 },
-    floor: 17785, // 90.22% — PARITY-ODD WHOLE-FRAME MASKED pass (2026-06-09). Was 10096
-    // (51.22%): the side walls are now masked-mirror (generateParityOddMasked), AND the
-    // near full-height OCCLUDER COLUMNS {6,9} are emitted for the stone-framed closed
-    // doorway one cell ahead (generateNearOccluderColumns) — the engine frames the
-    // recessed doorway with these columns (mirror twin 6↔9). +7689px. Residue = the
-    // door-recess leaf detail + dither (the 99.45% ceiling).
-    allowedSpurious: [1, 84, 88],
+    floor: 19603, // 99.45% (THE CEILING) — LEAF-OR pass (2026-06-09). Was 17785 (90.22%):
+    // the centered far-closed LEAF (placement 1, the img0 flat doorway face) is now drawn
+    // OR-DIRECT in the parity-ODD branch (LEAF_OR_SET) instead of as a masked self-mirror
+    // (which landed the wrong half). +1818px reaches the self-repro ceiling. The flanking
+    // corners 84/88 still mirror; near occluder columns {6,9} frame the recessed doorway.
+    allowedSpurious: [],
     residue:
       'DEEP CORRIDOR ending in a closed doorway. PARITY-ODD masked side walls + near ' +
-      'occluder columns {6,9} (+7689px). Far-closed family {1,84,88}; the door-recess ' +
-      'leaf + dither are the residue to the 99.45% ceiling. NO void, NO arches.',
+      'occluder columns {6,9} + the OR-direct far-closed LEAF 1. AT CEILING. Residual = dither.',
   },
   // LOOK-BACK / HEAD-ON DOOR views (2026-06-09 maze-freeroam look-back pass). Turning
   // around (facing 2) at the entrance to look BACK at the gate the party came through.
@@ -248,17 +250,17 @@ const CASES: ViewCase[] = [
   {
     view: 'gx127-gy122-f2',
     party: { gx: 127, gy: 122, z: 0, facing: 2 },
-    floor: 13833, // 70.18% — PARITY-ODD WHOLE-FRAME MASKED pass (2026-06-09). Was 9406
-    // (47.72%): the head-on door caps at depth 1 and the side walls recede to it via the
-    // masked-mirror branch (generateParityOddMasked). +4427px. The far gate at the
-    // corridor end is the door-recess masked family (the 97.45% ceiling residue).
-    allowedSpurious: [1, 84, 88, 131, 134, 138, 143, 159, 162, 166, 171],
+    floor: 19374, // 98.29% (exceeds the prior 97.45% ceiling estimate) — HEAD-ON-DOOR-AHEAD
+    // ARCHWAY pass (2026-06-09). Was 13833 (70.18%): the look-back with the gate ONE CELL
+    // AHEAD now draws the open-passage NEAR FLANKS (count-pairs 4/7/10/13 OR + panels
+    // 17/18/21/22 masked) framing the corridor + the DOOR-RECESS ARCH banked to the stop
+    // ({23,26,29,32}+1 = {24,27,30,33} OR) recessing the gate, in place of the spurious
+    // flat far-closed gate ({1,84,88}). +5541px. Residual = the portcullis-leaf decoration.
+    allowedSpurious: [],
     residue:
-      'LOOK-BACK one cell deeper (door one cell ahead). Head-on-door occlusion caps at ' +
-      'depth 1 → far-closed gate family {1,84,88} recesses the gate into the far wall; ' +
-      'the receding side-wall surface (131/134/138/143 + 28-floor twins) frames the ' +
-      'corridor (one-slot-off vs the engine 132/135/136/139/140/144 — structural recede, ' +
-      'not garbage). Door-leaf detail (5–34) is decompiler-resistant residue. NO void.',
+      'LOOK-BACK with the gate one cell ahead. HEAD-ON-DOOR-AHEAD archway: near flanks ' +
+      '(4/7/10/13 + 17/18/21/22) + door-recess arch ({24,27,30,33}) + masked side walls. ' +
+      'Residual = the portcullis-leaf decoration grid. NO void, NO flat-wall gate.',
   },
 ];
 
@@ -323,6 +325,42 @@ describe('maze-freeroam off-axis parity (GATE — wired viewer path, documented 
       // door view). Anything else = wrong-angle / garbage walls (the original bug).
       const unexpected = [...spurious].filter((x) => !allowedSpurious.includes(x)).sort((a, b) => a - b);
       expect(unexpected).toEqual([]);
+    },
+  );
+
+  // CALL-LIST-SET assertions (family-completion pass 2026-06-09): lock the derived
+  // family pieces so a regression in the family law (not just the pixel floor) is caught.
+  // Each entry asserts the GENERATED placement set CONTAINS the family's signature
+  // indices for that view (the on-screen geometry index = OR src / masked dst).
+  const FAMILY_SIGNATURES: Array<{ view: string; party: MazeParty; contains: number[]; why: string }> = [
+    {
+      view: 'gx127-gy121-f1', party: { gx: 127, gy: 121, z: 0, facing: 1 },
+      contains: [20, 21, 22, 87, 118],
+      why: 'asymmetric near-stone FLANK: the RIGHT continuous near-stone wall (3-2-3-2) draws the full flank stack {20,21,22} + corner 87 + the door-interleaved edge vertical 118.',
+    },
+    {
+      view: 'gx127-gy122-f0', party: { gx: 127, gy: 122, z: 0, facing: 0 },
+      contains: [1, 6, 9, 84, 88],
+      why: 'centered far-closed LEAF (1, OR-direct in parity-odd) + near occluder columns {6,9} + the mirrored corners 84/88.',
+    },
+    {
+      view: 'gx126-gy121-f3', party: { gx: 126, gy: 121, z: 0, facing: 3 },
+      contains: [15, 16, 18, 85],
+      why: 'near-stone JOG: the LEFT stone-from-d0 wall {15,16} + the receding far flank tip 18 + banked corner 85.',
+    },
+    {
+      view: 'gx127-gy122-f2', party: { gx: 127, gy: 122, z: 0, facing: 2 },
+      contains: [4, 7, 10, 13, 17, 18, 21, 22, 24, 27, 30, 33],
+      why: 'head-on-door-AHEAD archway: the open-passage near flanks {4,7,10,13}+{17,18,21,22} framing the corridor + the door-recess arch {24,27,30,33} recessing the gate one cell ahead.',
+    },
+  ];
+  it.each(FAMILY_SIGNATURES)(
+    'generates the derived family signature placements ($view)',
+    ({ party, contains, why }) => {
+      const placed = new Set<number>();
+      for (const c of generateFullCallList(BLOCK, party)) placed.add(c.kind === 'OR' ? c.src : c.dst);
+      const missing = contains.filter((i) => !placed.has(i));
+      expect(missing, why).toEqual([]);
     },
   );
 });

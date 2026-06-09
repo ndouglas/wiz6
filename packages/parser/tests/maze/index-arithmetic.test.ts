@@ -236,18 +236,27 @@ describe('generateCallist(block, party): full OR placement-index SET', () => {
   // Symmetric views (no near-stone-wall center shift): the generator emits only
   // CORRECT indices (a subset of the capture — missing pieces are the documented
   // full-height/door residue, but NO spurious extras).
-  const SYMMETRIC: Array<{ view: string; party: MazeParty }> = [
+  //
+  // NOTE on the near-stone corner (87): v7 and v10 have IDENTICAL geometry (RIGHT
+  // 2-2-2-3, a continuous near-stone wall) yet the OLD POKE captures recorded the
+  // near-stone CORNER piece differently — v10 captured `87` (+ edge 110), v7 captured
+  // neither. The frame-synced freeroam ground truth (gx127-gy121-f1) + v10 both place
+  // 87, so the near-stone-flank family (generateNearStoneFlank) emits it; v7's missing
+  // 87 is the documented poke-capture OSCILLATION (maze-masked-generation.json
+  // near_stone_flank), allowed here, not a generator bug.
+  const SYMMETRIC: Array<{ view: string; party: MazeParty; allowed?: number[] }> = [
     { view: 'v1-gy121f0', party: { gx: 127, gy: 121, z: 0, facing: 0 } },
     { view: 'v5-gx125f0', party: { gx: 125, gy: 121, z: 0, facing: 0 } },
     { view: 'v6-gy123f0', party: { gx: 127, gy: 123, z: 0, facing: 0 } },
-    { view: 'v7-gx121gy119f0', party: { gx: 121, gy: 119, z: 0, facing: 0 } },
+    { view: 'v7-gx121gy119f0', party: { gx: 121, gy: 119, z: 0, facing: 0 }, allowed: [87] },
     { view: 'v10-gx124gy121f1', party: { gx: 124, gy: 121, z: 0, facing: 1 } },
     { view: 'v11-gx123gy122f1', party: { gx: 123, gy: 122, z: 0, facing: 1 } },
   ];
 
-  it.each(SYMMETRIC)('no spurious extras — generated ⊆ captured ($view)', ({ view, party }) => {
+  it.each(SYMMETRIC)('no spurious extras — generated ⊆ captured ($view)', ({ view, party, allowed = [] }) => {
     const captured = capturedOrSet(view);
     for (const idx of generateCallist(BLOCK, party)) {
+      if (allowed.includes(idx)) continue;
       expect(captured.has(idx)).toBe(true);
     }
   });
