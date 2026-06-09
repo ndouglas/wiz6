@@ -1,0 +1,73 @@
+{
+  "topic": "maze-gate-arch",
+  "subagent_run": "2026-06-09 (entrance-gate ornate-arch / portcullis — rule FUN_1c94 in/out for the residual ~11%)",
+  "binaries": ["wmaze.ovr", "ega.drv"],
+  "summary": "RULED FUN_1c94 IN as the routine that draws the entrance-gate look-back PORTCULLIS LEAF GRID (gx127 gy121 f2), via a live compose-page write-watch. BUT the deeper conclusion overturns the task premise: the leaf grid ALREADY RENDERS CORRECTLY in our port. FUN_1c94 IS the per-span wall blitter we already ported (compositor.ts renderPieceCall) — it is called once per drawn span (the 4 tile-2 corridor/door spans of case-04, walltype!=0xff). Rendering case-04's captured spans through our compositor reproduces the gold/red portcullis lattice, and the diff vs the engine confirms the gate INTERIOR (leaf grid) MATCHES — the residual mismatch is the FRAME-EDGE silhouette (recess-depth jamb shading) + dither, concentrated in two thin vertical bands at the left/right of the gate opening. The arch FRAME is drawn by FUN_0a93 (the OR ARCHWAY_FRAME, byte-identical to the engine's 34-OR / 0-masked captured call-list, self-compose ceiling 79.93% OR-only / 89.21% with the wall pipeline). Adding the door-recess pieces the engine does NOT OR-blit (24/27/30/33) makes it WORSE (78.09%), confirming the engine's OR set is exact. The residual ~11% is therefore the SAME dither + recess-depth residue that caps EVERY maze view (the documented self-reproduction ceiling for static-placement compose) — NOT a missing FUN_1c94 wall-span path. No wireable improvement was found beyond what already renders; the view is AT its 89.21% floor. Findings + capture tooling delivered (probe-gate-arch.ts / probe-gate-arch-src.ts); the render path, wall-spans data, and freeroam gate test are unchanged (already correct).",
+  "confidence": "high",
+  "findings": [
+    {
+      "id": "fun1c94-draws-leaf-grid",
+      "claim": "FUN_1c94 (ega.drv wall-replace / per-span blitter) writes the gate-interior PORTCULLIS LEAF GRID page bytes. A live compose-page (0x41820) write-watch at the gate look-back attributed 23470 of the gate-interior (leaf-grid) byte writes to the 4 FUN_1c94 plane-store cseips (relocated 0x6d9dd/0x6da2c/0x6da7d/0x6dace, each ~5868 interior writes), the single largest contributor. FUN_0a93 (the OR/masked background compositor) wrote the rest of the interior bytes (the frame overlapping the recess opening).",
+      "category": "maze_render",
+      "evidence": {
+        "binary": "ega.drv (relocated base 0x6ba10 this run; FUN_1c94 entry = base+0x1c94 = 0x6d6a4; plane stores base+0x1d9d.. = 0x6d9dd/0x6da2c/0x6da7d/0x6dace)",
+        "address": "compose page 0x41820 (4-plane, PS 0x2000, row 40B); gate-interior screen rect x138..186 y54..130",
+        "type": "live_compose_page_write_watch_per_cseip",
+        "details": "tools/libretro/probe-gate-arch.ts: cold-boot + free-roam unlock (the patched core cannot unserialize the committed states — err unser), turn to facing 2, write-watch an in-place recompose, bucket each write by cseip + whether its addr lands in the interior rect. Interior writes by routine: FUN_1c94 23470, FUN_0a93(OR) 20018, plus the FUN_0a93 masked-mirror cluster (egadrv+0xc6e..0xcbe) ~22k and a smaller egadrv+0x77c..0x7a0 cluster ~3.9k. The OR-blit base was recovered from the unique plane-store 4-sibling cluster (base+0xb31/0xb45/0xb5c/0xb75)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "fun1c94-is-the-per-span-blitter-we-ported",
+      "claim": "FUN_1c94 is NOT a separate decoration draw-path — it is the per-SPAN wall blitter already ported as packages/parser/src/maze/compositor.ts (renderPieceCall). Tracing the FUN_1c94 ENTRY (0x6d6a4) over a gate recompose shows it is invoked once per drawn span: bx walks the DGROUP span list (0x50d0 + 0xb*i = 0x50d0/0x50f1/0x50fc/0x511d — the 4 walltype!=0xff spans of case-04, depthFields 0/1/2/3), dx = the span's depthField, bp = the screen-row base. The 0xff door-recess marker spans (case-04 indices 1/2/5/6) are NOT passed to FUN_1c94 — confirming flush.ts correctly skips them.",
+      "category": "maze_render",
+      "evidence": {
+        "binary": "ega.drv FUN_1c94 entry 0x6d6a4; DGROUP span list 0x50d0 (stride 0xb)",
+        "address": "FUN_1c94 entry register trace (ds/si/di/cx/bp/bx/dx) over a settled gate recompose",
+        "type": "live_entry_register_trace",
+        "details": "tools/libretro/probe-gate-arch-src.ts: 72 FUN_1c94 entry hits over the recompose; bx cycles 0x50d0/0x50f1/0x50fc/0x511d (the 4 tile-2 spans), dx = 0/3/4/7 (depth/seam). This is the per-span dispatch the C2 capture already feeds via generateCallList(case-04.spans)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "leaf-grid-already-renders",
+      "claim": "The portcullis leaf grid ALREADY RENDERS correctly in our port. Composing case-04's 4 captured tile-2 spans (pieces 10/12/13/15, the corridor/door walls) through renderFrameFromAssets produces the gold/red leaf-grid lattice. case-04 is keyed to this exact view-config (viewConfigKey match confirmed for both FRAMES.mazeBlock and loadLevel0().block) and is gated BYTE-EXACT in the wall region by maze-wall-cases-parity.test.ts. The full-frame diff vs the engine fixture (maze-freeroam-gx127-gy121-f2) shows the gate INTERIOR matching almost everywhere; the mismatch is concentrated in two thin VERTICAL BANDS at the left/right edges of the gate opening (the recess-depth jamb shading), with mismatch colors idx-0 (black, 1208px), idx-8 (gray, 666px), idx-1 (250px).",
+      "category": "maze_render",
+      "evidence": {
+        "binary": "packages/parser/src/maze/compositor.ts (renderPieceCall) + flush.ts (generateCallList)",
+        "address": "case-04 spans (tools/parity/fixtures/engine/maze-wall-spans.json): pieces 10/12/13/15 at depthField 0/1/2/3, walltype 2",
+        "type": "offline_compose_diff_vs_engine_fixture",
+        "details": "Rendering case-04 spans on a black page draws the leaf-grid lattice. Passing capturedSpans to renderMazeViewport for this view gives the IDENTICAL pixel result as the generated corridor-span path (89.21% both) — the generated and captured spans both reproduce the leaf grid. The freeroam parity gate already locks this view at floor 17585 (89.21%)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "arch-frame-is-fun0a93-at-ceiling",
+      "claim": "The ornate arch FRAME is drawn by FUN_0a93 (the OR ARCHWAY_FRAME OR set: near columns 6/9 + flank strips 16-22 + door-recess arch endpoints 23/25/26/28/29/31/32/34 + perspective twins 122-125/150-153 + depth-0 side walls 134/138/162/166), byte-identical to the engine's captured 34-OR / 0-masked call-list. Self-composing JUST that OR set reaches 79.93% (pure OR) / 89.21% (with the wall pipeline) — the self-reproduction CEILING. The in-between door-recess pieces 24/27/30/33 are NOT OR-blitted by the engine (absent from the captured OR list); adding them LOWERS parity to 78.09%, confirming the engine's OR frame is exact and the residual is not a missing OR piece.",
+      "category": "maze_render",
+      "evidence": {
+        "binary": "ega.drv FUN_0a93 (OR branch); docs/re/findings/maze-views/freeroam-gx127-gy121-f2-callist.json (34 OR, 0 masked)",
+        "address": "ARCHWAY_FRAME @ packages/parser/src/maze/callist.ts ~L1385",
+        "type": "or_list_self_compose_and_ablation",
+        "details": "Engine OR list self-compose 79.93%; +24,27,30,33 -> 78.09%; +all 23-34 -> 78.09%. The captured engine call-list is byte-identical to generateFullCallList for this view (34 OR, 0 masked)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "residual-is-dither-not-a-missing-path",
+      "claim": "The residual ~11% (the 'squarer frame' perception) is NOT a missing FUN_1c94 arch/leaf path — it is the recess-depth jamb shading + dithered stone surface that does not reproduce through the static-placement compose, the SAME residue class that caps every maze view (the documented self-reproduction ceiling). The leaf grid (FUN_1c94) and the arch frame (FUN_0a93) both already render; the view is AT its committed 89.21% floor and no wireable improvement was found.",
+      "category": "maze_render",
+      "evidence": {
+        "binary": "n/a (analysis / reconciliation)",
+        "address": "n/a",
+        "type": "reconciliation",
+        "details": "The mismatch bands are the left/right gate-opening edges (recess depth). Both the captured-span path and the generated-span path produce the same 89.21%. The task premise (a missing FUN_1c94 wall-span path drawing the arch curve / leaf grid) is partially incorrect: FUN_1c94 IS the per-span blitter we ported, and it already draws the leaf grid via case-04's spans. The remaining gap is the global dither/recess residue."
+      },
+      "confidence": "high"
+    }
+  ],
+  "unresolved": [
+    "Pushing past 89.21% for this view (and the other off-axis maze views) requires reproducing the engine's DITHERED stone-surface phase + the recess-depth jamb shading through the static-placement compose — the global self-reproduction ceiling, a separate and larger RE effort, not specific to the gate.",
+    "Whether the recess-depth jamb shading is a depth>0 side-wall span the captured settled-span list under-captures for this view (the settled 0x50d0 read momentarily resets during the depth-by-depth rebuild) — worth a deeper span-settle audit, but it did not move parity in this pass."
+  ]
+}
