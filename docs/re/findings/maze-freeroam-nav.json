@@ -1,0 +1,62 @@
+{
+  "topic": "maze-freeroam-nav",
+  "subagent_run": "2026-06-09 (beat the maze trace-harness TURN-LOCK; capture broken-view engine ground truth)",
+  "binaries": ["wroot.exe", "wmaze.ovr"],
+  "tool": "tools/libretro/trace-maze.ts `freeroam <gx> <gy> <facing>` (cold-boot -> mode-B ENTER-walk to gy=121 -> drain the scripted walker -> free-roam ARROW navigation via movement.ts pathTo -> capture framebuffer idx.gz + the OR/masked blit call-list via phasePlacements on a real-move full-recompose frame). Probe: tools/libretro/probe-freeroam-turn.ts. Diff: tools/libretro/diff-freeroam-callist.ts. PATCHED trace core (nm _dbp_ = 11).",
+  "confidence": "high",
+  "summary": "THE TURN-LOCK IS BEATEN. The engine DOES turn in true free-roam on the patched trace core; the prior 'turn locked' result was an artifact of probing turns DURING the scripted gate-entry walk, with the wrong key. The START-NEW-GAME entry has two input modes inside game_state=5 (maze-entry-sequence.json): (B) scripted gate-walk = ENTER-only, steps gy 118->121 with arrows NO-OP; (C) free-roam = ARROWS turn/step. Reaching gy=121 is NOT sufficient to unlock (C): the 'HMMMM' front-wall bump leaves the scripted walker still holding control, and arrows stay no-ops (only the span count [0x50ce] toggles 0<->1 as the renderer re-runs). The handoff completes after ~5-6 MORE ENTERs DRAIN the walker. Reliable unlock detector: keep pressing ENTER and after each, tap LEFT — when facing [0x4f9a] changes (f0->f3), free-roam is active. Once unlocked, LEFT cycles facing 0->3->2->1->0, RIGHT 0->1->2->3->0, UP steps forward when the cell ahead is open (verified gy121 f0->fwd gy122; f3->gx126; f1 gx126->gx127) — i.e. FULL free-roam navigation, identical to the viewer. Built `freeroam` to navigate to any (gx,gy,facing) via the validated movement.ts pathTo and capture the engine framebuffer + the full background blit call-list on a GENUINE build-loop-rerun frame (forward step into the target). Captured 6 broken-view ground-truths (framebuffer + call-list). Diagnosis (diff vs generateFullCallList) reveals a UNIFIED root cause: for turned/off-axis views the engine renders side walls almost entirely via the MASKED-mirror branch (30-36 masked calls/view), but the generator emits ZERO masked for these views (generateNearFlankMasked is hardcoded to the canonical gy121 4-pair set) and instead emits SPURIOUS OR side-wall placements. NOT fixed in-task (the masked-mirror src->dst pairing law for arbitrary views is a real RE effort) — ground truth + diagnosis delivered for the follow-up.",
+  "findings": [
+    {
+      "id": "turn-unlock-condition",
+      "claim": "Free-roam turns DO work on the patched trace core. The unlock: cold-boot into the dungeon (game_state 5, lands gx127 gy118 f0), ENTER-walk forward to gy=121 (mode B; each ENTER = one cell, arrows no-op), then press ENTER ~5-6 MORE times to DRAIN the scripted-entry walker. After the drain, ARROW keys turn/step (mode C). Detector: after each drain-ENTER, tap LEFT; when facing [0x4f9a] changes value, the walker has released. Reaching gy=121 alone does NOT unlock — arrows stay no-ops (span [0x50ce] toggles 0<->1 only) until the walker drains.",
+      "category": "maze_navigation",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": "DGROUP [0x4f9a] facing, [0x363a] game_state, [0x4fa2] gy, [0x50ce] span count",
+        "type": "live_dgroup_readback_per_key",
+        "details": "probe-freeroam-turn.ts: at gy=121 f0 (base 0xffa0), LEFT/UP are no-ops (span 0<->1, facing unchanged). After 6 drain-ENTERs, LEFT f0->f3 (UNLOCKED). Full cycle then verified: LEFT 0->3->2->1->0, RIGHT 0->1->2->3->0; UP @f0 gy121->122, @f3 gx127->126, @f1 gx126->127. Matches maze-harness-movement.json's loaded-state result (left -1 mod 4, right +1 mod 4)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "navreach-turn-lock-was-wrong-key-and-wrong-phase",
+      "claim": "The maze-navreach.json 'turn keys LOCKED in the entry walk / free-roam navigateTo unreachable' conclusion was WRONG. Two compounding errors: (1) navreach drove 'forward' with ENTER taps and probed a single LEFT at the end — but in free-roam ENTER = the OPTIONS menu, not forward, and the probe never drained the walker; (2) it tested the turn while the scripted walker still held control (mode B not yet exited). With the walker drained (this finding), turns work deterministically. The patched core's inability to unserialize the nightly-minted maze-corridor.state (err unser, confirmed this run) is real and unrelated — it just means a free-roam frame is reached by COLD-BOOT + the unlock, not by loading a committed state.",
+      "category": "maze_navigation",
+      "evidence": {
+        "binary": "n/a",
+        "address": "n/a",
+        "type": "reconciliation",
+        "details": "Confirmed err unser for test-fixtures/states/maze-corridor.state.gz and tools/libretro/states/maze-corridor*.state on the current patched core. driveToFreeRoam cold-boots + unlocks instead; the freeroam phase serializes a PATCHED-CORE-NATIVE entrance free-roam frame that round-trips fine."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "broken-views-ground-truth",
+      "claim": "Captured engine ground truth (framebuffer idx.gz + full OR/masked call-list) for 6 free-roam views, all on REAL-MOVE build-loop frames: gx127gy121f1 (turn east at entrance; the corridor-east view), gx124gy121f0 (deep mid-row corridor with recess), gx124gy121f3, gx126gy121f3, gx127gy122f3 (turned side-wall corridors), gx127gy123f1 (front-wall/right-open junction). All 16-palette-index, eyeballed correct vs the on-screen view. Fixtures: tools/parity/fixtures/engine/maze-freeroam-<view>.idx.gz + .png. Call-lists: docs/re/findings/maze-views/freeroam-<view>-callist.json.",
+      "category": "maze_render",
+      "evidence": {
+        "binary": "wmaze.ovr / ega.drv (relocated OR-blit base 0x6ba10)",
+        "address": "ega.drv FUN_0a93 OR branch 0xaad (arg0c=placement), masked branch 0xbca; compose-page 0x41820",
+        "type": "live_framebuffer_and_blit_calllist_real_move",
+        "details": "freeroam phase: navigate to one cell behind target along its forward axis (origin), serialize, then capture the call-list via a forward step (full non-dirty recompose of the target). FORWARD_KEY flipped to UP (ENTER=OPTIONS in free-roam). Where the origin is engine-unreachable (e.g. gy120 north of the one-way N3 gate), falls back to in-place turn recompose at the target."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "generator-failure-side-walls-are-masked-not-OR",
+      "claim": "generateFullCallList(block, party) is correct ONLY for the canonical entrance corridor. For turned/off-axis views the engine renders the side-wall surfaces almost entirely via the MASKED-mirror branch (30-36 masked src->dst calls per view), but the generator emits ZERO masked calls for these views — generateNearFlankMasked is hardcoded to the canonical gy121 corridor's 4 pairs ([13->4,4->13,10->7,7->10]) and returns nothing (or those 4) elsewhere. Instead the generator emits SPURIOUS OR side-wall placements (e.g. gx126gy121f3: generator OR-only [122,123,124,125,137,150,151,152,153,165] that the engine does NOT OR-blit; engine OR is just the floor/ceiling strips {346,349,352,355,358,361} + one near placement 114, with all side walls as 30 masked pairs). This is why turned views render as black void / garbage: the generator omits the masked side-wall family AND adds OR placements at wrong positions. For gx127gy121f1 the generator is MISSING 21 OR side-wall placements (gen is a strict subset of the engine's 37 OR) -> unfilled viewport = black void.",
+      "category": "maze_render",
+      "evidence": {
+        "binary": "wmaze.ovr / ega.drv",
+        "address": "ega.drv FUN_0a93 OR vs masked branches",
+        "type": "calllist_diff_engine_vs_generator",
+        "details": "diff-freeroam-callist.ts per view. gx127gy121f1: engine 37 OR / 0 masked, gen 16 OR / 0 masked (gen subset, missing [19,21,22,88,119,124,125,128,129,132,133,136,137,152,153,156,157,160,161,164,165]). gx127gy123f1: engine 9 OR / 18 masked, gen 11 OR / 0 masked. gx124gy121f3: engine 9 OR / 34 masked, gen 12 OR / 0 masked. gx126gy121f3: engine 7 OR / 30 masked, gen 16 OR / 0 masked. gx127gy122f3: engine 10 OR / 34 masked, gen 36 OR / 4 masked. The masked-mirror geometry law sp.destX+dp.destX+dp.w==40 also MISMATCHES on these views (e.g. 124->167: 16+24+7=47), so the gy121-corridor mirror-pairing law does not generalize."
+      },
+      "confidence": "high"
+    }
+  ],
+  "unresolved": [
+    "The generator FIX is left to a follow-up: generalize the masked-mirror side-wall family (the src->dst pairing law) for arbitrary (gx,gy,facing) views, and stop emitting OR side-wall placements where the engine masked-mirrors them. The 6 captured call-lists + framebuffers are the ground truth + parity gate for that work. The mirror-law sum (src.destX+dst.destX+dst.w) is 40 only for the canonical gy121 corridor; turned views use a different (depth/seam-dependent) pairing not yet cracked.",
+    "movement.ts vs engine collision discrepancy: pathTo plans paths through gy<=120 cells (north of the one-way N3 gate) and through some gx123 transitions the engine BLOCKS (observed 'forward step blocked at gx123 gy121 f2'). For origin cells north of the gate the freeroam phase falls back to in-place capture. Worth a focused movement.ts gate/collision audit."
+  ]
+}
