@@ -321,14 +321,18 @@ function isStoneFramedClosedDoorway(block: MazeBlock, party: MazeParty): boolean
  * corridor (enumerated: only gy123-f0 + gy124-f2 in region 0 match the predicate).
  *
  * WHAT THE ENGINE EMITS vs WHAT REPRODUCES. The real-move capture
- * (freeroam-gx127-gy123-f0) shows the engine draws the near closed wall via the
- * MASKED-mirror branch (leaf 6/9, corners 84/88 — the col-20 mirror twins of
- * 0/83/87). BUT our masked-mirror compositor (maskedMirrorFor) does NOT reproduce
- * those pieces faithfully — composing the engine's own masked set renders a BROKEN
- * RECEDING CORRIDOR (33.5% pixel match, eyeball: wrong perspective), because the
- * leaf 6/9 carries a destX=255 wraparound and the mirror geometry lands off. The
- * OR family {0,83,87} (the un-mirrored twins of the same geometry) reconstructs the
- * SAME flat brick wall the engine shows and matches 98.15% (eyeball: a clean stone
+ * (freeroam-gx127-gy123-f0) shows a flat dead-end brick wall, but its CAPTURED
+ * call-list is a receding-corridor list (ceiling/floor perspective twins 122/150 +
+ * full-height side walls 6/9/84/88) — a DIFFERENT FRAME than the committed fixture
+ * (the gy=118-vs-gy=121 transient-frame mismatch documented throughout the maze
+ * findings). The masked-mirror compositor itself is FAITHFUL to the asm (re-verified
+ * 2026-06-09: the destX sign-extension bug was fixed — leaf 6/9's destX=255 is signed
+ * −1, now lands on the correct LEFT side; the geometry is byte-exact otherwise). But
+ * composing that captured corridor list still renders a (correct-for-the-list)
+ * receding corridor, ~33% vs the dead-end fixture — the frame mismatch, not the
+ * compositor (see maze-masked-mirror.json masked-callist-fromasset-frame-mismatch).
+ * The OR family {0,83,87} (the un-mirrored twins of the same geometry) reconstructs
+ * the flat brick wall the engine shows and matches 98.15% (eyeball: a clean stone
  * wall, only the central statue decoration missing — the door-recess residue).
  *
  * So we OR-emit the closed-front family for a CLOSED front at depth 0 when it is a
