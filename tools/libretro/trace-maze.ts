@@ -2271,6 +2271,196 @@ async function phasePokeView(c: HostClient): Promise<void> {
   } catch { /* phasePlacements may have aborted */ }
 }
 
+/**
+ * `dectrace` — DECORATION EMIT TRACE on a REAL forward MOVE frame (the decisive
+ * evidence the write-watch / poke-recompose could not get).
+ *
+ * The prior `depthemit` pass POKED the party coords into DGROUP then turned
+ * left/right to recompose — that DIRTY in-place recompose replays a cached span
+ * list WITHOUT re-running the BUILD loop, so the per-cell special4 decoration
+ * dispatch never fires. `navreach` proved a GENUINE forward step DOES re-run the
+ * build loop (span count [0x50ce] changes). This phase combines the two: cold-boot
+ * drive up the gx127 entry corridor (real ENTER forward steps), and at EACH step
+ * trap the relocated wmaze emit fns (wall_emit_quad 0x406c / wall_emit_corner
+ * 0x45b4) + the ega.drv OR-blit ARG point, reading per-hit the LIVE build depth
+ * [0x5040], parity [0x521a], the per-(depth,slot) walltype/shape-code array
+ * [0x5220..0x5228], and the emitted placement INDEX.
+ *
+ * GEOMETRY: the party walks gy118 -> 121 facing NORTH up the gx127 column. The
+ * FOUNTAIN column (special4==7 -> shape code 4) is at gx126 (cellB6) gy118..121 —
+ * ALONGSIDE the corridor on the LEFT. So as the party steps north the build-loop
+ * classify includes the gx126 decoration cell on the LEFT slot, the special4
+ * dispatch writes shape code 4 into the left-side walltype slot [0x5226], and the
+ * emit fn translates it to a placement index. Trapping the emit on the real move
+ * CAPTURES that decoration emit — no turning needed.
+ *
+ * Usage: pnpm tsx tools/libretro/trace-maze.ts dectrace [outFile]
+ */
+async function phaseDecTrace(c: HostClient): Promise<void> {
+  const outFile = process.argv[3] ?? '/tmp/wiz6-dectrace.json';
+  const u16f = (b: Uint8Array, o: number) => b[o]! | (b[o + 1]! << 8);
+  const DG_DEPTH = 0x5040, DG_PARITY = 0x521a, DG_SPANPAR = 0x521c, DG_DEPTHBOUND = 0x521e;
+  const SLOT = 0x5220; // 5 words: [front, cornerL, cornerR, leftSide, rightSide]
+  const SPANCOUNT = 0x50ce;
+
+  console.log('dectrace: cold-boot drive into dungeon level 0…');
+  await driveToMaze(c);
+  let base = await c.anchor();
+  const rd = async (o: number) => u16f(await c.read(base + o, 2), 0);
+  const party = async () => ({
+    gs: await rd(0x363a), f: await rd(PK_FACING), gx: await rd(PK_GX), gy: await rd(PK_GY),
+    cellA: await rd(PK_CELLA), cellB: await rd(PK_CELLB), sp: await rd(SPANCOUNT),
+  });
+  let p = await party();
+  console.log(`landed: base=0x${base.toString(16)} gs=${p.gs} gx=${p.gx} gy=${p.gy} f=${p.f} cellA=${p.cellA} cellB=${p.cellB} sp=${p.sp}`);
+  if (p.gs !== 5) { console.log(`NOT in maze (game_state=${p.gs}) — aborting`); return; }
+
+  // --- Resolve the LIVE relocated ega.drv OR-blit base. The renderer runs from a
+  // relocated transient copy that is only resident DURING a redraw, BUT the
+  // COMPOSE-PAGE write-watch IS observable (unlike the span-list write-watch). The
+  // OR plane-0 store cluster (base+0xb31/+0xb45/+0xb5c/+0xb75) recovers the base.
+  // We arm the compose-page watch and do a REAL forward step. ---
+  const out: any = {
+    note: 'dectrace: REAL forward-move OR-blit ARG trace up the gx127 entry corridor. Per real step: every emitted placement INDEX (ebx=arg0c at OR-blit base+0xaad) + the settled build-loop DGROUP (depth/parity/slot-shape-codes [0x5220]). The gx126 special4==7 fountain is on the LEFT.',
+    landed: { base: base.toString(16), gx: p.gx, gy: p.gy, facing: p.f },
+    or_blit_base: '',
+    steps: [] as any[],
+  };
+  let orBase = -1;
+  for (let probe = 0; probe < 5 && orBase < 0; probe++) {
+    const pp = await party();
+    if (pp.gs !== 5) break;
+    const writers = await watchComposePage(c, async () => { await c.key('enter', 'tap'); await c.step(70); });
+    orBase = recoverOrBase(writers);
+    base = await c.anchor();
+    const np = await party();
+    console.log(`  probe ${probe}: compose writers=${writers.size} orBase=${orBase < 0 ? 'none' : '0x' + orBase.toString(16)} -> gx${np.gx}gy${np.gy}f${np.f}`);
+  }
+  p = await party();
+  if (orBase < 0) { console.log('FAILED: could not recover OR-blit base from compose-page write-watch on a real move'); return; }
+  console.log(`LIVE OR-blit base=0x${orBase.toString(16)}`);
+  out.or_blit_base = orBase.toString(16);
+  const ORARG = orBase + 0xaad; // OR branch: ebx = arg0c (placement index)
+
+  // Trap an emit fn over a REAL forward step, capturing per-hit the live DGROUP
+  // window (depth/parity/slots) + the stack frame. We CANNOT serialize/restore on
+  // this cold heap, so each capture-by-skip needs its own forward step. We instead
+  // capture the WHOLE per-step emit sequence in ONE pass via traceDrain (regs +
+  // stack are in each TraceRecord) and read the DGROUP slot array right AFTER the
+  // step settles (the settled [0x5220] holds the LAST depth's slot codes; the
+  // per-hit depth comes from [0x5040] sampled live — but a single drain can't
+  // sample DGROUP per hit). So: do a per-fn trace pass per step for the stack
+  // frames, plus a settled DGROUP read.
+  // Trap a single OR-blit point over a REAL forward step and drain all hits. Each
+  // TraceRecord carries the live regs (ebx=arg0c=placement index for the OR branch;
+  // eax=arg10 at the cmp point), so a single drain captures the WHOLE per-step emit
+  // sequence WITHOUT per-skip serialize/restore (a cold heap can't do that). We
+  // read the settled build-loop DGROUP after the step (slot-shape-code array
+  // [0x5220] — the decoration shape code 4..0xe lands in the per-slot walltype).
+  const traceStep = async (pt: number, keyTap: () => Promise<void>): Promise<TraceRecord[]> => {
+    await c.traceSet(pt); await c.traceDrain();
+    await keyTap();
+    const recs: TraceRecord[] = [];
+    // drain incrementally so the 4096 ring never evicts the (sparse) blit hits.
+    for (let k = 0; k < 10; k++) { await c.step(4); for (const r of await c.traceDrain()) recs.push(r); }
+    await c.traceOff();
+    return recs;
+  };
+
+  // Walk the corridor: on EACH real forward step trap the OR ARG point (the emitted
+  // placement indices). The fountain column (gx126, LEFT, special4==7 -> shape code
+  // 4) spans gy118..121 ALONGSIDE the gx127 corridor, so as the party steps north
+  // the build loop classifies the gx126 cell on the LEFT slot and emits its
+  // decoration placement — captured here as the step's OR-index set + the settled
+  // left-side slot code [0x5226].
+  let stall = 0;
+  for (let i = 0; i < 18 && stall < 3; i++) {
+    const before = await party();
+    if (before.gs !== 5) { console.log(`  encounter gs=${before.gs} — stop`); break; }
+    const orRecs = await traceStep(ORARG, async () => { await c.key('enter', 'tap'); await c.step(70); });
+    const after = await party();
+    const moved = after.gx !== before.gx || after.gy !== before.gy;
+    // Settled DGROUP read (the LAST depth's slot/shape codes + depth bound + parity).
+    const dgWin = await c.read(base + 0x5040, 0x1f0);
+    const at = (o: number) => u16f(dgWin, o - 0x5040);
+    const slots = [0, 1, 2, 3, 4].map((k) => at(SLOT + k * 2));
+    const orIdx = orRecs.map((r) => r.ebx & 0xffff);
+    const stepRec: any = {
+      step: i, key: 'enter',
+      before: { gx: before.gx, gy: before.gy, f: before.f, sp: before.sp },
+      after: { gx: after.gx, gy: after.gy, f: after.f, sp: after.sp },
+      moved,
+      settled: {
+        depth: at(DG_DEPTH), parity: at(DG_PARITY), spanpar: at(DG_SPANPAR),
+        depthBound: at(DG_DEPTHBOUND),
+        slots: { front: slots[0], cornerL: slots[1], cornerR: slots[2], leftSide: slots[3], rightSide: slots[4] },
+      },
+      orHits: orRecs.length,
+      orPlacementIndices: orIdx,
+    };
+    if (moved) { stall = 0; console.log(`  MOVE gx${before.gx}gy${before.gy}->gx${after.gx}gy${after.gy} sp${before.sp}->${after.sp} ORhits=${orRecs.length} idx=[${orIdx.join(',')}] slots=[F${slots[0]},cL${slots[1]},cR${slots[2]},lS${slots[3]},rS${slots[4]}]`); }
+    else { stall++; console.log(`  (no move) ORhits=${orRecs.length} idx=[${orIdx.join(',')}]`); }
+    out.steps.push(stepRec);
+  }
+
+  // --- HEAD-ON FOUNTAIN ATTEMPT. The fountain (gx126 column, orient2==0) decorates
+  // the NORTH face, so it renders as a FRONT wall only when the party stands IN the
+  // gx126 column facing NORTH (the cell ahead is gx126 gy+1). The corridor walk is
+  // gx127; to face the fountain head-on we must turn WEST, step to gx126, turn
+  // NORTH. Turns DO work at gy121 on this core (LEFT f0->f3 confirmed by navreach).
+  // We attempt the nav + trap the OR emit on the head-on view; if the nav fails
+  // (wall/turn-lock) we record that honestly. ---
+  const navLog: any[] = [];
+  const tryKey = async (k: string) => {
+    const b = await party();
+    await c.key(k as any, 'tap'); await c.step(60);
+    const a = await party();
+    navLog.push({ key: k, from: { gx: b.gx, gy: b.gy, f: b.f }, to: { gx: a.gx, gy: a.gy, f: a.f } });
+    return a;
+  };
+  console.log('head-on fountain nav attempt (turn west, step to gx126, face north)…');
+  let pp = await party();
+  if (pp.gs === 5) {
+    // turn to face west (facing 3): from f0, LEFT once.
+    let cur = await tryKey('left');
+    // if facing west now, step forward to gx126.
+    if (cur.f === 3) cur = await tryKey('up');
+    // turn back to north (facing 0): from f3, RIGHT once.
+    if (cur.gx === 126) cur = await tryKey('right');
+    pp = await party();
+  }
+  console.log(`  nav result: gx${pp.gx} gy${pp.gy} f${pp.f} (target gx126 f0)`);
+  const headOn: any = { reached: pp.gx === 126 && pp.f === 0 && pp.gs === 5, party: { gx: pp.gx, gy: pp.gy, f: pp.f, gs: pp.gs }, navLog };
+  if (headOn.reached) {
+    // Trap the OR emit on an in-place rebuild (turn left+right) at the head-on cell.
+    await c.traceSet(ORARG); await c.traceDrain();
+    await c.key('left', 'tap'); await c.step(40);
+    const r1: TraceRecord[] = []; for (let k = 0; k < 8; k++) { await c.step(4); for (const r of await c.traceDrain()) r1.push(r); }
+    await c.traceOff();
+    // capture the head-on framebuffer (facing west view of the gx126-column wall).
+    await c.fb(`${outFile}.headon-f3.rgba`);
+    // turn back to north + capture
+    await c.traceSet(ORARG); await c.traceDrain();
+    await c.key('right', 'tap'); await c.step(40);
+    const r2: TraceRecord[] = []; for (let k = 0; k < 8; k++) { await c.step(4); for (const r of await c.traceDrain()) r2.push(r); }
+    await c.traceOff();
+    const pp2 = await party();
+    await c.fb(`${outFile}.headon-f${pp2.f}.rgba`);
+    const dgWin = await c.read(base + 0x5040, 0x1f0);
+    const at = (o: number) => u16f(dgWin, o - 0x5040);
+    headOn.facing = pp2.f;
+    headOn.orIndicesAfterTurnBack = [...new Set(r2.map((r) => r.ebx & 0xffff))].sort((a, b) => a - b);
+    headOn.settledSlots = { front: at(SLOT), cornerL: at(SLOT + 2), cornerR: at(SLOT + 4), leftSide: at(SLOT + 6), rightSide: at(SLOT + 8) };
+    console.log(`  head-on f${pp2.f} OR unique idx: [${headOn.orIndicesAfterTurnBack.join(',')}] slots F${headOn.settledSlots.front}`);
+  } else {
+    console.log('  head-on fountain view NOT reached (nav blocked) — documented in output.');
+  }
+  out.headOn = headOn;
+
+  writeFileSync(outFile, JSON.stringify(out, null, 2));
+  console.log(`\n-> ${outFile} (${out.steps.length} steps, head-on reached: ${headOn.reached})`);
+}
+
 /** `depthemit` — DEPTH-KEYED EMIT TRACE. For an arbitrary (gx,gy,facing) view,
  *  trap the ega.drv OR-blit ARG point (base+0xaad, ebx=arg0c=placement index) and,
  *  at EACH hit, read the LIVE wmaze DGROUP depth counter [0x5040] + frame parity
@@ -2727,6 +2917,7 @@ async function main() {
     else if (phase === 'placements121') await phasePlacements121(c);
     else if (phase === 'pokeview') await phasePokeView(c);
     else if (phase === 'depthemit') await phaseDepthEmit(c);
+    else if (phase === 'dectrace') await phaseDecTrace(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');

@@ -53,7 +53,7 @@ import {
   generateFullCallList,
   composeBackgroundFromAsset,
 } from '../../src/maze/callist.js';
-import { MazeBlockSchema, type MazeBlock, type MazeParty } from '@wiz6/data';
+import { MazeBlockSchema, type MazeBlock } from '@wiz6/data';
 import { PLANE_STRIDE, PAGE_ROW_BYTES, MAZE_VIEWPORT } from '@wiz6/data';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -91,18 +91,37 @@ describe('decorationShapeCode: the special4 -> shape-code table (file 0x3bc5)', 
   });
 });
 
-describe('generateDecorations: the decoration SELECTION', () => {
-  it('detects the gx126 sp7 FOUNTAIN column on the LEFT for the maze-corridor view', () => {
+describe('generateDecorations: the decoration SELECTION (slot/face gate)', () => {
+  // SLOT/FACE ATTRIBUTION — corrected by the dectrace real-move emit trace
+  // (docs/re/findings/maze-decoration-generation.json `decoration-slot-gate-from
+  // -trace` + `slot-face-attribution-fix`). The FRONT cell uses gate `orient2 ==
+  // facing` (classify_front_side 0x3af1); the LATERAL (left/right) cells use the
+  // CORNER classifier gate `(orient2 + 1) % 4 == facing` (0x3d5b). The level-0
+  // fountain (orient2 == 0) therefore decorates the FRONT face at facing 0 — it
+  // renders as a FRONT wall when the party stands IN the gx126 column facing north,
+  // NOT as a LEFT side wall when passing it in the adjacent gx127 corridor.
+
+  it('the gy121 corridor view (gx127 f0) detects NO LEFT fountain (corner gate)', () => {
+    // The dectrace REAL-move trace of gx127 gy121 f0 emitted NO decoration index for
+    // the gx126 sp7 cell on the LEFT — its OR set is byte-identical to generateCallist
+    // (the ordinary side-wall surface family). The LEFT corner gate (orient2+1)%4 == 0
+    // requires orient2 == 3, but gx126 is orient2 == 0, so the gate does NOT fire.
     const hits = generateDecorations(BLOCK, { gx: 127, gy: 121, z: 0, facing: 0 });
-    // The fountain column (special4 == 7 -> shape code 4) at gx126 gy121, depth 0,
-    // on the LEFT slot — the cell immediately to the party's left as they enter.
-    const fountain = hits.find((h) => h.special4 === 7);
+    expect(hits.find((h) => h.slot === 'left')).toBeUndefined();
+  });
+
+  it('the fountain decorates the FRONT face when the party is IN the gx126 column (f0)', () => {
+    // Standing at gx126 gy120 facing north, the build loop's depth-0 front cell is
+    // gx126 gy120 itself (sp7) — its NORTH face decorates -> a FRONT-slot hit, shape
+    // code 4. This is the geometrically-correct attribution (where the engine
+    // actually draws the ornate fixture — the view-case-09 FRONT-wall eyeball).
+    const hits = generateDecorations(BLOCK, { gx: 126, gy: 120, z: 0, facing: 0 });
+    const fountain = hits.find((h) => h.special4 === 7 && h.slot === 'front');
     expect(fountain).toBeDefined();
     expect(fountain!.shapeCode).toBe(4);
-    expect(fountain!.slot).toBe('left');
-    expect(fountain!.depth).toBe(0);
     expect(fountain!.gx).toBe(126);
-    expect(fountain!.gy).toBe(121);
+    expect(fountain!.gy).toBe(120);
+    expect(fountain!.depth).toBe(0);
   });
 
   it('detects ZERO decorations for a genuinely plain corridor cell', () => {
@@ -110,29 +129,17 @@ describe('generateDecorations: the decoration SELECTION', () => {
     expect(generateDecorations(BLOCK, { gx: 120, gy: 116, z: 0, facing: 0 })).toEqual([]);
   });
 
-  // All level-0 decoration cells have orient2 == 0, so the orientation gate only
-  // matches facing 0 (north). Facing west/south/east sees NO decorations from the
-  // same cells — the user's "fountains at the WRONG ANGLE" is exactly this gate.
-  const NON_NORTH: MazeParty[] = [
-    { gx: 127, gy: 121, z: 0, facing: 1 },
-    { gx: 127, gy: 121, z: 0, facing: 2 },
-    { gx: 127, gy: 121, z: 0, facing: 3 },
-  ];
-  it.each(NON_NORTH)(
-    'no decoration fires when facing ($facing) != the cells orient2 (all 0)',
-    (party) => {
-      expect(generateDecorations(BLOCK, party)).toEqual([]);
-    },
-  );
-
-  it('every detected decoration sits on a visible, actually-decorated cell', () => {
-    // Scan all region-0 facing-0 views; every hit must reference a cell with a
-    // non-zero special4 plane value (never a plain cell).
-    for (let gy = 116; gy <= 123; gy++) {
-      for (let gx = 120; gx <= 127; gx++) {
-        for (const hit of generateDecorations(BLOCK, { gx, gy, z: 0, facing: 0 })) {
-          expect(hit.special4).toBeGreaterThan(0);
-          expect(hit.orient2).toBe(0); // the matched orientation == facing 0
+  it('every detected decoration passes its slot-aware orientation gate', () => {
+    // Scan all region-0 views (every facing); every hit's slot gate must hold:
+    //   front: orient2 == facing ; left/right: (orient2 + 1) % 4 == facing.
+    for (let facing = 0; facing < 4; facing++) {
+      for (let gy = 116; gy <= 123; gy++) {
+        for (let gx = 120; gx <= 127; gx++) {
+          for (const hit of generateDecorations(BLOCK, { gx, gy, z: 0, facing })) {
+            expect(hit.special4).toBeGreaterThan(0);
+            if (hit.slot === 'front') expect(hit.orient2).toBe(facing);
+            else expect((hit.orient2 + 1) & 3).toBe(facing);
+          }
         }
       }
     }
