@@ -45,6 +45,70 @@ export function loadFixtureRgba(name: string): Uint8Array {
 
 const ARTIFACT_DIR = join(REPO_ROOT, 'packages', 'viewer', 'test-results');
 
+/** The maze first-person viewport rect within the 320×200 screen (MAZE_VIEWPORT
+ *  in @wiz6/data corridor-geometry). The chrome OUTSIDE it (party panel, bottom
+ *  OPTIONS/TURN strip) is party-dependent — the engine fixture's party differs
+ *  from the seeded test party — so maze-walk fixtures compare ONLY this rect. */
+const MAZE_VP = { x: 72, y: 32, w: 176, h: 112 } as const;
+
+/** Crop a 320×200 RGBA buffer to the MAZE_VP rect (→ 176×112 RGBA). */
+function cropMazeViewport(rgba: Uint8Array, screenW = 320): Uint8Array {
+  const { x, y, w, h } = MAZE_VP;
+  const out = new Uint8Array(w * h * 4);
+  for (let r = 0; r < h; r++) {
+    for (let c = 0; c < w; c++) {
+      const s = ((y + r) * screenW + (x + c)) * 4;
+      const d = (r * w + c) * 4;
+      out[d] = rgba[s]!;
+      out[d + 1] = rgba[s + 1]!;
+      out[d + 2] = rgba[s + 2]!;
+      out[d + 3] = rgba[s + 3]!;
+    }
+  }
+  return out;
+}
+
+/** Assert the live <canvas>'s MAZE VIEWPORT region matches the named engine
+ *  fixture byte-exact (RGB, tolerance 0), ignoring the party-dependent chrome
+ *  around it. The fixture is a full 320×200 engine frame captured INDEPENDENTLY
+ *  via `trace-maze.ts freeroam <gx> <gy> <facing>` (clean play-through). This is
+ *  the convergence check the render-vs-stored-oracle gate structurally can't be:
+ *  it pins the real app's render to the engine's actual walk-there view. */
+export async function expectMazeViewportMatchesFixture(
+  page: Page,
+  name: string,
+): Promise<void> {
+  await waitForStableCanvas(page, 'canvas');
+  const cap = await captureCanvas(page, 'canvas');
+  expect(cap.width).toBe(320);
+  expect(cap.height).toBe(200);
+  const actual = cropMazeViewport(new Uint8Array(cap.rgba));
+  const fixture = cropMazeViewport(loadFixtureRgba(name));
+  const total = MAZE_VP.w * MAZE_VP.h;
+  let diff = 0;
+  let first: { x: number; y: number } | undefined;
+  for (let p = 0; p < total; p++) {
+    const i = p * 4;
+    if (actual[i] !== fixture[i] || actual[i + 1] !== fixture[i + 1] || actual[i + 2] !== fixture[i + 2]) {
+      diff++;
+      if (!first) first = { x: p % MAZE_VP.w, y: Math.floor(p / MAZE_VP.w) };
+    }
+  }
+  const matchPct = (100 * (total - diff)) / total;
+  if (diff !== 0) {
+    try {
+      mkdirSync(ARTIFACT_DIR, { recursive: true });
+      saveCanvasPng(join(ARTIFACT_DIR, `MISMATCH-${name}.png`), cap);
+    } catch {
+      // best-effort artifact
+    }
+  }
+  expect(
+    diff,
+    `${name}: maze viewport ${matchPct.toFixed(2)}% match (${diff}/${total} px differ, first at viewport ${first ? `${first.x},${first.y}` : 'n/a'})`,
+  ).toBe(0);
+}
+
 /** Assert the live <canvas> matches the named engine fixture byte-exact (tolerance 0). */
 export async function expectCanvasMatchesFixture(page: Page, name: string, tolerance = 0): Promise<void> {
   // Wait for a fully-settled frame before reading. The picker/char-view compose
