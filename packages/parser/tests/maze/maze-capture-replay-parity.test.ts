@@ -1,17 +1,22 @@
 /**
- * maze-capture-replay-parity.test.ts — GATE for the CAPTURE-REPLAY faithful-level-0 path.
+ * maze-capture-replay-parity.test.ts — wiring gate for the CAPTURE-REPLAY faithful-
+ * level-0 path (POSITION-KEYED).
  *
- * The generation path renders the entrance cluster byte-exact but degrades to 32-70%
- * off-axis (the un-cracked general generation law, #077/#086). Capture-replay commits
- * the engine's actual viewport for every ENGINE-REACHABLE level-0 config (the 266 from
- * the complete collmap BFS) and `renderMazeViewport` returns it verbatim when the
- * view-config matches (the `capturedViewports` override).
+ * The generation path renders the entrance cluster byte-exact but degrades off-axis
+ * (the un-cracked general generation law, #077/#086). Capture-replay commits the
+ * engine's actual viewport for every WALKABLE level-0 view (the entrance-normal-
+ * connected component, captured via `engcap` engine-truth navigation) and
+ * `renderMazeViewport` returns it verbatim when the (gx,gy,facing) matches.
  *
- * This gate asserts: every committed config renders BYTE-EXACT through the wired path
- * (renderMazeViewport with the oracle map) — i.e. the capture-replay override + the
- * configKey wiring are correct, so the viewer (which passes the same map) shows the
- * faithful engine view for all 266 reachable configs. This is RECONSTRUCTION (committed
- * engine frames, the #076 framebuffer-oracle precedent), not generation.
+ * SCOPE / IMPORTANT: this gate verifies the position-key LOOKUP WIRING + coverage —
+ * it asserts `renderMazeViewport` returns the stored oracle for each committed
+ * position. It is therefore TAUTOLOGICAL for oracle *content* (the renderer returns
+ * the same bytes it's handed): it can prove the lookup key is wired right and the set
+ * is complete, but it CANNOT detect a *wrong* stored frame. That blind spot shipped a
+ * regression once (TODO #086). The real anti-regression check is the e2e walking gate
+ * `packages/viewer/e2e/maze-walk-gate-square.spec.ts`, which drives the real app and
+ * pixel-asserts the maze viewport against engine frames captured INDEPENDENTLY — so a
+ * wrong oracle or a coordinate/wiring drift fails there.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -31,7 +36,7 @@ const FRAMES = JSON.parse(readFileSync(resolve(FIX, 'maze-frames.json'), 'utf8')
 const BLOCK: MazeBlock = MazeBlockSchema.parse(FRAMES.mazeBlock);
 
 interface OracleCase {
-  configKey: string;
+  posKey: string;
   gx: number;
   gy: number;
   facing: number;
@@ -41,26 +46,26 @@ const ORACLES = JSON.parse(readFileSync(resolve(FIX, 'maze-viewport-oracles.json
   cases: OracleCase[];
 };
 
-/** Decode the committed oracle table into the runtime map the renderer/viewer use. */
+/** Decode the committed oracle table into the runtime (gx,gy,facing) map. */
 function buildOracleMap(): Map<string, Uint8Array> {
   const m = new Map<string, Uint8Array>();
   for (const c of ORACLES.cases) {
-    m.set(c.configKey, new Uint8Array(gunzipSync(Buffer.from(c.viewportB64, 'base64'))));
+    m.set(`${c.gx},${c.gy},${c.facing}`, new Uint8Array(gunzipSync(Buffer.from(c.viewportB64, 'base64'))));
   }
   return m;
 }
 
-describe('maze capture-replay parity (GATE — faithful level-0 via committed engine viewports)', () => {
+describe('maze capture-replay parity (position-keyed wiring + coverage)', () => {
   const assets = loadMazeAssets();
   const oracleMap = buildOracleMap();
 
-  it('committed all engine-reachable level-0 configs (the complete BFS)', () => {
-    expect(ORACLES.cases.length).toBe(266);
-    expect(oracleMap.size).toBe(266);
+  it('one oracle per walkable level-0 view (entrance-normal-connected component)', () => {
+    expect(ORACLES.cases.length).toBe(204);
+    expect(oracleMap.size).toBe(204); // no duplicate posKeys
   });
 
   it.each(ORACLES.cases.map((c) => ({ ...c, name: `gx${c.gx}-gy${c.gy}-f${c.facing}` })))(
-    'renders $name byte-exact via capture-replay',
+    'returns the committed engine viewport for $name (position-key lookup)',
     (c) => {
       const party: MazeParty = { gx: c.gx, gy: c.gy, z: 0, facing: c.facing };
       const ours = renderMazeViewport(BLOCK, party, assets, { capturedViewports: oracleMap });
@@ -69,7 +74,7 @@ describe('maze capture-replay parity (GATE — faithful level-0 via committed en
       expect(eng.length).toBe(N);
       let match = 0;
       for (let i = 0; i < N; i++) if (ours[i] === eng[i]) match++;
-      expect(match, `${c.name}: capture-replay must return the committed engine viewport`).toBe(N);
+      expect(match, `${c.name}: position-key lookup must return the committed engine viewport`).toBe(N);
     },
   );
 });

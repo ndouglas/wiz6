@@ -182,16 +182,17 @@ export async function loadNewgameViewports(): Promise<NewgameViewports> {
  * Browser loader for the CAPTURE-REPLAY viewport oracles (faithful level-0). Fetches
  * the committed extracted/maze/viewport-oracles.json (served via Vite publicDir) and
  * decodes each gzip+base64 entry (DecompressionStream — browser-native gzip) into the
- * 176×112 palette-index viewport, keyed by configKey. Passed to renderMazeViewport as
- * opts.capturedViewports so the live render returns the byte-exact engine view for
- * every engine-reachable level-0 config (the 266 from the complete collmap BFS).
+ * 176×112 palette-index viewport, keyed by (gx,gy,facing) POSITION. Passed to
+ * renderMazeViewport as opts.capturedViewports so the live render returns the byte-exact
+ * engine view for every walkable level-0 position (the entrance-normal-connected
+ * component, captured via engcap engine-truth nav).
  * Returns null on any failure (the renderer falls back to the generation path).
  */
 export async function loadMazeViewportOracles(): Promise<Map<string, Uint8Array> | null> {
   try {
     const res = await fetch('/maze/viewport-oracles.json');
     if (!res.ok) return null;
-    const data = (await res.json()) as { cases?: Array<{ configKey: string; viewportB64: string }> };
+    const data = (await res.json()) as { cases?: Array<{ gx: number; gy: number; facing: number; viewportB64: string }> };
     if (!Array.isArray(data?.cases)) return null;
     const gunzipB64 = async (b64: string): Promise<Uint8Array> => {
       const gz = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -202,7 +203,7 @@ export async function loadMazeViewportOracles(): Promise<Map<string, Uint8Array>
     const map = new Map<string, Uint8Array>();
     await Promise.all(
       data.cases.map(async (c) => {
-        if (c?.configKey && typeof c.viewportB64 === 'string') map.set(c.configKey, await gunzipB64(c.viewportB64));
+        if (Number.isFinite(c?.gx) && typeof c.viewportB64 === 'string') map.set(`${c.gx},${c.gy},${c.facing}`, await gunzipB64(c.viewportB64));
       }),
     );
     return map;
