@@ -140,10 +140,12 @@ export function renderMazeViewport(
   // verbatim (byte-exact ground truth). Graceful: a missing key / bad table falls
   // through to the generation path; never throws.
   if (o.capturedViewports?.size) {
-    // POSITION-KEYED capture-replay: look up the engine viewport by exact (gx,gy,facing).
-    // (Was viewConfigKeyFor — wall geometry only — which aliased differing decorations.)
-    const vp = o.capturedViewports.get(`${party.gx},${party.gy},${party.facing}`);
-    if (vp) return vp;
+    try {
+      const vp = o.capturedViewports.get(viewConfigKeyFor(block, party));
+      if (vp) return vp;
+    } catch {
+      /* fall through to generation */
+    }
   }
 
   const page =
