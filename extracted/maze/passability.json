@@ -1,5 +1,5 @@
 {
-  "_comment": "Faithful-movement passability gate (level-0). forward verdict per engine-reachable (gx,gy,facing). Derived from maze-reachability.json by tools/parity/build-passability.ts.",
+  "_comment": "Faithful-movement passability gate (level-0). Verdict per engine-reachable (gx,gy,facing): open|blocked|encounter|warp. warp = stairs/teleporter (engine moved to a non-adjacent cell); no-op until the stairs sub-project. Derived from maze-reachability.json by tools/parity/build-passability.ts.",
   "entrance": {
     "gx": 127,
     "gy": 121,
@@ -64,7 +64,7 @@
       "gx": 18,
       "gy": 16,
       "facing": 1,
-      "forward": "open"
+      "forward": "warp"
     },
     {
       "gx": 18,
@@ -82,7 +82,7 @@
       "gx": 18,
       "gy": 18,
       "facing": 0,
-      "forward": "open"
+      "forward": "warp"
     },
     {
       "gx": 18,
@@ -118,7 +118,7 @@
       "gx": 18,
       "gy": 24,
       "facing": 2,
-      "forward": "open"
+      "forward": "warp"
     },
     {
       "gx": 18,
@@ -214,7 +214,7 @@
       "gx": 20,
       "gy": 12,
       "facing": 2,
-      "forward": "open"
+      "forward": "warp"
     },
     {
       "gx": 20,
@@ -226,7 +226,7 @@
       "gx": 20,
       "gy": 14,
       "facing": 0,
-      "forward": "open"
+      "forward": "warp"
     },
     {
       "gx": 20,
@@ -316,7 +316,7 @@
       "gx": 20,
       "gy": 20,
       "facing": 3,
-      "forward": "open"
+      "forward": "warp"
     },
     {
       "gx": 20,
@@ -340,7 +340,7 @@
       "gx": 20,
       "gy": 22,
       "facing": 3,
-      "forward": "open"
+      "forward": "warp"
     },
     {
       "gx": 20,
@@ -544,7 +544,7 @@
       "gx": 124,
       "gy": 131,
       "facing": 1,
-      "forward": "open"
+      "forward": "warp"
     },
     {
       "gx": 124,
@@ -946,7 +946,7 @@
       "gx": 126,
       "gy": 131,
       "facing": 0,
-      "forward": "open"
+      "forward": "warp"
     },
     {
       "gx": 126,
@@ -982,7 +982,7 @@
       "gx": 126,
       "gy": 133,
       "facing": 2,
-      "forward": "open"
+      "forward": "warp"
     },
     {
       "gx": 126,
@@ -1498,7 +1498,7 @@
       "gx": 128,
       "gy": 131,
       "facing": 0,
-      "forward": "open"
+      "forward": "warp"
     },
     {
       "gx": 128,
@@ -1534,7 +1534,7 @@
       "gx": 128,
       "gy": 133,
       "facing": 2,
-      "forward": "open"
+      "forward": "warp"
     },
     {
       "gx": 128,
