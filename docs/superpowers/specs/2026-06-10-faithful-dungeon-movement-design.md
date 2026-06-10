@@ -124,3 +124,30 @@ collmap (engine BFS) → maze-reachability.json (committed engine-truth fixture)
   `docs/re/findings/maze-collision-model.json` (why the model diverges; the verdict is a
   byproduct of the per-frame render-classify), `maze-generation-fidelity-map.json`
   (the 74-vs-303 reachability inflation). TODO #087 (the deferred collision-law crack).
+
+## Revision 2026-06-10 — warps (added during implementation)
+
+Implementation surfaced that level-0's engine-reachable set (74 cells) is **not**
+normal-movement-connected: 12 forward moves are **warps** (stairs/teleporters) — `open`
+moves whose normal destination `(gx+dx,gy+dy)` is NOT in the reachable set (they jump the
+party to disconnected clusters, e.g. the far `gx18-25` region). Pure step-movement reaches
+only the **51-cell / 204-view normal-connected component**; the other 23 cells are
+warp-only. So "reach exactly 74" is unsatisfiable without warp mechanics (a future
+stairs/teleporter sub-project).
+
+Decision (consistent with the `encounter` deferral): treat warps as a **distinct deferred
+verdict**.
+
+- **`ForwardVerdict`** = `'open' | 'blocked' | 'encounter' | 'warp'`.
+- **`build-passability.ts`** reclassifies an `open` verdict to `'warp'` when its normal
+  destination is not in the reachability fixture's reachable-cell set. (Verdicts become
+  open 176 / blocked 104 / encounter 1 / warp 12.)
+- **`movement.ts`** no-ops `warp` (the `verdict === 'open'` gate already no-ops any
+  non-`open` verdict, so only the type union widens). `warp` stays distinct so the future
+  stairs/teleporter sub-project hooks it (like `encounter` → combat).
+- **Reachability gate** asserts: the gated BFS reaches exactly the **51-cell** normal-
+  connected component, every reached cell is in the engine's 74 (no over-permission), and
+  no far-cluster (warp-only) cell is reached. NOT "== 74".
+- **Follow-on:** level-0 having teleporters is an Engineering-Notes-worthy finding +
+  motivates stairs/teleporters as a near-term sub-project (the 23 warp-only cells become
+  reachable then).

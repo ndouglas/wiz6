@@ -552,3 +552,18 @@ git commit -m "docs(todo): faithful dungeon movement shipped (level-0)"
   entrance, so fallback is a robustness path, not the hot path.
 - `encounter` is intentionally NOT collapsed to `blocked` — it stays a distinct verdict so
   the future combat sub-project hooks it (`encounter` → trigger combat) in one place.
+
+---
+
+## Revision 2026-06-10 — warps (Tasks 2-4 amended)
+
+See the spec's "Revision — warps". Deltas to the tasks above (applied as follow-on commits):
+- **Task 2 (build-passability):** reclassify `open` → `'warp'` when `(gx+dx,gy+dy)` ∉ the
+  reachability fixture's reachable-cell set. FWD deltas `0:[0,1] 1:[1,0] 2:[0,-1] 3:[-1,0]`.
+  Rebuilt asset verdicts: open 176 / blocked 104 / encounter 1 / warp 12.
+- **Task 3 (movement.ts):** widen `ForwardVerdict` to include `'warp'`; no logic change
+  (`verdict === 'open'` already no-ops `warp`). Update the JSDoc.
+- **Task 4 (gates):** verdict-parity iterates the PASSABILITY cells (4 verdicts: `open`
+  steps to `(gx+dx,gy+dy)`, all others no-op). Reachability gate: gated BFS reaches exactly
+  **51 cells / 204 views**, `reachedCells ⊆ engineCells` (74), and no cell with `gx<100`
+  (the warp-only far cluster). Drop the `== 74` assertion.
