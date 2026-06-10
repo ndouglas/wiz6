@@ -1382,12 +1382,19 @@ function generateNearOccluderColumns(block: MazeBlock, party: MazeParty): number
  *  flank strips + door-recess arch frame + the depth-0 perspective/side-wall pieces.
  *  Byte-exact vs the gy121-f2 frame-synced capture (89.21% — the ceiling; the residual
  *  is the portcullis-leaf decoration). */
+// CAPTURED occlusion-correct set (trace-maze.ts doorturn → first-turn-to-facing-2
+// full recompose, sliding-window-isolated from the turn's re-render pollution; the
+// 24-piece settled frame matches the engine at 97.0%, vs 89.2% for the prior set).
+// THE CORE LAW: a head-on door at DEPTH 0 OCCLUDES every deeper depth — so only the
+// DEPTH-0 ceiling/floor (122/150) are drawn, NOT the 123-125/151-153 perspective
+// twins. Drawing those twins (the prior bug) bled stone past the gate into the
+// recess = the "munged" overdraw. Likewise only the depth-0 flank strips 18/22
+// survive (16/17/20/21 are behind the door plane).
 const ARCHWAY_FRAME = [
   6, 9, // near full-height columns (img0, the gate's stone jambs)
-  16, 17, 18, 20, 21, 22, // near-wall flank strips (img4/5/6/8/9/10)
+  18, 22, // the depth-0 near-wall flank strips (16/17/20/21 are occluded by the door)
   23, 25, 26, 28, 29, 31, 32, 34, // DOOR-RECESS archway frame (img11–img22 arch pieces)
-  122, 123, 124, 125, // ceiling perspective twins
-  150, 151, 152, 153, // floor perspective twins
+  122, 150, // DEPTH-0 ceiling/floor ONLY (the door occludes the deeper twins)
   134, 138, 162, 166, // depth-0 side-wall pieces
 ] as const;
 

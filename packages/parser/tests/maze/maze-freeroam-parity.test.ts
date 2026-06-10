@@ -237,7 +237,14 @@ const CASES: ViewCase[] = [
   {
     view: 'gx127-gy121-f2',
     party: { gx: 127, gy: 121, z: 0, facing: 2 },
-    floor: 17585, // 89.21% (THE CEILING) — ARCHWAY-FRAME pass (2026-06-09). Was 12308
+    floor: 19124, // 97.02% — OCCLUSION FIX (2026-06-09). Was 17585 (89.21%): ARCHWAY_FRAME
+    // drew the deeper ceiling/floor twins (123-125/151-153) + flank strips (16/17/20/21)
+    // that the depth-0 head-on door OCCLUDES — they bled stone past the gate (the "munged"
+    // overdraw the user reported). The captured settled frame (trace-maze.ts doorturn →
+    // first-turn-to-f2, sliding-window-isolated from the turn re-render pollution) keeps
+    // ONLY depth-0 pieces (122/150 + 18/22 + arch + columns + side walls). +1539px. The
+    // residual ~3% is the portcullis-leaf fine detail + dither. Prior note below.
+    // (was 12308
     // (62.44%): the flat-wall {0,83,87} approximation (the gate "superimposed on a wall,
     // no arch") is REPLACED by the ornate ARCHWAY FRAME OR set (generateFullCallList's
     // isHeadOnDoorArchway branch: near columns 6/9 + flank strips 16–22 + door-recess
@@ -247,10 +254,10 @@ const CASES: ViewCase[] = [
     // background compose — same class as the entrance's 18px deep-door residue).
     allowedSpurious: [],
     residue:
-      'LOOK-BACK at the entrance gate (the user-reported "no arch" view). The ornate ' +
-      'ARCHWAY FRAME (stone columns + door-recess arch) now frames the gate — reaches ' +
-      'the 89.21% ceiling. Residue = the portcullis-leaf decoration grid. NO void, ' +
-      'NO flat-wall superimposition.',
+      'LOOK-BACK at the entrance gate (the user-reported "munged when stepping closer"). ' +
+      'OCCLUSION FIX: the depth-0 head-on door occludes the deeper perspective twins, so ' +
+      'ARCHWAY_FRAME now keeps only depth-0 pieces (97.02%, was 89.21%). Residue ~3% = ' +
+      'portcullis-leaf fine detail + dither. NO overdraw past the gate.',
   },
   {
     view: 'gx127-gy122-f2',
