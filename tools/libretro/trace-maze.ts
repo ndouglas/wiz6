@@ -4487,6 +4487,32 @@ async function phaseEngCapture(c: HostClient): Promise<void> {
   }
 }
 
+/** `encprobe <stateFile> [move] [trials]` — RANDOM-vs-FIXED encounter test. Unserialize a
+ *  cached view state, then re-roll the same single move (default `up`=forward) `trials` times,
+ *  varying the settle phase (→ RNG phase) before each. If the encounter outcome VARIES across
+ *  trials it's a RANDOM step-encounter; if it ALWAYS fires it's a fixed/scripted one. */
+async function phaseEncProbe(c: HostClient): Promise<void> {
+  const stateFile = process.argv[3]!;
+  const move = (process.argv[4] ?? 'up') as 'up' | 'left' | 'right';
+  const trials = Number(process.argv[5] ?? 12);
+  await c.step(3000);
+  await c.unserialize(stateFile); await c.step(2);
+  const base = await c.anchor();
+  const p0 = await frParty(c, base);
+  console.log(`encprobe: ${stateFile} -> party gx${p0.gx} gy${p0.gy} f${p0.f} gs${p0.gs}; move=${move} x${trials}`);
+  let enc = 0, moved = 0, nomove = 0;
+  for (let t = 0; t < trials; t++) {
+    await c.unserialize(stateFile); await c.step(2 + t * 13); // vary RNG phase
+    const b = await frParty(c, base);
+    await c.key(move, 'tap'); await c.step(45);
+    const a = await frParty(c, base);
+    if (a.gs !== 5) { enc++; console.log(`  trial ${t} (settle ${2 + t * 13}): ENCOUNTER (gs=${a.gs})`); }
+    else if (a.gx !== b.gx || a.gy !== b.gy) { moved++; console.log(`  trial ${t}: clean move -> gx${a.gx} gy${a.gy}`); }
+    else { nomove++; console.log(`  trial ${t}: no-move (blocked, no encounter)`); }
+  }
+  console.log(`encprobe: ${enc}/${trials} ENCOUNTERS, ${moved} clean moves, ${nomove} no-move → ${enc > 0 && enc < trials ? 'RANDOM' : enc === trials ? 'ALWAYS (fixed?)' : 'NEVER'}`);
+}
+
 /** `flagwrite <gx> <gy> <facing> <offHex>` — WRITE-WATCH a DGROUP byte (the per-direction
  *  availability flag) over a re-render at the cell, to find the CLASSIFIER instruction that
  *  computes movement availability from the walls (= the collision law). */
@@ -4905,6 +4931,7 @@ async function main() {
     else if (phase === 'flagwrite') await phaseFlagWrite(c);
     else if (phase === 'collcapture') await phaseCollCapture(c);
     else if (phase === 'engcap') await phaseEngCapture(c);
+    else if (phase === 'encprobe') await phaseEncProbe(c);
     else if (phase === 'buildtrace') await phaseBuildTrace(c);
     else if (phase === 'collslots') await phaseCollSlots(c);
     else if (phase === 'gateclass') await phaseGateClass(c);
