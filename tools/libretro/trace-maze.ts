@@ -4264,20 +4264,17 @@ async function phaseBuildTrace(c: HostClient): Promise<void> {
  *  its engine state, settle, grab the framebuffer, and write a maze-freeroam-<view>.idx.gz
  *  oracle. Feeds `tools/parity/maze-coverage-sweep.ts fidelity <outDir>`. */
 async function phaseCollCapture(c: HostClient): Promise<void> {
-  const { loadLevel0 } = await import('../parity/maze-view-cases.js');
-  const { viewConfigKeyFor } = await import('../../packages/parser/src/maze/view-config.js');
   const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
   const dir = process.argv[3] ?? '/tmp/wiz6-collmap-states';
   const cmJson = process.argv[4] ?? '/tmp/wiz6-sweep/collmap-full.json';
   const outDir = process.argv[5] ?? '/tmp/wiz6-sweep/oracles';
   mkdirSync(outDir, { recursive: true });
-  const { block } = loadLevel0();
   const cm = JSON.parse(readFileSync(cmJson, 'utf8'));
-  const repByKey = new Map<string, { gx: number; gy: number; facing: number }>();
-  for (const v of cm.reachable) {
-    const key = viewConfigKeyFor(block, { gx: v.gx, gy: v.gy, z: 0, facing: v.facing });
-    if (!repByKey.has(key)) repByKey.set(key, v); // first reached view per distinct config
-  }
+  // POSITION-KEYED: capture one oracle per reachable (gx,gy,facing). The old
+  // viewConfigKey dedup collapsed cells with identical wall geometry but different
+  // decorations onto one oracle (the chest<->candlestick aliasing bug). Each reachable
+  // view gets its own engine frame from its cached state.
+  const views: Array<{ gx: number; gy: number; facing: number }> = cm.reachable;
   const rgbToIdx = new Map<number, number>();
   COMPOSED_PALETTE.forEach((rgb: readonly number[], i: number) => rgbToIdx.set(((rgb[0]! << 16) | (rgb[1]! << 8) | rgb[2]!) >>> 0, i));
   const rgbaToIdx = (rgba: Uint8Array): Uint8Array | null => {
@@ -4285,10 +4282,10 @@ async function phaseCollCapture(c: HostClient): Promise<void> {
     for (let p = 0; p < idx.length; p++) { const i = rgbToIdx.get(((rgba[p * 4]! << 16) | (rgba[p * 4 + 1]! << 8) | rgba[p * 4 + 2]!) >>> 0); if (i === undefined) return null; idx[p] = i; }
     return idx;
   };
-  console.log(`collcapture: ${repByKey.size} distinct configs among ${cm.reachable.length} reached views -> ${outDir}`);
+  console.log(`collcapture: ${views.length} reachable views -> ${outDir}`);
   await c.step(3000); // boot so unserialize round-trips
   let ok = 0, fail = 0, palMiss = 0;
-  for (const v of repByKey.values()) {
+  for (const v of views) {
     const st = `${dir}/n-${v.gx}_${v.gy}_${v.facing}.state`;
     if (!existsSync(st)) { fail++; continue; }
     await c.unserialize(st); await c.step(60);
@@ -4298,7 +4295,7 @@ async function phaseCollCapture(c: HostClient): Promise<void> {
     if (!idx) { palMiss++; continue; }
     writeFileSync(`${outDir}/maze-freeroam-gx${v.gx}-gy${v.gy}-f${v.facing}.idx.gz`, gzipSync(idx));
     ok++;
-    if (ok % 50 === 0) console.log(`  captured ${ok}/${repByKey.size}...`);
+    if (ok % 50 === 0) console.log(`  captured ${ok}/${views.length}...`);
   }
   console.log(`collcapture: ${ok} oracles written, ${fail} missing-state, ${palMiss} palette-miss`);
 }
