@@ -13,11 +13,16 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#086**
+Next free ID: **#087**
 
 ---
 
 ## Open
+
+- #086 [open] — Maze renderer COVERAGE: validated for ~3% of level-0; the 97% generation path is unvalidated
+  - **Coverage sweep 2026-06-10 (static, flood-fill level-0 + viewConfigKeyFor):** level-0 has **303 reachable cells × 4 facings = 1212 views = 862 DISTINCT view-configs**. The captured wall-cases cover **32** (30 byte-exact gated); **830 configs / 1180 views (97%) fall through to the GENERATION path** (generateFullCallList + classify/build/flush), whose fidelity is validated ONLY on the entrance cluster (gx124-128, gy121-123) + those 32 configs. Top uncovered: open-room `0:0:0:0:0:0` (50 views), many straight-wall/corridor orientations, etc. **The renderer is an entrance-corner reproducer with an UNVALIDATED generation fallback for almost the whole level.**
+  - **The real path to a general renderer:** (1) IMMEDIATE — measure the generation path's actual fidelity on the uncovered 97%: capture engine oracles for a SAMPLE of uncovered configs (drive free-roam to representative cells, grab framebuffer, pixel-compare to our generated render) → turns "97% unvalidated" into a fidelity map. (2) If generation is mostly-faithful → polish + a capture campaign for the misses. (3) If broadly-broken → the GENERAL GENERATION LAW (the decompiler-resistant slot-helper post-pass, wmaze 0x3828/0x3c11/0x3dce/0x39ec) is required for byte-exact arbitrary geometry — the hardest open RE (same class as #077). (4) Then other levels (1-N), untouched. Realistic bar: "faithful general traversal" (recognizable everywhere, byte-exact where captured) vs literal byte-exact everywhere (= the slot-helper law × 862 configs).
+  - **Deferred-renderer branch `feat/deferred-maze-renderer` (NOT merged):** the BUILD→FLUSH two-pass rewrite, proven pixel-identical to main on all 10 gated views, but does NOT fix the gate (the blocker is #077, not the architecture — confirmed empirically) and does NOT advance coverage. Preserved as a recoverable ref; abandoned for now. Cross-ref #084 (generation residuals), #085 (#077 gate bedrock), #079 (gameplay layer absent).
 
 - #085 [open] — Gate look-back residual fine detail (gx127 gy121 f2, ~97.9% — was 89.2%)
   - **SEE-THROUGH HALLWAY 2026-06-09 (97.02% → 97.93%):** the user observed "we're missing the hallway behind/through the gate" — the portcullis is SEE-THROUGH, and the corridor's DEPTH-2 ceiling (124) + floor (152) show through the central opening. Added to ARCHWAY_FRAME (+179px; floor-behind 152 is the bulk). Only depth-2 is visible (depth-1 behind the frame, depth-3 the end). Recovered from the doorturn capture by optimal-subset search (engine-captured pieces the contiguous window missed). The remaining ~2% (409px) is the masked LATTICE (the narrow bars with transparent gaps composited over the corridor-behind) — needs the masked-branch composition (`maze-doorrecess-source.json`), the deep wall.
