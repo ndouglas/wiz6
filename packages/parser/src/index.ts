@@ -61,7 +61,14 @@ export {
 } from './maze/callist.js';
 export { expandMazeData, type MazeWorkBuffer } from './maze/maze-data.js';
 // Maze movement (discrete turn + wall-collision step)
-export { turn, tryStepForward } from './maze/movement.js';
+export {
+  turn,
+  tryStepForward,
+  passabilityKey,
+  passabilityFromTable,
+  type ForwardVerdict,
+  type MovementOpts,
+} from './maze/movement.js';
 // Maze scripted entry FSM + narration decoder
 export {
   advanceEntry,

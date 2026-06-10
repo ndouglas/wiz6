@@ -26,6 +26,7 @@ import {
   viewConfigKeyFor,
   type CapturedSpansTable,
   type EntryStripText,
+  type ForwardVerdict,
   type MazeWorkBuffer,
   type NewgameViewports,
 } from '@wiz6/parser';
@@ -34,6 +35,7 @@ import {
   loadFont,
   loadFont4bpp,
   loadMazeAssets,
+  loadMazePassability,
   loadMazeWallSpans,
   loadMazeViewportOracles,
   loadMessageDb,
@@ -296,6 +298,9 @@ export function MazeView() {
   // level-0: when a config has a committed oracle, the viewport is the byte-exact
   // engine frame (covers all 266 engine-reachable configs). Loaded async below.
   const viewportOraclesRef = useRef<Map<string, Uint8Array> | null>(null);
+  // Faithful-movement passability gate (configKey -> engine verdict). Constrains
+  // movement to the engine-reachable level-0 set; null = wall-model fallback.
+  const passabilityRef = useRef<Map<string, ForwardVerdict> | null>(null);
   // Door-piece ANIMATION phase (0/1). The dungeon door/recess pieces flicker
   // between two adjacent atlas frames on the engine's global clock; we toggle this
   // on a timer in free-roam so the door shimmers like the engine. Lives in a ref
@@ -423,6 +428,14 @@ export function MazeView() {
       })
       .catch((err: unknown) => {
         console.warn('[MazeView] failed to load viewport oracles (falling back to generation):', err);
+      });
+    loadMazePassability()
+      .then((m) => {
+        if (cancelled || !m) return;
+        passabilityRef.current = m;
+      })
+      .catch((err: unknown) => {
+        console.warn('[MazeView] failed to load passability (movement falls back to the model):', err);
       });
     loadMazeAssets()
       .then((a) => {
@@ -614,7 +627,13 @@ export function MazeView() {
           nextParty = turn(session.party, 'right');
           break;
         case 'ArrowUp':
-          nextParty = tryStepForward(session.party, session.level.mazeBlock);
+          nextParty = tryStepForward(
+            session.party,
+            session.level.mazeBlock,
+            passabilityRef.current
+              ? { passability: passabilityRef.current }
+              : undefined,
+          );
           break;
         case 'ArrowDown':
           return; // no back-step in Wiz6

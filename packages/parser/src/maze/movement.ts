@@ -27,24 +27,48 @@ export function turn(party: MazeParty, dir: 'left' | 'right'): MazeParty {
   return { ...party, facing: (party.facing + delta) % 4 };
 }
 
+/** Engine forward-step verdict for a (cell,facing): open = walkable, blocked = wall,
+ *  encounter = walkable-but-triggers-combat, warp = stairs/teleporter (engine jumps to a
+ *  non-adjacent cell). encounter + warp are deferred — treated as no-ops until the combat
+ *  and stairs/teleporter sub-projects hook them (kept distinct so each is a one-line wire). */
+export type ForwardVerdict = 'open' | 'blocked' | 'encounter' | 'warp';
+
+/** Options for tryStepForward. */
+export interface MovementOpts {
+  /** Captured engine forward-passability keyed by passabilityKey(party). When a key is
+   *  present it is AUTHORITATIVE (the faithful-level-0 gate); absent → wall-model fallback. */
+  passability?: Map<string, ForwardVerdict>;
+}
+
+/** Stable key for the passability map: "gx,gy,facing". */
+export function passabilityKey(p: { gx: number; gy: number; facing: number }): string {
+  return `${p.gx},${p.gy},${p.facing}`;
+}
+
+/** Build the runtime passability map from a committed passability table (shared by the
+ *  viewer loader and the tests so both decode identically). */
+export function passabilityFromTable(
+  table: { cells: Array<{ gx: number; gy: number; facing: number; forward: ForwardVerdict }> },
+): Map<string, ForwardVerdict> {
+  const m = new Map<string, ForwardVerdict>();
+  for (const c of table.cells) m.set(passabilityKey(c), c.forward);
+  return m;
+}
+
 /**
- * tryStepForward — advance the party one cell in the current facing IFF the
- * forward edge of the party's current cell is OPEN (wall field = 0).
+ * tryStepForward — advance the party one cell in the current facing IFF forward is open.
  *
- * Uses the same corrected forward-edge selector as classify.ts
- * (wmaze 0x3828 / 0x36dd / 0x3742) and the same per-facing view-step law
- * (wmaze 0x37a7), both imported from maze-geometry.ts.
- *
- * Solid wall (field ≥ 1, including doors at code 3): returns party unchanged.
- * Open (field = 0): returns party with (gx, gy) advanced by the facing delta.
+ * FAITHFUL GATE: if `opts.passability` has a verdict for this (cell,facing), it is
+ * authoritative — 'open' steps, 'blocked'/'encounter' are no-ops (encounter is kept
+ * distinct so combat can hook it later). Otherwise falls back to the wall model
+ * (isSolid(forwardEdge), wmaze 0x3828/0x36dd/0x3742) + the per-facing step (0x37a7).
+ * Pure + total: a missing/malformed map never throws.
  */
-export function tryStepForward(party: MazeParty, block: MazeBlock): MazeParty {
+export function tryStepForward(party: MazeParty, block: MazeBlock, opts?: MovementOpts): MazeParty {
   const { gx, gy, facing } = party;
-  const edge = forwardEdge(block, gx, gy, facing);
-  if (isSolid(edge)) {
-    return party;
-  }
-  // Advance one cell forward: lateral=0, forward=1
+  const verdict = opts?.passability?.get(passabilityKey(party));
+  const open = verdict !== undefined ? verdict === 'open' : !isSolid(forwardEdge(block, gx, gy, facing));
+  if (!open) return party;
   const [ngx, ngy] = step(gx, gy, facing, 0, 1);
   return { ...party, gx: ngx, gy: ngy };
 }

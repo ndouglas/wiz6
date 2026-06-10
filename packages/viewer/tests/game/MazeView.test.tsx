@@ -53,6 +53,7 @@ import {
 
 vi.mock('../../src/data-loader.js', () => ({
   loadMazeAssets: vi.fn(),
+  loadMazePassability: vi.fn(),
   loadMazeWallSpans: vi.fn(),
   loadMazeViewportOracles: vi.fn(),
   loadMessageDb: vi.fn(),
@@ -75,6 +76,7 @@ vi.mock('../../src/lib/active-party-store.js', () => ({
 import { MazeView, CUTSCENE_TICK_MS } from '../../src/pages/game/MazeView.js';
 import {
   loadMazeAssets,
+  loadMazePassability,
   loadMazeWallSpans,
   loadMazeViewportOracles,
   loadMessageDb,
@@ -87,6 +89,7 @@ import { readGameSession, updateParty, updateSession } from '../../src/game/game
 import { readActiveParty } from '../../src/lib/active-party-store.js';
 
 const mockLoadMazeAssets = vi.mocked(loadMazeAssets);
+const mockLoadMazePassability = vi.mocked(loadMazePassability);
 const mockLoadMazeWallSpans = vi.mocked(loadMazeWallSpans);
 const mockLoadMazeViewportOracles = vi.mocked(loadMazeViewportOracles);
 const mockLoadMessageDb = vi.mocked(loadMessageDb);
@@ -251,6 +254,7 @@ beforeEach(() => {
   // Capture-replay oracles: default to null (renderer stays on the generation path);
   // tests don't assert engine-replay pixels.
   mockLoadMazeViewportOracles.mockResolvedValue(null);
+  mockLoadMazePassability.mockResolvedValue(null);
 });
 
 describe('MazeView — no session', () => {

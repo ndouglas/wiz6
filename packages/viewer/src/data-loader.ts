@@ -13,6 +13,8 @@ import { ScenarioDbSchema, type ScenarioDb } from '@wiz6/data';
 import { DungeonLevelSchema, type DungeonLevel } from '@wiz6/data';
 import {
   decodeMazeAssets,
+  passabilityFromTable,
+  type ForwardVerdict,
   type MazeAssetsRaw,
   type CapturedSpansTable,
   type NewgameViewports,
@@ -204,6 +206,24 @@ export async function loadMazeViewportOracles(): Promise<Map<string, Uint8Array>
       }),
     );
     return map;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Browser loader for the faithful-movement passability gate (level-0). Fetches the
+ * committed extracted/maze/passability.json (served via Vite publicDir) and builds the
+ * (configKey -> verdict) map the movement code consults. Returns null on any failure
+ * (movement falls back to the wall model). Decoded via the shared passabilityFromTable.
+ */
+export async function loadMazePassability(): Promise<Map<string, ForwardVerdict> | null> {
+  try {
+    const res = await fetch('/maze/passability.json');
+    if (!res.ok) return null;
+    const data = (await res.json()) as { cells?: Array<{ gx: number; gy: number; facing: number; forward: ForwardVerdict }> };
+    if (!Array.isArray(data?.cells)) return null;
+    return passabilityFromTable(data as { cells: Array<{ gx: number; gy: number; facing: number; forward: ForwardVerdict }> });
   } catch {
     return null;
   }
