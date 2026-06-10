@@ -1394,7 +1394,13 @@ const ARCHWAY_FRAME = [
   6, 9, // near full-height columns (img0, the gate's stone jambs)
   18, 22, // the depth-0 near-wall flank strips (16/17/20/21 are occluded by the door)
   23, 25, 26, 28, 29, 31, 32, 34, // DOOR-RECESS archway frame (img11–img22 arch pieces)
-  122, 150, // DEPTH-0 ceiling/floor ONLY (the door occludes the deeper twins)
+  122, 150, // DEPTH-0 ceiling/floor (the near gate plane)
+  124, 152, // THE HALLWAY BEHIND THE GATE: the portcullis is SEE-THROUGH, so the
+  // corridor's DEPTH-2 ceiling (124) + floor (152) show through the central opening
+  // (the floor-behind 152 is the bulk of it). Only depth-2 is visible — depth-1 is
+  // behind the gate frame, depth-3 is the corridor end. Recovered from the doorturn
+  // capture by optimal-subset search (engine-captured pieces the contiguous window
+  // missed). +179px → 97.93%.
   134, 138, 162, 166, // depth-0 side-wall pieces
 ] as const;
 

@@ -237,7 +237,9 @@ const CASES: ViewCase[] = [
   {
     view: 'gx127-gy121-f2',
     party: { gx: 127, gy: 121, z: 0, facing: 2 },
-    floor: 19124, // 97.02% — OCCLUSION FIX (2026-06-09). Was 17585 (89.21%): ARCHWAY_FRAME
+    floor: 19303, // 97.93% — SEE-THROUGH HALLWAY (2026-06-09): +124/152 (the depth-2
+    // corridor ceiling/floor visible THROUGH the portcullis opening, the user's "hallway
+    // behind the gate"). Built on the 97.02% OCCLUSION FIX. Was 17585 (89.21%): ARCHWAY_FRAME
     // drew the deeper ceiling/floor twins (123-125/151-153) + flank strips (16/17/20/21)
     // that the depth-0 head-on door OCCLUDES — they bled stone past the gate (the "munged"
     // overdraw the user reported). The captured settled frame (trace-maze.ts doorturn →
