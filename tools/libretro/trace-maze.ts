@@ -4303,26 +4303,30 @@ async function phaseCollCapture(c: HostClient): Promise<void> {
   console.log(`collcapture: ${ok} oracles written, ${fail} missing-state, ${palMiss} palette-miss`);
 }
 
-/** `engcap <gx> <gy> <facing> [outDir]` — ENGINE-TRUTH clean per-position capture.
- *  Navigates the engine to (gx,gy,facing) via the ENGINE-reachable graph (the
- *  committed maze-reachability.json forward verdicts + always-legal turns), NOT
- *  movement.ts (which diverges past the entrance cluster — why `freeroam` aborts on
- *  e.g. the chest cells). Prefers a FORWARD-step-into-target final move (a full
- *  BUILD-loop recompose = the clean frame), falling back to a turn-final approach;
- *  settles, grabs the engine framebuffer -> maze-walk-style <tag>.idx.gz. This is the
- *  faithful per-position capture the position-keyed oracle/walking-gate needs and the
- *  thing the collmap-BFS-state replay got wrong (TODO #086).
+/** `engcap <gx> <gy> <facing> [outDir]` (single) | `engcap all [outDir]` (sweep) —
+ *  ENGINE-TRUTH clean per-position capture. Navigates the engine to a view via the
+ *  ENGINE-reachable graph (the committed maze-reachability.json forward verdicts +
+ *  always-legal turns), NOT movement.ts (which diverges past the entrance cluster —
+ *  why `freeroam` aborts on e.g. the chest cells). Prefers a FORWARD-step-into-target
+ *  final move (a full BUILD-loop recompose = the clean frame), falling back to a
+ *  turn-final approach; settles, grabs the engine framebuffer -> maze-freeroam-<tag>.idx.gz
+ *  (the name build-viewport-oracles.ts consumes). This is the faithful per-position
+ *  capture the position-keyed oracle/walking-gate needs and the thing the collmap-BFS-
+ *  state replay got wrong (TODO #086).
+ *
+ *  `all` sweeps the ENTRANCE-NORMAL-CONNECTED COMPONENT (the walkable starting area —
+ *  what faithful movement gates to). Unlocks free-roam ONCE, serializes the entrance
+ *  frame, then drives each target from that frame (fast — no per-cell cold boot).
  *
  *  Warps are EXCLUDED: a forward edge is added only when the verdict is 'open' AND the
  *  normal destination (gx+dx,gy+dy,f) is itself reachable — so teleport jumps (whose
- *  normal dest isn't in the set) never create a bogus adjacency. */
+ *  normal dest isn't in the set) never create a bogus adjacency, and the far warp-only
+ *  cluster (unreachable by walking) is not swept. */
 async function phaseEngCapture(c: HostClient): Promise<void> {
   const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
-  const gx = Number(process.argv[3]), gy = Number(process.argv[4]), facing = Number(process.argv[5]);
-  const outDir = process.argv[6] ?? '/tmp/wiz6-engcap';
-  if (![gx, gy, facing].every(Number.isFinite)) { console.log('usage: engcap <gx> <gy> <facing> [outDir]'); return; }
+  const sweep = process.argv[3] === 'all';
+  const outDir = (sweep ? process.argv[4] : process.argv[6]) ?? '/tmp/wiz6-engcap';
   mkdirSync(outDir, { recursive: true });
-  const tag = `gx${gx}-gy${gy}-f${facing}`;
 
   // Engine-reachable graph from the committed verdicts.
   type Node = { gx: number; gy: number; facing: number };
@@ -4344,42 +4348,42 @@ async function phaseEngCapture(c: HostClient): Promise<void> {
     }
     return out;
   };
-  const bfs = (start: Node, goal: Node): string[] | null => {
-    const sk = key(start), gk = key(goal);
-    if (!reachSet.has(gk)) return null;
-    if (sk === gk) return [];
-    const prev = new Map<string, { k: string; move: string }>();
-    const q: Node[] = [start]; const seen = new Set([sk]);
+  const ENTRANCE: Node = { gx: 127, gy: 121, facing: 0 };
+  // BFS from the entrance over the whole graph once: predecessor map + reached set
+  // (= the entrance-normal-connected component).
+  const prev = new Map<string, { k: string; move: string }>();
+  const reachedOrder: Node[] = [ENTRANCE];
+  {
+    const q: Node[] = [ENTRANCE]; const seen = new Set([key(ENTRANCE)]);
     while (q.length) {
       const cur = q.shift()!;
       for (const { node, move } of neighbors(cur)) {
         const k = key(node);
         if (seen.has(k)) continue;
-        seen.add(k); prev.set(k, { k: key(cur), move });
-        if (k === gk) {
-          const path: string[] = []; let kk = gk;
-          while (kk !== sk) { const p = prev.get(kk)!; path.unshift(p.move); kk = p.k; }
-          return path;
-        }
-        q.push(node);
+        seen.add(k); prev.set(k, { k: key(cur), move }); q.push(node); reachedOrder.push(node);
       }
     }
-    return null;
-  };
-
-  const ENTRANCE: Node = { gx: 127, gy: 121, facing: 0 };
-  const target: Node = { gx, gy, facing };
-  const [dx, dy] = FWD_GXGY[facing]!;
-  const origin: Node = { gx: gx - dx, gy: gy - dy, facing };
-  // Prefer forward-final (clean recompose): drive to the one-behind origin, then step in.
-  let path: string[] | null = null; let mode = '';
-  if (reachSet.has(key(origin)) && verdict.get(key(origin)) === 'open') {
-    const po = bfs(ENTRANCE, origin);
-    if (po) { path = [...po, 'forward']; mode = 'forward-final (clean recompose)'; }
   }
-  if (!path) { path = bfs(ENTRANCE, target); mode = 'turn-final (settled)'; }
-  if (!path) { console.log(`engcap ${tag}: UNREACHABLE in the engine graph — abort`); return; }
-  console.log(`engcap ${tag}: ${mode}; ${path.length} moves`);
+  const pathToNode = (goal: Node): string[] | null => {
+    const gk = key(goal);
+    if (gk === key(ENTRANCE)) return [];
+    if (!prev.has(gk)) return null;
+    const path: string[] = []; let kk = gk;
+    while (kk !== key(ENTRANCE)) { const p = prev.get(kk)!; path.unshift(p.move); kk = p.k; }
+    return path;
+  };
+  /** Plan a path to `target`, preferring a forward-step-into-target final move (clean
+   *  recompose) when the one-behind origin is reachable + open. */
+  const planPath = (target: Node): { path: string[]; mode: string } | null => {
+    const [dx, dy] = FWD_GXGY[target.facing]!;
+    const origin: Node = { gx: target.gx - dx, gy: target.gy - dy, facing: target.facing };
+    if (reachSet.has(key(origin)) && verdict.get(key(origin)) === 'open') {
+      const po = pathToNode(origin);
+      if (po) return { path: [...po, 'forward'], mode: 'forward-final' };
+    }
+    const pt = pathToNode(target);
+    return pt ? { path: pt, mode: 'turn-final' } : null;
+  };
 
   const rgbToIdx = new Map<number, number>();
   COMPOSED_PALETTE.forEach((rgb: readonly number[], i: number) => rgbToIdx.set(((rgb[0]! << 16) | (rgb[1]! << 8) | rgb[2]!) >>> 0, i));
@@ -4393,19 +4397,94 @@ async function phaseEngCapture(c: HostClient): Promise<void> {
     return idx;
   };
 
+  // Capture a single target from a base already AT the entrance free-roam frame.
+  const captureFrom = async (base: number, fromEntrance: () => Promise<void>, target: Node): Promise<'ok' | 'mismatch' | 'palette' | 'unreachable'> => {
+    const plan = planPath(target);
+    const tag = `gx${target.gx}-gy${target.gy}-f${target.facing}`;
+    if (!plan) { console.log(`engcap ${tag}: UNREACHABLE in the engine graph`); return 'unreachable'; }
+    await fromEntrance();
+    await frDrivePath(c, base, plan.path);
+    const at = await frParty(c, base);
+    if (at.gx !== target.gx || at.gy !== target.gy || at.f !== target.facing) {
+      console.log(`engcap ${tag}: POSITION MISMATCH (got gx${at.gx} gy${at.gy} f${at.f})`); return 'mismatch';
+    }
+    await c.step(80); // settle the build loop before grabbing
+    const fbPath = `${outDir}/${tag}.rgba`;
+    await c.fb(fbPath);
+    const idx = rgbaToIdx(new Uint8Array(readFileSync(fbPath)));
+    if (!idx) { console.log(`engcap ${tag}: palette miss`); return 'palette'; }
+    writeFileSync(`${outDir}/maze-freeroam-${tag}.idx.gz`, gzipSync(idx));
+    return 'ok';
+  };
+
   const base = await driveToFreeRoam(c);
-  await frDrivePath(c, base, path);
-  const at = await frParty(c, base);
-  if (at.gx !== gx || at.gy !== gy || at.f !== facing) {
-    console.log(`engcap ${tag}: POSITION MISMATCH (got gx${at.gx} gy${at.gy} f${at.f}) — abort`); return;
+  const entranceState = `${outDir}/engcap-entrance.state`;
+  await c.serialize(entranceState);
+  const fromEntrance = async () => { await c.unserialize(entranceState); await c.step(2); };
+
+  // Grab + write + serialize the CURRENT settled frame for `node`; returns its state file.
+  const grabAndSerialize = async (node: Node): Promise<boolean> => {
+    const tag = `gx${node.gx}-gy${node.gy}-f${node.facing}`;
+    await c.step(80); // settle the build loop
+    const fbPath = `${outDir}/${tag}.rgba`;
+    await c.fb(fbPath);
+    const idx = rgbaToIdx(new Uint8Array(readFileSync(fbPath)));
+    if (!idx) { console.log(`engcap ${tag}: palette miss`); return false; }
+    writeFileSync(`${outDir}/maze-freeroam-${tag}.idx.gz`, gzipSync(idx));
+    await c.serialize(`${outDir}/state-${tag}.state`);
+    return true;
+  };
+
+  if (sweep) {
+    const targets = reachedOrder;
+    console.log(`engcap all: entrance-normal-connected component = ${targets.length} views -> ${outDir} (incremental BFS capture)`);
+    // INCREMENTAL: capture each node by a SINGLE move from its BFS-predecessor's
+    // serialized state. Turns (same cell) can't trigger a random encounter; only a
+    // forward step into a NEW cell can — and on an encounter we re-try from the
+    // predecessor with extra settle frames to advance the RNG past the step-roll.
+    const stateOf = new Map<string, string>();
+    const captured = new Set<string>();
+    // Entrance: capture directly from the unlocked free-roam frame.
+    await fromEntrance();
+    let ok = 0, failed = 0;
+    const failures: string[] = [];
+    if (await grabAndSerialize(ENTRANCE)) { stateOf.set(key(ENTRANCE), `${outDir}/state-gx127-gy121-f0.state`); captured.add(key(ENTRANCE)); ok++; }
+    for (let i = 1; i < targets.length; i++) {
+      const node = targets[i]!;
+      const tag = `gx${node.gx}-gy${node.gy}-f${node.facing}`;
+      const p = prev.get(key(node))!;
+      const predState = stateOf.get(p.k);
+      if (!predState) { failed++; failures.push(`${tag}(no-pred-state)`); continue; }
+      const moveKey = (p.move === 'forward' ? 'up' : p.move) as 'left' | 'right' | 'up';
+      let done = false;
+      for (let attempt = 0; attempt < 5 && !done; attempt++) {
+        try {
+          await c.unserialize(predState);
+          await c.step(2 + attempt * 37); // vary RNG phase to dodge a step-based encounter roll
+          const b = await frParty(c, base);
+          await c.key(moveKey, 'tap'); await c.step(45);
+          const a = await frParty(c, base);
+          if (a.gs !== 5) continue; // random encounter — retry with a different settle phase
+          if (p.move === 'forward' && a.gx === b.gx && a.gy === b.gy) continue; // step didn't take — retry
+          if (a.gx !== node.gx || a.gy !== node.gy || a.f !== node.facing) { failures.push(`${tag}(mismatch g${a.gx},${a.gy},f${a.f})`); break; }
+          if (await grabAndSerialize(node)) { stateOf.set(key(node), `${outDir}/state-${tag}.state`); captured.add(key(node)); ok++; done = true; }
+          else break;
+        } catch { /* retry */ }
+      }
+      if (!done && !failures.some((f) => f.startsWith(tag))) { failures.push(`${tag}(encounter×5)`); }
+      if (!done) failed++;
+      if ((i + 1) % 40 === 0) console.log(`  ...${ok} ok / ${i + 1} done / ${targets.length}`);
+    }
+    console.log(`engcap all: ${ok} captured, ${failed} failed`);
+    if (failures.length) console.log(`  failures: ${failures.join(', ')}`);
+  } else {
+    const target: Node = { gx: Number(process.argv[3]), gy: Number(process.argv[4]), facing: Number(process.argv[5]) };
+    if (![target.gx, target.gy, target.facing].every(Number.isFinite)) { console.log('usage: engcap <gx> <gy> <facing> [outDir]  |  engcap all [outDir]'); return; }
+    const plan = planPath(target);
+    console.log(`engcap gx${target.gx}-gy${target.gy}-f${target.facing}: ${plan ? plan.mode + '; ' + plan.path.length + ' moves' : 'UNREACHABLE'}`);
+    const r = await captureFrom(base, fromEntrance, target);
+    if (r === 'ok') console.log(`engcap: settled -> ${outDir}/maze-freeroam-gx${target.gx}-gy${target.gy}-f${target.facing}.idx.gz`);
   }
-  await c.step(80); // settle the build loop before grabbing
-  const fbPath = `${outDir}/${tag}.rgba`;
-  await c.fb(fbPath);
-  const idx = rgbaToIdx(new Uint8Array(readFileSync(fbPath)));
-  if (!idx) { console.log(`engcap ${tag}: palette miss — abort`); return; }
-  writeFileSync(`${outDir}/${tag}.idx.gz`, gzipSync(idx));
-  console.log(`engcap ${tag}: settled at gx${at.gx} gy${at.gy} f${at.f} -> ${outDir}/${tag}.idx.gz`);
 }
 
 /** `flagwrite <gx> <gy> <facing> <offHex>` — WRITE-WATCH a DGROUP byte (the per-direction
