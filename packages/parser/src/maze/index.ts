@@ -9,7 +9,14 @@
 export { renderMazeViewport } from './render.js';
 
 // Discrete movement (turn + wall-collision step)
-export { turn, tryStepForward } from './movement.js';
+export {
+  turn,
+  tryStepForward,
+  passabilityKey,
+  passabilityFromTable,
+  type ForwardVerdict,
+  type MovementOpts,
+} from './movement.js';
 
 // Individual stages (for tests, parity tooling, and viewer assembly)
 export { classifyVisibleWalls } from './classify.js';
