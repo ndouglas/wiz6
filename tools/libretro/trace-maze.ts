@@ -4303,6 +4303,111 @@ async function phaseCollCapture(c: HostClient): Promise<void> {
   console.log(`collcapture: ${ok} oracles written, ${fail} missing-state, ${palMiss} palette-miss`);
 }
 
+/** `engcap <gx> <gy> <facing> [outDir]` — ENGINE-TRUTH clean per-position capture.
+ *  Navigates the engine to (gx,gy,facing) via the ENGINE-reachable graph (the
+ *  committed maze-reachability.json forward verdicts + always-legal turns), NOT
+ *  movement.ts (which diverges past the entrance cluster — why `freeroam` aborts on
+ *  e.g. the chest cells). Prefers a FORWARD-step-into-target final move (a full
+ *  BUILD-loop recompose = the clean frame), falling back to a turn-final approach;
+ *  settles, grabs the engine framebuffer -> maze-walk-style <tag>.idx.gz. This is the
+ *  faithful per-position capture the position-keyed oracle/walking-gate needs and the
+ *  thing the collmap-BFS-state replay got wrong (TODO #086).
+ *
+ *  Warps are EXCLUDED: a forward edge is added only when the verdict is 'open' AND the
+ *  normal destination (gx+dx,gy+dy,f) is itself reachable — so teleport jumps (whose
+ *  normal dest isn't in the set) never create a bogus adjacency. */
+async function phaseEngCapture(c: HostClient): Promise<void> {
+  const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
+  const gx = Number(process.argv[3]), gy = Number(process.argv[4]), facing = Number(process.argv[5]);
+  const outDir = process.argv[6] ?? '/tmp/wiz6-engcap';
+  if (![gx, gy, facing].every(Number.isFinite)) { console.log('usage: engcap <gx> <gy> <facing> [outDir]'); return; }
+  mkdirSync(outDir, { recursive: true });
+  const tag = `gx${gx}-gy${gy}-f${facing}`;
+
+  // Engine-reachable graph from the committed verdicts.
+  type Node = { gx: number; gy: number; facing: number };
+  const reach = JSON.parse(readFileSync(`${process.cwd()}/tools/parity/fixtures/engine/maze-reachability.json`, 'utf8'));
+  const key = (n: Node) => `${n.gx},${n.gy},${n.facing}`;
+  const reachSet = new Set<string>(reach.reachable.map((r: Node) => key(r)));
+  const verdict = new Map<string, string>();
+  for (const r of reach.forward) verdict.set(key(r), r.forward);
+  const neighbors = (n: Node): Array<{ node: Node; move: string }> => {
+    const out: Array<{ node: Node; move: string }> = [];
+    const L: Node = { gx: n.gx, gy: n.gy, facing: (n.facing + 3) % 4 };
+    const R: Node = { gx: n.gx, gy: n.gy, facing: (n.facing + 1) % 4 };
+    if (reachSet.has(key(L))) out.push({ node: L, move: 'left' });
+    if (reachSet.has(key(R))) out.push({ node: R, move: 'right' });
+    if (verdict.get(key(n)) === 'open') {
+      const [dx, dy] = FWD_GXGY[n.facing]!;
+      const F: Node = { gx: n.gx + dx, gy: n.gy + dy, facing: n.facing };
+      if (reachSet.has(key(F))) out.push({ node: F, move: 'forward' }); // excludes warps
+    }
+    return out;
+  };
+  const bfs = (start: Node, goal: Node): string[] | null => {
+    const sk = key(start), gk = key(goal);
+    if (!reachSet.has(gk)) return null;
+    if (sk === gk) return [];
+    const prev = new Map<string, { k: string; move: string }>();
+    const q: Node[] = [start]; const seen = new Set([sk]);
+    while (q.length) {
+      const cur = q.shift()!;
+      for (const { node, move } of neighbors(cur)) {
+        const k = key(node);
+        if (seen.has(k)) continue;
+        seen.add(k); prev.set(k, { k: key(cur), move });
+        if (k === gk) {
+          const path: string[] = []; let kk = gk;
+          while (kk !== sk) { const p = prev.get(kk)!; path.unshift(p.move); kk = p.k; }
+          return path;
+        }
+        q.push(node);
+      }
+    }
+    return null;
+  };
+
+  const ENTRANCE: Node = { gx: 127, gy: 121, facing: 0 };
+  const target: Node = { gx, gy, facing };
+  const [dx, dy] = FWD_GXGY[facing]!;
+  const origin: Node = { gx: gx - dx, gy: gy - dy, facing };
+  // Prefer forward-final (clean recompose): drive to the one-behind origin, then step in.
+  let path: string[] | null = null; let mode = '';
+  if (reachSet.has(key(origin)) && verdict.get(key(origin)) === 'open') {
+    const po = bfs(ENTRANCE, origin);
+    if (po) { path = [...po, 'forward']; mode = 'forward-final (clean recompose)'; }
+  }
+  if (!path) { path = bfs(ENTRANCE, target); mode = 'turn-final (settled)'; }
+  if (!path) { console.log(`engcap ${tag}: UNREACHABLE in the engine graph — abort`); return; }
+  console.log(`engcap ${tag}: ${mode}; ${path.length} moves`);
+
+  const rgbToIdx = new Map<number, number>();
+  COMPOSED_PALETTE.forEach((rgb: readonly number[], i: number) => rgbToIdx.set(((rgb[0]! << 16) | (rgb[1]! << 8) | rgb[2]!) >>> 0, i));
+  const rgbaToIdx = (rgba: Uint8Array): Uint8Array | null => {
+    const idx = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
+    for (let p = 0; p < idx.length; p++) {
+      const i = rgbToIdx.get(((rgba[p * 4]! << 16) | (rgba[p * 4 + 1]! << 8) | rgba[p * 4 + 2]!) >>> 0);
+      if (i === undefined) return null;
+      idx[p] = i;
+    }
+    return idx;
+  };
+
+  const base = await driveToFreeRoam(c);
+  await frDrivePath(c, base, path);
+  const at = await frParty(c, base);
+  if (at.gx !== gx || at.gy !== gy || at.f !== facing) {
+    console.log(`engcap ${tag}: POSITION MISMATCH (got gx${at.gx} gy${at.gy} f${at.f}) — abort`); return;
+  }
+  await c.step(80); // settle the build loop before grabbing
+  const fbPath = `${outDir}/${tag}.rgba`;
+  await c.fb(fbPath);
+  const idx = rgbaToIdx(new Uint8Array(readFileSync(fbPath)));
+  if (!idx) { console.log(`engcap ${tag}: palette miss — abort`); return; }
+  writeFileSync(`${outDir}/${tag}.idx.gz`, gzipSync(idx));
+  console.log(`engcap ${tag}: settled at gx${at.gx} gy${at.gy} f${at.f} -> ${outDir}/${tag}.idx.gz`);
+}
+
 /** `flagwrite <gx> <gy> <facing> <offHex>` — WRITE-WATCH a DGROUP byte (the per-direction
  *  availability flag) over a re-render at the cell, to find the CLASSIFIER instruction that
  *  computes movement availability from the walls (= the collision law). */
@@ -4720,6 +4825,7 @@ async function main() {
     else if (phase === 'rwall') await phaseRWall(c);
     else if (phase === 'flagwrite') await phaseFlagWrite(c);
     else if (phase === 'collcapture') await phaseCollCapture(c);
+    else if (phase === 'engcap') await phaseEngCapture(c);
     else if (phase === 'buildtrace') await phaseBuildTrace(c);
     else if (phase === 'collslots') await phaseCollSlots(c);
     else if (phase === 'gateclass') await phaseGateClass(c);
