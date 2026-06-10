@@ -189,6 +189,21 @@ export class HostClient {
     if (r !== 'ok') throw new Error(`traceoff: ${r}`);
   }
 
+  /** Range (windowed) instruction trace: log the linear CS:IP of EVERY instruction
+   *  executed in [lo,hi) into a large lightweight ring. hi=0 disables. Patched core. */
+  async traceRangeSet(lo: number, hi: number): Promise<void> {
+    const r = await this.cmd(`tracerange ${(lo >>> 0).toString(16)} ${(hi >>> 0).toString(16)}`);
+    if (!/^ok /.test(r)) throw new Error(`tracerange: ${r}`);
+  }
+
+  /** Drain the range-trace ring (oldest-first), clearing it. Returns the ordered
+   *  list of executed linear CS:IP addresses. */
+  async traceRangeDrain(): Promise<number[]> {
+    const { body, done } = await this.cmdLines('rtlog');
+    if (!/^ok /.test(done)) throw new Error(`rtlog: ${done}`);
+    return body.filter((l) => l.startsWith('rt ')).map((l) => parseInt(l.slice(3), 16));
+  }
+
   /** Drain the trace ring buffer (oldest-first), clearing it. Each record is a
    *  register snapshot taken just before the target instruction executed. */
   async traceDrain(): Promise<TraceRecord[]> {
@@ -231,6 +246,22 @@ export class HostClient {
     const { body, done } = await this.cmdLines('wwlog');
     if (!/^ok /.test(done)) throw new Error(`wwlog: ${done}`);
     return body.filter((l) => l.startsWith('wrec ')).map((l) => {
+      const f: Record<string, string> = {};
+      for (const m of l.matchAll(/(\w+)=([0-9a-f]+)/g)) f[m[1]!] = m[2]!;
+      return { cseip: parseInt(f['cseip'] ?? '0', 16), addr: parseInt(f['addr'] ?? '0', 16), val: parseInt(f['val'] ?? '0', 16) };
+    });
+  }
+
+  /** Memory-READ watch: log (cs:ip, addr, value) of guest reads in [base,end). end=0 off. */
+  async rwatchSet(base: number, end: number): Promise<void> {
+    const r = await this.cmd(`rwset ${(base >>> 0).toString(16)} ${(end >>> 0).toString(16)}`);
+    if (!/^ok /.test(r)) throw new Error(`rwset: ${r}`);
+  }
+
+  async rwatchDrain(): Promise<Array<{ cseip: number; addr: number; val: number }>> {
+    const { body, done } = await this.cmdLines('rwlog');
+    if (!/^ok /.test(done)) throw new Error(`rwlog: ${done}`);
+    return body.filter((l) => l.startsWith('rrec ')).map((l) => {
       const f: Record<string, string> = {};
       for (const m of l.matchAll(/(\w+)=([0-9a-f]+)/g)) f[m[1]!] = m[2]!;
       return { cseip: parseInt(f['cseip'] ?? '0', 16), addr: parseInt(f['addr'] ?? '0', 16), val: parseInt(f['val'] ?? '0', 16) };

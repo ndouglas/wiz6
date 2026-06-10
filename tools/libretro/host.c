@@ -63,6 +63,12 @@ static uint32_t (*g_capture_get)(void*) = NULL;
 static void (*g_wwatch_set)(uint32_t, uint32_t) = NULL;
 static uint32_t (*g_wwatch_count)(void) = NULL;
 static uint32_t (*g_wwatch_drain)(void*, uint32_t) = NULL;
+static void (*g_trace_range_set)(uint32_t, uint32_t) = NULL;
+static uint32_t (*g_trace_range_count)(void) = NULL;
+static uint32_t (*g_trace_range_drain)(void*, uint32_t) = NULL;
+static void (*g_rwatch_set)(uint32_t, uint32_t) = NULL;
+static uint32_t (*g_rwatch_count)(void) = NULL;
+static uint32_t (*g_rwatch_drain)(void*, uint32_t) = NULL;
 
 static const char *SCRATCH = "/tmp/wiz6-libretro";
 static struct retro_memory_descriptor g_desc[64];
@@ -239,6 +245,12 @@ int main(int argc, char **argv) {
   g_wwatch_set = dlsym(h, "dbp_wwatch_set");
   g_wwatch_count = dlsym(h, "dbp_wwatch_count");
   g_wwatch_drain = dlsym(h, "dbp_wwatch_drain");
+  g_trace_range_set = dlsym(h, "dbp_trace_range_set");
+  g_trace_range_count = dlsym(h, "dbp_trace_range_count");
+  g_trace_range_drain = dlsym(h, "dbp_trace_range_drain");
+  g_rwatch_set = dlsym(h, "dbp_rwatch_set");
+  g_rwatch_count = dlsym(h, "dbp_rwatch_count");
+  g_rwatch_drain = dlsym(h, "dbp_rwatch_drain");
 
   set_env(env); set_vr(cb_video); set_as(cb_audio); set_asb(cb_audio_batch);
   set_ip(cb_input_poll); set_is(cb_input_state);
@@ -375,6 +387,26 @@ int main(int argc, char **argv) {
       g_trace_clear();
       printf("ok\n");
     }
+    else if (!strcmp(cmd, "tracerange")) {
+      // tracerange <lo_hex> <hi_hex> — log every instruction's linear CS:IP in
+      // [lo,hi) into the range ring (cseip only). hi=0 disables.
+      if (!g_trace_range_set) { printf("err notrace\n"); continue; }
+      uint32_t lo = (uint32_t)strtoul(a1, NULL, 16);
+      uint32_t hi = (uint32_t)strtoul(a2, NULL, 16);
+      g_trace_range_set(lo, hi);
+      printf("ok tracerange lo=%x hi=%x\n", lo, hi);
+    }
+    else if (!strcmp(cmd, "rtlog")) {
+      // drain the range-trace ring; one "rt <cseip>" line per executed instruction
+      // (oldest-first), then "ok <n>".
+      if (!g_trace_range_drain) { printf("err notrace\n"); continue; }
+      uint32_t cap = g_trace_range_count();
+      uint32_t *recs = NULL, n = 0;
+      if (cap) { recs = malloc((size_t)cap * sizeof *recs); n = g_trace_range_drain(recs, cap); }
+      for (uint32_t k = 0; k < n; k++) printf("rt %x\n", recs[k]);
+      free(recs);
+      printf("ok %u\n", n);
+    }
     else if (!strcmp(cmd, "tracelog")) {
       if (!g_trace_drain) { printf("err notrace\n"); continue; }
       uint32_t cap = g_trace_count();
@@ -428,6 +460,24 @@ int main(int argc, char **argv) {
       if (cap) { recs = malloc((size_t)cap * sizeof *recs); n = g_wwatch_drain(recs, cap); }
       for (uint32_t k=0;k<n;k++)
         printf("wrec cseip=%x addr=%x val=%x\n", recs[k].cseip, recs[k].addr, recs[k].val);
+      free(recs);
+      printf("ok %u\n", n);
+    }
+    else if (!strcmp(cmd, "rwset")) {
+      // rwset <base_hex> <end_hex> — log (cs:ip,addr,val) of READS into [base,end). end=0 disables.
+      if (!g_rwatch_set) { printf("err notrace\n"); continue; }
+      uint32_t base = (uint32_t)strtoul(a1, NULL, 16);
+      uint32_t end  = (uint32_t)strtoul(a2, NULL, 16);
+      g_rwatch_set(base, end);
+      printf("ok rwset base=%x end=%x\n", base, end);
+    }
+    else if (!strcmp(cmd, "rwlog")) {
+      if (!g_rwatch_drain) { printf("err notrace\n"); continue; }
+      uint32_t cap = g_rwatch_count();
+      struct dbp_ww_rec *recs = NULL; uint32_t n = 0;
+      if (cap) { recs = malloc((size_t)cap * sizeof *recs); n = g_rwatch_drain(recs, cap); }
+      for (uint32_t k=0;k<n;k++)
+        printf("rrec cseip=%x addr=%x val=%x\n", recs[k].cseip, recs[k].addr, recs[k].val);
       free(recs);
       printf("ok %u\n", n);
     }

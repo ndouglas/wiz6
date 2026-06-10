@@ -33,35 +33,39 @@ def main() -> int:
     from ghidra.app.decompiler import DecompInterface
     from ghidra.util.task import ConsoleTaskMonitor
 
-    program_path = f"/{args.binary}"
-    with pyghidra.open_program(f"{args.project_dir}/{args.project_name}.gpr", program_path) as flat:
-        program = flat.getCurrentProgram()
-        fm = program.getFunctionManager()
+    # pyghidra 3.x: open_program() is removed; use open_project + program_context
+    # (same pattern as list_functions.py). Ghidra project paths are absolute within project.
+    project = pyghidra.open_project(args.project_dir, args.project_name)
+    try:
+        with pyghidra.program_context(project, f"/{args.binary}") as program:
+            fm = program.getFunctionManager()
 
-        fn = None
-        if args.addr is not None:
-            addr = program.getAddressFactory().getDefaultAddressSpace().getAddress(args.addr)
-            fn = fm.getFunctionAt(addr) or fm.getFunctionContaining(addr)
-        else:
-            for candidate in fm.getFunctions(True):
-                if candidate.getName() == args.name:
-                    fn = candidate
-                    break
+            fn = None
+            if args.addr is not None:
+                addr = program.getAddressFactory().getDefaultAddressSpace().getAddress(args.addr)
+                fn = fm.getFunctionAt(addr) or fm.getFunctionContaining(addr)
+            else:
+                for candidate in fm.getFunctions(True):
+                    if candidate.getName() == args.name:
+                        fn = candidate
+                        break
 
-        if fn is None:
-            print(f"function not found", file=sys.stderr)
-            return 1
+            if fn is None:
+                print(f"function not found", file=sys.stderr)
+                return 1
 
-        decomp = DecompInterface()
-        decomp.openProgram(program)
-        try:
-            result = decomp.decompileFunction(fn, 60, ConsoleTaskMonitor())
-            if not result.decompileCompleted():
-                print(f"decompilation failed: {result.getErrorMessage()}", file=sys.stderr)
-                return 2
-            print(result.getDecompiledFunction().getC())
-        finally:
-            decomp.dispose()
+            decomp = DecompInterface()
+            decomp.openProgram(program)
+            try:
+                result = decomp.decompileFunction(fn, 60, ConsoleTaskMonitor())
+                if not result.decompileCompleted():
+                    print(f"decompilation failed: {result.getErrorMessage()}", file=sys.stderr)
+                    return 2
+                print(result.getDecompiledFunction().getC())
+            finally:
+                decomp.dispose()
+    finally:
+        project.close()
 
     return 0
 

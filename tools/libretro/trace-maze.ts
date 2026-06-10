@@ -22,7 +22,7 @@
  *
  * Usage: pnpm tsx tools/libretro/trace-maze.ts <phase> [args]
  */
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { HostClient, type TraceRecord } from '../../packages/mcp/src/live/host-client.js';
 
@@ -327,6 +327,47 @@ async function phaseDump(c: HostClient): Promise<void> {
   const bytes = await c.read(lin, len);
   writeFileSync(out, Buffer.from(bytes));
   console.log(`dumped ${len} bytes at lin 0x${lin.toString(16)} -> ${out}`);
+}
+
+/** `recheck` — VERIFY the collmap "blocked" ground truth: re-test each blocked record
+ *  from its cached state with a LONG settle (step 280). collmap used step(45); a move
+ *  into a new region triggers a disk LOAD (seen in the move trace) that may commit late
+ *  -> false BLOCK. Flips to open reveal timing-polluted ground truth. */
+async function phaseRecheck(c: HostClient): Promise<void> {
+  const dir = process.argv[3] ?? '/tmp/wiz6-collmap-states';
+  const cm = JSON.parse(readFileSync('/tmp/wiz6-sweep/collmap.json', 'utf8'));
+  const blocked = cm.forward.filter((r: any) => r.forward === 'blocked');
+  await c.step(3000);
+  let base = 0, flips = 0, confirmed = 0, missing = 0;
+  const log: string[] = [];
+  for (const r of blocked) {
+    const f = `${dir}/n-${r.gx}_${r.gy}_${r.facing}.state`;
+    if (!existsSync(f)) { missing++; continue; }
+    await c.unserialize(f); await c.step(2);
+    if (!base) base = await c.anchor();
+    const before = await frParty(c, base);
+    await c.key('up', 'up');
+    await c.key('up', 'down'); await c.step(30); await c.key('up', 'up'); await c.step(250);
+    const after = await frParty(c, base);
+    if (after.gs !== 5) { log.push(`${r.gx},${r.gy},f${r.facing}=ENCOUNTER(gs${after.gs})`); continue; }
+    if (after.gx !== before.gx || after.gy !== before.gy) { flips++; log.push(`${r.gx},${r.gy},f${r.facing} -> OPEN(${after.gx},${after.gy})`); }
+    else confirmed++;
+  }
+  console.log(`recheck (long settle): ${blocked.length} blocked; ${confirmed} CONFIRMED, ${flips} FLIP->open, ${missing} missing`);
+  for (const s of log) console.log(`  ${s}`);
+}
+
+/** `resdump <linHex> <lenHex> [out]` — boot + read LIVE bytes at an absolute linear
+ *  address (the wroot-resident move/collision code lives at linear 0x1a80+ip, cs=0x1a8;
+ *  Ghidra's wroot image doesn't map it cleanly, so disasm the live bytes via ndisasm). */
+async function phaseResDump(c: HostClient): Promise<void> {
+  const lin = parseInt(process.argv[3] ?? '3380', 16);
+  const len = parseInt(process.argv[4] ?? '180', 16);
+  const out = process.argv[5] ?? '/tmp/wiz6-resdump.bin';
+  await c.step(3000); // boot; the resident wroot code is present from boot
+  const bytes = await c.read(lin, len);
+  writeFileSync(out, Buffer.from(bytes));
+  console.log(`resdump ${len} bytes at lin 0x${lin.toString(16)} (ip 0x${(lin - 0x1a80).toString(16)}) -> ${out}`);
 }
 
 function tagLin(lin: number, ovl: number): string {
@@ -3955,11 +3996,736 @@ async function phaseNavReach(c: HostClient): Promise<void> {
   console.log(`-> ${outDir}/navreach.json (${captures.length} idx.gz fixtures)`);
 }
 
+/**
+ * `collmap [out] [budget]` — ENGINE COLLISION GROUND TRUTH (#086 collision-model fix).
+ *
+ * BFS the REAL engine free-roam graph using the engine itself as the collision
+ * oracle (model-INDEPENDENT — does NOT trust movement.ts). From each reachable
+ * (gx,gy,facing) view, tap up/left/right and read the resulting party position:
+ *   - 'up' moved a cell  -> forward is OPEN at (gx,gy,facing)
+ *   - 'up' no-op         -> forward is BLOCKED (the engine's maze_can_step_in_facing gate)
+ *   - game_state != 5    -> stepping triggered an ENCOUNTER (record, don't expand)
+ * Each newly-reached view is serialized so expansion is O(views), not O(path-len).
+ *
+ * Output: the engine's true reachable view-set + per-(cell,facing) forward
+ * passability — the ground truth to fix movement.ts against and to gate it.
+ */
+async function phaseCollMap(c: HostClient): Promise<void> {
+  const outFile = process.argv[3] ?? '/tmp/wiz6-collmap.json';
+  const budget = Number(process.argv[4] ?? '200'); // max views to expand
+  const dir = '/tmp/wiz6-collmap-states';
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  const base = await driveToFreeRoam(c);
+  const start = await frParty(c, base);
+  console.log(`collmap: free-roam entrance gx${start.gx} gy${start.gy} f${start.f}; budget=${budget} views`);
+  const keyOf = (p: { gx: number; gy: number; f: number }) => `${p.gx},${p.gy},${p.f}`;
+  const nodeState = new Map<string, string>();
+  const visited = new Set<string>();
+  const sk = keyOf(start);
+  const ent = `${dir}/n-${sk.replace(/,/g, '_')}.state`;
+  await c.serialize(ent);
+  nodeState.set(sk, ent);
+  visited.add(sk);
+  const queue = [sk];
+  const fwd = new Map<string, 'open' | 'blocked' | 'encounter'>();
+  let expanded = 0;
+  while (queue.length && expanded < budget) {
+    const k = queue.shift()!;
+    const st = nodeState.get(k)!;
+    for (const mv of ['up', 'left', 'right'] as const) {
+      await c.unserialize(st); await c.step(2);
+      const before = await frParty(c, base);
+      await c.key(mv, 'tap'); await c.step(45);
+      const after = await frParty(c, base);
+      if (mv === 'up') {
+        fwd.set(keyOf(before),
+          after.gs !== 5 ? 'encounter'
+            : (after.gx !== before.gx || after.gy !== before.gy) ? 'open' : 'blocked');
+      }
+      const took = after.f !== before.f || after.gx !== before.gx || after.gy !== before.gy;
+      if (took && after.gs === 5) {
+        const nk = keyOf(after);
+        if (!visited.has(nk)) {
+          visited.add(nk);
+          const ns = `${dir}/n-${nk.replace(/,/g, '_')}.state`;
+          await c.serialize(ns);
+          nodeState.set(nk, ns);
+          queue.push(nk);
+        }
+      }
+    }
+    expanded++;
+    if (expanded % 20 === 0) console.log(`  expanded ${expanded}/${budget}, frontier ${queue.length}, views ${visited.size}`);
+  }
+  const cells = new Set([...visited].map((k) => k.split(',').slice(0, 2).join(',')));
+  const out = {
+    note: 'ENGINE collision ground truth (#086). BFS over the REAL engine free-roam graph (model-independent). forward = open|blocked|encounter per (gx,gy,facing), from maze_can_step_in_facing (wmaze 0x3244).',
+    entrance: { gx: start.gx, gy: start.gy, facing: start.f },
+    budget,
+    expanded,
+    complete: queue.length === 0,
+    reachableViews: visited.size,
+    reachableCells: cells.size,
+    forward: [...fwd.entries()].map(([k, v]) => {
+      const [gx, gy, f] = k.split(',').map(Number);
+      return { gx, gy, facing: f, forward: v };
+    }),
+    reachable: [...visited].map((k) => {
+      const [gx, gy, f] = k.split(',').map(Number);
+      return { gx, gy, facing: f };
+    }),
+  };
+  writeFileSync(outFile, JSON.stringify(out, null, 2));
+  console.log(`collmap: ${expanded} expanded, ${visited.size} views / ${cells.size} cells, complete=${out.complete}. -> ${outFile}`);
+}
+
+/** `collcells [statesDir] [out]` — for each serialized view-state from a prior
+ *  `collmap` run, read the ENGINE's own resolved (region, x, y) at that (gx,gy,
+ *  facing). Reveals the engine's global->cell mapping to compare vs our resolve().
+ *  Fast: one boot, then unserialize each state (no re-BFS). */
+async function phaseCollCells(c: HostClient): Promise<void> {
+  const dir = process.argv[3] ?? '/tmp/wiz6-collmap-states';
+  const out = process.argv[4] ?? '/tmp/wiz6-collcells.json';
+  const files = readdirSync(dir).filter((f: string) => f.endsWith('.state'));
+  await c.step(3000); // the core needs a boot before unserialize round-trips
+  const base = await (async () => { await c.unserialize(`${dir}/${files[0]}`); await c.step(2); return c.anchor(); })();
+  const rd = async (off: number) => u16(await c.read(base + off, 2), 0);
+  const rows: any[] = [];
+  for (const f of files) {
+    await c.unserialize(`${dir}/${f}`); await c.step(2);
+    rows.push({
+      gx: await rd(PK_GX), gy: await rd(PK_GY), facing: await rd(PK_FACING),
+      region: await rd(PK_Z), x: await rd(PK_CELLA), y: await rd(PK_CELLB),
+    });
+  }
+  writeFileSync(out, JSON.stringify({ note: 'engine resolved (region,x,y) per (gx,gy,facing)', rows }, null, 2));
+  console.log(`collcells: ${rows.length} states -> ${out}`);
+}
+
+/** `wallplanes [statesDir] [out]` — dump the LIVE north (+0x60) and west (+0x120)
+ *  2-bit wall planes (768 cells = 192 bytes each) from the engine maze record
+ *  (DGROUP + *0x4faa). Compare vs our static decode to settle decode-correctness
+ *  vs runtime mutation. Dumps from the FIRST and LAST cached collmap states. */
+async function phaseWallPlanes(c: HostClient): Promise<void> {
+  const dir = process.argv[3] ?? '/tmp/wiz6-collmap-states';
+  const out = process.argv[4] ?? '/tmp/wiz6-wallplanes.json';
+  const files = readdirSync(dir).filter((f: string) => f.endsWith('.state'));
+  await c.step(3000);
+  const grab = async (file: string) => {
+    await c.unserialize(`${dir}/${file}`); await c.step(2);
+    const base = await c.anchor();
+    const recOff = u16(await c.read(base + 0x4faa, 2), 0);
+    const north = await c.read(base + recOff + 0x60, 192);
+    const west = await c.read(base + recOff + 0x120, 192);
+    return { north: [...north], west: [...west], recOff };
+  };
+  const first = await grab(files[0]!);
+  const last = await grab(files[files.length - 1]!);
+  writeFileSync(out, JSON.stringify({ note: 'live north/west 2-bit planes (192B each, 768 cells MSB-first)', first, last }, null, 2));
+  console.log(`wallplanes: recOff first=0x${first.recOff.toString(16)} last=0x${last.recOff.toString(16)} -> ${out}`);
+}
+
+/** `gateclass` — CLASS-BASED windowed-trace diff to isolate the collision gate.
+ *  Capture wroot-resident instruction traces for several OPEN moves and several
+ *  BLOCKED moves (different cells). The gate is a branch whose successor is CONSISTENT
+ *  within the open class and within the blocked class but DIFFERS across them; cell-
+ *  specific noise (text formatting, render, disk) is inconsistent within a class and
+ *  filtered out. Reports class-discriminating branches. */
+async function phaseGateClass(c: HostClient): Promise<void> {
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const { block } = loadLevel0();
+  const base = await driveToFreeRoam(c);
+  const ovl = await findOvl(c);
+  const ent = '/tmp/wiz6-gateclass-entrance.state';
+  await c.serialize(ent);
+  const RES_LO = 0x1a80, RES_HI = 0x4784;
+  const IRQ = 0x1a80 + 0x19d4; // the timer-IRQ landing seen as spurious successor noise
+  const tag = (lin: number) => lin >= ovl && lin < ovl + 0x973d ? `wmaze+0x${(lin - ovl).toString(16)}` : (lin >= RES_LO && lin < RES_HI ? `res+0x${(lin - RES_LO).toString(16)}` : `lin 0x${lin.toString(16)}`);
+  // SAME facing (0) across both classes to control for facing-dependent code paths.
+  const OPEN = [[127, 121, 0], [127, 122, 0]];
+  const BLOCKED = [[127, 123, 0], [128, 122, 0], [129, 122, 0]];
+  const capture = async (t: number[]) => {
+    await c.unserialize(ent); await c.step(2);
+    const p = pathTo(block, ENGINE_ENTRANCE, { gx: t[0]!, gy: t[1]!, facing: t[2]! }) ?? [];
+    for (const mv of p) await frMove(c, base, mv === 'forward' ? 'up' : (mv as 'left' | 'right'));
+    await c.key('up', 'up'); await c.step(2);
+    await c.traceRangeSet(RES_LO, RES_HI); await c.traceRangeDrain();
+    await c.key('up', 'down'); await c.step(3);
+    const seq = await c.traceRangeDrain(); await c.traceRangeSet(0, 0); await c.key('up', 'up');
+    return seq;
+  };
+  // The timer-IRQ handler (res ~0x19xx) fires at random points and pollutes
+  // successors. DROP that range from each sequence so successors bridge to the
+  // natural resume point (equivalent to not tracing the handler).
+  const IRQ_LO = 0x1a80 + 0x1900, IRQ_HI = 0x1a80 + 0x1a30;
+  const succOf = (raw: number[]) => {
+    const seq = raw.filter((x) => !(x >= IRQ_LO && x < IRQ_HI));
+    const m = new Map<number, Set<number>>();
+    for (let i = 0; i + 1 < seq.length; i++) { if (seq[i + 1] === IRQ) continue; let s = m.get(seq[i]!); if (!s) { s = new Set(); m.set(seq[i]!, s); } s.add(seq[i + 1]!); }
+    return m;
+  };
+  const openCaps: Map<number, Set<number>>[] = [];
+  const blockedCaps: Map<number, Set<number>>[] = [];
+  for (const t of OPEN) { console.log(`  capture OPEN ${t}`); openCaps.push(succOf(await capture(t))); }
+  for (const t of BLOCKED) { console.log(`  capture BLOCKED ${t}`); blockedCaps.push(succOf(await capture(t))); }
+  const key = (s: Set<number>) => [...s].sort((a, b) => a - b).join(',');
+  // a cseip is class-discriminating if every open cap agrees on its succ-set, every
+  // blocked cap agrees, both present in all caps of their class, and open != blocked.
+  const allCseips = new Set<number>([...openCaps, ...blockedCaps].flatMap((m) => [...m.keys()]));
+  const hits: Array<{ cseip: number; o: string; b: string }> = [];
+  for (const cs of allCseips) {
+    const oks = openCaps.map((m) => m.get(cs)); const bks = blockedCaps.map((m) => m.get(cs));
+    if (oks.some((s) => !s) || bks.some((s) => !s)) continue; // must run in ALL caps
+    const ok = oks.map((s) => key(s!)); const bk = bks.map((s) => key(s!));
+    if (new Set(ok).size !== 1 || new Set(bk).size !== 1) continue; // consistent within class
+    if (ok[0] === bk[0]) continue; // differs across classes
+    hits.push({ cseip: cs, o: ok[0]!, b: bk[0]! });
+  }
+  console.log(`\nCLASS-DISCRIMINATING branches (consistent within open/blocked, differ across): ${hits.length}`);
+  for (const h of hits.sort((a, b) => a.cseip - b.cseip)) console.log(`  ${tag(h.cseip)}  open-succ=[${h.o.split(',').map((x) => tag(+x)).join(',')}]  blocked-succ=[${h.b.split(',').map((x) => tag(+x)).join(',')}]`);
+}
+
+/** `collslots [statesDir] [collmapJson] [out]` — read the PERSISTED classify output (gate
+ *  array 0x5042 + span list 0x50ce/0x50d0) from every reachable settled state -> the
+ *  (config -> engine classify output) dataset for cracking the gate-seeding law. */
+async function phaseCollSlots(c: HostClient): Promise<void> {
+  const { loadLevel0 } = await import('../parity/maze-view-cases.js');
+  const { viewConfigKeyFor } = await import('../../packages/parser/src/maze/view-config.js');
+  const dir = process.argv[3] ?? '/tmp/wiz6-collmap-states';
+  const cmJson = process.argv[4] ?? '/tmp/wiz6-sweep/collmap-full.json';
+  const out = process.argv[5] ?? '/tmp/wiz6-sweep/classify-output.json';
+  const { block } = loadLevel0();
+  const cm = JSON.parse(readFileSync(cmJson, 'utf8'));
+  const repByKey = new Map<string, { gx: number; gy: number; facing: number }>();
+  for (const v of cm.reachable) { const k = viewConfigKeyFor(block, { gx: v.gx, gy: v.gy, z: 0, facing: v.facing }); if (!repByKey.has(k)) repByKey.set(k, v); }
+  await c.step(3000);
+  const rows: any[] = [];
+  let n = 0;
+  for (const [configKey, v] of repByKey) {
+    const st = `${dir}/n-${v.gx}_${v.gy}_${v.facing}.state`;
+    if (!existsSync(st)) continue;
+    await c.unserialize(st); await c.step(40);
+    const base = await c.anchor();
+    const spanCount = u16(await c.read(base + 0x50ce, 2), 0);
+    const spanBytes = spanCount > 0 && spanCount < 64 ? [...await c.read(base + 0x50d0, spanCount * 11)] : [];
+    const gates = [...await c.read(base + 0x5042, 0x70)];
+    rows.push({ gx: v.gx, gy: v.gy, facing: v.facing, configKey, spanCount, spans: spanBytes, gates });
+    if (++n % 50 === 0) console.log(`  ${n}/${repByKey.size}...`);
+  }
+  writeFileSync(out, JSON.stringify({ rows }, null, 2));
+  console.log(`collslots: ${rows.length} configs -> ${out}`);
+}
+
+/** `buildtrace <gx> <gy> <facing>` — LIVE BUILD TRACE (the previously-blocked decisive
+ *  approach, now unblocked: a real TURN re-runs the wmaze build loop). Unserialize the
+ *  view's state, turn away then BACK while write-watching the gate/slot/span arrays
+ *  (DGROUP 0x5040..0x52a0) — captures the classify OUTPUT (which family fires per
+ *  depth/slot) + the emitting instructions. Then read-watch the wall planes over the same
+ *  build to capture the classify INPUT. Together = the gate-seeding law. */
+async function phaseBuildTrace(c: HostClient): Promise<void> {
+  const { resolve } = await import('../../packages/parser/src/maze/maze-geometry.js');
+  const { loadLevel0 } = await import('../parity/maze-view-cases.js');
+  const gx = Number(process.argv[3]), gy = Number(process.argv[4]), facing = Number(process.argv[5]);
+  const { block } = loadLevel0();
+  const st = `/tmp/wiz6-collmap-states/n-${gx}_${gy}_${facing}.state`;
+  if (!existsSync(st)) { console.log(`no state ${st}`); return; }
+  await c.step(3000);
+  await c.unserialize(st); await c.step(2);
+  const base = await c.anchor();
+  const ovl = await findOvl(c);
+  const tag = (lin: number) => lin >= ovl && lin < ovl + 0x973d ? `wmaze+0x${(lin - ovl).toString(16)}` : `lin 0x${lin.toString(16)}`;
+  const left = facing === 0 ? 3 : facing - 1;
+  // turn to facing-1, then arm watch + turn back (build re-runs for `facing`).
+  await c.key('left', 'tap'); await c.step(50);
+  // OUTPUT: write-watch the gate/slot/span region during the build.
+  await c.wwatchSet(base + 0x5040, base + 0x52a0); await c.wwatchDrain();
+  await c.key('right', 'tap'); await c.step(60);
+  const w = await c.wwatchDrain(); await c.wwatchSet(0, 0);
+  const at = await frParty(c, base);
+  console.log(`buildtrace (${gx},${gy},f${facing}) [via f${left}->f${facing}]: arrived f${at.f}; ${w.length} writes into the gate/slot/span region:`);
+  const wByAddr = new Map<number, { vals: number[]; cseips: Set<number> }>();
+  for (const r of w) { const off = r.addr - base; let e = wByAddr.get(off); if (!e) { e = { vals: [], cseips: new Set() }; wByAddr.set(off, e); } e.vals.push(r.val & 0xff); e.cseips.add(r.cseip); }
+  for (const off of [...wByAddr.keys()].sort((a, b) => a - b)) { const e = wByAddr.get(off)!; console.log(`  0x${off.toString(16)} <- [${e.vals.map((v) => v.toString(16)).join(',')}]  by {${[...e.cseips].map(tag).join(',')}}`); }
+  // INPUT: read-watch the wall planes over the same build (turn back again).
+  const recOff = u16(await c.read(base + 0x4faa, 2), 0);
+  await c.key('left', 'tap'); await c.step(50);
+  await c.rwatchSet(base + recOff + 0x60, base + recOff + 0x1e0); await c.rwatchDrain();
+  await c.key('right', 'tap'); await c.step(60);
+  const rd = await c.rwatchDrain(); await c.rwatchSet(0, 0);
+  const wallReads = new Map<number, Set<number>>();
+  for (const r of rd) { const planeOff = r.addr - (base + recOff); let s = wallReads.get(planeOff); if (!s) { s = new Set(); wallReads.set(planeOff, s); } s.add(r.cseip); }
+  console.log(`\n  ${rd.length} wall-plane reads during the build (plane offset -> reader cseips):`);
+  for (const off of [...wallReads.keys()].sort((a, b) => a - b)) console.log(`    plane+0x${off.toString(16)} (${off < 0x120 ? 'N' : off < 0x1f8 ? 'W' : '?'} cell ~${((off - (off < 0x120 ? 0x60 : 0x120)) * 4)})  by {${[...wallReads.get(off)!].map(tag).join(',')}}`);
+}
+
+/** `collcapture [statesDir] [collmapJson] [outDir]` — THE ORACLE NAVIGATOR capture step
+ *  (#086 sweep). For each DISTINCT view-config among the collmap-reached views, unserialize
+ *  its engine state, settle, grab the framebuffer, and write a maze-freeroam-<view>.idx.gz
+ *  oracle. Feeds `tools/parity/maze-coverage-sweep.ts fidelity <outDir>`. */
+async function phaseCollCapture(c: HostClient): Promise<void> {
+  const { loadLevel0 } = await import('../parity/maze-view-cases.js');
+  const { viewConfigKeyFor } = await import('../../packages/parser/src/maze/view-config.js');
+  const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
+  const dir = process.argv[3] ?? '/tmp/wiz6-collmap-states';
+  const cmJson = process.argv[4] ?? '/tmp/wiz6-sweep/collmap-full.json';
+  const outDir = process.argv[5] ?? '/tmp/wiz6-sweep/oracles';
+  mkdirSync(outDir, { recursive: true });
+  const { block } = loadLevel0();
+  const cm = JSON.parse(readFileSync(cmJson, 'utf8'));
+  const repByKey = new Map<string, { gx: number; gy: number; facing: number }>();
+  for (const v of cm.reachable) {
+    const key = viewConfigKeyFor(block, { gx: v.gx, gy: v.gy, z: 0, facing: v.facing });
+    if (!repByKey.has(key)) repByKey.set(key, v); // first reached view per distinct config
+  }
+  const rgbToIdx = new Map<number, number>();
+  COMPOSED_PALETTE.forEach((rgb: readonly number[], i: number) => rgbToIdx.set(((rgb[0]! << 16) | (rgb[1]! << 8) | rgb[2]!) >>> 0, i));
+  const rgbaToIdx = (rgba: Uint8Array): Uint8Array | null => {
+    const idx = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
+    for (let p = 0; p < idx.length; p++) { const i = rgbToIdx.get(((rgba[p * 4]! << 16) | (rgba[p * 4 + 1]! << 8) | rgba[p * 4 + 2]!) >>> 0); if (i === undefined) return null; idx[p] = i; }
+    return idx;
+  };
+  console.log(`collcapture: ${repByKey.size} distinct configs among ${cm.reachable.length} reached views -> ${outDir}`);
+  await c.step(3000); // boot so unserialize round-trips
+  let ok = 0, fail = 0, palMiss = 0;
+  for (const v of repByKey.values()) {
+    const st = `${dir}/n-${v.gx}_${v.gy}_${v.facing}.state`;
+    if (!existsSync(st)) { fail++; continue; }
+    await c.unserialize(st); await c.step(60);
+    const fbPath = '/tmp/wiz6-collcap.rgba';
+    await c.fb(fbPath);
+    const idx = rgbaToIdx(new Uint8Array(readFileSync(fbPath)));
+    if (!idx) { palMiss++; continue; }
+    writeFileSync(`${outDir}/maze-freeroam-gx${v.gx}-gy${v.gy}-f${v.facing}.idx.gz`, gzipSync(idx));
+    ok++;
+    if (ok % 50 === 0) console.log(`  captured ${ok}/${repByKey.size}...`);
+  }
+  console.log(`collcapture: ${ok} oracles written, ${fail} missing-state, ${palMiss} palette-miss`);
+}
+
+/** `flagwrite <gx> <gy> <facing> <offHex>` — WRITE-WATCH a DGROUP byte (the per-direction
+ *  availability flag) over a re-render at the cell, to find the CLASSIFIER instruction that
+ *  computes movement availability from the walls (= the collision law). */
+async function phaseFlagWrite(c: HostClient): Promise<void> {
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const gx = Number(process.argv[3]), gy = Number(process.argv[4]), facing = Number(process.argv[5]);
+  const off = parseInt(process.argv[6] ?? '6894', 16);
+  const { block } = loadLevel0();
+  const base = await driveToFreeRoam(c);
+  const ovl = await findOvl(c);
+  const tag = (lin: number) => lin >= ovl && lin < ovl + 0x973d ? `wmaze+0x${(lin - ovl).toString(16)}` : (lin >= 0x1a80 && lin < 0x4784 ? `res+0x${(lin - 0x1a80).toString(16)}` : `lin 0x${lin.toString(16)}`);
+  for (const mv of (pathTo(block, ENGINE_ENTRANCE, { gx, gy, facing }) ?? [])) await frMove(c, base, mv === 'forward' ? 'up' : (mv as 'left' | 'right'));
+  // re-render to force re-classification: turn away then back, write-watching the flag.
+  await c.wwatchSet(base + off, base + off + 1); await c.wwatchDrain();
+  await c.key('left', 'tap'); await c.step(40); await c.key('right', 'tap'); await c.step(40);
+  const recs = await c.wwatchDrain(); await c.wwatchSet(0, 0);
+  const byW = new Map<number, { n: number; vals: Set<number> }>();
+  for (const r of recs) { let e = byW.get(r.cseip); if (!e) { e = { n: 0, vals: new Set() }; byW.set(r.cseip, e); } e.n++; e.vals.add(r.val & 0xff); }
+  console.log(`flagwrite (${gx},${gy},f${facing}) DGROUP 0x${off.toString(16)} (phys 0x${(base + off).toString(16)}): ${recs.length} writes over a turn-away-and-back; writers:`);
+  for (const [cseip, e] of [...byW.entries()].sort((a, b) => a[1].n - b[1].n)) console.log(`  ${tag(cseip)}  x${e.n}  vals=[${[...e.vals].map((v) => '0x' + v.toString(16)).join(',')}]`);
+}
+
+/** `rwall <gx> <gy> <facing>` — READ-WATCH the forward-wall byte at a cell over IDLE
+ *  frames. The per-frame collision/availability check (and render) read this byte; the
+ *  reading cs:ips + values are reported. The collision gate is the read followed by a
+ *  cmp/jcc on the 2-bit field. facing: 0->N(cell) 1->W(cell) 2->N(gy-1) 3->W(gx-1). */
+async function phaseRWall(c: HostClient): Promise<void> {
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const { resolve } = await import('../../packages/parser/src/maze/maze-geometry.js');
+  const gx = Number(process.argv[3]), gy = Number(process.argv[4]), facing = Number(process.argv[5]);
+  const { block } = loadLevel0();
+  const base = await driveToFreeRoam(c);
+  const ovl = await findOvl(c);
+  const tag = (lin: number) => lin >= ovl && lin < ovl + 0x973d ? `wmaze+0x${(lin - ovl).toString(16)}` : (lin >= 0x1a80 && lin < 0x4784 ? `res+0x${(lin - 0x1a80).toString(16)}` : `lin 0x${lin.toString(16)}`);
+  for (const mv of (pathTo(block, ENGINE_ENTRANCE, { gx, gy, facing }) ?? [])) await frMove(c, base, mv === 'forward' ? 'up' : (mv as 'left' | 'right'));
+  const at = await frParty(c, base);
+  if (at.gx !== gx || at.gy !== gy || at.f !== facing) { console.log(`POS MISMATCH got ${at.gx},${at.gy},f${at.f}`); return; }
+  const cellOf = facing === 2 ? resolve(block, gx, gy - 1) : facing === 3 ? resolve(block, gx - 1, gy) : resolve(block, gx, gy);
+  const planeOff = (facing === 0 || facing === 2) ? 0x60 : 0x120;
+  const recOff = u16(await c.read(base + 0x4faa, 2), 0);
+  const ci = cellOf ? cellOf.region * 64 + cellOf.cellA * 8 + cellOf.cellB : -1;
+  const wallByte = base + recOff + planeOff + (ci >> 2);
+  console.log(`rwall (${gx},${gy},f${facing}): fwd cell region=${cellOf?.region} ci=${ci}, wallByte phys=0x${wallByte.toString(16)} (recOff=0x${recOff.toString(16)} plane=0x${planeOff.toString(16)})`);
+  // Watch a WIDE region: the full north+west wall planes (recOff+0x60..+0x1e0) by
+  // default, OR an explicit [argv6,argv7) absolute range (e.g. the 0x4e00 cache).
+  const wLo = process.argv[6] ? (base + parseInt(process.argv[6], 16)) : (base + recOff + 0x60);
+  const wHi = process.argv[7] ? (base + parseInt(process.argv[7], 16)) : (base + recOff + 0x1e0);
+  console.log(`  watching reads in [phys 0x${wLo.toString(16)}, 0x${wHi.toString(16)}) during the UP press`);
+  await c.key('up', 'up'); await c.step(2);
+  await c.rwatchSet(wLo, wHi); await c.rwatchDrain();
+  await c.key('up', 'down'); await c.step(6); await c.key('up', 'up'); // collision check fires on the UP press
+  const recs = await c.rwatchDrain(); await c.rwatchSet(0, 0);
+  writeFileSync(`/tmp/wiz6-sweep/rwall-${gx}-${gy}-${facing}.json`, JSON.stringify({ base, recOff, ovl, recs }));
+  const byReader = new Map<number, { n: number; vals: Set<number>; addrs: Set<number> }>();
+  for (const r of recs) { let e = byReader.get(r.cseip); if (!e) { e = { n: 0, vals: new Set(), addrs: new Set() }; byReader.set(r.cseip, e); } e.n++; e.vals.add(r.val & 0xff); e.addrs.add(r.addr); }
+  console.log(`${recs.length} reads in the watched region during the UP press; readers (rarest first):`);
+  for (const [cseip, e] of [...byReader.entries()].sort((a, b) => a[1].n - b[1].n)) {
+    const off0 = [...e.addrs][0]! - (base + recOff); // offset within the maze record
+    console.log(`  ${tag(cseip)}  x${e.n}  recOff+0x${off0.toString(16)}  vals=[${[...e.vals].map((v) => '0x' + v.toString(16)).join(',')}]`);
+  }
+}
+
+/** `gatestream` — capture the ORDERED instruction stream of the single OPEN move that
+ *  commits (detected by position change), idle-subtract it, and print the move-handler
+ *  cseips in EXECUTION ORDER. The collision check (read-wall + cmp + jcc) runs just
+ *  before the position-commit/region-load — visible in order. */
+async function phaseGateStream(c: HostClient): Promise<void> {
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const { block } = loadLevel0();
+  const base = await driveToFreeRoam(c);
+  const ovl = await findOvl(c);
+  const ent = '/tmp/wiz6-gatestream-entrance.state';
+  await c.serialize(ent);
+  const LO = 0x1000, HI = 0xe000, IRQ_LO = 0x1a80 + 0x1900, IRQ_HI = 0x1a80 + 0x1a30;
+  const tag = (lin: number) => lin >= ovl && lin < ovl + 0x973d ? `wmaze+0x${(lin - ovl).toString(16)}` : (lin >= 0x1a80 && lin < 0x4784 ? `res+0x${(lin - 0x1a80).toString(16)}` : `lin 0x${lin.toString(16)}`);
+  const driveTo = async (t: { gx: number; gy: number; facing: number }) => {
+    await c.unserialize(ent); await c.step(2);
+    for (const mv of (pathTo(block, ENGINE_ENTRANCE, t) ?? [])) await frMove(c, base, mv === 'forward' ? 'up' : (mv as 'left' | 'right'));
+    await c.key('up', 'up'); await c.step(2);
+  };
+  const T = { gx: 127, gy: 122, facing: 0 }; // OPEN -> 123
+  // IDLE baseline (no key) — collect distinct cseips over many frames.
+  await driveTo(T);
+  await c.traceRangeSet(LO, HI); await c.traceRangeDrain();
+  await c.step(20);
+  const idle = new Set((await c.traceRangeDrain()).filter((x) => !(x >= IRQ_LO && x < IRQ_HI)));
+  await c.traceRangeSet(0, 0);
+  // OPEN move: keydown, step 1 frame at a time until position changes; keep each frame's stream.
+  await driveTo(T);
+  const before = await frParty(c, base);
+  await c.traceRangeSet(LO, HI); await c.traceRangeDrain();
+  await c.key('up', 'down');
+  let stream: number[] = []; let committedAt = -1;
+  for (let f = 0; f < 12; f++) {
+    await c.step(1);
+    stream = stream.concat((await c.traceRangeDrain()).filter((x) => !(x >= IRQ_LO && x < IRQ_HI)));
+    const p = await frParty(c, base);
+    if (p.gx !== before.gx || p.gy !== before.gy) { committedAt = f; break; }
+  }
+  await c.traceRangeSet(0, 0); await c.key('up', 'up');
+  console.log(`gatestream: committed at frame ${committedAt}; stream=${stream.length} insns (IRQ-filtered)`);
+  // ordered move-only: first occurrence, in order, dropping idle cseips.
+  const seen = new Set<number>(); const moveOnly: number[] = [];
+  for (const x of stream) { if (idle.has(x) || seen.has(x)) continue; seen.add(x); moveOnly.push(x); }
+  console.log(`ordered move-only (dispatch -> collision -> commit), ${moveOnly.length} distinct:`);
+  for (let i = 0; i < moveOnly.length; i++) console.log(`  [${i}] ${tag(moveOnly[i]!)}`);
+}
+
+/** `gatetrace` — WINDOWED instruction trace (patched-core range-trace) to find the
+ *  free-roam collision GATE. Range-trace wroot-resident [0x1a80,0x4784) over an OPEN
+ *  forward UP (entrance 127,121,f0->122) and a BLOCKED one (123,123,f0). Both run the
+ *  same move-handler/collision-check prefix then DIVERGE at the gate. Reports the
+ *  longest-common-prefix end + a window of cseips around the first divergence. */
+async function phaseGateTrace(c: HostClient): Promise<void> {
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const { block } = loadLevel0();
+  const base = await driveToFreeRoam(c);
+  const ovl = await findOvl(c);
+  console.log(`gatetrace: base=0x${base.toString(16)} ovl=0x${ovl.toString(16)}`);
+  const ent = '/tmp/wiz6-gatetrace-entrance.state';
+  await c.serialize(ent);
+  // WIDE range (all low code: resident + overlay + wmaze), MINIMAL capture (1 frame),
+  // IRQ-handler filtered, ADJACENT same-facing cells -> the shared collision-check
+  // aligns and the first divergence after it is the gate.
+  const LO = 0x1000, HI = 0xe000;
+  const IRQ_LO = 0x1a80 + 0x1900, IRQ_HI = 0x1a80 + 0x1a30; // timer-IRQ handler (render redraw)
+  const tag = (lin: number) => lin >= ovl && lin < ovl + 0x973d ? `wmaze+0x${(lin - ovl).toString(16)}` : (lin >= 0x1a80 && lin < 0x4784 ? `res+0x${(lin - 0x1a80).toString(16)}` : `lin 0x${lin.toString(16)}`);
+  const capture = async (t: { gx: number; gy: number; facing: number }, frames: number) => {
+    await c.unserialize(ent); await c.step(2);
+    const p = pathTo(block, ENGINE_ENTRANCE, t) ?? [];
+    for (const mv of p) await frMove(c, base, mv === 'forward' ? 'up' : (mv as 'left' | 'right'));
+    await c.key('up', 'up'); await c.step(2);
+    await c.traceRangeSet(LO, HI); await c.traceRangeDrain();
+    await c.key('up', 'down'); await c.step(frames);
+    const seq = await c.traceRangeDrain();
+    await c.traceRangeSet(0, 0); await c.key('up', 'up');
+    return seq.filter((x) => !(x >= IRQ_LO && x < IRQ_HI)); // drop the IRQ redraw handler
+  };
+  const FR = Number(process.argv[5] ?? '3');
+  // capNoKey: same as capture but NO key press (idle frames) — the per-frame render
+  // baseline to subtract. The input+collision handler runs ONLY when a key is pressed.
+  const capNoKey = async (t: { gx: number; gy: number; facing: number }, frames: number) => {
+    await c.unserialize(ent); await c.step(2);
+    const p = pathTo(block, ENGINE_ENTRANCE, t) ?? [];
+    for (const mv of p) await frMove(c, base, mv === 'forward' ? 'up' : (mv as 'left' | 'right'));
+    await c.key('up', 'up'); await c.step(2);
+    await c.traceRangeSet(LO, HI); await c.traceRangeDrain();
+    await c.step(frames); // NO key
+    const seq = await c.traceRangeDrain(); await c.traceRangeSet(0, 0);
+    return seq.filter((x) => !(x >= IRQ_LO && x < IRQ_HI));
+  };
+  const openT = { gx: 127, gy: 122, facing: 0 };   // ->123 OPEN (within region 0)
+  const blockedT = { gx: 126, gy: 122, facing: 0 }; // ->123 BLOCKED by WALL (within region 0)
+  // idle baseline from BOTH cells (render differs per view) so subtraction is clean.
+  const idleO = new Set(await capNoKey(openT, FR + 3));
+  const idleB = new Set(await capNoKey(blockedT, FR + 3));
+  const idle = new Set([...idleO, ...idleB]);
+  const open = await capture(openT, FR);
+  const blocked = await capture(blockedT, FR);
+  const moveOnly = (seq: number[]) => [...new Set(seq)].filter((x) => !idle.has(x)).sort((a, b) => a - b);
+  const mo = moveOnly(open), mb = moveOnly(blocked);
+  console.log(`idle insns=${idle.size}; OPEN move-only=${mo.length}, BLOCKED move-only=${mb.length} (cseips NOT in idle render)`);
+  const common = mo.filter((x) => mb.includes(x));
+  console.log(`\nMOVE+COLLISION handler (BLOCKED move-only, the read-wall+reject path) — distinct cseips:`);
+  for (const x of mb) console.log(`    ${tag(x)}${mo.includes(x) ? '' : '   [blocked-only]'}`);
+  console.log(`\nOPEN-only (commit/load path; in open move-only but not blocked):`);
+  for (const x of mo.filter((y) => !mb.includes(y))) console.log(`    ${tag(x)}`);
+  // HYPOTHESIS: the collision check runs EVERY frame (idle) to draw the movement-arrow
+  // widget; the keypress uses the precomputed verdict. Report whether the known
+  // collision fns appear in the IDLE set.
+  const inIdle = (off: number) => idle.has(ovl + off);
+  console.log(`\nIDLE contains collision fns? maze_can_step(0x3244)=${inIdle(0x3244)}  maze_can_pass(0x309d)=${inIdle(0x309d)}  check_wall(0xf2a)=${inIdle(0xf2a)}  north_step(0x36dd)=${inIdle(0x36dd)}  west_step(0x3742)=${inIdle(0x3742)}`);
+}
+
+/** `wheremove` — CS:IP execution-sampling to find the real free-roam move/collision
+ *  handler (the coord commit is invisible to wwatch — block-copy). Sample regs().cs:eip
+ *  per frame over: IDLE (no key), an OPEN forward UP, and a BLOCKED forward UP. The
+ *  move-commit shows as OPEN-only PCs, the bump as BLOCKED-only; the gate runs in both.
+ *  Report the wmaze/wroot PCs in (OPEN∪BLOCKED) − IDLE, bucketed. */
+async function phaseWhereMove(c: HostClient): Promise<void> {
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const { block } = loadLevel0();
+  const base = await driveToFreeRoam(c);
+  const ovl = await findOvl(c);
+  console.log(`wheremove: base=0x${base.toString(16)} ovl=0x${ovl.toString(16)}`);
+  const ent = '/tmp/wiz6-wheremove-entrance.state';
+  await c.serialize(ent);
+  const WMAZE_END = 0x973d;
+  const sampleMove = async (driveFirst: { gx: number; gy: number; facing: number } | null, reps: number, frames: number) => {
+    const seen = new Map<string, number>();
+    for (let rep = 0; rep < reps; rep++) {
+      await c.unserialize(ent); await c.step(2);
+      if (driveFirst) { const p = pathTo(block, ENGINE_ENTRANCE, driveFirst) ?? []; for (const mv of p) await frMove(c, base, mv === 'forward' ? 'up' : (mv as 'left' | 'right')); }
+      await c.key('up', 'down');
+      for (let i = 0; i < frames; i++) {
+        await c.step(1);
+        const r = await c.regs();
+        const k = `${r.cs.toString(16)}:${r.eip.toString(16)}`;
+        seen.set(k, (seen.get(k) ?? 0) + 1);
+        if (i === 10) await c.key('up', 'up');
+      }
+    }
+    return seen;
+  };
+  // IDLE baseline (no key) to subtract the steady render/poll loop.
+  const idle = new Map<string, number>();
+  for (let rep = 0; rep < 4; rep++) {
+    await c.unserialize(ent); await c.step(2);
+    for (let i = 0; i < 60; i++) { await c.step(1); const r = await c.regs(); idle.set(`${r.cs.toString(16)}:${r.eip.toString(16)}`, 1); }
+  }
+  const open = await sampleMove(null, 8, 40);                              // entrance 127,121,f0 -> 122 (OPEN)
+  const blocked = await sampleMove({ gx: 123, gy: 123, facing: 0 }, 8, 40); // 123,123,f0 (BLOCKED)
+  const tag = (k: string) => { const [cs, ip] = k.split(':').map((s) => parseInt(s, 16)); const lin = (cs << 4) + ip; return lin >= ovl && lin < ovl + WMAZE_END ? `wmaze+0x${(lin - ovl).toString(16)}` : (cs === 0x1a8 ? `wrootRes+0x${ip.toString(16)}` : `lin 0x${lin.toString(16)}`); };
+  const bucket = (label: string, inc: Map<string, number>, exc: Map<string, number>) => {
+    const rows = [...inc.entries()].filter(([k]) => !exc.has(k)).filter(([k]) => tag(k).startsWith('wmaze') || tag(k).startsWith('wrootRes')).sort((a, b) => b[1] - a[1]);
+    console.log(`\n${label} (${rows.length} wmaze/wroot PCs, top 18):`);
+    for (const [k, v] of rows.slice(0, 18)) console.log(`  ${k}  ${tag(k)}  ×${v}`);
+  };
+  bucket('OPEN-only (move-commit path; not in IDLE or BLOCKED)', open, new Map([...idle, ...blocked]));
+  bucket('BLOCKED-only (bump path; not in IDLE or OPEN)', blocked, new Map([...idle, ...open]));
+  const both = new Map([...open].filter(([k]) => blocked.has(k)));
+  bucket('BOTH moves but not IDLE (gate/input path)', both, idle);
+}
+
+/** `gywrite` — locate the coordinate-commit write of a forward step (the move
+ *  handler). Three watches over one OPEN forward UP: (A) sanity on the known-written
+ *  0x4e00 region; (B) tight party-block watch with a long settle; (C) VALUE-SEARCH —
+ *  watch a wide conventional range and report every write whose value == the new gy
+ *  (regardless of offset assumptions), with its addr + writer cseip. */
+async function phaseGyWrite(c: HostClient): Promise<void> {
+  const base = await driveToFreeRoam(c);
+  let ovl = 0; try { ovl = await findOvl(c); } catch { /* */ }
+  console.log(`gywrite: base=0x${base.toString(16)} ovl=0x${ovl.toString(16)}`);
+  const ent = '/tmp/wiz6-gywrite-entrance.state';
+  await c.serialize(ent);
+  const fwd = async () => { await c.key('up', 'tap'); await c.step(220); };
+  const watch = async (label: string, lo: number, hi: number, valFilter?: number) => {
+    await c.unserialize(ent); await c.step(2);
+    const before = await frParty(c, base);
+    await c.wwatchSet(lo, hi); await c.wwatchDrain();
+    await fwd();
+    const recs = await c.wwatchDrain(); await c.wwatchSet(0, 0);
+    const after = await frParty(c, base);
+    const sel = valFilter === undefined ? recs : recs.filter((r) => (r.val & 0xff) === (valFilter & 0xff));
+    console.log(`\n${label}: ${before.gx},${before.gy},f${before.f} -> ${after.gx},${after.gy},f${after.f}; ${recs.length} writes, ${sel.length} shown`);
+    const byW = new Map<number, { n: number; addrs: Set<number> }>();
+    for (const r of sel) { let e = byW.get(r.cseip); if (!e) { e = { n: 0, addrs: new Set() }; byW.set(r.cseip, e); } e.n++; e.addrs.add(r.addr); }
+    for (const [cseip, e] of [...byW.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 14)) {
+      const off = ovl ? (cseip - ovl) >>> 0 : cseip;
+      const sa = [...e.addrs].slice(0, 6).map((a) => '0x' + a.toString(16)).join(',');
+      console.log(`  cseip=0x${cseip.toString(16)} (ovl-rel 0x${off.toString(16)}) x${e.n} addrs=[${sa}${e.addrs.size > 6 ? '…' : ''}]`);
+    }
+    return after;
+  };
+  await watch('A sanity [base+0x4e00,+0x4f00)', base + 0x4e00, base + 0x4f00);
+  const after = await watch('B party-block [base+0x4f80,+0x4fb0)', base + 0x4f80, base + 0x4fb0);
+  // C: tight value-searches for the new gy (avoid the 4096 ring overflow).
+  await watch(`C1 val-search gy=${after.gy} in [base+0x4000,+0x6000)`, base + 0x4000, base + 0x6000, after.gy);
+  await watch(`C2 val-search gy=${after.gy} in [0x8000,0xc000)`, 0x8000, 0xc000, after.gy);
+}
+
+/** `movewatch` — find the forward-step MOVE HANDLER directly: write-watch the
+ *  party gx/gy DGROUP fields (0x4fa2/0x4fa4) over a real forward UP. The cs:eip
+ *  that writes the new coord IS the move handler (sidesteps function-guessing).
+ *  Then write-watch facing (0x4f9a) over a turn for comparison. */
+async function phaseMoveWatch(c: HostClient): Promise<void> {
+  const base = await driveToFreeRoam(c);
+  let ovl = 0; try { ovl = await findOvl(c); } catch { /* sig scan may miss */ }
+  // The party gy/gx live at libretro-map addr base+0x4fa2/0x4fa4. The dbp wwatch
+  // compares DOSBox physical/linear; for desc0 (conventional RAM, start=0) that ==
+  // base+off. Watch absolute ranges; a render-buffer CONTROL proves wwatch fires.
+  console.log(`movewatch: DGROUP base=0x${base.toString(16)} OVL=0x${ovl.toString(16)}  coord(gy)@phys≈0x${(base + 0x4fa2).toString(16)}`);
+  const ent = '/tmp/wiz6-movewatch-entrance.state';
+  await c.serialize(ent);
+  const tapUp = async () => { await c.key('up', 'down'); await c.step(24); await c.key('up', 'up'); await c.step(70); };
+  const report = async (label: string, lo: number, hi: number, action: () => Promise<void>) => {
+    await c.unserialize(ent); await c.step(2);
+    await c.wwatchSet(lo, hi); await c.wwatchDrain();
+    const before = await frParty(c, base);
+    await action();
+    const recs = await c.wwatchDrain();
+    await c.wwatchSet(0, 0);
+    const after = await frParty(c, base);
+    console.log(`\n${label}: party ${before.gx},${before.gy},f${before.f} -> ${after.gx},${after.gy},f${after.f}; ${recs.length} writes into [0x${lo.toString(16)},0x${hi.toString(16)})`);
+    const byWriter = new Map<number, { n: number; addrs: Set<number> }>();
+    for (const r of recs) { let e = byWriter.get(r.cseip); if (!e) { e = { n: 0, addrs: new Set() }; byWriter.set(r.cseip, e); } e.n++; e.addrs.add(r.addr); }
+    for (const [cseip, e] of [...byWriter.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 10)) {
+      const off = ovl ? cseip - ovl : cseip;
+      const sa = [...e.addrs].slice(0, 4).map((a) => '0x' + a.toString(16)).join(',');
+      console.log(`  writer cseip=0x${cseip.toString(16)} (ovl-rel 0x${(off >>> 0).toString(16)})  x${e.n}  addrs=[${sa}${e.addrs.size > 4 ? '…' : ''}]`);
+    }
+  };
+  // CONTROL: the render work-buffer region is written on every view rebuild.
+  await report('CONTROL render-buffer [0x6c000,0x6e000) over forward UP', 0x6c000, 0x6e000, tapUp);
+  // WIDE coord watch: catch the gy/gx write wherever it lands (covers base+0x4fxx).
+  await report('COORD-WIDE [base+0x4e00, base+0x5100) over forward UP', base + 0x4e00, base + 0x5100, tapUp);
+}
+
+/** `upgate` — CONFIRM which wmaze function gates the UP-key forward step. Traces
+ *  each candidate (wmaze file offset = ovl+off linear) over a known-OPEN forward
+ *  step (entrance 127,121,f0 -> moves) and a known-BLOCKED one (123,123,f0 -> no
+ *  move). The real gate fires on the forward UP; maze_step_global_xy (0x108b) fires
+ *  ONLY when the step succeeds. Single trace point per UP (re-driven each time). */
+async function phaseUpGate(c: HostClient): Promise<void> {
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const { block } = loadLevel0();
+  const base = await driveToFreeRoam(c);
+  const ovl = await findOvl(c);
+  console.log(`upgate: OVL base = 0x${ovl.toString(16)}`);
+  const ent = '/tmp/wiz6-upgate-entrance.state';
+  await c.serialize(ent);
+  const CANDS: Array<{ name: string; off: number }> = [
+    { name: 'move_writer_0x2875(CTL)', off: 0x2875 },
+    { name: 'render_build_loop(SIGctl)', off: 0x4ad7 },
+    { name: 'maze_can_step_in_facing', off: 0x3244 },
+    { name: 'maze_can_pass_doors_walls', off: 0x309d },
+    { name: 'maze_check_wall_in_dir', off: 0xf2a },
+    { name: 'maze_step_global_xy', off: 0x108b },
+    { name: 'maze_rotate_party', off: 0x3304 },
+    { name: 'dungeon_main_loop', off: 0x2abc },
+    { name: 'maze_check_wall_north_step', off: 0x36dd },
+  ];
+  const tapUp = async () => { await c.key('up', 'down'); await c.step(24); await c.key('up', 'up'); await c.step(70); };
+  const driveTo = async (t: { gx: number; gy: number; facing: number }) => {
+    await c.unserialize(ent); await c.step(2);
+    const path = pathTo(block, ENGINE_ENTRANCE, t) ?? [];
+    for (const mv of path) { await frMove(c, base, mv === 'forward' ? 'up' : (mv as 'left' | 'right')); }
+  };
+  const open = { gx: 127, gy: 121, facing: 0 };   // UP moves to 127,122
+  const blocked = { gx: 123, gy: 123, facing: 0 }; // UP blocked
+  for (const cand of CANDS) {
+    const run = async (t: any) => {
+      await driveTo(t);
+      const b = await frParty(c, base);
+      await c.traceSet(ovl + cand.off); await c.traceDrain();
+      await tapUp();
+      const recs = await c.traceDrain(); await c.traceOff();
+      const a = await frParty(c, base);
+      return { hits: recs.length, moved: a.gx !== b.gx || a.gy !== b.gy };
+    };
+    const o = await run(open);
+    const bl = await run(blocked);
+    console.log(`  ${cand.name.padEnd(28)} off=0x${cand.off.toString(16).padStart(4)}  OPEN: hits=${String(o.hits).padStart(3)} moved=${o.moved}   BLOCKED: hits=${String(bl.hits).padStart(3)} moved=${bl.moved}`);
+  }
+}
+
+/** `stepprobe <gx,gy,f;...>` — for each target, drive there from the free-roam
+ *  entrance (movement.ts pathTo), read the LIVE party + the live wall codes at the
+ *  cell, tap UP, and report whether the engine actually stepped. The clean
+ *  ground-truth check for the collision-model fix (no BFS attribution). */
+async function phaseStepProbe(c: HostClient): Promise<void> {
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const targets = (process.argv[3] ?? '128,121,1;123,123,0;128,122,0').split(';')
+    .map((s) => s.split(',').map(Number)).map(([gx, gy, f]) => ({ gx, gy, facing: f }));
+  const { block } = loadLevel0();
+  const base = await driveToFreeRoam(c);
+  const ent = '/tmp/wiz6-stepprobe-entrance.state';
+  await c.serialize(ent);
+  const bits = (plane: Uint8Array, ci: number) => { const b = ci * 2; return (plane[b >> 3]! >> (6 - (b & 7))) & 3; };
+  for (const t of targets) {
+    await c.unserialize(ent); await c.step(2);
+    const path = pathTo(block, ENGINE_ENTRANCE, t);
+    let diverged = false;
+    if (path) {
+      for (const mv of path) {
+        const key = mv === 'forward' ? 'up' : (mv as 'left' | 'right');
+        const ok = await frMove(c, base, key);
+        if (!ok && mv === 'forward') { diverged = true; break; }
+      }
+    }
+    const before = await frParty(c, base);
+    const recOff = u16(await c.read(base + 0x4faa, 2), 0);
+    const north = await c.read(base + recOff + 0x60, 192);
+    const west = await c.read(base + recOff + 0x120, 192);
+    const z = u16(await c.read(base + PK_Z, 2), 0), x = u16(await c.read(base + PK_CELLA, 2), 0), y = u16(await c.read(base + PK_CELLB, 2), 0);
+    const ci = z * 64 + x * 8 + y;
+    await c.key('up', 'tap'); await c.step(80);
+    const after = await frParty(c, base);
+    const moved = after.gx !== before.gx || after.gy !== before.gy;
+    console.log(`target(${t.gx},${t.gy},f${t.facing}): arrived(gx${before.gx},gy${before.gy},f${before.f}) region${z} x${x} y${y} liveN=${bits(north, ci)} liveW=${bits(west, ci)} pathDiverged=${diverged} -> UP moved=${moved} to(gx${after.gx},gy${after.gy})`);
+  }
+}
+
+/** `recdump [statesDir] [out]` — dump the FULL live maze record (DGROUP + *0x4faa,
+ *  0x600 bytes) so every candidate plane can be decoded offline + correlated with
+ *  the collmap passability ground truth to find the engine's passability plane. */
+async function phaseRecDump(c: HostClient): Promise<void> {
+  const dir = process.argv[3] ?? '/tmp/wiz6-collmap-states';
+  const out = process.argv[4] ?? '/tmp/wiz6-recdump.json';
+  const files = readdirSync(dir).filter((f: string) => f.endsWith('.state'));
+  await c.step(3000);
+  await c.unserialize(`${dir}/${files[0]}`); await c.step(2);
+  const base = await c.anchor();
+  const recOff = u16(await c.read(base + 0x4faa, 2), 0);
+  const rec = await c.read(base + recOff, 0x600);
+  writeFileSync(out, JSON.stringify({ recOff, bytes: [...rec] }, null, 2));
+  console.log(`recdump: recOff=0x${recOff.toString(16)}, ${rec.length} bytes -> ${out}`);
+}
+
 async function main() {
   const phase = process.argv[2];
   const c = new HostClient();
   try {
     if (phase === 'navreach') await phaseNavReach(c);
+    else if (phase === 'recdump') await phaseRecDump(c);
+    else if (phase === 'collmap') await phaseCollMap(c);
+    else if (phase === 'collcells') await phaseCollCells(c);
+    else if (phase === 'stepprobe') await phaseStepProbe(c);
+    else if (phase === 'upgate') await phaseUpGate(c);
+    else if (phase === 'movewatch') await phaseMoveWatch(c);
+    else if (phase === 'gywrite') await phaseGyWrite(c);
+    else if (phase === 'wheremove') await phaseWhereMove(c);
+    else if (phase === 'gatetrace') await phaseGateTrace(c);
+    else if (phase === 'gatestream') await phaseGateStream(c);
+    else if (phase === 'rwall') await phaseRWall(c);
+    else if (phase === 'flagwrite') await phaseFlagWrite(c);
+    else if (phase === 'collcapture') await phaseCollCapture(c);
+    else if (phase === 'buildtrace') await phaseBuildTrace(c);
+    else if (phase === 'collslots') await phaseCollSlots(c);
+    else if (phase === 'gateclass') await phaseGateClass(c);
+    else if (phase === 'resdump') await phaseResDump(c);
+    else if (phase === 'recheck') await phaseRecheck(c);
+    else if (phase === 'wallplanes') await phaseWallPlanes(c);
     else if (phase === 'reach') await phaseReach(c);
     else if (phase === 'calibrate') await phaseCalibrate(c);
     else if (phase === 'coarse') await phaseCoarse(c);
