@@ -1,0 +1,129 @@
+{
+  "topic": "maze-headon-recess-emit",
+  "subagent_run": "2026-06-09 (static disasm pass: wmaze.ovr per-depth BUILD/FLUSH machine — the head-on-door-recess emit + occlusion law. Answers: does a depth-0 closed door OCCLUDE deeper depths, and HOW is the corridor-behind composited so it shows in the bar gaps. ndisasm -b 16 + hand-read listing; Ghidra decompiler NOT trusted per brief.)",
+  "binaries": ["wmaze.ovr", "ega.drv"],
+  "tool": "ndisasm -b 16 over the raw wmaze.ovr / ega.drv (full linear disasm to /tmp). Jump-table targets decoded from raw bytes via the wpcmk/wpcvw/wbase/wdopt/wmaze overlay delta 0x4564 (file = cs_off - 0x4564). Cross-checked against the committed maze-span-build.json (two-phase BUILD/FLUSH + span layout, byte-exact) and maze-doorrecess-source.json (FUN_0a93 OR-vs-masked law). All edge cases hand-read; comparators that are ambiguous are flagged confidence:low.",
+  "summary": "ANSWERED — the head-on closed portcullis at depth 0 does NOT occlude the deeper depths, and the see-through lattice is produced by PAINTER'S-ORDER BACK-TO-FRONT compositing (NOT by clipping the corridor-behind to the gate opening, and NOT by masking the bars). The renderer is a two-phase machine in view_render_corridor_frame (wmaze 0x4ad7): (A) a BUILD depth loop (0x4c60, depth 0..3) that classifies the forward/left/right edge codes per depth and APPENDS draw spans to a deferred queue at DGROUP 0x50d0 (count 0x50ce, 11 bytes/slot) via span_append (0x3f8d) — span_append draws NOTHING, it only queues; then (B) a FLUSH (0x51f4..0x5353) that runs an OUTER depth loop counting 0x5040 DOWN from 0x521e(=4) to 0, drawing each pass's spans whose depthField (slot[+0xa]) == the current outer depth — so FAR depths are blitted FIRST and the NEAR gate LAST, on top. OCCLUSION IS PER-EDGE-CODE and lives in the post-emit slot helper wall_occlude_forward (0x4892), called right after the forward face emit with (depth, edgeCode): it clears the NEXT depth's slot-active flags AND clamps the depth bound [0x521e] down to depth+3 ONLY when the forward edge is a SOLID WALL (edgeCode==2 OR edgeCode>=5); a DOOR (edgeCode==3) is explicitly NOT in that set, so the BUILD loop keeps going and emits the full corridor-behind (depth-1/2/3 walls, floors at 0x5082-flag, ceilings) regardless of the near closed gate. The forward DOOR face itself (wmaze 0x4101, reached for edgeCode 1/3/4 via the 0x449e jump table, delta 0x4564) emits a SPARSE piece: when the door is fully CLOSED ([0x363e]==0) at depth 0 it appends a single walltype==0xff EDGE-MARKER span (x0=[bp+0x16]+depth=0x5b, x1=0xffff, clip 0xffff/0xffff, seamIdx 0) drawn in FLUSH Pass A via edge_emit (thunk 0xf148); when the door is OPEN/animating ([0x363e]>0) it appends a walltype==2 wall span with seamIdx=[0x363e]+0xf (the portcullis-frame image index) drawn in FLUSH Pass B via FUN_1c94 (thunk 0xf10c). Either way the gate piece is a thin frame/lattice, NOT a solid fill — and because it is drawn LAST over the already-painted corridor, the corridor shows through the gaps automatically. So our port's bug is two-fold: (1) it OCCLUDES the deeper depths behind a depth-0 door (should NOT — door is non-occluding), dropping the depth-1 floor + side-walls-behind; and (2) it composites the gate as a SOLID OR over black instead of drawing the full corridor-behind first and the gate piece last. The fix is NOT a clip/mask on the corridor-behind and NOT routing img11-22 through FUN_0a93's masked branch — it is to (a) make edgeCode 3 NON-occluding (don't clamp depth / don't clear deeper slot flags for doors), (b) emit the full corridor-behind depths 1/2/3 (walls/floor/ceiling) exactly as for an open corridor, and (c) draw them BEFORE the gate frame piece in painter's order, letting the gate's own sparse pixels sit on top.",
+  "findings": [
+    {
+      "id": "two-phase-build-flush-queue",
+      "claim": "view_render_corridor_frame (0x4ad7) is a deferred two-phase renderer. BUILD: depth loop 0x4c60 over [0x5040]=0..[0x521e](=4) classifies edges into [0x5220](fwd)/[0x5222](left)/[0x5224](right)/[0x5226](far-fwd) and calls the polygon emitters (wall_emit_quad 0x406c, wall_emit_corner 0x45b4, wall_emit_floorceil 0x47a3) which APPEND 11-byte spans to the queue at DGROUP 0x50d0 (count 0x50ce, cap 0x1e=30) via span_append (0x3f8d). span_append draws NOTHING — it only stores {x0,x1,clipLo,clipHi,walltype,seamIdx,depthField}. FLUSH (0x51f4) consumes the queue.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3f8d"},
+        "type": "disasm",
+        "details": "span_append 0x3f8d: indexes the queue by bx=[0x50ce]*0xb (0x3f94-0x3fa3, the `D1E0` ndisasm-renders are shl-by-1: q,q*2,+q=3q,*2=6q,*2=12q,-q=11q -> 11-byte stride). Stores: [bx+0x50d8]=byte [bp+4](walltype), [bx+0x50d0]=word [bp+6](x0), [bx+0x50d2]=word [bp+8](x1), [bx+0x50d9]=byte [bp+0xa](seamIdx), [bx+0x50d4]=word [bp+0xc](clipLo), [bx+0x50d6]=word [bp+0xe](clipHi), [bx+0x50da]=byte [bp+0x10](depthField). Then 0x4052 `inc word [0x50ce]`; 0x4056 cap at 0x1e (flush via 0xc546 if full). The 11-byte slot layout {x0@0,x1@2,clipLo@4,clipHi@6,walltype@8,seamIdx@9,depthField@0xa} matches the FLUSH consumer at 0x5205/0x52f8 and the committed maze-span-build.json byte-exact."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "flush-is-back-to-front-painters-order",
+      "claim": "The FLUSH (0x51f4..0x5353) draws BACK-TO-FRONT: an OUTER loop counts [0x5040] DOWN from [0x521e](=4) to 0 (0x5353 `dec [0x5040]`; 0x5357 `cmp [0x5040],0; jl exit; else jmp 0x51fd`), and within each pass a queued span is only drawn when its depthField (slot[+0xa]) equals the current outer depth (0x5236/0x530e `al=slot[+0xa]; cmp ax,[0x5040]; jne skip`). So depth-3 spans blit first and depth-0 (the near gate) blits LAST, on top of everything already painted. THIS is the compositing mechanism that lets the corridor-behind show in the bar gaps — no clip, no mask; the near gate's own sparse pixels simply land over the already-drawn corridor.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x51f4"},
+        "type": "disasm",
+        "details": "0x51f4 `mov ax,[0x521e]; mov [0x5040],ax` (start outer depth at the bound). Pass A 0x51fd: `si=[0x50ce]; dec si`; body 0x5205 computes slot=0x50d0+si*0xb, 0x5236 gates depthField==[0x5040], 0x5244 gates walltype==0xff (else skip). Pass B 0x52f1: same per-slot gate (0x530e depthField==[0x5040]; 0x531e walltype==0xff -> SKIP, i.e. Pass B is walltype!=0xff). 0x5353 `dec [0x5040]`; 0x5357 loop while >=0. Two passes wrapped in the down-counting outer loop = strict far->near painter's order."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "door-edge3-is-non-occluding",
+      "claim": "OCCLUSION is per-edge-code and is applied by wall_occlude_forward (0x4892), called immediately after the forward-face emit with (depth=[bp+4], edgeCode=[bp+6]). It clears the NEXT depth's slot-active flags and CLAMPS the depth bound [0x521e] down to depth+3 ONLY for a SOLID wall: the gate at 0x4895 is `cmp edge,2; jz occlude` OR `cmp edge,5; jnl occlude`. A DOOR (edgeCode==3) is NEITHER ==2 NOR >=5, so it falls through to the [bx+0x5067] secondary check and (for a normal open/closed door) does NOT occlude. THEREFORE a head-on closed portcullis at depth 0 does NOT halt the depth loop — the BUILD continues to emit depths 1/2/3 (the corridor-behind). This is the direct answer to question (1).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4892"},
+        "type": "disasm",
+        "details": "0x4895 `cmp word [bp+6],2; jz 0x48b3`; 0x489b `cmp word [bp+6],5; jnl 0x48b3`; else 0x48a1 compute bx=depth*3, 0x48ac `cmp byte [bx+0x5067],1; jnz 0x48f1`(return, no occlude). Occlude block 0x48b3: clears [bx+0x508b/8c/8d], [bx+0x507b], [bx+0x5093], [bx+0x5074], [bx+0x507c], [bx+0x5094], [bx+0x509c] (the depth+1 slot-active flags — they are the depth-loop init flags 0x508a/0x507a/0x5092/0x5072/0x5082/0x509a/0x50a2 offset by +1), then 0x48e3 `bx+=3; cmp bx,[0x521e]; jnl skip; else mov [0x521e],bx` (clamp loop bound to depth+3). edgeCode 3 never reaches 0x48b3 except via the 0x5067 path; for a plain door that flag is not set, so the door does not occlude. (The 0x5067 secondary-flag branch is confidence:medium — it is a 'this slot is a back-wall' style override; for a head-on door in a corridor it is not engaged.)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "edge3-jump-table-target",
+      "claim": "wall_emit_quad (0x406c) dispatches the forward edge code through a 16-entry jump table at file 0x449e (`jmp word [cs:bx-0x75fe]` at 0x44c4, overlay delta 0x4564). edge 0/2 -> 0x44c9 (common solid, edge-emit only, NO span_append); edge 1/3/4 -> 0x4101 (the DOOR/RECESS block); edge 5..8 -> 0x4280/0x42b4/0x42e8/0x430f; edge 9 -> 0x4371; edge 10..13 -> 0x43b4; edge 14 -> 0x4474. So a head-on closed portcullis (forward edge code 3) lands in the door block at 0x4101.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x449e"},
+        "type": "jump_table_decode",
+        "details": "Raw table bytes at file 0x449e, 2-byte cs-offset entries, minus delta 0x4564: edge0=0x8a2d->0x44c9, edge1=0x8665->0x4101, edge2=0x8a2d->0x44c9, edge3=0x8665->0x4101, edge4=0x8665->0x4101, edge5=0x87e4->0x4280, edge6=0x8818->0x42b4, edge7=0x884c->0x42e8, edge8=0x8873->0x430f, edge9=0x88d5->0x4371, edge10..13=0x8918->0x43b4, edge14=0x89d8->0x4474. Confirms edge3 -> door block 0x4101. (Matches the secondary 4b decode in maze-span-build.json.)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "closed-door-depth0-emits-sparse-not-solid",
+      "claim": "Inside the door block (0x4101, edge==3), with the forward-face flag [bp+8]==1: at depth 0 (0x4110 falls), if the door is OPEN/animating ([0x363e]>0, 0x4116) it appends a walltype==2 span with seamIdx=[0x363e]+0xf (the portcullis/recess-frame image index), x0_base=x1_base=0, clipLo=[bp+0xa], clipHi=[bp+0xc] (FLUSH Pass B / FUN_1c94). If the door is fully CLOSED ([0x363e]==0, reaching 0x414b) it appends a single walltype==0xff EDGE-MARKER span: x0=[bp+0x16]+depth=0x5b, x1=0xffff, clipLo=0xffff, clipHi=0xffff, seamIdx 0 (FLUSH Pass A / edge_emit 0xf148). EITHER way the depth-0 gate emit is a thin frame/lattice piece, NOT a solid wall fill. Combined with the back-to-front flush, the corridor-behind painted at depths 1/2/3 remains visible in the gaps. This answers question (2): the corridor-behind is composited by being drawn FIRST (lower depthField, but flushed earlier because the outer loop counts down) and the sparse gate piece is drawn LAST on top — no clip/mask of the corridor to the opening.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4101"},
+        "type": "disasm",
+        "details": "0x4101 `cmp [bp+6],3; jz 0x410a`. 0x410a `cmp [bp+8],1; jnz 0x416e`. 0x4110 `cmp [bp+4],0; jnz 0x413e`(depth!=0 -> 0x413e). depth==0 path: 0x4116 `cmp [0x363e],0; jng 0x413e`. OPEN emit 0x411d-0x4136: push [bp+4],[bp+0xc],[bp+0xa],([0x363e]+0xf),0,0,2 -> call span_append (reversed args: walltype=2, x0_base=0, x1_base=0, seamIdx=[0x363e]+0xf, clipLo=[bp+0xa], clipHi=[bp+0xc], depthField=[bp+4]). CLOSED emit 0x413e-0x4166: 0x413e `cmp [bp+4],0; jg 0x414b`; 0x4144 `cmp [0x363e],0; jnz 0x416c`(open already handled); fall to 0x414b: push [bp+4],0xffff,0xffff,0,0xffff,([bp+0x16]+[bp+4]),0xff -> span_append (walltype=0xff, x0=[bp+0x16]+depth, x1=0xffff, seamIdx=0, clipLo=0xffff, clipHi=0xffff, depthField=depth). For the forward-face 0x406c call from the depth loop (0x4e05), [bp+0x16]=0x5b (10th word up from depth in the static push block 0x4dA0..0x4e04), so at depth 0 x0=0x5b. (Comparator 0x4116 jng / 0x4142 jg flagged confidence:medium — read as 'door fully closed = [0x363e]<=0'; verify the open-phase sign against a live capture before relying on the exact threshold.)"
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "passA-edge-emit-and-passB-fun1c94-merge-modes",
+      "claim": "FLUSH Pass A draws walltype==0xff spans via edge_emit (thunk 0xf148, ega.drv FUN_1c94's edge/seam entry) with args (clipHi-or-0xffff, seamIdx=slot[+9], x0=slot[+0]); when clipLo (slot[+4])==0xffff it uses the no-clip variant (0x5284). Pass B draws walltype!=0xff spans via FUN_1c94 (thunk 0xf10c) one call per span, args (tile=walltype, x0=slot[+0], destrow=slot[+2], clipLo=slot[+4], clipHi=slot[+6], piece-string=&slot[+9]). FUN_1c94 (ega.drv 0x1c94) is the per-column wall-texture rasterizer (loops columns, calls 0x210c per column, honors a clipLo/clipHi window via [bp+0xe]/[bp+0x12]); it is NOT a solid OR-fill. Because the gate piece is emitted as either a thin edge marker (Pass A) or a single recess-frame span (Pass B) and drawn last, it does not erase the corridor-behind.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x5251"},
+        "type": "disasm",
+        "details": "Pass A 0x5251: `cmp [bx],0xffff; jz skip`(x0==0xffff -> no draw); 0x5256 `cmp [bx+4],0xffff; jz 0x5284`(clipLo==0xffff -> no-clip variant). 0x5284: push 0xffff, push [bx+9](seamIdx), push [bx](x0), call 0xf148. Clipped variant 0x525c: push (parity? [0x521c] selects [bx] vs ... ) [bx], [bx+9], [bx], call 0xf148. Pass B 0x5323-0x5347: builds 1-byte piece-string [bp-0x10]=slot[+9],[bp-0xf]=0; push &str,0,0,slot[+6],slot[+4],slot[+2],slot[+0],walltype; call 0xf10c. ega.drv FUN_1c94 @0x1c94: per-column loop 0x1cee (`call 0x210c` per column), clip window [bp+0xe]/[bp+0x12] (0x1d7d `cmp [bp+0xe],[bp+0x12]`). Merge variants gated by [bp+0x16] flags (xlatb/stosb at 0x1d27, plane-reverse at 0x1d4b). Not a flat OR-fill."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "floor-ceiling-emitted-every-depth",
+      "claim": "The per-depth floor/ceiling emit (wall_emit_floorceil 0x47a3, called at 0x4ef9 gated only by the floor-active flag [bx+0x5082]==1, and the ceiling block at 0x4f0d gated by [bx+0x5072]==1) runs for EVERY non-occluded depth. wall_occlude_forward for a door does not clear the 0x5082/0x5072 floor/ceiling flags of the deeper depths, so the depth-1 floor and ceiling ARE emitted behind a head-on closed door. Our port's missing depth-1 floor is therefore a port-side over-occlusion, not an engine special case.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4ed4"},
+        "type": "disasm",
+        "details": "0x4ed4 `cmp byte [bx+0x5082],1; jnz 0x4eff`(floor) then push table {0xee,0xda,0xae,0x9a,0x92,0x7e,0} + [0x5040], call 0x47a3. 0x4eff `cmp byte [bx+0x5072],1; jz 0x4f0d`(ceiling). wall_occlude_forward (0x4892) occlude block only clears [bx+0x508b..0x509c] (the depth+1 WALL/active flags) — it does NOT touch the floor flag 0x5082 or ceiling 0x5072 of any depth. So floor/ceiling spans for depths behind the (non-occluding) door are queued normally and flushed back-to-front."
+      },
+      "confidence": "high"
+    }
+  ],
+  "symbol_map": {
+    "wmaze.ovr:0x4ad7": "view_render_corridor_frame — two-phase BUILD (0x4c60 depth loop) + FLUSH (0x51f4 back-to-front)",
+    "wmaze.ovr:0x4c60": "build_depth_loop — classify edges per depth, call wall_emit_* which append spans to queue 0x50d0",
+    "wmaze.ovr:0x3f8d": "span_append — queue an 11-byte draw span {x0,x1,clipLo,clipHi,walltype,seamIdx,depthField} into DGROUP 0x50d0 (count 0x50ce, stride 11, cap 30); draws NOTHING",
+    "wmaze.ovr:0x406c": "wall_emit_quad — forward-face polygon emitter; 16-entry edge jump table @0x449e",
+    "wmaze.ovr:0x4101": "wall_emit_quad_door_case — edge 1/3/4 (door/recess); depth-0 closed -> wt=0xff edge marker (x0=0x5b), open -> wt=2 span seam=[0x363e]+0xf",
+    "wmaze.ovr:0x45b4": "wall_emit_corner — left/right wall polygon emitter",
+    "wmaze.ovr:0x47a3": "wall_emit_floorceil — floor/ceiling span emitter (per depth, gated by 0x5082/0x5072 flags)",
+    "wmaze.ovr:0x4892": "wall_occlude_forward — post-forward-emit occlusion: clears NEXT depth's slot flags + clamps depth bound [0x521e] to depth+3 ONLY for solid wall (edge==2 or >=5); door (edge==3) is NON-occluding",
+    "wmaze.ovr:0x51fd": "flush_passA_edge — draws walltype==0xff edge-marker spans via edge_emit thunk 0xf148 (back-to-front)",
+    "wmaze.ovr:0x52f1": "flush_passB_walls — draws walltype!=0xff spans via FUN_1c94 thunk 0xf10c, one call/span (back-to-front)",
+    "wmaze.ovr:0x363e": "door_open_phase — 0 = fully closed (wt=0xff marker path), >0 = open/animating (wt=2 seam=[0x363e]+0xf path)",
+    "wmaze.ovr:0x521e": "depth_loop_bound — start 4; clamped down to depth+3 by wall_occlude_forward on a solid wall",
+    "wmaze.ovr:0x5040": "depth_counter — BUILD: counts up 0..bound; FLUSH outer loop: counts DOWN bound..0",
+    "wmaze.ovr:0x50ce": "span_queue_count",
+    "wmaze.ovr:0x50d0": "span_queue_base — 30 x 11-byte deferred draw spans",
+    "ega.drv:0x1c94": "FUN_1c94 wall_texture_rasterizer — per-column textured span draw with clipLo/clipHi window ([bp+0xe]/[bp+0x12]); thunk 0xf10c",
+    "wmaze.ovr:0xf148": "edge_emit thunk — ega.drv FUN_1c94 edge/seam entry (Pass A, walltype==0xff)"
+  },
+  "crack_or_blocker": {
+    "status": "CRACKED — the occlusion + compositing law for a depth-0 head-on door is fully determined statically.",
+    "question1_does_door_occlude": "NO. wall_occlude_forward (0x4892) clamps the depth bound + clears deeper slot flags ONLY for a SOLID wall (edge==2 or edge>=5). A door (edge==3) is not in that set, so the BUILD loop continues and emits the full corridor-behind (depths 1/2/3 walls + floor 0x5082 + ceiling 0x5072). Our port over-occludes — that is why the depth-1 floor and the side-walls-behind are missing.",
+    "question2_how_corridor_shows_in_gaps": "PAINTER'S-ORDER BACK-TO-FRONT, no clip and no mask. The FLUSH outer loop (0x51f4) counts depth DOWN from the bound to 0, drawing each span when its depthField == the current outer depth, so depth-3 is blitted first and the depth-0 gate LAST, on top. The depth-0 closed-portcullis emit is a SPARSE piece (a single walltype==0xff edge marker when fully closed, or a single walltype==2 recess-frame span when open/animating) — NOT a solid fill. Drawn last over the already-painted corridor, its own pixels (frame + bars) land on top while the gaps reveal the corridor underneath. The corridor-behind is NOT clipped to the gate opening; it is the gate piece's own sparseness + the painter's-order that produces the see-through.",
+    "question3_pieces_and_clip": "The corridor-behind is drawn by the normal corridor emitters (wall_emit_corner 0x45b4 for side walls of depths 1/2/3, wall_emit_floorceil 0x47a3 for their floors/ceilings, wall_emit_quad 0x406c for their far faces) into Pass-B FUN_1c94 (0xf10c) calls with each span's OWN seam-extent clipLo/clipHi (slot[+4]/[+6]) — i.e. the wall's natural silhouette, NOT the gate opening. The gate frame/bars are the depth-0 door span(s): Pass A edge_emit (0xf148) for the closed wt=0xff marker, Pass B FUN_1c94 (0xf10c) for the open wt=2 recess-frame seam. FUN_0a93 (the ega.drv OR/masked dispatch from maze-doorrecess-source.json) is NOT on this corridor path at all — the maze corridor renderer uses FUN_1c94 (the per-column rasterizer), not FUN_0a93.",
+    "fix_for_our_generator": "Three changes in the call-list generator: (1) make forward edge code 3 (door) NON-occluding — do NOT clamp the depth loop or drop the deeper depths behind a head-on door; only solid walls (code 2 / >=5) occlude. (2) Emit the full corridor-behind: depths 1/2/3 walls (corner emitter), floors (0x5082-gated), ceilings (0x5072-gated), and far faces, exactly as for an open corridor — these are the missing depth-1 floor + side-walls-behind. (3) Composite STRICTLY BACK-TO-FRONT (draw depth 3 first ... depth 0 last) and emit the gate frame/bars as the LAST (depth-0) piece(s) ON TOP of the corridor — do NOT pre-fill the gate region with black and do NOT OR the gate solid. With the corridor painted first and the gate's sparse lattice drawn last, the gaps reveal the corridor automatically. The gate piece itself is a single wt=0xff edge marker (fully-closed) or a single wt=2 seam=[0x363e]+0xf recess-frame span (open/animating) at x0=0x5b for the head-on forward face. This makes the masked-FUN_0a93 routing of img11-22 (proposed in maze-doorrecess-source.json) UNNECESSARY for the corridor view — the see-through is a layering effect, not a per-pixel carve.",
+    "ruled_out_confirmations": {
+      "clip_corridor_to_opening": "RULED OUT — Pass-B spans carry their own wall-silhouette clip (slot[+4]/[+6]), never a gate-opening clip; the see-through is painter's-order, not clip.",
+      "mask_the_bars_over_corridor": "RULED OUT for the corridor path — the gate piece is drawn LAST and is itself sparse; there is no AND/mask of the bars against the corridor. (The FUN_0a93 masked branch in maze-doorrecess-source.json is a separate code path not used by the corridor depth-loop renderer.)",
+      "door_occludes_deeper_depths": "RULED OUT — wall_occlude_forward exempts edge code 3 (only solid 2/>=5 occlude)."
+    }
+  },
+  "unresolved": [
+    "The exact threshold/sign of the door-open-phase test ([0x363e] jng/jg at 0x4116/0x4142) — read as 'fully closed = [0x363e]<=0, open = >0'; confidence:medium. A live capture of a head-on portcullis at a known phase would pin the comparator and the seam index [0x363e]+0xf used for the closed-but-barred (non-animating) portcullis.",
+    "The [bx+0x5067] secondary-occlusion flag in wall_occlude_forward (0x48ac) — for a head-on door in a corridor it is read as not engaged, but its meaning (a 'back-wall override'?) is not fully derived; confidence:medium on whether any door geometry could set it and thereby occlude.",
+    "Whether the visible closed portcullis (bars + frame the brief describes) is the wt=0xff single edge marker alone, or whether the bars come from a SEPARATELY SEEDED wall-family/decoration piece for the gate cell (the wall-family seeding in maze-wall-family-seeding.json). The forward door emit alone produces only one sparse span; the dense bar lattice the brief shows may be a seeded gate decoration drawn in the same back-to-front flush. A live gy121-f2 (depth-0 head-on portcullis) span-queue dump (DGROUP 0x50d0, count 0x50ce, 11-byte slots, on the patched trace core) would enumerate the actual gate + corridor-behind spans and resolve this definitively."
+  ]
+}
