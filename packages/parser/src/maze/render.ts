@@ -136,16 +136,13 @@ export function renderMazeViewport(
   const o: RenderBackgroundOpts =
     opts instanceof Uint8Array ? { page: opts } : (opts ?? {});
 
-  // CAPTURE-REPLAY: if this view-config has a committed engine viewport, return it
-  // verbatim (byte-exact ground truth). Graceful: a missing key / bad table falls
-  // through to the generation path; never throws.
+  // CAPTURE-REPLAY: if this exact (gx,gy,facing) has a committed engine viewport,
+  // return it verbatim (byte-exact ground truth). POSITION-KEYED — wall-geometry
+  // keying aliased cells with different decorations (the chest<->candlestick bug).
+  // Graceful: a missing key falls through to the generation path; never throws.
   if (o.capturedViewports?.size) {
-    try {
-      const vp = o.capturedViewports.get(viewConfigKeyFor(block, party));
-      if (vp) return vp;
-    } catch {
-      /* fall through to generation */
-    }
+    const vp = o.capturedViewports.get(`${party.gx},${party.gy},${party.facing}`);
+    if (vp) return vp;
   }
 
   const page =

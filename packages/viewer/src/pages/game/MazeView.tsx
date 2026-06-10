@@ -23,7 +23,6 @@ import {
   tickEntry,
   turn,
   tryStepForward,
-  viewConfigKeyFor,
   type CapturedSpansTable,
   type EntryStripText,
   type ForwardVerdict,
@@ -175,11 +174,12 @@ function safeRenderViewport(
   // assets load (expandMazeData parses 102KB) and reused per frame.
   if (session.entryMode === 'free' && mazeWorkBuffer !== null) {
     try {
-      // CAPTURE-REPLAY (faithful level-0): if this view-config has a committed engine
-      // viewport, return it verbatim (byte-exact). Otherwise fall through to the
-      // generated background page below.
+      // CAPTURE-REPLAY (faithful level-0): if this exact (gx,gy,facing) has a committed
+      // engine viewport, return it verbatim (byte-exact). POSITION-KEYED — wall-geometry
+      // keying aliased cells with different decorations (the chest<->candlestick bug,
+      // TODO #086). Otherwise fall through to the generated background page below.
       if (viewportOracles?.size) {
-        const vp = viewportOracles.get(viewConfigKeyFor(session.level.mazeBlock, session.party));
+        const vp = viewportOracles.get(`${session.party.gx},${session.party.gy},${session.party.facing}`);
         if (vp) return vp;
       }
       const calls = generateFullCallList(session.level.mazeBlock, session.party);
