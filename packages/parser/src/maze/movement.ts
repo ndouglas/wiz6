@@ -28,8 +28,10 @@ export function turn(party: MazeParty, dir: 'left' | 'right'): MazeParty {
 }
 
 /** Engine forward-step verdict for a (cell,facing): open = walkable, blocked = wall,
- *  encounter = walkable-but-triggers-combat (treated as a no-op until combat lands). */
-export type ForwardVerdict = 'open' | 'blocked' | 'encounter';
+ *  encounter = walkable-but-triggers-combat, warp = stairs/teleporter (engine jumps to a
+ *  non-adjacent cell). encounter + warp are deferred — treated as no-ops until the combat
+ *  and stairs/teleporter sub-projects hook them (kept distinct so each is a one-line wire). */
+export type ForwardVerdict = 'open' | 'blocked' | 'encounter' | 'warp';
 
 /** Options for tryStepForward. */
 export interface MovementOpts {
