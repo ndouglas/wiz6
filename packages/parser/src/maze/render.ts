@@ -102,6 +102,12 @@ export interface RenderBackgroundOpts {
    *  phase), 1 = seamAlt where present. The viewer toggles this on a clock so the
    *  door/recess pieces flicker like the engine; defaults to 0. */
   phase?: 0 | 1;
+  /** CAPTURE-REPLAY (faithful level-0): config-keyed full engine viewport
+   *  (MAZE_VIEWPORT.w*h EGA-index). When this view-config matches a captured entry,
+   *  the renderer returns it VERBATIM — byte-exact engine ground truth — bypassing
+   *  the generation path. The pragmatic faithful path while the general generation
+   *  law (#077) is uncracked; covers all engine-reachable level-0 configs (#086). */
+  capturedViewports?: Map<string, Uint8Array>;
 }
 
 /** Look up the captured case for a (block, party) view-config, or undefined.
@@ -129,6 +135,19 @@ export function renderMazeViewport(
 ): Uint8Array {
   const o: RenderBackgroundOpts =
     opts instanceof Uint8Array ? { page: opts } : (opts ?? {});
+
+  // CAPTURE-REPLAY: if this view-config has a committed engine viewport, return it
+  // verbatim (byte-exact ground truth). Graceful: a missing key / bad table falls
+  // through to the generation path; never throws.
+  if (o.capturedViewports?.size) {
+    try {
+      const vp = o.capturedViewports.get(viewConfigKeyFor(block, party));
+      if (vp) return vp;
+    } catch {
+      /* fall through to generation */
+    }
+  }
+
   const page =
     o.page ?? (o.placements ? buildBackgroundPage(o.placements) : undefined);
 

@@ -23,6 +23,7 @@ import {
   tickEntry,
   turn,
   tryStepForward,
+  viewConfigKeyFor,
   type CapturedSpansTable,
   type EntryStripText,
   type MazeWorkBuffer,
@@ -34,6 +35,7 @@ import {
   loadFont4bpp,
   loadMazeAssets,
   loadMazeWallSpans,
+  loadMazeViewportOracles,
   loadMessageDb,
   loadNewgameViewports,
   loadPortraitSet,
@@ -129,6 +131,7 @@ function safeRenderViewport(
   newgameViewports: NewgameViewports | null,
   mazeWorkBuffer: MazeWorkBuffer | null,
   phase: 0 | 1 = 0,
+  viewportOracles: Map<string, Uint8Array> | null = null,
 ): Uint8Array {
   // Animation path: the door-slide / two portcullis-lift viewport animations play
   // captured oracle frames keyed by "door:N" / "gate1:N" / "gate2:N" (animFrame
@@ -170,6 +173,13 @@ function safeRenderViewport(
   // assets load (expandMazeData parses 102KB) and reused per frame.
   if (session.entryMode === 'free' && mazeWorkBuffer !== null) {
     try {
+      // CAPTURE-REPLAY (faithful level-0): if this view-config has a committed engine
+      // viewport, return it verbatim (byte-exact). Otherwise fall through to the
+      // generated background page below.
+      if (viewportOracles?.size) {
+        const vp = viewportOracles.get(viewConfigKeyFor(session.level.mazeBlock, session.party));
+        if (vp) return vp;
+      }
       const calls = generateFullCallList(session.level.mazeBlock, session.party);
       const page = composeCallList(mazeWorkBuffer, calls);
       return renderMazeViewport(session.level.mazeBlock, session.party, assets, {
@@ -214,12 +224,13 @@ function composeFrame(
   partyPanels: MazePartyPanels | undefined,
   mazeWorkBuffer: MazeWorkBuffer | null,
   phase: 0 | 1 = 0,
+  viewportOracles: Map<string, Uint8Array> | null = null,
 ): Uint8Array {
   // Static chrome + LIVE party panels (the player's actual party) + viewport
   // baseline. partyPanels is undefined until the panel fonts/active party load;
   // until then the baked chrome panels show (cleared once the fonts arrive).
   const frame = composeMazeFrame(partyPanels);
-  const vp = safeRenderViewport(session, assets, wallSpans, newgameViewports, mazeWorkBuffer, phase);
+  const vp = safeRenderViewport(session, assets, wallSpans, newgameViewports, mazeWorkBuffer, phase, viewportOracles);
   const { x: vx, y: vy, w: vw, h: vh } = MAZE_VIEWPORT;
   for (let row = 0; row < vh; row++) {
     for (let col = 0; col < vw; col++) {
@@ -281,6 +292,10 @@ export function MazeView() {
   // reused per frame — never per-render.
   const mazeWorkBufferRef = useRef<MazeWorkBuffer | null>(null);
   const wallSpansRef = useRef<CapturedSpansTable | null>(null);
+  // CAPTURE-REPLAY viewport oracles (configKey -> engine viewport) for faithful
+  // level-0: when a config has a committed oracle, the viewport is the byte-exact
+  // engine frame (covers all 266 engine-reachable configs). Loaded async below.
+  const viewportOraclesRef = useRef<Map<string, Uint8Array> | null>(null);
   // Door-piece ANIMATION phase (0/1). The dungeon door/recess pieces flicker
   // between two adjacent atlas frames on the engine's global clock; we toggle this
   // on a timer in free-roam so the door shimmers like the engine. Lives in a ref
@@ -398,6 +413,17 @@ export function MazeView() {
       .catch((err: unknown) => {
         console.warn('[MazeView] failed to load captured wall spans (falling back to generation):', err);
       });
+    // CAPTURE-REPLAY: load the per-config engine viewport oracles (faithful level-0).
+    // Non-fatal: null leaves the renderer on the generation path.
+    loadMazeViewportOracles()
+      .then((m) => {
+        if (cancelled || !m) return;
+        viewportOraclesRef.current = m;
+        present();
+      })
+      .catch((err: unknown) => {
+        console.warn('[MazeView] failed to load viewport oracles (falling back to generation):', err);
+      });
     loadMazeAssets()
       .then((a) => {
         if (cancelled) return;
@@ -471,6 +497,7 @@ export function MazeView() {
       partyPanelsArg(),
       mazeWorkBufferRef.current,
       phaseRef.current,
+      viewportOraclesRef.current,
     );
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
   }

@@ -54,6 +54,7 @@ import {
 vi.mock('../../src/data-loader.js', () => ({
   loadMazeAssets: vi.fn(),
   loadMazeWallSpans: vi.fn(),
+  loadMazeViewportOracles: vi.fn(),
   loadMessageDb: vi.fn(),
   loadFont: vi.fn(),
   loadFont4bpp: vi.fn(),
@@ -75,6 +76,7 @@ import { MazeView, CUTSCENE_TICK_MS } from '../../src/pages/game/MazeView.js';
 import {
   loadMazeAssets,
   loadMazeWallSpans,
+  loadMazeViewportOracles,
   loadMessageDb,
   loadFont,
   loadFont4bpp,
@@ -86,6 +88,7 @@ import { readActiveParty } from '../../src/lib/active-party-store.js';
 
 const mockLoadMazeAssets = vi.mocked(loadMazeAssets);
 const mockLoadMazeWallSpans = vi.mocked(loadMazeWallSpans);
+const mockLoadMazeViewportOracles = vi.mocked(loadMazeViewportOracles);
 const mockLoadMessageDb = vi.mocked(loadMessageDb);
 const mockLoadFont = vi.mocked(loadFont);
 const mockLoadFont4bpp = vi.mocked(loadFont4bpp);
@@ -245,6 +248,9 @@ beforeEach(() => {
   // Default oracle viewports resolve to the real committed asset; tests that
   // don't exercise the scripted entry (free-roam levels) simply ignore them.
   mockLoadNewgameViewports.mockResolvedValue(NEWGAME_VIEWPORTS);
+  // Capture-replay oracles: default to null (renderer stays on the generation path);
+  // tests don't assert engine-replay pixels.
+  mockLoadMazeViewportOracles.mockResolvedValue(null);
 });
 
 describe('MazeView — no session', () => {
