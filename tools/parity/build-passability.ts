@@ -32,6 +32,13 @@ function main(): void {
   const cells = src.forward
     .map((r) => {
       let forward: Verdict = r.forward;
+      // The 'encounter' verdict is NOT a fixed-tile property: Wiz6 encounters are RANDOM
+      // step-rolls (~8%/step — verified at 131,121,f3 via `trace-maze.ts encprobe`: 1/12).
+      // collmap recorded 'encounter' wherever a step happened to roll combat during its
+      // probe (here, exactly one tile). The underlying move is geometrically open (edge 0,
+      // dest reachable), so it's really 'open'; wandering-monster encounters are a separate
+      // (unimplemented) per-step system, not a passability gate. Reclassify → 'open'.
+      if (forward === 'encounter') forward = 'open';
       if (forward === 'open') {
         const [dx, dy] = FWD[r.facing]!;
         if (!reachableCells.has(`${r.gx + dx},${r.gy + dy}`)) forward = 'warp';
