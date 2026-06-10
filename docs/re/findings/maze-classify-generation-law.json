@@ -1,0 +1,34 @@
+{
+  "topic": "maze-classify-generation-law",
+  "subagent_run": "2026-06-10 (parent): attack the general classify-generation law (the decompiler-resistant per-slot wall-classify post-pass) with the NEW oracle-navigator + live-tracer + read/write watchpoints. The classify produces, per (cell,facing), the per-(depth,slot) GATE array that drives both the render placements AND the move-availability.",
+  "binaries": ["wmaze.ovr"],
+  "tool": "trace-maze.ts collmap (engine BFS -> 266 reachable settled states) + collslots (read the PERSISTED classify output from each state: gate array @DGROUP 0x5042 [0x70 bytes] + span list @0x50ce/0x50d0). Dataset: docs/re/findings/maze-classify-output-dataset.json (266 configs). Data-fit: frustum (viewConfig per config) -> gate bits.",
+  "summary": "BREAKTHROUGH ENABLER: the classify OUTPUT (the gate array @0x5042 + span list @0x50d0) is PERSISTED in every settled state and READABLE directly — no re-build/trace needed (the prior 'live-build-trace blocked' wall is moot for the OUTPUT; only re-running to trace was blocked). Captured the COMPLETE engine classify output for all 266 engine-reachable level-0 configs (collslots). STRUCTURE CONFIRMED by data-fit (frustum -> gate): the gate array is per-(depth,slot); 0x508a (depth-0 front gate) is set in 266/266 (always); SPARSE deep gates (0x5049-0x504d front/cornerL at depth 3; 0x50ac-0x50b1) fit clean single-slot predicates (d3.front==1, d3.cornerL==1, etc.); but the DENSE side-wall gates (0x5073..0x50a5, set ~140/266) fit NO single per-slot predicate (best err ~100/266) — they ARE the cumulative-run / 0x39ec-dispatch structure the prior RE flagged as decompiler-resistant (maze-wall-family-seeding.json `side-wall-surface-is-cumulative-stack`). So the remaining crack is modeling the cumulative gate-seeding, NOT a lookup table. The complete (frustum -> gate) dataset now exists to derive it.",
+  "findings": [
+    {
+      "id": "classify-output-persisted-and-captured",
+      "claim": "The classify output (gate array @0x5042 0x70 bytes + span list @0x50ce count/0x50d0 11-byte spans) persists in every settled state. Captured for all 266 engine-reachable level-0 configs via collmap (BFS to settled states) + collslots (direct read). No re-build needed. Dataset: maze-classify-output-dataset.json.",
+      "category": "renderer",
+      "evidence": {"binary": "wmaze.ovr", "type": "live_read_from_states", "details": "266 states from the complete engine-reachable BFS; each read gives spanCount + spans + 112-byte gate array. e.g. (125,122,f0): spanCount=5; (125,122,f3): spanCount=1 with a denser gate pattern."},
+      "confidence": "high"
+    },
+    {
+      "id": "gate-seeding-structure",
+      "claim": "Data-fit of frustum (per-depth front/cornerL/cornerR/leftSide/rightSide from viewConfig) -> gate bits: 0x508a always set (depth-0 front); sparse deep gates (0x5049/0x504a/0x504d front@d3, 0x504b/0x504c cornerL@d3, 0x50ac-0x50b1) match single-slot predicates byte-exactly; DENSE side gates 0x5073..0x50a5 (~140/266) match NO single-slot predicate (err ~100+) = the cumulative-trapezoid-stack / 0x39ec-jump-table structure. The gate-seeding is a cumulative per-(depth,side) run computation, not a per-slot lookup.",
+      "category": "renderer",
+      "evidence": {"binary": "wmaze.ovr", "type": "data_fit_266_configs", "details": "exhaustive single-predicate (depth.slot ==/>= code) fit per gate offset over 266 configs. Sparse gates err==set-count (clean); dense gates err~100+ (no single-slot rule)."},
+      "confidence": "high"
+    }
+  ],
+  "asm_anchors": [
+    {"space": "wmaze.ovr", "offset": "0x39ec", "name": "classify_dispatch_jumptable", "note": "jmp word cs:[bx+0x7f2c], bx=wallCode*2; the per-slot family dispatch (table @file 0x39c8)."},
+    {"space": "wmaze.ovr", "offset": "0x3931", "name": "gate_seed_post", "note": "seeds the gate array."},
+    {"space": "wmaze.ovr", "offset": "0x4c60", "name": "build_depth_loop"},
+    {"space": "wmaze.ovr", "offset": "0x5042", "name": "gate_array (DGROUP)", "note": "per-(depth,slot) gate bits; bx = depth*3 + sideParam (0 front / 0xffff left / 1 right). Sub-arrays around 0x5042/0x5067/0x508a/0x50ab."}
+  ],
+  "next": [
+    "Derive the cumulative gate-seeding from the 266-config dataset: model the per-(depth,side) cumulative OPEN-run (the trapezoid stack) + the 0x39ec dispatch cases (codes 1/2/3/6/8/0xa/0xb/0xd set the gate; 7/9 solid) -> predict the dense gates 0x5073..0x50a5. Validate gate-by-gate against the dataset (target: 0 err per gate).",
+    "ALSO needed for full render fidelity: the OR/masked BACKGROUND call-list (FUN_0a93 placements) per config — NOT in the span list; capture by tracing the OR-blit over a settled frame (the pollution that blocked this before is gone: settled states re-blit cleanly each frame). Then the full law = gate-seeding -> placements + spans.",
+    "PRAGMATIC ALTERNATIVE now enabled: capture-replay for level-0. With all 266 reachable configs' engine span lists captured (+ framebuffer oracles), commit them and render by replay (like the 32 wall-cases generalized to 266) -> faithful level-0 WITHOUT the general law. The law is then only needed for levels 1-N / arbitrary geometry."
+  ]
+}
