@@ -10,8 +10,9 @@
  *
  * Input:  a dir of engine framebuffer oracles (maze-freeroam-gxNN-gyNN-fF.idx.gz, full
  *         320×200 EGA-index), captured via `trace-maze.ts collmap`+`collcapture`.
- * Output: tools/parity/fixtures/engine/maze-viewport-oracles.json — { cases: [{ configKey,
- *         gx, gy, facing, viewportB64 }] } where viewportB64 = base64(gzip(176×112 idx)).
+ * Output: tools/parity/fixtures/engine/maze-viewport-oracles.json — { cases: [{ posKey,
+ *         gx, gy, facing, viewportB64 }] } where posKey = "gx,gy,facing" and viewportB64 =
+ *         base64(gzip(176×112 idx)). One oracle per reachable position (no geometry dedup).
  *
  * Run: pnpm tsx tools/parity/build-viewport-oracles.ts [oracleDir]
  */
