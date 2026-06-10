@@ -3110,6 +3110,58 @@ async function phaseDeepDoorSpans(c: HostClient): Promise<void> {
 }
 
 /**
+ * `menuredraw <gx> <gy> <facing>` — test whether a NON-MOVEMENT forced redraw (the
+ * OPTIONS menu round-trip, ENTER→ESC) re-runs the BUILD loop at the current cell.
+ * The gate look-back (gy121-f2) blocks the forward-step full recompose, and a turn
+ * is dirty — so if a menu return forces a full rebuild, it would emit the missing
+ * recess-interior FUN_1c94 spans (#077). Reads the 0x50d0 span count before and
+ * after the menu round-trip; growth = a forced rebuild we can capture.
+ */
+async function phaseMenuRedraw(c: HostClient): Promise<void> {
+  const gx = Number(process.argv[3]), gy = Number(process.argv[4]), facing = Number(process.argv[5]);
+  if (![gx, gy, facing].every(Number.isFinite)) { console.log('usage: menuredraw <gx> <gy> <facing>'); return; }
+  const SPAN_COUNT = 0x50ce, SPAN_LIST = 0x50d0, REC = 0xb;
+  const rd16 = async (base: number, off: number) => u16(await c.read(base + off, 2), 0);
+  const readSpans = async (base: number) => {
+    const cnt = await rd16(base, SPAN_COUNT); const spans: any[] = [];
+    if (cnt > 0 && cnt <= 0x1e) { const sb = await c.read(base + SPAN_LIST, cnt * REC);
+      for (let i = 0; i < cnt; i++) { const o = i * REC; spans.push({ x0: u16(sb, o), x1: u16(sb, o + 2), clipLo: u16(sb, o + 4), clipHi: u16(sb, o + 6), wt: sb[o + 8]!, sm: sb[o + 9]!, df: sb[o + 10]! }); } }
+    return { cnt, spans };
+  };
+  const { loadLevel0, pathTo, ENGINE_ENTRANCE } = await import('../parity/maze-view-cases.js');
+  const { block } = loadLevel0();
+  const path = pathTo(block, ENGINE_ENTRANCE, { gx, gy, facing });
+  if (!path) { console.log('unreachable'); return; }
+  const base = await driveToFreeRoam(c);
+  const ent = '/tmp/wiz6-menuredraw.state'; await c.serialize(ent);
+  await c.unserialize(ent); await c.step(2); const b = await c.anchor();
+  await frDrivePath(c, b, path);
+  const at = await frParty(c, b);
+  console.log(`arrived gx${at.gx} gy${at.gy} f${at.f} gs${at.gs}`);
+  if (at.gx !== gx || at.gy !== gy || at.f !== facing) { console.log('MISMATCH abort'); return; }
+  await c.step(80);
+  const before = await readSpans(b);
+  console.log(`SETTLED span count=${before.cnt}: ${before.spans.map((s: any) => `[${s.x0},wt${s.wt},sm${s.sm},df${s.df}]`).join(' ')}`);
+  // Try several non-movement triggers; after each, read the game_state + span count.
+  const triggers: Array<[string, () => Promise<void>]> = [
+    ['ENTER(open)+ESC(close)', async () => { await c.key('enter', 'tap'); await c.step(60); await c.key('esc', 'tap'); await c.step(80); }],
+    ['ENTER x2', async () => { await c.key('enter', 'tap'); await c.step(60); await c.key('enter', 'tap'); await c.step(80); }],
+    ['ESC+ESC', async () => { await c.key('esc', 'tap'); await c.step(40); await c.key('esc', 'tap'); await c.step(80); }],
+  ];
+  for (const [label, fn] of triggers) {
+    await c.unserialize(ent); await c.step(2); const bb = await c.anchor();
+    await frDrivePath(c, bb, path); await c.step(80);
+    const gsBefore = await rd16(bb, 0x363a);
+    await fn();
+    const gsAfter = await rd16(bb, 0x363a);
+    const after = await readSpans(bb);
+    const grew = after.cnt > before.cnt;
+    console.log(`  ${label}: gs ${gsBefore}->${gsAfter}  span count ${before.cnt}->${after.cnt} ${grew ? '*** GREW (forced rebuild!) ***' : '(no rebuild)'}`);
+    if (grew) console.log(`    new spans: ${after.spans.map((s: any) => `[${s.x0},wt${s.wt},sm${s.sm},df${s.df}]`).join(' ')}`);
+  }
+}
+
+/**
  * `spanlist <gx> <gy> <facing> [out]` — drive free-roam to ANY zone-0 view and dump
  * the SETTLED DGROUP 0x50d0 wall-span list (the FUN_1c94 wall-compositor spans). The
  * settled read retains the cached deep pieces (proven by the gy121 deep-door, which
@@ -3952,6 +4004,7 @@ async function main() {
     else if (phase === 'spanlist') await phaseSpanList(c);
     else if (phase === 'gatecaplist') await phaseGateCapList(c);
     else if (phase === 'doorturn') await phaseDoorTurn(c);
+    else if (phase === 'menuredraw') await phaseMenuRedraw(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
