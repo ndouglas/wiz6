@@ -1925,6 +1925,11 @@ let PLACEMENTS_STATE = CLEAN_STATE;
 // the original facing/cell) instead of a forward step. Needed for gy=121: a
 // forward forceRedraw would walk the party off the captured cell mid-trace.
 let PLACEMENTS_INPLACE = false;
+// When set (e.g. 'right'), the capture trigger is a SINGLE turn in this direction —
+// used to capture the FIRST render of a facing (uncached → FULL recompose, unlike the
+// turn-away-and-back in-place trigger which dirty-redraws the already-cached facing).
+// The PLACEMENTS_STATE must be pre-positioned ONE turn short of the target facing.
+let PLACEMENTS_SINGLE_TURN: 'left' | 'right' | null = null;
 // When set, phasePlacements grabs the framebuffer FROM THE SAME compose it traced
 // (one final unserialize(PLACEMENTS_STATE) + the identical trigger + c.fb), writing
 // raw RGBA to this path. This is the frame-sync fix: the call-list and framebuffer
@@ -1977,6 +1982,16 @@ async function phasePlacements(c: HostClient): Promise<void> {
   // order. Take the FIRST compose pass = the prefix before the OR head recurs.
   const traceAll = async (pt: number): Promise<TraceRecord[]> => {
     await c.unserialize(CLEAN_STATE); await c.step(2);
+    if (PLACEMENTS_SINGLE_TURN) {
+      // FIRST render of the target facing: state is one turn short; arm, then a
+      // SINGLE turn lands the (uncached) target facing = a FULL recompose.
+      await c.traceSet(pt); await c.traceDrain();
+      const out: TraceRecord[] = [];
+      await c.key(PLACEMENTS_SINGLE_TURN, 'tap');
+      for (let i = 0; i < 18; i++) { await c.step(4); for (const r of await c.traceDrain()) out.push(r); }
+      await c.traceOff();
+      return out;
+    }
     if (PLACEMENTS_INPLACE) {
       // In-place: turn left (redraw at facing-3), settle, drain (discard), THEN
       // arm the trace and turn right (redraw back at the ORIGINAL facing/cell).
@@ -2002,7 +2017,9 @@ async function phasePlacements(c: HostClient): Promise<void> {
   // framebuffer is the rendered result of the call-list traced below — same frame.
   const grabSyncedFb = async (out: string): Promise<void> => {
     await c.unserialize(CLEAN_STATE); await c.step(2);
-    if (PLACEMENTS_INPLACE) {
+    if (PLACEMENTS_SINGLE_TURN) {
+      await c.key(PLACEMENTS_SINGLE_TURN, 'tap'); await c.step(80);
+    } else if (PLACEMENTS_INPLACE) {
       await c.key('left', 'tap'); await c.step(40);
       await c.key('right', 'tap'); await c.step(80);
     } else {
@@ -3205,7 +3222,7 @@ async function phaseGateCapList(c: HostClient): Promise<void> {
   const moved = await frMove(c, b, 'up');
   const after = await frParty(c, b);
   console.log(`forward-step probe: moved=${moved} (gy${before.gy}->gy${after.gy})`);
-  if (!moved) { console.log('forward step BLOCKED — full recompose unreachable for this view, abort'); return; }
+  if (!moved) console.log('forward step BLOCKED (wall/gate) — tracing the BUMP recompose instead (may be full).');
   // Re-arrive at the target (the probe consumed one step), then serialize.
   let b2: number | null = null;
   for (let attempt = 1; attempt <= 8 && b2 === null; attempt++) b2 = await navOnce();
@@ -3218,6 +3235,32 @@ async function phaseGateCapList(c: HostClient): Promise<void> {
   PLACEMENTS_INPLACE = false;
   PLACEMENTS_FB_OUT = `/tmp/wiz6-gatecaplist-${gx}-${gy}-${facing}.fb`;
   FORWARD_KEY = 'up';
+  process.argv[3] = outFile;
+  await phasePlacements(c);
+}
+
+/**
+ * `doorturn` — capture the gate look-back (gx127 gy121 f2) call-list via the FIRST
+ * turn to facing 2 (the uncached → FULL recompose), since its forward step is
+ * gate-blocked and its in-place turn-back is dirty (0 masked). Drives to gy121,
+ * lands facing 1 (one right-turn short of 2), serializes, then traces the single
+ * right turn 1→2. If the door-recess is drawn via the masked branch, THIS is where
+ * the masked calls appear.
+ */
+async function phaseDoorTurn(c: HostClient): Promise<void> {
+  const outFile = process.argv[3] ?? '/tmp/wiz6-doorturn.json';
+  const base = await driveToFreeRoam(c); // lands gx127 gy121 f0
+  // Turn right once: f0 -> f1 (one short of the f2 gate look-back).
+  await c.key('right', 'tap'); await c.step(45);
+  const at = await frParty(c, base);
+  console.log(`positioned: gx${at.gx} gy${at.gy} f${at.f} (want f1, one short of f2)`);
+  if (at.gx !== 127 || at.gy !== 121 || at.f !== 1) { console.log('NOT at gx127 gy121 f1 — abort'); return; }
+  const st = '/tmp/wiz6-doorturn-f1.state';
+  await c.serialize(st);
+  PLACEMENTS_STATE = st;
+  PLACEMENTS_SINGLE_TURN = 'right'; // f1 -> f2, first render of f2 = full recompose
+  PLACEMENTS_INPLACE = false;
+  PLACEMENTS_FB_OUT = '/tmp/wiz6-doorturn.fb';
   process.argv[3] = outFile;
   await phasePlacements(c);
 }
@@ -3908,6 +3951,7 @@ async function main() {
     else if (phase === 'deepdoorspans') await phaseDeepDoorSpans(c);
     else if (phase === 'spanlist') await phaseSpanList(c);
     else if (phase === 'gatecaplist') await phaseGateCapList(c);
+    else if (phase === 'doorturn') await phaseDoorTurn(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');

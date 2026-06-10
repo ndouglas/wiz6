@@ -1,0 +1,118 @@
+{
+  "topic": "maze-doorrecess-source",
+  "subagent_run": "2026-06-09 (static disasm pass: ega.drv FUN_0a93 OR-vs-masked branch law + the source seg/offset formula for img11-22 vs img0-10; ndisasm + cross-check vs prior captured call-lists)",
+  "binaries": ["ega.drv", "wmaze.ovr"],
+  "tool": "ndisasm -b 16 over python-sliced ega.drv/wmaze.ovr regions; cross-checked vs the committed gy121 call-list fixture (packages/parser/src/maze/__fixtures__/maze-corridor-callist-gy121.json), maze-masked-mirror.json (byte-exact masked geometry), maze-deepdoor-drawpath.json, and the port (packages/parser/src/maze/{maze-data,callist,background}.ts). Ghidra decompiler NOT trusted for these overlay routines per the brief; all claims hand-read from the listing.",
+  "summary": "RESOLVED — the door-recess arch img11-22 (placement 23-34) is NOT a different source-segment/offset formula, NOT compressed, and NOT clipped differently. The source seg+offset arithmetic in ega.drv FUN_0a93 is UNIFORM for ALL image indices (img0-22 identical): descriptor = [cs:0x18e] + 5*imgIdx (5-byte records {u16 segDelta, u8 srcOffLow, u8 w, u8 h}); ds = [cs:0x149] + segDelta; raw 4-plane planar source, plane stride = w*h, NO banking and NO decompression on this path. So candidates #1, #2, and #4 are REFUTED by the disassembly. The real law is candidate #3: FUN_0a93 has TWO draw branches selected by arg [bp+0x10]. When [bp+0x10] == 0xFFFF (0xaa1: `cmp ax,0xffff; jz`) it takes the OR branch (file 0xaa9) — a plain forward OR-fill of the placement's own image (lodsb; or al,[es:di]; stosb). When [bp+0x10] != 0xFFFF it takes the MASKED branch (file 0xbc6, `jmp 0xbc6`) — [bp+0x10] is then a SECOND placement index supplying the DEST geometry while [bp+0xc] supplies the SOURCE image; the masked branch reads the source BACKWARD (`mov al,[si]; dec si`) through the CS:[0x192] 8-bit bit-reverse LUT (a horizontal mirror) and can REPLACE-carve black (the `mode` flag [bp+0xe]: nonzero=OR-merge, 0=`rep movsb` REPLACE). The gate look-back (party AT the gate, depth-0, head-on portcullis) is the MASKED-HEAVY view (prior capture: ~14 OR + ~24 masked); the corridor-down-the-hall view (gy121-f0, committed fixture) is OR-heavy with only 4 masked near-panel pairs and does NOT use img11-22 at all. Our port overdraws img11-22 SOLID because its per-view call-LIST GENERATOR emits the depth-0 door-recess pieces as forward OR placements (orPlacementFor) instead of MASKED-mirror/REPLACE calls — the OR-fill sets every pixel of the dense planar source, whereas the engine routes those same pieces through the masked branch so the bit-reverse + REPLACE/AND-transparency leaves the lattice gaps black. The fix is in the call-list generator (callist.ts / placement-selection), NOT the OR-blit, NOT the source-offset math, NOT a decoder: emit the depth-0 door-recess family (placement 23-34) as `masked` calls (the engine's [bp+0x10]!=0xffff path), with the dst-geometry placement the depth-0 head-on door emitter supplies — exactly the path maze-masked-mirror.json already reproduces byte-exact per-call. The 'one cell back renders fine' clue is consistent: depth>=1 door pieces are emitted through the already-correct OR/wall-span path, only the depth-0 head-on emit routes through the masked carve.",
+  "branch_selector": {
+    "claim": "FUN_0a93 selects OR vs MASKED on arg [bp+0x10]: ==0xFFFF -> OR branch (0xaa9), else MASKED branch (0xbc6). The masked branch reuses [bp+0x10] as a placement index for the DEST geometry.",
+    "evidence": {
+      "binary": "ega.drv",
+      "address": {"space": "ega.drv", "offset": "0xa9e"},
+      "type": "disasm",
+      "details": "0xa9e: `8b46 10` mov ax,[bp+0x10]; 0xaa1: `3dffff` cmp ax,0xffff; 0xaa4: `7403` jz 0xaa9 (OR branch); 0xaa6: `e91d01` jmp 0xbc6 (MASKED branch). In the masked branch the same arg is reloaded and indexed: 0xbf0 `8b4610` mov ax,[bp+0x10]; 0xbf3 `bb0500` mov bx,5; 0xbf6 `f7e3` mul bx; 0xbf8 `2e0306 9001` add ax,[cs:0x190]; 0xbfd `8bf0` mov si,ax — i.e. si = placementTable + 5*[bp+0x10] (the DEST placement)."
+    },
+    "confidence": "high"
+  },
+  "findings": [
+    {
+      "id": "source-formula-uniform-all-images",
+      "claim": "The source SEGMENT + OFFSET arithmetic is identical for every imgIdx (img0-10 and img11-22 alike): descriptor record = [cs:0x18e] + 5*imgIdx, 5-byte layout {u16 segDelta @+0, u8 srcOffLow @+2, u8 w @+3, u8 h @+4}; source segment ds = [cs:0x149] + segDelta; plane stride = w*h. No high-index bank switch, no extra indirection. REFUTES candidate #1.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xaea"},
+        "type": "disasm",
+        "details": "OR branch descriptor fetch: 0xaea `8a04` mov al,[si] (imgIdx = placement byte0); 0xaec `b305` mov bl,5; 0xaee `f6e3` mul bl; 0xaf0 `2e0306 8e01` add ax,[cs:0x18e]; 0xaf5 `8bd8` mov bx,ax. Then 0xaf7 `8a4f03` cl=[bx+3] (w), 0xb01 `8a4f04` cl=[bx+4] (h), 0xb04 `8a4703` al=[bx+3]; 0xb07 `f6e1` mul cl -> [bp-2]=w*h plane stride; 0xb0e `8a4702` al=[bx+2] (srcOffLow); 0xb18 `8cda` dx=ds; 0xb1a `0317` add dx,[bx] (segDelta word); 0xb1c `8eda` ds=dx. The MASKED branch (0xbe2 `8a04` al=[si]; 0xbe6 `f6e3` mul 5; 0xbe8 add [cs:0x18e]) uses the SAME 5*imgIdx + [cs:0x18e] descriptor fetch. No imgIdx>=11 special case anywhere in 0xa93..0xd2e."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "or-branch-is-raw-planar-no-decompression",
+      "claim": "The OR branch (0xaa9) is a raw 4-plane planar OR-fill with no decompression: for each of 4 planes it does `cx` iterations of `lodsb; or al,[es:di]; stosb`, advancing dest by 0x2000/0x4000/0x6000 per plane and source by the w*h plane stride. Every source byte is OR'd into the page — it can only SET pixels, never carve black. This is exactly our port's orPlacementFor, and is why OR-filling img11-22 overdraws solid. REFUTES candidate #2 (img11-22 are not a compressed/RLE path).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xb2c"},
+        "type": "disasm",
+        "details": "0xb2c push cx; 0xb2d `ac` lodsb; 0xb2e `260a05` or al,[es:di]; 0xb31 `aa` stosb; 0xb32 `e2f9` loop. Plane 2: 0xb3a add di,0x2000; 0xb3e `0376fe` add si,[bp-2]. Plane 3: di+=0x4000; si+=2*[bp-2]. Plane 4: di+=0x6000; si+=3*[bp-2]. (When [bp+0xe]==0 the OR is replaced by `f3a4` rep movsb at 0xb7b — a straight copy, still no transparency.) Source stride [bp-2]=w*h set at 0xb04-0xb09. No decode/decompress step between read and merge."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "masked-branch-carves-via-bitrev-and-replace",
+      "claim": "The MASKED branch (0xbc6) is the only FUN_0a93 path that can carve black gaps — exactly what the portcullis lattice needs. It reads the source BACKWARD (horizontal mirror) through the CS:[0x192] bit-reverse LUT and merges either OR ([bp+0xe]!=0) or REPLACE/copy ([bp+0xe]==0, `rep movsb`-style). dst geometry comes from placement [bp+0x10]; source image from placement [bp+0xc]'s descriptor. The masked source offset is computed as al=[desc+2]+([desc+3]-1)-recBias (start at end-of-row, read down). This branch's per-call write is already byte-exact in our port (maze-masked-mirror.json, 504/504). CONFIRMS candidate #3.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xc3e"},
+        "type": "disasm",
+        "details": "0xc3e `8a4702` al=[bx+2] (srcOffLow); 0xc43 `8a5703` dl=[bx+3] (w); 0xc46 `4a` dec dx (w-1); 0xc47 `03c2` add ax,dx; 0xc49 `8a5403` dl=[si+3] (bias); 0xc4c `2bc2` sub ax,dx -> source = srcOffLow+(w-1)-bias. 0xc54 `bb9201` bx=0x192 (xlat base). Inner OR: 0xc66 `8a04` al=[si]; 0xc68 `4e` dec si; 0xc69 `2ed7` cs xlatb (bit-reverse); 0xc6b `260a05` or al,[es:di]; 0xc6e `aa` stosb. REPLACE variant at 0xcc3 (xlatb then stosb, no OR). The `dec si` per byte = backward read; the xlat = the 8-px bit-reverse mirror. CS:[0x192]=256-byte bit-reverse LUT (verified 256/256 in maze-masked-mirror.json#byte_exact_result.lut)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "or-replace-flag-is-bp0e",
+      "claim": "Within BOTH branches, arg [bp+0xe] toggles OR-merge vs straight copy/REPLACE: nonzero -> OR (`or al,[es:di]`), zero -> copy (`rep movsb` in the OR branch, plain `stosb` in the masked branch). So the engine emits three flavours of FUN_0a93 call: forward-OR (arg10=0xffff, arg0e!=0), masked-mirror-OR (arg10=placement, arg0e!=0), masked-mirror-REPLACE (arg10=placement, arg0e==0). The REPLACE/copy variants are what carve void/black into the page.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xb26"},
+        "type": "disasm",
+        "details": "OR branch: 0xb26 `837e0e00` cmp word [bp+0xe],0; 0xb2a `744e` jz 0xb7a (the `rep movsb` copy block). MASKED branch: 0xc5f `837e0e00` cmp word [bp+0xe],0; 0xc63 `745e` jz 0xcc3 (the plain-stosb carve block). Matches maze-masked-mirror.json#concerns ([bp+0xe] nonzero=OR, 0=REPLACE)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "destx-signed-bias-applied-both-branches",
+      "claim": "Both branches compute the dest plane-0 address as di = signExtend(destX)+bias+0x28*destRow (destX = placement byte1 sign-extended via cbw, bias = placement byte3, destRow = byte2; 0x28=40 bytes/page-row). This geometry math is uniform and is NOT the source of the door-recess overdraw (already fixed in the port, maze-data.ts signExtendDestX). Listed to rule out candidate #4 (no per-call clip/per-row width differs for img11-22; the per-row byte count cx = placement byte4 'count' is read the same way for all).",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "ega.drv",
+        "address": {"space": "ega.drv", "offset": "0xad4"},
+        "type": "disasm",
+        "details": "OR: 0xad4 `8a4401` al=[si+1]; 0xad7 `98` cbw (SIGN-extend destX); 0xad8 `8a5c03` bl=[si+3] bias; 0xadd add ax,bx; 0xadf di=ax; 0xae1 al=[si+2]; 0xae4 cl=0x28; 0xae6 mul cl; 0xae8 add di,ax. MASKED: identical at 0xc0e-0xc22. cx (bytes/row) = [si+4] count, set at 0xac7/0xc01. No extra clip arg consumed; clip lives in the wall-span path (0xf148), not FUN_0a93."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "depth0-door-routes-through-masked-not-or",
+      "claim": "The depth-0 head-on door (party AT the gate) is the special-cased emit: it routes the door-recess pieces through the MASKED branch (arg10=placement, carve), whereas depth>=1 door pieces (one cell back) go through the OR / wall-span path that the port already reproduces. Evidence: the gate look-back capture is masked-heavy (~14 OR + 24 masked per maze-masked-mirror.json#masked-callist-fromasset-frame-mismatch-confirmed: 'gate look-back gy121-f2: 14 OR + 24 masked'), while gy121-f0 (corridor straight ahead, committed fixture) is OR-heavy (27 OR + 4 masked) and never references img11-22. This matches the human clue exactly: depth-0 munged, depth-1 fine.",
+      "category": "render_algorithm",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4ad7"},
+        "type": "live_capture_cross_reference",
+        "details": "Committed gy121-f0 list (packages/parser/src/maze/__fixtures__/maze-corridor-callist-gy121.json): 27 OR + 4 masked (13->4,10->7,7->10,4->13), no door-recess. maze-masked-mirror.json records the gate look-back (gy121-f2) as 14 OR + 24 masked and the dead-end (gy123-f0) as 7 OR + 12 masked — the masked count balloons exactly in the head-on-portcullis views. The depth loop (0x4ad7 view_render_corridor_frame / 0x4c60 build loop) is the SELECTION site; the per-depth slot helpers (0x3828/0x3c11/0x3dce/0x4892) that choose arg10=0xffff vs a dst-placement defeat the decompiler and were not byte-pinned in this static pass."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "symbol_map": {
+    "ega.drv:0xa93": "blit_orblit_dispatch (FUN_0a93, dispatch entry 15) — OR-fill / masked-mirror compositor; near-cdecl args [bp+0xc]=src placement idx, [bp+0xe]=OR(!=0)/REPLACE(==0) flag, [bp+0x10]=0xffff->OR else dst placement idx (masked)",
+    "ega.drv:0xaa9": "orblit_or_branch — forward 4-plane OR-fill of placement's own image (raw planar, no carve)",
+    "ega.drv:0xbc6": "orblit_masked_branch — horizontal-mirror (backward read + CS:[0x192] bitrev) into dst-placement geometry; OR or REPLACE carve",
+    "ega.drv:0x192": "blit_bitrev_lut — 256-byte 8-bit bit-reverse table (xlat base for the masked branch)",
+    "ega.drv:cs:0x149": "blit_src_base_seg — source segment base; ds = this + descriptor.segDelta",
+    "ega.drv:cs:0x14d": "blit_dest_page_seg — off-screen compose page segment (es)",
+    "ega.drv:cs:0x18e": "blit_descriptor_table_ptr — image-descriptor table base (5-byte {u16 segDelta,u8 srcOffLow,u8 w,u8 h})",
+    "ega.drv:cs:0x190": "blit_placement_table_ptr — placement table base (5-byte {u8 imgIdx,u8 destX(signed),u8 destRow,u8 bias,u8 count})",
+    "wmaze.ovr:0x4ad7": "view_render_corridor_frame — per-view depth loop that SELECTS the FUN_0a93 call list (OR vs masked) per (zone,facing,geometry)"
+  },
+  "crack_or_blocker": {
+    "status": "CRACKED (the source/draw law) — port-side generation gap REMAINS",
+    "source_offset_law": "UNIFORM across img0-22: ds=[cs:0x149]+descriptor.segDelta, srcOff=descriptor.srcOffLow(+bias), plane stride=w*h, raw 4-plane planar. NOT compressed, NO banking, NO high-index special case. The port's orPlacementFor + maskedMirrorFor already implement both formulas byte-exact.",
+    "why_port_overdraws": "Our per-view CALL-LIST GENERATOR (packages/parser/src/maze/callist.ts) emits the depth-0 door-recess family (placement 23-34 / img11-22) as forward OR placements (orPlacementFor -> FUN_0a93 OR branch). The OR branch can only SET pixels, so the dense planar door source fills solid (~1208 stray pixels). The engine instead routes those depth-0 head-on door pieces through the MASKED branch (arg10=a dst placement index), where the backward bit-reverse read + REPLACE/copy carve leaves the lattice gaps black.",
+    "fix": "In the call-list generator for the depth-0 head-on door view, emit the door-recess pieces (placement 23-34) as `masked` calls (maskedMirrorFor / applyMaskedMirror), NOT `orPlacementFor`. The masked geometry+merge is already byte-exact (maze-masked-mirror.json, 504/504). What is NOT yet pinned is the exact (src-placement, dst-placement, mode) tuples the depth-0 emitter produces — i.e. WHICH placement supplies the dst geometry for each img11-22 carve. That selection is decided by the wmaze depth-loop slot helpers (0x3828/0x3c11/0x3dce/0x4892) at 0x4ad7, which defeat the decompiler; resolving it needs a LIVE capture of the gate-look-back (gy121-f2 / depth-0 head-on) FUN_0a93 call list on the patched trace core (the same method that captured the gy121-f0 list), then replay maskedMirrorFor over those tuples. Do NOT mirror-pair / hand-fit the right-half bars (already RULED OUT in the brief) — capture the engine's actual arg10 dst-placement per masked call.",
+    "candidate_verdicts": {
+      "1_different_source_arithmetic": "REFUTED — descriptor fetch + seg/offset math identical for all imgIdx (see source-formula-uniform-all-images).",
+      "2_compressed_path": "REFUTED — OR branch is raw planar lodsb/or/stosb, no decode (see or-branch-is-raw-planar-no-decompression).",
+      "3_masked_replace_branch": "CONFIRMED — door-recess must go through the 0xbc6 masked branch (backward bitrev + REPLACE/OR) to carve the lattice; this is the missing routing (see masked-branch-carves-via-bitrev-and-replace + depth0-door-routes-through-masked-not-or).",
+      "4_per_call_clip_or_width": "REFUTED — di/cx geometry uniform; clip is in the wall-span path (0xf148), not FUN_0a93 (see destx-signed-bias-applied-both-branches)."
+    }
+  },
+  "unresolved": [
+    "The exact (src-placement, dst-placement, mode) tuples the depth-0 head-on door emitter feeds to FUN_0a93's masked branch for img11-22 — needs a LIVE gy121-f2 (or any depth-0 head-on portcullis) call-list capture; the wmaze slot helpers 0x3828/0x3c11/0x3dce/0x4892 defeat the static decompiler.",
+    "Whether the depth-0 door carves are OR-mode masked (arg0e!=0) or REPLACE-mode masked (arg0e==0) — the gate look-back capture in maze-masked-mirror.json had calls 0-18 OR then 20+ REPLACE; need the door-recess subset's mode confirmed against the captured arg0e per call."
+  ]
+}
