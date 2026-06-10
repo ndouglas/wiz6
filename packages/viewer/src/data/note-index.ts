@@ -264,6 +264,13 @@ export const NOTE_INDEX: NoteIndexEntry[] = [
       'A stubborn smear of mismatched pixels at the corridor’s vanishing point looked like dithered-stone texture noise and capped the renderer for a dozen passes. It wasn’t noise. It was a single door-leaf tile animating between two frames — a 1-pixel flicker — and our static screenshot had frozen the other frame.',
     tags: ['maze', 'reimplementation', 'quirk', 'engine'],
   },
+  {
+    id: 'phantom-encounter-frozen-dice',
+    title: 'The Phantom Encounter Our Mapper Froze In Time',
+    pitch:
+      'Wiz6 rolls a wandering-monster check on nearly every step. Our dungeon mapper happened to roll combat once while probing a single tile and recorded it as a permanent "encounter here" — an invisible wall in the port. It was a dice roll, not a place.',
+    tags: ['maze', 'combat', 'reimplementation', 'quirk'],
+  },
 ];
 
 export function findNote(id: string): NoteIndexEntry | undefined {

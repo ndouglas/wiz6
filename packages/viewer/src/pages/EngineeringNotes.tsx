@@ -1909,6 +1909,70 @@ call  emit_or_blit`}</CodeBlock>
       { label: 'findings: maze-callist-generation.json', href: '/explore/docs/findings/maze-callist-generation.json' },
     ],
   },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'phantom-encounter-frozen-dice',
+    title: 'The Phantom Encounter Our Mapper Froze In Time',
+    tags: ['maze', 'combat', 'reimplementation', 'quirk'],
+    pitch:
+      'Wiz6 rolls a wandering-monster check on nearly every step. Our dungeon mapper happened to roll combat once while probing a single tile and recorded it as a permanent "encounter here" — an invisible wall in the port. It was a dice roll, not a place.',
+    body: (
+      <>
+        <ProseRow>
+          To make movement in our port match the original exactly, we drove the real
+          engine through the whole reachable dungeon and recorded, for every cell and
+          facing, whether stepping forward was <Code>open</Code> or <Code>blocked</Code>.
+          One tile near the entrance corridor &mdash; <Code>(131,121)</Code> facing west
+          &mdash; came back as neither. It came back as <strong>encounter</strong>: the
+          forward step had dropped the engine into combat.
+        </ProseRow>
+        <ProseRow>
+          Since we haven&rsquo;t implemented combat yet, the port treated that verdict as
+          a no-op &mdash; so the player could walk east to the wall, turn around, and then{' '}
+          <em>not</em> walk back. An invisible barrier, on exactly one tile, in exactly
+          one direction. It looked scripted.
+        </ProseRow>
+        <ProseRow>
+          It wasn&rsquo;t. We re-rolled that same westward step twelve times from the same
+          saved state, nudging the RNG phase between tries:
+        </ProseRow>
+        <CodeBlock>
+{`trace-maze.ts encprobe n-131_121_3.state up 12
+  trial 0:  ENCOUNTER
+  trial 1..11:  clean move -> (130,121)
+  => 1/12 ENCOUNTERS  → RANDOM`}
+        </CodeBlock>
+        <ProseRow>
+          Eleven clean steps, one ambush. Wizardry 6 runs a wandering-monster check on
+          (nearly) every step you take &mdash; here it fired about <strong>8%</strong> of
+          the time. The wall the geometry actually has at that edge is{' '}
+          <Code>open</Code> (code 0); the &ldquo;encounter&rdquo; was a die landing badly
+          while we happened to be looking. We&rsquo;d frozen a single random roll into the
+          map as if it were a property of the place.
+        </ProseRow>
+        <ProseRow>
+          The same randomness fought us the other way too. When we later captured a clean
+          first-person frame for every walkable view by driving the engine cell-to-cell,
+          the mapper kept getting ambushed mid-walk &mdash; so it learned to{' '}
+          <strong>dodge</strong>: on an encounter it would reload the prior cell, idle a
+          few extra frames to advance the RNG into a different phase, and retry the step.
+          That trick only works <em>because</em> the encounter is random; a scripted one
+          would fire every time. The dodge succeeding was itself the proof.
+        </ProseRow>
+        <Aside title="The fix">
+          We reclassified that lone tile back to <Code>open</Code> &mdash; you can walk
+          west now. Wandering monsters will come back as what they actually are: a
+          per-step dice roll, not a wall. The lesson for any differential-mapping work:
+          a single observation of a <em>random</em> event can masquerade as a fixed fact.
+          Probe it more than once.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'findings: maze-collision-model.json', href: '/explore/docs/findings/maze-collision-model.json' },
+    ],
+  },
 ];
 
 const ALL_TAGS: Tag[] = [
