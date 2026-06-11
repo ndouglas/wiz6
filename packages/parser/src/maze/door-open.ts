@@ -23,6 +23,7 @@ export interface ForceMember {
   str: number;
   spCur: number;
   spMax: number;
+  // forward-looking: consumed by Stage 4 side-effects
   level: number;
   skulduggery: number;
   class: number;
@@ -31,6 +32,7 @@ export interface ForceMember {
 export interface PickMember {
   level: number;
   skulduggery: number;
+  // forward-looking: consumed by Stage 4 side-effects
   class: number;
 }
 
@@ -41,10 +43,6 @@ export interface PartyPos {
 }
 
 export type DoorOutcome = 'success' | 'failure' | 'jammed';
-
-// ---------------------------------------------------------------------------
-// Function 1 — strainBarLength
-// ---------------------------------------------------------------------------
 
 /**
  * Engine strain-bar length: clamp(18 - STR + 2*lock, 1, 18); 18 if welded.
@@ -59,10 +57,6 @@ export function strainBarLength(
   return clamp(DOOR_ROLL.strainMax - str + 2 * lock, 1, DOOR_ROLL.strainMax);
 }
 
-// ---------------------------------------------------------------------------
-// Function 2 — forceAttempt
-// ---------------------------------------------------------------------------
-
 /**
  * Roll a FORCE attempt against the door and return the outcome.
  *
@@ -71,7 +65,13 @@ export function strainBarLength(
  *      The SP-drain/collapse side-effect is deferred to the caller (Stage 4).
  *   2. FOUR rng.uniform(max(1, effSTR)) — strength contribution rolls.
  *
- * effSTR = spMax > 0 ? floor(str * spCur / spMax) : 0
+ * effSTR is computed via TWO sequential integer divides (engine wmaze
+ * 0x8bfa..0x8c53, both through the 0xf9ba divide helper) — NOT one collapsed
+ * divide. The order matters under integer math:
+ *   spRatio = floor(spCur * 100 / spMax)   // divide #1
+ *   effSTR  = floor(spRatio * STR / 100)   // divide #2
+ * (guarded: effSTR = 0 when spMax = 0)
+ *
  * progress = clamp(floor(sum / 4), 1, 18)
  * success iff progress >= strainBarLength(str, lock, welded)
  * welded door always returns 'jammed' (after consuming all draws).
@@ -85,8 +85,10 @@ export function forceAttempt(
   // Draw 1: fatigue roll — consumed to keep RNG stream aligned with engine.
   rng.uniform(DOOR_ROLL.fatigueOdds);
 
-  // Effective STR reduced proportionally by current SP.
-  const effSTR = m.spMax > 0 ? Math.floor((m.str * m.spCur) / m.spMax) : 0;
+  // Effective STR reduced proportionally by current SP — TWO sequential
+  // integer divides (engine 0xf9ba divide #1 then #2), not one collapsed divide.
+  const spRatio = m.spMax > 0 ? Math.floor((m.spCur * 100) / m.spMax) : 0;
+  const effSTR = Math.floor((spRatio * m.str) / 100);
   const bound = Math.max(1, effSTR);
 
   // Draw 2..5: four strength rolls.
@@ -102,10 +104,6 @@ export function forceAttempt(
   return progress >= strainLen ? 'success' : 'failure';
 }
 
-// ---------------------------------------------------------------------------
-// Function 3 — pickAttempt
-// ---------------------------------------------------------------------------
-
 /**
  * Roll a PICK attempt against the door and return the outcome.
  *
@@ -114,6 +112,11 @@ export function forceAttempt(
  *
  * Loop tumblers times: draw rng.uniform(skill); if <= 0 mark fail.
  * ALL tumblers are consumed (no short-circuit) to match engine draw count.
+ *
+ * skill may be 0 (level-0 + skulduggery-0 member): WichmannHill.uniform(0)
+ * returns 0 (mirrors the engine rng_next_bounded n<=0 guard), so every tumbler
+ * draws 0 <= 0 and fails. This is faithful — do NOT add a guard the engine
+ * lacks (it would desync the RNG stream).
  *
  * success iff all tumblers pass; welded door always returns 'jammed'
  * (after consuming all draws).
@@ -144,10 +147,6 @@ export function pickAttempt(
   if (welded) return 'jammed';
   return allPass ? 'success' : 'failure';
 }
-
-// ---------------------------------------------------------------------------
-// Function 4 — detectDoorAtParty
-// ---------------------------------------------------------------------------
 
 /**
  * Return the door record at the party's current grid cell + facing, or null.

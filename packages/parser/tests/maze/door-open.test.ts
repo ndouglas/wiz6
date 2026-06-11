@@ -71,6 +71,17 @@ describe('forceAttempt', () => {
     const rng = scriptRng([[50, 7], [18, 17], [18, 17], [18, 17], [18, 17]]);
     expect(forceAttempt(strong, 0, true, rng)).toBe('jammed');
   });
+  it('effSTR uses two-step integer division (str=3, spCur=2, spMax=3 -> effSTR=1)', () => {
+    // spRatio = floor(2*100/3)=66; effSTR = floor(66*3/100)=1  (old collapsed formula gave 2)
+    const m: ForceMember = { str: 3, spCur: 2, spMax: 3, level: 1, skulduggery: 0, class: 0 };
+    const rng = scriptRng([[50, 7], [1, 0], [1, 0], [1, 0], [1, 0]]); // bound MUST be 1, not 2
+    expect(forceAttempt(m, 0, false, rng)).toBe('failure'); // progress=1, strain_len=clamp(18-3+0)=15
+  });
+  it('treats effSTR as 0 when spMax=0', () => {
+    const dead: ForceMember = { str: 18, spCur: 0, spMax: 0, level: 1, skulduggery: 0, class: 0 };
+    const rng = scriptRng([[50, 0], [1, 0], [1, 0], [1, 0], [1, 0]]); // effSTR=0 -> bound=1
+    expect(forceAttempt(dead, 0, false, rng)).toBe('success'); // strain_len=1, progress=1, 1>=1
+  });
 });
 
 // ---------------------------------------------------------------------------
