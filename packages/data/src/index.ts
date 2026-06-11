@@ -386,6 +386,10 @@ export {
   REVIEW_HILITE,
 } from './maze/review-picker.js';
 export {
+  DoorRecordSchema,
+  type DoorRecord,
+} from './schemas/door-record.js';
+export {
   DungeonEntranceSchema,
   ScriptedEntrySchema,
   DungeonLevelSchema,
