@@ -4,7 +4,7 @@
  * Renders the 160×40 (= 20×5 cells, 8px each) bottom-left strip the engine paints over
  * the maze frame when the player chooses OPTIONS → REVIEW (game_state stays 5; only this
  * strip changes). Output is a palette-INDEX buffer of size REVIEW_STRIP.w × REVIEW_STRIP.h
- * — BYTE-EXACT against the engine fixtures (tools/parity/fixtures/engine/review-who-*.idx.gz),
+ * — BYTE-EXACT against the engine fixtures (tools/parity/fixtures/engine/maze-review-who-*.idx.gz),
  * gated by review-picker-parity.test.ts.
  *
  * Layout (verified against the fixtures, palette indices):
