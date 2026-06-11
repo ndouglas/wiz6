@@ -1,0 +1,132 @@
+{
+  "topic": "maze-open-command",
+  "subagent_run": "2026-06-11T00:00:00Z",
+  "binaries": ["wmaze.ovr"],
+  "summary": "Cracked the dungeon PARTY OPTIONS menu and its OPEN command. The 3x3 OPTIONS menu IS dungeon_in_camp_menu (0x2794) — reached from the main-loop input switch (table file 0x304f, dispatched at 0x3061, delta 0x4564) case 4 -> call 0x2794 (the RETURN key). It opens a generic grid menu via menu_grid_select (0x1574) returning grid index 0..8, dispatched through a 9-entry jump table at file 0x2993 (CS-offset 0x6ef7, OVERLAY DELTA 0x4564 = same as wpcmk/wpcvw/wbase/wdopt). OPEN is grid index 0 -> case handler 0x2895 -> call FUN_0000_876e (the open/examine-forward handler) then status_effects_decay_timers(1) (OPEN consumes a turn). KEY RESULT: there is NO FORCE/PICK/KEY submenu and NO STR/skill/lockpick roll inside wmaze's OPEN path. A door/gate either (a) is a scripted special square whose type-7 record opens it directly via FUN_0000_6d62 (door_set), (b) is a closed emblem-gate that just prints a flavor description and stays shut (the engine-handled FAIL/locked path), or (c) is a type-8 special that fires a scripted event. The door-vs-wall GATE for OPEN is the 4-bit per-cell SPECIAL-INDEX at maze-table +0x1f8: OPEN's 0x876e special-cases +0x1f8 == 5 (closed emblem-gate). A plain edge-code-3 STONE WALL has special-index != 5 AND no matching type-7/8 special-square record at the cell, so OPEN finds nothing and is a silent no-op. The Force/Pick/Key recollection most likely conflates with the CHEST UI, which is a separate overlay (state 0x15 -> wtrea), reachable from OPTIONS case 4 (0x95ba) via a type-3 special record, not from the door OPEN path.",
+  "findings": [
+    {
+      "id": "options-menu-is-camp-menu",
+      "claim": "The in-dungeon PARTY OPTIONS 3x3 menu is dungeon_in_camp_menu (0x2794), reached from the dungeon main-loop input switch. The main loop (0x2abc) reads a movement/action key via menu_wait_for_key_or_repaint(0x501e) -> local_4 (0..4), dispatched by a 5-entry jump table at file 0x304f (cs-disp16 0x75b3 at the jmp 0x3061; delta 0x4564). case 4 -> file 0x304a = call 0x2794. So pressing the OPTIONS key (RETURN) in the maze calls dungeon_in_camp_menu, which despite its current name is the PARTY OPTIONS menu, not a separate camp UI.",
+      "category": "dungeon_loop",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x304a"},
+        "type": "disassembly",
+        "details": "0x3061: 2E FF A7 B3 75 = jmp word [cs:bx+0x75b3] (delta 0x4564 -> table file 0x75b3-0x4564=0x304f). Table words: case0 0x7405->0x2ea1, case1 0x741e->0x2eba, case2 0x747c->0x2f18, case3 0x741e->0x2eba, case4 0x75ae->0x304a. file 0x304a: E847F7 = call 0x2794 (dungeon_in_camp_menu)."
+      },
+      "confidence": "high",
+      "applied_name": "dungeon_party_options_menu (suggest rename of 0x2794)"
+    },
+    {
+      "id": "options-dispatch-table",
+      "claim": "dungeon_in_camp_menu (0x2794) sets up menu_grid_select(window, 0x7d5, mask, 1,1,7,3,5,0) at 0x2879 (a 3x3 / 9-cell grid; args pushed right-to-left at 0x2859..0x2876), stores the returned index in [bp-6], guards '< 9' (out-of-range -> default), then dispatches via a 9-entry jump table. The jmp is at file 0x29ad: 2E FF A7 F7 6E = jmp word [cs:bx+0x6ef7]; bx = index*2. Overlay delta is 0x4564 (table CS 0x6ef7 -> file 0x2993). Resolved targets: case0 0x2895, case1 0x28a3, case2 0x28d0, case3 0x2906, case4 0x294b, case5 0x2958, case6 0x295d, case7 0x298c, case8 0x2991(no-op).",
+      "category": "dungeon_loop",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x29ad"},
+        "type": "disassembly",
+        "details": "0x29a5 cmp ax,9; 0x29a8 jnc 0x29b2; 0x29aa xchg ax,bx; 0x29ab shl bx,1; 0x29ad 2E FF A7 F7 6E. Table bytes @ file 0x2993: f9 6d / 07 6e / 34 6e / 6a 6e / af 6e / bc 6e / c1 6e / f0 6e / f5 6e = CS words 0x6df9,0x6e07,0x6e34,0x6e6a,0x6eaf,0x6ebc,0x6ec1,0x6ef0,0x6ef5; subtract 0x4564 -> file 0x2895,0x28a3,0x28d0,0x2906,0x294b,0x2958,0x295d,0x298c,0x2991. Menu args at 0x2859: push 0,5,3,7,1,1,&mask,0x7d5,window then call 0x1574 (menu_grid_select)."
+      },
+      "confidence": "high",
+      "applied_name": null
+    },
+    {
+      "id": "open-is-index-0",
+      "claim": "OPEN is OPTIONS grid index 0 (case handler at file 0x2895), NOT index 4 as the prompt guessed. case0 = call FUN_0000_876e (the door/gate open+examine-forward handler) then mov ax,1; call status_effects_decay_timers (0x1053) — i.e. OPEN advances the status-effect timers by 1 (consumes a turn). It then jmp 0x29b2 (menu teardown / return). The other OPTIONS cases are: case1 (0x28a3) -> VIEW CHARACTER (picker prompt 0x7ea, then game-state *0x363a<-0x11 at 0x28c1, wpcvw); case2 (0x28d0) -> CAST SPELL (prompt 0x7ed, alive-check 0x2086, *0x363a<-0x13 at 0x28f7, wdopt); case3 (0x2906) -> USE ITEM (prompt 0x7ef, alive+inventory check at 0x4594, *0x363a<-0x14 at 0x293d, wdopt); case4 (0x294b) -> call 0x95ba (examine/interact special-square AT YOUR FEET) + advance turn; case5 (0x2958) -> party_remove_member_and_compact (0x1b0b); case6 (0x295d) -> 0x1e90 + RNG -> *0x363a<-0xa (combat); case7 (0x298c) -> 0x2669; case8 = no-op. (Index->label assignment is by reading the handler; the visible grid order in the original may differ from numeric index, see recommend_check.)",
+      "category": "dungeon_loop",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2895"},
+        "type": "disassembly",
+        "details": "0x2895 E8D65E call 0x876e; 0x2898 mov ax,1; push; 0x289c E8B4E7 call 0x1053 (status_effects_decay_timers); 0x28a0 jmp 0x29b2. case1 0x28c1 C7063A361100 *0x363a<-0x11. case2 0x28f7 *0x363a<-0x13. case3 0x293d *0x363a<-0x14. case6 0x2984 *0x363a<-0xa. All non-OPEN action cases also set *0x4fce<-5 (deferred return-to-maze)."
+      },
+      "confidence": "high",
+      "applied_name": "open_command_handler (suggest name FUN_0000_876e)"
+    },
+    {
+      "id": "open-handler-door-gate",
+      "claim": "FUN_0000_876e is the OPEN command handler. It (1) computes party cell = z<<6 + y<<3 + x (z=*0x4f9c, y=*0x4f9e, x=*0x4fa0) at [bp-2]; (2) reads the 4-bit SPECIAL-INDEX at maze-table +0x1f8 for that cell via getbits(count=4, 0xe3c1); (3) if special-index == 5: reads the 2-bit DOOR-ORIENTATION at +0x378 (getbits count=2) and compares to facing *0x4f9a -- if equal (closed emblem-gate facing you) it shows msg 0x7fc ('...A CIRCULAR EMBLEM ON TOP OF THE GATE'), plays sound 4 (call 0xc546), sets result 0; (4) otherwise shows msg 0x7fb ('THE HEAD OF A STRANGE BEAST IS HEWN IN...'), result 1. (5) It then scans the special-square records at the party cell via FUN_0000_366e: a record of TYPE 7 (special byte [0x4fa8+idx+0x360]==7) whose +0x240 wall-plane field (getbit_chunk 0xe3fe with arg facing*1+8) == 2 -> call FUN_0000_850e (the gate-OPEN executor); a record of TYPE 8 -> call FUN_0000_86ac (fire scripted event). So OPEN's reach into the world is entirely via the special-index/+0x378/+0x240/special-record machinery, no party stat or inventory read.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x876e"},
+        "type": "disassembly",
+        "details": "0x8775 cell=z<<6+y<<3+x -> [bp-2]. 0x8790 push 4; push [bp-2]; push [0x4faa]+0x1f8; call 0xe3c1; 0x87a4 cmp ax,5; jnz 0x87e2. 0x87a9 push 2; push [bp-2]; push [0x4faa]+0x378; call 0xe3c1; 0x87bd cmp ax,[0x4f9a]; jnz 0x87e2. 0x87c3 push 0x7fc; call msg(0xe81); 0x87cf call 0xc546(4) (sound). else branch 0x87e2 push 0x7fb; call msg. 0x87f7 loop: call 0x366e(cell-coords) -> rec idx; 0x882b cmp [0x4fa8+si+0x360],7; jnz; 0x8841 push [0x4fa8+si+0x240]; call 0xe3fe(facing,8); 0x884b cmp ax,2; jnz; 0x8853 call 0x850e. 0x8863 cmp [..+0x360],8; 0x886b call 0x86ac."
+      },
+      "confidence": "high",
+      "applied_name": "open_command_handler"
+    },
+    {
+      "id": "open-no-op-gate",
+      "claim": "The no-op gate (why OPEN facing two edge-code-3 STONE WALLS did nothing): OPEN acts only when the party cell carries (a) special-index +0x1f8 == 5 (emblem-gate -> shows a description) OR (b) a special-square record of type 7 or 8 at the cell (FUN_0000_366e match). A plain wall cell (edge-code 3 in the wall plane, but special-index 0 and no special record) satisfies neither: cmp +0x1f8,5 fails (-> shows the generic 0x7fb description path only if it reached, but it is reached unconditionally? NO -- the 0x7fb/0x7fc message is only shown when special-index==5 path is entered; on a plain wall special-index!=5 so the whole message block at 0x87a4..0x87f2 is SKIPPED to 0x87f7), then FUN_0000_366e returns -1 (no record), the loop falls through, and 0x876e returns having drawn nothing and shown no submenu. Hence the silent no-op. NOTE the comparator/skip direction here is the load-bearing claim; mark confirm-live.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x87a4"},
+        "type": "disassembly",
+        "details": "0x87a4 cmp ax,5; 0x87a7 jnz 0x87e2. BUT 0x87e2 is the msg 0x7fb branch -- which means special-index!=5 falls into showing 0x7fb. RE-READ NEEDED: the 0x7fb branch may instead be guarded earlier; the cmp at 0x87a4 jnz lands on 0x87e2 (msg 0x7fb). So on a non-5 cell the engine MAY show 0x7fb ('STRANGE BEAST...') text. Confirm live whether a plain wall shows 0x7fb or truly nothing -- the dynamic test reported NO message, which implies special-index/+0x378 logic is gated by an enclosing condition (likely only entered when a renderable door exists in front) not shown in this snippet's first 100 bytes."
+      },
+      "confidence": "low",
+      "recommend_check": "Live (dosbox_live): in a known dungeon, set bp at 0x876e and 0x87a4; press RETURN -> OPEN facing (1) a plain edge-3 wall and (2) a known emblem-gate. Read AX after the 0x879e getbits (special-index) and after the 0x87b7 getbits (+0x378 door-orient), and the facing *0x4f9a. Confirms which +0x1f8 value a plain wall vs a gate carries, and whether msg 0x7fb/0x7fc is shown on a plain wall (it should NOT, per the observed silent no-op)."
+    },
+    {
+      "id": "special-index-5-is-gate",
+      "claim": "Special-index +0x1f8 value 5 = closed emblem-GATE (the one OPEN responds to). The +0x1f8 4-bit per-cell field is the door/gate TYPE selector, not a boolean: the corridor renderer (0x3acf / 0x3d3c / 0x3ef9) reads +0x1f8 into [bp-6] and +0x378 (door orient) into [bp-8], compares door-orient==facing for closed-vs-open, then uses the special-index VALUE as a selector to pick door/gate ART (branches on values 5,6,8,9,...; cmp [bp-6],6 / cmp [bp-6],0xc). The early pass-block fn at 0x11c5 tests special-index ==1 || ==2 (the arm-block values, consistent with maze-door-open-mechanic.json). So the value map so far: 0=none, 1/2=blocking-door arm, 5=emblem-gate (OPEN target), 6/8/9/.. =other door/gate art, 7=engine-opened (written by door_set open path). Distinguishing each art value's exact identity needs a live decode across a multi-door level.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3af1"},
+        "type": "disassembly",
+        "details": "0x3acf read +0x1f8->[bp-6]; 0x3ae1 read +0x378->[bp-8]; 0x3af1 cmp ax,[0x4f9a] (door-orient vs facing); 0x3af7 cmp [bp-6],6; 0x3afd cmp [bp-6],0xc; jg; 0x3b06 mov ax,[bp-6]; jmp (selector). 0x11d2 cmp ax,1; 0x11d7 cmp ax,2 (pass-block arm). 0x87a4 cmp ax,5 (OPEN gate)."
+      },
+      "confidence": "medium",
+      "recommend_check": "Live: decode the +0x1f8 4-bit field across a level with multiple visible door/gate art (read maze-table base *[0x4faa]+0x1f8, 4 bits/cell MSB-first), and screenshot each cell's rendered art, to build the value->art table. Specifically confirm value 5 = the emblem-gate art that OPEN's msg 0x7fb/0x7fc describes."
+    },
+    {
+      "id": "gate-open-executor-no-roll",
+      "claim": "FUN_0000_850e (called from OPEN's type-7 branch) is the gate-OPEN SUCCESS executor and contains NO skill/STR/RNG/key check. It reads the special-record wall-plane word at +0x240[*0x4ee8], then by facing *0x4f9a (0..3) clears the forward wall-plane bit (setbits +0x60 north / +0x120 west, count=2, value 1 via 0xe376), calls FUN_0000_6d62 (door_set) with (gx,gy,doorval=0,openClose=0,force=1) to clear the door, re-renders (view_render_and_present), plays sound 4 (0xc546), and updates the special-record via FUN_0000_84ce. So once OPEN reaches a type-7 gate whose +0x240 field == 2 for the current facing, the gate just opens -- there is no per-action roll. FUN_0000_86ac (type-8) instead arms a scripted-event trigger: sets *0x4ee8 = record idx, *0x5034 = 1 (the main loop then calls FUN_0000_8387 to execute the event next iteration). Neither path references party stats or inventory.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x850e"},
+        "type": "decompilation",
+        "details": "0x850e: local_4=+0x240[*0x4ee8]; per facing 0/1/2/3 -> setbits(+0x60 or +0x120, cell, 2, 1) (clear wall); FUN_0000_6d62(fwd_gx,fwd_gy,0,0,1); view_render_and_present(); func_0x0000c546(4); FUN_0000_84ce(+0x240[param_1*2], facing*2+8). 0x86ac: getbit_chunk(+0x240,0xe,1) facing-gate check; sets *0x4ee8=param_1, *0x5034=1, returns 1; main loop 0x2abc checks (iVar5==1 && *0x5034==1) -> FUN_0000_8387()."
+      },
+      "confidence": "high",
+      "applied_name": "gate_open_execute (0x850e), special_event_arm (0x86ac)"
+    },
+    {
+      "id": "no-force-pick-key-submenu",
+      "claim": "There is NO FORCE/PICK/KEY submenu and no lockpick/STR-bash mechanic inside wmaze's OPEN command. Evidence: (1) menu_grid_select (0x1574) has exactly four callers in wmaze -- dungeon_in_camp_menu (the OPTIONS menu, 0x2879), FUN_0000_772f x2 (a scripted special-square multiple-choice handler that reads its options from the +0x240 event record, NOT a door submenu; no callers detected -> dispatched by the event executor), and save_load_menu (0x9345). None is a door action submenu reachable from OPEN. (2) The message table (extracted/messages/msg.json) has NO door-context FORCE/PICK/LOCKED/'won't budge'/BASH strings near the door region (0x700..0x850); the only door/gate strings are the descriptive 0x7fb/0x7fc/0x7fd ('STRANGE BEAST HEWN... EMBLEM... GATE'). (3) The OPEN handler 0x876e and its callees (0x850e/0x86ac/0x6d62) read only maze-table fields + special records, never a character record or inventory. CONCLUSION: in wmaze, a magically/scripted-locked door is opened by a triggered event (lever/switch -> type-7/8 record -> door_set) or by an item/spell handled in wdopt (USE ITEM state 0x14 / CAST SPELL state 0x13), reached as SEPARATE OPTIONS cases (2/3), not via a Force/Pick/Key prompt under OPEN. The player's Force/Pick/Key recollection most plausibly conflates with the CHEST UI (wtrea), see chest-branch finding.",
+      "category": "dungeon_loop",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x1574"},
+        "type": "disassembly",
+        "details": "menu_grid_select callers: 0x2879 (dungeon_in_camp_menu/OPTIONS), 0x796d & 0x7a54 (FUN_0000_772f), 0x947f (save_load_menu). FUN_0000_772f reads options from +0x240 event bitfields (getbit_chunk 0xe3fe at offsets 0,4,8,0xc,0xe,0xf) and uses string 0x77fa -- a generic event-choice menu. No grep hit for FORCE/PICK/LOCK/BUDGE in msg.json door region."
+      },
+      "confidence": "medium",
+      "recommend_check": "Live: drive RETURN->OPEN facing every door/gate type you can reach and watch for any second menu_grid_select window. If a Force/Pick/Key door submenu ever appears, it would be a NEW menu_grid_select caller -- but static analysis finds none in wmaze, so if it exists it is in another overlay (wdopt USE/CAST). Also try a LOCKED door with no key vs with the key in inventory to see whether wmaze ever blocks (it should just stay shut showing 0x7fb)."
+    },
+    {
+      "id": "chest-branch-via-feet-special",
+      "claim": "The CHEST / treasure encounter is reached from OPTIONS case 4 (file 0x294b -> call 0x95ba), the 'interact with the special square AT YOUR FEET' command -- NOT from OPEN (case 0 / 0x876e, which is forward-facing). 0x95ba finds the special-record at the party cell via FUN_0000_366e and, for a TYPE-3 record, calls encounter_check_face_match (0x9532). 0x9532, when the record's facing bit (getbit_chunk +0x240 bit 0xe / 0xc) matches facing AND bit-8 is set, writes game-state *0x363a <- 0x15 (the in-dungeon CHEST encounter, handled by wtrea per CLAUDE.md state table) and sets *0x43c4 = the record's message id. For a TYPE-7 record 0x95ba instead calls save_load_menu (0x9345) (a save-crystal / cabin special). So: doors = OPEN (forward, 0x876e); chests & save-crystals & at-feet specials = case 4 (0x95ba); the chest's open/disarm/unlock/spell/leave sub-UI lives in wtrea (state 0x15), not in wmaze.",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x9532"},
+        "type": "decompilation",
+        "details": "0x294b call 0x95ba. 0x95ba: loop FUN_0000_366e(party x/y/z) -> rec; if [0x4fa8+si+0x360]==3 call 0x9532; if ==7 call 0x9345 (save_load_menu). 0x9532: if getbit_chunk(rec,0xe,1)==1 && getbit_chunk(rec,0xc,2)!=*0x4f9a return 0; else if getbit_chunk(rec,8,1)!=0: *0x4ee8=idx; *0x43c4 = byte[0x4fa8+idx+0x630]; *0x363a=0x15; return 1. Also direct *0x363a<-0x15 writes at file 0x5eb5 and 0x95af."
+      },
+      "confidence": "medium",
+      "recommend_check": "Live: stand the party ON a chest cell, RETURN->select the case-4 grid cell, set bp at 0x9532, confirm *0x363a flips to 0x15 and wtrea loads (the chest open/disarm UI). Also confirm which grid POSITION case 4 is (the visible OPTIONS layout order vs numeric index)."
+    }
+  ],
+  "unresolved": [
+    "Visible OPTIONS grid LAYOUT vs numeric index: cases are numbered 0..8 by menu_grid_select return value, but the on-screen 3x3 position of each (and thus which cell the player calls 'OPEN' vs 'index 4') depends on the grid's row/col mapping (menu_grid_select args cols/rows) and the label/glyph table at base 0x7d5. Decode the menu glyph labels and screenshot the live OPTIONS menu to map index->screen-cell->label (OPEN, LOOK, CAST, USE, EXAMINE-feet, etc.).",
+    "The no-op-gate finding (open-no-op-gate) is LOW confidence: the first 100 bytes of 0x876e show cmp +0x1f8,5 jnz -> msg 0x7fb branch, which would print a description even on a non-5 cell, contradicting the observed silent no-op. Either an enclosing guard (entered only when a door is rendered in front) precedes the snippet, or the msg-0x7fb branch is reached only under another condition. Re-RE the full 0x876e prologue + the call site at 0x2895 (is 0x876e called unconditionally on OPEN, or only when maze_check_wall_in_direction reports a door ahead?), and confirm live.",
+    "Exact +0x1f8 special-index value->door/gate-art table (0=none,1/2=block-arm,5=emblem-gate,6/8/9/..=?,7=opened). Decode live across a multi-door level.",
+    "FUN_0000_772f (the event-choice menu reading +0x240 bitfields, string 0x77fa) is the only other in-maze grid menu; confirm it is the lever/altar multiple-choice handler dispatched by the special-event executor (FUN_0000_6fd9 / 0x8387 region), not a door submenu.",
+    "Whether any LOCKED door in wmaze can be opened by FORCE/PICK at all, or whether all 'locked' doors require an item (wdopt USE, state 0x14) / spell (wdopt CAST, state 0x13) / scripted lever. Static evidence says wmaze has no force/pick roll; confirm by attempting a known locked door live with and without the key."
+  ]
+}

@@ -42,6 +42,14 @@ python3 tools/ghidra/scripts/dump_function.py --binary wroot.exe --name pic_load
 
 Useful for: capturing function source for docs/re/ notes, diffing decompiled output before/after rename passes, feeding C into other tools.
 
+### `dump_listing.py` — print the raw disassembly listing for an address range
+
+```bash
+python3 tools/ghidra/scripts/dump_listing.py --binary wmaze.ovr --start 0x29a5 --end 0x29c0
+```
+
+Prints `addr  bytes  instruction  -> ref` per code unit, including resolved references (jump-table targets). Useful when the decompiler garbles a `2E FF A7` cs-relative jump-table dispatch (it splices in unrelated code) and you need to read the real switch + its table. Note: cs-disp16 jump tables in overlays are CS-offset based; translate to file offsets with the per-overlay delta (wmaze = 0x4564).
+
 ### `apply_wroot_names.py` — replay the wroot.exe naming pass
 
 ```bash
