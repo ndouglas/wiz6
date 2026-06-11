@@ -123,6 +123,17 @@ export {
 } from './maze/options-menu.js';
 // REVIEW WHO? member-picker navigation (pure, in-dungeon OPTIONS → REVIEW)
 export { moveReviewCursor, REVIEW_EXIT } from './maze/review-picker.js';
+// OPEN door — pure FORCE/PICK/detect logic (#089)
+export {
+  strainBarLength,
+  forceAttempt,
+  pickAttempt,
+  detectDoorAtParty,
+  type ForceMember,
+  type PickMember,
+  type PartyPos,
+  type DoorOutcome,
+} from './maze/door-open.js';
 export { EGA_FILE_INDEX_PERMUTATION } from './formats/ega-permutation.js';
 export {
   encodeSave,

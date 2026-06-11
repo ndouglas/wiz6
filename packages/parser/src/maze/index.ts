@@ -73,6 +73,18 @@ export { moveOptionsCursor, commandAt, type OptionsCommand } from './options-men
 // REVIEW WHO? member-picker navigation (pure, in-dungeon OPTIONS → REVIEW)
 export { moveReviewCursor, REVIEW_EXIT } from './review-picker.js';
 
+// OPEN door — pure FORCE/PICK/detect logic (#089)
+export {
+  strainBarLength,
+  forceAttempt,
+  pickAttempt,
+  detectDoorAtParty,
+  type ForceMember,
+  type PickMember,
+  type PartyPos,
+  type DoorOutcome,
+} from './door-open.js';
+
 // Shared types
 export type { MazeSpan, CompositorCall } from './compositor.js';
 export type { MazeWorkBuffer, MazeImageDesc, MazePlacement } from './maze-data.js';
