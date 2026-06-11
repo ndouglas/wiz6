@@ -109,6 +109,93 @@ export async function expectMazeViewportMatchesFixture(
   ).toBe(0);
 }
 
+// ---------------------------------------------------------------------------
+// OPTIONS strip helpers
+// ---------------------------------------------------------------------------
+
+/** The PARTY OPTIONS bottom-strip rect within the 320×200 screen.
+ *  Mirrors OPTIONS_STRIP in @wiz6/data (hardcoded here to avoid a cross-package
+ *  import, matching how MAZE_VP is handled above). */
+const OPTIONS_STRIP = { x: 0, y: 144, w: 160, h: 40 } as const;
+
+/** Crop a 320×200 RGBA buffer to the OPTIONS_STRIP rect (→ 160×40 RGBA). */
+function cropOptionsStrip(rgba: Uint8Array, screenW = 320): Uint8Array {
+  const { x, y, w, h } = OPTIONS_STRIP;
+  const out = new Uint8Array(w * h * 4);
+  for (let r = 0; r < h; r++) {
+    for (let c = 0; c < w; c++) {
+      const s = ((y + r) * screenW + (x + c)) * 4;
+      const d = (r * w + c) * 4;
+      out[d] = rgba[s]!;
+      out[d + 1] = rgba[s + 1]!;
+      out[d + 2] = rgba[s + 2]!;
+      out[d + 3] = rgba[s + 3]!;
+    }
+  }
+  return out;
+}
+
+/** Assert the live <canvas>'s OPTIONS STRIP region matches the named engine
+ *  fixture byte-exact (RGB, tolerance 0). Settles the canvas first (same as
+ *  expectMazeViewportMatchesFixture). The cursor is settle-invariant (no blink),
+ *  so tolerance 0 is correct. */
+export async function expectOptionsStripMatchesFixture(
+  page: Page,
+  name: string,
+): Promise<void> {
+  await waitForStableCanvas(page, 'canvas');
+  const cap = await captureCanvas(page, 'canvas');
+  expect(cap.width).toBe(320);
+  expect(cap.height).toBe(200);
+  const actual = cropOptionsStrip(new Uint8Array(cap.rgba));
+  const fixture = cropOptionsStrip(loadFixtureRgba(name));
+  const total = OPTIONS_STRIP.w * OPTIONS_STRIP.h;
+  let diff = 0;
+  let first: { x: number; y: number } | undefined;
+  for (let p = 0; p < total; p++) {
+    const i = p * 4;
+    if (actual[i] !== fixture[i] || actual[i + 1] !== fixture[i + 1] || actual[i + 2] !== fixture[i + 2]) {
+      diff++;
+      if (!first) first = { x: p % OPTIONS_STRIP.w, y: Math.floor(p / OPTIONS_STRIP.w) };
+    }
+  }
+  const matchPct = (100 * (total - diff)) / total;
+  if (diff !== 0) {
+    try {
+      mkdirSync(ARTIFACT_DIR, { recursive: true });
+      saveCanvasPng(join(ARTIFACT_DIR, `MISMATCH-${name}.png`), cap);
+    } catch {
+      // best-effort artifact
+    }
+  }
+  expect(
+    diff,
+    `${name}: options strip ${matchPct.toFixed(2)}% match (${diff}/${total} px differ, first at strip ${first ? `${first.x},${first.y}` : 'n/a'})`,
+  ).toBe(0);
+}
+
+/** Return the number of mismatching pixels between the live <canvas>'s OPTIONS
+ *  STRIP and the named engine fixture. Used for negative assertions (e.g. after
+ *  Escape closes the menu, the strip should NO LONGER match the menu fixture). */
+export async function optionsStripDiffersFromFixture(
+  page: Page,
+  name: string,
+): Promise<number> {
+  await waitForStableCanvas(page, 'canvas');
+  const cap = await captureCanvas(page, 'canvas');
+  const actual = cropOptionsStrip(new Uint8Array(cap.rgba));
+  const fixture = cropOptionsStrip(loadFixtureRgba(name));
+  const total = OPTIONS_STRIP.w * OPTIONS_STRIP.h;
+  let diff = 0;
+  for (let p = 0; p < total; p++) {
+    const i = p * 4;
+    if (actual[i] !== fixture[i] || actual[i + 1] !== fixture[i + 1] || actual[i + 2] !== fixture[i + 2]) {
+      diff++;
+    }
+  }
+  return diff;
+}
+
 /** Assert the live <canvas> matches the named engine fixture byte-exact (tolerance 0). */
 export async function expectCanvasMatchesFixture(page: Page, name: string, tolerance = 0): Promise<void> {
   // Wait for a fully-settled frame before reading. The picker/char-view compose
