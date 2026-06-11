@@ -1,0 +1,132 @@
+{
+  "topic": "maze-door-open-mechanic",
+  "subagent_run": "2026-06-10T00:00:00Z",
+  "binaries": ["wmaze.ovr"],
+  "PARENT_REVIEW_2026-06-10": "PARTIALLY REFUTED by the user's lived recollection (the spec; see memory user-lived-recollection-is-spec). The headline conclusion — 'NO player-driven door action, doors open ONLY via scripted special-square events' — is WRONG/INCOMPLETE. Doors are opened by the player via the OPTIONS menu ('PRESS RETURN FOR OPTIONS') with THREE actions: (A) FORCE the door, (B) PICK the lock, (C) USE a key. The subagent traced door_set (0x6d62) + its event-executor callers but NEVER examined the OPTIONS-menu command handlers, so it missed the force/pick/key player path (which must also write +0x378 or call door_set, via a caller the subagent didn't enumerate). The mechanism findings (door_set primitive, +0x378 orientation state, +0x1f8 special-index, the 0x309d pass-gate structure) are likely still useful; the door-bash-doesn't-exist + only-events CONCLUSION is not. Also note: the static orient2/special4 fields do NOT cleanly predict blocked-vs-open ((127,123,f0) blocked vs (127,128,f0) open, both north=3 orient2=0), so the pass rule + field mapping need live confirmation. NEXT: RE the OPTIONS menu handler + force/pick/key commands (their skill/stat rolls + door-state write). Prereq for door-opening is implementing the OPTIONS menu itself.",
+  "summary": "Cracked how wmaze gates and opens doors. KEY RESULT: there is NO player-driven door-bash, NO STR/skill roll, NO progress bar, and NO key/item check inside wmaze's pass logic. The wmaze-functions.md note calling 0x554a a 'door-bash progress bar' is WRONG: 0x554a is a generic TEXT-INPUT field reader (backspace=8, enter=0xd, printable/digit filter via param_5). Door state is purely a per-cell 2-bit ORIENTATION value at maze-table +0x378, paired with a 4-bit per-cell special-index at +0x1f8. Doors are opened/closed ONLY by scripted special-square events (levers/switches/triggered squares) via FUN_0000_6d62 (the door toggle) driven by FUN_0000_6fd9 / FUN_0000_7589 (the special-square event executors), never by bumping into them. A 'closed' door blocks a forward step when its stored orientation equals the party's current facing; the pass check is entirely self-contained in the per-zone maze data table at [0x4faa] (no inventory/keys reached from wmaze). Locked-vs-passable is encoded in the wall-plane edge code + the +0x1f8 special-index/+0x378 orientation, not a separate lock flag with a key gate inside wmaze.",
+  "findings": [
+    {
+      "id": "passcheck-structure",
+      "claim": "maze_can_pass_doors_and_walls (0x309d) is the forward-step gate. Its CLEAN body runs 0x309d..0x3243 (the function ends at the jmp 0x30fa @ 0x3241; maze_can_step_in_facing begins at 0x3244). Ghidra's decompiler garbles this function badly because a 2E FF A7 cs-relative jump-table dispatch at 0x3206 (table words at 0x31E4..0x3205) makes the decompiler splice in unrelated special-event code; read the raw disasm, not the decompile.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x309d"},
+        "type": "disassembly",
+        "details": "ndisasm -b16: 0x3206 '2E FF A7 4877' = jmp word [cs:bx+0x7748] (jump table). Function epilogue jmp 0x30fa appears at 0x3192/0x31df/0x3225/0x3241; final fallthrough at 0x322d sets *0x4ee8 and returns 0 (pass)."
+      },
+      "confidence": "high",
+      "applied_name": "maze_can_pass_doors_and_walls (confirm prologue at 0x309d push bp)"
+    },
+    {
+      "id": "passcheck-door-early-block",
+      "claim": "Early door check at 0x30a5-0x30ff: cell = z*64 + y*8 + x (z=*0x4f9c, y=*0x4f9e, x=*0x4fa0). It reads the 4-bit per-cell SPECIAL-INDEX at table+0x1f8 via getbits(count=4). If that index == 1 OR == 2, it reads the 2-bit per-cell DOOR-STATE at table+0x378 via getbits(count=2) and compares it to param at [bp+4] (the party facing, passed in from maze_can_step_in_facing as *0x4f9a). If door_state == facing -> RETURN 1 (BLOCKED). So a door blocks a forward step exactly when its stored orientation matches the direction you are trying to walk ('closed against you' from this side).",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x30c1"},
+        "type": "disassembly",
+        "details": "0x30c1 mov ax,4; push; push si; push [0x4faa]+0x1f8; call 0xe3c1(getbits). 0x30d6 cmp ax,1 / 0x30db cmp ax,2. If 1|2: 0x30e0 push 2; push si; push [0x4faa]+0x378; call 0xe3c1; 0x30f2 cmp ax,[bp+0x4]; jnz 0x3100; else mov ax,1; ret (return 1=blocked). [bp+4] = param_1 = *0x4f9a facing (set by maze_can_step_in_facing 0x3270 push [bp+4]=facing arg)."
+      },
+      "confidence": "medium",
+      "applied_name": null
+    },
+    {
+      "id": "passcheck-comparator-direction",
+      "claim": "In maze_can_step_in_facing (0x3244): it calls maze_check_wall_in_direction (0xf2a) which returns the 2-bit wall-plane edge code (0..3, via getbits count=2). It then does cmp ax,2 / JNL (jge): if wall_code >= 2 it returns 1 (BLOCKED) WITHOUT calling the door check; only wall_code 0 or 1 falls through to maze_can_pass_doors_and_walls. NOTE this contradicts the docs' '3=door' edge-code legend for THIS path: a literal door encoded as wall-code 3 would be hard-blocked here, so passable/openable doors must be encoded as wall-code 0/1 with the door identity carried by the +0x1f8 special-index, OR the doc's wall-code legend is for a different plane than this 2-bit field. Comparator direction marked LOW until verified live.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x326b"},
+        "type": "disassembly",
+        "details": "0x3262 call 0xf2a; 0x3268 mov [bp-2],ax; 0x326b cmp ax,2; 0x326e jnl 0x3281 (>=2 -> skip door check). Below 0x3281 it pushes facing+wall_code and calls 0x309d."
+      },
+      "confidence": "low",
+      "recommend_check": "Live: dosbox_live in a known dungeon, face a passable door, set bp at 0x309d (or read the result of maze_can_step_in_facing 0x3244) and dump the wall_code returned by 0xf2a (in [bp-2]) and the +0x378 door_state. Confirms (a) the >=2 vs <2 block direction and (b) which wall-code value a renderable door actually carries."
+    },
+    {
+      "id": "passcheck-post-step-flags",
+      "claim": "After confirming the destination cell resolves (maze_step_global_xy 0x108b + maze_resolve_xy_to_facing 0x35b7), the tail (0x3148-0x3243) reads several per-cell bits and blocks on any: getbit_test([bp+6], cell) and getbit_test(0x4e08-BSS, cell) at 0x3164/0x3173 (returns 1 -> block); getbit_test(table+0x43a, cell) = pit/chute flag -> [bp-2]; getbit_test(table+0x49a, cell) -> [bp-4] (a second per-cell block bit). Pit (+0x43a==1) blocks under zone 0x363c==0xc with z<9 (cmp [0x4f9c],9 / JNL). +0x49a==1 blocks under zone==2. Default fallthrough (0x322d): writes *0x4ee8 = byte at [0x4fa8]+z+0x6c0 (last-cell index) and returns 0 (PASS).",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3195"},
+        "type": "disassembly",
+        "details": "0x3195 push si; push [0x4faa]+0x43a; call 0xe34b(getbit_test) -> [bp-2]. 0x31a6 push si; push [0x4faa]+0x49a; call 0xe34b -> [bp-4]. 0x31b7 cmp [bp-2],1 jnz 0x320b. 0x31c2 cmp [0x363c],0xc; 0x31c9 cmp [0x4f9c],9 jnl. 0x320b cmp [bp-4],1; 0x3228 cmp ax,2 (zone==2). 0x322d mov bx,[0x4fa8]; mov al,[bx+di+0x6c0]; mov [0x4ee8],ax; mov ax,0; jmp epilogue(ret 0)."
+      },
+      "confidence": "medium",
+      "recommend_check": "Confirm zone comparators (z<9, zone==2/==0xc) live: the JNL/JZ directions are easy to misread; breakpoint 0x31b7/0x320b and read flags in two zones."
+    },
+    {
+      "id": "door-state-layout",
+      "claim": "Per-cell door state at maze-table +0x378 is a 2-BIT field per cell, indexed by cell = z*64 + y*8 + x (z=level 0..11, y=row 0..7, x=col 0..7), packed MSB-first via the engine's getbits. Value is an ORIENTATION/facing (0..3). The companion 4-bit per-cell SPECIAL-INDEX field at +0x1f8 (same cell index) acts as the 'is this a managed door/event square' tag: index value 7 marks a door that has been opened by the engine; index 1 or 2 are the values that arm the early door pass-block; index 0 means no door. To decode from a live save: base = *[0x4faa]; door bits at base+0x378, special bits at base+0x1f8; read 2 bits (door) / 4 bits (special) per cell at bit-offset cell*width, MSB-first.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x378"},
+        "type": "disassembly",
+        "details": "All +0x378 accesses pass count=2 (getbits 0xe3c1 / setbits 0xe376): reads at 0x30e8,0x3ae4,0x3d51,0x3f0e,0x87b3; writes at 0x6deb,0x6e3a,0x762b. All +0x1f8 accesses pass count=4 (e.g. 0x30c4 push 4). Cell index computed as [0x4f9c]<<6 + [0x4f9e]<<3 + [0x4fa0] (0x30a5..0x30bb). Renderer at 0x3af1 cmp door_state,[0x4f9a](facing); 0x3d5b/0x3f18 inc ax (+N) then idiv 4 -> (door_state + N)%4, i.e. door value is rotated by view depth/facing => it is an orientation, not a boolean."
+      },
+      "confidence": "medium",
+      "recommend_check": "Live: dosbox_read_struct / dosbox_read_memory at *[0x4faa]+0x378 and +0x1f8 before and after walking through a known door; verify the 2-bit value flips and the 4-bit special-index becomes 7. Also confirms getbits MSB-vs-LSB bit order for the decoder."
+    },
+    {
+      "id": "door-toggle-fn",
+      "claim": "FUN_0000_6d62 (0x6d62) IS the door open/close primitive (sole writer-pair for +0x1f8 and +0x378 in the door path). Signature FUN_0000_6d62(gx, gy, doorval, openClose, force): resolves (gx,gy)->cell, then: if openClose==0 (CLOSE) and (force==1 OR special_index[cell]==7): setbits(+0x1f8,cell,4,0) and setbits(+0x378,cell,2,0). else (OPEN, openClose!=0) and (force==1 OR special_index[cell]==0): setbits(+0x1f8,cell,4,7) and setbits(+0x378,cell,2,doorval). So opening writes special-index=7 + door orientation=doorval; closing clears both to 0. There is NO STR roll, skill check, RNG, progress bar, key check, or party reference anywhere in this function.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x6d62"},
+        "type": "decompilation",
+        "details": "Decompile: if(param_4==0){ if(param_5==1 || getbits(+0x1f8,cell,4)==7){ setbits(+0x1f8,cell,4,0); setbits(+0x378,cell,2,0);} } else if(param_5==1 || getbits(+0x1f8,cell,4)==0){ setbits(+0x1f8,cell,4,7); setbits(+0x378,cell,2,param_3);} . Function is leaf-ish: only maze_resolve_xy_to_facing + getbits/setbits."
+      },
+      "confidence": "high",
+      "applied_name": "maze_door_set_open_close"
+    },
+    {
+      "id": "door-toggle-trigger",
+      "claim": "Doors are toggled by SPECIAL-SQUARE EVENTS, not by player input/bumping. FUN_0000_6d62 is called only from FUN_0000_6fd9 (0x6fd9, the big 1125-byte special-square event executor: 8 call sites 0x7170..0x7296) and from the 0x86ac/0x850e event region (call at 0x8679). FUN_0000_6fd9 reads the event entry at table+0x240[*0x4ee8], decodes target (x,y,z, a direction iVar10 in 0..3, and an arm-flag iVar1); it writes the wall plane (+0x60 north / +0x120 west, count=2) AND calls FUN_0000_6d62 on the adjacent cell(s) to set door state. FUN_0000_7589 (0x7589) is a second event op that writes +0x1f8 and +0x378 directly from the event record bytes (special_index from word at +0 of the per-cell event extra, door byte from [0x4fa8]+*0x4ee8+0x630). Both event executors are dispatched from the special-square handler at 0x8451/0x845b, reached when the party steps onto a special cell - i.e. levers/switches/scripted gate-opens. This is the secret-door / gate mechanic referenced as special_execute_event (0x6144).",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x6fd9"},
+        "type": "disassembly",
+        "details": "call 0x6d62 sites: 0x7170,0x7189,0x71c0,0x71d9,0x71f9,0x720f,0x727d,0x7296 (all inside FUN_0000_6fd9 0x6fd9..0x743d) + 0x8679. FUN_0000_6fd9 dispatched at 0x8451 (call 0x6fd9); FUN_0000_7589 at 0x845b. FUN_0000_6fd9 writes wall planes via setbits(+0x60/+0x120,cell,2) at 0x715x/0x71a6 then FUN_0000_6d62 for door state."
+      },
+      "confidence": "medium",
+      "recommend_check": "Live: confirm a real gate-open is event-driven by stepping the party onto the trigger square (special-index at +0x1f8) and watching +0x378/+0x60 change at FUN_0000_6d62 / 0x6fd9 breakpoints. Confirms no player keypress path opens a generic door."
+    },
+    {
+      "id": "no-progress-bar-no-bash",
+      "claim": "0x554a is NOT a door-bash progress bar (the wmaze-functions.md note is wrong). It is a generic TEXT-INPUT field editor: it loops reading keys via FUN_0000_5502, treats 0xd (Enter) as commit/exit, 0x8 (Backspace) as delete-last (beeps via play-sound 0xc546 when empty), and accepts a character into the buffer (param_2) only if it passes a filter: param_5==0 -> printable ASCII (0x20..0x7f), param_5==1 -> digits (0x30..0x39); otherwise it beeps (rejected). This is the save-slot / numeric-entry prompt, with no STR/skill math, no fill-to-100% bar, and no door reference.",
+      "category": "ui_helper",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x554a"},
+        "type": "decompilation",
+        "details": "while(key=FUN_0000_5502(1) != 0xd){ ... if key==8 backspace(beep 0xc546(0) if empty); else if len<max && ((param_5==0 && 0x1f<key<0x80) || (param_5==1 && 0x2f<key<0x3a)) store char & echo; else beep 0xc546(0); } - classic line-editor, not a progress bar."
+      },
+      "confidence": "high",
+      "applied_name": "ui_text_input_field"
+    },
+    {
+      "id": "self-contained-no-keys",
+      "claim": "Opening/passing a (non-locked) door is SELF-CONTAINED within wmaze: every read in the pass path (maze_can_pass_doors_and_walls 0x309d, maze_can_step_in_facing 0x3244, maze_check_wall_in_direction 0xf2a) and the door toggle (FUN_0000_6d62) touches only the per-zone maze data table at *[0x4faa] (wall bits +0x60/+0x120, special-index +0x1f8, door state +0x378, pit +0x43a, second-block +0x49a) and a couple of BSS scalars (facing 0x4f9a, x/y/z 0x4fa0/0x4f9e/0x4f9c, last-cell 0x4ee8). NO cross-overlay call into inventory, NO key-item lookup, NO party-stat read appears in the door pass/open path. Wizardry-6 'silver key -> silver door' is handled OUTSIDE wmaze (wdopt use-item, state 0x14); from wmaze's perspective such a door is just a wall/door edge that stays blocked until an event (FUN_0000_6fd9/0x7589) flips its bits.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x309d"},
+        "type": "disassembly",
+        "details": "Calls in 0x309d..0x3243 are only: 0xe3c1 getbits (img 0x2925), 0xe34b getbit_test (img 0x28af), 0x108b maze_step_global_xy, 0x35b7 maze_resolve_xy_to_facing, 0x3073 maze_set_global_xy_and_resolve. No thunk to a wroot inventory/key routine. Thunk deltas verified: 0xe3c1-0xBA9C=0x2925, 0xe34b-0xBA9C=0x28af, 0xe376-0xBA9C=0x28da(setbits), 0xe3fe-0xBA9C=0x2962(getbit_chunk) - consistent with prior wmaze-3d-view.json / wmele / wpcmk mappings."
+      },
+      "confidence": "high",
+      "applied_name": null
+    }
+  ],
+  "unresolved": [
+    "Exact meaning of special-index (+0x1f8) values 1 vs 2 vs 7: value 7 = engine-opened door (written by FUN_0000_6d62 open path); values 1/2 arm the early pass-block at 0x30d6/0x30db. Whether 1 vs 2 distinguishes door TYPE (e.g. one-way vs two-way, or a particular gate kind) is unconfirmed - decode +0x1f8 across a known multi-door level live to map the value->type table.",
+    "Wall-code legend reconciliation: docs say wall-plane edge codes 0=open/2=wall/3=door/5+=solid, but the 2-bit field read by maze_check_wall_in_direction can only hold 0..3, and the >=2 branch in maze_can_step_in_facing hard-blocks before the door check. Need a live read of the +0x60/+0x120 2-bit value at a renderable-door cell to settle whether '3=door' applies to THIS field or to a different (wider) plane.",
+    "getbits/setbits bit order (MSB-first assumed from prior 3d-view finding) should be re-confirmed against the runtime decode when reading +0x378/+0x1f8 from a live save, so the offline decoder indexes the right cell.",
+    "The 0x86ac/0x850e/0x8387 cluster (call to 0x6d62 at 0x8679) appears to be the per-frame special-square arrival handler that also re-asserts door state; its exact relationship to FUN_0000_6fd9 vs a 'first-time vs revisit' distinction is not fully traced."
+  ]
+}

@@ -4513,6 +4513,31 @@ async function phaseEncProbe(c: HostClient): Promise<void> {
   console.log(`encprobe: ${enc}/${trials} ENCOUNTERS, ${moved} clean moves, ${nomove} no-move → ${enc > 0 && enc < trials ? 'RANDOM' : enc === trials ? 'ALWAYS (fixed?)' : 'NEVER'}`);
 }
 
+/** `doorprobe <stateFile> [bumps] [settle]` — drive repeated forward presses at a closed
+ *  door (persistent state, NOT re-unserialized), each followed by `settle` frames, logging
+ *  the party position after each. Distinguishes a door that opens-then-passes (position
+ *  advances after N bumps or a long settle) from one that's hard-blocked (locked/needs key).
+ *  Also dumps a few candidate door-state DGROUP bytes before/after. */
+async function phaseDoorProbe(c: HostClient): Promise<void> {
+  const stateFile = process.argv[3]!;
+  const bumps = Number(process.argv[4] ?? 6);
+  const settle = Number(process.argv[5] ?? 120);
+  await c.step(3000);
+  await c.unserialize(stateFile); await c.step(2);
+  const base = await c.anchor();
+  const p0 = await frParty(c, base);
+  console.log(`doorprobe: ${stateFile} -> gx${p0.gx} gy${p0.gy} f${p0.f} gs${p0.gs}; ${bumps} forward bumps, settle ${settle} each`);
+  for (let i = 0; i < bumps; i++) {
+    const b = await frParty(c, base);
+    await c.key('up', 'tap'); await c.step(settle);
+    const a = await frParty(c, base);
+    const moved = a.gx !== b.gx || a.gy !== b.gy;
+    console.log(`  bump ${i + 1}: gx${a.gx} gy${a.gy} f${a.f} gs${a.gs} span${a.sp}${moved ? '  <-- MOVED' : ''}${a.gs !== 5 ? '  <-- state!=5' : ''}`);
+    if (moved) { console.log(`  => door OPENED + passed after ${i + 1} bump(s)`); return; }
+  }
+  console.log(`  => still blocked after ${bumps} bumps (settle ${settle}) — not a bump/auto-open door`);
+}
+
 /** `flagwrite <gx> <gy> <facing> <offHex>` — WRITE-WATCH a DGROUP byte (the per-direction
  *  availability flag) over a re-render at the cell, to find the CLASSIFIER instruction that
  *  computes movement availability from the walls (= the collision law). */
@@ -4932,6 +4957,7 @@ async function main() {
     else if (phase === 'collcapture') await phaseCollCapture(c);
     else if (phase === 'engcap') await phaseEngCapture(c);
     else if (phase === 'encprobe') await phaseEncProbe(c);
+    else if (phase === 'doorprobe') await phaseDoorProbe(c);
     else if (phase === 'buildtrace') await phaseBuildTrace(c);
     else if (phase === 'collslots') await phaseCollSlots(c);
     else if (phase === 'gateclass') await phaseGateClass(c);
