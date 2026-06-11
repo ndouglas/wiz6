@@ -121,6 +121,8 @@ export {
   commandAt,
   type OptionsCommand,
 } from './maze/options-menu.js';
+// REVIEW WHO? member-picker navigation (pure, in-dungeon OPTIONS → REVIEW)
+export { moveReviewCursor, REVIEW_EXIT } from './maze/review-picker.js';
 export { EGA_FILE_INDEX_PERMUTATION } from './formats/ega-permutation.js';
 export {
   encodeSave,

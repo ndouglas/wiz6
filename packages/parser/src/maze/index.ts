@@ -70,6 +70,9 @@ export {
 // Options menu navigation (pure, in-dungeon PARTY OPTIONS 3×3 grid)
 export { moveOptionsCursor, commandAt, type OptionsCommand } from './options-menu.js';
 
+// REVIEW WHO? member-picker navigation (pure, in-dungeon OPTIONS → REVIEW)
+export { moveReviewCursor, REVIEW_EXIT } from './review-picker.js';
+
 // Shared types
 export type { MazeSpan, CompositorCall } from './compositor.js';
 export type { MazeWorkBuffer, MazeImageDesc, MazePlacement } from './maze-data.js';
