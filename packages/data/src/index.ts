@@ -362,6 +362,19 @@ export {
   CORRIDOR_CENTER_X,
 } from './maze/corridor-geometry.js';
 export {
+  OPTIONS_COMMANDS,
+  OPTIONS_LABELS,
+  OPTIONS_HEADER,
+  OPTIONS_NAV_WRAP,
+  OPTIONS_STRIP,
+  OPTIONS_HEADER_AT,
+  OPTIONS_CELL_AT,
+  OPTIONS_TEXT_PALETTE,
+  OPTIONS_HEADER_PALETTE,
+  OPTIONS_HILITE,
+  type OptionsCommand,
+} from './maze/options-menu.js';
+export {
   DungeonEntranceSchema,
   ScriptedEntrySchema,
   DungeonLevelSchema,
