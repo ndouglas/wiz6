@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   WIZ6_MAIN,
   applyClassChange,
@@ -168,8 +168,17 @@ function eventFromKey(e: KeyboardEvent): CharacterViewEvent | null {
 
 export function CharacterViewPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { slotIdx: slotIdxParam } = useParams<{ slotIdx: string }>();
   const slotIdx = Number(slotIdxParam);
+
+  // Return-context: derive exit/repick targets from the current route so the
+  // same component works from both the castle (/castle/review-member) and the
+  // dungeon (/game/review). Castle path is byte-identical to the original
+  // hardcoded targets ('/castle' / '/castle/review-member').
+  const fromDungeon = location.pathname.startsWith('/game/review');
+  const exitTarget = fromDungeon ? '/game/maze' : '/castle';
+  const repickTarget = fromDungeon ? '/game/maze?review=1' : '/castle/review-member';
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [fontSet, setFontSet] = useState<FontSet | null>(null);
   const [db, setDb] = useState<MessageDb | null>(null);
@@ -199,8 +208,8 @@ export function CharacterViewPage() {
   const inSpellScreen = state.kind === 'spell-grid' || state.kind === 'spell-sublist';
 
   useEffect(() => {
-    if (!validSlot) navigate('/castle');
-  }, [validSlot, navigate]);
+    if (!validSlot) navigate(exitTarget);
+  }, [validSlot, navigate, exitTarget]);
 
   // Blink the spellbook selection cursor while a spell screen is open. E2E
   // determinism: setting window.__WIZ6_FREEZE_BLINK__ (DEV-only) pins the cursor
@@ -288,14 +297,15 @@ export function CharacterViewPage() {
 
       // ---- Resolve intent states (side effects) ----------------------------
       if (next.kind === 'exit-castle') {
-        navigate('/castle');
+        navigate(exitTarget);
         return;
       }
       if (next.kind === 'review-pick') {
         // REVIEW: re-open the "REVIEW WHO?" party-member picker to view another
-        // member (engine wpcvw action 10). ReviewMemberPage's picker commits to
-        // /castle/review-member/:slotIdx — i.e. this same char-view for the pick.
-        navigate('/castle/review-member');
+        // member (engine wpcvw action 10). From castle: ReviewMemberPage's picker
+        // commits to /castle/review-member/:slotIdx. From dungeon: MazeView reads
+        // ?review=1 on mount and opens its own picker.
+        navigate(repickTarget);
         return;
       }
       if (next.kind === 'commit-rename') {
@@ -438,7 +448,7 @@ export function CharacterViewPage() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [state, slotIdx, members, member, navigate, includeEditFromCamp]);
+  }, [state, slotIdx, members, member, navigate, includeEditFromCamp, exitTarget, repickTarget]);
 
   useEffect(() => {
     if (!validSlot || !fontSet || !db || !portraits || !scenarioDb || !member) return;

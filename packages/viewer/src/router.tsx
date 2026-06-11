@@ -106,6 +106,7 @@ export const routes = (
       <Route path="/castle/dismiss-member" element={<DismissMemberPage />} />
       <Route path="/castle/review-member" element={<ReviewMemberPage />} />
       <Route path="/castle/review-member/:slotIdx" element={<CharacterViewPage />} />
+      <Route path="/game/review/:slotIdx" element={<CharacterViewPage />} />
       <Route path="/castle/start-new-game" element={<StartNewGamePage />} />
       <Route path="/castle/:stub" element={<CastleStub />} />
       <Route path="/game/maze" element={<MazeView />} />
