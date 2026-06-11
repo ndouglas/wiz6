@@ -35,7 +35,6 @@ import {
   OPTIONS_HEADER,
   OPTIONS_HEADER_AT,
   OPTIONS_CELL_AT,
-  OPTIONS_TEXT_PALETTE,
   OPTIONS_HEADER_PALETTE,
   OPTIONS_HILITE,
 } from '@wiz6/data';
@@ -175,7 +174,5 @@ export function composeOptionsStrip(
       }
     }
   }
-  void OPTIONS_TEXT_PALETTE; // (white fg is baked into wfont3; kept for parity-of-intent)
-
   return buf;
 }
