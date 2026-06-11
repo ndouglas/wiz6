@@ -375,6 +375,17 @@ export {
   type OptionsCommand,
 } from './maze/options-menu.js';
 export {
+  REVIEW_HEADER,
+  REVIEW_NAV_WRAP,
+  REVIEW_STRIP,
+  REVIEW_HEADER_AT,
+  REVIEW_EXIT_AT,
+  REVIEW_SLOT_AT,
+  REVIEW_TEXT_PALETTE,
+  REVIEW_HEADER_PALETTE,
+  REVIEW_HILITE,
+} from './maze/review-picker.js';
+export {
   DungeonEntranceSchema,
   ScriptedEntrySchema,
   DungeonLevelSchema,
