@@ -39,6 +39,13 @@ starts on SEARCH, top-left):
 The SEARCH cursor renders as highlighted (red) text. Reference capture committed at
 `tools/parity/fixtures/engine/options-menu-search.idx.gz` (+ `.png`).
 
+> **As-built correction (2026-06-11, superseded design-time guess below):** the cursor
+> highlight is **INVERSE** — a solid palette-5 (yellow) bar with black (palette 0) glyph
+> strokes — NOT colored text. Confirmed pixel-exact by the composer against the fixtures
+> (this is the CLAUDE.md "menu cursors = inverse" attr-sign law). The "colored text" /
+> "(red)" wording in the sections below is the pre-implementation hypothesis; see
+> `@wiz6/data` `options-menu.ts` `OPTIONS_HILITE` + TODO #088 for the authoritative value.
+
 ## Approach — in-place overlay, MazeView-local UI state
 
 No new game-state. `MazeView` gains an `optionsMenu` UI state `{ open: boolean;
