@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   MAZE_VIEWPORT,
   OPTIONS_STRIP,
+  REVIEW_STRIP,
   type ActivePartyMember,
   type Font,
   type Font4bpp,
@@ -20,6 +21,8 @@ import {
   expandMazeData,
   generateFullCallList,
   moveOptionsCursor,
+  moveReviewCursor,
+  REVIEW_EXIT,
   renderMazeViewport,
   oracleViewportForGy,
   oracleAnimViewport,
@@ -34,6 +37,8 @@ import {
   type OptionsCommand,
 } from '@wiz6/parser';
 import { composeOptionsStrip } from './compose-options-strip.js';
+import { composeReviewPicker } from './compose-review-picker.js';
+import { composePartyPanel } from './party-panel-render.js';
 import { CanvasPresenter } from '../../lib/presenter.js';
 import {
   loadFont,
@@ -116,6 +121,63 @@ const NARRATION_PALETTE: Palette = {
   provenance: 'MazeView COMPOSED_PALETTE',
   colors: COMPOSED_PALETTE.map((c) => [...c]) as Palette['colors'],
 };
+
+/**
+ * Map a party ARRAY index → its REVIEW-picker panel slot (0..5), reusing the
+ * EXACT panel-position logic MazeView already renders the side panels with
+ * (`composePartyPanel`: column = index%2 → left/right, panelRow = floor(index/2)).
+ *
+ * The REVIEW picker's `REVIEW_SLOT_AT` is indexed column-major (0-2 = left
+ * column rows 0-2; 3-5 = right column rows 0-2), so we convert the panel's
+ * (column, panelRow) into that flat slot index:
+ *   left  column → 0 + panelRow   (slots 0,1,2)
+ *   right column → 3 + panelRow   (slots 3,4,5)
+ *
+ * This keeps the picker cell over the SAME screen position the member's panel
+ * portrait/name occupies in the live view — the picker and the panels can't
+ * drift because they share `composePartyPanel`.
+ *
+ * NOTE (flagged for Task-5 e2e): the engine's REVIEW fixture pins the reference
+ * party THESUS/LYSANDR/TEMPEST at picker slots 0/1/3 (column-major by formation
+ * rank), whereas `composePartyPanel` is interleaved by array index (RE finding
+ * maze-newgame-sequence-frames.json: even→LEFT, odd→RIGHT) → slots 0/3/1. Our
+ * schema does not expose a formation-rank field, so we deliberately reuse the
+ * panel mapping the app actually draws (consistent with the visible panels)
+ * rather than invent a rank mapping. The e2e should validate the picker cell
+ * lands on each member's on-screen panel position.
+ */
+function partyIndexToReviewSlot(index: number, member: ActivePartyMember): number {
+  const panel = composePartyPanel(index, member);
+  return (panel.column === 'left' ? 0 : 3) + Math.floor(panel.panelRow / 4);
+}
+
+/** Per-REVIEW-picker derived view of the active party. */
+interface ReviewPartyMap {
+  /** length-6, member name at each panel slot (null = empty) — for the composer. */
+  slotNames: (string | null)[];
+  /** occupied panel-slot indices (for moveReviewCursor). */
+  occupiedSlots: number[];
+  /** panel slot → party ARRAY index (for the /game/review/<index> nav). */
+  slotToPartyIndex: (number | null)[];
+}
+
+/** Derive the REVIEW-picker slot maps from the active party (reusing the panel
+ *  mapping). Members past slot collisions are unexpected (the panel mapping is a
+ *  bijection over 0..5), but a collision just overwrites — last writer wins. */
+function buildReviewPartyMap(members: ReadonlyArray<ActivePartyMember>): ReviewPartyMap {
+  const slotNames: (string | null)[] = [null, null, null, null, null, null];
+  const slotToPartyIndex: (number | null)[] = [null, null, null, null, null, null];
+  const occupiedSlots: number[] = [];
+  for (let i = 0; i < members.length && i < 6; i++) {
+    const slot = partyIndexToReviewSlot(i, members[i]!);
+    if (slot < 0 || slot > 5) continue;
+    slotNames[slot] = members[i]!.name;
+    slotToPartyIndex[slot] = i;
+    if (!occupiedSlots.includes(slot)) occupiedSlots.push(slot);
+  }
+  occupiedSlots.sort((a, b) => a - b);
+  return { slotNames, occupiedSlots, slotToPartyIndex };
+}
 
 /**
  * Render the maze viewport for `(block, party)` to a 176×112 palette-index buffer.
@@ -233,6 +295,7 @@ function composeFrame(
   phase: 0 | 1 = 0,
   viewportOracles: Map<string, Uint8Array> | null = null,
   optionsMenu: { open: boolean; cursorIndex: number } | null = null,
+  reviewPicker: { open: boolean; cursor: number; slotNames: ReadonlyArray<string | null> } | null = null,
 ): Uint8Array {
   // Static chrome + LIVE party panels (the player's actual party) + viewport
   // baseline. partyPanels is undefined until the panel fonts/active party load;
@@ -294,6 +357,26 @@ function composeFrame(
       }
     }
   }
+
+  // REVIEW WHO? picker overlay: when OPTIONS → REVIEW is active the engine paints
+  // a 160×40 member picker over the same bottom-left strip (game_state stays 5).
+  // Same palette-INDEX buffer → RGBA blit as the OPTIONS strip. The picker and the
+  // OPTIONS menu are never open at once (REVIEW closes the menu when it opens).
+  if (reviewPicker?.open) {
+    const strip = composeReviewPicker(reviewPicker.slotNames, reviewPicker.cursor);
+    const { x: sx, y: sy, w: sw, h: sh } = REVIEW_STRIP;
+    for (let row = 0; row < sh; row++) {
+      for (let col = 0; col < sw; col++) {
+        const idx = strip[row * sw + col]!;
+        const color = COMPOSED_PALETTE[idx] ?? COMPOSED_PALETTE[0]!;
+        const o = ((sy + row) * ENGINE_W + (sx + col)) * 4;
+        frame[o] = color[0];
+        frame[o + 1] = color[1];
+        frame[o + 2] = color[2];
+        frame[o + 3] = 0xff;
+      }
+    }
+  }
   return frame;
 }
 
@@ -310,6 +393,7 @@ function composeFrame(
  */
 export function MazeView() {
   const navigate = useNavigate();
+  const location = useLocation();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [assets, setAssets] = useState<MazeRenderAssets | null>(null);
   const [noSession, setNoSession] = useState(false);
@@ -345,6 +429,14 @@ export function MazeView() {
   const optionsMenuRef = useRef<{ open: boolean; cursorIndex: number }>({
     open: false,
     cursorIndex: 0,
+  });
+  // REVIEW WHO? member-picker UI state (in-place bottom-strip overlay opened from
+  // OPTIONS → REVIEW; game_state stays free-roam). Mirrors optionsMenuRef: read/
+  // written by the keydown handler + present(). cursor: -1 = EXIT, 0..5 = panel
+  // slot. Defaults CLOSED so free-roam renders exactly as before.
+  const reviewPickerRef = useRef<{ open: boolean; cursor: number }>({
+    open: false,
+    cursor: REVIEW_EXIT,
   });
   // Decoded per-mode strip text (title/narration/bump) + the message font, loaded
   // once. Null until both resolve (or if the level has no scriptedEntry — then
@@ -537,6 +629,7 @@ export function MazeView() {
     const a = assetsRef.current;
     if (!canvas || !session || !a) return;
     if (!presenterRef.current) presenterRef.current = new CanvasPresenter(canvas);
+    const review = reviewPickerRef.current;
     const frame = composeFrame(
       session,
       a,
@@ -548,6 +641,9 @@ export function MazeView() {
       phaseRef.current,
       viewportOraclesRef.current,
       optionsMenuRef.current,
+      review.open
+        ? { open: true, cursor: review.cursor, slotNames: buildReviewPartyMap(activePartyRef.current).slotNames }
+        : null,
     );
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
   }
@@ -559,8 +655,15 @@ export function MazeView() {
    * interaction, 'cast'/'use' → the out-of-combat spell/item flows. Until then
    * selecting any cell returns to free-roam (no "not implemented" UI).
    */
-  function dispatchOptionsCommand(_cmd: OptionsCommand): void {
+  function dispatchOptionsCommand(cmd: OptionsCommand): void {
+    // Close the OPTIONS menu first (the engine replaces it with whatever the
+    // command opens; for stubbed commands it just returns to free-roam).
     optionsMenuRef.current = { open: false, cursorIndex: 0 };
+    if (cmd === 'review') {
+      // OPTIONS → REVIEW: open the in-place "REVIEW WHO?" member picker. Cursor
+      // starts on EXIT (the engine default). The keydown handler drives it from here.
+      reviewPickerRef.current = { open: true, cursor: REVIEW_EXIT };
+    }
     present();
   }
 
@@ -628,6 +731,20 @@ export function MazeView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assets]);
 
+  // Mount intent: returning from the char view with `?review=1` re-opens the
+  // REVIEW WHO? picker (so the in-char-view REVIEW round-trips back to the dungeon
+  // picker, not free-roam). Only honored in free-roam; cursor resets to EXIT.
+  // Re-runs if the search string changes (a fresh return navigation).
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('review') === '1' && sessionRef.current?.entryMode === 'free') {
+      reviewPickerRef.current = { open: true, cursor: REVIEW_EXIT };
+      present();
+    }
+    // present/refs are stable; re-run only when the query string changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search, assets]);
+
   // Keydown: movement. Registered once; reads/writes the session ref.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -663,6 +780,60 @@ export function MazeView() {
           scheduleCutsceneTick();
         }
         return; // arrows (and everything else) inert during the scripted cutscene
+      }
+
+      // REVIEW WHO? picker (in-place bottom-strip overlay; opened from OPTIONS →
+      // REVIEW). Takes PRIORITY over everything else while open: arrows move the
+      // cursor, ENTER on a member navigates to its char view, ENTER on EXIT (or
+      // ESCAPE) closes back to free-roam, and the party must NOT move. The slot↔
+      // partyIndex map is derived from the SAME panel mapping the view renders.
+      const picker = reviewPickerRef.current;
+      if (picker.open) {
+        const map = buildReviewPartyMap(activePartyRef.current);
+        switch (e.key) {
+          case 'ArrowUp':
+          case 'ArrowDown':
+          case 'ArrowLeft':
+          case 'ArrowRight': {
+            const dir =
+              e.key === 'ArrowUp'
+                ? 'up'
+                : e.key === 'ArrowDown'
+                  ? 'down'
+                  : e.key === 'ArrowLeft'
+                    ? 'left'
+                    : 'right';
+            reviewPickerRef.current = {
+              open: true,
+              cursor: moveReviewCursor(picker.cursor, dir, map.occupiedSlots),
+            };
+            e.preventDefault();
+            present();
+            return;
+          }
+          case 'Enter': {
+            e.preventDefault();
+            if (picker.cursor === REVIEW_EXIT) {
+              reviewPickerRef.current = { open: false, cursor: REVIEW_EXIT };
+              present();
+              return;
+            }
+            const partyIndex = map.slotToPartyIndex[picker.cursor];
+            if (partyIndex != null) {
+              navigate(`/game/review/${partyIndex}`);
+            }
+            return;
+          }
+          case 'Escape':
+            e.preventDefault();
+            reviewPickerRef.current = { open: false, cursor: REVIEW_EXIT };
+            present();
+            return;
+          default:
+            // Any other key: consume so the party can't move while picking.
+            e.preventDefault();
+            return;
+        }
       }
 
       // PARTY OPTIONS menu (in-place bottom-strip overlay; game_state stays
