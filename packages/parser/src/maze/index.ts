@@ -67,6 +67,9 @@ export {
   TOTAL_CELLS,
 } from './maze-block.js';
 
+// Options menu navigation (pure, in-dungeon PARTY OPTIONS 3×3 grid)
+export { moveOptionsCursor, commandAt, type OptionsCommand } from './options-menu.js';
+
 // Shared types
 export type { MazeSpan, CompositorCall } from './compositor.js';
 export type { MazeWorkBuffer, MazeImageDesc, MazePlacement } from './maze-data.js';
