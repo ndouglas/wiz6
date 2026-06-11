@@ -9,9 +9,12 @@
  *  - Navigation: column-major grid, CLAMP at edges (no wrap). down=row+1, right=col+1.
  *  - Columns at x=8 / 64 / 120; rows at y=160 / 168 / 176 (8px pitch).
  *  - Header "PARTY OPTIONS" at x≈24, y≈145, palette 9.
- *  - Cursor highlight = COLORED TEXT in palette 5 (yellow); normal text palette 1
- *    (white). No blink (settle-invariant). NOT inverse — confirmed by diffing the
- *    SEARCH↔USE cursor fixtures (the cell's text swaps yellow↔white).
+ *  - Cursor highlight = INVERSE in palette 5 (yellow bar, BLACK letter strokes);
+ *    normal text palette 1 (white) on gray. No blink (settle-invariant).
+ *    Corrected 2026-06-11: the cursor cell is INVERSE (bg=palette[5], stroke=0),
+ *    NOT colored text — verified pixel-exact against the options-menu-*.idx.gz
+ *    fixtures by compose-options-strip.ts (the highlighted "SEARCH" cell is a
+ *    solid yellow bar with black glyph strokes, not yellow letters on black).
  *
  * Spec: docs/superpowers/specs/2026-06-10-options-menu-shell-design.md.
  * The composer (compose-options-strip.ts) iterates these to byte-exact parity against
@@ -62,5 +65,9 @@ export const OPTIONS_CELL_AT: ReadonlyArray<{ x: number; y: number }> = [
 export const OPTIONS_TEXT_PALETTE = 1;
 export const OPTIONS_HEADER_PALETTE = 9;
 
-/** Cursor highlight: colored text (not inverse) in palette 5; no blink. */
-export const OPTIONS_HILITE = { paletteIndex: 5, coloredText: true, blinks: false } as const;
+/**
+ * Cursor highlight: INVERSE (yellow bar, black strokes) in palette 5; no blink.
+ * `coloredText: false` = inverse render (bg=palette[5], stroke=palette[0]),
+ * corrected 2026-06-11 against the options-menu-*.idx.gz fixtures.
+ */
+export const OPTIONS_HILITE = { paletteIndex: 5, coloredText: false, blinks: false } as const;
