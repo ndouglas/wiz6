@@ -238,6 +238,45 @@
       "recommend_check": "Behavioral: in save slot 1 (at the FORCE/PICK/EXIT menu) read the door record +0x630 (lock) and +0x240 (edge code) once the record table is located; confirm the normal per-tumbler difficulty is 0 (0xc66d zeroes 0x5234) so PICK success = all tumblers roll rng_next(skill)>0."
     }
   ],
+  "findings": [
+    {
+      "id": "live-special-record-table-layout",
+      "claim": "SPECIAL-RECORD TABLE LAYOUT (HIGH CONFIDENCE — pinned from live save-1 reads + disassembly). base = DGROUP near-pointer at [0x4fa8] = 0x8184 in save-1 (physical: DGROUP+0x8184 = phys 0x201cc). Max 144 (0x90) records (si = 0..0x8f in 366e). All coordinate/type/lock fields are BYTE arrays (stride 1, index=recidx). Wall-plane is a WORD array (stride 2, index=recidx*2 — confirmed by 'D1E6 shl si,1' before '[bx+si+0x240]' in wmaze 0x961c/0x8ad7). Field offsets from base: (1) +0x360 TYPE byte — 3=chest, 7=door (other types also exist: 1,4,5,6,8,11,16,19,21,23,24,25). (2) +0x3f0 X coord byte (zone-local column 0..7). (3) +0x480 Y coord byte (zone-local row 0..7). (4) +0x510 Z/region byte (0..11). (5) +0x240 WALL-PLANE word (2 bytes/record, LE; getbit_chunk extracts 2-bit facing value at bit offset = facing*2, LSB-first): value 0=open, 1=closed, 2=welded. (6) +0x630 LOCK byte (getbit_chunk width=5, offset=0 -> 5-bit strength 0..31). (7) +0x6c0 PER-REGION FIRST-RECORD-INDEX byte array (12 bytes, indexed by region/z = [0x4f9c]; gives the scan start index for 366e). (8) +0x120 unknown WORD per record (read in FORCE setup at 8ad7 with recidx*2, purpose unconfirmed — may be a door-name or UI string pointer). CONFIRMED from live reads of phys arrays in save-1: type array at DGROUP+0x84e4 (phys 132396), x at DGROUP+0x8574 (phys 132540), y at DGROUP+0x8604 (phys 132684), z at DGROUP+0x8694 (phys 132828), lock at DGROUP+0x87b4 (phys 133116), per-region at DGROUP+0x8844 (phys 133260). getbit_chunk (wroot image 0x2962, thunk 0xe3fe) confirmed = (data>>offset)&mask with LSB-first bit ordering.",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr + wroot.exe + save-1",
+        "address": {
+          "space": "wroot.dgroup",
+          "offset": "0x4fa8"
+        },
+        "type": "live-trace",
+        "details": "Save-1 DGROUP reads (phys base 0x18048): [0x4fa8]=0x8184 (base ptr). Type array at DGROUP+0x84e4 (bx+0x360): record 109=0x07 (DOOR), records 95/98/112/136/143=0x03 (CHESTs). x at DGROUP+0x8574: rec109=7. y at DGROUP+0x8604: rec109=0. z at DGROUP+0x8694: rec109=4. per-region at DGROUP+0x8844: [7]=0x79=121 (region 7 starts at record 121). Lock at DGROUP+0x87b4: rec109=0x00 (5-bit lock=0). Wall at DGROUP+0x83c4 (WORD array, stride 2): rec109 at offset 109*2=218 = phys 132326 = bytes[0x00,0x08] -> word 0x0800. getbit_chunk at wroot image 0x2962 (thunk 0xe3fe): 'shr bx,cl; mask=(0xffff>>(16-width)); return (data>>offset)&mask' — LSB-first. 366e (wmaze file 0x366e): scans si from specialIdx (+0x6c0[z]) to 0x8f, checks [bx+si+0x510]==z AND [bx+si+0x3f0]==x AND [bx+si+0x480]==y AND type!=0 AND 0xe34b level-filter; returns si (recidx) on match or 0xffff. Force setup at 8ae6: 'mov si,[bp+6]; mov al,[bx+si+0x630]' — BYTE access, stride 1. Wall at 8ad7: 'shl ax,1; mov si,ax; mov ax,[bx+si+0x240]' — WORD access, stride 2."
+      },
+      "confidence": "high",
+      "applied_name": "special_record_table"
+    },
+    {
+      "id": "live-door-level0-record109",
+      "claim": "THE LEVEL-0 DOOR: record 109 is the SOLE type-7 door in the level-0 special-record table. Coordinates: z=4 (region 4, gxBase=120, gyBase=132), x=7, y=0. Global: gx=127, gy=132. In save-1: lock_byte=0x00 (5-bit lock strength=0, trivially easy to force/pick — consistent with a castle entry door that the game expects players to simply open). Wall word=0x0800 in save-1 (getbit_chunk at facing*2=4 = 0 = open state — door may have been opened prior to this save). The 366e lookup for region 7 (party in B1 area of level-0) starts at record 121 and finds records 121-124 (all type 1/16/19/21, not type 7). The only type-7 door is in region 4 (surface/castle area). PARTY-POSITION CAVEAT: save-1 party coords are z=7,x=3,y=2 (region 7, B1 area), which does NOT match the door at z=4,x=7,y=0. The FORCE/PICK menu was active when this save was taken; the party coords reflect the position at save time, not necessarily the position when OPEN was originally pressed. The mismatch is documented but not resolved — possible causes: (a) save was taken while inside 9345 menu after the party navigated away, (b) z=[0x4f9c] tracks a different coordinate than maze-block region, (c) the door approach is from a neighboring region. For the decoder purpose, the door record IS at record 109 in the table.",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr + save-1",
+        "address": {
+          "space": "wroot.dgroup",
+          "offset": "0x84e4"
+        },
+        "type": "live-trace",
+        "details": "Type array scan (DGROUP+0x84e4, 144 bytes): only record 109 = 0x07. Records 121-124 (region 7, z=7): types 1,16,19,21 (no door). Record 109 z=4,x=7,y=0 -> global gx=gxBase[4]+7=127, gy=gyBase[4]+0=132 (gxBase[4]=120, gyBase[4]=132 from extracted/maze/level-0.json mazeBlock). Lock: DGROUP+0x87b4[109]=0x00 -> strength=0. Wall: DGROUP+0x83c4[109*2..109*2+1]=[0x00,0x08]=word 0x0800; getbit_chunk(0x0800,4,2)=0 (open). Party in save-1: z=[0x4f9c]=7, y=[0x4f9e]=2, x=[0x4fa0]=3, facing=[0x4f9a]=2. Door at (z=4,x=7,y=0) facing=? (approach direction not confirmed). recommend_check: read party coords at the moment OPEN is pressed (requires live instrumentation) to confirm the door approach direction and whether facing=2 (south) corresponds to the south wall of cell (4,7,0)."
+      },
+      "confidence": "high",
+      "applied_name": null
+    }
+  ],
+  "unresolved_updated_by_pass3": [
+    "PARTY-COORD/DOOR-RECORD MISMATCH: save-1 party is at z=7,x=3,y=2 but the type-7 door is at z=4,x=7,y=0. These are in different maze regions (region 7 = B1 area, region 4 = castle surface). Unresolved. Best guess: save was taken inside the 9345 menu, and the party had moved since OPEN was pressed (or z=[0x4f9c] encodes something other than the maze-block region for the door area).",
+    "DOOR APPROACH FACING: which facing value (0-3) does the party use when approaching the level-0 castle door at (z=4,x=7,y=0)? The wall word 0x0800 has getbit_chunk(offset=facing*2) = 0 for facing 0..4, so if the door IS open in the save, we can't determine the closed-state facing from this snapshot alone. Need a fresh save while the door is closed.",
+    "+0x120 WORD ARRAY: the FORCE function reads a WORD at [bx+recidx*2+0x120] at 8adf before the lock read. Purpose unknown (may be door-title string offset or visual index). Record 109's +0x120 word = bytes[8adf read not performed]. Not needed for basic decoder but should be identified."
+  ],
   "unresolved": [
     "LIVE PASS BLOCKED \u2014 see finding 'live-blocker-no-execution-breakpoints'. The MCP exposed only DOSBox-X save-state tools; all breakpoint/single-step tools are [STUB] and the dosbox_live_* frame-stepping backend was not surfaced. Q2 (FORCE comparator/JL direction), Q3 (strain-progress source: keypress vs RNG, the c47e feeds), Q4 (PICK per-tumbler resolution + outcome rule), and the [bp-8] lock / [bp-0x36] outcome / [bp-0x38] strain-len / [bp-0x44] tumbler reads ALL remain at static low confidence and CANNOT be resolved with this toolset. To complete this pass, either the dosbox_live_* tools (dosbox_live_step + dosbox_live_read at a waypoint reached via dosbox_live_step loop) must be exposed, or the DOSBox-X ncurses-debugger driving backend must be implemented (TODO #Q-G / docs/superpowers/specs/2026-05-23-dosbox-mcp.md).",
     "The door LOCK-STRENGTH source: both FORCE and PICK read getbit_chunk(width=5, off=0) of the record's +0x630 byte ([bp-4]). I have NOT confirmed +0x630 is the lock-difficulty field vs a door-message id (in 0x95ba/0x9345 +0x630 byte is also copied to *0x43c4 message field elsewhere). Decode +0x630 across known easy vs hard doors live and confirm the 5-bit lock value drives strain-length / tumbler-count.",
