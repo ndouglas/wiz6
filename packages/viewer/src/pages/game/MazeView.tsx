@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   MAZE_VIEWPORT,
+  OPTIONS_STRIP,
   type ActivePartyMember,
   type Font,
   type Font4bpp,
@@ -13,10 +14,12 @@ import {
 import {
   advanceEntry,
   composeCallList,
+  commandAt,
   decodeNarrationLines,
   drawEntryStrip,
   expandMazeData,
   generateFullCallList,
+  moveOptionsCursor,
   renderMazeViewport,
   oracleViewportForGy,
   oracleAnimViewport,
@@ -28,7 +31,9 @@ import {
   type ForwardVerdict,
   type MazeWorkBuffer,
   type NewgameViewports,
+  type OptionsCommand,
 } from '@wiz6/parser';
+import { composeOptionsStrip } from './compose-options-strip.js';
 import { CanvasPresenter } from '../../lib/presenter.js';
 import {
   loadFont,
@@ -227,6 +232,7 @@ function composeFrame(
   mazeWorkBuffer: MazeWorkBuffer | null,
   phase: 0 | 1 = 0,
   viewportOracles: Map<string, Uint8Array> | null = null,
+  optionsMenu: { open: boolean; cursorIndex: number } | null = null,
 ): Uint8Array {
   // Static chrome + LIVE party panels (the player's actual party) + viewport
   // baseline. partyPanels is undefined until the panel fonts/active party load;
@@ -264,6 +270,29 @@ function composeFrame(
       stripText.font,
       NARRATION_PALETTE,
     );
+  }
+
+  // PARTY OPTIONS overlay: when the in-place command menu is open (free-roam,
+  // game_state stays 5), the engine paints a 160×40 gray strip with the 3×3
+  // command grid over the bottom-left of the maze frame. We compose the strip as
+  // a palette-INDEX buffer (compose-options-strip.ts, byte-exact vs fixtures) and
+  // blit it in using the SAME COMPOSED_PALETTE index→RGBA step the maze viewport
+  // uses, so the strip is real pixels (the Task-5 e2e pixel-asserts it). The maze
+  // viewport, party panels, and top bar are untouched outside OPTIONS_STRIP.
+  if (optionsMenu?.open) {
+    const strip = composeOptionsStrip(optionsMenu.cursorIndex);
+    const { x: sx, y: sy, w: sw, h: sh } = OPTIONS_STRIP;
+    for (let row = 0; row < sh; row++) {
+      for (let col = 0; col < sw; col++) {
+        const idx = strip[row * sw + col]!;
+        const color = COMPOSED_PALETTE[idx] ?? COMPOSED_PALETTE[0]!;
+        const o = ((sy + row) * ENGINE_W + (sx + col)) * 4;
+        frame[o] = color[0];
+        frame[o + 1] = color[1];
+        frame[o + 2] = color[2];
+        frame[o + 3] = 0xff;
+      }
+    }
   }
   return frame;
 }
@@ -310,6 +339,13 @@ export function MazeView() {
   // levels with a scriptedEntry). Null until loaded or if not a scripted level.
   const newgameViewportsRef = useRef<NewgameViewports | null>(null);
   const presenterRef = useRef<CanvasPresenter | null>(null);
+  // PARTY OPTIONS menu UI state. Mirrors the other refs (read/written by the
+  // keydown handler + present(), drives repaints via present() like movement).
+  // Defaults CLOSED so free-roam renders exactly as before.
+  const optionsMenuRef = useRef<{ open: boolean; cursorIndex: number }>({
+    open: false,
+    cursorIndex: 0,
+  });
   // Decoded per-mode strip text (title/narration/bump) + the message font, loaded
   // once. Null until both resolve (or if the level has no scriptedEntry — then
   // there's no scripted strip and the baked free-roam widget shows).
@@ -511,8 +547,21 @@ export function MazeView() {
       mazeWorkBufferRef.current,
       phaseRef.current,
       viewportOraclesRef.current,
+      optionsMenuRef.current,
     );
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
+  }
+
+  /**
+   * Dispatch a PARTY OPTIONS command. SHELL stub: every command (including EXIT)
+   * just closes the menu and repaints. Real per-command handlers wire in HERE
+   * later — e.g. 'review' → character view (game_state 0x11), 'open' → door
+   * interaction, 'cast'/'use' → the out-of-combat spell/item flows. Until then
+   * selecting any cell returns to free-roam (no "not implemented" UI).
+   */
+  function dispatchOptionsCommand(_cmd: OptionsCommand): void {
+    optionsMenuRef.current = { open: false, cursorIndex: 0 };
+    present();
   }
 
   /** Play the gate "shk" drag (SOUND04) — called once per portcullis-lift FRAME
@@ -616,8 +665,55 @@ export function MazeView() {
         return; // arrows (and everything else) inert during the scripted cutscene
       }
 
-      // Free-roam: arrows turn/step; Enter is reserved for OPTIONS/camp (deferred
-      // — see TODO #078 / the faithful-START-NEW-GAME spec "Deferred"), no-op for now.
+      // PARTY OPTIONS menu (in-place bottom-strip overlay; game_state stays
+      // free-roam). While open, movement/turn keys drive the CURSOR, not the
+      // party. RETURN opens it from free-roam; arrows move the cursor; RETURN on a
+      // cell dispatches (stubbed); ESCAPE (or selecting EXIT) closes it.
+      const menu = optionsMenuRef.current;
+      if (!menu.open) {
+        // Free-roam, menu closed: RETURN opens the menu (only in 'free' mode).
+        if (e.key === 'Enter' && session.entryMode === 'free') {
+          e.preventDefault();
+          optionsMenuRef.current = { open: true, cursorIndex: 0 };
+          present();
+          return;
+        }
+        // (fall through to the movement switch for arrows when the menu is closed)
+      } else {
+        // Menu open: keys drive the cursor / dispatch / close. Consume everything
+        // that would otherwise move the party.
+        switch (e.key) {
+          case 'ArrowUp':
+            optionsMenuRef.current = { ...menu, cursorIndex: moveOptionsCursor(menu.cursorIndex, 'up') };
+            break;
+          case 'ArrowDown':
+            optionsMenuRef.current = { ...menu, cursorIndex: moveOptionsCursor(menu.cursorIndex, 'down') };
+            break;
+          case 'ArrowLeft':
+            optionsMenuRef.current = { ...menu, cursorIndex: moveOptionsCursor(menu.cursorIndex, 'left') };
+            break;
+          case 'ArrowRight':
+            optionsMenuRef.current = { ...menu, cursorIndex: moveOptionsCursor(menu.cursorIndex, 'right') };
+            break;
+          case 'Enter':
+            e.preventDefault();
+            dispatchOptionsCommand(commandAt(menu.cursorIndex));
+            return;
+          case 'Escape':
+            optionsMenuRef.current = { open: false, cursorIndex: 0 };
+            break;
+          default:
+            // Any other key while the menu is open: consume (don't move the party).
+            e.preventDefault();
+            return;
+        }
+        e.preventDefault();
+        present();
+        return;
+      }
+
+      // Free-roam: arrows turn/step; Enter opens the PARTY OPTIONS menu (handled
+      // above before this switch).
       let nextParty = session.party;
       switch (e.key) {
         case 'ArrowLeft':
@@ -638,7 +734,7 @@ export function MazeView() {
         case 'ArrowDown':
           return; // no back-step in Wiz6
         case 'Enter':
-          return; // OPTIONS/camp menu deferred (TODO #078)
+          return; // handled above (opens PARTY OPTIONS); unreachable here
         default:
           return;
       }

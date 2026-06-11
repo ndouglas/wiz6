@@ -115,6 +115,12 @@ export {
   CELLS_PER_REGION,
   TOTAL_CELLS,
 } from './maze/maze-block.js';
+// Maze options menu navigation (pure, in-dungeon PARTY OPTIONS 3×3 grid)
+export {
+  moveOptionsCursor,
+  commandAt,
+  type OptionsCommand,
+} from './maze/options-menu.js';
 export { EGA_FILE_INDEX_PERMUTATION } from './formats/ega-permutation.js';
 export {
   encodeSave,
