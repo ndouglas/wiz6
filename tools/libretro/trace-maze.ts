@@ -4513,6 +4513,37 @@ async function phaseEncProbe(c: HostClient): Promise<void> {
   console.log(`encprobe: ${enc}/${trials} ENCOUNTERS, ${moved} clean moves, ${nomove} no-move → ${enc > 0 && enc < trials ? 'RANDOM' : enc === trials ? 'ALWAYS (fixed?)' : 'NEVER'}`);
 }
 
+/** `screencap <stateFile> <keys> <outPng> [settle]` — unserialize a state, press a
+ *  comma-separated key macro (e.g. `enter` or `enter,down,down`), settle, and save the
+ *  framebuffer as a PNG (+ .idx.gz). For eyeballing/capturing a screen like the OPTIONS menu. */
+async function phaseScreenCap(c: HostClient): Promise<void> {
+  const { encodePngRgba } = await import('../../packages/cli/src/lib/png.js');
+  const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
+  const stateFile = process.argv[3]!;
+  const keys = (process.argv[4] ?? '').split(',').map((k) => k.trim()).filter(Boolean);
+  const outPng = process.argv[5] ?? '/tmp/wiz6-screencap.png';
+  const settle = Number(process.argv[6] ?? 120);
+  await c.step(3000);
+  await c.unserialize(stateFile); await c.step(2);
+  const base = await c.anchor();
+  console.log(`screencap: ${stateFile}, keys=[${keys.join(',')}], settle ${settle} -> ${outPng}`);
+  for (const k of keys) { await c.key(k as 'enter' | 'up' | 'down' | 'left' | 'right', 'tap'); await c.step(settle); }
+  const p = await frParty(c, base);
+  console.log(`  after keys: gx${p.gx} gy${p.gy} f${p.f} gs${p.gs}`);
+  const fbPath = `/tmp/wiz6-screencap.rgba`;
+  await c.fb(fbPath);
+  const rgba = new Uint8Array(readFileSync(fbPath));
+  writeFileSync(outPng, encodePngRgba(SCREEN_WIDTH, SCREEN_HEIGHT, rgba));
+  // also idx.gz for fixture use
+  const rgbToIdx = new Map<number, number>();
+  COMPOSED_PALETTE.forEach((rgb: readonly number[], i: number) => rgbToIdx.set(((rgb[0]! << 16) | (rgb[1]! << 8) | rgb[2]!) >>> 0, i));
+  const idx = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
+  let palMiss = 0;
+  for (let q = 0; q < idx.length; q++) { const i = rgbToIdx.get(((rgba[q * 4]! << 16) | (rgba[q * 4 + 1]! << 8) | rgba[q * 4 + 2]!) >>> 0); if (i === undefined) { palMiss++; idx[q] = 0; } else idx[q] = i; }
+  writeFileSync(outPng.replace(/\.png$/, '.idx.gz'), gzipSync(idx));
+  console.log(`  saved PNG + idx.gz (palette misses: ${palMiss})`);
+}
+
 /** `doorprobe <stateFile> [bumps] [settle]` — drive repeated forward presses at a closed
  *  door (persistent state, NOT re-unserialized), each followed by `settle` frames, logging
  *  the party position after each. Distinguishes a door that opens-then-passes (position
@@ -4958,6 +4989,7 @@ async function main() {
     else if (phase === 'engcap') await phaseEngCapture(c);
     else if (phase === 'encprobe') await phaseEncProbe(c);
     else if (phase === 'doorprobe') await phaseDoorProbe(c);
+    else if (phase === 'screencap') await phaseScreenCap(c);
     else if (phase === 'buildtrace') await phaseBuildTrace(c);
     else if (phase === 'collslots') await phaseCollSlots(c);
     else if (phase === 'gateclass') await phaseGateClass(c);
