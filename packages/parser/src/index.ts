@@ -134,6 +134,8 @@ export {
   type PartyPos,
   type DoorOutcome,
 } from './maze/door-open.js';
+// Door-record decoder — pure type-7 special-record extractor (#089)
+export { decodeDoorRecords, SPECIAL_RECORD_BANK } from './maze/door-record.js';
 export { EGA_FILE_INDEX_PERMUTATION } from './formats/ega-permutation.js';
 export {
   encodeSave,
