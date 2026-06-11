@@ -7,7 +7,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const FIX = resolve(here, '../../../../tools/parity/fixtures/engine');
 const SLOTS = ['THESUS', 'LYSANDR', null, 'TEMPEST', null, null];
 function loadStrip(name: string): Uint8Array {
-  const full = new Uint8Array(gunzipSync(readFileSync(resolve(FIX, `review-who-${name}.idx.gz`))));
+  const full = new Uint8Array(gunzipSync(readFileSync(resolve(FIX, `maze-review-who-${name}.idx.gz`))));
   const { x, y, w, h } = REVIEW_STRIP; const out = new Uint8Array(w * h);
   for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) out[r * w + c] = full[(y + r) * 320 + (x + c)]!;
   return out;

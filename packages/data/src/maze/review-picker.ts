@@ -3,8 +3,10 @@
  * (OPTIONS → REVIEW). An in-place bottom-strip overlay on the maze screen (game_state
  * stays 5); lists the active party members at their party-panel slots + an EXIT cell in
  * the header row. The cursor starts on EXIT. Pinned from the engine via
- * `trace-maze.ts screencap` (fixtures tools/parity/fixtures/engine/review-who-*.idx.gz:
- * exit / m0=THESUS / m1=LYSANDR / m2=TEMPEST, reference roster).
+ * `trace-maze.ts screencap` (fixtures tools/parity/fixtures/engine/maze-review-who-*.idx.gz:
+ * exit / m0=THESUS / m1=LYSANDR / m2=TEMPEST, reference roster). NOTE: the dungeon picker
+ * fixtures use the `maze-review-who-*` prefix — the unprefixed `review-who-*` are the
+ * CASTLE review-member picker's (different screen), gated by review-member-flow.spec.ts.
  *
  * Measured 2026-06-11:
  *  - Header "REVIEW WHO?" at x16,y144 (palette 9). EXIT cell at x112,y144 (header row).
