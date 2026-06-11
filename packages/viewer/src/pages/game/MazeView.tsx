@@ -137,14 +137,18 @@ const NARRATION_PALETTE: Palette = {
  * portrait/name occupies in the live view — the picker and the panels can't
  * drift because they share `composePartyPanel`.
  *
- * NOTE (flagged for Task-5 e2e): the engine's REVIEW fixture pins the reference
- * party THESUS/LYSANDR/TEMPEST at picker slots 0/1/3 (column-major by formation
- * rank), whereas `composePartyPanel` is interleaved by array index (RE finding
- * maze-newgame-sequence-frames.json: even→LEFT, odd→RIGHT) → slots 0/3/1. Our
- * schema does not expose a formation-rank field, so we deliberately reuse the
- * panel mapping the app actually draws (consistent with the visible panels)
- * rather than invent a rank mapping. The e2e should validate the picker cell
- * lands on each member's on-screen panel position.
+ * The interleaved panel mapping IS the picker mapping — there is no separate
+ * "formation rank" field and none is needed. The apparent conflict (engine picker
+ * shows THESUS/LYSANDR left + TEMPEST right) dissolves once you use the real pcfile
+ * party ORDER: the pinned roster is THESUS(0), TEMPEST(1), LYSANDR(2), … (not
+ * THESUS/LYSANDR/TEMPEST). Interleaved (even→left, odd→right; RE finding
+ * maze-newgame-sequence-frames.json) then maps THESUS→slot0, TEMPEST→slot3,
+ * LYSANDR→slot1 → slotNames = [THESUS, LYSANDR, null, TEMPEST, …], which is exactly
+ * the engine review-who fixtures (verified byte-exact by the composer parity test).
+ * So the picker and the panels share `composePartyPanel` and can't drift.
+ * NOTE: the Task-5 e2e must seed the party in the pinned-roster ORDER
+ * (THESUS, TEMPEST, LYSANDR — e.g. loadPinnedRosterParty) for the live picker to
+ * match the engine fixtures.
  */
 function partyIndexToReviewSlot(index: number, member: ActivePartyMember): number {
   const panel = composePartyPanel(index, member);
