@@ -361,6 +361,7 @@ export {
   CONVERGE_RIGHT,
   CORRIDOR_CENTER_X,
 } from './maze/corridor-geometry.js';
+export { DOOR_ROLL } from './maze/door-roll.js';
 export {
   OPTIONS_COMMANDS,
   OPTIONS_LABELS,
