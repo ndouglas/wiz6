@@ -13,11 +13,17 @@ Format:
 
 Companion file: [`INBOX.md`](INBOX.md) — Nate's freeform jot pad. Claude processes it into TODO entries (single batch commit per session).
 
-Next free ID: **#091**
+Next free ID: **#092**
 
 ---
 
 ## Open
+
+- #091 [open] — Capture the dungeon INTERIOR (faithful movement + render past forced doors)
+  - **Why now:** the #089 FORCE/PICK door feature ships — and walking through a forced door drops the party OFF the captured 74-cell entrance island into the dungeon interior, which is the un-captured maze frontier. Symptom (manual smoke 2026-06-12): "garbled/wrong walls, worse as you move." DIAGNOSED: the door at (124,121,f2) leads north to (124,120), which is NOT in `maze-reachability.json`'s 74-cell set (captured with doors CLOSED — gx=124 reaches gy 121/122/123, not 120/119). Past the door: movement falls back to the over-permissive `isSolid` model (**#087**, ~37% engine-disagreement past region 0) and render uses the un-validated generated path (**#077/#084**). The door correctly gates the interior; the port just hasn't charted it.
+  - **Plan (two slices):** (1) MOVEMENT (bounded, high-value, kills the "worse as you move" symptom): extend the `trace-maze.ts collmap` BFS to poke all type-7 doors OPEN (memory-write each door record's `+0x240` wall-plane edge to code 0 in the live special-record table at DGROUP `[0x4fa8]`) before/within the BFS, re-run → expanded `maze-reachability.json` → `build-passability.ts` → new `passability.json` → faithful movement throughout. Update `maze-faithful-movement-parity.test.ts` (the BFS will reach far more than 74 cells). (2) RENDER (the open frontier): interior cells render via the generated renderer — my probe showed (124,120) renders as a RECOGNIZABLE corridor, so movement-faithful may already be "playable-rough"; true byte-exact needs the #077/#084 generation-law crack or a large per-interior-cell viewport-oracle capture. **Design fork to settle first (brainstorm): how faithful must the interior render be — accept "recognizable" + ship movement, or invest in oracle-capture / the generation-law crack?**
+  - Also a small separate render gap found: our free-roam renderer draws a closed door as a PLAIN WALL (no door graphic) at the door cell facing the door — the engine shows a wooden door. Fold into the render slice.
+  - Cross-ref: extends #087 (collision model / collmap engine-oracle navigator already built), #086 (coverage sweep tooling), #077/#084 (render generation law). Tooling: `tools/libretro/trace-maze.ts` (`collmap` @ ~L4000; `w16` memory-write helper exists), `tools/parity/build-passability.ts`, `build-viewport-oracles.ts`.
 
 - #090 [open] — Serialize-state REBASELINE to the current core + START-NEW-GAME entry-animation rework
   - **Why:** dosbox-pure serialize-states are **build-specific**. The 19 committed `test-fixtures/states/*.state.gz` were minted by an older core; the current patched dylib (`tools/libretro/dosbox_pure_libretro.dylib`, rebuilt 2026-06-10, untracked local artifact, has the `_dbp_trace_*` hook + a `paging.h` struct-layout change) **rejects all 19** (`retro_unserialize`→false→`err unser`). Proven 2026-06-11: a FRESH same-core serialize→unserialize round-trips fine (title + deep maze, gs=5), so the **harness (host.c / build-state / live MCP) is CORRECT** — only the OLD states are stale. The test SUITE stays green regardless (parity tests read committed `.idx.gz`, never `.state.gz`); only `--check`/frozen-state regeneration is broken. A clear diagnostic guard for this shipped on `feat/open-door-force-pick` (commit c011d2b — `HostClient.unserialize` now explains the build-mismatch + points at re-mint).
