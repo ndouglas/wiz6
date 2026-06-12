@@ -14,6 +14,15 @@
  * Spec: docs/superpowers/plans/ (feat/open-door-force-pick, #089).
  */
 
+/** WHO WILL TRY? door member-picker chrome (msg 537). Same panel as REVIEW WHO?
+ *  but header at x=8 and EXIT at x=120 — pinned byte-exact vs maze-door-who.idx.gz
+ *  (Task 3.5, 2026-06-11). Pass as the third arg to composeReviewPicker. */
+export const DOOR_WHO = {
+  header: 'WHO WILL TRY?',
+  headerAt: { x: 8, y: 144 },
+  exitAt: { x: 120, y: 144 },
+} as const;
+
 /** FORCE/PICK/EXIT door menu — same bottom strip as PARTY OPTIONS, single row.
  *  Labels = indexedMessages 534/535/536; header msg 0x7d2. Cell origins are
  *  byte-exact against maze-door-menu-*.idx.gz (pinned Task 3.3, 2026-06-11). */

@@ -87,15 +87,37 @@ function drawTextInverse(buf: Uint8Array, px: number, py: number, text: string):
 }
 
 /**
- * Compose the REVIEW WHO? member picker bottom strip as a palette-index buffer.
+ * Optional chrome overrides for composeReviewPicker. Defaults preserve the
+ * REVIEW WHO? layout exactly (byte-identical to the existing REVIEW fixtures).
+ */
+export interface ReviewPickerChrome {
+  /** Header string. Default: REVIEW_HEADER ('REVIEW WHO?') */
+  header?: string;
+  /** Header screen-px origin. Default: REVIEW_HEADER_AT */
+  headerAt?: { x: number; y: number };
+  /** EXIT label screen-px origin. Default: REVIEW_EXIT_AT */
+  exitAt?: { x: number; y: number };
+}
+
+/**
+ * Compose the REVIEW WHO? (or WHO WILL TRY?) member picker bottom strip as a
+ * palette-index buffer.
  *
  * @param slotNames Per-slot member names (length 6, null = empty slot).
  * @param cursor    -1 = EXIT cell highlighted; 0..5 = the slot cell highlighted.
+ * @param chrome    Optional layout overrides (header string/position, EXIT position).
+ *                  Defaults reproduce the REVIEW WHO? chrome exactly.
  */
 export function composeReviewPicker(
   slotNames: ReadonlyArray<string | null>,
   cursor: number,
+  chrome?: ReviewPickerChrome,
 ): Uint8Array {
+  // Resolve chrome overrides, falling back to REVIEW WHO? defaults.
+  const headerStr = chrome?.header ?? REVIEW_HEADER;
+  const headerAt = chrome?.headerAt ?? REVIEW_HEADER_AT;
+  const exitAt = chrome?.exitAt ?? REVIEW_EXIT_AT;
+
   const buf = new Uint8Array(STRIP_W * STRIP_H);
   // 1. Gray background fill.
   buf.fill(BG_GRAY);
@@ -109,20 +131,20 @@ export function composeReviewPicker(
   // 3. Right-edge vertical divider: black on every row.
   for (let y = 0; y < STRIP_H; y++) buf[y * STRIP_W + (STRIP_W - 1)] = BLACK;
 
-  // 4. Header text — colored text (wfont0 mask), stroke = palette 9, gray bg shows through.
+  // 4. Header text — colored text (wfont3 silhouette), stroke = palette 9, gray bg shows through.
   {
-    const hx = REVIEW_HEADER_AT.x - REVIEW_STRIP.x;
+    const hx = headerAt.x - REVIEW_STRIP.x;
     const hy = 0; // top cell row (header glyphs span y-local 0..7).
-    for (let i = 0; i < REVIEW_HEADER.length; i++) {
-      drawColoredFromWfont3(buf, hx + i * CELL, hy, REVIEW_HEADER.charCodeAt(i), REVIEW_HEADER_PALETTE);
+    for (let i = 0; i < headerStr.length; i++) {
+      drawColoredFromWfont3(buf, hx + i * CELL, hy, headerStr.charCodeAt(i), REVIEW_HEADER_PALETTE);
     }
   }
 
-  // 5. EXIT label (header row). Normal = colored palette-9 text (wfont0 mask, same as the
+  // 5. EXIT label (header row). Normal = colored palette-9 text (wfont3 silhouette, same as the
   //    header), NOT white wfont3 — verified against the m0/m1 fixtures. Highlighted = INVERSE.
   {
-    const ex = REVIEW_EXIT_AT.x - REVIEW_STRIP.x;
-    const ey = REVIEW_EXIT_AT.y - REVIEW_STRIP.y;
+    const ex = exitAt.x - REVIEW_STRIP.x;
+    const ey = exitAt.y - REVIEW_STRIP.y;
     if (cursor === -1) {
       drawTextInverse(buf, ex, ey, EXIT_LABEL);
     } else {
