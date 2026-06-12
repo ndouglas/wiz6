@@ -362,6 +362,7 @@ export {
   CORRIDOR_CENTER_X,
 } from './maze/corridor-geometry.js';
 export { DOOR_ROLL } from './maze/door-roll.js';
+export { DOOR_MENU } from './maze/door-menu.js';
 export {
   OPTIONS_COMMANDS,
   OPTIONS_LABELS,
