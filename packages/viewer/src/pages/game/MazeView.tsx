@@ -1184,30 +1184,41 @@ export function MazeView() {
         case 'ArrowUp': {
           // Movement passability: compute the engine verdict from the static data,
           // then layer the door-state overlay on top:
-          //   - isOpen(forward edge)  → allow the step even if passability says blocked
-          //   - isWelded(forward edge) → block the step even if passability allows it
-          // The overlay only overrides the forward-facing edge; turns are unaffected.
-          const baseParty = tryStepForward(
-            session.party,
-            session.level.mazeBlock,
-            passabilityRef.current
-              ? { passability: passabilityRef.current }
-              : undefined,
-          );
+          //   - isWelded(forward edge) → always block (override even if passability says open)
+          //   - isOpen(forward edge)   → always allow (override even if passability says blocked)
+          //   - otherwise              → use the static passability / wall-model verdict
+          // The overlay only affects the party's current facing edge; turns are unaffected.
           const { gx, gy, facing } = session.party;
           const overlay = doorOverlayRef.current;
           if (overlay.isWelded(gx, gy, facing)) {
-            // Welded door: always block (don't move).
+            // Welded door: always block (stay put).
             nextParty = session.party;
           } else if (overlay.isOpen(gx, gy, facing)) {
-            // Opened door: always allow the forward step (use the computed baseParty,
-            // which represents the forward position regardless of static passability).
-            // If the step didn't move (wall in generation path), force the forward cell.
-            // tryStepForward already returns the forward party if passable, so if the
-            // overlay opened the door we trust the forward result from the model path.
-            nextParty = baseParty;
+            // Opened door: force the forward step regardless of what the static
+            // passability or wall model says. tryStepForward WITHOUT opts (no
+            // passability map) computes the forward cell via the pure wall model;
+            // we ignore its wall check by calling it without opts and trusting the
+            // overlay. In practice the passability map was captured before the door
+            // was opened so it says "blocked" — we must bypass it here.
+            // Compute forward position directly: facing 0=gy+1, 1=gx+1, 2=gy-1, 3=gx-1.
+            // (same geometry as maze-geometry.ts step(gx,gy,facing,0,1))
+            const [ngx, ngy] = ((): [number, number] => {
+              switch (facing) {
+                case 0: return [gx, gy + 1];
+                case 1: return [gx + 1, gy];
+                case 2: return [gx, gy - 1];
+                default: return [gx - 1, gy];
+              }
+            })();
+            nextParty = { ...session.party, gx: ngx, gy: ngy };
           } else {
-            nextParty = baseParty;
+            nextParty = tryStepForward(
+              session.party,
+              session.level.mazeBlock,
+              passabilityRef.current
+                ? { passability: passabilityRef.current }
+                : undefined,
+            );
           }
           break;
         }
