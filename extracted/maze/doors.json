@@ -1,0 +1,86 @@
+[
+  {
+    "gx": 124,
+    "gy": 121,
+    "facing": 2,
+    "lockStrength": 3,
+    "welded": false
+  },
+  {
+    "gx": 124,
+    "gy": 123,
+    "facing": 0,
+    "lockStrength": 3,
+    "welded": false
+  },
+  {
+    "gx": 130,
+    "gy": 121,
+    "facing": 2,
+    "lockStrength": 3,
+    "welded": false
+  },
+  {
+    "gx": 130,
+    "gy": 123,
+    "facing": 0,
+    "lockStrength": 3,
+    "welded": false
+  },
+  {
+    "gx": 124,
+    "gy": 129,
+    "facing": 2,
+    "lockStrength": 3,
+    "welded": false
+  },
+  {
+    "gx": 124,
+    "gy": 131,
+    "facing": 0,
+    "lockStrength": 3,
+    "welded": false
+  },
+  {
+    "gx": 125,
+    "gy": 130,
+    "facing": 3,
+    "lockStrength": 3,
+    "welded": false
+  },
+  {
+    "gx": 129,
+    "gy": 130,
+    "facing": 1,
+    "lockStrength": 3,
+    "welded": false
+  },
+  {
+    "gx": 130,
+    "gy": 129,
+    "facing": 2,
+    "lockStrength": 3,
+    "welded": false
+  },
+  {
+    "gx": 130,
+    "gy": 131,
+    "facing": 0,
+    "lockStrength": 3,
+    "welded": false
+  },
+  {
+    "gx": 22,
+    "gy": 12,
+    "facing": 0,
+    "lockStrength": 0,
+    "welded": true
+  },
+  {
+    "gx": 22,
+    "gy": 12,
+    "facing": 0,
+    "lockStrength": 0,
+    "welded": false
+  }
+]
