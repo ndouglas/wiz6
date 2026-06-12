@@ -8,7 +8,6 @@ import {
   resolveDoorAttempt,
   type ForceMember,
   type PickMember,
-  type DoorAction,
 } from '../../src/maze/door-open.js';
 import type { DoorRecord } from '@wiz6/data';
 

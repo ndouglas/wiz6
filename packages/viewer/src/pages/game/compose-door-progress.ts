@@ -29,8 +29,7 @@
 
 import { DOOR_MENU } from '@wiz6/data';
 import wfont0Json from '../../data/wfont0.json' with { type: 'json' };
-import wfont3Json from '../../data/wfont3.json' with { type: 'json' };
-import { drawGlyph4bpp, drawGlyph1bpp } from './glyph-core.js';
+import { drawGlyph1bpp } from './glyph-core.js';
 
 const STRIP_W = DOOR_MENU.strip.w;   // 160
 const STRIP_H = DOOR_MENU.strip.h;   // 40
@@ -45,10 +44,9 @@ const BAR_GLYPH = 0x61;
 /** Palette index for the bar glyph (attr color 12 in the engine). */
 const BAR_COLOR = 12;
 
-/** wfont0: 1bpp text mask (highlight / colored-text path). */
+/** wfont0: 1bpp text mask. Both the bar glyph (drawn with a fixed BAR_COLOR
+ *  stroke) and the colored header/result text use this mask path. */
 const WFONT0 = wfont0Json as { glyphs: number[][] };
-/** wfont3: 4bpp EGA-planar UI font (normal label path). */
-const WFONT3 = wfont3Json as { glyphs: number[][] };
 
 // ---------------------------------------------------------------------------
 // Engine string constants (cited by indexedMessages id from msg.json)
