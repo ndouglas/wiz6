@@ -1973,6 +1973,164 @@ call  emit_or_blit`}</CodeBlock>
       { label: 'findings: maze-collision-model.json', href: '/explore/docs/findings/maze-collision-model.json' },
     ],
   },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'door-jam-forever',
+    title: 'Force a Door and You Can Jam It Shut Forever',
+    tags: ['maze', 'design-choice', 'quirk'],
+    pitch:
+      'A failed FORCE or PICK has a 1-in-3 chance to weld the door permanently shut — after which neither action can open it again. Repeatedly brute-forcing a stubborn door is not consequence-free.',
+    body: (
+      <>
+        <ProseRow>
+          When you fail a FORCE or PICK attempt on a locked door, the engine
+          doesn't just say "didn't work, try again." It rolls <Code>rng(3)</Code>.
+          On a zero — one third of failures — it advances the door's edge code one
+          step toward <strong>welded</strong> (code 2):
+        </ProseRow>
+        <CodeBlock>
+{`; wmaze 0x8dbc / 0x9258 — failed-attempt jam roll
+call rng(3)
+jnz  .no_jam
+call edge_advance(door)   ; 0x88af — clears "closed" bit, sets "welded" bit`}
+        </CodeBlock>
+        <ProseRow>
+          Once a door is welded, both the FORCE handler and the PICK handler
+          detect code 2 and force the outcome straight to JAMMED — no roll
+          happens. The door is sealed forever, for the rest of that run.
+        </ProseRow>
+        <Aside title="The trap for players">
+          The intuitive move when a door won't budge is to try the beefier
+          character, then try again, then try your rogue as backup. Each
+          failed attempt has a one-in-three shot at making the door
+          permanently unopenable. Five failures = ~87% chance you've already
+          welded it. The game never says so.
+        </Aside>
+        <ProseRow>
+          Welded is a persistent edge-code change, not a session flag. If the
+          save file records the new code, the door stays shut across reloads.
+          The only escape is a save from before the jam, or a different path.
+        </ProseRow>
+      </>
+    ),
+    seeAlso: [
+      { label: 'findings: maze-open-door-menu.json', href: '/explore/docs/findings/maze-open-door-menu.json' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'pick-xp-only-on-failure',
+    title: 'You Learn Lockpicking Only By Failing',
+    tags: ['maze', 'character-progression', 'design-choice'],
+    pitch:
+      'A failed PICK awards Skulduggery skill XP — but only to thief-ish classes, and only on failure. Successfully picking a lock teaches you nothing.',
+    body: (
+      <>
+        <ProseRow>
+          In Wiz6, Skulduggery is the lockpicking skill. You'd expect that
+          successfully opening a lock is how you get better at it. The engine
+          disagrees:
+        </ProseRow>
+        <CodeBlock>
+{`; wmaze 0x9258 — PICK outcome dispatch
+if outcome != SUCCESS:
+    if class ∈ {3, 6, 0xd}:    ; Thief / Rogue / Ninja
+        call skill_up(0xf, member)   ; 0x54c0 — award Skulduggery XP`}
+        </CodeBlock>
+        <ProseRow>
+          Only thief-adjacent classes (Thief = 3, Rogue = 6, Ninja = 13) can
+          earn the XP at all. And the award fires on <em>non-success</em> — on
+          a JAMMED result, on a plain FAIL, on a fumble. A clean pick that
+          opens the door fires none of it.
+        </ProseRow>
+        <ProseRow>
+          So the optimal path to a better lockpicker is a trail of failed
+          picks. The character who keeps bouncing off locks is the one who
+          eventually becomes expert at them. Success is a dead end for your
+          skill growth.
+        </ProseRow>
+        <Aside title="Frustration as pedagogy">
+          This is probably intentional — it gives thieves a reason to keep
+          trying even against hard locks they can't crack yet, rather than
+          delegating to the party fighter the moment a door resists. Whether
+          it's good game design or a consequence of "failures are when you
+          need to learn" intuition is a different question.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'findings: maze-open-door-menu.json', href: '/explore/docs/findings/maze-open-door-menu.json' },
+    ],
+  },
+
+  // -------------------------------------------------------------------
+  {
+    id: 'force-uses-spirit-not-strength',
+    title: 'Tired Heroes Force Doors Worse',
+    tags: ['maze', 'design-choice', 'engine'],
+    pitch:
+      'FORCE doesn\'t use raw STR — it uses effective STR scaled by current spirit points over max. A fatigued character with 18 STR can force worse than a fresh one with 14.',
+    body: (
+      <>
+        <ProseRow>
+          When a character tries to FORCE a door, you'd expect the roll to
+          depend on STR. It does — but not directly. The engine first
+          computes an <em>effective</em> STR:
+        </ProseRow>
+        <CodeBlock>
+{`; wmaze 0x8bfa..0x8c53 — effective-STR calculation
+effSTR = STR * spCur / spMax   ; two sequential integer divides via 0xf9ba`}
+        </CodeBlock>
+        <ProseRow>
+          Both divides are integer, so the result is <Code>floor(STR × spCur / spMax)</Code>.
+          A character at half spirit is forcing at half STR. At a quarter spirit —
+          maybe after a long dungeon crawl with no rest — they're barely better
+          than dead weight, regardless of their raw attribute.
+        </ProseRow>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>STR</th>
+              <th>SP current / max</th>
+              <th>Effective STR</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>18</td><td>100 / 100</td><td>18</td></tr>
+            <tr><td>18</td><td>50 / 100</td><td>9</td></tr>
+            <tr><td>18</td><td>10 / 100</td><td>1</td></tr>
+            <tr><td>14</td><td>100 / 100</td><td>14</td></tr>
+          </tbody>
+        </table>
+        <ProseRow>
+          There's also a collapse branch: if <Code>rng(50) == 0</Code> or{' '}
+          <Code>effSTR ≤ 0</Code>, the attempt triggers a fatigue drain —
+          spirit points drop and the attempt reads as worse than the stat
+          would suggest.
+        </ProseRow>
+        <ProseRow>
+          The strain bar the player sees is{' '}
+          <Code>clamp(18 − STR + 2×lockStrength, 1, 18)</Code> ticks long.
+          A tough lock (strength 4) against a weak character (STR 6) fills
+          16 of 18 slots with required progress. A rested high-STR character
+          needs almost none. Success requires the rolled progress to meet the
+          bar — and every point of fatigue cuts into how far the roll can
+          reach.
+        </ProseRow>
+        <Aside title="Practical implication">
+          After a tough fight or a long dungeon stretch, your
+          big-armed fighter may suddenly fail doors he should breeze through.
+          Resting before tackling a barred door isn't just theme — it
+          literally changes the math.
+        </Aside>
+      </>
+    ),
+    seeAlso: [
+      { label: 'findings: maze-open-door-menu.json', href: '/explore/docs/findings/maze-open-door-menu.json' },
+    ],
+  },
 ];
 
 const ALL_TAGS: Tag[] = [

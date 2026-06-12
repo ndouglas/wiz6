@@ -81,6 +81,7 @@ import {
   updateSession,
   type GameSession,
 } from '../../game/game-session-store.js';
+import { getHouseRules } from '../../lib/house-rules-store.js';
 import { composeMazeFrame, type MazePartyPanels } from './compose-maze-frame.js';
 import type { PanelFontSet } from './party-panel-compose.js';
 import styles from './CastleScreen.module.css';
@@ -1027,7 +1028,7 @@ export function MazeView() {
                   if (fx.opened) {
                     doorOverlayRef.current.open(door.gx, door.gy, door.facing);
                   }
-                  if (fx.welded) {
+                  if (fx.welded && !getHouseRules().noDoorJam) {
                     doorOverlayRef.current.weld(door.gx, door.gy, door.facing);
                   }
                   if (fx.skulduggeryXp) {

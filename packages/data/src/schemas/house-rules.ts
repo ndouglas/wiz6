@@ -58,6 +58,14 @@ export const HouseRulesSchema = z.object({
    * gameplay. Default: TRUE (fix the bug).
    */
   recomputeCarryCapacity: z.boolean(),
+  /**
+   * When TRUE, a failed FORCE or PICK attempt can NEVER permanently weld a
+   * door shut. When FALSE (default / engine-faithful), each failed attempt has
+   * a 1-in-3 chance to advance the door's edge code to "welded" (code 2),
+   * which blocks all future FORCE and PICK attempts on that door forever.
+   * Category: gameplay. Default: FALSE (engine behavior — jamming enabled).
+   */
+  noDoorJam: z.boolean(),
 });
 
 export type HouseRules = z.infer<typeof HouseRulesSchema>;
@@ -70,6 +78,7 @@ export const STOCK_HOUSE_RULES: HouseRules = {
   engineFaithfulSkillExit: true,
   allowEditFromCamp: false,
   recomputeCarryCapacity: false,
+  noDoorJam: false,
 };
 
 /** Recommended first-load defaults — includes the QoLs the project ships on. */
@@ -80,6 +89,7 @@ export const DEFAULT_HOUSE_RULES: HouseRules = {
   engineFaithfulSkillExit: false,
   allowEditFromCamp: false,
   recomputeCarryCapacity: true,
+  noDoorJam: false,
 };
 
 /**
@@ -153,5 +163,15 @@ export const HOUSE_RULES_META: readonly HouseRuleMeta[] = [
     stockValue: false,
     control: 'boolean',
     learnMoreUrl: '/explore/notes#carry-capacity-frozen',
+  },
+  {
+    key: 'noDoorJam',
+    label: 'No door-jam on failed force/pick',
+    description:
+      'In the original engine, each failed FORCE or PICK attempt has a 1-in-3 chance to advance the door\'s edge code to "welded" (code 2). Once welded, neither FORCE nor PICK can ever open the door again — it is permanently sealed for that run. Turn ON to disable that mechanic so a door can never be sealed by failed attempts; every locked door stays tryable indefinitely. Default OFF = engine behavior (jamming enabled). See the linked note for the full mechanic.',
+    category: 'gameplay',
+    stockValue: false,
+    control: 'boolean',
+    learnMoreUrl: '/explore/notes#door-jam-forever',
   },
 ];
