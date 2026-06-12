@@ -5,9 +5,12 @@ import {
   pickAttempt,
   detectDoorAtParty,
   moveDoorMenuCursor,
+  resolveDoorAttempt,
   type ForceMember,
   type PickMember,
+  type DoorAction,
 } from '../../src/maze/door-open.js';
+import type { DoorRecord } from '@wiz6/data';
 
 // Scripted RNG: returns queued values, asserting the requested bound matches.
 function scriptRng(seq: Array<[number, number]>) {
@@ -148,5 +151,55 @@ describe('detectDoorAtParty', () => {
     expect(
       detectDoorAtParty(doors, { gx: 0, gy: 0, facing: 1 }),
     ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveDoorAttempt
+// ---------------------------------------------------------------------------
+
+const door: DoorRecord = { gx: 128, gy: 131, facing: 1, lockStrength: 12, welded: false };
+// thief (class 3) already defined above at line ~92
+
+describe('resolveDoorAttempt', () => {
+  it('success opens, draws no rng', () => {
+    const result = resolveDoorAttempt('success', door, thief, 'pick', scriptRng([]));
+    expect(result.opened).toBe(true);
+    expect(result.welded).toBe(false);
+    expect(result.skulduggeryXp).toBe(false);
+  });
+
+  it('failure welds when rng(3) === 0', () => {
+    const result = resolveDoorAttempt('failure', door, thief, 'pick', scriptRng([[3, 0]]));
+    expect(result.welded).toBe(true);
+    expect(result.opened).toBe(false);
+  });
+
+  it('failure does not weld when rng(3) !== 0', () => {
+    const result = resolveDoorAttempt('failure', door, thief, 'pick', scriptRng([[3, 1]]));
+    expect(result.welded).toBe(false);
+  });
+
+  it('failed pick by thief class grants skulduggeryXp', () => {
+    const result = resolveDoorAttempt('failure', door, thief, 'pick', scriptRng([[3, 1]]));
+    expect(result.skulduggeryXp).toBe(true);
+    expect(result.welded).toBe(false);
+  });
+
+  it('jammed also draws rng(3) for weld roll', () => {
+    const result = resolveDoorAttempt('jammed', door, thief, 'pick', scriptRng([[3, 0]]));
+    expect(result.welded).toBe(true);
+    expect(result.opened).toBe(false);
+  });
+
+  it('failed pick by non-thief class does NOT grant skulduggeryXp', () => {
+    const fighter = { class: 0 };
+    const result = resolveDoorAttempt('failure', door, fighter, 'pick', scriptRng([[3, 1]]));
+    expect(result.skulduggeryXp).toBe(false);
+  });
+
+  it('failed force by thief class does NOT grant skulduggeryXp', () => {
+    const result = resolveDoorAttempt('failure', door, thief, 'force', scriptRng([[3, 1]]));
+    expect(result.skulduggeryXp).toBe(false);
   });
 });

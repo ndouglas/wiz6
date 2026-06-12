@@ -79,10 +79,14 @@ export {
   forceAttempt,
   pickAttempt,
   detectDoorAtParty,
+  moveDoorMenuCursor,
+  resolveDoorAttempt,
   type ForceMember,
   type PickMember,
   type PartyPos,
   type DoorOutcome,
+  type DoorAction,
+  type DoorAttemptEffects,
 } from './door-open.js';
 
 // Door-record decoder — pure type-7 special-record extractor (#089)

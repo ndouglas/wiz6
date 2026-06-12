@@ -129,10 +129,14 @@ export {
   forceAttempt,
   pickAttempt,
   detectDoorAtParty,
+  moveDoorMenuCursor,
+  resolveDoorAttempt,
   type ForceMember,
   type PickMember,
   type PartyPos,
   type DoorOutcome,
+  type DoorAction,
+  type DoorAttemptEffects,
 } from './maze/door-open.js';
 // Door-record decoder — pure type-7 special-record extractor (#089)
 export { decodeDoorRecords, SPECIAL_RECORD_BANK } from './maze/door-record.js';

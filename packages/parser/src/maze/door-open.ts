@@ -161,6 +161,57 @@ export function moveDoorMenuCursor(
   return index;
 }
 
+// ---------------------------------------------------------------------------
+// resolveDoorAttempt
+// ---------------------------------------------------------------------------
+
+export type DoorAction = 'force' | 'pick';
+
+export interface DoorAttemptEffects {
+  opened: boolean;
+  welded: boolean;
+  skulduggeryXp: boolean;
+}
+
+/**
+ * Resolve a FORCE/PICK outcome into concrete side-effects.
+ *
+ * Engine dispatch (wmaze.ovr 0x8dbc / 0x9258):
+ *   success  → opened=true; no rng draws; no xp.
+ *   failure/jammed → skulduggeryXp if (action===pick && thiefClass); then
+ *                    ONE rng.uniform(jamOdds) draw; welded=(draw===0).
+ *
+ * RNG-order semantics (critical — must match parity replay):
+ *   - success: zero rng draws.
+ *   - failure/jammed: exactly one rng.uniform(DOOR_ROLL.jamOdds) draw;
+ *     skulduggeryXp is determined without consuming rng.
+ *
+ * The `door` parameter is retained for forward-compatibility (future revisions
+ * may key XP or weld probability on door fields) but is not read here.
+ */
+export function resolveDoorAttempt(
+  outcome: DoorOutcome,
+  _door: DoorRecord,
+  member: { class: number },
+  action: DoorAction,
+  rng: Rng,
+): DoorAttemptEffects {
+  if (outcome === 'success') {
+    return { opened: true, welded: false, skulduggeryXp: false };
+  }
+
+  // Failed or jammed — check Skulduggery XP eligibility first (no rng draw).
+  const skulduggeryXp =
+    action === 'pick' &&
+    (DOOR_ROLL.thiefClasses as readonly number[]).includes(member.class);
+
+  // Jam roll: 1/jamOdds chance door advances toward welded.
+  const jamRoll = rng.uniform(DOOR_ROLL.jamOdds);
+  const welded = jamRoll === 0;
+
+  return { opened: false, welded, skulduggeryXp };
+}
+
 /**
  * Return the door record at the party's current grid cell + facing, or null.
  * Matching is exact on gx, gy, and facing.
