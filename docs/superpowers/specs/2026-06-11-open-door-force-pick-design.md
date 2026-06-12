@@ -187,3 +187,30 @@ Per CLAUDE.md conventions, raise to Nate before writing:
 - MEDIUM residuals (§2) must be pinned in Stage 1 before the roll logic is gated.
 - Reaching the door for capture is confirmed feasible (level-0 reachable blocked view),
   but the exact recipe key-macro path is built in Stage 3.
+
+---
+
+## UPDATE 2026-06-11 (Stage-1 corrections, post-implementation)
+
+**Door data corrected (RE bug found + fixed during Stage 1):**
+- Forceable doors ARE type-7 special records (detection `0x95ba` → `0x9345`), confirmed
+  by a call-site scan (`0x9345` has exactly one caller). The earlier "only 1 door on
+  level 0" was a decoder bug: it read **bank-3 record 12** (one lock-0 entry door)
+  instead of **record 0** (the entrance level — identity mapping level-id→bank3-rec).
+- The entrance level (bank-3 rec 0) has **12 forceable doors**, locks 3–7. The door the
+  user reaches via *turn-left, forward×3, turn-left* from the start gate is
+  **global (124,121), lock 3, closed facing 2** (`recidx 24`); symmetric pair (130,121).
+- **Reachability is fine** — ~10 reachable lock-3 doors in the starting cluster. The
+  earlier "no reachable forceable door / defer e2e" concern was an artifact of the
+  decoder bug and is **withdrawn**: the e2e walking gate (§5 tier 4) and meaningful
+  (lock-3) fixtures are all feasible from the walkable entrance.
+- Canonical fixture/demo door for Stages 3–5: **(124,121) lock 3** (reachable path
+  above). RE: `docs/re/findings/maze-open-door-menu.json` `live-entrance-doors-bank3-rec0-CORRECTION`.
+
+**Task 1.9 (RNG-replay roll parity) deferred:** capturing the engine RNG stream at a
+roll requires driving the live engine to the door, which hit persistent harness
+friction this session (boot-to-maze + committed-state `unserialize` both failed —
+likely a patched-core mismatch). The roll logic is gated by **unit tests against the
+asm-confirmed formulas** (FORCE/PICK in `door-open.test.ts`, 13 tests). The RNG-replay
+gate is a *strengthening* to add when the live-drive tooling is reliable (cross-ref the
+stubbed-debugger blocker, TODO #Q-G). Tracked as a Stage-1 follow-up, not a blocker.
