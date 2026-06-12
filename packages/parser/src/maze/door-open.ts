@@ -149,6 +149,19 @@ export function pickAttempt(
 }
 
 /**
+ * 3-entry horizontal menu (FORCE=0 / PICK=1 / EXIT=2); clamp, no wrap.
+ * Up/down are no-ops (single row).
+ */
+export function moveDoorMenuCursor(
+  index: number,
+  dir: 'up' | 'down' | 'left' | 'right',
+): number {
+  if (dir === 'left') return Math.max(0, index - 1);
+  if (dir === 'right') return Math.min(2, index + 1);
+  return index;
+}
+
+/**
  * Return the door record at the party's current grid cell + facing, or null.
  * Matching is exact on gx, gy, and facing.
  */

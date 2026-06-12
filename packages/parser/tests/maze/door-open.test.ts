@@ -4,6 +4,7 @@ import {
   forceAttempt,
   pickAttempt,
   detectDoorAtParty,
+  moveDoorMenuCursor,
   type ForceMember,
   type PickMember,
 } from '../../src/maze/door-open.js';
@@ -107,6 +108,23 @@ describe('pickAttempt', () => {
     const sup: PickMember = { level: 90, skulduggery: 90, class: 3 };
     const rng = scriptRng([[95, 1], [95, 1], [95, 1], [95, 1], [95, 1], [95, 1]]); // lock30->6 tumblers
     expect(pickAttempt(sup, 30, false, rng)).toBe('success');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// detectDoorAtParty
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// moveDoorMenuCursor
+// ---------------------------------------------------------------------------
+
+describe('moveDoorMenuCursor', () => {
+  it('clamps a 3-entry horizontal row', () => {
+    expect(moveDoorMenuCursor(0, 'right')).toBe(1);
+    expect(moveDoorMenuCursor(2, 'right')).toBe(2);
+    expect(moveDoorMenuCursor(0, 'left')).toBe(0);
+    expect(moveDoorMenuCursor(1, 'up')).toBe(1); // single row, vertical no-op
   });
 });
 
