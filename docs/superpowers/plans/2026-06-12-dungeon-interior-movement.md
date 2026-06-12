@@ -4,11 +4,43 @@
 
 **Goal:** Re-capture the engine's reachability/passability with all doors poked open, so the party navigates the dungeon interior past a forced door with engine-faithful collision (no walking through walls).
 
-**Architecture:** Extend the existing engine-oracle BFS (`trace-maze.ts collmap`) to memory-poke every type-7 door's edge to OPEN before the BFS serializes its entrance node — the open-door state then persists through the BFS's per-view state restores, so the BFS traverses the doors and reaches the interior. Re-run it → expanded `maze-reachability.json` → `build-passability.ts` → expanded `passability.json`. MazeView already loads that asset and already overlay-gates door edges (Task 4.4 of #089), so no viewer code changes are needed — the expanded table just fills in the interior's non-door verdicts.
+**Architecture:** Extend the engine-oracle BFS (`trace-maze.ts collmap`) so it traverses doors into the interior, then re-run it → expanded `maze-reachability.json` → `build-passability.ts` → expanded `passability.json`. MazeView already loads that asset and overlay-gates door edges (Task 4.4 of #089), so no viewer changes — the expanded table fills in the interior's non-door verdicts.
+
+> **REVISED 2026-06-12 after a feasibility spike — READ THIS.** The original approach (memory-poke each door's `+0x240` wall-plane edge to OPEN) was implemented (Task 1, `openAllDoors`) and **disproved**: 12 doors poked, reachability unchanged at 74 cells. The `+0x240` edge is the door's FORCE/PICK *state*, NOT what the movement gate (`maze_can_step_in_facing`) reads — poking it does not make a door walkable (the #087 collision-model wall). **The validated approach (spike-confirmed): actually FORCE the door open via the real mechanic during the BFS.** Spike result: at (124,121,f2), poke the door's *lock* (`+0x630`) to 0 (so FORCE succeeds deterministically — no RNG, no welding), drive the FORCE flow, and the party then **steps through** (`y 5→4`). So forcing runs the real door-open path (`0x891d`: clears `0x4ee0[facing]` + record-update `0x84ce`) which DOES open the door for movement. The `openAllDoors` edge-poke from Task 1 is superseded — replace it with the lock-poke + force-flow below.
 
 **Tech Stack:** TypeScript ESM (pnpm monorepo); the dosbox-pure live harness (`HostClient`/`LiveSession`) driven by `tools/libretro/trace-maze.ts`; Vitest parity tests.
 
 **Scope note:** This plan is **Piece A** of spec `docs/superpowers/specs/2026-06-12-dungeon-interior-capture-design.md`. **Piece B** (the #077 deferred-renderer endgame for byte-exact interior render, + interior viewport fixtures) is an uncertain RE research effort that depends on this piece's outputs and gets its own plan once A lands. After A, walking into the interior is **movement-faithful with the existing recognizable render**; B makes it byte-exact.
+
+### Revised Stage 1 design (force-in-BFS — the executable approach)
+
+Replace `openAllDoors` (edge-poke) with door-forcing inside the BFS `up`-blocked branch
+(`phaseCollMap`, the `for mv of ['up','left','right']` loop, ~L4061):
+
+1. **One-time, after `driveToFreeRoam`:** poke EVERY type-7 door's lock `+0x630` to 0
+   (table near-ptr at DGROUP `0x4fa8`; per-record type `+0x360`==7; lock byte `+0x630+rec`).
+   This makes every FORCE succeed deterministically (strain_len clamps to 1; no welding).
+   Serialize the entrance node AFTER this poke so locks-0 persists through BFS restores.
+2. **In the `up` branch, when `up` is BLOCKED:** detect whether a forceable door sits at the
+   party's `(gx,gy,facing)` — match against the live special-record table (reuse
+   `decodeDoorRecords`' coord logic: per-record x `+0x3f0`/y `+0x480`/z `+0x510`, global via
+   the level's gxBase/gyBase; level-0 bases are `[120,128,120,128,120,128,10,18,10,18,26,26]`
+   / `[116,116,124,124,132,132,10,10,18,18,10,18]`). If a type-7 door matches with a
+   closed/welded edge at `facing`:
+   - Drive the FORCE flow (spike-confirmed key macro from free-roam facing the door):
+     `enter` (OPTIONS) → `right down enter` (→OPEN→FORCE/PICK/EXIT menu) → `enter` (FORCE→WHO)
+     → `down enter` (select member 0 → roll) → `enter` (dismiss result). Settle between taps.
+   - Re-tap `up`; read party. If it MOVED → the door opened → record `open`, serialize the new
+     interior node, enqueue. If still blocked → record `blocked` (a genuine wall, or a
+     force edge case — log it).
+3. Everything downstream (Tasks 3–5) is unchanged.
+
+**Spike evidence (2026-06-12):** lock-poke + the macro above at (124,121,f2) → party stepped
+to (124,120). Door-detection is the one piece not yet spiked; if matching live coords proves
+fiddly, an acceptable fallback is to attempt the force macro on EVERY blocked `up` BUT guard
+it: abort the macro the instant `enter`→OPTIONS does not yield the FORCE menu (read game_state
+/ a screen check) so a plain wall's `OPEN` no-op can't derail into REVIEW/char-view. Door
+detection is cleaner — prefer it.
 
 ---
 
