@@ -33,6 +33,7 @@ import {
 } from '@wiz6/data';
 import wfont0Json from '../../data/wfont0.json' with { type: 'json' };
 import wfont3Json from '../../data/wfont3.json' with { type: 'json' };
+import { drawGlyph4bpp, drawGlyph1bpp } from './glyph-core.js';
 
 const STRIP_W = REVIEW_STRIP.w;
 const STRIP_H = REVIEW_STRIP.h;
@@ -71,76 +72,17 @@ function drawColoredFromWfont3(buf: Uint8Array, px: number, py: number, code: nu
   }
 }
 
-/** Draw a wfont3 (4bpp) glyph into `buf` at strip-local pixel (px,py). The 4-bit file
- *  pixel value IS the palette index the engine writes to VRAM, so write it directly. */
-function drawGlyph4bpp(buf: Uint8Array, px: number, py: number, code: number): void {
-  const glyph = WFONT3.glyphs[code];
-  if (!glyph) return;
-  for (let row = 0; row < CELL; row++) {
-    const y = py + row;
-    if (y < 0 || y >= STRIP_H) continue;
-    const pG = glyph[row] ?? 0;
-    const pB = glyph[8 + row] ?? 0;
-    const pR = glyph[16 + row] ?? 0;
-    const pI = glyph[24 + row] ?? 0;
-    for (let col = 0; col < CELL; col++) {
-      const x = px + col;
-      if (x < 0 || x >= STRIP_W) continue;
-      const bit = 7 - col;
-      const fileIdx =
-        ((pG >> bit) & 1) |
-        (((pB >> bit) & 1) << 1) |
-        (((pR >> bit) & 1) << 2) |
-        (((pI >> bit) & 1) << 3);
-      buf[y * STRIP_W + x] = fileIdx;
-    }
-  }
-}
-
-/**
- * Draw a wfont0 (1bpp) glyph mask into `buf` at strip-local pixel (px,py).
- *  - colored (inverse=false): write `stroke` at mask=1 pixels; leave mask=0 untouched.
- *  - inverse (inverse=true): write `bg` over the whole 8×8 cell, `stroke` at mask=1.
- */
-function drawGlyph1bpp(
-  buf: Uint8Array,
-  px: number,
-  py: number,
-  code: number,
-  stroke: number,
-  bg: number,
-  inverse: boolean,
-): void {
-  const glyph = WFONT0.glyphs[code];
-  if (!glyph) return;
-  for (let row = 0; row < CELL; row++) {
-    const y = py + row;
-    if (y < 0 || y >= STRIP_H) continue;
-    const maskByte = glyph[row] ?? 0;
-    for (let col = 0; col < CELL; col++) {
-      const x = px + col;
-      if (x < 0 || x >= STRIP_W) continue;
-      const on = (maskByte >> (7 - col)) & 1;
-      if (inverse) {
-        buf[y * STRIP_W + x] = on ? stroke : bg;
-      } else if (on) {
-        buf[y * STRIP_W + x] = stroke;
-      }
-    }
-  }
-}
-
 /** Draw a label as wfont3 (4bpp) normal text at strip-local (px,py). */
 function drawTextNormal(buf: Uint8Array, px: number, py: number, text: string): void {
   for (let c = 0; c < text.length; c++) {
-    drawGlyph4bpp(buf, px + c * CELL, py, text.charCodeAt(c));
+    drawGlyph4bpp(buf, STRIP_W, STRIP_H, px + c * CELL, py, text.charCodeAt(c), WFONT3.glyphs);
   }
 }
 
 /** Draw a label as an INVERSE highlight (yellow bar, black strokes) at strip-local (px,py). */
 function drawTextInverse(buf: Uint8Array, px: number, py: number, text: string): void {
   for (let c = 0; c < text.length; c++) {
-    drawGlyph1bpp(buf, px + c * CELL, py, text.charCodeAt(c), BLACK, REVIEW_HILITE.paletteIndex, true);
+    drawGlyph1bpp(buf, STRIP_W, STRIP_H, px + c * CELL, py, text.charCodeAt(c), BLACK, REVIEW_HILITE.paletteIndex, true, WFONT0.glyphs);
   }
 }
 
