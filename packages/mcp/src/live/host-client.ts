@@ -274,7 +274,20 @@ export class HostClient {
   }
   async unserialize(path: string): Promise<void> {
     const r = await this.cmd(`unserialize ${path}`);
-    if (r !== 'ok') throw new Error(`unserialize: ${r}`);
+    if (r !== 'ok') {
+      // `err unser` = retro_unserialize() returned false. dosbox-pure
+      // serialize-states are BUILD-SPECIFIC: a state minted by one core build
+      // is rejected by a binary-incompatible rebuild (different struct layouts,
+      // patch set, or component list). This is by far the most common cause —
+      // surface it instead of the cryptic raw token. Re-mint the state with the
+      // current core via tools/libretro/build-state.ts (see tools/parity/CLAUDE.md).
+      throw new Error(
+        `unserialize ${path}: ${r} — the current dosbox_pure_libretro.dylib ` +
+          `rejected this serialize-state. dosbox-pure states are build-specific; ` +
+          `this almost always means the state was minted by a different core build. ` +
+          `Re-mint it with tools/libretro/build-state.ts (see tools/parity/CLAUDE.md).`,
+      );
+    }
   }
 
   close(): void {
