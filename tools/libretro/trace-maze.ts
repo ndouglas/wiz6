@@ -3996,6 +3996,29 @@ async function phaseNavReach(c: HostClient): Promise<void> {
   console.log(`-> ${outDir}/navreach.json (${captures.length} idx.gz fixtures)`);
 }
 
+/** Poke every type-7 door's wall-plane edges to OPEN (code 0) in the live
+ *  special-record table, so the collmap BFS can traverse them into the dungeon
+ *  interior. Layout: table near-ptr at DGROUP 0x4fa8; per-record type byte at
+ *  +0x360 (7=door); wall-plane WORD array at +0x240 (stride 2, 2-bit edge per
+ *  facing). Ref: docs/re/findings/maze-open-door-menu.json. (#091) */
+async function openAllDoors(c: HostClient, base: number): Promise<number> {
+  const ptr = await c.read(base + 0x4fa8, 2);
+  const tableBase = base + (ptr[0]! | (ptr[1]! << 8));
+  let poked = 0;
+  for (let rec = 0; rec < 144; rec++) {
+    const type = (await c.read(tableBase + 0x360 + rec, 1))[0]!;
+    if (type !== 7) continue;
+    const wOff = tableBase + 0x240 + rec * 2;
+    const wb = await c.read(wOff, 2);
+    let word = (wb[0]! | (wb[1]! << 8)) & 0xffff;
+    for (let f = 0; f < 4; f++) word &= ~(0b11 << (f * 2));
+    word &= 0xffff;
+    await c.write(wOff, [word & 0xff, (word >> 8) & 0xff]);
+    poked++;
+  }
+  return poked;
+}
+
 /**
  * `collmap [out] [budget]` — ENGINE COLLISION GROUND TRUTH (#086 collision-model fix).
  *
@@ -4024,6 +4047,8 @@ async function phaseCollMap(c: HostClient): Promise<void> {
   const visited = new Set<string>();
   const sk = keyOf(start);
   const ent = `${dir}/n-${sk.replace(/,/g, '_')}.state`;
+  const pokedDoors = await openAllDoors(c, base);
+  console.log(`collmap: poked ${pokedDoors} type-7 doors OPEN (interior capture #091)`);
   await c.serialize(ent);
   nodeState.set(sk, ent);
   visited.add(sk);
