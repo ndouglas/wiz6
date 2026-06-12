@@ -996,6 +996,11 @@ export function MazeView() {
                 if (member && rng) {
                   const door = doorFlow.door;
                   const action: DoorAction = doorFlow.action;
+                  // A door welded by a prior failed attempt this session keeps the
+                  // static record's welded=false, so OR the session overlay in —
+                  // else a re-FORCE/PICK from the same cell rolls as merely-closed.
+                  const welded =
+                    door.welded || doorOverlayRef.current.isWelded(door.gx, door.gy, door.facing);
                   let outcome: DoorOutcome;
                   if (action === 'force') {
                     const fm: ForceMember = {
@@ -1007,14 +1012,14 @@ export function MazeView() {
                       skulduggery: member.skills[DOOR_ROLL.skulduggerySkillIndex] ?? 0,
                       class: member.class,
                     };
-                    outcome = forceAttempt(fm, door.lockStrength, door.welded, rng);
+                    outcome = forceAttempt(fm, door.lockStrength, welded, rng);
                   } else {
                     const pm: PickMember = {
                       level: member.level,
                       skulduggery: member.skills[DOOR_ROLL.skulduggerySkillIndex] ?? 0,
                       class: member.class,
                     };
-                    outcome = pickAttempt(pm, door.lockStrength, door.welded, rng);
+                    outcome = pickAttempt(pm, door.lockStrength, welded, rng);
                   }
                   const fx = resolveDoorAttempt(outcome, door, { class: member.class }, action, rng);
 
