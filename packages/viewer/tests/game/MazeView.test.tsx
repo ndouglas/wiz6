@@ -22,6 +22,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import type {
   ActiveParty,
   ActivePartyMember,
+  DoorRecord,
   DungeonLevel,
   Font,
   Font4bpp,
@@ -53,6 +54,7 @@ import {
 
 vi.mock('../../src/data-loader.js', () => ({
   loadMazeAssets: vi.fn(),
+  loadMazeDoors: vi.fn(),
   loadMazePassability: vi.fn(),
   loadMazeWallSpans: vi.fn(),
   loadMazeViewportOracles: vi.fn(),
@@ -76,6 +78,7 @@ vi.mock('../../src/lib/active-party-store.js', () => ({
 import { MazeView, CUTSCENE_TICK_MS } from '../../src/pages/game/MazeView.js';
 import {
   loadMazeAssets,
+  loadMazeDoors,
   loadMazePassability,
   loadMazeWallSpans,
   loadMazeViewportOracles,
@@ -89,6 +92,7 @@ import { readGameSession, updateParty, updateSession } from '../../src/game/game
 import { readActiveParty } from '../../src/lib/active-party-store.js';
 
 const mockLoadMazeAssets = vi.mocked(loadMazeAssets);
+const mockLoadMazeDoors = vi.mocked(loadMazeDoors);
 const mockLoadMazePassability = vi.mocked(loadMazePassability);
 const mockLoadMazeWallSpans = vi.mocked(loadMazeWallSpans);
 const mockLoadMazeViewportOracles = vi.mocked(loadMazeViewportOracles);
@@ -255,6 +259,9 @@ beforeEach(() => {
   // tests don't assert engine-replay pixels.
   mockLoadMazeViewportOracles.mockResolvedValue(null);
   mockLoadMazePassability.mockResolvedValue(null);
+  // Doors: default to empty list (OPEN is a no-op in tests that don't exercise
+  // the door flow). Individual door-flow tests override per-scenario.
+  mockLoadMazeDoors.mockResolvedValue([]);
 });
 
 describe('MazeView — no session', () => {
@@ -815,5 +822,188 @@ describe('MazeView — LIVE party panel (Task 3: not the baked party)', () => {
     // The RIGHT column (all slots empty) must equal the cleared-panel ground
     // truth — i.e. uniform gray space, not the baked THESUS/LYSANDR portraits.
     expect(regionBytes(img, RIGHT)).toEqual(regionBytes(expImg, RIGHT));
+  });
+});
+
+/**
+ * MazeView — door-flow key handling (OPTIONS → OPEN).
+ *
+ * ⚠️ WEAK COMPONENT TEST (skipAssetLoad pattern): verifies key-handling state
+ * transitions and dispatch logic, NOT pixel rendering. The door-flow overlays
+ * (menu/WHO/result) render into the blit pipeline but are only asserted here
+ * via behavioral outcomes (cursor moves, result phase reached). Pixel-exact
+ * verification is Task 5.1 (e2e gate).
+ *
+ * Strategy: mount with a free-roam session + a single door record seeded into
+ * the mock. Fire key events in sequence (Enter opens OPTIONS, ArrowRight moves
+ * to OPEN, Enter dispatches open, then drive through menu → who → result).
+ * Use the existing updateParty/updateSession spies to assert side-effects.
+ */
+describe('MazeView — door-flow (OPTIONS → OPEN)', () => {
+  // A minimal door record at the entrance cell facing 0 — placed exactly at the
+  // party's starting position so detectDoorAtParty returns it immediately.
+  const TEST_DOOR: DoorRecord = {
+    gx: 127,
+    gy: 120,
+    facing: 0,
+    lockStrength: 1,
+    welded: false,
+  };
+
+  beforeEach(() => {
+    mockReadGameSession.mockReturnValue({
+      schemaVersion: 5,
+      level: LEVEL_0,
+      party: { ...ENTRANCE },
+      entryMode: 'free',
+      animFrame: 0,
+      holdTicks: 0,
+    });
+    mockLoadMazeAssets.mockResolvedValue(ASSETS);
+    mockLoadMazeWallSpans.mockResolvedValue(WALL_SPANS);
+    // Seed a single door at the party's starting position (gx=127,gy=120,facing=0).
+    mockLoadMazeDoors.mockResolvedValue([TEST_DOOR]);
+    // Single party member for the WHO picker.
+    mockReadActiveParty.mockReturnValue(partyOf([fakeMember({ name: 'THESUS', class: 3 })]));
+  });
+
+  /** Helper: open OPTIONS menu (Enter) then navigate to OPEN and press Enter.
+   *
+   * OPTIONS_COMMANDS is COLUMN-MAJOR (col*3+row): col0=search/review/spell,
+   * col1=use/open/order, col2=rest/disk/exit. So 'open' is index 4 (col1,row1).
+   * From cursor=0 (search, col0,row0): ArrowRight → col1,row0 (use=3), ArrowDown
+   * → col1,row1 (open=4), then Enter dispatches 'open'.
+   */
+  async function openDoorMenu() {
+    renderMazeView();
+    await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
+    // Wait for doors AND the maze assets to fully settle. The doors load in the same
+    // useEffect as the assets; both are resolved promises but the .then() runs as
+    // microtasks. Waiting for loadMazeDoors to be called is not enough — we need the
+    // promise chain to resolve so doorsRef.current is populated. A waitFor on the
+    // call count + a Promise.resolve() drain is the cleanest approach.
+    await waitFor(() => expect(mockLoadMazeDoors).toHaveBeenCalled());
+    // Drain the microtask queue so the .then() callbacks update doorsRef.current
+    // before we fire keys.
+    await Promise.resolve();
+    await Promise.resolve();
+    // Enter → open OPTIONS menu (cursor starts at 0 = search).
+    fireEvent.keyDown(window, { key: 'Enter' });
+    // Navigate to OPEN (index 4 = col1,row1): right → down → Enter.
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    // Enter on OPEN → dispatchOptionsCommand('open') → door detected → door menu phase.
+    fireEvent.keyDown(window, { key: 'Enter' });
+  }
+
+  it('OPEN with a door present → door menu opens (party does not move)', async () => {
+    await openDoorMenu();
+    // updateParty must not have been called (door menu, not movement).
+    expect(mockUpdateParty).not.toHaveBeenCalled();
+  });
+
+  it('OPEN with no door present → no-op (no door menu, no party move)', async () => {
+    // Override: door list is empty — party not facing any door.
+    mockLoadMazeDoors.mockResolvedValue([]);
+    renderMazeView();
+    await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
+    await waitFor(() => expect(mockLoadMazeDoors).toHaveBeenCalled());
+    await Promise.resolve();
+    await Promise.resolve();
+    // Open OPTIONS and navigate to OPEN (index 4 = col1,row1): right then down.
+    fireEvent.keyDown(window, { key: 'Enter' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    // No door → menu closes back to free-roam; party doesn't move.
+    expect(mockUpdateParty).not.toHaveBeenCalled();
+    expect(mockUpdateSession).not.toHaveBeenCalled();
+  });
+
+  it('Escape in door menu → closes back to free-roam', async () => {
+    await openDoorMenu();
+    // Escape should close the door flow.
+    fireEvent.keyDown(window, { key: 'Escape' });
+    // Arrow keys are now free-roam (party can move).
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(mockUpdateParty).toHaveBeenCalledWith(turn(ENTRANCE, 'left'));
+  });
+
+  it('door menu cursor nav (ArrowLeft/Right) does not move party', async () => {
+    await openDoorMenu();
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(mockUpdateParty).not.toHaveBeenCalled();
+  });
+
+  it('FORCE → WHO picker opens (party does not move)', async () => {
+    await openDoorMenu();
+    // Cursor starts at 0 (FORCE) — press Enter to open WHO picker.
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(mockUpdateParty).not.toHaveBeenCalled();
+  });
+
+  it('PICK → WHO picker opens (cursor 1)', async () => {
+    await openDoorMenu();
+    // Navigate to PICK (cursor 1 = index 1, one right from 0).
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(mockUpdateParty).not.toHaveBeenCalled();
+  });
+
+  it('EXIT in door menu → closes', async () => {
+    await openDoorMenu();
+    // Navigate to EXIT (cursor 2) and press Enter.
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    // Now in free-roam — ArrowLeft should move the party.
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(mockUpdateParty).toHaveBeenCalledWith(turn(ENTRANCE, 'left'));
+  });
+
+  it('WHO picker: EXIT → returns to door menu (party does not move)', async () => {
+    await openDoorMenu();
+    // Open WHO picker (FORCE, cursor 0).
+    fireEvent.keyDown(window, { key: 'Enter' });
+    // WHO picker cursor starts at REVIEW_EXIT (-1); press Enter to go back.
+    fireEvent.keyDown(window, { key: 'Enter' });
+    // Back in door menu; party still hasn't moved.
+    expect(mockUpdateParty).not.toHaveBeenCalled();
+    // Arrow keys still consumed (in door menu).
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(mockUpdateParty).not.toHaveBeenCalled();
+  });
+
+  it('selecting a member in WHO picker → result phase shown (party does not move)', async () => {
+    await openDoorMenu();
+    // FORCE → WHO picker.
+    fireEvent.keyDown(window, { key: 'Enter' });
+    // Navigate from EXIT to slot 0 (one press down/right in the picker to get off EXIT).
+    // The member is in slot 0 (THESUS, party index 0, panel slot 0 = left top).
+    // moveReviewCursor from REVIEW_EXIT (-1) → first occupied slot with ArrowDown.
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    // Press Enter to select the member → run attempt → result phase.
+    fireEvent.keyDown(window, { key: 'Enter' });
+    // Result phase: party has not moved.
+    expect(mockUpdateParty).not.toHaveBeenCalled();
+    // Any key closes the result.
+    fireEvent.keyDown(window, { key: 'Enter' });
+    // Back in free-roam: ArrowLeft should now move.
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(mockUpdateParty).toHaveBeenCalledWith(turn(ENTRANCE, 'left'));
+  });
+
+  it('arrow keys consumed during all door-flow phases (party cannot move)', async () => {
+    await openDoorMenu();
+    // Door menu phase.
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(mockUpdateParty).not.toHaveBeenCalled();
+    // WHO picker phase.
+    fireEvent.keyDown(window, { key: 'Enter' }); // FORCE → WHO
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(mockUpdateParty).not.toHaveBeenCalled();
   });
 });

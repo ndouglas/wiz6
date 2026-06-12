@@ -4,7 +4,11 @@ import {
   MAZE_VIEWPORT,
   OPTIONS_STRIP,
   REVIEW_STRIP,
+  WichmannHill,
+  DOOR_WHO,
+  DOOR_ROLL,
   type ActivePartyMember,
+  type DoorRecord,
   type Font,
   type Font4bpp,
   type MazeRenderAssets,
@@ -29,21 +33,34 @@ import {
   tickEntry,
   turn,
   tryStepForward,
+  detectDoorAtParty,
+  moveDoorMenuCursor,
+  forceAttempt,
+  pickAttempt,
+  resolveDoorAttempt,
+  DoorStateOverlay,
   type CapturedSpansTable,
   type EntryStripText,
   type ForwardVerdict,
   type MazeWorkBuffer,
   type NewgameViewports,
   type OptionsCommand,
+  type ForceMember,
+  type PickMember,
+  type DoorOutcome,
+  type DoorAction,
 } from '@wiz6/parser';
 import { composeOptionsStrip } from './compose-options-strip.js';
 import { composeReviewPicker } from './compose-review-picker.js';
+import { composeDoorMenu } from './compose-door-menu.js';
+import { composeDoorResult } from './compose-door-progress.js';
 import { composePartyPanel } from './party-panel-render.js';
 import { CanvasPresenter } from '../../lib/presenter.js';
 import {
   loadFont,
   loadFont4bpp,
   loadMazeAssets,
+  loadMazeDoors,
   loadMazePassability,
   loadMazeWallSpans,
   loadMazeViewportOracles,
@@ -300,6 +317,8 @@ function composeFrame(
   viewportOracles: Map<string, Uint8Array> | null = null,
   optionsMenu: { open: boolean; cursorIndex: number } | null = null,
   reviewPicker: { open: boolean; cursor: number; slotNames: ReadonlyArray<string | null> } | null = null,
+  doorFlow: DoorFlow | null = null,
+  doorFlowSlotNames: ReadonlyArray<string | null> | null = null,
 ): Uint8Array {
   // Static chrome + LIVE party panels (the player's actual party) + viewport
   // baseline. partyPanels is undefined until the panel fonts/active party load;
@@ -381,8 +400,56 @@ function composeFrame(
       }
     }
   }
+
+  // DOOR FLOW overlays: OPTIONS → OPEN door menu/who/result phases. Each phase
+  // blits a different 160×40 palette-index strip over the same bottom-left strip
+  // region (DOOR_MENU.strip = OPTIONS_STRIP). Never open concurrently with the
+  // OPTIONS menu or REVIEW picker (dispatchOptionsCommand closes them first).
+  if (doorFlow && doorFlow.phase !== 'closed') {
+    let strip: Uint8Array | null = null;
+    const { x: sx, y: sy, w: sw, h: sh } = OPTIONS_STRIP; // same strip coords
+    if (doorFlow.phase === 'menu') {
+      strip = composeDoorMenu(doorFlow.cursor);
+    } else if (doorFlow.phase === 'who') {
+      strip = composeReviewPicker(
+        doorFlowSlotNames ?? [null, null, null, null, null, null],
+        doorFlow.cursor,
+        DOOR_WHO,
+      );
+    } else if (doorFlow.phase === 'result') {
+      strip = composeDoorResult(doorFlow.outcome);
+    }
+    if (strip) {
+      for (let row = 0; row < sh; row++) {
+        for (let col = 0; col < sw; col++) {
+          const idx = strip[row * sw + col]!;
+          const color = COMPOSED_PALETTE[idx] ?? COMPOSED_PALETTE[0]!;
+          const o = ((sy + row) * ENGINE_W + (sx + col)) * 4;
+          frame[o] = color[0];
+          frame[o + 1] = color[1];
+          frame[o + 2] = color[2];
+          frame[o + 3] = 0xff;
+        }
+      }
+    }
+  }
   return frame;
 }
+
+/**
+ * Door-open flow state machine. A single ref tracks all phases of the
+ * OPTIONS → OPEN interaction (menu → who-picker → result).
+ *
+ *   closed  — no door flow active (normal free-roam render)
+ *   menu    — FORCE/PICK/EXIT menu open facing a door
+ *   who     — WHO WILL TRY? member picker open
+ *   result  — outcome result frame shown; any key closes
+ */
+type DoorFlow =
+  | { phase: 'closed' }
+  | { phase: 'menu'; door: DoorRecord; cursor: number }
+  | { phase: 'who'; door: DoorRecord; action: DoorAction; cursor: number }
+  | { phase: 'result'; outcome: DoorOutcome };
 
 /**
  * MazeView — the walkable first-person dungeon view (B4 milestone).
@@ -442,6 +509,21 @@ export function MazeView() {
     open: false,
     cursor: REVIEW_EXIT,
   });
+
+  // DOOR FLOW: OPTIONS → OPEN multi-phase interaction state machine.
+  // Starts 'closed'; advances through menu → who → result on player input.
+  const doorFlowRef = useRef<DoorFlow>({ phase: 'closed' });
+  // Decoded door records for the current level (loaded async alongside passability).
+  // Null until loaded; detectDoorAtParty returns null on empty/null list (no-op OPEN).
+  const doorsRef = useRef<DoorRecord[] | null>(null);
+  // Session-scoped WichmannHill RNG for door rolls. Seeded once when the session
+  // loads. Exact engine-RNG-state replay is deferred (Task 1.9); three plausible
+  // per-session seeds are used instead — sufficient for correct roll behavior.
+  const rngRef = useRef<WichmannHill | null>(null);
+  // Session-scoped door-state overlay: records which edges the party has opened or
+  // welded during play. Layered over the static passability data in the movement gate.
+  const doorOverlayRef = useRef<DoorStateOverlay>(new DoorStateOverlay());
+
   // Decoded per-mode strip text (title/narration/bump) + the message font, loaded
   // once. Null until both resolve (or if the level has no scriptedEntry — then
   // there's no scripted strip and the baked free-roam widget shows).
@@ -569,6 +651,25 @@ export function MazeView() {
       .catch((err: unknown) => {
         console.warn('[MazeView] failed to load passability (movement falls back to the model):', err);
       });
+    // Load the door records for the current level alongside passability. Non-fatal:
+    // null doorsRef means detectDoorAtParty returns null → OPEN is a no-op (correct
+    // behaviour when no doors have been extracted yet).
+    loadMazeDoors()
+      .then((doors) => {
+        if (cancelled) return;
+        doorsRef.current = doors;
+      })
+      .catch((err: unknown) => {
+        console.warn('[MazeView] failed to load maze doors (OPEN command will be a no-op):', err);
+      });
+    // Seed the per-session WichmannHill RNG for door rolls. Exact engine-RNG-state
+    // replay parity is deferred (Task 1.9); three plausible per-session seeds are
+    // sufficient for correct roll behaviour — just not deterministic vs the engine.
+    rngRef.current = new WichmannHill(
+      Math.floor(Math.random() * 30000) + 1,
+      Math.floor(Math.random() * 30000) + 1,
+      Math.floor(Math.random() * 30000) + 1,
+    );
     loadMazeAssets()
       .then((a) => {
         if (cancelled) return;
@@ -634,6 +735,14 @@ export function MazeView() {
     if (!canvas || !session || !a) return;
     if (!presenterRef.current) presenterRef.current = new CanvasPresenter(canvas);
     const review = reviewPickerRef.current;
+    const doorFlow = doorFlowRef.current;
+    // Build the slot-name list for the WHO WILL TRY? picker phase (needed by
+    // composeFrame to render member names in the picker). Same derivation as the
+    // REVIEW WHO? picker — both share buildReviewPartyMap.
+    const doorFlowSlotNames =
+      doorFlow.phase === 'who'
+        ? buildReviewPartyMap(activePartyRef.current).slotNames
+        : null;
     const frame = composeFrame(
       session,
       a,
@@ -648,6 +757,8 @@ export function MazeView() {
       review.open
         ? { open: true, cursor: review.cursor, slotNames: buildReviewPartyMap(activePartyRef.current).slotNames }
         : null,
+      doorFlow.phase !== 'closed' ? doorFlow : null,
+      doorFlowSlotNames,
     );
     presenterRef.current.present(new Uint8ClampedArray(frame.buffer), ENGINE_W, ENGINE_H);
   }
@@ -667,6 +778,18 @@ export function MazeView() {
       // OPTIONS → REVIEW: open the in-place "REVIEW WHO?" member picker. Cursor
       // starts on EXIT (the engine default). The keydown handler drives it from here.
       reviewPickerRef.current = { open: true, cursor: REVIEW_EXIT };
+    } else if (cmd === 'open') {
+      // OPTIONS → OPEN: detect whether there is a door at the party's current cell
+      // + facing. If no door, do nothing (the engine silently returns to free-roam).
+      // If a door is found, open the FORCE/PICK/EXIT menu with cursor at FORCE (0).
+      const session = sessionRef.current;
+      const door = session
+        ? detectDoorAtParty(doorsRef.current ?? [], session.party)
+        : null;
+      if (door !== null) {
+        doorFlowRef.current = { phase: 'menu', door, cursor: 0 };
+      }
+      // If door is null: menu stays closed, OPTIONS closes → returns to free-roam.
     }
     present();
   }
@@ -786,6 +909,167 @@ export function MazeView() {
         return; // arrows (and everything else) inert during the scripted cutscene
       }
 
+      // DOOR FLOW (OPTIONS → OPEN multi-phase): takes priority over the REVIEW
+      // picker and the OPTIONS menu while active. The party must NOT move during
+      // any door-flow phase (consume all keys). Only active in 'free' entryMode
+      // (enforced by the cutscene guard above).
+      const doorFlow = doorFlowRef.current;
+      if (doorFlow.phase !== 'closed') {
+        if (doorFlow.phase === 'menu') {
+          // FORCE/PICK/EXIT menu navigation.
+          switch (e.key) {
+            case 'ArrowLeft':
+            case 'ArrowRight': {
+              const dir = e.key === 'ArrowLeft' ? 'left' : 'right';
+              doorFlowRef.current = { ...doorFlow, cursor: moveDoorMenuCursor(doorFlow.cursor, dir) };
+              e.preventDefault();
+              present();
+              return;
+            }
+            case 'ArrowUp':
+            case 'ArrowDown':
+              // Single-row menu — up/down are no-ops (consume to block party move).
+              e.preventDefault();
+              return;
+            case 'Enter': {
+              e.preventDefault();
+              if (doorFlow.cursor === 0) {
+                // FORCE → WHO WILL TRY? picker
+                doorFlowRef.current = { phase: 'who', door: doorFlow.door, action: 'force', cursor: REVIEW_EXIT };
+              } else if (doorFlow.cursor === 1) {
+                // PICK → WHO WILL TRY? picker
+                doorFlowRef.current = { phase: 'who', door: doorFlow.door, action: 'pick', cursor: REVIEW_EXIT };
+              } else {
+                // EXIT (cursor 2) → close
+                doorFlowRef.current = { phase: 'closed' };
+              }
+              present();
+              return;
+            }
+            case 'Escape':
+              e.preventDefault();
+              doorFlowRef.current = { phase: 'closed' };
+              present();
+              return;
+            default:
+              e.preventDefault();
+              return;
+          }
+        } else if (doorFlow.phase === 'who') {
+          // WHO WILL TRY? member picker — identical nav logic to REVIEW WHO?.
+          const map = buildReviewPartyMap(activePartyRef.current);
+          switch (e.key) {
+            case 'ArrowUp':
+            case 'ArrowDown':
+            case 'ArrowLeft':
+            case 'ArrowRight': {
+              const dir =
+                e.key === 'ArrowUp' ? 'up'
+                : e.key === 'ArrowDown' ? 'down'
+                : e.key === 'ArrowLeft' ? 'left'
+                : 'right';
+              doorFlowRef.current = {
+                ...doorFlow,
+                cursor: moveReviewCursor(doorFlow.cursor, dir, map.occupiedSlots),
+              };
+              e.preventDefault();
+              present();
+              return;
+            }
+            case 'Enter': {
+              e.preventDefault();
+              if (doorFlow.cursor === REVIEW_EXIT) {
+                // EXIT in the picker → go back to the menu (re-highlight the action button).
+                doorFlowRef.current = {
+                  phase: 'menu',
+                  door: doorFlow.door,
+                  cursor: doorFlow.action === 'force' ? 0 : 1,
+                };
+                present();
+                return;
+              }
+              // Member selected — run the attempt.
+              const partyIndex = map.slotToPartyIndex[doorFlow.cursor];
+              if (partyIndex != null) {
+                const member = activePartyRef.current[partyIndex];
+                const rng = rngRef.current;
+                if (member && rng) {
+                  const door = doorFlow.door;
+                  const action: DoorAction = doorFlow.action;
+                  let outcome: DoorOutcome;
+                  if (action === 'force') {
+                    const fm: ForceMember = {
+                      str: member.attributes.str,
+                      // spCur: use staminaCurrent if present, else staminaMax, else 1 (no /0).
+                      spCur: member.staminaCurrent ?? member.staminaMax ?? 1,
+                      spMax: member.staminaMax ?? 1,
+                      level: member.level,
+                      skulduggery: member.skills[DOOR_ROLL.skulduggerySkillIndex] ?? 0,
+                      class: member.class,
+                    };
+                    outcome = forceAttempt(fm, door.lockStrength, door.welded, rng);
+                  } else {
+                    const pm: PickMember = {
+                      level: member.level,
+                      skulduggery: member.skills[DOOR_ROLL.skulduggerySkillIndex] ?? 0,
+                      class: member.class,
+                    };
+                    outcome = pickAttempt(pm, door.lockStrength, door.welded, rng);
+                  }
+                  const fx = resolveDoorAttempt(outcome, door, { class: member.class }, action, rng);
+
+                  // Apply side-effects to the session door-state overlay.
+                  if (fx.opened) {
+                    doorOverlayRef.current.open(door.gx, door.gy, door.facing);
+                  }
+                  if (fx.welded) {
+                    doorOverlayRef.current.weld(door.gx, door.gy, door.facing);
+                  }
+                  if (fx.skulduggeryXp) {
+                    // Bump Skulduggery in-memory. Persistence via updateParty if
+                    // the skill array is mutable; otherwise left in-memory only.
+                    // TODO: propagate XP through the game-session-store when the
+                    // skill-XP write path is implemented (#089 follow-up).
+                    const mutableSkills = [...member.skills];
+                    mutableSkills[DOOR_ROLL.skulduggerySkillIndex] =
+                      (mutableSkills[DOOR_ROLL.skulduggerySkillIndex] ?? 0) + 1;
+                    // Cast: activePartyRef is ReadonlyArray but we update in-memory only.
+                    (activePartyRef.current as ActivePartyMember[])[partyIndex] = {
+                      ...member,
+                      skills: mutableSkills,
+                    };
+                  }
+                  // TODO: turn-tick — the engine calls a status-tick after OPEN.
+                  // No per-turn hook exists in MazeView yet; skip for now (#089).
+
+                  doorFlowRef.current = { phase: 'result', outcome };
+                  present();
+                  return;
+                }
+              }
+              // No member found (empty slot or no RNG) — go back to menu.
+              doorFlowRef.current = { phase: 'menu', door: doorFlow.door, cursor: doorFlow.action === 'force' ? 0 : 1 };
+              present();
+              return;
+            }
+            case 'Escape':
+              e.preventDefault();
+              doorFlowRef.current = { phase: 'closed' };
+              present();
+              return;
+            default:
+              e.preventDefault();
+              return;
+          }
+        } else if (doorFlow.phase === 'result') {
+          // Result frame: any key closes.
+          e.preventDefault();
+          doorFlowRef.current = { phase: 'closed' };
+          present();
+          return;
+        }
+      }
+
       // REVIEW WHO? picker (in-place bottom-strip overlay; opened from OPTIONS →
       // REVIEW). Takes PRIORITY over everything else while open: arrows move the
       // cursor, ENTER on a member navigates to its char view, ENTER on EXIT (or
@@ -897,15 +1181,36 @@ export function MazeView() {
         case 'ArrowRight':
           nextParty = turn(session.party, 'right');
           break;
-        case 'ArrowUp':
-          nextParty = tryStepForward(
+        case 'ArrowUp': {
+          // Movement passability: compute the engine verdict from the static data,
+          // then layer the door-state overlay on top:
+          //   - isOpen(forward edge)  → allow the step even if passability says blocked
+          //   - isWelded(forward edge) → block the step even if passability allows it
+          // The overlay only overrides the forward-facing edge; turns are unaffected.
+          const baseParty = tryStepForward(
             session.party,
             session.level.mazeBlock,
             passabilityRef.current
               ? { passability: passabilityRef.current }
               : undefined,
           );
+          const { gx, gy, facing } = session.party;
+          const overlay = doorOverlayRef.current;
+          if (overlay.isWelded(gx, gy, facing)) {
+            // Welded door: always block (don't move).
+            nextParty = session.party;
+          } else if (overlay.isOpen(gx, gy, facing)) {
+            // Opened door: always allow the forward step (use the computed baseParty,
+            // which represents the forward position regardless of static passability).
+            // If the step didn't move (wall in generation path), force the forward cell.
+            // tryStepForward already returns the forward party if passable, so if the
+            // overlay opened the door we trust the forward result from the model path.
+            nextParty = baseParty;
+          } else {
+            nextParty = baseParty;
+          }
           break;
+        }
         case 'ArrowDown':
           return; // no back-step in Wiz6
         case 'Enter':
