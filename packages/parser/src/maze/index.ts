@@ -88,6 +88,9 @@ export {
 // Door-record decoder — pure type-7 special-record extractor (#089)
 export { decodeDoorRecords, SPECIAL_RECORD_BANK } from './door-record.js';
 
+// Session door-state overlay — mutable per-session opened/welded edge map (#089)
+export { DoorStateOverlay } from './door-state.js';
+
 // Shared types
 export type { MazeSpan, CompositorCall } from './compositor.js';
 export type { MazeWorkBuffer, MazeImageDesc, MazePlacement } from './maze-data.js';
