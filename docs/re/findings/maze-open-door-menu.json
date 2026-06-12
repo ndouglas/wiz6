@@ -7,6 +7,237 @@
   "summary": "CRACKED the FORCE/PICK/EXIT door menu. KEY CORRECTION TO PRIOR SPIKES: FUN_0000_9345 (currently MISLABELED 'save_load_menu' in Ghidra) IS the door FORCE/PICK/EXIT menu, NOT a save/load UI. It is reached from FUN_0000_95ba's TYPE-7 special-record branch (call 0x92ea->0x9345 at file 0x9603), and the type-7 record is the door. (0x95ba's type-3 branch is the chest -> 0x9532, confirmed.) The OPEN command path is: dungeon main loop -> dungeon_in_camp_menu (0x2794) PARTY OPTIONS grid -> grid index 4 (case handler 0x294b) -> call FUN_0000_95ba -> for the special record AT THE PARTY CELL, type 7 -> call FUN_0000_9345 (door menu). The menu shows FORCE/PICK/EXIT (indexedMessage ids 0x834/0x835/0x836) via menu_grid_select (0x1574) at file 0x947f. FORCE (case 0) calls FUN_0000_8974; PICK (case 1) calls FUN_0000_8e4f (both currently mislabeled rest_save/load_session). Both first prompt WHO WILL TRY? (indexedMsg id 0x83e) via the member picker 0x9c8 + party_check_member_alive (0x2086), then run an animated strain/tumble bar, roll vs the door's lock field, and print success(0x841)/failure(0x842)/jammed(0x843). On success they open the door by clearing the special-record's +0x240 wall-plane bit for the current facing (FUN_0000_88af) -- they do NOT auto-step the party through. The +0x834..+0x843 ids map exactly to the task's indexedMessages 534..542 (FORCE..jammed), proving the identity.",
   "findings": [
     {
+      "id": "open-dispatch-index-4-to-95ba",
+      "claim": "OPEN is PARTY OPTIONS grid index 4 (column-major label OPEN per the prompt's record map). dungeon_in_camp_menu (0x2794) dispatches index 4 to case handler file 0x294b: call FUN_0000_95ba then status_effects_decay_timers(1) (advance a turn) then menu teardown. (The earlier maze-open-command.json claim that OPEN==index 0/0x876e is WRONG; 0x876e is the emblem-gate examiner. 0x95ba is OPEN.)",
+      "category": "dungeon_loop",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x294b"
+        },
+        "type": "disassembly",
+        "details": "Jump table at file 0x2993 (jmp word [cs:bx+0x6ef7], delta 0x4564): entry 4 = CS 0x6eaf -> file 0x294b. file 0x294b: E86C6C = call 0x95ba; 0x294e mov ax,1; push; 0x2952 call 0x1053 (status_effects_decay_timers); 0x2956 jmp 0x29b2."
+      },
+      "confidence": "high",
+      "applied_name": null
+    },
+    {
+      "id": "door-detection-gate-type7",
+      "claim": "DOOR DETECTION: FUN_0000_95ba (file 0x95ba) finds the special-square record at the PARTY's OWN cell (z=*0x4f9c,y=*0x4f9e,x=*0x4fa0) via FUN_0000_366e, then branches on the record's TYPE byte at maze-table+0x360[recidx]: type 3 -> chest (call encounter_check_face_match 0x9532); type 7 -> DOOR (the type-7 branch additionally checks the +0x240 wall-plane orientation via getbit_chunk(0xe3fe) for the current facing == 1 OR == 2, and only then calls FUN_0000_9345 = the FORCE/PICK menu). So a forceable/pickable door is a TYPE-7 special record whose +0x240 facing-edge code is 1 or 2 at the party cell. NOTE: 0x95ba operates on the AT-FEET / current cell record (loop over records matching party x/y/z), the same record machinery as chests; the door-vs-chest distinction is purely the type byte (3 vs 7).",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x9615"
+        },
+        "type": "disassembly",
+        "details": "0x95c1..0x95e1 get special-index byte at cell (+0x6c0) and call FUN_0000_366e(specialIdx,z,y,x)->recidx into [bp-2] (0xffff = none). 0x95f8 cmp [0x4fa8+si+0x360],3 (type3 chest -> 0x9600 call 0x9532). 0x9615 cmp [0x4fa8+si+0x360],7 (type7 door). For type7: 0x961c push 2; push *0x4f9a(facing)<<0; push +0x240[recidx]; call 0xe3fe (getbit_chunk width2); 0x9632 cmp ax,1 jz 0x965b; else repeat getbit_chunk with [bp-2] idx and cmp ax,2 jnz 0x9664. On match -> 0x965b push [bp-2]; 0x9603(after) call 0x92ea (FUN_0000_9345 prologue stub; 0x9345 body)."
+      },
+      "confidence": "medium",
+      "recommend_check": "Live: stand party facing a real graphic door (not the edge-3 stone arches that no-op), RETURN->OPEN (grid index 4), bp at 0x9615; confirm the type byte == 7 and that the +0x240 facing code is 1 or 2, then that 0x9345 is entered and the FORCE/PICK window appears. Also confirm 366e's specialIdx source (+0x6c0[z] vs per-cell)."
+    },
+    {
+      "id": "force-pick-exit-menu-is-9345",
+      "claim": "FUN_0000_9345 (file 0x9345, MISLABELED 'save_load_menu') IS the FORCE/PICK/EXIT door menu. It opens a window (ui_window_create 0xbbb6 at 0x93ee, 5x19 cells at row -4), draws the PARTY OPTIONS header (msg id 0x7d2 via 0xc2db at 0x9442/0x944e), builds a 3-entry label list, and calls menu_grid_select (0x1574) at file 0x947f with label-base id 0x834 -> FORCE(0x834)/PICK(0x835)/EXIT(0x836) = the task's indexedMessages 534/535/536. The returned grid index dispatches: 0 -> FORCE path (0x948b), 1 -> PICK path (0x94c1), other -> exit. The menu is a single horizontal row of 3 (rows arg=1, cols arg=7 in the 0x947f call frame, mask local [bp-0x1a] with 3 entries set).",
+      "category": "ui_helper",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x947f"
+        },
+        "type": "disassembly",
+        "details": "0x9442 mov ax,0x12; push; push *0x3342; mov ax,0x7d2; push; call 0xc2db (draw header msg 0x7d2 = 'PARTY OPTIONS'/party_options=296). 0x9463..0x947c: push 0,5,1,7,1,push,&[bp-0x1a],mov ax,0x834;push, push window; 0x947f E8F280 = call 0x1574 (menu_grid_select). result -> [bp-0x1c]. 0x94f7 cmp ax,0 jz 0x948b(FORCE); 0x94fc cmp ax,1 jz 0x94c1(PICK). indexedMessages: id 0x834='FORCE'(534), 0x835='PICK'(535), 0x836='EXIT'(536), 0x83e='who_will_try}'(537) -- verified in extracted/messages/msg.json."
+      },
+      "confidence": "high",
+      "applied_name": "maze_door_force_pick_menu (suggest rename 0x9345)"
+    },
+    {
+      "id": "who-will-try-picker",
+      "claim": "WHO WILL TRY? (indexedMsg id 0x83e = 537): BOTH FORCE and PICK invoke the member picker before rolling. FUN_0000_9345 case 0 (FORCE) at 0x948b: push 1; push 0x83e; call 0x9c8 (the picker/prompt fn) -> member index in [bp-4]; if != 0xffff: call party_check_member_alive(0x2086) -> if alive (nonzero) call FUN_0000_8974(member,recidx); on a 0 return re-prompt. PICK case 1 (0x94c1): identical but calls FUN_0000_8e4f. So the picker is gated by party_check_member_alive (0x2086); the chosen member must pass that liveness/consciousness check (0x2086 reads the member's status -- prior naming 'party_check_member_alive').",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x948b"
+        },
+        "type": "disassembly",
+        "details": "0x948b mov ax,1;push; mov ax,0x83e;push; call 0x9c8; [bp-4]=ax; 0x949c cmp ax,0xffff jz exit; 0x94a1 push ax; call 0x2086 (party_check_member_alive); test ax; jz exit; 0x94aa push [bp+4](recidx); push [bp-4](member); call 0x8974 (FORCE); if ret nonzero set [bp-0x1c]=2 (done). 0x94c1 same with 0x83e + call 0x8e4f (PICK)."
+      },
+      "confidence": "high",
+      "applied_name": null
+    },
+    {
+      "id": "force-roll-formula",
+      "claim": "FORCE (FUN_0000_8974): args (member [bp+4], recidx [bp+6]). Reads door LOCK field = getbit_chunk(0xe3fe, width=5, off=0) of the record's +0x630 byte -> [bp-8] (lock strength, 5-bit 0..31). Reads member char struct (member*0x1b0): STR-like stat at +0x4514 (struct-rel 0x110). STRAIN-BAR LENGTH [bp-0x38] = clamp(0x12 - (stat - lock) + lock, 1..0x12); forced to 0x12 if door is jammed ([bp-0x3c], set when +0x240 facing code == 2). The ROLL [bp-6] = idiv32( char+0x4404 (current stamina/HP) * 100 , char+0x4406 (max) ) then * (char+0x4514 stat) / 100 (two 0xf9ba signed-32 divides). The SUCCESS test: outcome[bp-0x36] = (strain progress [bp-0x3a] < strain length [bp-0x38]) ? 1 : 0; if jammed-flag set, outcome forced to 2. Message printed = 0x841 + outcome (0x841 success=540 / 0x842 failure=541 / 0x843 jammed=542). RNG = rng_next thunk 0xc47e (wroot 0x9e2, returns 0..N-1) used at several decision points (c47e(0x32), c47e(6), c47e(3)). Animation string = 0x840 ('straining..press_~' = 539).",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x8b6c"
+        },
+        "type": "disassembly",
+        "details": "0x8af2 push 5;push 0;push [bp-4](+0x630 byte);call 0xe3fe -> [bp-8] lock. 0x8b1d push 2; push *0x4f9a; push +0x240[recidx]; call 0xe3fe; 0x8b30 cmp ax,2; jnz; mov [bp-0x3c],1 (jammed). 0x8b3e mov ax,0x840; call 0xc1f7 (load 'straining' string). 0x8b6c imul [bp+4],0x1b0; mov al,[bx+0x4514](stat); sub [bp-8](lock); ax=0x12 - that; add [bp-8]; -> [bp-0x38] strain len; clamp 1..0x12; if jammed -> 0x12. 0x8bfa: ax=[bx+0x4404]*100; idiv32(0xf9ba) by [bx+0x4406]; * [bx+0x4514]; /100 (0xf9ba) -> [bp-6] roll. 0x8da0: ax=1; cmp [bp-0x3a],[bp-0x38]; jl -> ax=0; [bp-0x36]=ax. 0x8db1 if [bp-0x3c]!=0 -> [bp-0x36]=2. 0x8df0 ax=[bp-0x36]+0x841; load+draw msg."
+      },
+      "confidence": "low",
+      "recommend_check": "Live: bp at 0x8b6c and 0x8da0; FORCE a known door with a high-STR vs low-STR member and read [bp-8](lock), [bx+0x4514](stat), [bp-0x38](strain len), [bp-0x3a](progress), [bp-6](roll), [bp-0x36](outcome). The strain-bar formula and the success comparator (JL at 0x8da9) are the load-bearing claims and are easy to misread statically -- confirm direction and confirm whether the roll [bp-6] or the strain-len comparison decides success (both appear; the visible success/fail message is driven by [bp-0x36] which is the JL comparison)."
+    },
+    {
+      "id": "pick-roll-formula",
+      "claim": "PICK (FUN_0000_8e4f): args same as FORCE. Reads door lock field = getbit_chunk(width=5,off=0) of +0x630 -> [bp-8]. Reads member skill: char+0x440c (struct-rel 0x8) + char+0x452b (struct-rel 0x127) -> [bp-6], clamped to <=0x5f. TUMBLER count [bp-0x44] = (lock[bp-8] / 3) + 1, clamped <=6. If door +0x240 facing code == 2 (jammed/welded), it picks a specific tumbler index (0x4fa4+0x4fa2 mod tumblers) and force-fails it ([bx+0x5234]=0x64, [bp-0x46]=1). Animation string = 0x83f ('tumbling..press_~' = 538). Per-tumbler it rolls rng_next(0xc47e)([bp-6]) and resolves via 0xc041 (draw-number/compare). On overall SUCCESS ([bp-0x36]==1) it checks member class char+0x4587 (== 3 || 6 || 0xd, the thief-ish classes) and if so awards skill via FUN_0000_54c0(0xf,member), then RNG c47e(3) -> call FUN_0000_88af (open door). Outcome message = 0x841 + outcome (success/failure/jammed). So PICK uses a PICK-LOCKS SKILL (char+0x440c base + char+0x452b modifier), NOT raw Agility, vs the same +0x630 5-bit lock field.",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x9093"
+        },
+        "type": "disassembly",
+        "details": "0x9093 imul [bp+4],0x1b0; mov ax,[bx+0x440c]; add al,[bx+0x452b] -> [bp-6]; cmp 0x5f clamp. 0x90b8 [bp-8]/3; inc -> [bp-0x44] tumblers; clamp 6. 0x90df push 2;push *0x4f9a; push +0x240[recidx]; call 0xe3fe; cmp 2 -> jam path 0x90fe: (0x4fa4+0x4fa2) mod [bp-0x44]; [bx+0x5234]=0x64; [bp-0x46]=1. 0x911e mov ax,0x83f; call 0xc1f7. 0x9171 push [bp-6]; call 0xc47e (rng). outcome dispatch 0x9258: cmp [bp-0x36],0 jz fail(0x891d); cmp 1: 0x926c mov al,[bx+0x4587](class) cmp 3/6/0xd -> call 0x54c0(0xf,member) skill-up; 0x9291 call 0xc47e(3); call 0x88af(open). 0x92e7 ax=[bp-0x36]+0x841 message."
+      },
+      "confidence": "low",
+      "recommend_check": "Live: bp 0x9093 and 0x9258; PICK a door with a thief vs non-thief member; read [bx+0x440c]/[bx+0x452b] (skill components), [bp-8](lock), [bp-0x44](tumblers), [bp-0x36](outcome), [bx+0x4587](class). Confirm the +0x440c/+0x452b struct fields are the PICK-LOCKS skill (cross-check vs wpcvw skill struct: wpcvw-skill-action.json reads skill level at +0x451c and class at +0x4587). Confirm whether +0x440c is current-skill and +0x452b a bonus, or vice-versa."
+    },
+    {
+      "id": "outcomes-success-fail-jammed",
+      "claim": "OUTCOMES are a single code [bp-0x36] in BOTH FORCE and PICK: 0=FAILURE (msg 0x842=541), 1=SUCCESS (0x841=540), 2=JAMMED (0x843=542). The message is uniformly msg-id (0x841 + outcome). JAMMED is NOT a botched-FORCE-ruins-PICK state machine: it is a PRE-EXISTING door condition detected the same way in both handlers -- the door's +0x240 wall-plane facing code == 2 (read via getbit_chunk width2 at the current facing). When that holds, FORCE sets [bp-0x3c]=1 (forcing strain to max and outcome to 2) and PICK sets [bp-0x46]=1 (force-fail a tumbler) -> outcome 2. So a code-2 door is welded/jammed and neither FORCE nor PICK can open it; there is no separate persistent 'I jammed it' bit written by a failed attempt that this code inspects. (Open is encoded as the +0x240 facing code being cleared to the open value; jam=2 is just one of those edge codes.)",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x8db1"
+        },
+        "type": "disassembly",
+        "details": "FORCE 0x8db1 cmp [bp-0x3c],0 jz; else mov [bp-0x36],2. jam flag [bp-0x3c] set at 0x8b35 when +0x240 facing code==2. PICK jam path 0x90fc..0x9115 (cmp ax,2; [bp-0x46]=1). Both: msg = [bp-0x36]+0x841 (0x841/0x842/0x843). No setbits write to a 'jammed' persistent bit appears in 0x8974/0x8e4f outside the success door-open path."
+      },
+      "confidence": "medium",
+      "recommend_check": "Live: try to FORCE then PICK the SAME door across attempts and watch for any persisted state that makes a 2nd attempt behave differently (e.g. does a failed FORCE write +0x630 or +0x240 to mark it jammed?). Confirm what +0x240 facing code value means 'open' vs 'jammed(2)' vs 'closed(1)'. The jammed==pre-existing claim assumes no failed-attempt writeback; verify no setbits on +0x240/+0x630 happens on the FAILURE branch (0x891d)."
+    },
+    {
+      "id": "door-open-on-success-88af",
+      "claim": "DOOR-OPEN ON SUCCESS does NOT call door_set (FUN_0000_6d62) and does NOT auto-step the party. Both FORCE and PICK, on success, call FUN_0000_88af(recidx): it edits the special-record's +0x240 wall-plane bitfield directly -- CLEARS the bit at [facing] (facing/8 byte, facing%8 mask, AND ~mask) and SETS the bit at [facing+1] (the adjacent/back orientation). That opens the door in the record's wall plane. The FAILURE branch calls FUN_0000_891d(recidx) instead: it clears a per-facing word [0x4ee0+facing*2]=0, calls FUN_0000_84ce (record-update) and plays sound 4 (0xc546). After both, control returns to FUN_0000_9345 which (on the 'done'=2 path) tears down the window. The party is left standing in front of the now-open door; movement is a separate subsequent input. (NOTE: this differs from the emblem-gate path 0x850e which DOES call door_set 0x6d62 + setbits +0x60/+0x120 -- doors via FORCE/PICK use the lighter +0x240-only edit in 0x88af.)",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x88af"
+        },
+        "type": "disassembly",
+        "details": "FORCE success 0x8dce push [bp+6]; call 0x88af. PICK success 0x9299 push [bp+6]; call 0x88af. 0x88af: ax=[0x4fa8]+recidx*1+0x240 -> [bp-4]; f=*0x4f9a; idiv 8 -> si=f/8; al=[bx+si]; clear bit (1<<(f%8)) AND ~ ; store; then f+1: set bit (1<<((f+1)%8)) OR; store. No call to 0x6d62. 0x891d (failure): [bx+0x4ee0(f<<1)]=0; call 0x84ce; play sound 0xc546(4)."
+      },
+      "confidence": "medium",
+      "recommend_check": "Live: bp 0x88af; successfully FORCE/PICK a door; read +0x240 record bits before/after and confirm the forward edge clears (door becomes passable to maze_can_step_in_facing) and that NO automatic step occurs (party x/y/z unchanged until next move key). Confirm whether 0x88af alone makes the door renderable-as-open, or whether a re-render/door_set is also needed (0x891d plays the open sound on FAILURE which is suspicious -- verify the success vs failure sound mapping live)."
+    },
+    {
+      "id": "turn-cost-and-animation",
+      "claim": "TURN COST: OPEN consumes one status-effect tick regardless of door outcome -- the case handler at 0x294b calls status_effects_decay_timers(1) (0x1053) after FUN_0000_95ba returns. ANIMATION: the straining(FORCE 0x840)/tumbling(PICK 0x83f) effect IS a real interactive loop, not a single printed line. FORCE loops [bp-0x38] (strain length) iterations drawing char 0x61 ('a') via 0xdd53 building a progress bar, polling the keyboard each frame (kbd thunk 0xe0df / 0xe1c0; ENTER 0x0d cancels). PICK loops per-tumbler ([bp-0x44] tumblers) drawing/animating each lock pin via 0xc041 and rng_next. SOUND: the open/result sound is play_sound thunk 0xc546(4) (sound index 4) -- played in 0x891d (failure path) and likely the success path; FORCE/PICK do not appear to use a distinct per-outcome sound index beyond 4 in these handlers.",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x8bcb"
+        },
+        "type": "disassembly",
+        "details": "Turn: 0x294e mov ax,1; call 0x1053. FORCE bar: 0x8bc4..0x8be5 loop [bp-2] < [bp-0x38]: push 0xc; push 0x61; call 0xdd53 (draw char). 0x8d77 call 0xe0df (kbd check); 0x8d83 call 0xe1c0; cmp al,0xd (ENTER abort). PICK tumbler loop 0x9169..(jmp 0x9212): per [bp-2]<tumblers rng_next(0xc47e) + 0xc041 draw/compare. Sound 0xc546(4) at 0x8946 (in 0x891d failure)."
+      },
+      "confidence": "medium",
+      "recommend_check": "Live: confirm the strain/tumble bar animates frame-by-frame and is interruptible by ENTER, and capture the actual sound index(es) played on success vs failure vs jammed (set bp at 0xc546 sites). Wall-clock timing should be tuned by feel per CLAUDE.md, not matched to DOSBox."
+    },
+    {
+      "id": "prior-spike-correction",
+      "claim": "CORRECTION TO maze-open-command.json: that spike concluded 'there is NO FORCE/PICK/KEY submenu in wmaze' and dismissed FUN_0000_9345 as save_load_menu and 0x95ba's type-7 branch as a 'save-crystal/cabin special'. Both are WRONG. FUN_0000_9345 is the FORCE/PICK/EXIT door menu (proven by its use of indexedMessage ids 0x834/0x835/0x836=FORCE/PICK/EXIT and 0x83e=WHO WILL TRY, and animation strings 0x83f/0x840 and outcome strings 0x841/0x842/0x843). The spike's grep for FORCE/PICK in the msg.json *records* table missed them because these strings live in the indexedMessages table (ids 0x834..0x843 = entries 534..542), accessed via the indexed-string loader (0xc1f7 for menu labels, 0x9c8 for the WHO picker), not the record-message loader. NOTE on KEY: the prompt/recollection mentions a third action USE A KEY; this 9345 menu only has FORCE/PICK/EXIT (3 labels at 0x834..0x836). A key-use is handled separately as OPTIONS USE ITEM (case index 3 -> *0x363a=0x14 -> wdopt), not as a 4th label here -- unless a different/larger door menu exists for keyed doors (not found in wmaze statically).",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x9345"
+        },
+        "type": "disassembly",
+        "details": "indexedMessages (extracted/messages/msg.json): entry534 id0x834 'FORCE', 535 0x835 'PICK', 536 0x836 'EXIT', 537 0x83e 'who_will_try}', 538 0x83f tumbling, 539 0x840 straining, 540 0x841 success, 541 0x842 failure, 542 0x843 jammed. FUN_0000_9345 references 0x834 (menu base, 0x947f), 0x83e (0x948b/0x94c1 picker). FUN_0000_8974/8e4f reference 0x840/0x83f (anim) and 0x841 (outcome base)."
+      },
+      "confidence": "high",
+      "applied_name": null
+    },
+    {
+      "id": "live-blocker-no-execution-breakpoints",
+      "claim": "BLOCKER (methodology): the dynamic-trace plan for this pass (set an execution breakpoint at file 0x8b6c / 0x8da0 / 0x9093 / 0x9258 / 0x88af, single-step the JL at 0x8da9, and read stack locals [bp-8]/[bp-0x38]/[bp-0x3a]/[bp-6]/[bp-0x36]/[bp-0x44]) is NOT POSSIBLE with the MCP backend exposed to this session. The wiz6 MCP surfaced ONLY the DOSBox-X save-state tools; dosbox_set_breakpoint, dosbox_step, dosbox_step_over, dosbox_run_until, dosbox_resume, dosbox_pause, dosbox_clear_breakpoint, dosbox_get_call_chain are all explicitly [STUB] (their tool descriptions read: 'requires the Phase 9 dynamic-driving backend (node-pty + ncurses scraper OR DOSBox-X TCP debug-port patch)'). The dosbox_live_* frame-stepping tools (dosbox_live_step/key/read/find) that CLAUDE.md describes as the primary backend were NOT exposed to this session at all. Consequence: the load-bearing questions Q2 (FORCE success comparator + JL direction), Q3 (what fills strain-progress [bp-0x3a] \u2014 keypresses vs rng_next, the c47e(0x32)/(6)/(3) feeds), Q4 (PICK per-tumbler 0xc041 resolution + outcome rule), and the [bp-8] lock / [bp-0x36] outcome reads CANNOT be answered \u2014 they require halting the CPU INSIDE FUN_0000_8974/FUN_0000_8e4f, which a static save state cannot do. A save state is a single passive snapshot; reading transient BP-relative stack locals at a specific instruction is impossible without an execution breakpoint or single-step. These remain at their prior STATIC confidence (low) and were NOT upgraded.",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x8974"
+        },
+        "type": "live-trace",
+        "details": "Tool inventory at session start (via ToolSearch select:): WORKING save-state tools = dosbox_launch, dosbox_send_input, dosbox_screenshot, dosbox_load_state/save_state/list_saves, dosbox_read_memory, dosbox_read_struct, dosbox_get_registers, dosbox_map_segments, dosbox_inspect_save, dosbox_find_pattern, dosbox_get_state_machine, palette tools. STUBBED (unusable) = dosbox_set_breakpoint, dosbox_step, dosbox_step_over, dosbox_run_until, dosbox_resume, dosbox_pause, dosbox_clear_breakpoint, dosbox_list_breakpoints, dosbox_get_call_chain. dosbox_live_* = absent from this session's deferred-tool list. dosbox_launch return note itself states: 'Debugger driving requires Phase 9 dynamic backend (node-pty + ncurses scraper or DOSBox-X TCP patch).'"
+      },
+      "confidence": "high",
+      "applied_name": null
+    },
+    {
+      "id": "live-door-menu-reached-and-flow",
+      "claim": "LIVE-CONFIRMED (behavioral, via screenshots \u2014 NOT register/stack reads): save slot 1 is captured exactly at the FORCE/PICK/EXIT door menu (party standing before a wooden graphic door, menu showing 'PARTY OPTIONS' header + FORCE/PICK/EXIT with FORCE highlighted). This directly confirms findings 'force-pick-exit-menu-is-9345' (the 3-label FORCE/PICK/EXIT menu exists and renders for a real type-7 wooden door) and the OPEN->door-menu reachability. Selecting FORCE (ENTER) transitioned to the 'WHO WILL TRY?' member picker listing all 6 party members (BEAU/EMBER/SABLE on left, VEXA/TWINK/QUILL on right) + an EXIT entry \u2014 confirming finding 'who-will-try-picker' (FORCE invokes the WHO picker, msg id 0x83e, before rolling). Selecting BEAU ran the attempt and RETURNED to the FORCE/PICK/EXIT menu with the door still rendered CLOSED \u2014 i.e. the attempt FAILED and the door-open did not occur, consistent with finding 'door-open-on-success-88af' (no auto-step; on failure the door stays closed and the menu reappears for a retry). Engine state throughout: game_state=5 (wmaze), party x=3 y=2 z=7 facing=2 (read from DGROUP 0x4fa0/0x4f9e/0x4f9c/0x4f9a).",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x9345"
+        },
+        "type": "live-trace",
+        "details": "save slot 1 (tools/dosbox/save/1.sav), dosbox_inspect_save: game_state=5 wmaze, party BEAU/VEXA/SABLE/EMBER/QUILL/TWINK. Screenshot at load = FORCE/PICK/EXIT menu, FORCE highlighted, wooden door visible. dosbox_read_memory wroot.dgroup+0x4f9a (16 bytes) = '02 00 07 00 02 00 03 00 8a 00 7b 00 07 00 84 81' => facing=2,z=7,y=2,x=3,(0x4fa2)=0x8a,(0x4fa4)=0x7b,(0x4fa6)=7,(0x4fa8)=0x8184. send_input enter -> screenshot = 'WHO WILL TRY?' picker (6 members + EXIT). send_input enter (select BEAU) -> screenshot = back at FORCE/PICK/EXIT menu, door still closed (FORCE attempt failed). dosbox_get_registers(save1): CPU frozen in wroot.exe file 0x27eb (menu/kbd wait loop), SI=7, EBX=0x206b, EDI=0x5240 \u2014 NOT inside 0x8974/0x8e4f, so no FORCE/PICK stack locals are present to read."
+      },
+      "confidence": "high",
+      "applied_name": null
+    },
+    {
+      "id": "live-door-record-locate-failed",
+      "claim": "COULD NOT locate the door's special-square record statically, so Q1 (the +0x630 lock value for this door) is UNRESOLVED. recidx is the return of FUN_0000_366e, computed transiently inside FUN_0000_95ba; with no execution breakpoint there is no way to capture it. Attempts to reconstruct the record-table addressing from the static notes failed/contradicted: (a) the word at DGROUP 0x4fa8 = 0x8184, and reading DGROUP+0x8184 returns all-zeros \u2014 so 0x8184 is a value/scalar, not a record-table base pointer; (b) treating 0x4fa8 as an array-label and reading the putative type-byte array at DGROUP+(0x4fa8+0x360)=0x5308 returns ASCII '0'/'1' bytes (0x30/0x31) with 0x00 separators \u2014 clearly string/name data, NOT a small-integer type array. So the '[0x4fa8+si+0x360]' static read in finding 'door-detection-gate-type7' does not map to a simple DGROUP+offset array the way the notes imply; the true record base/stride is unconfirmed and re-deriving it would re-do the static structure work this pass was told not to re-derive. The +0x630 lock value therefore stays UNVERIFIED LIVE.",
+      "category": "special_square",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x88af"
+        },
+        "type": "live-trace",
+        "details": "dosbox_read_memory wroot.dgroup+0x8184 (32 bytes) = all 00. dosbox_read_memory wroot.dgroup+0x5308 (64 bytes) = '31 31 30 31 30 31 30 00 30 31 30 31 30 30 30 00 ...' (ASCII '1'/'0' + 00 separators). Segment map (save1): wmaze.ovr phys_base 0xc82c, wroot.dgroup phys_base 0x18048. No FUN_0000_366e trap possible (dosbox_run_until/set_breakpoint stubbed)."
+      },
+      "confidence": "high",
+      "applied_name": null
+    },
+    {
+      "id": "static-asm-correction-roll-and-outcome",
+      "claim": "RAW-ASM READ (ndisasm of wmaze.ovr, authoritative control-flow) CORRECTS three load-bearing errors in force-roll-formula/pick-roll-formula/outcomes-success-fail-jammed/door-open-on-success-88af. (1) OUTCOME POLARITY: msg printed = [bp-0x36]+0x841 (0x8df0/0x92xx), and 0x841=540='success', 0x842=541='failure', 0x843=542='jammed'. So outcome 0=SUCCESS, 1=FAILURE, 2=JAMMED (prior finding had 0=failure/1=success backwards). (2) FORCE SUCCESS RULE: at 0x8da0 ax=1; cx=progress[bp-0x3a]; cmp cx,strain_len[bp-0x38]; JL(0x8da9)->skip(ax stays 1=>outcome1=FAILURE); else ax=0=>outcome0=SUCCESS. I.e. SUCCESS iff progress>=strain_len (prior finding said progress<len=success, backwards). strain_len=clamp(0x12-STR+2*lock,1,0x12) (=0x12 if jammed); effSTR=STR*SPcur/SPmax (Spirit Points, NOT HP); progress=clamp(sum(4x rng_next(effSTR))/4,1,0x12); plus a ~1/50 (rng_next(50)==0) or effSTR<=0 fatigue branch draining SP. (3) ROUTINE ROLES SWAPPED: outcome 0 (SUCCESS) -> call 0x891d (clears 0x4ee0[facing], record-update 0x84ce, sound 4 => door opens); outcome 1/2 -> 1/3 (rng_next(3)==0) -> call 0x88af (flips +0x240 edge bits: clear bit[facing], set bit[facing+1] => advances the door toward the jammed/welded state). So a FAILED FORCE/PICK has a 1/3 chance to damage the door. PICK: skill=clamp(level[+0x440c]+skulduggery[+0x452b],<=0x5f); tumblers=clamp(lock/3+1,<=6); per-tumbler passes iff rng_next(skill)>difficulty[BSS 0x5234+i] (normal difficulty 0; jammed door forces one tumbler=0x64); SUCCESS iff all tumblers pass; a FAILED pick awards Skulduggery skill XP (call 0x54c0(0xf,member)) to classes 3/6/0xd before the 1/3 damage roll.",
+      "category": "dungeon_loop",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {
+          "space": "wmaze.ovr",
+          "offset": "0x8da0"
+        },
+        "type": "disassembly",
+        "details": "FORCE outcome 0x8da0: B80100 mov ax,1; 8B4EC6 mov cx,[bp-0x3a]; 3B4EC8 cmp cx,[bp-0x38]; 7C03 jl 0x8dae; B80000 mov ax,0; 8946CA mov [bp-0x36],ax. 0x8db1 cmp [bp-0x3c],0; jz; mov [bp-0x36],2 (jammed). 0x8dbc cmp [bp-0x36],0; jz 0x8dd7(call 0x891d). else 0x8dc2 rng_next(3); jnz skip; call 0x88af. msg 0x8df0: ax=[bp-0x36]; add 0x841; call 0xc1f7. strain_len 0x8b6c..0x8b89: al=[bx+0x4514]STR; ax=STR-[bp-8]lock; ax=0x12-that; ax+=lock; clamp1..0x12; if[bp-0x3c]jammed ax=0x12. effSTR 0x8bfa..0x8c53: (SPcur[+0x4404]*100/SPmax[+0x4406])*STR/100 via 0xf9ba. progress 0x8cc3..0x8cf7: 4x rng_next([bp-6]) summed, idiv 4; clamp1..0x12. PICK 0x9093: ax=[bx+0x440c]level; +[bx+0x452b]skulduggery; clamp0x5f. 0x90b8 [bp-8]/3 inc clamp6 tumblers. 0x90df getbit_chunk(+0x240,facing,2); cmp2 -> jam: 0x5234[(0x4fa4+0x4fa2)mod tumblers]=0x64. loop 0x91e8 cmp roll,[bx+0x5234]; jng->fail(outcome=jamflag+1); else color6. 0x9258 outcome dispatch: 0=>0x891d; 1=>thief class 3/6/0xd call 0x54c0(0xf); 1/3 0x88af. 0x891d: [bx+0x4ee0]=0; call 0x84ce; sound 0xc546(4). 0x88af: clear +0x240 bit[facing], set bit[facing+1]."
+      },
+      "confidence": "high",
+      "supersedes": [
+        "force-roll-formula",
+        "pick-roll-formula",
+        "outcomes-success-fail-jammed",
+        "door-open-on-success-88af"
+      ],
+      "method": "raw ndisasm of test-fixtures/original/wmaze.ovr (decompiler-independent); live execution-breakpoint pass was BLOCKED (dosbox_step/breakpoints are [STUB], TODO #Q-G). Control flow is authoritative from the bytes; MEDIUM-confidence residuals: per-tumbler difficulty default (0x5234 init via 0xc66d), exact +0x240 bit semantics in 0x88af/0x891d, +0x630 lock decode \u2014 to be confirmed against the door-record decoder + behavioral spot-check vs save slot 1.",
+      "recommend_check": "Behavioral: in save slot 1 (at the FORCE/PICK/EXIT menu) read the door record +0x630 (lock) and +0x240 (edge code) once the record table is located; confirm the normal per-tumbler difficulty is 0 (0xc66d zeroes 0x5234) so PICK success = all tumblers roll rng_next(skill)>0."
+    },
+    {
       "id": "live-special-record-table-layout",
       "claim": "SPECIAL-RECORD TABLE LAYOUT (HIGH CONFIDENCE \u2014 pinned from live save-1 reads + disassembly). base = DGROUP near-pointer at [0x4fa8] = 0x8184 in save-1 (physical: DGROUP+0x8184 = phys 0x201cc). Max 144 (0x90) records (si = 0..0x8f in 366e). All coordinate/type/lock fields are BYTE arrays (stride 1, index=recidx). Wall-plane is a WORD array (stride 2, index=recidx*2 \u2014 confirmed by 'D1E6 shl si,1' before '[bx+si+0x240]' in wmaze 0x961c/0x8ad7). Field offsets from base: (1) +0x360 TYPE byte \u2014 3=chest, 7=door (other types also exist: 1,4,5,6,8,11,16,19,21,23,24,25). (2) +0x3f0 X coord byte (zone-local column 0..7). (3) +0x480 Y coord byte (zone-local row 0..7). (4) +0x510 Z/region byte (0..11). (5) +0x240 WALL-PLANE word (2 bytes/record, LE; getbit_chunk extracts 2-bit facing value at bit offset = facing*2, LSB-first): value 0=open, 1=closed, 2=welded. (6) +0x630 LOCK byte (getbit_chunk width=5, offset=0 -> 5-bit strength 0..31). (7) +0x6c0 PER-REGION FIRST-RECORD-INDEX byte array (12 bytes, indexed by region/z = [0x4f9c]; gives the scan start index for 366e). (8) +0x120 unknown WORD per record (read in FORCE setup at 8ad7 with recidx*2, purpose unconfirmed \u2014 may be a door-name or UI string pointer). CONFIRMED from live reads of phys arrays in save-1: type array at DGROUP+0x84e4 (phys 132396), x at DGROUP+0x8574 (phys 132540), y at DGROUP+0x8604 (phys 132684), z at DGROUP+0x8694 (phys 132828), lock at DGROUP+0x87b4 (phys 133116), per-region at DGROUP+0x8844 (phys 133260). getbit_chunk (wroot image 0x2962, thunk 0xe3fe) confirmed = (data>>offset)&mask with LSB-first bit ordering.",
       "category": "special_square",
@@ -56,11 +287,6 @@
         "live-door-level0-record109"
       ]
     }
-  ],
-  "unresolved_updated_by_pass3": [
-    "PARTY-COORD/DOOR-RECORD MISMATCH: save-1 party is at z=7,x=3,y=2 but the type-7 door is at z=4,x=7,y=0. These are in different maze regions (region 7 = B1 area, region 4 = castle surface). Unresolved. Best guess: save was taken inside the 9345 menu, and the party had moved since OPEN was pressed (or z=[0x4f9c] encodes something other than the maze-block region for the door area).",
-    "DOOR APPROACH FACING: which facing value (0-3) does the party use when approaching the level-0 castle door at (z=4,x=7,y=0)? The wall word 0x0800 has getbit_chunk(offset=facing*2) = 0 for facing 0..4, so if the door IS open in the save, we can't determine the closed-state facing from this snapshot alone. Need a fresh save while the door is closed.",
-    "+0x120 WORD ARRAY: the FORCE function reads a WORD at [bx+recidx*2+0x120] at 8adf before the lock read. Purpose unknown (may be door-title string offset or visual index). Record 109's +0x120 word = bytes[8adf read not performed]. Not needed for basic decoder but should be identified."
   ],
   "unresolved": [
     "LIVE PASS BLOCKED \u2014 see finding 'live-blocker-no-execution-breakpoints'. The MCP exposed only DOSBox-X save-state tools; all breakpoint/single-step tools are [STUB] and the dosbox_live_* frame-stepping backend was not surfaced. Q2 (FORCE comparator/JL direction), Q3 (strain-progress source: keypress vs RNG, the c47e feeds), Q4 (PICK per-tumbler resolution + outcome rule), and the [bp-8] lock / [bp-0x36] outcome / [bp-0x38] strain-len / [bp-0x44] tumbler reads ALL remain at static low confidence and CANNOT be resolved with this toolset. To complete this pass, either the dosbox_live_* tools (dosbox_live_step + dosbox_live_read at a waypoint reached via dosbox_live_step loop) must be exposed, or the DOSBox-X ncurses-debugger driving backend must be implemented (TODO #Q-G / docs/superpowers/specs/2026-05-23-dosbox-mcp.md).",
