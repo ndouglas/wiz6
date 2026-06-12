@@ -33,6 +33,7 @@ import {
 } from '@wiz6/data';
 import wfont0Json from '../../data/wfont0.json' with { type: 'json' };
 import wfont3Json from '../../data/wfont3.json' with { type: 'json' };
+import { drawGlyph4bpp, drawGlyph1bpp } from './glyph-core.js';
 
 const STRIP_W = REVIEW_STRIP.w;
 const STRIP_H = REVIEW_STRIP.h;
@@ -71,89 +72,52 @@ function drawColoredFromWfont3(buf: Uint8Array, px: number, py: number, code: nu
   }
 }
 
-/** Draw a wfont3 (4bpp) glyph into `buf` at strip-local pixel (px,py). The 4-bit file
- *  pixel value IS the palette index the engine writes to VRAM, so write it directly. */
-function drawGlyph4bpp(buf: Uint8Array, px: number, py: number, code: number): void {
-  const glyph = WFONT3.glyphs[code];
-  if (!glyph) return;
-  for (let row = 0; row < CELL; row++) {
-    const y = py + row;
-    if (y < 0 || y >= STRIP_H) continue;
-    const pG = glyph[row] ?? 0;
-    const pB = glyph[8 + row] ?? 0;
-    const pR = glyph[16 + row] ?? 0;
-    const pI = glyph[24 + row] ?? 0;
-    for (let col = 0; col < CELL; col++) {
-      const x = px + col;
-      if (x < 0 || x >= STRIP_W) continue;
-      const bit = 7 - col;
-      const fileIdx =
-        ((pG >> bit) & 1) |
-        (((pB >> bit) & 1) << 1) |
-        (((pR >> bit) & 1) << 2) |
-        (((pI >> bit) & 1) << 3);
-      buf[y * STRIP_W + x] = fileIdx;
-    }
-  }
-}
-
-/**
- * Draw a wfont0 (1bpp) glyph mask into `buf` at strip-local pixel (px,py).
- *  - colored (inverse=false): write `stroke` at mask=1 pixels; leave mask=0 untouched.
- *  - inverse (inverse=true): write `bg` over the whole 8×8 cell, `stroke` at mask=1.
- */
-function drawGlyph1bpp(
-  buf: Uint8Array,
-  px: number,
-  py: number,
-  code: number,
-  stroke: number,
-  bg: number,
-  inverse: boolean,
-): void {
-  const glyph = WFONT0.glyphs[code];
-  if (!glyph) return;
-  for (let row = 0; row < CELL; row++) {
-    const y = py + row;
-    if (y < 0 || y >= STRIP_H) continue;
-    const maskByte = glyph[row] ?? 0;
-    for (let col = 0; col < CELL; col++) {
-      const x = px + col;
-      if (x < 0 || x >= STRIP_W) continue;
-      const on = (maskByte >> (7 - col)) & 1;
-      if (inverse) {
-        buf[y * STRIP_W + x] = on ? stroke : bg;
-      } else if (on) {
-        buf[y * STRIP_W + x] = stroke;
-      }
-    }
-  }
-}
-
 /** Draw a label as wfont3 (4bpp) normal text at strip-local (px,py). */
 function drawTextNormal(buf: Uint8Array, px: number, py: number, text: string): void {
   for (let c = 0; c < text.length; c++) {
-    drawGlyph4bpp(buf, px + c * CELL, py, text.charCodeAt(c));
+    drawGlyph4bpp(buf, STRIP_W, STRIP_H, px + c * CELL, py, text.charCodeAt(c), WFONT3.glyphs);
   }
 }
 
 /** Draw a label as an INVERSE highlight (yellow bar, black strokes) at strip-local (px,py). */
 function drawTextInverse(buf: Uint8Array, px: number, py: number, text: string): void {
   for (let c = 0; c < text.length; c++) {
-    drawGlyph1bpp(buf, px + c * CELL, py, text.charCodeAt(c), BLACK, REVIEW_HILITE.paletteIndex, true);
+    drawGlyph1bpp(buf, STRIP_W, STRIP_H, px + c * CELL, py, text.charCodeAt(c), BLACK, REVIEW_HILITE.paletteIndex, true, WFONT0.glyphs);
   }
 }
 
 /**
- * Compose the REVIEW WHO? member picker bottom strip as a palette-index buffer.
+ * Optional chrome overrides for composeReviewPicker. Defaults preserve the
+ * REVIEW WHO? layout exactly (byte-identical to the existing REVIEW fixtures).
+ */
+export interface ReviewPickerChrome {
+  /** Header string. Default: REVIEW_HEADER ('REVIEW WHO?') */
+  header?: string;
+  /** Header screen-px origin. Default: REVIEW_HEADER_AT */
+  headerAt?: { x: number; y: number };
+  /** EXIT label screen-px origin. Default: REVIEW_EXIT_AT */
+  exitAt?: { x: number; y: number };
+}
+
+/**
+ * Compose the REVIEW WHO? (or WHO WILL TRY?) member picker bottom strip as a
+ * palette-index buffer.
  *
  * @param slotNames Per-slot member names (length 6, null = empty slot).
  * @param cursor    -1 = EXIT cell highlighted; 0..5 = the slot cell highlighted.
+ * @param chrome    Optional layout overrides (header string/position, EXIT position).
+ *                  Defaults reproduce the REVIEW WHO? chrome exactly.
  */
 export function composeReviewPicker(
   slotNames: ReadonlyArray<string | null>,
   cursor: number,
+  chrome?: ReviewPickerChrome,
 ): Uint8Array {
+  // Resolve chrome overrides, falling back to REVIEW WHO? defaults.
+  const headerStr = chrome?.header ?? REVIEW_HEADER;
+  const headerAt = chrome?.headerAt ?? REVIEW_HEADER_AT;
+  const exitAt = chrome?.exitAt ?? REVIEW_EXIT_AT;
+
   const buf = new Uint8Array(STRIP_W * STRIP_H);
   // 1. Gray background fill.
   buf.fill(BG_GRAY);
@@ -167,20 +131,20 @@ export function composeReviewPicker(
   // 3. Right-edge vertical divider: black on every row.
   for (let y = 0; y < STRIP_H; y++) buf[y * STRIP_W + (STRIP_W - 1)] = BLACK;
 
-  // 4. Header text — colored text (wfont0 mask), stroke = palette 9, gray bg shows through.
+  // 4. Header text — colored text (wfont3 silhouette), stroke = palette 9, gray bg shows through.
   {
-    const hx = REVIEW_HEADER_AT.x - REVIEW_STRIP.x;
+    const hx = headerAt.x - REVIEW_STRIP.x;
     const hy = 0; // top cell row (header glyphs span y-local 0..7).
-    for (let i = 0; i < REVIEW_HEADER.length; i++) {
-      drawColoredFromWfont3(buf, hx + i * CELL, hy, REVIEW_HEADER.charCodeAt(i), REVIEW_HEADER_PALETTE);
+    for (let i = 0; i < headerStr.length; i++) {
+      drawColoredFromWfont3(buf, hx + i * CELL, hy, headerStr.charCodeAt(i), REVIEW_HEADER_PALETTE);
     }
   }
 
-  // 5. EXIT label (header row). Normal = colored palette-9 text (wfont0 mask, same as the
+  // 5. EXIT label (header row). Normal = colored palette-9 text (wfont3 silhouette, same as the
   //    header), NOT white wfont3 — verified against the m0/m1 fixtures. Highlighted = INVERSE.
   {
-    const ex = REVIEW_EXIT_AT.x - REVIEW_STRIP.x;
-    const ey = REVIEW_EXIT_AT.y - REVIEW_STRIP.y;
+    const ex = exitAt.x - REVIEW_STRIP.x;
+    const ey = exitAt.y - REVIEW_STRIP.y;
     if (cursor === -1) {
       drawTextInverse(buf, ex, ey, EXIT_LABEL);
     } else {

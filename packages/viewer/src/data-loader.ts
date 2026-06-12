@@ -11,6 +11,7 @@ import { MessageDbSchema, type MessageDb } from '@wiz6/data';
 import { NewgameDbSchema, type NewgameDb } from '@wiz6/data';
 import { ScenarioDbSchema, type ScenarioDb } from '@wiz6/data';
 import { DungeonLevelSchema, type DungeonLevel } from '@wiz6/data';
+import { DoorRecordSchema, type DoorRecord } from '@wiz6/data';
 import {
   decodeMazeAssets,
   passabilityFromTable,
@@ -238,4 +239,19 @@ export async function loadDungeonLevel(id: number): Promise<DungeonLevel> {
   }
   const data: unknown = await res.json();
   return DungeonLevelSchema.parse(data);
+}
+
+/**
+ * Browser loader for the type-7 door records (level 0). Fetches the committed
+ * extracted/maze/doors.json (served via Vite publicDir) and validates each entry
+ * against DoorRecordSchema. Returns the array of DoorRecord for the level's
+ * forceable/pickable doors — consumed by MazeView to resolve OPEN attempts.
+ */
+export async function loadMazeDoors(url: string = '/maze/doors.json'): Promise<DoorRecord[]> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to load maze doors from ${url}: ${res.status}`);
+  }
+  const data: unknown = await res.json();
+  return DoorRecordSchema.array().parse(data);
 }

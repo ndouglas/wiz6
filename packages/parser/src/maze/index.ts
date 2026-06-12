@@ -73,6 +73,28 @@ export { moveOptionsCursor, commandAt, type OptionsCommand } from './options-men
 // REVIEW WHO? member-picker navigation (pure, in-dungeon OPTIONS → REVIEW)
 export { moveReviewCursor, REVIEW_EXIT } from './review-picker.js';
 
+// OPEN door — pure FORCE/PICK/detect logic (#089)
+export {
+  strainBarLength,
+  forceAttempt,
+  pickAttempt,
+  detectDoorAtParty,
+  moveDoorMenuCursor,
+  resolveDoorAttempt,
+  type ForceMember,
+  type PickMember,
+  type PartyPos,
+  type DoorOutcome,
+  type DoorAction,
+  type DoorAttemptEffects,
+} from './door-open.js';
+
+// Door-record decoder — pure type-7 special-record extractor (#089)
+export { decodeDoorRecords, SPECIAL_RECORD_BANK } from './door-record.js';
+
+// Session door-state overlay — mutable per-session opened/welded edge map (#089)
+export { DoorStateOverlay } from './door-state.js';
+
 // Shared types
 export type { MazeSpan, CompositorCall } from './compositor.js';
 export type { MazeWorkBuffer, MazeImageDesc, MazePlacement } from './maze-data.js';

@@ -13,6 +13,7 @@ import { extractPic } from '../extractors/extract-pic.js';
 import { extractSnd } from '../extractors/extract-snd.js';
 import { extractDocs } from '../extractors/extract-docs.js';
 import { extractMazeLevel } from '../extractors/maze-level.js';
+import { extractMazeDoors } from '../extractors/maze-doors.js';
 import { extractNewgameViewports } from '../extractors/extract-newgame-viewports.js';
 import { loadMazeAssetsRaw } from '@wiz6/parser';
 import { resolveOriginalDir } from '../lib/loaders.js';
@@ -34,7 +35,8 @@ type TypeName =
   | 'pics'
   | 'sounds'
   | 'docs'
-  | 'maze-levels';
+  | 'maze-levels'
+  | 'maze-doors';
 const ALL_TYPES: TypeName[] = [
   'fonts',
   'portraits',
@@ -47,6 +49,7 @@ const ALL_TYPES: TypeName[] = [
   'sounds',
   'docs',
   'maze-levels',
+  'maze-doors',
 ];
 
 const USAGE = `usage: wiz6 extract <type|--all> [flags]
@@ -63,6 +66,7 @@ types:
   sounds       sound00-sound38.snd (raw bytes + decoded metadata JSON)
   docs         copy docs/**/*.md into extracted/docs/ with a manifest
   maze-levels  dungeon levels (level-0.json) from scenario.dbs bank 2
+  maze-doors   type-7 door records (doors.json) from scenario.dbs bank 3
   --all        extract all of the above
 
 flags:
@@ -262,6 +266,17 @@ function extractOneType(
       const viewportsDst = join(extractedDir, 'maze', 'newgame-viewports.json');
       const vr = extractNewgameViewports({ fixturesDir, outputPath: viewportsDst });
       io.write(`wrote ${extractedDir}/maze/newgame-viewports.json (${vr.frameCount} scripted-entry oracle viewports)\n`);
+      return;
+    }
+    case 'maze-doors': {
+      // Level 0 = the starting dungeon. gxBase/gyBase are derived from the
+      // MazeBlock (bank 2, record 0) so no per-level hardcoding is needed.
+      const doors = extractMazeDoors({
+        originalDir,
+        outputPath: join(extractedDir, 'maze', 'doors.json'),
+        levelId: 0,
+      });
+      io.write(`wrote ${extractedDir}/maze/doors.json (${doors.length} type-7 doors, level 0)\n`);
       return;
     }
   }

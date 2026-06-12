@@ -361,6 +361,8 @@ export {
   CONVERGE_RIGHT,
   CORRIDOR_CENTER_X,
 } from './maze/corridor-geometry.js';
+export { DOOR_ROLL } from './maze/door-roll.js';
+export { DOOR_MENU, DOOR_WHO } from './maze/door-menu.js';
 export {
   OPTIONS_COMMANDS,
   OPTIONS_LABELS,
@@ -385,6 +387,10 @@ export {
   REVIEW_HEADER_PALETTE,
   REVIEW_HILITE,
 } from './maze/review-picker.js';
+export {
+  DoorRecordSchema,
+  type DoorRecord,
+} from './schemas/door-record.js';
 export {
   DungeonEntranceSchema,
   ScriptedEntrySchema,

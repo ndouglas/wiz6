@@ -271,6 +271,27 @@ export const NOTE_INDEX: NoteIndexEntry[] = [
       'Wiz6 rolls a wandering-monster check on nearly every step. Our dungeon mapper happened to roll combat once while probing a single tile and recorded it as a permanent "encounter here" — an invisible wall in the port. It was a dice roll, not a place.',
     tags: ['maze', 'combat', 'reimplementation', 'quirk'],
   },
+  {
+    id: 'door-jam-forever',
+    title: 'Force a Door and You Can Jam It Shut Forever',
+    pitch:
+      'A failed FORCE or PICK has a 1-in-3 chance to weld the door permanently shut — after which neither action can open it again. Repeatedly brute-forcing a stubborn door is not consequence-free.',
+    tags: ['maze', 'design-choice', 'quirk'],
+  },
+  {
+    id: 'pick-xp-only-on-failure',
+    title: 'You Learn Lockpicking Only By Failing',
+    pitch:
+      'A failed PICK awards Skulduggery skill XP — but only to thief-ish classes, and only on failure. Successfully picking a lock teaches you nothing.',
+    tags: ['maze', 'character-progression', 'design-choice'],
+  },
+  {
+    id: 'force-uses-spirit-not-strength',
+    title: 'Tired Heroes Force Doors Worse',
+    pitch:
+      'FORCE doesn\'t use raw STR — it uses effective STR scaled by current spirit points over max. A fatigued character with 18 STR can force worse than a fresh one with 14.',
+    tags: ['maze', 'design-choice', 'engine'],
+  },
 ];
 
 export function findNote(id: string): NoteIndexEntry | undefined {

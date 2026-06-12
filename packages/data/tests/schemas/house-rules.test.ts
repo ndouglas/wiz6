@@ -43,8 +43,8 @@ describe('HouseRulesSchema', () => {
 });
 
 describe('HOUSE_RULES_META', () => {
-  it('has one entry per house rule (currently 5)', () => {
-    expect(HOUSE_RULES_META).toHaveLength(5);
+  it('has one entry per house rule (currently 6)', () => {
+    expect(HOUSE_RULES_META).toHaveLength(6);
   });
 
   it('every meta entry has matching key in HouseRules', () => {
@@ -122,6 +122,7 @@ describe('allowEditFromCamp house rule', () => {
       engineFaithfulSkillExit: false,
       allowEditFromCamp: true,
       recomputeCarryCapacity: false,
+      noDoorJam: false,
     });
     expect(parsed.allowEditFromCamp).toBe(true);
   });
@@ -161,5 +162,31 @@ describe('recomputeCarryCapacity house rule', () => {
     expect(entry).toBeDefined();
     expect(entry?.category).toBe('gameplay');
     expect(entry?.stockValue).toBe(false);
+  });
+});
+
+describe('noDoorJam house rule', () => {
+  it('is required by the schema', () => {
+    const { schemaVersion: _v, ...rest } = DEFAULT_HOUSE_RULES;
+    void _v;
+    expect(() =>
+      HouseRulesSchema.parse({ schemaVersion: 1, ...rest, noDoorJam: undefined }),
+    ).toThrow();
+  });
+
+  it('stock value is false (engine-faithful: jamming enabled)', () => {
+    expect(STOCK_HOUSE_RULES.noDoorJam).toBe(false);
+  });
+
+  it('default value is false (engine-faithful: jamming enabled)', () => {
+    expect(DEFAULT_HOUSE_RULES.noDoorJam).toBe(false);
+  });
+
+  it('appears in HOUSE_RULES_META as a gameplay rule', () => {
+    const entry = HOUSE_RULES_META.find((m) => m.key === 'noDoorJam');
+    expect(entry).toBeDefined();
+    expect(entry?.category).toBe('gameplay');
+    expect(entry?.stockValue).toBe(false);
+    expect(entry?.learnMoreUrl).toBe('/explore/notes#door-jam-forever');
   });
 });

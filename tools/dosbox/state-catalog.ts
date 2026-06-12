@@ -985,6 +985,61 @@ const MAZE_CORRIDOR_RECIPE: SaveStateRecipe = {
   settleMs: 300,
 };
 
+// ── OPEN-door FORCE/PICK/EXIT menu fixtures (#089, 2026-06-11) ───────────────
+// Recipe-replay (NO committed state — the broken serialize/unserialize path is
+// avoided): drive boot → gate → walk to the level-0 lock-3 door at global
+// (gx124, gy121), then OPTIONS → OPEN to raise the FORCE/PICK/EXIT strip.
+//
+// Navigation, verified live by reading party (facing 0x4f9a / z 0x4f9c /
+// y 0x4f9e / x 0x4fa0): MAZE_CORRIDOR leaves the party at local (x=7, y=5)
+// facing 0 (the gate). `left up up up left` turns west, walks 3 cells
+// (x 7→4 ⇒ gx 127→124), then turns south (facing 2) — landing IN the door
+// cell facing the door edge. OPTIONS → OPEN (grid idx4 = `right down`) then
+// `enter` detects the type-7 door and opens the FORCE/PICK/EXIT menu.
+//
+// DETERMINISM: like MAZE_CORRIDOR, the maze VIEWPORT is a free-running
+// animation (non-deterministic across runs), so the FULL-FRAME fixture is NOT
+// byte-stable and these recipes must NOT be gated with `build-state --check`.
+// The door-menu PARITY TEST (door-menu-parity.test.ts) crops to the 160×40
+// bottom STRIP (DOOR_MENU.strip, y≥144), which is a static menu overlay and IS
+// deterministic — that crop is the gate. The committed fixture is one capture.
+const MAZE_DOOR_NAV: readonly string[] = [
+  ...MAZE_CORRIDOR_RECIPE.steps,
+  'left', 'up', 'up', 'up', 'left', // gate(x7,y5,f0) → door(x4,y5,f2) = global (124,121) facing 2
+];
+// OPTIONS → OPEN: `enter` opens PARTY OPTIONS (cursor on SEARCH=idx0); `right
+// down` moves to OPEN (col1,row1=idx4); `enter` raises FORCE/PICK/EXIT (cursor
+// on FORCE=idx0).
+const MAZE_DOOR_TO_FORCE: readonly string[] = ['enter', 'right down enter'];
+const MAZE_DOOR_RECIPES: readonly SaveStateRecipe[] = [
+  {
+    name: 'maze-door-menu-force',
+    description:
+      'OPEN facing the level-0 lock-3 door at (124,121); FORCE/PICK/EXIT strip, cursor on FORCE. ' +
+      'Recipe-replay; only the 160×40 bottom strip is gated (see note).',
+    steps: [...MAZE_DOOR_NAV, ...MAZE_DOOR_TO_FORCE],
+    settleMs: 300,
+  },
+  {
+    name: 'maze-door-menu-pick',
+    description: 'Door menu, cursor on PICK (one right from FORCE).',
+    steps: [...MAZE_DOOR_NAV, ...MAZE_DOOR_TO_FORCE, 'right'],
+    settleMs: 300,
+  },
+  {
+    name: 'maze-door-menu-exit',
+    description: 'Door menu, cursor on EXIT (two right from FORCE).',
+    steps: [...MAZE_DOOR_NAV, ...MAZE_DOOR_TO_FORCE, 'right right'],
+    settleMs: 300,
+  },
+  {
+    name: 'maze-door-who',
+    description: 'FORCE selected → WHO WILL TRY? member picker.',
+    steps: [...MAZE_DOOR_NAV, ...MAZE_DOOR_TO_FORCE, 'enter'],
+    settleMs: 300,
+  },
+];
+
 // ── Additional maze corridor fixtures (Task 10, 2026-06-04) ──────────────────
 // Two extra corridor frames derived from maze-corridor.state.gz by input:
 //   maze-corridor-turn-left  — one 'left' turn from the gate frame → facing 3,
@@ -1143,6 +1198,7 @@ export const STATE_CATALOG: readonly SaveStateRecipe[] = [
   ...PICKER_RECIPES,
   ...CREATION_RECIPES,
   MAZE_CORRIDOR_RECIPE,
+  ...MAZE_DOOR_RECIPES,
 ];
 
 export function findRecipe(name: string): SaveStateRecipe | undefined {
