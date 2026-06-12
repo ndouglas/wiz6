@@ -5,12 +5,16 @@
  * ── SOURCE ──────────────────────────────────────────────────────────────────────
  * The special-record table lives in SCENARIO.DBS bank 3 (base=0xe828, recsize=0x6cc
  * = 1740 bytes). It is NOT the same as the 1346-byte maze-definition record (bank 2)
- * that decodeMazeBlock reads — they are separate buffers. The bank-3 record also
- * doubles as the ceiling image asset (per maze-asset-loader.json: ceiling[zone] =
- * bank3 record (zone+2)).
+ * that decodeMazeBlock reads — they are separate buffers.
  *
- * Level-0 (castle surface) special records → bank 3 record 12 (zone 10, 10+2=12).
- * Validated: record 109, type=7, z=4, x=7, y=0, lock=0 → global gx=127, gy=132.
+ * Special records use an IDENTITY mapping: maze level id N → bank-3 record N (level 0
+ * → record 0). The ceiling[zone]=bank3 rec(zone+2) formula (maze-asset-loader.json)
+ * applies to the CEILING image asset ONLY — it does NOT apply to special records. (An
+ * earlier read used record 12, which holds the wrong block: a single lock-0 entry door.)
+ *
+ * Level-0 (castle surface) special records → bank 3 record 0 (12 type-7 doors, locks 3..7).
+ * Validated: recidx 24 → global (124,121), lock 3, closed facing 2 — the entrance door
+ * reached via turn-left / forward×3 / turn-left from the start gate.
  *
  * ── FIELD LAYOUT (from base of 1740-byte record) ──────────────────────────────
  * Per-record parallel byte arrays (max 144 = 0x90 records):
@@ -25,7 +29,7 @@
  *   +0x6c0  PER-REGION first-record-index byte array (12 bytes)
  *
  * RE reference: docs/re/findings/maze-open-door-menu.json
- *   (live-special-record-table-layout + live-door-level0-record109)
+ *   (live-entrance-doors-bank3-rec0-CORRECTION + live-special-record-table-layout)
  */
 
 import type { DoorRecord } from '@wiz6/data';
