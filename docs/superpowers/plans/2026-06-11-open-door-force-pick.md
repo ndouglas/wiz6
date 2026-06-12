@@ -10,6 +10,11 @@
 
 **RE basis:** `docs/re/findings/maze-open-door-menu.json` (esp. `static-asm-correction-roll-and-outcome`). Spec: `docs/superpowers/specs/2026-06-11-open-door-force-pick-design.md`.
 
+> ## EXECUTION STATUS (2026-06-11)
+> **Stage 1 COMPLETE** on branch `feat/open-door-force-pick` (commits up to `e632cf0`): DoorRecord schema, DOOR_ROLL constants, `door-open.ts` roll logic (13 tests, asm-confirmed; two-step `effSTR` divide), `door-record.ts` decoder. **CORRECTION applied** — entrance doors are scenario.dbs **bank-3 record 0** (12 forceable doors, identity mapping level-id→rec), NOT rec 12. **Canonical fixture/demo door = global (124,121) lock 3, facing 2** (reach from start gate: turn-left, fwd×3, turn-left); ~10 reachable lock-3 doors in the starting cluster, so the e2e walking gate IS feasible.
+> **Task 1.9 (RNG-replay roll parity) DEFERRED** — live-drive harness friction (boot-to-maze + committed-state `unserialize` failed; patched-core mismatch). Roll logic is unit-gated meanwhile.
+> **RESUME AT STAGE 2.** When updating fixture references (Stages 3/4/5), use door (124,121) lock 3 in bank-3 rec 0, not the old (128,131)/(127,132) placeholders. See spec §"UPDATE 2026-06-11".
+
 **Confirmed mechanic (reference for all tasks):**
 - FORCE: `strain_len = clamp(18 − STR + 2·lock, 1, 18)` (=18 if welded); `effSTR = floor(STR · SP_cur / SP_max)`; `progress = clamp(⌊(Σ 4× rng(effSTR))/4⌋, 1, 18)`. **Success ⟺ progress ≥ strain_len.** A ~1/50 (`rng(50)==0`) or `effSTR≤0` fatigue branch drains SP — modeled as a side-effect, not gating the open.
 - PICK: `skill = clamp(level + skills[15], 0, 95)`; `tumblers = clamp(⌊lock/3⌋+1, 1, 6)`; each tumbler passes iff `rng(skill) > 0` (welded forces one tumbler impossible). **Success ⟺ all tumblers pass.**
