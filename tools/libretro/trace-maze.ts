@@ -4010,6 +4010,32 @@ async function phaseNavReach(c: HostClient): Promise<void> {
  * Output: the engine's true reachable view-set + per-(cell,facing) forward
  * passability — the ground truth to fix movement.ts against and to gate it.
  */
+
+/** Poke every type-7 door's wall-plane edges to OPEN (code 0) in the live
+ *  special-record table, so the collmap BFS can traverse them and reach the
+ *  dungeon interior. Special-record layout: base ptr at DGROUP 0x4fa8; per-record
+ *  type byte at +0x360 (7 = door); wall-plane WORD array at +0x240 (stride 2,
+ *  2-bit edge per facing at bit facing*2). Ref: maze-open-door-menu.json (#091). */
+async function openAllDoors(c: HostClient, base: number): Promise<number> {
+  const ptrBytes = await c.read(base + 0x4fa8, 2);
+  const tableOff = ptrBytes[0]! | (ptrBytes[1]! << 8);
+  const tableBase = base + tableOff;
+  const MAX = 144;
+  let poked = 0;
+  for (let rec = 0; rec < MAX; rec++) {
+    const typeByte = (await c.read(tableBase + 0x360 + rec, 1))[0]!;
+    if (typeByte !== 7) continue;
+    const wOff = tableBase + 0x240 + rec * 2;
+    const wb = await c.read(wOff, 2);
+    let word = wb[0]! | (wb[1]! << 8);
+    for (let f = 0; f < 4; f++) word &= ~(0b11 << (f * 2));
+    word &= 0xffff;
+    await c.write(wOff, [word & 0xff, (word >> 8) & 0xff]);
+    poked++;
+  }
+  return poked;
+}
+
 async function phaseCollMap(c: HostClient): Promise<void> {
   const outFile = process.argv[3] ?? '/tmp/wiz6-collmap.json';
   const budget = Number(process.argv[4] ?? '200'); // max views to expand
@@ -4018,6 +4044,8 @@ async function phaseCollMap(c: HostClient): Promise<void> {
   mkdirSync(dir, { recursive: true });
   const base = await driveToFreeRoam(c);
   const start = await frParty(c, base);
+  const pokedDoors = await openAllDoors(c, base);
+  console.log(`collmap: poked ${pokedDoors} type-7 doors OPEN (interior capture #091)`);
   console.log(`collmap: free-roam entrance gx${start.gx} gy${start.gy} f${start.f}; budget=${budget} views`);
   const keyOf = (p: { gx: number; gy: number; f: number }) => `${p.gx},${p.gy},${p.f}`;
   const nodeState = new Map<string, string>();
