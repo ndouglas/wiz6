@@ -1,0 +1,119 @@
+{
+  "topic": "maze-availability-law",
+  "subagent_run": "2026-06-12",
+  "binaries": ["wroot.exe", "wmaze.ovr"],
+  "context": "#087 crux. Task premise: find a wroot-RESIDENT per-frame 'movement-availability' routine (writing DGROUP 0x4e00..0x4e0f near wroot image 0x26a5) that is the REAL free-roam forward gate, and extract the door-block law for the level-0 entrance door (124,121,f2 north, ci=44). RESULT: the premise is a MISATTRIBUTION. There is no wroot-resident availability routine gating movement. wroot image 0x26a5 is INSIDE kbd_check_with_filter (the keyboard scan-code reader); the prior live trace's 'wroot ~0x26a5 writes 0x4e00..0x4e0f' was the keyboard ring-buffer shift, NOT a passability plane. The 0x4e08 plane is the per-cell ENCOUNTER marker, not a wall plane. The REAL keyboard-gameplay forward gate is the wmaze chain maze_can_step_in_facing (0x3244) -> maze_check_wall_north_step (0x36dd) -> maze_can_pass_doors_and_walls (0x309d) — the EXACT functions the prior free-roam-hack live trace showed '0 hits', because free-roam (reached via the scripted-walker-drain hack) is a DIFFERENT path than real keyboard movement. The door-block at ci=44 is fully explained by STATIC wall data + the north-step law, and the TS port already reproduces it byte-exactly.",
+
+  "PARENT_REVIEW_2026-06-12": {
+    "verdict": "PARTIALLY REFUTED by live spot-check (stepprobe at the real door cell). KEEP q1/q2 + the methodology point; DISCARD q4/q5's 'plain wall, already-matched' conclusion.",
+    "retained_high_value": [
+      "q1: wroot image 0x26a5 is inside kbd_check_with_filter (NOT a wroot availability routine) — corrects a long-standing #087 misattribution.",
+      "q2: DGROUP 0x4e08 is the per-cell ENCOUNTER-PRESENT plane (dungeon_main_loop reads getbit_test(0x4e08,cell)==1 -> combat state 0x0a), NOT a wall/availability plane. This also explains #086's spurious-encounter verdict.",
+      "METHODOLOGY: 'real keyboard movement' vs the 'free-roam scripted-walker-drain hack' may be DIFFERENT code paths. The live harness (driveToFreeRoam/frMove/stepprobe) reaches free-roam via that hack — so every live door experiment this session may be on the degenerate/preview path, not real keyboard gameplay. This is the single most important lead and was NOT verified."
+    ],
+    "refuted_by_live_data": "q4 ('the (124,121,f2) block is a plain WALL: facing-2 reads ci36.north=2') and q5 ('movement.ts already matches via forwardEdge') are CONTRADICTED. Live north-plane scan at the door (party ci=44, x5 y4): {35:0, 36:2, 37:2, 38:2, 39:3, 40:0, 41:0, 42:0, 43:0, 44:0, 45:0, 46:0}. The actual forward-edge cell for facing 2 is the gy-1 destination ci=43, whose north plane = 0 (OPEN). The ci36/37/38=2 cells are a WEST-column wall (all x=4, one column west of the party at x=5), unrelated to a northward step. Poking north[43] and north[36] to 0 left the engine BLOCKED (moved=false). And forwardEdge(facing 2)=N(gx,gy-1)=ci43=0 would return OPEN, so movement.ts does NOT match the engine via the wall read here — it only blocks (124,121,f2) via the CAPTURED passability table.",
+    "net": "The door-block mechanism remains UNCRACKED. All static candidates are now eliminated live: +0x60 north (dest cell = 0), +0x240 door-record word, +0x1f8 special-index, +0x378 door-orientation, 0x4e08 (= 0). Two unresolved structural issues: (1) the cell-index convention is ambiguous between z*64+x*8+y and z*64+y*8+x and may be mis-attributing cells; (2) the real-keyboard vs scripted-walker path distinction (above). NEXT: verify whether stepprobe drives the real keyboard path; if not, re-run the door step on the real path and instruction-trace wmaze 0x3244/0x36dd/0x309d there (where the subagent predicts they DO execute, unlike the free-roam hack)."
+  },
+
+  "HEADLINE": {
+    "q1_routine_address_and_name": "There is NO wroot-resident availability routine. The real keyboard-gameplay forward-step gate is the wmaze chain: dungeon_main_loop (wmaze 0x2abc) case 2 -> maze_rotate_party (0x3304) -> maze_can_step_in_facing (0x3244) -> [facing 2/north] maze_check_wall_north_step (0x36dd) -> if wall_code<2, maze_can_pass_doors_and_walls (0x309d). wroot image 0x26a5 is inside kbd_check_with_filter (wroot image 0x2643..0x2724, file 0x2843), the non-blocking keyboard reader that maps arrow scancodes K/H/M/P -> 0x08/0x09/0x0a/0x0b; the writes the prior trace saw 'near 0x26a5' are its 20-byte ring-buffer shift, unrelated to passability.",
+    "q2_4e00_4e0f_layout": "0x4e00..0x4e0f are NOT a 4-direction availability bitmask. They are PLANE BASE addresses for two 1-bit per-cell BSS planes used as the engine's run-time per-cell flag stores: plane base 0x4e08 = the ENCOUNTER-PRESENT plane (dungeon_main_loop reads getbit_test(0x4e08, currentCell) at wmaze 0x2b39/0x3174; ==1 -> transition game-state 0x363a to 0x0a = start combat). plane base 0x4e68 = a parallel per-cell plane (read/written alongside 0x4e08 in the same region-load init loop at wmaze 0x46x-0x4dx). Both are 0x60-byte (768-cell) 1-bit planes filled per region-load (memset 0x60 at wmaze 0x4d1, then setbit per flagged cell). 0x4e08's bit for ci=44 is 0 (no encounter), consistent with the live read; it has nothing to do with the wall/door forward block.",
+    "q3_forward_availability_inputs_and_block": "FORWARD (facing F) availability = maze_can_step_in_facing returns 0 (PASS) iff: (A) wall_code = maze_check_wall_in_direction(F) < 2, where for F=0 wall_code = +0x60 north 2-bit plane of CURRENT cell, F=1 = +0x120 west of CURRENT cell, F=2 = maze_check_wall_north_step (reads +0x60 north of the cell at gy-1, returns SYNTHETIC 2 if that cell is unresolvable AND zone 0x363c not in {10,12}), F=3 = maze_check_wall_west_step (+0x120 west of cell at gx-1, same synthetic-2 rule); AND (B) maze_can_pass_doors_and_walls (0x309d) returns 0. 0x309d blocks (returns 1) on ANY of: (b1) EARLY DOOR: current-cell special4(+0x1f8,width4) in {1,2} AND current-cell orient2(+0x378,width2) == facing; (b2) target cell (after maze_step_global_xy(F) + maze_resolve_xy_to_facing) UNRESOLVABLE -> block; (b3) getbit_test(param_1=local occupied-cell mask, targetCell)==1 -> block (param_1 = &[bp-0x6a] in maze_rotate_party, the party's own cell bit; a self-step guard); (b4) getbit_test(0x4e08, targetCell)==1 -> block (target cell has an encounter? — but in practice the move into it is allowed and combat triggers; this read in 0x309d is the PREVIEW context); (b5) pit plane +0x43a(targetCell)==1 under zone conditions (0x363c!=0xc OR z<9 -> block via a 2E FF A7 cs-jumptable at 0x3206); (b6) +0x49a plane(targetCell)==1 under zone==2. Default fallthrough (0x322d) = PASS (return 0), sets *0x4ee8 = [0x4fa8]+z+0x6c0 (last-cell index). COMPARATOR confidence: the `wall_code < 2` (0x326b cmp ax,2 / jnl) is HIGH (cross-checked against the door result); the zone comparators in the pit/+0x49a tail (z<9 JNL at 0x31ce, zone==2/==0xc) are MEDIUM (not load-bearing for the door).",
+    "q4_door_block_at_ci44": "The (124,121,f2 north) block is NOT a door mechanic at all — it is a plain WALL on the NORTH neighbour cell, read by maze_check_wall_north_step BEFORE 0x309d ever runs. The party cell is ci=44 (region0, cellA=5, cellB=4). For facing 2, maze_check_wall_north_step (0x36dd) resolves the cell at (gx, gy-1)=(124,120) = ci=36 (region0, cellA=4, cellB=4) and reads ITS +0x60 NORTH 2-bit plane = 2. maze_can_step_in_facing then sees wall_code=2; `2 < 2` is false -> returns 1 (BLOCKED) WITHOUT calling 0x309d. Static maze data confirms: ci44 {north:0, west:0, special4:0, orient2:2} vs ci36 {north:2, west:2, special4:0, orient2:0}. EVERY prior live poke failed because all three hypotheses edited the CURRENT cell's door fields (+0x1f8/+0x378 at ci44, or the +0x240 special-record), but the blocker is ci36's +0x60 NORTH wall plane — a different cell, a wall not a door. The orient2=2==facing coincidence at ci44 was a RED HERRING: the 0x309d early-door block requires special4 in {1,2}, but special4=0 at ci44, so that path never fires. The captured engine verdict (extracted/maze/passability.json) agrees: (124,121,f2)=blocked, all other facings open — exactly matching ci36.north=2 (north blocked) vs ci44.west=0 / ci44.north=0 etc.",
+    "q5_portable_to_movement_ts": "YES — already ported, and already CORRECT for this door. packages/parser/src/maze/maze-geometry.ts forwardEdge(b,gx,gy,facing=2) returns N(b,gx,gy-1) (the north plane of the gy-1 cell), and field()/N() return SOLID(2) when the cell is out-of-region; movement.ts tryStepForward blocks when isSolid(forwardEdge)!=0. For (124,121,f2) this reads N(124,120)=ci36.north=2 -> isSolid -> blocked, matching the engine. The ci=44 door is therefore NOT a gap. THE REMAINING GAP (the prior collision-model's ~37% divergence OUTSIDE region 0) is the 0x309d TAIL block bits that movement.ts's isSolid(forwardEdge) does NOT model: (b1) the special4 in {1,2} && orient2==facing decoration/door block on the CURRENT cell, and (b5/b6) the +0x43a pit / +0x49a plane zone-gated blocks on the TARGET cell, plus (b3) the self-step occupied-cell mask. To close it: extend movement.ts to (i) after the wall_code<2 check, run the 0x309d predicate — early-door block (current cell special4 in {1,2} && orient2==facing), and (ii) resolve the target cell and block on target +0x49a==1 (zone==2) / +0x43a pit==1 (zone-gated). Those planes already decode into MazeBlock (pit is present; +0x49a needs an extractor add). NEXT EXPERIMENT if any cell still diverges after porting the 0x309d tail: capture-replay the full collmap (now that serialize-states are rebaselined) and diff movement.ts vs the engine verdict per (cell,facing); for each mismatch, dump the current+target cell's {north,west,special4,orient2,pit,+0x49a} and the zone — the divergence will isolate which 0x309d branch (early-door vs pit vs +0x49a) is unported."
+  },
+
+  "findings": [
+    {
+      "id": "image-26a5-is-keyboard-reader",
+      "claim": "wroot image offset 0x26a5 is INSIDE kbd_check_with_filter (FUN_1000_2643, image 0x2643..0x2724, file 0x2843). It is the non-blocking keyboard scan reader: polls INT 16/INT 21, fills a CS-segment ring buffer at offsets 0x262b (count) / 0x262c (scan-flag) / 0x262d (char), and maps arrow scancodes K/H/M/P -> 0x08/0x09/0x0a/0x0b. Its inner `for (iVar6=0x14...)` loop is a 20-byte 1-byte-stride ring-buffer shift. This is NOT the DGROUP 0x4e00 plane writer; the prior live trace's 'wroot ~0x26a5 writes 0x4e00..0x4e0f, 4-byte stride' conflated the keyboard ring shift (or a nearby render write) with a passability write. No instruction anywhere in wroot.exe references 0x4e00..0x4e0f as an immediate or displacement (grep of full ndisasm = 0 matches); the planes are only ever addressed via a pushed base pointer from wmaze.",
+      "category": "movement_collision",
+      "evidence": {
+        "binary": "wroot.exe",
+        "address": {"space": "wroot.exe", "offset": "0x2643"},
+        "type": "ghidra_decompile_plus_grep",
+        "details": "list_functions: kbd_check_with_filter at list-addr 0x12643 size 225 spans image 0x2643..0x2724 (covers 0x26a5). Decompile shows the K/H/M/P->0x08..0x0b arrow map + the 0x14-iteration ring shift. ndisasm -b16 wroot.exe | grep '0x4e0[0-9a-f]' = 0 code matches (only the BSS data region at 0x4e00 itself)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "0x4e08-is-encounter-plane",
+      "claim": "The DGROUP plane at base 0x4e08 is the per-cell ENCOUNTER-PRESENT 1-bit plane, NOT a wall/passability plane. dungeon_main_loop (wmaze 0x2abc) reads getbit_test(0x4e08, currentCell) at the TOP of its loop (wmaze 0x2b39 & 0x3174); ==1 triggers a transition to game-state 0x363a=0x0a (combat init). It is a 0x60-byte (768-cell) plane, memset to 0 at region-load (wmaze 0x4d1: push 0/push 0x60/push 0x4e08/call memset 0xf34c) then setbit per encounter cell. A parallel plane at base 0x4e68 is filled in the same loop (wmaze 0x4be: setbit_1(0x4e68,...)). 0x4e08[ci=44]=0 (no encounter at the door), matching the live read; it is irrelevant to the wall/door forward block.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2b39"},
+        "type": "disassembly",
+        "details": "0x2b20-0x2b6a: si = z*64 + [0x4f9e]*8 + [0x4fa0]; push si; mov ax,0x4e08; push; call 0xe34b (getbit_test); if ax==1 -> set [0x363a]=0x0a (combat). Region-load init loop fills 0x4e08 (memset @ 0x4d1) and 0x4e68 (setbit @ 0x4be). 5 immediate refs to 0x4e08 in wmaze: 0x020e, 0x0227, 0x04d9, 0x2b39, 0x3174 (read+write helpers + the dungeon-loop read + the 0x309d preview read)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "real-gate-is-wmaze-keyboard-path",
+      "claim": "The REAL keyboard-gameplay forward-step gate IS the wmaze maze_can_step_in_facing (0x3244) chain — the very functions the prior free-roam live trace reported '0 hits'. dungeon_main_loop (0x2abc) waits on menu_wait_for_key_or_repaint (0xfd0), which returns a key code 0..N; the switch case for forward (decompiler 'case 2') gates `maze_rotate_party(steps)` on a delta test, and maze_rotate_party (0x3304) calls maze_can_step_in_facing per candidate step, passing &[bp-0x6a] (the local occupied-cell mask) as param_1. So 0x3244->0x309d ARE on the real movement path. The prior '0 hits' result was for FREE-ROAM reached via the scripted-walker-drain hack (a degenerate path the notes explicitly flagged as 'may differ from gameplay collision') — NOT keyboard gameplay. This RESOLVES the long-standing #087 contradiction: the named collision functions were never dead; they were simply not exercised by the free-roam hack used to drive the trace.",
+      "category": "movement_collision",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3304"},
+        "type": "ghidra_decompile",
+        "details": "maze_rotate_party decompile: func_0x0000f34c(&local_6c,0x60,0) [memset the mask]; setbit party cell; then per candidate facing calls maze_can_step_in_facing() (iVar1==0 -> maze_animate_temp_step). dungeon_main_loop case 2 (raw 0x2eba turn / the forward case) -> maze_rotate_party. menu_wait_for_key_or_repaint 0xfd0 polls kbd via thunk 0xe0df (=wroot kbd_check_with_filter image 0x2643) + renders per frame via thunk 0xc674 (=wroot mouse_get_pos image 0xbd8)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "north-step-reads-gy-minus-1-cell-wall",
+      "claim": "maze_check_wall_north_step (0x36dd, the facing-2 wall read) resolves the cell at (gx, gy-1) via maze_resolve_xy_to_facing and reads ITS +0x60 NORTH 2-bit plane. If that cell is UNRESOLVABLE (OOB of all 12 region windows) it returns a synthetic 2 (solid) UNLESS zone 0x363c in {10,12} (then 0). This is why the forward-north block reads a DIFFERENT cell than the party cell: the edge between (gx,gy) and (gx,gy-1) is modelled as the NORTH wall of the gy-1 cell. maze_check_wall_west_step (0x3742) is the mirror for facing 3 (reads +0x120 west of the gx-1 cell).",
+      "category": "movement_collision",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x36dd"},
+        "type": "ghidra_decompile",
+        "details": "maze_check_wall_north_step: iVar1 = maze_resolve_xy_to_facing(&y,&x,&z, gx, gy-1); if(iVar1==0) return getbits(+0x60, z*64+x*8+y, 2); else if(zone 0x363c==10||==0xc) return 0; else return 2. maze_check_wall_in_direction (0xf2a) dispatches facing 0->+0x60(current), 1->+0x120(current), 2->0x36dd, 3->0x3742."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "door-block-ci44-is-ci36-north-wall",
+      "claim": "The (124,121,f2) forward block is ci36's +0x60 NORTH wall = 2, read by maze_check_wall_north_step, causing maze_can_step_in_facing to return 1 (wall_code 2 is NOT < 2) WITHOUT calling 0x309d. Party (124,121)=ci44 (region0, cellA=5, cellB=4). Target north (124,120)=ci36 (region0, cellA=4, cellB=4) — IN region 0 (window gx[120,127] gy[116,123]), so resolve succeeds and reads the real plane. Static level-0 data: ci36 north=2, west=2 (a solid corner) vs ci44 north=0, west=0, special4=0, orient2=2. The orient2=2==facing match at ci44 is a RED HERRING: the 0x309d early-door block needs special4 in {1,2} but ci44.special4=0, so it never fires; and 0x309d is never reached anyway because the wall_code=2 short-circuits in 0x3244. This explains why all prior live pokes (current-cell +0x1f8/+0x378 and the +0x240 special-record) had zero effect — none touched ci36's +0x60 north plane.",
+      "category": "movement_collision",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x326b"},
+        "type": "static_data_plus_disassembly_plus_captured_verdict",
+        "details": "Region windows from extracted/maze/level-0.json: gxBase=[120,128,120,128,120,128,...], gyBase=[116,116,124,124,132,132,...]. (124,120) -> region0 cellA=4 cellB=4 -> ci36. region0 ci36={north:2,west:2,special4:0,orient2:0}; ci44={north:0,west:0,special4:0,orient2:2}. maze_can_step_in_facing 0x326b: cmp ax,2 / jnl 0x3281 (wall_code>=2 -> ret 1, skip 0x309d). extracted/maze/passability.json: (124,121) facing0/1/3=open, facing2=blocked — matches ci36.north=2 exactly."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "movement-ts-already-correct-for-door",
+      "claim": "packages/parser/src/maze/movement.ts + maze-geometry.ts ALREADY reproduce this door-block byte-exactly. forwardEdge(b,gx,gy,2) = N(b,gx,gy-1) (north plane of the gy-1 cell, OOB->2); tryStepForward blocks when isSolid(forwardEdge). For (124,121,f2): N(124,120)=ci36.north=2 -> isSolid(2) -> blocked = engine. So the ci=44 door is NOT a port gap. The port's only collision divergence (the prior ~37% outside region 0) is the un-ported 0x309d TAIL: the special4 in {1,2} && orient2==facing early-door block, the +0x43a pit / +0x49a plane zone-gated target-cell blocks, and the self-step occupied-cell mask.",
+      "category": "movement_collision",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x36dd"},
+        "type": "source_cross_check",
+        "details": "maze-geometry.ts forwardEdge case 2 -> N(b,gx,gy-1); field() returns 2 when resolve()==null. movement.ts tryStepForward: open = !isSolid(forwardEdge(...)). isSolid(f)=f>=1. Matches maze_check_wall_north_step + the 0x3244 wall_code<2 gate for the door."
+      },
+      "confidence": "high"
+    }
+  ],
+
+  "thunk_deltas_used": {
+    "law": "wroot_image = thunk_addr - 0xBA9C; wroot_file = image + 0x200",
+    "0xc674": "image 0xbd8 = mouse_get_pos (per-frame poll in menu_wait_for_key_or_repaint; NOT a passability writer)",
+    "0xe0df": "image 0x2643 = kbd_check_with_filter (the per-frame keyboard reader containing image 0x26a5)",
+    "0xc6b2": "image 0xc16 = mouse_status_set_field (registers the 6 clickable hot-regions incl. the movement-arrow buttons; statically all 6 each frame — NOT a per-direction availability computation)",
+    "0xe34b": "image 0x28af = getbit_test (1-bit plane reader)",
+    "0xe31d": "image 0x2881 = setbit_1 (1-bit plane writer)",
+    "0xe3c1": "image 0x2925 = getbits_n (width-parameterized 2/4-bit reader)",
+    "0xf34c": "wmaze-local memset (dest,len,fill)"
+  },
+
+  "unresolved": [
+    "The 0x4e08[ci] getbit_test inside 0x309d (block-read b4) vs the encounter-trigger read in dungeon_main_loop: both read base 0x4e08, but 0x309d treats ==1 as a forward BLOCK (preview context) while dungeon_main_loop treats ==1 as 'enter then start combat'. Since 0x309d only runs in the maze_rotate_party PREVIEW/auto-step path, its 0x4e08 block-on-encounter is a preview behaviour; the keyboard forward step into an encounter cell is gated by the wall law (0x3244 wall_code) and the encounter fires AFTER the step (dungeon_main_loop top-of-loop). Confirm whether the keyboard forward step ever short-circuits on 0x4e08 — likely not, since 0x3244 returns before 0x309d when wall_code>=2, and for wall_code<2 the encounter is handled post-step. LOW priority for movement.ts (encounters are a deferred verdict already).",
+    "The +0x49a plane (0x309d block-read b6, zone==2) and the pit +0x43a zone-gated jumptable (0x3206, 2E FF A7 cs-relative) are the most likely sources of the remaining outside-region-0 divergence; +0x49a is not yet in the MazeBlock extractor. Add it + port the 0x309d tail, then re-diff vs a rebaselined collmap.",
+    "Zone comparators (z<9 JNL at 0x31ce; zone==2 / ==0xc) are MEDIUM confidence (JNL/JZ direction easy to misread) — verify live at a known pit/zone-10/12 cell before relying on them in the port."
+  ],
+
+  "answer_for_parent": "PREMISE WAS WRONG: there is no wroot-resident per-frame availability widget gating movement. wroot image 0x26a5 = kbd_check_with_filter (keyboard reader); 0x4e08 = the per-cell ENCOUNTER plane, not a wall plane. The REAL keyboard forward gate is the wmaze chain maze_can_step_in_facing (0x3244) -> maze_check_wall_north_step (0x36dd, for north) -> maze_can_pass_doors_and_walls (0x309d); the prior '0 hits' was the free-roam hack taking a different path than real gameplay. The (124,121,f2) door block = a plain WALL: maze_check_wall_north_step reads the +0x60 NORTH plane of the cell at gy-1 = (124,120) = ci36 = 2, so wall_code 2 is NOT <2 and 0x3244 returns BLOCKED before 0x309d even runs. Every prior live poke failed because they edited the door's CURRENT-cell fields (ci44 +0x1f8/+0x378/+0x240) but the blocker is ci36's north wall — a different cell, and a wall not a door (the orient2=2==facing at ci44 was a coincidence; special4=0 there so the door-block path never arms). The TS port ALREADY reproduces this (forwardEdge case 2 = N(gx,gy-1), OOB->solid). Door-block is PORTABLE: YES (already done). Remaining ~37%-outside-region-0 gap = the un-ported 0x309d TAIL (special4 in {1,2}&&orient2==facing early-door block + target +0x49a/+0x43a pit zone blocks + self-step mask). Next experiment: port the 0x309d tail + add the +0x49a plane to the extractor, then re-diff movement.ts vs a rebaselined collmap and, per mismatch, dump current+target {north,west,special4,orient2,pit,+0x49a}+zone to isolate the unported branch."
+}

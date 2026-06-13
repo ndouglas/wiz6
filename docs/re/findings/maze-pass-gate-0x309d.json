@@ -1,0 +1,128 @@
+{
+  "topic": "maze-pass-gate-0x309d",
+  "subagent_run": "2026-06-12",
+  "binaries": ["wmaze.ovr"],
+  "context": "#091 / #087 follow-up. Live ground truth (maze-door-movement-gate.json): at the level-0 entrance door (gx124 gy121 facing 2 north), cell-index ci=44 (z*64 + [0x4f9e]*8 + [0x4fa0]), the engine refuses to step; the static maze-table fields (+0x60 N-wall=0, +0x1f8 special=0, +0x378 orient=0) and the 0x4e08 plane bit for cell 44 are ALL 0, so the block must be getbit_test([bp+6], 44)==1. This pass disassembles 0x309d + ALL its callers to identify what [bp+6] points to and who writes it.",
+
+  "HEADLINE": {
+    "q1_bp6_static_or_dynamic": "DYNAMIC. [bp+6] is NOT a static/semi-static DGROUP table and NOT a fixed plane. It is a CALLER-PREPARED LOCAL STACK BUFFER — a per-call 0x60-byte bitmask (`&[bp-0x6a]` in the sole caller maze_rotate_party 0x3304). There is no DGROUP offset to poke; the buffer lives on the stack and is rebuilt each call.",
+    "q2_dgroup_offset_if_static": "N/A — not static. Nothing to poke. The door-block via [bp+6] cannot be cleared by writing any fixed memory address; it is recomputed on the stack every time the gate runs.",
+    "q3_who_writes_it": "maze_rotate_party (0x3304) itself, immediately before each call: (a) memset the 0x60-byte buffer to 0 via call 0xf34c(dest=&[bp-0x6a], len=0x60, fill=0) at 0x330E; (b) setbit_1(dest=&[bp-0x6a], cell=z*64+[0x4f9e]*8+[0x4fa0], val=1) via call 0xe31d at 0x335C — i.e. it marks the party's CURRENT cell bit. So [bp+6] is a 'cells already occupied/visited this rotate-pass' mask; getbit_test([bp+6], targetCell)==1 means the candidate target cell is already in that set, which the gate treats as BLOCKED.",
+    "q4_block_condition_for_ci44": "At ci=44 the block is getbit_test([bp+6], 44)==1 (instruction at 0x3164-0x3171) OR getbit_test(0x4e08, 44)==1 (0x3173-0x3181). Live: 0x4e08[44]=0, so the live block is the [bp+6] mask bit for cell 44 being set by the caller. Confirmed structurally.",
+    "CRITICAL_CAVEAT": "A prior live instruction trace (maze-collision-model.json: live_trace_2026-06-10_RESOLVED, windowed_tracer_pushed_2026-06-10, ROOT_OBSERVABILITY_WALL_2026-06-10) proved maze_can_step_in_facing (0x3244) and maze_can_pass_doors_and_walls (0x309d) get ZERO execution hits on a real free-roam UP-key forward move. This 0x3244->0x309d path is a TURN-PREVIEW / auto-step path inside maze_rotate_party (each success calls maze_animate_temp_step 0x3286 = save/render/RESTORE preview). So [bp+6] being a dynamic local mask is consistent with that: this is NOT the free-roam movement gate. If the live stepprobe block at the door was caused by 0x309d at all, it ran in a preview/rotate context; the actual free-roam forward gate is a wroot-resident per-frame availability computation that does not call 0x309d. Either way the answer to 'is [bp+6] pokeable?' is NO."
+  },
+
+  "findings": [
+    {
+      "id": "cell-index-ordering-reconciled",
+      "claim": "The gate computes cell-index si = [0x4f9c]<<6 + [0x4f9e]<<3 + [0x4fa0] = z*64 + [0x4f9e]*8 + [0x4fa0]. Per maze-collision-model.json [0x4f9e] is the engine x (×8 axis, = gy-gyBase) and [0x4fa0] is the engine y (×1 axis, = gx-gxBase). The live door finding's 'ci = z*64 + x*8 + y = 44 with x=5,y=4' therefore means [0x4f9e]=5, [0x4fa0]=4 -> 5*8+4 = 44. So the gate's ordering and the live ci=44 AGREE; the door-open-mechanic.json text 'z*64 + y*8 + x' labels the same two fields with x/y swapped — it is the SAME index, just a naming inconsistency. The gate reads cell 44 for our door, matching ground truth. (The alternate ci=37 came from swapping which field is ×8 vs ×1 and reads the WRONG cell — confirmed in maze-door-movement-gate.json.)",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3148"},
+        "type": "disassembly",
+        "details": "0x3148 mov ax,[0x4f9c]; 0x314B mov cx,6; 0x314E shl ax,cl (z<<6); 0x3150 mov cx,[0x4f9e]; 0x3154/56/58 shl cx,1 x3 ([0x4f9e]<<3); 0x315A add ax,cx; 0x315E add ax,[0x4fa0]; 0x3162 mov si,ax. Same computation also at the prologue 0x30A5-0x30BF for the early-door check."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "block-bit-read-1-bp6-mask",
+      "claim": "BLOCK READ #1 (the [bp+6] mask): at 0x3164 the gate pushes si (cell index) then pushes word [bp+0x6] (the mask base pointer) and calls 0xe34b = getbit_test (1-bit plane reader, image 0x28af = 0xe34b-0xBA9C). If the returned bit == 1 (cmp ax,1 / jz 0x3183) it jumps to the BLOCK path (0x3183 -> mov ax,1 / jmp epilogue at 0x30fa = return 1 = BLOCKED). So getbit_test([bp+6], cell)==1 BLOCKS. For our door (ci=44) and the live 0x4e08[44]=0, THIS is the block bit.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3164"},
+        "type": "disassembly",
+        "details": "0x3164 push si; 0x3165 push word [bp+0x6]; 0x3168 call 0xe34b; 0x316B add sp,4; 0x316E cmp ax,1; 0x3171 jz 0x3183. Block path: 0x3183 push [bp-0xa]; 0x3186 push [bp-0x8]; 0x3189 call 0x3073 (restore gx/gy); 0x318F mov ax,1; 0x3192 jmp 0x30fa (epilogue -> ret 1)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "block-bit-read-2-0x4e08-plane",
+      "claim": "BLOCK READ #2 (the static 0x4e08 DGROUP plane): at 0x3173 the gate pushes si then a FIXED immediate ax=0x4e08 (mov ax,0x4e08) and calls 0xe34b = getbit_test. If bit==1 (cmp ax,1 / jnz 0x3195 -> i.e. falls through to 0x3183 BLOCK when ==1) it BLOCKS via the same 0x3183 path. 0x4e08 is a fixed DGROUP BSS plane base; live ground truth says its bit for cell 44 is 0, so this is NOT the live block at our door (the [bp+6] mask is).",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3173"},
+        "type": "disassembly",
+        "details": "0x3173 push si; 0x3174 mov ax,0x4e08; 0x3177 push ax; 0x3178 call 0xe34b; 0x317B add sp,4; 0x317E cmp ax,1; 0x3181 jnz 0x3195 (==1 falls into 0x3183 BLOCK). NOTE 0x4e08 is the per-move planar region wroot writes via ~0x26a5 stores per maze-collision-model.json (the view-rebuild planar writes covering DGROUP 0x4e00..0x4e0f) — a dynamic/runtime plane, not a static maze-record field."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "bp6-is-caller-local-buffer",
+      "claim": "[bp+6] inside 0x309d = param_2 of maze_can_pass_doors_and_walls. The sole caller is maze_can_step_in_facing (0x3244), whose call site at 0x3270-0x3277 pushes (right-to-left): push word [bp+0x4] (caller's own param_1) THEN push word [0x4f9a] (facing) THEN call 0x309d. cdecl16: last-pushed [0x4f9a]=facing lands at [bp+4] (=param_1, the early-door facing compare), and first-pushed [bp+4]-of-caller lands at [bp+6] (=param_2, the mask). So [bp+6] == param_1 of maze_can_step_in_facing — a pointer the caller of 0x3244 passes in.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3270"},
+        "type": "disassembly",
+        "details": "maze_can_step_in_facing 0x3244: 0x3262 call 0xf2a (wall-code) -> [bp-2]; 0x326B cmp ax,2; 0x326E jnl 0x3281 (>=2 -> ret 1 without door check); 0x3270 push word [bp+0x4]; 0x3273 push word [0x4f9a]; 0x3277 call 0x309d; 0x327A add sp,4; ret. So 0x309d([bp+4]=facing=[0x4f9a], [bp+6]=caller's [bp+4]=param_1)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "bp6-traced-to-local-stack-mask",
+      "claim": "param_1 of maze_can_step_in_facing (= [bp+6] in 0x309d) is a LOCAL STACK BUFFER. All 5 callers of 0x3244 are inside maze_rotate_party (0x3304: call sites 0x3401, 0x3432, 0x3463, 0x3492, 0x34b2), and each one does `lea ax,[bp-0x6a]; push ax; call 0x3244` immediately before the call. So [bp+6] always points at &[bp-0x6a] in maze_rotate_party's frame — a 0x60-byte on-stack bitmask, NOT any DGROUP address. There is no fixed location to poke.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3304"},
+        "type": "disassembly",
+        "details": "find_code_xrefs.py wmaze 0x3244 -> 5 UNCONDITIONAL_CALL all in maze_rotate_party. Each preceded by 0x33FD/0x342E/0x345F/0x348E/0x34AE: lea ax,[bp-0x6a]; push ax; call 0x3244. maze_rotate_party frame: 0x3307 add sp,0xff96 (allocates ~0x6a bytes of locals incl. the 0x60 buffer at bp-0x6a)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "mask-writer-memset-plus-setbit",
+      "claim": "WHO WRITES THE MASK: maze_rotate_party (0x3304) builds &[bp-0x6a] before the candidate loop: (1) zero it — 0x330E call 0xf34c(dest=&[bp-0x6a], len=0x60, fill=0) [memset]; (2) set the party's CURRENT cell bit — 0x333B-0x335C: push 1 (val); push (z*64+[0x4f9e]*8+[0x4fa0]) (cell); push &[bp-0x6a] (dest); call 0xe31d [setbit_1, the 1-bit write-counterpart of getbit_test 0xe34b]. So the mask = {party's current cell}. Inside 0x309d, getbit_test([bp+6], targetCell)==1 then means 'the candidate target cell is the cell you're already on' -> BLOCKED. It is a self-step / occupied-cell guard, recomputed every rotate-party call. NOT a door state, NOT a static plane.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x330E"},
+        "type": "disassembly",
+        "details": "0x330A push 0 (fill); 0x330E push 0x60 (len); 0x3312 lea ax,[bp-0x6a]; push ax; 0x3316 call 0xf34c (memset); +sp6. Then 0x333B push 1; 0x333F-0x3353 ax = [0x4f9c]<<6 + [0x4f9e]<<3 + [0x4fa0]; 0x3357 push ax (cell); 0x3358 lea ax,[bp-0x6a]; push ax (dest); 0x335C call 0xe31d (setbit_1). 0xe31d image = 0xe31d-0xBA9C = 0x2881, a 1-bit setbit (write-counterpart of getbit_test 0x28af; cf. setbits-N 0x28da). No DGROUP base is ever the mask base."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "this-is-not-the-freeroam-gate",
+      "claim": "0x3244/0x309d are the TURN-PREVIEW / auto-step path, not the free-roam UP-key forward gate. maze_can_step_in_facing's only callers are maze_rotate_party's 5 candidate-direction probes, and each SUCCESS calls maze_animate_temp_step (0x3286) which saves position, renders, and RESTORES (a preview). The decisive negative live result (maze-collision-model.json) is that on a real forward move, 0x3244/0x309d/0xf2a/0x108b/0x3304 get 0 trace hits — the real free-roam collision is a wroot-resident per-frame movement-arrow availability computation that does NOT route through 0x309d. So even setting aside that [bp+6] is a stack mask, this function does not gate normal walking; the live door block at (124,121,f2) is enforced by that wroot-resident per-frame computation (which also writes/reads the 0x4e00..0x4e0f planar region that includes 0x4e08).",
+      "category": "movement_collision",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3286"},
+        "type": "disassembly_plus_prior_live",
+        "details": "maze_rotate_party 0x3401/0x3432/0x3492/0x34b2 each followed by call 0x3286 (maze_animate_temp_step). Prior live trace: ROOT_OBSERVABILITY_WALL_2026-06-10 + live_trace_2026-06-10_RESOLVED in maze-collision-model.json (0 hits on 0x3244/0x309d for a real move; gate is per-frame wroot-resident availability widget)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "comparator-and-other-tail-reads",
+      "claim": "Tail-path comparators (for completeness; the [bp+6]/0x4e08 OR is the answer for our door). After the two block reads, if neither blocks (0x3195 onward): read getbit_test(table+0x43a, cell) -> [bp-2] (pit), read getbit_test(table+0x49a, cell) -> [bp-4]. 0x31B7 cmp [bp-2],1 / jnz 0x320b: if pit==1, then 0x31C2 cmp [0x363c],0xc / jnz 0x31D0; 0x31C9 cmp [0x4f9c],9 / jnl 0x31E2 — pit blocks (restore+return 1 at 0x31D0-0x31DF) unless zone(0x363c)==0xc with z>=9 (the JNL skips to 0x31E2 -> a cs-relative jump table at file 0x31E4). 0x320b cmp [bp-4],1 path handles +0x49a==1 under zone-specific conditions. Default fallthrough (0x322d-region) writes *0x4ee8 = byte[0x4fa8 + z + 0x6c0] and returns 0 (PASS). The JNL/JZ comparator directions here are easy to misread; marked MEDIUM — not load-bearing for the door answer.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3195"},
+        "type": "disassembly",
+        "details": "0x3195 push si; push [0x4faa]+0x43a; call 0xe34b -> [bp-2]. 0x31A6 push si; push [0x4faa]+0x49a; call 0xe34b -> [bp-4]. 0x31B7 cmp [bp-2],1; jnz 0x320b. 0x31C2 cmp [0x363c],0xc; 0x31C9 cmp [0x4f9c],9; jnl 0x31E2. cs-relative jump table bytes begin at 0x31E4 (ndisasm garbles as 'es ja' etc.) — read as a 2E FF A7 dispatch, not real code."
+      },
+      "confidence": "medium"
+    }
+  ],
+
+  "thunk_deltas_used": {
+    "law": "wroot_image_offset = thunk_addr - 0xBA9C; wroot_file_offset = image + 0x200",
+    "0xe34b": "image 0x28af = getbit_test (1-bit reader) — confirmed in maze-door-open-mechanic.json + maze-collision-model.json",
+    "0xe3c1": "image 0x2925 = getbits_n (width-parameterized reader; used for +0x1f8 width4, +0x378 width2)",
+    "0xe31d": "image 0x2881 = setbit_1 (1-bit write; write-counterpart of getbit_test, distinct from setbits-N 0x28da). The mask writer.",
+    "0xf34c": "wmaze-local memset helper (dest,len,fill) — clears the 0x60-byte buffer"
+  },
+
+  "unresolved": [
+    "The exact identity of 0x4e08 as a runtime plane: maze-collision-model.json notes wroot ~0x26a5 writes DGROUP 0x4e00..0x4e0f (4-byte stride) on a move — the view-rebuild planar region that INCLUDES 0x4e08. Whether 0x4e08's bits are a 'cells-on-screen/explored' classify map or something else needs a live read-watch backtrace on 0x4e08's writer (the dbp_rwatch_* core instrumentation already exists). This matters for the FREE-ROAM gate, which (per the live traces) is the actual mechanism — but it is a fixed DGROUP address (0x4e08), so unlike [bp+6] it IS in principle pokeable IF the free-roam gate reads it (the live poke in maze-door-movement-gate.json zeroed 0x4e08[44] yet the block remained, which says the free-roam gate's block does NOT come from 0x4e08[44] either — pointing the next investigation at the wroot-resident per-frame availability widget, not any wmaze plane).",
+    "Whether the live stepprobe door block ever runs 0x309d at all: the live trace says 0x309d is dead in free-roam, so the (124,121,f2) block is the wroot-resident widget's verdict, not this function. A read-watch on the per-direction availability flags + backtrace (already flagged in maze-collision-model.json next_steps) is the remaining crack."
+  ],
+
+  "answer_for_parent": "[bp+6] is DYNAMIC — a per-call LOCAL STACK BITMASK (&[bp-0x6a] in maze_rotate_party 0x3304), zeroed by memset (0xf34c) then setbit-1 (0xe31d) marking the party's CURRENT cell. NOT a static DGROUP table, so there is NO offset to poke to clear the door-block via this path. Moreover, prior live traces show 0x3244/0x309d do not execute on a real free-roam move (this is a turn-preview/auto-step path), so the actual door-block at (124,121,f2) is enforced by a wroot-resident per-frame movement-arrow availability computation, NOT this function. Conclusion: the door-block is render/availability-coupled and not statically pokeable; the next lead is the wroot-resident per-frame availability widget (and a read-watch backtrace on its per-direction flags), not any wmaze maze-table field or the 0x4e08 plane (live-falsified)."
+}
