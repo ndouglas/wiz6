@@ -1,0 +1,106 @@
+{
+  "topic": "maze-encounter-trigger",
+  "subagent_run": "2026-06-15",
+  "binaries": ["wmaze.ovr"],
+  "context": "#091 Piece B. Goal: find the exact memory dungeon_main_loop reads to FIRE a combat encounter when the party steps onto a cell, and a capture-time poke that suppresses it so the interior-capture campaign can step freely. Specifically resolve why the (124,120) entry encounter (the cell past the forced (124,121,f2) door) fires on ~every entry (gs 5 -> 10 -> 12) and why poking 0x4e08 (per maze-availability-law.json q2) does NOT suppress it. Static RE (Ghidra + ndisasm) + live verification (dosbox-pure harness, new `encsuppress2` phase in tools/libretro/trace-maze.ts).",
+  "summary": "VERDICT: NO static memory poke reliably gives a clean gs=5 entry into (124,120) — combat-FLEE is the fallback. The decisive finding: the (124,120) encounter is NOT a 'fixed' encounter at all. It is an RNG-phase-determined encounter with a ~90% fire rate; whether it fires is a pure function of the RNG settle phase at the moment the door-open step commits, and is IDENTICAL with and without any poke (clear-record CLEAN 1/10 == control CLEAN 1/10, and the single clean outcome lands on the SAME settle phase (28) in both arms). The 0x4e08 plane is DEFINITIVELY not the trigger: a live micro-step watch proved 0x4e08[36]=0 (poke held) at the exact frame of arrival and combat STILL fired (gs 5->10). Stepping through the door triggers a ZONE TRANSITION (state 7, bulk state-block rewrite at cseip 0xf1481) which re-derives encounter state, so at-door pokes are wiped regardless. The combat-state write to *0x363a=10 was not captured by the write-watch in the drain window (set in a code path the wmaze exec-trace can't observe — the documented observability wall), and clearing every candidate data source (0x4e08, 0x4e68, the type-0x10 special record at the cell, *0x5034) had ZERO effect on the fire distribution. A cheap capture path EXISTS without a poke: the no-fire RNG window is reproducible by settle phase (settle 28 -> gs5 in 2/2 runs), so retry-until-gs5 (or flee) gets a clean interior seed.",
+  "findings": [
+    {
+      "id": "encounter-fire-instruction-loop-top-0x4e08",
+      "claim": "dungeon_main_loop (wmaze 0x2abc) reads the per-cell 1-bit ENCOUNTER plane at base 0x4e08 at the TOP of its do-loop and, if the bit == 1, writes *0x363a = 0x0a (combat init) and returns. Cell index = z*64 + cellA*8 + cellB, where z=*0x4f9c, cellA=*0x4f9e (zone-local row), cellB=*0x4fa0 (zone-local col). This is exactly ONE of FIVE *0x363a=0x0a write sites in wmaze and the only 'mov ax,0x4e08' in the whole function. HOWEVER this is NOT the trigger for (124,120) (see 0x4e08-not-the-trigger).",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2b39"},
+        "type": "disassembly",
+        "details": "ndisasm @ 0x2b20: mov ax,[0x4f9c]; mov cx,6; shl ax,cl (z*64); mov cx,[0x4f9e]; shl cx,1 x3 (cellA*8); add ax,cx; add ax,[0x4fa0] (+cellB); push ax (=cell). 0x2b39 mov ax,0x4e08; push; call 0xe34b (getbit_test). 0x2b46 cmp ax,1; 0x2b49 jnz 0x2b75. taken (bit==1) path: 0x2b6a mov word [0x363a],0x0a; 0x2b74 ret. The five 'C7 06 3A 36 0A 00' (mov word [0x363a],0x0a) sites in wmaze: 0x2984, 0x2b6a, 0x2cf2, 0x2d33, 0x6cc0; the three in-loop ones are 0x2b6a (this), 0x2cf2 (all-party-asleep ambush), 0x2d33 (c47e random ~0.5%)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "second-plane-0x4e68-special-handler",
+      "claim": "Immediately after the 0x4e08 read, the loop reads a SECOND per-cell 1-bit plane at base 0x4e68 with the SAME cell index. If 0x4e68[cell]==1 AND *0x5034==1, it calls the special-square handler FUN_0000_8387 (0x8387), which scans the special-record table and dispatches by per-record type byte (+0x360) through a jump table (call [type*2 - 0x3632]) — this path can itself start combat. 0x4e68 is REFILLED on every zone-load from the special-record table (dungeon_load_zone memsets 0x4e68 to 0 then setbit per record with type!=0 at region*0x40 + recY(+0x480)*8 + recX(+0x3f0)). 0x4e08, by contrast, is only MEMSET to 0 by dungeon_load_zone (its companion +0x4fa/+0x512 3-bit fields drive automap_reveal, NOT a 0x4e08 refill).",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2b8e"},
+        "type": "disassembly_plus_decompile",
+        "details": "0x2b75-0x2bb0: cell = z*64 + cellA*8 + cellB; 0x2b8e mov ax,0x4e68; call getbit_test; 0x2b98 cmp ax,1 jnz; 0x2b9d cmp [0x5034],1 jnz; 0x2ba4 call 0x8387; 0x2ba7 cmp [0x363a],5 jz. FUN_0000_8387: scans via FUN_0000_366e from *0x4ee8, reads type=*(([0x4fa8])+iVar1+0x360); if type<0x1a dispatches (*(code*)*(type*2-0x3632))(). dungeon_load_zone (0x3d3): func_0x0000f34c(0x4e68,0x60,0) then per-record setbit_1(0x4e68,...) where (iVar6+uVar5+0x360)!=0; later func_0x0000f34c(0x4e08,0x60,0) followed by an automap_reveal loop over +0x4fa/+0x512 (NOT a 0x4e08 setbit)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "0x4e08-not-the-trigger",
+      "claim": "DECISIVE live result: the 0x4e08 plane is NOT what fires the (124,120) encounter. A frame-by-frame micro-step of the traversing UP, with 0x4e08[ci=36] poked to 0 BEFORE the step, showed the bit stayed 0 all the way to arrival: at +88fr the party reached (124,120) (ci=36) with 0x4e08[36]=0, and at +96fr gs flipped to 10 (combat init) with 0x4e08[36] STILL 0. So the encounter fires while the encounter-present bit is verifiably clear — the loop-top 0x4e08 read at 0x2b3d is not the source for this cell. This explains maze-interior-capture-obstacles.json's '0x4e08-poke-does-NOT-suppress' at a deeper level than 'recompute': it's the wrong field entirely.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2b39"},
+        "type": "live_observation",
+        "details": "encsuppress2 re-arm-watch (dosbox-pure): pre-UP bit[36]=0 (poked), then per-8-frame: +8..+80fr at (124,121) ci=44 0x4e08[36]=0; +88fr at (124,120) ci=36 0x4e08[36]=0 gs5; +96fr gs10 with 0x4e08[36]=0. dest planes at door-open: 0x4e08[36]=1, 0x4e68[36]=0; special-record idx=23 type=0x10 at (x=4,y=4,z=0)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "step-through-door-is-a-zone-transition",
+      "claim": "Stepping through the (124,121,f2) door is NOT a same-region step — it triggers a ZONE TRANSITION. A write-watch over 0x3638..0x363f during the arrival step caught a single bulk-writer (cs:ip=0xf1481, a linear/physical address far outside wmaze — i.e. a rep-movs / overlay-state restore) rewriting the whole game-state block including momentarily *0x363a=7 (state 7 = zone-load) and *0x363e=0x0b. dungeon_load_zone then runs and re-derives the encounter planes (0x4e68 from the special-record table). This is why any poke applied in the at-door gs=5 frame is wiped before the encounter check at the destination: the destination cell is evaluated in a freshly (re)loaded zone context.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3d3"},
+        "type": "live_observation",
+        "details": "encsuppress2 wwatch (patched core) on 0x3638..0x3640 across the UP step: WRITE *0x3638=0x20, *0x3639=6, *0x363a=7, *0x363b=0xb2, *0x363c=0x49, *0x363d=7, *0x363e=0x0b, *0x363f=0 all by cs:ip=0xf1481 (one bulk store). State 7 = winit/zone-load. The narrow 2-byte watch on exactly 0x363a..0x363c caught nothing (watch range quirk / segment-relative access) — only the wider span saw the bulk write; the final combat write *0x363a=10/12 was NOT captured in the drain window (set in a path the wmaze exec-trace cannot observe — see observability-wall)."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "encounter-is-rng-phase-not-fixed",
+      "claim": "The (124,120) encounter is RNG-PHASE-DETERMINED with a ~90% fire rate, NOT a deterministic 'fixed' encounter. From a single committed door-open gs=5 state, varying ONLY the RNG settle (c.step(2 + r*13)) before the identical traverse produced a fixed outcome pattern: settle 28 -> gs5 (no encounter); most other settles -> gs10/11/12 (combat). Clearing the special-record type bytes at the cell had ZERO effect on this pattern: clear-record CLEAN = 1/10 vs control CLEAN = 1/10, and BOTH clean outcomes occurred at the SAME settle (28). The earlier one-off 'V4 success' (maze-interior-capture-obstacles.json context) was simply that RNG window, not the poke. So: the prior 64/64-fire observation reflects a ~90% rate over the phases tried, not a 100%-fixed mechanic.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2d07"},
+        "type": "live_observation",
+        "details": "encsuppress2 CONFIRM x10: clear-record runs (settle 2,15,28,41,54,67,80,93,106,119) -> gs 12,12,5,11,12,11,11,12,12,12 (CLEAN 1/10); control runs same settles -> gs 12,12,5,11,12,11,11,12,12,12 (CLEAN 1/10, IDENTICAL). The random-encounter site 0x2d07 (mov ax,0x3e8; call 0xc47e; cmp ax,0x3e3 -> ~>=995/1000 ~0.5%) is too rare to be this; the ~90% suggests a different per-cell/zone danger gate read in a non-wmaze code path."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "no-static-poke-suppresses",
+      "claim": "No single static memory poke applied at the at-door gs=5 frame suppresses the (124,120) encounter. Tested cumulatively (all FAILED, all still gs=12): V1 poke 0x4e08[dest]=0; V2 add 0x4e68[dest]=0; V3 add clear the dest special-record type byte (+0x360) + *0x5034=0; V4 clear the type byte of EVERY special record landing on the dest cell (both cell-orderings). The clear-record arm is statistically identical to control (1/10 vs 1/10). Therefore the capture campaign cannot rely on a pre-step memory poke; use combat-FLEE (RUN from gs=12 back to gs=5) or RNG-phase retry-until-gs5.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2abc"},
+        "type": "live_observation",
+        "details": "encsuppress2 variant pass: V0 control gs12, V1 gs12, V2 gs12, V3 gs12, V4 gs5 (later shown to be the settle-28 RNG window, not the poke). CONFIRM x10 (above) proves clear-record == control. Pokes used getbit/setbit-equivalent direct byte writes via c.read/c.write; cell index z*64+cellA*8+cellB MSB-first within byte (matches the engine's loop-top index)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "observability-wall-exec-trace",
+      "claim": "Exec-tracing wmaze code at these step frames is UNRELIABLE (reconfirms #087's ROOT_OBSERVABILITY_WALL). Single-address exec traces on all 6 combat-init candidate sites (incl. a sanity site, the loop-top read 0x2b3d which executes every gs=5 frame) got 0 hits across the traversing step, while gs still became 12. So the real move/encounter evaluation runs in a path the exec-trace doesn't catch; the memory write-watch (wwatchSet/wwatchDrain, patched core) is the working observability tool here, and even it didn't catch the final combat write in the drain window. The cs:ip 0xf1481 bulk-writer is a linear/physical address, consistent with a cross-overlay (winit zone-load / state restore) write rather than wmaze.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2b3d"},
+        "type": "live_observation",
+        "details": "encsuppress2 exec-trace (countHits, ovl base from findOvl ~0x4784): loopread@2b3d=0, fire@2b6a=0, fire@2cf2=0, fire@2d33=0, fire@2984=0, fire@6cc0=0 — all 0 hits, post-step gs=12. The 0-hits-on-the-sanity-site shows the exec-trace itself is not observing wmaze code on these frames (not that the sites don't run)."
+      },
+      "confidence": "high"
+    }
+  ],
+  "verdict": {
+    "clean_gs5_via_poke": false,
+    "recommended_path": "combat-FLEE (RUN from the gs=12 action-select back to gs=5 at the same cell) OR RNG-phase retry-until-gs5 (the no-fire window is reproducible by settle phase, e.g. settle 28 -> gs5 in 2/2 runs). interiorseed already retries on encounter; bumping its attempts + RNG-phase spread should land a clean seed ~1-in-10.",
+    "suppression_site": "NONE — 0x4e08, 0x4e68, the cell's type-0x10 special record, and *0x5034 all proven ineffective.",
+    "why_0x4e08_poke_fails": "0x4e08 is not the trigger for this cell: live micro-step proved 0x4e08[36]=0 at the arrival frame yet combat fired. Additionally the door-step triggers a zone-transition (state 7, bulk rewrite at cseip 0xf1481) that re-derives encounter state, so any at-door poke is moot. The encounter is RNG-phase-gated (~90%), not bit-gated.",
+    "scope": "Applies to the (124,120) entry encounter specifically; the ~90% rate (not 100%) means it behaves like a high-probability cell/zone encounter, not a true fixed scripted combat."
+  },
+  "unresolved": [
+    "The exact memory the ~90% encounter gate reads is unconfirmed: it is NOT 0x4e08/0x4e68/the special record. Candidate: a per-cell or per-zone 'danger level' fed into an rng() compare in a code path the wmaze exec-trace can't see (the bulk-writer at cseip 0xf1481 region suggests a winit/zone-load context). Next: write-watch a broader DGROUP danger-counter region (e.g. around *0x4f80 step counter, *0x43ce party-size, and the c47e argument 0x3e8) AND set wwatch on *0x363a with a +/-1-byte aligned range across MANY small steps to catch the combat write's cs:ip, then translate that linear cs:ip to an overlay+offset.",
+    "Whether a GLOBAL encounters-disable flag exists (e.g. a debug/no-monsters switch) — not found in this pass; would be the ideal capture-time suppression if it exists.",
+    "wwatch range/alignment quirk: a 2-byte watch on exactly 0x363a..0x363c caught nothing while a wider 0x3638..0x3640 span caught the bulk write — the patched-core watch may use an exclusive end or page/word granularity. Re-confirm the watch semantics before relying on narrow ranges."
+  ],
+  "harness": "Added the `encsuppress2` phase to tools/libretro/trace-maze.ts (driveToDoor -> force-only door-open gs=5 -> compute dest cell -> 4 cumulative poke variants + control, a frame-by-frame 0x4e08 re-arm watch, a *0x363a write-watch, a special-record dump, and a clear-record-vs-control x10 statistical confirm). Run: `pnpm tsx tools/libretro/trace-maze.ts encsuppress2 [forceAttempts] [confirmReps]`."
+}

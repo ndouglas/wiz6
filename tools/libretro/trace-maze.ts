@@ -5040,6 +5040,287 @@ async function phaseEncSuppress(c: HostClient): Promise<void> {
   }
 }
 
+/** `encsuppress2 [attempts]` — SPIKE (#091 Piece B). Follow-up to encsuppress, which
+ *  proved poking the 0x4e08 plane alone does NOT suppress the (124,120) FIXED
+ *  encounter. Static RE of dungeon_main_loop (wmaze 0x2abc) found the loop-top reads
+ *  TWO per-cell 1-bit planes with the SAME cell index (z*64 + cellA*8 + cellB):
+ *
+ *    0x2b3d  call getbit_test(0x4e08, cell); cmp ax,1; jnz -> if 1: *0x363a=0x0a  (FIRE combat)
+ *    0x2b8e  call getbit_test(0x4e68, cell); cmp ax,1; jnz -> if 1 && *0x5034==1:
+ *            call special_handler 0x8387 (which can itself fire combat via the
+ *            special-record dispatch table)
+ *
+ *  And dungeon_load_zone (0x3d3) MEMSETs 0x4e08 to 0 (it does NOT refill it from the
+ *  maze table — the +0x4fa/+0x512 fields drive automap_reveal, not 0x4e08), while it
+ *  REFILLS 0x4e68 from the special-record table (type byte +0x360 != 0 -> setbit
+ *  0x4e68 at region*0x40 + recY(+0x480)*8 + recX(+0x3f0)). => the FIXED encounter at
+ *  (124,120) is the special-record / 0x4e68 path, not 0x4e08; that's why poking only
+ *  0x4e08 failed.
+ *
+ *  This phase reads BOTH planes for the dest cell, then runs progressive poke
+ *  variants (cumulative) until the step yields a clean gs=5:
+ *    V0 (control): no poke         -> expect gs=12 (combat).
+ *    V1: poke 0x4e08[dest]=0       -> (encsuppress already showed this alone fails).
+ *    V2: poke 0x4e08+0x4e68[dest]=0 -> kills both loop-top plane reads.
+ *    V3: V2 + clear the special-record type byte (+0x360) at the dest cell's record
+ *        AND set the gate flag *0x5034=0 -> belt-and-suspenders.
+ *  SUCCESS = a variant lands at (124,120) with gs==5. Reports which variant worked. */
+async function phaseEncSuppress2(c: HostClient): Promise<void> {
+  const forceAttempts = Number(process.argv[3] ?? 24);
+  const E08 = 0x4e08, E68 = 0x4e68;
+  const cellIdx = (z: number, cellA: number, cellB: number) => z * 64 + cellA * 8 + cellB;
+  const readBit = async (b: number, plane: number, ci: number): Promise<number> => {
+    const byte = (await c.read(b + plane + (ci >> 3), 1))[0]!;
+    return (byte >> (7 - (ci & 7))) & 1; // MSB-first within the byte
+  };
+  const pokeBit0 = async (b: number, plane: number, ci: number): Promise<void> => {
+    const addr = b + plane + (ci >> 3);
+    const byte = (await c.read(addr, 1))[0]!;
+    await c.write(addr, [byte & ~(1 << (7 - (ci & 7))) & 0xff]);
+  };
+
+  const base = await driveToDoor(c); // (124,121,f2) gs=5
+  const atDoorP = await frParty(c, base);
+  console.log(`encsuppress2: at door gx${atDoorP.gx} gy${atDoorP.gy} f${atDoorP.f} gs${atDoorP.gs}`);
+  const roster = await readRoster(c, base);
+  const living = roster.filter((m) => m.alive);
+  const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+  const memberDown = strongest.idx + 1;
+  console.log(`  forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown})`);
+
+  const atDoor = '/tmp/wiz6-encsuppress2-door.state';
+  await c.serialize(atDoor);
+
+  // --- Force-ONLY (no step) until the door edge reads OPEN while gs=5. ---
+  const doorOpen = '/tmp/wiz6-encsuppress2-dooropen.state';
+  let opened = false;
+  for (let a = 0; a < forceAttempts; a++) {
+    await c.unserialize(atDoor);
+    await c.step(2 + a * 17);
+    const r = await forceDoorOnly(c, base, memberDown);
+    const p = await frParty(c, base);
+    const ok = p.gs === 5 && p.gx === 124 && p.gy === 121 && r.edge === 0;
+    console.log(`  force-only attempt ${a}: gs=${p.gs} at(${p.gx},${p.gy},f${p.f}) edge=${r.edge}${ok ? '  <-- DOOR OPEN, no step' : ''}`);
+    if (ok) { await c.serialize(doorOpen); opened = true; break; }
+  }
+  if (!opened) { console.log('encsuppress2: could not force door open without stepping. ABORT.'); return; }
+
+  // Compute the dest (124,120) cell from the door-open state.
+  await c.unserialize(doorOpen); await c.step(2);
+  const z = u16(await c.read(base + PK_Z, 2), 0);
+  const cellA = u16(await c.read(base + PK_CELLA, 2), 0); // y / row
+  const cellB = u16(await c.read(base + PK_CELLB, 2), 0); // x / col
+  // (124,120) is one cell NORTH: gy-1 -> cellA decreases by 1 (per encsuppress).
+  const ciHere = cellIdx(z, cellA, cellB);
+  const ciDest = cellIdx(z, cellA - 1, cellB);
+  const e08Here = await readBit(base, E08, ciHere), e68Here = await readBit(base, E68, ciHere);
+  const e08Dest = await readBit(base, E08, ciDest), e68Dest = await readBit(base, E68, ciDest);
+  console.log(`\nat-door cell: region${z} cellA${cellA} cellB${cellB} ci=${ciHere} 0x4e08=${e08Here} 0x4e68=${e68Here}`);
+  console.log(`dest (124,120): region${z} cellA${cellA - 1} cellB${cellB} ci=${ciDest} 0x4e08=${e08Dest} 0x4e68=${e68Dest}`);
+  console.log(`  (loop-top fire law: 0x4e08[cell]==1 -> *0x363a=0x0a; 0x4e68[cell]==1 && *0x5034==1 -> special_handler 0x8387)`);
+
+  // Locate the dest cell's special record (type byte +0x360) so V3 can clear it.
+  const tblBase = u16(await c.read(base + 0x4fa8, 2), 0);
+  const tbl = base + tblBase;
+  const typeArr = await c.read(tbl + 0x360, 0x90);
+  const xArr = await c.read(tbl + 0x3f0, 0x90); // recX = cellB/x
+  const yArr = await c.read(tbl + 0x480, 0x90); // recY = cellA/y
+  const zArr = await c.read(tbl + 0x510, 0x90);
+  const startArr = await c.read(tbl + 0x6c0, 12);
+  let destRec = -1, destRecType = 0;
+  for (let si = startArr[z] ?? 0; si < 0x90; si++) {
+    if (zArr[si] !== z) { if (si > (startArr[z] ?? 0) && zArr[si] !== z) break; else continue; }
+    if (yArr[si] === cellA - 1 && xArr[si] === cellB) { destRec = si; destRecType = typeArr[si]!; break; }
+  }
+  console.log(`  dest special-record: idx=${destRec} type=${destRec >= 0 ? destRecType : 'none'} (type!=0 sets 0x4e68 on zone-load)`);
+
+  // Step helper (proven traverse cadence: re-orient to f2, bump up to 3x).
+  const traverse = async (b: number) => {
+    let cur = await frParty(c, b);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, b); }
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'tap'); await c.step(80);
+      cur = await frParty(c, b);
+      if (cur.gx !== 124 || cur.gy !== 121 || cur.gs !== 5) break;
+    }
+    return cur;
+  };
+  const isEnc = (gs: number) => gs === 10 || gs === 11 || gs === 12;
+  const results: Record<string, { gx: number; gy: number; gs: number; clean: boolean }> = {};
+  const runVariant = async (label: string, poke: (b: number) => Promise<void>) => {
+    await c.unserialize(doorOpen); await c.step(2);
+    // Re-orient FIRST, then poke in the frame right before the traversing UP so an
+    // idle frame can't re-derive between poke and step.
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    await poke(base);
+    let after = cur;
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'tap'); await c.step(80);
+      after = await frParty(c, base);
+      if (after.gx !== 124 || after.gy !== 121 || after.gs !== 5) break;
+    }
+    const clean = after.gx === 124 && after.gy === 120 && after.gs === 5;
+    results[label] = { gx: after.gx, gy: after.gy, gs: after.gs, clean };
+    console.log(`\n${label}: traverse -> gx${after.gx} gy${after.gy} gs${after.gs}  ${clean ? '<-- CLEAN gs=5 at (124,120)' : isEnc(after.gs) ? '<-- still combat' : `<-- gs=${after.gs}`}`);
+  };
+
+  await runVariant('V0 (control, no poke)', async () => { /* nothing */ });
+  await runVariant('V1 (0x4e08 only)', async (b) => { await pokeBit0(b, E08, ciDest); });
+  await runVariant('V2 (0x4e08 + 0x4e68)', async (b) => { await pokeBit0(b, E08, ciDest); await pokeBit0(b, E68, ciDest); });
+  await runVariant('V3 (V2 + special type=0 + *0x5034=0)', async (b) => {
+    await pokeBit0(b, E08, ciDest); await pokeBit0(b, E68, ciDest);
+    if (destRec >= 0) await c.write(tbl + 0x360 + destRec, [0]);
+    await c.write(b + 0x5034, [0, 0]);
+  });
+  // V4: clear the TYPE byte (+0x360) of EVERY special record whose (x,y) lands on the
+  // dest cell under EITHER ordering — so the arrival special-square scan finds nothing.
+  await runVariant('V4 (clear ALL dest special-record types)', async () => {
+    for (let si = 0; si < 0x90; si++) {
+      if (zArr[si] !== z) continue;
+      const rx = xArr[si]!, ry = yArr[si]!;
+      if ((ry === cellA - 1 && rx === cellB) || (rx === cellA - 1 && ry === cellB)) {
+        await c.write(tbl + 0x360 + si, [0]);
+      }
+    }
+  });
+
+  // --- CONFIRM: repeat the WINNING poke (V4: clear all dest special-record type
+  // bytes) across several fresh RNG phases to prove it RELIABLY yields gs=5 (not a
+  // lucky roll), and repeat the V0 control to prove combat is otherwise deterministic. ---
+  console.log(`\n--- CONFIRM: V4 (clear dest special-record types) x5 vs control x3 ---`);
+  const clearDestRecords = async () => {
+    for (let si = 0; si < 0x90; si++) {
+      if (zArr[si] !== z) continue;
+      const rx = xArr[si]!, ry = yArr[si]!;
+      if ((ry === cellA - 1 && rx === cellB) || (rx === cellA - 1 && ry === cellB)) await c.write(tbl + 0x360 + si, [0]);
+    }
+  };
+  const REPS = Number(process.argv[4] ?? 8);
+  let v4clean = 0, v4runs = 0, ctrlEnc = 0, ctrlClean = 0, ctrlRuns = 0;
+  for (let r = 0; r < REPS; r++) {
+    await c.unserialize(doorOpen); await c.step(2 + r * 13);
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    await clearDestRecords();
+    let after = cur;
+    for (let s = 0; s < 3; s++) { await c.key('up', 'tap'); await c.step(80); after = await frParty(c, base); if (after.gx !== 124 || after.gy !== 121 || after.gs !== 5) break; }
+    v4runs++; if (after.gx === 124 && after.gy === 120 && after.gs === 5) v4clean++;
+    console.log(`  V4 run ${r} (settle ${2 + r * 13}): gx${after.gx} gy${after.gy} gs${after.gs}`);
+  }
+  for (let r = 0; r < REPS; r++) {
+    await c.unserialize(doorOpen); await c.step(2 + r * 13);
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    let after = cur;
+    for (let s = 0; s < 3; s++) { await c.key('up', 'tap'); await c.step(80); after = await frParty(c, base); if (after.gx !== 124 || after.gy !== 121 || after.gs !== 5) break; }
+    ctrlRuns++; if (isEnc(after.gs)) ctrlEnc++; if (after.gx === 124 && after.gy === 120 && after.gs === 5) ctrlClean++;
+    console.log(`  control run ${r} (settle ${2 + r * 13}): gx${after.gx} gy${after.gy} gs${after.gs}`);
+  }
+  console.log(`  CONFIRM: clear-record CLEAN ${v4clean}/${v4runs}; control CLEAN ${ctrlClean}/${ctrlRuns} (combat ${ctrlEnc}/${ctrlRuns})`);
+  console.log(`  => ${v4clean === v4runs ? 'RELIABLE suppression' : v4clean > ctrlClean ? 'PARTIAL (record helps but a residual encounter layer remains -> flee fallback)' : 'NO benefit (record is not the trigger -> flee fallback)'}`);
+
+  // --- DIAGNOSTIC: is 0x4e08[dest] RE-ARMED on arrival? Re-orient, poke dest=0,
+  // verify it's 0, then micro-step the traversing UP frame-by-frame, logging the bit
+  // + gs + cell after each small step, to catch when (if) the bit flips back to 1
+  // and when gs flips to 12. This isolates "poke wiped by re-derivation on the step"
+  // from "poked the wrong bit". ---
+  console.log(`\n--- DIAGNOSTIC: re-arm watch (poke 0x4e08[${ciDest}]=0, micro-step the UP) ---`);
+  await c.unserialize(doorOpen); await c.step(2);
+  {
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    await pokeBit0(base, E08, ciDest);
+    const v = await readBit(base, E08, ciDest);
+    console.log(`  pre-UP: bit[dest]=${v} (poked to 0), party gx${cur.gx} gy${cur.gy} f${cur.f} gs${cur.gs}`);
+    await c.key('up', 'down');
+    for (let f = 1; f <= 12; f++) {
+      await c.step(8);
+      const cellA2 = u16(await c.read(base + PK_CELLA, 2), 0);
+      const cellB2 = u16(await c.read(base + PK_CELLB, 2), 0);
+      const z2 = u16(await c.read(base + PK_Z, 2), 0);
+      const ciNow = cellIdx(z2, cellA2, cellB2);
+      const bDest = await readBit(base, E08, ciDest);
+      const bNow = await readBit(base, E08, ciNow);
+      const p = await frParty(c, base);
+      console.log(`  +${f * 8}fr: gx${p.gx} gy${p.gy} gs${p.gs} ci=${ciNow} 0x4e08[dest=${ciDest}]=${bDest} 0x4e08[cur]=${bNow}`);
+      if (p.gs !== 5) break;
+    }
+    await c.key('up', 'up');
+  }
+
+  // --- DIAGNOSTIC 3: WRITE-WATCH *0x363a + *0x4fce across the arrival step to
+  // capture the EXACT cseip that writes the combat state (10/12). Exec-tracing wmaze
+  // is unreliable (observability wall), but the write-watch records every write. ---
+  console.log(`\n--- DIAGNOSTIC 3: write-watch *0x363a/*0x4fce on the arrival step ---`);
+  await c.unserialize(doorOpen); await c.step(2);
+  {
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    let armed = true;
+    try { await c.wwatchSet(base + 0x3638, base + 0x3640); } // watch around *0x363a/*0x363c/*0x363e
+    catch (e) { armed = false; console.log(`  wwatch unsupported (unpatched core): ${(e as Error).message}`); }
+    if (armed) await c.wwatchDrain();
+    const writes: Array<{ cseip: number; addr: number; val: number }> = [];
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'down');
+      for (let q = 0; q < 12; q++) {
+        await c.step(8);
+        if (armed) for (const w of await c.wwatchDrain()) { const off = (w.addr - base) & 0xffff; writes.push({ cseip: w.cseip, addr: off, val: w.val & 0xffff }); }
+        const p = await frParty(c, base);
+        if (p.gs !== 5) break;
+      }
+      await c.key('up', 'up');
+      const p = await frParty(c, base);
+      if (p.gx !== 124 || p.gy !== 121 || p.gs !== 5) break;
+    }
+    if (armed) await c.wwatchSet(0, 0);
+    const p = await frParty(c, base);
+    console.log(`  post-step gs=${p.gs} at(${p.gx},${p.gy})`);
+    for (const w of writes) console.log(`  WRITE *0x${w.addr.toString(16)} = ${w.val} (0x${w.val.toString(16)}) by cs:ip=0x${w.cseip.toString(16)}`);
+    if (!writes.length && armed) console.log(`  (no writes captured in 0x3638..0x3640)`);
+  }
+
+  // --- DIAGNOSTIC 2: dump ALL special records at/near the dest cell, both cell
+  // orderings, and find every type-bearing record whose (x,y,z) could be (124,120).
+  // The arrival combat is a SPECIAL RECORD (0x4e08/0x4e68 both ruled out by D1). ---
+  console.log(`\n--- DIAGNOSTIC 2: special-record dump for dest (124,120) ---`);
+  await c.unserialize(doorOpen); await c.step(2);
+  {
+    const startZ = startArr[z] ?? 0;
+    console.log(`  table base [0x4fa8]=0x${tblBase.toString(16)}; region${z} start idx=${startZ}`);
+    const matches: number[] = [];
+    for (let si = 0; si < 0x90; si++) {
+      if (zArr[si] !== z) continue;
+      const rx = xArr[si]!, ry = yArr[si]!, ty = typeArr[si]!;
+      // dest is cellA-1 (row), cellB (col). Report records matching either ordering.
+      const matchAB = (ry === cellA - 1 && rx === cellB);
+      const matchBA = (rx === cellA - 1 && ry === cellB);
+      if (matchAB || matchBA || ty !== 0) {
+        if (matchAB || matchBA) matches.push(si);
+        if (ty !== 0 && (matchAB || matchBA || (Math.abs(ry - (cellA - 1)) <= 1 && Math.abs(rx - cellB) <= 1)))
+          console.log(`    rec[${si}]: type=0x${ty.toString(16)} x=${rx} y=${ry} z=${zArr[si]}${matchAB ? '  <-- (y=row,x=col) MATCH' : matchBA ? '  <-- (x=row,y=col) MATCH' : ''}`);
+      }
+    }
+    console.log(`  records matching dest cell: [${matches.join(',')}]`);
+  }
+
+  console.log(`\n=== VERDICT (encsuppress2) ===`);
+  console.log(`dest (124,120) planes: 0x4e08=${e08Dest} 0x4e68=${e68Dest}; special-record type=${destRec >= 0 ? destRecType : 'none'}`);
+  for (const [k, v] of Object.entries(results)) console.log(`  one-shot ${k}: gs=${v.gs} at(${v.gx},${v.gy}) clean=${v.clean}`);
+  console.log(`  STATISTICAL (authoritative): clear-record CLEAN ${v4clean}/${v4runs} vs control CLEAN ${ctrlClean}/${ctrlRuns}`);
+  // The CONFIRM loop is authoritative: a one-shot variant "win" is usually just the
+  // RNG settle phase, NOT the poke (clear-record == control proves this). The poke is
+  // only a real suppressor if it CLEANs reliably AND beats the control.
+  if (v4clean === v4runs && v4runs > 0 && ctrlClean < ctrlRuns) {
+    console.log(`\nYES: clearing the dest special-record reliably gives gs=5 (control still fires). Capture campaign can use this poke.`);
+  } else if (v4clean > ctrlClean) {
+    console.log(`\nPARTIAL: clearing the record helps (${v4clean}/${v4runs} vs ${ctrlClean}/${ctrlRuns}) but a residual RNG encounter layer remains -> combat-flee or RNG-phase retry.`);
+  } else {
+    console.log(`\nNO: no static poke suppresses the (124,120) encounter (clear-record == control). It is RNG-phase-gated (~90% fire); the no-fire window is reproducible by settle phase. Use combat-FLEE or RNG-phase retry-until-gs5 for capture.`);
+  }
+}
+
 async function phaseScreenCap(c: HostClient): Promise<void> {
   const { encodePngRgba } = await import('../../packages/cli/src/lib/png.js');
   const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
@@ -5572,6 +5853,7 @@ async function main() {
     else if (phase === 'forcediag') await phaseForceDiag(c);
     else if (phase === 'interiorseed') await phaseInteriorSeed(c);
     else if (phase === 'encsuppress') await phaseEncSuppress(c);
+    else if (phase === 'encsuppress2') await phaseEncSuppress2(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();
