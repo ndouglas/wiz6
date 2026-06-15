@@ -12,6 +12,10 @@
 
 ---
 
+## ✅ Stage 0 GATE: PASSED (GO) — 2026-06-15
+
+Task 1 ran and returned **GO**. The (124,121,f2) lock-3 door **can** be forced open and traversed (THESUS STR-18 vs lock-3, ~3/8 rolls succeed). The first NO-GO was a false negative from two cadence bugs in `forceDoorOpen` (interactive STRAINING bar not resolved; post-success keys rotated the party off the door edge) — both fixed and committed (`bc38366`, `a89b8c4`). RNG-phase stepping (`c.step(2 + attempt*17)` after `unserialize`) **does** vary the roll. Proven machinery now in `tools/libretro/trace-maze.ts`: `forceDoorOpen(c, base, memberDown, png?)`, `readRoster(c, base)`, `driveToDoor(c, maxBoots)`, `phaseForceThrough2`/`phaseForceDiag`. **Caveat for Stage 1:** the entry walk is encounter-prone (driveToDoor needs up to ~10 boot retries) and stepping into the interior often triggers a random encounter (gs=11) — capture/seed flows must retry for a clean gs=5 frame. Stage 1 below was updated to use this proven strategy.
+
 ## ⛔ Stage 0 is a HARD GATE
 
 Stage 0 (Task 1) is a **feasibility spike with a GO/NO-GO decision**. Driving the live engine through a real force-opened door and navigating beyond it is **unproven**. **Do not start Stage 1 until Task 1 reports GO** (the party reached (124,120) through a real force-open). If Task 1 reports NO-GO, STOP and escalate to the human — the documented fallback (semi-manual seed creation, spec Approach 2) requires re-planning Stage 1's Task 2.
@@ -145,40 +149,44 @@ git commit -m "feat(#091): forceDoorOpen helper + forcethrough spike (Stage 0 ga
 **Files:**
 - Modify: `tools/libretro/trace-maze.ts` (add phase + register)
 
-Produces a committed-at-capture-time-only seed state: party in the interior, door open. Reuses `forceDoorOpen` from Task 1.
+Produces a capture-time-only seed state: party cleanly in the interior at (124,120) gs=5, door open. **Reuses the Stage-0-proven `driveToDoor`, `readRoster`, and `forceDoorOpen` (with the RNG-step + strongest-member strategy)** — do NOT re-derive the force flow. This targets the (124,121,f2) door specifically; generalization to all doors is Task 10.
 
 - [ ] **Step 1: Add the `interiorseed` phase**
 
 ```typescript
-/** `interiorseed <gx,gy,f> <navKeys> <outState> [maxAttempts]` — drive to a door,
- *  forceDoorOpen with retry, step through, and serialize the resulting interior
- *  state (party past the open door). The seed is a transient capture-time artifact,
- *  NOT committed. navKeys = space-separated moves from the entrance to the door cell. */
+/** `interiorseed [outState] [maxAttempts]` — drive to the (124,121,f2) door, force
+ *  it open with the strongest living member under RNG-phase variation, step through,
+ *  and serialize a CLEAN interior free-roam state (party at (124,120), gs=5). The
+ *  seed is a transient capture-time artifact, NOT committed. Reuses the Stage-0
+ *  machinery (driveToDoor/readRoster/forceDoorOpen). An arrival encounter (gs=11) is
+ *  rejected (we want a clean gs=5 seed); the loop retries with a fresh RNG phase. */
 async function phaseInteriorSeed(c: HostClient): Promise<void> {
-  const doorSpec = (process.argv[3] ?? '124,121,2').split(',').map(Number);
-  const navKeys = (process.argv[4] ?? 'left up up up left').split(/\s+/) as Array<'left' | 'right' | 'up'>;
-  const outState = process.argv[5] ?? '/tmp/wiz6-interior-seed.state';
-  const maxAttempts = Number(process.argv[6] ?? '12');
-  const [dgx, dgy, df] = doorSpec as [number, number, number];
-  const base = await driveToFreeRoam(c);
-  for (const k of navKeys) { await frMove(c, base, k); }
-  const at = await frParty(c, base);
-  if (at.gx !== dgx || at.gy !== dgy || at.f !== df) { console.log(`interiorseed: NOT at door (got gx${at.gx} gy${at.gy} f${at.f}, want ${dgx},${dgy},${df}) — abort`); return; }
+  const outState = process.argv[3] ?? '/tmp/wiz6-interior-seed.state';
+  const maxAttempts = Number(process.argv[4] ?? '24');
+  const base = await driveToDoor(c); // (124,121,f2), gs=5 (boot-retries internally)
+  const roster = await readRoster(c, base);
+  const living = roster.filter((m) => m.alive);
+  const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+  const memberDown = strongest.idx + 1;
+  console.log(`interiorseed: forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown})`);
   const atDoor = '/tmp/wiz6-interiorseed-door.state';
   await c.serialize(atDoor);
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    await c.unserialize(atDoor); await c.step(2);
-    const r = await forceDoorOpen(c, base);
-    if (r.gs === 5 && r.moved) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    await c.unserialize(atDoor);
+    await c.step(2 + attempt * 17); // vary RNG phase (Stage-0-proven to change the roll)
+    const r = await forceDoorOpen(c, base, memberDown);
+    if (r.moved && r.gx === 124 && r.gy === 120 && r.gs === 5) {
       await c.serialize(outState);
-      console.log(`interiorseed: opened + stepped to gx${r.gx} gy${r.gy} in ${attempt} attempt(s) -> ${outState}`);
+      console.log(`interiorseed: clean seed at (124,120) gs5 on attempt ${attempt} -> ${outState}`);
       return;
     }
-    console.log(`  attempt ${attempt}/${maxAttempts}: moved=${r.moved} gs=${r.gs}`);
+    console.log(`  attempt ${attempt}: moved=${r.moved} gs=${r.gs} -> gx${r.gx} gy${r.gy}${r.gs === 11 ? ' (arrival encounter — reject, retry)' : ''}`);
   }
-  console.log('interiorseed: FAILED to create seed — abort');
+  console.log('interiorseed: FAILED to create a clean interior seed — abort (raise maxAttempts or add a flee step)');
 }
 ```
+
+> Note: requiring `gs === 5` rejects arrival-encounter (gs=11) traverses so the seed is clean free-roam. If encounters dominate and 24 attempts isn't enough, raise `maxAttempts` or add a flee/resolve step after a gs=11 traverse — but try the clean-retry approach first.
 
 - [ ] **Step 2: Register `else if (phase === 'interiorseed') await phaseInteriorSeed(c);` in `main()`.**
 
@@ -189,8 +197,8 @@ Expected: exit 0.
 
 - [ ] **Step 4: Create the seed (live) + verify**
 
-Run: `pnpm tsx tools/libretro/trace-maze.ts interiorseed 124,121,2 "left up up up left" /tmp/wiz6-interior-seed.state`
-Expected: `interiorseed: opened + stepped to gx124 gy120 ... -> /tmp/wiz6-interior-seed.state`, and the file exists (`ls -la /tmp/wiz6-interior-seed.state`).
+Run: `pnpm tsx tools/libretro/trace-maze.ts interiorseed /tmp/wiz6-interior-seed.state`
+Expected: `interiorseed: clean seed at (124,120) gs5 on attempt N -> /tmp/wiz6-interior-seed.state`, and the file exists (`ls -la /tmp/wiz6-interior-seed.state`). (Re-run on the known boot flake; `driveToDoor` already retries internally.)
 
 - [ ] **Step 5: Commit**
 
