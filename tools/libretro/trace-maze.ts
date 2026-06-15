@@ -4552,12 +4552,20 @@ async function phaseEncProbe(c: HostClient): Promise<void> {
  *    enter            -> PARTY OPTIONS (cursor SEARCH)
  *    right down enter -> OPEN (grid idx4) -> detect type-7 door -> FORCE/PICK/EXIT (cursor FORCE)
  *    enter            -> select FORCE -> WHO WILL TRY? picker (cursor defaults to EXIT)
- *    down enter       -> move cursor to first member (THESUS) and pick -> animated strain roll
- *  Then settle for the roll, dismiss any result window, and tap up.
- *  NOTE: the WHO picker opens with the cursor on EXIT, not on the first member —
- *  a `down` is required before `enter` or the pick cancels back to FORCE/PICK/EXIT
- *  (verified live via screencaps in Task 1). */
-async function forceDoorOpen(c: HostClient, base: number): Promise<{ moved: boolean; gs: number; gx: number; gy: number }> {
+ *    down* enter      -> move cursor to member N (down x N) and pick -> STRAINING bar
+ *    enter            -> resolve the strain roll -> SUCCESS/FAILURE/JAMMED message
+ *  Then dismiss, re-orient to the door edge, and bump forward to traverse.
+ *  KEY CADENCE FACTS (verified live, #091 Piece B re-test):
+ *    - The WHO picker opens with the cursor on EXIT; `down` N times reaches member N.
+ *    - The STRAINING bar is pre-filled at member-pick and resolves on the NEXT
+ *      enter (one enter -> the "* SUCCESS/FAILURE !" message). Hammering extra
+ *      enters overshoots back through the WHO/FORCE menus.
+ *    - On SUCCESS the door opens but the party is NOT auto-stepped (RE 88af); the
+ *      dismiss can leave the party turned, so RE-ORIENT to `before.f` then bump
+ *      forward (up#0 often no-moves, up#1 steps to the interior cell).
+ *    - Stepping into the interior frequently triggers a random encounter (gs=11);
+ *      that's a separate event and does NOT mean the traverse failed. */
+async function forceDoorOpen(c: HostClient, base: number, memberDown = 1, pngPath?: string): Promise<{ moved: boolean; gs: number; gx: number; gy: number }> {
   const before = await frParty(c, base);
   // OPTIONS -> OPEN -> FORCE menu.
   await c.key('enter', 'tap'); await c.step(40);          // PARTY OPTIONS
@@ -4565,14 +4573,34 @@ async function forceDoorOpen(c: HostClient, base: number): Promise<{ moved: bool
   await c.key('down', 'tap'); await c.step(20);
   await c.key('enter', 'tap'); await c.step(60);          // OPEN -> FORCE/PICK/EXIT (cursor FORCE)
   await c.key('enter', 'tap'); await c.step(60);          // select FORCE -> WHO picker (cursor on EXIT)
-  await c.key('down', 'tap'); await c.step(20);           // move cursor off EXIT onto the first member
-  await c.key('enter', 'tap'); await c.step(220);         // pick first member -> strain roll plays
-  // Dismiss the result window (success/failure/jammed) and let the menu tear down.
-  await c.key('enter', 'tap'); await c.step(60);
-  await c.key('escape', 'tap'); await c.step(40);
-  // Attempt the step (no unserialize — keep the door's opened state).
-  await c.key('up', 'tap'); await c.step(70);
-  const after = await frParty(c, base);
+  // The WHO picker opens with the cursor on EXIT; `down` N times reaches member N
+  // (1 = first member). Pick the requested member.
+  for (let d = 0; d < memberDown; d++) { await c.key('down', 'tap'); await c.step(20); }
+  await c.key('enter', 'tap'); await c.step(40);          // pick member -> STRAINING bar ("PRESS ~")
+  // The STRAINING bar resolves on the NEXT key press (one enter fills+resolves the
+  // roll and prints the SUCCESS/FAILURE/JAMMED message). Verified via per-frame
+  // captures: bar pre-filled at member-pick, +1 enter -> "* FAILURE/SUCCESS".
+  await c.key('enter', 'tap'); await c.step(30);          // resolve the strain roll -> result message
+  if (pngPath) { try { await c.fb(pngPath); } catch { /* fb capture best-effort */ } }
+  // Dismiss the result message. On SUCCESS the door opens and the menu tears down
+  // straight back to free-roam (no auto-step, per RE 88af); on FAILURE the menu
+  // re-appears but a bare-floor frame is fine for the step probe below.
+  await c.key('enter', 'tap'); await c.step(50);
+  await c.key('escape', 'tap'); await c.step(30);         // close any lingering menu
+  // Re-orient to face the door edge (the dismiss can leave the party turned) and
+  // attempt the step. The freshly-opened door needs a leading bump, so try a few
+  // forward presses. (Verified live: up#0 no-move, up#1 -> (124,120) on SUCCESS.)
+  let cur = await frParty(c, base);
+  for (let t = 0; t < 4 && cur.f !== before.f && cur.gs === 5; t++) {
+    await c.key('left', 'tap'); await c.step(40);
+    cur = await frParty(c, base);
+  }
+  let after = cur;
+  for (let s = 0; s < 3; s++) {
+    await c.key('up', 'tap'); await c.step(60);
+    after = await frParty(c, base);
+    if (after.gx !== before.gx || after.gy !== before.gy || after.gs !== 5) break;
+  }
   return { moved: after.gx !== before.gx || after.gy !== before.gy, gs: after.gs, gx: after.gx, gy: after.gy };
 }
 
@@ -4597,6 +4625,192 @@ async function phaseForceThrough(c: HostClient): Promise<void> {
     if (r.moved && r.gx === 124 && r.gy === 120) { console.log(`GO: forced + stepped to (124,120) in ${attempt} attempt(s)`); return; }
   }
   console.log('NO-GO: could not force + step through in ' + MAX + ' attempts — escalate (Approach 2 fallback)');
+}
+
+/** Read the 6 party members' STR + SP/HP-cur from the live roster.
+ *  Char struct = roster_base + member*0x1b0; STR byte at struct-rel 0x110 (abs
+ *  0x4514 for member 0), SP-cur word at rel 0 (abs 0x4404), SP-max word at rel 2
+ *  (abs 0x4406) — per docs/re/findings/maze-open-door-menu.json. A member is
+ *  "alive" (force-eligible) if STR > 0 AND SP-cur > 0. */
+async function readRoster(c: HostClient, base: number) {
+  const ROSTER0 = 0x4404, STRIDE = 0x1b0, STR_REL = 0x110, SPCUR_REL = 0, SPMAX_REL = 2;
+  const out: Array<{ idx: number; str: number; spCur: number; spMax: number; alive: boolean }> = [];
+  for (let m = 0; m < 6; m++) {
+    const cb = base + ROSTER0 + m * STRIDE;
+    const str = (await c.read(cb + STR_REL, 1))[0]!;
+    const spCur = u16(await c.read(cb + SPCUR_REL, 2), 0);
+    const spMax = u16(await c.read(cb + SPMAX_REL, 2), 0);
+    out.push({ idx: m, str, spCur, spMax, alive: str > 0 && spCur > 0 });
+  }
+  return out;
+}
+
+/** `forcethrough2` — RE-TEST of the Stage-0 door-force gate under VARIED RNG (#091
+ *  Piece B). The prior `forcethrough` spike reported 12 byte-identical FAILURES,
+ *  suspected to be a serialize-replay artifact. This re-test found TWO real bugs in
+ *  the original spike's `forceDoorOpen` (both since fixed): (a) it sent only ONE
+ *  enter for the STRAINING bar — never resolving the roll cleanly; (b) on SUCCESS it
+ *  fired stray menu keys that ROTATED the party off the door edge, so the follow-up
+ *  step went the wrong way. With the corrected cadence, RNG-phase stepping DOES vary
+ *  the roll (a0=FAILURE, a4=SUCCESS in run4) and the door (124,121,f2) lock-3 CAN be
+ *  forced open by THESUS (STR 18) and traversed to (124,120) — VERDICT: GO.
+ *  Variations exercised:
+ *    1. RNG-phase stepping: c.step(2 + attempt*17) after unserialize (cheap, works).
+ *    2. Strongest-member pick: read all members' STR, force with the highest.
+ *    3. Fresh-boot (fallback): cold-boot + re-navigate (genuinely fresh RNG).
+ *  GO when any attempt forces the door + steps to (124,120) (an arrival encounter
+ *  gs=11 on the interior cell counts as success — it's a separate random event). */
+/** Cold-boot + navigate to the (124,121,f2) lock-3 door, retrying the whole boot
+ *  on the random-encounter / unlock-flake that derails the short entry nav. The
+ *  re-boot also genuinely varies RNG. Returns the DGROUP base with the party
+ *  cleanly standing in the door cell facing the door (gs=5). Throws if it can't
+ *  reach a clean door frame within `maxBoots` boots. */
+async function driveToDoor(c: HostClient, maxBoots = 10): Promise<number> {
+  for (let boot = 0; boot < maxBoots; boot++) {
+    let base: number;
+    try { base = await driveToFreeRoam(c); }
+    catch (e) { console.log(`  driveToDoor boot ${boot}: unlock flake — ${(e as Error).message}; reboot`); continue; }
+    let derailed = false;
+    for (const k of ['left', 'up', 'up', 'up', 'left'] as const) {
+      const p = await frParty(c, base);
+      if (p.gs !== 5) { derailed = true; break; }
+      await frMove(c, base, k);
+    }
+    const at = await frParty(c, base);
+    if (at.gs === 5 && at.gx === 124 && at.gy === 121 && at.f === 2) {
+      console.log(`  driveToDoor boot ${boot}: at door gx124 gy121 f2 gs5`);
+      return base;
+    }
+    console.log(`  driveToDoor boot ${boot}: derailed=${derailed} -> gx${at.gx} gy${at.gy} f${at.f} gs${at.gs}; reboot`);
+  }
+  throw new Error(`driveToDoor: could not reach a clean door frame in ${maxBoots} boots`);
+}
+
+async function phaseForceThrough2(c: HostClient): Promise<void> {
+  const base = await driveToDoor(c);
+  const at = await frParty(c, base);
+  console.log(`forcethrough2: at gx${at.gx} gy${at.gy} f${at.f} gs${at.gs} (want gx124 gy121 f2)`);
+
+  // --- Read + report the roster STR and the door lock strength. ---
+  const roster = await readRoster(c, base);
+  const lockStrength = 3; // (124,121,f2): extracted/maze/doors.json -> lockStrength 3, not welded
+  console.log('roster (STR / SPcur / SPmax / alive):');
+  for (const m of roster) console.log(`  member${m.idx} (picker down x${m.idx + 1}): STR=${m.str} SP=${m.spCur}/${m.spMax} alive=${m.alive}`);
+  const living = roster.filter((m) => m.alive);
+  // Strongest LIVING member; picker `down` count = idx+1 (cursor starts on EXIT).
+  const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+  console.log(`door lockStrength=${lockStrength}; strongest living member = member${strongest.idx} STR=${strongest.str} (picker down x${strongest.idx + 1})`);
+  // Force-success-feasibility read (from RE): strain_len = clamp(0x12 - STR + 2*lock, 1, 0x12);
+  // success iff progress >= strain_len, progress = clamp(avg of 4x rng(effSTR), 1, 0x12).
+  // Lower strain_len = easier. With STR≈strongest and lock 3, strain_len ≈ clamp(18 - STR + 6, 1, 18).
+  const strainLen = Math.max(1, Math.min(0x12, 0x12 - strongest.str + 2 * lockStrength));
+  console.log(`  (RE estimate) strain_len with strongest member ≈ ${strainLen}/18 — success needs progress >= ${strainLen}`);
+
+  const atDoor = '/tmp/wiz6-forcethrough2-door.state';
+  await c.serialize(atDoor);
+
+  // === Variation 1+2: RNG-phase stepping with the STRONGEST living member. ===
+  const memberDown = strongest.idx + 1;
+  const ATTEMPTS = Number(process.argv[3] ?? 12);
+  const outcomes: string[] = [];
+  console.log(`\n--- Variation 1+2: RNG-phase step + strongest member (member${strongest.idx}, down x${memberDown}), ${ATTEMPTS} attempts ---`);
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    await c.unserialize(atDoor);
+    const settle = 2 + attempt * 17;
+    await c.step(settle); // advance RNG to a different phase
+    // Capture the result-window framebuffer on the first attempt so we can EYEBALL
+    // whether the engine printed SUCCESS / FAILURE / JAMMED (proves the menu drive
+    // actually reached the roll, vs a misnavigated menu).
+    const png = `/tmp/wiz6-ft2-result-a${attempt}.rgba`;
+    const r = await forceDoorOpen(c, base, memberDown, png);
+    const line = `moved=${r.moved} gs=${r.gs} -> gx${r.gx} gy${r.gy}`;
+    outcomes.push(line);
+    console.log(`  attempt ${attempt} (settle ${settle}): ${line}${png ? ` [result fb -> ${png}]` : ''}`);
+    // A step to (124,120) == the door was forced open and traversed. An encounter
+    // (gs=11) on ARRIVAL in the interior cell is a separate random event and does
+    // NOT negate the traverse — it still proves GO.
+    if (r.moved && r.gx === 124 && r.gy === 120) {
+      console.log(`\nGO (RNG-step + strongest member): forced + stepped to (124,120) on attempt ${attempt} (settle ${settle})${r.gs !== 5 ? ` [arrival encounter gs=${r.gs}]` : ''}`);
+      return;
+    }
+    if (r.gs !== 5) { console.log(`    combat/menu (gs=${r.gs}) without traverse — retrying`); continue; }
+  }
+  const uniqueOutcomes = new Set(outcomes);
+  console.log(`\nVariation 1+2: ${uniqueOutcomes.size} distinct outcome(s) across ${ATTEMPTS} attempts ` +
+    `(${uniqueOutcomes.size === 1 ? 'IDENTICAL — confirms serialize-replay theory' : 'VARIED — RNG-stepping DID change the roll'}).`);
+
+  // === Variation 3: FRESH-BOOT (genuinely fresh RNG, no serialize-replay). ===
+  const FRESH = Number(process.argv[4] ?? 3);
+  console.log(`\n--- Variation 3: FRESH-BOOT re-navigate + force, ${FRESH} cold attempts (slow) ---`);
+  for (let b = 0; b < FRESH; b++) {
+    let fbase: number;
+    try {
+      fbase = await driveToDoor(c); // cold-boot + re-nav (genuinely fresh RNG)
+    } catch (e) {
+      console.log(`  fresh attempt ${b}: could not reach door — ${(e as Error).message}; skip`);
+      continue;
+    }
+    const froster = await readRoster(c, fbase);
+    const fliving = froster.filter((m) => m.alive);
+    const fstrong = fliving.length ? fliving.reduce((a, m) => (m.str > a.str ? m : a)) : froster[0]!;
+    const r = await forceDoorOpen(c, fbase, fstrong.idx + 1);
+    console.log(`  fresh attempt ${b} (member${fstrong.idx} STR=${fstrong.str}): moved=${r.moved} gs=${r.gs} -> gx${r.gx} gy${r.gy}`);
+    if (r.gs === 5 && r.moved && r.gx === 124 && r.gy === 120) {
+      console.log(`\nGO (fresh-boot + strongest member): forced + stepped to (124,120) on fresh attempt ${b}`);
+      return;
+    }
+  }
+
+  console.log('\nNO-GO: door (124,121,f2) lock-3 NOT forced open + stepped through across ' +
+    `${ATTEMPTS} RNG-step + ${FRESH} fresh-boot attempts with the strongest member. ` +
+    'Pivot to Approach 2 (manual-seed fallback).');
+}
+
+/** `forcediag` — single-shot diagnostic: unserialize the at-door state left by
+ *  forcethrough2 and drive the FORCE flow ONCE with a LONG strain settle, dumping
+ *  PNGs at (a) the completed strain/result window and (b) the frame just before the
+ *  forward step — to distinguish "force FAILED (door closed)" from "force SUCCEEDED
+ *  but my dismiss/step sequence ate the up-press". Usage: forcediag [stateFile]. */
+async function phaseForceDiag(c: HostClient): Promise<void> {
+  const stateFile = process.argv[3] ?? '/tmp/wiz6-forcethrough2-door.state';
+  // Settle phase that yielded a SUCCESS strain roll (run4 result-frame diff:
+  // attempts 4/6/7 -> settles 70/104/121). Default to the first proven success.
+  const settle = Number(process.argv[4] ?? 70);
+  await c.step(3000);
+  await c.unserialize(stateFile); await c.step(settle);
+  const base = await c.anchor();
+  const before = await frParty(c, base);
+  console.log(`forcediag: ${stateFile} settle=${settle} -> gx${before.gx} gy${before.gy} f${before.f} gs${before.gs}`);
+  // OPTIONS -> OPEN -> FORCE -> WHO -> member0 -> resolve strain.
+  await c.key('enter', 'tap'); await c.step(40);
+  await c.key('right', 'tap'); await c.step(20);
+  await c.key('down', 'tap'); await c.step(20);
+  await c.key('enter', 'tap'); await c.step(60);
+  await c.key('enter', 'tap'); await c.step(60);
+  await c.key('down', 'tap'); await c.step(20);
+  await c.key('enter', 'tap'); await c.step(40);           // pick member0 -> STRAINING bar
+  await c.key('enter', 'tap'); await c.step(30);           // resolve roll -> result message
+  await c.fb('/tmp/wiz6-forcediag-result.rgba');
+  console.log('  captured result message -> /tmp/wiz6-forcediag-result.rgba (eyeball SUCCESS/FAILURE)');
+  await c.key('enter', 'tap'); await c.step(50);           // dismiss message -> back to free-roam
+  let cur = await frParty(c, base);
+  console.log(`  after dismiss: gx${cur.gx} gy${cur.gy} f${cur.f} gs${cur.gs}`);
+  // The dismiss may leave the party turned; re-orient to face the door (f2) before
+  // stepping. Turn LEFT/RIGHT until facing == 2.
+  for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) {
+    await c.key('left', 'tap'); await c.step(40);
+    cur = await frParty(c, base);
+  }
+  await c.fb('/tmp/wiz6-forcediag-prestep.rgba');
+  console.log(`  pre-step (re-oriented): gx${cur.gx} gy${cur.gy} f${cur.f} gs${cur.gs}`);
+  const mid = { gx: cur.gx, gy: cur.gy };
+  for (let s = 0; s < 4; s++) {
+    await c.key('up', 'tap'); await c.step(60);
+    const a = await frParty(c, base);
+    console.log(`  up #${s}: gx${a.gx} gy${a.gy} f${a.f} gs${a.gs} (moved=${a.gx !== mid.gx || a.gy !== mid.gy})`);
+    if (a.gx !== mid.gx || a.gy !== mid.gy) { await c.fb('/tmp/wiz6-forcediag-stepped.rgba'); console.log('  STEPPED THROUGH -> /tmp/wiz6-forcediag-stepped.rgba'); return; }
+  }
+  console.log('  did NOT step through after SUCCESS — post-success step cadence still needs work');
 }
 
 async function phaseScreenCap(c: HostClient): Promise<void> {
@@ -5127,6 +5341,8 @@ async function main() {
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
     else if (phase === 'forcethrough') await phaseForceThrough(c);
+    else if (phase === 'forcethrough2') await phaseForceThrough2(c);
+    else if (phase === 'forcediag') await phaseForceDiag(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();
