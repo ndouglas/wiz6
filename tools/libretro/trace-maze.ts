@@ -4037,16 +4037,36 @@ async function openAllDoors(c: HostClient, base: number): Promise<number> {
 }
 
 async function phaseCollMap(c: HostClient): Promise<void> {
-  const outFile = process.argv[3] ?? '/tmp/wiz6-collmap.json';
-  const budget = Number(process.argv[4] ?? '200'); // max views to expand
+  // Parse args: optional `--seed <stateFile>`; positionals outFile + budget are
+  // the first/second NON-flag args after the phase name (argv[2]).
+  const seedIdx = process.argv.indexOf('--seed');
+  const seedFile = seedIdx >= 0 ? process.argv[seedIdx + 1] : undefined;
+  // Positional args (outFile, budget) = the args after the phase name, with the
+  // `--seed` flag and its value removed so they aren't mistaken for positionals.
+  const flagless: string[] = [];
+  for (let i = 3; i < process.argv.length; i++) {
+    if (process.argv[i] === '--seed') { i++; continue; }
+    flagless.push(process.argv[i]!);
+  }
+  const outFile = flagless[0] ?? '/tmp/wiz6-collmap.json';
+  const budget = Number(flagless[1] ?? '200'); // max views to expand
+  const DODGE = 8; // encounter-dodge retries per forward probe (interior is encounter-prone)
   const dir = '/tmp/wiz6-collmap-states';
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
-  const base = await driveToFreeRoam(c);
+  let base: number;
+  if (seedFile) {
+    await c.step(3000);
+    await c.unserialize(seedFile); await c.step(2);
+    base = await c.anchor();
+    console.log(`collmap: seeded from ${seedFile}`);
+  } else {
+    base = await driveToFreeRoam(c);
+  }
   const start = await frParty(c, base);
   const pokedDoors = await openAllDoors(c, base);
   console.log(`collmap: poked ${pokedDoors} type-7 doors OPEN (interior capture #091)`);
-  console.log(`collmap: free-roam entrance gx${start.gx} gy${start.gy} f${start.f}; budget=${budget} views`);
+  console.log(`collmap: ${seedFile ? 'seed' : 'free-roam entrance'} gx${start.gx} gy${start.gy} f${start.f} gs${start.gs}; budget=${budget} views`);
   const keyOf = (p: { gx: number; gy: number; f: number }) => `${p.gx},${p.gy},${p.f}`;
   const nodeState = new Map<string, string>();
   const visited = new Set<string>();
@@ -4062,24 +4082,37 @@ async function phaseCollMap(c: HostClient): Promise<void> {
     const k = queue.shift()!;
     const st = nodeState.get(k)!;
     for (const mv of ['up', 'left', 'right'] as const) {
-      await c.unserialize(st); await c.step(2);
-      const before = await frParty(c, base);
-      await c.key(mv, 'tap'); await c.step(45);
-      const after = await frParty(c, base);
-      if (mv === 'up') {
-        fwd.set(keyOf(before),
-          after.gs !== 5 ? 'encounter'
-            : (after.gx !== before.gx || after.gy !== before.gy) ? 'open' : 'blocked');
+      // Encounter-dodge retry: the interior is ~90% encounter-prone (RNG-phase
+      // gated), so a single roll would mark almost every step 'encounter'. Retry
+      // with a varied settle phase until we get a CLEAN window (gs===5), then
+      // classify; a clean non-move is a real wall, a clean move is open. Only if
+      // ALL DODGE attempts encountered do we record 'encounter'.
+      let before: Awaited<ReturnType<typeof frParty>> | null = null;
+      let after: Awaited<ReturnType<typeof frParty>> | null = null;
+      let verdict: 'open' | 'blocked' | 'encounter' = 'encounter';
+      for (let attempt = 0; attempt < DODGE; attempt++) {
+        await c.unserialize(st); await c.step(2 + attempt * 13); // vary RNG phase
+        before = await frParty(c, base);
+        await c.key(mv, 'tap'); await c.step(45);
+        after = await frParty(c, base);
+        if (after.gs !== 5) continue; // encounter this roll — try a new phase
+        const moved = after.gx !== before.gx || after.gy !== before.gy;
+        verdict = moved ? 'open' : 'blocked';
+        break; // clean window (moved=open, or clean non-move=real wall)
       }
-      const took = after.f !== before.f || after.gx !== before.gx || after.gy !== before.gy;
-      if (took && after.gs === 5) {
-        const nk = keyOf(after);
-        if (!visited.has(nk)) {
-          visited.add(nk);
-          const ns = `${dir}/n-${nk.replace(/,/g, '_')}.state`;
-          await c.serialize(ns);
-          nodeState.set(nk, ns);
-          queue.push(nk);
+      if (mv === 'up' && before) fwd.set(keyOf(before), verdict);
+      // Expand only on a CLEAN view-changing step (the `after` from the clean window).
+      if (after && after.gs === 5) {
+        const took = before != null && (after.f !== before.f || after.gx !== before.gx || after.gy !== before.gy);
+        if (took) {
+          const nk = keyOf(after);
+          if (!visited.has(nk)) {
+            visited.add(nk);
+            const ns = `${dir}/n-${nk.replace(/,/g, '_')}.state`;
+            await c.serialize(ns);
+            nodeState.set(nk, ns);
+            queue.push(nk);
+          }
         }
       }
     }
