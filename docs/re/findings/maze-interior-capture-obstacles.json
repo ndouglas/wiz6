@@ -1,0 +1,38 @@
+{
+  "topic": "maze-interior-capture-obstacles",
+  "date": "2026-06-15",
+  "context": "#091 Piece B (byte-exact level-0 interior rendering via viewport-oracle capture past forced doors). Executing the plan: Stage-0 gate PASSED, but Stage 1 (interior seed creation) hit a combat obstacle. This records the door-force + entry-encounter findings so the path forward is informed.",
+  "summary": "The (124,121,f2) lock-3 door CAN be forced open and traversed (Stage-0 GO). BUT the interior cell immediately past it, (124,120), has a FIXED combat encounter that fires on every entry (gs -> 12, combat action-select), and it CANNOT be suppressed by poking the 0x4e08 encounter-present plane — the trigger re-derives the encounter post-step from region/special-record data. So automated interior capture needs a way through combat (flee, or find/poke the real encounter source), not just door-forcing.",
+  "findings": [
+    {
+      "id": "door-force-GO",
+      "confidence": "high",
+      "claim": "The (124,121,f2) lock-3 (non-welded) door is forceable + traversable in the live harness. Force with the strongest LIVING member (THESUS STR=18 vs lock 3; RE strain_len ~= clamp(0x12 - STR + 2*lock, 1, 0x12) -> small, ~3/8 rolls succeed). RNG-phase stepping (c.step(2 + attempt*17) after unserialize) DOES vary the strain roll (refutes a strict serialize-replay theory). Two cadence bugs in the first forceDoorOpen were the real cause of the initial 12 identical failures: (a) the interactive STRAINING bar needs an enter to resolve; (b) on success the door opens but does NOT auto-step, and stray menu-exit keys rotated the party off the door edge -> the follow-up step went the wrong way. Both fixed.",
+      "evidence": "forcethrough2 (commit a89b8c4): 'GO (RNG-step + strongest member): forced + stepped to (124,120)'; ~11/12 traversed in one run; result framebuffers showed both '* SUCCESS !' and '* FAILURE'."
+    },
+    {
+      "id": "force-success-detector",
+      "confidence": "high",
+      "claim": "Force SUCCESS can be detected WITHOUT stepping by reading the door special-record's +0x240 wall-plane field: table base = WORD at DGROUP [0x4fa8]; recidx = the type-7 record whose z/x/y matches the party cell (z index via +0x6c0[z]); 2-bit field at facing*2 (LSB-first per getbit_chunk). On success FUN_0000_88af clears the facing-2 field to 0 (open). Note: clearing +0x240 alone does NOT make the engine traverse (the wall-law still gates the step — consistent with #087); the proven re-orient+bump cadence is required to actually cross. Helpers readDoorEdge/forceDoorOnly/traverse committed (f31e9f4).",
+      "evidence": "encsuppress phase (f31e9f4): forceDoorOnly detected edge=0 on the first force attempt; a plain 'up' from the un-stepped door-open state did not traverse, but the re-orient+bump did."
+    },
+    {
+      "id": "fixed-encounter-at-124-120",
+      "confidence": "high",
+      "claim": "Cell (124,120) (region0 x4 y4, ci=36) has a FIXED combat encounter: stepping in ALWAYS yields gs=12 (combat action-select), 0 clean gs=5 arrivals across 64 force+step attempts. Its 0x4e08 encounter-present bit reads 1, consistent with maze-availability-law.json q2 (0x4e08 = per-cell encounter-present plane). This is distinct from the ~8% RANDOM step-encounters elsewhere (e.g. #086's 131,121,f3 at ~1/12).",
+      "evidence": "interiorseed (fb7ea5d): 64/64 force+step attempts -> every moved=true landed gs=11/12, every gs=5 was moved=false. encsuppress: 0x4e08 bit at ci=36 == 1."
+    },
+    {
+      "id": "0x4e08-poke-does-NOT-suppress",
+      "confidence": "high",
+      "claim": "Poking the 0x4e08 encounter-present bit for (124,120) to 0 does NOT suppress the encounter — even with the bit verified 0 in the frame immediately before the moving step, the step still triggers gs=12. So the actual encounter TRIGGER (top of dungeon_main_loop, after the step lands) re-reads/re-derives the encounter from another source (region data or the special-record table), not the live 0x4e08 plane byte. The 0x4e08 read located in 0x309d is a PREVIEW/availability context, not the trigger.",
+      "evidence": "encsuppress (f31e9f4): Variant A (poke 0x4e08=0 -> step) = gs12; Variant C (tight poke, verified bit=0 pre-step) = gs12; Variant B control (no poke) = gs12. Reproduced identically across 2 runs."
+    }
+  ],
+  "implications": "Automated interior capture (Approach 1) needs a way THROUGH combat at the fixed-encounter cell (and to robustly handle the ~8% random interior encounters deeper in). Options: (1) build a combat-FLEE driver (RUN from gs=12 -> gs=5 free-roam at the cell; has its own RNG/retry); (2) find + poke the REAL encounter trigger source (more RE on dungeon_main_loop's encounter check ~wmaze 0x2abc -> what memory it reads to fire combat — would cleanly suppress ALL encounters for capture); (3) semi-manual seed (Approach 2): drive/fight through the fixed encounter ONCE to mint the interior seed, then engcap-from-seed (with random-encounter dodge) captures the rest. Random interior encounters likely still need handling regardless.",
+  "next_steps": [
+    "DECISION (raised to the user): flee-driver vs encounter-trigger RE vs semi-manual seed vs reconsider scope.",
+    "If encounter-trigger RE: disasm dungeon_main_loop (wmaze 0x2abc) encounter-check branch -> the memory it reads (step-counter / danger level / encounter table) -> poke to suppress for capture-time only.",
+    "If flee: drive the gs=12 combat action menu RUN action; confirm gs returns to 5 at the same cell; retry on flee-fail."
+  ]
+}
