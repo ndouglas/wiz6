@@ -4844,6 +4844,202 @@ async function phaseInteriorSeed(c: HostClient): Promise<void> {
   console.log('interiorseed: FAILED to create a clean interior seed — abort (raise maxAttempts or add a flee step)');
 }
 
+/** Read the door special-record's +0x240 wall-plane facing field at the party cell.
+ *  Record table base = WORD at DGROUP [0x4fa8]; per-record fields are byte arrays
+ *  (stride 1) EXCEPT +0x240 which is a WORD array (stride 2, idx=recidx*2). Per
+ *  docs/re/findings/maze-open-door-menu.json (special-record-table-layout + the
+ *  366e scan): recidx = scan from +0x6c0[z] for the FIRST record matching
+ *  z(+0x510)==z AND x(+0x3f0)==cellB AND y(+0x480)==cellA AND type(+0x360)==7.
+ *  getbit_chunk is LSB-first: value = (word >> (facing*2)) & 3. 0=open, 1=closed,
+ *  2=welded. Returns { recidx, edge } or null if no type-7 door record at the cell. */
+async function readDoorEdge(c: HostClient, base: number): Promise<{ recidx: number; edge: number } | null> {
+  const tblBase = u16(await c.read(base + 0x4fa8, 2), 0);
+  const z = u16(await c.read(base + PK_Z, 2), 0);
+  const cellA = u16(await c.read(base + PK_CELLA, 2), 0); // y (zone-local row)
+  const cellB = u16(await c.read(base + PK_CELLB, 2), 0); // x (zone-local col)
+  const facing = u16(await c.read(base + PK_FACING, 2), 0);
+  // The record-table arrays live at DGROUP + tblBase + fieldOff.
+  const tbl = base + tblBase;
+  const typeArr = await c.read(tbl + 0x360, 0x90);
+  const xArr = await c.read(tbl + 0x3f0, 0x90);
+  const yArr = await c.read(tbl + 0x480, 0x90);
+  const zArr = await c.read(tbl + 0x510, 0x90);
+  const startArr = await c.read(tbl + 0x6c0, 12);
+  const start = startArr[z] ?? 0;
+  for (let si = start; si < 0x90; si++) {
+    if (zArr[si] !== z || xArr[si] !== cellB || yArr[si] !== cellA) continue;
+    if (typeArr[si] !== 7) continue;
+    const wallWord = u16(await c.read(tbl + 0x240 + si * 2, 2), 0);
+    const edge = (wallWord >> (facing * 2)) & 3;
+    return { recidx: si, edge };
+  }
+  return null;
+}
+
+/** FORCE the door the party is FACING open WITHOUT stepping through. Drives the same
+ *  OPTIONS->OPEN->FORCE->WHO->resolve cadence as forceDoorOpen but OMITS the final
+ *  re-orient + forward step, leaving the party still in the door cell facing the
+ *  door (gs=5) with the door's +0x240 edge cleared on success. Detects success via
+ *  readDoorEdge (edge becomes 0). Used by the encsuppress spike so we can poke the
+ *  encounter plane in the at-door gs=5 frame BEFORE the (124,120) step. */
+async function forceDoorOnly(c: HostClient, base: number, memberDown: number): Promise<{ gs: number; edge: number | null }> {
+  await c.key('enter', 'tap'); await c.step(40);          // PARTY OPTIONS
+  await c.key('right', 'tap'); await c.step(20);
+  await c.key('down', 'tap'); await c.step(20);
+  await c.key('enter', 'tap'); await c.step(60);          // OPEN -> FORCE/PICK/EXIT (cursor FORCE)
+  await c.key('enter', 'tap'); await c.step(60);          // select FORCE -> WHO picker (cursor on EXIT)
+  for (let d = 0; d < memberDown; d++) { await c.key('down', 'tap'); await c.step(20); }
+  await c.key('enter', 'tap'); await c.step(40);          // pick member -> STRAINING bar
+  await c.key('enter', 'tap'); await c.step(30);          // resolve strain roll -> result message
+  await c.key('enter', 'tap'); await c.step(50);          // dismiss result message
+  await c.key('escape', 'tap'); await c.step(30);         // close any lingering menu
+  const p = await frParty(c, base);
+  const door = await readDoorEdge(c, base);
+  return { gs: p.gs, edge: door?.edge ?? null };
+}
+
+/** `encsuppress [attempts]` — SPIKE (#091 Piece B). Tests whether poking the DGROUP
+ *  0x4e08 per-cell ENCOUNTER-PRESENT plane bit to 0 for the (124,120) interior cell
+ *  cleanly suppresses the gs=11 combat that ALWAYS fires when stepping in from the
+ *  forced (124,121,f2) entrance door.
+ *
+ *  0x4e08 is a 1-bit-per-cell plane (per maze-availability-law.json q2): the
+ *  dungeon main loop reads getbit_test(0x4e08, cell)==1 -> transition to combat.
+ *  Cell index = z*64 + x*8 + y (x=cellA/PK_CELLA, y=cellB/PK_CELLB — matching the
+ *  region-load setbit loop), MSB-first within the byte (matches phaseStepProbe's
+ *  bit reader convention for the wall planes).
+ *
+ *  Flow: driveToDoor -> serialize at-door. Force-ONLY (no step) with RNG-phase
+ *  variation until the door +0x240 facing-2 edge reads 0 (open) while gs==5 ->
+ *  serialize the "door-open-at-door gs=5" state. Then from THAT state:
+ *    Variant A: poke 0x4e08[dest] = 0, tap up -> SUCCESS iff at (124,120) AND gs==5.
+ *    Variant B (control): no poke, tap up -> expect gs==11 (encounter reproduced).
+ *  Reports the pre-poke 0x4e08 bit value for (124,120) (1 confirms fixed-encounter). */
+async function phaseEncSuppress(c: HostClient): Promise<void> {
+  const forceAttempts = Number(process.argv[3] ?? 24);
+  // 0x4e08 plane bit helpers. Cell index z*64 + x*8 + y, MSB-first within byte.
+  const ENC_PLANE = 0x4e08;
+  const readEncBit = async (b: number, ci: number): Promise<number> => {
+    const byte = (await c.read(b + ENC_PLANE + (ci >> 3), 1))[0]!;
+    return (byte >> (7 - (ci & 7))) & 1;
+  };
+  const pokeEncBit0 = async (b: number, ci: number): Promise<void> => {
+    const addr = b + ENC_PLANE + (ci >> 3);
+    const byte = (await c.read(addr, 1))[0]!;
+    await c.write(addr, [byte & ~(1 << (7 - (ci & 7))) & 0xff]);
+  };
+  const cellIdx = (z: number, x: number, y: number) => z * 64 + x * 8 + y;
+
+  const base = await driveToDoor(c); // (124,121,f2) gs=5
+  const atDoorP = await frParty(c, base);
+  console.log(`encsuppress: at door gx${atDoorP.gx} gy${atDoorP.gy} f${atDoorP.f} gs${atDoorP.gs}`);
+  const roster = await readRoster(c, base);
+  const living = roster.filter((m) => m.alive);
+  const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+  const memberDown = strongest.idx + 1;
+  console.log(`  forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown})`);
+
+  const atDoor = '/tmp/wiz6-encsuppress-door.state';
+  await c.serialize(atDoor);
+
+  // --- Force-ONLY with RNG-phase variation until the door edge reads OPEN (gs=5). ---
+  const doorOpen = '/tmp/wiz6-encsuppress-dooropen.state';
+  let opened = false;
+  for (let a = 0; a < forceAttempts; a++) {
+    await c.unserialize(atDoor);
+    await c.step(2 + a * 17); // vary RNG phase
+    const r = await forceDoorOnly(c, base, memberDown);
+    const p = await frParty(c, base);
+    const ok = p.gs === 5 && p.gx === 124 && p.gy === 121 && r.edge === 0;
+    console.log(`  force-only attempt ${a}: gs=${p.gs} at(${p.gx},${p.gy},f${p.f}) edge=${r.edge}${ok ? '  <-- DOOR OPEN, no step' : ''}`);
+    if (ok) { await c.serialize(doorOpen); opened = true; break; }
+  }
+  if (!opened) {
+    console.log('encsuppress: could not force the door open without stepping (edge never read 0). ABORT — increase attempts or re-check readDoorEdge.');
+    return;
+  }
+
+  // From the door-open-at-door gs=5 state, compute the destination (124,120) cell.
+  await c.unserialize(doorOpen); await c.step(2);
+  const here = await frParty(c, base);
+  const z = u16(await c.read(base + PK_Z, 2), 0);
+  const x = u16(await c.read(base + PK_CELLA, 2), 0);
+  const y = u16(await c.read(base + PK_CELLB, 2), 0);
+  const ciHere = cellIdx(z, x, y);
+  // (124,120) is one cell NORTH of (124,121): gy-1 -> cellA (y/row) decreases by 1.
+  const ciDest = cellIdx(z, x - 1, y);
+  const encHere = await readEncBit(base, ciHere);
+  const encDest = await readEncBit(base, ciDest);
+  console.log(`\nat-door cell: region${z} x${x} y${y} ci=${ciHere} encBit=${encHere}`);
+  console.log(`dest (124,120) cell: region${z} x${x - 1} y${y} ci=${ciDest} encBit=${encDest}  ${encDest === 1 ? '<-- FIXED ENCOUNTER bit set (confirms hypothesis)' : '(bit not set)'}`);
+
+  // Step helper: re-orient to f2 then bump forward up to 3x (the proven traverse
+  // cadence from forceDoorOpen — a freshly forced-open door needs a leading bump,
+  // and the menu teardown can leave the party turned). Returns post-step party.
+  const traverse = async (b: number) => {
+    let cur = await frParty(c, b);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, b); }
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'tap'); await c.step(80);
+      cur = await frParty(c, b);
+      if (cur.gx !== 124 || cur.gy !== 121 || cur.gs !== 5) break;
+    }
+    return cur;
+  };
+
+  // --- Variant B (control): no poke, traverse -> expect gs=11 (encounter). ---
+  await c.unserialize(doorOpen); await c.step(2);
+  const bB = await frParty(c, base);
+  const aB = await traverse(base);
+  const movedB = aB.gx !== bB.gx || aB.gy !== bB.gy;
+  console.log(`\nVariant B (control, NO poke): traverse -> gx${aB.gx} gy${aB.gy} gs${aB.gs} moved=${movedB}  ${aB.gs === 11 ? '<-- encounter reproduced (gs=11)' : aB.gs !== 5 ? `<-- gs=${aB.gs}` : '<-- clean (unexpected for control)'}`);
+
+  // --- Variant A (primary): poke dest encounter bit to 0, then traverse. ---
+  await c.unserialize(doorOpen); await c.step(2);
+  const preBit = await readEncBit(base, ciDest);
+  await pokeEncBit0(base, ciDest);
+  const postBit = await readEncBit(base, ciDest);
+  const bA = await frParty(c, base);
+  const aA = await traverse(base);
+  const movedA = aA.gx !== bA.gx || aA.gy !== bA.gy;
+  const cleanArrival = aA.gx === 124 && aA.gy === 120 && aA.gs === 5;
+  console.log(`\nVariant A (poke 0x4e08[${ciDest}] ${preBit}->${postBit}): traverse -> gx${aA.gx} gy${aA.gy} gs${aA.gs} moved=${movedA}  ${cleanArrival ? '<-- CLEAN gs=5 arrival at (124,120)' : aA.gs === 11 ? '<-- still encounter (poke FAILED)' : `<-- gs=${aA.gs}`}`);
+
+  // --- Variant C (tight poke): re-orient first, then poke 0x4e08[dest]=0 in the
+  // frame IMMEDIATELY before the traversing UP (no intervening settle that could let
+  // the engine re-set the bit). Also re-reads the bit after re-orient to see if the
+  // idle frames restore it. ---
+  await c.unserialize(doorOpen); await c.step(2);
+  let curC = await frParty(c, base);
+  for (let t = 0; t < 4 && curC.f !== 2 && curC.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); curC = await frParty(c, base); }
+  const bitAfterReorient = await readEncBit(base, ciDest);
+  await pokeEncBit0(base, ciDest);
+  const bitTightPost = await readEncBit(base, ciDest);
+  let aC = curC;
+  for (let s = 0; s < 3; s++) {
+    await c.key('up', 'tap'); await c.step(80);
+    aC = await frParty(c, base);
+    if (aC.gx !== 124 || aC.gy !== 121 || aC.gs !== 5) break;
+  }
+  const cleanArrivalC = aC.gx === 124 && aC.gy === 120 && aC.gs === 5;
+  console.log(`\nVariant C (tight poke after re-orient): bit after re-orient=${bitAfterReorient}, after poke=${bitTightPost} -> traverse -> gx${aC.gx} gy${aC.gy} gs${aC.gs}  ${cleanArrivalC ? '<-- CLEAN gs=5' : aC.gs !== 5 ? `<-- gs=${aC.gs} (still encounter)` : ''}`);
+
+  // --- VERDICT ---
+  console.log(`\n=== VERDICT ===`);
+  console.log(`0x4e08 bit at (124,120) before poking: ${encDest}  (1 = confirms fixed-encounter hypothesis)`);
+  console.log(`Variant B control (no poke): gs=${aB.gs} ${aB.gs === 11 ? '(encounter — as expected)' : ''}`);
+  console.log(`Variant A poke result: gs=${aA.gs} at (${aA.gx},${aA.gy})`);
+  console.log(`Variant C (tight poke) result: gs=${aC.gs} at (${aC.gx},${aC.gy})  (bit survived re-orient? ${bitAfterReorient === 0 ? 'poked-stayed-0' : 'RE-SET to ' + bitAfterReorient})`);
+  const isEnc = (gs: number) => gs === 10 || gs === 11 || gs === 12; // combat init/round/select
+  if ((cleanArrival || cleanArrivalC) && isEnc(aB.gs)) {
+    console.log(`YES: poking 0x4e08 gives a CLEAN gs=5 entry into (124,120). The capture campaign can use this suppression.`);
+  } else if (isEnc(aA.gs) && isEnc(aC.gs)) {
+    console.log(`NO: poking 0x4e08 did NOT suppress the encounter (still gs=${aA.gs}/${aC.gs}). The 0x4e08 bit is set (confirming the marker) but clearing it before the step does not block combat — the trigger must re-read/re-derive it post-step. Use a flee step (or another suppression site) instead.`);
+  } else {
+    console.log(`INCONCLUSIVE: Variant A gs=${aA.gs} (clean=${cleanArrival}), Variant C gs=${aC.gs} (clean=${cleanArrivalC}), control gs=${aB.gs}. Re-run (boot flake?) or re-examine cell-index convention.`);
+  }
+}
+
 async function phaseScreenCap(c: HostClient): Promise<void> {
   const { encodePngRgba } = await import('../../packages/cli/src/lib/png.js');
   const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
@@ -5375,6 +5571,7 @@ async function main() {
     else if (phase === 'forcethrough2') await phaseForceThrough2(c);
     else if (phase === 'forcediag') await phaseForceDiag(c);
     else if (phase === 'interiorseed') await phaseInteriorSeed(c);
+    else if (phase === 'encsuppress') await phaseEncSuppress(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();
