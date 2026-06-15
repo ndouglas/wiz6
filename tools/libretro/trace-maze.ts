@@ -4544,6 +4544,61 @@ async function phaseEncProbe(c: HostClient): Promise<void> {
 /** `screencap <stateFile> <keys> <outPng> [settle]` — unserialize a state, press a
  *  comma-separated key macro (e.g. `enter` or `enter,down,down`), settle, and save the
  *  framebuffer as a PNG (+ .idx.gz). For eyeballing/capturing a screen like the OPTIONS menu. */
+/** Run the engine's real OPTIONS→OPEN→FORCE→WHO flow ONCE on the door the party
+ *  is currently facing, then attempt to step through. Returns the post-attempt
+ *  party plus whether the party stepped forward (= door opened & traversable) and
+ *  whether combat triggered. The party MUST already be in the door cell facing the
+ *  door. Key sequence (verified live in Task 1):
+ *    enter            -> PARTY OPTIONS (cursor SEARCH)
+ *    right down enter -> OPEN (grid idx4) -> detect type-7 door -> FORCE/PICK/EXIT (cursor FORCE)
+ *    enter            -> select FORCE -> WHO WILL TRY? picker (cursor defaults to EXIT)
+ *    down enter       -> move cursor to first member (THESUS) and pick -> animated strain roll
+ *  Then settle for the roll, dismiss any result window, and tap up.
+ *  NOTE: the WHO picker opens with the cursor on EXIT, not on the first member —
+ *  a `down` is required before `enter` or the pick cancels back to FORCE/PICK/EXIT
+ *  (verified live via screencaps in Task 1). */
+async function forceDoorOpen(c: HostClient, base: number): Promise<{ moved: boolean; gs: number; gx: number; gy: number }> {
+  const before = await frParty(c, base);
+  // OPTIONS -> OPEN -> FORCE menu.
+  await c.key('enter', 'tap'); await c.step(40);          // PARTY OPTIONS
+  await c.key('right', 'tap'); await c.step(20);
+  await c.key('down', 'tap'); await c.step(20);
+  await c.key('enter', 'tap'); await c.step(60);          // OPEN -> FORCE/PICK/EXIT (cursor FORCE)
+  await c.key('enter', 'tap'); await c.step(60);          // select FORCE -> WHO picker (cursor on EXIT)
+  await c.key('down', 'tap'); await c.step(20);           // move cursor off EXIT onto the first member
+  await c.key('enter', 'tap'); await c.step(220);         // pick first member -> strain roll plays
+  // Dismiss the result window (success/failure/jammed) and let the menu tear down.
+  await c.key('enter', 'tap'); await c.step(60);
+  await c.key('escape', 'tap'); await c.step(40);
+  // Attempt the step (no unserialize — keep the door's opened state).
+  await c.key('up', 'tap'); await c.step(70);
+  const after = await frParty(c, base);
+  return { moved: after.gx !== before.gx || after.gy !== before.gy, gs: after.gs, gx: after.gx, gy: after.gy };
+}
+
+/** `forcethrough` — SPIKE (#091 Piece B Stage 0). Drive to the (124,121,f2) door,
+ *  run forceDoorOpen with retry, and report whether the party walks through to
+ *  (124,120). Decides GO (automated capture) vs NO-GO (manual-seed fallback). */
+async function phaseForceThrough(c: HostClient): Promise<void> {
+  const base = await driveToFreeRoam(c);
+  // Navigate into the door cell facing the door (path from state-catalog MAZE_DOOR_*).
+  for (const k of ['left', 'up', 'up', 'up', 'left'] as const) { await frMove(c, base, k); }
+  const at = await frParty(c, base);
+  console.log(`forcethrough: at gx${at.gx} gy${at.gy} f${at.f} gs${at.gs} (want gx124 gy121 f2)`);
+  if (at.gx !== 124 || at.gy !== 121 || at.f !== 2) { console.log('NOT at the door — abort (re-check the nav path)'); return; }
+  const atDoor = '/tmp/wiz6-forcethrough-door.state';
+  await c.serialize(atDoor);
+  const MAX = 12;
+  for (let attempt = 1; attempt <= MAX; attempt++) {
+    await c.unserialize(atDoor); await c.step(2);
+    const r = await forceDoorOpen(c, base);
+    console.log(`  attempt ${attempt}/${MAX}: moved=${r.moved} gs=${r.gs} -> gx${r.gx} gy${r.gy}`);
+    if (r.gs !== 5) { console.log(`    combat/menu (gs=${r.gs}) triggered — retrying`); continue; }
+    if (r.moved && r.gx === 124 && r.gy === 120) { console.log(`GO: forced + stepped to (124,120) in ${attempt} attempt(s)`); return; }
+  }
+  console.log('NO-GO: could not force + step through in ' + MAX + ' attempts — escalate (Approach 2 fallback)');
+}
+
 async function phaseScreenCap(c: HostClient): Promise<void> {
   const { encodePngRgba } = await import('../../packages/cli/src/lib/png.js');
   const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
@@ -5071,6 +5126,7 @@ async function main() {
     else if (phase === 'menuredraw') await phaseMenuRedraw(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
+    else if (phase === 'forcethrough') await phaseForceThrough(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();
