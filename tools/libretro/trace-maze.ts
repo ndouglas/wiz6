@@ -4813,6 +4813,37 @@ async function phaseForceDiag(c: HostClient): Promise<void> {
   console.log('  did NOT step through after SUCCESS — post-success step cadence still needs work');
 }
 
+/** `interiorseed [outState] [maxAttempts]` — drive to the (124,121,f2) door, force
+ *  it open with the strongest living member under RNG-phase variation, step through,
+ *  and serialize a CLEAN interior free-roam state (party at (124,120), gs=5). The
+ *  seed is a transient capture-time artifact, NOT committed. Reuses the Stage-0
+ *  machinery (driveToDoor/readRoster/forceDoorOpen). An arrival encounter (gs=11) is
+ *  rejected (we want a clean gs=5 seed); the loop retries with a fresh RNG phase. */
+async function phaseInteriorSeed(c: HostClient): Promise<void> {
+  const outState = process.argv[3] ?? '/tmp/wiz6-interior-seed.state';
+  const maxAttempts = Number(process.argv[4] ?? '24');
+  const base = await driveToDoor(c); // (124,121,f2), gs=5 (boot-retries internally)
+  const roster = await readRoster(c, base);
+  const living = roster.filter((m) => m.alive);
+  const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+  const memberDown = strongest.idx + 1;
+  console.log(`interiorseed: forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown})`);
+  const atDoor = '/tmp/wiz6-interiorseed-door.state';
+  await c.serialize(atDoor);
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    await c.unserialize(atDoor);
+    await c.step(2 + attempt * 17); // vary RNG phase (Stage-0-proven to change the roll)
+    const r = await forceDoorOpen(c, base, memberDown);
+    if (r.moved && r.gx === 124 && r.gy === 120 && r.gs === 5) {
+      await c.serialize(outState);
+      console.log(`interiorseed: clean seed at (124,120) gs5 on attempt ${attempt} -> ${outState}`);
+      return;
+    }
+    console.log(`  attempt ${attempt}: moved=${r.moved} gs=${r.gs} -> gx${r.gx} gy${r.gy}${r.gs === 11 ? ' (arrival encounter — reject, retry)' : ''}`);
+  }
+  console.log('interiorseed: FAILED to create a clean interior seed — abort (raise maxAttempts or add a flee step)');
+}
+
 async function phaseScreenCap(c: HostClient): Promise<void> {
   const { encodePngRgba } = await import('../../packages/cli/src/lib/png.js');
   const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
@@ -5343,6 +5374,7 @@ async function main() {
     else if (phase === 'forcethrough') await phaseForceThrough(c);
     else if (phase === 'forcethrough2') await phaseForceThrough2(c);
     else if (phase === 'forcediag') await phaseForceDiag(c);
+    else if (phase === 'interiorseed') await phaseInteriorSeed(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();
