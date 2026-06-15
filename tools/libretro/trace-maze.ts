@@ -4819,9 +4819,19 @@ async function phaseForceDiag(c: HostClient): Promise<void> {
  *  seed is a transient capture-time artifact, NOT committed. Reuses the Stage-0
  *  machinery (driveToDoor/readRoster/forceDoorOpen). An arrival encounter (gs=11) is
  *  rejected (we want a clean gs=5 seed); the loop retries with a fresh RNG phase. */
+/** `interiorseed [outState] [forceAttempts] [stepAttempts]` — mint a CLEAN gs=5
+ *  interior seed (party at (124,120), door open) WITHOUT a poke or flee. The
+ *  (124,120) encounter is RNG-phase-gated (~10% clean window — maze-encounter-
+ *  trigger.json), so we (1) force the door OPEN without stepping (force-only,
+ *  RNG-varied, detected via the +0x240 edge reading 0), then (2) step in with the
+ *  STEP's RNG phase varied until a clean gs=5 arrival. Separating force from step is
+ *  what makes the clean window reachable (the prior combined force+step never was).
+ *  Seed is a transient capture-time artifact, NOT committed. Targets the (124,121,f2)
+ *  door specifically; generalization to all doors is Task 10. */
 async function phaseInteriorSeed(c: HostClient): Promise<void> {
   const outState = process.argv[3] ?? '/tmp/wiz6-interior-seed.state';
-  const maxAttempts = Number(process.argv[4] ?? '24');
+  const forceAttempts = Number(process.argv[4] ?? '24');
+  const stepAttempts = Number(process.argv[5] ?? '30');
   const base = await driveToDoor(c); // (124,121,f2), gs=5 (boot-retries internally)
   const roster = await readRoster(c, base);
   const living = roster.filter((m) => m.alive);
@@ -4830,18 +4840,43 @@ async function phaseInteriorSeed(c: HostClient): Promise<void> {
   console.log(`interiorseed: forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown})`);
   const atDoor = '/tmp/wiz6-interiorseed-door.state';
   await c.serialize(atDoor);
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+
+  // 1) Force the door OPEN without stepping (RNG-varied) -> door-open gs=5 state.
+  const doorOpen = '/tmp/wiz6-interiorseed-dooropen.state';
+  let opened = false;
+  for (let a = 0; a < forceAttempts; a++) {
     await c.unserialize(atDoor);
-    await c.step(2 + attempt * 17); // vary RNG phase (Stage-0-proven to change the roll)
-    const r = await forceDoorOpen(c, base, memberDown);
-    if (r.moved && r.gx === 124 && r.gy === 120 && r.gs === 5) {
+    await c.step(2 + a * 17);
+    const r = await forceDoorOnly(c, base, memberDown);
+    const p = await frParty(c, base);
+    if (p.gs === 5 && p.gx === 124 && p.gy === 121 && r.edge === 0) {
+      await c.serialize(doorOpen);
+      console.log(`interiorseed: door OPEN (edge 0), no step, on force attempt ${a}`);
+      opened = true; break;
+    }
+    console.log(`  force attempt ${a}: gs=${p.gs} at(${p.gx},${p.gy}) edge=${r.edge}`);
+  }
+  if (!opened) { console.log('interiorseed: could not force door open without stepping — abort'); return; }
+
+  // 2) Step into (124,120) with STEP-RNG-phase variation until a CLEAN gs=5 arrival.
+  for (let s = 0; s < stepAttempts; s++) {
+    await c.unserialize(doorOpen);
+    await c.step(2 + s * 13); // vary the STEP's RNG phase to hit the no-encounter window
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    for (let b = 0; b < 3; b++) {
+      await c.key('up', 'tap'); await c.step(80);
+      cur = await frParty(c, base);
+      if (cur.gx !== 124 || cur.gy !== 121 || cur.gs !== 5) break;
+    }
+    if (cur.gx === 124 && cur.gy === 120 && cur.gs === 5) {
       await c.serialize(outState);
-      console.log(`interiorseed: clean seed at (124,120) gs5 on attempt ${attempt} -> ${outState}`);
+      console.log(`interiorseed: CLEAN seed at (124,120) gs5 on step attempt ${s} -> ${outState}`);
       return;
     }
-    console.log(`  attempt ${attempt}: moved=${r.moved} gs=${r.gs} -> gx${r.gx} gy${r.gy}${r.gs === 11 ? ' (arrival encounter — reject, retry)' : ''}`);
+    console.log(`  step attempt ${s}: -> gx${cur.gx} gy${cur.gy} gs${cur.gs}${(cur.gs === 10 || cur.gs === 11 || cur.gs === 12) ? ' (encounter — retry phase)' : ''}`);
   }
-  console.log('interiorseed: FAILED to create a clean interior seed — abort (raise maxAttempts or add a flee step)');
+  console.log('interiorseed: FAILED to land a clean gs=5 step into (124,120) — raise stepAttempts or consider flee');
 }
 
 /** Read the door special-record's +0x240 wall-plane facing field at the party cell.
