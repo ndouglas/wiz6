@@ -446,6 +446,20 @@ function composeFrame(
  *   who     — WHO WILL TRY? member picker open
  *   result  — outcome result frame shown; any key closes
  */
+/**
+ * DEV/E2E-only maze-state injection (set on `window.__WIZ6_E2E_MAZE__` by a test
+ * before the maze mounts). Places the party at `(gx,gy,facing)` in free-roam and
+ * seeds `openDoors` open via the #089 DoorStateOverlay — so an e2e can render an
+ * interior cell past a forced door without driving the RNG FORCE. Read ONLY when
+ * `import.meta.env.DEV` (production ignores it). See #091 Piece B Task 8.
+ */
+interface MazeInjection {
+  gx: number;
+  gy: number;
+  facing: number;
+  openDoors?: Array<{ gx: number; gy: number; facing: number }>;
+}
+
 type DoorFlow =
   | { phase: 'closed' }
   | { phase: 'menu'; door: DoorRecord; cursor: number }
@@ -575,8 +589,41 @@ export function MazeView() {
       return;
     }
     sessionRef.current = session;
-    // Auto-drive the cutscene on entry (door slide → ... → free, no input).
-    scheduleCutsceneTick();
+
+    // DEV/E2E ONLY: let tests place the party directly in the interior with a door
+    // pre-opened, so interior rendering can be gated without driving the RNG FORCE
+    // (#091 Piece B). Mirrors the creation flow's `window.__WIZ6_E2E_STATE__` hook.
+    // Strictly DEV-gated: production never reads this. When present, we drop straight
+    // into free-roam at the injected (gx,gy,facing) and seed the door overlay open,
+    // bypassing the entry cutscene (so the timer can't override the position).
+    const injectedMaze =
+      import.meta.env.DEV && typeof window !== 'undefined'
+        ? (window as unknown as { __WIZ6_E2E_MAZE__?: MazeInjection }).__WIZ6_E2E_MAZE__
+        : undefined;
+    if (injectedMaze) {
+      const injectedParty = {
+        ...session.party,
+        gx: injectedMaze.gx,
+        gy: injectedMaze.gy,
+        facing: injectedMaze.facing,
+      };
+      const injectedSession: GameSession = {
+        ...session,
+        party: injectedParty,
+        entryMode: 'free',
+        animFrame: 0,
+        holdTicks: 0,
+      };
+      sessionRef.current = injectedSession;
+      updateSession({ entryMode: 'free', animFrame: 0, holdTicks: 0 });
+      updateParty(injectedParty);
+      for (const d of injectedMaze.openDoors ?? []) {
+        doorOverlayRef.current.open(d.gx, d.gy, d.facing);
+      }
+    } else {
+      // Auto-drive the cutscene on entry (door slide → ... → free, no input).
+      scheduleCutsceneTick();
+    }
 
     // Read the player's active party once (it doesn't change mid-dungeon).
     activePartyRef.current = readActiveParty().members;
