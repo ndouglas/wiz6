@@ -5594,6 +5594,135 @@ async function phaseEncDisable(c: HostClient): Promise<void> {
   console.log(`\n(raw stage-A writer + stage-B results -> /tmp/wiz6-encdisable-findings.json)`);
 }
 
+/** `encdisable2 [forceAttempts] [stepN]` — SPIKE (#091 Piece B, PIECE B residual).
+ *  Builds on `encdisable`: the per-frame 0x4e08-plane re-stamp suppresses the
+ *  loop-top PLACED encounter (wmaze 0x2b6a) but a RESIDUAL random encounter still
+ *  fires after a few interior steps. That residual is the c47e RANDOM-encounter path
+ *  in dungeon_main_loop (wmaze 0x2abc):
+ *
+ *      0x2d07  mov ax,0x3e8        ; 1000
+ *      0x2d0b  call 0xc47e         ; rng_next(1000) -> 0..999
+ *      0x2d0f  cmp ax,0x3e3        ; 995
+ *      0x2d12  jl  0x2d3c          ; if ax < 995 -> SKIP (no encounter)
+ *      ...                         ; else (ax in 995..999, 0.5%) ->
+ *      0x2d33  mov word [0x363a],0xa   ; COMBAT INIT
+ *
+ *  This path does NOT read 0x4e08, so the plane poke can't touch it. There is no
+ *  per-zone danger byte / step counter feeding THIS compare — the threshold (0x3e3)
+ *  and the rng range (0x3e8) are HARDCODED IMMEDIATES. So the airtight capture-time
+ *  poke is a CODE PATCH: turn the conditional `jl 0x2d3c` (7C 28) at file 0x2d12
+ *  into an UNCONDITIONAL `jmp 0x2d3c` (EB 28) so the combat branch is never taken.
+ *  Re-stamped per frame (in case the overlay code page is touched), alongside the
+ *  0x4e08-plane poke. (The third in-loop combat writer, the all-asleep ambush at
+ *  0x2cf2, only fires when EVERY party member is asleep — a healthy capture party
+ *  never trips it, so we don't poke it; we DO verify it never fires.)
+ *
+ *  This phase walks MANY interior steps with BOTH pokes per-frame and reports a
+ *  clean N-step walk. VERDICT airtight = a 20-30 step interior walk with ZERO
+ *  encounters (gs stays 5 throughout). */
+async function phaseEncDisable2(c: HostClient): Promise<void> {
+  const forceAttempts = Number(process.argv[3] ?? 24);
+  const stepN = Number(process.argv[4] ?? 24);
+  const writeChunked = async (addr: number, bytes: number[]): Promise<void> => {
+    for (let i = 0; i < bytes.length; i += 12) await c.write(addr + i, bytes.slice(i, i + 12));
+  };
+
+  // ---- drive + force the door open on a CONTINUOUS session ----
+  const driveDoorForceOpen = async (): Promise<{ base: number; opened: boolean; ovl: number }> => {
+    const base = await driveToDoor(c); // (124,121,f2) gs=5
+    const ovl = await findOvl(c);
+    const roster = await readRoster(c, base);
+    const living = roster.filter((m) => m.alive);
+    const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+    const memberDown = strongest.idx + 1;
+    console.log(`  forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown}); ovl base=0x${ovl.toString(16)}`);
+    let opened = false;
+    for (let a = 0; a < forceAttempts && !opened; a++) {
+      const r = await forceDoorOnly(c, base, memberDown);
+      const p = await frParty(c, base);
+      const ok = p.gs === 5 && p.gx === 124 && p.gy === 121 && r.edge === 0;
+      console.log(`  force-only attempt ${a}: gs=${p.gs} at(${p.gx},${p.gy},f${p.f}) edge=${r.edge}${ok ? '  <-- DOOR OPEN' : ''}`);
+      if (ok) { opened = true; break; }
+      if (p.gs !== 5) { console.log('    (gs!=5 after force — abort this session)'); break; }
+      await c.step(13 + a * 7);
+    }
+    return { base, opened, ovl };
+  };
+
+  // ---- the two pokes, re-applied per frame ----
+  // CODE PATCH targets (wmaze file offsets) — computed against the live overlay base.
+  const JL_FILE = 0x2d12;          // `7C 28` jl 0x2d3c (skip-encounter branch)
+  const CMP_IMM_FILE = 0x2d10;     // the 0x3e3 immediate operand of `cmp ax,0x3e3`
+  const applyPokes = async (base: number, ovl: number) => {
+    // (1) zero the 0x4e08 encounter plane (placed-encounter loop-top fire)
+    await writeChunked(base + 0x4e08, new Array(0x60).fill(0));
+    await writeChunked(base + 0x4e68, new Array(0x60).fill(0));
+    await c.write(base + 0x5032, [0, 0, 0, 0]); // *0x5032=0, *0x5034=0
+    // (2) CODE PATCH: make `jl 0x2d3c` unconditional (7C->EB) so the c47e random
+    //     encounter branch is NEVER taken. Linear = ovl + file_offset.
+    //     `--noPatch` = CONTROL: skip the code patch to confirm the residual c47e
+    //     fire still happens with the plane poke alone.
+    if (!process.argv.includes('--noPatch')) await c.write(ovl + JL_FILE, [0xeb]);
+  };
+
+  console.log('=== encdisable2: 0x4e08-plane poke + c47e code-patch (jl->jmp @ wmaze 0x2d12), per-frame ===');
+  const { base, opened, ovl } = await driveDoorForceOpen();
+  if (!opened) {
+    console.log('NO: could not force door open (door-jam/encounter flake). Re-run.');
+    return;
+  }
+
+  // Verify the code-patch read/poke before relying on it.
+  const preJl = await c.read(ovl + JL_FILE, 2);
+  console.log(`  pre-patch bytes @ ovl+0x2d12 (jl): ${[...preJl].map((b) => b.toString(16).padStart(2, '0')).join(' ')}  (expect 7c 28)`);
+  const preCmp = await c.read(ovl + CMP_IMM_FILE - 2, 4);
+  console.log(`  bytes @ ovl+0x2d0e (cmp ax,0x3e3): ${[...preCmp].map((b) => b.toString(16).padStart(2, '0')).join(' ')}  (expect 3d e3 03 7c)`);
+  await applyPokes(base, ovl);
+  const postJl = await c.read(ovl + JL_FILE, 1);
+  console.log(`  post-patch byte @ ovl+0x2d12: ${postJl[0]!.toString(16).padStart(2, '0')}  (expect eb — unconditional jmp)`);
+
+  // Traverse the door (re-stamp both pokes per chunk).
+  const traverse = async () => {
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'down');
+      for (let f = 0; f < 12 && cur.gs === 5; f++) { await applyPokes(base, ovl); await c.step(7); cur = await frParty(c, base); }
+      await c.key('up', 'up'); await c.step(10); await applyPokes(base, ovl); cur = await frParty(c, base);
+      if (cur.gs !== 5) break;
+      if (cur.gy < 121) break; // moved into the interior
+    }
+    return cur;
+  };
+  let p = await traverse();
+  console.log(`  door-traverse: at(${p.gx},${p.gy},f${p.f}) gs=${p.gs}`);
+
+  // Walk MANY interior steps. Cycle direction so we don't just wall-bump; re-stamp
+  // both pokes every frame of every step. Any gs!=5 = an encounter fired.
+  const stepGs: number[] = [];
+  let fired = false;
+  const dirs = ['up', 'left', 'up', 'right', 'up', 'up'] as const;
+  for (let s = 0; s < stepN && !fired; s++) {
+    const dir = dirs[s % dirs.length]!;
+    const before = p;
+    await c.key(dir, 'down');
+    for (let f = 0; f < 24 && p.gs === 5; f++) { await applyPokes(base, ovl); await c.step(3); p = await frParty(c, base); }
+    await c.key(dir, 'up');
+    for (let f = 0; f < 6 && p.gs === 5; f++) { await applyPokes(base, ovl); await c.step(3); p = await frParty(c, base); }
+    stepGs.push(p.gs);
+    const moved = p.gx !== before.gx || p.gy !== before.gy || p.f !== before.f;
+    console.log(`    interior step ${s} (${dir}): at(${p.gx},${p.gy},f${p.f}) gs=${p.gs} moved=${moved}`);
+    if (p.gs !== 5) fired = true;
+  }
+
+  const clean = !fired && stepGs.length >= stepN && stepGs.every((g) => g === 5);
+  console.log(`\n=== VERDICT (encdisable2) ===`);
+  console.log(`  ${stepGs.length} interior steps, gs=[${stepGs.join(',')}]`);
+  if (clean) console.log(`  YES — AIRTIGHT: ${stepGs.length} interior steps, ZERO encounters (gs stayed 5). Capture campaign unblocked.`);
+  else if (!fired) console.log(`  PARTIAL: no encounter fired but only ${stepGs.length}/${stepN} steps completed (door/wall stall, not an encounter).`);
+  else console.log(`  NO: an encounter fired at step ${stepGs.length - 1} (gs=${stepGs[stepGs.length - 1]}). Residual not fully suppressed.`);
+}
+
 async function phaseScreenCap(c: HostClient): Promise<void> {
   const { encodePngRgba } = await import('../../packages/cli/src/lib/png.js');
   const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
@@ -6128,6 +6257,7 @@ async function main() {
     else if (phase === 'encsuppress') await phaseEncSuppress(c);
     else if (phase === 'encsuppress2') await phaseEncSuppress2(c);
     else if (phase === 'encdisable') await phaseEncDisable(c);
+    else if (phase === 'encdisable2') await phaseEncDisable2(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();
