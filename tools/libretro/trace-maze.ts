@@ -5723,6 +5723,265 @@ async function phaseEncDisable2(c: HostClient): Promise<void> {
   else console.log(`  NO: an encounter fired at step ${stepGs.length - 1} (gs=${stepGs[stepGs.length - 1]}). Residual not fully suppressed.`);
 }
 
+/** `interiorcap [outDir] [maxCells]` — #091 Piece B CAPTURER. Continuous-session
+ *  DFS over interior maze CELLS (past the forced (124,121,f2) door), capturing the
+ *  engine framebuffer for all 4 facings of each reachable cell. NO unserialize after
+ *  the initial drive — restore re-arms encounters. Encounter suppression is the proven
+ *  encdisable2 model: re-stamp two pokes (zero the 0x4e08/0x4e68 planes + *0x5032/4,
+ *  code-patch jl->jmp at ovl+0x2d12) EVERY few frames during every move/turn/settle.
+ *  Writes maze-freeroam-gxNN-gyNN-fF.idx.gz — the filename build-viewport-oracles.ts
+ *  merges with the committed entrance oracles. */
+async function phaseInteriorCap(c: HostClient): Promise<void> {
+  const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
+  const outDir = process.argv[3] ?? '/tmp/wiz6-oracles';
+  const maxCells = Number(process.argv[4] ?? 40);
+  mkdirSync(outDir, { recursive: true });
+
+  // --- framebuffer -> palette-index encode (copied from phaseEngCapture) ---
+  const rgbToIdx = new Map<number, number>();
+  COMPOSED_PALETTE.forEach((rgb: readonly number[], i: number) => rgbToIdx.set(((rgb[0]! << 16) | (rgb[1]! << 8) | rgb[2]!) >>> 0, i));
+  const rgbaToIdx = (rgba: Uint8Array): Uint8Array | null => {
+    const idx = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
+    for (let p = 0; p < idx.length; p++) {
+      const i = rgbToIdx.get(((rgba[p * 4]! << 16) | (rgba[p * 4 + 1]! << 8) | rgba[p * 4 + 2]!) >>> 0);
+      if (i === undefined) return null;
+      idx[p] = i;
+    }
+    return idx;
+  };
+
+  // --- the two pokes + door-force drive (copied from phaseEncDisable2) ---
+  const writeChunked = async (addr: number, bytes: number[]): Promise<void> => {
+    for (let i = 0; i < bytes.length; i += 12) await c.write(addr + i, bytes.slice(i, i + 12));
+  };
+  const JL_FILE = 0x2d12; // `7C 28` jl 0x2d3c (skip-encounter branch) -> EB unconditional
+  const applyPokes = async (base: number, ovl: number) => {
+    await writeChunked(base + 0x4e08, new Array(0x60).fill(0));
+    await writeChunked(base + 0x4e68, new Array(0x60).fill(0));
+    await c.write(base + 0x5032, [0, 0, 0, 0]);
+    await c.write(ovl + JL_FILE, [0xeb]);
+  };
+  const driveDoorForceOpen = async (): Promise<{ base: number; opened: boolean; ovl: number }> => {
+    const base = await driveToDoor(c); // (124,121,f2) gs=5
+    const ovl = await findOvl(c);
+    const roster = await readRoster(c, base);
+    const living = roster.filter((m) => m.alive);
+    const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+    const memberDown = strongest.idx + 1;
+    console.log(`  forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown}); ovl base=0x${ovl.toString(16)}`);
+    let opened = false;
+    for (let a = 0; a < 24 && !opened; a++) {
+      const r = await forceDoorOnly(c, base, memberDown);
+      const p = await frParty(c, base);
+      const ok = p.gs === 5 && p.gx === 124 && p.gy === 121 && r.edge === 0;
+      console.log(`  force-only attempt ${a}: gs=${p.gs} at(${p.gx},${p.gy},f${p.f}) edge=${r.edge}${ok ? '  <-- DOOR OPEN' : ''}`);
+      if (ok) { opened = true; break; }
+      if (p.gs !== 5) { console.log('    (gs!=5 after force — abort this session)'); break; }
+      await c.step(13 + a * 7);
+    }
+    return { base, opened, ovl };
+  };
+
+  console.log(`=== interiorcap: continuous-session encounter-suppressed interior capture -> ${outDir} (maxCells=${maxCells}) ===`);
+  const { base, opened, ovl } = await driveDoorForceOpen();
+  if (!opened) { console.log('NO: could not force door open (door-jam/encounter flake). Re-run.'); return; }
+
+  // Traverse the door into the interior (re-stamp pokes per frame).
+  const traverseDoor = async () => {
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'down');
+      for (let f = 0; f < 12 && cur.gs === 5; f++) { await applyPokes(base, ovl); await c.step(7); cur = await frParty(c, base); }
+      await c.key('up', 'up'); await c.step(10); await applyPokes(base, ovl); cur = await frParty(c, base);
+      if (cur.gs !== 5) break;
+      if (cur.gy < 121) break; // moved into the interior
+    }
+    return cur;
+  };
+  let here = await traverseDoor();
+  console.log(`  door-traverse: at(${here.gx},${here.gy},f${here.f}) gs=${here.gs}`);
+  if (here.gs !== 5 || here.gy >= 121) {
+    console.log(`NO: door-traverse failed (gs=${here.gs} gy=${here.gy}); could not reach interior cell (124,120). Re-run.`);
+    return;
+  }
+
+  // --- suppressed movement primitives (re-stamp pokes per frame) ---
+  type Pos = { gs: number; f: number; gx: number; gy: number };
+  const cellKey = (gx: number, gy: number) => `${gx},${gy}`;
+  /** Settle the build/walk loop (re-stamping pokes) so a previous move fully
+   *  resolves before the next input — an unsettled turn tap is read as a forward
+   *  walk and DESYNCS the position. */
+  const settle = async (chunks: number): Promise<Pos> => {
+    let p = await frParty(c, base);
+    for (let f = 0; f < chunks && p.gs === 5; f++) { await applyPokes(base, ovl); await c.step(3); p = await frParty(c, base); }
+    return p;
+  };
+  // Single-cell forward step via a TAP (held 'up' auto-walks MULTIPLE cells in a
+  // corridor and desyncs backtracking). Mirrors the proven frMove cadence (tap +
+  // ~45f settle), re-stamping pokes throughout.
+  const moveSuppressed = async (dir: 'up' | 'left' | 'right'): Promise<{ moved: boolean; p: Pos }> => {
+    const attempt = async (): Promise<{ moved: boolean; p: Pos }> => {
+      const before = await settle(6); // let any prior move resolve first
+      await applyPokes(base, ovl);
+      await c.key(dir, 'tap');
+      const p = await settle(15);     // ~45 frames to resolve a single-cell step
+      const moved = p.gx !== before.gx || p.gy !== before.gy || p.f !== before.f;
+      return { moved, p };
+    };
+    let r = await attempt();
+    if (!r.moved && r.p.gs === 5) r = await attempt(); // retry once
+    return r;
+  };
+  /** A single suppressed TURN: settle, tap, settle (proven frMove cadence at ~45f),
+   *  re-stamping pokes throughout. */
+  const turnTap = async (dir: 'left' | 'right'): Promise<Pos> => {
+    await settle(8);            // let any in-progress move finish before turning
+    await applyPokes(base, ovl);
+    await c.key(dir, 'tap');
+    return await settle(15);    // ~45 frames to let the turn resolve
+  };
+  /** Turn the minimal number of steps until facing===target. Bails if a "turn"
+   *  registers as a MOVE (gx/gy change) — caller detects the unmet facing/position. */
+  const faceTo = async (target: number): Promise<Pos> => {
+    let p = await settle(6);
+    for (let t = 0; t < 4 && p.f !== target && p.gs === 5; t++) {
+      const diff = (target - p.f + 4) % 4;
+      const dir: 'left' | 'right' = diff === 3 ? 'left' : 'right'; // diff 1 or 2 -> right; 3 -> left
+      const before = p;
+      const after = await turnTap(dir);
+      if (after.gx !== before.gx || after.gy !== before.gy) return after; // turn became a move — abort
+      if (after.f === before.f) break; // turn didn't register
+      p = after;
+    }
+    return p;
+  };
+
+  // The door-force path traverses a SCRIPTED-WALK door segment, which re-engages the
+  // walker so arrow taps STEP instead of TURN. Drain it (mirrors driveToFreeRoam's
+  // unlock) — re-stamping pokes — until a LEFT tap rotates facing with NO position
+  // change. Each probing turn is undone (RIGHT) to restore the start facing.
+  const unlockTurns = async (): Promise<boolean> => {
+    for (let i = 0; i < 12; i++) {
+      const before = await settle(8);
+      await applyPokes(base, ovl);
+      await c.key('left', 'tap');
+      const after = await settle(15);
+      if (after.gs !== 5) return false;
+      const turned = after.f !== before.f && after.gx === before.gx && after.gy === before.gy;
+      if (turned) {
+        // restore facing: turn back RIGHT (also a clean turn now).
+        await applyPokes(base, ovl); await c.key('right', 'tap'); await settle(15);
+        return true;
+      }
+      // not yet free-roam — drain the walker with an ENTER, re-stamp, retry.
+      await applyPokes(base, ovl); await c.key('enter', 'tap'); await settle(20);
+    }
+    return false;
+  };
+  const unlocked = await unlockTurns();
+  here = await frParty(c, base);
+  console.log(`  interior turn-unlock: ${unlocked ? 'OK' : 'FAILED'}; at(${here.gx},${here.gy},f${here.f}) gs=${here.gs}`);
+  if (!unlocked || here.gs !== 5) {
+    console.log(`NO: could not unlock turns at interior cell (walker never drained). Re-run.`);
+    return;
+  }
+
+  /** A forward step that ALSO re-unlocks turns afterward — every forward step into a
+   *  new cell re-engages the scripted walker, so arrow taps would STEP not TURN until
+   *  drained again. Returns the post-unlock party. */
+  const stepForwardAndUnlock = async (): Promise<{ moved: boolean; p: Pos }> => {
+    const r = await moveSuppressed('up');
+    if (!r.moved || r.p.gs !== 5) return r;
+    await unlockTurns();
+    return { moved: true, p: await frParty(c, base) };
+  };
+
+  // --- per-view capture (settle ~80 frames with pokes, encode, write) ---
+  const captured = new Set<string>();
+  let paletteMisses = 0;
+  const capture = async (gx: number, gy: number, facing: number): Promise<boolean> => {
+    const tag = `gx${gx}-gy${gy}-f${facing}`;
+    if (captured.has(tag)) return true;
+    for (let f = 0; f < 27; f++) { await applyPokes(base, ovl); await c.step(3); } // ~80 frames settle
+    const fbPath = `${outDir}/interiorcap-${tag}.rgba`;
+    await c.fb(fbPath);
+    const idx = rgbaToIdx(new Uint8Array(readFileSync(fbPath)));
+    if (!idx) { console.log(`  capture ${tag}: PALETTE MISS (skip)`); paletteMisses++; return false; }
+    writeFileSync(`${outDir}/maze-freeroam-${tag}.idx.gz`, gzipSync(idx));
+    captured.add(tag);
+    return true;
+  };
+
+  // --- DFS over interior cells (physical backtracking, self-correcting) ---
+  const visited = new Set<string>();
+  let encountersSlipped = 0;
+  let desyncs = 0;
+  let viewCount = 0;
+  let aborted = false;
+
+  // Capture all 4 facings at the current cell; returns false on encounter/desync.
+  const captureCell = async (gx: number, gy: number): Promise<boolean> => {
+    for (let facing = 0; facing < 4; facing++) {
+      const p = await faceTo(facing);
+      if (p.gs !== 5) { console.log(`  ENCOUNTER while facing f${facing} at (${gx},${gy}) gs=${p.gs}`); encountersSlipped++; return false; }
+      if (p.gx !== gx || p.gy !== gy) { console.log(`  DESYNC during turn: expected (${gx},${gy}) got (${p.gx},${p.gy})`); desyncs++; return false; }
+      if (p.f !== facing) { console.log(`  could not reach facing f${facing} at (${gx},${gy}) (got f${p.f}); skip view`); continue; }
+      if (await capture(gx, gy, facing)) viewCount++;
+    }
+    return true;
+  };
+
+  const dfs = async (gx: number, gy: number): Promise<void> => {
+    if (aborted || visited.size >= maxCells) return;
+    visited.add(cellKey(gx, gy));
+    console.log(`  [cell ${visited.size}/${maxCells}] at (${gx},${gy})`);
+    if (!(await captureCell(gx, gy))) {
+      // encounter or desync at this cell — try to recover the suppression once.
+      await applyPokes(base, ovl);
+      const p = await frParty(c, base);
+      if (p.gs !== 5) { console.log(`  ABORT: still in non-maze state gs=${p.gs} after re-poke. Graceful stop.`); aborted = true; }
+      return;
+    }
+    for (let d = 0; d < 4 && !aborted && visited.size < maxCells; d++) {
+      const fp = await faceTo(d);
+      if (fp.gs !== 5) { console.log(`  ENCOUNTER while turning to explore d${d} at (${gx},${gy}); abort branch`); encountersSlipped++; aborted = aborted || (await frParty(c, base)).gs !== 5; return; }
+      if (fp.gx !== gx || fp.gy !== gy) { console.log(`  DESYNC before explore d${d}: at (${fp.gx},${fp.gy}); abort branch`); desyncs++; return; }
+      const r = await stepForwardAndUnlock();
+      if (r.p.gs !== 5) { console.log(`  ENCOUNTER on step d${d} from (${gx},${gy}) gs=${r.p.gs}; abort branch`); encountersSlipped++; aborted = true; return; }
+      if (!r.moved) continue; // blocked (wall)
+      const nk = cellKey(r.p.gx, r.p.gy);
+      const isNew = !visited.has(nk);
+      const childGx = r.p.gx, childGy = r.p.gy;
+      if (isNew) {
+        await dfs(childGx, childGy);
+        if (aborted) return;
+      }
+      // step back to the parent cell (move was a real cell change: new or revisited).
+      await faceTo((d + 2) % 4);
+      const back = await stepForwardAndUnlock();
+      if (back.p.gs !== 5) { console.log(`  ENCOUNTER stepping back to (${gx},${gy}) gs=${back.p.gs}; abort`); encountersSlipped++; aborted = true; return; }
+      if (back.p.gx !== gx || back.p.gy !== gy) {
+        console.log(`  DESYNC backtracking to (${gx},${gy}): at (${back.p.gx},${back.p.gy}); abort branch`);
+        desyncs++; return;
+      }
+    }
+  };
+
+  await dfs(here.gx, here.gy);
+
+  // --- coverage report ---
+  console.log(`\n=== interiorcap coverage report ===`);
+  console.log(`  interior cells visited: ${visited.size}${visited.size >= maxCells ? ' (maxCells cap hit)' : ' (DFS exhausted)'}`);
+  console.log(`  (cell,facing) views captured: ${viewCount} (unique: ${captured.size})`);
+  console.log(`  encounters slipped through: ${encountersSlipped}`);
+  console.log(`  palette misses: ${paletteMisses}`);
+  console.log(`  position desyncs: ${desyncs}`);
+  console.log(`  aborted early: ${aborted}`);
+  const firstCell = [0, 1, 2, 3].filter((f) => captured.has(`gx${here.gx}-gy${here.gy}-f${f}`));
+  console.log(`  first interior cell (${here.gx},${here.gy}) facings captured: [${firstCell.join(',')}]${firstCell.length === 4 ? ' (all 4 ✓)' : ''}`);
+}
+
 async function phaseScreenCap(c: HostClient): Promise<void> {
   const { encodePngRgba } = await import('../../packages/cli/src/lib/png.js');
   const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
@@ -6258,6 +6517,7 @@ async function main() {
     else if (phase === 'encsuppress2') await phaseEncSuppress2(c);
     else if (phase === 'encdisable') await phaseEncDisable(c);
     else if (phase === 'encdisable2') await phaseEncDisable2(c);
+    else if (phase === 'interiorcap') await phaseInteriorCap(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();
