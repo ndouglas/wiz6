@@ -59,9 +59,12 @@ describe('maze capture-replay parity (position-keyed wiring + coverage)', () => 
   const assets = loadMazeAssets();
   const oracleMap = buildOracleMap();
 
-  it('one oracle per walkable level-0 view (entrance-normal-connected component)', () => {
-    expect(ORACLES.cases.length).toBe(204);
-    expect(oracleMap.size).toBe(204); // no duplicate posKeys
+  it('one oracle per walkable level-0 view (no duplicate posKeys; entrance + interior coverage)', () => {
+    // Asset is ground truth — derive the count instead of a literal (avoids a
+    // maintenance trap as the captured interior grows; #091 Piece B = 340 cases).
+    expect(oracleMap.size).toBe(ORACLES.cases.length); // no duplicate posKeys
+    expect(oracleMap.has('127,121,0')).toBe(true); // entrance captured
+    expect(oracleMap.has('124,120,2')).toBe(true); // interior captured (#091 Piece B)
   });
 
   it.each(ORACLES.cases.map((c) => ({ ...c, name: `gx${c.gx}-gy${c.gy}-f${c.facing}` })))(
