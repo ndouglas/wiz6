@@ -5389,6 +5389,211 @@ async function phaseEncSuppress2(c: HostClient): Promise<void> {
   }
 }
 
+/** `encdisable [forceAttempts] [stepN]` — SPIKE (#091 Piece B). The SHARP technique:
+ *  write-watch the game-state word 0x363a on a CONTINUOUS live session to catch the
+ *  COMBAT-INIT writer's cs:ip (val==0x0a), then read the guarding condition backward
+ *  in Ghidra, then live-test candidate GLOBAL encounter-disable pokes.
+ *
+ *  Flow (NO unserialize between cells — a continuous session, per the brief):
+ *    Stage A — TRACE: driveToDoor (continuous) -> force-only the door open (gs=5) ->
+ *      arm wwatch on a TIGHT window around 0x363a -> take the traversing step ->
+ *      drain -> report every writer of 0x363a, flagging the val==0x0a (combat init)
+ *      and val==7 (zone-load) writers with cs:ip and the wmaze-file translation.
+ *    Stage B — DISABLE TEST: fresh continuous driveToDoor -> force open -> apply the
+ *      candidate global poke(s) -> traverse the door -> then take stepN more interior
+ *      steps, RE-APPLYING the poke before each, reporting gs after each step. A clean
+ *      multi-step walk (gs stays 5) = WIN.
+ *
+ *  Candidate global-disable targets (poked + tested, see CANDIDATES below):
+ *    - *0x5034 = 0 : the special-handler enable gate (0x4e68[cell]==1 && *0x5034==1).
+ *    - a "steps until next encounter" counter (scanned for + pinned large).
+ *    - the zone danger byte feeding the rng() compare (located via the writer disasm). */
+async function phaseEncDisable(c: HostClient): Promise<void> {
+  const forceAttempts = Number(process.argv[3] ?? 24);
+  const stepN = Number(process.argv[4] ?? 5);
+  const GS = 0x363a;
+  // The harness `write` cmd parses the hex payload into a 32-char field (a2[32]),
+  // so a single write is capped at ~15 bytes. Chunk longer writes.
+  const writeChunked = async (addr: number, bytes: number[]): Promise<void> => {
+    for (let i = 0; i < bytes.length; i += 12) await c.write(addr + i, bytes.slice(i, i + 12));
+  };
+
+  // ---- helpers shared by both stages ----
+  const driveDoorForceOpen = async (): Promise<{ base: number; opened: boolean; ovl: number }> => {
+    const base = await driveToDoor(c); // (124,121,f2) gs=5, continuous session
+    const ovl = await findOvl(c);
+    const roster = await readRoster(c, base);
+    const living = roster.filter((m) => m.alive);
+    const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+    const memberDown = strongest.idx + 1;
+    console.log(`  forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown})`);
+    // Force-only retry on a CONTINUOUS session: each failed force leaves us at the
+    // door (gs=5), so just retry forceDoorOnly with no unserialize (RNG drifts via
+    // the elapsed frames). Re-nav via driveToDoor only if we fall off the door cell.
+    let opened = false;
+    for (let a = 0; a < forceAttempts && !opened; a++) {
+      const r = await forceDoorOnly(c, base, memberDown);
+      const p = await frParty(c, base);
+      const ok = p.gs === 5 && p.gx === 124 && p.gy === 121 && r.edge === 0;
+      console.log(`  force-only attempt ${a}: gs=${p.gs} at(${p.gx},${p.gy},f${p.f}) edge=${r.edge}${ok ? '  <-- DOOR OPEN' : ''}`);
+      if (ok) { opened = true; break; }
+      if (p.gs !== 5) { console.log('    (gs!=5 after force — abort this session)'); break; }
+      await c.step(13 + a * 7); // drift RNG before the next force attempt
+    }
+    return { base, opened, ovl };
+  };
+  // Re-orient to f2 + bump forward up to 3x (the proven door-traverse cadence).
+  const traverse = async (b: number) => {
+    let cur = await frParty(c, b);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, b); }
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'tap'); await c.step(80);
+      cur = await frParty(c, b);
+      if (cur.gx !== 124 || cur.gy !== 121 || cur.gs !== 5) break;
+    }
+    return cur;
+  };
+  const tagW = (ovl: number) => (lin: number) =>
+    lin >= ovl && lin < ovl + 0x973d ? `wmaze+0x${(lin - ovl).toString(16)}` :
+    (lin >= 0x1a80 && lin < 0x4784 ? `res+0x${(lin - 0x1a80).toString(16)}` : `lin 0x${lin.toString(16)}`);
+
+  // ================= STAGE A — TRACE THE COMBAT-INIT WRITER =================
+  const findings: Record<string, unknown> = {};
+  if (!process.argv.includes('--skipA')) {
+    console.log('=== STAGE A: write-watch 0x363a across the door-traverse step (continuous session) ===');
+    const { base, opened, ovl } = await driveDoorForceOpen();
+    if (!opened) { console.log('STAGE A: could not force door open. Skipping trace.'); }
+    else {
+      const tag = tagW(ovl);
+      console.log(`  door open; ovl base=0x${ovl.toString(16)}. Arming wwatch on [0x${GS.toString(16)}, 0x${(GS + 2).toString(16)}) (phys 0x${(base + GS).toString(16)})`);
+      // TIGHT window: the combat-init instr is `mov word [0x363a],0x0a` -> mem_writew
+      // with address==0x363a, in range. Also arm a WIDER fallback span in case the
+      // narrow watch misses (prior pass quirk): [0x3638,0x3640).
+      const useWide = process.argv.includes('--wide');
+      const wLo = base + (useWide ? 0x3638 : GS);
+      const wHi = base + (useWide ? 0x3640 : GS + 2);
+      await c.wwatchSet(wLo, wHi); await c.wwatchDrain();
+      const after = await traverse(base);
+      const recs = await c.wwatchDrain(); await c.wwatchSet(0, 0);
+      console.log(`  post-step: at(${after.gx},${after.gy},f${after.f}) gs=${after.gs}; ${recs.length} writes into the watched span:`);
+      const seen: Array<{ cseip: number; addr: number; val: number; tag: string }> = [];
+      for (const r of recs) {
+        const off = r.addr - base;
+        seen.push({ cseip: r.cseip, addr: off, val: r.val & 0xffff, tag: tag(r.cseip) });
+      }
+      // de-dup by (cseip,val) for readability but keep first addr
+      const dedup = new Map<string, { cseip: number; val: number; addr: number; tag: string; n: number }>();
+      for (const s of seen) {
+        const k = `${s.cseip}:${s.val}:${s.addr}`;
+        const e = dedup.get(k) ?? { cseip: s.cseip, val: s.val, addr: s.addr, tag: s.tag, n: 0 };
+        e.n++; dedup.set(k, e);
+      }
+      for (const e of [...dedup.values()]) {
+        const fileOff = (e.cseip >= ovl && e.cseip < ovl + 0x973d) ? `wmaze file 0x${(e.cseip - ovl).toString(16)}` : '(not wmaze)';
+        const flag = e.val === 0x0a ? '  <== COMBAT-INIT (gs=0x0a)' : e.val === 7 ? '  <== ZONE-LOAD (gs=7)' : e.val === 0x0b ? '  (gs=0x0b combat-round)' : e.val === 0x0c ? '  (gs=0x0c action-select)' : '';
+        console.log(`    ${e.tag}  *0x${e.addr.toString(16)} = 0x${e.val.toString(16)}  x${e.n}  ${fileOff}${flag}`);
+      }
+      const combatWriter = [...dedup.values()].find((e) => e.val === 0x0a && e.addr === GS);
+      if (combatWriter) {
+        const fileOff = combatWriter.cseip - ovl;
+        findings['combat_init_writer'] = {
+          cseip: '0x' + combatWriter.cseip.toString(16),
+          wmaze_file_offset: combatWriter.cseip >= ovl ? '0x' + fileOff.toString(16) : null,
+          tag: combatWriter.tag,
+        };
+        console.log(`\n  COMBAT-INIT writer: ${combatWriter.tag}${combatWriter.cseip >= ovl ? ` -> wmaze file 0x${fileOff.toString(16)}` : ''}`);
+      } else {
+        console.log('\n  NO val==0x0a write to 0x363a captured in the drain window (observability-wall / different path). Try --wide.');
+        findings['combat_init_writer'] = 'NOT_CAPTURED';
+      }
+      findings['stageA_writers'] = [...dedup.values()].map((e) => ({ tag: e.tag, addr: '0x' + e.addr.toString(16), val: '0x' + e.val.toString(16), n: e.n }));
+    }
+  }
+
+  // ================= STAGE B — TEST GLOBAL-DISABLE POKES =================
+  // Each candidate = a fn that pokes the global(s) given base. We re-apply it before
+  // every step. Success = traverse the door + take stepN interior steps with gs==5.
+  type Candidate = { name: string; apply: (b: number) => Promise<void> };
+  const candidates: Candidate[] = [
+    {
+      name: 'CONTROL (no poke)',
+      apply: async () => { /* no-op: proves the entry encounter fires without a poke */ },
+    },
+    {
+      name: '*0x5034=0 (special-handler enable gate)',
+      apply: async (b) => { await c.write(b + 0x5034, [0, 0]); },
+    },
+    {
+      name: '0x4e08 plane all-zero (whole 0x60-byte encounter plane)',
+      apply: async (b) => { await writeChunked(b + 0x4e08, new Array(0x60).fill(0)); },
+    },
+    {
+      name: '0x4e08+0x4e68 planes all-zero + *0x5034=0 + *0x5032=0',
+      apply: async (b) => { await writeChunked(b + 0x4e08, new Array(0x60).fill(0)); await writeChunked(b + 0x4e68, new Array(0x60).fill(0)); await c.write(b + 0x5032, [0, 0, 0, 0]); },
+    },
+  ];
+  const candIdx = process.argv.includes('--cand') ? Number(process.argv[process.argv.indexOf('--cand') + 1]) : -1;
+  const toRun = candIdx >= 0 ? [candidates[candIdx]!] : candidates;
+
+  const results: Array<{ candidate: string; doorStepGs: number; stepGs: number[]; clean: boolean }> = [];
+  for (const cand of toRun) {
+    console.log(`\n=== STAGE B candidate: ${cand.name} ===`);
+    const { base, opened } = await driveDoorForceOpen();
+    if (!opened) { console.log('  could not force door open for this candidate; skip'); results.push({ candidate: cand.name, doorStepGs: -1, stepGs: [], clean: false }); continue; }
+    // PER-FRAME poke across the traverse: re-orient to f2, then drive the forward
+    // step in small chunks, re-applying the poke between every chunk (the door step
+    // is a zone-transition that re-derives encounter state mid-flight — the only way
+    // a poke can hold is to keep re-stamping it as the engine advances).
+    await cand.apply(base);
+    const traversePoked = async (b: number) => {
+      let cur = await frParty(c, b);
+      for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, b); }
+      for (let s = 0; s < 3; s++) {
+        await c.key('up', 'down');
+        for (let f = 0; f < 12 && cur.gs === 5; f++) { await cand.apply(b); await c.step(7); cur = await frParty(c, b); }
+        await c.key('up', 'up'); await c.step(10); await cand.apply(b); cur = await frParty(c, b);
+        if (cur.gx !== 124 || cur.gy !== 121 || cur.gs !== 5) break;
+      }
+      return cur;
+    };
+    const after = await traversePoked(base);
+    console.log(`  door-traverse (per-frame poke): at(${after.gx},${after.gy},f${after.f}) gs=${after.gs}`);
+    const stepGs: number[] = [];
+    let p = after;
+    if (after.gs === 5 && after.gx === 124 && after.gy === 120) {
+      // walk further into the interior, re-applying the poke each frame of each step
+      for (let s = 0; s < stepN; s++) {
+        const dir = (s % 3 === 0 ? 'up' : s % 3 === 1 ? 'left' : 'up') as 'up' | 'left';
+        const before = p;
+        await c.key(dir, 'down');
+        for (let f = 0; f < 24 && p.gs === 5; f++) { await cand.apply(base); await c.step(3); p = await frParty(c, base); }
+        await c.key(dir, 'up'); for (let f = 0; f < 6 && p.gs === 5; f++) { await cand.apply(base); await c.step(3); p = await frParty(c, base); }
+        stepGs.push(p.gs);
+        const moved = p.gx !== before.gx || p.gy !== before.gy || p.f !== before.f;
+        console.log(`    interior step ${s} (${dir}): at(${p.gx},${p.gy},f${p.f}) gs=${p.gs} moved=${moved}`);
+        if (p.gs !== 5) break;
+      }
+    }
+    const clean = after.gs === 5 && stepGs.length > 0 && stepGs.every((g) => g === 5);
+    results.push({ candidate: cand.name, doorStepGs: after.gs, stepGs, clean });
+  }
+
+  console.log(`\n=== VERDICT (encdisable) ===`);
+  let win: typeof results[number] | undefined;
+  for (const r of results) {
+    const isControl = /CONTROL/.test(r.candidate);
+    const label = r.clean ? 'CLEAN WALK (WIN)' : isControl ? 'combat fired (expected — control baseline)' : 'combat fired (FAIL)';
+    console.log(`  ${r.candidate}: door-step gs=${r.doorStepGs}, interior gs=[${r.stepGs.join(',')}] -> ${label}`);
+    if (r.clean && !isControl) win = r;
+  }
+  findings['stageB_results'] = results;
+  if (win) console.log(`\nYES: "${win.candidate}" gives a clean multi-step interior walk (gs stays 5). Capture campaign can use it.`);
+  else console.log(`\nNO: no candidate global poke gives a clean multi-step interior walk. Pivot to combat-FLEE or RNG-phase retry.`);
+
+  writeFileSync('/tmp/wiz6-encdisable-findings.json', JSON.stringify(findings, null, 2));
+  console.log(`\n(raw stage-A writer + stage-B results -> /tmp/wiz6-encdisable-findings.json)`);
+}
+
 async function phaseScreenCap(c: HostClient): Promise<void> {
   const { encodePngRgba } = await import('../../packages/cli/src/lib/png.js');
   const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
@@ -5922,6 +6127,7 @@ async function main() {
     else if (phase === 'interiorseed') await phaseInteriorSeed(c);
     else if (phase === 'encsuppress') await phaseEncSuppress(c);
     else if (phase === 'encsuppress2') await phaseEncSuppress2(c);
+    else if (phase === 'encdisable') await phaseEncDisable(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();
