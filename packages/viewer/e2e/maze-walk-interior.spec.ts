@@ -95,3 +95,39 @@ test('level-0 interior renders byte-exact past the (124,121) door', async ({ pag
   await page.keyboard.press('ArrowRight');
   await expectMazeViewportMatchesFixture(page, 'maze-walk-gx124-gy120-f3');
 });
+
+// Regression for the #091 walk-back bug: a door opened from one side must be passable
+// walking BACK through it. A door is one shared edge — opening (124,121,facing 2)
+// must also open its reciprocal (124,120,facing 0), so from the interior the party can
+// step back out. Before the DoorStateOverlay edge-symmetry fix, this step was blocked
+// (the overlay only recorded the far side; the static wall model saw the edge as solid).
+test('can walk BACK out through a door opened from the far side (#091 walk-back)', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+
+  // Inject the party INSIDE the interior at (124,120) facing 0 (toward the door /
+  // (124,121)), with the door opened from the OTHER side ((124,121,facing 2)).
+  await page.addInitScript(() => {
+    (window as unknown as { __WIZ6_E2E_MAZE__: unknown }).__WIZ6_E2E_MAZE__ = {
+      gx: 124,
+      gy: 120,
+      facing: 0, // facing back toward (124,121) across the opened door edge
+      openDoors: [{ gx: 124, gy: 121, facing: 2 }],
+    };
+  });
+  await page.goto('/');
+  await page.evaluate((members) => {
+    window.localStorage.setItem('wiz6:active-party', JSON.stringify({ schemaVersion: 1, members }));
+  }, [seedMember(0, 'THESUS')]);
+  await page.goto('/castle/start-new-game');
+  await page.waitForURL('**/game/maze', { timeout: 15_000 });
+  await waitForNonBlankCanvas(page, 'canvas', 500, 20_000);
+  await waitForStableCanvas(page, 'canvas');
+
+  // Step forward (back through the door) → the party must reach (124,121); the view
+  // becomes (124,121,facing 0), which is DISTINCT from (124,120,*) so it proves the
+  // step actually happened (not blocked).
+  await page.keyboard.press('ArrowUp');
+  await expectMazeViewportMatchesFixture(page, 'maze-walk-gx124-gy121-f0');
+});
