@@ -7,6 +7,7 @@ import {
   WichmannHill,
   DOOR_WHO,
   DOOR_ROLL,
+  DOOR_STRAIN,
   type ActivePartyMember,
   type DoorRecord,
   type Font,
@@ -37,6 +38,7 @@ import {
   moveDoorMenuCursor,
   forceAttempt,
   pickAttempt,
+  strainBarLength,
   resolveDoorAttempt,
   DoorStateOverlay,
   type CapturedSpansTable,
@@ -407,8 +409,11 @@ function composeFrame(
   // region (DOOR_MENU.strip = OPTIONS_STRIP). Never open concurrently with the
   // OPTIONS menu or REVIEW picker (dispatchOptionsCommand closes them first).
   if (doorFlow && doorFlow.phase !== 'closed') {
+    // The menu + WHO picker are 160×40 bottom-left strips (OPTIONS_STRIP); the
+    // result frame is the FULL-WIDTH (320) strain/result band (DOOR_STRAIN.band)
+    // — different geometry, so blit each at its own region.
     let strip: Uint8Array | null = null;
-    const { x: sx, y: sy, w: sw, h: sh } = OPTIONS_STRIP; // same strip coords
+    let region = OPTIONS_STRIP as { x: number; y: number; w: number; h: number };
     if (doorFlow.phase === 'menu') {
       strip = composeDoorMenu(doorFlow.cursor);
     } else if (doorFlow.phase === 'who') {
@@ -418,9 +423,18 @@ function composeFrame(
         DOOR_WHO,
       );
     } else if (doorFlow.phase === 'result') {
-      strip = composeDoorResult(doorFlow.outcome);
+      const r = doorFlow;
+      strip = composeDoorResult(
+        r.outcome === 'jammed' ? 'jammed' : r.outcome,
+        r.progress,
+        r.threshold,
+        r.slots,
+        r.tryingSlot,
+      );
+      region = DOOR_STRAIN.band;
     }
     if (strip) {
+      const { x: sx, y: sy, w: sw, h: sh } = region;
       for (let row = 0; row < sh; row++) {
         for (let col = 0; col < sw; col++) {
           const idx = strip[row * sw + col]!;
@@ -464,7 +478,16 @@ type DoorFlow =
   | { phase: 'closed' }
   | { phase: 'menu'; door: DoorRecord; cursor: number }
   | { phase: 'who'; door: DoorRecord; action: DoorAction; cursor: number }
-  | { phase: 'result'; outcome: DoorOutcome };
+  | {
+      phase: 'result';
+      outcome: DoorOutcome;
+      /** Green progress-bar / red threshold-bar cell counts for the result band. */
+      progress: number;
+      threshold: number;
+      /** Roster slot names + the slot of the member who tried (highlighted). */
+      slots: ReadonlyArray<string | null>;
+      tryingSlot: number;
+    };
 
 /**
  * MazeView — the walkable first-person dungeon view (B4 milestone).
@@ -1095,7 +1118,26 @@ export function MazeView() {
                   // TODO: turn-tick — the engine calls a status-tick after OPEN.
                   // No per-turn hook exists in MazeView yet; skip for now (#089).
 
-                  doorFlowRef.current = { phase: 'result', outcome };
+                  // Band bar values: red threshold = the engine strain-bar length;
+                  // green progress = the roll's reached value. forceAttempt doesn't
+                  // surface the exact roll, so show a representative fill (success
+                  // overshoots the line, failure falls short) — the byte-exact bar
+                  // is pinned by the composer parity gate, the live fill varies per
+                  // attempt. TODO(#089): surface the actual roll progress for an
+                  // exact live green bar.
+                  const threshold = strainBarLength(member.attributes.str, door.lockStrength, welded);
+                  const progress =
+                    outcome === 'success'
+                      ? Math.min(DOOR_ROLL.strainMax, threshold + 2)
+                      : Math.max(1, threshold - 2);
+                  doorFlowRef.current = {
+                    phase: 'result',
+                    outcome,
+                    progress,
+                    threshold,
+                    slots: map.slotNames,
+                    tryingSlot: doorFlow.cursor,
+                  };
                   present();
                   return;
                 }
