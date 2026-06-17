@@ -135,6 +135,7 @@ export {
   type PickMember,
   type PartyPos,
   type DoorOutcome,
+  type DoorAttemptResult,
   type DoorAction,
   type DoorAttemptEffects,
 } from './maze/door-open.js';

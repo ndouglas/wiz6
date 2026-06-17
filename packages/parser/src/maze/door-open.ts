@@ -45,6 +45,18 @@ export interface PartyPos {
 export type DoorOutcome = 'success' | 'failure' | 'jammed';
 
 /**
+ * Result of a FORCE/PICK attempt: the outcome plus the bar values for the
+ * strain/result band — `progress` (green bar = the roll achieved) and `threshold`
+ * (red bar = the required value). For FORCE these are the strain roll vs
+ * strainBarLength; for PICK they are tumblers-passed vs total tumblers.
+ */
+export interface DoorAttemptResult {
+  outcome: DoorOutcome;
+  progress: number;
+  threshold: number;
+}
+
+/**
  * Engine strain-bar length: clamp(18 - STR + 2*lock, 1, 18); 18 if welded.
  * (wmaze 0x8b6c..0x8ba7.)
  */
@@ -81,7 +93,7 @@ export function forceAttempt(
   lock: number,
   welded: boolean,
   rng: Rng,
-): DoorOutcome {
+): DoorAttemptResult {
   // Draw 1: fatigue roll — consumed to keep RNG stream aligned with engine.
   rng.uniform(DOOR_ROLL.fatigueOdds);
 
@@ -98,10 +110,9 @@ export function forceAttempt(
   }
 
   const progress = clamp(Math.floor(sum / 4), 1, DOOR_ROLL.strainMax);
-  const strainLen = strainBarLength(m.str, lock, welded);
-
-  if (welded) return 'jammed';
-  return progress >= strainLen ? 'success' : 'failure';
+  const threshold = strainBarLength(m.str, lock, welded);
+  const outcome: DoorOutcome = welded ? 'jammed' : progress >= threshold ? 'success' : 'failure';
+  return { outcome, progress, threshold };
 }
 
 /**
@@ -126,7 +137,7 @@ export function pickAttempt(
   lock: number,
   welded: boolean,
   rng: Rng,
-): DoorOutcome {
+): DoorAttemptResult {
   const skill = clamp(
     m.level + m.skulduggery,
     0,
@@ -138,14 +149,18 @@ export function pickAttempt(
     DOOR_ROLL.maxTumblers,
   );
 
-  let allPass = true;
+  // ALL tumblers are drawn (no short-circuit) to match the engine draw count.
+  let passed = 0;
   for (let i = 0; i < tumblers; i++) {
     const roll = rng.uniform(skill);
-    if (roll <= 0) allPass = false;
+    if (roll > 0) passed += 1;
   }
+  const allPass = passed === tumblers;
 
-  if (welded) return 'jammed';
-  return allPass ? 'success' : 'failure';
+  // Bar values (ungated — no PICK engine fixture): green = tumblers passed,
+  // red = total tumblers required.
+  const outcome: DoorOutcome = welded ? 'jammed' : allPass ? 'success' : 'failure';
+  return { outcome, progress: passed, threshold: tumblers };
 }
 
 /**

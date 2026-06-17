@@ -38,7 +38,7 @@ import {
   moveDoorMenuCursor,
   forceAttempt,
   pickAttempt,
-  strainBarLength,
+  type DoorAttemptResult,
   resolveDoorAttempt,
   DoorStateOverlay,
   type CapturedSpansTable,
@@ -1129,7 +1129,7 @@ export function MazeView() {
                   // else a re-FORCE/PICK from the same cell rolls as merely-closed.
                   const welded =
                     door.welded || doorOverlayRef.current.isWelded(door.gx, door.gy, door.facing);
-                  let outcome: DoorOutcome;
+                  let attempt: DoorAttemptResult;
                   if (action === 'force') {
                     const fm: ForceMember = {
                       str: member.attributes.str,
@@ -1140,15 +1140,16 @@ export function MazeView() {
                       skulduggery: member.skills[DOOR_ROLL.skulduggerySkillIndex] ?? 0,
                       class: member.class,
                     };
-                    outcome = forceAttempt(fm, door.lockStrength, welded, rng);
+                    attempt = forceAttempt(fm, door.lockStrength, welded, rng);
                   } else {
                     const pm: PickMember = {
                       level: member.level,
                       skulduggery: member.skills[DOOR_ROLL.skulduggerySkillIndex] ?? 0,
                       class: member.class,
                     };
-                    outcome = pickAttempt(pm, door.lockStrength, welded, rng);
+                    attempt = pickAttempt(pm, door.lockStrength, welded, rng);
                   }
+                  const { outcome, progress, threshold } = attempt;
                   const fx = resolveDoorAttempt(outcome, door, { class: member.class }, action, rng);
 
                   // Apply side-effects to the session door-state overlay.
@@ -1175,20 +1176,11 @@ export function MazeView() {
                   // TODO: turn-tick — the engine calls a status-tick after OPEN.
                   // No per-turn hook exists in MazeView yet; skip for now (#089).
 
-                  // Band bar values: red threshold = the engine strain-bar length;
-                  // green progress = the roll's reached value. forceAttempt doesn't
-                  // surface the exact roll, so show a representative fill (success
-                  // overshoots the line, failure falls short) — the byte-exact bar
-                  // is pinned by the composer parity gate, the live fill varies per
-                  // attempt. TODO(#089): surface the actual roll progress for an
-                  // exact live green bar.
-                  const threshold = strainBarLength(member.attributes.str, door.lockStrength, welded);
-                  const progress =
-                    outcome === 'success'
-                      ? Math.min(DOOR_ROLL.strainMax, threshold + 2)
-                      : Math.max(1, threshold - 2);
                   // Enter the animated strain/tumble phase (green bar fills 0..
-                  // progress), which then advances to the result band.
+                  // progress), which then advances to the result band. The bar values
+                  // are the ACTUAL roll: green = progress reached, red = threshold
+                  // required (from forceAttempt/pickAttempt) — so the bar visibly
+                  // reaches/falls short of the line matching the outcome.
                   doorFlowRef.current = {
                     phase: 'strain',
                     kind: action === 'force' ? 'strain' : 'tumble',
