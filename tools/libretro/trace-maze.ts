@@ -6517,6 +6517,136 @@ async function phaseRecDump(c: HostClient): Promise<void> {
   console.log(`recdump: recOff=0x${recOff.toString(16)}, ${rec.length} bytes -> ${out}`);
 }
 
+/** `doorframes [outDir] [maxSessions]` — #089 VERIFICATION CAPTURER. Drive the FORCE
+ *  flow to ground-truth the strain/tumble progress bar + result-message frames so they
+ *  can be diffed against composeDoorProgress / composeDoorResult (which are UNIT-only,
+ *  "provisional" positions). Encounter suppression is the proven encdisable2 model
+ *  (zero the 0x4e08/0x4e68 planes + *0x5032/4, code-patch jl->jmp at ovl+0x2d12),
+ *  re-stamped per frame so no encounter interrupts the force drive.
+ *
+ *  Per FORCE session, the menu is driven OPTIONS->OPEN->FORCE->WHO->pick-member, then
+ *  the STRAINING bar is captured across a few animation frames, then the roll resolves
+ *  and the RESULT message frame is captured. SUCCESS vs FAILURE is classified by reading
+ *  the door +0x240 edge after resolve (edge 0 = the door opened = SUCCESS). The loop
+ *  keeps forcing (re-navigating on door-open / desync) until it has banked one SUCCESS
+ *  and one FAILURE result frame. JAMMED (edge 2) only arises on a pre-welded door — our
+ *  test door is lock-3 non-welded, so it won't occur naturally; logged if seen, not faked.
+ *
+ *  Writes full-screen 320x200 palette-index frames (same shape as maze-door-menu-*.idx.gz):
+ *    maze-door-strain-bar-N.idx.gz       (N strain animation frames, mid-roll)
+ *    maze-door-result-success.idx.gz
+ *    maze-door-result-failure.idx.gz
+ *  plus .png eyeball copies via the raw .rgba. */
+async function phaseDoorFrames(c: HostClient): Promise<void> {
+  const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
+  const outDir = process.argv[3] ?? '/tmp/wiz6-doorframes';
+  const maxSessions = Number(process.argv[4] ?? 12);
+  mkdirSync(outDir, { recursive: true });
+
+  // --- framebuffer -> palette-index encode (copied from phaseEngCapture) ---
+  const rgbToIdx = new Map<number, number>();
+  COMPOSED_PALETTE.forEach((rgb: readonly number[], i: number) => rgbToIdx.set(((rgb[0]! << 16) | (rgb[1]! << 8) | rgb[2]!) >>> 0, i));
+  const rgbaToIdx = (rgba: Uint8Array): Uint8Array | null => {
+    const idx = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
+    for (let p = 0; p < idx.length; p++) {
+      const i = rgbToIdx.get(((rgba[p * 4]! << 16) | (rgba[p * 4 + 1]! << 8) | rgba[p * 4 + 2]!) >>> 0);
+      if (i === undefined) return null;
+      idx[p] = i;
+    }
+    return idx;
+  };
+  /** Grab the current framebuffer; write BOTH the raw .rgba (eyeball) and the
+   *  full-screen .idx.gz (parity). Returns false on a palette miss (skip). */
+  const grab = async (name: string): Promise<boolean> => {
+    const fbPath = `${outDir}/${name}.rgba`;
+    await c.fb(fbPath);
+    const idx = rgbaToIdx(new Uint8Array(readFileSync(fbPath)));
+    if (!idx) { console.log(`  grab ${name}: PALETTE MISS (skip)`); return false; }
+    writeFileSync(`${outDir}/${name}.idx.gz`, gzipSync(idx));
+    console.log(`  grab ${name} -> ${name}.idx.gz (+ .rgba)`);
+    return true;
+  };
+
+  // --- suppression pokes (copied from encdisable2 / interiorcap) ---
+  const writeChunked = async (addr: number, bytes: number[]): Promise<void> => {
+    for (let i = 0; i < bytes.length; i += 12) await c.write(addr + i, bytes.slice(i, i + 12));
+  };
+  const JL_FILE = 0x2d12; // 7C 28 jl 0x2d3c -> EB unconditional (skip encounter branch)
+  const applyPokes = async (base: number, ovl: number) => {
+    await writeChunked(base + 0x4e08, new Array(0x60).fill(0));
+    await writeChunked(base + 0x4e68, new Array(0x60).fill(0));
+    await c.write(base + 0x5032, [0, 0, 0, 0]);
+    await c.write(ovl + JL_FILE, [0xeb]);
+  };
+
+  console.log(`=== doorframes: capture engine FORCE strain-bar + result frames -> ${outDir} (maxSessions=${maxSessions}) ===`);
+
+  let gotSuccess = false, gotFailure = false, gotStrain = false;
+  for (let s = 0; s < maxSessions && (!gotSuccess || !gotFailure || !gotStrain); s++) {
+    console.log(`\n--- force session ${s} ---`);
+    let base: number, ovl: number;
+    try { base = await driveToDoor(c); ovl = await findOvl(c); }
+    catch (e) { console.log(`  session ${s}: driveToDoor flake — ${(e as Error).message}; retry`); continue; }
+    await applyPokes(base, ovl);
+    const roster = await readRoster(c, base);
+    const living = roster.filter((m) => m.alive);
+    const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+    const memberDown = strongest.idx + 1;
+    console.log(`  forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown}); ovl=0x${ovl.toString(16)}`);
+
+    // Vary the RNG phase per session so the roll differs (success ~3/8 with STR 18 vs lock 3).
+    await applyPokes(base, ovl);
+    await c.step(2 + s * 19);
+
+    // Drive OPTIONS -> OPEN -> FORCE -> WHO -> pick-member -> STRAINING bar (mirror forceDoorOnly).
+    await applyPokes(base, ovl); await c.key('enter', 'tap'); await c.step(40);   // PARTY OPTIONS
+    await applyPokes(base, ovl); await c.key('right', 'tap'); await c.step(20);
+    await applyPokes(base, ovl); await c.key('down', 'tap'); await c.step(20);
+    await applyPokes(base, ovl); await c.key('enter', 'tap'); await c.step(60);   // OPEN -> FORCE/PICK/EXIT (cursor FORCE)
+    await applyPokes(base, ovl); await c.key('enter', 'tap'); await c.step(60);   // select FORCE -> WHO picker (cursor EXIT)
+    for (let d = 0; d < memberDown; d++) { await applyPokes(base, ovl); await c.key('down', 'tap'); await c.step(20); }
+    await applyPokes(base, ovl); await c.key('enter', 'tap'); await c.step(8);    // pick member -> STRAINING bar begins
+
+    // STRAIN BAR: capture a few frames across the fill animation BEFORE pressing enter
+    // to resolve. The bar fills as the press-key animation runs; small step gaps catch
+    // distinct fill states. Only bank these once (first session that reaches the bar).
+    if (!gotStrain) {
+      for (let f = 0; f < 4; f++) {
+        if (await grab(`maze-door-strain-bar-${f}`)) {/* banked */}
+        await applyPokes(base, ovl); await c.step(6);
+      }
+      gotStrain = true;
+    } else {
+      await applyPokes(base, ovl); await c.step(24);
+    }
+
+    // Resolve the roll -> RESULT message.
+    await applyPokes(base, ovl); await c.key('enter', 'tap'); await c.step(30);
+    // Classify via the door edge: edge 0 = opened = SUCCESS.
+    const door = await readDoorEdge(c, base);
+    const edge = door?.edge ?? null;
+    const outcome = edge === 0 ? 'success' : edge === 2 ? 'jammed' : edge === 1 ? 'failure' : `unknown(${edge})`;
+    console.log(`  resolved: door edge=${edge} -> ${outcome}`);
+
+    // Grab the result-message frame for the outcomes we still need.
+    if (outcome === 'success' && !gotSuccess) { if (await grab('maze-door-result-success')) gotSuccess = true; }
+    else if (outcome === 'failure' && !gotFailure) { if (await grab('maze-door-result-failure')) gotFailure = true; }
+    else if (outcome === 'jammed') { console.log('  JAMMED captured (unexpected on lock-3 door) — grabbing for the record'); await grab('maze-door-result-jammed'); }
+
+    // Dismiss the message + close any menu so the next session starts clean.
+    await applyPokes(base, ovl); await c.key('enter', 'tap'); await c.step(40);
+    await applyPokes(base, ovl); await c.key('escape', 'tap'); await c.step(20);
+    const p = await frParty(c, base);
+    console.log(`  post-dismiss: gs=${p.gs} at(${p.gx},${p.gy},f${p.f})`);
+  }
+
+  console.log(`\n=== doorframes VERDICT ===`);
+  console.log(`  strain bar: ${gotStrain ? 'CAPTURED' : 'MISSING'}`);
+  console.log(`  result SUCCESS: ${gotSuccess ? 'CAPTURED' : 'MISSING'}`);
+  console.log(`  result FAILURE: ${gotFailure ? 'CAPTURED' : 'MISSING'}`);
+  console.log(`  fixtures in ${outDir}/`);
+}
+
 async function main() {
   const phase = process.argv[2];
   const c = new HostClient();
@@ -6601,6 +6731,7 @@ async function main() {
     else if (phase === 'encdisable') await phaseEncDisable(c);
     else if (phase === 'encdisable2') await phaseEncDisable2(c);
     else if (phase === 'interiorcap') await phaseInteriorCap(c);
+    else if (phase === 'doorframes') await phaseDoorFrames(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();
