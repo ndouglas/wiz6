@@ -75,7 +75,7 @@ vi.mock('../../src/lib/active-party-store.js', () => ({
   readActiveParty: vi.fn(),
 }));
 
-import { MazeView, CUTSCENE_TICK_MS } from '../../src/pages/game/MazeView.js';
+import { MazeView, CUTSCENE_TICK_MS, STRAIN_TICK_MS } from '../../src/pages/game/MazeView.js';
 import {
   loadMazeAssets,
   loadMazeDoors,
@@ -975,20 +975,32 @@ describe('MazeView — door-flow (OPTIONS → OPEN)', () => {
     expect(mockUpdateParty).not.toHaveBeenCalled();
   });
 
-  it('selecting a member in WHO picker → result phase shown (party does not move)', async () => {
+  it('selecting a member → strain animation → result → close (party does not move)', async () => {
     await openDoorMenu();
     // FORCE → WHO picker.
     fireEvent.keyDown(window, { key: 'Enter' });
-    // Navigate from EXIT to slot 0 (one press down/right in the picker to get off EXIT).
-    // The member is in slot 0 (THESUS, party index 0, panel slot 0 = left top).
-    // moveReviewCursor from REVIEW_EXIT (-1) → first occupied slot with ArrowDown.
+    // Navigate from EXIT to slot 0 (THESUS, party index 0, panel slot 0 = left top).
     fireEvent.keyDown(window, { key: 'ArrowDown' });
-    // Press Enter to select the member → run attempt → result phase.
-    fireEvent.keyDown(window, { key: 'Enter' });
-    // Result phase: party has not moved.
-    expect(mockUpdateParty).not.toHaveBeenCalled();
-    // Any key closes the result.
-    fireEvent.keyDown(window, { key: 'Enter' });
+
+    // Fake timers so the strain-bar fill animation (setTimeout per cell) is
+    // deterministic. Switch BEFORE the Enter that starts it so its timer is fake.
+    vi.useFakeTimers();
+    try {
+      // Select the member → run attempt → STRAIN phase (animated bar, not result yet).
+      fireEvent.keyDown(window, { key: 'Enter' });
+      // Strain phase: party has not moved, and keys are consumed (no early dismiss).
+      expect(mockUpdateParty).not.toHaveBeenCalled();
+      fireEvent.keyDown(window, { key: 'ArrowLeft' });
+      expect(mockUpdateParty).not.toHaveBeenCalled();
+      // Advance through the full strain fill → transitions to the result band.
+      await vi.advanceTimersByTimeAsync(STRAIN_TICK_MS * 25);
+      // Result phase: still no party move.
+      expect(mockUpdateParty).not.toHaveBeenCalled();
+      // Any key closes the result band.
+      fireEvent.keyDown(window, { key: 'Enter' });
+    } finally {
+      vi.useRealTimers();
+    }
     // Back in free-roam: ArrowLeft should now move.
     fireEvent.keyDown(window, { key: 'ArrowLeft' });
     expect(mockUpdateParty).toHaveBeenCalledWith(turn(ENTRANCE, 'left'));
