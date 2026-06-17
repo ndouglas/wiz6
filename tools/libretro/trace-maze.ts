@@ -5734,8 +5734,19 @@ async function phaseEncDisable2(c: HostClient): Promise<void> {
 async function phaseInteriorCap(c: HostClient): Promise<void> {
   const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
   const outDir = process.argv[3] ?? '/tmp/wiz6-oracles';
-  const maxCells = Number(process.argv[4] ?? 40);
+  const maxCells = Number(process.argv[4] ?? 400);
   mkdirSync(outDir, { recursive: true });
+
+  // RESUMABLE: scan outDir for already-captured (gx,gy,facing) views so re-runs
+  // accumulate coverage instead of re-capturing from scratch. A derailed run
+  // (door-force RNG flake / desync) is recovered simply by re-invoking this phase.
+  const preExisting = new Set<string>();
+  for (const f of readdirSync(outDir)) {
+    const m = /^maze-freeroam-(gx\d+-gy\d+-f\d)\.idx\.gz$/.exec(f);
+    if (m) preExisting.add(m[1]!);
+  }
+  const startingTotal = preExisting.size;
+  console.log(`  resume: ${startingTotal} views already in ${outDir} (will skip re-capturing those)`);
 
   // --- framebuffer -> palette-index encode (copied from phaseEngCapture) ---
   const rgbToIdx = new Map<number, number>();
@@ -5898,7 +5909,9 @@ async function phaseInteriorCap(c: HostClient): Promise<void> {
   };
 
   // --- per-view capture (settle ~80 frames with pokes, encode, write) ---
-  const captured = new Set<string>();
+  // Seed with pre-existing captures (resume): those are treated as already done.
+  const captured = new Set<string>(preExisting);
+  let newViews = 0;
   let paletteMisses = 0;
   const capture = async (gx: number, gy: number, facing: number): Promise<boolean> => {
     const tag = `gx${gx}-gy${gy}-f${facing}`;
@@ -5910,7 +5923,63 @@ async function phaseInteriorCap(c: HostClient): Promise<void> {
     if (!idx) { console.log(`  capture ${tag}: PALETTE MISS (skip)`); paletteMisses++; return false; }
     writeFileSync(`${outDir}/maze-freeroam-${tag}.idx.gz`, gzipSync(idx));
     captured.add(tag);
+    newViews++;
     return true;
+  };
+
+  // --- iterative door-forcing (mid-DFS) ---
+  // When a forward step is BLOCKED, distinguish a closed DOOR from a wall via
+  // readDoorEdge (reads the +0x240 edge for the party's CURRENT cell + facing).
+  // edge: 0=open, 1=closed, 2=welded. On a closed door, FORCE it open (reuse
+  // forceDoorOnly with the strongest living member), re-stamping suppression every
+  // few frames + RNG-retrying. A welded/jam or exhausted retries is LOGGED as a
+  // coverage gap and skipped (never crash). Door-force can JAM a door toward welded
+  // on failure (~1/3 per fail) — accepted; logged.
+  const doorsForced = new Set<string>();   // "gx,gy,f" that we opened
+  const doorsJammed = new Set<string>();    // "gx,gy,f" that ended welded / could not force
+  const doorTriedThisRun = new Set<string>();
+  const doorKey = (gx: number, gy: number, f: number) => `${gx},${gy},f${f}`;
+
+  /** If the party (at gx,gy facing f) is blocked by a CLOSED door, force it open.
+   *  Returns true iff the door is now OPEN (edge 0). Logs welded/jam as a gap. */
+  const forceDoorIfClosed = async (gx: number, gy: number, f: number): Promise<boolean> => {
+    const dk = doorKey(gx, gy, f);
+    if (doorsForced.has(dk)) return true;       // already opened earlier this run
+    if (doorsJammed.has(dk)) return false;       // known-jammed; don't re-grind
+    const door0 = await readDoorEdge(c, base);
+    if (!door0) return false;                     // not a door edge — it's a wall
+    if (door0.edge === 0) { doorsForced.add(dk); return true; } // already open
+    if (door0.edge === 2) { console.log(`  door ${dk}: WELDED (edge 2) — coverage gap`); doorsJammed.add(dk); return false; }
+    if (door0.edge !== 1) return false;           // unknown edge state — treat as wall
+    doorTriedThisRun.add(dk);
+    // strongest living member for the force roll.
+    const roster = await readRoster(c, base);
+    const living = roster.filter((m) => m.alive);
+    if (!living.length) { console.log(`  door ${dk}: no living member to force — gap`); doorsJammed.add(dk); return false; }
+    const strongest = living.reduce((a, b) => (b.str > a.str ? b : a));
+    const memberDown = strongest.idx + 1;
+    console.log(`  CLOSED DOOR at ${dk} (lock); forcing with member${strongest.idx} STR=${strongest.str}`);
+    for (let a = 0; a < 12; a++) {
+      // re-stamp suppression around the force drive (the menu/roll burns frames).
+      await applyPokes(base, ovl);
+      const r = await forceDoorOnly(c, base, memberDown);
+      await applyPokes(base, ovl);
+      const p = await frParty(c, base);
+      // The force drive must leave us in the SAME cell still in the maze.
+      if (p.gs !== 5) { console.log(`    force attempt ${a}: gs=${p.gs} (left maze) — abort door`); doorsJammed.add(dk); return false; }
+      if (p.gx !== gx || p.gy !== gy) { console.log(`    force attempt ${a}: DESYNC to (${p.gx},${p.gy}) — abort door`); doorsJammed.add(dk); return false; }
+      const door = await readDoorEdge(c, base);
+      const edge = door?.edge ?? null;
+      if (edge === 0) { console.log(`    force attempt ${a}: edge=0  <-- DOOR OPEN`); doorsForced.add(dk); return true; }
+      if (edge === 2) { console.log(`    force attempt ${a}: edge=2  <-- JAMMED WELDED — coverage gap`); doorsJammed.add(dk); return false; }
+      // failed roll (edge still 1): re-face the door (the menu may have nudged facing) + RNG-vary.
+      const fp = await faceTo(f);
+      if (fp.gs !== 5 || fp.gx !== gx || fp.gy !== gy || fp.f !== f) { console.log(`    force attempt ${a}: lost door frame (${fp.gx},${fp.gy},f${fp.f},gs${fp.gs}) — abort`); doorsJammed.add(dk); return false; }
+      for (let s = 0; s < 4 + a; s++) { await applyPokes(base, ovl); await c.step(5); } // vary RNG phase
+    }
+    console.log(`  door ${dk}: force exhausted (12 attempts, edge never 0) — coverage gap`);
+    doorsJammed.add(dk);
+    return false;
   };
 
   // --- DFS over interior cells (physical backtracking, self-correcting) ---
@@ -5947,9 +6016,20 @@ async function phaseInteriorCap(c: HostClient): Promise<void> {
       const fp = await faceTo(d);
       if (fp.gs !== 5) { console.log(`  ENCOUNTER while turning to explore d${d} at (${gx},${gy}); abort branch`); encountersSlipped++; aborted = aborted || (await frParty(c, base)).gs !== 5; return; }
       if (fp.gx !== gx || fp.gy !== gy) { console.log(`  DESYNC before explore d${d}: at (${fp.gx},${fp.gy}); abort branch`); desyncs++; return; }
-      const r = await stepForwardAndUnlock();
+      let r = await stepForwardAndUnlock();
       if (r.p.gs !== 5) { console.log(`  ENCOUNTER on step d${d} from (${gx},${gy}) gs=${r.p.gs}; abort branch`); encountersSlipped++; aborted = true; return; }
-      if (!r.moved) continue; // blocked (wall)
+      if (!r.moved) {
+        // Blocked: a wall OR a closed door. Distinguish + force the door, then re-step.
+        const facing = await frParty(c, base);
+        if (facing.gs === 5 && facing.gx === gx && facing.gy === gy && facing.f === d) {
+          const opened = await forceDoorIfClosed(gx, gy, d);
+          if (opened) {
+            r = await stepForwardAndUnlock();
+            if (r.p.gs !== 5) { console.log(`  ENCOUNTER stepping through forced door d${d} from (${gx},${gy}) gs=${r.p.gs}; abort branch`); encountersSlipped++; aborted = true; return; }
+          }
+        }
+        if (!r.moved) continue; // genuine wall, welded door, or force failed
+      }
       const nk = cellKey(r.p.gx, r.p.gy);
       const isNew = !visited.has(nk);
       const childGx = r.p.gx, childGy = r.p.gy;
@@ -5972,8 +6052,11 @@ async function phaseInteriorCap(c: HostClient): Promise<void> {
 
   // --- coverage report ---
   console.log(`\n=== interiorcap coverage report ===`);
-  console.log(`  interior cells visited: ${visited.size}${visited.size >= maxCells ? ' (maxCells cap hit)' : ' (DFS exhausted)'}`);
-  console.log(`  (cell,facing) views captured: ${viewCount} (unique: ${captured.size})`);
+  console.log(`  interior cells visited this run: ${visited.size}${visited.size >= maxCells ? ' (maxCells cap hit)' : ' (DFS exhausted)'}`);
+  console.log(`  NEW views captured this run: ${newViews}`);
+  console.log(`  running total views in ${outDir}: ${startingTotal + newViews} (was ${startingTotal})`);
+  console.log(`  doors forced open this run: [${[...doorsForced].join(', ') || '(none)'}]`);
+  console.log(`  doors JAMMED/unreachable (coverage gaps): [${[...doorsJammed].join(', ') || '(none)'}]`);
   console.log(`  encounters slipped through: ${encountersSlipped}`);
   console.log(`  palette misses: ${paletteMisses}`);
   console.log(`  position desyncs: ${desyncs}`);
