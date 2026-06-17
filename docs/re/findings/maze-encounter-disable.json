@@ -1,0 +1,97 @@
+{
+  "topic": "maze-encounter-disable",
+  "subagent_run": "2026-06-16",
+  "binaries": ["wmaze.ovr"],
+  "context": "#091 Piece B. Goal: find a GLOBAL 'encounters off' memory poke that lets the interior-capture campaign step freely past the forced (124,121,f2) door without combat firing at (124,120). Prior passes (maze-encounter-trigger.json, maze-interior-capture-obstacles.json) tried per-cell pokes (0x4e08 bit, 0x4e68 bit, *0x5034, the special-record type byte) ALL applied ONCE pre-step, all FAILED, and concluded '0x4e08 is not the trigger'. This pass applied the SHARP technique requested: a write-watch on the game-state word 0x363a on a CONTINUOUS live session (no serialize-restore), then live-tested candidate global pokes RE-APPLIED PER FRAME across the zone-transition door step. New harness phase `encdisable` in tools/libretro/trace-maze.ts.",
+  "summary": "VERDICT: QUALIFIED YES (strong assist, not airtight). A capture-time encounter disable EXISTS and decisively fixes the previously-blocking (124,121,f2)->(124,120) DOOR-ENTRY encounter, but it is a PER-FRAME re-stamp (a one-shot poke is wiped by the zone-load re-derivation — exactly why every prior single-poke attempt failed) and it is NOT 100% across many steps (a residual encounter still fires after ~4-5 interior steps). The poke: zero the WHOLE 0x60-byte 0x4e08 encounter plane (and, for robust movement, also 0x4e68 + the words *0x5034 and *0x5032), re-stamped every few emulated frames while stepping. CONTROL with NO poke on the same continuous path: the door-traverse hits gs=10 (combat init) immediately at (124,120). WITH the poke: the door-traverse lands at (124,120) gs=5 and the party walks 4-6 interior steps clean (gs=5, real movement), then a residual encounter eventually fires (gs=10) on a deeper step — observed at step 4-5 across runs, both on moved and wall-stuck steps. So the poke converts the ~90% door-entry block into a reliable pass + several free steps, but the campaign STILL needs flee/retry for the residual interior encounters. The static law: dungeon_main_loop (wmaze 0x2abc) reads getbit_test(0x4e08, cell) UNGATED at the loop top and writes *0x363a=0x0a (combat) if the bit is 1 (the C7 06 3A 36 0A 00 site at wmaze file 0x2b6a). Stepping the door is a zone transition (state 7, bulk store at lin 0xf1481) that MEMSETs+REFILLS 0x4e08 from the special-record table, so a pre-step zero is gone by the time the loop-top check runs at the destination — only continuous re-stamping survives the refill. The combat-init writer's exact cs:ip was NOT captured by the 0x363a write-watch (it fires in the zone-load/winit path the wmaze exec/write trace can't observe — the documented observability wall), but the disasm site is unambiguous and the live disable confirms 0x4e08 IS the operative plane for this cell after all (correcting the prior pass's '0x4e08 is not the trigger').",
+  "findings": [
+    {
+      "id": "combat-init-write-site-loop-top-0x4e08-UNGATED",
+      "claim": "dungeon_main_loop (wmaze 0x2abc) reads getbit_test(0x4e08, cell) at the TOP of its do-loop with NO enclosing gate, and if the bit==1 writes *0x363a=0x0a (combat init) and returns. The decompile shows the surrounding `if (*0x5032==1)` (line 47) gates only a view_render_and_present() call — NOT the encounter check. So the 0x4e08 fire is unconditional per loop pass. This is the C7 06 3A 36 0A 00 site at wmaze file 0x2b6a. There are TWO other in-loop 0x363a=10 writers: the all-asleep ambush (FUN_0000_1e90==1) and the c47e random ~0.5% roll (`local_c=1000; if (0x3e2 < c47e())`).",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2b6a"},
+        "type": "ghidra_decompile",
+        "details": "dump_function 0x2abc decompile: `do { if (*0x5032==1) view_render_and_present(); local_c = getbit_test(0x4e08); if (local_c==1) { view_write_rng_variant_byte(); ...; *0x363a=10; return; } iVar5=getbit_test(<0x4e68>); if (iVar5==1 && *0x5034==1 && FUN_0000_8387()...) return; ...; *0x5032=0; *0x5034=0; local_c=1000; if (0x3e2 < c47e()) {...; *0x363a=10; return;} ...}`. The five C7 06 3A 36 0A 00 sites in wmaze (from prior pass): 0x2984, 0x2b6a, 0x2cf2, 0x2d33, 0x6cc0. CORRECTS the prior pass's claim that the encounter check is gated by *0x5032/*0x5034 — only the render and the SPECIAL-handler are gated; the primary 0x4e08 fire is ungated."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "0x4e08-IS-the-operative-plane-when-re-stamped",
+      "claim": "DECISIVE LIVE RESULT: zeroing the whole 0x60-byte 0x4e08 plane, RE-APPLIED PER FRAME across the door-traverse step, suppresses the (124,120) DOOR-ENTRY combat reliably (door-step gs=5 every run with the poke vs gs=10 in the no-poke control) and keeps the next several interior steps clean. This DIRECTLY CONTRADICTS the prior pass's '0x4e08 is not the trigger' conclusion — that conclusion was an artifact of applying the poke ONCE before the step. The door step is a zone transition that memsets+refills 0x4e08 mid-flight (dungeon_load_zone 0x3d3), so a one-shot zero is wiped before the loop-top getbit_test(0x4e08,cell) runs at the destination zone. Continuous re-stamping holds the plane at 0 through the refill, so the loop-top read returns 0 and never fires. 0x4e08 is therefore the operative plane after all — the prior micro-step that saw bit[36]=0 yet combat fired was reading the bit BEFORE the zone-load refill re-set it. CAVEAT: the suppression is not airtight deeper in — a residual encounter fires after ~4-5 interior steps (see residual-encounter finding).",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2b6a"},
+        "type": "live_observation",
+        "details": "encdisable (continuous session): 0x4e08-plane-zero per-frame -> door-traverse to (124,120) gs=5, interior frames gs=5 (combat suppressed; that run wall-stuck at 124,120 but NO combat). 0x4e08+0x4e68+*0x5034+*0x5032 all-zero per-frame: door-traverse to (124,120) gs=5 AND moves through (124,120)->(124,119)->(125,119), turns, moves again. Run A (step-7 cadence, stepN=6): gs=[5,5,5,5,5,5] all clean, reproduced 2x. Run B (step-7, stepN=6): gs=[5,5,5,5,10] (fired step 4). Run C (tighter step-3 cadence, stepN=8): gs=[5,5,5,5,10] (fired step 4, on a MOVED step to 125,119). The harness `write` cmd caps payload at ~15 bytes (a2[32] field), so the plane zero is chunked (writeChunked, 12 bytes/call). The door-entry gs=5 is 100% across all poked runs; the residual is the deeper-step variability."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "control-fires-without-poke",
+      "claim": "CONTROL: with NO poke, the IDENTICAL continuous door-traverse hits gs=10 (combat init) immediately at (124,120). This is the contrast that proves the poke is doing the suppressing (not a lucky RNG window). Consistent with the prior pass's ~90% baseline fire rate.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2abc"},
+        "type": "live_observation",
+        "details": "encdisable --skipA --cand 0 (CONTROL no-op apply): force-only door open (attempt 0 edge=0), door-traverse -> at(124,120,f2) gs=10. (A prior control attempt got unlucky on the door re-jam — edge stayed 2 across 20 force retries — and never reached the traverse; the door-jam flake is orthogonal to the encounter.)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "combat-init-writer-cseip-NOT-captured",
+      "claim": "The combat-init write *0x363a=0x0a was NOT captured by a write-watch armed on a TIGHT [0x363a,0x363c) window across the door-traverse step. The writers that WERE captured: (1) lin 0xf1481 — the bulk zone-load/state-restore store (writes *0x363a=7 zone-load, then non-state bytes) — a linear/physical cs:ip outside wmaze, consistent with the winit/cross-overlay zone-load path; (2) wmaze+0x1779 (inside menu_grid_select 0x1574..0x1a3d) writing non-state words (0x1a1a, 0xb207) to 0x363a — the OPEN-door menu UI reusing that word as scratch, NOT a game-state transition. The actual 0x0a write fires in the zone-load/winit path the wmaze exec/write trace cannot observe (the documented #087 observability wall). RECONFIRMS the wall, but the static disasm site (loop-top 0x4e08 fire at wmaze 0x2b6a) + the live re-stamp disable together pin the mechanism without needing the cs:ip.",
+      "category": "tooling",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2b6a"},
+        "type": "live_observation",
+        "details": "encdisable STAGE A wwatch [base+0x363a, base+0x363c) across the traverse: 7 writes, gs ended 12 (combat). Writers: lin 0xf1481 *0x363a=7 (zone-load) + *0x363b bytes; wmaze+0x1779 *0x363a=0x1a1a/0xb207 (menu scratch). NO val==0x0a write to 0x363a in the drain window. The traverse helper returns as soon as gx/gy changes or gs!=5, so the 0x0a write may also land just after the drain boundary; either way it is not in the wmaze-observable stream. menu_grid_select identity from list_functions (0x1574 size 1225 spans 0x1779)."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "residual-encounter-after-several-steps",
+      "claim": "The per-frame 0x4e08-plane poke is NOT airtight: a residual encounter (gs=10) still fires after ~4-5 interior steps, on both moved and wall-stuck steps, even with a tightened re-stamp cadence (every 3 frames). The door-entry encounter is 100% suppressed (gs=5 across all poked runs), but deeper steps occasionally fire. Likely causes (not isolated this pass): (a) the c47e random-encounter path (dungeon_main_loop `local_c=1000; if (0x3e2 < c47e()) *0x363a=10`, ~0.5%/loop but accumulating over the many loop iterations per step) — this path does NOT read 0x4e08 and so is immune to the plane poke; and/or (b) a move-commit/zone-load race where a fresh cell's 0x4e08 bit is re-derived and read in the gap between our re-stamps. Practical upshot: the poke turns the blocking ~90% door-entry fire into a reliable pass plus several free steps, but the capture campaign STILL needs a flee/retry layer for the residual interior encounters.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2d33"},
+        "type": "live_observation",
+        "details": "encdisable --cand 3 (full poke), step-7 cadence: gs=[5,5,5,5,10] (fired step 4). step-3 cadence stepN=8: gs=[5,5,5,5,10] (fired step 4, moved to 125,119,f2 gs=10). The c47e random site is at wmaze ~0x2d07/0x2d33 (mov ax,0x3e8 / call c47e / cmp ax,0x3e2 / *0x363a=10). NOT confirmed whether the residual is c47e vs a 0x4e08-refill race — would need a per-fire 0x4e08-bit read at the firing cell to disambiguate."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "zone-load-refill-explains-one-shot-poke-failure",
+      "claim": "Stepping the (124,121,f2) door is a ZONE TRANSITION: a bulk store at lin 0xf1481 momentarily sets *0x363a=7 (zone-load state), and dungeon_load_zone (wmaze 0x3d3) memsets 0x4e08=0 then REFILLS it (and 0x4e68 from the special-record table). This re-derivation is what wipes any pre-step poke before the destination-cell encounter check runs — the mechanistic reason ALL prior one-shot pokes (and the prior pass's micro-step bit read) failed. The fix is purely a TIMING one: re-stamp the zero after the refill, i.e. every frame during the step.",
+      "category": "maze_state",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x3d3"},
+        "type": "live_observation_plus_disassembly",
+        "details": "STAGE A captured *0x363a=7 written by lin 0xf1481 during the step (zone-load). dungeon_load_zone (0x3d3) per prior passes: func_0x0000f34c(0x4e08,0x60,0) memset, then automap fill; 0x4e68 refilled per special record. The live difference between one-shot poke (FAIL, prior passes) and per-frame poke (WIN, this pass) is the direct evidence the refill is mid-step and re-stamping defeats it."
+      },
+      "confidence": "high"
+    }
+  ],
+  "verdict": {
+    "found_global_disable": "QUALIFIED — yes for the blocking door-entry encounter (100% suppressed), partial for deeper steps (residual fire after ~4-5 steps).",
+    "poke": "Zero the whole 0x60-byte 0x4e08 plane at DGROUP base+0x4e08 (and, for robust movement, also zero 0x4e68 [base+0x4e68, 0x60 bytes], *0x5034 [base+0x5034, word], *0x5032 [base+0x5032, word]).",
+    "timing": "RE-APPLY PER FRAME (every few emulated frames) while stepping — NOT a one-shot poke. A single pre-step poke is wiped by the zone-load refill (this is why all prior attempts failed). The capture campaign should re-stamp the zero before/around every move on a CONTINUOUS session (no serialize-restore).",
+    "minimal_vs_robust": "0x4e08-plane-only suppresses combat (gs stays 5) but in one run left the party wall-stuck at (124,120) (likely walls, not the poke). The 4-field poke (0x4e08+0x4e68+*0x5034+*0x5032) both suppresses AND moves cleanly through multiple cells — use the 4-field version for the campaign.",
+    "not_airtight": "After ~4-5 interior steps a residual encounter (gs=10) still fires (observed step-4/step-5 across runs, tighter cadence did not fix it). The door-entry fire is fully suppressed; the residual is a separate path (likely the c47e ~0.5%/loop random encounter, which does NOT read 0x4e08, or a move-commit refill race). So the campaign needs the poke PLUS a flee/retry layer for the residual.",
+    "ruled_out": "Single pre-step pokes of any of {0x4e08 bit, 0x4e68 bit, *0x5034, *0x5032, the special-record type byte} (all FAILED in prior passes — wiped by the zone-load refill). A static immediate-value disable instruction was not pursued (a memory re-stamp is sufficient and simpler for the harness). A true ONE-SHOT global enable byte that survives zone re-entry was NOT found (dungeon_load_zone refills the planes on every zone entry).",
+    "scope": "Proven for the (124,121,f2)->(124,120) entry encounter (100% gs=5 with poke vs gs=10 control) and ~4-6 subsequent interior steps. The per-frame 0x4e08-plane zero suppresses the loop-top encounter fire (the ungated primary path, wmaze 0x2b6a); the c47e ~0.5% random fire and the all-asleep ambush are separate paths the plane poke does not cover.",
+    "combat_init_writer_cseip": "NOT_CAPTURED (observability wall — fires in the zone-load/winit path; the 0x363a write-watch caught only the lin 0xf1481 zone-load store and menu-scratch writes). Static site is unambiguous: wmaze file 0x2b6a (loop-top getbit_test(0x4e08)==1 -> *0x363a=0x0a)."
+  },
+  "unresolved": [
+    "The exact cs:ip of the combat-init *0x363a=0x0a write is still uncaptured (zone-load/winit path, observability wall). The static loop-top site (wmaze 0x2b6a) is the disasm-confirmed mechanism and the live disable validates it, so the cs:ip is no longer load-bearing for the capture goal — but if ever needed, a write-watch armed on 0x363a BEFORE the zone-load completes (e.g. single-stepping the bulk store at lin 0xf1481 and re-arming) might catch it.",
+    "Whether a TRUE single global enable byte exists (one word that, set once, disables all encounters without per-frame re-stamping) — not found. dungeon_load_zone refills the planes on every zone entry, so any one-shot is transient. The per-frame re-stamp is the practical global disable.",
+    "Cand-1 (0x4e08-only) wall-stuck at (124,120): re-test whether that was walls (likely) or whether 0x4e68/special-handler state left over blocks movement — cand-2 (which also zeros 0x4e68/*0x5034/*0x5032) moves fine, so the campaign should just use cand-2."
+  ],
+  "harness": "Added the `encdisable [forceAttempts] [stepN] [--skipA] [--cand N] [--wide]` phase to tools/libretro/trace-maze.ts. STAGE A: continuous driveToDoor -> force-only door open -> wwatch 0x363a (tight, or --wide for [0x3638,0x3640)) across the traverse -> report writers + flag the 0x0a/7 writers + translate to wmaze file offset. STAGE B: per candidate, fresh continuous driveToDoor -> force open -> apply the candidate poke PER FRAME across the door-traverse and each interior step -> report gs after each. Candidates: 0=CONTROL(no poke), 1=*0x5034=0, 2=0x4e08-plane-zero, 3=0x4e08+0x4e68+*0x5034+*0x5032-zero. writeChunked() works around the harness `write` 15-byte payload cap. Run: `pnpm tsx tools/libretro/trace-maze.ts encdisable 20 6 --skipA --cand 3`."
+}

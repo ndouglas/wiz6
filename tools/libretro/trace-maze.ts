@@ -4037,16 +4037,36 @@ async function openAllDoors(c: HostClient, base: number): Promise<number> {
 }
 
 async function phaseCollMap(c: HostClient): Promise<void> {
-  const outFile = process.argv[3] ?? '/tmp/wiz6-collmap.json';
-  const budget = Number(process.argv[4] ?? '200'); // max views to expand
+  // Parse args: optional `--seed <stateFile>`; positionals outFile + budget are
+  // the first/second NON-flag args after the phase name (argv[2]).
+  const seedIdx = process.argv.indexOf('--seed');
+  const seedFile = seedIdx >= 0 ? process.argv[seedIdx + 1] : undefined;
+  // Positional args (outFile, budget) = the args after the phase name, with the
+  // `--seed` flag and its value removed so they aren't mistaken for positionals.
+  const flagless: string[] = [];
+  for (let i = 3; i < process.argv.length; i++) {
+    if (process.argv[i] === '--seed') { i++; continue; }
+    flagless.push(process.argv[i]!);
+  }
+  const outFile = flagless[0] ?? '/tmp/wiz6-collmap.json';
+  const budget = Number(flagless[1] ?? '200'); // max views to expand
+  const DODGE = 8; // encounter-dodge retries per forward probe (interior is encounter-prone)
   const dir = '/tmp/wiz6-collmap-states';
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
-  const base = await driveToFreeRoam(c);
+  let base: number;
+  if (seedFile) {
+    await c.step(3000);
+    await c.unserialize(seedFile); await c.step(2);
+    base = await c.anchor();
+    console.log(`collmap: seeded from ${seedFile}`);
+  } else {
+    base = await driveToFreeRoam(c);
+  }
   const start = await frParty(c, base);
   const pokedDoors = await openAllDoors(c, base);
   console.log(`collmap: poked ${pokedDoors} type-7 doors OPEN (interior capture #091)`);
-  console.log(`collmap: free-roam entrance gx${start.gx} gy${start.gy} f${start.f}; budget=${budget} views`);
+  console.log(`collmap: ${seedFile ? 'seed' : 'free-roam entrance'} gx${start.gx} gy${start.gy} f${start.f} gs${start.gs}; budget=${budget} views`);
   const keyOf = (p: { gx: number; gy: number; f: number }) => `${p.gx},${p.gy},${p.f}`;
   const nodeState = new Map<string, string>();
   const visited = new Set<string>();
@@ -4062,24 +4082,37 @@ async function phaseCollMap(c: HostClient): Promise<void> {
     const k = queue.shift()!;
     const st = nodeState.get(k)!;
     for (const mv of ['up', 'left', 'right'] as const) {
-      await c.unserialize(st); await c.step(2);
-      const before = await frParty(c, base);
-      await c.key(mv, 'tap'); await c.step(45);
-      const after = await frParty(c, base);
-      if (mv === 'up') {
-        fwd.set(keyOf(before),
-          after.gs !== 5 ? 'encounter'
-            : (after.gx !== before.gx || after.gy !== before.gy) ? 'open' : 'blocked');
+      // Encounter-dodge retry: the interior is ~90% encounter-prone (RNG-phase
+      // gated), so a single roll would mark almost every step 'encounter'. Retry
+      // with a varied settle phase until we get a CLEAN window (gs===5), then
+      // classify; a clean non-move is a real wall, a clean move is open. Only if
+      // ALL DODGE attempts encountered do we record 'encounter'.
+      let before: Awaited<ReturnType<typeof frParty>> | null = null;
+      let after: Awaited<ReturnType<typeof frParty>> | null = null;
+      let verdict: 'open' | 'blocked' | 'encounter' = 'encounter';
+      for (let attempt = 0; attempt < DODGE; attempt++) {
+        await c.unserialize(st); await c.step(2 + attempt * 13); // vary RNG phase
+        before = await frParty(c, base);
+        await c.key(mv, 'tap'); await c.step(45);
+        after = await frParty(c, base);
+        if (after.gs !== 5) continue; // encounter this roll — try a new phase
+        const moved = after.gx !== before.gx || after.gy !== before.gy;
+        verdict = moved ? 'open' : 'blocked';
+        break; // clean window (moved=open, or clean non-move=real wall)
       }
-      const took = after.f !== before.f || after.gx !== before.gx || after.gy !== before.gy;
-      if (took && after.gs === 5) {
-        const nk = keyOf(after);
-        if (!visited.has(nk)) {
-          visited.add(nk);
-          const ns = `${dir}/n-${nk.replace(/,/g, '_')}.state`;
-          await c.serialize(ns);
-          nodeState.set(nk, ns);
-          queue.push(nk);
+      if (mv === 'up' && before) fwd.set(keyOf(before), verdict);
+      // Expand only on a CLEAN view-changing step (the `after` from the clean window).
+      if (after && after.gs === 5) {
+        const took = before != null && (after.f !== before.f || after.gx !== before.gx || after.gy !== before.gy);
+        if (took) {
+          const nk = keyOf(after);
+          if (!visited.has(nk)) {
+            visited.add(nk);
+            const ns = `${dir}/n-${nk.replace(/,/g, '_')}.state`;
+            await c.serialize(ns);
+            nodeState.set(nk, ns);
+            queue.push(nk);
+          }
         }
       }
     }
@@ -4544,6 +4577,1494 @@ async function phaseEncProbe(c: HostClient): Promise<void> {
 /** `screencap <stateFile> <keys> <outPng> [settle]` — unserialize a state, press a
  *  comma-separated key macro (e.g. `enter` or `enter,down,down`), settle, and save the
  *  framebuffer as a PNG (+ .idx.gz). For eyeballing/capturing a screen like the OPTIONS menu. */
+/** Run the engine's real OPTIONS→OPEN→FORCE→WHO flow ONCE on the door the party
+ *  is currently facing, then attempt to step through. Returns the post-attempt
+ *  party plus whether the party stepped forward (= door opened & traversable) and
+ *  whether combat triggered. The party MUST already be in the door cell facing the
+ *  door. Key sequence (verified live in Task 1):
+ *    enter            -> PARTY OPTIONS (cursor SEARCH)
+ *    right down enter -> OPEN (grid idx4) -> detect type-7 door -> FORCE/PICK/EXIT (cursor FORCE)
+ *    enter            -> select FORCE -> WHO WILL TRY? picker (cursor defaults to EXIT)
+ *    down* enter      -> move cursor to member N (down x N) and pick -> STRAINING bar
+ *    enter            -> resolve the strain roll -> SUCCESS/FAILURE/JAMMED message
+ *  Then dismiss, re-orient to the door edge, and bump forward to traverse.
+ *  KEY CADENCE FACTS (verified live, #091 Piece B re-test):
+ *    - The WHO picker opens with the cursor on EXIT; `down` N times reaches member N.
+ *    - The STRAINING bar is pre-filled at member-pick and resolves on the NEXT
+ *      enter (one enter -> the "* SUCCESS/FAILURE !" message). Hammering extra
+ *      enters overshoots back through the WHO/FORCE menus.
+ *    - On SUCCESS the door opens but the party is NOT auto-stepped (RE 88af); the
+ *      dismiss can leave the party turned, so RE-ORIENT to `before.f` then bump
+ *      forward (up#0 often no-moves, up#1 steps to the interior cell).
+ *    - Stepping into the interior frequently triggers a random encounter (gs=11);
+ *      that's a separate event and does NOT mean the traverse failed. */
+async function forceDoorOpen(c: HostClient, base: number, memberDown = 1, pngPath?: string): Promise<{ moved: boolean; gs: number; gx: number; gy: number }> {
+  const before = await frParty(c, base);
+  // OPTIONS -> OPEN -> FORCE menu.
+  await c.key('enter', 'tap'); await c.step(40);          // PARTY OPTIONS
+  await c.key('right', 'tap'); await c.step(20);
+  await c.key('down', 'tap'); await c.step(20);
+  await c.key('enter', 'tap'); await c.step(60);          // OPEN -> FORCE/PICK/EXIT (cursor FORCE)
+  await c.key('enter', 'tap'); await c.step(60);          // select FORCE -> WHO picker (cursor on EXIT)
+  // The WHO picker opens with the cursor on EXIT; `down` N times reaches member N
+  // (1 = first member). Pick the requested member.
+  for (let d = 0; d < memberDown; d++) { await c.key('down', 'tap'); await c.step(20); }
+  await c.key('enter', 'tap'); await c.step(40);          // pick member -> STRAINING bar ("PRESS ~")
+  // The STRAINING bar resolves on the NEXT key press (one enter fills+resolves the
+  // roll and prints the SUCCESS/FAILURE/JAMMED message). Verified via per-frame
+  // captures: bar pre-filled at member-pick, +1 enter -> "* FAILURE/SUCCESS".
+  await c.key('enter', 'tap'); await c.step(30);          // resolve the strain roll -> result message
+  if (pngPath) { try { await c.fb(pngPath); } catch { /* fb capture best-effort */ } }
+  // Dismiss the result message. On SUCCESS the door opens and the menu tears down
+  // straight back to free-roam (no auto-step, per RE 88af); on FAILURE the menu
+  // re-appears but a bare-floor frame is fine for the step probe below.
+  await c.key('enter', 'tap'); await c.step(50);
+  await c.key('escape', 'tap'); await c.step(30);         // close any lingering menu
+  // Re-orient to face the door edge (the dismiss can leave the party turned) and
+  // attempt the step. The freshly-opened door needs a leading bump, so try a few
+  // forward presses. (Verified live: up#0 no-move, up#1 -> (124,120) on SUCCESS.)
+  let cur = await frParty(c, base);
+  for (let t = 0; t < 4 && cur.f !== before.f && cur.gs === 5; t++) {
+    await c.key('left', 'tap'); await c.step(40);
+    cur = await frParty(c, base);
+  }
+  let after = cur;
+  for (let s = 0; s < 3; s++) {
+    await c.key('up', 'tap'); await c.step(60);
+    after = await frParty(c, base);
+    if (after.gx !== before.gx || after.gy !== before.gy || after.gs !== 5) break;
+  }
+  return { moved: after.gx !== before.gx || after.gy !== before.gy, gs: after.gs, gx: after.gx, gy: after.gy };
+}
+
+/** `forcethrough` — SPIKE (#091 Piece B Stage 0). Drive to the (124,121,f2) door,
+ *  run forceDoorOpen with retry, and report whether the party walks through to
+ *  (124,120). Decides GO (automated capture) vs NO-GO (manual-seed fallback). */
+async function phaseForceThrough(c: HostClient): Promise<void> {
+  const base = await driveToFreeRoam(c);
+  // Navigate into the door cell facing the door (path from state-catalog MAZE_DOOR_*).
+  for (const k of ['left', 'up', 'up', 'up', 'left'] as const) { await frMove(c, base, k); }
+  const at = await frParty(c, base);
+  console.log(`forcethrough: at gx${at.gx} gy${at.gy} f${at.f} gs${at.gs} (want gx124 gy121 f2)`);
+  if (at.gx !== 124 || at.gy !== 121 || at.f !== 2) { console.log('NOT at the door — abort (re-check the nav path)'); return; }
+  const atDoor = '/tmp/wiz6-forcethrough-door.state';
+  await c.serialize(atDoor);
+  const MAX = 12;
+  for (let attempt = 1; attempt <= MAX; attempt++) {
+    await c.unserialize(atDoor); await c.step(2);
+    const r = await forceDoorOpen(c, base);
+    console.log(`  attempt ${attempt}/${MAX}: moved=${r.moved} gs=${r.gs} -> gx${r.gx} gy${r.gy}`);
+    if (r.gs !== 5) { console.log(`    combat/menu (gs=${r.gs}) triggered — retrying`); continue; }
+    if (r.moved && r.gx === 124 && r.gy === 120) { console.log(`GO: forced + stepped to (124,120) in ${attempt} attempt(s)`); return; }
+  }
+  console.log('NO-GO: could not force + step through in ' + MAX + ' attempts — escalate (Approach 2 fallback)');
+}
+
+/** Read the 6 party members' STR + SP/HP-cur from the live roster.
+ *  Char struct = roster_base + member*0x1b0; STR byte at struct-rel 0x110 (abs
+ *  0x4514 for member 0), SP-cur word at rel 0 (abs 0x4404), SP-max word at rel 2
+ *  (abs 0x4406) — per docs/re/findings/maze-open-door-menu.json. A member is
+ *  "alive" (force-eligible) if STR > 0 AND SP-cur > 0. */
+async function readRoster(c: HostClient, base: number) {
+  const ROSTER0 = 0x4404, STRIDE = 0x1b0, STR_REL = 0x110, SPCUR_REL = 0, SPMAX_REL = 2;
+  const out: Array<{ idx: number; str: number; spCur: number; spMax: number; alive: boolean }> = [];
+  for (let m = 0; m < 6; m++) {
+    const cb = base + ROSTER0 + m * STRIDE;
+    const str = (await c.read(cb + STR_REL, 1))[0]!;
+    const spCur = u16(await c.read(cb + SPCUR_REL, 2), 0);
+    const spMax = u16(await c.read(cb + SPMAX_REL, 2), 0);
+    out.push({ idx: m, str, spCur, spMax, alive: str > 0 && spCur > 0 });
+  }
+  return out;
+}
+
+/** `forcethrough2` — RE-TEST of the Stage-0 door-force gate under VARIED RNG (#091
+ *  Piece B). The prior `forcethrough` spike reported 12 byte-identical FAILURES,
+ *  suspected to be a serialize-replay artifact. This re-test found TWO real bugs in
+ *  the original spike's `forceDoorOpen` (both since fixed): (a) it sent only ONE
+ *  enter for the STRAINING bar — never resolving the roll cleanly; (b) on SUCCESS it
+ *  fired stray menu keys that ROTATED the party off the door edge, so the follow-up
+ *  step went the wrong way. With the corrected cadence, RNG-phase stepping DOES vary
+ *  the roll (a0=FAILURE, a4=SUCCESS in run4) and the door (124,121,f2) lock-3 CAN be
+ *  forced open by THESUS (STR 18) and traversed to (124,120) — VERDICT: GO.
+ *  Variations exercised:
+ *    1. RNG-phase stepping: c.step(2 + attempt*17) after unserialize (cheap, works).
+ *    2. Strongest-member pick: read all members' STR, force with the highest.
+ *    3. Fresh-boot (fallback): cold-boot + re-navigate (genuinely fresh RNG).
+ *  GO when any attempt forces the door + steps to (124,120) (an arrival encounter
+ *  gs=11 on the interior cell counts as success — it's a separate random event). */
+/** Cold-boot + navigate to the (124,121,f2) lock-3 door, retrying the whole boot
+ *  on the random-encounter / unlock-flake that derails the short entry nav. The
+ *  re-boot also genuinely varies RNG. Returns the DGROUP base with the party
+ *  cleanly standing in the door cell facing the door (gs=5). Throws if it can't
+ *  reach a clean door frame within `maxBoots` boots. */
+async function driveToDoor(c: HostClient, maxBoots = 10): Promise<number> {
+  for (let boot = 0; boot < maxBoots; boot++) {
+    let base: number;
+    try { base = await driveToFreeRoam(c); }
+    catch (e) { console.log(`  driveToDoor boot ${boot}: unlock flake — ${(e as Error).message}; reboot`); continue; }
+    let derailed = false;
+    for (const k of ['left', 'up', 'up', 'up', 'left'] as const) {
+      const p = await frParty(c, base);
+      if (p.gs !== 5) { derailed = true; break; }
+      await frMove(c, base, k);
+    }
+    const at = await frParty(c, base);
+    if (at.gs === 5 && at.gx === 124 && at.gy === 121 && at.f === 2) {
+      console.log(`  driveToDoor boot ${boot}: at door gx124 gy121 f2 gs5`);
+      return base;
+    }
+    console.log(`  driveToDoor boot ${boot}: derailed=${derailed} -> gx${at.gx} gy${at.gy} f${at.f} gs${at.gs}; reboot`);
+  }
+  throw new Error(`driveToDoor: could not reach a clean door frame in ${maxBoots} boots`);
+}
+
+async function phaseForceThrough2(c: HostClient): Promise<void> {
+  const base = await driveToDoor(c);
+  const at = await frParty(c, base);
+  console.log(`forcethrough2: at gx${at.gx} gy${at.gy} f${at.f} gs${at.gs} (want gx124 gy121 f2)`);
+
+  // --- Read + report the roster STR and the door lock strength. ---
+  const roster = await readRoster(c, base);
+  const lockStrength = 3; // (124,121,f2): extracted/maze/doors.json -> lockStrength 3, not welded
+  console.log('roster (STR / SPcur / SPmax / alive):');
+  for (const m of roster) console.log(`  member${m.idx} (picker down x${m.idx + 1}): STR=${m.str} SP=${m.spCur}/${m.spMax} alive=${m.alive}`);
+  const living = roster.filter((m) => m.alive);
+  // Strongest LIVING member; picker `down` count = idx+1 (cursor starts on EXIT).
+  const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+  console.log(`door lockStrength=${lockStrength}; strongest living member = member${strongest.idx} STR=${strongest.str} (picker down x${strongest.idx + 1})`);
+  // Force-success-feasibility read (from RE): strain_len = clamp(0x12 - STR + 2*lock, 1, 0x12);
+  // success iff progress >= strain_len, progress = clamp(avg of 4x rng(effSTR), 1, 0x12).
+  // Lower strain_len = easier. With STR≈strongest and lock 3, strain_len ≈ clamp(18 - STR + 6, 1, 18).
+  const strainLen = Math.max(1, Math.min(0x12, 0x12 - strongest.str + 2 * lockStrength));
+  console.log(`  (RE estimate) strain_len with strongest member ≈ ${strainLen}/18 — success needs progress >= ${strainLen}`);
+
+  const atDoor = '/tmp/wiz6-forcethrough2-door.state';
+  await c.serialize(atDoor);
+
+  // === Variation 1+2: RNG-phase stepping with the STRONGEST living member. ===
+  const memberDown = strongest.idx + 1;
+  const ATTEMPTS = Number(process.argv[3] ?? 12);
+  const outcomes: string[] = [];
+  console.log(`\n--- Variation 1+2: RNG-phase step + strongest member (member${strongest.idx}, down x${memberDown}), ${ATTEMPTS} attempts ---`);
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    await c.unserialize(atDoor);
+    const settle = 2 + attempt * 17;
+    await c.step(settle); // advance RNG to a different phase
+    // Capture the result-window framebuffer on the first attempt so we can EYEBALL
+    // whether the engine printed SUCCESS / FAILURE / JAMMED (proves the menu drive
+    // actually reached the roll, vs a misnavigated menu).
+    const png = `/tmp/wiz6-ft2-result-a${attempt}.rgba`;
+    const r = await forceDoorOpen(c, base, memberDown, png);
+    const line = `moved=${r.moved} gs=${r.gs} -> gx${r.gx} gy${r.gy}`;
+    outcomes.push(line);
+    console.log(`  attempt ${attempt} (settle ${settle}): ${line}${png ? ` [result fb -> ${png}]` : ''}`);
+    // A step to (124,120) == the door was forced open and traversed. An encounter
+    // (gs=11) on ARRIVAL in the interior cell is a separate random event and does
+    // NOT negate the traverse — it still proves GO.
+    if (r.moved && r.gx === 124 && r.gy === 120) {
+      console.log(`\nGO (RNG-step + strongest member): forced + stepped to (124,120) on attempt ${attempt} (settle ${settle})${r.gs !== 5 ? ` [arrival encounter gs=${r.gs}]` : ''}`);
+      return;
+    }
+    if (r.gs !== 5) { console.log(`    combat/menu (gs=${r.gs}) without traverse — retrying`); continue; }
+  }
+  const uniqueOutcomes = new Set(outcomes);
+  console.log(`\nVariation 1+2: ${uniqueOutcomes.size} distinct outcome(s) across ${ATTEMPTS} attempts ` +
+    `(${uniqueOutcomes.size === 1 ? 'IDENTICAL — confirms serialize-replay theory' : 'VARIED — RNG-stepping DID change the roll'}).`);
+
+  // === Variation 3: FRESH-BOOT (genuinely fresh RNG, no serialize-replay). ===
+  const FRESH = Number(process.argv[4] ?? 3);
+  console.log(`\n--- Variation 3: FRESH-BOOT re-navigate + force, ${FRESH} cold attempts (slow) ---`);
+  for (let b = 0; b < FRESH; b++) {
+    let fbase: number;
+    try {
+      fbase = await driveToDoor(c); // cold-boot + re-nav (genuinely fresh RNG)
+    } catch (e) {
+      console.log(`  fresh attempt ${b}: could not reach door — ${(e as Error).message}; skip`);
+      continue;
+    }
+    const froster = await readRoster(c, fbase);
+    const fliving = froster.filter((m) => m.alive);
+    const fstrong = fliving.length ? fliving.reduce((a, m) => (m.str > a.str ? m : a)) : froster[0]!;
+    const r = await forceDoorOpen(c, fbase, fstrong.idx + 1);
+    console.log(`  fresh attempt ${b} (member${fstrong.idx} STR=${fstrong.str}): moved=${r.moved} gs=${r.gs} -> gx${r.gx} gy${r.gy}`);
+    if (r.gs === 5 && r.moved && r.gx === 124 && r.gy === 120) {
+      console.log(`\nGO (fresh-boot + strongest member): forced + stepped to (124,120) on fresh attempt ${b}`);
+      return;
+    }
+  }
+
+  console.log('\nNO-GO: door (124,121,f2) lock-3 NOT forced open + stepped through across ' +
+    `${ATTEMPTS} RNG-step + ${FRESH} fresh-boot attempts with the strongest member. ` +
+    'Pivot to Approach 2 (manual-seed fallback).');
+}
+
+/** `forcediag` — single-shot diagnostic: unserialize the at-door state left by
+ *  forcethrough2 and drive the FORCE flow ONCE with a LONG strain settle, dumping
+ *  PNGs at (a) the completed strain/result window and (b) the frame just before the
+ *  forward step — to distinguish "force FAILED (door closed)" from "force SUCCEEDED
+ *  but my dismiss/step sequence ate the up-press". Usage: forcediag [stateFile]. */
+async function phaseForceDiag(c: HostClient): Promise<void> {
+  const stateFile = process.argv[3] ?? '/tmp/wiz6-forcethrough2-door.state';
+  // Settle phase that yielded a SUCCESS strain roll (run4 result-frame diff:
+  // attempts 4/6/7 -> settles 70/104/121). Default to the first proven success.
+  const settle = Number(process.argv[4] ?? 70);
+  await c.step(3000);
+  await c.unserialize(stateFile); await c.step(settle);
+  const base = await c.anchor();
+  const before = await frParty(c, base);
+  console.log(`forcediag: ${stateFile} settle=${settle} -> gx${before.gx} gy${before.gy} f${before.f} gs${before.gs}`);
+  // OPTIONS -> OPEN -> FORCE -> WHO -> member0 -> resolve strain.
+  await c.key('enter', 'tap'); await c.step(40);
+  await c.key('right', 'tap'); await c.step(20);
+  await c.key('down', 'tap'); await c.step(20);
+  await c.key('enter', 'tap'); await c.step(60);
+  await c.key('enter', 'tap'); await c.step(60);
+  await c.key('down', 'tap'); await c.step(20);
+  await c.key('enter', 'tap'); await c.step(40);           // pick member0 -> STRAINING bar
+  await c.key('enter', 'tap'); await c.step(30);           // resolve roll -> result message
+  await c.fb('/tmp/wiz6-forcediag-result.rgba');
+  console.log('  captured result message -> /tmp/wiz6-forcediag-result.rgba (eyeball SUCCESS/FAILURE)');
+  await c.key('enter', 'tap'); await c.step(50);           // dismiss message -> back to free-roam
+  let cur = await frParty(c, base);
+  console.log(`  after dismiss: gx${cur.gx} gy${cur.gy} f${cur.f} gs${cur.gs}`);
+  // The dismiss may leave the party turned; re-orient to face the door (f2) before
+  // stepping. Turn LEFT/RIGHT until facing == 2.
+  for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) {
+    await c.key('left', 'tap'); await c.step(40);
+    cur = await frParty(c, base);
+  }
+  await c.fb('/tmp/wiz6-forcediag-prestep.rgba');
+  console.log(`  pre-step (re-oriented): gx${cur.gx} gy${cur.gy} f${cur.f} gs${cur.gs}`);
+  const mid = { gx: cur.gx, gy: cur.gy };
+  for (let s = 0; s < 4; s++) {
+    await c.key('up', 'tap'); await c.step(60);
+    const a = await frParty(c, base);
+    console.log(`  up #${s}: gx${a.gx} gy${a.gy} f${a.f} gs${a.gs} (moved=${a.gx !== mid.gx || a.gy !== mid.gy})`);
+    if (a.gx !== mid.gx || a.gy !== mid.gy) { await c.fb('/tmp/wiz6-forcediag-stepped.rgba'); console.log('  STEPPED THROUGH -> /tmp/wiz6-forcediag-stepped.rgba'); return; }
+  }
+  console.log('  did NOT step through after SUCCESS — post-success step cadence still needs work');
+}
+
+/** `interiorseed [outState] [maxAttempts]` — drive to the (124,121,f2) door, force
+ *  it open with the strongest living member under RNG-phase variation, step through,
+ *  and serialize a CLEAN interior free-roam state (party at (124,120), gs=5). The
+ *  seed is a transient capture-time artifact, NOT committed. Reuses the Stage-0
+ *  machinery (driveToDoor/readRoster/forceDoorOpen). An arrival encounter (gs=11) is
+ *  rejected (we want a clean gs=5 seed); the loop retries with a fresh RNG phase. */
+/** `interiorseed [outState] [forceAttempts] [stepAttempts]` — mint a CLEAN gs=5
+ *  interior seed (party at (124,120), door open) WITHOUT a poke or flee. The
+ *  (124,120) encounter is RNG-phase-gated (~10% clean window — maze-encounter-
+ *  trigger.json), so we (1) force the door OPEN without stepping (force-only,
+ *  RNG-varied, detected via the +0x240 edge reading 0), then (2) step in with the
+ *  STEP's RNG phase varied until a clean gs=5 arrival. Separating force from step is
+ *  what makes the clean window reachable (the prior combined force+step never was).
+ *  Seed is a transient capture-time artifact, NOT committed. Targets the (124,121,f2)
+ *  door specifically; generalization to all doors is Task 10. */
+async function phaseInteriorSeed(c: HostClient): Promise<void> {
+  const outState = process.argv[3] ?? '/tmp/wiz6-interior-seed.state';
+  const forceAttempts = Number(process.argv[4] ?? '24');
+  const stepAttempts = Number(process.argv[5] ?? '30');
+  const base = await driveToDoor(c); // (124,121,f2), gs=5 (boot-retries internally)
+  const roster = await readRoster(c, base);
+  const living = roster.filter((m) => m.alive);
+  const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+  const memberDown = strongest.idx + 1;
+  console.log(`interiorseed: forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown})`);
+  const atDoor = '/tmp/wiz6-interiorseed-door.state';
+  await c.serialize(atDoor);
+
+  // 1) Force the door OPEN without stepping (RNG-varied) -> door-open gs=5 state.
+  const doorOpen = '/tmp/wiz6-interiorseed-dooropen.state';
+  let opened = false;
+  for (let a = 0; a < forceAttempts; a++) {
+    await c.unserialize(atDoor);
+    await c.step(2 + a * 17);
+    const r = await forceDoorOnly(c, base, memberDown);
+    const p = await frParty(c, base);
+    if (p.gs === 5 && p.gx === 124 && p.gy === 121 && r.edge === 0) {
+      await c.serialize(doorOpen);
+      console.log(`interiorseed: door OPEN (edge 0), no step, on force attempt ${a}`);
+      opened = true; break;
+    }
+    console.log(`  force attempt ${a}: gs=${p.gs} at(${p.gx},${p.gy}) edge=${r.edge}`);
+  }
+  if (!opened) { console.log('interiorseed: could not force door open without stepping — abort'); return; }
+
+  // 2) Step into (124,120) with STEP-RNG-phase variation until a CLEAN gs=5 arrival.
+  for (let s = 0; s < stepAttempts; s++) {
+    await c.unserialize(doorOpen);
+    await c.step(2 + s * 13); // vary the STEP's RNG phase to hit the no-encounter window
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    for (let b = 0; b < 3; b++) {
+      await c.key('up', 'tap'); await c.step(80);
+      cur = await frParty(c, base);
+      if (cur.gx !== 124 || cur.gy !== 121 || cur.gs !== 5) break;
+    }
+    if (cur.gx === 124 && cur.gy === 120 && cur.gs === 5) {
+      await c.serialize(outState);
+      console.log(`interiorseed: CLEAN seed at (124,120) gs5 on step attempt ${s} -> ${outState}`);
+      return;
+    }
+    console.log(`  step attempt ${s}: -> gx${cur.gx} gy${cur.gy} gs${cur.gs}${(cur.gs === 10 || cur.gs === 11 || cur.gs === 12) ? ' (encounter — retry phase)' : ''}`);
+  }
+  console.log('interiorseed: FAILED to land a clean gs=5 step into (124,120) — raise stepAttempts or consider flee');
+}
+
+/** Read the door special-record's +0x240 wall-plane facing field at the party cell.
+ *  Record table base = WORD at DGROUP [0x4fa8]; per-record fields are byte arrays
+ *  (stride 1) EXCEPT +0x240 which is a WORD array (stride 2, idx=recidx*2). Per
+ *  docs/re/findings/maze-open-door-menu.json (special-record-table-layout + the
+ *  366e scan): recidx = scan from +0x6c0[z] for the FIRST record matching
+ *  z(+0x510)==z AND x(+0x3f0)==cellB AND y(+0x480)==cellA AND type(+0x360)==7.
+ *  getbit_chunk is LSB-first: value = (word >> (facing*2)) & 3. 0=open, 1=closed,
+ *  2=welded. Returns { recidx, edge } or null if no type-7 door record at the cell. */
+async function readDoorEdge(c: HostClient, base: number): Promise<{ recidx: number; edge: number } | null> {
+  const tblBase = u16(await c.read(base + 0x4fa8, 2), 0);
+  const z = u16(await c.read(base + PK_Z, 2), 0);
+  const cellA = u16(await c.read(base + PK_CELLA, 2), 0); // y (zone-local row)
+  const cellB = u16(await c.read(base + PK_CELLB, 2), 0); // x (zone-local col)
+  const facing = u16(await c.read(base + PK_FACING, 2), 0);
+  // The record-table arrays live at DGROUP + tblBase + fieldOff.
+  const tbl = base + tblBase;
+  const typeArr = await c.read(tbl + 0x360, 0x90);
+  const xArr = await c.read(tbl + 0x3f0, 0x90);
+  const yArr = await c.read(tbl + 0x480, 0x90);
+  const zArr = await c.read(tbl + 0x510, 0x90);
+  const startArr = await c.read(tbl + 0x6c0, 12);
+  const start = startArr[z] ?? 0;
+  for (let si = start; si < 0x90; si++) {
+    if (zArr[si] !== z || xArr[si] !== cellB || yArr[si] !== cellA) continue;
+    if (typeArr[si] !== 7) continue;
+    const wallWord = u16(await c.read(tbl + 0x240 + si * 2, 2), 0);
+    const edge = (wallWord >> (facing * 2)) & 3;
+    return { recidx: si, edge };
+  }
+  return null;
+}
+
+/** FORCE the door the party is FACING open WITHOUT stepping through. Drives the same
+ *  OPTIONS->OPEN->FORCE->WHO->resolve cadence as forceDoorOpen but OMITS the final
+ *  re-orient + forward step, leaving the party still in the door cell facing the
+ *  door (gs=5) with the door's +0x240 edge cleared on success. Detects success via
+ *  readDoorEdge (edge becomes 0). Used by the encsuppress spike so we can poke the
+ *  encounter plane in the at-door gs=5 frame BEFORE the (124,120) step. */
+async function forceDoorOnly(c: HostClient, base: number, memberDown: number): Promise<{ gs: number; edge: number | null }> {
+  await c.key('enter', 'tap'); await c.step(40);          // PARTY OPTIONS
+  await c.key('right', 'tap'); await c.step(20);
+  await c.key('down', 'tap'); await c.step(20);
+  await c.key('enter', 'tap'); await c.step(60);          // OPEN -> FORCE/PICK/EXIT (cursor FORCE)
+  await c.key('enter', 'tap'); await c.step(60);          // select FORCE -> WHO picker (cursor on EXIT)
+  for (let d = 0; d < memberDown; d++) { await c.key('down', 'tap'); await c.step(20); }
+  await c.key('enter', 'tap'); await c.step(40);          // pick member -> STRAINING bar
+  await c.key('enter', 'tap'); await c.step(30);          // resolve strain roll -> result message
+  await c.key('enter', 'tap'); await c.step(50);          // dismiss result message
+  await c.key('escape', 'tap'); await c.step(30);         // close any lingering menu
+  const p = await frParty(c, base);
+  const door = await readDoorEdge(c, base);
+  return { gs: p.gs, edge: door?.edge ?? null };
+}
+
+/** `encsuppress [attempts]` — SPIKE (#091 Piece B). Tests whether poking the DGROUP
+ *  0x4e08 per-cell ENCOUNTER-PRESENT plane bit to 0 for the (124,120) interior cell
+ *  cleanly suppresses the gs=11 combat that ALWAYS fires when stepping in from the
+ *  forced (124,121,f2) entrance door.
+ *
+ *  0x4e08 is a 1-bit-per-cell plane (per maze-availability-law.json q2): the
+ *  dungeon main loop reads getbit_test(0x4e08, cell)==1 -> transition to combat.
+ *  Cell index = z*64 + x*8 + y (x=cellA/PK_CELLA, y=cellB/PK_CELLB — matching the
+ *  region-load setbit loop), MSB-first within the byte (matches phaseStepProbe's
+ *  bit reader convention for the wall planes).
+ *
+ *  Flow: driveToDoor -> serialize at-door. Force-ONLY (no step) with RNG-phase
+ *  variation until the door +0x240 facing-2 edge reads 0 (open) while gs==5 ->
+ *  serialize the "door-open-at-door gs=5" state. Then from THAT state:
+ *    Variant A: poke 0x4e08[dest] = 0, tap up -> SUCCESS iff at (124,120) AND gs==5.
+ *    Variant B (control): no poke, tap up -> expect gs==11 (encounter reproduced).
+ *  Reports the pre-poke 0x4e08 bit value for (124,120) (1 confirms fixed-encounter). */
+async function phaseEncSuppress(c: HostClient): Promise<void> {
+  const forceAttempts = Number(process.argv[3] ?? 24);
+  // 0x4e08 plane bit helpers. Cell index z*64 + x*8 + y, MSB-first within byte.
+  const ENC_PLANE = 0x4e08;
+  const readEncBit = async (b: number, ci: number): Promise<number> => {
+    const byte = (await c.read(b + ENC_PLANE + (ci >> 3), 1))[0]!;
+    return (byte >> (7 - (ci & 7))) & 1;
+  };
+  const pokeEncBit0 = async (b: number, ci: number): Promise<void> => {
+    const addr = b + ENC_PLANE + (ci >> 3);
+    const byte = (await c.read(addr, 1))[0]!;
+    await c.write(addr, [byte & ~(1 << (7 - (ci & 7))) & 0xff]);
+  };
+  const cellIdx = (z: number, x: number, y: number) => z * 64 + x * 8 + y;
+
+  const base = await driveToDoor(c); // (124,121,f2) gs=5
+  const atDoorP = await frParty(c, base);
+  console.log(`encsuppress: at door gx${atDoorP.gx} gy${atDoorP.gy} f${atDoorP.f} gs${atDoorP.gs}`);
+  const roster = await readRoster(c, base);
+  const living = roster.filter((m) => m.alive);
+  const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+  const memberDown = strongest.idx + 1;
+  console.log(`  forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown})`);
+
+  const atDoor = '/tmp/wiz6-encsuppress-door.state';
+  await c.serialize(atDoor);
+
+  // --- Force-ONLY with RNG-phase variation until the door edge reads OPEN (gs=5). ---
+  const doorOpen = '/tmp/wiz6-encsuppress-dooropen.state';
+  let opened = false;
+  for (let a = 0; a < forceAttempts; a++) {
+    await c.unserialize(atDoor);
+    await c.step(2 + a * 17); // vary RNG phase
+    const r = await forceDoorOnly(c, base, memberDown);
+    const p = await frParty(c, base);
+    const ok = p.gs === 5 && p.gx === 124 && p.gy === 121 && r.edge === 0;
+    console.log(`  force-only attempt ${a}: gs=${p.gs} at(${p.gx},${p.gy},f${p.f}) edge=${r.edge}${ok ? '  <-- DOOR OPEN, no step' : ''}`);
+    if (ok) { await c.serialize(doorOpen); opened = true; break; }
+  }
+  if (!opened) {
+    console.log('encsuppress: could not force the door open without stepping (edge never read 0). ABORT — increase attempts or re-check readDoorEdge.');
+    return;
+  }
+
+  // From the door-open-at-door gs=5 state, compute the destination (124,120) cell.
+  await c.unserialize(doorOpen); await c.step(2);
+  const here = await frParty(c, base);
+  const z = u16(await c.read(base + PK_Z, 2), 0);
+  const x = u16(await c.read(base + PK_CELLA, 2), 0);
+  const y = u16(await c.read(base + PK_CELLB, 2), 0);
+  const ciHere = cellIdx(z, x, y);
+  // (124,120) is one cell NORTH of (124,121): gy-1 -> cellA (y/row) decreases by 1.
+  const ciDest = cellIdx(z, x - 1, y);
+  const encHere = await readEncBit(base, ciHere);
+  const encDest = await readEncBit(base, ciDest);
+  console.log(`\nat-door cell: region${z} x${x} y${y} ci=${ciHere} encBit=${encHere}`);
+  console.log(`dest (124,120) cell: region${z} x${x - 1} y${y} ci=${ciDest} encBit=${encDest}  ${encDest === 1 ? '<-- FIXED ENCOUNTER bit set (confirms hypothesis)' : '(bit not set)'}`);
+
+  // Step helper: re-orient to f2 then bump forward up to 3x (the proven traverse
+  // cadence from forceDoorOpen — a freshly forced-open door needs a leading bump,
+  // and the menu teardown can leave the party turned). Returns post-step party.
+  const traverse = async (b: number) => {
+    let cur = await frParty(c, b);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, b); }
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'tap'); await c.step(80);
+      cur = await frParty(c, b);
+      if (cur.gx !== 124 || cur.gy !== 121 || cur.gs !== 5) break;
+    }
+    return cur;
+  };
+
+  // --- Variant B (control): no poke, traverse -> expect gs=11 (encounter). ---
+  await c.unserialize(doorOpen); await c.step(2);
+  const bB = await frParty(c, base);
+  const aB = await traverse(base);
+  const movedB = aB.gx !== bB.gx || aB.gy !== bB.gy;
+  console.log(`\nVariant B (control, NO poke): traverse -> gx${aB.gx} gy${aB.gy} gs${aB.gs} moved=${movedB}  ${aB.gs === 11 ? '<-- encounter reproduced (gs=11)' : aB.gs !== 5 ? `<-- gs=${aB.gs}` : '<-- clean (unexpected for control)'}`);
+
+  // --- Variant A (primary): poke dest encounter bit to 0, then traverse. ---
+  await c.unserialize(doorOpen); await c.step(2);
+  const preBit = await readEncBit(base, ciDest);
+  await pokeEncBit0(base, ciDest);
+  const postBit = await readEncBit(base, ciDest);
+  const bA = await frParty(c, base);
+  const aA = await traverse(base);
+  const movedA = aA.gx !== bA.gx || aA.gy !== bA.gy;
+  const cleanArrival = aA.gx === 124 && aA.gy === 120 && aA.gs === 5;
+  console.log(`\nVariant A (poke 0x4e08[${ciDest}] ${preBit}->${postBit}): traverse -> gx${aA.gx} gy${aA.gy} gs${aA.gs} moved=${movedA}  ${cleanArrival ? '<-- CLEAN gs=5 arrival at (124,120)' : aA.gs === 11 ? '<-- still encounter (poke FAILED)' : `<-- gs=${aA.gs}`}`);
+
+  // --- Variant C (tight poke): re-orient first, then poke 0x4e08[dest]=0 in the
+  // frame IMMEDIATELY before the traversing UP (no intervening settle that could let
+  // the engine re-set the bit). Also re-reads the bit after re-orient to see if the
+  // idle frames restore it. ---
+  await c.unserialize(doorOpen); await c.step(2);
+  let curC = await frParty(c, base);
+  for (let t = 0; t < 4 && curC.f !== 2 && curC.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); curC = await frParty(c, base); }
+  const bitAfterReorient = await readEncBit(base, ciDest);
+  await pokeEncBit0(base, ciDest);
+  const bitTightPost = await readEncBit(base, ciDest);
+  let aC = curC;
+  for (let s = 0; s < 3; s++) {
+    await c.key('up', 'tap'); await c.step(80);
+    aC = await frParty(c, base);
+    if (aC.gx !== 124 || aC.gy !== 121 || aC.gs !== 5) break;
+  }
+  const cleanArrivalC = aC.gx === 124 && aC.gy === 120 && aC.gs === 5;
+  console.log(`\nVariant C (tight poke after re-orient): bit after re-orient=${bitAfterReorient}, after poke=${bitTightPost} -> traverse -> gx${aC.gx} gy${aC.gy} gs${aC.gs}  ${cleanArrivalC ? '<-- CLEAN gs=5' : aC.gs !== 5 ? `<-- gs=${aC.gs} (still encounter)` : ''}`);
+
+  // --- VERDICT ---
+  console.log(`\n=== VERDICT ===`);
+  console.log(`0x4e08 bit at (124,120) before poking: ${encDest}  (1 = confirms fixed-encounter hypothesis)`);
+  console.log(`Variant B control (no poke): gs=${aB.gs} ${aB.gs === 11 ? '(encounter — as expected)' : ''}`);
+  console.log(`Variant A poke result: gs=${aA.gs} at (${aA.gx},${aA.gy})`);
+  console.log(`Variant C (tight poke) result: gs=${aC.gs} at (${aC.gx},${aC.gy})  (bit survived re-orient? ${bitAfterReorient === 0 ? 'poked-stayed-0' : 'RE-SET to ' + bitAfterReorient})`);
+  const isEnc = (gs: number) => gs === 10 || gs === 11 || gs === 12; // combat init/round/select
+  if ((cleanArrival || cleanArrivalC) && isEnc(aB.gs)) {
+    console.log(`YES: poking 0x4e08 gives a CLEAN gs=5 entry into (124,120). The capture campaign can use this suppression.`);
+  } else if (isEnc(aA.gs) && isEnc(aC.gs)) {
+    console.log(`NO: poking 0x4e08 did NOT suppress the encounter (still gs=${aA.gs}/${aC.gs}). The 0x4e08 bit is set (confirming the marker) but clearing it before the step does not block combat — the trigger must re-read/re-derive it post-step. Use a flee step (or another suppression site) instead.`);
+  } else {
+    console.log(`INCONCLUSIVE: Variant A gs=${aA.gs} (clean=${cleanArrival}), Variant C gs=${aC.gs} (clean=${cleanArrivalC}), control gs=${aB.gs}. Re-run (boot flake?) or re-examine cell-index convention.`);
+  }
+}
+
+/** `encsuppress2 [attempts]` — SPIKE (#091 Piece B). Follow-up to encsuppress, which
+ *  proved poking the 0x4e08 plane alone does NOT suppress the (124,120) FIXED
+ *  encounter. Static RE of dungeon_main_loop (wmaze 0x2abc) found the loop-top reads
+ *  TWO per-cell 1-bit planes with the SAME cell index (z*64 + cellA*8 + cellB):
+ *
+ *    0x2b3d  call getbit_test(0x4e08, cell); cmp ax,1; jnz -> if 1: *0x363a=0x0a  (FIRE combat)
+ *    0x2b8e  call getbit_test(0x4e68, cell); cmp ax,1; jnz -> if 1 && *0x5034==1:
+ *            call special_handler 0x8387 (which can itself fire combat via the
+ *            special-record dispatch table)
+ *
+ *  And dungeon_load_zone (0x3d3) MEMSETs 0x4e08 to 0 (it does NOT refill it from the
+ *  maze table — the +0x4fa/+0x512 fields drive automap_reveal, not 0x4e08), while it
+ *  REFILLS 0x4e68 from the special-record table (type byte +0x360 != 0 -> setbit
+ *  0x4e68 at region*0x40 + recY(+0x480)*8 + recX(+0x3f0)). => the FIXED encounter at
+ *  (124,120) is the special-record / 0x4e68 path, not 0x4e08; that's why poking only
+ *  0x4e08 failed.
+ *
+ *  This phase reads BOTH planes for the dest cell, then runs progressive poke
+ *  variants (cumulative) until the step yields a clean gs=5:
+ *    V0 (control): no poke         -> expect gs=12 (combat).
+ *    V1: poke 0x4e08[dest]=0       -> (encsuppress already showed this alone fails).
+ *    V2: poke 0x4e08+0x4e68[dest]=0 -> kills both loop-top plane reads.
+ *    V3: V2 + clear the special-record type byte (+0x360) at the dest cell's record
+ *        AND set the gate flag *0x5034=0 -> belt-and-suspenders.
+ *  SUCCESS = a variant lands at (124,120) with gs==5. Reports which variant worked. */
+async function phaseEncSuppress2(c: HostClient): Promise<void> {
+  const forceAttempts = Number(process.argv[3] ?? 24);
+  const E08 = 0x4e08, E68 = 0x4e68;
+  const cellIdx = (z: number, cellA: number, cellB: number) => z * 64 + cellA * 8 + cellB;
+  const readBit = async (b: number, plane: number, ci: number): Promise<number> => {
+    const byte = (await c.read(b + plane + (ci >> 3), 1))[0]!;
+    return (byte >> (7 - (ci & 7))) & 1; // MSB-first within the byte
+  };
+  const pokeBit0 = async (b: number, plane: number, ci: number): Promise<void> => {
+    const addr = b + plane + (ci >> 3);
+    const byte = (await c.read(addr, 1))[0]!;
+    await c.write(addr, [byte & ~(1 << (7 - (ci & 7))) & 0xff]);
+  };
+
+  const base = await driveToDoor(c); // (124,121,f2) gs=5
+  const atDoorP = await frParty(c, base);
+  console.log(`encsuppress2: at door gx${atDoorP.gx} gy${atDoorP.gy} f${atDoorP.f} gs${atDoorP.gs}`);
+  const roster = await readRoster(c, base);
+  const living = roster.filter((m) => m.alive);
+  const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+  const memberDown = strongest.idx + 1;
+  console.log(`  forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown})`);
+
+  const atDoor = '/tmp/wiz6-encsuppress2-door.state';
+  await c.serialize(atDoor);
+
+  // --- Force-ONLY (no step) until the door edge reads OPEN while gs=5. ---
+  const doorOpen = '/tmp/wiz6-encsuppress2-dooropen.state';
+  let opened = false;
+  for (let a = 0; a < forceAttempts; a++) {
+    await c.unserialize(atDoor);
+    await c.step(2 + a * 17);
+    const r = await forceDoorOnly(c, base, memberDown);
+    const p = await frParty(c, base);
+    const ok = p.gs === 5 && p.gx === 124 && p.gy === 121 && r.edge === 0;
+    console.log(`  force-only attempt ${a}: gs=${p.gs} at(${p.gx},${p.gy},f${p.f}) edge=${r.edge}${ok ? '  <-- DOOR OPEN, no step' : ''}`);
+    if (ok) { await c.serialize(doorOpen); opened = true; break; }
+  }
+  if (!opened) { console.log('encsuppress2: could not force door open without stepping. ABORT.'); return; }
+
+  // Compute the dest (124,120) cell from the door-open state.
+  await c.unserialize(doorOpen); await c.step(2);
+  const z = u16(await c.read(base + PK_Z, 2), 0);
+  const cellA = u16(await c.read(base + PK_CELLA, 2), 0); // y / row
+  const cellB = u16(await c.read(base + PK_CELLB, 2), 0); // x / col
+  // (124,120) is one cell NORTH: gy-1 -> cellA decreases by 1 (per encsuppress).
+  const ciHere = cellIdx(z, cellA, cellB);
+  const ciDest = cellIdx(z, cellA - 1, cellB);
+  const e08Here = await readBit(base, E08, ciHere), e68Here = await readBit(base, E68, ciHere);
+  const e08Dest = await readBit(base, E08, ciDest), e68Dest = await readBit(base, E68, ciDest);
+  console.log(`\nat-door cell: region${z} cellA${cellA} cellB${cellB} ci=${ciHere} 0x4e08=${e08Here} 0x4e68=${e68Here}`);
+  console.log(`dest (124,120): region${z} cellA${cellA - 1} cellB${cellB} ci=${ciDest} 0x4e08=${e08Dest} 0x4e68=${e68Dest}`);
+  console.log(`  (loop-top fire law: 0x4e08[cell]==1 -> *0x363a=0x0a; 0x4e68[cell]==1 && *0x5034==1 -> special_handler 0x8387)`);
+
+  // Locate the dest cell's special record (type byte +0x360) so V3 can clear it.
+  const tblBase = u16(await c.read(base + 0x4fa8, 2), 0);
+  const tbl = base + tblBase;
+  const typeArr = await c.read(tbl + 0x360, 0x90);
+  const xArr = await c.read(tbl + 0x3f0, 0x90); // recX = cellB/x
+  const yArr = await c.read(tbl + 0x480, 0x90); // recY = cellA/y
+  const zArr = await c.read(tbl + 0x510, 0x90);
+  const startArr = await c.read(tbl + 0x6c0, 12);
+  let destRec = -1, destRecType = 0;
+  for (let si = startArr[z] ?? 0; si < 0x90; si++) {
+    if (zArr[si] !== z) { if (si > (startArr[z] ?? 0) && zArr[si] !== z) break; else continue; }
+    if (yArr[si] === cellA - 1 && xArr[si] === cellB) { destRec = si; destRecType = typeArr[si]!; break; }
+  }
+  console.log(`  dest special-record: idx=${destRec} type=${destRec >= 0 ? destRecType : 'none'} (type!=0 sets 0x4e68 on zone-load)`);
+
+  // Step helper (proven traverse cadence: re-orient to f2, bump up to 3x).
+  const traverse = async (b: number) => {
+    let cur = await frParty(c, b);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, b); }
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'tap'); await c.step(80);
+      cur = await frParty(c, b);
+      if (cur.gx !== 124 || cur.gy !== 121 || cur.gs !== 5) break;
+    }
+    return cur;
+  };
+  const isEnc = (gs: number) => gs === 10 || gs === 11 || gs === 12;
+  const results: Record<string, { gx: number; gy: number; gs: number; clean: boolean }> = {};
+  const runVariant = async (label: string, poke: (b: number) => Promise<void>) => {
+    await c.unserialize(doorOpen); await c.step(2);
+    // Re-orient FIRST, then poke in the frame right before the traversing UP so an
+    // idle frame can't re-derive between poke and step.
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    await poke(base);
+    let after = cur;
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'tap'); await c.step(80);
+      after = await frParty(c, base);
+      if (after.gx !== 124 || after.gy !== 121 || after.gs !== 5) break;
+    }
+    const clean = after.gx === 124 && after.gy === 120 && after.gs === 5;
+    results[label] = { gx: after.gx, gy: after.gy, gs: after.gs, clean };
+    console.log(`\n${label}: traverse -> gx${after.gx} gy${after.gy} gs${after.gs}  ${clean ? '<-- CLEAN gs=5 at (124,120)' : isEnc(after.gs) ? '<-- still combat' : `<-- gs=${after.gs}`}`);
+  };
+
+  await runVariant('V0 (control, no poke)', async () => { /* nothing */ });
+  await runVariant('V1 (0x4e08 only)', async (b) => { await pokeBit0(b, E08, ciDest); });
+  await runVariant('V2 (0x4e08 + 0x4e68)', async (b) => { await pokeBit0(b, E08, ciDest); await pokeBit0(b, E68, ciDest); });
+  await runVariant('V3 (V2 + special type=0 + *0x5034=0)', async (b) => {
+    await pokeBit0(b, E08, ciDest); await pokeBit0(b, E68, ciDest);
+    if (destRec >= 0) await c.write(tbl + 0x360 + destRec, [0]);
+    await c.write(b + 0x5034, [0, 0]);
+  });
+  // V4: clear the TYPE byte (+0x360) of EVERY special record whose (x,y) lands on the
+  // dest cell under EITHER ordering — so the arrival special-square scan finds nothing.
+  await runVariant('V4 (clear ALL dest special-record types)', async () => {
+    for (let si = 0; si < 0x90; si++) {
+      if (zArr[si] !== z) continue;
+      const rx = xArr[si]!, ry = yArr[si]!;
+      if ((ry === cellA - 1 && rx === cellB) || (rx === cellA - 1 && ry === cellB)) {
+        await c.write(tbl + 0x360 + si, [0]);
+      }
+    }
+  });
+
+  // --- CONFIRM: repeat the WINNING poke (V4: clear all dest special-record type
+  // bytes) across several fresh RNG phases to prove it RELIABLY yields gs=5 (not a
+  // lucky roll), and repeat the V0 control to prove combat is otherwise deterministic. ---
+  console.log(`\n--- CONFIRM: V4 (clear dest special-record types) x5 vs control x3 ---`);
+  const clearDestRecords = async () => {
+    for (let si = 0; si < 0x90; si++) {
+      if (zArr[si] !== z) continue;
+      const rx = xArr[si]!, ry = yArr[si]!;
+      if ((ry === cellA - 1 && rx === cellB) || (rx === cellA - 1 && ry === cellB)) await c.write(tbl + 0x360 + si, [0]);
+    }
+  };
+  const REPS = Number(process.argv[4] ?? 8);
+  let v4clean = 0, v4runs = 0, ctrlEnc = 0, ctrlClean = 0, ctrlRuns = 0;
+  for (let r = 0; r < REPS; r++) {
+    await c.unserialize(doorOpen); await c.step(2 + r * 13);
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    await clearDestRecords();
+    let after = cur;
+    for (let s = 0; s < 3; s++) { await c.key('up', 'tap'); await c.step(80); after = await frParty(c, base); if (after.gx !== 124 || after.gy !== 121 || after.gs !== 5) break; }
+    v4runs++; if (after.gx === 124 && after.gy === 120 && after.gs === 5) v4clean++;
+    console.log(`  V4 run ${r} (settle ${2 + r * 13}): gx${after.gx} gy${after.gy} gs${after.gs}`);
+  }
+  for (let r = 0; r < REPS; r++) {
+    await c.unserialize(doorOpen); await c.step(2 + r * 13);
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    let after = cur;
+    for (let s = 0; s < 3; s++) { await c.key('up', 'tap'); await c.step(80); after = await frParty(c, base); if (after.gx !== 124 || after.gy !== 121 || after.gs !== 5) break; }
+    ctrlRuns++; if (isEnc(after.gs)) ctrlEnc++; if (after.gx === 124 && after.gy === 120 && after.gs === 5) ctrlClean++;
+    console.log(`  control run ${r} (settle ${2 + r * 13}): gx${after.gx} gy${after.gy} gs${after.gs}`);
+  }
+  console.log(`  CONFIRM: clear-record CLEAN ${v4clean}/${v4runs}; control CLEAN ${ctrlClean}/${ctrlRuns} (combat ${ctrlEnc}/${ctrlRuns})`);
+  console.log(`  => ${v4clean === v4runs ? 'RELIABLE suppression' : v4clean > ctrlClean ? 'PARTIAL (record helps but a residual encounter layer remains -> flee fallback)' : 'NO benefit (record is not the trigger -> flee fallback)'}`);
+
+  // --- DIAGNOSTIC: is 0x4e08[dest] RE-ARMED on arrival? Re-orient, poke dest=0,
+  // verify it's 0, then micro-step the traversing UP frame-by-frame, logging the bit
+  // + gs + cell after each small step, to catch when (if) the bit flips back to 1
+  // and when gs flips to 12. This isolates "poke wiped by re-derivation on the step"
+  // from "poked the wrong bit". ---
+  console.log(`\n--- DIAGNOSTIC: re-arm watch (poke 0x4e08[${ciDest}]=0, micro-step the UP) ---`);
+  await c.unserialize(doorOpen); await c.step(2);
+  {
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    await pokeBit0(base, E08, ciDest);
+    const v = await readBit(base, E08, ciDest);
+    console.log(`  pre-UP: bit[dest]=${v} (poked to 0), party gx${cur.gx} gy${cur.gy} f${cur.f} gs${cur.gs}`);
+    await c.key('up', 'down');
+    for (let f = 1; f <= 12; f++) {
+      await c.step(8);
+      const cellA2 = u16(await c.read(base + PK_CELLA, 2), 0);
+      const cellB2 = u16(await c.read(base + PK_CELLB, 2), 0);
+      const z2 = u16(await c.read(base + PK_Z, 2), 0);
+      const ciNow = cellIdx(z2, cellA2, cellB2);
+      const bDest = await readBit(base, E08, ciDest);
+      const bNow = await readBit(base, E08, ciNow);
+      const p = await frParty(c, base);
+      console.log(`  +${f * 8}fr: gx${p.gx} gy${p.gy} gs${p.gs} ci=${ciNow} 0x4e08[dest=${ciDest}]=${bDest} 0x4e08[cur]=${bNow}`);
+      if (p.gs !== 5) break;
+    }
+    await c.key('up', 'up');
+  }
+
+  // --- DIAGNOSTIC 3: WRITE-WATCH *0x363a + *0x4fce across the arrival step to
+  // capture the EXACT cseip that writes the combat state (10/12). Exec-tracing wmaze
+  // is unreliable (observability wall), but the write-watch records every write. ---
+  console.log(`\n--- DIAGNOSTIC 3: write-watch *0x363a/*0x4fce on the arrival step ---`);
+  await c.unserialize(doorOpen); await c.step(2);
+  {
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    let armed = true;
+    try { await c.wwatchSet(base + 0x3638, base + 0x3640); } // watch around *0x363a/*0x363c/*0x363e
+    catch (e) { armed = false; console.log(`  wwatch unsupported (unpatched core): ${(e as Error).message}`); }
+    if (armed) await c.wwatchDrain();
+    const writes: Array<{ cseip: number; addr: number; val: number }> = [];
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'down');
+      for (let q = 0; q < 12; q++) {
+        await c.step(8);
+        if (armed) for (const w of await c.wwatchDrain()) { const off = (w.addr - base) & 0xffff; writes.push({ cseip: w.cseip, addr: off, val: w.val & 0xffff }); }
+        const p = await frParty(c, base);
+        if (p.gs !== 5) break;
+      }
+      await c.key('up', 'up');
+      const p = await frParty(c, base);
+      if (p.gx !== 124 || p.gy !== 121 || p.gs !== 5) break;
+    }
+    if (armed) await c.wwatchSet(0, 0);
+    const p = await frParty(c, base);
+    console.log(`  post-step gs=${p.gs} at(${p.gx},${p.gy})`);
+    for (const w of writes) console.log(`  WRITE *0x${w.addr.toString(16)} = ${w.val} (0x${w.val.toString(16)}) by cs:ip=0x${w.cseip.toString(16)}`);
+    if (!writes.length && armed) console.log(`  (no writes captured in 0x3638..0x3640)`);
+  }
+
+  // --- DIAGNOSTIC 2: dump ALL special records at/near the dest cell, both cell
+  // orderings, and find every type-bearing record whose (x,y,z) could be (124,120).
+  // The arrival combat is a SPECIAL RECORD (0x4e08/0x4e68 both ruled out by D1). ---
+  console.log(`\n--- DIAGNOSTIC 2: special-record dump for dest (124,120) ---`);
+  await c.unserialize(doorOpen); await c.step(2);
+  {
+    const startZ = startArr[z] ?? 0;
+    console.log(`  table base [0x4fa8]=0x${tblBase.toString(16)}; region${z} start idx=${startZ}`);
+    const matches: number[] = [];
+    for (let si = 0; si < 0x90; si++) {
+      if (zArr[si] !== z) continue;
+      const rx = xArr[si]!, ry = yArr[si]!, ty = typeArr[si]!;
+      // dest is cellA-1 (row), cellB (col). Report records matching either ordering.
+      const matchAB = (ry === cellA - 1 && rx === cellB);
+      const matchBA = (rx === cellA - 1 && ry === cellB);
+      if (matchAB || matchBA || ty !== 0) {
+        if (matchAB || matchBA) matches.push(si);
+        if (ty !== 0 && (matchAB || matchBA || (Math.abs(ry - (cellA - 1)) <= 1 && Math.abs(rx - cellB) <= 1)))
+          console.log(`    rec[${si}]: type=0x${ty.toString(16)} x=${rx} y=${ry} z=${zArr[si]}${matchAB ? '  <-- (y=row,x=col) MATCH' : matchBA ? '  <-- (x=row,y=col) MATCH' : ''}`);
+      }
+    }
+    console.log(`  records matching dest cell: [${matches.join(',')}]`);
+  }
+
+  console.log(`\n=== VERDICT (encsuppress2) ===`);
+  console.log(`dest (124,120) planes: 0x4e08=${e08Dest} 0x4e68=${e68Dest}; special-record type=${destRec >= 0 ? destRecType : 'none'}`);
+  for (const [k, v] of Object.entries(results)) console.log(`  one-shot ${k}: gs=${v.gs} at(${v.gx},${v.gy}) clean=${v.clean}`);
+  console.log(`  STATISTICAL (authoritative): clear-record CLEAN ${v4clean}/${v4runs} vs control CLEAN ${ctrlClean}/${ctrlRuns}`);
+  // The CONFIRM loop is authoritative: a one-shot variant "win" is usually just the
+  // RNG settle phase, NOT the poke (clear-record == control proves this). The poke is
+  // only a real suppressor if it CLEANs reliably AND beats the control.
+  if (v4clean === v4runs && v4runs > 0 && ctrlClean < ctrlRuns) {
+    console.log(`\nYES: clearing the dest special-record reliably gives gs=5 (control still fires). Capture campaign can use this poke.`);
+  } else if (v4clean > ctrlClean) {
+    console.log(`\nPARTIAL: clearing the record helps (${v4clean}/${v4runs} vs ${ctrlClean}/${ctrlRuns}) but a residual RNG encounter layer remains -> combat-flee or RNG-phase retry.`);
+  } else {
+    console.log(`\nNO: no static poke suppresses the (124,120) encounter (clear-record == control). It is RNG-phase-gated (~90% fire); the no-fire window is reproducible by settle phase. Use combat-FLEE or RNG-phase retry-until-gs5 for capture.`);
+  }
+}
+
+/** `encdisable [forceAttempts] [stepN]` — SPIKE (#091 Piece B). The SHARP technique:
+ *  write-watch the game-state word 0x363a on a CONTINUOUS live session to catch the
+ *  COMBAT-INIT writer's cs:ip (val==0x0a), then read the guarding condition backward
+ *  in Ghidra, then live-test candidate GLOBAL encounter-disable pokes.
+ *
+ *  Flow (NO unserialize between cells — a continuous session, per the brief):
+ *    Stage A — TRACE: driveToDoor (continuous) -> force-only the door open (gs=5) ->
+ *      arm wwatch on a TIGHT window around 0x363a -> take the traversing step ->
+ *      drain -> report every writer of 0x363a, flagging the val==0x0a (combat init)
+ *      and val==7 (zone-load) writers with cs:ip and the wmaze-file translation.
+ *    Stage B — DISABLE TEST: fresh continuous driveToDoor -> force open -> apply the
+ *      candidate global poke(s) -> traverse the door -> then take stepN more interior
+ *      steps, RE-APPLYING the poke before each, reporting gs after each step. A clean
+ *      multi-step walk (gs stays 5) = WIN.
+ *
+ *  Candidate global-disable targets (poked + tested, see CANDIDATES below):
+ *    - *0x5034 = 0 : the special-handler enable gate (0x4e68[cell]==1 && *0x5034==1).
+ *    - a "steps until next encounter" counter (scanned for + pinned large).
+ *    - the zone danger byte feeding the rng() compare (located via the writer disasm). */
+async function phaseEncDisable(c: HostClient): Promise<void> {
+  const forceAttempts = Number(process.argv[3] ?? 24);
+  const stepN = Number(process.argv[4] ?? 5);
+  const GS = 0x363a;
+  // The harness `write` cmd parses the hex payload into a 32-char field (a2[32]),
+  // so a single write is capped at ~15 bytes. Chunk longer writes.
+  const writeChunked = async (addr: number, bytes: number[]): Promise<void> => {
+    for (let i = 0; i < bytes.length; i += 12) await c.write(addr + i, bytes.slice(i, i + 12));
+  };
+
+  // ---- helpers shared by both stages ----
+  const driveDoorForceOpen = async (): Promise<{ base: number; opened: boolean; ovl: number }> => {
+    const base = await driveToDoor(c); // (124,121,f2) gs=5, continuous session
+    const ovl = await findOvl(c);
+    const roster = await readRoster(c, base);
+    const living = roster.filter((m) => m.alive);
+    const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+    const memberDown = strongest.idx + 1;
+    console.log(`  forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown})`);
+    // Force-only retry on a CONTINUOUS session: each failed force leaves us at the
+    // door (gs=5), so just retry forceDoorOnly with no unserialize (RNG drifts via
+    // the elapsed frames). Re-nav via driveToDoor only if we fall off the door cell.
+    let opened = false;
+    for (let a = 0; a < forceAttempts && !opened; a++) {
+      const r = await forceDoorOnly(c, base, memberDown);
+      const p = await frParty(c, base);
+      const ok = p.gs === 5 && p.gx === 124 && p.gy === 121 && r.edge === 0;
+      console.log(`  force-only attempt ${a}: gs=${p.gs} at(${p.gx},${p.gy},f${p.f}) edge=${r.edge}${ok ? '  <-- DOOR OPEN' : ''}`);
+      if (ok) { opened = true; break; }
+      if (p.gs !== 5) { console.log('    (gs!=5 after force — abort this session)'); break; }
+      await c.step(13 + a * 7); // drift RNG before the next force attempt
+    }
+    return { base, opened, ovl };
+  };
+  // Re-orient to f2 + bump forward up to 3x (the proven door-traverse cadence).
+  const traverse = async (b: number) => {
+    let cur = await frParty(c, b);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, b); }
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'tap'); await c.step(80);
+      cur = await frParty(c, b);
+      if (cur.gx !== 124 || cur.gy !== 121 || cur.gs !== 5) break;
+    }
+    return cur;
+  };
+  const tagW = (ovl: number) => (lin: number) =>
+    lin >= ovl && lin < ovl + 0x973d ? `wmaze+0x${(lin - ovl).toString(16)}` :
+    (lin >= 0x1a80 && lin < 0x4784 ? `res+0x${(lin - 0x1a80).toString(16)}` : `lin 0x${lin.toString(16)}`);
+
+  // ================= STAGE A — TRACE THE COMBAT-INIT WRITER =================
+  const findings: Record<string, unknown> = {};
+  if (!process.argv.includes('--skipA')) {
+    console.log('=== STAGE A: write-watch 0x363a across the door-traverse step (continuous session) ===');
+    const { base, opened, ovl } = await driveDoorForceOpen();
+    if (!opened) { console.log('STAGE A: could not force door open. Skipping trace.'); }
+    else {
+      const tag = tagW(ovl);
+      console.log(`  door open; ovl base=0x${ovl.toString(16)}. Arming wwatch on [0x${GS.toString(16)}, 0x${(GS + 2).toString(16)}) (phys 0x${(base + GS).toString(16)})`);
+      // TIGHT window: the combat-init instr is `mov word [0x363a],0x0a` -> mem_writew
+      // with address==0x363a, in range. Also arm a WIDER fallback span in case the
+      // narrow watch misses (prior pass quirk): [0x3638,0x3640).
+      const useWide = process.argv.includes('--wide');
+      const wLo = base + (useWide ? 0x3638 : GS);
+      const wHi = base + (useWide ? 0x3640 : GS + 2);
+      await c.wwatchSet(wLo, wHi); await c.wwatchDrain();
+      const after = await traverse(base);
+      const recs = await c.wwatchDrain(); await c.wwatchSet(0, 0);
+      console.log(`  post-step: at(${after.gx},${after.gy},f${after.f}) gs=${after.gs}; ${recs.length} writes into the watched span:`);
+      const seen: Array<{ cseip: number; addr: number; val: number; tag: string }> = [];
+      for (const r of recs) {
+        const off = r.addr - base;
+        seen.push({ cseip: r.cseip, addr: off, val: r.val & 0xffff, tag: tag(r.cseip) });
+      }
+      // de-dup by (cseip,val) for readability but keep first addr
+      const dedup = new Map<string, { cseip: number; val: number; addr: number; tag: string; n: number }>();
+      for (const s of seen) {
+        const k = `${s.cseip}:${s.val}:${s.addr}`;
+        const e = dedup.get(k) ?? { cseip: s.cseip, val: s.val, addr: s.addr, tag: s.tag, n: 0 };
+        e.n++; dedup.set(k, e);
+      }
+      for (const e of [...dedup.values()]) {
+        const fileOff = (e.cseip >= ovl && e.cseip < ovl + 0x973d) ? `wmaze file 0x${(e.cseip - ovl).toString(16)}` : '(not wmaze)';
+        const flag = e.val === 0x0a ? '  <== COMBAT-INIT (gs=0x0a)' : e.val === 7 ? '  <== ZONE-LOAD (gs=7)' : e.val === 0x0b ? '  (gs=0x0b combat-round)' : e.val === 0x0c ? '  (gs=0x0c action-select)' : '';
+        console.log(`    ${e.tag}  *0x${e.addr.toString(16)} = 0x${e.val.toString(16)}  x${e.n}  ${fileOff}${flag}`);
+      }
+      const combatWriter = [...dedup.values()].find((e) => e.val === 0x0a && e.addr === GS);
+      if (combatWriter) {
+        const fileOff = combatWriter.cseip - ovl;
+        findings['combat_init_writer'] = {
+          cseip: '0x' + combatWriter.cseip.toString(16),
+          wmaze_file_offset: combatWriter.cseip >= ovl ? '0x' + fileOff.toString(16) : null,
+          tag: combatWriter.tag,
+        };
+        console.log(`\n  COMBAT-INIT writer: ${combatWriter.tag}${combatWriter.cseip >= ovl ? ` -> wmaze file 0x${fileOff.toString(16)}` : ''}`);
+      } else {
+        console.log('\n  NO val==0x0a write to 0x363a captured in the drain window (observability-wall / different path). Try --wide.');
+        findings['combat_init_writer'] = 'NOT_CAPTURED';
+      }
+      findings['stageA_writers'] = [...dedup.values()].map((e) => ({ tag: e.tag, addr: '0x' + e.addr.toString(16), val: '0x' + e.val.toString(16), n: e.n }));
+    }
+  }
+
+  // ================= STAGE B — TEST GLOBAL-DISABLE POKES =================
+  // Each candidate = a fn that pokes the global(s) given base. We re-apply it before
+  // every step. Success = traverse the door + take stepN interior steps with gs==5.
+  type Candidate = { name: string; apply: (b: number) => Promise<void> };
+  const candidates: Candidate[] = [
+    {
+      name: 'CONTROL (no poke)',
+      apply: async () => { /* no-op: proves the entry encounter fires without a poke */ },
+    },
+    {
+      name: '*0x5034=0 (special-handler enable gate)',
+      apply: async (b) => { await c.write(b + 0x5034, [0, 0]); },
+    },
+    {
+      name: '0x4e08 plane all-zero (whole 0x60-byte encounter plane)',
+      apply: async (b) => { await writeChunked(b + 0x4e08, new Array(0x60).fill(0)); },
+    },
+    {
+      name: '0x4e08+0x4e68 planes all-zero + *0x5034=0 + *0x5032=0',
+      apply: async (b) => { await writeChunked(b + 0x4e08, new Array(0x60).fill(0)); await writeChunked(b + 0x4e68, new Array(0x60).fill(0)); await c.write(b + 0x5032, [0, 0, 0, 0]); },
+    },
+  ];
+  const candIdx = process.argv.includes('--cand') ? Number(process.argv[process.argv.indexOf('--cand') + 1]) : -1;
+  const toRun = candIdx >= 0 ? [candidates[candIdx]!] : candidates;
+
+  const results: Array<{ candidate: string; doorStepGs: number; stepGs: number[]; clean: boolean }> = [];
+  for (const cand of toRun) {
+    console.log(`\n=== STAGE B candidate: ${cand.name} ===`);
+    const { base, opened } = await driveDoorForceOpen();
+    if (!opened) { console.log('  could not force door open for this candidate; skip'); results.push({ candidate: cand.name, doorStepGs: -1, stepGs: [], clean: false }); continue; }
+    // PER-FRAME poke across the traverse: re-orient to f2, then drive the forward
+    // step in small chunks, re-applying the poke between every chunk (the door step
+    // is a zone-transition that re-derives encounter state mid-flight — the only way
+    // a poke can hold is to keep re-stamping it as the engine advances).
+    await cand.apply(base);
+    const traversePoked = async (b: number) => {
+      let cur = await frParty(c, b);
+      for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, b); }
+      for (let s = 0; s < 3; s++) {
+        await c.key('up', 'down');
+        for (let f = 0; f < 12 && cur.gs === 5; f++) { await cand.apply(b); await c.step(7); cur = await frParty(c, b); }
+        await c.key('up', 'up'); await c.step(10); await cand.apply(b); cur = await frParty(c, b);
+        if (cur.gx !== 124 || cur.gy !== 121 || cur.gs !== 5) break;
+      }
+      return cur;
+    };
+    const after = await traversePoked(base);
+    console.log(`  door-traverse (per-frame poke): at(${after.gx},${after.gy},f${after.f}) gs=${after.gs}`);
+    const stepGs: number[] = [];
+    let p = after;
+    if (after.gs === 5 && after.gx === 124 && after.gy === 120) {
+      // walk further into the interior, re-applying the poke each frame of each step
+      for (let s = 0; s < stepN; s++) {
+        const dir = (s % 3 === 0 ? 'up' : s % 3 === 1 ? 'left' : 'up') as 'up' | 'left';
+        const before = p;
+        await c.key(dir, 'down');
+        for (let f = 0; f < 24 && p.gs === 5; f++) { await cand.apply(base); await c.step(3); p = await frParty(c, base); }
+        await c.key(dir, 'up'); for (let f = 0; f < 6 && p.gs === 5; f++) { await cand.apply(base); await c.step(3); p = await frParty(c, base); }
+        stepGs.push(p.gs);
+        const moved = p.gx !== before.gx || p.gy !== before.gy || p.f !== before.f;
+        console.log(`    interior step ${s} (${dir}): at(${p.gx},${p.gy},f${p.f}) gs=${p.gs} moved=${moved}`);
+        if (p.gs !== 5) break;
+      }
+    }
+    const clean = after.gs === 5 && stepGs.length > 0 && stepGs.every((g) => g === 5);
+    results.push({ candidate: cand.name, doorStepGs: after.gs, stepGs, clean });
+  }
+
+  console.log(`\n=== VERDICT (encdisable) ===`);
+  let win: typeof results[number] | undefined;
+  for (const r of results) {
+    const isControl = /CONTROL/.test(r.candidate);
+    const label = r.clean ? 'CLEAN WALK (WIN)' : isControl ? 'combat fired (expected — control baseline)' : 'combat fired (FAIL)';
+    console.log(`  ${r.candidate}: door-step gs=${r.doorStepGs}, interior gs=[${r.stepGs.join(',')}] -> ${label}`);
+    if (r.clean && !isControl) win = r;
+  }
+  findings['stageB_results'] = results;
+  if (win) console.log(`\nYES: "${win.candidate}" gives a clean multi-step interior walk (gs stays 5). Capture campaign can use it.`);
+  else console.log(`\nNO: no candidate global poke gives a clean multi-step interior walk. Pivot to combat-FLEE or RNG-phase retry.`);
+
+  writeFileSync('/tmp/wiz6-encdisable-findings.json', JSON.stringify(findings, null, 2));
+  console.log(`\n(raw stage-A writer + stage-B results -> /tmp/wiz6-encdisable-findings.json)`);
+}
+
+/** `encdisable2 [forceAttempts] [stepN]` — SPIKE (#091 Piece B, PIECE B residual).
+ *  Builds on `encdisable`: the per-frame 0x4e08-plane re-stamp suppresses the
+ *  loop-top PLACED encounter (wmaze 0x2b6a) but a RESIDUAL random encounter still
+ *  fires after a few interior steps. That residual is the c47e RANDOM-encounter path
+ *  in dungeon_main_loop (wmaze 0x2abc):
+ *
+ *      0x2d07  mov ax,0x3e8        ; 1000
+ *      0x2d0b  call 0xc47e         ; rng_next(1000) -> 0..999
+ *      0x2d0f  cmp ax,0x3e3        ; 995
+ *      0x2d12  jl  0x2d3c          ; if ax < 995 -> SKIP (no encounter)
+ *      ...                         ; else (ax in 995..999, 0.5%) ->
+ *      0x2d33  mov word [0x363a],0xa   ; COMBAT INIT
+ *
+ *  This path does NOT read 0x4e08, so the plane poke can't touch it. There is no
+ *  per-zone danger byte / step counter feeding THIS compare — the threshold (0x3e3)
+ *  and the rng range (0x3e8) are HARDCODED IMMEDIATES. So the airtight capture-time
+ *  poke is a CODE PATCH: turn the conditional `jl 0x2d3c` (7C 28) at file 0x2d12
+ *  into an UNCONDITIONAL `jmp 0x2d3c` (EB 28) so the combat branch is never taken.
+ *  Re-stamped per frame (in case the overlay code page is touched), alongside the
+ *  0x4e08-plane poke. (The third in-loop combat writer, the all-asleep ambush at
+ *  0x2cf2, only fires when EVERY party member is asleep — a healthy capture party
+ *  never trips it, so we don't poke it; we DO verify it never fires.)
+ *
+ *  This phase walks MANY interior steps with BOTH pokes per-frame and reports a
+ *  clean N-step walk. VERDICT airtight = a 20-30 step interior walk with ZERO
+ *  encounters (gs stays 5 throughout). */
+async function phaseEncDisable2(c: HostClient): Promise<void> {
+  const forceAttempts = Number(process.argv[3] ?? 24);
+  const stepN = Number(process.argv[4] ?? 24);
+  const writeChunked = async (addr: number, bytes: number[]): Promise<void> => {
+    for (let i = 0; i < bytes.length; i += 12) await c.write(addr + i, bytes.slice(i, i + 12));
+  };
+
+  // ---- drive + force the door open on a CONTINUOUS session ----
+  const driveDoorForceOpen = async (): Promise<{ base: number; opened: boolean; ovl: number }> => {
+    const base = await driveToDoor(c); // (124,121,f2) gs=5
+    const ovl = await findOvl(c);
+    const roster = await readRoster(c, base);
+    const living = roster.filter((m) => m.alive);
+    const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+    const memberDown = strongest.idx + 1;
+    console.log(`  forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown}); ovl base=0x${ovl.toString(16)}`);
+    let opened = false;
+    for (let a = 0; a < forceAttempts && !opened; a++) {
+      const r = await forceDoorOnly(c, base, memberDown);
+      const p = await frParty(c, base);
+      const ok = p.gs === 5 && p.gx === 124 && p.gy === 121 && r.edge === 0;
+      console.log(`  force-only attempt ${a}: gs=${p.gs} at(${p.gx},${p.gy},f${p.f}) edge=${r.edge}${ok ? '  <-- DOOR OPEN' : ''}`);
+      if (ok) { opened = true; break; }
+      if (p.gs !== 5) { console.log('    (gs!=5 after force — abort this session)'); break; }
+      await c.step(13 + a * 7);
+    }
+    return { base, opened, ovl };
+  };
+
+  // ---- the two pokes, re-applied per frame ----
+  // CODE PATCH targets (wmaze file offsets) — computed against the live overlay base.
+  const JL_FILE = 0x2d12;          // `7C 28` jl 0x2d3c (skip-encounter branch)
+  const CMP_IMM_FILE = 0x2d10;     // the 0x3e3 immediate operand of `cmp ax,0x3e3`
+  const applyPokes = async (base: number, ovl: number) => {
+    // (1) zero the 0x4e08 encounter plane (placed-encounter loop-top fire)
+    await writeChunked(base + 0x4e08, new Array(0x60).fill(0));
+    await writeChunked(base + 0x4e68, new Array(0x60).fill(0));
+    await c.write(base + 0x5032, [0, 0, 0, 0]); // *0x5032=0, *0x5034=0
+    // (2) CODE PATCH: make `jl 0x2d3c` unconditional (7C->EB) so the c47e random
+    //     encounter branch is NEVER taken. Linear = ovl + file_offset.
+    //     `--noPatch` = CONTROL: skip the code patch to confirm the residual c47e
+    //     fire still happens with the plane poke alone.
+    if (!process.argv.includes('--noPatch')) await c.write(ovl + JL_FILE, [0xeb]);
+  };
+
+  console.log('=== encdisable2: 0x4e08-plane poke + c47e code-patch (jl->jmp @ wmaze 0x2d12), per-frame ===');
+  const { base, opened, ovl } = await driveDoorForceOpen();
+  if (!opened) {
+    console.log('NO: could not force door open (door-jam/encounter flake). Re-run.');
+    return;
+  }
+
+  // Verify the code-patch read/poke before relying on it.
+  const preJl = await c.read(ovl + JL_FILE, 2);
+  console.log(`  pre-patch bytes @ ovl+0x2d12 (jl): ${[...preJl].map((b) => b.toString(16).padStart(2, '0')).join(' ')}  (expect 7c 28)`);
+  const preCmp = await c.read(ovl + CMP_IMM_FILE - 2, 4);
+  console.log(`  bytes @ ovl+0x2d0e (cmp ax,0x3e3): ${[...preCmp].map((b) => b.toString(16).padStart(2, '0')).join(' ')}  (expect 3d e3 03 7c)`);
+  await applyPokes(base, ovl);
+  const postJl = await c.read(ovl + JL_FILE, 1);
+  console.log(`  post-patch byte @ ovl+0x2d12: ${postJl[0]!.toString(16).padStart(2, '0')}  (expect eb — unconditional jmp)`);
+
+  // Traverse the door (re-stamp both pokes per chunk).
+  const traverse = async () => {
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'down');
+      for (let f = 0; f < 12 && cur.gs === 5; f++) { await applyPokes(base, ovl); await c.step(7); cur = await frParty(c, base); }
+      await c.key('up', 'up'); await c.step(10); await applyPokes(base, ovl); cur = await frParty(c, base);
+      if (cur.gs !== 5) break;
+      if (cur.gy < 121) break; // moved into the interior
+    }
+    return cur;
+  };
+  let p = await traverse();
+  console.log(`  door-traverse: at(${p.gx},${p.gy},f${p.f}) gs=${p.gs}`);
+
+  // Walk MANY interior steps. Cycle direction so we don't just wall-bump; re-stamp
+  // both pokes every frame of every step. Any gs!=5 = an encounter fired.
+  const stepGs: number[] = [];
+  let fired = false;
+  const dirs = ['up', 'left', 'up', 'right', 'up', 'up'] as const;
+  for (let s = 0; s < stepN && !fired; s++) {
+    const dir = dirs[s % dirs.length]!;
+    const before = p;
+    await c.key(dir, 'down');
+    for (let f = 0; f < 24 && p.gs === 5; f++) { await applyPokes(base, ovl); await c.step(3); p = await frParty(c, base); }
+    await c.key(dir, 'up');
+    for (let f = 0; f < 6 && p.gs === 5; f++) { await applyPokes(base, ovl); await c.step(3); p = await frParty(c, base); }
+    stepGs.push(p.gs);
+    const moved = p.gx !== before.gx || p.gy !== before.gy || p.f !== before.f;
+    console.log(`    interior step ${s} (${dir}): at(${p.gx},${p.gy},f${p.f}) gs=${p.gs} moved=${moved}`);
+    if (p.gs !== 5) fired = true;
+  }
+
+  const clean = !fired && stepGs.length >= stepN && stepGs.every((g) => g === 5);
+  console.log(`\n=== VERDICT (encdisable2) ===`);
+  console.log(`  ${stepGs.length} interior steps, gs=[${stepGs.join(',')}]`);
+  if (clean) console.log(`  YES — AIRTIGHT: ${stepGs.length} interior steps, ZERO encounters (gs stayed 5). Capture campaign unblocked.`);
+  else if (!fired) console.log(`  PARTIAL: no encounter fired but only ${stepGs.length}/${stepN} steps completed (door/wall stall, not an encounter).`);
+  else console.log(`  NO: an encounter fired at step ${stepGs.length - 1} (gs=${stepGs[stepGs.length - 1]}). Residual not fully suppressed.`);
+}
+
+/** `interiorcap [outDir] [maxCells]` — #091 Piece B CAPTURER. Continuous-session
+ *  DFS over interior maze CELLS (past the forced (124,121,f2) door), capturing the
+ *  engine framebuffer for all 4 facings of each reachable cell. NO unserialize after
+ *  the initial drive — restore re-arms encounters. Encounter suppression is the proven
+ *  encdisable2 model: re-stamp two pokes (zero the 0x4e08/0x4e68 planes + *0x5032/4,
+ *  code-patch jl->jmp at ovl+0x2d12) EVERY few frames during every move/turn/settle.
+ *  Writes maze-freeroam-gxNN-gyNN-fF.idx.gz — the filename build-viewport-oracles.ts
+ *  merges with the committed entrance oracles. */
+async function phaseInteriorCap(c: HostClient): Promise<void> {
+  const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
+  const outDir = process.argv[3] ?? '/tmp/wiz6-oracles';
+  const maxCells = Number(process.argv[4] ?? 400);
+  mkdirSync(outDir, { recursive: true });
+
+  // RESUMABLE: scan outDir for already-captured (gx,gy,facing) views so re-runs
+  // accumulate coverage instead of re-capturing from scratch. A derailed run
+  // (door-force RNG flake / desync) is recovered simply by re-invoking this phase.
+  const preExisting = new Set<string>();
+  for (const f of readdirSync(outDir)) {
+    const m = /^maze-freeroam-(gx\d+-gy\d+-f\d)\.idx\.gz$/.exec(f);
+    if (m) preExisting.add(m[1]!);
+  }
+  const startingTotal = preExisting.size;
+  console.log(`  resume: ${startingTotal} views already in ${outDir} (will skip re-capturing those)`);
+
+  // --- framebuffer -> palette-index encode (copied from phaseEngCapture) ---
+  const rgbToIdx = new Map<number, number>();
+  COMPOSED_PALETTE.forEach((rgb: readonly number[], i: number) => rgbToIdx.set(((rgb[0]! << 16) | (rgb[1]! << 8) | rgb[2]!) >>> 0, i));
+  const rgbaToIdx = (rgba: Uint8Array): Uint8Array | null => {
+    const idx = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
+    for (let p = 0; p < idx.length; p++) {
+      const i = rgbToIdx.get(((rgba[p * 4]! << 16) | (rgba[p * 4 + 1]! << 8) | rgba[p * 4 + 2]!) >>> 0);
+      if (i === undefined) return null;
+      idx[p] = i;
+    }
+    return idx;
+  };
+
+  // --- the two pokes + door-force drive (copied from phaseEncDisable2) ---
+  const writeChunked = async (addr: number, bytes: number[]): Promise<void> => {
+    for (let i = 0; i < bytes.length; i += 12) await c.write(addr + i, bytes.slice(i, i + 12));
+  };
+  const JL_FILE = 0x2d12; // `7C 28` jl 0x2d3c (skip-encounter branch) -> EB unconditional
+  const applyPokes = async (base: number, ovl: number) => {
+    await writeChunked(base + 0x4e08, new Array(0x60).fill(0));
+    await writeChunked(base + 0x4e68, new Array(0x60).fill(0));
+    await c.write(base + 0x5032, [0, 0, 0, 0]);
+    await c.write(ovl + JL_FILE, [0xeb]);
+  };
+  const driveDoorForceOpen = async (): Promise<{ base: number; opened: boolean; ovl: number }> => {
+    const base = await driveToDoor(c); // (124,121,f2) gs=5
+    const ovl = await findOvl(c);
+    const roster = await readRoster(c, base);
+    const living = roster.filter((m) => m.alive);
+    const strongest = living.length ? living.reduce((a, b) => (b.str > a.str ? b : a)) : roster[0]!;
+    const memberDown = strongest.idx + 1;
+    console.log(`  forcing with member${strongest.idx} STR=${strongest.str} (down x${memberDown}); ovl base=0x${ovl.toString(16)}`);
+    let opened = false;
+    for (let a = 0; a < 24 && !opened; a++) {
+      const r = await forceDoorOnly(c, base, memberDown);
+      const p = await frParty(c, base);
+      const ok = p.gs === 5 && p.gx === 124 && p.gy === 121 && r.edge === 0;
+      console.log(`  force-only attempt ${a}: gs=${p.gs} at(${p.gx},${p.gy},f${p.f}) edge=${r.edge}${ok ? '  <-- DOOR OPEN' : ''}`);
+      if (ok) { opened = true; break; }
+      if (p.gs !== 5) { console.log('    (gs!=5 after force — abort this session)'); break; }
+      await c.step(13 + a * 7);
+    }
+    return { base, opened, ovl };
+  };
+
+  console.log(`=== interiorcap: continuous-session encounter-suppressed interior capture -> ${outDir} (maxCells=${maxCells}) ===`);
+  const { base, opened, ovl } = await driveDoorForceOpen();
+  if (!opened) { console.log('NO: could not force door open (door-jam/encounter flake). Re-run.'); return; }
+
+  // Traverse the door into the interior (re-stamp pokes per frame).
+  const traverseDoor = async () => {
+    let cur = await frParty(c, base);
+    for (let t = 0; t < 4 && cur.f !== 2 && cur.gs === 5; t++) { await c.key('left', 'tap'); await c.step(40); cur = await frParty(c, base); }
+    for (let s = 0; s < 3; s++) {
+      await c.key('up', 'down');
+      for (let f = 0; f < 12 && cur.gs === 5; f++) { await applyPokes(base, ovl); await c.step(7); cur = await frParty(c, base); }
+      await c.key('up', 'up'); await c.step(10); await applyPokes(base, ovl); cur = await frParty(c, base);
+      if (cur.gs !== 5) break;
+      if (cur.gy < 121) break; // moved into the interior
+    }
+    return cur;
+  };
+  let here = await traverseDoor();
+  console.log(`  door-traverse: at(${here.gx},${here.gy},f${here.f}) gs=${here.gs}`);
+  if (here.gs !== 5 || here.gy >= 121) {
+    console.log(`NO: door-traverse failed (gs=${here.gs} gy=${here.gy}); could not reach interior cell (124,120). Re-run.`);
+    return;
+  }
+
+  // --- suppressed movement primitives (re-stamp pokes per frame) ---
+  type Pos = { gs: number; f: number; gx: number; gy: number };
+  const cellKey = (gx: number, gy: number) => `${gx},${gy}`;
+  /** Settle the build/walk loop (re-stamping pokes) so a previous move fully
+   *  resolves before the next input — an unsettled turn tap is read as a forward
+   *  walk and DESYNCS the position. */
+  const settle = async (chunks: number): Promise<Pos> => {
+    let p = await frParty(c, base);
+    for (let f = 0; f < chunks && p.gs === 5; f++) { await applyPokes(base, ovl); await c.step(3); p = await frParty(c, base); }
+    return p;
+  };
+  // Single-cell forward step via a TAP (held 'up' auto-walks MULTIPLE cells in a
+  // corridor and desyncs backtracking). Mirrors the proven frMove cadence (tap +
+  // ~45f settle), re-stamping pokes throughout.
+  const moveSuppressed = async (dir: 'up' | 'left' | 'right'): Promise<{ moved: boolean; p: Pos }> => {
+    const attempt = async (): Promise<{ moved: boolean; p: Pos }> => {
+      const before = await settle(6); // let any prior move resolve first
+      await applyPokes(base, ovl);
+      await c.key(dir, 'tap');
+      const p = await settle(15);     // ~45 frames to resolve a single-cell step
+      const moved = p.gx !== before.gx || p.gy !== before.gy || p.f !== before.f;
+      return { moved, p };
+    };
+    let r = await attempt();
+    if (!r.moved && r.p.gs === 5) r = await attempt(); // retry once
+    return r;
+  };
+  /** A single suppressed TURN: settle, tap, settle (proven frMove cadence at ~45f),
+   *  re-stamping pokes throughout. */
+  const turnTap = async (dir: 'left' | 'right'): Promise<Pos> => {
+    await settle(8);            // let any in-progress move finish before turning
+    await applyPokes(base, ovl);
+    await c.key(dir, 'tap');
+    return await settle(15);    // ~45 frames to let the turn resolve
+  };
+  /** Turn the minimal number of steps until facing===target. Bails if a "turn"
+   *  registers as a MOVE (gx/gy change) — caller detects the unmet facing/position. */
+  const faceTo = async (target: number): Promise<Pos> => {
+    let p = await settle(6);
+    for (let t = 0; t < 4 && p.f !== target && p.gs === 5; t++) {
+      const diff = (target - p.f + 4) % 4;
+      const dir: 'left' | 'right' = diff === 3 ? 'left' : 'right'; // diff 1 or 2 -> right; 3 -> left
+      const before = p;
+      const after = await turnTap(dir);
+      if (after.gx !== before.gx || after.gy !== before.gy) return after; // turn became a move — abort
+      if (after.f === before.f) break; // turn didn't register
+      p = after;
+    }
+    return p;
+  };
+
+  // The door-force path traverses a SCRIPTED-WALK door segment, which re-engages the
+  // walker so arrow taps STEP instead of TURN. Drain it (mirrors driveToFreeRoam's
+  // unlock) — re-stamping pokes — until a LEFT tap rotates facing with NO position
+  // change. Each probing turn is undone (RIGHT) to restore the start facing.
+  const unlockTurns = async (): Promise<boolean> => {
+    for (let i = 0; i < 12; i++) {
+      const before = await settle(8);
+      await applyPokes(base, ovl);
+      await c.key('left', 'tap');
+      const after = await settle(15);
+      if (after.gs !== 5) return false;
+      const turned = after.f !== before.f && after.gx === before.gx && after.gy === before.gy;
+      if (turned) {
+        // restore facing: turn back RIGHT (also a clean turn now).
+        await applyPokes(base, ovl); await c.key('right', 'tap'); await settle(15);
+        return true;
+      }
+      // not yet free-roam — drain the walker with an ENTER, re-stamp, retry.
+      await applyPokes(base, ovl); await c.key('enter', 'tap'); await settle(20);
+    }
+    return false;
+  };
+  const unlocked = await unlockTurns();
+  here = await frParty(c, base);
+  console.log(`  interior turn-unlock: ${unlocked ? 'OK' : 'FAILED'}; at(${here.gx},${here.gy},f${here.f}) gs=${here.gs}`);
+  if (!unlocked || here.gs !== 5) {
+    console.log(`NO: could not unlock turns at interior cell (walker never drained). Re-run.`);
+    return;
+  }
+
+  /** A forward step that ALSO re-unlocks turns afterward — every forward step into a
+   *  new cell re-engages the scripted walker, so arrow taps would STEP not TURN until
+   *  drained again. Returns the post-unlock party. */
+  const stepForwardAndUnlock = async (): Promise<{ moved: boolean; p: Pos }> => {
+    const r = await moveSuppressed('up');
+    if (!r.moved || r.p.gs !== 5) return r;
+    await unlockTurns();
+    return { moved: true, p: await frParty(c, base) };
+  };
+
+  // --- per-view capture (settle ~80 frames with pokes, encode, write) ---
+  // Seed with pre-existing captures (resume): those are treated as already done.
+  const captured = new Set<string>(preExisting);
+  let newViews = 0;
+  let paletteMisses = 0;
+  const capture = async (gx: number, gy: number, facing: number): Promise<boolean> => {
+    const tag = `gx${gx}-gy${gy}-f${facing}`;
+    if (captured.has(tag)) return true;
+    for (let f = 0; f < 27; f++) { await applyPokes(base, ovl); await c.step(3); } // ~80 frames settle
+    const fbPath = `${outDir}/interiorcap-${tag}.rgba`;
+    await c.fb(fbPath);
+    const idx = rgbaToIdx(new Uint8Array(readFileSync(fbPath)));
+    if (!idx) { console.log(`  capture ${tag}: PALETTE MISS (skip)`); paletteMisses++; return false; }
+    writeFileSync(`${outDir}/maze-freeroam-${tag}.idx.gz`, gzipSync(idx));
+    captured.add(tag);
+    newViews++;
+    return true;
+  };
+
+  // --- iterative door-forcing (mid-DFS) ---
+  // When a forward step is BLOCKED, distinguish a closed DOOR from a wall via
+  // readDoorEdge (reads the +0x240 edge for the party's CURRENT cell + facing).
+  // edge: 0=open, 1=closed, 2=welded. On a closed door, FORCE it open (reuse
+  // forceDoorOnly with the strongest living member), re-stamping suppression every
+  // few frames + RNG-retrying. A welded/jam or exhausted retries is LOGGED as a
+  // coverage gap and skipped (never crash). Door-force can JAM a door toward welded
+  // on failure (~1/3 per fail) — accepted; logged.
+  const doorsForced = new Set<string>();   // "gx,gy,f" that we opened
+  const doorsJammed = new Set<string>();    // "gx,gy,f" that ended welded / could not force
+  const doorTriedThisRun = new Set<string>();
+  const doorKey = (gx: number, gy: number, f: number) => `${gx},${gy},f${f}`;
+
+  /** If the party (at gx,gy facing f) is blocked by a CLOSED door, force it open.
+   *  Returns true iff the door is now OPEN (edge 0). Logs welded/jam as a gap. */
+  const forceDoorIfClosed = async (gx: number, gy: number, f: number): Promise<boolean> => {
+    const dk = doorKey(gx, gy, f);
+    if (doorsForced.has(dk)) return true;       // already opened earlier this run
+    if (doorsJammed.has(dk)) return false;       // known-jammed; don't re-grind
+    const door0 = await readDoorEdge(c, base);
+    if (!door0) return false;                     // not a door edge — it's a wall
+    if (door0.edge === 0) { doorsForced.add(dk); return true; } // already open
+    if (door0.edge === 2) { console.log(`  door ${dk}: WELDED (edge 2) — coverage gap`); doorsJammed.add(dk); return false; }
+    if (door0.edge !== 1) return false;           // unknown edge state — treat as wall
+    doorTriedThisRun.add(dk);
+    // strongest living member for the force roll.
+    const roster = await readRoster(c, base);
+    const living = roster.filter((m) => m.alive);
+    if (!living.length) { console.log(`  door ${dk}: no living member to force — gap`); doorsJammed.add(dk); return false; }
+    const strongest = living.reduce((a, b) => (b.str > a.str ? b : a));
+    const memberDown = strongest.idx + 1;
+    console.log(`  CLOSED DOOR at ${dk} (lock); forcing with member${strongest.idx} STR=${strongest.str}`);
+    for (let a = 0; a < 12; a++) {
+      // re-stamp suppression around the force drive (the menu/roll burns frames).
+      await applyPokes(base, ovl);
+      const r = await forceDoorOnly(c, base, memberDown);
+      await applyPokes(base, ovl);
+      const p = await frParty(c, base);
+      // The force drive must leave us in the SAME cell still in the maze.
+      if (p.gs !== 5) { console.log(`    force attempt ${a}: gs=${p.gs} (left maze) — abort door`); doorsJammed.add(dk); return false; }
+      if (p.gx !== gx || p.gy !== gy) { console.log(`    force attempt ${a}: DESYNC to (${p.gx},${p.gy}) — abort door`); doorsJammed.add(dk); return false; }
+      const door = await readDoorEdge(c, base);
+      const edge = door?.edge ?? null;
+      if (edge === 0) { console.log(`    force attempt ${a}: edge=0  <-- DOOR OPEN`); doorsForced.add(dk); return true; }
+      if (edge === 2) { console.log(`    force attempt ${a}: edge=2  <-- JAMMED WELDED — coverage gap`); doorsJammed.add(dk); return false; }
+      // failed roll (edge still 1): re-face the door (the menu may have nudged facing) + RNG-vary.
+      const fp = await faceTo(f);
+      if (fp.gs !== 5 || fp.gx !== gx || fp.gy !== gy || fp.f !== f) { console.log(`    force attempt ${a}: lost door frame (${fp.gx},${fp.gy},f${fp.f},gs${fp.gs}) — abort`); doorsJammed.add(dk); return false; }
+      for (let s = 0; s < 4 + a; s++) { await applyPokes(base, ovl); await c.step(5); } // vary RNG phase
+    }
+    console.log(`  door ${dk}: force exhausted (12 attempts, edge never 0) — coverage gap`);
+    doorsJammed.add(dk);
+    return false;
+  };
+
+  // --- DFS over interior cells (physical backtracking, self-correcting) ---
+  const visited = new Set<string>();
+  let encountersSlipped = 0;
+  let desyncs = 0;
+  let viewCount = 0;
+  let aborted = false;
+
+  // Capture all 4 facings at the current cell; returns false on encounter/desync.
+  const captureCell = async (gx: number, gy: number): Promise<boolean> => {
+    for (let facing = 0; facing < 4; facing++) {
+      const p = await faceTo(facing);
+      if (p.gs !== 5) { console.log(`  ENCOUNTER while facing f${facing} at (${gx},${gy}) gs=${p.gs}`); encountersSlipped++; return false; }
+      if (p.gx !== gx || p.gy !== gy) { console.log(`  DESYNC during turn: expected (${gx},${gy}) got (${p.gx},${p.gy})`); desyncs++; return false; }
+      if (p.f !== facing) { console.log(`  could not reach facing f${facing} at (${gx},${gy}) (got f${p.f}); skip view`); continue; }
+      if (await capture(gx, gy, facing)) viewCount++;
+    }
+    return true;
+  };
+
+  const dfs = async (gx: number, gy: number): Promise<void> => {
+    if (aborted || visited.size >= maxCells) return;
+    visited.add(cellKey(gx, gy));
+    console.log(`  [cell ${visited.size}/${maxCells}] at (${gx},${gy})`);
+    if (!(await captureCell(gx, gy))) {
+      // encounter or desync at this cell — try to recover the suppression once.
+      await applyPokes(base, ovl);
+      const p = await frParty(c, base);
+      if (p.gs !== 5) { console.log(`  ABORT: still in non-maze state gs=${p.gs} after re-poke. Graceful stop.`); aborted = true; }
+      return;
+    }
+    for (let d = 0; d < 4 && !aborted && visited.size < maxCells; d++) {
+      const fp = await faceTo(d);
+      if (fp.gs !== 5) { console.log(`  ENCOUNTER while turning to explore d${d} at (${gx},${gy}); abort branch`); encountersSlipped++; aborted = aborted || (await frParty(c, base)).gs !== 5; return; }
+      if (fp.gx !== gx || fp.gy !== gy) { console.log(`  DESYNC before explore d${d}: at (${fp.gx},${fp.gy}); abort branch`); desyncs++; return; }
+      let r = await stepForwardAndUnlock();
+      if (r.p.gs !== 5) { console.log(`  ENCOUNTER on step d${d} from (${gx},${gy}) gs=${r.p.gs}; abort branch`); encountersSlipped++; aborted = true; return; }
+      if (!r.moved) {
+        // Blocked: a wall OR a closed door. Distinguish + force the door, then re-step.
+        const facing = await frParty(c, base);
+        if (facing.gs === 5 && facing.gx === gx && facing.gy === gy && facing.f === d) {
+          const opened = await forceDoorIfClosed(gx, gy, d);
+          if (opened) {
+            r = await stepForwardAndUnlock();
+            if (r.p.gs !== 5) { console.log(`  ENCOUNTER stepping through forced door d${d} from (${gx},${gy}) gs=${r.p.gs}; abort branch`); encountersSlipped++; aborted = true; return; }
+          }
+        }
+        if (!r.moved) continue; // genuine wall, welded door, or force failed
+      }
+      const nk = cellKey(r.p.gx, r.p.gy);
+      const isNew = !visited.has(nk);
+      const childGx = r.p.gx, childGy = r.p.gy;
+      if (isNew) {
+        await dfs(childGx, childGy);
+        if (aborted) return;
+      }
+      // step back to the parent cell (move was a real cell change: new or revisited).
+      await faceTo((d + 2) % 4);
+      const back = await stepForwardAndUnlock();
+      if (back.p.gs !== 5) { console.log(`  ENCOUNTER stepping back to (${gx},${gy}) gs=${back.p.gs}; abort`); encountersSlipped++; aborted = true; return; }
+      if (back.p.gx !== gx || back.p.gy !== gy) {
+        console.log(`  DESYNC backtracking to (${gx},${gy}): at (${back.p.gx},${back.p.gy}); abort branch`);
+        desyncs++; return;
+      }
+    }
+  };
+
+  await dfs(here.gx, here.gy);
+
+  // --- coverage report ---
+  console.log(`\n=== interiorcap coverage report ===`);
+  console.log(`  interior cells visited this run: ${visited.size}${visited.size >= maxCells ? ' (maxCells cap hit)' : ' (DFS exhausted)'}`);
+  console.log(`  NEW views captured this run: ${newViews}`);
+  console.log(`  running total views in ${outDir}: ${startingTotal + newViews} (was ${startingTotal})`);
+  console.log(`  doors forced open this run: [${[...doorsForced].join(', ') || '(none)'}]`);
+  console.log(`  doors JAMMED/unreachable (coverage gaps): [${[...doorsJammed].join(', ') || '(none)'}]`);
+  console.log(`  encounters slipped through: ${encountersSlipped}`);
+  console.log(`  palette misses: ${paletteMisses}`);
+  console.log(`  position desyncs: ${desyncs}`);
+  console.log(`  aborted early: ${aborted}`);
+  const firstCell = [0, 1, 2, 3].filter((f) => captured.has(`gx${here.gx}-gy${here.gy}-f${f}`));
+  console.log(`  first interior cell (${here.gx},${here.gy}) facings captured: [${firstCell.join(',')}]${firstCell.length === 4 ? ' (all 4 ✓)' : ''}`);
+}
+
 async function phaseScreenCap(c: HostClient): Promise<void> {
   const { encodePngRgba } = await import('../../packages/cli/src/lib/png.js');
   const { COMPOSED_PALETTE, SCREEN_WIDTH, SCREEN_HEIGHT } = await import('../parity/decode-screen.js');
@@ -5071,6 +6592,15 @@ async function main() {
     else if (phase === 'menuredraw') await phaseMenuRedraw(c);
     else if (phase === 'placecheck') await phasePlaceCheck(c);
     else if (phase === 'expander') await phaseExpander(c);
+    else if (phase === 'forcethrough') await phaseForceThrough(c);
+    else if (phase === 'forcethrough2') await phaseForceThrough2(c);
+    else if (phase === 'forcediag') await phaseForceDiag(c);
+    else if (phase === 'interiorseed') await phaseInteriorSeed(c);
+    else if (phase === 'encsuppress') await phaseEncSuppress(c);
+    else if (phase === 'encsuppress2') await phaseEncSuppress2(c);
+    else if (phase === 'encdisable') await phaseEncDisable(c);
+    else if (phase === 'encdisable2') await phaseEncDisable2(c);
+    else if (phase === 'interiorcap') await phaseInteriorCap(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();
