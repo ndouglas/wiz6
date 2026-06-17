@@ -56,7 +56,7 @@ const strong: ForceMember = {
 describe('forceAttempt', () => {
   it('SUCCESS when progress >= strain_len', () => {
     const rng = scriptRng([[50, 7], [18, 17], [18, 17], [18, 17], [18, 17]]);
-    expect(forceAttempt(strong, 0, false, rng)).toBe('success'); // strain_len=1, progress=17
+    expect(forceAttempt(strong, 0, false, rng).outcome).toBe('success'); // strain_len=1, progress=17
   });
   it('FAILURE when progress < strain_len', () => {
     const weak: ForceMember = {
@@ -68,22 +68,27 @@ describe('forceAttempt', () => {
       class: 0,
     };
     const rng = scriptRng([[50, 7], [3, 0], [3, 0], [3, 0], [3, 0]]); // effSTR=3, progress->1, strain_len=18
-    expect(forceAttempt(weak, 10, false, rng)).toBe('failure');
+    expect(forceAttempt(weak, 10, false, rng).outcome).toBe('failure');
   });
   it('JAMMED when welded', () => {
     const rng = scriptRng([[50, 7], [18, 17], [18, 17], [18, 17], [18, 17]]);
-    expect(forceAttempt(strong, 0, true, rng)).toBe('jammed');
+    expect(forceAttempt(strong, 0, true, rng).outcome).toBe('jammed');
   });
   it('effSTR uses two-step integer division (str=3, spCur=2, spMax=3 -> effSTR=1)', () => {
     // spRatio = floor(2*100/3)=66; effSTR = floor(66*3/100)=1  (old collapsed formula gave 2)
     const m: ForceMember = { str: 3, spCur: 2, spMax: 3, level: 1, skulduggery: 0, class: 0 };
     const rng = scriptRng([[50, 7], [1, 0], [1, 0], [1, 0], [1, 0]]); // bound MUST be 1, not 2
-    expect(forceAttempt(m, 0, false, rng)).toBe('failure'); // progress=1, strain_len=clamp(18-3+0)=15
+    expect(forceAttempt(m, 0, false, rng).outcome).toBe('failure'); // progress=1, strain_len=clamp(18-3+0)=15
   });
   it('treats effSTR as 0 when spMax=0', () => {
     const dead: ForceMember = { str: 18, spCur: 0, spMax: 0, level: 1, skulduggery: 0, class: 0 };
     const rng = scriptRng([[50, 0], [1, 0], [1, 0], [1, 0], [1, 0]]); // effSTR=0 -> bound=1
-    expect(forceAttempt(dead, 0, false, rng)).toBe('success'); // strain_len=1, progress=1, 1>=1
+    expect(forceAttempt(dead, 0, false, rng).outcome).toBe('success'); // strain_len=1, progress=1, 1>=1
+  });
+  it('surfaces the roll progress + threshold bar values (for the strain band)', () => {
+    const rng = scriptRng([[50, 7], [18, 17], [18, 17], [18, 17], [18, 17]]);
+    // progress = floor((17*4)/4)=17; threshold = strainBarLength(18,0,false)=1.
+    expect(forceAttempt(strong, 0, false, rng)).toEqual({ outcome: 'success', progress: 17, threshold: 1 });
   });
 });
 
@@ -96,20 +101,20 @@ const thief: PickMember = { level: 5, skulduggery: 20, class: 3 };
 describe('pickAttempt', () => {
   it('SUCCESS iff every tumbler rolls rng(skill) > 0', () => {
     const rng = scriptRng([[25, 10], [25, 5], [25, 3]]); // lock6->3 tumblers, skill25
-    expect(pickAttempt(thief, 6, false, rng)).toBe('success');
+    expect(pickAttempt(thief, 6, false, rng).outcome).toBe('success');
   });
   it('FAILURE if any tumbler rolls 0 (still consumes all draws)', () => {
     const rng = scriptRng([[25, 10], [25, 0], [25, 3]]);
-    expect(pickAttempt(thief, 6, false, rng)).toBe('failure');
+    expect(pickAttempt(thief, 6, false, rng).outcome).toBe('failure');
   });
   it('JAMMED when welded', () => {
     const rng = scriptRng([[25, 10], [25, 5], [25, 3]]);
-    expect(pickAttempt(thief, 6, true, rng)).toBe('jammed');
+    expect(pickAttempt(thief, 6, true, rng).outcome).toBe('jammed');
   });
   it('clamps skill to 95 and tumblers to 6', () => {
     const sup: PickMember = { level: 90, skulduggery: 90, class: 3 };
     const rng = scriptRng([[95, 1], [95, 1], [95, 1], [95, 1], [95, 1], [95, 1]]); // lock30->6 tumblers
-    expect(pickAttempt(sup, 30, false, rng)).toBe('success');
+    expect(pickAttempt(sup, 30, false, rng).outcome).toBe('success');
   });
 });
 
