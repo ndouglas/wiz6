@@ -55,7 +55,7 @@ import {
 import { composeOptionsStrip } from './compose-options-strip.js';
 import { composeReviewPicker } from './compose-review-picker.js';
 import { composeDoorMenu } from './compose-door-menu.js';
-import { composeDoorResult } from './compose-door-progress.js';
+import { composeDoorProgress, composeDoorResult } from './compose-door-progress.js';
 import { composePartyPanel } from './party-panel-render.js';
 import { CanvasPresenter } from '../../lib/presenter.js';
 import {
@@ -111,6 +111,10 @@ const SCALE = 3;
  *  Kept exported under the old name `ANIM_FRAME_MS` is gone; tests reference
  *  CUTSCENE_TICK_MS. */
 export const CUTSCENE_TICK_MS = 200;
+
+/** Per-cell interval for the door FORCE/PICK strain bar fill animation. Tuned to
+ *  feel right (the engine fills the bar over ~1s); not wall-clock parity. */
+export const STRAIN_TICK_MS = 70;
 
 /** Door/recess piece animation cadence: the seam phase toggles every this-many ms
  *  in free-roam so the dungeon door shimmers between its two atlas frames. Tuned
@@ -422,6 +426,10 @@ function composeFrame(
         doorFlow.cursor,
         DOOR_WHO,
       );
+    } else if (doorFlow.phase === 'strain') {
+      const s = doorFlow;
+      strip = composeDoorProgress(s.kind, s.fill, s.threshold, s.slots, s.tryingSlot);
+      region = DOOR_STRAIN.band;
     } else if (doorFlow.phase === 'result') {
       const r = doorFlow;
       strip = composeDoorResult(
@@ -478,6 +486,18 @@ type DoorFlow =
   | { phase: 'closed' }
   | { phase: 'menu'; door: DoorRecord; cursor: number }
   | { phase: 'who'; door: DoorRecord; action: DoorAction; cursor: number }
+  | {
+      // Animated strain/tumble bar: the green bar fills 0..progress before the
+      // result band shows. `kind` = 'strain' (FORCE) / 'tumble' (PICK).
+      phase: 'strain';
+      kind: 'strain' | 'tumble';
+      fill: number;
+      outcome: DoorOutcome;
+      progress: number;
+      threshold: number;
+      slots: ReadonlyArray<string | null>;
+      tryingSlot: number;
+    }
   | {
       phase: 'result';
       outcome: DoorOutcome;
@@ -571,6 +591,8 @@ export function MazeView() {
   // reactive effect). It calls tickEntry once per CUTSCENE_TICK_MS for every
   // non-free scripted mode and stops at 'free'.
   const cutsceneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Drives the door FORCE/PICK strain-bar fill animation (see scheduleStrainTick).
+  const strainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Gate-clang sounds (SOUND04 then SOUND13) played when EACH portcullis starts
   // lifting (RE: the engine's gate routine calls play_sound(4) then
@@ -794,6 +816,7 @@ export function MazeView() {
     return () => {
       cancelled = true;
       if (cutsceneTimerRef.current) clearTimeout(cutsceneTimerRef.current);
+      if (strainTimerRef.current) clearTimeout(strainTimerRef.current);
       removeAudioUnlock();
     };
   }, [navigate]);
@@ -906,6 +929,40 @@ export function MazeView() {
       present(); // re-render every tick (incl. the final 'free' transition — issue A)
       scheduleCutsceneTick();
     }, CUTSCENE_TICK_MS);
+  }
+
+  /**
+   * Animate the door FORCE/PICK strain bar: while in the 'strain' phase, fill the
+   * green bar one cell per STRAIN_TICK_MS until it reaches `progress`, then advance
+   * to the 'result' band. Mirrors the engine's strain animation before the result.
+   */
+  function scheduleStrainTick() {
+    if (strainTimerRef.current) {
+      clearTimeout(strainTimerRef.current);
+      strainTimerRef.current = null;
+    }
+    const df = doorFlowRef.current;
+    if (df.phase !== 'strain') return;
+    strainTimerRef.current = setTimeout(() => {
+      const cur = doorFlowRef.current;
+      if (cur.phase !== 'strain') return;
+      if (cur.fill < cur.progress) {
+        doorFlowRef.current = { ...cur, fill: cur.fill + 1 };
+        present();
+        scheduleStrainTick();
+      } else {
+        // Bar full → show the result band.
+        doorFlowRef.current = {
+          phase: 'result',
+          outcome: cur.outcome,
+          progress: cur.progress,
+          threshold: cur.threshold,
+          slots: cur.slots,
+          tryingSlot: cur.tryingSlot,
+        };
+        present();
+      }
+    }, STRAIN_TICK_MS);
   }
 
   // Render whenever assets become available.
@@ -1130,8 +1187,12 @@ export function MazeView() {
                     outcome === 'success'
                       ? Math.min(DOOR_ROLL.strainMax, threshold + 2)
                       : Math.max(1, threshold - 2);
+                  // Enter the animated strain/tumble phase (green bar fills 0..
+                  // progress), which then advances to the result band.
                   doorFlowRef.current = {
-                    phase: 'result',
+                    phase: 'strain',
+                    kind: action === 'force' ? 'strain' : 'tumble',
+                    fill: 0,
                     outcome,
                     progress,
                     threshold,
@@ -1139,6 +1200,7 @@ export function MazeView() {
                     tryingSlot: doorFlow.cursor,
                   };
                   present();
+                  scheduleStrainTick();
                   return;
                 }
               }
@@ -1156,6 +1218,11 @@ export function MazeView() {
               e.preventDefault();
               return;
           }
+        } else if (doorFlow.phase === 'strain') {
+          // Strain/tumble bar animating — consume all keys (timer drives it to the
+          // result; no party move, no early dismiss).
+          e.preventDefault();
+          return;
         } else if (doorFlow.phase === 'result') {
           // Result frame: any key closes.
           e.preventDefault();
