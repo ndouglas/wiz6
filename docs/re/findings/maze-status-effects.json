@@ -1,0 +1,109 @@
+{
+  "topic": "maze-status-effects",
+  "subagent_run": "2026-06-19",
+  "binaries": ["wmaze.ovr", "wdopt.ovr", "wmexe.ovr", "wtrea.ovr", "wpcvw.ovr", "wmnpc.ovr", "wmele.ovr"],
+  "summary": "INVESTIGATION OUTCOME, with a load-bearing CORRECTION to the prior reading. The 0x4ec8 region was previously characterized (wmaze-naming-pass.json fn-decay-timers) as a '6-slot party status-effect timer array (6 x 4 bytes = duration u16 + effect-id u16)'. That reading is HALF RIGHT and HALF WRONG, and the port scope is much smaller than the prompt assumed. KEY FINDINGS: (1) The decay loop `status_effects_decay_timers` (wmaze 0x1053) IS real and DOES iterate 6 entries x 4 bytes at 0x4ec8 stride 4, subtracting a turn-count (ALWAYS called with arg=1, i.e. decrement-by-1-per-character-action) from each entry's first word, zeroing it on <=0, and ALSO zeroing the +0x4eca word on expiry EXCEPT for slot 0 (the `iVar2 != 0` guard). So per-slot layout = { duration:u16 @ +0x4ec8+i*4, id:u16 @ +0x4eca+i*4 }; 6 slots; party-wide single array (NOT per-character). (2) BUT the SAME byte region 0x4ec8..0x4edf is ALSO the 3D-renderer's per-depth scene-geometry ACCUMULATOR BANK, written contiguously (add [0x4ec8],ax / add [0x4ecc],ax / ... / add [0x4edc],ax) in EVERY overlay that carries a copy of the 3D corridor renderer (wdopt 0x1aa0-0x1bf0, wmexe 0x68e7-0x69ef, wtrea 0x29b9-0x2a80, wpcvw 0x25f8-0x26bf, wmnpc 0x3c3a-0x3d01, and wmaze's own renderer). This is the SAME aliasing trap documented project-wide: a contiguous +2-stride bank that LOOKS like a struct array is actually renderer scratch. The decay loop is the ONLY code in any overlay that treats 0x4ec8 as a 4-byte-stride timer array; everything else treats it as a 2-byte-stride accumulator bank. (3) The ONLY status-array word that wmaze ever READS for gameplay (outside the decay loop and the renderer) is slot-0's id word at 0x4eca, and it is NOT a generic 'light/levitate/shield' status effect -- it is a SCRIPTED QUEST FLAG for dungeon zone 8 (the MU-MU altar / 'DID YOU BRING ME AN OFFERING?' / 'SACRIFICE' encounter; message ids 0x806-0x809). dungeon_load_zone (0x3d3) CLEARS 0x4eca on every zone load UNLESS the loaded zone is 8 (`if (*0x363c != 8) *0x4eca = 0`), which is exactly why slot 0 is exempt from the decay-loop clear: slot 0 is a zone-scoped quest latch, not a decaying timer. dungeon_main_loop (0x2abc) reads `if (*0x363c == 8 && *0x4eca == 1)` to show the altar dialogue; msg_show_centered_with_choice (0x1190) reads `if (*0x4eca == 1 && pit_bit_clear) *0x4eca = 0` to consume the latch when the offering condition is met. (4) The two other wmaze gameplay reads in the bank are 0x4ed0 (encounter-enable gate, `0 < *0x4ed0`) and 0x4ed2 (random-encounter rate threshold, `rng(100) < *0x4ed2`) inside encounter_roll_random_member (0x5f91); these are encounter CONFIG, not party buffs. (5) The PRODUCER that would write durations into timer slots 1..5 was NOT found -- there is NO instruction in wmaze that writes a nonzero duration to slots 1..5 of the 0x4ec8 bank, and the wdopt writes to that bank are all the renderer accumulator (verified by disassembly: e.g. wdopt 0x1bb4 `01 06 c8 4e` = add[0x4ec8],ax inside the scene-geometry builder feeding wdopt_init_3d_scene_state, NOT a spell effect). The wdopt jumptable spell-effect handlers (id table at the relocated 0x64f6, 20 entries) are the most likely producer location but their bodies live in a relocated region the static disasm could not resolve cleanly. CONCLUSION FOR THE PORT: there is no evidence in the consumer code (wmaze) for a portable family of out-of-combat party buffs (light/levitate/shield/detect) driven by the 0x4ec8 array. The decay loop is genuine but its only OBSERVABLE consumer is the zone-8 quest latch at 0x4eca slot 0 (which behaves like a quest flag, not a timer) plus the encounter config at 0x4ed0/0x4ed2. The 'per-effect behaviors' the prompt asked us to enumerate (Q4) DO NOT EXIST in the wmaze code as readable consumers -- pit/levitate gating, light-radius changes, AC buffs, map reveal are NOT keyed off 0x4ec8 in any wmaze read we found. PER-CHARACTER status (sleep/charm/paralyze/poison) is a SEPARATE system: char-record bytes +0x450c (status), +0x450d (petrify?), +0x4589 (poison/death level), +0x458d (poison damage), read all over wmaze. That per-character system is the real 'status effects' the port needs; the 0x4ec8 'party-wide timer array' is largely a phantom built on a renderer-scratch aliasing read. RECOMMENDATION: do NOT port a speculative 6-slot party-buff timer model. Port (a) the per-action decay primitive only if a real producer is later found in the deferred spell code, and (b) the zone-8 quest latch + encounter config as the actual gameplay reads of this region. Verify the whole thing live (dosbox_live) before committing any timer-array model -- read 0x4ec8..0x4edf after casting a known dungeon buff spell (e.g. Light/Levitate) and confirm whether a duration/id pair actually lands in slots 1..5, or whether the bank only ever holds renderer scratch + the slot-0 quest latch.",
+  "questions_answered": {
+    "Q1_per_slot_layout": {
+      "answer": "Per the decay loop (wmaze 0x1053): 6 slots, stride 4 bytes. Slot i = { word0 @ 0x4ec8 + i*4 (the value subtracted/cleared, a 'duration'), word1 @ 0x4eca + i*4 (the 'effect-id', cleared on expiry except slot 0) }. So it is duration:u16 + id:u16, exactly 2 words = 4 bytes, NO extra 2 bytes. The save format (save_write_party_and_state 0x20eb) serializes all 6 slots as `auStack_22[i*2]=*(0x4ec8+i*4); auStack_22[i*2+1]=*(0x4eca+i*4)` -- 12 words = 24 bytes, confirming the 6x(u16,u16) layout is persisted. CAVEAT: the same 24-byte region doubles as the renderer accumulator bank (2-byte stride), so the '4-byte-stride timer array' interpretation is ONLY valid in the decay loop's view; the renderer reads/writes it as 12 independent u16 accumulators.",
+      "confidence": "high"
+    },
+    "Q2_decay_law_and_slot0": {
+      "answer": "Decay law (verified decompile + raw bytes): for i in 0..5 { v = *(0x4ec8+i*4) - param1; *(0x4ec8+i*4) = v; if (v < 1) { *(0x4ec8+i*4) = 0; if (i != 0) *(0x4eca+i*4) = 0; } }. param1 is ALWAYS 1 at all 9 call sites (bytes `b8 01 00 50 e8 ..` = mov ax,1; push ax; call), i.e. decrement-by-1 per character action (cast/use/etc). Slot 0 is exempt from the id-clear (NOT the duration-clear -- slot-0 duration IS still zeroed). WHY slot 0 is special: slot-0's id word (0x4eca) is NOT a decaying status id at all -- it is the zone-8 quest latch (see Q3). dungeon_load_zone owns its lifecycle (`if(*0x363c != 8) *0x4eca = 0`), so the decay loop must not stomp it. Slot 0 is effectively a non-timer field that happens to live at the head of the array.",
+      "confidence": "high"
+    },
+    "Q3_effect_id_table": {
+      "answer": "There is NO general effect-id enum readable in the wmaze consumer. The only id value ever compared is `*0x4eca == 1` (slot 0), and `1` here means 'zone-8 altar quest is armed' (show the MU-MU offering/sacrifice dialogue), NOT 'light' or any buff. Evidence: dungeon_main_loop 0x2db5 `cmp [0x4eca],1` gated by `*0x363c == 8`; the dialogue it shows is msg 0x806 ('DID YOU BRING ME AN OFFERING? ... LAY YOUR GIFTS BEFORE ME'), 0x807 ('MU-MU DEMANDS A SACRIFICE'), 0x809 ('SACRIFICE / THE GIRL'). The prompt's hypothesized id->meaning map (light/levitate/shield/detect) is NOT supported by any wmaze read. If such a map exists it is in the deferred wdopt spell-effect handlers (jumptable id-table at relocated 0x64f6, 20 entries) which we could not statically decode. Mark the entire 'effect-id table' as UNCONFIRMED pending live verification of a buff spell.",
+      "confidence": "medium"
+    },
+    "Q4_per_effect_behaviors": {
+      "answer": "NONE FOUND in the consumer (wmaze). Exhaustive precise memory-operand grep (ModRM mod=00 rm=110 disp16) for every word 0x4ec8..0x4ede across wmaze found only: 0x4eca (zone-8 quest latch, 5 sites), 0x4ed0 + 0x4ed2 (encounter enable+threshold, in encounter_roll_random_member 0x5f91), and 0x4edc (one site in the 0x6e48/level region, role unclear). There is NO read of the 0x4ec8 bank that gates pit/chute damage (the pit-bit is +0x43a in maze data, checked directly, NOT via 0x4ec8), changes 3D light/brightness, modifies AC/combat, or reveals the map. So the 'per-effect gameplay behaviors' the prompt asked to enumerate do not exist as 0x4ec8-keyed reads. The behaviors that DO exist and gate gameplay are keyed off OTHER state: pit/chute off maze-data +0x43a (special_chute_fall_sequence 0x5a28), encounter rate off 0x4ed2 + per-char +0x4527, per-char conditions off char +0x450c/+0x450d/+0x4589. PORT IMPLICATION: do not implement a party-wide buff-behavior switch on 0x4ec8.",
+      "confidence": "high"
+    },
+    "Q5_setting_durations_producer": {
+      "answer": "Producer for timer slots 1..5 NOT located. wdopt_state_13_spell_cast (0x39cc) deducts mana (`mana_by_school[spell+0xde] -= spell+0xe0 * level`), dispatches via wdopt_spell_effect_dispatch (0x1af0) into a 20-entry jumptable (id-table at relocated 0x64f6), then applies an HP cost with a backfire status penalty (`if HP<0: HP=0; char+0x450c = 6+rng(6)`). The per-spell effect bodies (where a Light/Levitate spell would write duration+id into a timer slot) are reached through the jumptable and live in a relocated code region the static disasm could not follow. The wdopt writes that LOOK like timer writes (0x1bb4 add[0x4ec8], 0x1b7b add[0x4ecc], 0x394c mov[0x4eca],1) are: the first two are renderer-accumulator adds (scene geometry), and 0x394c (mov [0x4eca],1) is inside wdopt_state_14_use_item -- a USE-ITEM path setting the SAME zone-8 quest latch (using the offering item arms the altar), consistent with the wmaze quest-flag reading. So NO spell->effect-id->duration table could be produced; this MUST be resolved by live RE of a buff spell or by decoding the relocated jumptable bodies.",
+      "confidence": "medium"
+    },
+    "Q6_party_wide_vs_per_member": {
+      "answer": "The 0x4ec8 array is a SINGLE party-wide block (one array, indexed only by slot 0..5; never indexed by character). It is NOT per-character. The per-CHARACTER condition state is entirely separate and lives inside each 0x1b0-byte char record: +0x450c (status: sleep/charm/paralyze, set to 6+rng(6) by spell backfire), +0x450d (a second condition byte, petrify?), +0x4589 (level/death/poison-severity byte: 0=alive, >=3 = dead-ish per dungeon_main_loop alive-count), +0x458d (per-action HP drain amount, the poison tick). These per-char bytes are the real status-effect system the port needs; they are read pervasively (party_panel_draw_member 0x644, dungeon_main_loop alive/incapacitated counts, encounter_roll_random_member exclusions). The prompt's note that char-conditions are a SEPARATE thing is CONFIRMED -- and in fact they are the ONLY substantial status system here.",
+      "confidence": "high"
+    }
+  },
+  "findings": [
+    {
+      "id": "decay-loop-exact",
+      "claim": "status_effects_decay_timers (wmaze 0x1053) iterates 6 entries x 4-byte stride at 0x4ec8, subtracts param1 from the first word of each entry, zeroes that word on <1, and zeroes the +0x4eca word on expiry only for i != 0. param1 is always 1 (decrement per action).",
+      "category": "maze_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x1053"},
+        "type": "decompile_plus_byte_pattern",
+        "details": "Decompile: `do { iVar1 = iVar2*4; *(int*)(iVar1+0x4ec8) -= param_1; if ((*(int*)(iVar1+0x4ec8) < 1) && (*(int*)(iVar1+0x4ec8)=0, iVar2 != 0)) *(int*)(iVar1+0x4eca)=0; iVar2++; } while (iVar2 < 6); `. All 9 call sites (0x1f5d,0x289c,0x28bd,0x28f3,0x2939,0x2952,0x2eb3,0x2f11,0x3557) preceded by `b8 01 00 50` (mov ax,1; push ax)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "slot0-is-zone8-quest-latch",
+      "claim": "Slot-0 effect-id word 0x4eca is a zone-8 (MU-MU altar) scripted-quest latch, not a status id. Cleared by dungeon_load_zone unless zone==8; tested == 1 to show altar dialogue; consumed (set 0) when the offering condition is met.",
+      "category": "maze_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4eca"},
+        "type": "multi_site_read_plus_msg_text",
+        "details": "Precise disp16 grep -> exactly 5 wmaze sites touch 0x4eca: 0x555 `c7 06 ca4e 0000` (dungeon_load_zone 0x3d3: `if(*0x363c != 8) *0x4eca = 0`); 0x1290 `83 3e ca4e 01` and 0x129d `c7 06 ca4e 0000` (msg_show_centered_with_choice 0x1190: `if(*0x4eca==1 && pitbit==0) *0x4eca=0`); 0x1372 `83 3e ca4e ..` (same fn jumptable arm); 0x2db5 `83 3e ca4e 01` (dungeon_main_loop 0x2abc: `if(*0x363c==8 && *0x4eca==1){...msg 0x806...}`). Message 0x806='...DID YOU BRING ME AN OFFERING? ... LAY YOUR GIFTS BEFORE ME', 0x807='MU-MU DEMANDS A SACRIFICE', 0x809='SACRIFICE / THE GIRL'. The use-item path in wdopt 0x394c `c7 06 ca4e 0100` (mov [0x4eca],1) inside wdopt_state_14_use_item arms the same latch (using the offering item)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "bank-aliases-renderer-accumulators",
+      "claim": "The 0x4ec8..0x4edf region is the 3D corridor renderer's per-depth scene-geometry accumulator bank in every renderer-bearing overlay, written as 12 contiguous u16 (2-byte stride, add/mov). The decay loop's 4-byte-stride timer view is an alias over the same bytes and is the only place that view is taken.",
+      "category": "render_alias",
+      "evidence": {
+        "binary": "multi",
+        "address": {"space": "wdopt.ovr", "offset": "0x1aa0"},
+        "type": "cross_overlay_byte_pattern",
+        "details": "Precise disp16 grep for 0x4ec8..0x4ede: identical contiguous 2-byte-stride write banks appear in wdopt (0x1b10..0x1bd7), wmexe (0x68e7..0x69ef), wtrea (0x29b9..0x2a80), wpcvw (0x25f8..0x26bf), wmnpc (0x3c3a..0x3d01). Disasm at wdopt 0x1b40-0x1bf0 shows the pattern `d1 e0; 01 06 cc4e; ...; a3 d64e; ...` (shl ax,1; add [bank],ax; ... mov [bank],ax) feeding wdopt_init_3d_scene_state (0x167e) and view-depth blits -- pure scene geometry, no status semantics. wmaze has ZERO `add [0x4ecX],ax` instructions in this range (its renderer writes elsewhere), so in wmaze the bank is used only as the decay-timer array + the slot-0 latch + the encounter config."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "encounter-config-at-4ed0-4ed2",
+      "claim": "0x4ed0 (encounter enable gate) and 0x4ed2 (random-encounter % threshold) are read by encounter_roll_random_member: `if (0 < *0x4ed0 && rng(100) < *0x4ed2) *0x4f86 = 1`. These are encounter config, not party buffs. (They occupy timer-slot-2 in the decay-array view, slot index 2 = 0x4ed0/0x4ed2.)",
+      "category": "encounter",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x5f91"},
+        "type": "decompile",
+        "details": "encounter_roll_random_member 0x5f91 first line: `if ((0 < *(int*)0x4ed0) && (iVar1 = rng(100), iVar1 < *(int*)0x4ed2)) *(int*)0x4f86 = 1;`. Per-char encounter eligibility additionally gated by char +0x4527 vs `rng(*0x363c*10 + 0x6e)` (per-zone encounter table) and exclusions on +0x4589/+0x450c/+0x450d. Whether 0x4ed0/0x4ed2 are persistent config or renderer-clobbered scratch read before the next frame needs live confirmation."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "per-character-status-is-the-real-system",
+      "claim": "The real status-effect system is per-character bytes in the 0x1b0 char record: +0x450c (status: sleep/charm/paralyze; set to 6+rng(6) by spell backfire), +0x450d (second condition byte), +0x4589 (alive/dead/severity; 0=ok, >=3 incapacitated), +0x458d (per-action HP drain / poison tick). Party-wide 0x4ec8 array is NOT this.",
+      "category": "char_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2abc"},
+        "type": "decompile",
+        "details": "dungeon_main_loop counts alive via `*(iVar5+0x4589)==0` and incapacitated via `*(0x450c)!=0 || *(0x450d)!=0`; applies poison drain `*(0x4404) -= (*(0x458d)+1)` when a per-char poison roll hits; sets game-state 8 (party dead) when alive count == 0. wdopt_state_13_spell_cast backfire writes char+0x450c = 6+rng(6). party_panel_draw_member (0x644) renders these. These are SEPARATE from the 0x4ec8 array and are the substantive status state for the port."
+      },
+      "confidence": "high"
+    }
+  ],
+  "save_format_note": {
+    "claim": "save_write_party_and_state (wmaze 0x20eb) persists the full 6x4-byte 0x4ec8 block alongside maze position (0x4fa4/0x4fa2/0x4fa0/0x4f9e/0x4f9c/0x4f9a, zone 0x363c, save-slot 0x4f8c..0x4f98) and idle/misc counters.",
+    "evidence": "Decompile: `do { auStack_22[local_4*2] = *(0x4ec8 + local_4*4); auStack_22[local_4*2+1] = *(0x4eca + local_4*4); } while (local_4 < 6);` -- 12 words written into the save record. Confirms the persisted layout is 6 x (u16 duration, u16 id).",
+    "confidence": "high"
+  },
+  "unresolved": [
+    "The PRODUCER for any genuine timer slot 1..5 (a dungeon buff spell writing duration+id) was not found statically. Most likely in the wdopt spell-effect jumptable bodies (id-table at relocated 0x64f6, 20 entries, handler-table at 0x651e) which the static disasm could not follow (relocated region beyond file size). RESOLVE LIVE: dosbox_live_launch a party that knows a dungeon buff (Light, Levitate, Detect/Clairvoyance, Shield/Armor), cast it out of combat, then dosbox_live_read 0x4ec8..0x4edf (DGROUP) BEFORE and AFTER and watch for a (duration,id) pair landing in any slot 1..5. If nothing lands, the 6-slot party-timer model is confirmed vestigial/renderer-only and should NOT be ported.",
+    "Whether 0x4ed0/0x4ed2 (encounter enable/threshold) are persistent config or transient renderer scratch read opportunistically -- live read across a frame would settle it.",
+    "The 20 wdopt spell-effect handler identities (the id->effect map the prompt wanted) -- needs the relocated jumptable decoded or a live trace of wdopt_spell_effect_dispatch with a known spell id.",
+    "wmaze 0x6a2b (one read of 0x4edc, in the 0x6e48 region) -- role unclear; likely renderer scratch but not run to ground."
+  ],
+  "operational_notes": {
+    "method": "Synthesized prior findings (wmaze-naming-pass, wdopt-naming-pass) then verified by (a) PyGhidra dump_function on wmaze 0x1053/0x1190/0x2abc/0x3d3/0x20eb/0x5f91 and wdopt 0x39cc/0x167e; (b) PRECISE x86 memory-operand grep (ModRM mod=00 rm=110 disp16, i.e. (byte & 0xc7)==0x06) for every word 0x4ec8..0x4ede across all 9 overlays -- this is what corrected the earlier loose `c8 4e` byte grep that produced false hits on immediate operands; (c) raw ndisasm/hexdump of the wdopt 0x1b40-0x1bf0 bank-write region to confirm renderer-accumulator semantics; (d) extracted/messages/msg.json lookup of message ids 0x806-0x809 to identify the zone-8 quest dialogue.",
+    "caveat": "The single biggest trap here was the contiguous +2-stride bank that aliases a +4-stride 'struct array'. The prior fn-decay-timers finding inferred '6 x 4-byte status slots' purely from the decay loop and matched it to Wizardry lore -- structurally plausible, but the consumer side does not back it. This is the documented 'structurally-plausible output from a misaligned read' pattern at the data-layout level. Do not promote a party-buff-timer model to docs/re without a live producer."
+  }
+}
