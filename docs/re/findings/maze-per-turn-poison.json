@@ -1,0 +1,126 @@
+{
+  "topic": "maze-per-turn-poison",
+  "subagent_run": "2026-06-19",
+  "binaries": ["wmaze.ovr", "wroot.exe"],
+  "summary": "Pinned the EXACT out-of-combat (maze) per-turn per-character status tick in dungeon_main_loop (wmaze 0x2abc), resolving the load-bearing 0x4400-vs-0x4404 HP/SP ambiguity from the prior findings. HEADLINE CORRECTION: the per-turn 'poison' tick drains 0x4404 (current SP / stamina), NOT current HP, and it does NOT kill a character. 0x4400 is current HP (combat damage + death path); 0x4404 is current SP/stamina (the poison tick + rest-regen path). Both confirmed independently from party_panel_draw_member (0x644, two bars: (0x4400,0x4402) and (0x4404,0x4406)), party_damage_member (0x66bc, drains 0x4400, death at 0x4400<1), and FUN_0000_1c94 (the rest/regen tick, ADDS to 0x4400 capped at 0x4402 and regenerates 0x4404 capped at 0x4406). THE TICK CADENCE IS FULLY DETERMINISTIC, NOT AN RNG ROLL: the per-character processing loop runs only when (turn_counter % 10 == 5); inside it, the poison drain fires on member i only when (turn_counter % 60) / 10 == i. turn_counter is a 32-bit counter at 0x4f80/0x4f82 incremented once per dungeon_main_loop iteration (i.e. once per party action/turn). Net effect: each of the 6 party slots is drained exactly once per 60 turns, staggered (slot 0 on turn ≡ 5 (mod 60), slot 1 on ≡ 15, ... slot 5 on ≡ 55). The two helper 'calls' in the block are NOT rng — they are the MS C 32-bit runtime arithmetic routines: __lmod (signed long modulo, wroot 0x414c, reached via thunk 0xf9e8) and __ldiv (signed long divide, wroot 0x411e, thunk 0xf9ba). Drain amount = poison_amount(+0x458d byte) + 1; result clamped to 0 (no underflow, no death). All-dead -> graveyard (state 8) is computed each loop iteration by a SEPARATE alive-count pass (count members with +0x4589 == 0; if 0 alive set *0x363a = 8). Death from severe poison goes through party_apply_status_effect (0x6608) which RAISES +0x4589 (status_level), and on +0x4589 >= 3 zeroes BOTH 0x4400 (HP) and 0x4404 (SP) and plays a death sound; that producer is the combat/trap path (deferred), not the per-turn maze tick.",
+  "findings": [
+    {
+      "id": "hp-sp-offset-resolution",
+      "claim": "0x4400 = current HP, 0x4402 = max HP, 0x4404 = current SP/stamina, 0x4406 = max SP. (Char-record base for slot i = 0x4400 + i*0x1b0; on-disk pcfile offset = (abs - 0x4400) + 0x18.) This RESOLVES the prior conflict: the field that combat damages and that triggers death is 0x4400 (HP); the field the per-turn maze poison tick drains is 0x4404 (SP).",
+      "category": "char_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x644"},
+        "type": "decompile_cross_check",
+        "details": "party_panel_draw_member (0x644) renders TWO bars: bar A = (*0x4400, *0x4402) cap 0x56, bar B = (*0x4404, *0x4406) cap 99 -> A is HP, B is SP. party_damage_member (0x66bc): subtracts combat damage from *0x4400, death-checks `if (*0x4400 < 1) party_apply_status_effect(...,0x1490,0)`. FUN_0000_1c94 (rest/regen tick): ADDS regen to *0x4400 capped at *0x4402 (HP-up-to-HPmax), separately regenerates *0x4404 capped at *0x4406 (SP-up-to-SPmax). On-disk pcfile schema agrees: hpCurrent@+0x18=abs0x4400, hpMax@+0x1A=0x4402, spCurrent@+0x1C=0x4404, spMax@+0x1E=0x4406 (offset law verified: race@abs0x4585 -> on-disk +0x19d = (0x4585-0x4400)+0x18)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "per-turn-tick-is-deterministic-roundrobin",
+      "claim": "The per-character poison processing is DETERMINISTIC, not an RNG roll. The per-member loop runs only when (turn_counter % 10 == 5). Inside, member i is drained only when (turn_counter % 60)/10 == i. With the %10==5 gate, turn within a 60-cycle is one of {5,15,25,35,45,55}, so exactly one slot 0..5 is drained per qualifying turn -> each slot drained once per 60 turns, staggered by 10.",
+      "category": "maze_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2bb0"},
+        "type": "raw_disasm",
+        "details": "Gate @ file 0x2bb0: `add [0x4f80],1; adc [0x4f82],0` (32-bit turn_counter++); `mov ax,[0x4f80]; mov dx,[0x4f82]; mov cx,0xa; mov bx,0; call 0xf9e8`(=__lmod -> turn_counter%10); `cmp dx,0; jnz skip; cmp ax,5; jz enter` -> enters loop iff turn_counter%10==5. Per-member select @ file 0x2bf1: `mov ax,[0x4f80]; mov dx,[0x4f82]; mov cx,0x3c(60); call 0xf9e8`(%60) then `mov cx,0xa(10); call 0xf9ba`(=__ldiv -> quotient (turn%60)/10); compared to member index [bp-4]; flag [bp-8] = (quotient==index). Helpers identified by thunk-delta law (0xf9e8-0xBA9C+0x200 = wroot file 0x414c = __lmod; 0xf9ba -> wroot 0x411e = __ldiv) confirmed by disasm: 0x414c is the classic sign-handling longword remainder routine, 0x411e the longword quotient routine, both calling the shared divmod core at 0x4178. NOTE the prior finding's phrase 'when a per-char poison roll hits' is INACCURATE: there is no rng in this gate; rng_next is wroot 0xbe2 (thunk 0xc47e) and is NOT called in the poison block."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "drain-formula-and-field",
+      "claim": "Drain = (poison_amount byte +0x458d) + 1, subtracted from CURRENT SP (0x4404), clamped to 0 on underflow. It does NOT touch HP and does NOT trigger death. Only applied to members with status_level (+0x4589) < 3.",
+      "category": "maze_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2c37"},
+        "type": "raw_disasm",
+        "details": "File 0x2be7: `cmp byte [bx+0x4589],3; jc enter` (only if +0x4589 < 3, unsigned/JC). Drain @ 0x2c37: `mov al,[bx+0x458d]; sub ah,ah; inc ax` (ax = poison_amount+1) `; sub [bx+0x4404],ax; cmp word [bx+0x4404],0; jnl ok; mov word [bx+0x4404],0` (clamp). bx = member*0x1b0. The drain is gated by flag [bp-8] (the round-robin select); FUN_0000_1c94(member) is then called for EVERY member in the loop regardless of the flag (it is the rest/regen + condition-decay tick)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "poison-amount-vs-status-level-fields",
+      "claim": "+0x458d (1 byte) = poison_amount / per-tick SP drain severity (drain = +0x458d + 1). +0x4589 (1 byte) = status_level: 0 = fully alive/well, 1..2 = afflicted but still 'alive' for the count, >= 3 = dead/incapacitated (excluded from poison tick, excluded from alive-count). They are DISTINCT bytes with distinct roles; the poison drain reads +0x458d, the alive/dead gating reads +0x4589.",
+      "category": "char_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4589"},
+        "type": "decompile_plus_disasm",
+        "details": "+0x458d read at file 0x2c37 (poison drain) and in FUN_0000_1c94 as +0x458a/+0x458b/+0x458c (a 3-byte VIT/regen-modifier triple immediately preceding/around it -> 0x458a..0x458d is a small per-char regen/poison parameter block). +0x4589 gates the tick (`< 3` at 0x2be7), the alive count (`== 0` in dungeon_main_loop), party_damage_member entry (`< 3` at 0x66bc), and party_apply_status_effect both as the field it raises (`if cur<param4: cur=param4`) and the death threshold (`if param4 > 2: zero HP+SP, play death sound`)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "death-and-status-raise-path",
+      "claim": "party_apply_status_effect (0x6608) is the death/affliction setter. It optionally rolls a resistance save (rng(100) vs char resistance byte +0x453a+param3 when param3 != 0), then if param4 > current +0x4589 sets +0x4589 = param4. If param4 > 2 (i.e. raising to dead/incapacitated tier) it ALSO zeroes 0x4400 (HP) and 0x4404 (SP) and plays sound (race+8). party_damage_member calls it with param4 implied by the message arg (0x1490) on HP<=0. This is the death path; the per-turn maze poison tick never calls it.",
+      "category": "char_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x6608"},
+        "type": "decompile",
+        "details": "0x6608 decompile: `if ((param3==0 || rng(100) > *(member*0x1b0+param3+0x453a)) && *(member*0x1b0+0x4589) < param4) { *(+0x4589)=param4; if (param4>2){ *0x4400=0; *0x4404=0; sound(*(+0x4586)+8);} ...show msg, redraw panel }`. So death = +0x4589 raised to >=3 -> HP and SP both zeroed. NOTE: param3 (resistance index into +0x453a school/resist block) and the comparator direction of the rng-save (rng < resist vs rng > resist) are LOW confidence from decompile alone; mark for live check before porting resistances. The HP=0,SP=0 on param4>2 and the +0x4589 raise are HIGH confidence."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "alive-count-and-graveyard",
+      "claim": "Every dungeon_main_loop iteration recomputes alive and incapacitated counts. alive = number of members (0..*0x43ce-1) with +0x4589 == 0. incapacitated = number with (+0x450c != 0 OR +0x450d != 0). If alive == 0 -> set *0x363a = 8 (graveyard / total-party-kill, handled by winit.ovr 0xdf6) and return. If incapacitated == party_size (*0x43ce) the loop forces a combat-recovery transition (state 10) instead.",
+      "category": "maze_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2abc"},
+        "type": "decompile",
+        "details": "Decompile: `local_e=0; local_10=0; for i in 0..*0x43ce-1 { if (*(i*0x1b0+0x4589)=='\\0') local_e++; if (*(+0x450c)!='\\0' || *(+0x450d)!='\\0') local_10++; } if (local_e==0) { *0x363a=8; return; } if (local_10==*0x43ce){ ... FUN_0000_1e90(); if==1 -> *0x363a=10 ... }`. Note alive uses '== 0' (strictly status_level 0), so a poisoned-but-not-dead member (0x4589 in 1..2) counts as NOT-alive for the graveyard check -- worth a live cross-check, but the byte comparison is unambiguous in the disasm."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "when-the-tick-runs",
+      "claim": "turn_counter (0x4f80/0x4f82, 32-bit) is incremented exactly once per pass through dungeon_main_loop, which is once per resolved party ACTION/turn (movement OR menu action that re-enters the loop). The per-character poison/regen tick therefore advances on every turn, not only on forward movement. It is gated by turn_counter%10==5 so it visibly fires every 10 turns. This is SEPARATE from status_effects_decay_timers(1) (the 0x4ec8 party-array decay called on door OPEN etc., per maze-status-effects.json) -- that is a different subsystem.",
+      "category": "maze_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4f80"},
+        "type": "disasm_plus_control_flow",
+        "details": "The `add [0x4f80],1; adc [0x4f82],0` increment sits at the top of the do-while body (file 0x2bb0), before menu_wait_for_key_or_repaint dispatches the action. Whether a given UI action (OPEN/cast/use/move/turn) increments depends on whether it returns through the loop top vs transitions to another game-state and re-enters dungeon_main_loop fresh -- but in all re-entry paths the increment executes at loop top, so any action that returns control to the maze loop advances the turn. CAVEAT (LOW confidence on the OPEN specifics): I did NOT trace each menu_wait_for_key return code (case 0..4 + door OPEN sub-path) to prove OPEN reaches loop-top vs early-returns; confirm live whether the door-OPEN path increments 0x4f80. The decay_timers(1) calls (9 sites) are the 0x4ec8 array, NOT this per-char tick."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "on-disk-poison-byte-mapping",
+      "claim": "On-disk pcfile mapping (offset law: on-disk = (abs - 0x4400) + 0x18): runtime status_level +0x4589 -> on-disk record +0x1A1; runtime poison_amount +0x458d -> on-disk record +0x1A5. Both lie within the 432(0x1B0)-byte record. These are SEPARATE bytes from the conditions[10] block at on-disk +0x122 (abs 0x450a).",
+      "category": "char_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x4589"},
+        "type": "offset_arithmetic_verified",
+        "details": "Offset law confirmed by anchors already in packages/data/src/schemas/pcfile.ts: race abs0x4585 = on-disk +0x19d ((0x4585-0x4400)+0x18=0x19d ✓); conditions abs0x450a = on-disk +0x122 ((0x450a-0x4400)+0x18=0x122 ✓). Therefore 0x4589 -> +0x1A1 and 0x458d -> +0x1A5. NOT yet a named field in pcfile.ts -- recommend adding `statusLevel: U8 @ +0x1A1` and `poisonAmount: U8 @ +0x1A5` (plus the 0x458a..0x458c regen-modifier triple at +0x1A2..+0x1A4) when porting. Stock chars: expected 0 (alive, no poison) -- verify by decoding a stock pcfile.dbs."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "regen-tick-1c94",
+      "claim": "FUN_0000_1c94(member) is the per-character REST/REGEN + condition-decay tick, called for every alive member each time the %10==5 gate fires (independent of the poison drain flag). It ADDS HP regen to 0x4400 (capped at 0x4402, dying if it hits 0), regenerates SP at 0x4404 (capped at 0x4406; if SP fell to 0 it sets a +0x450c condition = 6+rng(6)), decays the conditions[10] block at +0x450a by param4 each, and regenerates per-school mana at 0x4410 (capped at 0x4412). This is the natural healing/condition-recovery that runs alongside poison.",
+      "category": "char_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x1c94"},
+        "type": "decompile",
+        "details": "Decompile: `if (+0x4589 < 3){ hp = rng(param2) + VIT_terms(+0x458a..+0x458c)*params; *0x4400 += hp; cap at *0x4402; if (*0x4400 < 1){ *0x4400=0; *0x4404=0; *0x4589=3; sound } else { if (*0x4404<1){*0x4404=0; *(+0x450c)=6+rng(6);} if(param3>0) regen SP via ldiv/2 capped at *0x4406; for i in 0..9: condition[+0x450a+i] = max(0, cond - param4); if(param5>0) for s in 0..5: mana[+0x4410+s*4] += rng(...) capped at +0x4412; } party_panel_draw_member(member); }`. CAVEAT: the call from dungeon_main_loop is FUN_0000_1c94(local_6) with the other params defaulting/garbage in the decompile (single-arg call site) -- the exact param2..param5 values passed from the maze tick need a live check; the structure (HP regen + condition decay) is HIGH confidence, the per-turn magnitudes are LOW."
+      },
+      "confidence": "medium"
+    }
+  ],
+  "unresolved": [
+    "Exact arguments passed to FUN_0000_1c94 from the maze per-turn tick (the decompile shows a single-arg call but the body reads param2..param5). Live-trace the call site at dungeon_main_loop to capture the actual regen magnitudes per turn before porting natural healing.",
+    "Whether the door-OPEN menu path (and cast/use out-of-combat) increments the turn counter 0x4f80, i.e. whether OPEN advances the per-character poison/regen tick. The increment is at loop-top so any loop re-entry advances it, but I did not trace each menu_wait_for_key return code; confirm live: read 0x4f80 before/after an OPEN.",
+    "party_apply_status_effect resistance-save comparator (rng(100) vs +0x453a+param3) direction and which param3 values map to which afflictions -- LOW confidence from static decompile; needs a combat/trap producer trace.",
+    "Whether a poisoned-but-not-dead member (0x4589 in 1..2) really counts as NOT-alive for the graveyard '==0' check, or whether 1..2 is unreachable in practice (poison only ever sets 0 or >=3). Live-check by inflicting non-lethal poison and reading 0x4589."
+  ],
+  "operational_notes": {
+    "method": "PyGhidra dump_function on wmaze 0x2abc/0x66bc/0x6608/0x1c94/0x644; raw ndisasm of the poison block (wmaze file 0x2bb0..0x2c5f) to read the exact drain field (sub [bx+0x4404],ax) and the gate (turn%10==5) + select (turn%60/10==i); thunk-delta law (thunk-0xBA9C+0x200) to map the two block helpers to wroot file 0x414c (__lmod) and 0x411e (__ldiv), confirmed by disassembling those wroot routines (sign-handling longword remainder/quotient calling shared divmod at 0x4178); offset law (on-disk = abs-0x4400+0x18) cross-checked against race/conditions anchors in pcfile.ts.",
+    "key_correction": "Prior findings (maze-status-effects.json Q6, wmaze-naming-pass) described the per-turn drain as `*(0x4404) -= (*(0x458d)+1)` 'when a per-char poison roll hits' and labelled +0x4400 as HP / +0x4404 as SP in one place but '+0x458d = per-action HP drain' in another. The field is correct (0x4404) but the LABEL was muddled: 0x4404 is SP, so the maze poison tick drains SP/stamina, NOT HP -- and the trigger is a deterministic turn-counter round-robin, NOT an rng roll. Death comes only from the separate 0x4589-raise path zeroing both HP and SP. This removes the #1 ambiguity the prompt flagged."
+  }
+}
