@@ -1,33 +1,41 @@
 # Maze Per-Turn Status Tick — Design (#089)
 
-**Date:** 2026-06-20
-**Status:** Design approved; spec under review.
-**Origin:** The deferred #089 follow-up "per-turn status tick on OPEN." Three RE passes (committed: `maze-status-effects.json`, `maze-per-turn-poison.json`) corrected the premise twice before pinning the real mechanic.
+**Date:** 2026-06-20 (rev. 2026-06-22 after live verification)
+**Status:** Design approved; spec under review (rev 2).
+**Origin:** The deferred #089 follow-up "per-turn status tick on OPEN." Four RE passes + a **live verification** pass (committed: `maze-status-effects.json`, `maze-per-turn-poison.json`, `maze-regen-tick.json`, `maze-status-tick-live-verify.json`) corrected the premise repeatedly and then nailed every field/magnitude in the running engine.
 
 ---
 
-## Background: what the tick actually is (RE-corrected)
+## What the tick actually is (LIVE-VERIFIED)
 
-The "status tick" is **not** a 6-slot party-buff timer array (that DGROUP region, `0x4ec8`, is the 3D renderer's per-depth accumulator bank aliased by one loop — a phantom; see `maze-status-effects.json`). The real per-turn maze status mechanic, in `dungeon_main_loop` (wmaze 0x2abc), is:
+The "status tick" is **not** a party-buff timer array (that DGROUP `0x4ec8` region is renderer scratch + a zone-8 quest latch — a phantom). The real mechanic, in `dungeon_main_loop` (wmaze 0x2abc), is a **per-character regen + drain tick on a staggered schedule**, every verified field confirmed by poke→walk→observe:
 
-- A 32-bit **turn counter** (`0x4f80`) increments once per maze-loop iteration (per action).
-- **Staggered stamina drain** (deterministic, NOT an RNG roll): when `turn % 10 == 5`, member `(turn % 60) / 10` (slots 0–5) loses `(poison_amount + 1)` **stamina** (`0x4404`, clamped to ≥0), gated on that member's `status_level (0x4589) < 3`. Net: each member is drained once per 60 turns, staggered by 10.
-- **All-dead → graveyard**: each iteration counts members with `status_level == 0` (alive); if 0 alive, sets game-state `8` (graveyard, winit 0xdf6).
+- A **turn counter** (`0x4f80`, u32). **Engine cadence:** increments once per `dungeon_main_loop` PASS — idle advances it 0; a single held move advances it 4–9 (NOT once per discrete action). Exact frame-loop cadence is unreproducible in an event-driven port (see "Turn model" below).
+- When `turn % 10 == 5`, let `selected = (turn % 60) / 10` (0–5). For **each party member with `status_level < 3`**:
+  1. **(selected member only) poison drain** — `stamina -= (poison_amount + 1)`, clamped ≥0. Runs FIRST.
+  2. **regen tick (`FUN_0000_1c94`)**:
+     - **conditions[10] decay** — each of the 10 condition bytes `-1` (floor 0; sentinels `0` and `0xFF` skipped). Reaching 0 clears that affliction.
+     - **HP regen** — `hp += (vitRegenA − vitRegenB − vitRegenC)`, capped at `hpMax`; if `hp < 1`, the member dies (status_level→3, HP/SP zeroed). **Stock chars have `vitRegen = [0,0,0]` → HP regen is a no-op for them** (HP only moves for an imported/afflicted char whose VIT-triple is set).
+     - **stamina-empty side-effect** — if `stamina < 1`: `stamina = 0` and set `conditions[2] = 6 + rng(6)` (exhaustion). Always runs (not gated on regen).
+     - **mana regen (selected member only)** — for each of 6 schools: `mana[s] += rng(schoolSkill[s] + 1)`, capped at `manaMax[s]`.
+     - **stamina regen is DISABLED in the maze tick** (it only runs on a separate rest/camp path — deferred). The maze tick only *drains* stamina.
+- After the per-member work, **all-dead check**: count members with `status_level == 0`; if 0, the engine sets game-state `8` (graveyard, winit 0xdf6).
 
-Field facts (high confidence, `maze-per-turn-poison.json`):
-- `0x4400` = **current HP**; `0x4404` = **current SP/stamina**. The tick drains **SP, not HP**, and does **not** kill.
-- `poison_amount` = char byte `+0x458d` (on-disk pcfile **+0x1A5**); `status_level` = `+0x4589` (on-disk **+0x1A1**), 0=well, 1–2=afflicted, ≥3=dead/incapacitated.
-- Death (status_level→≥3) is a **separate** path (`party_apply_status_effect` 0x6608), driven by combat/traps — **deferred** (no producer ported).
-
-**Honest scope note:** with producers deferred (nothing poisons the party — combat/traps unported), this tick is **mostly dormant** in normal play. It is observable for an **imported/dev-set pre-afflicted character** (slow stamina drain as you act). This is a faithfulness/completeness piece + the shared "a turn passed" seam that future producers and other turn-consumers plug into.
+**Verified field map** (abs → on-disk pcfile offset = abs − 0x43e8; char-record stride 0x1b0, slot base `0x4400 + i*0x1b0`):
+- `status_level` = `0x4589` → pcfile **+0x1A1** (0=well, 1–2=afflicted, ≥3=dead/incapacitated)
+- `poison_amount` = `0x458d` → **+0x1A5** (per-tick drain severity)
+- `vitRegenA/B/C` = `0x458a/0x458b/0x458c` → **+0x1A2/+0x1A3/+0x1A4** (HP regen triple)
+- `conditions[10]` = `0x450a..0x4513` → **+0x122..+0x12B** (already modeled; `conditions[2]`=dead/exhaustion, `[3]`=paralyzed)
+- HP `0x4400`/+0x18, HPmax `0x4402`/+0x1A, stamina `0x4404`/+0x1C, staminaMax `0x4406`/+0x1E (already modeled)
+- schoolMana `0x4410`, schoolManaMax `0x4412` (already modeled as `schoolMana`/`schoolManaMax`); schoolSkill bytes `0x4504..0x4509`
 
 ---
 
 ## Scope
 
-**In:** the turn counter, the staggered stamina-drain processor, the per-character affliction model (mapped from the pcfile), wiring into maze actions (step/rotate/OPEN), a minimal all-dead "party-wiped" stub, a dev/test hook, and gates.
+**In:** the turn counter (per-action model), the full per-turn tick pure function (staggered drain + conditions decay + HP regen + mana regen + stamina-empty side-effect + death), the per-character affliction model (`status_level`, `poison_amount`, `vitRegen[3]`, schoolSkill — decoded from the pcfile), wiring into maze actions (step/rotate/OPEN), a minimal all-dead "party-wiped" stub, and gates.
 
-**Out (deferred):** poison/affliction PRODUCERS (combat, traps, spell backfire); the real graveyard screen (winit 0xdf6); HP-damage/death paths; cast/use turn-consumers (they reuse the seam later).
+**Out (deferred):** affliction PRODUCERS (combat/traps/spell-backfire that SET poison/conditions/status); the rest/camp **stamina-regen** path; the real graveyard screen (winit 0xdf6); cast/use turn-consumers (reuse the seam later). Observable now via **imported/dev-set afflicted characters** (conditions decay, poison drain, exhaustion) — the un-afflicted baseline is a slow 1-stamina staggered drain.
 
 ---
 
@@ -35,45 +43,47 @@ Field facts (high confidence, `maze-per-turn-poison.json`):
 
 ### 1. Per-character affliction model (`@wiz6/data` + `@wiz6/parser`)
 
-Add two fields to the character model:
-- `statusLevel: number` — 0 = well, 1–2 = afflicted, ≥3 = dead/incapacitated. (pcfile on-disk **+0x1A1**.)
-- `poisonAmount: number` — per-tick stamina-drain severity. (pcfile on-disk **+0x1A5**.)
+Add to the character model (optional, default 0):
+- `statusLevel: number` (pcfile +0x1A1)
+- `poisonAmount: number` (pcfile +0x1A5)
+- `vitRegen: [number, number, number]` (pcfile +0x1A2/+0x1A3/+0x1A4)
+- `schoolSkill: number[6]` (pcfile decode of `0x4504..0x4509` → on-disk +0x11C..+0x121) — *for mana regen; if a verified schoolSkill decode already exists in the schema, reuse it; else decode from `slot.raw`.*
 
-Both are currently **unmodeled** in `packages/data/src/schemas/pcfile.ts` (which covers up to `conditions` @ +0x122 and a `status[16]` block, but not +0x1A1/+0x1A5). Decode them in the pcfile parser:
-- For **imported** characters: read the two bytes from the on-disk record (`pcfileRaw` / the decode path that already retains the raw record per #082).
-- For **created** characters: default both to 0 (well, no affliction).
-- Add to the zod schema + the `Character`/`ActivePartyMember` types (optional, default 0) so the runtime party carries them.
-
-Verify the on-disk offsets against `save_write_party_and_state` (0x20eb) field map + a real `pcfile.dbs` roster (cross-check `status_level`/`poison_amount` bytes for a known character).
+Decode in `pcfileSlotToCharacter` (bridge) by reading `slot.raw[0x1A1/0x1A2/0x1A3/0x1A4/0x1A5]` (the established raw-read pattern, like `portraitIndex`); created chars default to 0. `conditions[10]`, HP/stamina/maxes, `schoolMana`/`schoolManaMax` are already modeled. Flow the new fields into `ActivePartyMember`.
 
 ### 2. Turn counter (game session)
 
-Add `turnCounter: number` (u32) to `GameSessionSchema` (persisted in localStorage), default 0 on new game. Incremented once per maze **action**: a forward step, a rotate (left/right), and an OPEN attempt. (Future: cast/use increment it too.)
+Add `turnCounter: number` (u32) to `GameSessionSchema` (persisted), default 0.
 
-*Granularity decision:* "turn" = a discrete party action. Wizardry is turn-based; this is the faithful, testable model. The engine's exact increment cadence (per-loop-iteration incl. idle frames vs per-action) is RE-flagged uncertain — the per-action model is chosen deliberately; a live spot-check (drive the engine, read `0x4f80` across actions) confirms the cadence and is noted as an implementation step (non-blocking — per-action is correct for turn-based play regardless).
+**Turn model (decision):** increment **once per discrete maze action** (forward step, rotate left/right, OPEN; cast/use later). The engine's true cadence is per-loop-pass (4–9 per held move, 0 when idle) and is unreproducible in an event-driven port — so the port models a clean per-action turn and accepts a different *rate* than the engine. The staggered *math* (which slot drains on which `turn%10==5`) is preserved exactly; per CLAUDE.md ("don't aim for wall-clock parity; match the math, tune the rate to feel right"). If the per-action rate feels too slow in the manual smoke (afflictions barely move), a small fixed multiplier (e.g. +4 per action, approximating a held-move's loop passes) is an acceptable documented tuning knob.
 
-### 3. Status-tick pure function (`@wiz6/parser`, e.g. `maze/status-tick.ts`)
+### 3. Status-tick pure function (`@wiz6/parser`, `maze/status-tick.ts`)
 
 ```
-applyMazeTurnStatus(party, turnCounter) -> { party, allDead }
+applyMazeTurnStatus(roster, turnCounter, rng) -> { roster, allDead }
 ```
-- If `turnCounter % 10 === 5`: `slot = Math.floor((turnCounter % 60) / 10)` (0–5); if `party[slot]` exists and is afflicted, drain `staminaCurrent = max(0, staminaCurrent - (poisonAmount + 1))`.
-- **Affliction gate — pin at implementation:** the engine gates the drain on `status_level < 3`. Confirm from the disasm whether the drain ALSO requires `poisonAmount > 0` (so a *well* member with poisonAmount 0 doesn't lose 1 SP every 60 turns). The pure fn must match the engine exactly; the unit test encodes whichever the disasm shows. (Default assumption pending confirmation: drain only when `poisonAmount > 0 && statusLevel < 3`.)
-- `allDead` = no party member has `statusLevel === 0`.
-- Pure + total: returns a new party array; never mutates; safe on empty/short party.
+- If `turnCounter % 10 !== 5`: return `{ roster, allDead: <no member statusLevel===0> }` unchanged (still report allDead).
+- Else `selected = Math.floor((turnCounter % 60) / 10)`; for each member `m` (index `i`) with `statusLevel < 3` (skip ≥3):
+  1. If `i === selected`: `staminaCurrent = max(0, staminaCurrent - (poisonAmount + 1))`.
+  2. conditions: each of the 10 bytes → `b===0 || b===0xFF ? b : max(0, b-1)`.
+  3. HP: `hpCurrent = min(hpMax, hpCurrent + (vitRegen[0] - vitRegen[1] - vitRegen[2]))`; if `hpCurrent < 1` → `statusLevel = 3`, `hpCurrent = 0`, `staminaCurrent = 0` (death).
+  4. stamina-empty: if `staminaCurrent < 1` → `staminaCurrent = 0`, `conditions[2] = 6 + rng.uniform(6)`.
+  5. If `i === selected` (and not dead): for `s` in 0..5: `schoolMana[s] = min(schoolManaMax[s], schoolMana[s] + rng.uniform((schoolSkill[s] || 1) + 1 ... ))` — *match the engine's `rng(skill+1)` exactly, with the skill-0→1 bump; pin the inclusive/exclusive bound to the WichmannHill `uniform` convention used elsewhere.*
+- `allDead` = no member has `statusLevel === 0`.
+- Pure + total: returns a NEW roster (no mutation); safe on empty/short roster; injected `rng` for determinism in tests.
 
 ### 4. Wiring (`MazeView`)
 
-A single `advanceMazeTurn()` seam called after each maze action (step, rotate, OPEN):
-1. Increment `session.turnCounter` (persist via the session store).
-2. Run `applyMazeTurnStatus(party, turnCounter)`; apply the updated party (stamina) + persist; redraw the party panel (stamina bars).
-3. If `allDead`: transition to a minimal **party-wiped stub** — set a game state / route that indicates the party is wiped (e.g. return to castle or a placeholder), with an inline `// TODO(#089)` for the real graveyard screen (winit 0xdf6, unported). Do NOT build the graveyard screen.
+An `advanceMazeTurn()` seam called after each maze action (step, rotate, OPEN):
+1. `turnCounter += 1` (persist via `updateSession`).
+2. `{ roster, allDead } = applyMazeTurnStatus(activePartyRef.current, turnCounter, rngRef.current)`; write back (`writeActiveParty` + update `activePartyRef`); redraw the party panel (`present()`).
+3. If `allDead`: minimal **party-wiped stub** — set game state / navigate (e.g. to the castle) with an inline `// TODO(#089)` for the real graveyard screen. Do NOT build the graveyard screen.
 
-The OPEN path (the original ask) calls `advanceMazeTurn()` after the door attempt resolves — replacing the existing `// TODO: turn-tick` comment there.
+The OPEN path (the original ask) calls `advanceMazeTurn()` after the door attempt resolves (replacing the existing `// TODO: turn-tick` at the resolution site). The free-roam movement handlers (step + rotate) call it after applying the move.
 
 ### 5. Observability / dev hook
 
-Extend the DEV maze-injection hook (`window.__WIZ6_E2E_MAZE__`, MazeView, DEV-only) to optionally set per-member `statusLevel`/`poisonAmount`, so an e2e/dev session can place a pre-afflicted member and watch the staggered drain. Pre-afflicted **imported** characters are the real (non-dev) observable path.
+Extend the e2e roster seed (`seedMember`) + (optionally) the DEV maze-injection hook to set `statusLevel`/`poisonAmount`/`vitRegen`/`conditions`, so an e2e/dev session can place an afflicted member and watch conditions decay / stamina drain / exhaustion. Imported afflicted characters are the real (non-dev) path.
 
 ---
 
@@ -81,9 +91,9 @@ Extend the DEV maze-injection hook (`window.__WIZ6_E2E_MAZE__`, MazeView, DEV-on
 
 ```
 maze action (step / rotate / OPEN)
-  → advanceMazeTurn(): turnCounter += 1  (persist)
-  → applyMazeTurnStatus(party, turnCounter) → { party (stamina drained), allDead }
-  → persist party + redraw party panel
+  → advanceMazeTurn(): turnCounter += 1 (persist)
+  → applyMazeTurnStatus(roster, turnCounter, rng) → { roster (stamina/hp/conditions/mana updated), allDead }
+  → writeActiveParty + redraw party panel
   → if allDead → party-wiped stub (graveyard deferred)
 ```
 
@@ -91,25 +101,27 @@ maze action (step / rotate / OPEN)
 
 ## Testing
 
-- **Pure-fn unit tests** (`status-tick.test.ts`): the staggered schedule (turn 5→slot0, 15→slot1, …, 55→slot5; no drain when `turn%10 !== 5`); the drain formula `(poisonAmount+1)` + clamp at 0; the `statusLevel < 3` gate (an incapacitated member at ≥3 isn't drained); the `poisonAmount > 0` gate (once pinned); `allDead` detection (all `statusLevel != 0`). One assertion per behavior.
-- **pcfile decode test**: a roster with a known affliction byte decodes `statusLevel`/`poisonAmount` correctly (and created chars default to 0).
-- **Component/e2e**: DEV-inject a pre-afflicted member, drive N maze actions, assert `staminaCurrent` drops on exactly the expected turns and the party panel updates; assert created/un-afflicted members never drain.
-- **No regression**: existing maze movement/door/options suites stay green (the turn counter + tick are additive).
+- **Pure-fn unit tests** (`status-tick.test.ts`, scripted rng): no-op when `turn%10 !== 5`; the staggered slot mapping (turn 5→slot0 … 55→slot5, 65→slot0); drain `(poisonAmount+1)` clamp at 0; `statusLevel ≥ 3` excluded from ALL per-member work; conditions decay −1 / floor 0 / `0xFF` & `0` sentinels skipped; HP regen `vitA−vitB−vitC` cap at hpMax and the `hp<1`→death path; stamina-empty→`conditions[2]=6+rng(6)`; mana regen only for the selected member + skill-0 bump + cap; `allDead` = all `statusLevel != 0`. One assertion per behavior.
+- **pcfile decode test**: a crafted/real slot decodes `statusLevel`/`poisonAmount`/`vitRegen` from +0x1A1..+0x1A5 correctly; created chars default to 0.
+- **Component/e2e**: seed an afflicted member (e.g. `conditions[1]=5`, `poisonAmount=3`), drive maze actions across a `turn%10==5` boundary, assert conditions decay + the selected member's stamina drops by `poison+1` + the panel updates; assert an un-afflicted member only sees the staggered −1 stamina.
+- **No regression**: existing maze movement/door/options suites stay green (additive).
 
 ---
 
-## Error handling / edge cases
+## Edge cases / error handling
 
-- Empty or short party: the slot index may exceed the party size → no-op (guard).
-- Stamina already 0: clamp keeps it 0 (no negative).
-- `turnCounter` overflow: u32 wrap is harmless (the mod arithmetic is periodic); no special handling.
-- Missing `staminaCurrent`/affliction fields on legacy sessions: default to 0 / treat as well (schema defaults).
+- Empty/short roster or `selected ≥ roster.length` → no-op for the missing slot (guard).
+- Stamina/HP already 0 → clamp keeps ≥0; HP<1 triggers death once.
+- `turnCounter` u32 wrap → harmless (mod arithmetic is periodic).
+- Legacy sessions missing `turnCounter`/affliction fields → schema defaults (0 / well).
+- `rng` must be the session rng for live + a scripted rng for tests (determinism).
 
 ---
 
 ## What this explicitly does NOT do
 
-- No poison/affliction **producers** (combat, traps, spell backfire) — deferred; the tick is dormant until they land (observable only via imports/dev hook).
-- No **HP** damage or death-from-poison — the tick drains SP only; death (status_level→≥3) is a separate deferred path.
+- No affliction **producers** (combat/traps/spell-backfire) — deferred; observable via imports/dev hook.
+- No **stamina regen** — disabled in the maze tick (rest/camp path deferred); the tick only drains stamina.
 - No real **graveyard screen** — all-dead is a minimal stub.
+- No exact engine **cadence** (per-loop-pass) — the port uses a per-action turn model; the staggered math is faithful, the rate is tuned.
 - No cast/use turn-consumers — they reuse the `advanceMazeTurn` seam when ported.
