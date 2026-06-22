@@ -143,6 +143,8 @@ export {
 export { decodeDoorRecords, SPECIAL_RECORD_BANK } from './maze/door-record.js';
 // Session door-state overlay — mutable per-session opened/welded edge map (#089)
 export { DoorStateOverlay } from './maze/door-state.js';
+// Maze per-turn status tick — pure staggered drain/regen/conditions/death (#089)
+export { applyMazeTurnStatus, type StatusTickMember } from './maze/status-tick.js';
 export { EGA_FILE_INDEX_PERMUTATION } from './formats/ega-permutation.js';
 export {
   encodeSave,
