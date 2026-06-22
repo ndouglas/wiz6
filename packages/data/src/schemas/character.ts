@@ -274,6 +274,27 @@ export const CharacterSchema = z.object({
    * years on the char-sheet (wpcmk 0x0e44..0x0e54 + wpcvw 0x1077).
    */
   age: U32.optional(),
+  /**
+   * Maze status level. pcfile record +0x1a1. 0=well, 1-2=afflicted (drained
+   * per maze turn), >=3=dead/incapacitated. Read by the per-turn status tick.
+   * Defaults to 0 so created/legacy chars are "well".
+   */
+  statusLevel: U8.default(0),
+  /**
+   * HP regen triple (vitRegen[0]-[1]-[2]). pcfile record +0x1a2..+0x1a4.
+   * Per-turn HP regen accumulator state. Defaults to [0,0,0].
+   */
+  vitRegen: z.array(U8).length(3).default([0, 0, 0]),
+  /**
+   * Poison amount. pcfile record +0x1a5. Per-turn HP drain = poisonAmount+1.
+   * Defaults to 0 (no poison).
+   */
+  poisonAmount: U8.default(0),
+  /**
+   * Per-school skill (6 schools) used for mana regen. pcfile record
+   * +0x11c..+0x121. Read by the per-turn status tick. Defaults to all zeros.
+   */
+  schoolSkill: z.array(U8).length(6).default([0, 0, 0, 0, 0, 0]),
 });
 
 export const PartyMemberSchema = CharacterSchema.extend({
