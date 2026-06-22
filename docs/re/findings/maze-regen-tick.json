@@ -1,0 +1,139 @@
+{
+  "topic": "maze-regen-tick",
+  "subagent_run": "2026-06-22",
+  "binaries": ["wmaze.ovr", "wroot.exe"],
+  "summary": "Pinned the EXACT per-character REGEN/condition-decay tick FUN_0000_1c94 (wmaze) and, crucially, the ACTUAL arguments dungeon_main_loop passes to it from the per-turn %10==5 block. THE BIG RESULT: the call is NOT single-arg. Raw disasm of the call site (wmaze file 0x2c4f..0x2c5e) shows 5 pushed words, so the cdecl call is FUN_0000_1c94(member=[bp-4], param2=0, param3=0, param4=1, param5=[bp-8]) where [bp-8] is the round-robin SELECT FLAG (==1 only for the one member being poison-drained this turn). This collapses the prior 'param2..param5 unknown / LOW confidence on magnitudes' caveat. Concrete consequences with these args: (HP) regen base = rng(0) (degenerate -> 0) + VIT-triple net = +(*0x458a) - (*0x458b) - (*0x458c) per tick, capped at maxHP *0x4402, and if HP drops <1 the member DIES (HP=0, SP=0, status_level *0x4589 = 3, death sound) -- so 1c94 CAN kill if the VIT-triple net is negative and pushes a 1-HP member below 1; it is the same death path as elsewhere. (SP) the SP-regen branch is GATED `if (0 < param3)` and param3 is passed as 0, so THE MAZE PER-TURN TICK DOES NOT REGEN SP at all -- it only resets SP to 0 and applies the SP-empty condition when SP already fell <1. (conditions[10]) each of the 10 bytes at +0x450a is decremented by param4 = 1 per tick, floored at 0, with sentinel 0xFF (255) skipped (never decayed) and 0 skipped -- so an affliction counts down 1/turn-tick and clears (reaches 0) naturally. (mana) the per-school mana regen branch is GATED `if (0 < param5)` and param5 = the round-robin flag, so MANA ONLY REGENS FOR THE ONE ROUND-ROBIN-SELECTED MEMBER each qualifying turn (the same member that takes the poison drain), NOT for all members. ORDER: within the %10==5 loop body the staggered poison drain (SP -= poison+1, clamped) runs FIRST (wmaze 0x2c2f..0x2c4d), THEN FUN_0000_1c94(member,...) is called (0x2c5e) -- so for the drained member SP is reduced by the drain, then 1c94 (with param3=0) does NOT add it back; net SP for the drained member that turn = SP - (poison+1) (clamped). ALIVE GATE: 1c94 is called for every member with status_level *0x4589 < 3 (the loop's own `cmp byte[bx+0x4589],3; jc` gate at 0x2be7, NOT '==0'); 1c94 also re-checks `< 3` at its own entry. DRAIN GATE re-confirmed: the poison drain is gated ONLY by status_level < 3 (the loop gate) AND the round-robin select flag [bp-8]==1; it is NOT gated on poison_amount>0, so a well member (poison_amount 0) selected on its turn still loses 1 SP.",
+  "findings": [
+    {
+      "id": "call-site-args",
+      "claim": "dungeon_main_loop calls FUN_0000_1c94 with FIVE args, not one. cdecl order: FUN_0000_1c94(member, 0, 0, 1, select_flag). param1 = member index ([bp-4], the loop counter). param2 = 0 (HP-regen rng seed). param3 = 0 (SP-regen gate -> DISABLED). param4 = 1 (HP VIT-triple multiplier AND condition-decay step). param5 = [bp-8] = the round-robin SELECT flag (1 iff (turn%60)/10 == member, i.e. iff this member is the one being poison-drained this turn) -> the mana-regen gate.",
+      "category": "maze_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2c4f"},
+        "type": "raw_disasm",
+        "details": "Raw ndisasm at the call site: `0x2c4f FF76F8 push [bp-0x8]` (=select flag, becomes param5) `; 0x2c52 B80100 mov ax,1; 0x2c55 50 push ax` (param4=1) `; 0x2c56 B80000 mov ax,0; 0x2c59 50 push ax` (param3=0) `; 0x2c5a 50 push ax` (param2=0, ax still 0) `; 0x2c5b FF76FC push [bp-0x4]` (param1=member) `; 0x2c5e E833F0 call 0x1c94 ; 0x2c61 83C40A add sp,0xa` (5 words cleaned by caller = cdecl). Pushes are right-to-left so reversed gives the C arg order above. The Ghidra decompile of dungeon_main_loop renders this as `FUN_0000_1c94(local_6)` (single-arg) because the extra pushes look like leftover locals to the decompiler; the raw asm is authoritative."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "hp-regen-formula",
+      "claim": "HP regen per tick: *0x4400 += rng(param2) + (*0x458a)*param4 - (*0x458b)*param4 - (*0x458c)*param4. With the maze args (param2=0, param4=1): *0x4400 += rng(0) + *0x458a - *0x458b - *0x458c, i.e. base random term is rng(0) (degenerate, effectively 0; rng(n) is uniform 0..n-1) plus the signed VIT-triple net (*0x458a) - (*0x458b) - (*0x458c). Then cap: if *0x4402 (maxHP) < *0x4400, set *0x4400 = *0x4402.",
+      "category": "char_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x1c94"},
+        "type": "decompile",
+        "details": "Decompile body: `iVar2 = rng_next(param_2); *0x4400 += ((iVar2 + *0x458a*param4) - *0x458b*param4) - *0x458c*param4; if (*0x4402 < *0x4400) *0x4400 = *0x4402;`. rng_next = thunk func_0x0000c47e -> wroot 0xbe2 (thunk-delta 0xc47e-0xBA9C+0x200=0xbe2; same as confirmed in maze-per-turn-poison.json). rng(n) returns uniform 0..n-1 (confirmed across docs: 'call rng_thunk (uniform 0..ax-1)'). So rng(0) is the degenerate 0-base case. 0x458a..0x458c is the per-char regen-modifier triple noted in the poison findings (a 3-byte VIT/regen block just before poison_amount@0x458d). Whether this triple is ever non-zero (and thus whether maze HP actually regens or can go negative) is a per-char DATA question, not a code question -- needs a live read of 0x458a/0x458b/0x458c on a real party (LOW confidence on the runtime magnitude, HIGH on the formula)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "hp-can-kill",
+      "claim": "1c94 CAN kill a member: after the HP add+cap, `if (*0x4400 < 1) { *0x4400=0; *0x4404=0; *0x4589=3; play_sound(*0x4586 + 8); }`. So if the VIT-triple net is negative (drain) and drops a member below 1 HP, the regen tick zeroes HP+SP, sets status_level=3 (dead), and plays the death sound -- identical to the party_apply_status_effect death path. This answers the prompt's 'does HP regen ever reduce HP / cause death' question: YES, structurally it can, because the term can be negative; whether it does in practice depends on whether 0x458b/0x458c (the subtractive terms) ever exceed 0x458a at rest. The earlier-finding phrase 'dying if it hits 0' was a correct read of this branch.",
+      "category": "char_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x1c94"},
+        "type": "decompile",
+        "details": "`if (*0x4400 < 1) { *0x4400=0; *0x4404=0; *(0x4589)=3; func_0x0000c546(*(0x4586)+8); }`. func_0x0000c546 = sound thunk (0xc546-0xBA9C+0x200 = wroot 0xcaa). The sound id is race-byte *0x4586 + 8 (race-indexed death cry, same idiom as party_apply_status_effect at 0x6608 which uses *0x4586+8). Comparator `< 1` (JL after the signed HP word) -- so HP exactly 0 also triggers."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "sp-regen-disabled-in-maze",
+      "claim": "The SP-regen branch in 1c94 is gated `if (0 < param3)`, and the maze call passes param3 = 0, so SP DOES NOT REGEN on the per-turn maze tick. The SP-empty side-effect DOES still run (it is OUTSIDE the param3 gate). Net: the maze tick never adds SP; it only drains it (via the separate poison block) and can zero+condition it.",
+      "category": "char_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x1c94"},
+        "type": "decompile_plus_callsite",
+        "details": "Body: `if (*0x4404 < 1) { *0x4404=0; cVar1=rng(6); *(0x450c)=cVar1+6; }  if (0 < param3) { ... regen SP via ldiv ... cap at *0x4406; }`. The SP-empty fixup is before the `if (0 < param3)` so it always runs; the actual SP add is inside the param3 gate. Call site (finding call-site-args) pushes param3 = 0 (`mov ax,0; push ax`). Therefore the param3 SP-regen body is dead code in the maze per-turn context. (The same 1c94 is presumably also called from a REST/CAMP path with param3>0 to actually regen SP -- not the maze tick.)"
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "sp-empty-condition-sideeffect",
+      "claim": "SP-empty side-effect: when current SP *0x4404 < 1 at tick time, 1c94 sets *0x4404 = 0 and writes condition byte *(member*0x1b0 + 0x450c) = 6 + rng(6) (uniform 6..11). This is the +0x450c condition byte (NOT one of the conditions[10] at +0x450a). It fires whenever SP has been driven empty (e.g. by the poison drain just before) -- so 'spent all stamina' applies a 6..11-duration condition at +0x450c. The value is signed char store of (rng(6) + 6).",
+      "category": "char_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x1c94"},
+        "type": "decompile",
+        "details": "`if (*(int*)(0x4404 + member*0x1b0) < 1) { *(0x4404+...) = 0; cVar1 = rng_next(6); *(char*)(member*0x1b0 + 0x450c) = cVar1 + '\\x06'; }`. rng_next(6) = uniform 0..5, +6 -> 6..11. The +0x450c byte is the SAME byte the alive/incapacitated count in dungeon_main_loop reads (`if (*(0x450c)!=0 || *(0x450d)!=0) incapacitated++`) -- so an SP-empty member becomes 'incapacitated' for that count until 0x450c decays. NOTE: 0x450c is NOT decayed by the conditions[10] loop (that loop is +0x450a..+0x4513, i.e. indices 0..9 = 0x450a..0x4513; 0x450c IS inside that 10-byte range actually -- 0x450a+2 = 0x450c). RE-CHECK: conditions[10] = 0x450a..0x4513 inclusive, so 0x450c is conditions[2]; the SP-empty write sets conditions[2] = 6..11, and the decay loop then decrements it by 1/tick. So 0x450c double-serves as conditions[2] AND the incapacitated-count probe -- consistent: SP-exhaustion sets conditions[2], which ticks down and clears incapacitation."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "conditions10-decay",
+      "claim": "The conditions[10] block at +0x450a (bytes 0x450a..0x4513) is decayed by param4 = 1 per tick: for i in 0..9, if cond != 0 AND cond != 0xFF, cond = max(0, cond - 1). Value 0 (no condition) and 0xFF (255, a permanent/sentinel condition) are BOTH skipped -- they are never decremented. Decaying a condition to 0 clears it (an affliction whose counter reaches 0 wears off). So afflictions stored as a positive duration in conditions[0..9] count down 1 per qualifying tick and self-clear.",
+      "category": "char_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x1c94"},
+        "type": "decompile",
+        "details": "`iVar2 = 0; do { iVar3 = member*0x1b0 + iVar2; uVar4 = (uint)*(byte*)(iVar3 + 0x450a); if ((uVar4 != 0) && (uVar4 != 0xff)) { iVar5 = uVar4 - param4; if (iVar5 < 0) iVar5 = 0; *(byte*)(iVar3 + 0x450a) = (char)iVar5; } iVar2++; } while (iVar2 < 10);`. param4 = 1 (from call site). So step = 1, floor = 0, sentinels {0, 0xFF} preserved. The 10-iteration loop covers conditions[0..9] = on-disk +0x122..+0x12B (abs 0x450a..0x4513). Reaching 0 = condition cleared. After the loop there is a coupled fixup: `if (*(0x450f)==0 || *(0x458c)==0) { *(0x450f)=0; *(0x458c)=0; }` -- clears conditions[5] (0x450f) and the VIT-triple's 3rd byte (0x458c) together when either is already 0 (a paired clear, LOW confidence on its exact semantic intent)."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "mana-regen-gated-on-select-flag",
+      "claim": "The per-school mana regen branch is gated `if (0 < param5)` and param5 = the round-robin select flag, so mana regens ONLY for the single round-robin-selected member each qualifying turn (the same member being poison-drained). For that member, for each of 6 schools s=0..5: if school-skill byte *(member*0x1b0 + 0x4504 + s) == 0, set it to 1; then mana[s] (*0x4410 + s*4, 16-bit per 4-byte stride) += rng(school_skill[s] + 1); cap at maxMana *0x4412 + s*4. So mana points are added by a random 0..(skill) amount per school, only for the selected member.",
+      "category": "char_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x1c94"},
+        "type": "decompile",
+        "details": "`if (0 < param5) { iVar2=0; do { iVar3 = member*0x1b0 + iVar2; if (*(char*)(iVar3 + 0x4504)=='\\0') *(byte*)(iVar3 + 0x4504)=1; iVar3 = rng_next(*(byte*)(iVar3 + 0x4504) + 1); iVar5 = member*0x1b0 + iVar2*4; *(int*)(0x4410 + iVar5) += iVar3; if (*(int*)(0x4412 + iVar5) < *(int*)(0x4410 + iVar5)) *(0x4410+iVar5) = *(0x4412+iVar5); iVar2++; } while (iVar2 < 6); }`. Note the loop index iVar2 advances by 1 for the 0x4504 skill byte read but by *4 for the 0x4410 mana word -- so school skills are 6 contiguous BYTES at 0x4504..0x4509 and mana current/max are 6 entries of 4-byte stride at 0x4410 (cur, +2 max? actually 0x4410 cur and 0x4412 max as the poison findings note manaMax@0x4412, stride 4 = one cur+max pair per school). rng_next(skill+1) = uniform 0..skill. param5 (the select flag) gating means only ~1 member per qualifying turn regens mana -- worth a LOW-confidence flag: I read param5 = [bp-8] from the call site; confirm live that mana only moves for the round-robin member."
+      },
+      "confidence": "medium"
+    },
+    {
+      "id": "regen-vs-drain-order",
+      "claim": "Within the %10==5 loop body, for the round-robin-selected member the POISON DRAIN runs FIRST (SP -= poison_amount+1, clamped to 0), THEN FUN_0000_1c94(member,0,0,1,flag) is called. Because 1c94's SP-regen is disabled (param3=0), it does NOT add SP back; it only (a) regens HP by the VIT-triple net, (b) if SP is now <1 sets SP=0 and conditions[2]=6..11, (c) decays conditions[0..9] by 1, (d) for the selected member regens mana. So net SP for the drained member that turn = max(0, SP - (poison_amount+1)). For non-selected members, no drain, no mana regen, but HP regen + condition decay still run. Magnitudes are per-member constant (param2=0, param3=0, param4=1 fixed); the only per-member variation is the VIT-triple (0x458a-0x458c), poison_amount (0x458d), school skills (0x4504-0x4509), and the rng draws -- none scaled by level/rest-state in this call.",
+      "category": "maze_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2c2f"},
+        "type": "raw_disasm",
+        "details": "Loop body order from raw disasm: 0x2c29 `cmp [bp-8],0; jz 0x2c4f` (skip drain if not selected); 0x2c2f-0x2c4d drain block (`mov al,[bx+0x458d]; sub ah,ah; inc ax; sub [bx+0x4404],ax; cmp [bx+0x4404],0; jnl; mov [bx+0x4404],0`); then 0x2c4f-0x2c5e push args + `call 0x1c94`. So drain precedes 1c94 unconditionally for the selected member. Fixed args (0,0,1,flag) confirm no level/rest scaling in this call path."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "alive-gate-for-regen",
+      "claim": "1c94 (and the poison drain) run for every member with status_level *0x4589 < 3 -- NOT status_level == 0. The loop's per-member gate is `cmp byte[bx+0x4589],3; jc enter` (unsigned, enter iff < 3); 1c94 re-checks the same `< 3` at its own entry and does nothing if >= 3. So afflicted-but-not-dead members (status_level 1..2) DO get the regen tick; only fully dead/incapacitated members (>= 3) are skipped. (This is distinct from the SEPARATE alive-COUNT pass later in dungeon_main_loop, which uses `== 0` for the graveyard check -- two different gates for two different purposes.)",
+      "category": "maze_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2be7"},
+        "type": "raw_disasm",
+        "details": "Loop entry gate @ 0x2be7: `cmp byte [bx+0x4589],3; jc 0x2bf1` (JC = below/unsigned-less-than 3) else jmp 0x2c64 (skip member). 1c94 entry: `if (*(byte*)(member*0x1b0 + 0x4589) < 3) { ... } return;`. Both gates are `< 3`. The graveyard alive-count later (`if (*(0x4589)=='\\0') alive++`) is the strict `== 0` count -- different test, as noted in maze-per-turn-poison.json."
+      },
+      "confidence": "high"
+    },
+    {
+      "id": "drain-gate-reconfirm",
+      "claim": "RE-CONFIRMED: the per-turn poison drain is gated ONLY by (a) the loop's status_level < 3 entry gate and (b) the round-robin select flag [bp-8]==1 (this member's turn in the 60-turn cycle). It is NOT gated on poison_amount > 0. Therefore a perfectly healthy member (poison_amount byte 0x458d == 0) still loses SP -= (0+1) = 1 SP on its scheduled turn. The drain reads 0x458d unconditionally inside the flag gate. This is load-bearing: it means every alive member loses 1 SP per 60 turns even with zero poison, partially offset by nothing (SP regen is disabled in the maze tick) -- so out-of-dungeon SP only recovers on a REST/CAMP path, not on movement.",
+      "category": "maze_status",
+      "evidence": {
+        "binary": "wmaze.ovr",
+        "address": {"space": "wmaze.ovr", "offset": "0x2c29"},
+        "type": "raw_disasm",
+        "details": "0x2c29 `cmp word [bp-0x8],0; jz 0x2c4f` (skip drain only if NOT selected). Inside (selected): 0x2c37 `mov al,[bx+0x458d]; sub ah,ah; inc ax` -> ax = poison_amount + 1, NO `test/jz` on poison_amount before the subtract. `sub [bx+0x4404],ax; cmp word[bx+0x4404],0; jnl; mov word[bx+0x4404],0`. The only guards are the status_level<3 loop gate (0x2be7) and the select flag (0x2c29). Confirms maze-per-turn-poison.json's drain-formula-and-field finding: gate is status_level<3 (+ select), not poison>0."
+      },
+      "confidence": "high"
+    }
+  ],
+  "unresolved": [
+    "Runtime magnitude of the HP VIT-triple (0x458a/0x458b/0x458c): the HP-regen formula is HP += rng(0) + 0x458a - 0x458b - 0x458c per tick. Whether maze movement actually heals HP (triple net > 0), is a no-op (all zero), or can drain/kill (subtractive terms dominate) depends on these per-char data bytes. Live-read 0x458a..0x458c for a stock party member to determine the real net. The CODE is locked; the DATA decides the behavior.",
+    "param5 = [bp-8] (the round-robin select flag) as the mana-regen gate is read from the call-site push order; confirm live that out-of-dungeon mana only increases for the single round-robin-selected member per qualifying turn (read 0x4410 mana for all 6 members across several %10==5 turns).",
+    "The coupled fixup after the conditions loop: `if (*(0x450f)==0 || *(0x458c)==0) { *(0x450f)=0; *(0x458c)=0; }` -- clears conditions[5] and the VIT-triple's 3rd byte together. Semantic intent unclear (LOW); possibly couples a specific affliction (conditions[5]) to the HP-drain modifier 0x458c so that clearing one clears the other.",
+    "School-skill byte block 0x4504..0x4509 (6 bytes, the mana-regen rate per school) vs the mana cur/max pairs at 0x4410 (4-byte stride): confirm the stride mapping (cur@0x4410+s*4, max@0x4412+s*4) against the char-view mana display before porting mana regen.",
+    "Whether 1c94 is also invoked from a REST/CAMP path with param3>0 (enabling SP regen) -- the param3 gate implies a second caller exists. Find it (grep wmaze/wdopt for other `call 0x1c94`-equivalent thunks) to recover the actual rest SP-regen formula (ldiv-based: SP += rng(ldiv_result/2); then SP = SP + SP/2 + 1; cap maxSP)."
+  ],
+  "operational_notes": {
+    "method": "PyGhidra dump_function on wmaze 0x1c94 (full body) and 0x2abc (dungeon_main_loop, where the Ghidra decompile shows the call as single-arg FUN_0000_1c94(local_6)); RAW ndisasm of wmaze file 0x2bb0..0x2c80 to recover the TRUE call-site arg pushes (5 words: [bp-8] select-flag, 1, 0, 0, [bp-4] member) -- the decompiler hid params 2..5. rng_next = thunk 0xc47e -> wroot 0xbe2; sound = thunk 0xc546 -> wroot 0xcaa; both via thunk-delta (thunk - 0xBA9C + 0x200). rng(n) contract (uniform 0..n-1) cross-checked against existing docs. Builds directly on maze-per-turn-poison.json (turn_counter @ 0x4f80 32-bit, %10==5 gate, %60/10 round-robin select, drain SP@0x4404 -= poison@0x458d + 1).",
+    "key_result": "The prior 'param2..param5 unknown, magnitudes LOW confidence' caveat is RESOLVED by the raw call-site: args are (member, 0, 0, 1, select_flag). This makes the maze per-turn tick concrete: HP regens by the VIT-triple net (rng base = 0), SP does NOT regen (param3=0) -- only drains, conditions[0..9] decay by 1/tick (sentinels 0 and 0xFF preserved), and mana regens ONLY for the round-robin-selected member. Drain order: poison drain FIRST, then 1c94 (which can't add SP back). 1c94 runs for every status_level<3 member and CAN kill (HP<1 -> dead). Drain gate re-confirmed as status_level<3 (+ select flag), NOT poison>0."
+  }
+}
