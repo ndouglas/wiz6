@@ -27,6 +27,9 @@ const GameSessionSchema = z.object({
   // Ticks elapsed in the current non-animation HOLD beat (title/approach1/walk/
   // approach2); 0 in animation modes. The cutscene timer (tickEntry) accumulates it.
   holdTicks: z.number().int().nonnegative().default(0),
+  // Maze turn counter — incremented once per maze action (step/rotate/OPEN);
+  // drives the per-turn status tick (#089). Default 0.
+  turnCounter: z.number().int().nonnegative().default(0),
 });
 
 export type GameSession = z.infer<typeof GameSessionSchema>;
@@ -50,6 +53,7 @@ export function initGameSession(level: DungeonLevel): void {
         entryMode: 'door-open',
         animFrame: 0,
         holdTicks: 0,
+        turnCounter: 0,
       }
     : {
         schemaVersion: SCHEMA_VERSION,
@@ -58,6 +62,7 @@ export function initGameSession(level: DungeonLevel): void {
         entryMode: 'free',
         animFrame: 0,
         holdTicks: 0,
+        turnCounter: 0,
       };
   window.localStorage.setItem(KEY, JSON.stringify(GameSessionSchema.parse(session)));
 }

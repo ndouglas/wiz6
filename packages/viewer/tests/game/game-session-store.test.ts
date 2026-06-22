@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { initGameSession, readGameSession, updateParty, clearGameSession } from '../../src/game/game-session-store.js';
+import { initGameSession, readGameSession, updateParty, updateSession, clearGameSession } from '../../src/game/game-session-store.js';
 import type { DungeonLevel } from '@wiz6/data';
 
 const MAZE_BLOCK = {
@@ -82,6 +82,34 @@ describe('GameSession store', () => {
     const s = readGameSession();
     // level.entrance stays gy=121; scriptedEntry.start is gy=117 (party only)
     expect(s?.level.entrance.gy).toBe(121);
+  });
+
+  // ── turnCounter (maze per-turn status tick, #089) ────────────────────────
+
+  it('init seeds turnCounter:0', () => {
+    initGameSession(LEVEL);
+    expect(readGameSession()?.turnCounter).toBe(0);
+  });
+
+  it('a stored v5 blob WITHOUT turnCounter defaults to turnCounter:0', () => {
+    window.localStorage.setItem(
+      'wiz6:session',
+      JSON.stringify({
+        schemaVersion: 5,
+        level: LEVEL,
+        party: { gx: 2, gy: 3, z: 0, facing: 0 },
+        entryMode: 'free',
+        animFrame: 0,
+        holdTicks: 0,
+      }),
+    );
+    expect(readGameSession()?.turnCounter).toBe(0);
+  });
+
+  it('updateSession preserves an explicit turnCounter', () => {
+    initGameSession(LEVEL);
+    updateSession({ turnCounter: 7 });
+    expect(readGameSession()?.turnCounter).toBe(7);
   });
 
   // ── old-version blob compat ──────────────────────────────────────────────
