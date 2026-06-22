@@ -66,6 +66,12 @@ export function pcfileSlotToCharacter(slot: PcfileSlot, id: string): Character {
     reaction: slot.reaction,
     sex: (slot.sex === 1 ? 1 : 0),
     portraitIndex: slot.raw[OFF_RENDERED_PORTRAIT]!,
+    // Maze per-turn affliction fields, read straight from the raw record. The
+    // Character schema models them (#089); they live only in `raw` on the slot.
+    statusLevel: slot.raw[0x1a1] ?? 0,
+    poisonAmount: slot.raw[0x1a5] ?? 0,
+    vitRegen: [slot.raw[0x1a2] ?? 0, slot.raw[0x1a3] ?? 0, slot.raw[0x1a4] ?? 0],
+    schoolSkill: [0, 1, 2, 3, 4, 5].map((s) => slot.raw[0x11c + s] ?? 0),
     hpCurrent: slot.hpCurrent,
     hpMax: slot.hpMax,
     staminaCurrent: slot.spCurrent,
