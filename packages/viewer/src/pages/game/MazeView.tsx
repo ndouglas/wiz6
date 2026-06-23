@@ -977,9 +977,10 @@ export function MazeView() {
     writeActiveParty({ ...readActiveParty(), members: merged });
     present(); // redraw the party panel (stamina/HP/conditions changed)
 
-    if (allDead) {
+    if (allDead && merged.length > 0) {
       // TODO(#089): the real graveyard screen (winit 0xdf6) is unported — minimal
-      // party-wiped stub: bounce to the castle main menu.
+      // party-wiped stub: bounce to the castle main menu. (Guarded on a non-empty
+      // roster: applyMazeTurnStatus reports allDead=true for an empty party.)
       navigate('/castle');
     }
   }
