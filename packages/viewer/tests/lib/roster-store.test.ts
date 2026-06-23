@@ -20,6 +20,8 @@ function makeCharacter(id: string, name: string, level = 1): Character {
     schoolManaMax: [0, 0, 0, 0, 0, 0],
     skills: new Array(30).fill(0),
     savedOldLevel: 0, reaction: 0,
+    // #089 maze-affliction fields (schema defaults inject these on round-trip).
+    statusLevel: 0, poisonAmount: 0, vitRegen: [0, 0, 0], schoolSkill: [0, 0, 0, 0, 0, 0],
   };
 }
 
