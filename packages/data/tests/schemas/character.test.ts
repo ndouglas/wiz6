@@ -60,6 +60,39 @@ describe('CharacterSchema', () => {
   });
 });
 
+describe('CharacterSchema maze-affliction fields', () => {
+  it('defaults statusLevel/poisonAmount/vitRegen/schoolSkill to zeros when absent', () => {
+    const parsed = CharacterSchema.parse(VALID);
+    expect(parsed.statusLevel).toBe(0);
+    expect(parsed.poisonAmount).toBe(0);
+    expect(parsed.vitRegen).toEqual([0, 0, 0]);
+    expect(parsed.schoolSkill).toEqual([0, 0, 0, 0, 0, 0]);
+  });
+
+  it('round-trips explicit afflicted values', () => {
+    const afflicted: Character = {
+      ...VALID,
+      statusLevel: 2,
+      poisonAmount: 5,
+      vitRegen: [1, 2, 3],
+      schoolSkill: [10, 20, 30, 40, 50, 60],
+    };
+    const parsed = CharacterSchema.parse(afflicted);
+    expect(parsed.statusLevel).toBe(2);
+    expect(parsed.poisonAmount).toBe(5);
+    expect(parsed.vitRegen).toEqual([1, 2, 3]);
+    expect(parsed.schoolSkill).toEqual([10, 20, 30, 40, 50, 60]);
+  });
+
+  it('rejects when vitRegen array is wrong length', () => {
+    expect(() => CharacterSchema.parse({ ...VALID, vitRegen: [0, 0] })).toThrow();
+  });
+
+  it('rejects when schoolSkill array is wrong length', () => {
+    expect(() => CharacterSchema.parse({ ...VALID, schoolSkill: [0] })).toThrow();
+  });
+});
+
 describe('PartyMemberSchema', () => {
   const BASE: PartyMember = { ...VALID };
 

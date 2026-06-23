@@ -96,6 +96,9 @@ export { decodeDoorRecords, SPECIAL_RECORD_BANK } from './door-record.js';
 // Session door-state overlay — mutable per-session opened/welded edge map (#089)
 export { DoorStateOverlay } from './door-state.js';
 
+// Maze per-turn status tick — pure staggered drain/regen/conditions/death (#089)
+export { applyMazeTurnStatus, type StatusTickMember } from './status-tick.js';
+
 // Shared types
 export type { MazeSpan, CompositorCall } from './compositor.js';
 export type { MazeWorkBuffer, MazeImageDesc, MazePlacement } from './maze-data.js';

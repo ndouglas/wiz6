@@ -6647,6 +6647,291 @@ async function phaseDoorFrames(c: HostClient): Promise<void> {
   console.log(`  fixtures in ${outDir}/`);
 }
 
+/**
+ * `statustick` — LIVE-verify the maze per-turn status-tick fields + magnitudes
+ * (#089). Drives free-roam, applies the encdisable2 encounter suppression every
+ * frame, and runs the field-resolution protocol from the task:
+ *   1. anchor offsets (race/sex/class at 0x4585/86/87) + dump 0x4585..0x4595 ×6
+ *   2. turn-counter cadence (0x4f80 u32) per action type
+ *   3. observe the SP drain schedule across ~70 actions (un-afflicted baseline)
+ *   4. poke poison_amount (0x458d)=7 -> confirm drain = 8
+ *   5. poke status_level (0x4589)=3 -> confirm slot excluded; =1/2 -> still drained
+ *   6. poke a conditions byte (0x450a+i)=5 -> confirm -1/qualifying tick, floor 0,
+ *      0xFF skipped
+ *   7. HP-regen VIT-triple (0x458a/b/c): read stock; poke 0x458a=5 + lower HP ->
+ *      confirm HP += 5 cap maxHP
+ *   8. mana regen: poke mana down for round-robin slot, confirm mana up on its turn
+ * Emits JSON results to /tmp/wiz6-statustick.json.
+ */
+async function phaseStatusTick(c: HostClient): Promise<void> {
+  const STRIDE = 0x1b0;
+  const F_RACE = 0x4585, F_SEX = 0x4586, F_CLASS = 0x4587, F_HW = 0x4588;
+  const F_STATUS = 0x4589, F_VIT_A = 0x458a, F_VIT_B = 0x458b, F_VIT_C = 0x458c, F_POISON = 0x458d;
+  const F_HP = 0x4400, F_HPMAX = 0x4402, F_SP = 0x4404, F_SPMAX = 0x4406;
+  const F_MANA = 0x4410, F_MANAMAX = 0x4412; // stride 4 per school
+  const F_COND = 0x450a; // conditions[10] 0x450a..0x4513
+  const TURN = 0x4f80;   // u32 turn counter
+  const NMEM = 0x43ce;   // party size word
+
+  const rdU8 = async (a: number) => (await c.read(a, 1))[0]!;
+  const rdU16 = async (a: number) => { const b = await c.read(a, 2); return b[0]! | (b[1]! << 8); };
+  const rdU32 = async (a: number) => { const b = await c.read(a, 4); return (b[0]! | (b[1]! << 8) | (b[2]! << 16) | (b[3]! << 24)) >>> 0; };
+  const rdS16 = async (a: number) => { const v = await rdU16(a); return v >= 0x8000 ? v - 0x10000 : v; };
+  const wrU8 = async (a: number, v: number) => { await c.write(a, [v & 0xff]); };
+  const cbase = (base: number, i: number) => base + F_HP + i * STRIDE; // record base abs
+  const fld = (base: number, i: number, f: number) => base + f + i * STRIDE;
+
+  const out: any = { topic: 'maze-status-tick-live-verify', steps: {} };
+
+  const base = await driveToFreeRoam(c);
+  const ovl = await findOvl(c);
+  const writeChunked = async (addr: number, bytes: number[]) => {
+    for (let i = 0; i < bytes.length; i += 12) await c.write(addr + i, bytes.slice(i, i + 12));
+  };
+  const applyPokes = async () => {
+    await writeChunked(base + 0x4e08, new Array(0x60).fill(0));
+    await writeChunked(base + 0x4e68, new Array(0x60).fill(0));
+    await c.write(base + 0x5032, [0, 0, 0, 0]);
+    await c.write(ovl + 0x2d12, [0xeb]); // jl->jmp (kill c47e random encounter)
+  };
+  await applyPokes();
+  const partySize = await rdU16(base + NMEM);
+  console.log(`free-roam base=0x${base.toString(16)} ovl=0x${ovl.toString(16)} partySize=${partySize}`);
+  out.party_size = partySize;
+
+  // A movement helper that re-stamps suppression every frame and reports party.
+  const act = async (key: 'up' | 'left' | 'right') => {
+    await c.key(key, 'down');
+    for (let f = 0; f < 18; f++) { await applyPokes(); await c.step(3); }
+    await c.key(key, 'up');
+    for (let f = 0; f < 4; f++) { await applyPokes(); await c.step(3); }
+    return await frParty(c, base);
+  };
+
+  // ---- STEP 1: anchor offsets + region dump ----
+  const slot0 = { race: await rdU8(fld(base, 0, F_RACE)), sex: await rdU8(fld(base, 0, F_SEX)), cls: await rdU8(fld(base, 0, F_CLASS)) };
+  console.log(`\n[1] slot0 race=${slot0.race} (0x4585) sex=${slot0.sex} (0x4586) class=${slot0.cls} (0x4587)  expect THESUS Human(0) Fighter(0)`);
+  const dump: any[] = [];
+  for (let i = 0; i < 6; i++) {
+    const region = [...await c.read(fld(base, i, F_RACE), 0x11)]; // 0x4585..0x4595
+    dump.push({
+      slot: i,
+      race: region[0], sex: region[1], class: region[2], hw_0x4588: region[3],
+      status_0x4589: region[4], vit_a_0x458a: region[5], vit_b_0x458b: region[6], vit_c_0x458c: region[7], poison_0x458d: region[8],
+      hp: await rdS16(fld(base, i, F_HP)), hpmax: await rdS16(fld(base, i, F_HPMAX)),
+      sp: await rdS16(fld(base, i, F_SP)), spmax: await rdS16(fld(base, i, F_SPMAX)),
+      raw_0x4585_0x4595: region.map((b) => b.toString(16).padStart(2, '0')).join(' '),
+    });
+    console.log(`  slot${i}: race=${region[0]} sex=${region[1]} class=${region[2]} hw=${region[3]} status=${region[4]} vit=[${region[5]},${region[6]},${region[7]}] poison=${region[8]} HP=${dump[i].hp}/${dump[i].hpmax} SP=${dump[i].sp}/${dump[i].spmax}`);
+  }
+  out.steps.anchor = { slot0, dump };
+
+  // ---- STEP 2: turn cadence per action + idle probe ----
+  // CRITICAL question: does turn_counter advance per ACTION, or per maze-loop FRAME
+  // (i.e. continuously while idle)? Probe: read turn, do pure c.step (NO key), re-read.
+  const cad: any[] = [];
+  let tc = await rdU32(base + TURN);
+  cad.push({ action: 'initial', turn: tc });
+  // idle probe: 60 frames of nothing.
+  const idleBefore = await rdU32(base + TURN);
+  for (let f = 0; f < 20; f++) { await applyPokes(); await c.step(3); }
+  const idleAfter = await rdU32(base + TURN);
+  cad.push({ action: 'idle_60frames', turn_before: idleBefore, turn_after: idleAfter, delta: idleAfter - idleBefore });
+  console.log(`[2] IDLE 60 frames (no key): turn ${idleBefore} -> ${idleAfter} (delta ${idleAfter - idleBefore})  ${idleAfter > idleBefore ? '<-- turn advances while IDLE (per-frame, not per-action)' : '<-- idle does NOT advance turn'}`);
+  tc = idleAfter;
+  for (const a of ['up', 'left', 'right', 'up'] as const) {
+    const before = tc;
+    const p = await act(a);
+    tc = await rdU32(base + TURN);
+    cad.push({ action: a, turn_before: before, turn_after: tc, delta: tc - before, gx: p.gx, gy: p.gy, f: p.f, gs: p.gs });
+    console.log(`[2] ${a}: turn ${before} -> ${tc} (delta ${tc - before}) at(${p.gx},${p.gy},f${p.f}) gs=${p.gs}`);
+  }
+  out.steps.cadence = cad;
+
+  // ---- STEP 3: observe drain schedule (un-afflicted baseline) ----
+  // Make all 6 slots un-afflicted (status 0, poison 0) so the only SP change is the
+  // round-robin -1 drain. Record SP + turn each action over ~70 actions.
+  for (let i = 0; i < 6; i++) { await wrU8(fld(base, i, F_STATUS), 0); await wrU8(fld(base, i, F_POISON), 0); }
+  const spPrev: number[] = [];
+  for (let i = 0; i < 3; i++) spPrev[i] = await rdS16(fld(base, i, F_SP));
+  const drainEvents: any[] = [];
+  const dirs = ['up', 'left', 'right', 'up', 'up', 'left'] as const;
+  // Sample turn + SP at FRAME granularity so the exact turn each drain fires is
+  // captured (the held-key action spans several maze-loop frames -> several turns).
+  let lastTurn = await rdU32(base + TURN);
+  const sampleFrame = async (n: number) => {
+    const turn = await rdU32(base + TURN);
+    for (let i = 0; i < 3; i++) {
+      const sp = await rdS16(fld(base, i, F_SP));
+      if (sp !== spPrev[i]) {
+        // The drain fired on some turn in (lastTurn, turn]; the qualifying turn is
+        // the one with turn%10==5 in that window selecting slot i.
+        let firedTurn = turn;
+        for (let tt = lastTurn + 1; tt <= turn; tt++) if (tt % 10 === 5 && Math.floor((tt % 60) / 10) === i) firedTurn = tt;
+        drainEvents.push({ action_n: n, observed_turn: turn, fired_turn: firedTurn, slot: i, sp_before: spPrev[i], sp_after: sp, delta: sp - spPrev[i], fired_mod10: firedTurn % 10, fired_mod60: firedTurn % 60, expected_slot: Math.floor((firedTurn % 60) / 10) });
+        spPrev[i] = sp;
+      }
+    }
+    lastTurn = turn;
+  };
+  for (let n = 0; n < 72; n++) {
+    await c.key(dirs[n % dirs.length]!, 'down');
+    for (let f = 0; f < 18; f++) { await applyPokes(); await c.step(3); await sampleFrame(n); }
+    await c.key(dirs[n % dirs.length]!, 'up');
+    for (let f = 0; f < 4; f++) { await applyPokes(); await c.step(3); await sampleFrame(n); }
+  }
+  console.log(`[3] drain events (${drainEvents.length}):`);
+  for (const e of drainEvents) console.log(`    fired_turn=${e.fired_turn} (mod10=${e.fired_mod10}, mod60=${e.fired_mod60}) slot${e.slot} SP ${e.sp_before}->${e.sp_after} (${e.delta})  expected_slot=${e.expected_slot} ${e.slot === e.expected_slot && e.fired_mod10 === 5 ? 'OK' : 'MISMATCH'}`);
+  out.steps.drain_schedule = drainEvents;
+
+  // helper: walk until turn satisfies pred, return final turn
+  const walkUntil = async (pred: (t: number) => boolean, cap = 70) => {
+    let t = await rdU32(base + TURN);
+    for (let n = 0; n < cap && !pred(t); n++) { await act(dirs[n % dirs.length]!); t = await rdU32(base + TURN); }
+    return t;
+  };
+
+  // ---- STEP 4: confirm poison_amount field (0x458d) ----
+  // Target slot 0; its scheduled drain turn is turn%60==5 (mod10==5, quotient 0).
+  await wrU8(fld(base, 0, F_POISON), 7);
+  await wrU8(fld(base, 0, F_STATUS), 0);
+  // walk to just BEFORE a turn where (turn%60)/10==0 && turn%10==5, i.e. turn%60==5.
+  await walkUntil((t) => ((t + 1) % 60) === 5); // next action lands turn%60==5 (approx)
+  const sp0Before = await rdS16(fld(base, 0, F_SP));
+  // step until slot0 SP changes (its scheduled drain)
+  let poisonObserved: any = null;
+  for (let n = 0; n < 65; n++) {
+    await act(dirs[n % dirs.length]!);
+    const t = await rdU32(base + TURN);
+    const sp = await rdS16(fld(base, 0, F_SP));
+    if (sp !== sp0Before) { poisonObserved = { turn: t, turn_mod60: t % 60, sp_before: sp0Before, sp_after: sp, delta: sp - sp0Before }; break; }
+  }
+  console.log(`[4] poison(0x458d)=7 on slot0: ${poisonObserved ? `SP ${poisonObserved.sp_before}->${poisonObserved.sp_after} (delta ${poisonObserved.delta}) at turn%60=${poisonObserved.turn_mod60} -> drain ${-poisonObserved.delta} (expect 8 = 7+1)` : 'NO CHANGE observed'}`);
+  out.steps.poison_field = { poked_offset: '0x458d', poked_value: 7, observed: poisonObserved, expected_drain: 8 };
+  await wrU8(fld(base, 0, F_POISON), 0);
+
+  // ---- STEP 5: status_level gate (0x4589) ----
+  // Poke slot1 status=3 -> excluded. Read alive-related: just confirm SP never drops on slot1's turn.
+  await wrU8(fld(base, 1, F_STATUS), 3);
+  await wrU8(fld(base, 1, F_POISON), 0);
+  const sp1Before = await rdS16(fld(base, 1, F_SP));
+  // slot1 scheduled at turn%60==15. Walk through at least one full slot1 window.
+  let sp1Excluded = true; let sp1WindowSeen = false;
+  for (let n = 0; n < 130; n++) {
+    await act(dirs[n % dirs.length]!);
+    const t = await rdU32(base + TURN);
+    if (t % 60 === 15) sp1WindowSeen = true;
+    const sp = await rdS16(fld(base, 1, F_SP));
+    if (sp !== sp1Before) { sp1Excluded = false; break; }
+  }
+  console.log(`[5a] status(0x4589)=3 on slot1: SP stayed ${sp1Before}? excluded=${sp1Excluded} (window seen=${sp1WindowSeen})`);
+  // Now status=2 -> should still drain.
+  await wrU8(fld(base, 1, F_STATUS), 2);
+  const sp1b = await rdS16(fld(base, 1, F_SP));
+  let sp1Drained = false; let sp1Obs: any = null;
+  for (let n = 0; n < 130; n++) {
+    await act(dirs[n % dirs.length]!);
+    const sp = await rdS16(fld(base, 1, F_SP));
+    if (sp !== sp1b) { sp1Drained = true; sp1Obs = { sp_before: sp1b, sp_after: sp, turn: await rdU32(base + TURN) }; break; }
+  }
+  console.log(`[5b] status(0x4589)=2 on slot1: drained=${sp1Drained} ${sp1Obs ? `(${sp1Obs.sp_before}->${sp1Obs.sp_after})` : ''} (gate is <3)`);
+  out.steps.status_level_gate = { poked_offset: '0x4589', excluded_at_3: sp1Excluded, window_seen_at_3: sp1WindowSeen, drained_at_2: sp1Drained, drained_at_2_obs: sp1Obs };
+  await wrU8(fld(base, 1, F_STATUS), 0);
+
+  // ---- STEP 6: conditions decay (0x450a + i) ----
+  // Poke slot2 conditions[1]=5, conditions[4]=5, conditions[3]=0xFF (sentinel).
+  await wrU8(fld(base, 2, F_STATUS), 0);
+  await wrU8(fld(base, 2, F_COND + 1), 5);
+  await wrU8(fld(base, 2, F_COND + 4), 5);
+  await wrU8(fld(base, 2, F_COND + 3), 0xff);
+  const condStart = { c1: 5, c4: 5, c3sentinel: 0xff };
+  const condSamples: any[] = [];
+  // count qualifying ticks (turn%10==5) we pass through; conditions decay 1 per tick.
+  let condTurn = await rdU32(base + TURN);
+  let ticks = 0;
+  for (let n = 0; n < 60; n++) {
+    await act(dirs[n % dirs.length]!);
+    const t = await rdU32(base + TURN);
+    for (let tt = condTurn + 1; tt <= t; tt++) if (tt % 10 === 5) ticks++;
+    condTurn = t;
+    const c1 = await rdU8(fld(base, 2, F_COND + 1));
+    const c4 = await rdU8(fld(base, 2, F_COND + 4));
+    const c3 = await rdU8(fld(base, 2, F_COND + 3));
+    condSamples.push({ action_n: n, turn: t, ticks, c1, c4, c3_sentinel: c3 });
+    if (c1 === 0 && c4 === 0) break;
+  }
+  const finalCond = condSamples[condSamples.length - 1];
+  console.log(`[6] conditions decay slot2: start c1=5 c4=5 c3=0xFF; after ${finalCond.ticks} ticks -> c1=${finalCond.c1} c4=${finalCond.c4} c3(sentinel)=0x${finalCond.c3_sentinel.toString(16)} (expect c1/c4 = max(0,5-ticks), c3 unchanged=0xff)`);
+  out.steps.conditions_decay = { poked: condStart, samples: condSamples, final: finalCond };
+  await wrU8(fld(base, 2, F_COND + 1), 0);
+  await wrU8(fld(base, 2, F_COND + 4), 0);
+  await wrU8(fld(base, 2, F_COND + 3), 0);
+
+  // ---- STEP 7: HP-regen VIT-triple (0x458a) on a REAL member (slot1, HP 9/9) ----
+  // Empty slots 3-5 have hpmax 0; use slot1. Poke maxHP up so there's headroom,
+  // vit_a=5/vit_b=vit_c=0, lower HP, observe +5/qualifying tick.
+  const HP_SLOT = 1;
+  await wrU8(fld(base, HP_SLOT, F_STATUS), 0);
+  await wrU8(fld(base, HP_SLOT, F_VIT_A), 5);
+  await wrU8(fld(base, HP_SLOT, F_VIT_B), 0);
+  await wrU8(fld(base, HP_SLOT, F_VIT_C), 0);
+  await c.write(fld(base, HP_SLOT, F_HPMAX), [100, 0]); // give headroom
+  const hpmaxH = await rdS16(fld(base, HP_SLOT, F_HPMAX));
+  const loweredHp = 1;
+  await c.write(fld(base, HP_SLOT, F_HP), [loweredHp & 0xff, (loweredHp >> 8) & 0xff]);
+  const hpSamples: any[] = [];
+  let lt = await rdU32(base + TURN); let hticks = 0;
+  let hpPrev = loweredHp;
+  for (let n = 0; n < 80; n++) {
+    await act(dirs[n % dirs.length]!);
+    const t = await rdU32(base + TURN);
+    for (let tt = lt + 1; tt <= t; tt++) if (tt % 10 === 5) hticks++;
+    lt = t;
+    const hp = await rdS16(fld(base, HP_SLOT, F_HP));
+    if (hp !== hpPrev) { hpSamples.push({ action_n: n, turn: t, ticks: hticks, hp, delta: hp - hpPrev }); hpPrev = hp; }
+    if (hp >= hpmaxH) break;
+    if (hpSamples.length >= 6) break;
+  }
+  const hpFinal = hpSamples.length ? hpSamples[hpSamples.length - 1] : { hp: loweredHp, ticks: 0 };
+  console.log(`[7] HP-regen vit_a=5 slot${HP_SLOT}: HP ${loweredHp} -> ${hpFinal.hp} cap ${hpmaxH}; per-change samples:`);
+  for (const s of hpSamples) console.log(`    action${s.action_n} turn=${s.turn} (ticks~${s.ticks}) HP=${s.hp} (${s.delta >= 0 ? '+' : ''}${s.delta})`);
+  out.steps.hp_regen = { slot: HP_SLOT, poked: { vit_a_0x458a: 5, vit_b: 0, vit_c: 0, hpmax: 100 }, hp_start: loweredHp, samples: hpSamples, final: hpFinal };
+  await wrU8(fld(base, HP_SLOT, F_VIT_A), 0);
+
+  // ---- STEP 8: mana regen (round-robin selected member only) ----
+  // Use REAL slots 0 (selected at turn%60 quotient 0) vs slot2 (quotient 2). Give
+  // both school-0 maxMana headroom + a non-zero school skill so rng(skill+1) can add,
+  // lower current mana, and watch which slot's mana moves on which turn.
+  const M_SEL = 0, M_OTHER = 2; const F_SKILL = 0x4504;
+  for (const s of [M_SEL, M_OTHER]) {
+    await wrU8(fld(base, s, F_STATUS), 0);
+    await c.write(fld(base, s, F_MANAMAX), [99, 0]); // school-0 maxMana
+    await c.write(fld(base, s, F_MANA), [10, 0]);    // school-0 current low
+    await wrU8(fld(base, s, F_SKILL), 20);           // school-0 skill -> rng(21)=0..20
+  }
+  const manaMax = await rdS16(fld(base, M_SEL, F_MANAMAX));
+  const manaSamples: any[] = [];
+  let mSelPrev = await rdS16(fld(base, M_SEL, F_MANA));
+  let mOthPrev = await rdS16(fld(base, M_OTHER, F_MANA));
+  for (let n = 0; n < 140; n++) {
+    await act(dirs[n % dirs.length]!);
+    const t = await rdU32(base + TURN);
+    const mSel = await rdS16(fld(base, M_SEL, F_MANA));
+    const mOth = await rdS16(fld(base, M_OTHER, F_MANA));
+    if (mSel !== mSelPrev || mOth !== mOthPrev) {
+      manaSamples.push({ action_n: n, turn: t, turn_mod60: t % 60, expected_slot: Math.floor((t % 60) / 10), sel_slot: M_SEL, sel_mana: mSel, sel_delta: mSel - mSelPrev, other_slot: M_OTHER, other_mana: mOth, other_delta: mOth - mOthPrev });
+      mSelPrev = mSel; mOthPrev = mOth;
+    }
+    if (manaSamples.length >= 6) break;
+  }
+  console.log(`[8] mana regen: maxMana=${manaMax}, slot${M_SEL} vs slot${M_OTHER}, school-0 skill=20:`);
+  for (const m of manaSamples) console.log(`    turn=${m.turn} (mod60=${m.turn_mod60}, expected_slot=${m.expected_slot}) slot${M_SEL} mana=${m.sel_mana}(${m.sel_delta >= 0 ? '+' : ''}${m.sel_delta}) slot${M_OTHER} mana=${m.other_mana}(${m.other_delta >= 0 ? '+' : ''}${m.other_delta})`);
+  out.steps.mana_regen = { sel_slot: M_SEL, other_slot: M_OTHER, max_mana: manaMax, school0_skill: 20, samples: manaSamples };
+
+  writeFileSync('/tmp/wiz6-statustick.json', JSON.stringify(out, null, 2));
+  console.log('\n=== statustick: results -> /tmp/wiz6-statustick.json ===');
+}
+
 async function main() {
   const phase = process.argv[2];
   const c = new HostClient();
@@ -6732,6 +7017,7 @@ async function main() {
     else if (phase === 'encdisable2') await phaseEncDisable2(c);
     else if (phase === 'interiorcap') await phaseInteriorCap(c);
     else if (phase === 'doorframes') await phaseDoorFrames(c);
+    else if (phase === 'statustick') await phaseStatusTick(c);
     else console.log('phases: navreach [outDir] | reach | calibrate | teste | funcs | ctargets | coarse | move [state] | resolve | firstrender [outDir] | firstcheck | fine <off...>');
   } finally {
     c.close();

@@ -73,6 +73,7 @@ vi.mock('../../src/game/game-session-store.js', () => ({
 
 vi.mock('../../src/lib/active-party-store.js', () => ({
   readActiveParty: vi.fn(),
+  writeActiveParty: vi.fn(),
 }));
 
 import { MazeView, CUTSCENE_TICK_MS, STRAIN_TICK_MS } from '../../src/pages/game/MazeView.js';
@@ -89,7 +90,7 @@ import {
   loadNewgameViewports,
 } from '../../src/data-loader.js';
 import { readGameSession, updateParty, updateSession } from '../../src/game/game-session-store.js';
-import { readActiveParty } from '../../src/lib/active-party-store.js';
+import { readActiveParty, writeActiveParty } from '../../src/lib/active-party-store.js';
 
 const mockLoadMazeAssets = vi.mocked(loadMazeAssets);
 const mockLoadMazeDoors = vi.mocked(loadMazeDoors);
@@ -105,6 +106,7 @@ const mockReadGameSession = vi.mocked(readGameSession);
 const mockUpdateParty = vi.mocked(updateParty);
 const mockUpdateSession = vi.mocked(updateSession);
 const mockReadActiveParty = vi.mocked(readActiveParty);
+const mockWriteActiveParty = vi.mocked(writeActiveParty);
 
 // Real assets (so renderMazeViewport runs end-to-end without crashing).
 const ASSETS: MazeRenderAssets = nodeLoadMazeAssets();
@@ -329,6 +331,23 @@ describe('MazeView — with a session', () => {
     await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
     fireEvent.keyDown(window, { key: 'ArrowLeft' });
     expect(mockUpdateParty).toHaveBeenCalledWith(turn(ENTRANCE, 'left'));
+  });
+
+  it('advances a turn + runs the status tick on each maze move (#089)', async () => {
+    // Seed an afflicted member (poisonAmount 3) BEFORE mount so the roster carries it.
+    mockReadActiveParty.mockReturnValue(
+      partyOf([
+        fakeMember({ hpCurrent: 20, hpMax: 20, staminaCurrent: 50, staminaMax: 50, poisonAmount: 3, statusLevel: 0 }),
+      ]),
+    );
+    renderMazeView();
+    await waitFor(() => expect(mockLoadMazeAssets).toHaveBeenCalled());
+    // 5 rotates → turnCounter reaches 5 (turn%10==5, slot 0 selected) → member 0
+    // drains by poisonAmount+1 = 4 (50 → 46). Turns 1-4 do not tick (turn%10 != 5).
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(mockUpdateSession).toHaveBeenCalledWith({ turnCounter: 5 });
+    const lastWrite = mockWriteActiveParty.mock.calls.at(-1)![0];
+    expect(lastWrite.members[0]!.staminaCurrent).toBe(46);
   });
 
   it('ArrowRight → updateParty(turn right)', async () => {

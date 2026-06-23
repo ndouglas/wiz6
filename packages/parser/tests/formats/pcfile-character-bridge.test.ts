@@ -57,6 +57,34 @@ describe('pcfileSlotToCharacter', () => {
     expect(c.paralyzed).toBe(thesus.conditions[3] !== 0);
   });
 
+  it('decodes maze-affliction fields from raw (+0x1A1..+0x1A5, +0x11C)', () => {
+    // Clone a real slot (keeps the PcfileSlot shape) and stamp the affliction bytes.
+    const raw = [...thesus.raw];
+    raw[0x1a1] = 2; // statusLevel
+    raw[0x1a2] = 5; // vitRegen[0]
+    raw[0x1a3] = 1; // vitRegen[1]
+    raw[0x1a4] = 0; // vitRegen[2]
+    raw[0x1a5] = 3; // poisonAmount
+    raw[0x11c] = 4; // schoolSkill[0]
+    const c = pcfileSlotToCharacter({ ...thesus, raw }, UUID1);
+    expect(c.statusLevel).toBe(2);
+    expect(c.poisonAmount).toBe(3);
+    expect(c.vitRegen).toEqual([5, 1, 0]);
+    expect(c.schoolSkill![0]).toBe(4);
+  });
+
+  it('yields all-zero affliction fields when those raw bytes are 0', () => {
+    const raw = [...thesus.raw];
+    for (const off of [0x1a1, 0x1a2, 0x1a3, 0x1a4, 0x1a5, 0x11c, 0x11d, 0x11e, 0x11f, 0x120, 0x121]) {
+      raw[off] = 0;
+    }
+    const c = pcfileSlotToCharacter({ ...thesus, raw }, UUID1);
+    expect(c.statusLevel).toBe(0);
+    expect(c.poisonAmount).toBe(0);
+    expect(c.vitRegen).toEqual([0, 0, 0]);
+    expect(c.schoolSkill).toEqual([0, 0, 0, 0, 0, 0]);
+  });
+
   it('decodes TEMPEST (pinned roster slot 1) as female (sex=1)', () => {
     // Engine ground truth: the ADD PARTY picker renders TEMPEST's sex glyph as
     // 'F'; all five other pinned chars render 'M'. +0x19e is the only byte that

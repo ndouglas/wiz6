@@ -19,6 +19,7 @@ import {
 } from '@wiz6/data';
 import {
   advanceEntry,
+  applyMazeTurnStatus,
   composeCallList,
   commandAt,
   decodeNarrationLines,
@@ -76,7 +77,7 @@ import {
   installAudioUnlockListener,
   type PlayableSnd,
 } from '../../lib/audio.js';
-import { readActiveParty } from '../../lib/active-party-store.js';
+import { readActiveParty, writeActiveParty } from '../../lib/active-party-store.js';
 import {
   readGameSession,
   updateParty,
@@ -932,6 +933,59 @@ export function MazeView() {
   }
 
   /**
+   * #089: advance one maze turn — bump the turn counter and run the engine-faithful
+   * per-turn status tick (staggered stamina drain + conditions decay + HP/mana regen
+   * + exhaustion/death). Called after each maze action (movement step/rotate, OPEN).
+   * Persists the roster + session, redraws the panel, and routes to the party-wiped
+   * stub if all members are dead. Producers (combat/traps) + the real graveyard
+   * screen are deferred; the tick is observable for imported/seeded afflicted chars.
+   */
+  function advanceMazeTurn() {
+    const session = sessionRef.current;
+    const rng = rngRef.current;
+    if (!session || !rng) return;
+    const turnCounter = (session.turnCounter ?? 0) + 1;
+    updateSession({ turnCounter });
+    sessionRef.current = { ...session, turnCounter };
+
+    // Adapt ActivePartyMember (optional hp/stamina) → StatusTickMember (required
+    // numbers) with safe defaults; merge the changed fields back afterward.
+    const members = activePartyRef.current;
+    const tickInput = members.map((m) => ({
+      hpCurrent: m.hpCurrent ?? 0,
+      hpMax: m.hpMax ?? 0,
+      staminaCurrent: m.staminaCurrent ?? 0,
+      staminaMax: m.staminaMax ?? 0,
+      conditions: m.conditions,
+      statusLevel: m.statusLevel ?? 0,
+      poisonAmount: m.poisonAmount ?? 0,
+      vitRegen: m.vitRegen ?? [0, 0, 0],
+      schoolMana: m.schoolMana,
+      schoolManaMax: m.schoolManaMax,
+      schoolSkill: m.schoolSkill ?? [0, 0, 0, 0, 0, 0],
+    }));
+    const { roster, allDead } = applyMazeTurnStatus(tickInput, turnCounter, rng);
+    const merged = members.map((m, i) => ({
+      ...m,
+      hpCurrent: roster[i]!.hpCurrent,
+      staminaCurrent: roster[i]!.staminaCurrent,
+      conditions: roster[i]!.conditions,
+      schoolMana: roster[i]!.schoolMana,
+      statusLevel: roster[i]!.statusLevel,
+    }));
+    activePartyRef.current = merged;
+    writeActiveParty({ ...readActiveParty(), members: merged });
+    present(); // redraw the party panel (stamina/HP/conditions changed)
+
+    if (allDead && merged.length > 0) {
+      // TODO(#089): the real graveyard screen (winit 0xdf6) is unported — minimal
+      // party-wiped stub: bounce to the castle main menu. (Guarded on a non-empty
+      // roster: applyMazeTurnStatus reports allDead=true for an empty party.)
+      navigate('/castle');
+    }
+  }
+
+  /**
    * Animate the door FORCE/PICK strain bar: while in the 'strain' phase, fill the
    * green bar one cell per STRAIN_TICK_MS until it reaches `progress`, then advance
    * to the 'result' band. Mirrors the engine's strain animation before the result.
@@ -1173,8 +1227,9 @@ export function MazeView() {
                       skills: mutableSkills,
                     };
                   }
-                  // TODO: turn-tick — the engine calls a status-tick after OPEN.
-                  // No per-turn hook exists in MazeView yet; skip for now (#089).
+                  // #089: OPEN consumes a maze turn — run the per-turn status tick
+                  // (even on a failed force) before showing the strain animation.
+                  advanceMazeTurn();
 
                   // Enter the animated strain/tumble phase (green bar fills 0..
                   // progress), which then advances to the result band. The bar values
@@ -1388,6 +1443,8 @@ export function MazeView() {
       updateParty(nextParty);
       sessionRef.current = { ...session, party: nextParty };
       present();
+      // #089: a free-roam move (step or rotate) consumes a maze turn → status tick.
+      advanceMazeTurn();
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
